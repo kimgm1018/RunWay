@@ -1,0 +1,93 @@
+// 실행 시점은 Jenkins 작업의 GitLab 트리거에서 설정한다.
+// dev·master 대상 MR을 검사한다. 실제 배포는 별도 CD 작업에서 수행한다.
+pipeline {
+    // 백엔드 빌드 에이전트에서 실행한다.
+    agent { label 'backend' }
+
+    options {
+        // GitLab 연결, 동시 실행 제한, 실행 시간과 결과 보관 기준을 설정한다.
+        gitLabConnection('runway-gitlab')
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(
+            numToKeepStr: '20',
+            artifactNumToKeepStr: '5'
+        ))
+    }
+
+    stages {
+        // 검사할 MR 코드와 대상 브랜치를 에이전트 작업 폴더로 가져온다.
+        stage('Checkout') {
+            steps {
+                script {
+                    // MR 실행이면 해당 MR 코드를, 수동 실행이면 dev 코드를 선택한다.
+                    def mrId = env.gitlabMergeRequestIid
+                    def revision = 'refs/remotes/origin/dev'
+                    def targetBranch = 'dev'
+
+                    if (mrId) {
+                        // MR 번호와 검사할 대상 브랜치를 확인한다.
+                        if (!(mrId ==~ /[0-9]+/)) {
+                            error('잘못된 MR 번호')
+                        }
+                        targetBranch = env.gitlabTargetBranch?.trim()
+                        if (!(targetBranch in ['dev', 'master'])) {
+                            error('dev 또는 master 대상 MR만 검사합니다.')
+                        }
+                        revision = "refs/remotes/origin/mr/${mrId}"
+                    }
+
+                    // 검증한 대상만 셸에 전달한다. 수동 실행은 기존처럼 dev를 검사한다.
+                    env.CI_MERGE_TARGET = targetBranch
+                    echo "임시 병합 대상: ${targetBranch}"
+
+                    // Jenkins에 등록된 인증정보로 저장소 코드를 받는다.
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: revision]],
+                        userRemoteConfigs: [[
+                            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                            credentialsId: 'runway-gitlab-repo',
+                            refspec: '+refs/heads/*:refs/remotes/origin/* +refs/merge-requests/*/head:refs/remotes/origin/mr/*'
+                        ]]
+                    ])
+                }
+            }
+        }
+
+        // MR 생성·코드 변경 등의 알림으로 시작된 CI에서 Checkout 성공 후 실행한다.
+        // MR 대상(dev 또는 master)과 합친 코드로 검사하며, 수동 실행 대상은 dev다.
+        stage('Test and Build') {
+            steps {
+                // 검사 진행 상태와 결과를 GitLab에 표시한다.
+                gitlabCommitStatus(name: 'backend-ci') {
+                    // 원격 브랜치를 변경하지 않고 작업 폴더에서만 대상 브랜치를 임시 병합한다.
+                    sh '''
+                        git -c user.name='RunWay CI' \
+                            -c user.email='ci@runway.invalid' \
+                            merge --no-ff --no-edit "refs/remotes/origin/$CI_MERGE_TARGET"
+                    '''
+
+                    // 이전 빌드 결과를 정리하고 백엔드 검사·테스트 후 실행 JAR을 만든다.
+                    dir('backend') {
+                        sh 'sh ./gradlew --no-daemon clean build'
+                    }
+                }
+            }
+        }
+    }
+
+    // 위 단계들이 모두 끝났거나 중간에 실패·중단되면 실행하는 후처리다.
+    post {
+        // 성공·실패·중단 여부와 관계없이 실행하여 생성된 테스트 결과를 수집한다.
+        always {
+            junit allowEmptyResults: true,
+                testResults: 'backend/build/test-results/test/*.xml'
+        }
+        // 후처리 시점에 빌드가 성공 상태인 경우에만 실행하여 JAR을 보관한다.
+        success {
+            archiveArtifacts artifacts: 'backend/build/libs/*.jar',
+                fingerprint: true
+        }
+    }
+}

@@ -1,0 +1,367 @@
+package com.runway.backend.domain.crew;
+
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.runway.backend.global.security.SecurityTestSupport;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Testcontainers
+class CrewApiIntegrationTest {
+
+    @Container
+    static final PostgreSQLContainer DATABASE =
+            new PostgreSQLContainer(
+                    DockerImageName.parse("postgis/postgis:17-3.6")
+                            .asCompatibleSubstituteFor("postgres"));
+
+    @DynamicPropertySource
+    static void databaseProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
+        registry.add("spring.datasource.username", DATABASE::getUsername);
+        registry.add("spring.datasource.password", DATABASE::getPassword);
+    }
+
+    @Autowired private MockMvc mockMvc;
+    @Autowired private JdbcTemplate jdbc;
+
+    private long userId;
+
+    @BeforeEach
+    void seedUser() {
+        jdbc.update("DELETE FROM crew_memberships");
+        jdbc.update("DELETE FROM crews");
+        jdbc.update("DELETE FROM users");
+        userId =
+                jdbc.queryForObject(
+                        """
+                        INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                        VALUES ('crew_user','hash','러너','2000-01-01','MALE','01011112222','AGREEE')
+                        RETURNING id
+                        """,
+                        Long.class);
+    }
+
+    @Test
+    void 헤더없으면_401() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/crews")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"name":"테스트 크루","capacity":10}
+                                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void 생성_상세_내목록_검색_흐름() throws Exception {
+        MvcResult created =
+                mockMvc.perform(
+                                post("/api/v1/crews")
+                                        .header("Authorization", SecurityTestSupport.bearer(userId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {
+                                                  "name":"하천 러닝",
+                                                  "description":"주말 러닝",
+                                                  "capacity":10
+                                                }
+                                                """))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.id").isNumber())
+                        .andExpect(jsonPath("$.ownerId").value(userId))
+                        .andExpect(jsonPath("$.name").value("하천 러닝"))
+                        .andExpect(jsonPath("$.createdAt").isNotEmpty())
+                        .andReturn();
+
+        String body = created.getResponse().getContentAsString();
+        long crewId = Long.parseLong(body.replaceAll("(?s).*\"id\"\\s*:\\s*(\\d+).*", "$1"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(crewId))
+                .andExpect(jsonPath("$.memberCount").value(1))
+                .andExpect(jsonPath("$.myMembershipStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.capacity").value(10));
+
+        mockMvc.perform(
+                        get("/api/v1/users/me/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].isOwner").value(true))
+                .andExpect(jsonPath("$.items[0].myMembershipStatus").value("APPROVED"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .param("q", "하천"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("하천 러닝"))
+                .andExpect(jsonPath("$.items[0].myMembershipStatus").value("APPROVED"));
+    }
+
+    @Test
+    void 없는크루_상세는_404() throws Exception {
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}", 999999L)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CREW_NOT_FOUND"));
+    }
+
+    @Test
+    void 가입신청_목록_승인_거절_재신청_흐름() throws Exception {
+        long applicantId = insertUser("applicant", "지원자", "01033334444");
+        long outsiderId = insertUser("outsider", "외부인", "01055556666");
+
+        long crewId = createCrew(userId, "가입 테스트 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.crewId").value(crewId))
+                .andExpect(jsonPath("$.userId").value(applicantId))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.requestedAt").isNotEmpty());
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ALREADY_MEMBER_OR_PENDING"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(outsiderId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(applicantId))
+                .andExpect(jsonPath("$.items[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.items[0].nickname").value("지원자"))
+                .andExpect(jsonPath("$.items[0].joinedAt").value(nullValue()));
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"REJECTED"}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"));
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("NOT_PENDING"));
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.crewId").value(crewId))
+                .andExpect(jsonPath("$.userId").value(applicantId))
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memberCount").value(2))
+                .andExpect(jsonPath("$.myMembershipStatus").value("APPROVED"));
+    }
+
+    @Test
+    void 멤버목록_탈퇴_내보내기_흐름() throws Exception {
+        long memberId = insertUser("member_user", "멤버", "01099990000");
+        long outsiderId = insertUser("kick_outsider", "외부", "01088887777");
+        long crewId = createCrew(userId, "멤버 관리 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, memberId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/members", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[?(@.userId==" + userId + ")].isOwner").value(true))
+                .andExpect(jsonPath("$.items[?(@.userId==" + memberId + ")].nickname").value("멤버"))
+                .andExpect(
+                        jsonPath("$.items[?(@.userId==" + memberId + ")].status")
+                                .value("APPROVED"));
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OWNER_CANNOT_LEAVE"));
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/{userId}", crewId, userId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANNOT_REMOVE_OWNER"));
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/{userId}", crewId, memberId)
+                                .header("Authorization", SecurityTestSupport.bearer(outsiderId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_ADMIN"));
+
+        // re-approve path already done; member still APPROVED — leave as self
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("LEFT"))
+                .andExpect(jsonPath("$.leftAt").isNotEmpty());
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/members", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(userId));
+
+        // bring member back then OWNER removes
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, memberId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/{userId}", crewId, memberId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("LEFT"))
+                .andExpect(jsonPath("$.leftAt").isNotEmpty());
+    }
+
+    @Test
+    void 정원초과_승인은_409() throws Exception {
+        long applicantId = insertUser("full_crew_user", "만석지원", "01077778888");
+        long crewId = createCrew(userId, "정원1 크루", 1);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CREW_CAPACITY_EXCEEDED"));
+    }
+
+    private long insertUser(String loginId, String nickname, String phone) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREEE')
+                RETURNING id
+                """,
+                Long.class,
+                loginId,
+                nickname,
+                phone);
+    }
+
+    private long createCrew(long ownerId, String name, int capacity) throws Exception {
+        MvcResult created =
+                mockMvc.perform(
+                                post("/api/v1/crews")
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(ownerId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"name":"%s","capacity":%d}
+                                                """
+                                                        .formatted(name, capacity)))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+        String body = created.getResponse().getContentAsString();
+        return Long.parseLong(body.replaceAll("(?s).*\"id\"\\s*:\\s*(\\d+).*", "$1"));
+    }
+}

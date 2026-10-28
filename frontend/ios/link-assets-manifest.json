@@ -1,0 +1,37 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Barlow-Bold.ttf",
+      "sha1": "c1694b01b285276fd14230bfd00c6704d50a49d2"
+    },
+    {
+      "path": "assets/fonts/Barlow-Medium.ttf",
+      "sha1": "b92efed6cae54e68aae2b30c93a7d1c2f3609395"
+    },
+    {
+      "path": "assets/fonts/Barlow-Regular.ttf",
+      "sha1": "d9301d2a82b5e2a4db2951afb351edf3b1f3f112"
+    },
+    {
+      "path": "assets/fonts/Barlow-SemiBold.ttf",
+      "sha1": "861d74254dc79fe4fc6d5e08183bdf3efc3b2572"
+    },
+    {
+      "path": "assets/fonts/NotoSansKR-Black.otf",
+      "sha1": "981a61a75cd99eeb2b18e2c669fde54284a02e6a"
+    },
+    {
+      "path": "assets/fonts/NotoSansKR-Bold.otf",
+      "sha1": "02792cb8cc7da1552ae4409645a4540b4e1c6094"
+    },
+    {
+      "path": "assets/fonts/NotoSansKR-Medium.otf",
+      "sha1": "221ee381278c6cc846cd14ca2aa1822847257ccc"
+    },
+    {
+      "path": "assets/fonts/NotoSansKR-Regular.otf",
+      "sha1": "d5c1165d57c419e4e264a8c25211c7ed92d611ca"
+    }
+  ]
+}

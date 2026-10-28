@@ -1,0 +1,254 @@
+import React from 'react';
+import { Text } from 'react-native';
+import TestRenderer, { act } from 'react-test-renderer';
+import App from '../App';
+import { createMockRepositories, type MockScenario } from '../src/data';
+
+jest.mock(
+  'react-native-safe-area-context',
+  () => require('react-native-safe-area-context/jest/mock').default,
+);
+// The first React Native render loads lazy host components on this Windows runner.
+jest.setTimeout(60000);
+
+type Screen = TestRenderer.ReactTestRenderer;
+
+function texts(screen: Screen) {
+  return screen.root
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string' || typeof child === 'number')
+    .join(' ');
+}
+
+// Stacks keep earlier screens mounted, so the newest match belongs to the top screen.
+function labelled(screen: Screen, label: string, prop = 'onPress') {
+  const matches = screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === label &&
+      typeof node.props[prop] === 'function',
+  );
+  if (matches.length === 0) {
+    throw new Error(`No element labelled ${label}`);
+  }
+  return matches[matches.length - 1];
+}
+
+async function settle(ms = 20) {
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+}
+
+async function press(screen: Screen, label: string) {
+  await act(async () => {
+    labelled(screen, label).props.onPress();
+  });
+  await settle();
+  await settle();
+}
+
+async function type(screen: Screen, label: string, text: string) {
+  await act(async () => {
+    labelled(screen, label, 'onChangeText').props.onChangeText(text);
+  });
+  await settle();
+  await settle();
+}
+
+// Opens 6.0 on the group tab. Run samples come every 20ms.
+async function openGroup(scenario: MockScenario = 'default') {
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App
+        repositories={createMockRepositories({
+          latencyMs: 0,
+          tickMs: 20,
+          scenario,
+        })}
+        initialSignedIn
+      />,
+    );
+  });
+  await settle();
+  await press(screen!, '그룹');
+  await settle();
+  return screen!;
+}
+
+test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to crew recruiting', async () => {
+  const screen = await openGroup();
+  let page = texts(screen);
+  for (const text of [
+    '내 크루',
+    '크루 모집',
+    '15분 뒤 출발',
+    '월요일 점심, 함께 5km',
+    '광안리 새벽 크루',
+    '광안리 · 멤버 18',
+    '토요일 아침, 함께 5km',
+    '10.24 토 07:00',
+    '성윤님이 만듦',
+    '코스 러닝 · 민락수변공원 출발 5.0km',
+    '수요일 회복 조깅',
+    '자유 러닝 · 40분',
+    '내가 만듦',
+    '민락 야경 러너스',
+    '승인 대기',
+    '남천 · 크루장이 승인하면 그룹런이 보여요',
+  ]) {
+    expect(page).toContain(text);
+  }
+  // The second crew starts folded.
+  expect(page).not.toContain('월요일 야경 7km');
+  await press(screen, '민락 야경 러너스 펴기');
+  expect(texts(screen)).toContain('월요일 야경 7km');
+  await press(screen, '월요일 야경 7km 참가하기');
+  page = texts(screen);
+  expect(page).toContain('참가 10명');
+  expect(() => labelled(screen, '월요일 야경 7km 참가 취소')).not.toThrow();
+  await act(async () => screen.unmount());
+
+  const empty = await openGroup('noCrews');
+  page = texts(empty);
+  expect(page).toContain('혼자 달리던 길, 같이 달려 볼까요');
+  expect(page).toContain('내 근처 크루 8곳이 모집 중');
+  await press(empty, '크루 모집 보러 가기');
+  expect(texts(empty)).toContain('S15P31E105-151');
+  await act(async () => empty.unmount());
+});
+
+test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e', async () => {
+  const screen = await openGroup();
+  await press(screen, '토요일 아침, 함께 5km, 10.24 토 07:00');
+  let page = texts(screen);
+  for (const text of [
+    '참가 6명',
+    'D-5',
+    '날짜·시간',
+    '광안리해수욕장 입구 · 편의점 앞\n부산 수영구 광안해변로 219',
+    '민락수변공원 출발 5.0km',
+    '예상 공동 페이스',
+    '30:00',
+    '크루 멤버 18명 중',
+    '내 페이스와 잘 맞아요',
+    '최근 5km 평균 5′56″ · 준비도 82',
+    '대기방은 10.24 토 06:30에 열려요',
+    '참가 취소',
+  ]) {
+    expect(page).toContain(text);
+  }
+  expect(page).not.toContain('내가 만든 그룹런');
+  await press(screen, '참가 취소');
+  expect(texts(screen)).toContain('참가 5명');
+  await press(screen, '뒤로');
+
+  await press(screen, '수요일 회복 조깅, 10.28 수 06:30');
+  expect(texts(screen)).toContain('내가 만든 그룹런');
+  await press(screen, '그룹런 취소');
+  page = texts(screen);
+  expect(page).toContain('참가자 3명과 크루 멤버에게 취소 알림이 가요.');
+  expect(labelled(screen, '그룹런 취소하기').props.disabled).toBe(true);
+  await press(screen, '날씨');
+  await press(screen, '그룹런 취소하기');
+  expect(texts(screen)).toContain('그룹런을 취소할까요?');
+  await press(screen, '취소하기');
+  await settle();
+  page = texts(screen);
+  expect(page).toContain('취소됨');
+  expect(page).toContain('사유 · 날씨');
+  expect(page).toContain('크루 멤버 18명에게 취소 알림을 보냈어요');
+  await press(screen, '내 크루로');
+  expect(texts(screen)).not.toContain('수요일 회복 조깅');
+  await act(async () => screen.unmount());
+});
+
+test('6.8 makes a run with a place picked on 6.9', async () => {
+  const screen = await openGroup();
+  await press(screen, '광안리 새벽 크루 그룹런 만들기');
+  let page = texts(screen);
+  for (const text of [
+    '그룹런 만들기',
+    '민락수변공원 출발',
+    '광안리해수욕장 입구',
+    '10.24 토',
+    '오전 07:00',
+    '자동 산출',
+  ]) {
+    expect(page).toContain(text);
+  }
+  await press(screen, '만나는 곳 변경');
+  await type(screen, '장소·주소 검색', '수영강');
+  await press(screen, '수영강 APEC나루공원 입구');
+  await press(screen, '이 위치로 정하기');
+  expect(texts(screen)).toContain('위치 확정');
+  await type(screen, '찾아오는 법 · 선택', '공원 입구 안내판 앞');
+  await press(screen, '확정');
+  expect(texts(screen)).toContain('수영강 APEC나루공원 입구');
+
+  await press(screen, '자유 러닝');
+  await press(screen, '50분');
+  await press(screen, '그룹런 만들기');
+  await settle();
+  page = texts(screen);
+  expect(page).toContain('토요일, 함께 50분');
+  expect(page).toContain('자유 러닝 · 50분');
+  expect(page).toContain('내가 만든 그룹런');
+  await act(async () => screen.unmount());
+});
+
+test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finish', async () => {
+  const screen = await openGroup();
+  await press(screen, '대기방 입장');
+  let page = texts(screen);
+  for (const text of [
+    '출발 준비',
+    '공동 페이스',
+    'AI 제안 · 참가자 기록 기준',
+    '참가 신청 5명 · 대기방 4명',
+    '2명 준비 완료',
+    '준비도 82',
+  ]) {
+    expect(page).toContain(text);
+  }
+  await press(screen, '준비 완료');
+  expect(texts(screen)).toContain('3명 준비 완료');
+  // The leader starts, then 3·2·1.
+  await settle(100);
+  expect(texts(screen)).toContain('그룹장이 출발했어요');
+  for (let second = 0; second < 4; second += 1) {
+    await settle(1000);
+  }
+  page = texts(screen);
+  expect(page).toContain('내 페이스');
+  expect(page).toContain('민락수변공원 출발 5.0km · 그룹런 4명');
+  expect(page).toContain('그룹 범위 안이에요 · 선두–후미');
+  // After the load alert (6.6b) the group follows a slower guide pace; the start goal stays.
+  expect(page).toContain('지금 안내 6′15″ · 출발 목표 6′00″');
+
+  await press(screen, '위치·간격');
+  page = texts(screen);
+  expect(page).toContain('앞에서부터 · 순위 아님');
+  expect(page).toContain('선두');
+  expect(page).toContain('후미');
+
+  await press(screen, '일시정지');
+  page = texts(screen);
+  expect(page).toContain('그룹런 일시정지');
+  expect(page).toContain(
+    '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.',
+  );
+  expect(page).not.toContain('그룹 전체 강제 종료');
+  await act(async () => {
+    labelled(screen, '종료', 'onLongPress').props.onLongPress();
+  });
+  await settle(100);
+  page = texts(screen);
+  expect(page).toContain('4명 중 2명 완주했어요');
+  expect(page).toContain('함께 달린 거리');
+  expect(page).toContain('성윤');
+  expect(page).toContain('3.8km에서 중단');
+  expect(page).toContain('이번 내 기록은 내 기록 › 그룹런 탭에 남아요');
+  await press(screen, '완료');
+  expect(texts(screen)).toContain('광안리 새벽 크루');
+  await act(async () => screen.unmount());
+});

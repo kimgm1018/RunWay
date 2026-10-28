@@ -1,0 +1,6 @@
+local.properties
+.kotlin/
+.cxx/
+captures/
+*.jks
+*.keystore
