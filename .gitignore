@@ -96,3 +96,6 @@ temp/
 /backups/
 /infra/backend/app.jar
 *.dump
+
+# EC2 uploaded image binaries
+/data/images/

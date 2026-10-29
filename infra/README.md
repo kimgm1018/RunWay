@@ -30,6 +30,8 @@
   실제 비밀번호·키·해시·인증서 개인키·Jenkins 데이터는 커밋하지 않는다.
 - Redis 설정 `backend/redis/redis.conf`·`entrypoint.sh`를 서버의 `~/runway/backend/redis/`에 배치한다.
   Redis Secret은 `~/runway/secrets/backend/redis-app-password`에 준비하며 위 백엔드 Secret 권한 기준을 따른다.
+- 이미지 저장 폴더 `~/runway/data/images`를 UID/GID 10001·권한 700으로 준비한다.
+  백엔드의 `/data/images`에 읽기·쓰기로 연결하며 실제 이미지 파일은 Git에서 제외한다.
 - 새 DB에는 앱 역할 `runway_app`과 CONNECT·public 스키마 USAGE/CREATE 권한을 준비한다.
   앱 비밀번호 파일과 DB 역할의 실제 비밀번호를 일치시킨다.
 - 에이전트 이미지는 `runway-backend-agent:java21`로 빌드한다.
@@ -72,3 +74,9 @@ Secret 관리 기준은 [공통 규칙](../docs/development/secret-environment-v
 | 데이터 유지 | AOF와 `runway_redis_auth_data` 볼륨 사용 |
 
 인증·영속화·복구 기준은 [백엔드 Redis 안내](../backend/README.md#8-로그인과-redis)를 따른다.
+
+## 이미지 저장
+
+- `BACKEND_IMAGE_VOLUME_PATH=/data/images`로 지정하고 EC2의 `~/runway/data/images`를 연결한다. 컨테이너 교체 후에도 파일은 호스트 폴더에 남는다.
+- Nginx의 백엔드 요청 경로는 전체 요청 크기를 `5m`로 제한한다. 백엔드도 전체 요청 5MB 제한을 사용하므로 multipart 부가 정보를 포함한 크기이며 파일만의 5MB 업로드를 보장하지 않는다.
+- 저장 경로는 Nginx로 직접 공개하지 않는다. 이미지 조회 URL과 자동 백업은 별도 작업이다.
