@@ -19,6 +19,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 폰·워치 Data Layer 연결을 위해 같은 테스트용 debug 서명을 사용한다.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("../frontend/android/app/debug.keystore")
+        }
+    }
+
     buildTypes {
         release {
             optimization {

@@ -9,6 +9,8 @@ services:
       BACKEND_DB_USERNAME: runway_app
       BACKEND_BIND_ADDRESS: 0.0.0.0
       BACKEND_PORT: "8080"
+      # EC2 runway_service의 내부 대역. Nginx·백엔드만 연결하며 네트워크 재생성 시 확인한다.
+      BACKEND_AUTH_TRUSTED_PROXIES: 172.18.0.0/16
       BACKEND_IMAGE_VOLUME_PATH: /data/images
       BACKEND_REDIS_HOST: redis
       BACKEND_REDIS_PORT: "6379"
