@@ -1,6 +1,5 @@
 import React from 'react';
 import type { AuthRouteName } from '../../navigation/routes';
-import { ThemeProvider } from '../../theme';
 import { ConsentScreen } from './ConsentScreen';
 import { LoginScreen } from './LoginScreen';
 import { PasswordFindScreen } from './PasswordFindScreen';
@@ -14,28 +13,16 @@ import { WatchConnectScreen } from './WatchConnectScreen';
 
 export { SignUpDraftProvider } from './SignUpDraft';
 
-// Every 1.x screen in the prototype is dark, and its white buttons need a dark background.
-function alwaysDark(Screen: React.ComponentType, name: string) {
-  function Dark() {
-    return (
-      <ThemeProvider initialPreference="dark">
-        <Screen />
-      </ThemeProvider>
-    );
-  }
-  Dark.displayName = name;
-  return Dark;
-}
-
+// 1.x screens use the light tone on top and OnboardingFooter's dark tone for the black lower part (DESIGN.md 2-5).
 export const onboardingScreens: Record<AuthRouteName, React.ComponentType> = {
-  Start: alwaysDark(StartScreen, 'StartScreen'),
-  Login: alwaysDark(LoginScreen, 'LoginScreen'),
-  SignUp: alwaysDark(SignUpScreen, 'SignUpScreen'),
-  Consent: alwaysDark(ConsentScreen, 'ConsentScreen'),
-  ProfileBasic: alwaysDark(ProfileBasicScreen, 'ProfileBasicScreen'),
-  ProfileRunning: alwaysDark(ProfileRunningScreen, 'ProfileRunningScreen'),
-  WatchChoice: alwaysDark(WatchChoiceScreen, 'WatchChoiceScreen'),
-  WatchConnect: alwaysDark(WatchConnectScreen, 'WatchConnectScreen'),
-  PasswordFind: alwaysDark(PasswordFindScreen, 'PasswordFindScreen'),
-  PasswordPhone: alwaysDark(PasswordPhoneScreen, 'PasswordPhoneScreen'),
+  Start: StartScreen,
+  Login: LoginScreen,
+  SignUp: SignUpScreen,
+  Consent: ConsentScreen,
+  ProfileBasic: ProfileBasicScreen,
+  ProfileRunning: ProfileRunningScreen,
+  WatchChoice: WatchChoiceScreen,
+  WatchConnect: WatchConnectScreen,
+  PasswordFind: PasswordFindScreen,
+  PasswordPhone: PasswordPhoneScreen,
 };

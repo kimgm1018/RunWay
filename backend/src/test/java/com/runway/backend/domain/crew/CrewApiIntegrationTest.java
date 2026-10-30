@@ -312,6 +312,77 @@ class CrewApiIntegrationTest {
     }
 
     @Test
+    void 크루장_이양_탈퇴_및_해산() throws Exception {
+        long memberId = insertUser("succ_user", "후임", "01066665555");
+        long pendingId = insertUser("pend_diss", "대기", "01055554444");
+        long crewId = createCrew(userId, "이양해산 크루", 10);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, memberId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/me", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"successorUserId":%d}
+                                        """
+                                                .formatted(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("LEFT"));
+
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/members", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(memberId))
+                .andExpect(jsonPath("$.items[0].isOwner").value(true));
+
+        long soloCrewId = createCrew(userId, "1인 해산 크루", 5);
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}/members/me", soloCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("OWNER_CANNOT_LEAVE"));
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", soloCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(pendingId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}", soloCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(soloCrewId))
+                .andExpect(jsonPath("$.status").value("INACTIVE"));
+
+        mockMvc.perform(
+                        delete("/api/v1/crews/{crewId}", soloCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("INACTIVE"));
+
+        String status =
+                jdbc.queryForObject(
+                        "SELECT status::text FROM crews WHERE id = ?", String.class, soloCrewId);
+        org.junit.jupiter.api.Assertions.assertEquals("INACTIVE", status);
+    }
+
+    @Test
     void 정원초과_승인은_409() throws Exception {
         long applicantId = insertUser("full_crew_user", "만석지원", "01077778888");
         long crewId = createCrew(userId, "정원1 크루", 1);

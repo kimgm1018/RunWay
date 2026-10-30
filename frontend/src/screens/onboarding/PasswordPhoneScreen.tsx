@@ -1,22 +1,18 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import {
-  AppText,
-  Button,
-  Icon,
-  Screen,
-  TextField,
-  useToast,
-} from '../../components';
+import { AppText, Icon, Screen, TextField, useToast } from '../../components';
 import { useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing, useTheme } from '../../theme';
 import {
   FieldChip,
+  GoButton,
   InlineError,
+  OnboardingFooter,
   OnboardingHeader,
   StepBadge,
+  StepTitle,
   TextLink,
 } from './parts';
 import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
@@ -35,8 +31,8 @@ function StepLabel({
     <View style={styles.stepLabel}>
       <StepBadge index={index} state={state} />
       <AppText
-        variant="bodyStrong"
-        tone={state === 'locked' ? 'textDisabled' : 'text'}
+        variant="bodyMedium"
+        tone={state === 'locked' ? 'textTertiary' : 'text'}
       >
         {title}
       </AppText>
@@ -94,20 +90,18 @@ export function PasswordPhoneScreen() {
 
   return (
     <Screen
-      header={
-        <OnboardingHeader onBack={navigation.goBack} title="전화번호로 찾기" />
-      }
+      header={<OnboardingHeader onBack={navigation.goBack} />}
       footer={
-        <Button
-          title="변경하고 로그인하기"
-          variant="inverse"
-          disabled={!verified || !passwordOk}
-          loading={saving}
-          style={styles.flex}
-          onPress={submit}
-        />
+        <OnboardingFooter>
+          <GoButton
+            title="변경하고 로그인하기"
+            disabled={!verified || !passwordOk || saving}
+            onPress={submit}
+          />
+        </OnboardingFooter>
       }
     >
+      <StepTitle title="전화번호로 찾기" small />
       <View style={styles.step}>
         <StepLabel
           index={1}
@@ -115,7 +109,8 @@ export function PasswordPhoneScreen() {
           state={verified ? 'done' : 'active'}
         />
         <TextField
-          accessibilityLabel="전화번호"
+          labelInside
+          label="전화번호"
           value={formatPhoneNumber(phone.phoneNumber)}
           onChangeText={phone.setPhoneNumber}
           keyboardType="phone-pad"
@@ -145,7 +140,7 @@ export function PasswordPhoneScreen() {
             <InlineError>{phoneError.message}</InlineError>
             {phoneError.code === 'PHONE_NOT_REGISTERED' ? (
               <View style={styles.signUp}>
-                <AppText variant="captionStrong" tone="textSecondary">
+                <AppText variant="caption" tone="textSecondary">
                   처음이신가요? ·
                 </AppText>
                 <TextLink
@@ -168,7 +163,8 @@ export function PasswordPhoneScreen() {
         {sent ? (
           <>
             <TextField
-              accessibilityLabel="인증번호"
+              labelInside
+              label="인증번호"
               value={phone.code}
               onChangeText={phone.setCode}
               editable={phone.codeEditable}
@@ -180,7 +176,7 @@ export function PasswordPhoneScreen() {
                 verified ? null : (
                   <AppText
                     variant="metricSmall"
-                    tone={phone.expired || codeError ? 'danger' : 'accentText'}
+                    tone={phone.expired || codeError ? 'danger' : 'text'}
                     style={styles.timer}
                   >
                     {formatRemaining(phone.remainingSec)}
@@ -210,8 +206,8 @@ export function PasswordPhoneScreen() {
         {verified ? (
           <>
             <TextField
-              accessibilityLabel="새 비밀번호"
-              placeholder="새 비밀번호"
+              labelInside
+              label="새 비밀번호"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -219,8 +215,9 @@ export function PasswordPhoneScreen() {
               status={isValidPassword(password) ? 'success' : 'default'}
             />
             <TextField
+              labelInside
+              label="비밀번호 확인"
               accessibilityLabel="새 비밀번호 확인"
-              placeholder="새 비밀번호 확인"
               value={confirm}
               onChangeText={setConfirm}
               secureTextEntry
@@ -241,7 +238,6 @@ export function PasswordPhoneScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   step: { gap: spacing.md },
   stepLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   signUp: {
@@ -257,5 +253,5 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.xs,
   },
-  timer: { paddingHorizontal: spacing.lg },
+  timer: { paddingHorizontal: spacing.xs },
 });

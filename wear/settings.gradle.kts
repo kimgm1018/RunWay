@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RunwayWatchDemo"
-include(":app")
+rootProject.name = "RunwayWatch"
+include(":app", ":demo")

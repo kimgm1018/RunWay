@@ -5,11 +5,11 @@ import { AppText, Icon } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
 import { formatDuration, isNight } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { palette, radius, spacing, typography, useTheme } from '../../theme';
+import { fontFamily, k1, spacing, typography, useTheme } from '../../theme';
 import { parseClock, parseDistanceKm } from '../onboarding/validation';
 import { MapScreenFrame } from './MapScreenFrame';
 import { MockMap } from './MockMap';
-import { PlaceCard, RunStartBar } from './parts';
+import { K1Badge, PlaceCard, RunStartBar } from './parts';
 
 const loadPlace = (repositories: Repositories) =>
   repositories.run.getCurrentPlace();
@@ -34,10 +34,8 @@ function GoalInput({
     <View
       style={[
         styles.goal,
-        {
-          backgroundColor: colors.surfaceRaised,
-          borderColor: invalid ? colors.danger : colors.border,
-        },
+        { backgroundColor: colors.surfaceRaised },
+        invalid && { borderColor: colors.danger },
       ]}
     >
       <View style={styles.goalHead}>
@@ -85,6 +83,7 @@ export function FreeRunScreen() {
     <MapScreenFrame
       map={
         <MockMap
+          k1Style
           night={night}
           position={place.status === 'ready' ? place.data.position : undefined}
         />
@@ -99,14 +98,16 @@ export function FreeRunScreen() {
       bottom={
         <>
           <View style={styles.mode}>
-            <View style={[styles.modeIcon, { backgroundColor: palette.ink }]}>
-              <Icon name="compass" color={palette.white} size={18} />
-            </View>
+            <K1Badge diameter={46}>
+              <Icon name="compass" color={k1.ice} size={18} />
+            </K1Badge>
             <View style={styles.flex}>
               <AppText variant="label" tone="textTertiary">
                 자유 러닝
               </AppText>
-              <AppText variant="heading">코스 없이 기록만 남겨요</AppText>
+              <AppText variant="heading" style={styles.medium}>
+                코스 없이 기록만 남겨요
+              </AppText>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -118,7 +119,10 @@ export function FreeRunScreen() {
             </Pressable>
           </View>
           <View
-            style={[styles.goals, { backgroundColor: colors.surfaceMuted }]}
+            style={[
+              styles.goals,
+              { backgroundColor: night ? colors.surfaceMuted : k1.field },
+            ]}
           >
             <AppText variant="captionStrong">
               목표{' '}
@@ -173,19 +177,15 @@ export function FreeRunScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   mode: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  modeIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goals: { borderRadius: radius.lg, padding: spacing.xl, gap: spacing.sm },
+  medium: { fontFamily: fontFamily.medium },
+  // Grey goal box with white fields inside (DESIGN.md 2-6 시트 안 회색 칸).
+  goals: { borderRadius: 22, padding: 16, gap: spacing.sm },
   goalRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs },
   goal: {
     flex: 1,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.lg,
     gap: spacing.xxs,

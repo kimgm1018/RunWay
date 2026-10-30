@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light tile behind the RUNWAY R, as in the final app icon (S15P31E105-276). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:startColor="#FFFFFF"
+        android:endColor="#E9ECF1" />
+</shape>

@@ -1,4 +1,70 @@
-// Values copied from RUNWAY 프로토타입 v15. Replace values here when the RUNWAY design draft (S15P31E105-89) lands.
+// New design (DESIGN.md 1-1): one K1 screen, light blue-grey at the top fading to black at the bottom.
+export const k1 = {
+  top: '#C1CEDB',
+  light: '#B3C4D3',
+  mid: '#8096AF',
+  deep: '#253649',
+  night: '#02050E',
+  black: '#000000',
+  // Text and solid buttons on the black part.
+  ice: '#E8EEF4',
+  coral: '#E2876F',
+  // Coral text on light backgrounds and white cards.
+  coralText: '#C4644B',
+  // Grey fields and round buttons inside the white map sheets (DESIGN.md 2-6).
+  field: '#EDF1F5',
+} as const;
+
+// 2.1 홈 widget palettes (DESIGN.md 1-2): steel blue for the main and healthy states, graphite for the rest.
+// Each widget picks one; no other screen uses them.
+export const widgetPalette = {
+  steel: {
+    rim: '#3E6B80',
+    mid: '#0F2530',
+    sky: ['#2B5A72', '#4C7487', '#6A8794'],
+    haze: ['#C9D3D6', '#8AA3AE'],
+    glassLight: ['#6F8A96', '#5F8AA0'],
+    glass: ['#4E5F66', '#2D4752'],
+    tone: ['#56717C', '#33464E'],
+    dots: ['#4A6470', '#26363E', '#141C20'],
+    orb: ['#6F97A6', '#A8C2CB'],
+    tick: '#9CC0CF',
+  },
+  graphite: {
+    rim: '#6A7179',
+    mid: '#1E242B',
+    sky: ['#3C434A', '#6A7179', '#8D949A'],
+    haze: ['#C2C7CB', '#9AA1A7'],
+    glassLight: ['#8B939A', '#8B949C'],
+    glass: ['#4A5056', '#2C3237'],
+    tone: ['#6A7179', '#3C434A'],
+    dots: ['#5A6168', '#2E343A', '#15181B'],
+    orb: ['#7D858C', '#B7BDC2'],
+    tick: '#B8BEC3',
+  },
+  // The dark middle of every vignette.
+  core: '#020405',
+} as const;
+
+// The K1 background, top to bottom (DESIGN.md 1-1).
+export const k1Gradient = {
+  colors: [
+    '#C1CEDB',
+    '#C1CEDB',
+    '#C1CFDC',
+    '#C4D1DE',
+    '#C3D1DD',
+    '#C2D0DC',
+    '#B3C4D3',
+    '#8096AF',
+    '#253649',
+    '#02050E',
+    '#000000',
+  ],
+  locations: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+} as const;
+
+// Prototype v15 colors. Screens still reading these move to the K1 theme one by one (S15P31E105-206).
 export const palette = {
   ink: '#191C27',
   night: '#0B0C10',
@@ -49,7 +115,10 @@ export const typography = {
   display: { fontFamily: fontFamily.black, fontSize: 27, lineHeight: 35 },
   title: { fontFamily: fontFamily.black, fontSize: 22, lineHeight: 29 },
   heading: { fontFamily: fontFamily.bold, fontSize: 17, lineHeight: 24 },
-  button: { fontFamily: fontFamily.bold, fontSize: 16, lineHeight: 22 },
+  // Buttons and segments use the medium weight (DESIGN.md 4).
+  button: { fontFamily: fontFamily.medium, fontSize: 15, lineHeight: 20 },
+  buttonSmall: { fontFamily: fontFamily.medium, fontSize: 13, lineHeight: 18 },
+  bodyMedium: { fontFamily: fontFamily.medium, fontSize: 14, lineHeight: 20 },
   bodyStrong: { fontFamily: fontFamily.bold, fontSize: 14, lineHeight: 20 },
   body: { fontFamily: fontFamily.regular, fontSize: 14, lineHeight: 21 },
   input: { fontFamily: fontFamily.regular, fontSize: 15, lineHeight: 20 },
@@ -97,6 +166,8 @@ export const radius = {
   md: 12,
   lg: 16,
   xl: 22,
+  // Kit boxes (DESIGN.md 2-7).
+  card: 28,
   sheet: 28,
   pill: 999,
 } as const;
@@ -108,8 +179,10 @@ export const size = {
   input: 52,
   iconButton: 40,
   header: 56,
-  tabBar: 62,
-  tabBarInset: 14,
+  // Tab screens keep tabBar + tabBarInset × 2 = 116 free at the bottom (DESIGN.md 2-3).
+  tabBar: 76,
+  tabBarInset: 20,
+  tabCircle: 40,
 } as const;
 
 export type TypographyVariant = keyof typeof typography;

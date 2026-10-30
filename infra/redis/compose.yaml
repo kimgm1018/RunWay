@@ -1,0 +1,56 @@
+name: runway-redis
+
+services:
+  redis:
+    image: redis:8.2.11@sha256:dae6b6fcd9e26c1e73cf70323f0711d4c1ade5bf40c1dfd9aa24d0fbb57e2309
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/runway/start-redis.sh"]
+    environment:
+      BACKEND_REDIS_USERNAME: runway_app
+    mem_limit: 1g
+    volumes:
+      - redis_auth_data:/data
+      - type: bind
+        source: ./start-redis.sh
+        target: /etc/runway/start-redis.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../../backend/redis/redis.conf
+        target: /etc/runway/redis.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../../backend/redis/entrypoint.sh
+        target: /etc/runway/entrypoint.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/redis-app-password
+        target: /run/secrets/redis_app_password
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          REDISCLI_AUTH="$$(cat /run/secrets/redis_app_password)"
+          redis-cli --user "$$BACKEND_REDIS_USERNAME" ping | grep -qx PONG
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  redis_auth_data:
+    external: true
+    name: runway_redis_auth_data
+
+networks:
+  default:
+    name: runway_redis
+    internal: true

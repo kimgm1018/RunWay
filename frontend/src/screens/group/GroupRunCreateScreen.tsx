@@ -18,6 +18,7 @@ import {
   Backdrop,
   BottomSheet,
   Button,
+  Card,
   Icon,
   IconButton,
   Segmented,
@@ -31,9 +32,16 @@ import {
 } from '../../data';
 import { formatDotDateWeekday, formatKm } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
-import { radius, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
+import { GlowButton } from '../course/TodayRunScreen';
 import { RouteThumb } from '../home/parts';
-import { useGroupRunDraft } from './parts';
+import { BottomFade, useGroupRunDraft } from './parts';
 
 type Mode = 'COURSE' | 'FREE';
 
@@ -67,31 +75,28 @@ const loadOptions = (repositories: Repositories) =>
     repositories.groupRuns.searchPlaces(''),
   ]);
 
+// The 6.8 boxes: white cards, and the vignette for 공동 페이스 (DESIGN.md 2-10 만들기).
 function Section({
   title,
   right,
+  vignette = false,
   children,
 }: {
   title: string;
   right?: React.ReactNode;
+  vignette?: boolean;
   children: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
+    <Card variant={vignette ? 'vignette' : 'solid'} style={styles.card}>
       <View style={styles.rowBetween}>
-        <AppText variant="heading" style={styles.sectionTitle}>
+        <AppText variant="bodyMedium" style={styles.sectionTitle}>
           {title}
         </AppText>
         {right}
       </View>
       {children}
-    </View>
+    </Card>
   );
 }
 
@@ -115,20 +120,21 @@ function ChangeRow({
         {icon}
       </View>
       <View style={styles.flex}>
-        <AppText variant="bodyStrong" numberOfLines={1}>
+        <AppText variant="bodyMedium" numberOfLines={1}>
           {title}
         </AppText>
-        <AppText variant="caption" tone="textTertiary" numberOfLines={1}>
+        <AppText variant="caption" tone="textSecondary" numberOfLines={1}>
           {detail}
         </AppText>
       </View>
+      {/* 변경 is an underlined text button (DESIGN.md 2-10 만들기). */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
         onPress={onChange}
         hitSlop={8}
       >
-        <AppText variant="captionStrong" tone="accentText">
+        <AppText variant="captionStrong" style={styles.underline}>
           변경
         </AppText>
       </Pressable>
@@ -153,16 +159,15 @@ function PickChip({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
+      // A pill field with the icon on the right (DESIGN.md 2-10 날짜·시간).
       style={({ pressed }) => [
         styles.pick,
-        { backgroundColor: colors.accent },
+        { borderColor: colors.borderStrong },
         pressed && styles.pressed,
       ]}
     >
-      <AppText variant="bodyStrong" style={{ color: colors.onAccent }}>
-        {label}
-      </AppText>
-      <Icon name={icon} color={colors.onAccent} size={15} />
+      <AppText style={styles.pickLabel}>{label}</AppText>
+      <Icon name={icon} color={colors.textSecondary} size={16} />
     </Pressable>
   );
 }
@@ -281,7 +286,7 @@ export function GroupRunCreateScreen() {
             accessibilityLabel="뒤로"
             onPress={() => navigation.goBack()}
           />
-          <AppText variant="heading" accessibilityRole="header">
+          <AppText style={styles.title} accessibilityRole="header">
             그룹런 만들기
           </AppText>
         </View>
@@ -349,7 +354,7 @@ export function GroupRunCreateScreen() {
         <Section
           title="만나는 곳"
           right={
-            <AppText variant="label" tone="textTertiary">
+            <AppText variant="label" tone="textSecondary">
               상세 위치
             </AppText>
           }
@@ -384,35 +389,35 @@ export function GroupRunCreateScreen() {
         </Section>
         <Section
           title="공동 페이스"
+          vignette
           right={
-            <AppText variant="label" tone="textTertiary">
+            <AppText variant="label" tone="textSecondary">
               예상값 · 직접 입력하지 않아요
             </AppText>
           }
         >
           <View style={styles.auto}>
-            <AppText variant="title" tone="accentText">
-              자동 산출
-            </AppText>
+            <AppText style={styles.autoTitle}>자동 산출</AppText>
             <AppText variant="caption" tone="textSecondary" style={styles.flex}>
               지금 참가자 기록으로 낸 예상값이에요 · 출발 직전 다시 계산해요
             </AppText>
           </View>
         </Section>
       </ScrollView>
-      <SafeAreaView
-        edges={['bottom']}
-        style={[styles.footer, { backgroundColor: colors.background }]}
-      >
-        <Button
-          title="그룹런 만들기"
-          loading={saving}
-          disabled={
-            !crew || !draft.place || !day || (mode === 'COURSE' && !course)
-          }
-          onPress={create}
-        />
-      </SafeAreaView>
+      {/* The glow pill with a white round + on the black lower part, as on 3.1. */}
+      <ThemeProvider tone="dark">
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <BottomFade />
+          <GlowButton
+            title="그룹런 만들기"
+            loading={saving}
+            disabled={
+              !crew || !draft.place || !day || (mode === 'COURSE' && !course)
+            }
+            onPress={create}
+          />
+        </SafeAreaView>
+      </ThemeProvider>
       <BottomSheet
         visible={sheet === 'course'}
         onClose={() => setSheet(null)}
@@ -489,18 +494,15 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
+  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
   content: {
-    padding: spacing.screen,
-    gap: spacing.xl,
+    padding: 14,
+    paddingTop: 0,
+    gap: spacing.md,
     paddingBottom: spacing.xxxl * 4,
   },
-  crew: { marginLeft: spacing.xs },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.xl,
-  },
+  crew: { marginLeft: spacing.sm, marginBottom: spacing.xs },
+  card: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -509,36 +511,42 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 15 },
   changeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   tile: {
-    width: 46,
-    height: 46,
-    borderRadius: radius.md,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  underline: { textDecorationLine: 'underline' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
     height: 36,
     paddingHorizontal: spacing.xxl,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     borderWidth: 1,
     justifyContent: 'center',
   },
   pick: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    height: 40,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: radius.pill,
+    justifyContent: 'space-between',
+    height: 48,
+    paddingHorizontal: spacing.xl,
+    borderRadius: 24,
+    borderWidth: 1,
   },
+  pickLabel: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
   pressed: { opacity: 0.8 },
   auto: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  autoTitle: { fontFamily: fontFamily.medium, fontSize: 20, lineHeight: 28 },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
   sheetList: { maxHeight: 360 },

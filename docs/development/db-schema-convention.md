@@ -15,7 +15,7 @@ DB 구조와 변경 이력의 관리 기준이다. 현재 반영한 제약과 �
 
 ## 2. ID 생성과 타입
 
-- 26개 테이블 PK는 `BIGINT GENERATED ALWAYS AS IDENTITY`, FK는 기존 BIGINT를 유지한다. DB가 ID를 생성하며 직접 지정은 기본 거부한다. 복원 등 예외 입력은 별도 절차로 검토한다.
+- 업무 테이블 PK는 `BIGINT GENERATED ALWAYS AS IDENTITY`, FK는 기존 BIGINT를 유지한다. DB가 ID를 생성하며 직접 지정은 기본 거부한다. 복원 등 예외 입력은 별도 절차로 검토한다. 현재 기준 스키마 테이블 수는 [ERD](../design/db/erd.md)를 따른다.
 - JPA 구현은 DB 정의에 맞춰 `GenerationType.IDENTITY`로 매핑한다. 이번 작업에 Entity 구현은 포함하지 않는다. ID 번호의 빈칸을 오류로 취급하지 않고 이벤트 순서·실제 시각을 PK로 추정하지 않는다.
 - 워치 UUID·원본 배치 ID는 서버 PK와 별개다. API의 UUID 초안을 이 규칙만으로 자동 변경하지 않는다.
 - Enum은 PostgreSQL 명명 타입으로 선언하며 기존 허용 값을 유지한다. JPA Entity 작성 시 문자열 Enum과 PostgreSQL 타입의 실제 매핑을 통합 검증한다.

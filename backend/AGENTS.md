@@ -19,7 +19,7 @@
 - 코드 규칙: [백엔드 코드 컨벤션](../docs/development/backend-convention.md)
   - 문서의 상태를 확인한다. 특정 기술의 작성법이 있다는 이유만으로 해당 기술이 도입·설정됐다고 가정하지 않는다.
   - 담당 도메인·공통 코드 소유권은 [역할 분담 문서](../docs/development/backend-role-assignment.md)와
-    현재 Jira·팀 합의를 확인한다. 역할 문서는 작성 틀만 준비된 상태이며 미정 항목을 임의 배정하지 않는다.
+    현재 Jira·팀 합의를 확인한다. 역할 문서의 담당 범위와 경계를 따르며 미정 항목을 임의 배정하지 않는다.
   - 컨벤션 예외는 구현 전에 이유와 대안을 제시한다. 다른 담당자 소유 도메인과 공통 설정을 임의로 수정하지 않는다.
 - 아키텍처 결정: `docs/adr/`
 - 실행·빌드 명령은 [백엔드 README](README.md)를 따른다.
@@ -27,12 +27,12 @@
 ## 2. 검증
 
 현재 백엔드는 Java 21·Spring MVC, Gradle(`build.gradle`), Spring Data JPA, Flyway를 사용하기로 결정했다.
-코드 작성 도구와 방식은 컨벤션에 따라 Spotless·AOSP, Lombok, record DTO, Bean Validation을 사용한다.
+코드 형식은 컨벤션의 AOSP 스타일을 따르며 Lombok, record DTO, Bean Validation을 사용한다.
 설정 버전·준비 사항은 `backend/README.md`를 따른다. `backend`에서 완료 검증으로
 `./gradlew clean build`를 실행한다. Windows PowerShell에서는 `.\gradlew.bat clean build`를 쓴다.
-빌드는 읽기 전용 `spotlessCheck`와 DB 통합 테스트를 포함한 전체 테스트를 실행한다.
-포맷 수정은 `spotlessApply`로 별도 수행한다. Docker Linux 엔진이 필요하며 실행하지 못한
-DB 테스트를 건너뛰어 완료 처리하지 않는다. IntelliJ 실행·운영 배포 검증과 빌드 결과는 구분한다.
+빌드는 DB 통합 테스트를 포함한 전체 테스트를 실행한다. Spotless 플러그인과 포맷 검사·자동 수정
+태스크는 제거했으며 코드 서식을 빌드 실패 조건으로 검사하지 않는다. Docker Linux 엔진이 필요하며
+실행하지 못한 DB 테스트를 건너뛰어 완료 처리하지 않는다. IntelliJ 실행·운영 배포 검증과 빌드 결과는 구분한다.
 
 작은 코드 변경도 관련 테스트 통과는 필수다. 문서 등 실행 코드가 없는 변경은 링크·내용 정합성 등
 사전에 정한 대체 검증을 수행한다. 테스트 코드만 바꾸어도 해당 테스트를 실행한다.

@@ -1,5 +1,7 @@
-import { palette } from './tokens';
+import { k1 } from './tokens';
 
+// The app has one screen look (K1). A tone picks the colors for where a view sits on it:
+// 'light' for the light upper part and white cards, 'dark' for the black lower part, dark cards and maps.
 export type ThemeName = 'dark' | 'light';
 
 export type ThemeColors = {
@@ -7,17 +9,20 @@ export type ThemeColors = {
   surface: string;
   surfaceRaised: string;
   surfaceMuted: string;
+  // See-through fill for round buttons and chips sitting right on the K1 background.
+  glass: string;
   border: string;
   borderStrong: string;
   text: string;
   textSecondary: string;
   textTertiary: string;
   textDisabled: string;
+  // Emphasis is a brightness swap (black on light, white on dark), not a hue.
   accent: string;
   accentPressed: string;
   onAccent: string;
   accentText: string;
-  // Lighter mint for secondary bars (2.1 러닝 분석).
+  // Secondary bars next to an accent bar (2.1 러닝 분석).
   accentSoft: string;
   danger: string;
   dangerSurface: string;
@@ -26,6 +31,8 @@ export type ThemeColors = {
   category: string;
   inputBackground: string;
   inputBorder: string;
+  // The light rim of the 1.x pill fields (DESIGN.md 2-5).
+  inputEdge: string;
   scrim: string;
   tabBar: string;
   tabBarBorder: string;
@@ -37,74 +44,78 @@ export type ThemeColors = {
 
 export type Theme = { name: ThemeName; colors: ThemeColors };
 
-// Dark follows 2.1 홈 and 6.0 그룹; light follows 2.1La 홈 라이트 and 7.1 커뮤니티.
-export const darkTheme: Theme = {
-  name: 'dark',
-  colors: {
-    background: palette.night,
-    surface: 'rgba(22,24,31,0.62)',
-    surfaceRaised: palette.card,
-    surfaceMuted: 'rgba(255,255,255,0.06)',
-    border: 'rgba(255,255,255,0.08)',
-    borderStrong: 'rgba(255,255,255,0.16)',
-    text: palette.white,
-    textSecondary: 'rgba(255,255,255,0.7)',
-    textTertiary: 'rgba(255,255,255,0.55)',
-    textDisabled: 'rgba(255,255,255,0.4)',
-    accent: palette.mint,
-    accentPressed: palette.mintPressed,
-    onAccent: palette.ink,
-    accentText: palette.mint,
-    accentSoft: 'rgba(167,246,236,0.45)',
-    danger: palette.coral,
-    dangerSurface: 'rgba(255,158,138,0.12)',
-    dangerBorder: 'rgba(255,158,138,0.5)',
-    onDanger: palette.ink,
-    category: palette.lavender,
-    inputBackground: 'rgba(255,255,255,0.08)',
-    inputBorder: 'rgba(255,255,255,0.28)',
-    scrim: 'rgba(5,6,8,0.72)',
-    tabBar: 'rgba(20,22,29,0.92)',
-    tabBarBorder: 'rgba(255,255,255,0.14)',
-    tabActive: 'rgba(255,255,255,0.14)',
-    tabIconActive: palette.mint,
-    tabInactive: 'rgba(255,255,255,0.78)',
-    statusBar: 'light-content',
-  },
+// The tab bar is the same light pill in both tones (DESIGN.md 2-6).
+const tabColors = {
+  tabBar: k1.ice,
+  tabBarBorder: 'rgba(2,5,14,0.08)',
+  tabActive: k1.night,
+  tabIconActive: k1.ice,
+  tabInactive: 'rgba(2,5,14,0.55)',
 };
 
 export const lightTheme: Theme = {
   name: 'light',
   colors: {
-    background: palette.paper,
-    surface: 'rgba(255,255,255,0.9)',
-    surfaceRaised: palette.white,
-    surfaceMuted: palette.lavenderGray,
-    border: palette.lineSoft,
-    borderStrong: palette.line,
-    text: palette.ink,
-    textSecondary: 'rgba(22,40,72,0.8)',
-    textTertiary: palette.sub,
-    textDisabled: palette.pale,
-    accent: palette.mint,
-    accentPressed: palette.mintPressed,
-    onAccent: palette.ink,
-    accentText: palette.mintText,
-    accentSoft: 'rgba(79,208,191,0.35)',
-    danger: palette.coralStrong,
-    dangerSurface: 'rgba(255,138,115,0.12)',
-    dangerBorder: 'rgba(255,138,115,0.5)',
-    onDanger: palette.ink,
-    category: palette.periwinkle,
-    inputBackground: palette.white,
-    inputBorder: palette.line,
-    scrim: 'rgba(25,28,39,0.45)',
-    tabBar: 'rgba(20,22,29,0.92)',
-    tabBarBorder: 'rgba(255,255,255,0.14)',
-    tabActive: 'rgba(255,255,255,0.14)',
-    tabIconActive: palette.mint,
-    tabInactive: 'rgba(255,255,255,0.78)',
+    background: k1.top,
+    surface: 'rgba(255,255,255,0.86)',
+    surfaceRaised: '#FFFFFF',
+    surfaceMuted: 'rgba(2,5,14,0.07)',
+    glass: 'rgba(255,255,255,0.5)',
+    border: 'rgba(2,5,14,0.12)',
+    borderStrong: 'rgba(2,5,14,0.24)',
+    text: k1.night,
+    textSecondary: 'rgba(2,5,14,0.6)',
+    textTertiary: 'rgba(2,5,14,0.42)',
+    textDisabled: 'rgba(2,5,14,0.3)',
+    accent: k1.night,
+    accentPressed: k1.deep,
+    onAccent: k1.ice,
+    accentText: k1.night,
+    accentSoft: 'rgba(2,5,14,0.28)',
+    danger: k1.coralText,
+    dangerSurface: 'rgba(196,100,75,0.12)',
+    dangerBorder: 'rgba(196,100,75,0.5)',
+    onDanger: '#FFFFFF',
+    category: k1.mid,
+    inputBackground: 'rgba(255,255,255,0.62)',
+    inputBorder: 'rgba(2,5,14,0.16)',
+    inputEdge: 'rgba(255,255,255,0.7)',
+    scrim: 'rgba(2,5,14,0.5)',
+    ...tabColors,
     statusBar: 'dark-content',
+  },
+};
+
+export const darkTheme: Theme = {
+  name: 'dark',
+  colors: {
+    background: k1.night,
+    surface: 'rgba(37,54,73,0.55)',
+    surfaceRaised: '#0A111D',
+    surfaceMuted: 'rgba(232,238,244,0.1)',
+    glass: 'rgba(232,238,244,0.1)',
+    border: 'rgba(232,238,244,0.16)',
+    borderStrong: 'rgba(232,238,244,0.32)',
+    text: k1.ice,
+    textSecondary: 'rgba(232,238,244,0.62)',
+    textTertiary: 'rgba(232,238,244,0.42)',
+    textDisabled: 'rgba(232,238,244,0.3)',
+    accent: k1.ice,
+    accentPressed: k1.top,
+    onAccent: k1.night,
+    accentText: k1.ice,
+    accentSoft: 'rgba(232,238,244,0.35)',
+    danger: k1.coral,
+    dangerSurface: 'rgba(226,135,111,0.14)',
+    dangerBorder: 'rgba(226,135,111,0.6)',
+    onDanger: '#FFFFFF',
+    category: k1.mid,
+    inputBackground: 'rgba(232,238,244,0.08)',
+    inputBorder: 'rgba(232,238,244,0.22)',
+    inputEdge: 'rgba(232,238,244,0.22)',
+    scrim: 'rgba(2,5,14,0.6)',
+    ...tabColors,
+    statusBar: 'light-content',
   },
 };
 

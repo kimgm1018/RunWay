@@ -1,0 +1,29 @@
+{
+  "_comment": "Running Suitability V1: general running quality of a RUNNABLE route, apart from personal preferences. Rule-based and explainable. Design and evidence: reports/runway_running_suitability_v1_audit.md",
+  "version": "v1",
+
+  "traffic": {
+    "_comment": "Edge level. on: the edge is a major road. beside: not a major road, but both end nodes lie within beside_m of a traffic centreline (any status). away: otherwise. Three ordinal levels with equal spacing (no evidence for unequal spacing). beside_m 15: carriageway half-width plus sidewalk for roads up to about 4-6 lanes; 10 and 30 m are tested as sensitivity arms.",
+    "major_highway": ["primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link"],
+    "traffic_highway": ["primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link",
+                        "trunk", "trunk_link", "motorway", "motorway_link"],
+    "beside_m": 15,
+    "levels": {"on": 0.0, "beside": 0.5, "away": 1.0}
+  },
+
+  "obstacle": {
+    "_comment": "obstacle_score = max(0, 1 - steps runs per km / steps_runs_per_km_zero). 0.5 runs/km is about the 95th percentile of no-preference candidates in the five survey regions (p95 0.46).",
+    "steps_runs_per_km_zero": 0.5
+  },
+
+  "combine": {
+    "_comment": "running_suitability = traffic * traffic_score + obstacle * obstacle_score (0..1). Traffic is continuous exposure over the whole route (within-request range about 0.35, x0.8 = 0.28); steps are point events on about a quarter of candidates (p95 effect 0.2), so both can move the score by a similar amount at most.",
+    "traffic": 0.8,
+    "obstacle": 0.2
+  },
+
+  "ranking": {
+    "_comment": "score = score_route(...) + weight * running_suitability, for every request (with or without preferences). Chosen by the pre-declared rule of running_suitability_experiment.py (smallest of 0.25 / 0.5 / 1.0 passing C1-C5): 0.25. 0.5 also passed (about twice the effect); 1.0 failed C3 (preferred feature -0.025). Evidence: reports/runway_running_suitability_v1_audit.md",
+    "weight": 0.25
+  }
+}

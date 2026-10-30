@@ -217,6 +217,11 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaises(GitLabError):
                 self.w.prepare({**self.draft, **extra})
 
+    def test_wear_scope_for_watch_only_changes(self):
+        self.client.paths = ['wear/app/build.gradle.kts', 'wear/README.md']
+        p = self.w.prepare({**self.draft, 'scope': 'wear'})
+        self.assertEqual(p['payload']['title'], '[S15P31E105-29] feat(wear): MR automation')
+
     def test_update_retains_preamble(self):
         self.create()
         self.client.mr['description'] = 'Context before headings\n\n' + self.client.mr['description']

@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Button, Card, Screen } from '../../components';
+import { AppText, IconButton, Screen } from '../../components';
 import { useRepositories, type SelfReportedLevel } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, spacing, typography, useTheme } from '../../theme';
+import { spacing, typography, useTheme } from '../../theme';
 import {
   ErrorNotice,
+  GoButton,
+  OnboardingFooter,
   OnboardingHeader,
+  PageDots,
   Segmented,
   SelectionCard,
   StepTitle,
@@ -68,20 +71,18 @@ function MetricInput({
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  // A small label over an underlined number; the line darkens while typing.
   return (
-    <View
-      style={[
-        styles.metric,
-        {
-          backgroundColor: colors.inputBackground,
-          borderColor: focused ? colors.accent : colors.border,
-        },
-      ]}
-    >
+    <View style={styles.metric}>
       <AppText variant="label" tone="textTertiary">
         {label}
       </AppText>
-      <View style={styles.metricRow}>
+      <View
+        style={[
+          styles.metricRow,
+          { borderBottomColor: focused ? colors.text : colors.border },
+        ]}
+      >
         <TextInput
           accessibilityLabel={label}
           value={value}
@@ -144,26 +145,27 @@ export function ProfileRunningScreen() {
         />
       }
       footer={
-        <>
-          <Button
-            title="이전"
-            variant="secondary"
-            style={styles.flex}
-            onPress={navigation.goBack}
-          />
-          <Button
-            title="저장"
-            variant="inverse"
-            disabled={!level || !baseline}
-            loading={saving}
-            style={styles.flex}
-            onPress={save}
-          />
-        </>
+        <OnboardingFooter>
+          <View style={styles.cta}>
+            <IconButton
+              icon="back"
+              accessibilityLabel="이전"
+              diameter={54}
+              onPress={navigation.goBack}
+            />
+            <GoButton
+              title="저장"
+              disabled={!level || !baseline || saving}
+              onPress={save}
+            />
+          </View>
+          <PageDots count={2} current={1} />
+        </OnboardingFooter>
       }
     >
       <StepTitle
-        title={'평소 어떻게\n달리나요?'}
+        title="평소 어떻게 "
+        muted="달리나요?"
         description="거리와 횟수가 둘 다 맞지 않아도 괜찮아요 · 더 가까운 쪽을 골라 주세요"
       />
       {failed ? (
@@ -179,23 +181,26 @@ export function ProfileRunningScreen() {
             selected={level === option.value}
             onPress={() => setLevel(option.value)}
             accessibilityLabel={`${option.title}, ${option.detail.replace('\n', ' ')}`}
-            style={styles.flex}
+            style={styles.level}
           >
-            <AppText
-              variant="heading"
-              tone={level === option.value ? 'accentText' : 'text'}
-            >
-              {option.title}
-            </AppText>
-            <AppText variant="label" tone="textTertiary">
+            <AppText variant="bodyMedium">{option.title}</AppText>
+            <AppText variant="label" tone="textSecondary">
               {option.detail}
             </AppText>
           </SelectionCard>
         ))}
       </View>
-      <Card style={styles.pace}>
+      <View
+        style={[
+          styles.pace,
+          {
+            backgroundColor: colors.inputBackground,
+            borderColor: colors.inputEdge,
+          },
+        ]}
+      >
         <View style={styles.paceHeader}>
-          <AppText variant="bodyStrong">평소 페이스</AppText>
+          <AppText variant="bodyMedium">평소 페이스</AppText>
           <Segmented
             compact
             options={paceInputs}
@@ -223,12 +228,9 @@ export function ProfileRunningScreen() {
             keyboardType="numbers-and-punctuation"
           />
         </View>
-        <View style={[styles.auto, { backgroundColor: colors.surfaceMuted }]}>
-          <AppText variant="captionStrong" tone="accentText">
-            자동 계산
-          </AppText>
+        <View style={[styles.auto, { borderTopColor: colors.border }]}>
           <AppText variant="caption" tone="textSecondary" style={styles.flex}>
-            {input === 'duration' ? '페이스' : '완주 시간'}
+            자동 계산 · {input === 'duration' ? '페이스' : '완주 시간'}
           </AppText>
           <AppText variant="metric">
             {baseline
@@ -245,7 +247,7 @@ export function ProfileRunningScreen() {
               : '거리는 km, 페이스는 6:00처럼 입력해 주세요'}
           </AppText>
         ) : null}
-      </Card>
+      </View>
     </Screen>
   );
 }
@@ -253,29 +255,42 @@ export function ProfileRunningScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   levels: { flexDirection: 'row', gap: spacing.md },
-  pace: { gap: spacing.xl },
+  // Level cards keep the title at the top and the distance·frequency at the bottom.
+  level: {
+    flex: 1,
+    minHeight: 104,
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xl,
+  },
+  // 평소 페이스 sits on the same light card as the 1.x fields (DESIGN.md 2-5).
+  pace: {
+    gap: spacing.lg,
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xxl,
+  },
   paceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  inputs: { flexDirection: 'row', gap: spacing.md },
-  metric: {
-    flex: 1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
+  inputs: { flexDirection: 'row', gap: spacing.xl },
+  metric: { flex: 1, gap: spacing.xxs },
+  metricRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
     gap: spacing.xs,
+    borderBottomWidth: 1,
   },
-  metricRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
   metricInput: { flex: 1, padding: 0 },
   auto: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    height: 40,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
   },
+  cta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
 });

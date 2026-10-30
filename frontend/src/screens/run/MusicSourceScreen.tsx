@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { AppText, Icon, IconButton, useToast } from '../../components';
+import { AppText, Icon, ScreenHeader, useToast } from '../../components';
 import {
   useRepositories,
   type MusicService,
@@ -9,9 +9,9 @@ import {
   type MusicSource,
   type MusicState,
 } from '../../data';
-import { radius, spacing, useTheme } from '../../theme';
+import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
 import { MusicSheet } from './musicParts';
-import { ServiceMark } from './parts';
+import { K1Badge, ServiceMark } from './parts';
 
 const statusLabels: Record<MusicServiceStatus, string> = {
   CONNECTED: '연결됨',
@@ -32,6 +32,36 @@ const services: { service: MusicService; name: string }[] = [
   { service: 'SPOTIFY', name: 'Spotify' },
 ];
 
+function SourceRowContent({
+  label,
+  selected,
+  icon,
+  detail,
+  action,
+}: {
+  label: string;
+  selected: boolean;
+  icon: React.ReactNode;
+  detail: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  return (
+    <>
+      {icon}
+      <View style={styles.flex}>
+        <AppText variant="bodyStrong" style={styles.medium}>
+          {label}
+        </AppText>
+        {detail}
+      </View>
+      {action}
+      {selected ? <Icon name="check" color={colors.text} size={20} /> : null}
+    </>
+  );
+}
+
+// The picked row is a white card; the others are black rows with a faint rim (DESIGN.md 2-6 어두운 줄).
 function SourceRow({
   label,
   selected,
@@ -49,7 +79,6 @@ function SourceRow({
   detail: React.ReactNode;
   action?: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="radio"
@@ -57,31 +86,45 @@ function SourceRow({
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
+      style={[styles.row, selected ? styles.picked : styles.dark]}
+    >
+      <ThemeProvider tone={selected ? 'light' : 'dark'}>
+        <SourceRowContent
+          label={label}
+          selected={selected}
+          icon={icon}
+          detail={detail}
+          action={action}
+        />
+      </ThemeProvider>
+    </Pressable>
+  );
+}
+
+// Status chip: grey on the white row, white with coral text when something needs fixing.
+function StatusChip({ status }: { status: MusicServiceStatus }) {
+  const { colors } = useTheme();
+  const connected = status === 'CONNECTED';
+  return (
+    <View
       style={[
-        styles.row,
-        {
-          backgroundColor: selected ? colors.surfaceMuted : colors.surface,
-          borderColor: selected ? colors.accent : colors.border,
-        },
+        styles.status,
+        connected ? { backgroundColor: colors.surfaceMuted } : styles.statusFix,
       ]}
     >
-      {icon}
-      <View style={styles.flex}>
-        <AppText variant="bodyStrong">{label}</AppText>
-        {detail}
-      </View>
-      {action}
-      {selected ? (
-        <Icon name="check" color={colors.accentText} size={18} />
-      ) : null}
-    </Pressable>
+      <AppText
+        variant="label"
+        style={connected ? undefined : styles.statusFixText}
+      >
+        {statusLabels[status]}
+      </AppText>
+    </View>
   );
 }
 
 // 2.8 음원 선택 and 2.8b 설치·권한 필요. The pick stays for later runs.
 export function MusicSourceScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { music } = useRepositories();
   const toast = useToast();
   const [state, setState] = useState<MusicState | null>(null);
@@ -106,16 +149,7 @@ export function MusicSourceScreen() {
 
   return (
     <MusicSheet stacked>
-      <View style={styles.header}>
-        <IconButton
-          icon="back"
-          accessibilityLabel="뒤로"
-          onPress={navigation.goBack}
-        />
-        <AppText variant="heading" accessibilityRole="header">
-          음원
-        </AppText>
-      </View>
+      <ScreenHeader symbol title="음원" onBack={navigation.goBack} />
       {!state ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
@@ -130,38 +164,21 @@ export function MusicSourceScreen() {
                 selected={state.source === service}
                 disabled={!connected}
                 onPress={() => choose(service)}
-                icon={<ServiceMark service={service} size={32} />}
-                detail={
-                  <View
-                    style={[
-                      styles.status,
-                      {
-                        backgroundColor: connected
-                          ? colors.accentSoft
-                          : colors.dangerSurface,
-                      },
-                    ]}
-                  >
-                    <AppText
-                      variant="labelStrong"
-                      tone={connected ? 'text' : 'danger'}
-                    >
-                      {statusLabels[status]}
-                    </AppText>
-                  </View>
+                icon={
+                  <K1Badge diameter={44}>
+                    <ServiceMark service={service} size={26} mono />
+                  </K1Badge>
                 }
+                detail={<StatusChip status={status} />}
                 action={
                   connected ? null : (
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`${name} ${fixLabels[status]}`}
                       onPress={() => fix(service)}
-                      style={[
-                        styles.fix,
-                        { backgroundColor: colors.surfaceMuted },
-                      ]}
+                      style={styles.fix}
                     >
-                      <AppText variant="captionStrong">
+                      <AppText variant="captionStrong" style={styles.fixText}>
                         {fixLabels[status]}
                       </AppText>
                     </Pressable>
@@ -176,21 +193,19 @@ export function MusicSourceScreen() {
             disabled={false}
             onPress={() => choose('NONE')}
             icon={
-              <View
-                style={[styles.none, { backgroundColor: colors.surfaceMuted }]}
-              >
-                <Icon name="musicOff" color={colors.textSecondary} size={16} />
-              </View>
+              <K1Badge diameter={44}>
+                <Icon name="musicOff" color={k1.ice} size={18} />
+              </K1Badge>
             }
             detail={
-              <AppText variant="label" tone="textTertiary">
+              <AppText variant="label" tone="textSecondary">
                 러닝 중 플레이어를 숨겨요
               </AppText>
             }
           />
         </View>
       )}
-      <AppText variant="label" tone="textTertiary" style={styles.note}>
+      <AppText variant="label" tone="textSecondary" style={styles.note}>
         고른 음원은 다음 러닝에도 그대로 써요
       </AppText>
     </MusicSheet>
@@ -199,43 +214,38 @@ export function MusicSourceScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, gap: spacing.xs },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.xl,
-  },
+  medium: { fontFamily: fontFamily.medium },
   loading: { padding: spacing.xxxl },
-  list: { paddingHorizontal: spacing.xl, gap: spacing.md },
+  list: {
+    paddingHorizontal: spacing.xl,
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xl,
-    padding: spacing.xl,
-    borderRadius: radius.lg,
+    padding: 16,
+    borderRadius: 24,
     borderWidth: 1,
   },
+  picked: { backgroundColor: '#FFFFFF', borderColor: 'transparent' },
+  dark: { backgroundColor: k1.night, borderColor: 'rgba(232,238,244,0.18)' },
   status: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xxs,
-    borderRadius: radius.xs,
+    paddingVertical: 2,
+    borderRadius: 999,
   },
+  statusFix: { backgroundColor: '#FFFFFF' },
+  statusFixText: { color: k1.coralText },
   fix: {
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
+    paddingVertical: spacing.md,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
   },
-  none: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  note: {
-    textAlign: 'center',
-    marginTop: 'auto',
-    paddingVertical: spacing.xl,
-  },
+  fixText: { color: k1.night },
+  // Right under the list, so it stays on the light part of the card.
+  note: { textAlign: 'center', paddingVertical: spacing.xl },
 });

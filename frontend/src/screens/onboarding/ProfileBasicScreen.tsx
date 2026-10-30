@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Button, Screen, TextField } from '../../components';
+import { AppText, IconButton, Screen, TextField } from '../../components';
 import { errorCode, useRepositories, type Gender } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing } from '../../theme';
 import {
   ErrorNotice,
+  GoButton,
+  OnboardingFooter,
   OnboardingHeader,
-  Segmented,
+  PageDots,
   SelectField,
+  SelectionCard,
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
@@ -111,29 +114,30 @@ export function ProfileBasicScreen() {
         <OnboardingHeader onBack={back} step={{ current: 1, total: 2 }} />
       }
       footer={
-        <>
-          {back ? (
-            <Button
-              title="이전"
-              variant="secondary"
-              style={styles.flex}
-              onPress={back}
+        <OnboardingFooter>
+          <View style={styles.cta}>
+            {back ? (
+              <IconButton
+                icon="back"
+                accessibilityLabel="이전"
+                diameter={54}
+                onPress={back}
+              />
+            ) : null}
+            <GoButton
+              title="다음"
+              disabled={!ready || saving}
+              onPress={submit}
             />
-          ) : null}
-          <Button
-            title="다음"
-            variant="inverse"
-            disabled={!ready}
-            loading={saving}
-            style={styles.flex}
-            onPress={submit}
-          />
-        </>
+          </View>
+          <PageDots count={2} current={0} />
+        </OnboardingFooter>
       }
     >
-      <StepTitle title={'어떻게\n불러드릴까요?'} />
+      <StepTitle title="어떻게 " muted="불러드릴까요?" />
       {failure ? <ErrorNotice title={failure} /> : null}
       <TextField
+        labelInside
         label="닉네임"
         value={nickname}
         onChangeText={setNickname}
@@ -147,13 +151,30 @@ export function ProfileBasicScreen() {
         }
       />
       <View style={styles.group}>
-        <AppText variant="captionStrong" tone="textSecondary">
+        <AppText variant="label" tone="textTertiary" style={styles.label}>
           성별
         </AppText>
-        <Segmented options={genders} value={gender} onChange={setGender} />
+        <View accessibilityRole="radiogroup" style={styles.row}>
+          {genders.map(option => {
+            const selected = gender === option.value;
+            return (
+              <SelectionCard
+                key={option.value}
+                selected={selected}
+                onPress={() => setGender(option.value)}
+                accessibilityLabel={option.label}
+                style={styles.gender}
+              >
+                <AppText variant={selected ? 'bodyMedium' : 'body'}>
+                  {option.label}
+                </AppText>
+              </SelectionCard>
+            );
+          })}
+        </View>
       </View>
       <View style={styles.group}>
-        <AppText variant="captionStrong" tone="textSecondary">
+        <AppText variant="label" tone="textTertiary" style={styles.label}>
           생년월일
         </AppText>
         <View style={styles.row}>
@@ -185,7 +206,7 @@ export function ProfileBasicScreen() {
             style={styles.flex}
           />
         </View>
-        <AppText variant="caption" tone="textTertiary">
+        <AppText variant="caption" tone="textSecondary" style={styles.note}>
           성별·생년월일은 심박 구간과 권장 페이스 계산에 쓰여요
         </AppText>
       </View>
@@ -196,6 +217,18 @@ export function ProfileBasicScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   group: { gap: spacing.md },
+  label: { letterSpacing: 1.4, paddingHorizontal: spacing.md },
   row: { flexDirection: 'row', gap: spacing.md },
+  // 성별 is two light pills side by side; the chosen one turns ink (DESIGN.md 2-5).
+  gender: {
+    flex: 1,
+    height: 50,
+    padding: 0,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   year: { flex: 1.4 },
+  note: { paddingHorizontal: spacing.md },
+  cta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
 });

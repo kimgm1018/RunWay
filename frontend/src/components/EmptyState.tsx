@@ -68,12 +68,12 @@ const styles = StyleSheet.create({
   dashed: {
     borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderRadius: radius.xl,
+    borderRadius: radius.card,
   },
   iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,

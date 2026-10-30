@@ -1,0 +1,143 @@
+package com.runway.backend.domain.auth.validation;
+
+import com.runway.backend.domain.auth.dto.SignupRequest;
+import com.runway.backend.global.exception.ApiException;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+@Component
+public class SignupValidator {
+    private static final Set<String> TYPES =
+            Set.of("TERMS_OF_SERVICE", "PERSONAL_INFO", "LOCATION_DATA", "HEALTH_DATA");
+    private final Clock clock;
+
+    public SignupValidator(Clock clock) {
+        this.clock = clock;
+    }
+
+    public Input validate(SignupRequest request) {
+        Object[] values = {
+            request.loginId(),
+            request.password(),
+            request.nickname(),
+            request.birthDate(),
+            request.gender(),
+            request.phoneNumber()
+        };
+        for (Object value : values) {
+            if (!(value instanceof String)) throw invalid("VALIDATION_ERROR");
+        }
+        String loginId = (String) request.loginId();
+        validateLoginId(loginId);
+        String password = (String) request.password();
+        if (!PasswordPolicy.accepts(password)) throw invalid("INVALID_PASSWORD_POLICY");
+        String nickname = (String) request.nickname();
+        if (!text(nickname, 2, 10, false)) throw invalid("INVALID_PROFILE");
+        LocalDate birth;
+        try {
+            String raw = (String) request.birthDate();
+            if (!raw.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) throw invalid("VALIDATION_ERROR");
+            birth = LocalDate.parse(raw);
+        } catch (DateTimeParseException exception) {
+            throw invalid("VALIDATION_ERROR");
+        }
+        if (birth.getYear() < 1 || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC))))
+            throw invalid("INVALID_PROFILE");
+        String gender = (String) request.gender();
+        String phone = (String) request.phoneNumber();
+        if (!Set.of("MALE", "FEMALE").contains(gender) || !phone.matches("010[0-9]{8}"))
+            throw invalid("INVALID_PROFILE");
+        if (request.consents() == null) throw invalid("VALIDATION_ERROR");
+        List<Consent> consents = consents(request.consents());
+        return new Input(loginId, password, nickname, birth, gender, phone, consents);
+    }
+
+    public static void validateLoginId(String loginId) {
+        if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
+            throw invalid("VALIDATION_ERROR");
+    }
+
+    private static List<Consent> consents(Object raw) {
+        if (!(raw instanceof List<?> list) || list.size() != 4) throw invalid("INVALID_CONSENT");
+        var seen = new HashSet<String>();
+        var result = new ArrayList<Consent>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> entry)
+                    || !(entry.get("consentType") instanceof String type)
+                    || !TYPES.contains(type)
+                    || !seen.add(type)
+                    || !(entry.get("granted") instanceof Boolean granted)
+                    || (!type.equals("HEALTH_DATA") && !granted)) throw invalid("INVALID_CONSENT");
+            result.add(new Consent(type, granted));
+        }
+        return List.copyOf(result);
+    }
+
+    private static boolean text(String value, int min, int max, boolean allowSpaces) {
+        int count = 0;
+        for (int offset = 0; offset < value.length(); ) {
+            char first = value.charAt(offset);
+            if (Character.isSurrogate(first)
+                    && (!Character.isHighSurrogate(first)
+                            || offset + 1 >= value.length()
+                            || !Character.isLowSurrogate(value.charAt(offset + 1)))) return false;
+            int point = value.codePointAt(offset);
+            if (Character.isISOControl(point)
+                    || (!allowSpaces
+                            && (Character.isWhitespace(point) || Character.isSpaceChar(point))))
+                return false;
+            count++;
+            if (count > max) return false;
+            offset += Character.charCount(point);
+        }
+        return count >= min;
+    }
+
+    public static ApiException invalid(String code) {
+        HttpStatus status =
+                Set.of("INVALID_PASSWORD_POLICY", "INVALID_CONSENT").contains(code)
+                        ? HttpStatus.UNPROCESSABLE_ENTITY
+                        : HttpStatus.BAD_REQUEST;
+        return new ApiException(status, code, "요청 값이 유효하지 않습니다.");
+    }
+
+    public record Consent(String type, boolean granted) {
+        @Override
+        public String toString() {
+            return "Consent[REDACTED]";
+        }
+    }
+
+    public record Input(
+            String loginId,
+            String password,
+            String nickname,
+            LocalDate birthDate,
+            String gender,
+            String phoneNumber,
+            List<Consent> consents) {
+        public boolean healthGranted() {
+            return consents.stream()
+                    .filter(c -> c.type().equals("HEALTH_DATA"))
+                    .findFirst()
+                    .orElseThrow()
+                    .granted();
+        }
+
+        @Override
+        public String toString() {
+            return "SignupInput[REDACTED]";
+        }
+    }
+}

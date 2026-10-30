@@ -1,0 +1,59 @@
+// dev·master 대상 MR에서 모바일 코드를 검사한다. APK 생성은 별도 작업이다.
+pipeline {
+    agent { label 'mobile' }
+    options {
+        skipDefaultCheckout(true)
+        gitLabConnection('runway-gitlab')
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+    stages {
+        // MR 코드와 대상 브랜치를 합친 뒤 의존성·타입·린트·테스트를 확인한다.
+        stage('Check Mobile') {
+            steps {
+                gitlabCommitStatus(name: 'mobile-ci') {
+                    script {
+                        def mrId = env.gitlabMergeRequestIid
+                        def target = 'dev'
+                        def revision = 'refs/remotes/origin/dev'
+                        if (mrId) {
+                            if (!(mrId ==~ /[0-9]+/)) {
+                                error('잘못된 MR 번호')
+                            }
+                            target = env.gitlabTargetBranch?.trim()
+                            if (!(target in ['dev', 'master'])) {
+                                error('dev 또는 master 대상 MR만 검사합니다.')
+                            }
+                            revision = "refs/remotes/origin/mr/${mrId}"
+                        }
+                        env.CI_MERGE_TARGET = target
+                        // 이 작업의 폴더만 정리한다. 도구·패키지 캐시는 밖에 유지한다.
+                        deleteDir()
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: revision]],
+                            userRemoteConfigs: [[
+                                url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                                credentialsId: 'runway-gitlab-repo',
+                                refspec: '+refs/heads/*:refs/remotes/origin/* +refs/merge-requests/*/head:refs/remotes/origin/mr/*'
+                            ]]
+                        ])
+                    }
+                    sh '''
+                        git -c user.name='RunWay CI' \
+                            -c user.email='ci@runway.invalid' \
+                            merge --no-ff --no-edit "refs/remotes/origin/$CI_MERGE_TARGET"
+                    '''
+                    dir('frontend') {
+                        // 잠금 파일 기준으로 설치하고, 검사 실패를 그대로 CI 실패로 전달한다.
+                        sh 'pnpm install --frozen-lockfile --store-dir /home/jenkins/agent/.pnpm-store'
+                        sh 'pnpm typecheck'
+                        sh 'pnpm lint'
+                        sh 'pnpm test --runInBand'
+                    }
+                }
+            }
+        }
+    }
+}

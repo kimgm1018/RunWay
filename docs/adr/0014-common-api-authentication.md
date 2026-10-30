@@ -8,6 +8,8 @@
 | 관련 | [S15P31E105-191](https://ssafy.atlassian.net/browse/S15P31E105-191), [공통 API 규약](../design/api/README.md), [인증 계약](../design/api/users.md) |
 | 대체 관계 | 대체함: [ADR-0013](0013-jwt-authentication.md) |
 
+저장소 후속 결정: [ADR-0015](0015-redis-refresh-token-store.md)에서 갱신 권한 저장소를 Redis로 구체화한다. 이 문서의 JWT·문서 인증 결정은 유지한다.
+
 ## 맥락
 
 기존 크루·게시글·댓글 API는 클라이언트의 `X-User-Id`를 신뢰한다. 이를 서버가 검증한 사용자 식별로 바꾼다.

@@ -100,7 +100,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '1.2',
     title: '로그인',
     task: ONBOARDING,
-    links: ['PasswordFind', 'signIn'],
+    links: ['PasswordFind', 'SignUp', 'signIn'],
   },
   SignUp: {
     code: '1.3',

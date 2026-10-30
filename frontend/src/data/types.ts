@@ -179,6 +179,73 @@ export type NotificationKind =
   | 'GROUP_RUN_CANCELED'
   | 'FOLLOW_REQUEST';
 
+// 7.x 커뮤니티 (CMT01–CMT11). The 7.3 share card shows heart rate and cadence and the bookmark,
+// share and 코스도 함께 공유 controls follow the K1 sheets; the API has none of these yet.
+
+// The run a post shares, drawn as the 7.1 record card. It is also a 5.1 record row (7.4 lists).
+export type PostRecord = RunRecordSummary & {
+  // 민락수변공원 in 민락수변공원 · 코스 러닝.
+  place: string;
+  courseRun: boolean;
+  averageHeartRate: number | null;
+  cadence: number | null;
+};
+
+// The community name is a handle like seoyun.run; the avatar shows the first letter of the nickname.
+export type PostAuthor = { userId: string; handle: string; nickname: string };
+
+export type Post = {
+  id: string;
+  author: PostAuthor;
+  isMine: boolean;
+  body: string | null;
+  record: PostRecord;
+  courseShared: boolean;
+  createdAt: string;
+  likeCount: number;
+  liked: boolean;
+  commentCount: number;
+  bookmarked: boolean;
+};
+
+export type PostComment = {
+  id: string;
+  author: PostAuthor;
+  body: string;
+  createdAt: string;
+  likeCount: number;
+  liked: boolean;
+};
+
+export type PostDetail = Post & { comments: PostComment[] };
+
+export type FeedScope = 'ALL' | 'FOLLOWING';
+
+// 7.3 기록 공유 and 7.3e 게시물 수정.
+export type PostDraft = { body: string | null; courseShared: boolean };
+
+// 7.4 러너 프로필 and 7.4b 내 프로필 (U21). records are the runner's shared runs, or my recent runs.
+export type RunnerProfile = {
+  userId: string;
+  handle: string;
+  nickname: string;
+  level: SelfReportedLevel;
+  isMe: boolean;
+  followerCount: number;
+  followingCount: number;
+  followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
+  isPrivate: boolean;
+  // 7.4b 팔로우 요청 N건; null on someone else's profile.
+  followRequestCount: number | null;
+  monthly: {
+    runCount: number;
+    totalDistanceM: number;
+    averagePaceSecPerKm: number | null;
+  };
+  // A shared run opens its post (postId); my own runs open 5.2.
+  records: { record: RunRecordSummary; postId: string | null }[];
+};
+
 export type AppNotification = {
   id: string;
   kind: NotificationKind;
@@ -264,6 +331,60 @@ export type MyCrew = {
   area: string;
   memberCount: number;
   membership: 'MEMBER' | 'PENDING';
+};
+
+// 6.1 크루 모집 card (M01). myMembership is null for a crew I have not asked to join.
+export type CrewListItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  area: string;
+  capacity: number;
+  memberCount: number;
+  myMembership: MyCrew['membership'] | null;
+};
+
+// 6.2 구성원 row (M07). Pace is the member's recent average, null before their first run.
+export type CrewMember = {
+  userId: string;
+  nickname: string;
+  isOwner: boolean;
+  isMe: boolean;
+  recentPaceSecPerKm: number | null;
+};
+
+// 6.2a 가입 방식. M03 fixes it to APPROVAL; 바로 가입 follows the K1 sheet and has no API yet.
+export type CrewJoinPolicy = 'APPROVAL' | 'INSTANT';
+
+// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy follow
+// the K1 sheets and have no API yet (docs/design/api/crews.md).
+export type CrewDetail = CrewListItem & {
+  joinPolicy: CrewJoinPolicy;
+  amOwner: boolean;
+  members: CrewMember[];
+  // 6.2m 가입 신청 N건, only for the crew leader.
+  pendingRequestCount: number | null;
+};
+
+// 6.3 크루 만들기 (M03). area is the place picked from the search; joinPolicy follows the K1 sheet.
+export type CrewDraft = {
+  name: string;
+  area: string;
+  description: string | null;
+  joinPolicy: CrewJoinPolicy;
+  capacity: number;
+};
+
+// 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
+export type CrewJoinRequest = {
+  userId: string;
+  nickname: string;
+  loginId: string;
+  level: SelfReportedLevel;
+  recent5kPaceSecPerKm: number | null;
+  // 첫 크루: the applicant has never been in a crew.
+  firstCrew: boolean;
+  requestedAt: string;
 };
 
 // A group run as listed on 6.0 and opened on 6.4 (G02·G03).
@@ -492,11 +613,40 @@ export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
 // Read from the watch on the phone, not from the server.
 export type WatchConnection = {
   status: 'connected' | 'disconnected';
+  // 8.1 Galaxy Watch7 · 06:42 동기화.
+  deviceName: string;
+  lastSyncedAt: string | null;
   batteryPercent: number | null;
   permissions: Record<
     'heartRate' | 'location' | 'sleep' | 'activity',
     WatchLinkState
   >;
+};
+
+// 8.1 설정: the app settings (U19) and the account visibility (U13).
+export type LocationRecordingMode = 'ALWAYS' | 'RUNNING_ONLY' | 'OFF';
+
+export type AppSettings = {
+  voiceCoachingEnabled: boolean;
+  bpmGuideEnabled: boolean;
+  locationRecordingMode: LocationRecordingMode;
+  notifications: { groupRun: boolean; community: boolean };
+  isPrivate: boolean;
+};
+
+// 8.2 프로필 수정 (U04·U05 and the running profile U06).
+export type ProfileDetail = BasicProfile & {
+  runningLevel: SelfReportedLevel;
+  baseline: RunningBaseline;
+};
+
+// 8.4 회원탈퇴 확인 (U17): what goes away and the crews I lead, handed to their oldest member.
+export type WithdrawalSummary = {
+  runningRecordCount: number;
+  postCount: number;
+  savedCourseCount: number;
+  connectedDevices: string[];
+  ownedCrews: string[];
 };
 
 export type Repositories = {
@@ -523,6 +673,16 @@ export type Repositories = {
     updateBasic: (profile: BasicProfile) => Promise<void>;
     setRunningLevel: (level: SelfReportedLevel) => Promise<void>;
     setRunningBaseline: (baseline: RunningBaseline) => Promise<void>;
+    getDetail: () => Promise<ProfileDetail>;
+  };
+  settings: {
+    get: () => Promise<AppSettings>;
+    update: (change: Partial<AppSettings>) => Promise<AppSettings>;
+  };
+  // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
+  account: {
+    getWithdrawalSummary: () => Promise<WithdrawalSummary>;
+    withdraw: (password: string) => Promise<void>;
   };
   home: {
     getTodayCondition: () => Promise<TodayCondition>;
@@ -558,6 +718,30 @@ export type Repositories = {
       durationSec: number;
     }) => Promise<{ courseId: string }>;
   };
+  // 6.1–6.3 크루 (M01–M11).
+  crews: {
+    // query matches the crew name or area; nearby keeps crews within 3km of me.
+    search: (request: {
+      query: string;
+      nearby: boolean;
+    }) => Promise<CrewListItem[]>;
+    get: (crewId: string) => Promise<CrewDetail>;
+    // M04: the request waits as PENDING, or makes me a MEMBER at once in a 바로 가입 crew.
+    // A full crew fails with CREW_CAPACITY_EXCEEDED.
+    requestJoin: (crewId: string) => Promise<MyCrew['membership']>;
+    // 6.2m 정원: from the member count up to 200 (M03's limit).
+    updateCapacity: (crewId: string, capacity: number) => Promise<void>;
+    setJoinPolicy: (crewId: string, policy: CrewJoinPolicy) => Promise<void>;
+    listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
+    // M03: I become the leader and the only member.
+    create: (draft: CrewDraft) => Promise<{ id: string }>;
+    // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
+    decideJoinRequest: (
+      crewId: string,
+      userId: string,
+      approve: boolean,
+    ) => Promise<void>;
+  };
   // 6.x 그룹런 (G01–G16).
   groupRuns: {
     listMine: () => Promise<MyGroupRuns>;
@@ -581,6 +765,26 @@ export type Repositories = {
     ) => () => void;
     forceFinish: (groupRunId: string) => Promise<void>;
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
+  };
+  community: {
+    listFeed: (scope: FeedScope) => Promise<Post[]>;
+    get: (postId: string) => Promise<PostDetail>;
+    // The run 7.3 shares: the given record, or my newest one.
+    getShareable: (recordId: string | null) => Promise<PostRecord>;
+    create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
+    update: (postId: string, draft: PostDraft) => Promise<void>;
+    remove: (postId: string) => Promise<void>;
+    setLiked: (postId: string, liked: boolean) => Promise<void>;
+    setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
+    addComment: (postId: string, body: string) => Promise<PostComment>;
+  };
+  // 7.4 · 7.4b (U21–U23). userId null is me.
+  runners: {
+    getProfile: (userId: string | null) => Promise<RunnerProfile>;
+    setFollowing: (
+      userId: string,
+      following: boolean,
+    ) => Promise<RunnerProfile>;
   };
   notifications: {
     list: () => Promise<AppNotification[]>;
@@ -612,5 +816,7 @@ export type Repositories = {
   watch: {
     getConnection: () => Promise<WatchConnection>;
     reconnect: () => Promise<WatchConnection>;
+    // 8.3 연결 해제 (실행 취소 reconnects).
+    disconnect: () => Promise<WatchConnection>;
   };
 };

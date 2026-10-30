@@ -9,16 +9,16 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, IconButton } from '../../components';
+import { AppText, Card, Icon, IconButton } from '../../components';
 import { useRepositories, type MusicState } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import {
-  palette,
-  radius,
+  fontFamily,
+  k1,
   size,
   spacing,
-  typography,
+  ThemeProvider,
   useTheme,
 } from '../../theme';
 import { MockMap } from './MockMap';
@@ -70,13 +70,13 @@ export function PaceBar({
         ) : null}
       </View>
       <View style={styles.paceLabels}>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary">
           {`느림 ${formatPace(slow)}`}
         </AppText>
-        <AppText variant="labelStrong" tone="accentText">
+        <AppText variant="labelStrong">
           {`${goalLabel} ${formatPace(goal)} ±${goalBandSec}″`}
         </AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary">
           {`빠름 ${formatPace(fast)}`}
         </AppText>
       </View>
@@ -95,54 +95,111 @@ function Stat({
 }) {
   return (
     <View style={styles.stat}>
-      <AppText variant="label" tone="textTertiary">
-        {label}
-      </AppText>
-      <AppText variant="metricLarge">
+      <AppText style={styles.statValue}>
         {value}
         {unit ? (
-          <AppText variant="caption" tone="textTertiary">
+          <AppText variant="label" tone="textSecondary">
             {` ${unit}`}
           </AppText>
         ) : null}
+      </AppText>
+      <AppText variant="label" tone="textSecondary">
+        {label}
       </AppText>
     </View>
   );
 }
 
-// One-line player at the very bottom so it never covers the numbers (4.2 미니 플레이어).
+// One-line player at the very bottom so it never covers the numbers (4.2 미니 플레이어),
+// on the dark glass card (DESIGN.md 2-7 진한 유리).
 export function MiniPlayer({ music }: { music: MusicState }) {
-  const { colors } = useTheme();
   const [playing, setPlaying] = useState(music.nowPlaying?.playing ?? false);
   if (!music.nowPlaying) {
     return null;
   }
   return (
-    <View
-      style={[
-        styles.mini,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
-      <AlbumArt index={0} size={32} />
+    <Card variant="deep" style={styles.mini}>
+      <MiniPlayerRow
+        title={music.nowPlaying.title}
+        subtitle={music.nowPlaying.subtitle}
+        playing={playing}
+        onToggle={() => setPlaying(value => !value)}
+      />
+    </Card>
+  );
+}
+
+function MiniPlayerRow({
+  title,
+  subtitle,
+  playing,
+  onToggle,
+}: {
+  title: string;
+  subtitle: string;
+  playing: boolean;
+  onToggle: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.miniRow}>
+      <AlbumArt index={2} size={44} />
       <View style={styles.flex}>
-        <AppText variant="captionStrong" numberOfLines={1}>
-          {music.nowPlaying.title}
+        <AppText variant="bodyMedium" numberOfLines={1}>
+          {title}
         </AppText>
-        <AppText variant="label" tone="textTertiary" numberOfLines={1}>
-          {music.nowPlaying.subtitle}
+        <AppText variant="label" tone="textSecondary" numberOfLines={1}>
+          {subtitle}
         </AppText>
       </View>
       <Icon name="skipBack" color={colors.text} size={14} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={playing ? '음악 일시정지' : '음악 재생'}
-        onPress={() => setPlaying(value => !value)}
+        onPress={onToggle}
         hitSlop={8}
+        style={[styles.miniPlay, { backgroundColor: colors.accent }]}
       >
-        <Icon name={playing ? 'pause' : 'play'} color={colors.text} size={16} />
+        <Icon
+          name={playing ? 'pause' : 'play'}
+          color={colors.onAccent}
+          size={16}
+        />
       </Pressable>
       <Icon name="skipForward" color={colors.text} size={14} />
+    </View>
+  );
+}
+
+// 거리 · 경과 시간 · 남은 거리 on the white see-through card (DESIGN.md 2-7 흰 반투명), read in the light tone.
+function StatsCard({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={styles.stats}>
+      <Svg style={StyleSheet.absoluteFill}>
+        <Defs>
+          <LinearGradient id="statsFill" x1="0.2" y1="0" x2="0.8" y2="1">
+            <Stop offset="0" stopColor="#F0F4F8" stopOpacity={0.95} />
+            <Stop offset="1" stopColor={k1.top} stopOpacity={0.86} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#statsFill)" />
+      </Svg>
+      <ThemeProvider tone="light">{children}</ThemeProvider>
+    </View>
+  );
+}
+
+// The light progress track inside the stats card.
+function Progress({ ratio }: { ratio: number }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.progress, { backgroundColor: colors.border }]}>
+      <View
+        style={[
+          styles.progressFill,
+          { width: `${ratio * 100}%`, backgroundColor: colors.accent },
+        ]}
+      />
     </View>
   );
 }
@@ -150,11 +207,10 @@ export function MiniPlayer({ music }: { music: MusicState }) {
 // 4.2 러닝 진행 (낮) and 4.2N (밤): the run so far on the map, live numbers and pause.
 export function RunProgressScreen() {
   const navigation = useNavigation();
-  const { colors, name } = useTheme();
+  const { colors } = useTheme();
   const { music } = useRepositories();
   const { run, start, pause, resume } = useRunSession();
   const [player, setPlayer] = useState<MusicState | null>(null);
-  const night = name === 'dark';
   const status = useRef(run?.status);
   status.current = run?.status;
   const latest = useRef({ pause, resume });
@@ -222,35 +278,26 @@ export function RunProgressScreen() {
             sample.elapsedSec,
         )
       : null;
-  const fade = night ? colors.background : palette.white;
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
+      {/* The whole screen is the K1 dark map, day and night (DESIGN.md 2-7). */}
       <MockMap
-        night={night}
+        k1Style
+        night
         route={plan?.route}
         trail={trail.length > 0 ? trail : undefined}
-        routeArea={{ top: 230, bottom: 400 }}
+        routeArea={{ top: 275, bottom: 420 }}
       />
-      {/* The map fades into the lower half where the pace sits. */}
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="runFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0.45" stopColor={fade} stopOpacity={0} />
-            <Stop offset="0.62" stopColor={fade} stopOpacity={0.9} />
-            <Stop offset="1" stopColor={fade} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#runFade)" />
-      </Svg>
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.top}>
-          <View style={styles.titleRow}>
-            <View style={[styles.dot, { backgroundColor: colors.danger }]} />
-            <AppText variant="label" tone="textSecondary">
+          {/* Status chip: dark pill, coral dot (DESIGN.md 2-7 상태 칩). */}
+          <View style={styles.chip}>
+            <View style={styles.dot} />
+            <AppText variant="labelStrong">
               {plan
                 ? `${plan.name} ${formatKm(plan.distanceM, 1)}km${
                     plan.rival ? ' · 경쟁 모드' : ''
@@ -266,7 +313,7 @@ export function RunProgressScreen() {
                 )}.${plan.rival.startedAt.slice(8, 10)} 기록보다`}
               </AppText>
               <View
-                style={[styles.rival, { backgroundColor: colors.accentSoft }]}
+                style={[styles.rival, { backgroundColor: colors.surfaceMuted }]}
               >
                 <AppText variant="captionStrong">
                   {rivalGap >= 0
@@ -276,12 +323,7 @@ export function RunProgressScreen() {
               </View>
             </View>
           ) : null}
-          <View
-            style={[
-              styles.stats,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-          >
+          <StatsCard>
             <View style={styles.statRow}>
               <Stat label="거리" value={formatKm(sample.distanceM)} unit="km" />
               <Stat
@@ -301,56 +343,37 @@ export function RunProgressScreen() {
               )}
             </View>
             {total ? (
-              <View
-                style={[styles.progress, { backgroundColor: colors.border }]}
-              >
+              <Progress ratio={Math.min(sample.distanceM / total, 1)} />
+            ) : null}
+          </StatsCard>
+          {guidance && plan ? (
+            <Card variant="deep" style={styles.guide}>
+              <View style={styles.guideRow}>
                 <View
                   style={[
-                    styles.progressFill,
-                    {
-                      width: `${Math.min(sample.distanceM / total, 1) * 100}%`,
-                      backgroundColor: colors.accent,
-                    },
+                    styles.guideIcon,
+                    { backgroundColor: colors.surfaceMuted },
+                    guidance.instruction.includes('오른쪽') && styles.mirror,
                   ]}
-                />
-              </View>
-            ) : null}
-          </View>
-          {guidance && plan ? (
-            <View
-              style={[
-                styles.guide,
-                { backgroundColor: night ? colors.accent : palette.ink },
-              ]}
-            >
-              <View
-                style={guidance.instruction.includes('오른쪽') && styles.mirror}
-              >
-                <Icon
-                  name={
-                    guidance.instruction.includes('직진')
-                      ? 'straight'
-                      : 'turnLeft'
-                  }
-                  color={night ? colors.onAccent : palette.white}
-                  size={22}
-                />
-              </View>
-              <View style={styles.flex}>
-                <AppText
-                  variant="bodyStrong"
-                  style={{ color: night ? colors.onAccent : palette.white }}
                 >
-                  {guidance.instruction}
-                </AppText>
-                <AppText
-                  variant="label"
-                  style={{ color: night ? colors.onAccent : palette.pale }}
-                >
-                  {guidance.detail}
-                </AppText>
+                  <Icon
+                    name={
+                      guidance.instruction.includes('직진')
+                        ? 'straight'
+                        : 'turnLeft'
+                    }
+                    color={colors.text}
+                    size={22}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <AppText variant="bodyStrong">{guidance.instruction}</AppText>
+                  <AppText variant="label" tone="textSecondary">
+                    {guidance.detail}
+                  </AppText>
+                </View>
               </View>
-            </View>
+            </Card>
           ) : null}
           <View style={styles.recenter}>
             <IconButton
@@ -362,27 +385,30 @@ export function RunProgressScreen() {
         </View>
 
         <View style={styles.bottom}>
-          <AppText variant="caption" tone="textSecondary">
-            내 페이스
-          </AppText>
-          <AppText style={styles.pace} accessibilityLabel="내 페이스">
-            {sample.paceSecPerKm === null
-              ? '– –'
-              : formatPace(sample.paceSecPerKm)}
-          </AppText>
-          <AppText variant="caption" tone="textTertiary">
-            {`/km${
-              remaining === null || sample.heartRate === null
-                ? ''
-                : ` · 심박 ${sample.heartRate} bpm`
-            }`}
-          </AppText>
-          {config.goalPaceSecPerKm ? (
-            <PaceBar
-              pace={sample.paceSecPerKm}
-              goal={config.goalPaceSecPerKm}
-            />
-          ) : null}
+          {/* 내 페이스 on the vignette card (DESIGN.md 2-7 비네트). */}
+          <Card variant="vignette" style={styles.paceCard}>
+            <AppText variant="caption" tone="textSecondary">
+              내 페이스
+            </AppText>
+            <AppText style={styles.pace} accessibilityLabel="내 페이스">
+              {sample.paceSecPerKm === null
+                ? '– –'
+                : formatPace(sample.paceSecPerKm)}
+            </AppText>
+            <AppText variant="caption" tone="textSecondary">
+              {`/km${
+                remaining === null || sample.heartRate === null
+                  ? ''
+                  : ` · 심박 ${sample.heartRate} bpm`
+              }`}
+            </AppText>
+            {config.goalPaceSecPerKm ? (
+              <PaceBar
+                pace={sample.paceSecPerKm}
+                goal={config.goalPaceSecPerKm}
+              />
+            ) : null}
+          </Card>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="일시정지"
@@ -407,7 +433,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   layout: { flex: 1, justifyContent: 'space-between' },
   top: {
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingTop: spacing.md,
     gap: spacing.md,
   },
@@ -417,39 +443,59 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  chip: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: 'rgba(2,5,14,0.72)',
+  },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: k1.coral },
   rival: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xxs,
-    borderRadius: radius.pill,
+    borderRadius: 999,
   },
   stats: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xl,
+    borderRadius: 28,
+    overflow: 'hidden',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
     gap: spacing.lg,
   },
   statRow: { flexDirection: 'row' },
-  stat: { flex: 1, alignItems: 'center', gap: spacing.xxs },
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  statValue: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 30,
+    lineHeight: 36,
+  },
   progress: { height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 2 },
-  guide: {
-    flexDirection: 'row',
+  guide: { paddingVertical: 16 },
+  guideRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  guideIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
-    gap: spacing.xl,
-    padding: spacing.xl,
-    borderRadius: radius.xl,
+    justifyContent: 'center',
   },
   // A right turn is the left-turn arrow flipped.
   mirror: { transform: [{ scaleX: -1 }] },
   recenter: { alignItems: 'flex-end' },
   bottom: {
     alignItems: 'center',
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingBottom: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.md,
   },
-  pace: { ...typography.metricHero, fontSize: 72, lineHeight: 80 },
+  paceCard: { alignSelf: 'stretch', alignItems: 'center', gap: spacing.xs },
+  // Big numbers stay Barlow Regular at the sheet's 64.
+  pace: { fontFamily: fontFamily.numberRegular, fontSize: 64, lineHeight: 72 },
   paceBarBlock: {
     alignSelf: 'stretch',
     gap: spacing.sm,
@@ -466,23 +512,20 @@ const styles = StyleSheet.create({
   },
   paceLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   pause: {
-    width: size.buttonLarge + 20,
-    height: size.buttonLarge + 20,
-    borderRadius: (size.buttonLarge + 20) / 2,
+    width: size.buttonLarge + 8,
+    height: size.buttonLarge + 8,
+    borderRadius: (size.buttonLarge + 8) / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.xl,
   },
   pressed: { opacity: 0.8 },
-  mini: {
-    alignSelf: 'stretch',
-    flexDirection: 'row',
+  mini: { alignSelf: 'stretch', paddingVertical: 12, paddingHorizontal: 12 },
+  miniRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  miniPlay: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
-    gap: spacing.xl,
-    marginTop: spacing.xl,
-    padding: spacing.md,
-    paddingRight: spacing.xl,
-    borderRadius: radius.pill,
-    borderWidth: 1,
+    justifyContent: 'center',
   },
 });

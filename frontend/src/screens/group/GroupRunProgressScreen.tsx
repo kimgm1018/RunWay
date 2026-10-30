@@ -8,8 +8,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, Segmented } from '../../components';
+import { AppText, Card, Icon, Segmented } from '../../components';
 import {
   useRepositories,
   type GroupRunLive,
@@ -18,14 +17,7 @@ import {
 import { formatPace } from '../../format';
 import { walkAlong, routeLengthM } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
-import {
-  palette,
-  radius,
-  size,
-  spacing,
-  typography,
-  useTheme,
-} from '../../theme';
+import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
 import { MockMap } from '../run/MockMap';
 import { MiniPlayer, PaceBar } from '../run/RunProgressScreen';
 import { useRunSession } from '../run/RunSession';
@@ -36,44 +28,35 @@ const tabs: { value: Tab; label: string }[] = [
   { value: 'pace', label: '페이스' },
   { value: 'position', label: '위치·간격' },
 ];
-const memberColors = [
-  palette.coral,
-  palette.lavender,
-  palette.periwinkle,
-  palette.pale,
-];
+// The color bar on each member's tag (DESIGN.md 2-10 진행).
+const memberColors = [k1.coral, '#A5B6C8', k1.ice, k1.light];
 
 function LoadAlert({
   alert,
 }: {
   alert: NonNullable<GroupRunLive['loadAlert']>;
 }) {
-  const { colors } = useTheme();
+  // A dark glass banner with a coral 60% rim; the coming pace is the white part (DESIGN.md 2-10 6.6b).
   return (
-    <View
-      accessibilityLiveRegion="assertive"
-      style={[
-        styles.alert,
-        {
-          backgroundColor: colors.dangerSurface,
-          borderColor: colors.dangerBorder,
-        },
-      ]}
-    >
-      <View style={[styles.alertIcon, { borderColor: colors.dangerBorder }]}>
-        <Icon name="heart" color={colors.danger} size={18} />
+    <Card variant="deep" style={styles.alert}>
+      <View accessibilityLiveRegion="assertive" style={styles.alertRow}>
+        <View style={styles.alertIcon}>
+          <Icon name="heart" color={k1.coral} size={18} />
+        </View>
+        <View style={styles.flex}>
+          <AppText variant="bodyStrong" style={styles.coral}>
+            {`멤버 ${alert.memberCount}명 부담 ↑`}
+          </AppText>
+          <AppText variant="caption" tone="textSecondary">
+            {'1분 뒤 그룹 페이스를 '}
+            <AppText variant="captionStrong">
+              {formatPace(alert.nextPaceSecPerKm)}
+            </AppText>
+            로 늦춰요
+          </AppText>
+        </View>
       </View>
-      <View style={styles.flex}>
-        <AppText variant="bodyStrong" tone="danger">
-          {`멤버 ${alert.memberCount}명 부담 ↑`}
-        </AppText>
-        <AppText variant="caption" tone="textSecondary">
-          {`1분 뒤 그룹 페이스를 ${formatPace(
-            alert.nextPaceSecPerKm,
-          )}로 늦춰요`}
-        </AppText>
-      </View>
-    </View>
+    </Card>
   );
 }
 
@@ -84,21 +67,34 @@ function PositionList({
   live: GroupRunLive;
   myPace: number | null;
 }) {
-  const { colors } = useTheme();
   const rows = [...live.members].sort((a, b) => b.gapM - a.gapM);
+  // A dark glass table: 선두·후미 labels, names, distance from me and pace (DESIGN.md 2-10 6.6r).
   return (
-    <View
-      style={[
-        styles.list,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
-      <View style={styles.rowBetween}>
-        <AppText variant="label" tone="textTertiary">
+    <Card variant="deep" style={styles.list}>
+      <PositionRows rows={rows} myPace={myPace} />
+    </Card>
+  );
+}
+
+function PositionRows({
+  rows,
+  myPace,
+}: {
+  rows: GroupRunLive['members'];
+  myPace: number | null;
+}) {
+  const { colors } = useTheme();
+  return (
+    <>
+      <View style={styles.listHead}>
+        <AppText variant="label" tone="textSecondary" style={styles.flex}>
           앞에서부터 · 순위 아님
         </AppText>
-        <AppText variant="label" tone="textTertiary">
-          나와의 거리 · 페이스
+        <AppText variant="label" tone="textSecondary" style={styles.gap}>
+          나와의 거리
+        </AppText>
+        <AppText variant="label" tone="textSecondary" style={styles.listPace}>
+          페이스
         </AppText>
       </View>
       {rows.map((member, index) => {
@@ -116,11 +112,11 @@ function PositionList({
               },
             ]}
           >
-            <AppText variant="label" tone="textTertiary" style={styles.role}>
+            <AppText variant="label" tone="textSecondary" style={styles.role}>
               {role}
             </AppText>
             <View style={[styles.flex, styles.nameLine]}>
-              <AppText variant="bodyStrong">{member.nickname}</AppText>
+              <AppText variant="bodyMedium">{member.nickname}</AppText>
               {member.isMe ? (
                 <View
                   style={[styles.meBadge, { backgroundColor: colors.accent }]}
@@ -134,22 +130,18 @@ function PositionList({
                 </View>
               ) : null}
             </View>
-            <AppText
-              variant="metricSmall"
-              tone="textSecondary"
-              style={styles.gap}
-            >
+            <AppText tone="textSecondary" style={[styles.number, styles.gap]}>
               {member.isMe
                 ? '–'
                 : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(member.gapM)}m`}
             </AppText>
-            <AppText variant="metricSmall" style={styles.listPace}>
+            <AppText style={[styles.number, styles.listPace]}>
               {pace ? formatPace(pace) : '– –'}
             </AppText>
           </View>
         );
       })}
-    </View>
+    </>
   );
 }
 
@@ -160,13 +152,12 @@ export function GroupRunProgressScreen({
   initialTab?: Tab;
 }) {
   const navigation = useNavigation();
-  const { colors, name } = useTheme();
+  const { colors } = useTheme();
   const { groupRuns, music } = useRepositories();
   const { run, start, pause, resume } = useRunSession();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [live, setLive] = useState<GroupRunLive | null>(null);
   const [player, setPlayer] = useState<MusicState | null>(null);
-  const night = name === 'dark';
   const groupRunId = run?.config.groupRunId ?? 'gr-today';
 
   // Opened without a run: start a group run without a course.
@@ -243,15 +234,16 @@ export function GroupRunProgressScreen({
             };
           })
       : undefined;
-  const fade = night ? colors.background : palette.white;
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
+      {/* The whole screen is the K1 dark map, day and night (DESIGN.md 2-10 진행). */}
       <MockMap
-        night={night}
+        k1Style
+        night
         route={route}
         trail={trail.length > 0 ? trail : undefined}
         markers={markers}
@@ -259,24 +251,13 @@ export function GroupRunProgressScreen({
           tab === 'pace' ? { top: 200, bottom: 400 } : { top: 170, bottom: 330 }
         }
       />
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="groupFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={fade} stopOpacity={0.4} />
-            <Stop offset="0.18" stopColor={fade} stopOpacity={0} />
-            <Stop offset="0.48" stopColor={fade} stopOpacity={0} />
-            <Stop offset="0.62" stopColor={fade} stopOpacity={0.9} />
-            <Stop offset="1" stopColor={fade} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#groupFade)" />
-      </Svg>
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.top}>
           {live?.loadAlert ? <LoadAlert alert={live.loadAlert} /> : null}
-          <View style={styles.titleRow}>
-            <View style={[styles.dot, { backgroundColor: colors.accent }]} />
-            <AppText variant="label" tone="textSecondary">
+          {/* Status chip: dark pill, coral dot (DESIGN.md 2-7 상태 칩). */}
+          <View style={styles.chip}>
+            <View style={styles.dot} />
+            <AppText variant="labelStrong">
               {`${config.plan ? `${config.plan.name} · ` : ''}그룹런 ${
                 live?.members.length ?? 1
               }명`}
@@ -294,15 +275,14 @@ export function GroupRunProgressScreen({
               {live.inRange
                 ? '그룹 범위 안이에요 · 선두–후미 '
                 : '그룹 범위를 벗어났어요 · 선두–후미 '}
-              <AppText variant="captionStrong" tone="accentText">
-                {`${live.spreadM}m`}
-              </AppText>
+              <AppText style={styles.spread}>{`${live.spreadM}m`}</AppText>
             </AppText>
           ) : null}
         </View>
         <View style={styles.bottom}>
           {tab === 'pace' ? (
-            <>
+            // 내 페이스 on the vignette card, as on 4.2.
+            <Card variant="vignette" style={styles.paceCard}>
               <AppText variant="caption" tone="textSecondary">
                 내 페이스
               </AppText>
@@ -311,7 +291,7 @@ export function GroupRunProgressScreen({
                   ? '– –'
                   : formatPace(sample.paceSecPerKm)}
               </AppText>
-              <AppText variant="caption" tone="textTertiary">
+              <AppText variant="caption" tone="textSecondary">
                 /km
               </AppText>
               <PaceBar
@@ -320,13 +300,13 @@ export function GroupRunProgressScreen({
                 goalLabel={guide === goal ? '공동 목표' : '지금 안내'}
               />
               {guide !== goal ? (
-                <AppText variant="label" tone="textTertiary">
+                <AppText variant="label" tone="textSecondary">
                   {`지금 안내 ${formatPace(guide)} · 출발 목표 ${formatPace(
                     goal,
                   )}`}
                 </AppText>
               ) : null}
-            </>
+            </Card>
           ) : live ? (
             <PositionList live={live} myPace={sample.paceSecPerKm} />
           ) : null}
@@ -361,62 +341,58 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   layout: { flex: 1, justifyContent: 'space-between' },
   top: {
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingTop: spacing.md,
     gap: spacing.md,
   },
-  titleRow: {
+  chip: {
+    alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: 'rgba(2,5,14,0.72)',
   },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: k1.coral },
   center: { alignItems: 'center' },
   rangeText: { textAlign: 'center' },
-  alert: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    padding: spacing.xl,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-  },
+  spread: { fontFamily: fontFamily.numberSemiBold, fontSize: 14 },
+  alert: { borderColor: 'rgba(226,135,111,0.6)', paddingVertical: 14 },
+  alertRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   alertIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 12,
+    backgroundColor: 'rgba(226,135,111,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  coral: { color: k1.coral },
   bottom: {
     alignItems: 'center',
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingBottom: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.md,
   },
-  pace: { ...typography.metricHero, fontSize: 72, lineHeight: 80 },
+  paceCard: { alignSelf: 'stretch', alignItems: 'center', gap: spacing.xs },
+  // Big numbers stay Barlow Regular at the sheet's 64.
+  pace: { fontFamily: fontFamily.numberRegular, fontSize: 64, lineHeight: 72 },
   pause: {
-    width: size.buttonLarge + 20,
-    height: size.buttonLarge + 20,
-    borderRadius: (size.buttonLarge + 20) / 2,
+    width: size.buttonLarge + 8,
+    height: size.buttonLarge + 8,
+    borderRadius: (size.buttonLarge + 8) / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.xl,
   },
   pressed: { opacity: 0.8 },
-  list: {
-    alignSelf: 'stretch',
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    paddingHorizontal: spacing.xxl,
-    paddingVertical: spacing.xl,
-    gap: spacing.xs,
-  },
-  rowBetween: {
+  list: { alignSelf: 'stretch', gap: spacing.xs, paddingVertical: 14 },
+  listHead: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingLeft: 28 + spacing.md,
     marginBottom: spacing.xs,
   },
   listRow: {
@@ -427,7 +403,8 @@ const styles = StyleSheet.create({
   },
   role: { width: 28 },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  meBadge: { paddingHorizontal: spacing.sm, borderRadius: radius.pill },
-  gap: { width: 72, textAlign: 'right' },
-  listPace: { width: 52, textAlign: 'right' },
+  meBadge: { paddingHorizontal: spacing.md, borderRadius: 999 },
+  number: { fontFamily: fontFamily.numberMedium, fontSize: 15 },
+  gap: { width: 76, textAlign: 'right' },
+  listPace: { width: 56, textAlign: 'right' },
 });

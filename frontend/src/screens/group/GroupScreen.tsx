@@ -266,7 +266,7 @@ function CrewPanel({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${crew.name} 크루 상세`}
-          onPress={() => navigateTo(navigation, 'CrewDetail')}
+          onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
           style={styles.crewName}
         >
           <CrewTile crew={crew} />

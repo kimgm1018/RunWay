@@ -1,8 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText } from '../../components';
+import { AppText, Icon } from '../../components';
 import type { RunRecordSummary } from '../../data';
-import { spacing, useTheme } from '../../theme';
+import { fontFamily, spacing, useTheme } from '../../theme';
 
 const kstOffsetMs = 9 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -50,6 +50,7 @@ export function weekGroups(records: RunRecordSummary[], now: Date) {
 }
 
 // ‹ 2026년 10월 › (5.1·5.3). Without onNext the period is the current one and › is dimmed.
+// The arrows sit in round see-through buttons (DESIGN.md 2-8 5.1 월 요약·5.3 머리).
 export function PeriodStepper({
   label,
   onPrevious,
@@ -62,20 +63,19 @@ export function PeriodStepper({
   large?: boolean;
 }) {
   const { colors } = useTheme();
-  const arrow = large ? styles.arrowLarge : styles.arrow;
+  const round = [styles.round, { backgroundColor: colors.glass }];
   return (
     <View style={styles.stepper}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="이전 기간"
         onPress={onPrevious}
-        hitSlop={10}
+        hitSlop={6}
+        style={round}
       >
-        <AppText variant="title" style={arrow}>
-          ‹
-        </AppText>
+        <Icon name="back" color={colors.text} size={16} />
       </Pressable>
-      <AppText variant={large ? 'display' : 'title'} style={styles.label}>
+      <AppText style={[styles.label, large && styles.labelLarge]}>
         {label}
       </AppText>
       <Pressable
@@ -84,14 +84,14 @@ export function PeriodStepper({
         accessibilityState={{ disabled: !onNext }}
         disabled={!onNext}
         onPress={onNext}
-        hitSlop={10}
+        hitSlop={6}
+        style={round}
       >
-        <AppText
-          variant="title"
-          style={[arrow, !onNext && { color: colors.textDisabled }]}
-        >
-          ›
-        </AppText>
+        <Icon
+          name="forward"
+          color={onNext ? colors.text : colors.textDisabled}
+          size={16}
+        />
       </Pressable>
     </View>
   );
@@ -105,7 +105,19 @@ export const MonthStepper = (props: {
 
 const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  label: { includeFontPadding: false },
-  arrow: { fontSize: 22, lineHeight: 28 },
-  arrowLarge: { fontSize: 28, lineHeight: 34 },
+  round: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
+    fontFamily: fontFamily.regular,
+    fontSize: 20,
+    lineHeight: 28,
+    letterSpacing: -0.4,
+    includeFontPadding: false,
+  },
+  labelLarge: { fontSize: 24, lineHeight: 32 },
 });

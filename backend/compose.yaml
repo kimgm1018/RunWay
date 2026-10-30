@@ -1,6 +1,25 @@
 name: runway-backend-local
 
 services:
+  redis:
+    image: redis:8.2.11@sha256:dae6b6fcd9e26c1e73cf70323f0711d4c1ade5bf40c1dfd9aa24d0fbb57e2309
+    entrypoint: ["/bin/sh", "/etc/runway/entrypoint.sh"]
+    environment:
+      BACKEND_REDIS_USERNAME: ${BACKEND_REDIS_USERNAME:?BACKEND_REDIS_USERNAME is required}
+      BACKEND_REDIS_PASSWORD: ${BACKEND_REDIS_PASSWORD:?BACKEND_REDIS_PASSWORD is required}
+    ports:
+      - "127.0.0.1:6379:6379"
+    mem_limit: 1g
+    volumes:
+      - redis-auth-data:/data
+      - ./redis/redis.conf:/etc/runway/redis.conf:ro
+      - ./redis/entrypoint.sh:/etc/runway/entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$BACKEND_REDIS_PASSWORD\" redis-cli --user \"$$BACKEND_REDIS_USERNAME\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
   db:
     image: postgis/postgis:17-3.6
     environment:
@@ -20,3 +39,4 @@ services:
 
 volumes:
   postgres-data:
+  redis-auth-data:

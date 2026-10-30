@@ -1,0 +1,33 @@
+name: runway-db
+
+services:
+  db:
+    image: postgis/postgis:17-3.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: runway
+      POSTGRES_USER: runway_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_admin_password
+    secrets:
+      - db_admin_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U runway_admin -d runway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  postgres_data:
+    external: true
+    name: runway_postgres_data
+
+secrets:
+  db_admin_password:
+    file: ../../secrets/db-admin-password
+
+networks:
+  default:
+    internal: true

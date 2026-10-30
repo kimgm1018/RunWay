@@ -1,0 +1,32 @@
+{
+  "exp_id": "EXP-20261030-01",
+  "model": "LightGBM GBDT · 시점별 회귀 모델 3개(30·60·120초)",
+  "target": "HR(t0+k) − HR0 를 예측하고 predictor가 HR0를 더해 절대 HR(bpm)로 낸다",
+  "features": "features_v7",
+  "n_features": 253,
+  "history_cells": 48,
+  "split": "fitrec_hr_v2",
+  "seed": 42,
+  "params": {
+    "objective": "regression_l1",
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "min_data_in_leaf": 200,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "num_threads": 20,
+    "seed": 42,
+    "verbosity": -1
+  },
+  "num_rounds": 6000,
+  "best_iteration": {
+    "30": 6000,
+    "60": 6000,
+    "120": 6000
+  },
+  "train_frac": 1.0,
+  "stride": 6,
+  "scaler": "없음 (트리 모델이라 정규화·scaler를 쓰지 않는다)",
+  "missing": "결측은 NaN 그대로 넣는다(LightGBM이 결측 갈래를 학습함)"
+}

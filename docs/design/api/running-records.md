@@ -18,6 +18,12 @@
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
+## 삭제된 운동 기록
+
+[S09](sessions.md#s09-러닝-세션-삭제)로 삭제 표시한 세션은 H01 목록·H06 통계·H07 추이에서 제외한다. H02/H03에서 직접 조회하면 기존 `404 RECORD_NOT_FOUND`를 반환하며 경로·구간·분석 원본을 우회 제공하지 않는다. 새 비교 대상·추천 입력에서도 제외한다.
+
+다른 운동의 기존 비교 참조와 이미 확정된 결과는 소급 변경하지 않는다. 삭제 대상의 상세는 접근 불가로 표시하고 진행 중 비교의 새 안내는 중단하되 현재 운동의 목표·본인 기록은 유지한다. 그룹의 확정 집계와 공용 코스 원본은 S09의 보존 규칙을 따르며 개인 기록 조회 제외와 구분한다.
+
 ## H01 러닝 기록 목록
 
 `GET` `/api/v1/running-records`
@@ -328,7 +334,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `splits` | array | O | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
+| `splits` | array | O | `running_session_splits` 행 목록. `start_distance` 오름차순. 분석 미완료면 빈 배열 또는 분석 객체 null(173절) |
 
 
 **사용 흐름과 응답 판단**
@@ -339,11 +345,11 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `splits[].startDistanceM` | number | O | 해당 구간 시작 거리. |
-| `splits[].endDistanceM` | number | O | 해당 구간 종료 거리. |
-| `splits[].paceSecPerKm` | number / null | O | 구간 페이스. 구간 분할·미완주 구간 처리 계약 확인 필요. |
-| `splits[].averageHeartRate` | number / null | O | 구간 심박. 미측정은 null. |
-| `splits[].averageCadence` | number / null | O | 구간 케이던스. 미측정은 null. |
+| `splits[].startDistanceM` | number | O | `running_session_splits.start_distance` (m). 1km 단위 구간의 시작. |
+| `splits[].endDistanceM` | number | O | `running_session_splits.end_distance` (m). 마지막 구간은 1km 미만일 수 있음. |
+| `splits[].paceSecPerKm` | number / null | O | `running_session_splits.pace`. 구간 페이스(초/km). 불가 시 null. |
+| `splits[].averageHeartRate` | number / null | O | `running_session_splits.average_heart_rate`. 미측정은 null. |
+| `splits[].averageCadence` | number / null | O | `running_session_splits.average_cadence`. 미측정은 null. |
 
 ### 오류 응답
 
@@ -453,10 +459,37 @@
 | `totalDistanceM` | number | O | 누적 거리 (ERD만으로 응답 형식을 확정하지 않음.) |
 | `totalDurationSec` | number | O | 총 시간 (ERD만으로 응답 형식을 확정하지 않음.) |
 | `averagePaceSecPerKm` | number / null | O | 평균 페이스 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `breakdown` | array | O | 요일별(홈 차트)·주별(5.3 주별 거리) 거리 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `heartRateZones` | array | O | 심박 구간 1~5 비율 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `previousPeriod` | object / null | O | 직전 기간 횟수·거리·평균 페이스와 차이 (ERD만으로 응답 형식을 확정하지 않음.) |
+| `breakdown` | array | O | 기간(`period`)별 거리 분포. WEEK=요일, MONTH=주, YEAR=월. |
+| `heartRateZones` | array | O | 심박 구간 1~5 비율(아래 카르보넨 산식). 산정 불가 시 빈 배열. |
+| `previousPeriod` | object / null | O | 직전 동일 길이 기간의 횟수·거리·평균 페이스와 차이. 비교 불가 시 null. |
 
+`breakdown` 항목(확정):
+
+| period | 항목 필드 | 설명 |
+|---|---|---|
+| WEEK | `day` (MON..SUN), `distanceM` | 해당 주의 요일별 누적 거리 |
+| MONTH | `week` (1..), `distanceM` | 해당 월의 주 순서별 누적 거리 |
+| YEAR | `month` (YYYY-MM), `distanceM` | 해당 연의 월별 누적 거리 |
+
+`heartRateZones` 항목: `zone` (1..5), `ratio` (0~1, 해당 기간 심박 샘플 비율).
+
+**심박 Zone 산식 (카르보넨, 확정)**
+
+1. `HRmax`: 조회 기준일에 가장 가까운 `daily_health_metrics.max_heart_rate`. 없으면 `220 - 만 나이`(`users.birth_date`).
+2. `RHR`: 동일 기준으로 `daily_health_metrics.rhr_bpm`.
+3. `HRR = HRmax - RHR`.
+4. 목표 심박 = `(HRR × 운동 강도 %) + RHR`.
+5. Zone 강도: 1=50–60%, 2=60–70%, 3=70–80%, 4=80–90%, 5=90–100%. 경계 bpm은 상위 Zone에 포함한다(예: 60% 경계는 Zone2).
+6. RHR/`HRmax` 산정 불가 또는 기간 내 심박 샘플이 없으면 `heartRateZones`는 `[]`.
+
+**평균 페이스 집계 (확정)**
+
+기간 내 세션의 `running_sessions.average_pace` 중 null이 아닌 값의 산술 평균. 거리·시간은 각각 `total_distance`·`moving_duration` 합산. 페이스 계산 불가면 `averagePaceSecPerKm=null`(횟수 0과 구분).
+
+**기간·시간대 (확정)**
+
+- `period`+`baseDate`로 달력 주/월/년 경계를 잡는다. 주 시작은 월요일.
+- 사용자 timezone 컬럼이 없으므로 MVP 기본 시간대는 `Asia/Seoul`이다.
 
 **사용 흐름과 응답 판단**
 
@@ -493,9 +526,9 @@
 
 ### 미정 사항
 
-- [ ] 심박 구간 경계(최대 심박 계산식) 확정
-- [ ] 요일별/주별 breakdown 단위를 period별로 고정할지
-- [ ] 응답 필드는 ERD 확정 후 갱신
+- [x] 심박 구간 경계(카르보넨 + `daily_health_metrics` / `birth_date`) — 위 산식 확정
+- [x] 요일별/주별/월별 breakdown 단위를 period별로 고정 — WEEK/MONTH/YEAR 매핑 확정
+- [ ] `previousPeriod` 세부 필드명 최종 표기
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
 
 
@@ -568,8 +601,10 @@
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].month` | string (YYYY-MM) | O | 차트의 기준 월. |
-| `items[].averagePaceSecPerKm` | number / null | O | 해당 월 계산 가능 평균페이스. 집계 산식 확인 필요. |
+| `items[].averagePaceSecPerKm` | number / null | O | 해당 월 세션 `average_pace`의 산술 평균. 계산 불가면 null. |
 | `items[].runCount` | integer | O | 해당 월 집계 러닝 수. |
+
+월 경계는 H06과 동일하게 MVP 기본 시간대 `Asia/Seoul`. 기록 없는 월도 `runCount=0`, `averagePaceSecPerKm=null`로 포함한다. `changeSecPerKm`은 첫 달·마지막 달 모두 페이스가 있을 때만 마지막−첫 달 차이, 아니면 null.
 
 ### 오류 응답
 
@@ -604,3 +639,9 @@
 - [ ] H06에 포함할지 별도 API로 둘지
 - [ ] 응답 필드는 ERD 확정 후 갱신
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+
+## 173 종료 후 분석 상태
+
+H02/H03은 analysis={status}만 포함한다. PENDING/PROCESSING/FAILED이면200과 함께 미완료 상태를 표시하고 아직 없는 분석 객체는null이다. READY에서만 최종 분석으로 표시한다. 결과 화면은 분석 상태가 READY로 바뀌면 H02/H03을 다시 조회해 바로 표시한다. 화면 재진입 시에도 현재 상태와 저장된 결과를 조회하며 별도 완료 알림은 보내지 않는다. 조회 자체가 계산·재시도·알림을 실행하지 않는다. 결과는 원본에서 한 번 계산해 덮어써 저장하며 가산하지 않는다. 자동 재시도·분석 버전·실행권·마감 해시를 추가하지 않는다. LEGACY는 과거 저장 통계를 그대로 보여주며 새 종료 확인을 요구하지 않는다. 상세는 [세션 상태](sessions.md#준비코칭종료-후-분석-상태)를 따른다.
+
+PHONE_FALLBACK으로 끝난 운동도 폰 GPS의 경로·거리·경과시간을 저장해 조회한다. recordingMode는 세션의 제어기기/중계기기 관계로 계산한다. analysisStatus=READY는 가능한 결과의 계산 완료이며 워치 자료 전체 수신을 뜻하지 않는다. 심박은 실제 수신 구간만 제공하고 누락·미확정 값은 null/미확인으로 표시한다.

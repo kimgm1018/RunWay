@@ -1,10 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { radius, spacing, useTheme } from '../theme';
+import { fontFamily, radius, spacing, useTheme } from '../theme';
 import { AppText } from './AppText';
 
 // 6.2x 가입 신청 불가, 6.4d 취소 확인, 7.2b 게시물 메뉴: a sheet that rises from the bottom over a dark scrim.
+// It floats 8 away from the screen edges with every corner rounded (DESIGN.md 2-9).
 export function BottomSheet({
   visible,
   onClose,
@@ -52,8 +53,7 @@ export function BottomSheet({
             styles.sheet,
             {
               backgroundColor: colors.surfaceRaised,
-              borderColor: colors.border,
-              paddingBottom: spacing.xxxl + insets.bottom,
+              marginBottom: sheetGap + insets.bottom,
               transform: [
                 {
                   translateY: offset.interpolate({
@@ -65,11 +65,13 @@ export function BottomSheet({
             },
           ]}
         >
-          <View
-            style={[styles.handle, { backgroundColor: colors.borderStrong }]}
-          />
+          <View style={[styles.handle, { backgroundColor: colors.border }]} />
           {title ? (
-            <AppText variant="title" accessibilityRole="header">
+            <AppText
+              variant="title"
+              accessibilityRole="header"
+              style={styles.title}
+            >
               {title}
             </AppText>
           ) : null}
@@ -85,20 +87,24 @@ export function BottomSheet({
   );
 }
 
+const sheetGap = 8;
+
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    borderTopLeftRadius: radius.sheet,
-    borderTopRightRadius: radius.sheet,
-    borderTopWidth: 1,
-    paddingTop: spacing.lg,
-    paddingHorizontal: 20,
+    marginHorizontal: sheetGap,
+    borderRadius: 34,
+    paddingTop: spacing.xl,
+    paddingHorizontal: 22,
+    paddingBottom: spacing.xxxl,
     gap: 14,
   },
   handle: {
     alignSelf: 'center',
-    width: 40,
+    width: 38,
     height: 4,
     borderRadius: radius.pill,
+    marginBottom: spacing.sm,
   },
+  title: { fontFamily: fontFamily.medium },
 });

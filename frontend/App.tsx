@@ -9,16 +9,14 @@ import {
 } from './src/data';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { SessionProvider } from './src/session/SessionProvider';
-import { ThemeProvider, type ThemePreference } from './src/theme';
+import { ThemeProvider } from './src/theme';
 
 export default function App({
   repositories,
   initialSignedIn = false,
-  initialTheme = 'system',
 }: {
   repositories?: Repositories;
   initialSignedIn?: boolean;
-  initialTheme?: ThemePreference;
 }) {
   const data = useMemo(
     () => repositories ?? createRepositories(appConfig.dataSource),
@@ -26,7 +24,7 @@ export default function App({
   );
   return (
     <SafeAreaProvider>
-      <ThemeProvider initialPreference={initialTheme}>
+      <ThemeProvider>
         <DataProvider repositories={data}>
           <SessionProvider initialSignedIn={initialSignedIn}>
             <ToastProvider>

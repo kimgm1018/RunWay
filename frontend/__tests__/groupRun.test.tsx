@@ -113,8 +113,110 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   expect(page).toContain('혼자 달리던 길, 같이 달려 볼까요');
   expect(page).toContain('내 근처 크루 8곳이 모집 중');
   await press(empty, '크루 모집 보러 가기');
-  expect(texts(empty)).toContain('S15P31E105-151');
+  expect(texts(empty)).toContain('모집 중 · 18/30명');
   await act(async () => empty.unmount());
+});
+
+test('6.1 lists open crews before full ones, searches by name or area and widens past 내 근처', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  let page = texts(screen);
+  expect(page).toContain('모집 중 · 18/30명');
+  expect(page.indexOf('남천 회복 조깅')).toBeLessThan(
+    page.indexOf('정원 마감 · 200/200명'),
+  );
+  expect(page).not.toContain('해운대 선셋 런');
+
+  await type(screen, '크루 검색', '해운대');
+  expect(texts(screen)).toContain('내 근처에서 찾지 못했어요');
+  await press(screen, '내 근처');
+  page = texts(screen);
+  expect(page).toContain('해운대 선셋 런');
+  expect(page).not.toContain('모집 중 · 18/30명');
+  await act(async () => screen.unmount());
+});
+
+test('6.2 shows my crew, the leader view (6.2m) and a full crew that cannot take requests (6.2f·6.2x)', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  await press(screen, '광안리 새벽 크루, 모집 중 18/30명');
+  let page = texts(screen);
+  expect(page).toContain('모집 중 18/30 · 승인제');
+  expect(page).toContain('성윤');
+  expect(page).not.toContain('민준 (나)');
+  expect(() =>
+    labelled(screen, '가입한 크루예요 · 내 크루에서 보기'),
+  ).not.toThrow();
+  await press(screen, '구성원 18명 모두 보기');
+  page = texts(screen);
+  expect(page).toContain('민준 (나)');
+  expect(page).toContain('접기');
+
+  await press(screen, '뒤로');
+  await press(screen, '민락 야경 러너스, 모집 중 24/30명');
+  expect(texts(screen)).toContain('가입 신청 2건');
+
+  await press(screen, '뒤로');
+  await press(screen, '수영강 하프 크루, 정원 마감 200/200명');
+  expect(texts(screen)).toContain('정원 마감 200/200');
+  await press(screen, '가입 신청 · 정원 마감');
+  page = texts(screen);
+  expect(page).toContain('정원이 가득 찼어요');
+  await press(screen, '다른 크루 둘러보기');
+  expect(texts(screen)).toContain('원하는 크루가 없나요?');
+  await act(async () => screen.unmount());
+});
+
+test('6.2 sends a join request (6.2b) and 6.0 shows the crew as 승인 대기', async () => {
+  const screen = await openGroup('noCrews');
+  await press(screen, '크루 모집 보러 가기');
+  await press(screen, '광안리 새벽 크루, 모집 중 18/30명');
+  expect(texts(screen)).not.toContain('민준 (나)');
+  await press(screen, '가입 신청');
+  expect(texts(screen)).toContain('가입 신청을 보냈어요');
+  await press(screen, '내 크루로');
+  await settle(100);
+  const page = texts(screen);
+  expect(page).toContain('승인 대기');
+  expect(page).toContain('크루장이 승인하면 그룹런이 보여요');
+  await act(async () => screen.unmount());
+});
+
+test('6.2m saves the capacity and 6.2a approves a request and switches to 바로 가입', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  await press(screen, '민락 야경 러너스, 모집 중 24/30명');
+  expect(texts(screen)).toContain('크루장만 보여요');
+  const save = () => labelled(screen, '저장');
+  expect(save().props.disabled).toBe(true);
+  // Below the 24 members is not allowed.
+  await type(screen, '정원', '20');
+  expect(save().props.disabled).toBe(true);
+  await type(screen, '정원', '26');
+  expect(save().props.disabled).toBe(false);
+  await press(screen, '저장');
+  await settle(50);
+  expect(texts(screen)).toContain('모집 중 24/26 · 승인제');
+
+  await press(screen, '가입 신청 2건');
+  let page = texts(screen);
+  expect(page).toContain('하린 · harin07');
+  expect(page).toContain('중급 · 최근 5km 5′56″ · 3분 전 신청');
+  expect(page).toContain('초급 · 첫 크루 · 10.17 신청');
+  await press(screen, '하린 승인');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('하린님이 크루 멤버가 됐어요');
+  expect(page).toContain('1건');
+  await press(screen, '바로 가입');
+  await settle(50);
+
+  await press(screen, '뒤로');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('모집 중 25/26 · 바로 가입');
+  expect(page).toContain('가입 신청 1건');
+  await act(async () => screen.unmount());
 });
 
 test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e', async () => {
@@ -250,5 +352,30 @@ test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finis
   expect(page).toContain('이번 내 기록은 내 기록 › 그룹런 탭에 남아요');
   await press(screen, '완료');
   expect(texts(screen)).toContain('광안리 새벽 크루');
+  await act(async () => screen.unmount());
+});
+
+test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  await press(screen, '크루 만들기');
+  const create = () => labelled(screen, '크루 만들기');
+  expect(create().props.disabled).toBe(true);
+  await type(screen, '크루 이름', '광안리 주말 러너스');
+  await type(screen, '지역 검색', '광안리');
+  await press(screen, '광안리해수욕장 입구');
+  await press(screen, '모집 인원 늘리기');
+  expect(texts(screen)).toContain('21');
+  expect(create().props.disabled).toBe(false);
+  await press(screen, '크루 만들기');
+  await settle(100);
+  let page = texts(screen);
+  expect(page).toContain('광안리 주말 러너스');
+
+  await press(screen, '광안리 주말 러너스 크루 상세');
+  page = texts(screen);
+  expect(page).toContain('모집 중 1/21 · 승인제');
+  expect(page).toContain('민준 (나)');
+  expect(page).toContain('가입 신청 0건');
   await act(async () => screen.unmount());
 });

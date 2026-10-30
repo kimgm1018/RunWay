@@ -1,11 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Button, Screen, TextField } from '../../components';
+import { AppText, Screen, TextField } from '../../components';
 import { useRepositories, type LoginIdAvailability } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { radius, spacing, useTheme } from '../../theme';
-import { FieldChip, OnboardingHeader, StepTitle } from './parts';
+import {
+  FieldChip,
+  GoButton,
+  OnboardingFooter,
+  OnboardingHeader,
+  StepTitle,
+} from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
 import {
@@ -87,7 +93,7 @@ export function SignUpScreen() {
   const verified = phone.phase === 'verified';
   const codeVisible = phone.phase === 'sent' || phone.phase === 'verifying';
   const phoneChip = verified ? (
-    <FieldChip title="인증 완료" />
+    <FieldChip title="인증 완료" tone="accent" />
   ) : phone.phase === 'idle' ? (
     <FieldChip
       title="인증번호 받기"
@@ -124,24 +130,25 @@ export function SignUpScreen() {
     <Screen
       header={<OnboardingHeader onBack={navigation.goBack} />}
       footer={
-        <Button
-          title="다음"
-          variant="inverse"
-          disabled={!ready}
-          style={styles.flex}
-          onPress={() => {
-            update({
-              loginId,
-              password,
-              phoneNumber: phone.phoneNumber,
-            });
-            navigateTo(navigation, 'Consent');
-          }}
-        />
+        <OnboardingFooter>
+          <GoButton
+            title="다음"
+            disabled={!ready}
+            onPress={() => {
+              update({
+                loginId,
+                password,
+                phoneNumber: phone.phoneNumber,
+              });
+              navigateTo(navigation, 'Consent');
+            }}
+          />
+        </OnboardingFooter>
       }
     >
-      <StepTitle title="계정을 만들어요" />
+      <StepTitle title="계정을 " muted="만들어요" />
       <TextField
+        labelInside
         label="아이디"
         value={loginId}
         onChangeText={setLoginId}
@@ -154,6 +161,7 @@ export function SignUpScreen() {
       />
       <View style={styles.group}>
         <TextField
+          labelInside
           label="비밀번호"
           value={password}
           onChangeText={setPassword}
@@ -171,13 +179,15 @@ export function SignUpScreen() {
               style={[
                 styles.check,
                 {
-                  borderColor: checks[key] ? colors.accent : colors.borderStrong,
+                  backgroundColor: checks[key]
+                    ? colors.inputBackground
+                    : colors.surfaceMuted,
                 },
               ]}
             >
               <AppText
                 variant="label"
-                tone={checks[key] ? 'accentText' : 'textTertiary'}
+                tone={checks[key] ? 'text' : 'textTertiary'}
               >
                 {checks[key] ? '✓ ' : ''}
                 {passwordLabels[key]}
@@ -187,6 +197,7 @@ export function SignUpScreen() {
         </View>
       </View>
       <TextField
+        labelInside
         label="비밀번호 확인"
         value={confirm}
         onChangeText={setConfirm}
@@ -196,6 +207,7 @@ export function SignUpScreen() {
         helper={confirmState.helper}
       />
       <TextField
+        labelInside
         label="전화번호"
         value={formatPhoneNumber(phone.phoneNumber)}
         onChangeText={phone.setPhoneNumber}
@@ -208,6 +220,7 @@ export function SignUpScreen() {
       />
       {codeVisible ? (
         <TextField
+          labelInside
           label="인증번호"
           value={phone.code}
           onChangeText={phone.setCode}
@@ -224,7 +237,7 @@ export function SignUpScreen() {
           accessory={
             <AppText
               variant="metricSmall"
-              tone={phone.expired ? 'danger' : 'accentText'}
+              tone={phone.expired ? 'danger' : 'text'}
               style={styles.timer}
             >
               {formatRemaining(phone.remainingSec)}
@@ -237,14 +250,13 @@ export function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   group: { gap: spacing.md },
   checks: { flexDirection: 'row', gap: spacing.sm },
+  // The password rules of DESIGN.md 2-5: small light pills that fill in once met.
   check: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    borderWidth: 1,
   },
-  timer: { paddingHorizontal: spacing.lg },
+  timer: { paddingHorizontal: spacing.xs },
 });

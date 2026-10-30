@@ -4,6 +4,7 @@ import com.runway.backend.domain.crew.dto.request.CreateCrewRequest;
 import com.runway.backend.domain.crew.dto.request.DecideJoinRequest;
 import com.runway.backend.domain.crew.dto.response.CrewCreateResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDetailResponse;
+import com.runway.backend.domain.crew.dto.response.CrewDissolveResponse;
 import com.runway.backend.domain.crew.dto.response.CrewListResponse;
 import com.runway.backend.domain.crew.dto.response.CrewSummaryResponse;
 import com.runway.backend.domain.crew.dto.response.DecideJoinResponse;
@@ -277,16 +278,69 @@ public class CrewService {
     }
 
     @Transactional
-    public MemberLeaveResponse leave(long userId, long crewId) {
+    public MemberLeaveResponse leave(long userId, long crewId, Long successorUserId) {
+        requireExistingUser(userId);
+        Crew crew = requireActiveCrew(crewId);
+        if (!crew.isOwnedBy(userId)) {
+            if (successorUserId != null) {
+                throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "VALIDATION_ERROR",
+                        "후임 지정은 크루장 탈퇴에만 사용할 수 있습니다.");
+            }
+            CrewMembership membership = requireApprovedMembership(crewId, userId);
+            membership.leave();
+            return MemberLeaveResponse.from(membership);
+        }
+
+        long approvedCount =
+                crewMembershipRepository.countByCrewIdAndStatus(
+                        crewId, CrewMembershipStatus.APPROVED);
+        if (approvedCount <= 1) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "OWNER_CANNOT_LEAVE",
+                    "혼자인 크루장은 탈퇴할 수 없습니다. 크루 해산 API를 사용하세요.");
+        }
+        if (successorUserId == null) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "OWNER_CANNOT_LEAVE",
+                    "크루장은 후임(successorUserId)을 지정한 뒤 탈퇴해야 합니다.");
+        }
+        if (successorUserId.equals(userId)) {
+            throw new ApiException(
+                    HttpStatus.UNPROCESSABLE_CONTENT,
+                    "INVALID_SUCCESSOR",
+                    "후임은 본인이 될 수 없습니다.");
+        }
+        CrewMembership successor = requireApprovedMembership(crewId, successorUserId);
+        CrewMembership ownerMembership = requireApprovedMembership(crewId, userId);
+        crew.transferOwnership(successor.getUserId());
+        ownerMembership.leave();
+        return MemberLeaveResponse.from(ownerMembership);
+    }
+
+    @Transactional
+    public CrewDissolveResponse dissolve(long userId, long crewId) {
         requireExistingUser(userId);
         Crew crew = requireCrew(crewId);
-        if (crew.isOwnedBy(userId)) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "OWNER_CANNOT_LEAVE", "크루장은 권한 이양 없이 탈퇴할 수 없습니다.");
+        requireOwner(crew, userId);
+        if (crew.getStatus() == CrewStatus.INACTIVE) {
+            return CrewDissolveResponse.from(crew);
         }
-        CrewMembership membership = requireApprovedMembership(crewId, userId);
-        membership.leave();
-        return MemberLeaveResponse.from(membership);
+        for (CrewMembership membership :
+                crewMembershipRepository.findByCrewIdAndStatus(
+                        crewId, CrewMembershipStatus.APPROVED)) {
+            membership.leave();
+        }
+        for (CrewMembership membership :
+                crewMembershipRepository.findByCrewIdAndStatus(
+                        crewId, CrewMembershipStatus.PENDING)) {
+            membership.reject();
+        }
+        crew.deactivate();
+        return CrewDissolveResponse.from(crew);
     }
 
     @Transactional

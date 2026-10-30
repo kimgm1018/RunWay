@@ -5,6 +5,7 @@ import type {
   GroupRunParticipant,
   GroupRunResult,
   GroupRunSummary,
+  MyCrew,
   Repositories,
   WaitingRoom,
 } from '../types';
@@ -22,13 +23,13 @@ type Run = GroupRunFixture & {
 export function createGroupRunMock({
   respond,
   tickMs,
-  noCrews,
+  myCrews,
   myRecord,
 }: {
   respond: Respond;
   tickMs: number;
-  // 6.0b 가입한 크루 없음.
-  noCrews: boolean;
+  // The crews I joined or asked to join, kept by the crew mock; none on 6.0b.
+  myCrews: () => MyCrew[];
   // My saved record of a group run, for 6.7.
   myRecord: (
     groupRunId: string,
@@ -48,7 +49,7 @@ export function createGroupRunMock({
   let startTimer: ReturnType<typeof setTimeout> | null = null;
 
   const crewOf = (crewId: string) =>
-    fixtures.crews.find(crew => crew.id === crewId)!;
+    fixtures.crewDirectory.find(crew => crew.id === crewId)!;
   const find = (groupRunId: string) => {
     const run = runs.find(item => item.id === groupRunId);
     if (!run) {
@@ -143,19 +144,25 @@ export function createGroupRunMock({
 
   return {
     listMine: () => {
-      if (noCrews) {
+      const mine = myCrews();
+      if (mine.length === 0) {
         return respond({
           upcoming: null,
           crews: [],
           nearbyRecruiting: fixtures.nearbyRecruiting,
         });
       }
+      const member = new Set(
+        mine.filter(crew => crew.membership === 'MEMBER').map(crew => crew.id),
+      );
       const open = runs.filter(run => run.status !== 'CANCELLED');
-      const upcoming = open.find(run => run.id === 'gr-today' && run.joined);
+      const upcoming = open.find(
+        run => run.id === 'gr-today' && run.joined && member.has(run.crewId),
+      );
       return respond({
         nearbyRecruiting: fixtures.nearbyRecruiting,
         upcoming: upcoming ? summary(upcoming) : null,
-        crews: fixtures.crews.map(crew => ({
+        crews: mine.map(crew => ({
           crew,
           groupRuns:
             crew.membership === 'MEMBER'

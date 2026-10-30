@@ -51,7 +51,7 @@
 - worktree는 도구가 제공하는 생성·연결 기능을 우선한다. 생성·연결·전환이 실패하면 공유 체크아웃에서 구현을 계속하지 않고 원인과 해결에 필요한 조치를 알린다. 미커밋 변경이 섞여 있으면 현재 업무의 변경만 별도 worktree에 복사하고 일치를 검증한 뒤 해당 원본 변경만 정리한다. 전체 stash·reset·clean으로 다른 업무 변경을 이동하거나 제거하지 않는다.
 - `.env`와 실제 인증정보 파일은 worktree로 자동 복사하지 않는다. 필요한 인증정보는 사용자가 worktree별 로컬 설정 또는 환경변수로 주입하며 기존 인증정보 보호 규칙을 따른다. 작업이 남은 worktree는 보존하고, 정리 전에 미커밋·미전송 변경을 확인한다.
 - `master`, `dev`에 직접 Push하지 않는다. 최종 승인·병합은 사람이 한다.
-- 커밋 형식: `<type>(<scope>): <내용>`. scope는 실제 변경 영역 `fe`, `be`, `ai`, `infra`, `docs`를 사용하고 불필요하면 생략한다. 새 scope를 임의로 만들지 않는다. 커밋에 Jira Key는 필수가 아니다.
+- 커밋 형식: `<type>(<scope>): <내용>`. scope는 실제 변경 영역 `fe`, `be`, `ai`, `infra`, `docs`, `wear`를 사용하고 불필요하면 생략한다. 새 scope를 임의로 만들지 않는다. 커밋에 Jira Key는 필수가 아니다.
 - 여러 영역을 함께 변경하는 커밋과 MR은 제목에서 scope를 생략한다. 변경 영역은 MR 본문에 적는다.
 - 작업 MR은 `dev`로 생성한다. 제목은 `[<JIRA-KEY>] <type>(<scope>): <내용>`, 본문은 `.gitlab/merge_request_templates/Default.md`를 따르고 `Closes <JIRA-KEY>`를 넣는다.
 - MR 전 최신 `dev`를 반영하고 충돌 및 관련 검증을 확인한다. 팀 규칙은 Merge commit 방식에 작업 MR squash와 source branch 삭제를 적용한다.

@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.persistence.EntityManagerFactory;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,11 +53,42 @@ class BackendApplicationIntegrationTest {
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(entityManagerFactory.getMetamodel().getEntities()).isNotEmpty();
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().applied()).hasSize(1);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(flyway.info().applied()).hasSize(7);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("7");
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success",
+                                "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND"
+                                        + " success",
+                                Integer.class))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version = '2' AND"
+                                        + " success",
+                                Integer.class))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version = '3' AND"
+                                        + " success",
+                                Integer.class))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='4' AND"
+                                    + " success",
+                                Integer.class))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='5' AND"
+                                    + " success",
+                                Integer.class))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='6' AND"
+                                    + " success",
                                 Integer.class))
                 .isEqualTo(1);
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
@@ -64,13 +96,14 @@ class BackendApplicationIntegrationTest {
         assertThat(
                         jdbc.queryForList(
                                 """
-                SELECT tablename FROM pg_tables
-                WHERE schemaname = 'public'
-                  AND tablename NOT IN ('spatial_ref_sys', 'flyway_schema_history')
-                """,
+                                SELECT tablename FROM pg_tables
+                                WHERE schemaname = 'public'
+                                  AND tablename NOT IN ('spatial_ref_sys', 'flyway_schema_history')
+                                """,
                                 String.class))
                 .containsExactlyInAnyOrder(
                         "sync_batches",
+                        "session_control_events",
                         "daily_readiness",
                         "users",
                         "pace_plans",
@@ -95,7 +128,8 @@ class BackendApplicationIntegrationTest {
                         "user_settings",
                         "user_follows",
                         "notifications",
-                        "running_metric_samples");
+                        "running_metric_samples",
+                        "running_session_splits");
     }
 
     @Test

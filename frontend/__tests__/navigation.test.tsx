@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories } from '../src/data';
@@ -13,7 +13,6 @@ import {
   isSessionAction,
   type RouteName,
 } from '../src/navigation/routes';
-import { darkTheme, lightTheme } from '../src/theme';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -80,7 +79,7 @@ test('every prototype link points at a registered screen', () => {
 
 test('signed-out users move from start through login into the home tab', async () => {
   const screen = await render();
-  expect(texts(screen)).toContain('나만의 길을 달려요');
+  expect(texts(screen)).toContain('RUN YOUR WAY');
   expect(
     screen.root.findAll(node => node.props.accessibilityRole === 'tablist'),
   ).toHaveLength(0);
@@ -117,8 +116,19 @@ test('signed-out users move from start through login into the home tab', async (
 test('watch connection opened from settings returns home instead of signing in', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
-  await press(screen, '1.7 워치 연결');
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, 20)));
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  // 8.3: once disconnected, 연결 opens 1.7, which reconnects the watch.
+  await press(screen, '연결 해제');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  expect(texts(screen)).toContain('연결 해제됨');
+  await press(screen, '연결');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  await act(async () => {
+    screen.root
+      .findAll(node => node.props.accessibilityLabel === '밀어서 다시 연결')[0]
+      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
+  });
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('82%');
   await act(async () => {
     screen.root
@@ -140,28 +150,19 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('광안리 새벽 크루');
   await press(screen, '크루 모집');
-  expect(texts(screen)).toContain('S15P31E105-151');
+  expect(texts(screen)).toContain('원하는 크루가 없나요?');
   await press(screen, '커뮤니티');
-  await press(screen, '7.2 게시물 상세');
-  expect(texts(screen)).toContain('S15P31E105-152');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  expect(texts(screen)).toContain('seoyun.run');
   await act(async () => screen.unmount());
 });
 
-test('settings switches light and dark themes and signs out', async () => {
-  const screen = await render({ initialSignedIn: true, initialTheme: 'dark' });
-  const backgrounds = () =>
-    screen.root
-      .findAll(node => node.props.edges !== undefined)
-      .map(node => StyleSheet.flatten(node.props.style)?.backgroundColor);
+test('settings signs out', async () => {
+  const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
-  expect(backgrounds()).toContain(darkTheme.colors.background);
-  await press(screen, '라이트');
-  expect(backgrounds()).toContain(lightTheme.colors.background);
-  expect(backgrounds()).not.toContain(darkTheme.colors.background);
-  await press(screen, '다크');
-  expect(backgrounds()).not.toContain(lightTheme.colors.background);
-  await press(screen, '로그아웃 → 1.1 시작');
-  expect(texts(screen)).toContain('나만의 길을 달려요');
+  expect(texts(screen)).not.toContain('화면 모드');
+  await press(screen, '로그아웃');
+  expect(texts(screen)).toContain('RUN YOUR WAY');
   await act(async () => screen.unmount());
 });
 

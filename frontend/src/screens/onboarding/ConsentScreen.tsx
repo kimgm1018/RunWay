@@ -3,8 +3,14 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, BottomSheet, Button, Screen } from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, spacing, useTheme } from '../../theme';
-import { CheckCircle, OnboardingHeader, StepTitle } from './parts';
+import { spacing, useTheme } from '../../theme';
+import {
+  CheckCircle,
+  GoButton,
+  OnboardingFooter,
+  OnboardingHeader,
+  StepTitle,
+} from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 
 type ConsentKey = 'terms' | 'personal' | 'location' | 'health';
@@ -37,7 +43,7 @@ const consents: {
   },
 ];
 
-// 1.4 개인정보·데이터 이용 동의
+// 1.4 개인정보·데이터 이용 동의. 전체 동의 is the first row of one light card (DESIGN.md 2-5).
 export function ConsentScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -62,58 +68,50 @@ export function ConsentScreen() {
     <Screen
       header={<OnboardingHeader onBack={navigation.goBack} />}
       footer={
-        <Button
-          title="동의하고 가입하기"
-          variant="inverse"
-          disabled={!requiredDone}
-          style={styles.flex}
-          onPress={() => {
-            update({
-              healthDataAccess: agreed.health ? 'AGREEE' : 'DISAGREE',
-            });
-            navigateTo(navigation, 'ProfileBasic');
-          }}
-        />
+        <OnboardingFooter>
+          <GoButton
+            title="동의하고 가입하기"
+            disabled={!requiredDone}
+            onPress={() => {
+              update({
+                healthDataAccess: agreed.health ? 'AGREEE' : 'DISAGREE',
+              });
+              navigateTo(navigation, 'ProfileBasic');
+            }}
+          />
+        </OnboardingFooter>
       }
     >
       <StepTitle
-        title={'데이터 이용에\n동의해 주세요'}
+        title={'데이터 이용에\n'}
+        muted="동의해 주세요"
         description="위치와 건강 데이터는 코스 추천, 준비도 분석, 페이스 전략에만 써요. 선택 항목은 설정에서 언제든 바꿀 수 있어요."
       />
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityLabel="전체 동의"
-        accessibilityState={{ checked: all }}
-        onPress={toggleAll}
-        style={[
-          styles.all,
-          {
-            backgroundColor: colors.surfaceMuted,
-            borderColor: all ? colors.accent : colors.borderStrong,
-          },
-        ]}
-      >
-        <CheckCircle checked={all} />
-        <AppText variant="bodyStrong">전체 동의</AppText>
-      </Pressable>
       <View
         style={[
           styles.list,
-          { backgroundColor: colors.surface, borderColor: colors.border },
+          {
+            backgroundColor: colors.inputBackground,
+            borderColor: colors.inputEdge,
+          },
         ]}
       >
-        {consents.map((item, index) => {
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityLabel="전체 동의"
+          accessibilityState={{ checked: all }}
+          onPress={toggleAll}
+          style={styles.all}
+        >
+          <CheckCircle checked={all} />
+          <AppText variant="bodyMedium">전체 동의</AppText>
+        </Pressable>
+        {consents.map(item => {
           const label = `[${item.required ? '필수' : '선택'}] ${item.title}`;
           return (
             <View
               key={item.key}
-              style={[
-                styles.row,
-                index > 0 && {
-                  borderTopColor: colors.border,
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                },
-              ]}
+              style={[styles.row, { borderTopColor: colors.border }]}
             >
               <Pressable
                 accessibilityRole="checkbox"
@@ -127,9 +125,9 @@ export function ConsentScreen() {
                 }
                 style={styles.rowMain}
               >
-                <CheckCircle checked={agreed[item.key]} size={20} />
+                <CheckCircle checked={agreed[item.key]} />
                 <View style={styles.flex}>
-                  <AppText variant="bodyStrong">{label}</AppText>
+                  <AppText>{label}</AppText>
                   {item.detail ? (
                     <AppText variant="caption" tone="textTertiary">
                       {item.detail}
@@ -143,7 +141,7 @@ export function ConsentScreen() {
                 hitSlop={8}
                 onPress={() => setViewing(item)}
               >
-                <AppText variant="caption" tone="textSecondary">
+                <AppText variant="caption" tone="textTertiary">
                   보기 ›
                 </AppText>
               </Pressable>
@@ -173,21 +171,24 @@ export function ConsentScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  list: {
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.xs,
+  },
   all: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    height: 52,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: radius.pill,
-    borderWidth: 1,
+    gap: spacing.xl,
+    paddingVertical: spacing.xl,
   },
-  list: { borderRadius: radius.lg, borderWidth: 1, paddingHorizontal: spacing.xl },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.md,
     paddingVertical: spacing.xl,
+    borderTopWidth: 1,
   },
-  rowMain: { flex: 1, flexDirection: 'row', gap: spacing.lg },
+  rowMain: { flex: 1, flexDirection: 'row', gap: spacing.xl },
 });

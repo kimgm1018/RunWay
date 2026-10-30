@@ -75,4 +75,12 @@ public class Crew {
     public boolean isOwnedBy(long userId) {
         return ownerId.equals(userId);
     }
+
+    public void transferOwnership(long newOwnerId) {
+        this.ownerId = newOwnerId;
+    }
+
+    public void deactivate() {
+        this.status = CrewStatus.INACTIVE;
+    }
 }

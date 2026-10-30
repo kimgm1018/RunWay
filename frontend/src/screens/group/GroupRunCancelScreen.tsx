@@ -14,7 +14,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
+  Backdrop,
   BottomSheet,
+  Card,
   Icon,
   IconButton,
   useToast,
@@ -26,7 +28,14 @@ import {
   type Repositories,
 } from '../../data';
 import type { RootStackParamList } from '../../navigation/types';
-import { radius, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  k1,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
 import { formatSchedule, useGroupRunDraft } from './parts';
 
@@ -71,6 +80,9 @@ export function GroupRunCancelScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <IconButton
@@ -78,7 +90,7 @@ export function GroupRunCancelScreen() {
             accessibilityLabel="뒤로"
             onPress={() => navigation.goBack()}
           />
-          <AppText variant="heading" accessibilityRole="header">
+          <AppText style={styles.headerTitle} accessibilityRole="header">
             그룹런 취소
           </AppText>
         </View>
@@ -87,29 +99,19 @@ export function GroupRunCancelScreen() {
         <ActivityIndicator style={styles.loading} />
       ) : (
         <View style={styles.content}>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-          >
-            <AppText variant="captionStrong" tone="accentText">
+          <Card variant="solid" style={styles.card}>
+            <AppText variant="caption" tone="textSecondary">
               {run.crewName}
             </AppText>
-            <AppText variant="title">{run.title}</AppText>
+            <AppText style={styles.title}>{run.title}</AppText>
             <AppText variant="caption" tone="textSecondary">
               {`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
             </AppText>
-          </View>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-          >
+          </Card>
+          <Card variant="solid" style={styles.card}>
             <View style={styles.rowBetween}>
-              <AppText variant="bodyStrong">취소 이유</AppText>
-              <AppText variant="label" tone="textTertiary">
+              <AppText variant="bodyMedium">취소 이유</AppText>
+              <AppText variant="label" tone="textSecondary">
                 하나만 골라요
               </AppText>
             </View>
@@ -130,16 +132,15 @@ export function GroupRunCancelScreen() {
                             backgroundColor: colors.accent,
                             borderColor: colors.accent,
                           }
-                        : {
-                            backgroundColor: colors.surfaceMuted,
-                            borderColor: colors.border,
-                          },
+                        : { borderColor: colors.border },
                     ]}
                   >
                     <AppText
-                      variant="captionStrong"
+                      variant={selected ? 'captionStrong' : 'caption'}
                       style={{
-                        color: selected ? colors.onAccent : colors.text,
+                        color: selected
+                          ? colors.onAccent
+                          : colors.textSecondary,
                       }}
                     >
                       {item.label}
@@ -148,34 +149,26 @@ export function GroupRunCancelScreen() {
                 );
               })}
             </View>
-          </View>
-          <View
-            style={[
-              styles.warning,
-              {
-                backgroundColor: colors.dangerSurface,
-                borderColor: colors.dangerBorder,
-              },
-            ]}
-          >
-            <Icon name="bell" color={colors.danger} size={16} />
-            <AppText variant="caption" tone="textSecondary" style={styles.flex}>
+          </Card>
+          {/* See-through background-color box with a coral 60% rim (DESIGN.md 2-10 취소). */}
+          <View style={[styles.warning, { backgroundColor: colors.glass }]}>
+            <Icon name="bell" color={k1.coral} size={16} />
+            <AppText variant="caption" style={styles.flex}>
               {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
             </AppText>
           </View>
         </View>
       )}
-      <SafeAreaView
-        edges={['bottom']}
-        style={[styles.footer, { backgroundColor: colors.background }]}
-      >
-        <FooterButton
-          title="그룹런 취소하기"
-          danger
-          disabled={!reason}
-          onPress={() => setConfirming(true)}
-        />
-      </SafeAreaView>
+      <ThemeProvider tone="dark">
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <FooterButton
+            title="그룹런 취소하기"
+            dangerOutline
+            disabled={!reason}
+            onPress={() => setConfirming(true)}
+          />
+        </SafeAreaView>
+      </ThemeProvider>
       <BottomSheet visible={confirming} onClose={() => setConfirming(false)}>
         {run ? (
           <View style={styles.sheet}>
@@ -185,9 +178,9 @@ export function GroupRunCancelScreen() {
                 { backgroundColor: colors.dangerSurface },
               ]}
             >
-              <Icon name="alert" color={colors.danger} size={22} />
+              <Icon name="alert" color={k1.coral} size={22} />
             </View>
-            <AppText variant="title">그룹런을 취소할까요?</AppText>
+            <AppText style={styles.sheetTitle}>그룹런을 취소할까요?</AppText>
             <AppText variant="body" tone="textSecondary">
               {`${formatSchedule(run.scheduledAt)} ‘${
                 run.title
@@ -198,10 +191,13 @@ export function GroupRunCancelScreen() {
             <View
               style={[
                 styles.reasonRow,
-                { backgroundColor: colors.surfaceMuted },
+                {
+                  backgroundColor: colors.surfaceRaised,
+                  borderColor: colors.borderStrong,
+                },
               ]}
             >
-              <AppText variant="caption" tone="textTertiary">
+              <AppText variant="caption" tone="textSecondary">
                 취소 이유
               </AppText>
               <AppText variant="captionStrong">{label ?? ''}</AppText>
@@ -236,13 +232,10 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  content: { padding: spacing.screen, gap: spacing.xl },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.sm,
-  },
+  headerTitle: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
+  content: { padding: 14, gap: spacing.lg },
+  card: { gap: spacing.sm },
+  title: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -251,9 +244,9 @@ const styles = StyleSheet.create({
   },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
-    height: 36,
+    height: 38,
     paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     borderWidth: 1,
     justifyContent: 'center',
   },
@@ -261,30 +254,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     padding: spacing.xl,
-    borderRadius: radius.lg,
+    borderRadius: 22,
     borderWidth: 1,
+    borderColor: 'rgba(226,135,111,0.6)',
   },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingBottom: spacing.xl,
   },
   sheet: { gap: spacing.xl },
   sheetIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(226,135,111,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sheetTitle: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
   reasonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: spacing.xl,
-    borderRadius: radius.md,
+    borderRadius: 18,
+    borderWidth: 1,
   },
   sheetButtons: { flexDirection: 'row', gap: spacing.md },
 });

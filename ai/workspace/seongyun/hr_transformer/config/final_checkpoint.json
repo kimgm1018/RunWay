@@ -1,0 +1,14 @@
+{
+ "note": "Model weights are not in Git. Download this file from Hugging Face, check its SHA256, then pass its path to predictor.py / smoke_test.py (--checkpoint). README 13.",
+ "huggingface_repository_url": "https://huggingface.co/AnSeongYun/runway-hr-predictor-transformer",
+ "huggingface_visibility": "private (download needs a Hugging Face account with read access to this repository)",
+ "huggingface_file_url": "https://huggingface.co/AnSeongYun/runway-hr-predictor-transformer/resolve/main/ptv2_sessionctx_v1_seed1729_step130000.pt",
+ "file_name": "ptv2_sessionctx_v1_seed1729_step130000.pt",
+ "sha256": "b1049b04905651886fe2eed9bd2b2ee77126997e8a4e1804992a5361f839c789",
+ "size_bytes": 692017,
+ "format": "runway_hr_predictor_v1 (torch.load weights_only=True)",
+ "model_id": "ptv2_sessionctx_v1_seed1729_step130000",
+ "seed": 1729,
+ "step": 130000,
+ "best_personalized_val_mean_mae": 2.7560
+}

@@ -65,6 +65,8 @@ build/
 target/
 out/
 *.class
+# Local F01 image volume (default runway.images.volume-path)
+backend/data/
 
 # Infrastructure
 **/.terraform/*
@@ -84,3 +86,16 @@ temp/
 # Local watch experiment exports (UUID filenames at repository root)
 /????????-????-????-????-????????????.json
 /watch-exports/
+
+# EC2 runtime data and authentication files (configuration files remain tracked)
+/infra/**/secrets/
+/secrets/
+/infra/certbot/conf/
+/infra/certbot/www/
+/infra/**/backups/
+/backups/
+/infra/backend/app.jar
+*.dump
+
+# EC2 uploaded image binaries
+/data/images/

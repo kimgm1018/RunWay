@@ -15,7 +15,14 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, EmptyState, Icon, IconButton } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  Card,
+  EmptyState,
+  Icon,
+  IconButton,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -32,9 +39,17 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { radius, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  k1,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import { MockMap } from '../run/MockMap';
 import {
+  BottomFade,
   canEnterRoom,
   dDay,
   formatSchedule,
@@ -42,7 +57,6 @@ import {
   InfoLine,
   Initial,
   roomOpensMs,
-  Tag,
   useGroupRunDraft,
 } from './parts';
 
@@ -72,20 +86,16 @@ function Stat({
   unit?: string;
 }) {
   const { colors } = useTheme();
+  // A see-through tile of the background color, label on top and the value at the bottom.
   return (
-    <View
-      style={[
-        styles.stat,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
-      <AppText variant="label" tone="textTertiary">
+    <View style={[styles.stat, { backgroundColor: colors.glass }]}>
+      <AppText variant="label" tone="textSecondary">
         {label}
       </AppText>
-      <AppText variant="metric">
+      <AppText style={styles.statValue}>
         {value}
         {unit ? (
-          <AppText variant="label" tone="textTertiary">
+          <AppText variant="label" tone="textSecondary">
             {` ${unit}`}
           </AppText>
         ) : null}
@@ -95,7 +105,6 @@ function Stat({
 }
 
 function FitLine({ run }: { run: GroupRunDetail }) {
-  const { colors } = useTheme();
   if (!run.myFit) {
     return null;
   }
@@ -107,21 +116,97 @@ function FitLine({ run }: { run: GroupRunDetail }) {
       ? '내 페이스보다 느긋해요'
       : '내 페이스보다 빨라요';
   return (
-    <View
-      style={[
-        styles.card,
-        styles.fit,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
-      <AppText variant="captionStrong" tone="accentText">
-        {verdict}
-      </AppText>
+    <Card style={[styles.card, styles.fit]}>
+      <AppText variant="captionStrong">{verdict}</AppText>
       <AppText variant="caption" tone="textSecondary">
         {`최근 5km 평균 ${formatPace(run.myFit.recentPaceSecPerKm)} · 준비도 ${
           run.myFit.readinessScore
         }`}
       </AppText>
+    </Card>
+  );
+}
+
+// Chips floating at the bottom of the map (DESIGN.md 2-10 상세 위 지도): 참가 n명 is a white chip,
+// D-n and the reason a black 55% chip, 취소됨 coral text on coral 14%.
+function MapChip({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: 'light' | 'dark' | 'danger';
+}) {
+  return (
+    <View
+      style={[
+        styles.chip,
+        tone === 'light'
+          ? styles.chipLight
+          : tone === 'danger'
+          ? styles.chipDanger
+          : styles.chipDark,
+      ]}
+    >
+      <AppText
+        variant="labelStrong"
+        style={
+          tone === 'light'
+            ? styles.chipLightText
+            : tone === 'danger'
+            ? styles.chipDangerText
+            : styles.chipDarkText
+        }
+      >
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
+// The top 400: the K1 dark map with a white course loop, darkening under the status bar and
+// melting into the K1 background at the bottom, with the chips and crew name on it.
+function MapHead({
+  run,
+  cancelled,
+  chips,
+}: {
+  run: GroupRunDetail;
+  cancelled: boolean;
+  chips: React.ReactNode;
+}) {
+  return (
+    <View style={styles.map}>
+      <MockMap
+        k1Style
+        night
+        muted={cancelled}
+        route={run.route ?? undefined}
+        position={run.route ? undefined : run.meetingPosition}
+        routeArea={{ top: 250, bottom: 420 }}
+        positionY={330}
+      />
+      <Svg
+        style={StyleSheet.absoluteFill}
+        width="100%"
+        height="100%"
+        pointerEvents="none"
+      >
+        <Defs>
+          <LinearGradient id="detailFade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={k1.night} stopOpacity={0.6} />
+            <Stop offset="0.2" stopColor={k1.night} stopOpacity={0} />
+            <Stop offset="0.7" stopColor="#C3D1DD" stopOpacity={0} />
+            <Stop offset="1" stopColor="#C3D1DD" stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#detailFade)" />
+      </Svg>
+      <View style={styles.mapLabels}>
+        <View style={styles.tags}>{chips}</View>
+        <AppText variant="captionStrong" tone="textSecondary">
+          {run.crewName}
+        </AppText>
+      </View>
     </View>
   );
 }
@@ -131,7 +216,7 @@ export function GroupRunDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunDetail'>>();
   const groupRunId = route.params?.groupRunId;
-  const { colors, name } = useTheme();
+  const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const { changed } = useGroupRunDraft();
   const detail = useResource(
@@ -203,83 +288,38 @@ export function GroupRunDetailScreen() {
     }
   };
 
+  const chips = cancelled ? (
+    <>
+      <MapChip label="취소됨" tone="danger" />
+      {reason ? <MapChip label={`사유 · ${reason.label}`} tone="dark" /> : null}
+    </>
+  ) : (
+    <>
+      <MapChip label={`참가 ${run.participantCount}명`} tone="light" />
+      <MapChip label={dDay(run.scheduledAt, now)} tone="dark" />
+    </>
+  );
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
+      <StatusBar barStyle="light-content" />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.map}>
-          <MockMap
-            night={name === 'dark'}
-            muted={cancelled}
-            route={run.route ?? undefined}
-            position={run.route ? undefined : run.meetingPosition}
-            routeArea={{ top: 230, bottom: 470 }}
-            positionY={420}
-          />
-          <Svg
-            style={StyleSheet.absoluteFill}
-            width="100%"
-            height="100%"
-            pointerEvents="none"
-          >
-            <Defs>
-              <LinearGradient id="detailFade" x1="0" y1="0" x2="0" y2="1">
-                <Stop
-                  offset="0"
-                  stopColor={colors.background}
-                  stopOpacity={0.5}
-                />
-                <Stop
-                  offset="0.3"
-                  stopColor={colors.background}
-                  stopOpacity={0}
-                />
-                <Stop
-                  offset="0.7"
-                  stopColor={colors.background}
-                  stopOpacity={0.2}
-                />
-                <Stop
-                  offset="1"
-                  stopColor={colors.background}
-                  stopOpacity={1}
-                />
-              </LinearGradient>
-            </Defs>
-            <Rect width="100%" height="100%" fill="url(#detailFade)" />
-          </Svg>
-        </View>
+        <ThemeProvider tone="dark">
+          <MapHead run={run} cancelled={cancelled} chips={chips} />
+        </ThemeProvider>
         <View style={styles.body}>
-          <View style={styles.tags}>
-            {cancelled ? (
-              <>
-                <Tag label="취소됨" tone="danger" />
-                {reason ? (
-                  <Tag label={`사유 · ${reason.label}`} tone="muted" />
-                ) : null}
-              </>
-            ) : (
-              <>
-                <Tag label={`참가 ${run.participantCount}명`} tone="accent" />
-                <Tag label={dDay(run.scheduledAt, now)} tone="muted" />
-              </>
-            )}
-          </View>
-          <AppText variant="captionStrong" tone="accentText">
-            {run.crewName}
-          </AppText>
           <AppText
-            variant="display"
-            style={cancelled && [styles.struck, { color: colors.textTertiary }]}
+            style={[
+              styles.title,
+              cancelled && [styles.struck, { color: colors.textTertiary }],
+            ]}
           >
             {run.title}
           </AppText>
-          <View
-            style={[
-              styles.card,
-              { backgroundColor: colors.surface, borderColor: colors.border },
-            ]}
-          >
+          <Card style={styles.card}>
             <InfoLine
               icon="clock"
               label="날짜·시간"
@@ -309,19 +349,11 @@ export function GroupRunDetailScreen() {
                 />
               </>
             ) : null}
-          </View>
+          </Card>
           {cancelled ? (
             <>
               {run.cancellation?.message ? (
-                <View
-                  style={[
-                    styles.card,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
+                <Card style={styles.card}>
                   <View style={styles.messageHead}>
                     <Initial name={run.cancellation.byNickname} />
                     <AppText variant="bodyStrong" style={styles.flex}>
@@ -329,11 +361,11 @@ export function GroupRunDetailScreen() {
                     </AppText>
                   </View>
                   <AppText variant="body">{run.cancellation.message}</AppText>
-                </View>
+                </Card>
               ) : null}
               <View style={styles.notice}>
-                <Icon name="bell" color={colors.textTertiary} size={14} />
-                <AppText variant="caption" tone="textTertiary">
+                <Icon name="bell" color={colors.textSecondary} size={14} />
+                <AppText variant="caption" tone="textSecondary">
                   {`크루 멤버 ${run.crewMemberCount}명에게 취소 알림을 보냈어요`}
                 </AppText>
               </View>
@@ -359,18 +391,10 @@ export function GroupRunDetailScreen() {
                   value={expectedSec ? formatDuration(expectedSec) : '– –'}
                 />
               </View>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
+              <Card style={styles.card}>
                 <View style={styles.rowBetween}>
                   <AppText variant="bodyStrong">참가자</AppText>
-                  <AppText variant="label" tone="textTertiary">
+                  <AppText variant="label" tone="textSecondary">
                     {`크루 멤버 ${run.crewMemberCount}명 중`}
                   </AppText>
                 </View>
@@ -394,19 +418,10 @@ export function GroupRunDetailScreen() {
                     {`${run.participantCount}명 참가`}
                   </AppText>
                 </View>
-              </View>
+              </Card>
               <FitLine run={run} />
               {run.isHost ? (
-                <View
-                  style={[
-                    styles.card,
-                    styles.hostRow,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
+                <Card style={[styles.card, styles.hostRow]}>
                   <Initial name="나" index={0} size={28} />
                   <AppText
                     variant="caption"
@@ -429,116 +444,128 @@ export function GroupRunDetailScreen() {
                       그룹런 취소
                     </AppText>
                   </Pressable>
-                </View>
+                </Card>
               ) : null}
             </>
           )}
         </View>
       </ScrollView>
-      <SafeAreaView
-        edges={['top']}
-        style={styles.header}
-        pointerEvents="box-none"
-      >
-        <View style={styles.headerRow}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
-          <View style={styles.flex} />
-          {!cancelled ? (
+      <ThemeProvider tone="dark">
+        <SafeAreaView
+          edges={['top']}
+          style={styles.header}
+          pointerEvents="box-none"
+        >
+          <View style={styles.headerRow}>
             <IconButton
-              icon="share"
-              accessibilityLabel="공유"
-              onPress={() => navigateTo(navigation, 'PostWrite')}
+              icon="back"
+              accessibilityLabel="뒤로"
+              onPress={() => navigation.goBack()}
             />
-          ) : null}
-        </View>
-      </SafeAreaView>
-      <SafeAreaView
-        edges={['bottom']}
-        style={[styles.footer, { backgroundColor: colors.background }]}
-      >
-        {cancelled ? (
-          <View style={styles.buttonRow}>
+            <View style={styles.flex} />
+            {!cancelled ? (
+              <IconButton
+                icon="share"
+                accessibilityLabel="공유"
+                onPress={() => navigateTo(navigation, 'PostWrite')}
+              />
+            ) : null}
+          </View>
+        </SafeAreaView>
+        {/* The buttons sit on the black lower part of the K1 background. */}
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <BottomFade />
+          {cancelled ? (
+            <View style={styles.buttonRow}>
+              <FooterButton
+                title="다시 만들기"
+                onPress={() =>
+                  navigation.navigate('GroupRunCreate', { crewId: run.crewId })
+                }
+              />
+              <FooterButton
+                title="내 크루로"
+                primary
+                onPress={() => navigateTo(navigation, 'MyCrews')}
+              />
+            </View>
+          ) : enterable ? (
             <FooterButton
-              title="다시 만들기"
+              title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
+              primary
               onPress={() =>
-                navigation.navigate('GroupRunCreate', { crewId: run.crewId })
+                navigation.navigate('WaitingRoom', { groupRunId: run.id })
               }
             />
-            <FooterButton
-              title="내 크루로"
-              primary
-              onPress={() => navigateTo(navigation, 'MyCrews')}
-            />
-          </View>
-        ) : enterable ? (
-          <FooterButton
-            title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
-            primary
-            onPress={() =>
-              navigation.navigate('WaitingRoom', { groupRunId: run.id })
-            }
-          />
-        ) : (
-          <>
-            {run.joined ? (
-              <AppText
-                variant="caption"
-                tone="textTertiary"
-                style={styles.opens}
-              >
-                {`대기방은 ${formatDotDateWeekday(
-                  new Date(Date.parse(run.scheduledAt) - roomOpensMs),
-                )} ${formatClockTime(
-                  new Date(Date.parse(run.scheduledAt) - roomOpensMs),
-                )}에 열려요`}
-              </AppText>
-            ) : null}
-            {run.isHost ? (
-              // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
-              <FooterButton
-                title="대기방 입장 · 그룹장"
-                primary
-                disabled
-                onPress={() => undefined}
-              />
-            ) : (
-              <FooterButton
-                title={run.joined ? '참가 취소' : '참가하기'}
-                primary={!run.joined}
-                disabled={busy}
-                onPress={toggleJoin}
-              />
-            )}
-          </>
-        )}
-      </SafeAreaView>
+          ) : (
+            <>
+              {run.joined ? (
+                <AppText
+                  variant="caption"
+                  tone="textSecondary"
+                  style={styles.opens}
+                >
+                  {`대기방은 ${formatDotDateWeekday(
+                    new Date(Date.parse(run.scheduledAt) - roomOpensMs),
+                  )} ${formatClockTime(
+                    new Date(Date.parse(run.scheduledAt) - roomOpensMs),
+                  )}에 열려요`}
+                </AppText>
+              ) : null}
+              {run.isHost ? (
+                // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
+                <FooterButton
+                  title="대기방 입장 · 그룹장"
+                  primary
+                  disabled
+                  onPress={() => undefined}
+                />
+              ) : (
+                <FooterButton
+                  title={run.joined ? '참가 취소' : '참가하기'}
+                  primary={!run.joined}
+                  disabled={busy}
+                  onPress={toggleJoin}
+                />
+              )}
+            </>
+          )}
+        </SafeAreaView>
+      </ThemeProvider>
     </View>
   );
 }
 
+// Buttons at the bottom of the group screens (DESIGN.md 2-10). They read the tone they sit in:
+// primary is the solid accent pill, danger the coral fill (6.4d 취소하기), dangerOutline the coral
+// outline (6.4c), and the rest are outlined.
 export function FooterButton({
   title,
   onPress,
   primary = false,
   danger = false,
+  dangerOutline = false,
   disabled = false,
 }: {
   title: string;
   onPress: () => void;
   primary?: boolean;
   danger?: boolean;
+  dangerOutline?: boolean;
   disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const fill = danger
     ? {
-        backgroundColor: colors.danger,
-        borderColor: colors.danger,
+        backgroundColor: k1.coral,
+        borderColor: k1.coral,
         color: colors.onDanger,
+      }
+    : dangerOutline
+    ? {
+        backgroundColor: 'transparent',
+        borderColor: k1.coral,
+        color: k1.coral,
       }
     : primary
     ? {
@@ -547,7 +574,7 @@ export function FooterButton({
         color: colors.onAccent,
       }
     : {
-        backgroundColor: colors.surfaceMuted,
+        backgroundColor: 'transparent',
         borderColor: colors.borderStrong,
         color: colors.text,
       };
@@ -579,7 +606,14 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
   scroll: { paddingBottom: 170 },
-  map: { height: 320, overflow: 'hidden' },
+  map: { height: 400, overflow: 'hidden' },
+  mapLabels: {
+    position: 'absolute',
+    left: spacing.screen,
+    right: spacing.screen,
+    bottom: 64,
+    gap: spacing.md,
+  },
   header: { position: 'absolute', top: 0, left: 0, right: 0 },
   headerRow: {
     height: size.header,
@@ -588,27 +622,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.screen,
   },
   body: {
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     gap: spacing.md,
-    marginTop: -spacing.xxxl,
+    marginTop: -56,
   },
-  tags: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs },
+  title: {
+    fontFamily: fontFamily.medium,
+    fontSize: 26,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  tags: { flexDirection: 'row', gap: spacing.sm },
+  chip: {
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+  },
+  chipLight: { backgroundColor: k1.ice },
+  chipLightText: { color: k1.night },
+  chipDark: { backgroundColor: 'rgba(2,5,14,0.55)' },
+  chipDarkText: { color: k1.ice },
+  chipDanger: { backgroundColor: 'rgba(226,135,111,0.14)' },
+  chipDangerText: { color: k1.coral },
   struck: { textDecorationLine: 'line-through' },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.lg,
-    marginTop: spacing.sm,
-  },
+  card: { gap: spacing.lg },
   divider: { height: StyleSheet.hairlineWidth },
-  stats: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm },
+  stats: { flexDirection: 'row', gap: spacing.md },
   stat: {
     flex: 1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    height: 92,
+    borderRadius: 22,
     padding: spacing.xl,
-    gap: spacing.xxs,
+    justifyContent: 'space-between',
+  },
+  statValue: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 21,
+    lineHeight: 26,
   },
   rowBetween: {
     flexDirection: 'row',
@@ -618,31 +670,22 @@ const styles = StyleSheet.create({
   avatars: { flexDirection: 'row', alignItems: 'center' },
   overlap: { marginRight: -spacing.md, borderWidth: 2 },
   count: { marginLeft: spacing.xxl },
-  fit: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    paddingVertical: spacing.xl,
-  },
-  hostRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.xl,
-  },
+  fit: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  hostRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   messageHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     gap: spacing.md,
@@ -651,8 +694,8 @@ const styles = StyleSheet.create({
   opens: { textAlign: 'center' },
   footerButton: {
     flex: 1,
-    minHeight: size.buttonLarge,
-    borderRadius: radius.pill,
+    minHeight: 54,
+    borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

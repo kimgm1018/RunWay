@@ -32,7 +32,15 @@ import {
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import { palette, radius, size, spacing, useTheme } from '../../theme';
+import {
+  k1,
+  palette,
+  radius,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import { Logo, TextLink } from './parts';
 import { SlideToConfirm } from './SlideToConfirm';
 import { useFinishOnboarding } from './SignUpDraft';
@@ -65,7 +73,7 @@ const faceRatio = 226 / 250;
 const standWidthRatio = 320 / 250;
 const standHeightRatio = 52 / 250;
 
-// The watch on its base. Connected: mint face glow and mint base (1.7); otherwise gray face and coral base (1.8).
+// The watch on its base. Connected: teal face glow and a light base (1.7); otherwise gray face and coral base (1.8).
 function WatchFace({
   connection,
   busy,
@@ -77,11 +85,7 @@ function WatchFace({
   const window = useWindowDimensions();
   const connected = connection?.status === 'connected';
   const waiting = busy || !connection;
-  const tone = waiting
-    ? palette.pale
-    : connected
-    ? palette.mint
-    : palette.coral;
+  const tone = waiting ? palette.pale : connected ? k1.ice : k1.coral;
   // Near the prototype's 250/360 width, capped by height so the 2×2 cards below still fit.
   const watch = Math.min(window.width * 0.7, window.height * 0.3, 340);
   const half = watch / 2;
@@ -153,35 +157,38 @@ function WatchFace({
               fill="url(#face)"
             />
           </Svg>
-          <View style={[StyleSheet.absoluteFill, styles.faceContent]}>
-            {waiting ? (
-              <>
-                <ActivityIndicator color={colors.accent} />
-                <AppText variant="captionStrong" tone="textSecondary">
-                  워치를 찾는 중이에요
-                </AppText>
-              </>
-            ) : (
-              <>
-                <Icon
-                  name={connected ? 'check' : 'close'}
-                  color={tone}
-                  size={26 * scale}
-                  strokeWidth={2.4}
-                />
-                <AppText
-                  variant="captionStrong"
-                  style={{
-                    color: tone,
-                    fontSize: 12 * scale,
-                    lineHeight: 18 * scale,
-                  }}
-                >
-                  {connected ? '연결됨' : '연결 끊김'}
-                </AppText>
-              </>
-            )}
-          </View>
+          {/* The face stays black on the light K1 top, so its text uses the dark tone. */}
+          <ThemeProvider tone="dark">
+            <View style={[StyleSheet.absoluteFill, styles.faceContent]}>
+              {waiting ? (
+                <>
+                  <ActivityIndicator color={colors.accent} />
+                  <AppText variant="captionStrong" tone="textSecondary">
+                    워치를 찾는 중이에요
+                  </AppText>
+                </>
+              ) : (
+                <>
+                  <Icon
+                    name={connected ? 'check' : 'close'}
+                    color={tone}
+                    size={26 * scale}
+                    strokeWidth={2.4}
+                  />
+                  <AppText
+                    variant="captionStrong"
+                    style={{
+                      color: tone,
+                      fontSize: 12 * scale,
+                      lineHeight: 18 * scale,
+                    }}
+                  >
+                    {connected ? '연결됨' : '연결 끊김'}
+                  </AppText>
+                </>
+              )}
+            </View>
+          </ThemeProvider>
         </View>
       </View>
     </View>
@@ -237,7 +244,7 @@ function PermissionCard({
       accessibilityLabel={`${title} ${stateLabels[state]}`}
       style={[
         styles.permission,
-        { backgroundColor: colors.surface, borderColor: colors.border },
+        { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
       ]}
     >
       <AppText variant="heading">{title}</AppText>
@@ -349,55 +356,58 @@ export function WatchConnectScreen() {
           </View>
         ) : null}
       </View>
-      {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
-      <View style={styles.cardsArea}>
-        {error ? (
-          <View style={styles.errorBox}>
-            <AppText variant="caption" tone="danger">
-              워치 상태를 확인하지 못했어요.
-            </AppText>
-            <Button
-              title="다시 시도"
-              variant="secondary"
-              size="small"
-              onPress={failed ? reconnect : loaded.reload}
+      {/* The cards and the slider reach the black lower part of K1, so they use the dark tone. */}
+      <ThemeProvider tone="dark">
+        {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
+        <View style={styles.cardsArea}>
+          {error ? (
+            <View style={styles.errorBox}>
+              <AppText variant="caption" tone="danger">
+                워치 상태를 확인하지 못했어요.
+              </AppText>
+              <Button
+                title="다시 시도"
+                variant="secondary"
+                size="small"
+                onPress={failed ? reconnect : loaded.reload}
+              />
+            </View>
+          ) : connection ? (
+            <View style={styles.permissions}>
+              {permissionRows.map(row => (
+                <View key={row[0].key} style={styles.permissionRow}>
+                  {row.map(item => (
+                    <PermissionCard
+                      key={item.key}
+                      title={item.title}
+                      icon={item.icon}
+                      state={connection.permissions[item.key]}
+                    />
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+        {connected && !busy ? (
+          <SlideToConfirm action="시작하기" icon="watch" onConfirm={finish} />
+        ) : !busy && (connection || error) ? (
+          <View style={styles.retry}>
+            {connection ? (
+              <SlideToConfirm
+                action="다시 연결"
+                icon="refresh"
+                onConfirm={reconnect}
+              />
+            ) : null}
+            <TextLink
+              title="나중에 연결하기"
+              onPress={finish}
+              style={styles.later}
             />
-          </View>
-        ) : connection ? (
-          <View style={styles.permissions}>
-            {permissionRows.map(row => (
-              <View key={row[0].key} style={styles.permissionRow}>
-                {row.map(item => (
-                  <PermissionCard
-                    key={item.key}
-                    title={item.title}
-                    icon={item.icon}
-                    state={connection.permissions[item.key]}
-                  />
-                ))}
-              </View>
-            ))}
           </View>
         ) : null}
-      </View>
-      {connected && !busy ? (
-        <SlideToConfirm action="시작하기" icon="watch" onConfirm={finish} />
-      ) : !busy && (connection || error) ? (
-        <View style={styles.retry}>
-          {connection ? (
-            <SlideToConfirm
-              action="다시 연결"
-              icon="refresh"
-              onConfirm={reconnect}
-            />
-          ) : null}
-          <TextLink
-            title="나중에 연결하기"
-            onPress={finish}
-            style={styles.later}
-          />
-        </View>
-      ) : null}
+      </ThemeProvider>
     </Screen>
   );
 }

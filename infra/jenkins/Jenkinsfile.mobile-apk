@@ -1,0 +1,87 @@
+// master Push 후 팀 테스트용 ARM64 APK를 생성·보관한다. 스토어 배포는 수행하지 않는다.
+pipeline {
+    agent { label 'mobile' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+    }
+    stages {
+        // MR에서는 실행하지 않는다. 수동 실행도 master 코드만 사용한다.
+        stage('Checkout Master') {
+            steps {
+                script {
+                    if (env.gitlabMergeRequestIid) {
+                        error('MR 검사는 통합 CI에서 실행합니다.')
+                    }
+                    if (env.gitlabActionType &&
+                        (env.gitlabActionType != 'PUSH' || env.gitlabBranch != 'master')) {
+                        error('자동 APK 배포는 master Push만 허용합니다.')
+                    }
+                    deleteDir()
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: 'refs/remotes/origin/master']],
+                        userRemoteConfigs: [[
+                            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                            credentialsId: 'runway-gitlab-repo',
+                            refspec: '+refs/heads/master:refs/remotes/origin/master'
+                        ]]
+                    ])
+                    env.APK_COMMIT = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+                    currentBuild.description = "master ${env.APK_COMMIT}"
+                }
+            }
+        }
+        // master에 실제 합쳐진 코드로 MR과 같은 검사를 수행한다.
+        stage('Mobile Dependencies') {
+            steps {
+                dir('frontend') {
+                    sh 'pnpm install --frozen-lockfile --store-dir /home/jenkins/agent/.pnpm-store'
+                }
+            }
+        }
+        stage('Mobile Typecheck and Lint') {
+            steps {
+                dir('frontend') {
+                    sh 'pnpm typecheck'
+                    sh 'pnpm lint'
+                }
+            }
+        }
+        stage('Mobile Tests') {
+            steps {
+                dir('frontend') {
+                    sh 'pnpm test --runInBand'
+                }
+            }
+        }
+        // 기존 앱의 디버그 서명을 사용한다. JS가 포함되어 Metro 없이 실행 가능하다.
+        stage('Mobile APK Build') {
+            steps {
+                sh 'sh infra/jenkins/build-mobile-apk.sh'
+            }
+        }
+        // 성공한 APK만 빌드별로 보관한다. 팀원은 Jenkins에서 내려받아 직접 설치한다.
+        stage('Archive APK') {
+            steps {
+                sh '''
+                    mkdir -p artifacts
+                    cp frontend/android/app/build/outputs/apk/debug/app-debug.apk \
+                        "artifacts/runway-master-arm64-${APK_COMMIT}-${BUILD_NUMBER}.apk"
+                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=debug\nabi=arm64-v8a\n' \
+                        "$APK_COMMIT" "$BUILD_NUMBER" > artifacts/build-info.txt
+                '''
+                archiveArtifacts artifacts: 'artifacts/*.apk,artifacts/build-info.txt', fingerprint: true
+            }
+        }
+    }
+    // APK 생성이 실패해도 만들어진 시간·성능 보고서는 확인할 수 있게 남긴다.
+    post {
+        always {
+            archiveArtifacts allowEmptyArchive: true,
+                artifacts: 'frontend/android/build/reports/profile/**'
+        }
+    }
+}

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import Svg, { Line } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import {
   AppText,
   Button,
-  EmptyState,
   Icon,
   Screen,
   ScreenHeader,
@@ -20,40 +20,28 @@ import {
 import { formatRelative, isSameDay } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
-import { palette, radius, spacing, useTheme } from '../../theme';
+import { fontFamily, k1, spacing, useTheme } from '../../theme';
 
-// Each kind's icon, tint and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
-const kinds: Record<
-  NotificationKind,
-  { icon: IconName; tint: string; route: RouteName }
-> = {
-  GROUP_RUN_STARTING: {
-    icon: 'clock',
-    tint: palette.mint,
-    route: 'GroupRunDetail',
-  },
-  CREW_JOIN_APPROVED: {
-    icon: 'userCheck',
-    tint: palette.lavender,
-    route: 'CrewDetail',
-  },
-  CREW_JOIN_REJECTED: {
-    icon: 'userX',
-    tint: palette.coral,
-    route: 'CrewDetail',
-  },
-  POST_COMMENT: { icon: 'community', tint: palette.pale, route: 'PostDetail' },
-  GROUP_RUN_CANCELED: {
-    icon: 'circleX',
-    tint: palette.coral,
-    route: 'GroupRunDetail',
-  },
-  FOLLOW_REQUEST: {
-    icon: 'userPlus',
-    tint: palette.lavender,
-    route: 'RunnerProfile',
-  },
+// Each kind's icon and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
+const kinds: Record<NotificationKind, { icon: IconName; route: RouteName }> = {
+  GROUP_RUN_STARTING: { icon: 'clock', route: 'GroupRunDetail' },
+  CREW_JOIN_APPROVED: { icon: 'userCheck', route: 'CrewDetail' },
+  CREW_JOIN_REJECTED: { icon: 'userX', route: 'CrewDetail' },
+  POST_COMMENT: { icon: 'community', route: 'PostDetail' },
+  GROUP_RUN_CANCELED: { icon: 'circleX', route: 'GroupRunDetail' },
+  FOLLOW_REQUEST: { icon: 'userPlus', route: 'RunnerProfile' },
 };
+
+// 2.9b 알림 없음: 60 ticks between radius 80 and 92 around the 190 ring.
+const ring = 190;
+const ticks = Array.from({ length: 60 }, (_, index) => {
+  const angle = (index * 6 * Math.PI) / 180;
+  const at = (r: number) => ({
+    x: ring / 2 + r * Math.sin(angle),
+    y: ring / 2 - r * Math.cos(angle),
+  });
+  return { from: at(80), to: at(92) };
+});
 
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
@@ -69,46 +57,75 @@ function NotificationRow({
 }) {
   const { colors } = useTheme();
   const kind = kinds[item.kind];
+  // Unread is a white card with a black icon circle; read is a plain line with a coral icon (DESIGN.md 2-6).
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${item.read ? '' : '읽지 않음, '}${item.message}`}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.row,
-        !item.read && {
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-        },
+        item.read
+          ? [styles.readRow, { borderBottomColor: colors.border }]
+          : [styles.card, { backgroundColor: colors.surfaceRaised }],
         pressed && styles.pressed,
       ]}
     >
-      <View style={[styles.icon, { backgroundColor: colors.surfaceMuted }]}>
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            styles.iconTint,
-            { backgroundColor: kind.tint },
-          ]}
+      <View
+        style={[
+          styles.icon,
+          item.read ? styles.readIcon : { backgroundColor: colors.accent },
+        ]}
+      >
+        <Icon
+          name={kind.icon}
+          color={item.read ? k1.coral : colors.onAccent}
+          size={18}
+          strokeWidth={1.6}
         />
-        <Icon name={kind.icon} color={kind.tint} size={16} />
       </View>
       <View style={styles.text}>
         <AppText
-          variant={item.read ? 'caption' : 'captionStrong'}
-          tone={item.read ? 'textSecondary' : 'text'}
+          style={[styles.message, !item.read && styles.messageUnread]}
           numberOfLines={1}
         >
           {item.message}
         </AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary" style={styles.time}>
           {formatRelative(item.createdAt, now)}
         </AppText>
       </View>
-      {item.read ? null : (
-        <View style={[styles.dot, { backgroundColor: colors.accent }]} />
-      )}
+      {item.read ? null : <View style={styles.dot} />}
     </Pressable>
+  );
+}
+
+function EmptyBell() {
+  return (
+    <View style={styles.empty}>
+      <View style={styles.ring}>
+        <Svg width={ring} height={ring} style={StyleSheet.absoluteFill}>
+          {ticks.map(({ from, to }, index) => (
+            <Line
+              key={index}
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+              stroke={k1.night}
+              strokeOpacity={0.5}
+              strokeWidth={1.8}
+            />
+          ))}
+        </Svg>
+        <View style={styles.core}>
+          <Icon name="bell" color={k1.ice} size={28} strokeWidth={1.6} />
+        </View>
+      </View>
+      <AppText style={styles.emptyTitle}>아직 받은 알림이 없어요</AppText>
+      <AppText variant="caption" tone="textSecondary" style={styles.emptyText}>
+        그룹런, 크루, 커뮤니티 소식이 생기면{'\n'}여기에서 알려 드려요.
+      </AppText>
+    </View>
   );
 }
 
@@ -148,6 +165,7 @@ export function NotificationsScreen() {
     <Screen
       header={
         <ScreenHeader
+          symbol
           title="알림"
           onBack={navigation.goBack}
           right={
@@ -184,17 +202,13 @@ export function NotificationsScreen() {
           />
         </View>
       ) : items?.length === 0 ? (
-        <EmptyState
-          icon="bell"
-          title="아직 받은 알림이 없어요"
-          description="그룹런, 크루, 커뮤니티 소식이 생기면 여기에서 알려 드려요."
-        />
+        <EmptyBell />
       ) : (
         groups.map(group => (
-          <View key={group.title} style={styles.group}>
+          <View key={group.title}>
             <AppText
               variant="caption"
-              tone="textTertiary"
+              tone="textSecondary"
               style={styles.groupTitle}
             >
               {group.title}
@@ -215,30 +229,71 @@ export function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  group: { gap: spacing.md },
-  groupTitle: { paddingHorizontal: spacing.xs },
-  row: {
+  groupTitle: {
+    fontFamily: fontFamily.medium,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    marginHorizontal: spacing.xs,
+  },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    marginBottom: spacing.md,
   },
-  pressed: { opacity: 0.7 },
+  readRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: spacing.xs,
+    borderBottomWidth: 1,
+  },
+  pressed: { transform: [{ scale: 0.96 }] },
   icon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
   },
-  iconTint: { opacity: 0.16 },
-  text: { flex: 1, gap: spacing.xxs },
-  dot: { width: 7, height: 7, borderRadius: 4 },
+  // Coral 14% behind a read notification's icon.
+  readIcon: { backgroundColor: 'rgba(226,135,111,0.14)' },
+  text: { flex: 1, gap: 2 },
+  message: { fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 19 },
+  messageUnread: { fontFamily: fontFamily.medium },
+  time: { fontFamily: fontFamily.regular },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: k1.deep },
   emptyContent: { flexGrow: 1, justifyContent: 'center' },
+  empty: { alignItems: 'center', paddingBottom: 60 },
+  ring: {
+    width: ring,
+    height: ring,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  core: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: k1.night,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontFamily: fontFamily.medium,
+    fontSize: 17,
+    lineHeight: 24,
+    marginTop: 26,
+  },
+  emptyText: {
+    fontSize: 12.5,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: spacing.md,
+  },
   error: { alignItems: 'center', gap: spacing.md },
 });

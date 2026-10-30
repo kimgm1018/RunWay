@@ -1,12 +1,19 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Button, Screen, TextField } from '../../components';
+import { AppText, Screen, TextField } from '../../components';
 import { DataError, errorCode, useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { spacing } from '../../theme';
-import { ErrorNotice, HeroBackground, Logo, TextLink } from './parts';
+import {
+  GoButton,
+  InlineError,
+  Logo,
+  OnboardingFooter,
+  OnboardingHeader,
+  TextLink,
+} from './parts';
 
 type Failure = { title: string; detail?: string };
 
@@ -32,7 +39,7 @@ function describe(error: unknown): Failure {
   }
 }
 
-// 1.2 로그인, with the 오류·처리 중 states.
+// 1.2 로그인, with the 오류·처리 중 states. The error sits under the fields in coral (DESIGN.md 2-5).
 export function LoginScreen() {
   const navigation = useNavigation();
   const { auth } = useRepositories();
@@ -61,58 +68,78 @@ export function LoginScreen() {
 
   return (
     <Screen
-      scroll
-      background={<HeroBackground />}
-      contentStyle={styles.content}
+      header={<OnboardingHeader onBack={navigation.goBack} />}
+      footer={
+        <OnboardingFooter>
+          <GoButton
+            title={loading ? '로그인 중' : '로그인'}
+            disabled={loading || !loginId.trim() || !password}
+            onPress={submit}
+          />
+          <View style={styles.signUp}>
+            <AppText variant="caption" tone="textSecondary">
+              처음이신가요? ·
+            </AppText>
+            <TextLink
+              title="회원가입"
+              strong
+              onPress={() => navigateTo(navigation, 'SignUp')}
+            />
+          </View>
+        </OnboardingFooter>
+      }
     >
-      <View style={styles.spacer} />
       <View style={styles.logo}>
-        <Logo width={180} />
+        <Logo width={210} />
       </View>
-      {failure ? (
-        <ErrorNotice title={failure.title} detail={failure.detail} />
-      ) : null}
-      <TextField
-        placeholder="아이디"
-        accessibilityLabel="아이디"
-        value={loginId}
-        onChangeText={setLoginId}
-        autoCapitalize="none"
-        autoCorrect={false}
-        textContentType="username"
-        status={failure ? 'error' : 'default'}
-        returnKeyType="next"
-      />
-      <TextField
-        placeholder="비밀번호"
-        accessibilityLabel="비밀번호"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        textContentType="password"
-        status={failure ? 'error' : 'default'}
-        returnKeyType="done"
-        onSubmitEditing={() => loginId && password && !loading && submit()}
-      />
+      <View style={styles.fields}>
+        <TextField
+          labelInside
+          label="아이디"
+          value={loginId}
+          onChangeText={setLoginId}
+          autoCapitalize="none"
+          autoCorrect={false}
+          textContentType="username"
+          status={failure ? 'error' : 'default'}
+          returnKeyType="next"
+        />
+        <TextField
+          labelInside
+          label="비밀번호"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          textContentType="password"
+          status={failure ? 'error' : 'default'}
+          returnKeyType="done"
+          onSubmitEditing={() => loginId && password && !loading && submit()}
+        />
+        {failure ? (
+          <InlineError>
+            {failure.title}
+            {failure.detail ? ` ${failure.detail}` : ''}
+          </InlineError>
+        ) : null}
+      </View>
       <TextLink
         title="비밀번호를 잊으셨나요?"
         onPress={() => navigateTo(navigation, 'PasswordFind')}
         style={styles.forgot}
-      />
-      <Button
-        title={loading ? '로그인 중' : '로그인'}
-        variant="inverse"
-        loading={loading}
-        disabled={!loginId.trim() || !password}
-        onPress={submit}
       />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { paddingBottom: spacing.xxxl },
-  spacer: { flex: 1, minHeight: spacing.xxxl },
-  logo: { alignItems: 'center', marginBottom: spacing.xxl },
-  forgot: { alignSelf: 'flex-end', marginTop: -spacing.xs },
+  // The wordmark sits a little below the header and well above the fields, as in the K1 draft.
+  logo: { alignItems: 'center', marginTop: 60, marginBottom: 38 },
+  fields: { gap: spacing.lg },
+  forgot: { alignSelf: 'flex-end' },
+  signUp: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
 });

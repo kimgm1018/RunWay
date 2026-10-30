@@ -44,9 +44,9 @@
 ## 앱 문서
 
 - [모바일 앱 안내](frontend/README.md): 건강 데이터 PoC의 실행·빌드·검증 안내
-- [워치 앱 안내](wear/README.md): 워치 앱의 실행·빌드 안내
+- [워치 앱 안내](wear/README.md): 제품 앱(`app/`)·실험 앱(`demo/`) 구성과 실행·빌드 안내
 - [워치 업로드 API와 JSON 필드](docs/design/api/wear-upload-api.md): 백엔드·데이터 분석 공유 규격
-- [워치 앱 검증 보고서](wear/verification/S15P31E105-53.md): 테스트·독립 리뷰·실기기 확인 결과
+- [워치 실험 앱 검증 보고서](wear/demo/verification/S15P31E105-53.md): 테스트·독립 리뷰·실기기 확인 결과
 
 ## Jira 업무 자동화
 
@@ -58,3 +58,7 @@ AI의 Jira·브랜치·MR 작업 규칙은 [AGENTS.md](AGENTS.md)에 정리되�
 
 아키텍처와 핵심 기술 선택의 배경·대안·결과는 [ADR 운영 규칙과 목록](docs/adr/README.md)에 기록한다.
 새 결정은 [공통 템플릿](docs/adr/0000-template.md)을 사용하고, 합의 여부와 변경 이력을 함께 관리한다.
+
+## 인프라
+
+- [인프라 설정·배포 안내](infra/README.md): EC2 구성, Secret 준비, Jenkins CI/CD, 인증서 갱신과 롤백 범위

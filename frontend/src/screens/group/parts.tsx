@@ -1,9 +1,23 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Icon, type IconName } from '../../components';
 import type { GroupRunSummary, MeetingPlace } from '../../data';
 import { formatClockTime, formatDotDateWeekday } from '../../format';
-import { palette, radius, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  k1,
+  palette,
+  radius,
+  spacing,
+  useTheme,
+} from '../../theme';
 
 const minuteMs = 60 * 1000;
 const dayMs = 24 * 60 * minuteMs;
@@ -64,13 +78,8 @@ export function goalLine(run: GroupRunSummary, prefix = true) {
   return `자유 러닝${minutes}`;
 }
 
-const avatarTones = [
-  palette.mint,
-  palette.lavender,
-  palette.coralSoft,
-  palette.periwinkle,
-  palette.pale,
-];
+// Member initials sit on K1 tones (DESIGN.md 2-10).
+const avatarTones = [k1.top, '#C3D1DD', k1.light, '#A5B6C8', '#D5DEE7'];
 
 // A member shown by the first letter of their nickname (no photos).
 export function Initial({
@@ -107,6 +116,8 @@ export function Initial({
   );
 }
 
+// With a label (6.4 정보 카드) the icon sits in a 40 circle over a small label and a 14.5 value
+// (DESIGN.md 2-10); without one it is the compact line of the 6.0 cards.
 export function InfoLine({
   icon,
   label,
@@ -117,20 +128,31 @@ export function InfoLine({
   value: string;
 }) {
   const { colors } = useTheme();
-  return (
-    <View style={styles.infoLine}>
-      <Icon name={icon} color={colors.textSecondary} size={label ? 16 : 13} />
-      <View style={styles.flex}>
-        {label ? (
-          <AppText variant="label" tone="textTertiary">
-            {label}
-          </AppText>
-        ) : null}
+  if (!label) {
+    return (
+      <View style={styles.infoLine}>
+        <Icon name={icon} color={colors.textSecondary} size={13} />
         <AppText
-          variant={label ? 'bodyStrong' : 'caption'}
-          tone={label ? 'text' : 'textSecondary'}
+          variant="caption"
+          tone="textSecondary"
           numberOfLines={2}
+          style={styles.flex}
         >
+          {value}
+        </AppText>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.infoLineLarge}>
+      <View style={[styles.infoIcon, { backgroundColor: colors.surfaceMuted }]}>
+        <Icon name={icon} color={colors.text} size={18} />
+      </View>
+      <View style={styles.flex}>
+        <AppText variant="label" tone="textSecondary">
+          {label}
+        </AppText>
+        <AppText style={styles.infoValue} numberOfLines={2}>
           {value}
         </AppText>
       </View>
@@ -186,6 +208,33 @@ export function Tag({
   );
 }
 
+// Behind the bottom buttons of a scrolling screen: clear at the top and black from the middle down,
+// so the list slides under the buttons instead of showing through them. It takes its measured size:
+// an Svg sized in percent falls back to 300×150 on Android.
+export function BottomFade() {
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const measure = (event: LayoutChangeEvent) =>
+    setBox(event.nativeEvent.layout);
+  return (
+    <View style={styles.fade} pointerEvents="none" onLayout={measure}>
+      {box ? (
+        <Svg width={box.width} height={box.height}>
+          <Defs>
+            <LinearGradient id="bottomFade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor={k1.night} stopOpacity={0} />
+              <Stop offset="0.45" stopColor={k1.night} stopOpacity={0.96} />
+              <Stop offset="1" stopColor={k1.black} stopOpacity={1} />
+            </LinearGradient>
+          </Defs>
+          <Rect width={box.width} height={box.height} fill="url(#bottomFade)" />
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
+
 // 6.8 그룹런 만들기 draft, shared with 6.9 만남 장소 선택 which fills the meeting place.
 // version goes up whenever a screen changes a group run, so 6.0 (in the tab under them) reloads.
 type Draft = {
@@ -232,8 +281,23 @@ export function useGroupRunDraft() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // Starts 40 above the buttons' box so the list fades out before it reaches them.
+  fade: { position: 'absolute', top: -40, left: 0, right: 0, bottom: 0 },
   initial: { alignItems: 'center', justifyContent: 'center' },
   infoLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  infoLineLarge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+  },
+  infoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoValue: { fontFamily: fontFamily.medium, fontSize: 14.5, lineHeight: 21 },
   tag: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.md,

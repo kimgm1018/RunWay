@@ -9,16 +9,23 @@ import {
 } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, Icon } from '../../components';
+import Svg, { Circle } from 'react-native-svg';
+import { AppText, Backdrop, Card, Icon } from '../../components';
 import { formatDuration, formatKm, formatPace } from '../../format';
-import { spacing, typography, useTheme } from '../../theme';
-import { MockMap } from './MockMap';
+import { fontFamily, spacing, useTheme } from '../../theme';
 import { useRunSession } from './RunSession';
 
 const holdMs = 1000;
 const buttonSize = 88;
+// The hold arc runs on a ring just outside the stop button.
+const ringSize = buttonSize + 14;
+const ringRadius = (ringSize - 4) / 2;
+const ringLength = 2 * Math.PI * ringRadius;
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // 종료 needs a one-second hold instead of a confirm dialog (4.3 설계 메모).
+// An outlined circle; while held, an arc fills the ring around it (DESIGN.md 2-7 일시정지).
 export function StopButton({ onFinish }: { onFinish: () => void }) {
   const { colors } = useTheme();
   const fill = useRef(new Animated.Value(0)).current;
@@ -31,40 +38,82 @@ export function StopButton({ onFinish }: { onFinish: () => void }) {
   };
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="종료"
-      accessibilityHint="1초 길게 눌러 러닝을 끝내요"
-      delayLongPress={holdMs}
-      onPressIn={() => {
-        setHolding(true);
-        Animated.timing(fill, {
-          toValue: 1,
-          duration: holdMs,
-          easing: Easing.linear,
-          useNativeDriver: false,
-        }).start();
-      }}
-      onPressOut={release}
-      onLongPress={onFinish}
-      style={[styles.round, styles.stop, { borderColor: colors.borderStrong }]}
-    >
-      <Animated.View
-        style={[
-          styles.holdFill,
-          {
-            backgroundColor: colors.dangerSurface,
-            opacity: holding ? 1 : 0,
-            transform: [{ scale: fill }],
-          },
-        ]}
-      />
-      <Icon name="stop" color={colors.text} size={26} />
-    </Pressable>
+    <View style={styles.ring}>
+      <Svg width={ringSize} height={ringSize} style={StyleSheet.absoluteFill}>
+        <Circle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          r={ringRadius}
+          stroke={colors.border}
+          strokeWidth={3}
+          fill="none"
+        />
+        <AnimatedCircle
+          cx={ringSize / 2}
+          cy={ringSize / 2}
+          r={ringRadius}
+          stroke={colors.text}
+          strokeWidth={3}
+          strokeLinecap="round"
+          fill="none"
+          opacity={holding ? 1 : 0}
+          strokeDasharray={`${ringLength} ${ringLength}`}
+          strokeDashoffset={fill.interpolate({
+            inputRange: [0, 1],
+            outputRange: [ringLength, 0],
+          })}
+          // Start the arc at the top.
+          rotation={-90}
+          origin={`${ringSize / 2}, ${ringSize / 2}`}
+        />
+      </Svg>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="종료"
+        accessibilityHint="1초 길게 눌러 러닝을 끝내요"
+        delayLongPress={holdMs}
+        onPressIn={() => {
+          setHolding(true);
+          Animated.timing(fill, {
+            toValue: 1,
+            duration: holdMs,
+            easing: Easing.linear,
+            useNativeDriver: false,
+          }).start();
+        }}
+        onPressOut={release}
+        onLongPress={onFinish}
+        style={[styles.round, styles.stop, { borderColor: colors.text }]}
+      >
+        <View style={[styles.stopMark, { backgroundColor: colors.text }]} />
+      </Pressable>
+    </View>
   );
 }
 
-// 4.3 일시정지: the run so far over a dimmed map, with 재개 and a hold-to-finish 종료.
+// 재개: the light circle with a black ▶. It reads the dark tone of the glass card it sits on,
+// and takes the same box as the stop ring so both labels line up.
+export function ResumeButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.ring}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="재개"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.round,
+          { backgroundColor: colors.accent },
+          pressed && styles.pressed,
+        ]}
+      >
+        <Icon name="play" color={colors.onAccent} size={30} />
+      </Pressable>
+    </View>
+  );
+}
+
+// 4.3 일시정지: the elapsed time on the K1 background, with 재개 and a hold-to-finish 종료 on a dark glass card.
 export function RunPauseScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -82,25 +131,19 @@ export function RunPauseScreen() {
       <View style={[styles.root, { backgroundColor: colors.background }]} />
     );
   }
-  const { sample, trail, config } = run;
+  const { sample } = run;
   const average =
     sample.distanceM > 0 ? sample.elapsedSec / (sample.distanceM / 1000) : null;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
-      <MockMap
-        night
-        route={config.plan?.route}
-        trail={trail.length > 0 ? trail : undefined}
-        routeArea={{ top: 200, bottom: 520 }}
-      />
-      <View
-        style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
-      />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.center}>
-          <AppText variant="heading" tone="accentText">
+          <AppText style={styles.label} tone="textSecondary">
             일시정지
           </AppText>
           <AppText style={styles.time} accessibilityLabel="경과 시간">
@@ -112,22 +155,11 @@ export function RunPauseScreen() {
             }/km`}
           </AppText>
         </View>
-        <View style={styles.actions}>
+        <Card variant="deep" style={styles.actions}>
           <View style={styles.buttons}>
             <View style={styles.action}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="재개"
-                // Going back to 4.2 resumes tracking there.
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [
-                  styles.round,
-                  { backgroundColor: colors.accent },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Icon name="play" color={colors.onAccent} size={30} />
-              </Pressable>
+              {/* Going back to 4.2 resumes tracking there. */}
+              <ResumeButton onPress={() => navigation.goBack()} />
               <AppText variant="captionStrong">재개</AppText>
             </View>
             <View style={styles.action}>
@@ -146,10 +178,11 @@ export function RunPauseScreen() {
               <AppText variant="captionStrong">종료</AppText>
             </View>
           </View>
-          <AppText variant="caption" tone="textTertiary">
+          <AppText variant="caption" tone="textSecondary">
             종료는 1초 길게 눌러야 동작해요
           </AppText>
-        </View>
+        </Card>
+        <View style={styles.spacer} />
       </SafeAreaView>
     </View>
   );
@@ -157,20 +190,18 @@ export function RunPauseScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  layout: { flex: 1, justifyContent: 'space-between' },
+  layout: { flex: 1, paddingHorizontal: 14 },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  time: { ...typography.metricHero, fontSize: 80, lineHeight: 88 },
-  actions: {
-    alignItems: 'center',
-    gap: spacing.xxxl,
-    paddingBottom: spacing.xxxl * 2,
-  },
-  buttons: { flexDirection: 'row', gap: spacing.xxxl * 2 },
+  label: { fontSize: 15, lineHeight: 22 },
+  // Big numbers stay Barlow Regular at the sheet's 96.
+  time: { fontFamily: fontFamily.numberRegular, fontSize: 96, lineHeight: 104 },
+  actions: { alignItems: 'center', gap: spacing.xl, paddingVertical: 24 },
+  buttons: { flexDirection: 'row', gap: spacing.xxxl * 1.5 },
   action: { alignItems: 'center', gap: spacing.lg },
   round: {
     width: buttonSize,
@@ -178,14 +209,15 @@ const styles = StyleSheet.create({
     borderRadius: buttonSize / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+  },
+  ring: {
+    width: ringSize,
+    height: ringSize,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stop: { borderWidth: 1.5 },
-  holdFill: {
-    position: 'absolute',
-    width: buttonSize,
-    height: buttonSize,
-    borderRadius: buttonSize / 2,
-  },
+  stopMark: { width: 26, height: 26, borderRadius: 7 },
+  spacer: { flex: 0.8 },
   pressed: { opacity: 0.8 },
 });

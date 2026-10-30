@@ -2,18 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, BottomSheet, Icon } from '../../components';
+import { AppText, Backdrop, BottomSheet, Card } from '../../components';
 import { useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
-import { spacing, typography, useTheme } from '../../theme';
-import { MockMap } from '../run/MockMap';
-import { StopButton } from '../run/RunPauseScreen';
+import { fontFamily, spacing, ThemeProvider, useTheme } from '../../theme';
+import { ResumeButton, StopButton } from '../run/RunPauseScreen';
 import { useRunSession } from '../run/RunSession';
 import { FooterButton } from './GroupRunDetailScreen';
 
-const buttonSize = 88;
-
 // 6.6c 그룹런 일시정지: pause and finish apply to my record only; the others keep running.
+// It looks like 4.3: the K1 background, the time, and 재개·종료 on a dark glass card.
 // The leader of this run (not the crew leader) also gets 그룹 전체 강제 종료.
 export function GroupRunPauseScreen() {
   const navigation = useNavigation();
@@ -48,7 +46,7 @@ export function GroupRunPauseScreen() {
       <View style={[styles.root, { backgroundColor: colors.background }]} />
     );
   }
-  const { sample, trail, config } = run;
+  const { sample } = run;
   const average =
     sample.distanceM > 0 ? sample.elapsedSec / (sample.distanceM / 1000) : null;
   const toResult = () => {
@@ -70,18 +68,12 @@ export function GroupRunPauseScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
-      <MockMap
-        night
-        route={config.plan?.route}
-        trail={trail.length > 0 ? trail : undefined}
-        routeArea={{ top: 200, bottom: 520 }}
-      />
-      <View
-        style={[StyleSheet.absoluteFill, { backgroundColor: colors.scrim }]}
-      />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.center}>
-          <AppText variant="heading" tone="accentText">
+          <AppText style={styles.label} tone="textSecondary">
             그룹런 일시정지
           </AppText>
           <AppText style={styles.time} accessibilityLabel="경과 시간">
@@ -93,21 +85,10 @@ export function GroupRunPauseScreen() {
             }/km`}
           </AppText>
         </View>
-        <View style={styles.actions}>
+        <Card variant="deep" style={styles.actions}>
           <View style={styles.buttons}>
             <View style={styles.action}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="재개"
-                onPress={() => navigation.goBack()}
-                style={({ pressed }) => [
-                  styles.round,
-                  { backgroundColor: colors.accent },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Icon name="play" color={colors.onAccent} size={30} />
-              </Pressable>
+              <ResumeButton onPress={() => navigation.goBack()} />
               <AppText variant="captionStrong">재개</AppText>
             </View>
             <View style={styles.action}>
@@ -115,11 +96,8 @@ export function GroupRunPauseScreen() {
               <AppText variant="captionStrong">종료</AppText>
             </View>
           </View>
-          <AppText variant="caption" tone="textTertiary">
+          <AppText variant="caption" tone="textSecondary">
             종료는 1초 길게 눌러야 동작해요
-          </AppText>
-          <AppText variant="body" tone="textSecondary" style={styles.note}>
-            {'일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.'}
           </AppText>
           {isHost ? (
             <Pressable
@@ -133,7 +111,17 @@ export function GroupRunPauseScreen() {
               </AppText>
             </Pressable>
           ) : null}
-        </View>
+        </Card>
+        {/* White helper text on the black lower part. */}
+        <ThemeProvider tone="dark">
+          <View style={styles.bottom}>
+            <AppText variant="body" style={styles.note}>
+              {
+                '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.'
+              }
+            </AppText>
+          </View>
+        </ThemeProvider>
       </SafeAreaView>
       <BottomSheet
         visible={confirming}
@@ -162,29 +150,20 @@ export function GroupRunPauseScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  layout: { flex: 1, justifyContent: 'space-between' },
+  layout: { flex: 1, paddingHorizontal: 14 },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  time: { ...typography.metricHero, fontSize: 80, lineHeight: 88 },
-  actions: {
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingBottom: spacing.xxxl,
-  },
-  buttons: { flexDirection: 'row', gap: spacing.xxxl * 2 },
+  label: { fontSize: 15, lineHeight: 22 },
+  // Big numbers stay Barlow Regular at the sheet's 96.
+  time: { fontFamily: fontFamily.numberRegular, fontSize: 96, lineHeight: 104 },
+  actions: { alignItems: 'center', gap: spacing.xl, paddingVertical: 24 },
+  buttons: { flexDirection: 'row', gap: spacing.xxxl * 1.5 },
   action: { alignItems: 'center', gap: spacing.lg },
-  round: {
-    width: buttonSize,
-    height: buttonSize,
-    borderRadius: buttonSize / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { opacity: 0.8 },
+  bottom: { flex: 0.8, justifyContent: 'flex-end', paddingBottom: spacing.xxl },
   note: { textAlign: 'center' },
   sheetButtons: { flexDirection: 'row', gap: spacing.md },
 });

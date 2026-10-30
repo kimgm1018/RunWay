@@ -1,0 +1,267 @@
+// 언제 실행되는가: Jenkins에 설정한 dev·master 대상 MR 알림 또는 수동 실행 시.
+//
+// 무엇을 검사하는가:
+// - backend/만 변경 → 백엔드 에이전트에서 테스트·빌드하고 JAR 보관.
+// - frontend/만 변경 → 모바일 에이전트에서 타입·린트·테스트·ARM64 APK 빌드 검사.
+// - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
+// - 모바일 debug 서명 파일 변경 → 같은 서명을 쓰는 모바일·워치 모두 검사.
+// - 여러 영역 변경 → 해당 에이전트에서 선택한 검사를 병렬 실행.
+// - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치 모두 검사.
+// - 위 검사 대상 외의 파일만 변경 → 대상 브랜치와 병합 가능한지만 확인.
+// - 수동 실행 → dev 코드로 백엔드·모바일·워치 모두 검사.
+//
+// 각 검사는 MR 코드와 대상 브랜치를 합친 코드로 수행한다.
+// 하나라도 실패하면 통합 CI도 실패하며, GitLab에는 통합 결과와 영역별 결과를 전달한다.
+// 여기서 만든 APK는 빌드 검증용이며, 팀 배포용 APK 보관은 master 작업에서 수행한다.
+
+// 이 작업의 폴더를 비우고 검사할 코드를 받는다. 도구·패키지 캐시는 밖에 유지한다.
+def checkoutCode(String revision) {
+    deleteDir()
+    checkout([
+        $class: 'GitSCM',
+        branches: [[name: revision]],
+        userRemoteConfigs: [[
+            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+            credentialsId: 'runway-gitlab-repo',
+            refspec: '+refs/heads/*:refs/remotes/origin/* +refs/merge-requests/*/head:refs/remotes/origin/mr/*'
+        ]]
+    ])
+}
+
+// 각 에이전트가 준비 단계에서 고정한 동일한 코드 조합을 검사한다.
+def mergeTarget() {
+    sh '''
+        git -c user.name='RunWay CI' -c user.email='ci@runway.invalid' \
+            merge --no-ff --no-edit "$CI_TARGET_SHA"
+    '''
+}
+
+// MR 알림에만 결과를 전송한다. 수동 실행으로 다른 커밋의 상태를 바꾸지 않는다.
+def ciStatus(String name, Closure body) {
+    if (env.gitlabMergeRequestIid) {
+        gitlabCommitStatus(name: name) { body() }
+    } else {
+        body()
+    }
+}
+
+// JUnit 실패도 해당 영역의 GitLab 상태에 반영한다. 다른 병렬 영역의 결과와 구분한다.
+def publishTests(String pattern) {
+    def results = junit(allowEmptyResults: true, testResults: pattern)
+    if (results && results.failCount > 0) {
+        error('테스트 보고서에 실패가 있습니다.')
+    }
+}
+
+pipeline {
+    // 전체 실행 동안 에이전트를 점유하지 않고 필요한 단계에서만 사용한다.
+    agent none
+    // 자동 체크아웃 제외, GitLab 연결, 동시 실행·시간·결과 보관 기준을 설정한다.
+    options {
+        skipDefaultCheckout(true)
+        gitLabConnection('runway-gitlab')
+        disableConcurrentBuilds()
+        // 최초 Android 의존성 다운로드와 네이티브 빌드 시간을 포함한다.
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+    }
+    stages {
+        stage('MR CI') {
+            steps {
+                // 기존 통합 결과를 유지하고, 아래에서 준비·영역별 결과를 추가한다.
+                script {
+                    ciStatus('runway-ci') {
+                        // 에이전트 대기 중에도 어떤 MR인지 빌드 이력에서 구분한다.
+                        def mrId = env.gitlabMergeRequestIid
+                        if (mrId && !(mrId ==~ /[0-9]+/)) {
+                            error('잘못된 MR 번호')
+                        }
+                        def mrTitle = (env.gitlabMergeRequestTitle ?: '제목 없음').replaceAll(/\s+/, ' ').trim()
+                        currentBuild.displayName = mrId
+                            ? "#${env.BUILD_NUMBER} · MR !${mrId}"
+                            : "#${env.BUILD_NUMBER} · 수동 · dev"
+                        // 긴 제목은 이력 대신 상세 설명에서 확인한다.
+                        currentBuild.description = mrId ? "MR !${mrId}: ${mrTitle}" : '수동 실행 · dev'
+                        // 수동 실행은 세 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
+                        def checkBackend = true
+                        def checkMobile = true
+                        def checkWatch = true
+                        // 1. MR 코드와 대상 브랜치를 확인하고 합친 상태를 준비한다.
+                        def prepared = false
+                        try {
+                            ciStatus('prepare-ci') {
+                                stage('Prepare') {
+                                    node('backend') {
+                                        // GitLab MR 알림으로 실행되면 해당 MR을, 수동 실행이면 dev를 선택한다.
+                                        def target = 'dev'
+                                        def revision = 'refs/remotes/origin/dev'
+                                        if (mrId) {
+                                            target = env.gitlabTargetBranch?.trim()
+                                            if (!(target in ['dev', 'master'])) {
+                                                error('dev 또는 master 대상 MR만 검사합니다.')
+                                            }
+                                            revision = "refs/remotes/origin/mr/${mrId}"
+                                        }
+                                        checkoutCode(revision)
+                                        // 실행 중 새 커밋이 올라와도 각 에이전트가 같은 버전을 검사하도록 고정한다.
+                                        env.CI_SOURCE_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                                        // 알림 뒤 MR이 갱신됐으면 검사하지 않은 커밋에 성공을 기록하지 않는다.
+                                        if (mrId && env.gitlabMergeRequestLastCommit != env.CI_SOURCE_SHA) {
+                                            error('MR 커밋이 알림과 다릅니다. 최신 MR 알림으로 다시 실행하세요.')
+                                        }
+                                        env.CI_TARGET_REF = "refs/remotes/origin/${target}"
+                                        env.CI_TARGET_SHA = sh(script: 'git rev-parse "$CI_TARGET_REF"', returnStdout: true).trim()
+                                        // 문서만 바뀌어도 대상 브랜치와 병합 가능한지는 확인한다.
+                                        mergeTarget()
+                                        // 2. MR에서 바뀐 파일을 기준으로 검사할 영역을 고른다.
+                                        if (mrId) {
+                                            // 한글·공백·줄바꿈이 있는 파일명도 경로 그대로 구분한다.
+                                            def files = sh(
+                                                script: 'git diff --name-only --no-renames -z "$CI_TARGET_SHA...$CI_SOURCE_SHA"',
+                                                returnStdout: true
+                                            ).tokenize('\u0000')
+                                            // 공통 Jenkins 설정 변경은 모든 영역의 검사에 영향을 줄 수 있어 모두 실행한다.
+                                            def common = files.any {
+                                                it.startsWith('infra/jenkins/') ||
+                                                it in ['.gitattributes', '.gitmodules']
+                                            }
+                                            // 백엔드 코드 또는 공통 설정이 바뀌었으면 백엔드 CI 실행 대상으로 선택한다.
+                                            checkBackend = common || files.any { it.startsWith('backend/') }
+                                            // 프론트엔드 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
+                                            checkMobile = common || files.any { it.startsWith('frontend/') }
+                                            // 워치 코드 또는 폰·워치 공통 테스트 서명 변경 시 워치도 검사한다.
+                                            checkWatch = common || files.any {
+                                                it.startsWith('wear/') || it == 'frontend/android/app/debug.keystore'
+                                            }
+                                        }
+                                        echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}"
+                                        echo "검사 버전: ${env.CI_SOURCE_SHA} + ${env.CI_TARGET_SHA}"
+                                    }
+                                }
+                            }
+                        prepared = true
+                        } finally {
+                            // 준비 실패 또는 변경 없음으로 실행하지 않을 영역만 생략 처리한다.
+                            if (mrId) {
+                                if (!prepared || !checkBackend) {
+                                    updateGitlabCommitStatus(name: 'backend-ci', state: 'skipped')
+                                }
+                                if (!prepared || !checkMobile) {
+                                    updateGitlabCommitStatus(name: 'mobile-ci', state: 'skipped')
+                                }
+                                if (!prepared || !checkWatch) {
+                                    updateGitlabCommitStatus(name: 'watch-ci', state: 'skipped')
+                                }
+                            }
+                        }
+                        // 3. 영역별 상태는 에이전트 대기부터 보고서 처리까지 포함한다.
+                        def checks = [:]
+                        if (checkBackend) {
+                            checks['Backend'] = {
+                                ciStatus('backend-ci') {
+                                    node('backend') {
+                                        stage('Backend Checkout') {
+                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            mergeTarget()
+                                        }
+                                        stage('Backend Checks and Tests') {
+                                            try {
+                                                dir('backend') { sh 'sh ./gradlew --no-daemon clean check' }
+                                            } finally {
+                                                publishTests('backend/build/test-results/test/*.xml')
+                                            }
+                                        }
+                                        stage('Backend JAR Build') {
+                                            // check는 위에서 끝냈으므로 assemble로 실행 파일만 만든다.
+                                            dir('backend') { sh 'sh ./gradlew --no-daemon assemble' }
+                                        }
+                                        stage('Backend Archive') {
+                                            archiveArtifacts artifacts: 'backend/build/libs/*.jar', fingerprint: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (checkMobile) {
+                            checks['Mobile'] = {
+                                ciStatus('mobile-ci') {
+                                    node('mobile') {
+                                        stage('Mobile Checkout') {
+                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            mergeTarget()
+                                        }
+                                        stage('Mobile Dependencies') {
+                                            dir('frontend') {
+                                                sh 'pnpm install --frozen-lockfile --store-dir /home/jenkins/agent/.pnpm-store'
+                                            }
+                                        }
+                                        stage('Mobile Typecheck and Lint') {
+                                            dir('frontend') {
+                                                sh 'pnpm typecheck'
+                                                sh 'pnpm lint'
+                                            }
+                                        }
+                                        stage('Mobile Tests') {
+                                            dir('frontend') { sh 'pnpm test --runInBand' }
+                                        }
+                                        try {
+                                            stage('Mobile APK Build') {
+                                                sh 'sh infra/jenkins/build-mobile-apk.sh'
+                                            }
+                                        } finally {
+                                            stage('Mobile Reports') {
+                                                archiveArtifacts allowEmptyArchive: true,
+                                                    artifacts: 'frontend/android/build/reports/profile/**'
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (checkWatch) {
+                            checks['Watch'] = {
+                                ciStatus('watch-ci') {
+                                    node('watch') {
+                                        stage('Watch Checkout') {
+                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            mergeTarget()
+                                        }
+                                        try {
+                                            stage('Watch Tests') {
+                                                try {
+                                                    sh 'sh infra/jenkins/build-watch-apk.sh --stage test'
+                                                } finally {
+                                                    publishTests('wear/app/build/test-results/testDebugUnitTest/*.xml')
+                                                }
+                                            }
+                                            stage('Watch Lint') {
+                                                sh 'sh infra/jenkins/build-watch-apk.sh --stage lint'
+                                            }
+                                            stage('Watch APK Build') {
+                                                sh 'sh infra/jenkins/build-watch-apk.sh --stage apk'
+                                            }
+                                        } finally {
+                                            stage('Watch Reports') {
+                                                archiveArtifacts allowEmptyArchive: true,
+                                                    artifacts: 'wear/build/reports/profile/**,wear/app/build/reports/lint-results-debug.*'
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // 4. 선택한 영역만 병렬 실행한다. 생략된 영역은 skipped를 유지한다.
+                        if (checks.isEmpty()) {
+                            echo '백엔드·모바일·워치 변경 없음: 임시 병합 확인 후 종료합니다.'
+                        } else {
+                            parallel checks
+                            if (currentBuild.currentResult != 'SUCCESS') {
+                                error('검사 결과에 실패가 있습니다.')
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { palette, radius, size, spacing } from '../theme';
+import { k1, radius, size, spacing } from '../theme';
 import { AppText } from './AppText';
 
 type ToastOptions = {
@@ -24,7 +24,7 @@ const ToastContext = createContext<
   ((message: string, options?: ToastOptions) => void) | null
 >(null);
 
-// 8.3: a dark pill above the tab bar with an optional undo action.
+// 8.3: a light pill above the tab bar with an optional undo action (DESIGN.md 2-12).
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -65,6 +65,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   setToast(null);
                 }}
                 hitSlop={8}
+                style={styles.actionPill}
               >
                 <AppText variant="bodyStrong" style={styles.action}>
                   {toast.actionLabel}
@@ -97,14 +98,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xl,
-    maxWidth: '100%',
-    paddingHorizontal: 18,
-    paddingVertical: spacing.xl,
+    width: '100%',
+    minHeight: 50,
+    paddingLeft: 20,
+    paddingRight: spacing.sm,
+    paddingVertical: spacing.sm,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(22,24,31,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: k1.ice,
+    shadowColor: k1.night,
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  message: { flexShrink: 1, color: palette.white },
-  action: { color: palette.mint },
+  message: { flex: 1, color: k1.night },
+  actionPill: {
+    paddingHorizontal: 14,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(2,5,14,0.08)',
+  },
+  action: { color: k1.night },
 });

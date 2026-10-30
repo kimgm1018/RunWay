@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { size, spacing, useTheme } from '../theme';
+import { Backdrop } from './Backdrop';
 
 export function Screen({
   children,
@@ -25,7 +26,7 @@ export function Screen({
   header?: React.ReactNode;
   // Bottom actions that stay in place while the content scrolls (1.3 다음, 1.5 이전·다음).
   footer?: React.ReactNode;
-  // Drawn behind everything, such as the gradient on 1.1 시작.
+  // Drawn behind everything. Defaults to the K1 backdrop.
   background?: React.ReactNode;
   scroll?: boolean;
   withTabBar?: boolean;
@@ -45,11 +46,9 @@ export function Screen({
       style={[styles.root, { backgroundColor: colors.background }]}
     >
       <StatusBar barStyle={colors.statusBar} />
-      {background ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          {background}
-        </View>
-      ) : null}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {background ?? <Backdrop />}
+      </View>
       {header}
       {/* Android already resizes the window for the keyboard (adjustResize). */}
       <KeyboardAvoidingView

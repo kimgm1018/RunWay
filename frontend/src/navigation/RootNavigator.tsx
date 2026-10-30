@@ -13,9 +13,10 @@ import { CourseSearchProvider, courseScreens } from '../screens/course';
 import { homeScreens } from '../screens/home';
 import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { communityScreens } from '../screens/community';
+import { settingsScreens } from '../screens/settings';
 import { groupScreens, GroupRunDraftProvider } from '../screens/group';
 import { recordScreens } from '../screens/records';
-import { SettingsPreview } from '../screens/previews';
 import { runScreens } from '../screens/run';
 import { RunSessionProvider } from '../screens/run/RunSession';
 import { useSession } from '../session/SessionProvider';
@@ -40,10 +41,6 @@ const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
 const GroupStack = createNativeStackNavigator<GroupStackParamList>();
 
-const previews: Partial<Record<RouteName, React.ComponentType>> = {
-  Settings: SettingsPreview,
-};
-
 // Built once per route so React Navigation always receives the same component.
 const placeholders = Object.fromEntries(
   (
@@ -56,13 +53,8 @@ const placeholders = Object.fromEntries(
       'Community',
     ] as RouteName[]
   ).map(name => {
-    const Preview = previews[name];
     function Placeholder() {
-      return (
-        <PlaceholderScreen name={name}>
-          {Preview ? <Preview /> : null}
-        </PlaceholderScreen>
-      );
+      return <PlaceholderScreen name={name} />;
     }
     Placeholder.displayName = `${name}Placeholder`;
     return [name, Placeholder];
@@ -78,6 +70,8 @@ const screens: Record<RouteName, React.ComponentType> = {
   ...courseScreens,
   ...recordScreens,
   ...groupScreens,
+  ...communityScreens,
+  ...settingsScreens,
 };
 
 // 2.7·2.8 float over the run screen, which stays visible behind the dimmed backdrop.

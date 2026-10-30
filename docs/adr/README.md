@@ -80,10 +80,13 @@ ADR에는 선택 이유를 기록하고, 구체적인 계약은 해당 기준 �
 | [ADR-0012](0012-watch-phone-data-layer.md) | 워치·폰은 MessageClient 배치와 DataItem 상태 공유를 사용한다 | 채택 | — |
 | [ADR-0013](0013-jwt-authentication.md) | JWT 10분과 최대 30일 갱신 권한을 사용하고 로그아웃 시 갱신 권한을 폐기한다 | 대체 | 대체됨: [ADR-0014](0014-common-api-authentication.md) |
 | [ADR-0014](0014-common-api-authentication.md) | 공통 회원 API의 짧은 Bearer JWT와 별도 문서 인증 | 채택 | 대체함: [ADR-0013](0013-jwt-authentication.md) |
+| [ADR-0015](0015-redis-refresh-token-store.md) | Refresh Token과 로그인 계열 상태는 Redis에 저장한다 | 채택 | — (ADR-0014의 저장소 구체화) |
+| [ADR-0016](0016-image-volume-storage.md) | 이미지 바이너리는 서버 볼륨에 저장한다 | 채택 | — |
+| [ADR-0017](0017-redis-login-attempt-store.md) | 로그인 실패 횟수와 잠금 상태도 인증용 Redis에 저장한다 | 채택 | — (ADR-0015의 후속 범위 확장, 기존 결정 유지) |
 
 새 ADR을 추가할 때 번호에는 문서 링크를 연결하고, 대체 관계에는 `대체함: ADR-NNNN` 또는 `대체됨: ADR-NNNN`을 문서 링크와 함께 적는다. 관계가 없으면 `—`로 표시한다.
 
-AI 모델·학습 프레임워크와 인프라 기술은 미정이며, 확정 후 별도 ADR로 기록한다.
+AI 모델·학습 프레임워크와 나머지 인프라 기술은 미정이며, 확정 후 별도 ADR로 기록한다. Refresh Token 저장소 선택은 ADR-0015, 로그인 실패 상태의 Redis 저장은 ADR-0017을 따른다. 현재 확정된 계약·복구 기준은 [인증 API](../design/api/users.md), 구체 실행 설정은 [백엔드 실행 안내](../../backend/README.md#8-로그인과-redis)를 따른다. 이미지 파일 저장은 [ADR-0016](0016-image-volume-storage.md)을 따른다.
 
 정리 업무: [S15P31E105-58](https://ssafy.atlassian.net/browse/S15P31E105-58).
 

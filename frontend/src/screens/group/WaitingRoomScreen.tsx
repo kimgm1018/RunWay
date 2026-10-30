@@ -15,8 +15,14 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, EmptyState, Icon, IconButton } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  Card,
+  EmptyState,
+  Icon,
+  IconButton,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -29,17 +35,18 @@ import { formatDuration, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import {
-  palette,
-  radius,
+  fontFamily,
+  k1,
   size,
   spacing,
+  ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
-import { MockMap } from '../run/MockMap';
+import { GlowButton } from '../course/TodayRunScreen';
 import { ServiceMark, useMusicSource } from '../run/parts';
 import { useRunActions, type RunConfig } from '../run/RunSession';
-import { Initial } from './parts';
+import { BottomFade, Initial } from './parts';
 
 const countdownSeconds = 3;
 
@@ -109,19 +116,34 @@ function useCountdown(target: string | null, now: Date) {
 }
 
 function PaceCard({ room }: { room: WaitingRoom }) {
-  const { colors } = useTheme();
   const [slow, fast] = [room.comfortRange[1], room.comfortRange[0]];
   const share = (slow - room.goalPaceSecPerKm) / Math.max(slow - fast, 1);
+  // The vignette card: 공동 페이스 in large Barlow and the comfort range with a white handle
+  // (DESIGN.md 2-10 대기방).
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
+    <Card variant="vignette" style={styles.card}>
+      <PaceCardContent room={room} share={share} slow={slow} fast={fast} />
+    </Card>
+  );
+}
+
+function PaceCardContent({
+  room,
+  share,
+  slow,
+  fast,
+}: {
+  room: WaitingRoom;
+  share: number;
+  slow: number;
+  fast: number;
+}) {
+  const { colors } = useTheme();
+  return (
+    <>
       <View style={styles.rowBetween}>
-        <AppText variant="bodyStrong">공동 페이스</AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="bodyMedium">공동 페이스</AppText>
+        <AppText variant="label" tone="textSecondary">
           AI 제안 · 참가자 기록 기준
         </AppText>
       </View>
@@ -138,26 +160,39 @@ function PaceCard({ room }: { room: WaitingRoom }) {
         <View
           style={[
             styles.rangeMarker,
-            {
-              left: `${share * 100}%`,
-              backgroundColor: colors.accent,
-              borderColor: colors.background,
-            },
+            { left: `${share * 100}%`, backgroundColor: colors.accent },
           ]}
         />
       </View>
       <View style={styles.rowBetween}>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary">
           {formatPace(fast)}
         </AppText>
-        <AppText variant="label" tone="textTertiary">
-          참가자 편한 범위
-        </AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="labelStrong">참가자 편한 범위</AppText>
+        <AppText variant="label" tone="textSecondary">
           {formatPace(slow)}
         </AppText>
       </View>
-    </View>
+    </>
+  );
+}
+
+// After 준비 완료 the button turns into an outlined 준비 취소 on the black part.
+function ReadyCancel({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="준비 취소"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.ready,
+        { borderColor: colors.borderStrong },
+        pressed && styles.pressed,
+      ]}
+    >
+      <AppText variant="button">준비 취소</AppText>
+    </Pressable>
   );
 }
 
@@ -167,7 +202,7 @@ export function WaitingRoomScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
   const groupRunId = route.params?.groupRunId ?? 'gr-today';
-  const { colors, name } = useTheme();
+  const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const { start } = useRunActions();
   const source = useMusicSource();
@@ -260,27 +295,8 @@ export function WaitingRoomScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
-      <View style={styles.map} pointerEvents="none">
-        <MockMap
-          night={name === 'dark'}
-          route={run.route ?? undefined}
-          position={run.route ? undefined : run.meetingPosition}
-          routeArea={{ top: 250, bottom: 420 }}
-          positionY={330}
-        />
-        <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-          <Defs>
-            <LinearGradient id="roomFade" x1="0" y1="0" x2="0" y2="1">
-              <Stop
-                offset="0"
-                stopColor={colors.background}
-                stopOpacity={0.3}
-              />
-              <Stop offset="1" stopColor={colors.background} stopOpacity={1} />
-            </LinearGradient>
-          </Defs>
-          <Rect width="100%" height="100%" fill="url(#roomFade)" />
-        </Svg>
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
       </View>
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
@@ -290,34 +306,24 @@ export function WaitingRoomScreen() {
             onPress={() => navigation.goBack()}
           />
           <AppText
-            variant="heading"
             accessibilityRole="header"
-            style={styles.flex}
+            style={[styles.flex, styles.title]}
           >
             출발 준비
           </AppText>
-          <AppText
-            variant="metric"
-            tone="accentText"
-            accessibilityLabel="출발까지"
-          >
+          <AppText style={styles.timeLeft} accessibilityLabel="출발까지">
             {timeLeft}
           </AppText>
         </View>
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.surface, borderColor: colors.border },
-          ]}
-        >
+        <Card variant="solid" style={styles.card}>
           <View style={styles.rowBetween}>
-            <AppText variant="bodyStrong">
+            <AppText variant="bodyMedium">
               {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participants.length}명`}
             </AppText>
-            <AppText variant="label" tone="textTertiary">
+            <AppText variant="label" tone="textSecondary">
               {`${readyCount}명 준비 완료`}
             </AppText>
           </View>
@@ -329,12 +335,16 @@ export function WaitingRoomScreen() {
                 />
               ) : null}
               <View style={styles.member}>
-                <Initial name={member.nickname} index={index} />
+                <Initial name={member.nickname} index={index} size={36} />
                 <View style={styles.flex}>
                   <View style={styles.nameLine}>
-                    <AppText variant="bodyStrong">{member.nickname}</AppText>
+                    <AppText variant="bodyMedium">{member.nickname}</AppText>
                     {member.isHost ? (
-                      <Icon name="crown" color={palette.coral} size={13} />
+                      <Icon
+                        name="crown"
+                        color={colors.textSecondary}
+                        size={13}
+                      />
                     ) : null}
                     {member.isMe ? (
                       <View
@@ -353,17 +363,17 @@ export function WaitingRoomScreen() {
                     ) : null}
                   </View>
                   {member.isMe && member.readinessScore !== null ? (
-                    <AppText variant="label" tone="textTertiary">
+                    <AppText variant="label" tone="textSecondary">
                       {`준비도 ${member.readinessScore}`}
                     </AppText>
                   ) : null}
                 </View>
                 <AppText
-                  variant="captionStrong"
+                  variant={
+                    member.readyStatus === 'READY' ? 'captionStrong' : 'caption'
+                  }
                   tone={
-                    member.readyStatus === 'READY'
-                      ? 'accentText'
-                      : 'textTertiary'
+                    member.readyStatus === 'READY' ? 'text' : 'textSecondary'
                   }
                 >
                   {member.readyStatus === 'READY' ? '준비 완료' : '대기 중'}
@@ -371,54 +381,40 @@ export function WaitingRoomScreen() {
               </View>
             </View>
           ))}
-        </View>
-        <AppText variant="caption" tone="textTertiary" style={styles.note}>
+        </Card>
+        <AppText variant="caption" tone="textSecondary" style={styles.note}>
           그룹장이 출발하면 준비 완료한 멤버의 기록이 3초 뒤 함께 시작돼요
         </AppText>
       </ScrollView>
-      <SafeAreaView
-        edges={['bottom']}
-        style={[styles.footer, { backgroundColor: colors.background }]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isReady ? '준비 취소' : '준비 완료'}
-          onPress={toggleReady}
-          style={({ pressed }) => [
-            styles.ready,
-            isReady
-              ? {
-                  backgroundColor: colors.surfaceMuted,
-                  borderColor: colors.borderStrong,
-                }
-              : { backgroundColor: colors.accent, borderColor: colors.accent },
-            pressed && styles.pressed,
-          ]}
-        >
-          <AppText
-            variant="button"
-            style={{ color: isReady ? colors.text : colors.onAccent }}
+      <ThemeProvider tone="dark">
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <BottomFade />
+          <View style={styles.flex}>
+            {isReady ? (
+              <ReadyCancel onPress={toggleReady} />
+            ) : (
+              <GlowButton
+                title="준비 완료"
+                icon="check"
+                onPress={toggleReady}
+              />
+            )}
+          </View>
+          {/* The music button is a white circle on the black part (DESIGN.md 2-10 대기방). */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="음악"
+            onPress={() => navigateTo(navigation, 'MusicCard')}
+            style={({ pressed }) => [styles.music, pressed && styles.pressed]}
           >
-            {isReady ? '준비 취소' : '준비 완료'}
-          </AppText>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="음악"
-          onPress={() => navigateTo(navigation, 'MusicCard')}
-          style={({ pressed }) => [
-            styles.music,
-            { backgroundColor: colors.surfaceMuted },
-            pressed && styles.pressed,
-          ]}
-        >
-          {source && source !== 'NONE' ? (
-            <ServiceMark service={source} size={30} />
-          ) : (
-            <Icon name="music" color={colors.text} size={20} />
-          )}
-        </Pressable>
-      </SafeAreaView>
+            {source && source !== 'NONE' ? (
+              <ServiceMark service={source} size={30} />
+            ) : (
+              <Icon name="music" color={k1.night} size={20} />
+            )}
+          </Pressable>
+        </SafeAreaView>
+      </ThemeProvider>
       <Modal visible={count !== null} transparent animationType="fade">
         <View style={[styles.overlay, { backgroundColor: colors.scrim }]}>
           <AppText variant="heading" tone="accentText">
@@ -438,14 +434,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  map: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 260,
-    overflow: 'hidden',
-  },
   header: {
     height: size.header,
     flexDirection: 'row',
@@ -453,24 +441,21 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
+  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
+  timeLeft: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
   content: {
-    padding: spacing.screen,
-    paddingTop: spacing.xxxl * 2,
-    gap: spacing.xl,
+    padding: 14,
+    gap: spacing.lg,
     paddingBottom: spacing.xxxl * 4,
   },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.lg,
-  },
+  card: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  pace: { ...typography.metricHero, fontSize: 52, lineHeight: 58 },
+  // Big numbers stay Barlow Regular at the sheet's 60.
+  pace: { fontFamily: fontFamily.numberRegular, fontSize: 60, lineHeight: 66 },
   range: { height: 8, borderRadius: 4, justifyContent: 'center' },
   rangeFill: {
     position: 'absolute',
@@ -482,11 +467,10 @@ const styles = StyleSheet.create({
   },
   rangeMarker: {
     position: 'absolute',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginLeft: -8,
-    borderWidth: 2,
+    width: 4,
+    height: 22,
+    borderRadius: 2,
+    marginLeft: -2,
   },
   divider: { height: StyleSheet.hairlineWidth },
   member: {
@@ -496,7 +480,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  meBadge: { paddingHorizontal: spacing.sm, borderRadius: radius.pill },
+  meBadge: { paddingHorizontal: spacing.sm, borderRadius: 999 },
   note: { textAlign: 'center' },
   footer: {
     position: 'absolute',
@@ -504,22 +488,24 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.md,
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
   ready: {
-    flex: 1,
-    height: size.buttonLarge,
-    borderRadius: radius.pill,
+    height: 58,
+    borderRadius: 29,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   music: {
-    width: size.buttonLarge,
-    height: size.buttonLarge,
-    borderRadius: size.buttonLarge / 2,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: k1.ice,
     alignItems: 'center',
     justifyContent: 'center',
   },

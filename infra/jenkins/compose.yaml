@@ -1,0 +1,107 @@
+name: runway-ci
+
+services:
+  jenkins:
+    image: jenkins/jenkins:2.580.1-jdk21
+    environment:
+      JENKINS_OPTS: "--prefix=/jenkins"
+      JAVA_OPTS: "-Dorg.apache.commons.jelly.tags.fmt.timeZone=Asia/Seoul"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+  backend-builder:
+    image: runway-backend-agent:java21
+    init: true
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/start-agent.sh"]
+    group_add:
+      - "988"
+    volumes:
+      - ./backend-agent/start-agent.sh:/opt/start-agent.sh:ro
+      - ./secrets/backend-builder-secret:/run/secrets/backend-builder-secret:ro
+      - backend_agent_work:/home/jenkins/agent
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/ubuntu/runway/infra/backend:/home/ubuntu/runway/infra/backend:ro
+
+  mobile-builder:
+    image: runway-mobile-agent:android
+    profiles: ["mobile"]
+    init: true
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/start-agent.sh"]
+    mem_limit: 6g
+    cpus: 2
+    environment:
+      JENKINS_JAVA_OPTS: "-Xmx256m"
+      NODE_OPTIONS: "--max-old-space-size=2048"
+    volumes:
+      - type: bind
+        source: ./mobile-agent/start-agent.sh
+        target: /opt/start-agent.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets/mobile-builder-secret
+        target: /run/secrets/mobile-builder-secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/sdks/samsung-health/1.1.0/samsung-health-data-api-1.1.0.aar
+        target: /opt/samsung-health/samsung-health-data-api-1.1.0.aar
+        read_only: true
+        bind:
+          create_host_path: false
+      - mobile_agent_work:/home/jenkins/agent
+      - mobile_android_sdk:/opt/android-sdk
+      - mobile_gradle_cache:/home/jenkins/.gradle
+
+  watch-builder:
+    image: runway-watch-agent:android
+    profiles: ["watch"]
+    init: true
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/start-agent.sh"]
+    mem_limit: 4g
+    cpus: 1
+    environment:
+      JENKINS_JAVA_OPTS: "-Xmx256m"
+    volumes:
+      - type: bind
+        source: ./watch-agent/start-agent.sh
+        target: /opt/start-agent.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets/watch-builder-secret
+        target: /run/secrets/watch-builder-secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - watch_agent_work:/home/jenkins/agent
+      - watch_android_sdk:/opt/android-sdk
+      - watch_gradle_cache:/home/jenkins/.gradle
+
+volumes:
+  jenkins_home:
+    external: true
+    name: runway_jenkins_home
+  backend_agent_work:
+  mobile_agent_work:
+    external: true
+    name: runway-ci_mobile_agent_work
+  mobile_android_sdk:
+    external: true
+    name: runway-ci_mobile_android_sdk
+  mobile_gradle_cache:
+  watch_agent_work:
+    external: true
+    name: runway-ci_watch_agent_work
+  watch_android_sdk:
+    external: true
+    name: runway-ci_watch_android_sdk
+  watch_gradle_cache:

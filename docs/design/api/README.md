@@ -2,29 +2,29 @@
 
 > **2026-10-23 동작 결정 반영:** [자동 처리 요구사항](../requirements.md)에 따라 공개 요청과 내부 자동 처리를 분리했다. 자동 평가·전략 생성·코칭·종료 후 분석은 API 목록에서 제외되더라도 필수 구현 대상이다. 전송 기술과 미정 정책은 각 상세 문서에서 별도 표시한다.
 
-RunWay 서비스의 **클라이언트 공개 API 설계 초안**이다. 저장소의 [1차 MVP 요구사항](../requirements.md)과 [최신 ERD](../db/erd.md)를 기준으로 정리했으며, 이 문서의 공통 규약과 색인에서 도메인별 상세 명세로 연결한다.
+RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1차 MVP 요구사항](../requirements.md)과 [최신 ERD](../db/erd.md)를 기준으로 정리했으며, 이 문서의 공통 규약과 색인에서 도메인별 상세 명세로 연결한다.
 
-> **상태: 초안.** 미정 정책을 임의 확정하지 않았다. 예시 JSON은 형식을 설명하기 위한 가상 값이며, 자료형·필드 이름·동기화 정책·HTTP 상태 코드는 구현 전에 팀 검토가 필요하다. 다른 프로젝트인 FEELM의 ID·영화 도메인 규칙을 RunWay에 복사하지 않았다.
+> **상태:** 173의 W07·S03~S06·S08 준비 결과·폰 인계·시작 미확인 중단·S10·P07·G09 및 워치 연동 계약은 사용자 승인 설계다. 문서의 예시값은 합성 데이터이며 구현/배포 완료를 뜻하지 않는다. 다른 도메인의 미정 항목은 각 상세 명세에서 구분한다.
 
 ## 문서 구성
 
 | 문서 | 도메인 | API 수 |
 |---|---|---:|
 | [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 25 |
-| [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 8 |
+| [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
 | [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
-| [러닝 세션](./sessions.md) | 러닝 세션 | 9 |
+| [러닝 세션](./sessions.md) | 러닝 세션 | 10 |
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
 | [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 5 |
 | [그룹런](./group-runs.md) | 그룹런 | 13 |
-| [크루](./crews.md) | 크루 | 10 |
+| [크루](./crews.md) | 크루 | 11 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드 | 1 |
 
-총 **91개 공개 API 후보**. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 실시간 이벤트는 이 수에 포함하지 않는다.
+총 **92개 공개 API 설계**. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류는 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
 
-Wear OS 앱의 원본 업로드 계약은 [워치 기록 업로드 계약](wear-upload-api.md)에서 별도로 관리한다. 서비스 API 구현 시 `W07`의 배치 동기화 계약과 함께 검토해야 한다.
+운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
 알림 발생 계기·수신자와 추가 후보는 [알림 정책](../requirements.md#알림-정책)에 정리했다. 미확정 제안은 해당 절에서 구분하며 알림함·조회 API를 자동으로 추가하지 않는다.
 
@@ -51,6 +51,8 @@ Wear OS 앱의 원본 업로드 계약은 [워치 기록 업로드 계약](wear-
 토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
 
 U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그인 계열의 갱신 권한을 폐기한다. U03은 해당 계열만 폐기하고 `204 No Content`를 반환한다. 앱은 갱신을 한 번으로 모으고 결과가 불확실한 갱신을 무조건 재시도하지 않는다. 오류 응답·로그아웃 반복·갱신 경합의 정확한 결과는 [U01~U03](users.md#인증-정책-적용-범위)을 따른다. 이 절과 U01~U03에서 확정한 항목은 문서 전체의 일반적인 초안 표시와 구분한다.
+
+[ADR-0015](../../adr/0015-redis-refresh-token-store.md)에 따라 Refresh Token 해시·로그인 계열·사용 및 폐기 상태·교체 이력은 Redis에 저장한다. 사용자·비밀번호 해시는 PostgreSQL을 사용한다. 2026-10-28 승인한 저장 모델·원자적 처리·보존/복구 기준은 [갱신 권한 저장소](users.md#갱신-권한-저장소)를 따르고 실행 변수·검증·운영 준비는 [백엔드 실행 안내](../../../backend/README.md#8-로그인과-redis)를 따른다.
 
 ### ERD 응답 형식 적용
 
@@ -90,6 +92,8 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 사용자 결정 반영: 회원가입은 기본 사용자 정보와 건강정보 동의 값을 수집한 뒤 실행하고, 환경은 코드(environmentTypes)로 전달한다. 게시물 코스 공유 해제는 제공하지 않으며 G04에서 출발 전 목표를 수정한다. 사용자 선호 환경의 저장 위치·인증 전달 방식·준비 상태·동기화 범위 등 남은 구조는 별도 확정이 필요하다.
 
 ### 오류 분류와 재시도 기준
+
+[G09 그룹런 시작](group-runs.md#g09-그룹런-시작)의 오류 응답은 해당 절의 확정 계약을 따른다. 아래의 일반적인 초안 표시는 G09에 적용하지 않는다.
 
 **검토용 오류 계약:** 도메인별 오류 표의 기존 HTTP·코드는 제안 상태다. 추가 오류 후보는 확정된 처리 규칙이 아니다. API 종류·개수·역할과 성공 응답을 바꾸지 않고 실패 가능성을 정리한다.
 
@@ -148,10 +152,10 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 | U03 | [로그아웃](./users.md#u03-로그아웃) | POST | `/auth/logout` | [users.md](./users.md) |
 | U04 | [내 프로필 조회](./users.md#u04-내-프로필-조회) | GET | `/users/me` | [users.md](./users.md) |
 | U05 | [내 프로필 수정](./users.md#u05-내-프로필-수정) | PATCH | `/users/me` | [users.md](./users.md) |
-| U06 | [러닝 수준 조회](./users.md#u06-러닝-수준-조회) | GET | `/users/me/running-profile` | [users.md](./users.md) |
-| U07 | [러닝 수준 설정](./users.md#u07-러닝-수준-설정) | PUT | `/users/me/running-profile` | [users.md](./users.md) |
-| U08 | [평소 러닝 정보 조회](./users.md#u08-평소-러닝-정보-조회) | GET | `/users/me/running-baseline` | [users.md](./users.md) |
-| U09 | [평소 러닝 정보 설정](./users.md#u09-평소-러닝-정보-설정) | PUT | `/users/me/running-baseline` | [users.md](./users.md) |
+| U06 | [러닝 프로필 조회](./users.md#u06-러닝-프로필-조회) | GET | `/users/me/running-profile` | [users.md](./users.md) |
+| U07 | [러닝 프로필 저장·부분 수정](./users.md#u07-러닝-프로필-저장부분-수정) | PATCH | `/users/me/running-profile` | [users.md](./users.md) |
+| U08 | [평소 러닝 정보 조회 (U06 통합)](./users.md#u08-평소-러닝-정보-조회) | — | — | [users.md](./users.md) |
+| U09 | [평소 러닝 정보 설정 (U07 통합)](./users.md#u09-평소-러닝-정보-설정) | — | — | [users.md](./users.md) |
 | U10 | [러닝 환경 유형 조회](./users.md#u10-러닝-환경-유형-조회) | GET | `/environments` | [users.md](./users.md) |
 | U11 | [선호 환경 조회](./users.md#u11-선호-환경-조회) | GET | `/users/me/preferences` | [users.md](./users.md) |
 | U12 | [선호 환경 설정](./users.md#u12-선호-환경-설정) | PUT | `/users/me/preferences` | [users.md](./users.md) |
@@ -175,7 +179,6 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 | W05 | [동의 상태 조회](./devices-health.md#w05-동의-상태-조회) | GET | `/consents` | [devices-health.md](./devices-health.md) |
 | W06 | [Samsung Health 데이터 동기화](./devices-health.md#w06-samsung-health-데이터-동기화) | POST | `/health-records/sync` | [devices-health.md](./devices-health.md) |
 | W07 | [워치 운동 배치 동기화](./devices-health.md#w07-워치-운동-배치-동기화) | POST | `/sync/batches` | [devices-health.md](./devices-health.md) |
-| W08 | [동기화 진행 상태 조회](./devices-health.md#w08-동기화-진행-상태-조회) | GET | `/devices/{deviceId}/sync/streams/{streamKey}/progress` | [devices-health.md](./devices-health.md) |
 | R02 | [최신 준비도 조회](./readiness.md#r02-최신-준비도-조회) | GET | `/readiness-assessments/latest` | [readiness.md](./readiness.md) |
 | C01 | [코스 추천](./courses.md#c01-코스-추천) | POST | `/courses/recommendations` | [courses.md](./courses.md) |
 | C03 | [코스 상세 조회](./courses.md#c03-코스-상세-조회) | GET | `/courses/{courseId}` | [courses.md](./courses.md) |
@@ -189,8 +192,9 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 | S05 | [러닝 재개](./sessions.md#s05-러닝-재개) | POST | `/running-sessions/{sessionId}/resume` | [sessions.md](./sessions.md) |
 | S06 | [개인 러닝 종료](./sessions.md#s06-개인-러닝-종료) | POST | `/running-sessions/{sessionId}/finish` | [sessions.md](./sessions.md) |
 | S07 | [러닝 취소](./sessions.md#s07-러닝-취소) | POST | `/running-sessions/{sessionId}/cancel` | [sessions.md](./sessions.md) |
-| S08 | [출발 전 러닝 설정 수정](./sessions.md#s08-출발-전-러닝-설정-수정) | PATCH | `/running-sessions/{sessionId}` | [sessions.md](./sessions.md) |
+| S08 | [러닝 설정·제어 기기 변경](./sessions.md#s08-러닝-설정제어-기기-변경) | PATCH | `/running-sessions/{sessionId}` | [sessions.md](./sessions.md) |
 | S09 | [러닝 세션 삭제](./sessions.md#s09-러닝-세션-삭제) | DELETE | `/running-sessions/{sessionId}` | [sessions.md](./sessions.md) |
+| S10 | [활성 러닝 이벤트 구독](./sessions.md#s10-활성-러닝-이벤트-구독) | GET | `/running-sessions/{sessionId}/events` | [sessions.md](./sessions.md) |
 | P07 | [세션 BPM 조절](./pace-coaching.md#p07-세션-bpm-조절) | PUT | `/running-sessions/{sessionId}/bpm` | [pace-coaching.md](./pace-coaching.md) |
 | H01 | [러닝 기록 목록](./running-records.md#h01-러닝-기록-목록) | GET | `/running-records` | [running-records.md](./running-records.md) |
 | H02 | [러닝 기록 상세](./running-records.md#h02-러닝-기록-상세) | GET | `/running-records/{sessionId}` | [running-records.md](./running-records.md) |
@@ -220,6 +224,7 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 | M08 | [크루 탈퇴](./crews.md#m08-크루-탈퇴) | DELETE | `/crews/{crewId}/members/me` | [crews.md](./crews.md) |
 | M09 | [크루 멤버 내보내기](./crews.md#m09-크루-멤버-내보내기) | DELETE | `/crews/{crewId}/members/{userId}` | [crews.md](./crews.md) |
 | M10 | [내 크루 목록](./crews.md#m10-내-크루-목록) | GET | `/users/me/crews` | [crews.md](./crews.md) |
+| M11 | [크루 해산](./crews.md#m11-크루-해산) | DELETE | `/crews/{crewId}` | [crews.md](./crews.md) |
 | CMT01 | [게시물 작성](./community.md#cmt01-게시물-작성) | POST | `/posts` | [community.md](./community.md) |
 | CMT02 | [게시물 목록](./community.md#cmt02-게시물-목록) | GET | `/posts` | [community.md](./community.md) |
 | CMT03 | [게시물 상세](./community.md#cmt03-게시물-상세) | GET | `/posts/{postId}` | [community.md](./community.md) |
@@ -264,15 +269,30 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 - [x] 그룹런은 참가·참가 취소만 제공. 별도 불참 응답 제외
 - [ ] 7.1 검색창 유지 여부 (CMT13)
 
-## 미정 사항 우선 검토
+## 설계 확정 범위와 착수 전 확인
 
-- [ ] 서명 알고리즘·키 관리·비활성 만료·토큰 저장 모델 의 물리 설계. 토큰 계약·Argon2id·아이디별 실패 제한·초기 설정 판정은 users.md에 확정 반영
-- [ ] Samsung Health 과거 운동 기록 데이터 계약
-- [ ] 개인 세션과 그룹 참가자 연결 및 그룹 상태 전이
-- [ ] 실시간 센서/코칭/워치 이벤트 전달 방식
-- [ ] 동일 코스 다회 완주 시 기록 기본 비교 대상
-- [ ] 자유 그룹런 선두·GPS 경로·순위 산정 및 선두 교체 규칙
-- [ ] 개인정보 공개 범위·삭제 및 알림 정책
+아래 구분은 설계 기준이며 코드 구현·배포·실기기 검증 완료를 뜻하지 않는다. 각 상세 명세의 확정 절을 우선하며, 다른 API의 초안까지 확정한 것으로 해석하지 않는다.
+
+| 구분 | 확정 내용 | 기준 문서 |
+| --- | --- | --- |
+| 인증 | JWT 서명·만료, Argon2id, 로그인 실패 제한, Redis 갱신 권한 저장·폐기 | [인증 정책](users.md#인증-정책-적용-범위), ADR-0014·0015 |
+| 온라인 러닝 연동 | 워치↔폰 MessageClient, 폰→서버 HTTPS, 서버→폰 SSE, 5초 배치·단계별 저장 확인 | [173번 온라인 계약](devices-health.md#173번-온라인-확정-계약), [통합 설계](../watch-mobile-server-integration.md) |
+| 기록 삭제 | 종료된 기록과 본인 공유 게시물의 일괄 삭제 표시, 개인 조회 제외·그룹 결과/코스 보존 | [S09](sessions.md#s09-러닝-세션-삭제), [공유 게시물](community.md#운동-기록과-공유-게시물의-삭제) |
+| 준비 취소 | 본문 없음, 200 id/status, 인증·소유권·부재 오류, 미확정 START 차단·동일 취소 재응답 | [S07](sessions.md#s07-러닝-취소) |
+| 세션 제어·코칭 | 서버 승인→실행→결과 저장, 단일 상태 버전, 코칭 유효성·만료 명령 결과 확인 | [세션 제어](sessions.md#세션-제어-공통-계약), [코칭](pace-coaching.md) |
+| 시작 미확인·그룹 종료 | 명시적 중단, 재연결 시 측정 중지, 늦은 시작·기록 복구 제외 | [시작 미확인 중단](sessions.md#s08-러닝-설정제어-기기-변경), [그룹런](group-runs.md) |
+| 기기 등록·조회·해제 | 회원별·유형별 연결 중 기기 1대, 신규 201·같은 유형 재요청 200, 해제 멱등 200·타인/없음 404, 설치 식별자·메타데이터·푸시 토큰·lastSeenAt 미저장, 기기 교체는 W03 후 W01 | [W01~W03](devices-health.md#w01-기기-등록) |
+
+**착수 전 결정이 필요한 항목**
+
+| 대상 | 남은 결정 | 구현에 미치는 영향 |
+| --- | --- | --- |
+| [U15 가입](users.md#u15-회원가입)·[W04~W05 동의](devices-health.md#w04-수집-동의철회) | 가입 시 필수 약관 전달·건강정보 동의 변경/조회·저장 매핑·철회와 저장의 동시 처리 | 별도 업무에서 상세 API 계약 확정 |
+| [W06 건강 기록](devices-health.md#w06-samsung-health-데이터-동기화) | 지원 지표·외부 기록 ID·저장 매핑·중복 처리·호출 시점 | SDK에서 읽을 수 있는 값과 서버 저장 항목을 대조한 뒤 요청 형식 확정 |
+| 코스·그룹 집계 | 동일 코스 다회 완주의 기본 비교 대상, 자유 그룹런 선두·경로·순위·선두 교체 | 세션 연결·종료 계약과 구분해 해당 기능 착수 전에 확정 |
+| 개인정보·삭제·알림 | 현재 확정한 계정 공개·알림 종류 이외의 보존·삭제·추가 알림 정책 | 확정된 공통 정책을 유지하고 상세 미정 사항은 해당 API에서 결정 |
+
+기기 등록·동의 확인은 온라인 러닝 준비에도 필요한 선행 기능이다. 워치·폰·서버 통신 계약은 구현 기준으로 사용할 수 있지만, 기기 등록 계약(W01~W03)은 S15P31E105-251에서 확정했다. 설치 식별자 기반 충돌 판정과 푸시 토큰 등록은 후속 업무다. 가입·동의 상세 계약은 별도 업무에서 확정하며 이번 MR의 확정 범위에 포함하지 않는다.
 
 ## 자동 처리 분리 결과 (2026-10-23)
 
@@ -296,8 +316,8 @@ P07은 세션 BPM 조절, G12는 그룹장 전용 전체 강제 종료로 변경
 | C02 | 별도 공용 이름 검색 제외. C01 추천 조건 필터로 통합 |
 | C04 | 수동 등록 API 제거. 러닝 경로 확정 후 자동 코스 반영 |
 | C07·C09 | 공용 코스 이름 없이 본인 저장 관계의 별명 설정·변경·조회 |
-| M11 | 크루 자주 만난 장소 기능 제거 |
-| W06·W07 | 앱 서비스의 자동 업로드 API. 서버 내부 계산과 구분. W07은 실시간 소량 배치·오프라인 재전송 통합 |
+| M11 | 크루 자주 만난 장소 기능 제거 후, 동일 ID를 크루 해산(DELETE `/crews/{crewId}`)으로 재사용 |
+| W06·W07 | 앱 서비스의 자동 업로드 API. 서버 내부 계산과 구분. W07은 온라인 불변 batch·제한 재시도·서버 저장 ACK |
 | P02·P03·P04 | 별도 REST 요청 제외. 전략·코칭은 세션 준비·갱신·복구로 제공, 측정값은 W07 자동 전송 |
 | H04 | 원본 GPS 별도 조회 제거. H02·공유 게시물에 표시용 경로 그림 제공 |
 | H05 | 기록별 공개 설정 제거. 원본 기록은 본인, 공유 게시물·프로필은 계정 정책 적용 |
@@ -310,18 +330,16 @@ P07은 세션 BPM 조절, G12는 그룹장 전용 전체 강제 종료로 변경
 
 ## API·자동 실행 재점검
 
-남은 기술 계약은 아래 구현 전 검토 항목에 정리했다. 현재 91개 API는 구현 완료 명세가 아닌 후보 초안이며 실시간 전달·오프라인 이벤트·결과 준비 상태의 세부 계약이 남아 있다.
+173의 실시간 전달·실제 제어 결과 저장·준비/분석 상태 계약은 아래 정본에 확정했다. API 수91개에는 새 S10 SSE 구독이 포함된다. 설계 승인과 실행 코드·서비스 DB 적용·실기기 검증은 구분한다.
 
 최신 사용자 결정: 출발 전 목표 수정(S08)·출발 후 고정, 자유러닝 목표는 선택 입력이며 모드별 AI 동작 확정([상세 정책](../requirements.md#러닝-모드별-ai-동작)), 실제 시작 참가자만 그룹 진행 판정, 강제 종료 시각까지 기록 반영, 러닝 경로 자동 코스 등록(C04 제거).
 
-## 구현 전에 구체화할 기술 계약
+## 173 확정 계약과 별도 도메인 항목
 
-- **실시간 전달:** 연결·인증·구독·대상 세션, 전략·코칭·그룹·종료 메시지 구조, 버전·적용 시각, 재연결·중복·만료 정책. REST 조회 삭제만으로 전달 계약이 완성되지 않는다.
-- **오프라인 운동 제어:** S03~S06의 commandId만으로 원래 발생 시각·명령 순서가 표현되지 않는다. W07 제어 이벤트 스키마와 연결해 실제 운동 시각·정지 구간·종료를 복구해야 한다.
-- **분석 준비·실패 상태:** S01/S02/S06/H02/H03/G14의 준비 중·실패·잠정·완료 및 결과 버전을 정의해야 한다. `{}` 응답 예시는 완성 계약이 아니다.
-- **W07·W08:** 스트림별 연속 sequence의 범위·재설치·세션 경계, 타입별 items, ACK 영속성·누락·해시 충돌과 원본 워치 업로드 v2 매핑이 필요하다. W07 초안의 문자열 schemaVersion과 원본 기록의 정수 schemaVersion은 같다고 가정하지 않는다.
-- **W06 지표 가용성:** 삼성헬스·직접 워치 수집·계산 지표의 출처, HRV·안정시 심박 등의 SDK·권한·기기 가용성을 실제 대상 버전으로 검증해야 한다. 이번 검토에서 추가 SDK 검증은 하지 않았다.
-- **후속 작업 복구:** 원본 저장 성공과 분석·알림 전달 성공을 구분하고 실패 재시도·중복 반영 방지·재집계 시 이전 집계 대체를 정의해야 한다.
-- **푸시 수신 등록:** W01은 최초 pushToken만 설명한다. 토큰 교체·로그아웃·계정 전환·기기 해제 시 수신 매핑 갱신·폐기 계약이 필요하다. 별도 갱신 API 또는 W01 재등록 동작 중 선택은 미정이다.
-- **알림 설정:** U19/U20의 groupRun/coaching/community 분류만으로 크루 가입·팔로우 알림 설정을 설명하지 못한다. 새 분류·기본값·필수 상태 전달과의 분리를 정의해야 한다.
-- **개인정보·ERD:** 계정 공개·팔로우 요청, 개인 별명, 주관적 컨디션·기록별 공개 필드 정리는 ERD 후속 검토 대상이다. 승인되지 않은 데이터 모델 변경은 수행하지 않았다.
+온라인 MVP의 데이터 모델 확장은 현재 운동 상태 저장·필요한 제어 결과 기록·오래된 코칭 차단으로 제한한다. [세션 공통 계약](sessions.md#세션-제어-공통-계약)은 서버 BIGINT 명령 ID와 단일 상태 버전, [P07](pace-coaching.md#p07-세션-bpm-조절)은 실제 BPM과 코칭 만료, [통합 설계](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)는16개 메시지 경로를 정의한다. S10의 전체 상태 전달과 기존 W07 batch/저장 ACK를 유지한다.
+
+추가 UUID 컬럼·제어 해시·분리된 준비/BPM/전달 버전·분석 임대/재시도·종료 마감 해시는 사용하지 않는다. 데이터 모델은 [ERD](../db/erd.md)를 따른다. API 수91개는 유지하며 서비스 코드·운영 DB 적용·실기기 검증 완료를 뜻하지 않는다.
+
+W06 실제 SDK 지표·권한 실측, 푸시 토큰 교체·해제, 크루·팔로우 알림, 공개/별명/팔로우 정합성은 별도 도메인 항목이다.
+
+워치로 시작한 운동은 폰 인터넷이 유지되면 S08 TAKE_OVER_PHONE으로 GPS 기록을 이어가고 S04/S05/S06에서도 워치와 같은 REQUEST 승인 → 실행 → RESULT 보고로 폰에서 제어·종료·저장한다. 워치 없는 새 시작은 이 경로에 포함하지 않는다.

@@ -12,73 +12,74 @@ import {
   BottomSheet,
   Icon,
   IconButton,
+  Logo,
   type IconName,
 } from '../../components';
-import { radius, size, spacing, typography, useTheme } from '../../theme';
+import {
+  fontFamily,
+  radius,
+  size,
+  spacing,
+  ThemeProvider,
+  typography,
+  useTheme,
+} from '../../theme';
 
-// 1.1·1.2 sit on a blurred runner photo in the prototype; the shared backdrop stands in for it
-// until the design draft (S15P31E105-89) settles the photo.
-export { Backdrop as HeroBackground, Logo, Segmented } from '../../components';
+export { Logo, Segmented } from '../../components';
 
-// Back button with the 1/2 progress bar of 1.5·1.6, or a title as on 1.2q.
+// The 1.x header (DESIGN.md 2-5): back button, the loop symbol in the middle, and 1 / 2 on the right for 1.5·1.6.
 export function OnboardingHeader({
   onBack,
   step,
-  title,
 }: {
   onBack?: () => void;
   step?: { current: number; total: number };
-  title?: string;
 }) {
-  const { colors } = useTheme();
   return (
     <View style={styles.header}>
+      <View style={styles.symbol} pointerEvents="none">
+        <Logo width={34} symbol />
+      </View>
       {onBack ? (
         <IconButton icon="back" accessibilityLabel="뒤로" onPress={onBack} />
       ) : null}
       {step ? (
-        <>
-          <View
-            style={[styles.track, { backgroundColor: colors.borderStrong }]}
-          >
-            <View
-              style={[
-                styles.progress,
-                {
-                  backgroundColor: colors.accent,
-                  width: `${(step.current / step.total) * 100}%`,
-                },
-              ]}
-            />
-          </View>
-          <AppText variant="captionStrong" tone="textSecondary">
-            {step.current} / {step.total}
-          </AppText>
-        </>
-      ) : null}
-      {title ? (
-        <AppText variant="heading" accessibilityRole="header">
-          {title}
+        <AppText variant="label" tone="textSecondary" style={styles.stepText}>
+          {step.current} / {step.total}
         </AppText>
       ) : null}
     </View>
   );
 }
 
+// Centered light title. `muted` is the dimmed tail, such as 1.2p's 잊으셨나요?
+// The caller ends `title` with the line break or space that comes before it.
 export function StepTitle({
   title,
+  muted,
   description,
+  small = false,
 }: {
   title: string;
+  muted?: string;
   description?: string;
+  // 1.2q's 전화번호로 찾기 is a step smaller.
+  small?: boolean;
 }) {
+  // AppText sets its own size, so the nested muted part repeats the title style.
+  const titleStyle = [styles.titleText, small && styles.titleSmall];
   return (
     <View style={styles.stepTitle}>
-      <AppText variant="display" accessibilityRole="header">
+      <AppText accessibilityRole="header" style={titleStyle}>
         {title}
+        {muted ? (
+          <AppText tone="textTertiary" style={titleStyle}>
+            {muted}
+          </AppText>
+        ) : null}
       </AppText>
       {description ? (
-        <AppText variant="caption" tone="textSecondary">
+        <AppText variant="caption" tone="textSecondary" style={styles.center}>
           {description}
         </AppText>
       ) : null}
@@ -86,7 +87,7 @@ export function StepTitle({
   );
 }
 
-// Small pill inside a field: 인증번호 받기 (mint), 다시 받기 · 인증 완료 (muted).
+// Small pill inside a field: 인증번호 받기 (filled), 다시 받기 · 인증 완료 (muted).
 export function FieldChip({
   title,
   onPress,
@@ -106,6 +107,7 @@ export function FieldChip({
       accessibilityLabel={title}
       accessibilityState={{ disabled }}
       disabled={disabled || !onPress}
+      hitSlop={8}
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
@@ -116,7 +118,7 @@ export function FieldChip({
       ]}
     >
       <AppText
-        variant="captionStrong"
+        variant="label"
         style={{
           color: accent
             ? colors.onAccent
@@ -158,6 +160,74 @@ export function TextLink({
         {title}
       </AppText>
     </Pressable>
+  );
+}
+
+// The 1.x main button (DESIGN.md 2-5): a short pill with a ring and dot at its right end.
+// It sits on the black lower part, so it is used inside a dark tone and turns into a light pill there.
+export function GoButton({
+  title,
+  onPress,
+  disabled = false,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const { colors } = useTheme();
+  const ink = disabled ? colors.textTertiary : colors.onAccent;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.go,
+        { backgroundColor: disabled ? colors.surfaceMuted : colors.accent },
+        pressed && styles.goPressed,
+      ]}
+    >
+      <AppText style={[typography.buttonSmall, styles.goLabel, { color: ink }]}>
+        {title}
+      </AppText>
+      <View style={styles.goRing}>
+        <View style={[styles.goRingLine, { borderColor: ink }]} />
+        <View style={[styles.goDot, { backgroundColor: ink }]} />
+      </View>
+    </Pressable>
+  );
+}
+
+// Page dots under the 1.x main button: a light pill with the current page dark.
+export function PageDots({ count, current }: { count: number; current: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.dots, { backgroundColor: colors.accent }]}
+    >
+      {Array.from({ length: count }, (_, index) => (
+        <View
+          key={index}
+          style={[
+            styles.dot,
+            { backgroundColor: colors.onAccent },
+            index !== current && styles.dotOff,
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// The black lower part of a 1.x screen: the main button and links, centered, in the dark tone.
+export function OnboardingFooter({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider tone="dark">
+      <View style={styles.footer}>{children}</View>
+    </ThemeProvider>
   );
 }
 
@@ -219,32 +289,38 @@ export function CheckCircle({
   size?: number;
 }) {
   const { colors } = useTheme();
+  const round = { borderRadius: diameter / 2 };
   return (
     <View
       style={[
+        styles.checkCircle,
+        round,
         {
           width: diameter,
           height: diameter,
-          borderRadius: diameter / 2,
           borderColor: checked ? colors.accent : colors.borderStrong,
         },
-        checked && { backgroundColor: colors.accent },
-        styles.checkCircle,
       ]}
     >
+      {/* Android drops the corner radius of a View that gains a background later,
+          so the filled circle is its own View mounted only when checked. */}
       {checked ? (
-        <Icon
-          name="check"
-          color={colors.onAccent}
-          size={diameter * 0.6}
-          strokeWidth={3}
-        />
+        <View
+          style={[styles.checkFill, round, { backgroundColor: colors.accent }]}
+        >
+          <Icon
+            name="check"
+            color={colors.onAccent}
+            size={diameter * 0.55}
+            strokeWidth={2.5}
+          />
+        </View>
       ) : null}
     </View>
   );
 }
 
-// Numbered step badge of 1.2p·1.2q; done steps turn mint.
+// Numbered step badge of 1.2q: filled for the current and done steps, a check once done.
 export function StepBadge({
   index,
   state,
@@ -253,36 +329,28 @@ export function StepBadge({
   state: 'active' | 'done' | 'locked';
 }) {
   const { colors } = useTheme();
+  const reached = state !== 'locked';
+  const ink = reached ? colors.onAccent : colors.textTertiary;
   return (
     <View
       style={[
         styles.badge,
-        state === 'done'
-          ? { backgroundColor: colors.accent, borderColor: colors.accent }
-          : {
-              borderColor:
-                state === 'active' ? colors.text : colors.borderStrong,
-            },
+        { backgroundColor: reached ? colors.accent : colors.surfaceMuted },
       ]}
     >
-      <AppText
-        variant="labelStrong"
-        style={{
-          color:
-            state === 'done'
-              ? colors.onAccent
-              : state === 'active'
-              ? colors.text
-              : colors.textDisabled,
-        }}
-      >
-        {index}
-      </AppText>
+      {state === 'done' ? (
+        <Icon name="check" color={ink} size={12} strokeWidth={2.5} />
+      ) : (
+        <AppText variant="labelStrong" style={{ color: ink }}>
+          {index}
+        </AppText>
+      )}
     </View>
   );
 }
 
-// A choice drawn as a card with a mint border when selected (1.6 수준, 1.6w 워치 사용 여부).
+// A choice drawn as a light card that turns ink when selected (1.5 성별, 1.6 수준, 1.6w 워치 사용 여부).
+// The inside of a selected card is in the dark tone, so its text and icons turn light by themselves.
 export function SelectionCard({
   selected,
   onPress,
@@ -306,14 +374,18 @@ export function SelectionCard({
       style={({ pressed }) => [
         styles.selection,
         {
-          backgroundColor: selected ? colors.surfaceMuted : colors.surface,
-          borderColor: selected ? colors.accent : colors.border,
-          opacity: pressed ? 0.8 : 1,
+          backgroundColor: selected ? colors.accent : colors.inputBackground,
+          borderColor: selected ? colors.accent : colors.inputEdge,
         },
+        pressed && styles.selectionPressed,
         style,
       ]}
     >
-      {children}
+      {selected ? (
+        <ThemeProvider tone="dark">{children}</ThemeProvider>
+      ) : (
+        children
+      )}
     </Pressable>
   );
 }
@@ -350,7 +422,7 @@ export function SelectField<T extends number>({
           styles.select,
           {
             backgroundColor: colors.inputBackground,
-            borderColor: colors.inputBorder,
+            borderColor: colors.inputEdge,
           },
           style,
         ]}
@@ -411,13 +483,13 @@ export function SelectField<T extends number>({
   );
 }
 
-// Round icon used on 1.2p (lock) and 1.6w (watch, phone).
+// Round glass icon used on 1.2p (lock, larger) and 1.6w (watch, phone).
 export function IconBadge({
   icon,
-  tone = 'muted',
+  diameter = 44,
 }: {
   icon: IconName;
-  tone?: 'muted' | 'accent';
+  diameter?: number;
 }) {
   const { colors } = useTheme();
   return (
@@ -425,16 +497,15 @@ export function IconBadge({
       style={[
         styles.iconBadge,
         {
-          backgroundColor: colors.surfaceMuted,
-          borderColor: tone === 'accent' ? colors.accent : colors.border,
+          width: diameter,
+          height: diameter,
+          borderRadius: diameter / 2,
+          backgroundColor: colors.glass,
+          borderColor: colors.borderStrong,
         },
       ]}
     >
-      <Icon
-        name={icon}
-        color={tone === 'accent' ? colors.accentText : colors.text}
-        size={20}
-      />
+      <Icon name={icon} color={colors.text} size={20} />
     </View>
   );
 }
@@ -448,19 +519,74 @@ const styles = StyleSheet.create({
     height: size.header,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  track: { flex: 1, height: 3, borderRadius: 2, overflow: 'hidden' },
-  progress: { height: 3, borderRadius: 2 },
-  stepTitle: { gap: spacing.md, paddingTop: spacing.lg },
+  symbol: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepText: { marginLeft: 'auto', letterSpacing: 1.5 },
+  stepTitle: { gap: spacing.lg, paddingTop: spacing.xxl },
+  titleText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 28,
+    lineHeight: 36,
+    letterSpacing: -0.8,
+    textAlign: 'center',
+  },
+  titleSmall: { fontSize: 24, lineHeight: 32 },
+  center: { textAlign: 'center' },
   chip: {
-    height: 38,
+    height: 28,
     paddingHorizontal: spacing.xl,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  footer: { flex: 1, alignItems: 'center', gap: spacing.xl },
+  go: {
+    height: 54,
+    minWidth: 206,
+    borderRadius: 27,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 26,
+    paddingRight: 10,
+  },
+  goPressed: { transform: [{ scale: 0.96 }] },
+  goLabel: { letterSpacing: 0.5, marginRight: 22 },
+  goRing: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  goRingLine: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 17,
+    borderWidth: 1,
+    opacity: 0.6,
+  },
+  goDot: { width: 4, height: 4, borderRadius: 2 },
+  dots: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    borderRadius: 12,
+  },
+  dot: { width: 4, height: 4, borderRadius: 2 },
+  dotOff: { opacity: 0.3 },
   inlineError: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -483,24 +609,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 1,
   },
-  checkCircle: {
-    borderWidth: 1.5,
+  checkCircle: { borderWidth: 1 },
+  checkFill: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    bottom: -1,
+    left: -1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   selection: {
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderRadius: 22,
+    borderWidth: 1,
     padding: spacing.xl,
   },
+  selectionPressed: { transform: [{ scale: 0.96 }] },
   select: {
     height: size.input,
     borderRadius: radius.pill,
@@ -519,9 +650,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   iconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

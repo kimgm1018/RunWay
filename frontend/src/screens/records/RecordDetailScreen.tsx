@@ -16,6 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   AppText,
+  Backdrop,
+  Card,
   EmptyState,
   Icon,
   IconButton,
@@ -36,7 +38,14 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { radius, size, spacing, typography, useTheme } from '../../theme';
+import {
+  fontFamily,
+  k1,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import { MockMap } from '../run/MockMap';
 import { SplitChart, type SplitMetric } from './SplitChart';
 
@@ -97,7 +106,6 @@ function GoalPill({ record }: { record: RunRecordDetail }) {
 }
 
 function Splits({ record }: { record: RunRecordDetail }) {
-  const { colors } = useTheme();
   // 심박·케이던스 탭 appear only when the run measured them.
   const available = metrics.filter(
     metric =>
@@ -128,12 +136,7 @@ function Splits({ record }: { record: RunRecordDetail }) {
           return mean === null ? null : { value: mean, label: `평균 ${mean}` };
         })();
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
+    <Card variant="deep" style={styles.card}>
       {available.length > 1 ? (
         <Segmented options={available} value={metric} onChange={setMetric} />
       ) : null}
@@ -146,7 +149,7 @@ function Splits({ record }: { record: RunRecordDetail }) {
           metric === 'pace' ? formatPace(value) : String(value)
         }
       />
-    </View>
+    </Card>
   );
 }
 
@@ -175,28 +178,76 @@ function DetailButton({
         styles.button,
         primary
           ? { backgroundColor: colors.accent, borderColor: colors.accent }
-          : selected
-          ? { borderColor: colors.accent }
           : { borderColor: colors.borderStrong },
         (pressed || disabled) && styles.dim,
       ]}
     >
-      {selected ? (
-        <Icon name="check" color={colors.accentText} size={14} />
-      ) : null}
+      {selected ? <Icon name="check" color={colors.text} size={14} /> : null}
       <AppText
         variant="bodyStrong"
-        style={{
-          color: primary
-            ? colors.onAccent
-            : selected
-            ? colors.accentText
-            : colors.text,
-        }}
+        style={{ color: primary ? colors.onAccent : colors.text }}
       >
         {title}
       </AppText>
     </Pressable>
+  );
+}
+
+// The top of 5.2 on the K1 dark map (DESIGN.md 2-8 5.2 지도·거리), read in the dark tone.
+function MapHead({ record }: { record: RunRecordDetail }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.map}>
+      {record.route ? (
+        <MockMap
+          k1Style
+          night
+          route={record.route}
+          // Between the header and the distance: about 95–245dp down the 430 map.
+          routeArea={{ top: 288, bottom: 410 }}
+        />
+      ) : (
+        <View style={[styles.noRoute, { backgroundColor: colors.background }]}>
+          <Icon name="mapPin" color={colors.textSecondary} size={22} />
+          <AppText variant="caption" tone="textSecondary">
+            위치 없이 기록한 러닝이라 경로가 없어요
+          </AppText>
+        </View>
+      )}
+      {/* The map darkens under the status bar and melts into the K1 background at the bottom. */}
+      <Svg
+        style={StyleSheet.absoluteFill}
+        width="100%"
+        height="100%"
+        pointerEvents="none"
+      >
+        <Defs>
+          <LinearGradient id="mapFade" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={k1.night} stopOpacity={0.6} />
+            <Stop offset="0.2" stopColor={k1.night} stopOpacity={0} />
+            <Stop offset="0.9" stopColor="#C3D1DD" stopOpacity={0} />
+            <Stop offset="1" stopColor="#C3D1DD" stopOpacity={1} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#mapFade)" />
+      </Svg>
+      <View style={styles.headline}>
+        <AppText style={styles.distance} accessibilityLabel="거리">
+          {formatKm(record.distanceM)}
+          <AppText style={styles.distanceUnit} tone="textSecondary">
+            {' km'}
+          </AppText>
+        </AppText>
+        <View style={styles.headlineSide}>
+          <AppText style={styles.time}>
+            {formatDuration(record.durationSec)}
+          </AppText>
+          <AppText style={styles.pace} tone="textSecondary">
+            {`${formatPace(record.averagePaceSecPerKm)}/km`}
+          </AppText>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -205,7 +256,7 @@ export function RecordDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'RecordDetail'>>();
   const recordId = route.params?.recordId;
-  const { colors, name } = useTheme();
+  const { colors } = useTheme();
   const { courses } = useRepositories();
   const toast = useToast();
   const detail = useResource(
@@ -287,129 +338,77 @@ export function RecordDetailScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
+      <StatusBar barStyle="light-content" />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <ScrollView contentContainerStyle={styles.scroll} bounces={false}>
-        <View style={styles.map}>
-          {record.route ? (
-            <MockMap
-              night={name === 'dark'}
-              route={record.route}
-              routeArea={{ top: 300, bottom: 480 }}
-            />
-          ) : (
-            <View
-              style={[styles.noRoute, { backgroundColor: colors.surfaceMuted }]}
-            >
-              <Icon name="mapPin" color={colors.textTertiary} size={22} />
-              <AppText variant="caption" tone="textTertiary">
-                위치 없이 기록한 러닝이라 경로가 없어요
-              </AppText>
-            </View>
-          )}
-          <Svg
-            style={StyleSheet.absoluteFill}
-            width="100%"
-            height="100%"
-            pointerEvents="none"
-          >
-            <Defs>
-              <LinearGradient id="mapFade" x1="0" y1="0" x2="0" y2="1">
-                <Stop
-                  offset="0"
-                  stopColor={colors.background}
-                  stopOpacity={0.6}
-                />
-                <Stop
-                  offset="0.25"
-                  stopColor={colors.background}
-                  stopOpacity={0}
-                />
-                <Stop
-                  offset="0.6"
-                  stopColor={colors.background}
-                  stopOpacity={0}
-                />
-                <Stop
-                  offset="1"
-                  stopColor={colors.background}
-                  stopOpacity={1}
-                />
-              </LinearGradient>
-            </Defs>
-            <Rect width="100%" height="100%" fill="url(#mapFade)" />
-          </Svg>
-          <View style={styles.headline}>
-            <AppText style={styles.distance} accessibilityLabel="거리">
-              {formatKm(record.distanceM)}
-              <AppText variant="heading" tone="textSecondary">
-                {' km'}
-              </AppText>
-            </AppText>
-            <View style={styles.headlineSide}>
-              <AppText variant="metric">
-                {formatDuration(record.durationSec)}
-              </AppText>
-              <AppText variant="metric" tone="textSecondary">
-                {`${formatPace(record.averagePaceSecPerKm)}/km`}
-              </AppText>
-            </View>
-          </View>
-        </View>
+        <ThemeProvider tone="dark">
+          <MapHead record={record} />
+        </ThemeProvider>
         <View style={styles.body}>
           <GoalPill record={record} />
           {record.aiAdvice ? (
-            <View
-              style={[
-                styles.card,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              <AppText variant="body">
-                <AppText variant="bodyStrong" tone="accentText">
+            <Card variant="deep" style={styles.card}>
+              <AppText style={styles.advice}>
+                <AppText style={styles.advice} variant="bodyStrong">
                   {'AI 조언 '}
                 </AppText>
                 {record.aiAdvice}
               </AppText>
-            </View>
+            </Card>
           ) : null}
           <Splits record={record} />
         </View>
       </ScrollView>
-      <SafeAreaView
-        edges={['top']}
-        style={styles.header}
-        pointerEvents="box-none"
-      >
-        <View style={styles.headerRow}>
-          <IconButton icon="back" accessibilityLabel="뒤로" onPress={close} />
-          <AppText
-            variant="heading"
-            accessibilityRole="header"
-            style={styles.title}
-          >
-            {`${formatDotDateWeekday(record.startedAt)} 러닝`}
-          </AppText>
-          <IconButton
-            icon="share"
-            accessibilityLabel="공유"
-            onPress={() => navigateTo(navigation, 'PostWrite')}
-          />
-        </View>
-      </SafeAreaView>
-      <SafeAreaView edges={['bottom']} style={styles.buttons}>
-        <DetailButton
-          title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-          selected={myCourseId !== null}
-          // A run without location has no path to save as a course.
-          disabled={busy || (!record.route && !myCourseId)}
-          onPress={toggleSaved}
-        />
-        <DetailButton
-          title="기록 공유"
-          onPress={() => navigateTo(navigation, 'PostWrite')}
-        />
-        <DetailButton title="닫기" primary onPress={close} />
-      </SafeAreaView>
+      <ThemeProvider tone="dark">
+        <SafeAreaView
+          edges={['top']}
+          style={styles.header}
+          pointerEvents="box-none"
+        >
+          <View style={styles.headerRow}>
+            <IconButton icon="back" accessibilityLabel="뒤로" onPress={close} />
+            <AppText
+              variant="heading"
+              accessibilityRole="header"
+              style={styles.title}
+            >
+              {`${formatDotDateWeekday(record.startedAt)} 러닝`}
+            </AppText>
+            <IconButton
+              icon="share"
+              accessibilityLabel="공유"
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
+            />
+          </View>
+        </SafeAreaView>
+        {/* The three buttons sit on the black lower part (DESIGN.md 2-8 5.2 버튼, 1.4 : 1 : 1). */}
+        <SafeAreaView edges={['bottom']} style={styles.buttons}>
+          <View style={styles.wide}>
+            <DetailButton
+              title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
+              selected={myCourseId !== null}
+              // A run without location has no path to save as a course.
+              disabled={busy || (!record.route && !myCourseId)}
+              onPress={toggleSaved}
+            />
+          </View>
+          <View style={styles.narrow}>
+            <DetailButton
+              title="기록 공유"
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
+            />
+          </View>
+          <View style={styles.narrow}>
+            <DetailButton title="닫기" primary onPress={close} />
+          </View>
+        </SafeAreaView>
+      </ThemeProvider>
     </View>
   );
 }
@@ -442,42 +441,48 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
-    bottom: spacing.md,
+    bottom: 40,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
   },
-  distance: { ...typography.metricHero, fontSize: 72, lineHeight: 76 },
-  headlineSide: { alignItems: 'flex-end', paddingBottom: spacing.md },
+  // Big numbers stay Barlow Regular at the sheet's 96.
+  distance: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 96,
+    lineHeight: 100,
+  },
+  distanceUnit: { fontFamily: fontFamily.numberRegular, fontSize: 20 },
+  headlineSide: { alignItems: 'flex-end', paddingBottom: spacing.lg },
+  time: { fontFamily: fontFamily.numberRegular, fontSize: 24, lineHeight: 30 },
+  pace: { fontFamily: fontFamily.numberRegular, fontSize: 18, lineHeight: 24 },
   body: {
-    paddingHorizontal: spacing.screen,
-    gap: spacing.xl,
-    paddingTop: spacing.md,
+    paddingHorizontal: 14,
+    gap: spacing.lg,
+    marginTop: -spacing.xl,
   },
   goal: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     borderWidth: 1,
   },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.xl,
-  },
+  card: { gap: spacing.xl },
+  advice: { fontSize: 13.5, lineHeight: 21 },
   buttons: {
     flexDirection: 'row',
     gap: spacing.md,
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingTop: spacing.xl,
     paddingBottom: spacing.xl,
   },
+  wide: { flex: 1.4 },
+  narrow: { flex: 1 },
+  // Each button fills the box that sets its share of the row.
   button: {
-    flex: 1,
-    height: size.buttonLarge,
-    borderRadius: radius.pill,
+    height: 50,
+    borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',

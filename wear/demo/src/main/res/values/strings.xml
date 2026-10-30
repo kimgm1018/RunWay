@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">RunwayWatchDemo</string>
+    <string name="demo_title">RunWay</string>
+    <string name="demo_subtitle">워치 데모</string>
+    <string name="demo_status">실행 성공</string>
+</resources>

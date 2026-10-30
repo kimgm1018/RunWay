@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Button, Screen, type IconName } from '../../components';
+import { AppText, Screen, type IconName } from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing } from '../../theme';
-import { IconBadge, OnboardingHeader, SelectionCard, StepTitle } from './parts';
+import {
+  GoButton,
+  IconBadge,
+  OnboardingFooter,
+  OnboardingHeader,
+  SelectionCard,
+  StepTitle,
+} from './parts';
 import { useFinishOnboarding } from './SignUpDraft';
 
 type Choice = 'watch' | 'phone';
@@ -38,19 +45,22 @@ export function WatchChoiceScreen() {
     <Screen
       header={<OnboardingHeader onBack={navigation.goBack} />}
       footer={
-        <Button
-          title="다음"
-          variant="inverse"
-          disabled={!choice}
-          style={styles.flex}
-          onPress={() =>
-            choice === 'watch' ? navigateTo(navigation, 'WatchConnect') : finish()
-          }
-        />
+        <OnboardingFooter>
+          <GoButton
+            title="다음"
+            disabled={!choice}
+            onPress={() =>
+              choice === 'watch'
+                ? navigateTo(navigation, 'WatchConnect')
+                : finish()
+            }
+          />
+        </OnboardingFooter>
       }
     >
       <StepTitle
-        title={'갤럭시 워치를\n함께 쓰나요?'}
+        title={'갤럭시 워치를\n'}
+        muted="함께 쓰나요?"
         description="워치를 연결하면 심박·수면 기록으로 준비도와 러닝 코칭이 더 정확해져요."
       />
       <View accessibilityRole="radiogroup" style={styles.choices}>
@@ -62,18 +72,10 @@ export function WatchChoiceScreen() {
             accessibilityLabel={option.title}
             style={styles.choice}
           >
-            <IconBadge
-              icon={option.icon}
-              tone={choice === option.value ? 'accent' : 'muted'}
-            />
+            <IconBadge icon={option.icon} />
             <View style={styles.flex}>
-              <AppText
-                variant="bodyStrong"
-                tone={choice === option.value ? 'accentText' : 'text'}
-              >
-                {option.title}
-              </AppText>
-              <AppText variant="caption" tone="textTertiary">
+              <AppText variant="bodyMedium">{option.title}</AppText>
+              <AppText variant="caption" tone="textSecondary">
                 {option.detail}
               </AppText>
             </View>
@@ -86,6 +88,13 @@ export function WatchChoiceScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  choices: { gap: spacing.xl },
-  choice: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  choices: { gap: spacing.lg, paddingTop: spacing.md },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderRadius: 26,
+    paddingVertical: spacing.xxl,
+    paddingHorizontal: 18,
+  },
 });

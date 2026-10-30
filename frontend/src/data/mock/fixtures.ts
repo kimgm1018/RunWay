@@ -1,7 +1,10 @@
 import { Image } from 'react-native';
 import type {
   AppNotification,
+  AppSettings,
   CoursePlan,
+  CrewJoinRequest,
+  CrewListItem,
   CurrentPlace,
   MeetingPlace,
   MonthlyRunSummary,
@@ -9,7 +12,12 @@ import type {
   MusicState,
   MyCrew,
   Place,
+  Post,
+  PostComment,
+  PostRecord,
+  ProfileDetail,
   RecommendedCourse,
+  SelfReportedLevel,
   PeriodSummary,
   RunRecordSummary,
   SavedCourse,
@@ -39,6 +47,8 @@ export const loginLockMs = 10 * 60 * 1000;
 // 1.7 워치 연결 — 연결됨.
 export const connectedWatch: WatchConnection = {
   status: 'connected',
+  deviceName: 'Galaxy Watch7',
+  lastSyncedAt: '2026-10-19T06:42:00+09:00',
   batteryPercent: 82,
   permissions: {
     heartRate: 'connected',
@@ -51,6 +61,8 @@ export const connectedWatch: WatchConnection = {
 // 1.8 워치 연결 문제: location comes from the phone GPS, so it stays connected.
 export const disconnectedWatch: WatchConnection = {
   status: 'disconnected',
+  deviceName: 'Galaxy Watch7',
+  lastSyncedAt: '2026-10-19T06:42:00+09:00',
   batteryPercent: null,
   permissions: {
     heartRate: 'denied',
@@ -73,6 +85,28 @@ export const me: UserProfile = {
   nickname: '민준',
   runningLevel: 'intermediate',
   profileImageUrl: assetUri(mockProfilePhoto),
+};
+
+// 8.1 설정 (U19 and U13), as on the K1 sheet.
+export const appSettings: AppSettings = {
+  voiceCoachingEnabled: true,
+  bpmGuideEnabled: true,
+  locationRecordingMode: 'RUNNING_ONLY',
+  notifications: { groupRun: true, community: false },
+  isPrivate: false,
+};
+
+// 8.2 프로필 수정 (U04·U06): the 1.5·1.6 answers.
+export const profileDetail: ProfileDetail = {
+  nickname: '민준',
+  gender: 'MALE',
+  birthDate: '1991-03-14',
+  runningLevel: 'INTERMEDIATE',
+  baseline: {
+    baselineDistanceM: 5000,
+    baselineDurationSec: 1800,
+    usualPaceSecPerKm: 360,
+  },
 };
 
 export const todayCondition: TodayCondition = {
@@ -786,30 +820,87 @@ export const augustSummary: PeriodSummary = {
   averagePaceSecPerKm: 366,
 };
 
-// 6.x 그룹런. I am 민준 (me.id); the crews and runs follow prototype v15 6.0.
-export const crews: MyCrew[] = [
+// 6.1 크루 모집 lists every crew; distanceKm is from me, and 내 근처 keeps those within 3km.
+export type CrewFixture = CrewListItem & { distanceKm: number };
+
+// 6.x 그룹런. I am 민준 (me.id); the crews and runs follow prototype v15 6.0 and the 6.1 K1 sheet.
+export const crewDirectory: CrewFixture[] = [
   {
     id: 'crew-gwangalli',
     name: '광안리 새벽 크루',
+    description: '평일 아침 6시 반, 광안리 해변을 대화하며 천천히 달려요',
     area: '광안리',
+    capacity: 30,
     memberCount: 18,
-    membership: 'MEMBER',
+    myMembership: 'MEMBER',
+    distanceKm: 0.8,
   },
   {
     id: 'crew-minrak-night',
     name: '민락 야경 러너스',
+    description: '퇴근 후 민락수변 야경 보며 7km, 주 2회 모여요',
     area: '민락수변',
+    capacity: 30,
     memberCount: 24,
-    membership: 'MEMBER',
+    myMembership: 'MEMBER',
+    distanceKm: 1.4,
   },
   {
     id: 'crew-namcheon',
     name: '남천 회복 조깅',
+    description: '입문·부상 회복 환영, 숨차지 않는 페이스로 달려요',
     area: '남천',
+    capacity: 15,
     memberCount: 11,
-    membership: 'PENDING',
+    myMembership: 'PENDING',
+    distanceKm: 2.1,
+  },
+  {
+    id: 'crew-suyeong-half',
+    name: '수영강 하프 크루',
+    description: '하프 마라톤 준비, 주 3회 인터벌과 롱런',
+    area: '수영강',
+    capacity: 200,
+    memberCount: 200,
+    myMembership: null,
+    distanceKm: 2.6,
+  },
+  {
+    id: 'crew-haeundae-sunset',
+    name: '해운대 선셋 런',
+    description: '주말 저녁 해운대 백사장에서 노을 보며 5km',
+    area: '해운대',
+    capacity: 40,
+    memberCount: 27,
+    myMembership: null,
+    distanceKm: 5.3,
+  },
+  {
+    id: 'crew-seomyeon-after',
+    name: '서면 퇴근 러닝',
+    description: '수요일 저녁 부산시민공원 트랙, 처음 오는 분도 함께해요',
+    area: '부산시민공원',
+    capacity: 25,
+    memberCount: 9,
+    myMembership: null,
+    distanceKm: 6.8,
   },
 ];
+
+// 6.0 내 크루: the crews I joined or asked to join.
+export const crews: MyCrew[] = crewDirectory.flatMap(entry =>
+  entry.myMembership
+    ? [
+        {
+          id: entry.id,
+          name: entry.name,
+          area: entry.area,
+          memberCount: entry.memberCount,
+          membership: entry.myMembership,
+        },
+      ]
+    : [],
+);
 
 export const members = {
   seongyun: { userId: 'user-seongyun', nickname: '성윤' },
@@ -817,6 +908,66 @@ export const members = {
   seoyeon: { userId: 'user-seoyeon', nickname: '서연' },
   jiwoo: { userId: 'user-jiwoo', nickname: '지우' },
   me: { userId: 'user-minjun', nickname: '민준' },
+};
+
+// 6.2 구성원: the leader first, then the members named elsewhere in the mock. 6.2m needs a crew I
+// lead, so I lead 민락 야경 러너스. The mock fills each crew up to its memberCount from crewNicknames.
+export const crewRoster: Record<
+  string,
+  { userId: string; nickname: string }[]
+> = {
+  'crew-gwangalli': [
+    members.seongyun,
+    members.eunseo,
+    members.seoyeon,
+    members.jiwoo,
+    members.me,
+  ],
+  'crew-minrak-night': [members.me, members.jiwoo, members.eunseo],
+  'crew-namcheon': [members.seoyeon],
+};
+
+export const crewNicknames = [
+  '하준',
+  '서윤',
+  '도윤',
+  '하린',
+  '지호',
+  '수아',
+  '예준',
+  '지유',
+  '시우',
+  '채원',
+  '주원',
+  '유나',
+  '건우',
+  '다은',
+  '현우',
+  '소율',
+];
+
+// 6.2a 대기 중인 신청 for the crew I lead.
+export const crewJoinRequests: Record<string, CrewJoinRequest[]> = {
+  'crew-minrak-night': [
+    {
+      userId: 'user-harin',
+      nickname: '하린',
+      loginId: 'harin07',
+      level: 'INTERMEDIATE',
+      recent5kPaceSecPerKm: 356,
+      firstCrew: false,
+      requestedAt: '2026-10-19T12:42:00+09:00',
+    },
+    {
+      userId: 'user-doyun',
+      nickname: '도윤',
+      loginId: 'doyun22',
+      level: 'BEGINNER',
+      recent5kPaceSecPerKm: null,
+      firstCrew: true,
+      requestedAt: '2026-10-17T21:10:00+09:00',
+    },
+  ],
 };
 
 export type GroupRunFixture = {
@@ -1006,3 +1157,268 @@ export const nearbyRecruiting = {
   count: 8,
   areas: ['광안리', '민락', '남천', '수영강'],
 };
+
+// 7.x 커뮤니티 handles from the K1 7번 sheets, on the members above. I am minjun.run.
+export const communityUsers = {
+  me: {
+    userId: members.me.userId,
+    handle: 'minjun.run',
+    nickname: members.me.nickname,
+  },
+  seoyun: {
+    userId: members.seoyeon.userId,
+    handle: 'seoyun.run',
+    nickname: members.seoyeon.nickname,
+  },
+  sungyoon: {
+    userId: members.seongyun.userId,
+    handle: 'sungyoon.k',
+    nickname: members.seongyun.nickname,
+  },
+  eunseo: {
+    userId: members.eunseo.userId,
+    handle: 'eunseo_jog',
+    nickname: members.eunseo.nickname,
+  },
+  jiwoo: {
+    userId: members.jiwoo.userId,
+    handle: 'jiwoo.runs',
+    nickname: members.jiwoo.nickname,
+  },
+};
+
+const sharedRun = (
+  id: string,
+  title: string,
+  place: string,
+  startedAt: string,
+  distanceM: number,
+  durationSec: number,
+  shape: [number, number][],
+  heart: [number, number],
+  goalAchieved: boolean | null = true,
+): PostRecord => ({
+  id,
+  title,
+  startedAt,
+  distanceM,
+  durationSec,
+  averagePaceSecPerKm: Math.round(durationSec / (distanceM / 1000)),
+  shape,
+  runType: 'SOLO',
+  group: null,
+  goalAchieved,
+  place,
+  courseRun: true,
+  averageHeartRate: heart[0],
+  cadence: heart[1],
+});
+
+export type PostFixture = Omit<Post, 'isMine' | 'commentCount'> & {
+  comments: PostComment[];
+};
+
+// 7.1 피드, newest first. The 7.4 lists show each runner's posts.
+export const posts: PostFixture[] = [
+  {
+    id: 'post-seoyun-1019',
+    author: communityUsers.seoyun,
+    body: '오늘 광안대교 루프 처음으로 30분 안에 들어왔어요. 3km에서 코칭대로 페이스 늦춘 게 신의 한 수였네요',
+    record: sharedRun(
+      'shared-seoyun-1019',
+      '민락수변공원 출발',
+      '민락수변공원',
+      '2026-10-19T07:12:00+09:00',
+      5020,
+      1781,
+      shapes.loop,
+      [158, 170],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-19T07:50:00+09:00',
+    likeCount: 38,
+    liked: true,
+    bookmarked: true,
+    comments: [
+      {
+        id: 'comment-1',
+        author: communityUsers.sungyoon,
+        body: '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
+        createdAt: '2026-10-19T10:45:00+09:00',
+        likeCount: 4,
+        liked: false,
+      },
+      {
+        id: 'comment-2',
+        author: communityUsers.eunseo,
+        body: '저도 다음 주에 이 코스 도전해볼게요',
+        createdAt: '2026-10-19T11:45:00+09:00',
+        likeCount: 0,
+        liked: false,
+      },
+      {
+        id: 'comment-3',
+        author: communityUsers.jiwoo,
+        body: '코칭 알림 진동으로 오나요?',
+        createdAt: '2026-10-19T12:13:00+09:00',
+        likeCount: 0,
+        liked: false,
+      },
+    ],
+  },
+  {
+    id: 'post-sungyoon-1018',
+    author: communityUsers.sungyoon,
+    body: null,
+    record: sharedRun(
+      'shared-sungyoon-1018',
+      '광안리 해변 왕복',
+      '광안리해수욕장',
+      '2026-10-18T07:04:00+09:00',
+      5000,
+      1850,
+      shapes.coast,
+      [149, 164],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-18T08:10:00+09:00',
+    likeCount: 251,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+  {
+    id: 'post-eunseo-1017',
+    author: communityUsers.eunseo,
+    body: '남천 해변 언덕길 오르막 구간 팁 있을까요? 2km 지점에서 매번 심박이 확 올라가요',
+    record: sharedRun(
+      'shared-eunseo-1017',
+      '남천 해변 언덕길',
+      '남천 해변',
+      '2026-10-17T19:30:00+09:00',
+      4040,
+      1623,
+      shapes.hill,
+      [167, 161],
+    ),
+    courseShared: false,
+    createdAt: '2026-10-17T20:20:00+09:00',
+    likeCount: 12,
+    liked: false,
+    bookmarked: false,
+    comments: [
+      {
+        id: 'comment-4',
+        author: communityUsers.seoyun,
+        body: '오르막 직전에 보폭을 줄여 보세요. 심박이 덜 올라요',
+        createdAt: '2026-10-17T21:02:00+09:00',
+        likeCount: 2,
+        liked: false,
+      },
+    ],
+  },
+  {
+    id: 'post-seoyun-1016',
+    author: communityUsers.seoyun,
+    body: '민락수변 왕복, 바람이 세서 돌아오는 길이 힘들었어요',
+    record: sharedRun(
+      'shared-seoyun-1016',
+      '민락수변 왕복',
+      '민락수변공원',
+      '2026-10-16T06:40:00+09:00',
+      5400,
+      1880,
+      shapes.coast,
+      [155, 168],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-16T07:30:00+09:00',
+    likeCount: 21,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+  {
+    id: 'post-seoyun-1012',
+    author: communityUsers.seoyun,
+    body: null,
+    record: sharedRun(
+      'shared-seoyun-1012',
+      '남천 해변 언덕길',
+      '남천 해변',
+      '2026-10-12T06:30:00+09:00',
+      5200,
+      2020,
+      shapes.hill,
+      [163, 166],
+      false,
+    ),
+    courseShared: false,
+    createdAt: '2026-10-12T07:40:00+09:00',
+    likeCount: 9,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+];
+
+// My post on 7.1 (7.2b·7.2c), sharing my 10.15 run.
+export const myPost = {
+  id: 'post-minjun-1015',
+  recordId: 'run-1015',
+  body: '오늘 목표 30분 안쪽으로 성공! 다음엔 남천 언덕길 도전',
+  courseShared: true,
+  createdAt: '2026-10-19T12:40:00+09:00',
+  likeCount: 7,
+};
+
+// 7.4 러너 프로필 (U21). I follow sungyoon.k and eunseo_jog; jiwoo.runs is private.
+export const runnerProfiles: Record<
+  string,
+  {
+    level: SelfReportedLevel;
+    followerCount: number;
+    followingCount: number;
+    isPrivate: boolean;
+    followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
+  }
+> = {
+  [communityUsers.me.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 86,
+    followingCount: 102,
+    isPrivate: false,
+    followStatus: 'NONE',
+  },
+  [communityUsers.seoyun.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 248,
+    followingCount: 131,
+    isPrivate: false,
+    followStatus: 'NONE',
+  },
+  [communityUsers.sungyoon.userId]: {
+    level: 'ADVANCED',
+    followerCount: 512,
+    followingCount: 88,
+    isPrivate: false,
+    followStatus: 'FOLLOWING',
+  },
+  [communityUsers.eunseo.userId]: {
+    level: 'BEGINNER',
+    followerCount: 64,
+    followingCount: 70,
+    isPrivate: false,
+    followStatus: 'FOLLOWING',
+  },
+  [communityUsers.jiwoo.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 120,
+    followingCount: 140,
+    isPrivate: true,
+    followStatus: 'NONE',
+  },
+};
+
+// 7.4b 팔로우 요청 N건.
+export const myFollowRequestCount = 0;

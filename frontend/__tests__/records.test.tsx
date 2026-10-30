@@ -160,7 +160,8 @@ test('5.2 hides graphs a run did not measure and saves a free run as my course',
   await press(screen, '남천 해변 언덕길, 10.08 목 · 33:02, 5.20km');
   let page = texts(screen);
   expect(page).toContain('목표 31:12 미달성 · 1분 50초 늦음');
-  expect(page).not.toContain('케이던스');
+  // The home below the stack has a 케이던스 widget, so look for the 5.2 tab itself.
+  expect(hasLabel(screen, '케이던스')).toBe(false);
   await press(screen, '내 코스에 저장');
   page = texts(screen);
   expect(page).toContain('내 코스에 저장했어요');

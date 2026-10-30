@@ -1,0 +1,146 @@
+{
+  "version": "ug-v1",
+  "_comment": "Route Usability Gate, LOOP requests (production canonical generator). Pre-registered and frozen before any new validation pool (IMPL1_PLAN P0). Values come from USABILITY_GATE_DESIGN.md v2.1 (sha256 984ccc140de19a9f525f61dc1cb769cd86eed12df8d2e9a26c78bcd02eb61252) sections 5-0, 5-3 (Design B), 7, 7-1; no value was tuned on outcome data.",
+  "_user_decisions": "2026-10-27: (1) Design B levels, FAIL = hard filter (candidate removed before ranking); (2) REVIEW is not shown to users: shadow / log only, written to review_queue. Lead decision D-I1 (2026-10-27): R1 trunk(+link) untagged at-grade crossing = FAIL (draft1 had REVIEW).",
+  "_revision": "draft1 (ug-v1.draft1.json, sha256 3f6d3d12...) -> this file: R1.trunk level REVIEW -> FAIL (D-I1), R1.motorway registry note (N3).",
+  "request_types": ["LOOP"],
+  "actions": {
+    "FAIL": "remove_candidate",
+    "REVIEW": "log_only",
+    "_basis": "user decisions 1 and 2 (IMPL1_PLAN.md)"
+  },
+  "rules": {
+    "F1": {
+      "level": "FAIL",
+      "allowed_status": ["RUNNABLE"],
+      "max_len_m": 0.0,
+      "missing_way": "FAIL",
+      "check_ways": ["adapter_eid_way", "canonical_edge_sequence_way"],
+      "classify": "analysis/runway_walk_filter.classify imported unchanged, applied to the source way tags (BusanSource.ways)",
+      "_basis": "definition: RunWay RUNNABLE status; generator invariant FORBIDDEN_EDGE_USED (canonical_adapter.py:402-403); parallel-way rule: F1/F2 on both ways (env-terrain + local-network reviews)"
+    },
+    "F2": {
+      "level": "FAIL",
+      "_basis": "definition: every traversal (u, v, osmid) must be a consecutive node pair of that way in the source extract (simplify=False graph: edge = one OSM segment)"
+    },
+    "F3": {
+      "level": "FAIL",
+      "closed": true,
+      "start_equals_snap_node": true,
+      "_basis": "definition of a LOOP route: consecutive traversals share a node, nodes[0] == nodes[-1] == snapped start (route_features 'closed', runway_route_api.verify)"
+    },
+    "F4": {
+      "level": "FAIL",
+      "max_length_vs_great_circle_m": 1.0,
+      "max_payload_coord_diff_deg": 1e-06,
+      "_basis": "code constant: runway_route_api.verify() accepts |sum(length) - distance| < 1 m; payload coords are rounded to 6 decimals (canonical_adapter.py:374), max rounding error 5e-7 deg < 1e-6"
+    },
+    "F5": {
+      "level": "FAIL",
+      "max_abs_distance_error_ratio": 0.10,
+      "_basis": "code constant TOLERANCE = 0.10 (runway_route_generator.py:49, canonical_adapter.py:60)"
+    },
+    "F6": {
+      "level": "FAIL",
+      "max_repeated_edge_ratio": 0.20,
+      "max_out_and_back_ratio": 0.30,
+      "max_immediate_uturns": 0,
+      "_basis": "code constants REPEATED_MAX 0.20 / MAX_REPEATED_RATIO, MAX_OAB_LOOP 0.30, quality_ok uturns == 0 (runway_route_generator.py:57-58, :338; canonical_adapter.py:61-62)"
+    },
+    "F7": {
+      "level": "FAIL",
+      "scope": "request",
+      "max_start_snap_m": 250.0,
+      "start_inside_extract": true,
+      "_basis": "code constant MAX_SNAP_M 250 (app_runway.py:44) = WORK_BUFFER_M (runway_busan_graph.py:64) = graph_store.MAX_SNAP_M; OutOfCoverageError"
+    },
+    "R1": {
+      "classes": {
+        "motorway": {"highways": ["motorway", "motorway_link"], "level": "FAIL", "tagged_crossing_exempt": false,
+                      "_basis": "Design B (env-terrain safety review): no legitimate pedestrian at-grade motorway crossing exists, any hit is a data / geometry error; applied whether or not a crossing tag is present (0 events in the existing pools either way)",
+                      "_registry_note": "N3 (env-terrain E-I1): watch motorway_link ramp-terminal crosswalks as possible false positives; record any hit in the review registry"},
+        "trunk": {"highways": ["trunk", "trunk_link"], "level": "FAIL", "tagged_crossing_exempt": true,
+                   "_basis": "lead decision D-I1 (2026-10-27): user decision text 'motorway/trunk 횡단' + safety-first (ambiguous -> safer and reversible); untagged at-grade trunk/trunk_link crossings FAIL, a way-level crossing tag still exempts; reversible after the manual review registry. (Design B draft had REVIEW because the extract has no node tags.)"}
+      },
+      "geometry": "a route node where rays of the class lie on BOTH sides of the route (in-edge, out-edge); nodes with an immediate U-turn (p == q) are skipped",
+      "crossing_tags_accepted": {"footway": ["crossing"], "crossing": "any value except 'no'"},
+      "crossing_tags_on": "route ways incident to the node",
+      "node_tags_used": false,
+      "adjacency": "all-status edges of the request graph (cg.edges_all)",
+      "min_events": 1,
+      "_basis": "definition (planar side test); accepted tags per local-network review (way-level crossing=*), node tags absent in the production extract (canonical_adapter UNAVAILABLE_FEATURES)"
+    },
+    "R2": {
+      "level": "REVIEW",
+      "highways": ["primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link"],
+      "sidewalk_no_tags": {"sidewalk": "no", "sidewalk:both": "no"},
+      "min_route_len_m": 100.0,
+      "_basis": "pre-registered physical rationale: more than one junction / crossing length of exposure in a traffic lane, about 30-36 s at running pace (design v2.1 section 7, accepted by env-terrain); highway list = runway_route_features.MAJOR"
+    },
+    "R3": {
+      "level": "FAIL",
+      "highways": ["residential", "service", "unclassified", "living_street", "tertiary", "tertiary_link", "secondary", "secondary_link", "primary", "primary_link"],
+      "condition": "(layer < 0 and tunnel absent or 'no') or ford = 'yes'",
+      "min_route_len_m": 20.0,
+      "_basis": "Design B (env-terrain): consistency with classify - the same underpass tagged tunnel=yes without foot/sidewalk info is UNCERTAIN (road_tunnel_without_foot_info) and fails F1; FAIL until cleared in a review registry. Highways = runway_walk_filter.ROAD_HW. 20 m = pre-registered minimum exposure (mm resample_step_m 20)"
+    },
+    "R4": {
+      "sets": {
+        "fail": {"values": ["military", "emergency", "psv", "bus"], "level": "FAIL",
+                  "_basis": "Design B (env-terrain): no general access, effectively ACCESS_DENY (issue I-3)"},
+        "review": {"values": ["permit", "agricultural", "forestry", "unknown", "destination", "customers", "delivery", "residents"], "level": "REVIEW",
+                    "_basis": "OSM access semantics: restricted values outside ACCESS_DENY {no, private}"}
+      },
+      "tag": "access",
+      "only_status": "RUNNABLE",
+      "exclude_foot_override": true,
+      "min_route_len_m": 20.0,
+      "_basis": "pre-registered value lists (design v2.1 section 7-1); 20 m minimum exposure (mm resample_step_m)"
+    },
+    "R5": {
+      "sets": {
+        "fail": {"values": ["alpine_hiking", "demanding_alpine_hiking", "difficult_alpine_hiking"], "level": "FAIL",
+                  "_basis": "Design B (env-terrain): SAC T4-T6 (hands, exposure) is not runnable terrain for a general user"},
+        "review": {"values": ["demanding_mountain_hiking"], "level": "REVIEW",
+                    "_basis": "SAC T3: borderline, irregular tagging on footways"}
+      },
+      "tag": "sac_scale",
+      "min_route_len_m": 20.0,
+      "_basis": "external grading definition (SAC scale); 20 m minimum exposure (mm resample_step_m)"
+    },
+    "R6": {
+      "level": "REVIEW",
+      "min_dist_to_area_edge_m": 100.0,
+      "_basis": "code constant COVERAGE_EDGE_M 100 (runway_route_features.py:28) / EDGE_MARGIN_M"
+    }
+  },
+  "parallel_way_attribution": {
+    "F1_F2": "both the adapter eid way and the canonical edge_sequence way; FAIL if either fails",
+    "R_rules": "adapter eid way only (the way whose features / payload the user receives)",
+    "canonical_way_R_results": "logged as alt_way_review, never change the verdict",
+    "non_runnable_parallel_on_same_pair": "observation only",
+    "_basis": "env-terrain F1 condition 2 + local-network review U-L1 point 3"
+  },
+  "stage_b": {
+    "rules": ["F1", "F2", "F3", "F4"],
+    "target": "every record of the re-ranked active list that is shown (TOP-k)",
+    "refill": "only when a Stage B rule fails (expected 0 in production)",
+    "_basis": "design v2.1 section 9; lead review"
+  },
+  "observations": {
+    "fields": ["result_shape", "out_and_back_ratio", "repeated_edge_ratio", "immediate_uturns", "hairpins_ge_150deg", "longest_stem_m", "longest_start_stem_m", "longest_spur_m", "bridge_m", "tunnel_m", "steps_runs", "service_parking_driveway_m", "access_override_m", "major_sidewalk_unknown_m", "closure_name_m", "pier_breakwater_m", "osmid_mismatch_edges", "max_segment_m"],
+    "closure_name_patterns": ["공사", "폐쇄", "통제", "출입금지", "통행금지"],
+    "pier_breakwater": {"man_made": ["pier", "breakwater", "groyne"], "name_contains": ["방파제"]},
+    "hairpin_deg": 150.0,
+    "_basis": "observation only (no effect on verdict). Closure patterns exclude '임시' (only hit in Busan is the street name 임시수도기념로); hairpin 150 deg = physical 'almost reversing' definition used in the audit"
+  },
+  "confidence": {
+    "gpx_overlap": "internal only (analysis_permission UNKNOWN); never overrides, softens or reorders any F/R/PE result, not even as a tie-breaker",
+    "_basis": "design v2.1 section 6; env-terrain review Q5"
+  },
+  "gate_version_fields": ["config_version", "config_sha256", "classify_file_sha256", "pbf_sha256", "osm_data_timestamp"],
+  "reference_hashes": {
+    "classify_file": "analysis/runway_walk_filter.py sha256 252758f6ac39bf82f6e72570a615df2f260d3fd7a1b95dffa1de1359ee39d20f",
+    "pbf": "data/osm/busan/busan_highways_2026-10-20.osm.pbf sha256 d1492a63b18796b951939028627c5bc3caacb7bdf672d3150cc4b50986fcf1cf, osm_data_timestamp 2026-10-20T20:23:47Z"
+  }
+}

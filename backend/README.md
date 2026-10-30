@@ -10,7 +10,6 @@ Java 21·Spring MVC 기반의 실행·테스트 초기 구성과 서비스용 Fl
 | Java | 21. 개발 확인 환경: Eclipse Temurin 21.0.12.1 |
 | Spring Boot | 4.1.1 |
 | Gradle | 9.8.2, 저장소 Wrapper 사용. 별도 설치 불필요 |
-| Spotless / google-java-format | 8.10.4 / 1.28.0 AOSP |
 | 개발·테스트 DB | PostgreSQL 17 + PostGIS 3.6, `postgis/postgis:17-3.6` |
 | 기타 의존성 | Spring Boot BOM이 관리하는 버전. `build.gradle` 참고 |
 
@@ -41,7 +40,7 @@ PowerShell:
 
 ```powershell
 if (!(Test-Path .env)) { Copy-Item .env.example .env }
-docker compose --env-file .env up -d --wait db
+docker compose --env-file .env up -d --wait db redis
 docker compose --env-file .env ps
 ```
 
@@ -49,7 +48,7 @@ Bash:
 
 ```bash
 test -e .env || cp .env.example .env
-docker compose --env-file .env up -d --wait db
+docker compose --env-file .env up -d --wait db redis
 docker compose --env-file .env ps
 ```
 
@@ -129,12 +128,11 @@ docker compose --env-file .env up -d --wait db
 | 목적 | PowerShell | Bash |
 | --- | --- | --- |
 | 버전 확인 | `.\gradlew.bat --version` | `./gradlew --version` |
-| 포맷 자동 수정 | `.\gradlew.bat spotlessApply` | `./gradlew spotlessApply` |
-| 포맷 검사(소스 수정 없음) | `.\gradlew.bat spotlessCheck` | `./gradlew spotlessCheck` |
 | 전체 테스트 | `.\gradlew.bat test` | `./gradlew test` |
 | 완료 검증·JAR 생성 | `.\gradlew.bat clean build` | `./gradlew clean build` |
 
-`build`에는 `spotlessCheck`와 **DB 통합 테스트를 포함한 전체 테스트**가 들어간다.
+`build`에는 **DB 통합 테스트를 포함한 전체 테스트**가 들어간다.
+Spotless 플러그인과 포맷 검사·자동 수정 태스크는 제거했다. `check`·`build`에서 코드 서식을 검사하지 않는다.
 테스트 결과는 `build/reports/tests/test/index.html`, JAR은
 `build/libs/runway-backend-0.0.1-SNAPSHOT.jar`에서 확인한다. Docker가 없을 때 DB 테스트를
 자동으로 건너뛰지 않는다. 실패·미실행은 완료가 아니다.
@@ -157,7 +155,7 @@ Bash에서는 실행 부분을 `./gradlew`로 바꾼다. 이 부분 테스트 �
 
 - JPA는 `ddl-auto=validate`로 검사만 하며 OSIV는 비활성화한다.
 - Flyway는 활성화하고 `clean`과 자동 baseline을 허용하지 않는다.
-- `src/main/resources/db/migration/V1__initial_schema.sql`은 현재 기준 스키마의 26개 업무
+- `src/main/resources/db/migration/V1__initial_schema.sql`은 초기 기준 스키마의 26개 업무
   테이블·타입·제약·트리거를 빈 DB에 설치한다. 현재 크루·커뮤니티 Entity를 포함하며 기동 성공만으로 모든 업무 Entity
   매핑 검증을 의미하지 않는다. 기존 워치 테이블 설치가 미확정 워치 API 정책을 확정하지 않는다.
 - Flyway는 서버 기동 시 미적용 버전을 적용한다. 다른 개발자의 로컬 DB도 각자 설정한 접속
@@ -165,7 +163,7 @@ Bash에서는 실행 부분을 `./gradlew`로 바꾼다. 이 부분 테스트 �
   지정하면 IDE가 변수를 전달할 수 있다. 파일을 만들기만 하면 자동 적용되는 것은 아니다.
 - 최초 적용 전 접속 대상이 새 빈 개발 DB인지 확인한다. 기존 데이터가 있거나 출처가 불명확한
   Docker 볼륨이면 중단하고 기존 설정·이행 방법을 확인한다. 볼륨 삭제로 해결하지 않는다.
-- 이미 적용한 V1은 수정하지 않는다. 변경은 `V2__설명.sql` 등 새 버전과 기준 스키마에 반영한다.
+- 이미 적용한 V1은 수정하지 않는다. 변경은 `V3__설명.sql` 등 새 버전과 기준 스키마에 반영한다.
   병렬 번호 충돌·실패·체크섬 불일치 대응은 [DB 규칙](../docs/development/db-schema-convention.md#7-flyway-변경-적용과-복구)을 따른다.
 - 격리 테스트는 첫 적용·이력·재적용 시 데이터 보존·기존 DB 거부·변조 감지·실패 롤백과
   기준 SQL 대비 실제 설치 구조를 검사한다. PostgreSQL 트랜잭션 DDL 검증이며 임의 SQL의
@@ -176,8 +174,10 @@ Bash에서는 실행 부분을 `./gradlew`로 바꾼다. 이 부분 테스트 �
 
 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. `X-User-Id`는 인증수단이 아니다.
 검증되지 않거나 만료된 토큰은 `401 UNAUTHORIZED`다. 크루 관리자·작성자·공개 범위 등 기존 권한 검사도 유지한다.
-로그인·회원가입·갱신·로그아웃 API 자체는 후속 업무이며, 이 작업은 내부 Access Token 발급기와 검증을 제공한다.
+아이디·비밀번호 로그인 U01은 아래 8장의 Redis 최초 계열 저장을 사용한다. 회원가입·아이디 확인은 아래 가입 절을 따른다. 갱신·로그아웃 API와 193번 로그인 실패 제한은 후속 업무다.
 토큰을 받기 위한 임시 공개 발급 API는 제공하지 않는다.
+
+Refresh Token과 로그인 계열은 [ADR-0015](../docs/adr/0015-redis-refresh-token-store.md)에 따라 Redis를 사용한다. 사용자·비밀번호 해시·러닝 프로필은 PostgreSQL에 유지한다. Redis 준비·설정·복구 절차는 아래 8장을 따른다.
 
 | 변수 | 필수·용도 |
 | --- | --- |
@@ -195,7 +195,7 @@ Spring Boot는 `.env`를 자동으로 읽지 않으므로 IntelliJ 실행 환경
 HTTPS의 `/swagger-ui/index.html`에 접속해 브라우저의 문서 전용 인증창에 팀 계정과 원래 비밀번호를 입력한다.
 `/swagger-ui.html`, 문서 CSS/JS, `/v3/api-docs`, `/v3/api-docs.yaml`, `/v3/api-docs/swagger-config`도 보호된다.
 문서에서는 GET/HEAD만 허용하며 실제 회원 API 시험에는 별도로 Swagger **Authorize**에 Access Token을 입력한다.
-문서 계정으로 회원 API를 호출할 수 없고 JWT만으로 공유 문서를 열 수 없다. 토큰 영속 저장은 꺼져 있다.
+문서 계정으로 회원 API를 호출할 수 없고 JWT만으로 공유 문서를 열 수 없다. Swagger 브라우저의 토큰 영속 저장은 꺼져 있다.
 
 문서 해시는 Spring의 BCrypt 인코더 등 신뢰할 수 있는 로컬 도구로 사용자가 생성한다. 접두사를 포함한 해시만 주입하며
 실제 비밀번호·키·해시는 채팅·Git·로그에 넣지 않는다. 비밀번호를 코드·셸 기록에 직접 적지 않는다.
@@ -215,6 +215,55 @@ JWT는 HS256, 최대 600초이며 발급 시 로그인 계열의 최초 로그�
 
 테스트 설정의 키와 문서 계정은 합성 데이터이며 실행 JAR에 포함되지 않는다. 실제 서비스에 재사용하지 않는다.
 
+## 8. 로그인과 Redis
+
+U01 `POST /api/v1/auth/login`은 8~20 Unicode 코드 포인트·공백 불가·특수문자 허용 정책을 적용한다. 비밀번호를 trim·정규화하지 않으며 Argon2id(64MiB·3회·병렬도 1, salt 16바이트·hash 32바이트)로 검증한다. users.password는 `$argon2id$v=19$m=65536,t=3,p=1$...` 형식이며 로그인에서 자동 재해싱하지 않는다. 손상·미지원 저장 해시는 비밀값 없는 503으로 처리한다. 회원가입 구현도 같은 `MemberPasswordHasher`와 입력 정책을 사용해야 한다. 별도 가입·계정 생성 API를 이 작업에서 제공하지 않는다.
+
+없는 아이디·잘못된 비밀번호·탈퇴 계정은 같은 `401 INVALID_CREDENTIALS`로 응답한다. 인증 후에는 사용자 행 잠금 아래 계정 ACTIVE·검증한 해시 불변을 재확인하고 Redis 계열 저장 및 PostgreSQL 트랜잭션 종료 후 토큰을 반환한다. 초기 설정은 프로필의 수준·유효 페이스 저장 여부로 계산한다. 성공 응답은 `Cache-Control: no-store`다. 계약과 교차 저장소 실패 처리는 [인증 API](../docs/design/api/users.md#갱신-권한-저장소)를 따른다.
+
+### 로컬 준비와 변수
+
+기존 `.env`가 있으면 덮어쓰지 않고 사용자가 아래 누락된 변수만 로컬에서 추가한다. `.env.example`의 Redis 비밀번호는 빈 값이며 실제 값은 채팅·Git·로그에 넣지 않는다. Compose는 `.env`를 내부적으로 읽지만 Spring Boot·IntelliJ에는 환경변수를 별도로 주입해야 한다. 아래 변수는 로컬 Compose뿐 아니라 로그인 서버에도 필요하다.
+
+| 변수 | 필수 여부·용도 |
+| --- | --- |
+| `BACKEND_REDIS_HOST` | 필수, 호스트만 지정. 로컬 `127.0.0.1`. 인증정보나 URI를 넣지 않음 |
+| `BACKEND_REDIS_PORT` | 필수, 1~65535. 로컬 Compose 공개 포트는 6379 |
+| `BACKEND_REDIS_USERNAME` | 필수, 영문으로 시작하는 영문·숫자·밑줄·하이픈 1~32자. 로컬 예시는 `runway_app` |
+| `BACKEND_REDIS_PASSWORD` | 필수 Secret. 사용자가 정한 비밀번호를 서버·Compose에 동일하게 주입 |
+| `BACKEND_REDIS_SSL_ENABLED` | `true`/`false`, 기본 false. 로컬 루프백·동일 신뢰 내부망에서만 false. 신뢰 경계를 통과하는 연결은 인증서 검증 TLS와 true 사용 |
+
+백엔드 폴더에서 `docker compose --env-file .env up -d --wait db redis` 후 `docker compose --env-file .env ps`로 상태만 확인한다. 실제 `.env` 또는 생성된 ACL 파일을 출력하지 않는다. IntelliJ·서버 환경변수에는 DB·JWT 설정과 위 Redis 설정을 함께 주입한다. 기존 공유 서버의 배포 환경에도 이 변수 매핑·Redis 준비가 필요하며 저장소 코드만으로 Secret이 자동 등록되지 않는다. 로컬 확인이 배포 서버의 준비 완료를 뜻하지 않는다.
+
+### 저장·접근 설정
+
+- Redis 8.2.11 공식 이미지의 digest를 compose.yaml과 테스트에 고정한다. Spring Data Redis 4.1.1·Lettuce 7.5.2.RELEASE는 Boot 4.1.1 BOM을 따르고 Argon2용 Bouncy Castle 1.86은 명시한다.
+- 로컬 Redis 포트는 127.0.0.1:6379에만 공개하고 `redis-auth-data` 영속 볼륨을 사용한다. AOF always, rewrite 중 디스크 반영 유지, 손상 AOF 기동 거부, maxmemory 256MiB·noeviction, 컨테이너 메모리 상한 1GiB다. 운영 용량은 동시 계열·30일 교체 이력을 포함해 따로 산정한다.
+- entrypoint가 환경변수의 비밀번호를 내부적으로 해시해 권한을 제한한 임시 ACL 파일을 만든다. 기본 계정은 비활성화하고 앱 계정에는 `runway:auth:*` 및 인증 스크립트에 필요한 명령만 허용한다. 앱 계정은 FLUSHALL·CONFIG 같은 관리 명령을 사용할 수 없다. 운영 관리 계정·접근은 별도 Secret/운영 절차로 관리한다.
+- 연결 1초·명령 2초 timeout, 단절 중 명령 거절과 자동 명령 재전송 방지를 적용한다. 저장·판정 장애는 503이다. Redis는 매 회원 API의 JWT 검증을 위한 조회 대상이 아니므로 기존 JWT 검증은 Redis를 호출하지 않는다.
+- 계열 Hash에는 해시·사용자·최초/절대 만료시각·상태를 저장하고 사용자 ZSET 인덱스로 계열을 찾는다. Lua의 첫 쓰기는 메모리를 할당하는 ZADD로 해 Redis의 OOM 검사 우회를 피한다. PENDING 구성·절대 만료 설정 뒤 마지막 HSET으로 ACTIVE를 확정한다. Lua가 실패하면 자동 롤백되지 않으며 미완성 계열은 인증 근거가 아니다.
+- 193번 실패 제한은 같은 Redis의 `runway:auth:attempt:<loginId>` String에 `횟수:종료시각(ms)`로 저장한다. Redis 서버 시각과 SET PXAT으로 값·만료를 함께 기록한다. 1~4회는 마지막 실패부터 24시간, 5번째는 그때부터 10분이며 제한 중 요청으로 연장하지 않는다. 최종 제한 확인·계열 활성화·실패 기록 삭제를 같은 Lua에서 처리한다. ACTIVE 뒤 삭제할 DEL 권한은 쓰기 전에 검사하며 기존 PENDING·OOM 기준을 유지한다.
+- 앱 ACL은 기존 인증 명령에 GET·SET·DEL을 추가하되 키 범위를 `runway:auth:*`로 유지한다. 사용자는 로그에 키·아이디·비밀번호·토큰을 남기지 않는다. 만료 기준과 성공 초기화·불확실한 쓰기 결과는 [U01 계약](../docs/design/api/users.md#로그인-연속-실패-제한)을 따른다.
+- 후속 갱신·탈퇴는 같은 사용자 행 잠금 → Redis 변경 순서를 지켜야 한다. U18 전체 구현과 194번 회전·재사용·로그아웃 검증은 별도 업무다.
+
+### 재시작과 장애 복구
+
+정상 최신 볼륨에서 Redis를 재시작하면 저장 상태를 유지한다. 단일 primary 구성으로 자동 replica/Cluster 장애 전환은 없다. AOF always는 디스크 기록을 기다리므로 everysec보다 쓰기 지연이 커질 수 있다. 성공 응답 뒤의 상태 보존은 정상적인 디스크 fsync 보장 범위에서 확인하며 하드웨어 유실까지 무손실이라고 주장하지 않는다.
+
+메모리 부족 시 기존 인증 데이터를 퇴출하지 않고 저장이 필요한 요청이 503으로 실패한다. 임의로 캐시 삭제·토큰 이력 조기 정리로 해결하지 않는다. 운영자가 계열/이력 사용량과 자원을 확인하고 용량을 조정한다.
+
+볼륨 유실·AOF 손상·과거 백업만 남은 경우에는 인증 경로를 중단한다. 운영자가 원인·대상·영향을 확인한 뒤 새 빈 인증 저장소로 재개하고 사용자에게 재로그인을 안내한다. 과거 상태를 그대로 되살리거나 손상 AOF를 자동 잘라 기동하지 않는다. 앱은 데이터 삭제·볼륨 교체·자동 초기화를 실행하지 않는다. 기존 Refresh Token은 전부 무효이고 기존 JWT는 원래 만료까지 최대 10분 남을 수 있다. 명령 실행·데이터 삭제는 그 시점의 별도 승인 범위다.
+
+193번 실패 기록·잠금도 정상 최신 볼륨 재시작에는 유지한다. 위 절차로 운영자가 빈 저장소 복구를 선택한 경우에만 기존 실패 횟수·잠금도 초기화되는 예외를 허용한다. 단순 연결 장애·시간초과는 503이며 기록 삭제나 DB·앱 메모리로 자동 대체하지 않는다. 시간초과 전에 증가·성공 초기화가 이미 반영됐을 수 있으므로 쓰기를 자동 재전송하지 않는다.
+
+### 검증
+
+`./gradlew clean build`(PowerShell: `.\gradlew.bat clean build`)는 비밀번호 성능 측정을 제외한 전체 기능·통합 테스트를 실행한다. 로그인 테스트는 격리 PostgreSQL·Redis를 사용하고 비밀번호·토큰은 합성 값이다. 실패 제한 테스트는 24시간·10분 만료 경계, 동시 성공·실패, 실제 응답 유실·쓰기 전 단절, 정상/강제 재시작·빈 복구, OOM·권한 부족을 검사한다. `RefreshTokenStoreIntegrationTest`는 자체 컨테이너의 강제 종료·손상 AOF·새 빈 복구·메모리 부족·실제 entrypoint ACL을 검사한다. 운영 볼륨·계정에 장애를 주입하지 않는다. 제품 인수 테스트와 로컬 Argon2 비용 측정을 실제 배포 부하 검증으로 대신하지 않는다.
+
+Argon2id의 합의된 비용(64MiB·반복 3회·병렬도 1)은 유지한다. 비밀번호 일치·오답·해시 형식과 비용 값 방어는 일반 CI에서 계속 검사한다. 단일/동시 검증의 p95 실행 시간 검사는 `password-performance` 태그로 분리하며, 공유 CI 자원에 따른 시간 초과를 일반 빌드 실패 조건으로 사용하지 않는다.
+
+비용을 다시 측정할 필요가 있을 때만 자원 조건을 정한 환경에서 `./gradlew passwordPerformanceTest`(PowerShell: `.\gradlew.bat passwordPerformanceTest`)를 명시적으로 실행한다. 이 태스크는 일반 `build`에 연결하지 않는다. 기존 단일 30회 p95 1초 이하·8개 동시 40건 p95 2초 미만 조건은 유지하며 결과는 `build/reports/tests/passwordPerformanceTest/index.html`에 생성한다. 로컬 비용 측정을 실제 배포 부하 검증으로 대신하지 않는다.
+
 ## 관련 기준
 
 - [백엔드 작업 지침](AGENTS.md)
@@ -223,6 +272,38 @@ JWT는 HS256, 최대 600초이며 발급 시 로그인 계열의 최초 로그�
 - [개발·테스트 DB 결정](../docs/adr/0011-local-postgresql-postgis.md)
 
 버전 확인 출처(2026-10-22): [Spring Boot 요구사항](https://docs.spring.io/spring-boot/system-requirements.html),
-[Spring Initializr](https://start.spring.io), [Spotless](https://plugins.gradle.org/plugin/com.diffplug.spotless),
-[google-java-format](https://github.com/google/google-java-format/releases/tag/v1.28.0),
+[Spring Initializr](https://start.spring.io),
 [PostGIS 이미지](https://github.com/postgis/docker-postgis).
+
+### 세션 제어 스키마 (V3)
+
+V3는 세션의 현재 상태, 실제 제어 결과, 코칭 유효성을 저장하는 컬럼과 `session_control_events` 테이블을 추가한다. 컬럼과 제약은 [ERD 설명서](../docs/design/db/erd.md), 처리 규칙은 [세션 계약](../docs/design/api/sessions.md#준비코칭종료-후-분석-상태)을 따른다.
+
+적용 전 진행 중이거나 일시정지 중인 운동을 종료하고 구버전 서버의 쓰기를 중지해야 한다. 기존 세션은 `state_version=0`, `analysis_status=LEGACY`로 보존하며, 신규 세션은 `state_version=1`로 생성한다.
+
+V1과 V2 지역 초기 데이터는 수정하지 않는다. V3는 `running_sessions`를 잠근 뒤 `RUNNING`/`PAUSED` 세션이 있으면 전체 적용을 롤백한다. 이 작업에서는 공유·운영 DB에 적용하지 않는다. 이미 V3가 적용된 DB에 수정된 V3를 덮어쓰지 않으며, 로컬 임시 DB는 재생성한다.
+
+`sync_batches.client_batch_id`는 기존 문자열에서 UUID로 변환한다. 변환 불가능한 값이 있으면 전체 마이그레이션을 롤백하며, 값을 임의 변경하거나 삭제하지 않는다. 기존 `payload_hash`는 유지한다.
+
+### 기기 연결 유일성 (V5)
+
+V5는 `user_devices`에 회원별·유형별 연결 중(`unlinked_at IS NULL`) 기기를 하나만 허용하는 부분 유니크 인덱스 `uq_user_devices_active`를 추가한다. 처리 규칙은 [기기 API W01~W03](../docs/design/api/devices-health.md#w01-기기-등록)을 따른다.
+
+같은 회원·유형으로 연결 중인 행이 이미 두 개 이상 있으면 V5는 실패하고 데이터는 바뀌지 않는다. 적용 전에 해당 행을 확인해 남길 기기를 정하고 나머지에 `unlinked_at`을 기록해야 한다. 이 작업에서는 공유·운영 DB에 적용하지 않는다.
+
+### 러닝 구간 집계 스키마 (V6)
+
+V6는 H03 조회용 `running_session_splits` 테이블을 추가한다. 종료 후 1km 단위로 원본에서 한 번 계산한 실측 구간 페이스·심박·케이던스를 저장하며, 계획 구간(`pace_plan_segments`)과 구분한다. 컬럼·제약은 [ERD 설명서](../docs/design/db/erd.md), 조회 계약은 [러닝 기록 API H03](../docs/design/api/running-records.md#h03-구간별-러닝-분석-결과-조회)을 따른다.
+
+V1~V5는 수정하지 않는다. 이미 V6가 적용된 DB에 수정된 V6를 덮어쓰지 않으며, 로컬 임시 DB는 재생성한다.
+
+## 회원가입과 아이디 확인 (S15P31E105-222)
+
+- U15는 네 종류 동의 배열, 필수 회원정보를 검증해 users·user_settings를 같은 트랜잭션으로 생성한다. 필수3종 동의는 true를 검증만 하며 건강 동의만 기존 users.health_data_access에 저장한다. 초기 공개 범위 PRIVATE, 위치 수집 OFF, 음성·BPM·그룹/커뮤니티알림은 false다. 임시 러닝 프로필을 만들지 않는다. 전화번호는 010+숫자8자리, 닉네임은 공백 없는 Unicode2~10자·중복 불가다.
+- V4는 기존 nickname 중복이 있으면 실패한다. 중복 데이터를 임의 삭제·개명하거나 V1/V2 체크섬을 바꾸지 않는다. 운영 적용 전 중복 여부를 운영자가 확인하고 이행 방법을 합의한다. 플랜·자동 테스트는 격리 DB에서만 수행한다.
+- U16은 IP당 최근60초60회, 초과429다. Redis sorted set과 서버 시각을 사용해 인스턴스 간 원자적으로 집계하며 Redis 장애는503이다. IP당 최대60개 허용 요청을 약61초 TTL로 보관하고 아이디·원본 IP는 저장하지 않는다. IP SHA256 키도 익명성을 보장하는 것은 아니다.
+- Redis 앱 ACL에 ZCARD·ZREM을 추가했다. 기존 Redis 프로세스는 재기동/승인된 ACL 갱신을 해야 적용되며 이 작업이 운영 변경을 자동 실행하지 않는다.
+- BACKEND_AUTH_TRUSTED_PROXIES는 선택 설정으로 쉼표 구분 프록시 IP/CIDR 목록이다. 기본 빈값은 X-Forwarded-For를 무시하고 직접 연결 주소를 사용한다. 배포자는 실제 백엔드 앞의 프록시 주소/범위만 주입하고 백엔드 직접 외부 접근을 차단한다. 전체 인터넷·일반 사용자 범위를 신뢰 목록에 넣지 않는다.
+- 직접 연결자가 신뢰 프록시이면 X-Forwarded-For를 오른쪽부터 해석해 첫 비신뢰 주소를 사용한다. IPv4/IPv6 리터럴만 허용, 잘못된 신뢰 경로 헤더는400이다. Spring/Tomcat의 별도 전역 전달 헤더 변환을 중복 활성화하지 않는다. 프록시 설정이 빠지면 여러 사용자가 같은 프록시 IP의60회 제한을 공유하므로 운영 시 반드시 설정한다.
+- DB·Redis 공동 트랜잭션은 없다. 실패 때 성공 토큰을 보내지 않고 롤백·미전달 계열 폐기를 시도한다. 보상 실패에는 비밀값 없는 경고만 기록하며 미전달 계열이 만료까지 남을 수 있다. 가입 결과 불명확·응답 유실 후 같은 아이디 재요청은409이며 로그인으로 복구한다.
+- 별도 동의 이력 테이블·약관 버전·동의 시각 저장은 만들지 않는다. W04/W05 변경·조회는 별도 업무다.

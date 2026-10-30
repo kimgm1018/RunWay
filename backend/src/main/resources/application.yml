@@ -13,6 +13,10 @@ spring:
     enabled: true
     clean-disabled: true
     baseline-on-migrate: false
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
 
 server:
   address: ${BACKEND_BIND_ADDRESS:127.0.0.1}
@@ -24,11 +28,22 @@ server:
     include-exception: false
 
 runway:
+  auth:
+    trusted-proxies: ${BACKEND_AUTH_TRUSTED_PROXIES:}
+    redis:
+      host: ${BACKEND_REDIS_HOST:}
+      port: ${BACKEND_REDIS_PORT:}
+      username: ${BACKEND_REDIS_USERNAME:}
+      password: ${BACKEND_REDIS_PASSWORD:}
+      ssl-enabled: ${BACKEND_REDIS_SSL_ENABLED:false}
   security:
     jwt-secret-base64: ${BACKEND_JWT_SECRET_BASE64:}
     docs-access-mode: ${BACKEND_DOCS_ACCESS_MODE:password}
     docs-username: ${BACKEND_DOCS_USERNAME:}
     docs-password-hash: ${BACKEND_DOCS_PASSWORD_HASH:}
+  images:
+    volume-path: ${BACKEND_IMAGE_VOLUME_PATH:data/images}
+    max-bytes: 5242880
 
 springdoc:
   swagger-ui:

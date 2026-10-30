@@ -8,11 +8,11 @@
 
 ## ERD 응답 대응 기준
 
-**응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. 저장·전송 정책이 미정인 보완 필드는 구현 완료 계약을 뜻하지 않는다. 확인 필요 필드의 생략은 기능 삭제나 최종 선택 필드 확정을 뜻하지 않는다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
+**응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
 
-users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며 NULL 가능하다. 독립 images 테이블은 없다. 기존 imageId와 저장 key의 대응·URL 생성 규약은 확인 필요이며 이미지 업로드 기능은 유지한다.
+users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며 NULL 가능하다. 독립 images 테이블은 없다. `imageId`(UUID)와 저장 `image_key`(`images/{purpose}/{userId}/{imageId}.{ext}`) 대응은 아래 F01 규칙을 따른다. 바이너리 저장은 서버 볼륨이다([ADR-0016](../../adr/0016-image-volume-storage.md)).
 
-자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
+자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다.
 
 ## F01 이미지 업로드
 
@@ -21,19 +21,19 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 | 항목 | 값 |
 |---|---|
 | 단계 | 1차 MVP |
-| 인증 | 회원 |
+| 인증 | 회원 (JWT Bearer) |
 | 관련 요구사항 | USR-002 / MAT-003 / COM-003 |
 | 관련 화면 | 8.2 프로필 사진, 2.P′ 프로필 사진 추가, 6.3 크루 대표 사진, 7.3 결과 사진 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | 화면 설계 v10 대조로 추가. 응답 형식은 ERD 확정 후 갱신 |
+| 미정 사항 | 없음(MVP 최소) |
+| 비고 | 저장소·형식·크기·imageId/key는 217 확정. 미리보기 URL 서빙·도메인 연결은 후속 |
 
 ### 설명
 
-이미지를 올리고 다른 API에서 참조할 `imageId`를 받는다. 이 API만 `multipart/form-data`를 사용한다.
+이미지를 올리고 다른 API에서 참조할 `imageId`를 받는다. 이 API만 `multipart/form-data`를 사용한다. 서버가 파일을 받아 볼륨에 저장한다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
+- 로그인 사용자(JWT). 업로드한 이미지는 해당 사용자가 후속 API에서 연결할 때만 사용한다.
 
 ### Path Parameters
 
@@ -47,8 +47,8 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `file` | binary | O | 이미지 파일(허용 형식·최대 크기 미정) |
-| `purpose` | string | O | PROFILE/CREW/POST |
+| `file` | binary | O | jpeg 또는 png. 최대 5MB. Content-Type과 실제 매직바이트가 일치해야 함 |
+| `purpose` | string | O | `PROFILE` / `CREW` / `POST` |
 
 아래 JSON은 텍스트 필드 설명용이며 실제 요청은 `file` 파트를 포함한 multipart/form-data다.
 
@@ -60,61 +60,43 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 
 ### Response
 
-`201 Created (제안)`
+`201 Created`
 
 ```json
 {
-  "imageId": "image-reference-placeholder",
+  "imageId": "550e8400-e29b-41d4-a716-446655440000",
   "url": null
 }
 ```
 
-응답 필드 정의(ERD ver.3 대조):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `imageId` | string (매핑 확인 필요) | O | 후속 API가 받아 동일 업로드를 식별할 수 있는 참조. image_key와 매핑·유효기간·purpose는 확정 필요. |
-| `url` | string / null | O | 업로드 미리보기용 참조. URL 생성·접근 정책 확인 필요. |
-
+| `imageId` | string (UUID) | O | 후속 API(U05/M03/CMT01 등)에 넘기는 참조. 저장 키는 `images/{purpose}/{userId}/{imageId}.jpg\|png` |
+| `url` | string / null | O | MVP에서는 항상 null. 미리보기 URL 서빙은 후속 |
 
 **사용 흐름과 응답 판단**
 
-반환한 이미지 참조를 U05/M03/CMT01에 넘겨 연결할 수 있어야 한다. 성공 {}는 허용하지 않는 보완안이다.
-
-위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
+반환한 `imageId`를 U05/M03/CMT01에 넘겨 연결할 수 있어야 한다(연결 구현은 후속). 성공 시 빈 본문은 허용하지 않는다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `413 FILE_TOO_LARGE` | 크기 제한 | 업로드가 허용 크기를 초과함. 최대 크기는 확인 필요 |
-| `415 UNSUPPORTED_MEDIA_TYPE` | 파일 형식 | 업로드 형식이 지원 형식과 다름. 선언 MIME과 실제 바이트의 불일치 포함 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
-
-**추가 오류 후보 — HTTP·코드·판정 정책 확인 필요**
-
-| 후보 | 발생 가능 상황 |
-|---|---|
-| `422 INVALID_FILE` | 빈 파일·손상 이미지·이미지로 해석 불가 |
-| `503 UPLOAD_UNAVAILABLE` | 저장소 접근 실패. 저장 완료 여부 불명확 시 중복 업로드를 바로 요구하지 않음 |
+| `413 FILE_TOO_LARGE` | 크기 제한 | 5MB 초과 |
+| `415 UNSUPPORTED_MEDIA_TYPE` | 파일 형식 | jpeg/png가 아니거나 Content-Type과 바이트 불일치 |
+| `422 INVALID_FILE` | 파일 내용 | 빈 파일·이미지로 해석 불가 |
+| `503 UPLOAD_UNAVAILABLE` | 저장소 | 볼륨 쓰기 실패 |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+| `400 VALIDATION_ERROR` | 입력 형식 | purpose 누락·잘못된 값 등 |
 
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
-
-**응답·복구 행동과의 연결:** 실패/응답 유실 시 업로드가 저장되었는지 확인할 계약이 필요하다. imageId 미발급 성공은 후속 프로필·게시물 연결 성공으로 간주할 수 없다.
 
 ### 처리 규칙
 
-- 새 업로드는 업로더 본인만 참조할 수 있다. 프로필·크루·게시물에 연결할 때 업로더 소유권·purpose·대상 리소스 수정 권한을 검사한다.
-- 연결 후 이미지 조회는 해당 리소스의 계정·게시물 접근 정책을 따른다. 단순 URL 반환을 비공개 이미지의 무제한 공개로 해석하지 않는다.
-
-- 업로드 후 일정 시간 안에 어떤 리소스에도 연결되지 않은 이미지는 정리한다(제안).
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+- 저장 경로(image_key): `images/{purpose}/{userId}/{imageId}.jpg` 또는 `.png` (`purpose`는 소문자 path segment).
+- 새 업로드는 업로더 본인이 후속 API로 연결할 때만 사용한다. 연결 시 소유권·purpose·대상 수정 권한 검사는 도메인 API에서 수행한다(후속).
+- 연결 후 이미지 조회는 해당 리소스의 계정·게시물 접근 정책을 따른다.
+- 업로드 후 미연결 이미지 정리는 후속(제안).
 
 ### 상태값
 
@@ -122,7 +104,6 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 
 ### 미정 사항
 
-- [ ] 서버 직접 업로드/Presigned URL 방식 선택
-- [ ] 저장소(S3 등) 선택은 ADR 대상인지 검토
-- [ ] 응답 필드는 ERD 확정 후 갱신
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+- [ ] 미리보기 `url` 서빙·접근 제어
+- [ ] 미연결(orphan) 이미지 정리
+- [ ] U05/M03/CMT01 `imageId` → `image_key` 저장 연동

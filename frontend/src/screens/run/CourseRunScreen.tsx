@@ -1,13 +1,13 @@
 import React, { useCallback } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Icon, IconButton } from '../../components';
+import { AppText, Icon } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
 import { formatDuration, formatKm, formatPace, isNight } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, spacing, useTheme } from '../../theme';
+import { k1, radius, spacing, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
-import { MockMap, paceColors } from './MockMap';
+import { k1PaceColors, MockMap } from './MockMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 
@@ -31,13 +31,13 @@ function ChangeLink() {
   );
 }
 
-// Legend for the segment colors: 빠름 ■■■■ 느림.
+// Legend for the segment colors: 빠름 ■■■ 느림, in the K1 map's scale.
 function PaceLegend() {
   const { colors } = useTheme();
   return (
-    <View style={[styles.legend, { backgroundColor: colors.surface }]}>
+    <View style={[styles.legend, { backgroundColor: colors.surfaceRaised }]}>
       <AppText variant="labelStrong">빠름</AppText>
-      {paceColors.map(color => (
+      {k1PaceColors.map(color => (
         <View
           key={color}
           style={[styles.legendBar, { backgroundColor: color }]}
@@ -56,7 +56,6 @@ export function CourseRunScreen() {
   const night = isNight(clock.now());
   const resource = useResource(useCallback(loadCourse, []));
   const [plan, place] = resource.status === 'ready' ? resource.data : [];
-  const glass = { backgroundColor: colors.surface, borderColor: colors.border };
   // A course run aims at the course distance and the plan's pace.
   const courseConfig: RunConfig | null = plan
     ? {
@@ -71,12 +70,16 @@ export function CourseRunScreen() {
     <PlaceCard name={place.name} gps={place.gps} />
   ) : (
     <>
-      <View style={[styles.topCard, glass]}>
-        <IconButton
-          icon="back"
+      <View style={[styles.topCard, { backgroundColor: colors.surfaceRaised }]}>
+        <Pressable
+          accessibilityRole="button"
           accessibilityLabel="뒤로"
           onPress={navigation.goBack}
-        />
+          hitSlop={12}
+          style={styles.back}
+        >
+          <Icon name="back" color={colors.text} size={18} />
+        </Pressable>
         <View style={styles.flex}>
           <AppText variant="label" tone="textTertiary">
             오늘의 러닝 전략
@@ -141,6 +144,7 @@ export function CourseRunScreen() {
     <MapScreenFrame
       map={
         <MockMap
+          k1Style
           night={night}
           route={plan?.route}
           segmentPaces={plan?.segmentPacesSecPerKm}
@@ -156,16 +160,22 @@ export function CourseRunScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // White card with a bare back chevron (DESIGN.md 2-6 지도 위 흰 카드).
   topCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.lg,
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.md,
-    paddingRight: spacing.xxl,
-    borderRadius: radius.xl,
-    borderWidth: 1,
+    paddingVertical: 14,
+    paddingLeft: 12,
+    paddingRight: 18,
+    borderRadius: 24,
+    shadowColor: k1.night,
+    shadowOpacity: 0.12,
+    shadowRadius: 13,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
+  back: { width: 24, alignItems: 'center' },
   legend: {
     alignSelf: 'flex-end',
     flexDirection: 'row',

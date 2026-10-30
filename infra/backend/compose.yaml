@@ -1,0 +1,76 @@
+name: runway-backend
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE must be set}
+    restart: unless-stopped
+    environment:
+      BACKEND_DB_URL: jdbc:postgresql://db:5432/runway
+      BACKEND_DB_USERNAME: runway_app
+      BACKEND_BIND_ADDRESS: 0.0.0.0
+      BACKEND_PORT: "8080"
+      # EC2 runway_service의 내부 대역. Nginx·백엔드만 연결하며 네트워크 재생성 시 확인한다.
+      BACKEND_AUTH_TRUSTED_PROXIES: 172.18.0.0/16
+      BACKEND_IMAGE_VOLUME_PATH: /data/images
+      BACKEND_REDIS_HOST: redis
+      BACKEND_REDIS_PORT: "6379"
+      BACKEND_REDIS_USERNAME: runway_app
+      BACKEND_REDIS_SSL_ENABLED: "false"
+      BACKEND_DOCS_ACCESS_MODE: password
+      BACKEND_DOCS_USERNAME: runway105
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        export BACKEND_DB_PASSWORD="$$(cat /run/secrets/db_app_password)"
+        export BACKEND_JWT_SECRET_BASE64="$$(cat /run/secrets/jwt_secret_base64)"
+        export BACKEND_DOCS_PASSWORD_HASH="$$(cat /run/secrets/docs_password_hash)"
+        export BACKEND_REDIS_PASSWORD="$$(cat /run/secrets/redis_app_password)"
+        exec java -jar /app/app.jar
+    volumes:
+      - type: bind
+        source: /home/ubuntu/runway/data/images
+        target: /data/images
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/redis-app-password
+        target: /run/secrets/redis_app_password
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/db-app-password
+        target: /run/secrets/db_app_password
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/jwt-secret-base64
+        target: /run/secrets/jwt_secret_base64
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/docs-password-hash
+        target: /run/secrets/docs_password_hash
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:18081:8080"
+    networks:
+      - redis
+      - database
+      - service
+
+networks:
+  redis:
+    external: true
+    name: runway_redis
+  database:
+    external: true
+    name: runway-db_default
+  service:
+    external: true
+    name: runway_service

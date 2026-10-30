@@ -116,7 +116,11 @@ export function SplitChart({
         <Svg width={width} height={height}>
           <Defs>
             <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={colors.accentText} stopOpacity={0.35} />
+              <Stop
+                offset="0"
+                stopColor={colors.accentText}
+                stopOpacity={0.22}
+              />
               <Stop offset="1" stopColor={colors.accentText} stopOpacity={0} />
             </LinearGradient>
           </Defs>
@@ -132,12 +136,18 @@ export function SplitChart({
               x2={width - side}
               y1={y(reference.value)}
               y2={y(reference.value)}
-              stroke={colors.textTertiary}
+              stroke={colors.textSecondary}
+              strokeOpacity={0.65}
               strokeDasharray="4 4"
               strokeWidth={1}
             />
           ) : null}
-          <Path d={line} stroke={colors.accentText} strokeWidth={2.4} fill="none" />
+          <Path
+            d={line}
+            stroke={colors.accentText}
+            strokeWidth={1.8}
+            fill="none"
+          />
           {reference ? (
             <Text
               x={width - side}

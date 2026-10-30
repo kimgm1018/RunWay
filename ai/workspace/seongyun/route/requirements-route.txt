@@ -1,0 +1,32 @@
+# RunWay Route backend runtime: runway_routing/, route_demo/app_runway.py, the five analysis/ modules it imports,
+# tools/route_regression/ and tools/data/. Python 3.12 (verified 3.12.10). Use its own venv (the project .venv belongs
+# to other workstreams and does not have these packages):
+#     python -m venv .venv-route  &&  .venv-route/Scripts/python -m pip install -r requirements-route.txt
+#
+# Every version is pinned to the one the golden regression was verified with. Recommendations are byte-identical only
+# under these versions; after changing any of them run tools/route_regression/run_regression.py.
+# Pins the code itself checks (another version silently switches to the slower verified fallback, same results):
+#   networkx==3.7   runway_routing/shortest_path.py ports networkx 3.7 bidirectional_dijkstra (VERIFIED_NETWORKX)
+#   osmnx==2.1.1    runway_routing/graph.py build_fast reproduces osmnx 2.1.1 internals (VERIFIED_OSMNX)
+# Pin that decides the input graph itself:
+#   osmium==4.3.2   analysis/runway_busan_graph.py reads the extract PBF with pyosmium (way / node order feeds graph order)
+networkx==3.7
+osmnx==2.1.1
+osmium==4.3.2
+# numeric / geometry (snap, env distances, features, D-exact inputs)
+numpy==2.5.4
+pandas==3.0.6
+geopandas==1.2.0
+pyogrio==0.13.0
+shapely==2.2.0
+pyproj==3.8.0
+scipy==1.18.1
+rasterio==1.5.2
+# API / demo server
+fastapi==0.159.1
+uvicorn==0.54.0
+pydantic==2.14.1
+jinja2==3.1.6
+# imported at module level by analysis/ (map export, Overpass helpers); not on the request path
+folium==0.20.0
+requests==2.34.2

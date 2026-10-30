@@ -2,7 +2,7 @@ import React from 'react';
 import { useRepositories } from '../../data';
 import { isNight } from '../../format';
 import type { RouteName } from '../../navigation/routes';
-import { ThemeProvider, type ThemePreference } from '../../theme';
+import { ThemeProvider, type ThemeName } from '../../theme';
 import { CourseRunScreen } from './CourseRunScreen';
 import { FreeRunScreen } from './FreeRunScreen';
 import { MusicCardScreen } from './MusicCardScreen';
@@ -15,12 +15,12 @@ import { RunResultScreen } from './RunResultScreen';
 export function themed(
   Screen: React.ComponentType,
   name: string,
-  pick: (night: boolean) => ThemePreference,
+  pick: (night: boolean) => ThemeName,
 ) {
   function Themed() {
     const { clock } = useRepositories();
     return (
-      <ThemeProvider initialPreference={pick(isNight(clock.now()))}>
+      <ThemeProvider tone={pick(isNight(clock.now()))}>
         <Screen />
       </ThemeProvider>
     );
@@ -29,19 +29,22 @@ export function themed(
   return Themed;
 }
 
-// The map screens are light by day (2.0·2.0F) and dark after sunset (2.0N), whatever the screen mode.
-export const dayNight = (night: boolean): ThemePreference =>
+// The map screens are light by day (2.0·2.0F) and dark after sunset (2.0N).
+export const dayNight = (night: boolean): ThemeName =>
   night ? 'dark' : 'light';
-// The music card, 4.3 일시정지 and 4.5 결과 are dark in every prototype screen.
-export const dark = (): ThemePreference => 'dark';
+// 4.3 일시정지 and 4.5 결과 are dark in every prototype screen. 2.7·2.8 draw their own K1 card on the light tone.
+export const dark = (): ThemeName => 'dark';
 
 export const runScreens: Partial<Record<RouteName, React.ComponentType>> = {
   RunMode: RunModeScreen,
   FreeRun: themed(FreeRunScreen, 'FreeRunScreen', dayNight),
   CourseRun: themed(CourseRunScreen, 'CourseRunScreen', dayNight),
-  MusicCard: themed(MusicCardScreen, 'MusicCardScreen', dark),
-  MusicSource: themed(MusicSourceScreen, 'MusicSourceScreen', dark),
-  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dayNight),
-  RunPause: themed(RunPauseScreen, 'RunPauseScreen', dark),
-  RunResult: themed(RunResultScreen, 'RunResultScreen', dark),
+  MusicCard: MusicCardScreen,
+  MusicSource: MusicSourceScreen,
+  // 4.2 runs on the K1 dark map day and night (DESIGN.md 2-7).
+  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dark),
+  // 4.3 sits on the K1 background like 1.x (DESIGN.md 2-7).
+  RunPause: RunPauseScreen,
+  // 4.5 sits on the K1 background; its buttons read the dark tone on the black part.
+  RunResult: RunResultScreen,
 };

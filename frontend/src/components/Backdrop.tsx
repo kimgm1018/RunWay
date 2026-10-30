@@ -1,32 +1,32 @@
 import React from 'react';
-import Svg, {
-  Defs,
-  LinearGradient,
-  RadialGradient,
-  Rect,
-  Stop,
-} from 'react-native-svg';
-import { useTheme } from '../theme';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { k1Gradient, useTheme } from '../theme';
 
-// Stands in for the prototype's photos (1.1·1.2 runner, 2.1 profile photo) until a real image is set:
-// the theme background with a soft mint glow near the top.
-export function Backdrop() {
-  const { colors } = useTheme();
+// The K1 screen background (DESIGN.md 1-1): light blue-grey at the top fading to black at the bottom.
+// The dark tone (maps, dark parts) draws nothing, so the plain dark background underneath shows.
+// tail keeps the light part down to about 80% for screens whose plain text runs the full height
+// (7.1 피드, 7.2 댓글), so only the tab bar or the comment bar sits on the dark end.
+const tailLocations = [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.7, 0.8, 0.88, 0.95, 1];
+
+export function Backdrop({ tail = false }: { tail?: boolean }) {
+  const { name } = useTheme();
+  if (name === 'dark') {
+    return null;
+  }
   return (
     <Svg width="100%" height="100%">
       <Defs>
-        <LinearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={colors.surfaceRaised} />
-          <Stop offset="0.55" stopColor={colors.background} />
-          <Stop offset="1" stopColor={colors.background} />
+        <LinearGradient id="k1" x1="0" y1="0" x2="0" y2="1">
+          {k1Gradient.colors.map((color, index) => (
+            <Stop
+              key={index}
+              offset={(tail ? tailLocations : k1Gradient.locations)[index]}
+              stopColor={color}
+            />
+          ))}
         </LinearGradient>
-        <RadialGradient id="glow" cx="0.7" cy="0.25" r="0.6">
-          <Stop offset="0" stopColor={colors.accent} stopOpacity={0.16} />
-          <Stop offset="1" stopColor={colors.accent} stopOpacity={0} />
-        </RadialGradient>
       </Defs>
-      <Rect width="100%" height="100%" fill="url(#fade)" />
-      <Rect width="100%" height="100%" fill="url(#glow)" />
+      <Rect width="100%" height="100%" fill="url(#k1)" />
     </Svg>
   );
 }

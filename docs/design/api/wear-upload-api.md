@@ -174,7 +174,7 @@ endedAt의 Unix 시간(ms) = startedAtEpochMs + endedElapsedMs - startedElapsedM
 
 ### 데이터 품질
 
-페이스는 유효한 양수 속도에 대해 1000÷m/s로 초/km를 계산한다. 설치·추출 방법은 [워치 앱 안내](../../../wear/README.md)를 따른다.
+페이스는 유효한 양수 속도에 대해 1000÷m/s로 초/km를 계산한다. 설치·추출 방법은 [워치 실험 앱 안내](../../../wear/demo/README.md)를 따른다.
 
 결측·유효하지 않은 수치는 null이며 0으로 채우지 않는다. `source`가 `estimated_distance_div_steps:`로 시작하는 보폭은 같은 구간의 거리÷걸음 수 추정값이다. `health_services_steps_based`는 GPS 미사용 추정 계열이며 `health_services_gps_enabled_fallback_possible`도 GPS의 독립 실측을 보장하지 않는다. 거리 자체가 걸음 수에 의존하면 그 거리로 계산한 보폭을 독립적인 정답으로 학습·검증하지 않는다.
 

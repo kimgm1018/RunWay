@@ -10,14 +10,29 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Button, IconButton } from '../../components';
+import Svg, { Circle, Path } from 'react-native-svg';
+import {
+  AppText,
+  Backdrop,
+  Button,
+  Card,
+  Icon,
+  IconButton,
+} from '../../components';
 import { useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, size, spacing, useTheme } from '../../theme';
-import { MockMap } from '../run/MockMap';
+import {
+  fontFamily,
+  k1,
+  palette,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import { useCourseSearch } from './CourseSearch';
+import { RouteLine } from './RouteLine';
 
 const defaultSearch = {
   origin: {
@@ -31,6 +46,7 @@ const defaultSearch = {
   environmentTypes: [],
 };
 
+// One of the three figures on the back, between the 14% lines (DESIGN.md 2-7 3.1b 뒷면).
 function Stat({
   label,
   value,
@@ -40,23 +56,80 @@ function Stat({
   value: string;
   unit: string;
 }) {
-  const { colors } = useTheme();
   return (
-    <View style={[styles.stat, { backgroundColor: colors.surfaceMuted }]}>
-      <AppText variant="label" tone="textTertiary">
-        {label}
-      </AppText>
-      <AppText variant="metricLarge">
+    <View style={styles.stat}>
+      <AppText style={styles.statValue}>
         {value}
-        <AppText variant="caption" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary">
           {` ${unit}`}
         </AppText>
+      </AppText>
+      <AppText variant="label" tone="textSecondary">
+        {label}
       </AppText>
     </View>
   );
 }
 
-// One 3.1b card: the map on the front, the course detail on the back. Tapping turns it over.
+// 구간 고도: a white line over a 10% white fill, with a dot on the highest tenth.
+// It takes the measured size: an Svg sized in percent falls back to 300×150 on Android.
+function ElevationLine({ profile }: { profile: number[] }) {
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const peak = profile.indexOf(Math.max(...profile));
+  const points = box
+    ? profile.map((level, index) => ({
+        x: (index / Math.max(profile.length - 1, 1)) * box.width,
+        y: box.height - 6 - (Math.max(level, 4) / 100) * (box.height - 12),
+      }))
+    : [];
+  const line = points
+    .map(
+      ({ x, y }, index) =>
+        `${index ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`,
+    )
+    .join(' ');
+  return (
+    <View
+      style={styles.elevation}
+      accessibilityLabel="구간 고도"
+      onLayout={event => setBox(event.nativeEvent.layout)}
+    >
+      {box && points.length > 1 ? (
+        <Svg width={box.width} height={box.height}>
+          <Path
+            d={`${line} L${box.width} ${box.height} L0 ${box.height} Z`}
+            fill={palette.white}
+            fillOpacity={0.1}
+          />
+          <Path d={line} fill="none" stroke={palette.white} strokeWidth={1.8} />
+          <Circle
+            cx={points[peak].x}
+            cy={points[peak].y}
+            r={3.5}
+            fill={palette.white}
+          />
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
+
+// 코스 선택 ›: a light pill as wide as its label (dark tone, so the accent is light).
+function ChooseButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Button
+      title="코스 선택  ›"
+      accessibilityLabel="코스 선택"
+      onPress={onPress}
+      style={styles.choose}
+    />
+  );
+}
+
+// One 3.1b card: the course line on the front, the course detail on the back. Tapping turns it over.
+// Both faces are course cards (DESIGN.md 2-7), so everything on them reads the dark tone.
 function CourseCard({
   course,
   width,
@@ -70,7 +143,6 @@ function CourseCard({
   onChoose: () => void;
   onToggleSave: () => void;
 }) {
-  const { colors } = useTheme();
   const [back, setBack] = useState(false);
   const turn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -92,18 +164,6 @@ function CourseCard({
     ],
   });
   const minutes = Math.round(course.estimatedDurationSec / 60);
-  // The chevron follows the label, as in the prototype.
-  const choose = (
-    <Button
-      title="코스 선택  ›"
-      accessibilityLabel="코스 선택"
-      onPress={onChoose}
-    />
-  );
-  const shell = [
-    styles.face,
-    { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
-  ];
   return (
     <Pressable
       accessibilityRole="button"
@@ -114,130 +174,130 @@ function CourseCard({
       style={{ width, height }}
     >
       <Animated.View
-        style={[shell, face('0deg', '180deg')]}
+        style={[styles.face, face('0deg', '180deg')]}
         pointerEvents={back ? 'none' : 'auto'}
       >
-        <View style={styles.map}>
-          <MockMap
-            night
-            route={course.route}
-            routeArea={{ top: 120, bottom: 400 }}
-          />
-        </View>
-        <View style={styles.topRight}>
-          <IconButton
-            icon="bookmark"
-            accessibilityLabel={course.saved ? '저장 해제' : '내 코스에 저장'}
-            onPress={onToggleSave}
-          />
-        </View>
-        {/* The map fades to the card color behind the title. */}
-        <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-          <Defs>
-            <LinearGradient
-              id={`fade-${course.id}`}
-              x1="0"
-              y1="0"
-              x2="0"
-              y2="1"
-            >
-              <Stop
-                offset="0.45"
-                stopColor={colors.surfaceRaised}
-                stopOpacity={0}
-              />
-              <Stop
-                offset="0.75"
-                stopColor={colors.surfaceRaised}
-                stopOpacity={0.92}
-              />
-              <Stop
-                offset="1"
-                stopColor={colors.surfaceRaised}
-                stopOpacity={1}
-              />
-            </LinearGradient>
-          </Defs>
-          <Rect width="100%" height="100%" fill={`url(#fade-${course.id})`} />
-        </Svg>
-        <View style={styles.front}>
-          <AppText variant="title">{course.name}</AppText>
-          <AppText variant="caption" tone="textSecondary">
-            {`${formatKm(course.distanceM, 1)}km · ${minutes}분`}
-          </AppText>
-          <AppText variant="label" tone="textTertiary">
-            카드를 누르면 코스 정보를 볼 수 있어요
-          </AppText>
-          {choose}
-        </View>
-      </Animated.View>
-      <Animated.View
-        style={[shell, styles.backFace, face('180deg', '360deg')]}
-        pointerEvents={back ? 'auto' : 'none'}
-      >
-        <View style={styles.between}>
-          <View style={styles.tags}>
-            <View style={[styles.kind, { backgroundColor: colors.accentSoft }]}>
-              <AppText variant="labelStrong" tone="accentText">
-                {course.shapeKind}
+        <Card variant="course" style={styles.faceCard}>
+          <View style={styles.route}>
+            <RouteLine route={course.route} />
+          </View>
+          <View style={styles.topRow}>
+            <View style={styles.tag}>
+              <AppText variant="labelStrong">
+                {course.environmentLabels.slice(0, 2).join(' · ')}
               </AppText>
             </View>
-            <AppText variant="label" tone="textSecondary">
-              {course.environmentLabels.join(' · ')}
-            </AppText>
+            {/* The bookmark sits in a white circle (DESIGN.md 2-7 코스 카드). */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={course.saved ? '저장 해제' : '내 코스에 저장'}
+              accessibilityState={{ selected: course.saved }}
+              onPress={onToggleSave}
+              hitSlop={6}
+              style={styles.save}
+            >
+              <Icon name="bookmark" color={k1.night} size={18} />
+            </Pressable>
           </View>
-          <IconButton
-            icon="refresh"
-            accessibilityLabel="앞면으로 돌아가기"
-            onPress={() => setBack(false)}
+          <View style={styles.front}>
+            <AppText style={styles.name}>{course.name}</AppText>
+            <AppText variant="caption" tone="textSecondary">
+              {`${formatKm(course.distanceM, 1)}km · ${minutes}분`}
+            </AppText>
+            <AppText variant="label" tone="textSecondary">
+              카드를 누르면 코스 정보를 볼 수 있어요
+            </AppText>
+            <ChooseButton onPress={onChoose} />
+          </View>
+        </Card>
+      </Animated.View>
+      <Animated.View
+        style={[styles.face, face('180deg', '360deg')]}
+        pointerEvents={back ? 'auto' : 'none'}
+      >
+        <Card variant="course" style={[styles.faceCard, styles.backFace]}>
+          <BackFace
+            course={course}
+            minutes={minutes}
+            onTurn={() => setBack(false)}
+            onChoose={onChoose}
           />
-        </View>
-        <AppText variant="title">{course.name}</AppText>
-        <View style={styles.stats}>
-          <Stat label="거리" value={formatKm(course.distanceM, 1)} unit="km" />
-          <Stat label="예상" value={String(minutes)} unit="분" />
-          <Stat label="고도" value={`↑${course.elevationGainM}`} unit="m" />
-        </View>
-        <AppText variant="label" tone="textTertiary">
-          구간 고도
-        </AppText>
-        <View style={styles.elevation} accessibilityLabel="구간 고도">
-          {course.elevationProfile.map((level, index) => (
-            <View
-              key={`${course.id}-${index}`}
-              style={[
-                styles.elevationBar,
-                {
-                  height: `${Math.max(level, 8)}%`,
-                  backgroundColor:
-                    level === Math.max(...course.elevationProfile)
-                      ? colors.accent
-                      : colors.accentSoft,
-                },
-              ]}
-            />
-          ))}
-        </View>
-        <View
-          style={[
-            styles.reason,
-            {
-              backgroundColor: colors.surfaceMuted,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          <AppText variant="captionStrong" tone="accentText">
-            추천 이유
-          </AppText>
-          <AppText variant="caption">{course.reason}</AppText>
-        </View>
-        <AppText variant="label" tone="textTertiary" style={styles.centerText}>
-          카드를 누르면 앞면으로 돌아가요
-        </AppText>
-        {choose}
+        </Card>
       </Animated.View>
     </Pressable>
+  );
+}
+
+function BackFace({
+  course,
+  minutes,
+  onTurn,
+  onChoose,
+}: {
+  course: RecommendedCourse;
+  minutes: number;
+  onTurn: () => void;
+  onChoose: () => void;
+}) {
+  const { colors } = useTheme();
+  const rule = { borderColor: colors.border };
+  return (
+    <>
+      <View style={styles.between}>
+        <View style={styles.tags}>
+          <View style={[styles.kind, { backgroundColor: colors.surfaceMuted }]}>
+            <AppText variant="labelStrong">{course.shapeKind}</AppText>
+          </View>
+          <AppText variant="label" tone="textSecondary">
+            {course.environmentLabels.join(' · ')}
+          </AppText>
+        </View>
+        <IconButton
+          icon="refresh"
+          accessibilityLabel="앞면으로 돌아가기"
+          onPress={onTurn}
+        />
+      </View>
+      <AppText style={styles.name}>{course.name}</AppText>
+      <View style={[styles.stats, rule]}>
+        <Stat label="거리" value={formatKm(course.distanceM, 1)} unit="km" />
+        <Stat label="예상" value={String(minutes)} unit="분" />
+        <Stat label="고도" value={`↑${course.elevationGainM}`} unit="m" />
+      </View>
+      <AppText variant="label" tone="textSecondary">
+        구간 고도
+      </AppText>
+      <ElevationLine profile={course.elevationProfile} />
+      <View style={styles.reason}>
+        <AppText variant="label" tone="textSecondary">
+          추천 이유
+        </AppText>
+        <AppText variant="body">{course.reason}</AppText>
+      </View>
+      <AppText variant="label" tone="textSecondary">
+        카드를 누르면 앞면으로 돌아가요
+      </AppText>
+      <ChooseButton onPress={onChoose} />
+    </>
+  );
+}
+
+function PageDots({ count, index }: { count: number; index: number }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.dots}>
+      {Array.from({ length: count }, (_, position) => (
+        <View
+          key={position}
+          style={[
+            styles.dot,
+            position === index
+              ? [styles.activeDot, { backgroundColor: colors.accent }]
+              : { backgroundColor: colors.borderStrong },
+          ]}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -294,21 +354,20 @@ export function RecommendedCoursesScreen() {
       style={[styles.root, { backgroundColor: colors.background }]}
     >
       <StatusBar barStyle={colors.statusBar} />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <View style={styles.header}>
         <IconButton
           icon="back"
           accessibilityLabel="뒤로"
           onPress={navigation.goBack}
         />
-        <AppText
-          variant="heading"
-          accessibilityRole="header"
-          style={styles.flex}
-        >
+        <AppText accessibilityRole="header" style={[styles.flex, styles.title]}>
           추천 코스
         </AppText>
         {results ? (
-          <AppText variant="metricSmall" tone="textSecondary">
+          <AppText tone="textSecondary" style={styles.count}>
             {`${index + 1} / ${results.length}`}
           </AppText>
         ) : null}
@@ -320,7 +379,7 @@ export function RecommendedCoursesScreen() {
         style={styles.change}
         hitSlop={8}
       >
-        <AppText variant="captionStrong" tone="accentText">
+        <AppText variant="captionStrong" style={styles.underline}>
           조건 변경
         </AppText>
       </Pressable>
@@ -411,19 +470,10 @@ export function RecommendedCoursesScreen() {
               })}
             </Animated.ScrollView>
           </View>
-          <View style={styles.dots}>
-            {results.map((course, position) => (
-              <View
-                key={course.id}
-                style={[
-                  styles.dot,
-                  position === index
-                    ? [styles.activeDot, { backgroundColor: colors.accent }]
-                    : { backgroundColor: colors.borderStrong },
-                ]}
-              />
-            ))}
-          </View>
+          {/* The dots sit on the black lower part, so they are white. */}
+          <ThemeProvider tone="dark">
+            <PageDots count={results.length} index={index} />
+          </ThemeProvider>
         </>
       )}
     </SafeAreaView>
@@ -434,7 +484,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  centerText: { textAlign: 'center' },
   header: {
     height: size.header,
     flexDirection: 'row',
@@ -442,7 +491,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.screen,
   },
+  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
+  count: { fontFamily: fontFamily.numberRegular, fontSize: 13 },
   change: { alignSelf: 'flex-end', paddingHorizontal: spacing.screen },
+  underline: { textDecorationLine: 'underline' },
   carousel: { flex: 1 },
   face: {
     position: 'absolute',
@@ -450,21 +502,54 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: radius.sheet - 2,
-    borderWidth: 1,
-    overflow: 'hidden',
     backfaceVisibility: 'hidden',
   },
-  backFace: { padding: spacing.xxl, gap: spacing.lg },
-  map: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  topRight: { position: 'absolute', top: spacing.xl, right: spacing.xl },
+  faceCard: { flex: 1, borderRadius: 28 },
+  backFace: { gap: spacing.lg },
+  // The course line fills the upper part of the front.
+  route: {
+    position: 'absolute',
+    top: 64,
+    left: 36,
+    right: 36,
+    bottom: 200,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  tag: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  save: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: k1.ice,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   front: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: spacing.xxl,
+    left: 20,
+    right: 20,
+    bottom: 20,
     gap: spacing.xs,
+  },
+  name: {
+    fontFamily: fontFamily.regular,
+    fontSize: 22,
+    lineHeight: 30,
+    letterSpacing: -0.4,
+  },
+  choose: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 28,
+    marginTop: spacing.md,
   },
   between: {
     flexDirection: 'row',
@@ -480,30 +565,24 @@ const styles = StyleSheet.create({
   kind: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xxs,
-    borderRadius: radius.pill,
+    borderRadius: 999,
   },
-  stats: { flexDirection: 'row', gap: spacing.sm },
-  stat: {
-    flex: 1,
-    padding: spacing.lg,
-    borderRadius: radius.md,
-    gap: spacing.xxs,
+  // The three figures sit between a line above and below.
+  stats: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingVertical: spacing.lg,
+  },
+  stat: { flex: 1, gap: 2 },
+  statValue: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 28,
+    lineHeight: 34,
   },
   // The chart takes the card's spare height, so the back has no empty band.
-  elevation: {
-    flex: 1,
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-  },
-  elevationBar: { flex: 1, borderRadius: 2 },
-  reason: {
-    padding: spacing.xl,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: spacing.xs,
-  },
+  elevation: { flex: 1, minHeight: 48 },
+  reason: { gap: spacing.xs },
   dots: {
     flexDirection: 'row',
     justifyContent: 'center',

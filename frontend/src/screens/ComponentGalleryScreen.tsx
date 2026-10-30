@@ -77,6 +77,19 @@ export function ComponentGalleryScreen() {
           <AppText variant="metric">58</AppText>
         </Card>
       </View>
+      <Card variant="deep">
+        <AppText variant="caption" tone="textSecondary">
+          거리
+        </AppText>
+        <AppText variant="metricLarge">2.40 km</AppText>
+        <Button title="대기방 입장" size="small" />
+      </Card>
+      <Card variant="vignette">
+        <AppText variant="caption" tone="textSecondary">
+          내 페이스
+        </AppText>
+        <AppText variant="metricHero">5′58″</AppText>
+      </Card>
 
       <AppText variant="heading">빈 상태</AppText>
       <EmptyState

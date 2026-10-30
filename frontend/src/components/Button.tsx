@@ -6,7 +6,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { palette, radius, size, spacing, typography, useTheme } from '../theme';
+import { k1, radius, size, spacing, typography, useTheme } from '../theme';
 import { AppText } from './AppText';
 import { Icon, type IconName } from './Icon';
 
@@ -47,6 +47,7 @@ export function Button({
 }) {
   const { colors } = useTheme();
   const inactive = disabled || loading;
+  // Kit buttons (DESIGN.md 4): solid, outline, light pill, coral fill, underlined text.
   const look = {
     primary: {
       background: colors.accent,
@@ -55,32 +56,33 @@ export function Button({
       border: 'transparent',
     },
     secondary: {
-      background: colors.surfaceMuted,
-      pressed: colors.border,
+      background: 'transparent',
+      pressed: colors.surfaceMuted,
       text: colors.text,
       border: colors.borderStrong,
     },
+    // Stays a light pill in either tone, like 1.x 시작하기 on the black lower part.
     inverse: {
-      background: palette.white,
-      pressed: palette.paper,
-      text: palette.ink,
+      background: k1.ice,
+      pressed: k1.top,
+      text: k1.night,
       border: 'transparent',
     },
     danger: {
       background: colors.danger,
-      pressed: palette.coralSoft,
+      pressed: colors.dangerBorder,
       text: colors.onDanger,
       border: 'transparent',
     },
     text: {
       background: 'transparent',
       pressed: colors.surfaceMuted,
-      text: colors.textSecondary,
+      text: colors.text,
       border: 'transparent',
     },
   }[variant];
   // A loading button keeps its colors at reduced opacity; a disabled one turns gray (1.2 로그인 중, 6.2f 정원 마감).
-  const textColor = disabled ? colors.textDisabled : look.text;
+  const textColor = disabled ? colors.textTertiary : look.text;
   return (
     <Pressable
       accessibilityRole="button"
@@ -98,9 +100,8 @@ export function Button({
             : pressed
             ? look.pressed
             : look.background,
-          borderColor: disabled ? colors.border : look.border,
+          borderColor: disabled ? 'transparent' : look.border,
         },
-        variant === 'primary' && !disabled && styles.primaryShadow,
         loading && styles.loading,
         style,
       ]}
@@ -112,8 +113,9 @@ export function Button({
       ) : null}
       <AppText
         style={[
-          buttonSize === 'small' ? typography.captionStrong : typography.button,
+          buttonSize === 'small' ? typography.buttonSmall : typography.button,
           { color: textColor },
+          variant === 'text' && styles.underline,
         ]}
         numberOfLines={1}
       >
@@ -132,12 +134,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
   },
-  primaryShadow: {
-    shadowColor: palette.mint,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
-  },
   loading: { opacity: 0.6 },
+  underline: { textDecorationLine: 'underline' },
 });

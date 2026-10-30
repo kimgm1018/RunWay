@@ -1,0 +1,546 @@
+package com.runway.backend.domain.grouprun;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.runway.backend.global.security.SecurityTestSupport;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+import tools.jackson.databind.json.JsonMapper;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@Testcontainers
+class GroupRunApiIntegrationTest {
+
+    @Container
+    static final PostgreSQLContainer DATABASE =
+            new PostgreSQLContainer(
+                    DockerImageName.parse("postgis/postgis:17-3.6")
+                            .asCompatibleSubstituteFor("postgres"));
+
+    @DynamicPropertySource
+    static void databaseProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
+        registry.add("spring.datasource.username", DATABASE::getUsername);
+        registry.add("spring.datasource.password", DATABASE::getPassword);
+    }
+
+    @Autowired private MockMvc mockMvc;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private JsonMapper mapper;
+
+    private long hostId;
+    private long memberId;
+    private long outsiderId;
+    private long crewId;
+
+    @BeforeEach
+    void seed() {
+        jdbc.update("DELETE FROM group_run_participants");
+        jdbc.update("DELETE FROM group_runs");
+        jdbc.update("DELETE FROM crew_memberships");
+        jdbc.update("DELETE FROM crews");
+        jdbc.update("DELETE FROM users");
+
+        hostId = insertUser("gr_api_host", "호스트", "01022220001");
+        memberId = insertUser("gr_api_member", "멤버", "01022220002");
+        outsiderId = insertUser("gr_api_out", "외부인", "01022220003");
+        crewId = insertCrew(hostId, "API 크루");
+        approveMember(crewId, hostId);
+        approveMember(crewId, memberId);
+    }
+
+    @Test
+    void create_hostAutoJoins_andTimeGoalDerivesPace() throws Exception {
+        MvcResult created =
+                mockMvc.perform(
+                                post("/api/v1/group-runs")
+                                        .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(createBody(crewId)))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.hostId").value(hostId))
+                        .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                        .andExpect(jsonPath("$.targetDistanceM").value(5000))
+                        .andExpect(jsonPath("$.targetDurationSec").value(1800))
+                        .andExpect(jsonPath("$.goalPaceSecPerKm").value(360))
+                        .andReturn();
+
+        long groupRunId =
+                mapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+
+        assertThat(
+                        jdbc.queryForObject(
+                                """
+                                SELECT count(*) FROM group_run_participants
+                                WHERE group_run_id=? AND user_id=?
+                                """,
+                                Integer.class,
+                                groupRunId,
+                                hostId))
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM group_runs WHERE id=?",
+                                Integer.class,
+                                groupRunId))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void list_byCrewId_returnsCreatedRunsForCrewMembers() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        long otherCrewId = insertCrew(hostId, "다른 크루");
+        approveMember(otherCrewId, hostId);
+        long otherGroupRunId =
+                mapper.readTree(
+                                mockMvc.perform(
+                                                post("/api/v1/group-runs")
+                                                        .header(
+                                                                "Authorization",
+                                                                SecurityTestSupport.bearer(hostId))
+                                                        .contentType(MediaType.APPLICATION_JSON)
+                                                        .content(createBody(otherCrewId)))
+                                        .andExpect(status().isCreated())
+                                        .andReturn()
+                                        .getResponse()
+                                        .getContentAsString())
+                        .get("id")
+                        .asLong();
+
+        mockMvc.perform(
+                        get("/api/v1/group-runs")
+                                .param("crewId", String.valueOf(crewId))
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(groupRunId))
+                .andExpect(jsonPath("$.items[0].title").value("모집 그룹런"))
+                .andExpect(jsonPath("$.items[0].hostId").value(hostId))
+                .andExpect(jsonPath("$.items[0].status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.items[0].goalDistance").value(5000))
+                .andExpect(jsonPath("$.items[0].goalDuration").value(1800));
+
+        mockMvc.perform(
+                        get("/api/v1/group-runs")
+                                .param("crewId", String.valueOf(otherCrewId))
+                                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(otherGroupRunId));
+
+        mockMvc.perform(
+                        get("/api/v1/group-runs")
+                                .param("crewId", String.valueOf(otherCrewId))
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)));
+    }
+
+    @Test
+    void detail_returnsMeetingPositionGoals_missingNotFound() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        get("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(groupRunId))
+                .andExpect(jsonPath("$.title").value("모집 그룹런"))
+                .andExpect(jsonPath("$.hostId").value(hostId))
+                .andExpect(jsonPath("$.crewId").value(crewId))
+                .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.meetingPosition.type").value("Point"))
+                .andExpect(jsonPath("$.meetingPosition.coordinates[0]").value(129.118))
+                .andExpect(jsonPath("$.meetingPosition.coordinates[1]").value(35.153))
+                .andExpect(jsonPath("$.meetingPlaceName").value("집결지"))
+                .andExpect(jsonPath("$.meetingAddress").value("부산"))
+                .andExpect(jsonPath("$.participantCount").value(2))
+                .andExpect(jsonPath("$.targetDistanceM").value(5000))
+                .andExpect(jsonPath("$.targetDurationSec").value(1800))
+                .andExpect(jsonPath("$.goalPaceSecPerKm").value(360));
+
+        mockMvc.perform(
+                        get("/api/v1/group-runs/{id}", 9_999_999L)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    }
+
+    @Test
+    void nonMemberCreate_forbidden() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/group-runs")
+                                .header("Authorization", SecurityTestSupport.bearer(outsiderId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(createBody(crewId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CREW_FORBIDDEN"));
+    }
+
+    @Test
+    void join_successThenDuplicate_conflict() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupRunId").value(groupRunId))
+                .andExpect(jsonPath("$.userId").value(memberId))
+                .andExpect(jsonPath("$.joinedAt").isNotEmpty());
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FULL_OR_ALREADY_JOINED"));
+    }
+
+    @Test
+    void leave_nonHostSucceeds_hostRejected() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        delete("/api/v1/group-runs/{id}/participants/me", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        assertThat(
+                        jdbc.queryForObject(
+                                """
+                                SELECT count(*) FROM group_run_participants
+                                WHERE group_run_id=? AND user_id=?
+                                """,
+                                Integer.class,
+                                groupRunId,
+                                memberId))
+                .isZero();
+
+        mockMvc.perform(
+                        delete("/api/v1/group-runs/{id}/participants/me", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+    }
+
+    @Test
+    void patch_hostTimeGoalDerivesPace_nonHostForbidden() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "TIME",
+                                          "targetDurationSec": 1500
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetDistanceM").value(5000))
+                .andExpect(jsonPath("$.targetDurationSec").value(1500))
+                .andExpect(jsonPath("$.goalPaceSecPerKm").value(300));
+
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"title":"가로채기"}
+                                        """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_HOST"));
+    }
+
+    @Test
+    void participants_listReadyStatus() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":true}
+                                        """))
+                .andExpect(status().isOk());
+
+        MvcResult listed =
+                mockMvc.perform(
+                                get("/api/v1/group-runs/{id}/participants", groupRunId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(memberId)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.items", hasSize(2)))
+                        .andExpect(jsonPath("$.items[0].sessionId").value(nullValue()))
+                        .andExpect(jsonPath("$.items[0].nickname").isNotEmpty())
+                        .andReturn();
+        String body = listed.getResponse().getContentAsString();
+        assertThat(body).contains("\"readyStatus\":\"READY\"");
+        assertThat(body).contains("\"readyStatus\":\"WAITING\"");
+        assertThat(body).contains("\"isHost\":true");
+    }
+
+    @Test
+    void nonHostPatch_forbidden() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"title":"가로채기"}
+                                        """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_HOST"));
+    }
+
+    @Test
+    void nonScheduledState_patchJoinReady_conflict() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        jdbc.update(
+                """
+                UPDATE group_runs
+                SET status = 'RUNNING'::group_runs_status_enum
+                WHERE id = ?
+                """,
+                groupRunId);
+
+        mockMvc.perform(
+                        patch("/api/v1/group-runs/{id}", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"title":"이미 출발"}
+                                        """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EDIT_NOT_ALLOWED"));
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":true}
+                                        """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+
+        mockMvc.perform(
+                        delete("/api/v1/group-runs/{id}/participants/me", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RUN_ALREADY_STARTED"));
+    }
+
+    @Test
+    void hostLeave_conflict() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        mockMvc.perform(
+                        delete("/api/v1/group-runs/{id}/participants/me", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+    }
+
+    @Test
+    void nonParticipantReady_forbidden() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":true}
+                                        """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_PARTICIPANT"));
+    }
+
+    @Test
+    void readyToggle_asParticipant() throws Exception {
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":true}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readyStatus").value("READY"))
+                .andExpect(jsonPath("$.readyCount").value(1))
+                .andExpect(jsonPath("$.participantCount").value(2));
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header("Authorization", SecurityTestSupport.bearer(memberId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":false}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readyStatus").value("WAITING"))
+                .andExpect(jsonPath("$.readyCount").value(0));
+
+        assertThat(
+                        jdbc.queryForObject(
+                                """
+                                SELECT ready FROM group_run_participants
+                                WHERE group_run_id=? AND user_id=?
+                                """,
+                                Boolean.class,
+                                groupRunId,
+                                memberId))
+                .isFalse();
+    }
+
+    @Test
+    void invalidGoal_unprocessable() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/group-runs")
+                                .header("Authorization", SecurityTestSupport.bearer(hostId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "title":"잘못된 목표",
+                                          "crewId":%d,
+                                          "scheduledAt":"2030-01-15T01:00:00Z",
+                                          "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
+                                          "meetingPlaceName":"집결지",
+                                          "goalInputType":"TIME",
+                                          "targetDistanceM":5000,
+                                          "targetDurationSec":-1
+                                        }
+                                        """
+                                                .formatted(crewId)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
+    }
+
+    private long createGroupRun(long hostUserId) throws Exception {
+        MvcResult created =
+                mockMvc.perform(
+                                post("/api/v1/group-runs")
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(hostUserId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(createBody(crewId)))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+        return mapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+    }
+
+    private static String createBody(long crewId) {
+        return """
+                {
+                  "title":"모집 그룹런",
+                  "crewId":%d,
+                  "scheduledAt":"2030-01-15T01:00:00Z",
+                  "meetingPosition":{"type":"Point","coordinates":[129.118,35.153]},
+                  "meetingPlaceName":"집결지",
+                  "meetingAddress":"부산",
+                  "targetDistanceM":5000,
+                  "goalInputType":"TIME",
+                  "targetDurationSec":1800
+                }
+                """
+                .formatted(crewId);
+    }
+
+    private long insertUser(String loginId, String nickname, String phone) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREEE')
+                RETURNING id
+                """,
+                Long.class,
+                loginId,
+                nickname,
+                phone);
+    }
+
+    private long insertCrew(long ownerId, String name) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO crews(owner_id, name, capacity, status)
+                VALUES (?, ?, 20, 'ACTIVE'::crews_status_enum)
+                RETURNING id
+                """,
+                Long.class,
+                ownerId,
+                name);
+    }
+
+    private void approveMember(long crewId, long userId) {
+        jdbc.update(
+                """
+                INSERT INTO crew_memberships(crew_id, user_id, status, joined_at)
+                VALUES (?, ?, 'APPROVED'::crew_memberships_status_enum, now())
+                """,
+                crewId,
+                userId);
+    }
+}

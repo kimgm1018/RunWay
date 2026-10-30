@@ -32,14 +32,13 @@ import {
   formatDotDate,
   formatDuration,
   formatKm,
-  formatLongDate,
   formatMonth,
   formatPace,
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, size, spacing, useTheme } from '../../theme';
+import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
 import { CardTitle, GlassCard, ListRow, PillLink } from './parts';
-import { ReadinessSection } from './ReadinessSection';
+import { HomeWidgets } from './widgets';
 
 const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -57,9 +56,6 @@ const loadHome = (repositories: Repositories) =>
     repositories.courses.getSaved(),
     repositories.notifications.list(),
   ]);
-
-// Space above the greeting. The prototype leaves room here for the photo, which S15P31E105-186 removed.
-const heroHeight = 96;
 
 function Avatar({
   nickname,
@@ -103,7 +99,7 @@ function RecordsCard() {
     ),
   );
   return (
-    <GlassCard style={styles.overlap}>
+    <GlassCard>
       <CardTitle
         title="과거 러닝 기록"
         right={
@@ -138,7 +134,7 @@ function RecordsCard() {
   );
 }
 
-// 2.1 홈 (dark) and 2.1La 홈 라이트, following the app's screen mode.
+// 2.1 홈: the widget board of 대표화면시안 on the K1 background, then the prototype's analysis, records and saved courses.
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -164,27 +160,12 @@ export function HomeScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero} />
-        <View style={styles.greeting}>
-          {today ? (
-            <View
-              style={[styles.dateChip, { backgroundColor: colors.surface }]}
-            >
-              <AppText variant="captionStrong" tone="accentText">
-                {formatLongDate(today.date)}
-              </AppText>
-            </View>
-          ) : null}
-          <AppText variant="display">
-            {me ? `${me.nickname}님,\n` : ''}오늘 달리기 좋은 날이에요
+        <AppText style={styles.greeting}>
+          {me ? `${me.nickname}님,\n` : ''}
+          <AppText tone="textTertiary" style={styles.greetingText}>
+            오늘 달리기 좋은 날이에요
           </AppText>
-        </View>
-        <Button
-          title="러닝 시작"
-          icon="play"
-          style={styles.start}
-          onPress={() => navigateTo(navigation, 'RunMode')}
-        />
+        </AppText>
         {home.status === 'loading' ? (
           <ActivityIndicator color={colors.accent} />
         ) : home.status === 'error' ? (
@@ -198,9 +179,9 @@ export function HomeScreen() {
             />
           </GlassCard>
         ) : null}
-        {today ? <ReadinessSection today={today} /> : null}
+        {today ? <HomeWidgets today={today} /> : null}
         {summary ? (
-          <GlassCard style={styles.overlap}>
+          <GlassCard>
             <CardTitle title="러닝 분석" note={formatMonth(summary.month)} />
             <View style={styles.stats}>
               {[
@@ -279,7 +260,7 @@ export function HomeScreen() {
         ) : null}
         {home.status === 'ready' ? <RecordsCard /> : null}
         {courses ? (
-          <GlassCard style={styles.overlap}>
+          <GlassCard>
             <CardTitle title="저장한 코스" note={`${courses.length}개`} />
             <View>
               {courses.slice(0, 3).map(course => (
@@ -315,13 +296,8 @@ export function HomeScreen() {
       >
         <View style={styles.header}>
           <View style={styles.logo}>
-            <Logo width={92} />
+            <Logo width={100} />
           </View>
-          <Avatar
-            nickname={me?.nickname ?? ''}
-            photo={photo}
-            onPress={() => navigateTo(navigation, 'MyProfile')}
-          />
           <IconButton
             icon="bell"
             accessibilityLabel="알림"
@@ -332,6 +308,11 @@ export function HomeScreen() {
             icon="settings"
             accessibilityLabel="설정"
             onPress={() => navigateTo(navigation, 'Settings')}
+          />
+          <Avatar
+            nickname={me?.nickname ?? ''}
+            photo={photo}
+            onPress={() => navigateTo(navigation, 'MyProfile')}
           />
         </View>
       </SafeAreaView>
@@ -364,17 +345,20 @@ const styles = StyleSheet.create({
     paddingBottom: size.tabBar + size.tabBarInset * 2 + spacing.xxxl,
     gap: spacing.xl,
   },
-  hero: { height: heroHeight - size.header },
-  greeting: { gap: spacing.lg },
-  dateChip: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
+  // 25 Medium with the second line dimmed, as on the widget home draft.
+  greetingText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 25,
+    lineHeight: 33,
+    letterSpacing: -0.7,
   },
-  start: { height: 54 },
-  // Cards after the readiness block sit 6px tighter and 8px wider, as in the prototype.
-  overlap: { marginTop: -6, marginHorizontal: -spacing.md },
+  greeting: {
+    fontFamily: fontFamily.medium,
+    fontSize: 25,
+    lineHeight: 33,
+    letterSpacing: -0.7,
+    paddingTop: spacing.xl,
+  },
   stats: { flexDirection: 'row', gap: spacing.xs },
   stat: { flex: 1, gap: spacing.xs },
   tiny: { fontSize: 10, lineHeight: 14 },

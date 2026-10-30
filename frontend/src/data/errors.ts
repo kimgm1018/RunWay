@@ -10,6 +10,10 @@ export type DataErrorCode =
   | 'VERIFICATION_EXPIRED'
   // H02 러닝 기록 상세 (docs/design/api/running-records.md).
   | 'RECORD_NOT_FOUND'
+  // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
+  | 'CREW_CAPACITY_EXCEEDED'
+  // U18 탈퇴 비밀번호 불일치.
+  | 'INVALID_PASSWORD'
   | 'UNKNOWN';
 
 export class DataError extends Error {

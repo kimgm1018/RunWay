@@ -11,7 +11,7 @@ import { HealthScreen } from './HealthScreen';
 export function HealthPocScreen() {
   const navigation = useNavigation();
   return (
-    <ThemeProvider initialPreference="dark">
+    <ThemeProvider tone="dark">
       <SafeAreaView style={styles.root}>
         <ScreenHeader title="건강 데이터 PoC" onBack={navigation.goBack} />
         <HealthScreen provider={provider} />

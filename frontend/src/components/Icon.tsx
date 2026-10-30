@@ -42,6 +42,13 @@ const icons = {
   ),
   back: <Path d="m15 18-6-6 6-6" />,
   forward: <Path d="m9 18 6-6-6-6" />,
+  // ↗ on the round button of 2.x cards (DESIGN.md 2-6 원 버튼).
+  arrowUpRight: (
+    <>
+      <Path d="M7 7h10v10" />
+      <Path d="M7 17 17 7" />
+    </>
+  ),
   close: (
     <>
       <Path d="M18 6 6 18" />
@@ -123,6 +130,9 @@ const icons = {
     </>
   ),
   moon: <Path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />,
+  flame: (
+    <Path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+  ),
   activity: (
     <Path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
   ),
@@ -235,6 +245,42 @@ const icons = {
       <Path d="M3 10h18" />
     </>
   ),
+  // 7.x 게시물: 공유, 수정, 삭제 and the vertical menu dots.
+  send: (
+    <>
+      <Path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <Path d="m21.854 2.147-10.94 10.939" />
+    </>
+  ),
+  pencil: (
+    <>
+      <Path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <Path d="m15 5 4 4" />
+    </>
+  ),
+  trash: (
+    <>
+      <Path d="M3 6h18" />
+      <Path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <Path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </>
+  ),
+  moreVertical: (
+    <>
+      <Circle cx="12" cy="12" r="1" />
+      <Circle cx="12" cy="5" r="1" />
+      <Circle cx="12" cy="19" r="1" />
+    </>
+  ),
+  // 6.3 대표 사진 추가.
+  camera: (
+    <>
+      <Path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <Circle cx="12" cy="13" r="3" />
+    </>
+  ),
+  // 6.3 모집 인원 stepper.
+  minus: <Path d="M5 12h14" />,
   search: (
     <>
       <Circle cx="11" cy="11" r="8" />
@@ -271,13 +317,16 @@ export function Icon({
   color,
   size = 22,
   strokeWidth = 1.8,
+  solid,
 }: {
   name: IconName;
   color: string;
   size?: number;
   strokeWidth?: number;
+  // Fills an outline icon, like a liked heart or a saved bookmark (7.1).
+  solid?: boolean;
 }) {
-  const fill = filled.has(name);
+  const fill = solid ?? filled.has(name);
   return (
     <Svg
       width={size}

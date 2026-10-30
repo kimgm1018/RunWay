@@ -1,0 +1,867 @@
+{
+ "source": "E2E golden_scenarios.json (frozen 09:23) + X-01..13 + D-01..02",
+ "scenarios": [
+  {
+   "scenario_id": "GS-01",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-02",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 10.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-03",
+   "request": {
+    "lat": 35.1635572,
+    "lon": 129.0583945,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": true,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-04",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 8,
+    "filters": {
+     "river": true,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-05",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": true,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25
+   }
+  },
+  {
+   "scenario_id": "GS-06",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": true,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25
+   }
+  },
+  {
+   "scenario_id": "GS-07",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1,
+    "shape": "loop"
+   }
+  },
+  {
+   "scenario_id": "GS-08",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-09",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "GS-10",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 10.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "GS-11",
+   "request": {
+    "lat": 35.1635572,
+    "lon": 129.0583945,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": true,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "GS-12",
+   "request": {
+    "lat": 35.1577809,
+    "lon": 129.1581318,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "GS-13",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 20,
+    "seed": 25,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "GS-14",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.16999153345899,
+    "end_lon": 129.1401030914838
+   }
+  },
+  {
+   "scenario_id": "GS-15",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.12222388651544,
+    "end_lon": 129.08181729836676
+   }
+  },
+  {
+   "scenario_id": "GS-16",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 10,
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.150922750678234,
+    "end_lon": 128.92794356812163
+   }
+  },
+  {
+   "scenario_id": "GS-17",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 10,
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.15092528267366,
+    "end_lon": 128.93233512574358
+   }
+  },
+  {
+   "scenario_id": "GS-18",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5,
+    "seed": 25,
+    "shape": "point_to_point"
+   }
+  },
+  {
+   "scenario_id": "GS-19",
+   "request": {
+    "lat": 35.1577809,
+    "lon": 129.1581318,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.144255126619996,
+    "end_lon": 129.15810563430313
+   }
+  },
+  {
+   "scenario_id": "GS-20",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.19573417032862,
+    "end_lon": 129.11401031269267
+   }
+  },
+  {
+   "scenario_id": "GS-21",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.153823478217056,
+    "end_lon": 129.1361310413248
+   }
+  },
+  {
+   "scenario_id": "GS-22",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.17490790581986,
+    "end_lon": 129.12141219689386
+   }
+  },
+  {
+   "scenario_id": "GS-23",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.14412938606507,
+    "end_lon": 129.10076305556717
+   }
+  },
+  {
+   "scenario_id": "GS-24",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.1646102,
+    "end_lon": 129.141107
+   }
+  },
+  {
+   "scenario_id": "GS-25",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 10.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25
+   }
+  },
+  {
+   "scenario_id": "GS-26",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-27",
+   "request": {
+    "lat": 35.170595,
+    "lon": 129.125253,
+    "distance_km": 6.307,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25
+   }
+  },
+  {
+   "scenario_id": "GS-28",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 0.5,
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-29",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 15.5,
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "GS-30",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5,
+    "seed": 1,
+    "shape": "zigzag"
+   }
+  },
+  {
+   "scenario_id": "X-01",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 3.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-02",
+   "request": {
+    "lat": 35.1577809,
+    "lon": 129.1581318,
+    "distance_km": 5.0,
+    "filters": {
+     "river": true,
+     "beach": true,
+     "park": true,
+     "trail": true,
+     "pedestrian": true,
+     "avoid_major_road": true,
+     "avoid_steps": true,
+     "avoid_tunnel": true,
+     "flat": true
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-03",
+   "request": {
+    "lat": 35.1573354,
+    "lon": 129.0819088,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": true,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": true
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-04",
+   "request": {
+    "lat": 35.1577809,
+    "lon": 129.1581318,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": true,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 49
+   }
+  },
+  {
+   "scenario_id": "X-05",
+   "request": {
+    "lat": 37.5665,
+    "lon": 126.978,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-06",
+   "request": {
+    "lat": 35.08,
+    "lon": 129.2,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-07",
+   "request": {
+    "lat": 35.1635572,
+    "lon": 129.0583945,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1000
+   }
+  },
+  {
+   "scenario_id": "X-08",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 5.0,
+    "filters": {
+     "river": true,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": true,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "X-09",
+   "request": {
+    "lat": 35.1573354,
+    "lon": 129.0819088,
+    "distance_km": 3.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": true,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1,
+    "shape": "out_and_back"
+   }
+  },
+  {
+   "scenario_id": "X-10",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 5.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": true,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.16999153345899,
+    "end_lon": 129.1401030914838
+   }
+  },
+  {
+   "scenario_id": "X-11",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 3.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 25,
+    "shape": "point_to_point",
+    "end_lat": 35.16999153345899,
+    "end_lon": 129.1401030914838
+   }
+  },
+  {
+   "scenario_id": "X-12",
+   "request": {
+    "lat": 35.1508879,
+    "lon": 129.1167806,
+    "distance_km": 15.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  },
+  {
+   "scenario_id": "X-13",
+   "request": {
+    "lat": 35.1702867,
+    "lon": 129.1278183,
+    "distance_km": 1.0,
+    "filters": {
+     "river": false,
+     "beach": false,
+     "park": false,
+     "trail": false,
+     "pedestrian": false,
+     "avoid_major_road": false,
+     "avoid_steps": false,
+     "avoid_tunnel": false,
+     "flat": false
+    },
+    "seed": 1
+   }
+  }
+ ],
+ "debug": [
+  {
+   "scenario_id": "D-01",
+   "path": "/api/debug/network?lat=35.1508879&lon=129.1167806&distance_km=5.0"
+  },
+  {
+   "scenario_id": "D-02",
+   "path": "/api/debug/network?lat=37.5665&lon=126.978&distance_km=5.0"
+  }
+ ],
+ "subsets": {
+  "fastoff": [
+   "GS-01",
+   "GS-03",
+   "GS-09",
+   "GS-14",
+   "GS-25"
+  ],
+  "shadow": [
+   "GS-25",
+   "GS-26",
+   "GS-27",
+   "GS-14",
+   "GS-09"
+  ],
+  "noenvcache": [
+   "GS-01",
+   "GS-03",
+   "GS-09",
+   "GS-14",
+   "X-10"
+  ]
+ }
+}

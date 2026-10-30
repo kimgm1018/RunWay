@@ -2,8 +2,10 @@ package com.runway.backend.domain.crew.controller;
 
 import com.runway.backend.domain.crew.dto.request.CreateCrewRequest;
 import com.runway.backend.domain.crew.dto.request.DecideJoinRequest;
+import com.runway.backend.domain.crew.dto.request.LeaveCrewRequest;
 import com.runway.backend.domain.crew.dto.response.CrewCreateResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDetailResponse;
+import com.runway.backend.domain.crew.dto.response.CrewDissolveResponse;
 import com.runway.backend.domain.crew.dto.response.CrewListResponse;
 import com.runway.backend.domain.crew.dto.response.DecideJoinResponse;
 import com.runway.backend.domain.crew.dto.response.JoinRequestListResponse;
@@ -95,9 +97,12 @@ public class CrewController {
 
     @DeleteMapping("/{crewId}/members/me")
     public MemberLeaveResponse leave(
-            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long crewId) {
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long crewId,
+            @RequestBody(required = false) LeaveCrewRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
-        return crewService.leave(userId, crewId);
+        Long successorUserId = request == null ? null : request.successorUserId();
+        return crewService.leave(userId, crewId, successorUserId);
     }
 
     @DeleteMapping("/{crewId}/members/{userId}")
@@ -107,5 +112,12 @@ public class CrewController {
             @PathVariable long userId) {
         long ownerUserId = CurrentUserIdResolver.requireUserId(user);
         return crewService.removeMember(ownerUserId, crewId, userId);
+    }
+
+    @DeleteMapping("/{crewId}")
+    public CrewDissolveResponse dissolve(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long crewId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return crewService.dissolve(userId, crewId);
     }
 }

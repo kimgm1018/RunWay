@@ -1,0 +1,15 @@
+{
+ "note": "Fixed constants (not fit on data); also hard-coded in ptv2/config.py and ptv2/model.py",
+ "hr_center": 142.0,
+ "hr_scale": 22.0,
+ "time_scale_s": 1200.0,
+ "vertical_speed_scale": 10.0,
+ "session_context_clip": 5.0,
+ "past_token": "[(hr-142)/22, hr_is_filled, speed_mps, 10*vertical_speed, elapsed_s/1200]",
+ "future_token": "[speed_mps, 10*vertical_speed, elapsed_s/1200]",
+ "vertical_speed": "speed_mps * sin(atan(grade_pct / 100))",
+ "history_row": "[(hr-142)/22, elapsed_s/1200, speed_mps, vertical_speed, log1p(days since that workout started)]",
+ "history_vertical_scale": 1.0,
+ "session_context": "(x - train_mean) / train_std, clipped to +-5, inside the model (buffers session_mean/std)",
+ "output": "heart_rate = HR0 + 22 * head(future hidden state)"
+}

@@ -8,13 +8,12 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { AppText, Button, Icon, IconButton, useToast } from '../../components';
+import { AppText, Button, Icon, useToast } from '../../components';
 import { useRepositories, type MusicState, type Track } from '../../data';
 import { formatClockTime, formatDuration } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { palette, radius, spacing, useTheme } from '../../theme';
+import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
 import { AlbumArt, MusicSheet, SectionTitle } from './musicParts';
-import { ServiceMark } from './parts';
 
 const serviceNames = { MELON: '멜론', SPOTIFY: 'Spotify' };
 
@@ -41,6 +40,22 @@ function useMusicState() {
   return { state, setState, failed };
 }
 
+// The black round gear that opens 2.8 (DESIGN.md 2-6 음악 카드).
+function SettingsButton({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="음원 선택"
+      onPress={onPress}
+      hitSlop={6}
+      style={[styles.gear, { backgroundColor: colors.accent }]}
+    >
+      <Icon name="settings" color={colors.onAccent} size={18} />
+    </Pressable>
+  );
+}
+
 function Player({
   state,
   onSettings,
@@ -54,7 +69,7 @@ function Player({
   useEffect(() => setPlaying(track?.playing ?? false), [track]);
   const progress = track ? track.positionSec / track.durationSec : 0;
   return (
-    <View style={[styles.player, { backgroundColor: colors.surfaceMuted }]}>
+    <View style={styles.player}>
       <View style={styles.playerHead}>
         {track ? (
           <AlbumArt index={0} size={52} />
@@ -64,18 +79,14 @@ function Player({
           </View>
         )}
         <View style={styles.flex}>
-          <AppText variant="heading" numberOfLines={1}>
+          <AppText style={styles.trackTitle} numberOfLines={1}>
             {track?.title ?? '--'}
           </AppText>
-          <AppText variant="caption" tone="textTertiary" numberOfLines={1}>
+          <AppText variant="caption" tone="textSecondary" numberOfLines={1}>
             {track?.subtitle ?? '--'}
           </AppText>
         </View>
-        <IconButton
-          icon="settings"
-          accessibilityLabel="음원 선택"
-          onPress={onSettings}
-        />
+        <SettingsButton onPress={onSettings} />
       </View>
       <View style={[styles.progress, { backgroundColor: colors.border }]}>
         <View
@@ -84,18 +95,12 @@ function Player({
             { width: `${progress * 100}%`, backgroundColor: colors.text },
           ]}
         />
-        <View
-          style={[
-            styles.knob,
-            { left: `${progress * 100}%`, backgroundColor: colors.text },
-          ]}
-        />
       </View>
       <View style={styles.times}>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary" style={styles.number}>
           {track ? formatDuration(track.positionSec) : '0:00'}
         </AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary" style={styles.number}>
           {track ? formatDuration(track.durationSec) : '0:00'}
         </AppText>
       </View>
@@ -104,28 +109,31 @@ function Player({
           accessibilityRole="button"
           accessibilityLabel="이전 곡"
           disabled={!track}
-          style={[styles.control, { backgroundColor: colors.surfaceMuted }]}
+          style={styles.control}
         >
           <Icon name="skipBack" color={colors.text} size={16} />
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={playing ? '일시정지' : '재생'}
-          disabled={!track}
-          onPress={() => setPlaying(value => !value)}
-          style={[styles.play, { backgroundColor: colors.accent }]}
-        >
-          <Icon
-            name={playing ? 'pause' : 'play'}
-            color={colors.onAccent}
-            size={20}
-          />
-        </Pressable>
+        {/* The play button sits inside a dashed ring. */}
+        <View style={[styles.playRing, { borderColor: colors.borderStrong }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={playing ? '일시정지' : '재생'}
+            disabled={!track}
+            onPress={() => setPlaying(value => !value)}
+            style={[styles.play, { backgroundColor: colors.accent }]}
+          >
+            <Icon
+              name={playing ? 'pause' : 'play'}
+              color={colors.onAccent}
+              size={24}
+            />
+          </Pressable>
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="다음 곡"
           disabled={!track}
-          style={[styles.control, { backgroundColor: colors.surfaceMuted }]}
+          style={styles.control}
         >
           <Icon name="skipForward" color={colors.text} size={16} />
         </Pressable>
@@ -134,19 +142,26 @@ function Player({
   );
 }
 
+// Rows after the first get a thin line above them.
 function TrackRow({ track, index }: { track: Track; index: number }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.track}>
-      <AlbumArt index={index + 1} size={36} />
+    <View
+      style={[
+        styles.track,
+        index > 0 && [styles.trackLine, { borderTopColor: colors.border }],
+      ]}
+    >
+      <AlbumArt index={index} size={40} />
       <View style={styles.flex}>
-        <AppText variant="captionStrong" numberOfLines={1}>
+        <AppText style={styles.rowTitle} numberOfLines={1}>
           {track.title}
         </AppText>
-        <AppText variant="label" tone="textTertiary">
+        <AppText variant="label" tone="textSecondary">
           {track.subtitle}
         </AppText>
       </View>
-      <AppText variant="label" tone="textTertiary">
+      <AppText variant="label" tone="textSecondary" style={styles.number}>
         {formatDuration(track.durationSec)}
       </AppText>
     </View>
@@ -159,12 +174,42 @@ function PlaylistGrid({ titles }: { titles: string[] }) {
       {titles.map((title, index) => (
         <View key={title} style={styles.gridItem}>
           <AlbumArt index={index} />
-          <AppText variant="label" numberOfLines={1}>
+          <AppText variant="label" tone="textSecondary" numberOfLines={1}>
             {title}
           </AppText>
         </View>
       ))}
     </View>
+  );
+}
+
+// 멜론 열기 on the black bottom of the card: the light pill with a dot in a ring (DESIGN.md 2-6 시트 버튼).
+function OpenButton({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.open,
+        { backgroundColor: colors.accent },
+        pressed && styles.pressed,
+      ]}
+    >
+      <AppText variant="bodyStrong" style={{ color: colors.onAccent }}>
+        {label}
+      </AppText>
+      <View style={[styles.ring, { borderColor: colors.onAccent }]}>
+        <View style={[styles.ringDot, { backgroundColor: colors.onAccent }]} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -222,15 +267,10 @@ export function MusicCardScreen() {
     <MusicSheet
       footer={
         service ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${serviceNames[service]} 열기`}
+          <OpenButton
+            label={`${serviceNames[service]} 열기`}
             onPress={openApp}
-            style={[styles.open, { backgroundColor: colors.surfaceMuted }]}
-          >
-            <ServiceMark service={service} size={20} />
-            <AppText variant="bodyStrong">{`${serviceNames[service]} 열기`}</AppText>
-          </Pressable>
+          />
         ) : null
       }
     >
@@ -238,39 +278,30 @@ export function MusicCardScreen() {
         {!service ? (
           <Player state={state} onSettings={openSettings} />
         ) : !state.linked ? (
-          // 2.7b: the player is replaced by the reconnect prompt; the list below stays.
-          <View
-            style={[styles.player, { backgroundColor: colors.surfaceMuted }]}
-          >
-            <View style={styles.playerHead}>
-              <View
-                style={[
-                  styles.emptyArt,
-                  { backgroundColor: colors.dangerSurface },
-                ]}
-              >
-                <Icon name="musicOff" color={colors.danger} size={20} />
+          // 2.7b: the player is replaced by the reconnect prompt, a black row with a coral rim; the list below stays.
+          <ThemeProvider tone="dark">
+            <View style={styles.cut}>
+              <View style={styles.playerHead}>
+                <View style={[styles.emptyArt, styles.cutArt]}>
+                  <Icon name="musicOff" color={k1.coral} size={20} />
+                </View>
+                <View style={styles.flex}>
+                  <AppText style={styles.trackTitle}>연결이 끊겼어요</AppText>
+                  <AppText variant="caption" tone="textSecondary">
+                    {`${serviceNames[service]} 앱과 연결을 다시 확인해 주세요`}
+                  </AppText>
+                </View>
+                <SettingsButton onPress={openSettings} />
               </View>
-              <View style={styles.flex}>
-                <AppText variant="heading">연결이 끊겼어요</AppText>
-                <AppText variant="caption" tone="textSecondary">
-                  {`${serviceNames[service]} 앱과 연결을 다시 확인해 주세요`}
-                </AppText>
-              </View>
-              <IconButton
-                icon="settings"
-                accessibilityLabel="음원 선택"
-                onPress={openSettings}
+              <Button
+                title="다시 연결"
+                variant="danger"
+                size="medium"
+                loading={reconnecting}
+                onPress={reconnect}
               />
             </View>
-            <Button
-              title="다시 연결"
-              variant="danger"
-              size="medium"
-              loading={reconnecting}
-              onPress={reconnect}
-            />
-          </View>
+          </ThemeProvider>
         ) : (
           <Player state={state} onSettings={openSettings} />
         )}
@@ -278,12 +309,9 @@ export function MusicCardScreen() {
       {!service ? (
         <View style={styles.connect}>
           <View
-            style={[
-              styles.connectIcon,
-              { backgroundColor: colors.surfaceMuted },
-            ]}
+            style={[styles.connectIcon, { backgroundColor: colors.accent }]}
           >
-            <Icon name="music" color={colors.textSecondary} size={22} />
+            <Icon name="music" color={colors.onAccent} size={22} />
           </View>
           <AppText variant="heading">음악 서비스를 연결해 주세요</AppText>
           <AppText
@@ -316,13 +344,8 @@ export function MusicCardScreen() {
                     style={styles.flex}
                   >
                     곡을 골라 재생하려면{' '}
-                    <AppText
-                      variant="captionStrong"
-                      style={{ color: palette.periwinkle }}
-                    >
-                      Spotify Premium
-                    </AppText>
-                    이 필요해요. 무료 계정은 셔플 재생만 돼요.
+                    <AppText variant="captionStrong">Spotify Premium</AppText>이
+                    필요해요. 무료 계정은 셔플 재생만 돼요.
                   </AppText>
                 </View>
               ) : null}
@@ -379,48 +402,83 @@ const styles = StyleSheet.create({
   center: { padding: spacing.xxxl, alignItems: 'center' },
   centerText: { textAlign: 'center' },
   top: { padding: spacing.xl, paddingBottom: 0 },
-  player: { borderRadius: radius.xl, padding: spacing.xl, gap: spacing.lg },
+  // The player sits right on the card, without a box of its own.
+  player: { gap: spacing.lg },
   playerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  emptyArt: {
-    width: 52,
-    height: 52,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progress: { height: 4, borderRadius: 2, marginTop: spacing.sm },
-  progressFill: { height: 4, borderRadius: 2 },
-  knob: {
-    position: 'absolute',
-    top: -4,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginLeft: -6,
-  },
-  times: { flexDirection: 'row', justifyContent: 'space-between' },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xxl,
-  },
-  control: {
+  trackTitle: { fontFamily: fontFamily.medium, fontSize: 17, lineHeight: 24 },
+  rowTitle: { fontFamily: fontFamily.medium, fontSize: 14, lineHeight: 20 },
+  number: { fontFamily: fontFamily.numberRegular },
+  gear: {
     width: 40,
     height: 40,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  play: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+  emptyArt: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  library: { padding: spacing.xl, gap: spacing.xl },
-  track: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  progress: {
+    height: 3,
+    borderRadius: 2,
+    marginTop: spacing.sm,
+    overflow: 'hidden',
+  },
+  progressFill: { height: 3, borderRadius: 2 },
+  times: { flexDirection: 'row', justifyContent: 'space-between' },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xl,
+  },
+  control: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: 'rgba(2,5,14,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playRing: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  play: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 2.7b 연결 끊김: a black row with a coral 60% rim.
+  cut: {
+    gap: spacing.lg,
+    padding: spacing.xl,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(226,135,111,0.6)',
+    backgroundColor: k1.night,
+  },
+  cutArt: { backgroundColor: 'rgba(226,135,111,0.14)' },
+  library: { padding: spacing.xl, gap: spacing.lg },
+  track: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+    paddingVertical: spacing.sm,
+  },
+  trackLine: { borderTopWidth: 1 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   // Three per row, as in the prototype.
   gridItem: { width: '31.5%', gap: spacing.xs },
@@ -428,7 +486,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
     padding: spacing.xl,
-    borderRadius: radius.lg,
+    borderRadius: 22,
     borderWidth: 1,
   },
   connect: {
@@ -445,11 +503,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   open: {
-    height: 48,
-    borderRadius: radius.pill,
+    height: 54,
+    minWidth: 206,
+    borderRadius: 27,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    paddingLeft: 24,
+    paddingRight: 10,
+    gap: spacing.xl,
   },
+  pressed: { transform: [{ scale: 0.96 }] },
+  ring: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringDot: { width: 8, height: 8, borderRadius: 4 },
 });

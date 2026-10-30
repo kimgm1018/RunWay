@@ -22,7 +22,7 @@ from scripts.jira.create_issues import read_env, JiraError
 LOCAL = ROOT / '.gitlab-local'
 TEMPLATE = ROOT / '.gitlab/merge_request_templates/Default.md'
 TYPES = 'feat|fix|refactor|test|docs|chore|ci'
-SCOPES = {'frontend': 'fe', 'backend': 'be', 'ai': 'ai', 'infra': 'infra', 'docs': 'docs'}
+SCOPES = {'frontend': 'fe', 'backend': 'be', 'ai': 'ai', 'infra': 'infra', 'docs': 'docs', 'wear': 'wear'}
 
 
 class GitLabError(Exception):
@@ -265,7 +265,7 @@ class Workflow:
         paths = sorted({x['new_path'] for x in comparison.get('diffs', []) if not private_path(x['new_path']) and not private_path(x.get('old_path', ''))})
         areas = {SCOPES.get(p.split('/')[0], 'other') for p in paths}
         scope = d.get('scope')
-        if scope and scope not in {'fe', 'be', 'ai', 'infra', 'docs'}:
+        if scope and scope not in SCOPES.values():
             raise GitLabError('팀에서 정한 scope를 사용하세요.')
         if scope and (len(areas) > 1 or areas != {scope}):
             raise GitLabError('변경 영역에 맞춰 scope를 생략하거나 수정하세요.')
@@ -274,7 +274,7 @@ class Workflow:
             raise GitLabError('지원하지 않는 type입니다.')
         summary = d.get('summary')
         if not summary and old:
-            title_match = re.fullmatch(r'(?:Draft: )?\[' + re.escape(key) + r'\] (' + TYPES + r')(?:\((fe|be|ai|infra|docs)\))?: (.+)', old.get('title', ''))
+            title_match = re.fullmatch(r'(?:Draft: )?\[' + re.escape(key) + r'\] (' + TYPES + r')(?:\((' + '|'.join(SCOPES.values()) + r')\))?: (.+)', old.get('title', ''))
             if title_match:
                 old_kind, old_scope, summary = title_match.groups()
                 kind = d.get('type', old_kind)

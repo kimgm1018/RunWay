@@ -14,6 +14,7 @@
 | [M08](#m08-크루-탈퇴) | 크루 탈퇴 | DELETE | `/crews/{crewId}/members/me` | 1차 MVP | 회원 |
 | [M09](#m09-크루-멤버-내보내기) | 크루 멤버 내보내기 | DELETE | `/crews/{crewId}/members/{userId}` | 선택 기능 | 회원 |
 | [M10](#m10-내-크루-목록) | 내 크루 목록 | GET | `/users/me/crews` | 1차 MVP | 회원 |
+| [M11](#m11-크루-해산) | 크루 해산 | DELETE | `/crews/{crewId}` | 1차 MVP | 회원 |
 
 ## ERD 응답 대응 기준
 
@@ -840,23 +841,33 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | MAT-003~004 |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 미정 사항 | 있음(그룹런 등 해산 연쇄는 M11) |
+| 비고 | 탈퇴와 해산은 분리. 해산은 [M11](#m11-크루-해산) |
 
 ### 설명
 
-OWNER의 탈퇴 시 권한 이양 정책 미정.
+본인 멤버십을 `LEFT`로 바꾼다. 크루장은 다른 APPROVED 멤버에게 권한을 이양한 뒤에만 탈퇴할 수 있다. 크루 종료는 M11 해산을 쓴다.
+
+### FE 분기 (확정)
+
+| 상황 | FE 행동 | API |
+|---|---|---|
+| 일반 APPROVED 멤버 | 탈퇴 확인 후 호출 | M08, body 없음 |
+| OWNER + APPROVED 2명 이상 | 후임 선택 후 탈퇴 | M08 + `{"successorUserId": <후임>}` |
+| OWNER + APPROVED 1명(본인만) | 해산 안내·확인 | **M11** (M08 호출 시 `409 OWNER_CANNOT_LEAVE`) |
+| OWNER가 크루 전체 종료(인원 무관) | 해산 확인 | **M11** |
+
+서버가 APPROVED 인원·OWNER 여부를 판정한다. FE가 인원만 보고 leave/delete를 고르지 않아도 되며, 레이스 시 서버 오류 코드를 따른다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-- 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 로그인 사용자. ACTIVE 크루의 APPROVED 멤버만 탈퇴 가능.
 
 ### Path Parameters
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `crewId` | integer (int64) | O | ERD 및 화면 요구사항을 기준으로 확정 필요 |
+| `crewId` | integer (int64) | O | 대상 크루 |
 
 ### Query Parameters
 
@@ -864,12 +875,21 @@ OWNER의 탈퇴 시 권한 이양 정책 미정.
 
 ### Request Body
 
-없음
+선택. OWNER 이양 탈퇴 시에만 필요.
 
+```json
+{
+  "successorUserId": 102
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `successorUserId` | integer (int64) | X | OWNER 탈퇴 시 필수. 같은 크루 APPROVED 멤버(본인 제외). 일반 멤버가 보내면 `400 VALIDATION_ERROR` |
 
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
@@ -878,42 +898,33 @@ OWNER의 탈퇴 시 권한 이양 정책 미정.
 }
 ```
 
-응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `status` | string | O | `crew_memberships.status` (ENUM('PENDING', 'APPROVED', 'REJECTED', 'LEFT')). 저장 값은 NULL 불가. 허용값: PENDING, APPROVED, REJECTED, LEFT. |
-| `leftAt` | string (ISO 8601 UTC) / null | O | `crew_memberships.left_at` (TIMESTAMPTZ). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-
+| `status` | string | O | 탈퇴 후 `LEFT` |
+| `leftAt` | string (ISO 8601 UTC) / null | O | `crew_memberships.left_at` |
 
 **사용 흐름과 응답 판단**
 
-탈퇴 완료 상태 LEFT와 실제 leftAt을 반환한다. 크루장 위임 정책이 결정되지 않으면 일반 탈퇴로 우회하지 않는다.
+성공 시 본인은 더 이상 APPROVED가 아니다. OWNER 이양 성공 시 `crews.owner_id`는 후임으로 바뀌고 응답은 탈퇴한 본인의 LEFT만 담는다. 새 크루장은 멤버 목록의 `isOwner`로 확인한다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `409 OWNER_CANNOT_LEAVE` | 역할 제약 | 크루장 위임 처리 없이 일반 탈퇴를 요청함 |
-| `404 CREW_NOT_FOUND` | 대상 없음 | 대상 크루가 없음 |
-| `404 MEMBER_NOT_FOUND` | 대상 없음 | 호출자가 해당 크루의 APPROVED 멤버가 아님 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
-
-- **대상 없음·접근 차단 점검:** 경로 대상의 부재/삭제, 본인 소유·역할·참가 자격 불충족을 구분한다. 위 표에 없는 경우 `404` 자원 없음 또는 `403` 접근 거부의 추가 매핑을 확인한다. 존재 은닉을 위한 403/404 선택·검사 순서는 미정이며 새 코드로 단정하지 않는다.
-
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
+| `409 OWNER_CANNOT_LEAVE` | 역할 제약 | OWNER가 후임 없이 탈퇴하거나, APPROVED가 본인뿐인데 M08을 호출함(해산은 M11) |
+| `422 INVALID_SUCCESSOR` | 후임 부적합 | 후임이 본인이거나, 해당 크루 APPROVED가 아님 |
+| `404 CREW_NOT_FOUND` | 대상 없음 | 크루 없음 또는 ACTIVE가 아님 |
+| `404 MEMBER_NOT_FOUND` | 대상 없음 | 호출자가 APPROVED 멤버가 아님 |
+| `400 VALIDATION_ERROR` | 입력 형식 | 일반 멤버가 `successorUserId`를 보냄 등 |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+| `403 FORBIDDEN` | 권한 | 권한 없음 |
 
 ### 처리 규칙
 
-- OWNER의 탈퇴 시 권한 이양·해산은 미정. 현재 구현은 OWNER 탈퇴를 `409 OWNER_CANNOT_LEAVE`로 거부하며 자동 해산하지 않는다.
-- 일반 APPROVED 멤버 탈퇴는 `status=LEFT`, `left_at` 기록으로 처리한다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+- 일반 APPROVED: `LEFT` + `left_at`.
+- OWNER + APPROVED ≥ 2: `successorUserId` 필수 → `owner_id` 이양 후 OWNER `LEFT` (한 트랜잭션).
+- OWNER + APPROVED = 1: M08 거부(`OWNER_CANNOT_LEAVE`). 자동 해산하지 않음.
+- 비ACTIVE 크루 탈퇴는 `404 CREW_NOT_FOUND`.
 
 ### 상태값
 
@@ -921,12 +932,83 @@ OWNER의 탈퇴 시 권한 이양 정책 미정.
 
 ### 미정 사항
 
-- 사용자 확인 방향: 다른 승인 멤버가 있는 OWNER는 직접 지정한 크루 내 승인 멤버에게 권한을 이양한 뒤 탈퇴한다. OWNER 혼자 남은 경우에는 본인이 탈퇴를 요청할 때 해산을 안내하고 확인 후 크루 해산과 탈퇴를 처리한다. 혼자 남았다는 이유로 자동 해산하지 않으며, 최초 생성 직후의 1인 크루도 유지한다.
-- [ ] 위 방향을 반영한 후임 지정·해산 확인의 API 계약, 권한 이양과 탈퇴의 일괄 처리 및 실패·동시 요청 처리 규칙 확정
-- [ ] 크루 해산 시 가입 대기 요청·그룹런·연결 데이터의 처리와 보존 정책 확정
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
+- [ ] 이양·탈퇴와 동시 내보내기/승인 경합 시 재시도 UX 문구
+- [ ] 그룹런 등 연결 데이터의 해산 연쇄는 M11 미정 항목
+
+
+## M11 크루 해산
+
+`DELETE` `/api/v1/crews/{crewId}`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | MAT-003~004 |
+| 미정 사항 | 있음(그룹런·알림) |
+| 비고 | hard delete 아님. `crews.status=INACTIVE` |
+
+### 설명
+
+OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크루도 멤버가 모두 나갈 필요 없이 해산할 수 있다.
+
+### FE 안내
+
+- 설정/관리의 **해산** 및, OWNER 혼자일 때 탈퇴 확인 후 호출하는 API가 M11이다.
+- 확인 UI는 FE 책임. 서버는 확인 플래그를 요구하지 않는다.
+
+### 인증 및 권한
+
+- OWNER(`crews.owner_id`)만. 비소유자 → `403 NOT_ADMIN`.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `crewId` | integer (int64) | O | 대상 크루 |
+
+### Request Body
+
+없음
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "id": 101,
+  "status": "INACTIVE"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `id` | integer (int64) | O | `crews.id` |
+| `status` | string | O | `INACTIVE` |
+
+이미 `INACTIVE`면 동일 본문으로 성공(멱등).
+
+### 오류 응답
+
+| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+|---|---|---|
+| `403 NOT_ADMIN` | 역할 권한 | 호출자가 OWNER가 아님 |
+| `404 CREW_NOT_FOUND` | 대상 없음 | 크루 없음 |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+
+### 처리 규칙
+
+- `crews.status` → `INACTIVE`.
+- 해당 크루 `APPROVED` 멤버십 → `LEFT` + `left_at`.
+- 해당 크루 `PENDING` → `REJECTED`.
+- `owner_id`는 이력으로 유지(변경하지 않음).
+- 검색(M01) 등 ACTIVE만 노출하는 API에서는 더 이상 나오지 않음.
+
+### 미정 사항
+
+- [ ] 해산 시 진행·예정 그룹런 취소·보존 정책
+- [ ] 해산 알림
 
 
 ## M09 크루 멤버 내보내기

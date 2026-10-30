@@ -9,8 +9,15 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Polyline, Text } from 'react-native-svg';
-import { AppText, EmptyState, IconButton, Segmented } from '../../components';
+import Svg, { Circle, Line, Polyline, Text } from 'react-native-svg';
+import {
+  AppText,
+  Backdrop,
+  Card as KitCard,
+  EmptyState,
+  IconButton,
+  Segmented,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -24,9 +31,9 @@ import { formatHours, formatKm, formatPace } from '../../format';
 import {
   fontFamily,
   palette,
-  radius,
   size,
   spacing,
+  ThemeProvider,
   useTheme,
 } from '../../theme';
 import {
@@ -95,60 +102,73 @@ function barLabels(period: AnalysisPeriod, count: number) {
   );
 }
 
+// Every 5.3 box is the dark glass card; the totals use the vignette (DESIGN.md 2-8 5.3).
 function Card({
   title,
   note,
+  vignette = false,
   children,
 }: {
   title?: string;
   note?: string;
+  vignette?: boolean;
   children: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-      ]}
-    >
+    <KitCard variant={vignette ? 'vignette' : 'deep'} style={styles.card}>
       {title ? (
         <View style={styles.cardTitle}>
           <AppText variant="heading" style={styles.cardHeading}>
             {title}
           </AppText>
           {note ? (
-            <AppText variant="label" tone="textTertiary">
+            <AppText variant="label" tone="textSecondary">
               {note}
             </AppText>
           ) : null}
         </View>
       ) : null}
       {children}
-    </View>
+    </KitCard>
+  );
+}
+
+// A 14% line inside a card, read in the card's dark tone.
+function Rule({ vertical = false }: { vertical?: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        vertical ? styles.ruleVertical : styles.rule,
+        { backgroundColor: colors.border },
+      ]}
+    />
   );
 }
 
 function SummaryGrid({ summary }: { summary: PeriodSummary }) {
   const cell = (value: string, unit: string, label: string) => (
     <View style={styles.summaryCell}>
-      <AppText variant="metricLarge">
+      <AppText style={styles.summaryValue}>
         {value}
-        <AppText variant="caption" tone="textSecondary">
+        <AppText variant="label" tone="textSecondary">
           {unit}
         </AppText>
       </AppText>
-      <AppText variant="caption" tone="textTertiary">
+      <AppText variant="labelStrong" tone="textSecondary">
         {label}
       </AppText>
     </View>
   );
+  // 2 × 2 split by 14% lines, like the 4.5 metrics (DESIGN.md 2-8 5.3 요약).
   return (
-    <Card>
+    <Card vignette>
       <View style={styles.summaryRow}>
         {cell(String(summary.runCount), '회', '러닝')}
+        <Rule vertical />
         {cell(formatKm(summary.totalDistanceM, 1), 'km', '누적 거리')}
       </View>
+      <Rule />
       <View style={styles.summaryRow}>
         {cell(
           summary.averagePaceSecPerKm === null
@@ -157,6 +177,7 @@ function SummaryGrid({ summary }: { summary: PeriodSummary }) {
           '',
           '평균 페이스',
         )}
+        <Rule vertical />
         {cell(formatHours(summary.totalDurationSec), 'h', '총 시간')}
       </View>
     </Card>
@@ -184,9 +205,8 @@ function DistanceBars({
           return (
             <View key={labels[index]} style={styles.barColumn}>
               <AppText
-                variant="metricSmall"
                 tone={highlighted ? 'text' : 'textSecondary'}
-                style={period === 'YEAR' && styles.small}
+                style={[styles.barValue, period === 'YEAR' && styles.small]}
               >
                 {distanceM > 0 ? String(Math.round(distanceM / 100) / 10) : ''}
               </AppText>
@@ -198,16 +218,14 @@ function DistanceBars({
                       (distanceM / top) * barArea,
                       distanceM > 0 ? 6 : 2,
                     ),
+                    // The longest bar is white; the rest are the faint white of the dark tone (DESIGN.md 2-8 주별 거리).
                     backgroundColor: highlighted
                       ? colors.accent
-                      : colors.surfaceMuted,
-                    borderColor: highlighted
-                      ? colors.accent
-                      : colors.borderStrong,
+                      : colors.accentSoft,
                   },
                 ]}
               />
-              <AppText variant="label" tone="textTertiary">
+              <AppText variant="label" tone="textSecondary">
                 {labels[index]}
               </AppText>
             </View>
@@ -249,10 +267,21 @@ function PaceTrendCard({ trend }: { trend: PaceTrend }) {
       >
         {width > 0 && points.length > 0 ? (
           <Svg width={width} height={trendHeight}>
+            {[0, 0.5, 1].map(share => (
+              <Line
+                key={share}
+                x1={0}
+                x2={width}
+                y1={12 + share * (trendHeight - 34)}
+                y2={12 + share * (trendHeight - 34)}
+                stroke={colors.border}
+                strokeWidth={1}
+              />
+            ))}
             <Polyline
               points={points.map(point => `${point.x},${point.y}`).join(' ')}
               stroke={colors.accentText}
-              strokeWidth={2}
+              strokeWidth={1.8}
               fill="none"
               strokeLinejoin="round"
             />
@@ -263,10 +292,8 @@ function PaceTrendCard({ trend }: { trend: PaceTrend }) {
                   key={`${point.x}`}
                   cx={point.x}
                   cy={point.y}
-                  r={latest ? 5 : 2.5}
-                  fill={latest ? palette.white : colors.accentText}
-                  stroke={latest ? colors.accentText : 'none'}
-                  strokeWidth={2}
+                  r={latest ? 4.5 : 0}
+                  fill={palette.white}
                 />
               );
             })}
@@ -279,7 +306,7 @@ function PaceTrendCard({ trend }: { trend: PaceTrend }) {
                   y={trendHeight - 4}
                   fontSize={11}
                   fontFamily={latest ? fontFamily.bold : fontFamily.regular}
-                  fill={latest ? colors.text : colors.textTertiary}
+                  fill={latest ? colors.text : colors.textSecondary}
                   textAnchor="middle"
                 >
                   {`${Number(item.month.slice(5))}월`}
@@ -292,7 +319,7 @@ function PaceTrendCard({ trend }: { trend: PaceTrend }) {
       {first !== null && last !== null && change !== null && change !== 0 ? (
         <AppText variant="caption" tone="textSecondary">
           {`${formatPace(first)}에서 ${formatPace(last)}까지 `}
-          <AppText variant="captionStrong" tone="accentText">
+          <AppText variant="captionStrong">
             {change < 0 ? `${-change}초 빨라졌어요` : `${change}초 느려졌어요`}
           </AppText>
         </AppText>
@@ -301,19 +328,20 @@ function PaceTrendCard({ trend }: { trend: PaceTrend }) {
   );
 }
 
+// Zones 1–5 in white at 20 · 42 · 62 · 82 · 100% (DESIGN.md 2-8 심박 구간).
 const zones = [
-  { name: '회복', color: palette.slate },
-  { name: '유산소', color: palette.mint },
-  { name: '템포', color: palette.lavender },
-  { name: '역치', color: palette.coral },
-  { name: '최대', color: palette.coralStrong },
+  { name: '회복', color: 'rgba(232,238,244,0.2)' },
+  { name: '유산소', color: 'rgba(232,238,244,0.42)' },
+  { name: '템포', color: 'rgba(232,238,244,0.62)' },
+  { name: '역치', color: 'rgba(232,238,244,0.82)' },
+  { name: '최대', color: '#E8EEF4' },
 ];
 
 function HeartZones({ shares }: { shares: number[] }) {
   return (
     <Card title="심박 구간">
       {shares.length === 0 ? (
-        <AppText variant="caption" tone="textTertiary">
+        <AppText variant="caption" tone="textSecondary">
           이 기간에는 심박 기록이 없어요
         </AppText>
       ) : (
@@ -341,7 +369,7 @@ function HeartZones({ shares }: { shares: number[] }) {
               >
                 {`${index + 1} ${zones[index].name}`}
               </AppText>
-              <AppText variant="captionStrong">{`${Math.round(
+              <AppText style={styles.zoneShare}>{`${Math.round(
                 share * 100,
               )}%`}</AppText>
             </View>
@@ -365,7 +393,6 @@ function Comparison({
   previous: PeriodSummary | null;
   isCurrent: boolean;
 }) {
-  const { colors } = useTheme();
   const before = shift(period, start, -1);
   const [previousLabel, currentLabel] =
     period === 'WEEK'
@@ -433,7 +460,7 @@ function Comparison({
         </AppText>
         <AppText
           variant="label"
-          tone="textTertiary"
+          tone="textSecondary"
           style={styles.compareValue}
         >
           {previousLabel}
@@ -462,18 +489,23 @@ function Comparison({
           <AppText variant="metricSmall" style={styles.compareValue}>
             {row.now}
           </AppText>
-          <AppText
-            variant="labelStrong"
-            style={[
-              styles.compareGap,
-              { color: row.better ? colors.accentText : colors.danger },
-            ]}
-          >
+          {/* The difference is bold white either way (DESIGN.md 2-8 지난달과 비교). */}
+          <AppText variant="labelStrong" style={styles.compareGap}>
             {row.gap}
           </AppText>
         </View>
       ))}
     </Card>
+  );
+}
+
+// The outlined link's border and text, read in the dark tone.
+function LinkLabel({ title }: { title: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.linkInner, { borderColor: colors.borderStrong }]}>
+      <AppText variant="bodyStrong">{title}</AppText>
+    </View>
   );
 }
 
@@ -501,13 +533,16 @@ export function AnalysisScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop />
+      </View>
       <View style={styles.header}>
         <IconButton
           icon="back"
           accessibilityLabel="뒤로"
           onPress={() => navigation.goBack()}
         />
-        <AppText variant="title" accessibilityRole="header">
+        <AppText style={styles.title} accessibilityRole="header">
           러닝 분석
         </AppText>
       </View>
@@ -548,14 +583,16 @@ export function AnalysisScreen() {
                 description="다른 기간을 골라 보세요."
               />
             ) : (
-              <>
+              // The charts pick their colors before the card is drawn, so they read the
+              // card's dark tone from here.
+              <ThemeProvider tone="dark">
                 <DistanceBars
                   period={period}
                   breakdown={statistics.breakdown}
                 />
                 <PaceTrendCard trend={trend} />
                 <HeartZones shares={statistics.heartRateZones} />
-              </>
+              </ThemeProvider>
             )}
             <Comparison
               period={period}
@@ -564,36 +601,37 @@ export function AnalysisScreen() {
               previous={statistics.previousPeriod}
               isCurrent={isCurrent}
             />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                period === 'MONTH' && isCurrent
-                  ? '이번 달 기록 보기'
-                  : '기록 보기'
-              }
-              onPress={() =>
-                navigation.navigate('Records', {
-                  month: (period === 'YEAR' && isCurrent ? today : start).slice(
-                    0,
-                    7,
-                  ),
-                })
-              }
-              style={({ pressed }) => [
-                styles.link,
-                {
-                  backgroundColor: pressed
-                    ? colors.border
-                    : colors.surfaceMuted,
-                },
-              ]}
-            >
-              <AppText variant="bodyStrong">
-                {period === 'MONTH' && isCurrent
-                  ? '이번 달 기록 보기'
-                  : '기록 보기'}
-              </AppText>
-            </Pressable>
+            {/* It ends the scroll on the black lower part: an outlined pill (DESIGN.md 2-8 5.3 버튼). */}
+            <ThemeProvider tone="dark">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  period === 'MONTH' && isCurrent
+                    ? '이번 달 기록 보기'
+                    : '기록 보기'
+                }
+                onPress={() =>
+                  navigation.navigate('Records', {
+                    month: (period === 'YEAR' && isCurrent
+                      ? today
+                      : start
+                    ).slice(0, 7),
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.link,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <LinkLabel
+                  title={
+                    period === 'MONTH' && isCurrent
+                      ? '이번 달 기록 보기'
+                      : '기록 보기'
+                  }
+                />
+              </Pressable>
+            </ThemeProvider>
           </>
         )}
       </ScrollView>
@@ -611,10 +649,11 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
+  title: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
   content: {
-    paddingHorizontal: spacing.screen,
+    paddingHorizontal: 14,
     paddingBottom: spacing.xxxl,
-    gap: spacing.xl,
+    gap: spacing.lg,
   },
   periodRow: {
     flexDirection: 'row',
@@ -623,23 +662,27 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   loading: { marginTop: spacing.xxxl },
-  card: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.xl,
-  },
+  card: { gap: spacing.xl },
   cardTitle: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  cardHeading: { fontSize: 15 },
+  cardHeading: { fontSize: 15, fontFamily: fontFamily.medium },
+  rule: { height: 1 },
+  ruleVertical: { width: 1, alignSelf: 'stretch' },
   summaryRow: { flexDirection: 'row' },
-  summaryCell: { flex: 1, gap: spacing.xxs },
+  summaryCell: { flex: 1, alignItems: 'center', gap: 2 },
+  // Big numbers stay Barlow Regular at the sheet's 30.
+  summaryValue: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 30,
+    lineHeight: 36,
+  },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md },
   barColumn: { flex: 1, alignItems: 'center', gap: spacing.sm },
-  bar: { alignSelf: 'stretch', borderRadius: radius.sm, borderWidth: 1 },
+  bar: { alignSelf: 'stretch', borderRadius: 14 },
+  barValue: { fontFamily: fontFamily.numberMedium, fontSize: 14 },
   small: { fontSize: 9 },
   trend: { height: trendHeight },
   zoneBar: {
@@ -647,18 +690,22 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     overflow: 'hidden',
-    gap: 2,
+    gap: 3,
   },
   zoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  zoneDot: { width: 8, height: 8, borderRadius: 2 },
+  zoneDot: { width: 9, height: 9, borderRadius: 2 },
+  zoneShare: { fontFamily: fontFamily.numberMedium, fontSize: 14 },
   compareRow: { flexDirection: 'row', alignItems: 'center' },
   compareLabel: { flex: 1.4 },
   compareValue: { flex: 1, textAlign: 'right' },
   compareGap: { flex: 1.1, textAlign: 'right' },
-  link: {
-    height: 48,
-    borderRadius: radius.pill,
+  link: { marginTop: spacing.md },
+  linkInner: {
+    height: 50,
+    borderRadius: 999,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  pressed: { opacity: 0.7 },
 });

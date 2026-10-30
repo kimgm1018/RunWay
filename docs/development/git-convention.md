@@ -82,6 +82,7 @@ feat/<JIRA-KEY>-new-feature
 - `ai` : `ai/`
 - `infra` : `infra/` 및 인프라 설정
 - `docs` : `docs/`, `exec/` 및 문서
+- `wear` : `wear/` (워치 앱)
 
 개발 과정에서 서비스 경계나 디렉터리 구조가 바뀌면 Scope도 팀 합의에 따라 유동적으로 추가·변경한다.
 

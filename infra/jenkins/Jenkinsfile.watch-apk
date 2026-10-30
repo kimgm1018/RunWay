@@ -1,0 +1,76 @@
+// master Push 후 제품 워치 앱을 검사하고 팀 테스트용 debug APK를 보관한다.
+pipeline {
+    agent { label 'watch' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+    }
+    stages {
+        // MR은 통합 CI에서 검사한다. 수동 실행도 master 코드만 사용한다.
+        stage('Checkout Master') {
+            steps {
+                script {
+                    if (env.gitlabMergeRequestIid) {
+                        error('MR 검사는 통합 CI에서 실행합니다.')
+                    }
+                    if (env.gitlabActionType &&
+                        (env.gitlabActionType != 'PUSH' || env.gitlabBranch != 'master')) {
+                        error('자동 APK 배포는 master Push만 허용합니다.')
+                    }
+                    deleteDir()
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: 'refs/remotes/origin/master']],
+                        userRemoteConfigs: [[
+                            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                            credentialsId: 'runway-gitlab-repo',
+                            refspec: '+refs/heads/master:refs/remotes/origin/master'
+                        ]]
+                    ])
+                    env.APK_COMMIT = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+                    currentBuild.description = "master ${env.APK_COMMIT}"
+                }
+            }
+        }
+        // MR과 같은 검사이며, 실패 위치를 볼 수 있도록 단계를 나눈다.
+        stage('Watch Tests') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage test'
+            }
+        }
+        stage('Watch Lint') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage lint'
+            }
+        }
+        stage('Watch APK Build') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage apk'
+            }
+        }
+        // 성공한 제품 APK만 커밋·빌드 번호로 구분해 Jenkins에 보관한다.
+        stage('Archive APK') {
+            steps {
+                sh '''
+                    mkdir -p artifacts
+                    cp wear/app/build/outputs/apk/debug/app-debug.apk \
+                        "artifacts/runway-watch-master-${APK_COMMIT}-${BUILD_NUMBER}.apk"
+                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=debug\nmodule=wear/app\n' \
+                        "$APK_COMMIT" "$BUILD_NUMBER" > artifacts/build-info.txt
+                '''
+                archiveArtifacts artifacts: 'artifacts/*.apk,artifacts/build-info.txt', fingerprint: true
+            }
+        }
+    }
+    // 실패해도 생성된 테스트 결과·Lint·시간 보고서는 남긴다.
+    post {
+        always {
+            junit allowEmptyResults: true,
+                testResults: 'wear/app/build/test-results/testDebugUnitTest/*.xml'
+            archiveArtifacts allowEmptyArchive: true,
+                artifacts: 'wear/build/reports/profile/**,wear/app/build/reports/lint-results-debug.*'
+        }
+    }
+}

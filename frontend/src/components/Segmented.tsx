@@ -22,7 +22,7 @@ export function Segmented<T extends string>({
       style={[
         styles.segmented,
         compact && styles.segmentedCompact,
-        { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+        { backgroundColor: colors.surfaceMuted },
       ]}
     >
       {options.map(option => {
@@ -41,7 +41,7 @@ export function Segmented<T extends string>({
             ]}
           >
             <AppText
-              variant={compact ? 'captionStrong' : 'bodyStrong'}
+              variant={compact ? 'buttonSmall' : 'bodyMedium'}
               style={{
                 color: selected ? colors.onAccent : colors.textSecondary,
               }}
@@ -60,7 +60,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: spacing.xs,
     borderRadius: radius.pill,
-    borderWidth: 1,
   },
   segmentedCompact: { padding: spacing.xxs },
   segment: {
