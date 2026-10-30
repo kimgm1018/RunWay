@@ -1,0 +1,5 @@
+# 학습 서버(Python 3.12.15)와 같은 버전. CPU만 쓴다.
+lightgbm==4.7.0
+numpy==2.5.2
+pandas==3.1.0
+pyarrow==26.0.0

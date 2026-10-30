@@ -1,0 +1,55 @@
+{
+  "exp_id": "EXP-20261030-01",
+  "seed": 42,
+  "sha256": {
+    "model/model_30s.txt": "e1ea453a4fc7643eaa3738c27b7fd2551414c674408a214f6bd8f519551e2974",
+    "model/model_60s.txt": "e95783cb72f65bc2023273568b1463b22dd4325f46e26d3181265678e8daeaee",
+    "model/model_120s.txt": "b4b66c621817feb3b8b80d3d5a4f910576e55a8d1b66e7520e2d3f0015c4ac43",
+    "model/features.txt": "9a3e6d6656d6184e50cffb8505bbce93280663f8d3f4b066f62721a6ccad39ca",
+    "model/model_config.json": "eb6a24badde26c17fa4dad33ff64686c7f5cdd675c51bfc3a3cb256b0977b406"
+  },
+  "code_sha256": {
+    "src/data.py": "c81a6f0ab0e6df55b5c5f4e429942e5f2aa5af567bd04c33f0d0e58e3062e571",
+    "src/features.py": "522f9a9df7d94f15cd1e023a9f2d831a59606d2ebaaacc79a9344fd9c76cd435",
+    "src/history.py": "ba59b705071acd7d27acd7ce3cbe6506d91cf9c2453cc3ebba2f89577ad19396",
+    "src/predictor.py": "d379478bcc7a5fa861c14d8a09289fbefad30d54e084e0a3c457a7fcf2e300bf"
+  },
+  "val": {
+    "split": "fitrec_hr_v2",
+    "mae_bpm": {
+      "30": 2.4806,
+      "60": 3.1883,
+      "120": 3.8002
+    },
+    "by_cohort": {
+      "cold_start": {
+        "30": {
+          "n": 1006,
+          "mae_bpm": 2.5073
+        },
+        "60": {
+          "n": 1006,
+          "mae_bpm": 3.0692
+        },
+        "120": {
+          "n": 1006,
+          "mae_bpm": 3.6449
+        }
+      },
+      "personalized": {
+        "30": {
+          "n": 217519,
+          "mae_bpm": 2.4804
+        },
+        "60": {
+          "n": 217519,
+          "mae_bpm": 3.1889
+        },
+        "120": {
+          "n": 217519,
+          "mae_bpm": 3.8009
+        }
+      }
+    }
+  }
+}
