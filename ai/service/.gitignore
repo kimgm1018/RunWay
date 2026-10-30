@@ -1,0 +1,3 @@
+# 체크포인트는 Hugging Face에서 받는다 (README 참고)
+models/*
+!models/.gitkeep
