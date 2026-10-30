@@ -4,7 +4,12 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
 import * as fixtures from '../src/data/mock/fixtures';
+import { setWatchHealthConsent } from '../src/health/watchHealth';
 
+jest.mock('../src/health/watchHealth', () => ({
+  setWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
+  refreshWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
@@ -184,6 +189,9 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('6′00″/km');
   await press(screen, '저장');
 
+  // The consent chosen at sign-up is sent to the watch once the account exists.
+  expect(setWatchHealthConsent).toHaveBeenCalledTimes(1);
+  expect(setWatchHealthConsent).toHaveBeenCalledWith('DISAGREE');
   expect(texts(screen)).toContain('함께 쓰나요?');
   await press(screen, '네, 워치와 함께 쓸게요');
   await press(screen, '다음');

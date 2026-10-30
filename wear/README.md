@@ -14,6 +14,7 @@ applicationId가 달라 두 앱을 한 기기에 함께 설치할 수 있다. �
 | 패키지 | 역할 |
 | ------ | ---- |
 | `run` | 운동 상태(READY·RUNNING·PAUSED·COMPLETED·CANCELLED·INTERRUPTED), 측정값, 과거 기록 비교 결과(`RecordComparison`), 그룹 상태(`GroupStatus`), 사용자 요청(`RunIntent`), 실행 제어 인터페이스(`RunControl`) |
+| `dailyhr` | 일상 심박: Health Services 배경 수집, 최근 24시간 추정값 계산, 폰 전송·동의 수신 (S15P31E105-63) |
 | `navigation` | 화면 이동 규칙. 화면은 **확정된 운동 상태**로 정해지고, 화면 이동은 운동을 시작·종료하지 않는다 |
 | `ui/theme` | 색·글꼴. 모바일 디자인 기준([frontend/DESIGN.md](../frontend/DESIGN.md) 1-1·2-5)을 따른다 |
 | `ui/component` | 공통 UI: 원형 화면(`RoundScreen`), 버튼, 측정값·단위, 상태 줄, 칩, 쪽 표시, 가장자리 링, 안내 화면 |

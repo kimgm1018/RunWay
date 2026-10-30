@@ -355,3 +355,23 @@ PHONE_FALLBACK에서는 서버 스냅샷과 STATE_RESULT에 recordingMode를 포
 | IGNORED 결과 또는 서버 저장 ACK가 유실됨 | 같은 명령·결과로 제한 재시도, 서버 슬롯 해제·버전 증가는 1회. persisted=true 후 최신 버전으로 PAUSE/END/SET_BPM 재요청 |
 | 원래 전달과 만료 후 재전달이 동시에 워치에 도착 | commandId별 최초 처리·결과 저장을 원자적으로 수행해 하나의 결과만 확정하고 중복은 동일 결과 반환 |
 | 결과 확인 중 워치 단절·재시도 상한 도달 | 실행 여부를 추정하지 않고 미확인 표시. 실제 시작 확인된 세션은 기존 폰 인계·종료 지원 |
+
+### 9.9 일상 심박 하루 추정값과 건강 동의 공유 (S15P31E105-63)
+
+2026-10-30 사용자 확정으로 9.2의 운동 세션 메시지와 별도로 아래 경로를 추가한다. 운동 세션·W07과 무관하므로 envelope의 `sessionId`는 null이다. 9.1 envelope·크기·messageId 규칙과 9.5의 ACK 대기·재시도 상한을 그대로 따른다.
+
+| path | type | 방향 | 서버 연결 |
+| --- | --- | --- | --- |
+| `/runway/v1/health/daily-hr` | `DAILY_HR_SUMMARY` | 워치→폰 | 없음. 폰 로컬 저장 후 [S15P31E105-281](https://ssafy.atlassian.net/browse/S15P31E105-281)이 W06으로 업로드 |
+| `/runway/v1/health/daily-hr-received` | `DAILY_HR_RECEIVED` | 폰→워치 | 없음. 폰 영속 저장 확인 |
+
+| type | payload 필드·의미 |
+| --- | --- |
+| DAILY_HR_SUMMARY | **워치가 최근 24시간 일상 심박으로 만든 추정값 1개를 폰에 보낸다.**<br>`metricDate`(`YYYY-MM-DD`): 워치 시간대 기준 추정값을 계산한 날짜. 워치는 1시간마다 최근 24시간으로 다시 계산하며, 같은 날짜는 더 높은 revision으로 덮어쓴다.<br>`revision`(int≥1): 같은 날짜의 값·분 수가 바뀔 때마다 1씩 증가한다.<br>`estimatedRestingHrBpm`(number): 최근 24시간 1분 평균 HR 중 하위 10%의 평균(소수 1자리). 삼성 헬스 공식 안정 시 심박이 아니라 워치 일상 측정 추정치다.<br>`method`(string): 계산 방식. 현재 `ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`.<br>`validSampleCount`(int): 계산에 쓴 유효 분(1분 평균) 개수.<br>`computedAt`(UTC): 계산 시각. |
+| DAILY_HR_RECEIVED | **폰이 해당 날짜·revision을 영속 저장했음을 알린다.**<br>`metricDate`, `revision`: 받은 값. 폰은 날짜별로 가장 높은 revision만 유지하며 같거나 낮은 revision을 다시 받으면 저장을 바꾸지 않고 같은 응답을 돌려준다. |
+
+- 워치는 `DAILY_HR_RECEIVED`를 받기 전까지 해당 날짜·revision을 대기열에 유지한다. 9.5 상한을 넘으면 폐기하지 않고 다음 연결 또는 다음 계산 시점에 다시 보낸다.
+- 건강정보 동의 상태는 폰이 DataItem `/runway/v1/state/health-consent`(`healthDataAccess`: `AGREEE`/`DISAGREE`, `updatedAt` UTC)로 공유한다. ADR-0012의 최신 상태 공유 용도이며 명령으로 쓰지 않는다. 워치는 `updatedAt`이 더 오래된 값을 적용하지 않는다.
+- 동의가 `DISAGREE`이거나 DataItem이 없으면 워치는 일상 수집을 등록하지 않는다. 철회를 받으면 등록을 해제하고 워치의 1분 집계·요약을 삭제한다. 폰은 철회 후 업로드하지 않는다.
+- 분 단위 HR 원본은 폰·서버로 보내지 않는다.
+- 9.1과 다른 점: 기기가 서버 기기 ID를 모르므로 `senderDeviceId`는 null이다. `messageId`는 `watch:<n>`/`phone:<n>` 형식이다. 한 동기화 실행 안의 재시도는 같은 `messageId`를 쓰고 다음 실행은 새 ID를 쓸 수 있으며, 폰은 `metricDate`+`revision`으로 중복을 거른다.

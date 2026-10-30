@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, IconButton, Screen, TextField } from '../../components';
 import { errorCode, useRepositories, type Gender } from '../../data';
+import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing } from '../../theme';
 import {
@@ -91,6 +92,8 @@ export function ProfileBasicScreen() {
           healthDataAccess: draft.healthDataAccess,
           ...profile,
         });
+        // Fire and forget: the watch sync must not delay navigation.
+        void setWatchHealthConsent(draft.healthDataAccess);
       }
       // The password is not kept once the account exists.
       update({ profile, accountCreated: true, password: '' });
