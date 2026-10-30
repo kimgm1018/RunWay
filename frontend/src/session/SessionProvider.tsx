@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
+import { setWatchHealthConsent } from '../health/watchHealth';
 
 type SessionValue = {
   signedIn: boolean;
@@ -21,7 +22,11 @@ export function SessionProvider({
     () => ({
       signedIn,
       signIn: () => setSignedIn(true),
-      signOut: () => setSignedIn(false),
+      signOut: () => {
+        // Fire and forget: withdraw consent on the watch and clear its records.
+        void setWatchHealthConsent('DISAGREE');
+        setSignedIn(false);
+      },
     }),
     [signedIn],
   );

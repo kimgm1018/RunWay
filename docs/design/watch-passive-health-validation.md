@@ -905,3 +905,84 @@ Git 제외 `tmp/passive-health-validation-120-oct28/nonbattery/battery-retry-api
 심박은 bpm·실제 측정 시각·워치 출처·수집/동기화 상태와 함께 표시하며 삼성 헬스 공식 일일 안정 시 심박으로 표시하지 않는다. 기존 60번 조회·53번 운동 수집 책임을 유지하고 기존 API·데이터 모델·공통 식별자/통신 규약 변경을 이 승인만으로 실행하지 않는다. 제품 기능 구현·서버 업로드·의료 정확도·SDK 내부 원인 완전 규명은 120번 종료 조건에 추가하지 않는다.
 
 **마무리 상태:** 120번의 승인된 검증 실행·결과 분석·최종 판단과 63번 범위 갱신을 마쳤다. 사용자의 MR 생성 요청에 따라 이 기존 보고서 변경을 검증·커밋·Push하고 `dev` 대상 MR로 제출한다. Jira 120번은 `dev` 병합 시 자동 완료 흐름을 따르며 수동 완료 전이·MR 병합은 수행하지 않는다. 63번은 이번에 구현을 시작하지 않았으므로 해야 할 일 상태를 유지하고 담당자·SP·우선순위·Epic·스프린트를 변경하지 않았다. 전용 worktree와 Git 제외 증거를 보존한다.
+
+## 63번 구현 설계 (2026-10-30)
+
+2026-10-30 사용자 확정으로 63번 범위를 다시 조정했다. Jira 63번 본문의 범위 변경 단락과 [S15P31E105-252](https://ssafy.atlassian.net/browse/S15P31E105-252), [S15P31E105-281](https://ssafy.atlassian.net/browse/S15P31E105-281)을 함께 따른다. 위 절의 “휴대폰 표시”와 “선택한 수집 경로의 Samsung 등록” 조건은 이 절로 대체한다.
+
+### 목표와 경계
+
+- 건강정보 선택 동의(`users.health_data_access`)를 한 사용자의 워치가 별도 조작 없이 일상 심박을 수집하고, 최근 24시간 추정값을 날짜별 1개로 폰에 저장한다. 값은 이후 서버 `daily_health_metrics.rhr_bpm`에 저장돼 AI 입력으로 쓰인다.
+- 화면 표시는 하지 않는다. 러닝 중 심박 표시는 러닝 기능(256·266 등)의 책임이다.
+- 63번은 워치 수집·계산·워치→폰 전달·폰 로컬 저장까지다. 서버 API는 252번, 폰 업로드는 281번이다.
+- 제외: IBI·HRV, 분 단위 원본 업로드, 휴식·수면 판정, 과거 소급, 의료 해석. 하루 값을 삼성 헬스 공식 안정 시 심박으로 부르지 않는다.
+
+### 수집 경로
+
+Health Services `PassiveMonitoringClient`를 사용한다. Samsung Health Sensor SDK는 일반 배포에 파트너 승인이 필요해 사용하지 않는다. 측정 주기는 시스템이 정하며 실제 Galaxy Watch 주기는 실기기에서 확인한다.
+
+- `PassiveListenerConfig`에 `DataType.HEART_RATE_BPM`만 등록하고 `PassiveListenerService`로 배치를 받는다. 서비스는 `PASSIVE_DATA_BINDING` 권한으로 보호한다.
+- 권한: targetSdk 37 기준 `android.permission.health.READ_HEART_RATE`, `android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND`, API 35 이하용 `BODY_SENSORS`·`BODY_SENSORS_BACKGROUND`(`maxSdkVersion=35`). 워치 권한은 폰에서 대신 줄 수 없으므로 동의가 켜진 상태에서 워치 앱을 열면 권한을 요청한다. 거부되면 등록하지 않고 상태를 `NEEDS_PERMISSION`으로 둔다.
+- 등록 전 `PassiveMonitoringClient` capability에 HR이 없으면 `UNSUPPORTED`로 두고 등록하지 않는다.
+- 등록은 재부팅 후 유지되지 않으므로 `BOOT_COMPLETED`와 앱 업데이트(`MY_PACKAGE_REPLACED`) 수신 시 WorkManager 작업으로 다시 등록한다(등록 응답이 10초 이상 걸릴 수 있음). 동의와 권한을 먼저 확인한다.
+- 근거: Android Health Services [배경 모니터링](https://developer.android.com/health-and-fitness/guides/health-services/monitor-background), [권한](https://developer.android.com/health-and-fitness/health-services/permissions). Context7(`/websites/developer_android_health-and-fitness`)로 2026-10-30 조회했다. 저장소의 `health-services-client` 1.1.0과 문서 버전의 일치는 빌드로 확인한다.
+
+### 유효 HR과 러닝 구간
+
+- HR 정확도가 `ACCURACY_HIGH`·`ACCURACY_MEDIUM`이고 30~220bpm인 값만 유효로 저장한다. 미착용(`NO_CONTACT`)·`UNRELIABLE`·`LOW`·범위 밖 값은 버리고 임의 값으로 채우지 않는다. 범위·정확도 기준은 설계 판단이며 실기기 결과로 조정할 수 있다.
+- 러닝 중에도 일상 등록을 해제하지 않는다. 등록 해제·재등록에서 생기는 공백과 재부팅 복구 경로를 줄이기 위해서다. 대신 같은 등록에서 `setShouldUserActivityInfoBeRequested(true)`로 사용자 활동 상태를 받아 `USER_ACTIVITY_EXERCISE`인 구간의 일상 HR을 하루 계산에서 뺀다. RunWay 러닝뿐 아니라 삼성 헬스 등 다른 앱의 운동도 함께 빠지며, 아직 구현 전인 제품 러닝 제어(256번)에 의존하지 않는다(설계 판단). 이를 위해 `ACTIVITY_RECOGNITION` 권한을 함께 요청한다. 러닝 중 HR 기록·표시는 러닝 기능의 `ExerciseClient` 경로가 담당한다.
+- 측정 시각은 DataPoint의 시각을 기기 부팅 시각으로 환산한 실제 시각을 사용한다. 도착 시각으로 바꾸지 않는다.
+
+### 하루 추정값
+
+2026-10-30 사용자 승인으로 날짜별 하루 계산을 최근 24시간 계산으로 바꿨다. 새벽 5시에 시작하는 러닝도 전날 밤을 포함한 값이 필요하고, 실기기에서 배경 HR이 화면 꺼짐 중에도 약 1Hz로 들어와 1분 단위로 묶어도 충분하기 때문이다.
+
+- 유효 HR은 워치 로컬 DB에 1분 단위(분 시작 시각별 합·개수)로 저장한다. 1분 값 = 그 분의 유효 HR 평균.
+- 추정값 = 최근 24시간(`[now-24h, now)`) 1분 값 중 운동 구간에 조금이라도 걸친 분을 뺀 나머지의 하위 10% 평균(소수 1자리, 반올림), `method=ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`. 유효 분이 240개(4시간) 미만이면 값을 만들지 않는다. 10%·240분은 설계 판단이며 실기기 결과로 조정할 수 있다.
+- 1시간 주기 WorkManager 동기화와 동의를 받은 즉시 동기화에서 계산한다. `metricDate`는 계산한 시점의 워치 시간대 날짜이며, 같은 날짜에 다시 계산하면 값이나 유효 분 수가 바뀐 경우에만 `revision`을 올려 덮어쓴다. `validSampleCount`는 유효 분 개수다.
+- 워치 보관: 1분 집계와 활동 전환 기록은 48시간이 지나면 요약 유무와 관계없이 삭제한다. 운동 구간이 경계에 걸치도록 경계 직전 마지막 전환 1건을 남긴다. 폰 ACK를 받은 요약은 오늘-2일보다 이전 날짜면 삭제하고, ACK 전 요약은 삭제하지 않는다. 1분 집계를 폰·서버로 보내지 않는다.
+- 폰 보관: 업로드한 revision의 기록은 오늘·어제만 남기고, 업로드 전 기록도 7일이 지나면 삭제한다. 기록을 쓸 때마다 같은 저장에서 정리한다.
+- 워치 DB 1→2 업그레이드 때 이전 원본 샘플은 지우고, 이전 방식의 요약은 ACK 완료로 표시해 다시 보내지 않는다. 같은 날짜의 다음 계산은 기존 revision에 이어 올라가므로 폰에 남은 이전 방식 기록을 덮어쓰며, 오래된 요약은 보관 규칙으로 삭제된다. 동의·수집 상태·메시지 번호·활동 전환은 유지한다.
+
+### 배터리 기준
+
+2026-10-30 사용자 확정: 워치 배터리가 **10% 이상일 때만** 일상 수집을 켠다. debug·release 모두 동의와 권한이 있으면 이 기준으로 자동 활성화한다.
+
+- 배치를 받을 때와 등록·재등록 전에 배터리 잔량을 확인한다. 10% 미만이면 등록을 해제하고 상태를 `PAUSED_LOW_BATTERY`로 둔다.
+- 해제된 동안 WorkManager 주기 작업(최소 15분)으로 잔량을 확인해 10% 이상이 되면 동의·권한을 다시 확인하고 재등록한다. 충전 중이면 잔량과 무관하게 재등록 조건을 확인한다(설계 판단).
+- 이 기준은 저전력 보호 규칙이며 수집에 따른 배터리 소모량을 측정한 결과가 아니다. 소모량 비교는 기본 활성화의 선행 조건에서 빼고, 실기기에서 참고용으로 관찰해 기록한다.
+
+### 전달과 동의
+
+- 워치→폰은 [연동 설계 9.9](watch-mobile-server-integration.md#99-일상-심박-하루-추정값과-건강-동의-공유-s15p31e105-63)의 `DAILY_HR_SUMMARY`/`DAILY_HR_RECEIVED`를 쓴다. 의존성은 버전 카탈로그의 `play-services-wearable` 18.0.0을 워치·폰에 연결한다.
+- 폰은 Android 네이티브 `WearableListenerService`에서 메시지를 받아 날짜별로 앱 내부 저장소에 영속 저장한 뒤 ACK를 보낸다. RN이 실행 중이 아니어도 동작해야 한다. 281번이 읽어 업로드할 수 있도록 날짜·revision·값·업로드 여부를 읽고 표시하는 네이티브 모듈 메서드를 둔다.
+- 폰은 건강정보 동의가 바뀔 때 9.9의 DataItem을 갱신한다. 같은 값이 이미 전달됐으면 다시 보내지 않고, 앱 시작 시에는 직전 전달이 실패한 경우에만 다시 보낸다. 워치는 이 값을 받아 등록·해제한다.
+- 동의 출처(2026-10-30 사용자 승인): 앱 시작 시 W05 동의 상태 조회 결과를 사용한다. W05는 [S15P31E105-250](https://ssafy.atlassian.net/browse/S15P31E105-250)이 구현하며 63번은 호출 연결부만 만든다. 250번 완료 전에는 회원가입 때 고른 `healthDataAccess`를 폰에 저장해 두고 그 값을 사용한다. 저장값도 W05 결과도 없으면 `DISAGREE`로 본다.
+- 폰 로컬 저장값은 현재 로그인 회원의 것으로만 다룬다. 로그아웃·계정 전환은 철회와 같게 처리해 DataItem을 `DISAGREE`로 갱신하고 폰의 날짜별 저장값을 삭제한다. 워치도 철회와 같이 미전송 데이터를 지운다(설계 판단).
+
+### 검증 계획
+
+- 자동: 유효 HR 필터, 러닝 구간 제외, 24시간 계산(창 경계·운동 분 제외·240분 미만·revision), 메시지 직렬화·크기·중복 revision, 동의 변경 순서의 단위 테스트. 워치 `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug`, 폰 `pnpm test`·lint·Android 빌드.
+- 실기기(사용자 수행): 동의 켬→권한→수집 시작, 실제 수집 주기, 화면 꺼짐·배경, 권한 철회·재허용, 강제 종료·재실행, 재부팅 후 재등록, 러닝 시작/종료 시 구간 제외, 폰 미연결 중 대기·재연결 후 전달·중복 ACK, 동의 철회 후 삭제.
+- 배터리: 10% 미만에서 해제·10% 이상 복귀 시 재등록을 실기기로 확인한다. 수집 ON/OFF 소모 차이는 참고 관찰로만 기록하며 120번 6시간 결과로 무영향을 선언하지 않는다.
+- 배포: 동일 applicationId `com.runway.health`와 같은 서명으로 설치해야 Data Layer가 연결된다. 스토어 서명은 별도로 확인한다.
+
+#### 자동 검증 결과 (2026-10-30)
+
+로컬 자동 검증만 수행했다. 실기기 동작은 확인하지 않았다.
+
+- 워치 `:app:testDebugUnitTest :app:lintDebug :app:assembleDebug`: 성공. 테스트 122개 통과·실패 0, lint 오류 0·경고 30.
+- 폰 `pnpm test`: 130 tests 통과. `pnpm lint`: 오류 0·경고 5(기존 파일). `pnpm typecheck`: 성공.
+- 폰 Android `:app:testDebugUnitTest :app:assembleDebug`(Samsung SDK 옵션): 성공. 테스트 13개 통과.
+- 미검증(실기기 필요): 실제 수집 주기·정확도 누락 비율, 화면 꺼짐·배경, 권한 철회·재허용, 강제 종료·재부팅 재등록, 운동 구간 제외, 워치↔폰 실제 전달·ACK·재연결, 배터리 10% 해제·재등록, 동의 철회 시 삭제.
+- 알려진 한계: 로그아웃 후 재로그인하면 W05([S15P31E105-250](https://ssafy.atlassian.net/browse/S15P31E105-250)) 연결 전까지 워치 수집이 꺼진 상태로 남는다.
+
+#### 실기기 확인 (2026-10-30)
+
+사용자가 실제 Galaxy Watch와 휴대폰으로 확인했다. 처음 시험한 워치는 다른 휴대폰과 페어링돼 있어 동의가 전달되지 않았으며, 코드 문제가 아니라 설정 문제였다.
+
+- 올바른 휴대폰과 페어링한 뒤 동의 DataItem이 워치에 동기화됨.
+- 워치 앱 첫 실행 때 이미 게시된 동의를 읽어 옴.
+- 권한 요청 순서대로 허용 후 상태가 `NEEDS_PERMISSION`→`COLLECTING`으로 바뀜.
+- 배경 HR이 화면 꺼짐 중에도 약 1Hz로 들어오고 정확도 누락 0건.
+- 날짜를 바꿔 계산→전송→폰 저장→ACK까지 확인한 뒤 시계를 원래대로 되돌림.

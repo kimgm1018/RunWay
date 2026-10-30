@@ -46,7 +46,15 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.2")
+    implementation("androidx.health:health-services-client:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // Lifts the transitive fragment 1.0.0 so the activity-result APIs used by MainActivity are valid.
+    implementation("androidx.fragment:fragment:1.8.5")
+    implementation(libs.play.services.wearable)
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     implementation(platform(libs.compose.bom))
     implementation(libs.activity.compose)
     implementation(libs.compose.foundation)

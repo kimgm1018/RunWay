@@ -37,5 +37,11 @@
       <activity-alias android:name="ViewHealthPermissionUsageActivity" android:exported="true" android:targetActivity=".HealthRationaleActivity" android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
         <intent-filter><action android:name="android.intent.action.VIEW_PERMISSION_USAGE" /><category android:name="android.intent.category.HEALTH_PERMISSIONS" /></intent-filter>
       </activity-alias>
+      <service android:name=".watch.WatchListenerService" android:exported="true">
+        <intent-filter>
+          <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/health/" />
+        </intent-filter>
+      </service>
     </application>
 </manifest>
