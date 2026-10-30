@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
 import com.runway.watch.run.FeedStatus
 import com.runway.watch.run.RunMetrics
+import com.runway.watch.run.RunMode
 import com.runway.watch.run.RunSnapshot
 import com.runway.watch.ui.component.*
 import com.runway.watch.ui.format.MetricFormat
@@ -83,7 +84,7 @@ internal fun RunStatusPage(snapshot: RunSnapshot, count: Int, index: Int, visibl
         StatusHeader(view)
         Text("실제 페이스", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
         LiveValue(view.pace, 34)
-        GuidePace(snapshot.metrics)
+        GuidePace(snapshot)
         Row(Modifier.padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 LiveValue(view.distance, 13)
@@ -114,12 +115,15 @@ private fun StatusHeader(view: RunStatusView) = when {
 @Composable
 private fun LiveValue(metric: LiveMetric, size: Int) = MetricValue(metric.text, size, emphasized = !metric.delayed)
 
-// Guide pace and rhythm are shown as delivered; S15P31E105-257 owns this coaching area.
+// Guide pace and rhythm are shown as delivered; S15P31E105-257 owns this coaching area. A group run
+// shows the group's shared pace instead, so the runner never sees two guide paces at once.
 @Composable
-private fun GuidePace(m: RunMetrics) {
+private fun GuidePace(snapshot: RunSnapshot) {
+    val group = snapshot.mode == RunMode.GROUP
+    val pace = if (group) GroupRunDisplay.status(snapshot).guidePaceSecondsPerKm else snapshot.metrics.guidePaceSecondsPerKm
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("안내", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        MetricValue(MetricFormat.pace(m.guidePaceSecondsPerKm), 11, emphasized = false)
+        Text(if (group) "공동" else "안내", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+        MetricValue(MetricFormat.pace(pace), 11, emphasized = false)
     }
 }
 

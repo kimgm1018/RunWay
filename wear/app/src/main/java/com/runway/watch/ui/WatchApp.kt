@@ -6,7 +6,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.BasicSwipeToDismissBox
@@ -70,6 +75,7 @@ private fun StandbyScreen(snapshot: RunSnapshot, onStart: () -> Unit) {
         }
         Text(snapshot.title ?: if (snapshot.mode == RunMode.GROUP) "그룹런" else "러닝",
             style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center, maxLines = 2)
+        if (snapshot.mode == RunMode.GROUP) return@RoundScreen GroupStandby(snapshot)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MetricValue(MetricFormat.pace(snapshot.metrics.guidePaceSecondsPerKm), 12, emphasized = false)
             MetricValue(MetricFormat.rhythm(snapshot.metrics.rhythm), 12, emphasized = false)
@@ -77,6 +83,27 @@ private fun StandbyScreen(snapshot: RunSnapshot, onStart: () -> Unit) {
         RoundButton(if (snapshot.pendingCommand) "시작 확인 중" else "시작", onStart, Modifier.padding(top = 4.dp),
             enabled = !snapshot.pendingCommand, size = 60, caption = snapshot.pendingCommand) { Icon(WatchIcon.PLAY, it, 22) }
     }
+}
+
+/**
+ * A group run starts only when the leader starts it (G09), so there is no start button here. A
+ * runner who was not ready when the group left is told so instead of being started late.
+ */
+@Composable
+private fun GroupStandby(snapshot: RunSnapshot) {
+    val group = GroupRunDisplay.status(snapshot)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+        Text("공동", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+        MetricValue(MetricFormat.pace(group.guidePaceSecondsPerKm), 12, emphasized = false)
+    }
+    val (title, detail) = when (group.phase) {
+        GroupPhase.WAITING -> "그룹장이 출발하면\n함께 시작해요" to "휴대폰에서 준비 완료를\n눌러 주세요"
+        GroupPhase.RUNNING -> "그룹이 이미 출발했어요" to "내 기록은\n시작되지 않았어요"
+        GroupPhase.FINISHED, GroupPhase.FORCE_FINISHED -> "그룹런이 끝났어요" to "내 기록은\n시작되지 않았어요"
+    }
+    Text(title, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        style = RunwayType.Body.copy(fontWeight = FontWeight.Bold), color = RunwayColors.Content, textAlign = TextAlign.Center)
+    Text(detail, style = RunwayType.Body, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
 }
 
 @Composable
@@ -90,22 +117,18 @@ private fun RunPager(snapshot: RunSnapshot, page: Int, onPage: (Int) -> Unit, on
         when (pages[index]) {
             RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause)
             RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible)
-            else -> PendingPage(pages[index], pages.size, index, visible)
+            RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible)
+            RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible)
+            RunPage.PACE_COACHING -> PaceCoachingPage(pages.size, index, visible)
         }
     }
 }
 
-/** Page frame kept so swipe order is fixed now; 266~268 replace the body. */
+/** Page frame kept so swipe order is fixed now; 257 replaces the body. */
 @Composable
-private fun PendingPage(page: RunPage, count: Int, index: Int, visible: Boolean) {
+private fun PaceCoachingPage(count: Int, index: Int, visible: Boolean) {
     RoundScreen(focused = visible) {
-        Text(when (page) {
-            RunPage.PACE_COACHING -> "페이스 코칭"
-            RunPage.RECORD_COMPARE -> "기록 비교"
-            RunPage.GROUP_PACE -> "그룹 공동 페이스"
-            RunPage.GROUP_POSITION -> "그룹 위치·간격"
-            RunPage.STATUS -> "운동 현황"
-        }, style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+        Text("페이스 코칭", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
         Text(MetricFormat.MISSING, style = RunwayType.number(40), color = RunwayColors.ContentDim)
         PageIndicator(count, index)
     }

@@ -12,7 +12,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
 import com.runway.watch.run.GoalEvaluation
+import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.ResultPhase
+import com.runway.watch.run.RunMode
 import com.runway.watch.run.RunResults
 import com.runway.watch.run.RunSnapshot
 import com.runway.watch.run.RunState
@@ -37,6 +39,21 @@ private fun status(phase: ResultPhase) = when (phase) {
 }
 
 /**
+ * A group run says how the group stands apart from the runner's own end. A forced end names the
+ * leader and never reads as a finish; whether the goal was met is only the server's evaluation.
+ */
+private fun caption(snapshot: RunSnapshot): String {
+    if (snapshot.state == RunState.INTERRUPTED) return "기록이 중단됐어요"
+    if (snapshot.mode != RunMode.GROUP) return "러닝 종료"
+    return when (snapshot.group?.phase) {
+        GroupPhase.FINISHED -> "그룹런 종료"
+        GroupPhase.FORCE_FINISHED -> "그룹장이 그룹런을 종료"
+        GroupPhase.WAITING, GroupPhase.RUNNING -> "내 러닝 종료 · 그룹 진행 중"
+        null -> "내 러닝 종료"
+    }
+}
+
+/**
  * 9.4 result after the end. Drawn from the current snapshot only, so coming back to it always
  * shows the latest save and analysis state. Final values and the goal appear only when the
  * analysis is READY; before that the watch measurement is shown dimmed. Retrying the save,
@@ -48,8 +65,7 @@ fun ResultScreen(snapshot: RunSnapshot) {
     val status = status(RunResults.phase(result))
     val summary = RunResults.finalSummary(result)
     RoundScreen {
-        Text(if (snapshot.state == RunState.INTERRUPTED) "기록이 중단됐어요" else "러닝 종료",
-            style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+        Text(caption(snapshot), style = RunwayType.Caption, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
         RunResults.finalGoal(result)?.let { GoalChip(it) }
         if (summary != null) {
             MetricValue(MetricFormat.distance(summary.distanceMeters), 32)

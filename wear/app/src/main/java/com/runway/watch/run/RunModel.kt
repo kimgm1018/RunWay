@@ -74,6 +74,8 @@ data class RunSnapshot(
     val title: String? = null,
     val metrics: RunMetrics = RunMetrics(),
     val comparison: RecordComparison = RecordComparison.NotSelected,
+    /** Group state for a [RunMode.GROUP] run; ignored for a personal run. Null until any arrives. */
+    val group: GroupStatus? = null,
     /** Save, analysis and goal state after the end; null until the controller reports any. */
     val result: RunResult? = null,
 )
