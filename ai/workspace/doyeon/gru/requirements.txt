@@ -1,0 +1,5 @@
+# 학습 서버(Python 3.12.15)와 같은 버전. 추론은 CPU만 써도 된다.
+# CPU 전용 PC에서는 torch를 CPU 빌드로 설치해도 된다: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+numpy==2.5.2
+pandas==3.1.0

@@ -1,0 +1,3 @@
+# 체크포인트는 Hugging Face에서 받는다 (README "체크포인트 받기")
+model/*.pt
+src/_smoke_state.pt

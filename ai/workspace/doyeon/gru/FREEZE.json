@@ -1,0 +1,45 @@
+{
+  "author": "구도연",
+  "model_id": {
+    "main": "M3-005 (미래 경사 있을 때, W&B imdoyeon-sw-/runway-hr 0watjhko)",
+    "nograde": "M3-006 (미래 경사 없거나 NaN일 때, W&B imdoyeon-sw-/runway-hr 8ml7kzek)"
+  },
+  "seed": 42,
+  "git_commit": "이 폴더를 올린 커밋: git log -1 -- ai/workspace/doyeon/gru",
+  "checkpoint": {
+    "file": "model/gru_final.pt",
+    "huggingface": "doyeonkoo/runway-hr-gru (https://huggingface.co/doyeonkoo/runway-hr-gru/resolve/main/gru_final.pt)",
+    "contains": {"main": "M3-005 원본 best.pt", "nograde": "M3-006 원본 best.pt"}
+  },
+  "sha256": {
+    "model/gru_final.pt": "db59d414b8b88a6ac1140dd5bbce40475878d97a6436fb087141e25bdb3887fe",
+    "M3-005 원본 best.pt": "8a648df4748788002f363de938f2cd83e2c902d1737ba928373ab4d87e534770",
+    "M3-006 원본 best.pt": "b73c256b0ddb1bef2a63bbc78d7fdad26f0ef1b246b43c07a36dbc33dc886970",
+    "model/model_config.json": "fda1ff37f6b056217253aa1fa44b72ee8e2c810c073b2c8de8da755d18eb35bc"
+  },
+  "code_sha256 (Git에 저장된 LF 기준)": {
+    "src/data.py": "5065e88c53dbedd232ee290bf89a609ae3809f97dd815693760b0333a368be75",
+    "src/model.py": "3231e12b2b3273e56aa3069177c371a945a424ca91b4f10a9c879910fe86ba84",
+    "src/predictor.py": "83c8b7a3d43030b12f08ee6f5afa867609b620975a0c45c54d1c9c8210575957",
+    "src/smoke_test.py": "2b6772e37e24f26327dfddf24c548dde0500dc2ec7775017e480e0a174b8a8c4"
+  },
+  "normalization": {
+    "mean": {"speed_mps": 3.0471458435058594, "grade_observed_pct": 0.06713422387838364, "hr_bpm": 148.4650421142578},
+    "std": {"speed_mps": 0.7399314045906067, "grade_observed_pct": 3.819791316986084, "hr_bpm": 17.02633285522461}
+  },
+  "personalization": {"head_only": true, "optimizer": "Adam", "lr": 0.001, "steps": 100, "l2_to_base_head": 0.03},
+  "grade_missing_policy": "future_grade가 None이거나 NaN이면 M3-006",
+  "val": {
+    "split": "fitrec_hr_v2",
+    "windows": {"personalized": 47217, "cold_start": 193},
+    "T1": {"on_mae_bpm": {"30": 2.178, "60": 2.6918, "120": 3.112}, "on_mean": 2.6606, "off_mean": 2.7452,
+           "persistence_mean": 4.3171, "user_p90": 4.7945},
+    "T2": {"accel_mean": 2.9038, "decel_mean": 3.0075},
+    "T3A": {"speed_reversal_60": 0.0021, "speed_reversal_120": 0.0062, "sensitivity_bpm_per_10s_km": 0.7208, "no_response_rate": 0.1711},
+    "T3B": {"grade_reversal_60": 0.0023, "grade_reversal_120": 0.0055},
+    "T4": {"mean": 3.0895, "worse_than_T1": 0.4289},
+    "T5": {"mae_bpm": {"30": 2.0245, "60": 2.9974, "120": 3.4734}, "mean": 2.8318, "persistence_mean": 3.285},
+    "T6": {"p50_s": 0.0084, "p95_s": 0.0093, "pass": true}
+  },
+  "test_used": false
+}
