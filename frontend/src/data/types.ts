@@ -179,6 +179,73 @@ export type NotificationKind =
   | 'GROUP_RUN_CANCELED'
   | 'FOLLOW_REQUEST';
 
+// 7.x 커뮤니티 (CMT01–CMT11). The 7.3 share card shows heart rate and cadence and the bookmark,
+// share and 코스도 함께 공유 controls follow the K1 sheets; the API has none of these yet.
+
+// The run a post shares, drawn as the 7.1 record card. It is also a 5.1 record row (7.4 lists).
+export type PostRecord = RunRecordSummary & {
+  // 민락수변공원 in 민락수변공원 · 코스 러닝.
+  place: string;
+  courseRun: boolean;
+  averageHeartRate: number | null;
+  cadence: number | null;
+};
+
+// The community name is a handle like seoyun.run; the avatar shows the first letter of the nickname.
+export type PostAuthor = { userId: string; handle: string; nickname: string };
+
+export type Post = {
+  id: string;
+  author: PostAuthor;
+  isMine: boolean;
+  body: string | null;
+  record: PostRecord;
+  courseShared: boolean;
+  createdAt: string;
+  likeCount: number;
+  liked: boolean;
+  commentCount: number;
+  bookmarked: boolean;
+};
+
+export type PostComment = {
+  id: string;
+  author: PostAuthor;
+  body: string;
+  createdAt: string;
+  likeCount: number;
+  liked: boolean;
+};
+
+export type PostDetail = Post & { comments: PostComment[] };
+
+export type FeedScope = 'ALL' | 'FOLLOWING';
+
+// 7.3 기록 공유 and 7.3e 게시물 수정.
+export type PostDraft = { body: string | null; courseShared: boolean };
+
+// 7.4 러너 프로필 and 7.4b 내 프로필 (U21). records are the runner's shared runs, or my recent runs.
+export type RunnerProfile = {
+  userId: string;
+  handle: string;
+  nickname: string;
+  level: SelfReportedLevel;
+  isMe: boolean;
+  followerCount: number;
+  followingCount: number;
+  followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
+  isPrivate: boolean;
+  // 7.4b 팔로우 요청 N건; null on someone else's profile.
+  followRequestCount: number | null;
+  monthly: {
+    runCount: number;
+    totalDistanceM: number;
+    averagePaceSecPerKm: number | null;
+  };
+  // A shared run opens its post (postId); my own runs open 5.2.
+  records: { record: RunRecordSummary; postId: string | null }[];
+};
+
 export type AppNotification = {
   id: string;
   kind: NotificationKind;
@@ -659,6 +726,26 @@ export type Repositories = {
     ) => () => void;
     forceFinish: (groupRunId: string) => Promise<void>;
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
+  };
+  community: {
+    listFeed: (scope: FeedScope) => Promise<Post[]>;
+    get: (postId: string) => Promise<PostDetail>;
+    // The run 7.3 shares: the given record, or my newest one.
+    getShareable: (recordId: string | null) => Promise<PostRecord>;
+    create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
+    update: (postId: string, draft: PostDraft) => Promise<void>;
+    remove: (postId: string) => Promise<void>;
+    setLiked: (postId: string, liked: boolean) => Promise<void>;
+    setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
+    addComment: (postId: string, body: string) => Promise<PostComment>;
+  };
+  // 7.4 · 7.4b (U21–U23). userId null is me.
+  runners: {
+    getProfile: (userId: string | null) => Promise<RunnerProfile>;
+    setFollowing: (
+      userId: string,
+      following: boolean,
+    ) => Promise<RunnerProfile>;
   };
   notifications: {
     list: () => Promise<AppNotification[]>;

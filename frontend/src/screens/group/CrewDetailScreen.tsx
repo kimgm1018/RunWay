@@ -24,6 +24,7 @@ import {
   Icon,
   IconButton,
   type IconName,
+  Toggle,
   useToast,
 } from '../../components';
 import {
@@ -59,30 +60,6 @@ export const joinPolicyLabels: Record<CrewJoinPolicy, string> = {
   APPROVAL: '승인제',
   INSTANT: '바로 가입',
 };
-
-// 6.2m 정원 제한: an ice track with a dark knob when on.
-function Toggle({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
-      onPress={() => onChange(!value)}
-      hitSlop={8}
-      style={[styles.track, value ? styles.trackOn : styles.trackOff]}
-    >
-      <View style={[styles.knob, value ? styles.knobOn : styles.knobOff]} />
-    </Pressable>
-  );
-}
 
 function ManageBody({
   memberCount,
@@ -710,18 +687,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
     gap: spacing.md,
   },
-  track: {
-    width: 52,
-    height: 30,
-    borderRadius: 15,
-    padding: 3,
-    justifyContent: 'center',
-  },
-  trackOn: { backgroundColor: k1.ice },
-  trackOff: { backgroundColor: 'rgba(255,255,255,0.18)' },
-  knob: { width: 24, height: 24, borderRadius: 12 },
-  knobOn: { alignSelf: 'flex-end', backgroundColor: k1.night },
-  knobOff: { alignSelf: 'flex-start', backgroundColor: k1.ice },
   capacityField: {
     flexDirection: 'row',
     alignItems: 'center',

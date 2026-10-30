@@ -11,7 +11,11 @@ import type {
   MusicState,
   MyCrew,
   Place,
+  Post,
+  PostComment,
+  PostRecord,
   RecommendedCourse,
+  SelfReportedLevel,
   PeriodSummary,
   RunRecordSummary,
   SavedCourse,
@@ -1125,3 +1129,268 @@ export const nearbyRecruiting = {
   count: 8,
   areas: ['광안리', '민락', '남천', '수영강'],
 };
+
+// 7.x 커뮤니티 handles from the K1 7번 sheets, on the members above. I am minjun.run.
+export const communityUsers = {
+  me: {
+    userId: members.me.userId,
+    handle: 'minjun.run',
+    nickname: members.me.nickname,
+  },
+  seoyun: {
+    userId: members.seoyeon.userId,
+    handle: 'seoyun.run',
+    nickname: members.seoyeon.nickname,
+  },
+  sungyoon: {
+    userId: members.seongyun.userId,
+    handle: 'sungyoon.k',
+    nickname: members.seongyun.nickname,
+  },
+  eunseo: {
+    userId: members.eunseo.userId,
+    handle: 'eunseo_jog',
+    nickname: members.eunseo.nickname,
+  },
+  jiwoo: {
+    userId: members.jiwoo.userId,
+    handle: 'jiwoo.runs',
+    nickname: members.jiwoo.nickname,
+  },
+};
+
+const sharedRun = (
+  id: string,
+  title: string,
+  place: string,
+  startedAt: string,
+  distanceM: number,
+  durationSec: number,
+  shape: [number, number][],
+  heart: [number, number],
+  goalAchieved: boolean | null = true,
+): PostRecord => ({
+  id,
+  title,
+  startedAt,
+  distanceM,
+  durationSec,
+  averagePaceSecPerKm: Math.round(durationSec / (distanceM / 1000)),
+  shape,
+  runType: 'SOLO',
+  group: null,
+  goalAchieved,
+  place,
+  courseRun: true,
+  averageHeartRate: heart[0],
+  cadence: heart[1],
+});
+
+export type PostFixture = Omit<Post, 'isMine' | 'commentCount'> & {
+  comments: PostComment[];
+};
+
+// 7.1 피드, newest first. The 7.4 lists show each runner's posts.
+export const posts: PostFixture[] = [
+  {
+    id: 'post-seoyun-1019',
+    author: communityUsers.seoyun,
+    body: '오늘 광안대교 루프 처음으로 30분 안에 들어왔어요. 3km에서 코칭대로 페이스 늦춘 게 신의 한 수였네요',
+    record: sharedRun(
+      'shared-seoyun-1019',
+      '민락수변공원 출발',
+      '민락수변공원',
+      '2026-10-19T07:12:00+09:00',
+      5020,
+      1781,
+      shapes.loop,
+      [158, 170],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-19T07:50:00+09:00',
+    likeCount: 38,
+    liked: true,
+    bookmarked: true,
+    comments: [
+      {
+        id: 'comment-1',
+        author: communityUsers.sungyoon,
+        body: '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
+        createdAt: '2026-10-19T10:45:00+09:00',
+        likeCount: 4,
+        liked: false,
+      },
+      {
+        id: 'comment-2',
+        author: communityUsers.eunseo,
+        body: '저도 다음 주에 이 코스 도전해볼게요',
+        createdAt: '2026-10-19T11:45:00+09:00',
+        likeCount: 0,
+        liked: false,
+      },
+      {
+        id: 'comment-3',
+        author: communityUsers.jiwoo,
+        body: '코칭 알림 진동으로 오나요?',
+        createdAt: '2026-10-19T12:13:00+09:00',
+        likeCount: 0,
+        liked: false,
+      },
+    ],
+  },
+  {
+    id: 'post-sungyoon-1018',
+    author: communityUsers.sungyoon,
+    body: null,
+    record: sharedRun(
+      'shared-sungyoon-1018',
+      '광안리 해변 왕복',
+      '광안리해수욕장',
+      '2026-10-18T07:04:00+09:00',
+      5000,
+      1850,
+      shapes.coast,
+      [149, 164],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-18T08:10:00+09:00',
+    likeCount: 251,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+  {
+    id: 'post-eunseo-1017',
+    author: communityUsers.eunseo,
+    body: '남천 해변 언덕길 오르막 구간 팁 있을까요? 2km 지점에서 매번 심박이 확 올라가요',
+    record: sharedRun(
+      'shared-eunseo-1017',
+      '남천 해변 언덕길',
+      '남천 해변',
+      '2026-10-17T19:30:00+09:00',
+      4040,
+      1623,
+      shapes.hill,
+      [167, 161],
+    ),
+    courseShared: false,
+    createdAt: '2026-10-17T20:20:00+09:00',
+    likeCount: 12,
+    liked: false,
+    bookmarked: false,
+    comments: [
+      {
+        id: 'comment-4',
+        author: communityUsers.seoyun,
+        body: '오르막 직전에 보폭을 줄여 보세요. 심박이 덜 올라요',
+        createdAt: '2026-10-17T21:02:00+09:00',
+        likeCount: 2,
+        liked: false,
+      },
+    ],
+  },
+  {
+    id: 'post-seoyun-1016',
+    author: communityUsers.seoyun,
+    body: '민락수변 왕복, 바람이 세서 돌아오는 길이 힘들었어요',
+    record: sharedRun(
+      'shared-seoyun-1016',
+      '민락수변 왕복',
+      '민락수변공원',
+      '2026-10-16T06:40:00+09:00',
+      5400,
+      1880,
+      shapes.coast,
+      [155, 168],
+    ),
+    courseShared: true,
+    createdAt: '2026-10-16T07:30:00+09:00',
+    likeCount: 21,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+  {
+    id: 'post-seoyun-1012',
+    author: communityUsers.seoyun,
+    body: null,
+    record: sharedRun(
+      'shared-seoyun-1012',
+      '남천 해변 언덕길',
+      '남천 해변',
+      '2026-10-12T06:30:00+09:00',
+      5200,
+      2020,
+      shapes.hill,
+      [163, 166],
+      false,
+    ),
+    courseShared: false,
+    createdAt: '2026-10-12T07:40:00+09:00',
+    likeCount: 9,
+    liked: false,
+    bookmarked: false,
+    comments: [],
+  },
+];
+
+// My post on 7.1 (7.2b·7.2c), sharing my 10.15 run.
+export const myPost = {
+  id: 'post-minjun-1015',
+  recordId: 'run-1015',
+  body: '오늘 목표 30분 안쪽으로 성공! 다음엔 남천 언덕길 도전',
+  courseShared: true,
+  createdAt: '2026-10-19T12:40:00+09:00',
+  likeCount: 7,
+};
+
+// 7.4 러너 프로필 (U21). I follow sungyoon.k and eunseo_jog; jiwoo.runs is private.
+export const runnerProfiles: Record<
+  string,
+  {
+    level: SelfReportedLevel;
+    followerCount: number;
+    followingCount: number;
+    isPrivate: boolean;
+    followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
+  }
+> = {
+  [communityUsers.me.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 86,
+    followingCount: 102,
+    isPrivate: false,
+    followStatus: 'NONE',
+  },
+  [communityUsers.seoyun.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 248,
+    followingCount: 131,
+    isPrivate: false,
+    followStatus: 'NONE',
+  },
+  [communityUsers.sungyoon.userId]: {
+    level: 'ADVANCED',
+    followerCount: 512,
+    followingCount: 88,
+    isPrivate: false,
+    followStatus: 'FOLLOWING',
+  },
+  [communityUsers.eunseo.userId]: {
+    level: 'BEGINNER',
+    followerCount: 64,
+    followingCount: 70,
+    isPrivate: false,
+    followStatus: 'FOLLOWING',
+  },
+  [communityUsers.jiwoo.userId]: {
+    level: 'INTERMEDIATE',
+    followerCount: 120,
+    followingCount: 140,
+    isPrivate: true,
+    followStatus: 'NONE',
+  },
+};
+
+// 7.4b 팔로우 요청 N건.
+export const myFollowRequestCount = 0;

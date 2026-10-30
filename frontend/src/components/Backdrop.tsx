@@ -4,7 +4,11 @@ import { k1Gradient, useTheme } from '../theme';
 
 // The K1 screen background (DESIGN.md 1-1): light blue-grey at the top fading to black at the bottom.
 // The dark tone (maps, dark parts) draws nothing, so the plain dark background underneath shows.
-export function Backdrop() {
+// tail keeps the light part down to about 80% for screens whose plain text runs the full height
+// (7.1 피드, 7.2 댓글), so only the tab bar or the comment bar sits on the dark end.
+const tailLocations = [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.7, 0.8, 0.88, 0.95, 1];
+
+export function Backdrop({ tail = false }: { tail?: boolean }) {
   const { name } = useTheme();
   if (name === 'dark') {
     return null;
@@ -16,7 +20,7 @@ export function Backdrop() {
           {k1Gradient.colors.map((color, index) => (
             <Stop
               key={index}
-              offset={k1Gradient.locations[index]}
+              offset={(tail ? tailLocations : k1Gradient.locations)[index]}
               stopColor={color}
             />
           ))}
