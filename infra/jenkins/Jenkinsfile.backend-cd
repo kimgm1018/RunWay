@@ -1,7 +1,5 @@
 // 처음에는 트리거 없이 수동으로 이미지 빌드만 확인한다.
 // 검증 후 Jenkins의 Push Events·브랜치 필터를 master로 설정하면 master Push에 자동 배포한다.
-// 테스트 단계 진입 여부는 실행 중 갱신할 수 있는 변수로 기록한다.
-def testsStarted = false
 
 pipeline {
     agent { label 'backend' }
@@ -26,7 +24,7 @@ pipeline {
             steps {
                 script {
                     if (env.gitlabMergeRequestIid) {
-                        error('MR 검사는 runway-backend-ci에서 실행합니다.')
+                        error('MR 검사는 runway-ci에서 실행합니다.')
                     }
                     def automatic = env.gitlabActionType == 'PUSH'
                     if (automatic && env.gitlabBranch != 'master') {
@@ -75,18 +73,36 @@ pipeline {
             }
         }
 
-        // 이미지를 만들기 전에 선택한 코드로 전체 검사·테스트·JAR 생성을 수행한다.
-        stage('Test and Build') {
+        // 검사·테스트 실패 시 JAR·이미지·배포 단계로 진행하지 않는다.
+        stage('Backend Checks and Tests') {
             steps {
-                script { testsStarted = true }
+                script {
+                    try {
+                        dir('backend') {
+                            sh 'sh ./gradlew --no-daemon clean check'
+                        }
+                    } finally {
+                        // 실패 보고서도 남기고, JUnit 실패는 배포 전에 차단한다.
+                        def results = junit(allowEmptyResults: true,
+                            testResults: 'backend/build/test-results/test/*.xml')
+                        if (results && results.failCount > 0) {
+                            error('테스트 보고서에 실패가 있습니다.')
+                        }
+                    }
+                }
+            }
+        }
+        // check를 반복하지 않고 실행 JAR을 생성한다.
+        stage('Backend JAR Build') {
+            steps {
                 dir('backend') {
-                    sh 'sh ./gradlew --no-daemon clean build'
+                    sh 'sh ./gradlew --no-daemon assemble'
                 }
             }
         }
 
         // JAR만 빌드 컨텍스트로 전달하고 같은 EC2의 Docker 엔진에 이미지를 저장한다.
-        stage('Build Image') {
+        stage('Backend Image Build') {
             steps {
                 sh '''
                     set -eu
@@ -99,8 +115,8 @@ pipeline {
             }
         }
 
-        // master Push이거나, master 수동 실행에서 DEPLOY를 선택한 경우에만 실제로 교체한다.
-        stage('Deploy') {
+        // master 배포·전후 상태 검사·실패 롤백은 기존 스크립트 안에서 함께 처리한다.
+        stage('Deploy and Verify') {
             when { expression { env.CD_DEPLOY == 'true' } }
             steps {
                 sh '''
@@ -109,19 +125,16 @@ pipeline {
                 '''
             }
         }
-    }
-
-    // 작업 종료 후 테스트 결과를 수집하고, 성공한 실행의 JAR을 보관한다.
-    post {
-        always {
-            script {
-                if (testsStarted) {
-                    junit allowEmptyResults: true, testResults: 'backend/build/test-results/test/*.xml'
-                }
+        stage('Backend Archive') {
+            steps {
+                archiveArtifacts artifacts: 'backend/build/libs/*.jar', fingerprint: true
             }
         }
+    }
+
+    // 성공 메시지는 배포 여부와 생성한 이미지 버전을 함께 표시한다.
+    post {
         success {
-            archiveArtifacts artifacts: 'backend/build/libs/*.jar', fingerprint: true
             echo "작업 완료. 실제 배포: ${env.CD_DEPLOY}, 이미지: ${env.BACKEND_IMAGE}"
         }
     }

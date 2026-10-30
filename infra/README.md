@@ -12,7 +12,7 @@
 | `jenkins/compose.yaml`, `jenkins/backend-agent/` | Jenkins 컨트롤러·Java 21 빌드 에이전트 |
 | `jenkins/mobile-agent/` | Node·Java·Android 도구를 갖춘 모바일 빌드 에이전트 |
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
-| `jenkins/Jenkinsfile.ci` | 변경 영역별 백엔드·모바일·워치 병렬 검사와 단일 MR 상태 |
+| `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
 | `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
