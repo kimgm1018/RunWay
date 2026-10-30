@@ -1,0 +1,133 @@
+{
+ "model": "Personalized Action-Conditioned Transformer (ptv2) + Session Context v1",
+ "checkpoint_format": "ptv2_stage3_ckpt_v1",
+ "model_config": {
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 3,
+  "ff_dim": 256,
+  "dropout": 0.1,
+  "history_hidden": 32,
+  "head_init_std": 0.001,
+  "personal_max_norm": 5.0,
+  "history_vertical_scale": 1.0,
+  "session_context_dim": 10,
+  "session_context_hidden": 32,
+  "session_mean": [
+   143.96072387695312,
+   11.648701667785645,
+   86.8470458984375,
+   161.9520721435547,
+   3.0742881298065186,
+   0.4462735950946808,
+   0.00029456670745275915,
+   0.09501254558563232,
+   1.5376189947128296,
+   0.0031413733959198
+  ],
+  "session_std": [
+   14.05482006072998,
+   5.0137810707092285,
+   18.74871253967285,
+   16.89446449279785,
+   0.4859202206134796,
+   0.24526448547840118,
+   0.031147023662924767,
+   0.0561472587287426,
+   3.274951457977295,
+   0.053166620433330536
+  ]
+ },
+ "n_subjects": 566,
+ "training": {
+  "preset": "small",
+  "stride_s": 30,
+  "phase": 0,
+  "phase_rotation": false,
+  "session_context": true,
+  "hr0_policy": "max_age_s=10",
+  "batch_size": 256,
+  "epochs": 10,
+  "peak_lr": 0.001,
+  "min_lr_ratio": 0.1,
+  "warmup_steps": 2000,
+  "warmup_ratio": 0.1,
+  "weight_decay": 0.01,
+  "betas": [
+   0.9,
+   0.999
+  ],
+  "eps": 1e-08,
+  "grad_clip": 1.0,
+  "loss": "l1",
+  "smooth_l1_beta": 2.0,
+  "personal4_l2": 0.001,
+  "history_vertical_scale": 1.0
+ },
+ "training_data": {
+  "split_sha256": "89fd3718dfcacea383b37e8e82464587db22923bbc55262fd787e8be4eeeb598",
+  "train_cache_content_hash": "e5efca703a3f50d5f6f6ca83e65668f12ff2cf9babc1e116066651bd25442e53"
+ },
+ "adapt_config": {
+  "learning_rate": 0.05,
+  "steps": 20,
+  "batch_size": 128,
+  "gradient_clip_norm": 5.0,
+  "personal4_l2": 0.001
+ },
+ "contract": {
+  "grid_s": 5,
+  "past_steps": 24,
+  "future_steps": 24,
+  "horizon_index": {
+   "30": 5,
+   "60": 11,
+   "120": 23
+  },
+  "past_features": [
+   "hr_norm",
+   "hr_is_filled",
+   "speed_mps",
+   "vertical_speed_x10",
+   "time"
+  ],
+  "future_features": [
+   "speed_mps",
+   "vertical_speed_x10",
+   "time"
+  ],
+  "history_feature_dim": 5,
+  "history_max_length": 512,
+  "personal_dim": 4,
+  "history_dim": 8
+ },
+ "code_sha256": {
+  "__init__.py": "61d6029595b3567e3a0da13abd98aa8ff8e94a6a62ed8f578aee249ede415cc6",
+  "adapt.py": "e0f96da3b930d85be8b5b9f56775382e502ec0f63bbb51d67f82834b1cb1ff6d",
+  "batch.py": "637d444bec3ea54449b60ff599f22292e7018c62b98444ee6937cdf3a273d6b0",
+  "bench_mpc.py": "b66786d097dffa7fc9c8ee674874c100af7f697c777f688e14ca4c07b0911ea4",
+  "bench_train.py": "27ba438cb2fd4bc2a510bd8db5f4ad2c6d688fa3647e32ea14cffe980a09f78e",
+  "config.py": "b67cbe37f5bd7c85054476d79fe7d23a9f6748ce9e38cd7b5d1b29d168a94517",
+  "evaluation.py": "579d7dc723271559b7343d0d640cb635987df107d5bb09a0e2a0da02ec9f8c98",
+  "losses.py": "fec5460145026c365f43d9b497ff3bf87ca7011668507b63e86ff384109acf41",
+  "model.py": "8f396cd5cfc3ccc502918a488afebd1d3298efe4b2c6966425d82f8454f2f2da",
+  "monitor.py": "af4dfe284b5e4c74c20a867e6fcb655197522893d930aea4c07ba196b5ed89dc",
+  "preflight.py": "488a630b362feeef0148e9681720adde2d95626fb60de4e6188272b0ab4cf34c",
+  "presets.py": "3059fede2bea17482325ffe08e73b3a92608845f34388eb449eb261bb914bb96",
+  "resume_check.py": "654afc77b2d3c347dd544540abf533fb15679edf0c6632d715c5f4622418e34d",
+  "session_context.py": "90563ebfa2d6f57d10190e738d689214c072265d0910046ae34b5f4cfaa79bee",
+  "smoke.py": "a36005d1f8aa3dd3391355ef2cb236f107013280e15449a7b6d3379e2adc8649",
+  "train.py": "dc66534eb9ea98a74497a69e1487a12385077777354b3259da870fd355073a6e",
+  "train_audit.py": "ef2545186d2b757ae811826f6ff20306413be250d2a451a5d4b1b6ade3bb7058",
+  "train_cache.py": "4626b604f74d36841b3e2ff542e72995fb3d1350038dccbe20c52a90500f64a4",
+  "train_data.py": "e6f65f2a06c3359ba2c8fa9239a8fba9c9335a39400bbc931c05ae2adef213a4",
+  "train_scan.py": "dbe70718361644134a60b51c03782c874578c995131b2a866a540552f7538b66",
+  "v2_data.py": "0542b274a315dc1a8f8693c1c2d3e7ca78f0662c1a7c26eb142321c583e32523",
+  "val_data.py": "a9a56f1f0d2d83ec9cf766f37dc6c3ea36fc7740249736bda1fcffc37ce9a8f2"
+ },
+ "seeds_checked": [
+  1729,
+  1730,
+  1731
+ ]
+}
