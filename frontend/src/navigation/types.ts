@@ -27,9 +27,14 @@ export type RootStackParamList = Record<
     | 'GroupRunCreate'
     | 'GroupRunCancel'
     | 'GroupRunResult'
+    | 'CrewDetail'
+    | 'CrewJoinRequests'
   >,
   undefined
 > & {
+  // 6.2 shows one crew; without an id it shows my first crew. 6.2a takes the crew I lead.
+  CrewDetail: { crewId: string } | undefined;
+  CrewJoinRequests: { crewId: string } | undefined;
   // 6.x open one group run; 6.8 makes one in a crew. Without an id they fall back to the next run.
   GroupRunDetail: { groupRunId: string } | undefined;
   WaitingRoom: { groupRunId: string } | undefined;

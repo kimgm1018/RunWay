@@ -139,7 +139,7 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('광안리 새벽 크루');
   await press(screen, '크루 모집');
-  expect(texts(screen)).toContain('S15P31E105-151');
+  expect(texts(screen)).toContain('원하는 크루가 없나요?');
   await press(screen, '커뮤니티');
   await press(screen, '7.2 게시물 상세');
   expect(texts(screen)).toContain('S15P31E105-152');

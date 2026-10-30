@@ -2,6 +2,8 @@ import { Image } from 'react-native';
 import type {
   AppNotification,
   CoursePlan,
+  CrewJoinRequest,
+  CrewListItem,
   CurrentPlace,
   MeetingPlace,
   MonthlyRunSummary,
@@ -786,30 +788,87 @@ export const augustSummary: PeriodSummary = {
   averagePaceSecPerKm: 366,
 };
 
-// 6.x 그룹런. I am 민준 (me.id); the crews and runs follow prototype v15 6.0.
-export const crews: MyCrew[] = [
+// 6.1 크루 모집 lists every crew; distanceKm is from me, and 내 근처 keeps those within 3km.
+export type CrewFixture = CrewListItem & { distanceKm: number };
+
+// 6.x 그룹런. I am 민준 (me.id); the crews and runs follow prototype v15 6.0 and the 6.1 K1 sheet.
+export const crewDirectory: CrewFixture[] = [
   {
     id: 'crew-gwangalli',
     name: '광안리 새벽 크루',
+    description: '평일 아침 6시 반, 광안리 해변을 대화하며 천천히 달려요',
     area: '광안리',
+    capacity: 30,
     memberCount: 18,
-    membership: 'MEMBER',
+    myMembership: 'MEMBER',
+    distanceKm: 0.8,
   },
   {
     id: 'crew-minrak-night',
     name: '민락 야경 러너스',
+    description: '퇴근 후 민락수변 야경 보며 7km, 주 2회 모여요',
     area: '민락수변',
+    capacity: 30,
     memberCount: 24,
-    membership: 'MEMBER',
+    myMembership: 'MEMBER',
+    distanceKm: 1.4,
   },
   {
     id: 'crew-namcheon',
     name: '남천 회복 조깅',
+    description: '입문·부상 회복 환영, 숨차지 않는 페이스로 달려요',
     area: '남천',
+    capacity: 15,
     memberCount: 11,
-    membership: 'PENDING',
+    myMembership: 'PENDING',
+    distanceKm: 2.1,
+  },
+  {
+    id: 'crew-suyeong-half',
+    name: '수영강 하프 크루',
+    description: '하프 마라톤 준비, 주 3회 인터벌과 롱런',
+    area: '수영강',
+    capacity: 200,
+    memberCount: 200,
+    myMembership: null,
+    distanceKm: 2.6,
+  },
+  {
+    id: 'crew-haeundae-sunset',
+    name: '해운대 선셋 런',
+    description: '주말 저녁 해운대 백사장에서 노을 보며 5km',
+    area: '해운대',
+    capacity: 40,
+    memberCount: 27,
+    myMembership: null,
+    distanceKm: 5.3,
+  },
+  {
+    id: 'crew-seomyeon-after',
+    name: '서면 퇴근 러닝',
+    description: '수요일 저녁 부산시민공원 트랙, 처음 오는 분도 함께해요',
+    area: '부산시민공원',
+    capacity: 25,
+    memberCount: 9,
+    myMembership: null,
+    distanceKm: 6.8,
   },
 ];
+
+// 6.0 내 크루: the crews I joined or asked to join.
+export const crews: MyCrew[] = crewDirectory.flatMap(entry =>
+  entry.myMembership
+    ? [
+        {
+          id: entry.id,
+          name: entry.name,
+          area: entry.area,
+          memberCount: entry.memberCount,
+          membership: entry.myMembership,
+        },
+      ]
+    : [],
+);
 
 export const members = {
   seongyun: { userId: 'user-seongyun', nickname: '성윤' },
@@ -817,6 +876,66 @@ export const members = {
   seoyeon: { userId: 'user-seoyeon', nickname: '서연' },
   jiwoo: { userId: 'user-jiwoo', nickname: '지우' },
   me: { userId: 'user-minjun', nickname: '민준' },
+};
+
+// 6.2 구성원: the leader first, then the members named elsewhere in the mock. 6.2m needs a crew I
+// lead, so I lead 민락 야경 러너스. The mock fills each crew up to its memberCount from crewNicknames.
+export const crewRoster: Record<
+  string,
+  { userId: string; nickname: string }[]
+> = {
+  'crew-gwangalli': [
+    members.seongyun,
+    members.eunseo,
+    members.seoyeon,
+    members.jiwoo,
+    members.me,
+  ],
+  'crew-minrak-night': [members.me, members.jiwoo, members.eunseo],
+  'crew-namcheon': [members.seoyeon],
+};
+
+export const crewNicknames = [
+  '하준',
+  '서윤',
+  '도윤',
+  '하린',
+  '지호',
+  '수아',
+  '예준',
+  '지유',
+  '시우',
+  '채원',
+  '주원',
+  '유나',
+  '건우',
+  '다은',
+  '현우',
+  '소율',
+];
+
+// 6.2a 대기 중인 신청 for the crew I lead.
+export const crewJoinRequests: Record<string, CrewJoinRequest[]> = {
+  'crew-minrak-night': [
+    {
+      userId: 'user-harin',
+      nickname: '하린',
+      loginId: 'harin07',
+      level: 'INTERMEDIATE',
+      recent5kPaceSecPerKm: 356,
+      firstCrew: false,
+      requestedAt: '2026-10-19T12:42:00+09:00',
+    },
+    {
+      userId: 'user-doyun',
+      nickname: '도윤',
+      loginId: 'doyun22',
+      level: 'BEGINNER',
+      recent5kPaceSecPerKm: null,
+      firstCrew: true,
+      requestedAt: '2026-10-17T21:10:00+09:00',
+    },
+  ],
 };
 
 export type GroupRunFixture = {
