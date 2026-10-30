@@ -6,7 +6,7 @@
 
 | 경로 | 내용 |
 | --- | --- |
-| `model/model_30s.txt` · `model_60s.txt` · `model_120s.txt` | LightGBM 모델 3개 (30·60·120초 예측) |
+| `model/model_30s.txt` · `model_60s.txt` · `model_120s.txt` | LightGBM 모델 3개 (30·60·120초 예측, 합계 약 105MB). **GitLab에는 없고** Hugging Face에서 받습니다 (아래 「모델 받기」) |
 | `model/features.txt` | 특징 이름과 순서 (253개) |
 | `model/model_config.json` | 최종 config (특징 버전, 과거 칸 수, 하이퍼파라미터, 부스팅 횟수, seed) |
 | `src/predictor.py` | `HRPredictor`: `personalize()` · `predict()` · `reset()` |
@@ -19,6 +19,22 @@
 
 - Python 3.12 (학습 서버 3.12.15), **CPU만** 씁니다. GPU 필요 없음.
 - `pip install -r requirements.txt` (lightgbm 4.7.0 · numpy · pandas · pyarrow)
+
+## 모델 받기 (Hugging Face)
+
+모델 파일 3개는 Hugging Face private 저장소 [ashleyprk/runway-lgbm-hr-predictor](https://huggingface.co/ashleyprk/runway-lgbm-hr-predictor)에 있습니다. 접근 권한이 필요하면 박은서에게 요청하세요. 서버 `~/workspace/eunseo/lightgbm/model/`에는 이미 들어 있어 받을 필요가 없습니다.
+
+```bash
+pip install -U huggingface_hub
+hf auth login   # 본인 Hugging Face 토큰 입력
+hf download ashleyprk/runway-lgbm-hr-predictor model_30s.txt model_60s.txt model_120s.txt --local-dir model
+```
+
+받은 뒤 SHA256이 `FREEZE.json`과 같은지 확인합니다. 파일 5개 모두 `True`여야 합니다.
+
+```bash
+python -c "import hashlib,json;f=json.load(open('FREEZE.json'));print({k:hashlib.sha256(open(k,'rb').read()).hexdigest()==v for k,v in f['sha256'].items()})"
+```
 
 ## 바로 실행 확인
 
@@ -135,7 +151,7 @@ N = 창 수(예: candidate 5개), L = 이번 러닝 시작부터 t0까지 5초 �
 | Model ID | EXP-20261030-01 (LightGBM, features_v7) |
 | 이전 모델 | EXP-20261029-04 (10/29 freeze). 10/30 교체: 테스트 조건대로 다시 학습, val 자가 점검 T1 Mean 2.830 → 2.818 |
 | 모델 구조 | LightGBM GBDT 회귀 3개 (30·60·120초), 손실 L1, 출력 = HR0 + 예측 변화량 |
-| Final checkpoint | `model/model_30s.txt` · `model_60s.txt` · `model_120s.txt` |
+| Final checkpoint | `model/model_30s.txt` · `model_60s.txt` · `model_120s.txt` (Hugging Face private 저장소 `ashleyprk/runway-lgbm-hr-predictor` main, 업로드 커밋 `70f1c085`) |
 | SHA256 | `FREEZE.json` 참고 (model_30s `e1ea453a…` · model_60s `e95783cb…` · model_120s `b4b66c62…`) |
 | Git commit | GitLab `S15P31E105` 저장소 `ai/workspace/eunseo/lightgbm/` (이 폴더를 올린 커밋: `git log -1 -- ai/workspace/eunseo/lightgbm`). 같은 폴더가 팀 GPU 서버 `~/workspace/eunseo/lightgbm/`에도 있음. 코드 버전은 `FREEZE.json`의 code_sha256 |
 | seed | 42 |
