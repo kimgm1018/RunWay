@@ -1,0 +1,7 @@
+# 추론 전용 (학습 서버 jupyter08 conda env "runway"와 같은 버전, Python 3.12.15)
+# CPU만 쓸 때 torch는: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+numpy==2.5.2
+pandas==3.1.0
+# ptv2/train_scan.py · v2_data.py · train_cache.py가 import 시점에 불러온다(추론 중에는 parquet를 읽지 않음)
+pyarrow==26.0.0
