@@ -34,19 +34,31 @@ pipeline {
                 }
             }
         }
-        // master에 실제 합쳐진 코드로 타입·린트·테스트를 다시 확인한다.
-        stage('Check Mobile') {
+        // master에 실제 합쳐진 코드로 MR과 같은 검사를 수행한다.
+        stage('Mobile Dependencies') {
             steps {
                 dir('frontend') {
                     sh 'pnpm install --frozen-lockfile --store-dir /home/jenkins/agent/.pnpm-store'
+                }
+            }
+        }
+        stage('Mobile Typecheck and Lint') {
+            steps {
+                dir('frontend') {
                     sh 'pnpm typecheck'
                     sh 'pnpm lint'
+                }
+            }
+        }
+        stage('Mobile Tests') {
+            steps {
+                dir('frontend') {
                     sh 'pnpm test --runInBand'
                 }
             }
         }
         // 기존 앱의 디버그 서명을 사용한다. JS가 포함되어 Metro 없이 실행 가능하다.
-        stage('Build APK') {
+        stage('Mobile APK Build') {
             steps {
                 sh 'sh infra/jenkins/build-mobile-apk.sh'
             }

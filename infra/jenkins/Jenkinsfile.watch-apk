@@ -34,10 +34,20 @@ pipeline {
                 }
             }
         }
-        // 제품 :app의 단위 테스트·Lint·debug APK 생성. 기기 연결 테스트는 별도다.
-        stage('Check and Build Watch') {
+        // MR과 같은 검사이며, 실패 위치를 볼 수 있도록 단계를 나눈다.
+        stage('Watch Tests') {
             steps {
-                sh 'sh infra/jenkins/build-watch-apk.sh'
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage test'
+            }
+        }
+        stage('Watch Lint') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage lint'
+            }
+        }
+        stage('Watch APK Build') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage apk'
             }
         }
         // 성공한 제품 APK만 커밋·빌드 번호로 구분해 Jenkins에 보관한다.
