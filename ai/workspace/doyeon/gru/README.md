@@ -42,7 +42,7 @@ huggingface_hub 없이 받으려면 이 주소에서 직접 내려받아 `model/
 | `FREEZE.json` | checkpoint·config·코드 SHA256, seed, val 성적 |
 | `requirements.txt` | Python 라이브러리 버전 |
 
-학습·검증 코드(`train.py`, `rehearsal.py`, `tune_personalize.py` 등)는 저장소 `ai/gru/`에 있다.
+학습·검증 코드(`train.py`, `rehearsal.py`, `tune_personalize.py` 등)는 인계 범위가 아니라 저장소에서 뺐다. 필요하면 dev 커밋 c307155의 `ai/gru/`에서 볼 수 있다.
 
 ## 실행 환경
 
@@ -179,7 +179,7 @@ window마다 dict 하나인 list(`hr`·`speed`·`grade`·`elapsed_s`·`segment_i
 | best 선택 | Val에서 실제 미래 속도 MAE가 가장 낮은 epoch (두 모델 모두 epoch 10) |
 | 개인화 | 출력층만 조정, Adam 학습률 0.001, 100 step, L2 0.03 (Val에서 0~0.3 비교해 선택) |
 
-학습 명령 (저장소 `ai/gru/`, GPU 서버):
+학습 명령 (`train.py`, GPU 서버):
 
 ```bash
 CUDA_VISIBLE_DEVICES=1 python train.py --run-name M3-005 --data-dir ~/data/fitrec/fitrec_v1 --split-path ~/data/fitrec/splits/fitrec_hr_v2.json --n-files 25 --flat-prob 0.5 --select-by actual --use-elapsed --hidden 256 --seed 42 --cosine --dropout 0.2 --epochs 10 --hist 72 --elapsed-clip 7200
@@ -280,7 +280,7 @@ M3-006은 같은 명령에 `--run-name M3-006 --no-future-grade`만 다르다.
 
 ## val 자가 점검 (Split V2 val, 테스트 규칙대로, test 미사용)
 
-`ai/gru/rehearsal.py`로 T1~T6 규칙을 V2 **val**에 적용했다. 채점 window는 t0 앞 120초·뒤 120초가 같은 구간에 끊김 없이 있고, HR0·정답이 실제 측정값인 window다(30초 간격).
+`rehearsal.py`로 T1~T6 규칙을 V2 **val**에 적용했다. 채점 window는 t0 앞 120초·뒤 120초가 같은 구간에 끊김 없이 있고, HR0·정답이 실제 측정값인 window다(30초 간격).
 
 | 테스트 | 결과 |
 | --- | --- |
