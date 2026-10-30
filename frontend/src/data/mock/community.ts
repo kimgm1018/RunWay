@@ -33,7 +33,12 @@ export function createCommunityMock({
   respond: Respond;
   // My runs as the records mock keeps them, newest first.
   records: () => RecordFixture[];
-}): { community: Repositories['community']; runners: Repositories['runners'] } {
+}): {
+  community: Repositories['community'];
+  runners: Repositories['runners'];
+  myPostCount: () => number;
+  setPrivate: (isPrivate: boolean) => void;
+} {
   const first = records().find(run => run.id === fixtures.myPost.recordId);
   // My own post (7.2b 게시물 메뉴) shares one of my runs, so it is built from the records mock.
   let posts: PostFixture[] = [
@@ -227,5 +232,18 @@ export function createCommunityMock({
     },
   };
 
-  return { community, runners };
+  return {
+    community,
+    runners,
+    // 8.4: my posts that go away with the account.
+    myPostCount: () =>
+      posts.filter(post => post.author.userId === me.userId).length,
+    // 8.1 계정 공개 범위 shows on 7.4b.
+    setPrivate: (isPrivate: boolean) => {
+      const profile = profiles.get(me.userId);
+      if (profile) {
+        profile.isPrivate = isPrivate;
+      }
+    },
+  };
 }

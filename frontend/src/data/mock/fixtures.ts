@@ -1,6 +1,7 @@
 import { Image } from 'react-native';
 import type {
   AppNotification,
+  AppSettings,
   CoursePlan,
   CrewJoinRequest,
   CrewListItem,
@@ -14,6 +15,7 @@ import type {
   Post,
   PostComment,
   PostRecord,
+  ProfileDetail,
   RecommendedCourse,
   SelfReportedLevel,
   PeriodSummary,
@@ -45,6 +47,8 @@ export const loginLockMs = 10 * 60 * 1000;
 // 1.7 워치 연결 — 연결됨.
 export const connectedWatch: WatchConnection = {
   status: 'connected',
+  deviceName: 'Galaxy Watch7',
+  lastSyncedAt: '2026-10-19T06:42:00+09:00',
   batteryPercent: 82,
   permissions: {
     heartRate: 'connected',
@@ -57,6 +61,8 @@ export const connectedWatch: WatchConnection = {
 // 1.8 워치 연결 문제: location comes from the phone GPS, so it stays connected.
 export const disconnectedWatch: WatchConnection = {
   status: 'disconnected',
+  deviceName: 'Galaxy Watch7',
+  lastSyncedAt: '2026-10-19T06:42:00+09:00',
   batteryPercent: null,
   permissions: {
     heartRate: 'denied',
@@ -79,6 +85,28 @@ export const me: UserProfile = {
   nickname: '민준',
   runningLevel: 'intermediate',
   profileImageUrl: assetUri(mockProfilePhoto),
+};
+
+// 8.1 설정 (U19 and U13), as on the K1 sheet.
+export const appSettings: AppSettings = {
+  voiceCoachingEnabled: true,
+  bpmGuideEnabled: true,
+  locationRecordingMode: 'RUNNING_ONLY',
+  notifications: { groupRun: true, community: false },
+  isPrivate: false,
+};
+
+// 8.2 프로필 수정 (U04·U06): the 1.5·1.6 answers.
+export const profileDetail: ProfileDetail = {
+  nickname: '민준',
+  gender: 'MALE',
+  birthDate: '1991-03-14',
+  runningLevel: 'INTERMEDIATE',
+  baseline: {
+    baselineDistanceM: 5000,
+    baselineDurationSec: 1800,
+    usualPaceSecPerKm: 360,
+  },
 };
 
 export const todayCondition: TodayCondition = {
