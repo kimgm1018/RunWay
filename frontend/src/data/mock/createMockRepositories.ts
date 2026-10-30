@@ -6,6 +6,9 @@ import type {
   MusicSource,
   MusicState,
   PhoneCodeRequest,
+  ProfileDetail,
+  AppSettings,
+  UserProfile,
   RecordSort,
   Repositories,
   RunRecordSummary,
@@ -250,6 +253,15 @@ export function createMockRepositories(
   );
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
+  let profile: ProfileDetail = { ...fixtures.profileDetail };
+  let settings: AppSettings = {
+    ...fixtures.appSettings,
+    notifications: { ...fixtures.appSettings.notifications },
+  };
+  // 1.8 starts with the watch off; 8.1 연결 해제 turns it off until 1.7 or 실행 취소 reconnects.
+  let watchConnected = options.scenario !== 'watchDisconnected';
+  const watchState = () =>
+    watchConnected ? fixtures.connectedWatch : fixtures.disconnectedWatch;
   let chosen: string | null = null;
   // Finished runs (4.5) join the list that 5.1·5.2·5.3 and 2.1 read.
   let records = fixtures.runRecords;
@@ -414,10 +426,69 @@ export function createMockRepositories(
       },
     },
     profile: {
-      getMe: () => respond(fixtures.me, options),
-      updateBasic: () => respond(undefined, options),
-      setRunningLevel: () => respond(undefined, options),
-      setRunningBaseline: () => respond(undefined, options),
+      getMe: () =>
+        respond(
+          {
+            ...fixtures.me,
+            nickname: profile.nickname,
+            runningLevel:
+              profile.runningLevel.toLowerCase() as UserProfile['runningLevel'],
+          },
+          options,
+        ),
+      updateBasic: basic => {
+        profile = { ...profile, ...basic };
+        return respond(undefined, options);
+      },
+      setRunningLevel: runningLevel => {
+        profile = { ...profile, runningLevel };
+        return respond(undefined, options);
+      },
+      setRunningBaseline: baseline => {
+        profile = { ...profile, baseline };
+        return respond(undefined, options);
+      },
+      getDetail: () => respond(profile, options),
+    },
+    settings: {
+      get: () => respond(settings, options),
+      update: change => {
+        settings = {
+          ...settings,
+          ...change,
+          notifications: { ...settings.notifications, ...change.notifications },
+        };
+        if (change.isPrivate !== undefined) {
+          social.setPrivate(change.isPrivate);
+        }
+        return respond(settings, options);
+      },
+    },
+    account: {
+      getWithdrawalSummary: () =>
+        respond(
+          {
+            runningRecordCount: records.length,
+            postCount: social.myPostCount(),
+            savedCourseCount: saved.length,
+            connectedDevices: watchConnected
+              ? [fixtures.connectedWatch.deviceName]
+              : [],
+            ownedCrews: crews.owned(),
+          },
+          options,
+        ),
+      // U18: the mock account is gone afterwards, so 1.2 can no longer sign in with it.
+      withdraw: password => {
+        if (password !== fixtures.account.password) {
+          return fail(
+            new DataError('INVALID_PASSWORD', '비밀번호가 맞지 않아요'),
+            options,
+          );
+        }
+        accounts.delete(fixtures.account.loginId);
+        return respond(undefined, options);
+      },
     },
     home: {
       getTodayCondition: () => respond(conditionFor(options.scenario), options),
@@ -616,20 +687,16 @@ export function createMockRepositories(
         ),
     },
     watch: {
-      getConnection: () =>
-        respond(
-          options.scenario === 'watchDisconnected'
-            ? fixtures.disconnectedWatch
-            : fixtures.connectedWatch,
-          options,
-        ),
-      reconnect: () =>
-        respond(
-          options.scenario === 'watchDisconnected'
-            ? fixtures.disconnectedWatch
-            : fixtures.connectedWatch,
-          options,
-        ),
+      getConnection: () => respond(watchState(), options),
+      // 1.8's scenario keeps failing to reconnect.
+      reconnect: () => {
+        watchConnected = options.scenario !== 'watchDisconnected';
+        return respond(watchState(), options);
+      },
+      disconnect: () => {
+        watchConnected = false;
+        return respond(watchState(), options);
+      },
     },
   };
 }

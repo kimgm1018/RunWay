@@ -116,8 +116,19 @@ test('signed-out users move from start through login into the home tab', async (
 test('watch connection opened from settings returns home instead of signing in', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
-  await press(screen, '1.7 워치 연결');
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, 20)));
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  // 8.3: once disconnected, 연결 opens 1.7, which reconnects the watch.
+  await press(screen, '연결 해제');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  expect(texts(screen)).toContain('연결 해제됨');
+  await press(screen, '연결');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  await act(async () => {
+    screen.root
+      .findAll(node => node.props.accessibilityLabel === '밀어서 다시 연결')[0]
+      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
+  });
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('82%');
   await act(async () => {
     screen.root
@@ -150,7 +161,7 @@ test('settings signs out', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
   expect(texts(screen)).not.toContain('화면 모드');
-  await press(screen, '로그아웃 → 1.1 시작');
+  await press(screen, '로그아웃');
   expect(texts(screen)).toContain('RUN YOUR WAY');
   await act(async () => screen.unmount());
 });

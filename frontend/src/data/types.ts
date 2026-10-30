@@ -613,11 +613,40 @@ export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
 // Read from the watch on the phone, not from the server.
 export type WatchConnection = {
   status: 'connected' | 'disconnected';
+  // 8.1 Galaxy Watch7 · 06:42 동기화.
+  deviceName: string;
+  lastSyncedAt: string | null;
   batteryPercent: number | null;
   permissions: Record<
     'heartRate' | 'location' | 'sleep' | 'activity',
     WatchLinkState
   >;
+};
+
+// 8.1 설정: the app settings (U19) and the account visibility (U13).
+export type LocationRecordingMode = 'ALWAYS' | 'RUNNING_ONLY' | 'OFF';
+
+export type AppSettings = {
+  voiceCoachingEnabled: boolean;
+  bpmGuideEnabled: boolean;
+  locationRecordingMode: LocationRecordingMode;
+  notifications: { groupRun: boolean; community: boolean };
+  isPrivate: boolean;
+};
+
+// 8.2 프로필 수정 (U04·U05 and the running profile U06).
+export type ProfileDetail = BasicProfile & {
+  runningLevel: SelfReportedLevel;
+  baseline: RunningBaseline;
+};
+
+// 8.4 회원탈퇴 확인 (U17): what goes away and the crews I lead, handed to their oldest member.
+export type WithdrawalSummary = {
+  runningRecordCount: number;
+  postCount: number;
+  savedCourseCount: number;
+  connectedDevices: string[];
+  ownedCrews: string[];
 };
 
 export type Repositories = {
@@ -644,6 +673,16 @@ export type Repositories = {
     updateBasic: (profile: BasicProfile) => Promise<void>;
     setRunningLevel: (level: SelfReportedLevel) => Promise<void>;
     setRunningBaseline: (baseline: RunningBaseline) => Promise<void>;
+    getDetail: () => Promise<ProfileDetail>;
+  };
+  settings: {
+    get: () => Promise<AppSettings>;
+    update: (change: Partial<AppSettings>) => Promise<AppSettings>;
+  };
+  // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
+  account: {
+    getWithdrawalSummary: () => Promise<WithdrawalSummary>;
+    withdraw: (password: string) => Promise<void>;
   };
   home: {
     getTodayCondition: () => Promise<TodayCondition>;
@@ -777,5 +816,7 @@ export type Repositories = {
   watch: {
     getConnection: () => Promise<WatchConnection>;
     reconnect: () => Promise<WatchConnection>;
+    // 8.3 연결 해제 (실행 취소 reconnects).
+    disconnect: () => Promise<WatchConnection>;
   };
 };

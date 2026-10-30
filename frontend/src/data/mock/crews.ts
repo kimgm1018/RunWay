@@ -65,7 +65,11 @@ export function createCrewMock({
   fail: Fail;
   // 6.0b 가입한 크루 없음: no crew knows me yet.
   noCrews: boolean;
-}): { repository: Repositories['crews']; mine: () => MyCrew[] } {
+}): {
+  repository: Repositories['crews'];
+  mine: () => MyCrew[];
+  owned: () => string[];
+} {
   const me = fixtures.members.me.userId;
   let directory: CrewState[] = fixtures.crewDirectory.map(crew => ({
     ...crew,
@@ -197,6 +201,13 @@ export function createCrewMock({
 
   return {
     repository,
+    // 8.4: the crews I lead.
+    owned: () =>
+      directory
+        .filter(
+          crew => membersOf(crew, joined.get(crew.id) ?? [])[0].userId === me,
+        )
+        .map(crew => crew.name),
     mine: () =>
       directory.flatMap(crew =>
         crew.myMembership

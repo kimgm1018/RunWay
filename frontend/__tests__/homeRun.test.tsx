@@ -137,7 +137,11 @@ test.each([
     ['마지막 평가 10월 15일', '오늘 점수로 쓰지 않아요'],
     ['워치 동기화', '심박수'],
   ],
-  ['healthDenied', ['권한 없음', 'Health Connect'], ['설정 열기', '8.1']],
+  [
+    'healthDenied',
+    ['권한 없음', 'Health Connect'],
+    ['설정 열기', '계정 공개 범위'],
+  ],
   ['watchDisconnected', ['미연결', '워치를 연결하면'], ['워치 연결', '심박수']],
 ] as const)(
   'home readiness shows the %s state without a score',
