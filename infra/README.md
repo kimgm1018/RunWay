@@ -83,6 +83,7 @@
 
 모바일은 MR·master 모두 팀 테스트용 ARM64 APK를 빌드하며 x86 에뮬레이터·32비트 기기는 대상에서 제외한다. Gradle 작업 결과 캐시는 전용 볼륨에 유지한다.
 모바일 APK 빌드 소요 시간은 콘솔과 `build-time.txt`, 작업별 시간은 보관된 Gradle profile 보고서에서 확인한다.
+모바일·제품 워치 debug APK는 모바일의 기존 테스트 서명 파일을 공유한다. 서명 파일 변경 시 통합 CI는 두 앱을 모두 검사한다.
 워치도 검사·빌드 시간과 JUnit·Lint 보고서를 보관한다. 폰과 워치의 Data Layer 실기기 검증에는 applicationId와 서명 인증서가 모두 일치해야 한다. 설치·연결 검증은 APK 생성 성공과 구분한다.
 
 Webhook 경로는 `/jenkins/project/<작업명>`이며 Job별 Secret token을 별도 등록한다.
@@ -90,6 +91,8 @@ Jenkins 계정·Credentials·Job 설정은 영속 볼륨에서 관리하며 이 
 
 
 Secret 관리 기준은 [공통 규칙](../docs/development/secret-environment-variables.md)을 따른다.
+
+백엔드의 `BACKEND_AUTH_TRUSTED_PROXIES`는 Nginx·백엔드만 연결된 EC2 `runway_service`의 내부 대역(`172.18.0.0/16`)을 사용한다. 컨테이너 재생성으로 IP가 바뀌어도 같은 대역 안에서는 유지되며, 네트워크 자체를 새로 만들면 실제 subnet과 설정을 다시 맞춘다. 일반 사용자·전체 인터넷 대역을 신뢰하지 않으며 백엔드 직접 외부 접근은 차단한다.
 
 ## Redis 연결
 

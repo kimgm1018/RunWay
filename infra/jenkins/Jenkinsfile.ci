@@ -4,6 +4,7 @@
 // - backend/만 변경 → 백엔드 에이전트에서 테스트·빌드하고 JAR 보관.
 // - frontend/만 변경 → 모바일 에이전트에서 타입·린트·테스트·ARM64 APK 빌드 검사.
 // - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
+// - 모바일 debug 서명 파일 변경 → 같은 서명을 쓰는 모바일·워치 모두 검사.
 // - 여러 영역 변경 → 해당 에이전트에서 선택한 검사를 병렬 실행.
 // - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치 모두 검사.
 // - 위 검사 대상 외의 파일만 변경 → 대상 브랜치와 병합 가능한지만 확인.
@@ -128,8 +129,10 @@ pipeline {
                                             checkBackend = common || files.any { it.startsWith('backend/') }
                                             // 프론트엔드 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
                                             checkMobile = common || files.any { it.startsWith('frontend/') }
-                                            // 제품 워치 코드는 wear/ 변경 시 전용 에이전트에서 검사한다.
-                                            checkWatch = common || files.any { it.startsWith('wear/') }
+                                            // 워치 코드 또는 폰·워치 공통 테스트 서명 변경 시 워치도 검사한다.
+                                            checkWatch = common || files.any {
+                                                it.startsWith('wear/') || it == 'frontend/android/app/debug.keystore'
+                                            }
                                         }
                                         echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}"
                                         echo "검사 버전: ${env.CI_SOURCE_SHA} + ${env.CI_TARGET_SHA}"

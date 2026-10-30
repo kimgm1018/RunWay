@@ -49,4 +49,6 @@ SDK 경로를 `local.properties` 또는 `ANDROID_HOME`으로 설정하고 Androi
 
 설치 APK: `app/build/outputs/apk/debug/app-debug.apk`, `demo/build/outputs/apk/debug/demo-debug.apk`
 
+제품 `:app`의 debug 빌드는 폰과 Data Layer로 연결되도록 `frontend/android/app/debug.keystore`를 함께 사용한다. 기존 테스트용 파일을 참조하며 새 키를 Git에 추가하지 않는다. 이전에 다른 서명으로 설치한 워치 앱은 삭제 후 재설치해야 하며 앱 내부 데이터는 초기화된다. 정식 배포 서명은 별도다.
+
 로컬 설정·서명 키·빌드 결과·실제 실험 JSON은 Git에 넣지 않는다.
