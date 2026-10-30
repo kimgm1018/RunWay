@@ -12,3 +12,4 @@ export * from './ScreenHeader';
 export * from './Segmented';
 export * from './TextField';
 export * from './Toast';
+export * from './Toggle';

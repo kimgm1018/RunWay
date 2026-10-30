@@ -379,7 +379,9 @@ export function RecordDetailScreen() {
             <IconButton
               icon="share"
               accessibilityLabel="공유"
-              onPress={() => navigateTo(navigation, 'PostWrite')}
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
             />
           </View>
         </SafeAreaView>
@@ -397,7 +399,9 @@ export function RecordDetailScreen() {
           <View style={styles.narrow}>
             <DetailButton
               title="기록 공유"
-              onPress={() => navigateTo(navigation, 'PostWrite')}
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
             />
           </View>
           <View style={styles.narrow}>

@@ -13,6 +13,7 @@ import type {
   SavedCourse,
   TodayCondition,
 } from '../types';
+import { createCommunityMock } from './community';
 import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
@@ -252,6 +253,11 @@ export function createMockRepositories(
   let chosen: string | null = null;
   // Finished runs (4.5) join the list that 5.1·5.2·5.3 and 2.1 read.
   let records = fixtures.runRecords;
+  // 7.3 shares and 7.4b lists the runs this mock keeps, including ones saved while the app runs.
+  const social = createCommunityMock({
+    respond: value => respond(value, options),
+    records: () => records,
+  });
   let music = musicFor(options.scenario);
   const loginFailures = new Map<
     string,
@@ -505,6 +511,8 @@ export function createMockRepositories(
       },
     },
     crews: crews.repository,
+    community: social.community,
+    runners: social.runners,
     groupRuns: createGroupRunMock({
       respond: value => respond(value, options),
       tickMs: options.tickMs ?? 1000,

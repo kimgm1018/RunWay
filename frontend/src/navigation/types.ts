@@ -29,12 +29,21 @@ export type RootStackParamList = Record<
     | 'GroupRunResult'
     | 'CrewDetail'
     | 'CrewJoinRequests'
+    | 'PostDetail'
+    | 'PostWrite'
+    | 'PostEdit'
+    | 'RunnerProfile'
   >,
   undefined
 > & {
   // 6.2 shows one crew; without an id it shows my first crew. 6.2a takes the crew I lead.
   CrewDetail: { crewId: string } | undefined;
   CrewJoinRequests: { crewId: string } | undefined;
+  // 7.x open one post; 7.3 shares one of my runs (my newest without an id); 7.4 shows one runner.
+  PostDetail: { postId: string } | undefined;
+  PostWrite: { recordId: string } | undefined;
+  PostEdit: { postId: string } | undefined;
+  RunnerProfile: { userId: string } | undefined;
   // 6.x open one group run; 6.8 makes one in a crew. Without an id they fall back to the next run.
   GroupRunDetail: { groupRunId: string } | undefined;
   WaitingRoom: { groupRunId: string } | undefined;

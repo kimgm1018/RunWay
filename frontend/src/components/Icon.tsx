@@ -245,6 +245,33 @@ const icons = {
       <Path d="M3 10h18" />
     </>
   ),
+  // 7.x 게시물: 공유, 수정, 삭제 and the vertical menu dots.
+  send: (
+    <>
+      <Path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <Path d="m21.854 2.147-10.94 10.939" />
+    </>
+  ),
+  pencil: (
+    <>
+      <Path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <Path d="m15 5 4 4" />
+    </>
+  ),
+  trash: (
+    <>
+      <Path d="M3 6h18" />
+      <Path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <Path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </>
+  ),
+  moreVertical: (
+    <>
+      <Circle cx="12" cy="12" r="1" />
+      <Circle cx="12" cy="5" r="1" />
+      <Circle cx="12" cy="19" r="1" />
+    </>
+  ),
   // 6.3 대표 사진 추가.
   camera: (
     <>
@@ -290,13 +317,16 @@ export function Icon({
   color,
   size = 22,
   strokeWidth = 1.8,
+  solid,
 }: {
   name: IconName;
   color: string;
   size?: number;
   strokeWidth?: number;
+  // Fills an outline icon, like a liked heart or a saved bookmark (7.1).
+  solid?: boolean;
 }) {
-  const fill = filled.has(name);
+  const fill = solid ?? filled.has(name);
   return (
     <Svg
       width={size}

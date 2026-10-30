@@ -115,7 +115,8 @@ function Thumb({ shape }: { shape: [number, number][] }) {
   );
 }
 
-function RecordRow({
+// Also lists runs on 7.4 · 7.4b.
+export function RecordRow({
   record,
   onPress,
 }: {
