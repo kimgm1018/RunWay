@@ -266,6 +266,60 @@ export type MyCrew = {
   membership: 'MEMBER' | 'PENDING';
 };
 
+// 6.1 크루 모집 card (M01). myMembership is null for a crew I have not asked to join.
+export type CrewListItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  area: string;
+  capacity: number;
+  memberCount: number;
+  myMembership: MyCrew['membership'] | null;
+};
+
+// 6.2 구성원 row (M07). Pace is the member's recent average, null before their first run.
+export type CrewMember = {
+  userId: string;
+  nickname: string;
+  isOwner: boolean;
+  isMe: boolean;
+  recentPaceSecPerKm: number | null;
+};
+
+// 6.2a 가입 방식. M03 fixes it to APPROVAL; 바로 가입 follows the K1 sheet and has no API yet.
+export type CrewJoinPolicy = 'APPROVAL' | 'INSTANT';
+
+// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy follow
+// the K1 sheets and have no API yet (docs/design/api/crews.md).
+export type CrewDetail = CrewListItem & {
+  joinPolicy: CrewJoinPolicy;
+  amOwner: boolean;
+  members: CrewMember[];
+  // 6.2m 가입 신청 N건, only for the crew leader.
+  pendingRequestCount: number | null;
+};
+
+// 6.3 크루 만들기 (M03). area is the place picked from the search; joinPolicy follows the K1 sheet.
+export type CrewDraft = {
+  name: string;
+  area: string;
+  description: string | null;
+  joinPolicy: CrewJoinPolicy;
+  capacity: number;
+};
+
+// 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
+export type CrewJoinRequest = {
+  userId: string;
+  nickname: string;
+  loginId: string;
+  level: SelfReportedLevel;
+  recent5kPaceSecPerKm: number | null;
+  // 첫 크루: the applicant has never been in a crew.
+  firstCrew: boolean;
+  requestedAt: string;
+};
+
 // A group run as listed on 6.0 and opened on 6.4 (G02·G03).
 export type GroupRunSummary = {
   id: string;
@@ -557,6 +611,30 @@ export type Repositories = {
       distanceM: number;
       durationSec: number;
     }) => Promise<{ courseId: string }>;
+  };
+  // 6.1–6.3 크루 (M01–M11).
+  crews: {
+    // query matches the crew name or area; nearby keeps crews within 3km of me.
+    search: (request: {
+      query: string;
+      nearby: boolean;
+    }) => Promise<CrewListItem[]>;
+    get: (crewId: string) => Promise<CrewDetail>;
+    // M04: the request waits as PENDING, or makes me a MEMBER at once in a 바로 가입 crew.
+    // A full crew fails with CREW_CAPACITY_EXCEEDED.
+    requestJoin: (crewId: string) => Promise<MyCrew['membership']>;
+    // 6.2m 정원: from the member count up to 200 (M03's limit).
+    updateCapacity: (crewId: string, capacity: number) => Promise<void>;
+    setJoinPolicy: (crewId: string, policy: CrewJoinPolicy) => Promise<void>;
+    listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
+    // M03: I become the leader and the only member.
+    create: (draft: CrewDraft) => Promise<{ id: string }>;
+    // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
+    decideJoinRequest: (
+      crewId: string,
+      userId: string,
+      approve: boolean,
+    ) => Promise<void>;
   };
   // 6.x 그룹런 (G01–G16).
   groupRuns: {

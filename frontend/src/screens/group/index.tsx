@@ -1,6 +1,10 @@
 import type React from 'react';
 import type { RouteName } from '../../navigation/routes';
 import { dark, themed } from '../run';
+import { CrewCreateScreen } from './CrewCreateScreen';
+import { CrewDetailScreen } from './CrewDetailScreen';
+import { CrewJoinRequestsScreen } from './CrewJoinRequestsScreen';
+import { CrewRecruitScreen } from './CrewRecruitScreen';
 import { GroupRunCancelScreen } from './GroupRunCancelScreen';
 import { GroupRunCreateScreen } from './GroupRunCreateScreen';
 import { GroupRunDetailScreen } from './GroupRunDetailScreen';
@@ -20,6 +24,10 @@ export { GroupRunDraftProvider } from './parts';
 // background like 4.3·4.5. The rest follow the screen mode.
 export const groupScreens: Partial<Record<RouteName, React.ComponentType>> = {
   MyCrews: GroupScreen,
+  CrewRecruit: CrewRecruitScreen,
+  CrewDetail: CrewDetailScreen,
+  CrewJoinRequests: CrewJoinRequestsScreen,
+  CrewCreate: CrewCreateScreen,
   GroupRunDetail: GroupRunDetailScreen,
   GroupRunCreate: GroupRunCreateScreen,
   MeetingPlace: MeetingPlaceScreen,

@@ -13,6 +13,7 @@ import type {
   SavedCourse,
   TodayCondition,
 } from '../types';
+import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
 import {
@@ -257,6 +258,12 @@ export function createMockRepositories(
     { count: number; lockedUntil: number }
   >();
   const pendingCodes = new Map<string, PendingCode>();
+  // 6.0 lists the crews this mock keeps, so a 6.2 join request shows there as 승인 대기.
+  const crews = createCrewMock({
+    respond: value => respond(value, options),
+    fail: error => fail(error, options),
+    noCrews: options.scenario === 'noCrews',
+  });
   const verifiedPhones = new Map<string, string>();
   let nextUserId = 101;
 
@@ -497,10 +504,11 @@ export function createMockRepositories(
         return respond(undefined, options);
       },
     },
+    crews: crews.repository,
     groupRuns: createGroupRunMock({
       respond: value => respond(value, options),
       tickMs: options.tickMs ?? 1000,
-      noCrews: options.scenario === 'noCrews',
+      myCrews: crews.mine,
       myRecord: groupRunId =>
         records.find(record => record.groupRunId === groupRunId) ?? null,
     }),
