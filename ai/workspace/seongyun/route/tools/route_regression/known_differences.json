@@ -1,0 +1,15 @@
+{
+ "note": "Allowed internal-only differences for compare.py --known. Each entry applies only when the artifact differs at exactly this path, with exactly these values, and nowhere else. Approved by the user 2026-10-29.",
+ "entries": [
+  {
+   "id": "p2p-substrate-gs26-from-cache",
+   "mode": "shadow",
+   "scenario": "GS-26",
+   "artifact": "out.json",
+   "path": [0, "canonical", "graph", "from_cache"],
+   "before": false,
+   "after": true,
+   "reason": "P2P substrate patch: before, GS-14 (P2P) put two app-max networkx graphs into the generator's 4-entry LRU and evicted the centum 5 km graph GS-09 had cached, so GS-26 rebuilt it (false); now no app-max graphs are built, the graph stays cached and GS-26 reuses it (true, identical content). API response, route/TOP3, Gate log identical; rollback RUNWAY_P2P_SUBSTRATE=0 is fully identical to the old golden."
+  }
+ ]
+}

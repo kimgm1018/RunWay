@@ -1,0 +1,47 @@
+{
+  "_comment": "Rule-based Personalized Route Ranking settings. Not a learned model. Preferences are 0-5 and are divided by 5 before use.",
+
+  "env_thresholds_m": {
+    "_comment": "edge counts as near a class when the edge segment is within this distance of a mapped feature",
+    "river": 40,
+    "water": 30,
+    "coast": 80,
+    "beach": 30,
+    "park": 10,
+    "green": 10
+  },
+
+  "distance_fit": {
+    "_comment": "1 at the exact target, 0 at the tolerance edge (linear)",
+    "weight": 1.0
+  },
+
+  "preference_terms": {
+    "_comment": "score += weight * (preference / 5) * feature",
+    "river":      {"feature": "river_ratio",           "weight": 1.0, "label": "강·하천"},
+    "beach":      {"feature": "coastal_ratio",         "weight": 1.0, "label": "해변·바다"},
+    "park":       {"feature": "green_ratio",           "weight": 1.0, "label": "공원·녹지"},
+    "trail":      {"feature": "trail_ratio",           "weight": 1.0, "label": "트레일·산책로"},
+    "pedestrian": {"feature": "walk_dedicated_ratio",  "weight": 0.6, "label": "보행 전용길"}
+  },
+
+  "avoid_terms": {
+    "_comment": "score -= weight * (avoidance / 5) * feature",
+    "major_road": {"feature": "major_road_ratio",      "weight": 1.0, "label": "큰 도로"},
+    "steps":      {"feature": "steps_per_km",          "weight": 0.15, "label": "계단"},
+    "tunnel":     {"feature": "tunnel_ratio",          "weight": 2.0, "label": "터널"}
+  },
+
+  "shape_penalties": {
+    "_comment": "always applied (baseline too); out_and_back penalty only for LOOP requests",
+    "repeated_edge_ratio": 1.0,
+    "out_and_back_ratio": 0.8
+  },
+
+  "difficulty_terms": {
+    "_comment": "used only when DEM elevation is available. avg_grade_pct = (gain + loss) / distance * 100. minimize: -w*v, maximize: +w*v, target: -w*|v - target|",
+    "flat":     {"feature": "avg_grade_pct", "direction": "minimize", "weight": 0.15, "label": "평지 선호"},
+    "moderate": {"feature": "avg_grade_pct", "direction": "target", "target": 2.5, "weight": 0.15, "label": "적당한 경사"},
+    "hilly":    {"feature": "avg_grade_pct", "direction": "maximize", "weight": 0.12, "label": "언덕 포함"}
+  }
+}
