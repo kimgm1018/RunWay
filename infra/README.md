@@ -12,6 +12,7 @@
 | `jenkins/compose.yaml`, `jenkins/backend-agent/` | Jenkins 컨트롤러·Java 21 빌드 에이전트 |
 | `jenkins/mobile-agent/` | Node·Java·Android 도구를 갖춘 모바일 빌드 에이전트 |
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
+| `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
 | `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
@@ -42,6 +43,8 @@
   백엔드의 `/data/images`에 읽기·쓰기로 연결하며 실제 이미지 파일은 Git에서 제외한다.
 - 삼성 Health SDK 1.1.0 AAR은 `~/runway/sdks/samsung-health/1.1.0/`에 준비한다.
   `/opt/samsung-health/`에 읽기 전용 연결하며 Gradle에 `-PsamsungHealthSdk=<AAR 경로>`로 전달한다.
+- AI 에이전트는 `docker build -t runway-ai-agent:docker ~/runway/infra/jenkins/ai-agent`로 빌드한다.
+  작업 볼륨 `runway-ci_ai_agent_work`와 접속 Secret `infra/jenkins/secrets/ai-builder-secret`을 준비한다. Secret은 UID 1000·권한 600이며 Docker 소켓 GID는 실제 호스트 값에 맞춘다.
 - 새 DB에는 앱 역할 `runway_app`과 CONNECT·public 스키마 USAGE/CREATE 권한을 준비한다.
   앱 비밀번호 파일과 DB 역할의 실제 비밀번호를 일치시킨다.
 - 백엔드 에이전트 이미지는 `docker build -t runway-backend-agent:java21 ~/runway/infra/jenkins/backend-agent`로 빌드한다.
@@ -72,20 +75,20 @@
 AI는 위 변수를 주입한 뒤 `docker compose -f ~/runway/infra/ai/compose.yaml up -d --wait`로 실행한다.
 Compose가 `.env`를 자동으로 찾는 것에 의존하지 않고, 환경변수 또는 `--env-file <설정 파일>`로 주입한다.
 모델 로드가 완료되어야 상태 검사를 통과한다. CPU 1개·메모리 1GiB가 현재 GRU 검증 기준이다.
-외부 포트는 공개하지 않으며 전용 내부 네트워크 `runway-ai_default`를 만든다. 백엔드 네트워크 연결·Jenkins 자동화는 후속 적용한다.
+외부 포트는 공개하지 않으며 전용 내부 네트워크 `runway-ai_default`를 만든다. 백엔드 네트워크 연결·CD 자동화는 후속 적용한다.
 
 ## Jenkins 설정
 
 | 항목 | 기준                                                                                                                             |
 | --- |--------------------------------------------------------------------------------------------------------------------------------|
 | 접속 주소 | https://k15e105.p.ssafy.io/jenkins/                                                                                            |
-| 빌드 노드 | `backend-builder`(라벨 `backend`)·`mobile-builder`(라벨 `mobile`), `watch-builder`(라벨 `watch`) 포함 각 executor 1 / Built-In Node executor 0                        |
+| 빌드 노드 | `backend-builder`(라벨 `backend`)·`mobile-builder`(라벨 `mobile`), `watch-builder`(라벨 `watch`)·`ai-builder`(라벨 `ai`) 포함 각 executor 1 / Built-In Node executor 0                        |
 | 모바일 도구 | Jenkins 접속 Java 21·앱 빌드 Java 17, Node 22·pnpm 11.28.9. 메모리 6GiB·CPU 2개 상한                                                      |
 | 워치 도구 | Jenkins 접속 Java 21·Gradle Java 25, Gradle 9.6.0·AGP 9.4.1·SDK 37. 메모리 4GiB·CPU 1개 상한 |
 | GitLab 연결 | `runway-gitlab`, 저장소 Credentials ID `runway-gitlab-repo`                                                                       |
 | 백엔드 CI | `runway-backend-ci`, SCM `*/dev`, Script Path `infra/jenkins/Jenkinsfile.backend`                                              |
 | 모바일 APK | `infra/jenkins/Jenkinsfile.mobile-apk` 준비 중. master Push 후 ARM64 디버그 APK를 생성하며 APK 보관 개수는 최근 빌드 5개를 기준으로 제한한다. 정식 출시용 서명·스토어 배포는 제외한다. |
-| 통합 CI | `infra/jenkins/Jenkinsfile.ci`, backend/frontend/wear 변경 영역만 검사·빌드하고 공통 Jenkins 설정 변경·수동 실행은 세 영역 모두 검사한다. Job·Webhook 전환 전에는 기존 CI를 유지한다. |
+| 통합 CI | `infra/jenkins/Jenkinsfile.ci`, backend/frontend/wear 및 AI 서비스·GRU 실행 소스 변경 영역만 검사·빌드하고 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사한다. Job·Webhook 전환 전에는 기존 CI를 유지한다. |
 | 워치 APK | `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
 | 기존 모바일 CI | `infra/jenkins/Jenkinsfile.mobile`은 단독 검사 초안이다. 신규 연결은 통합 CI를 사용한다. |
 | CD | `runway-backend-cd`, SCM `*/dev`, Script Path `infra/jenkins/Jenkinsfile.backend-cd`                                           |
@@ -96,6 +99,11 @@ Compose가 `.env`를 자동으로 찾는 것에 의존하지 않고, 환경변�
 모바일 APK 빌드 소요 시간은 콘솔과 `build-time.txt`, 작업별 시간은 보관된 Gradle profile 보고서에서 확인한다.
 모바일·제품 워치 debug APK는 모바일의 기존 테스트 서명 파일을 공유한다. 서명 파일 변경 시 통합 CI는 두 앱을 모두 검사한다.
 워치도 검사·빌드 시간과 JUnit·Lint 보고서를 보관한다. 폰과 워치의 Data Layer 실기기 검증에는 applicationId와 서명 인증서가 모두 일치해야 한다. 설치·연결 검증은 APK 생성 성공과 구분한다.
+
+AI 노드 `ai-builder`는 라벨 `ai`·executor 1·작업 경로 `/home/jenkins/agent`·컨트롤러에 접속하는 방식으로 등록한다.
+Secret 준비 후 `docker compose -f ~/runway/infra/jenkins/compose.yaml up -d ai-builder`로 연결한다.
+에이전트는 Java 21·Docker CLI를 사용하고 Python 3.12·CPU PyTorch 검사는 별도 컨테이너에서 수행한다.
+MR CI의 모델 없는 API 테스트와 생략된 실제 모델 테스트는 JUnit 보고서에 표시한다. 실제 모델 로드·예측 검증은 배포 검증에서 별도로 수행한다.
 
 Webhook 경로는 `/jenkins/project/<작업명>`이며 Job별 Secret token을 별도 등록한다.
 Jenkins 계정·Credentials·Job 설정은 영속 볼륨에서 관리하며 이 저장소가 자동 생성하지 않는다.

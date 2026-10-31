@@ -86,6 +86,35 @@ services:
       - watch_android_sdk:/opt/android-sdk
       - watch_gradle_cache:/home/jenkins/.gradle
 
+  ai-builder:
+    image: runway-ai-agent:docker
+    profiles: ["ai"]
+    init: true
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/opt/start-agent.sh"]
+    # 에이전트 자원 제한이며, 검사 컨테이너는 check-ai.sh에서 별도로 제한한다.
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      JENKINS_JAVA_OPTS: "-Xmx256m"
+    group_add:
+      - "988"
+    volumes:
+      - type: bind
+        source: ./ai-agent/start-agent.sh
+        target: /opt/start-agent.sh
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./secrets/ai-builder-secret
+        target: /run/secrets/ai-builder-secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - ai_agent_work:/home/jenkins/agent
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   jenkins_home:
     external: true
@@ -105,3 +134,6 @@ volumes:
     external: true
     name: runway-ci_watch_android_sdk
   watch_gradle_cache:
+  ai_agent_work:
+    external: true
+    name: runway-ci_ai_agent_work

@@ -4,11 +4,12 @@
 // - backend/만 변경 → 백엔드 에이전트에서 테스트·빌드하고 JAR 보관.
 // - frontend/만 변경 → 모바일 에이전트에서 타입·린트·테스트·ARM64 APK 빌드 검사.
 // - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
+// - AI 서비스·GRU 실행 소스·AI 인프라 변경 → AI 에이전트에서 API 테스트·이미지 빌드 검사.
 // - 모바일 debug 서명 파일 변경 → 같은 서명을 쓰는 모바일·워치 모두 검사.
 // - 여러 영역 변경 → 해당 에이전트에서 선택한 검사를 병렬 실행.
-// - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치 모두 검사.
+// - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치·AI 모두 검사.
 // - 위 검사 대상 외의 파일만 변경 → 대상 브랜치와 병합 가능한지만 확인.
-// - 수동 실행 → dev 코드로 백엔드·모바일·워치 모두 검사.
+// - 수동 실행 → dev 코드로 백엔드·모바일·워치·AI 모두 검사.
 //
 // 각 검사는 MR 코드와 대상 브랜치를 합친 코드로 수행한다.
 // 하나라도 실패하면 통합 CI도 실패하며, GitLab에는 통합 결과와 영역별 결과를 전달한다.
@@ -82,10 +83,11 @@ pipeline {
                             : "#${env.BUILD_NUMBER} · 수동 · dev"
                         // 긴 제목은 이력 대신 상세 설명에서 확인한다.
                         currentBuild.description = mrId ? "MR !${mrId}: ${mrTitle}" : '수동 실행 · dev'
-                        // 수동 실행은 세 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
+                        // 수동 실행은 네 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
                         def checkBackend = true
                         def checkMobile = true
                         def checkWatch = true
+                        def checkAI = true
                         // 1. MR 코드와 대상 브랜치를 확인하고 합친 상태를 준비한다.
                         def prepared = false
                         try {
@@ -133,8 +135,14 @@ pipeline {
                                             checkWatch = common || files.any {
                                                 it.startsWith('wear/') || it == 'frontend/android/app/debug.keystore'
                                             }
+                                            // 서비스·현재 모델 실행 소스·AI 이미지 설정이 바뀌면 검사한다.
+                                            checkAI = common || files.any {
+                                                it.startsWith('ai/service/') ||
+                                                it.startsWith('ai/workspace/doyeon/gru/src/') ||
+                                                it.startsWith('infra/ai/')
+                                            }
                                         }
-                                        echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}"
+                                        echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}, ai=${checkAI}"
                                         echo "검사 버전: ${env.CI_SOURCE_SHA} + ${env.CI_TARGET_SHA}"
                                     }
                                 }
@@ -151,6 +159,9 @@ pipeline {
                                 }
                                 if (!prepared || !checkWatch) {
                                     updateGitlabCommitStatus(name: 'watch-ci', state: 'skipped')
+                                }
+                                if (!prepared || !checkAI) {
+                                    updateGitlabCommitStatus(name: 'ai-ci', state: 'skipped')
                                 }
                             }
                         }
@@ -250,9 +261,53 @@ pipeline {
                                 }
                             }
                         }
+                        if (checkAI) {
+                            checks['AI'] = {
+                                ciStatus('ai-ci') {
+                                    node('ai') {
+                                        stage('AI Checkout') {
+                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            mergeTarget()
+                                        }
+                                        def tag = env.BUILD_TAG.toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(96)
+                                        withEnv(["AI_CI_TAG=${tag}"]) {
+                                            try {
+                                                stage('AI Test Image') {
+                                                    sh 'sh infra/jenkins/check-ai.sh --stage test-image'
+                                                }
+                                                stage('AI Tests') {
+                                                    try {
+                                                        // 모델 없는 API 검사이며 실제 모델 테스트 생략은 JUnit에 남는다.
+                                                        sh 'sh infra/jenkins/check-ai.sh --stage test'
+                                                    } finally {
+                                                        def results = junit(allowEmptyResults: false,
+                                                            testResults: 'artifacts/ai/pytest.xml')
+                                                        if (results && results.failCount > 0) {
+                                                            error('AI 테스트 보고서에 실패가 있습니다.')
+                                                        }
+                                                    }
+                                                }
+                                                stage('AI Image Build') {
+                                                    sh 'sh infra/jenkins/check-ai.sh --stage image'
+                                                }
+                                            } finally {
+                                                try {
+                                                    stage('AI Reports') {
+                                                        archiveArtifacts allowEmptyArchive: true,
+                                                            artifacts: 'artifacts/ai/pytest.xml'
+                                                    }
+                                                } finally {
+                                                    sh 'sh infra/jenkins/check-ai.sh --stage clean'
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // 4. 선택한 영역만 병렬 실행한다. 생략된 영역은 skipped를 유지한다.
                         if (checks.isEmpty()) {
-                            echo '백엔드·모바일·워치 변경 없음: 임시 병합 확인 후 종료합니다.'
+                            echo '백엔드·모바일·워치·AI 변경 없음: 임시 병합 확인 후 종료합니다.'
                         } else {
                             parallel checks
                             if (currentBuild.currentResult != 'SUCCESS') {
