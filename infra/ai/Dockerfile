@@ -1,5 +1,5 @@
 # 저장소 루트를 빌드 컨텍스트로 사용한다. GRU는 현재 검증용 후보 모델이다.
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -28,3 +28,16 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
     CMD python -c "import json,sys,urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3); d=json.load(r); sys.exit(0 if r.status == 200 and d.get('status') == 'UP' and d.get('modelLoaded') is True else 1)"
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# MR에서는 모델 파일 없이 API 기본 테스트를 실행한다. 실제 모델 검증과 구분한다.
+FROM base AS test
+USER root
+COPY ai/service/requirements-dev.txt ./requirements-dev.txt
+RUN pip install --no-cache-dir -r requirements-dev.txt && pip check \
+    && mkdir /reports && chown 10001:10001 /reports
+COPY ai/service/tests/ ./tests/
+USER 10001:10001
+CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--junitxml=/reports/pytest.xml"]
+
+# target을 생략한 일반 빌드는 테스트 도구가 없는 실행 이미지를 만든다.
+FROM base AS runtime

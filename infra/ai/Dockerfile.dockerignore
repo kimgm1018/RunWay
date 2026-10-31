@@ -3,6 +3,9 @@
 !ai/
 !ai/service/
 !ai/service/requirements.txt
+!ai/service/requirements-dev.txt
+!ai/service/tests/
+!ai/service/tests/**
 !ai/service/app/
 !ai/service/app/**
 !ai/workspace/
