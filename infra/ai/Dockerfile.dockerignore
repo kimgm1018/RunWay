@@ -1,0 +1,18 @@
+# 필요한 코드만 빌드에 전달한다. Secret·모델·데이터·Git 이력은 제외한다.
+**
+!ai/
+!ai/service/
+!ai/service/requirements.txt
+!ai/service/app/
+!ai/service/app/**
+!ai/workspace/
+!ai/workspace/doyeon/
+!ai/workspace/doyeon/gru/
+!ai/workspace/doyeon/gru/src/
+!ai/workspace/doyeon/gru/src/data.py
+!ai/workspace/doyeon/gru/src/model.py
+!ai/workspace/doyeon/gru/src/predictor.py
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*

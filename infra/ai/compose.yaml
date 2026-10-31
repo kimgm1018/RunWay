@@ -1,0 +1,37 @@
+name: runway-ai
+
+services:
+  ai:
+    image: ${AI_IMAGE:?AI_IMAGE is required}
+    restart: unless-stopped
+    init: true
+    environment:
+      HR_MODEL_TYPE: gru
+      HR_MODEL_PATH: /models/gru_final.pt
+      HR_MODEL_SHA256: ${HR_MODEL_SHA256:?HR_MODEL_SHA256 is required}
+      HR_DEVICE: cpu
+      TORCH_NUM_THREADS: "1"
+    # 현재 GRU 후보의 검증 기준이며, 최종 모델 확정 시 다시 측정한다.
+    mem_limit: 1g
+    cpus: 1.0
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - type: bind
+        source: ${AI_MODEL_FILE:?AI_MODEL_FILE is required}
+        target: /models/gru_final.pt
+        read_only: true
+        bind:
+          create_host_path: false
+    expose:
+      - "8000"
+
+# 외부 포트 없이 이 네트워크에 연결한 컨테이너만 접근한다.
+networks:
+  default:
+    internal: true

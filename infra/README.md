@@ -22,6 +22,7 @@
 | `redis/compose.yaml`, `redis/start-redis.sh` | Redis 실행·Secret 주입·영속 저장 |
 | `backend/compose.yaml`, `backend/Dockerfile` | 백엔드 실행 설정·이미지 제작 |
 | `backend/deploy.sh`, `backend/check.sh` | 배포 전후 기동 검사·실패 시 이전 이미지 복구 |
+| `ai/Dockerfile`, `ai/compose.yaml` | FastAPI·GRU 후보 CPU 추론 이미지·내부 네트워크 실행 |
 | `certbot/runway-cert-renew.*` | 인증서 갱신 스크립트·systemd service/timer |
 
 ## 실행 전 준비
@@ -48,6 +49,11 @@
 - 모바일 이미지는 `docker build -t runway-mobile-agent:android ~/runway/infra/jenkins/mobile-agent`로 빌드한다.
   워치 이미지는 `docker build -t runway-watch-agent:android ~/runway/infra/jenkins/watch-agent`로 빌드한다.
   Android 공식 도구 다운로드·사용 전 약관을 확인하며 Dockerfile은 약관에 자동 동의하지 않는다.
+- AI 이미지는 저장소 루트에서 `docker build -f infra/ai/Dockerfile -t runway-ai:<버전> .`로 빌드한다.
+  Python 3.12·CPU PyTorch를 사용하며, 모델 파일은 이미지에 포함하지 않는다.
+- AI Compose에는 `AI_IMAGE`·`AI_MODEL_FILE`·`HR_MODEL_SHA256`을 환경변수로 지정한다([예시](ai/.env.example)).
+  모델 파일은 읽기 전용으로 연결하며 컨테이너의 `HR_MODEL_PATH`는 `/models/gru_final.pt`다.
+  현재 GRU는 후보 모델이며, 최종 모델 확정 시 연결 코드·의존성을 재확인한다. 자세한 기준은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
 
 ## 적용 순서
 
@@ -62,6 +68,11 @@
 4. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
 5. 변경한 Compose는 `docker compose -f <파일> config --quiet`, Nginx는 `nginx -t`로 검사한 뒤 적용한다.
 6. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
+
+AI는 위 변수를 주입한 뒤 `docker compose -f ~/runway/infra/ai/compose.yaml up -d --wait`로 실행한다.
+Compose가 `.env`를 자동으로 찾는 것에 의존하지 않고, 환경변수 또는 `--env-file <설정 파일>`로 주입한다.
+모델 로드가 완료되어야 상태 검사를 통과한다. CPU 1개·메모리 1GiB가 현재 GRU 검증 기준이다.
+외부 포트는 공개하지 않으며 전용 내부 네트워크 `runway-ai_default`를 만든다. 백엔드 네트워크 연결·Jenkins 자동화는 후속 적용한다.
 
 ## Jenkins 설정
 
