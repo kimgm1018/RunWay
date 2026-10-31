@@ -36,8 +36,12 @@ COPY ai/service/requirements-dev.txt ./requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt && pip check \
     && mkdir /reports && chown 10001:10001 /reports
 COPY ai/service/tests/ ./tests/
+COPY infra/ai/check.sh infra/ai/deploy.sh /app/infra/ai/
+COPY infra/ai/tests/ /app/infra/ai/tests/
+# 배포 테스트의 모의 Shell 파일은 실행 제한이 있는 /tmp 대신 이 경로에 둔다.
+ENV TMPDIR=/reports
 USER 10001:10001
-CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "--junitxml=/reports/pytest.xml"]
+CMD ["python", "-m", "pytest", "-q", "tests", "/app/infra/ai/tests", "-p", "no:cacheprovider", "--junitxml=/reports/pytest.xml"]
 
 # target을 생략한 일반 빌드는 테스트 도구가 없는 실행 이미지를 만든다.
 FROM base AS runtime

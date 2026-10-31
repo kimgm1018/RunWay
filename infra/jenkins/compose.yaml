@@ -114,6 +114,12 @@ services:
           create_host_path: false
       - ai_agent_work:/home/jenkins/agent
       - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: /home/ubuntu/runway/infra/ai
+        target: /home/ubuntu/runway/infra/ai
+        read_only: true
+        bind:
+          create_host_path: false
 
 volumes:
   jenkins_home:
