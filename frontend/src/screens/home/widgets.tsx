@@ -18,6 +18,7 @@ import Svg, {
   RadialGradient,
   Rect,
   Stop,
+  Text as SvgText,
 } from 'react-native-svg';
 import { AppText, Button, Icon } from '../../components';
 import {
@@ -209,7 +210,7 @@ function fallbackFor(today: TodayCondition): Fallback | null {
 // ── Painting ────────────────────────────────────────────────────────────
 
 type GradientStop = [offset: number, color: string, opacity?: number];
-type Layer =
+export type Layer =
   | { kind: 'linear'; angle: number; stops: GradientStop[] }
   | {
       kind: 'radial';
@@ -290,7 +291,7 @@ function Paint({
 }
 
 // Dark center fading out to the palette's rim (DESIGN.md 2-2 비네트).
-const vignette = (
+export const vignette = (
   palette: typeof steel | typeof graphite,
   rx = 0.75,
   ry = 0.75,
@@ -312,12 +313,13 @@ const vignette = (
 ];
 
 // A soft light spot standing in for the mockup's blurred color layers.
-const spot = (
+export const spot = (
   cx: number,
   cy: number,
   rx: number,
   ry: number,
   color: string,
+  opacity = 0.9,
 ): Layer => ({
   kind: 'radial',
   cx,
@@ -325,7 +327,7 @@ const spot = (
   rx,
   ry,
   stops: [
-    [0, color, 0.9],
+    [0, color, opacity],
     [0.7, color, 0],
     [1, color, 0],
   ],
@@ -333,13 +335,14 @@ const spot = (
 
 // ── Widget frame ────────────────────────────────────────────────────────
 
-function Widget({
+export function Widget({
   id,
   layers,
   light = false,
   style,
   onPress,
   accessibilityLabel,
+  accessibilityHint,
   children,
 }: {
   id: string;
@@ -349,6 +352,8 @@ function Widget({
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   accessibilityLabel?: string;
+  // What the press leads to, when the label alone does not say it.
+  accessibilityHint?: string;
   children: React.ReactNode;
 }) {
   const { colors } = useTheme();
@@ -379,6 +384,7 @@ function Widget({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
       onPress={onPress}
       onLayout={measure}
       style={({ pressed }) => [frame, pressed && styles.pressed]}
@@ -395,6 +401,7 @@ function Widget({
 // ── Widgets ─────────────────────────────────────────────────────────────
 
 // 오늘 컨디션: the readiness glow in a white card, with sleep · resting heart rate · 7-day load under it.
+// 컨디션 and 준비도 are separate values, so each is shown under its own name.
 function ReadinessWidget({ today }: { today: TodayCondition }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -426,19 +433,20 @@ function ReadinessWidget({ today }: { today: TodayCondition }) {
       <View style={styles.readinessTop}>
         <View style={styles.flex}>
           <AppText style={styles.cardTitle}>
-            {fallback ? fallback.headline : `오늘 컨디션 ${today.condition}`}
+            {fallback ? fallback.headline : '오늘 컨디션'}
           </AppText>
           <AppText variant="caption" tone="textSecondary">
-            {fallback ? fallback.explain : reason.join(' · ')}
+            {fallback
+              ? fallback.explain
+              : [`컨디션 ${today.condition}`, ...reason].join(' · ')}
           </AppText>
         </View>
-        <View style={[styles.chip, { backgroundColor: colors.surfaceMuted }]}>
-          <AppText variant="label" tone="textSecondary">
-            {today.syncedAt
-              ? `${formatClockTime(today.syncedAt)} 동기화`
-              : '동기화 전'}
-          </AppText>
-        </View>
+        {/* The sync time is information, not a button. */}
+        <AppText variant="label" tone="textTertiary" style={styles.synced}>
+          {today.syncedAt
+            ? `${formatClockTime(today.syncedAt)} 동기화`
+            : '동기화 전'}
+        </AppText>
       </View>
       <Orb
         score={fallback ? null : today.readinessScore}
@@ -482,9 +490,10 @@ function ReadinessWidget({ today }: { today: TodayCondition }) {
   );
 }
 
-const orbSize = 220;
+const orbSize = 186;
 
-// The readiness glow: steel light spreading out from the middle of the white card.
+// The readiness glow: steel light spreading out from the middle of the white card,
+// darkened behind the score so the light number stays readable.
 function Orb({ score, label }: { score: number | null; label: string }) {
   return (
     <View style={styles.orb}>
@@ -496,12 +505,23 @@ function Orb({ score, label }: { score: number | null; label: string }) {
             <Stop offset={0.62} stopColor={steel.haze[0]} stopOpacity={0.55} />
             <Stop offset={0.72} stopColor={steel.haze[0]} stopOpacity={0} />
           </RadialGradient>
+          <RadialGradient id="orbCore" cx="50%" cy="50%" r="50%">
+            <Stop offset={0} stopColor={k1.deep} stopOpacity={0.55} />
+            <Stop offset={0.6} stopColor={k1.deep} stopOpacity={0.3} />
+            <Stop offset={1} stopColor={k1.deep} stopOpacity={0} />
+          </RadialGradient>
         </Defs>
         <Circle
           cx={orbSize / 2}
           cy={orbSize / 2}
           r={orbSize / 2}
           fill="url(#orb)"
+        />
+        <Circle
+          cx={orbSize / 2}
+          cy={orbSize / 2}
+          r={orbSize * 0.36}
+          fill="url(#orbCore)"
         />
       </Svg>
       <AppText tone="onAccent" style={styles.score}>
@@ -519,7 +539,7 @@ function Orb({ score, label }: { score: number | null; label: string }) {
   );
 }
 
-// 러닝 시작 with the AI course of the day (graphite glass).
+// 러닝 시작 with the AI course of the day (graphite glass). The press opens 러닝 방식 고르기, so the card says so.
 function RunStartWidget({ plan }: { plan: CoursePlan | null }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -540,46 +560,25 @@ function RunStartWidget({ plan }: { plan: CoursePlan | null }) {
       ]}
       style={styles.start}
       accessibilityLabel="러닝 시작"
+      accessibilityHint="러닝 방식을 고르는 화면으로 이동해요"
       onPress={() => navigateTo(navigation, 'RunMode')}
     >
       <AppText variant="caption" tone="textSecondary">
         {plan ? `AI 추천 · ${plan.name}` : 'AI 추천'}
       </AppText>
       <AppText style={styles.startTitle}>러닝 시작</AppText>
+      <AppText variant="caption" tone="textSecondary">
+        눌러서 러닝 방식 선택
+      </AppText>
       {/* In the dark tone the accent is the light ice color. */}
       <View style={[styles.play, { backgroundColor: colors.accent }]}>
         <Icon name="play" color={colors.onAccent} size={20} />
-      </View>
-      <View style={styles.steps}>
-        {[10, 16, 10, 24].map((dot, index) => (
-          <React.Fragment key={index}>
-            {index ? (
-              <View
-                style={[
-                  styles.stepLine,
-                  { backgroundColor: colors.textSecondary },
-                ]}
-              />
-            ) : null}
-            <View
-              style={[
-                {
-                  width: dot,
-                  height: dot,
-                  borderRadius: dot / 2,
-                  backgroundColor:
-                    index === 1 ? colors.textSecondary : colors.text,
-                },
-              ]}
-            />
-          </React.Fragment>
-        ))}
       </View>
       {plan ? (
         <AppText style={styles.startMeta}>
           {formatKm(plan.distanceM, 1)}
           <AppText variant="caption" tone="textSecondary">
-            {` km · ${formatPace(plan.targetPaceSecPerKm)}`}
+            {` km · 목표 ${formatPace(plan.targetPaceSecPerKm)}/km`}
           </AppText>
         </AppText>
       ) : null}
@@ -587,7 +586,7 @@ function RunStartWidget({ plan }: { plan: CoursePlan | null }) {
   );
 }
 
-// 안정 심박 on a steel vignette, with a dotted line and a marker for where it sits.
+// 오늘 안정 심박 on a steel vignette. The dotted line is decoration: there is no range to mark a spot on.
 function RestingHeartWidget({
   today,
   width,
@@ -603,18 +602,23 @@ function RestingHeartWidget({
       style={[styles.tall, { width }]}
     >
       <AppText variant="bodyMedium">안정 심박</AppText>
+      <AppText variant="label" tone="textSecondary">
+        오늘
+      </AppText>
       <AppText style={styles.big}>
         {shown ? today.restingHeartRate : '– –'}
         <AppText style={styles.bigUnit}> bpm</AppText>
       </AppText>
-      <View style={styles.dotline}>
+      <View
+        style={styles.dotline}
+        importantForAccessibility="no-hide-descendants"
+      >
         {Array.from({ length: 18 }, (_, index) => (
           <View
             key={index}
             style={[styles.tickDot, { backgroundColor: steel.tick }]}
           />
         ))}
-        {shown ? <View style={styles.marker} /> : null}
       </View>
       {shown && today.restingHeartRateLabel ? (
         <AppText variant="caption" style={styles.foot}>
@@ -625,9 +629,10 @@ function RestingHeartWidget({
   );
 }
 
-const ringSize = 140;
+const ringSize = 112;
 
-// 케이던스 of the last run, inside a ring of dots with a brighter arc at the top.
+// 케이던스 averaged over the last run, inside a decorative ring of dots with a brighter arc at the top.
+// The title sits top left like 안정 심박 beside it.
 function CadenceWidget({
   cadence,
   width,
@@ -636,58 +641,73 @@ function CadenceWidget({
   width: number;
 }) {
   const center = ringSize / 2;
-  const radius = 56;
+  const radius = 51;
   return (
     <Widget
       id="cadence"
       layers={vignette(graphite)}
-      style={[styles.tall, styles.centered, { width }]}
+      style={[styles.tall, { width }]}
     >
       <AppText variant="bodyMedium">케이던스</AppText>
-      <Svg width={ringSize} height={ringSize} style={styles.ring}>
-        {Array.from({ length: 80 }, (_, index) => {
-          const angle = -Math.PI / 2 + (2 * Math.PI * index) / 80;
-          const strong = index >= 2 && index <= 16;
-          const x = center + radius * Math.cos(angle);
-          const y = center + radius * Math.sin(angle);
-          if (!strong) {
+      <AppText variant="label" tone="textSecondary">
+        지난 러닝 평균
+      </AppText>
+      <View style={[styles.ringBox, { left: (width - ringSize) / 2 }]}>
+        <Svg width={ringSize} height={ringSize} style={StyleSheet.absoluteFill}>
+          {Array.from({ length: 80 }, (_, index) => {
+            const angle = -Math.PI / 2 + (2 * Math.PI * index) / 80;
+            const strong = index >= 2 && index <= 16;
+            const x = center + radius * Math.cos(angle);
+            const y = center + radius * Math.sin(angle);
+            if (!strong) {
+              return (
+                <Circle
+                  key={index}
+                  cx={x}
+                  cy={y}
+                  r={0.9}
+                  fill={graphite.tick}
+                  opacity={0.6}
+                />
+              );
+            }
+            const length = 15 - Math.abs(index - 9) * 1.2;
             return (
-              <Circle
+              <Line
                 key={index}
-                cx={x}
-                cy={y}
-                r={0.9}
-                fill={graphite.tick}
-                opacity={0.6}
+                x1={x}
+                y1={y}
+                x2={center + (radius - length) * Math.cos(angle)}
+                y2={center + (radius - length) * Math.sin(angle)}
+                stroke={steel.haze[0]}
+                strokeWidth={1.2}
+                opacity={0.4 + 0.6 * (1 - Math.abs(index - 9) / 8)}
               />
             );
-          }
-          const length = 18 - Math.abs(index - 9) * 1.4;
-          return (
-            <Line
-              key={index}
-              x1={x}
-              y1={y}
-              x2={center + (radius - length) * Math.cos(angle)}
-              y2={center + (radius - length) * Math.sin(angle)}
-              stroke={steel.haze[0]}
-              strokeWidth={1.2}
-              opacity={0.4 + 0.6 * (1 - Math.abs(index - 9) / 8)}
-            />
-          );
-        })}
-      </Svg>
-      <AppText style={styles.cadence}>{cadence ?? '– –'}</AppText>
-      <AppText variant="label" tone="textSecondary" style={styles.spm}>
-        spm
-      </AppText>
+          })}
+        </Svg>
+        <AppText style={styles.cadence}>{cadence ?? '– –'}</AppText>
+        <AppText variant="label" tone="textSecondary">
+          spm
+        </AppText>
+      </View>
     </Widget>
   );
 }
 
 const chartHeight = 110;
+const chartInset = 18;
+// Room on the right for the guide labels, clear of the line.
+const guideGutter = 58;
 
-// 지난 러닝: the pace of each split as a line, flagged at the fastest one (steel scene).
+// 2.5, 3 (km) for a split edge.
+const splitKm = (meters: number) => String(Number((meters / 1000).toFixed(1)));
+// Faster splits sit higher: the fastest at 90% of the chart, the slowest at 30%, clear of the km labels.
+const fastY = chartHeight * 0.1;
+const slowY = chartHeight * 0.7;
+
+// 지난 러닝: the pace of each 1 km split as a line, flagged at the fastest one (steel scene).
+// Two guide lines carry the fastest and slowest pace, so up reads as faster.
 function SegmentWidget({
   run,
   width,
@@ -705,17 +725,17 @@ function SegmentWidget({
   const fastest = Math.min(...paces);
   const slowest = Math.max(...paces);
   const best = paces.indexOf(fastest);
-  // Faster splits sit higher, between 10% and 90% of the chart.
+  const plotRight = width - chartInset - guideGutter;
+  const span = plotRight - chartInset;
   const points = paces.map((pace, index) => ({
-    x: (index / (paces.length - 1)) * width,
+    x: chartInset + (index / (paces.length - 1)) * span,
     y:
-      chartHeight -
-      (0.1 +
-        (slowest === fastest
-          ? 0.5
-          : ((slowest - pace) / (slowest - fastest)) * 0.8)) *
-        chartHeight,
+      slowest === fastest
+        ? (fastY + slowY) / 2
+        : slowY - ((slowest - pace) / (slowest - fastest)) * (slowY - fastY),
   }));
+  const first = points[0];
+  const last = points[points.length - 1];
   const line = points
     .map(
       (point, index) =>
@@ -723,7 +743,10 @@ function SegmentWidget({
     )
     .join(' ');
   const flag = points[best];
-  const km = Math.round(run.distanceM / 1000);
+  const guides = [
+    { y: fastY, label: `${formatPace(fastest)} 빠름` },
+    { y: slowY, label: `${formatPace(slowest)} 느림` },
+  ];
   return (
     <Widget
       id="segment"
@@ -745,9 +768,16 @@ function SegmentWidget({
       onPress={() => navigation.navigate('RecordDetail', { recordId: run.id })}
     >
       <AppText variant="label" tone="textSecondary" style={styles.eyebrow}>
-        {`지난 러닝 · ${Math.ceil(splits[best].endDistanceM / 1000)} KM 구간`}
+        {`지난 러닝 · 최고 페이스 · ${splitKm(
+          splits[best].startDistanceM,
+        )}–${splitKm(splits[best].endDistanceM)} km 구간`}
       </AppText>
-      <AppText style={styles.segmentPace}>{formatPace(fastest)}</AppText>
+      <AppText style={styles.segmentPace}>
+        {formatPace(fastest)}
+        <AppText style={styles.bigUnit} tone="textSecondary">
+          /km
+        </AppText>
+      </AppText>
       <View style={[styles.arrow, { borderColor: colors.borderStrong }]}>
         <Icon name="forward" color={colors.text} size={16} />
       </View>
@@ -757,8 +787,31 @@ function SegmentWidget({
         viewBox={`0 -26 ${width} ${chartHeight + 26}`}
         style={styles.chart}
       >
+        {guides.map(guide => (
+          <React.Fragment key={guide.label}>
+            <Line
+              x1={chartInset}
+              y1={guide.y}
+              x2={plotRight}
+              y2={guide.y}
+              stroke={colors.text}
+              strokeOpacity={0.28}
+              strokeDasharray="2 4"
+            />
+            <SvgText
+              x={width - chartInset}
+              y={guide.y + 3.5}
+              textAnchor="end"
+              fontFamily={fontFamily.numberRegular}
+              fontSize={10}
+              fill={colors.textSecondary}
+            >
+              {guide.label}
+            </SvgText>
+          </React.Fragment>
+        ))}
         <Path
-          d={`${line} L${width} ${chartHeight} L0 ${chartHeight} Z`}
+          d={`${line} L${last.x} ${chartHeight} L${first.x} ${chartHeight} Z`}
           fill={colors.text}
           fillOpacity={0.12}
         />
@@ -784,21 +837,30 @@ function SegmentWidget({
           fill={colors.text}
         />
       </Svg>
-      <View style={styles.axis}>
-        {Array.from({ length: km + 1 }, (_, index) => (
-          <AppText key={index} style={styles.axisLabel} tone="textSecondary">
-            {index === km ? `${index} km` : index}
+      {/* Each point is the end of a split; whole km and the finish get a label under it. */}
+      {splits.map((split, index) => {
+        const finish = index === splits.length - 1;
+        return finish || split.endDistanceM % 1000 === 0 ? (
+          <AppText
+            key={split.endDistanceM}
+            style={[
+              styles.axisLabel,
+              styles.axisTick,
+              { left: points[index].x },
+            ]}
+            tone="textSecondary"
+          >
+            {finish
+              ? `${splitKm(split.endDistanceM)} km`
+              : splitKm(split.endDistanceM)}
           </AppText>
-        ))}
-      </View>
+        ) : null;
+      })}
     </Widget>
   );
 }
 
-// Fixed bar heights; the mockup draws them as decoration, not sleep data.
-const sleepBars = [4, 8, 6, 14, 10, 20, 12, 18];
-
-// 어젯밤 수면 on a white card.
+// 어젯밤 수면 on a white card, with the sleep label instead of made-up stage bars.
 function SleepWidget({
   today,
   width,
@@ -814,34 +876,73 @@ function SleepWidget({
         <View style={[styles.iconRing, { borderColor: colors.borderStrong }]}>
           <Icon name="moon" color={colors.text} size={17} strokeWidth={1.4} />
         </View>
-        <AppText variant="caption">{'어젯밤\n수면'}</AppText>
+        <AppText variant="caption">어젯밤 수면</AppText>
       </View>
       <View style={styles.bottom}>
-        <AppText style={styles.mid}>
-          {minutes === null ? '– –' : `${Math.floor(minutes / 60)}h`}
-          {minutes === null ? null : (
+        {/* Hours and minutes in the same 7h 12m form as 오늘 컨디션. */}
+        {minutes === null ? (
+          <AppText style={styles.mid}>– –</AppText>
+        ) : (
+          <AppText style={styles.mid}>
+            {Math.floor(minutes / 60)}
             <AppText style={styles.midUnit} tone="textSecondary">
-              {String(minutes % 60).padStart(2, '0')}m
+              {'h '}
             </AppText>
-          )}
-        </AppText>
-        <View style={styles.sleepBars}>
-          {sleepBars.map((height, index) => (
-            <View
-              key={index}
-              style={[
-                styles.sleepBar,
-                { height, backgroundColor: colors.text },
-              ]}
-            />
-          ))}
-        </View>
+            {String(minutes % 60).padStart(2, '0')}
+            <AppText style={styles.midUnit} tone="textSecondary">
+              m
+            </AppText>
+          </AppText>
+        )}
+        {minutes !== null && today.sleepLabel ? (
+          <AppText variant="label" tone="textSecondary">
+            {today.sleepLabel}
+          </AppText>
+        ) : null}
       </View>
     </Widget>
   );
 }
 
-// 연속 러닝 on a graphite tone card.
+const streakSlots = 6;
+
+// The last six weeks, the ones in the streak filled. Inside the card so it takes the dark tone.
+function WeekDots({ weeks }: { weeks: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={styles.weekDots}
+      accessibilityLabel={`최근 ${streakSlots}주 중 ${Math.min(
+        weeks,
+        streakSlots,
+      )}주 연속`}
+    >
+      {Array.from({ length: streakSlots }, (_, index) => (
+        <View
+          key={index}
+          style={[
+            styles.weekDot,
+            { borderColor: colors.text },
+            index >= streakSlots - weeks && { backgroundColor: colors.text },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// The › of a card that opens a screen, in the card's own tone.
+function CardArrow() {
+  const { colors } = useTheme();
+  return (
+    <View style={[styles.arrow, { borderColor: colors.borderStrong }]}>
+      <Icon name="forward" color={colors.text} size={16} />
+    </View>
+  );
+}
+
+// 연속 러닝 on a graphite tone card: weeks in a row with at least one run,
+// with the last six weeks as dots, the counted ones filled.
 function StreakWidget({ weeks, width }: { weeks: number; width: number }) {
   const { colors } = useTheme();
   return (
@@ -863,25 +964,21 @@ function StreakWidget({ weeks, width }: { weeks: number; width: number }) {
         <View style={[styles.iconRing, { borderColor: colors.borderStrong }]}>
           <Icon name="flame" color={colors.text} size={17} strokeWidth={1.4} />
         </View>
-        <AppText variant="caption">{'연속\n러닝'}</AppText>
+        <AppText variant="caption">연속 러닝</AppText>
       </View>
       <View style={styles.bottom}>
-        <AppText style={styles.mid}>
-          {weeks}
-          <AppText style={styles.midUnit} tone="textSecondary">
-            주
+        <View>
+          <AppText style={styles.mid}>
+            {weeks}
+            <AppText style={styles.midUnit} tone="textSecondary">
+              주
+            </AppText>
           </AppText>
-        </AppText>
-        <Svg width={64} height={24} viewBox="0 0 80 28">
-          <Path
-            d="M2 24 C 12 24, 14 6, 24 6 S 34 24, 42 24 S 52 4, 60 4 S 70 24, 78 24"
-            fill="none"
-            stroke={colors.text}
-            strokeWidth={1.5}
-          />
-          <Circle cx={24} cy={6} r={3} fill={colors.text} />
-          <Circle cx={60} cy={4} r={3} fill={colors.text} />
-        </Svg>
+          <AppText style={styles.tiny} tone="textSecondary">
+            매주 1회 이상
+          </AppText>
+        </View>
+        <WeekDots weeks={weeks} />
       </View>
     </Widget>
   );
@@ -894,7 +991,9 @@ const loadPosition: Record<string, number> = {
   높음: 0.85,
 };
 
-// 7일 부하 리포트: the load scale and this week's distance, runs and heart rate (wide steel vignette).
+// 7일 부하 리포트: the load of the last 7 days on its scale, then this calendar week's
+// distance, runs and heart rate. The two periods differ, so each is named (wide steel vignette).
+// Without a load value the scale shows no mark rather than a guessed one.
 function LoadWidget({
   load,
   week,
@@ -911,7 +1010,12 @@ function LoadWidget({
       layers={vignette(steel, 0.55, 0.75, 0.55)}
       style={styles.load}
     >
-      <AppText variant="bodyMedium">7일 부하 리포트</AppText>
+      <View style={styles.loadHead}>
+        <AppText variant="bodyMedium">7일 부하 리포트</AppText>
+        <AppText variant="label" tone="textSecondary">
+          {position === undefined ? '측정 데이터 부족' : '최근 7일'}
+        </AppText>
+      </View>
       <View style={styles.scale}>
         <View style={styles.scaleLabels}>
           {['낮음', '적정', '높음'].map(label => (
@@ -936,18 +1040,21 @@ function LoadWidget({
           <View style={[styles.scaleMark, { left: `${position * 100}%` }]} />
         )}
       </View>
+      <AppText style={[styles.tiny, styles.period]} tone="textSecondary">
+        이번 주 · 월–일
+      </AppText>
       <View style={styles.trio}>
         {[
           {
-            label: '이번 주',
+            label: '거리',
             value: formatKm(week.totalDistanceM, 1),
-            unit: 'km',
+            unit: ' km',
           },
           { label: '러닝', value: String(week.runCount), unit: '회' },
           {
             label: '평균 심박',
             value: heartRate === null ? '– –' : String(heartRate),
-            unit: '',
+            unit: heartRate === null ? ' 측정 없음' : ' bpm',
           },
         ].map(item => (
           <View key={item.label} style={styles.flex}>
@@ -1018,7 +1125,6 @@ function DotTime({ time }: { time: string }) {
 // 다음 그룹런: the crew, the start time in dots, the place and how many joined (graphite).
 function GroupWidget({ run }: { run: GroupRunSummary }) {
   const navigation = useNavigation();
-  const weekday = formatLongDate(run.scheduledAt).split(' ').pop();
   return (
     <Widget
       id="group"
@@ -1041,13 +1147,18 @@ function GroupWidget({ run }: { run: GroupRunSummary }) {
     >
       <AppText variant="bodyMedium">다음 그룹런</AppText>
       <AppText variant="label" tone="textSecondary">
-        {`${run.crewName} · ${weekday}`}
+        {`${run.crewName} · ${formatLongDate(run.scheduledAt)}`}
       </AppText>
+      {/* The whole card opens the run, so it carries the same › as 지난 러닝. */}
+      <CardArrow />
       <View style={styles.matrix}>
         <DotTime time={formatClockTime(run.scheduledAt)} />
       </View>
+      <AppText variant="bodyMedium" style={styles.centerText}>
+        {`${run.meetingPlaceName} 출발`}
+      </AppText>
       <AppText variant="label" tone="textSecondary" style={styles.centerText}>
-        {`${run.meetingPlaceName} 출발 · 참가 ${run.participantCount}명`}
+        {`참가 ${run.participantCount}명`}
       </AppText>
     </Widget>
   );
@@ -1107,7 +1218,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   cardTitle: { fontFamily: fontFamily.medium, fontSize: 17, lineHeight: 24 },
-  chip: { paddingHorizontal: spacing.lg, paddingVertical: 5, borderRadius: 99 },
+  synced: { paddingTop: 4 },
   orb: {
     width: orbSize,
     height: orbSize,
@@ -1147,14 +1258,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingLeft: 3,
   },
-  steps: {
-    position: 'absolute',
-    left: 18,
-    bottom: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  stepLine: { width: 18, height: 1 },
   startMeta: {
     position: 'absolute',
     right: 18,
@@ -1164,12 +1267,11 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
   tall: { height: 174 },
-  centered: { alignItems: 'center' },
   big: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 40,
     lineHeight: 46,
-    marginTop: spacing.xl,
+    marginTop: spacing.sm,
     letterSpacing: -1.5,
   },
   bigUnit: {
@@ -1182,32 +1284,27 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 4,
     right: 4,
-    top: 112,
+    top: 124,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   tickDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.8 },
-  marker: {
-    position: 'absolute',
-    left: '66%',
-    top: -9,
-    width: 3,
-    height: 20,
-    borderRadius: 2,
-    backgroundColor: k1.ice,
-  },
   foot: { position: 'absolute', left: 18, bottom: 16 },
-  ring: { position: 'absolute', top: 28 },
-  cadence: {
+  ringBox: {
     position: 'absolute',
-    top: 62,
+    bottom: 2,
+    width: ringSize,
+    height: ringSize,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cadence: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 30,
-    lineHeight: 38,
+    lineHeight: 36,
     letterSpacing: -1,
   },
-  spm: { position: 'absolute', top: 102 },
   segment: { height: 220 },
   eyebrow: { letterSpacing: 0.4 },
   segmentPace: {
@@ -1228,18 +1325,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chart: { position: 'absolute', left: 0, bottom: 0 },
-  axis: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
   axisLabel: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 10,
     lineHeight: 13,
+  },
+  // Centered under its point.
+  axisTick: {
+    position: 'absolute',
+    bottom: 10,
+    width: 40,
+    marginLeft: -20,
+    textAlign: 'center',
   },
   small: { height: 150 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
@@ -1271,14 +1368,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     letterSpacing: 0,
   },
-  sleepBars: {
+  weekDots: { flexDirection: 'row', gap: 4, paddingBottom: 6 },
+  weekDot: { width: 7, height: 7, borderRadius: 3.5, borderWidth: 1 },
+  load: { height: 186 },
+  loadHead: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 22,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  sleepBar: { width: 3, borderRadius: 1 },
-  load: { height: 176 },
   scale: { height: 44, marginTop: spacing.lg },
   scaleLabels: {
     position: 'absolute',
@@ -1307,7 +1404,8 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: k1.ice,
   },
-  trio: { flexDirection: 'row', marginTop: spacing.md },
+  period: { marginTop: spacing.md },
+  trio: { flexDirection: 'row', marginTop: spacing.xs },
   trioValue: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 20,
@@ -1319,6 +1417,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 0,
   },
-  group: { height: 170 },
-  matrix: { alignItems: 'center', marginTop: spacing.lg },
+  group: { height: 184 },
+  matrix: { alignItems: 'center', marginVertical: spacing.lg },
 });
