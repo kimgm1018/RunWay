@@ -34,6 +34,20 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
   return matches[matches.length - 1];
 }
 
+// The pressable record tiles on 홈, labelled "title, date · distance · time, pace".
+function recordTiles(screen: Screen): string[] {
+  return screen.root
+    .findAll(
+      node =>
+        typeof node.props.accessibilityLabel === 'string' &&
+        /, [\d.]+ · .*km · /.test(node.props.accessibilityLabel) &&
+        node.props.accessibilityRole === 'button' &&
+        typeof node.props.onPress === 'function',
+    )
+    .map(node => node.props.accessibilityLabel)
+    .filter((label, index, all) => all.indexOf(label) === index);
+}
+
 async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
@@ -73,7 +87,9 @@ test('home shows the prototype values and re-sorts past runs', async () => {
   const home = texts(screen);
   for (const text of [
     '오늘 달리기 좋은 날이에요',
-    '보통',
+    // 컨디션 and 준비도 each under their own name.
+    '컨디션 보통',
+    '준비도 양호',
     '82',
     '7h 12m',
     '58',
@@ -82,26 +98,22 @@ test('home shows the prototype values and re-sorts past runs', async () => {
     '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
     '34.2',
     '5′52″',
+    '8초 단축',
     '8초 빨라졌어요',
-    '5개',
+    '총 5개 · 3개 미리보기',
+    '눌러서 러닝 방식 선택',
   ]) {
     expect(home).toContain(text);
   }
-  // Newest four of my own runs; group runs (10.11) and older ones are left for 전체 기록 보기.
-  expect(home).toContain('10.15 · 5.02km · 29:41');
-  expect(home).toContain('10.05 · 4.10km · 24:30');
-  expect(home).not.toContain('10.11 ·');
-  expect(home).not.toContain('10.03 ·');
+  // Newest four of my own runs as tiles; group runs (10.11) and older ones are left for 전체 기록 보기.
+  const tiles = recordTiles(screen);
+  expect(tiles).toHaveLength(4);
+  expect(tiles[0]).toBe('민락수변공원 출발, 10.15 · 5.02km · 29:41, 5′55″');
+  expect(tiles[3]).toContain('10.05 · 4.10km · 24:30');
+  expect(tiles.join(' ')).not.toContain('10.11 ·');
+  expect(tiles.join(' ')).not.toContain('10.03 ·');
   await press(screen, '거리순');
-  const sorted = screen.root
-    .findAll(
-      node =>
-        typeof node.props.accessibilityLabel === 'string' &&
-        node.props.accessibilityLabel.includes('km ·') &&
-        typeof node.props.onPress === 'function',
-    )
-    .map(node => node.props.accessibilityLabel);
-  expect(sorted[0]).toContain('광안리 해변 롱런');
+  expect(recordTiles(screen)[0]).toContain('광안리 해변 롱런');
   await act(async () => screen.unmount());
 });
 

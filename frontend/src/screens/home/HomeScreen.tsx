@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,40 +13,13 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import {
-  AppText,
-  Backdrop,
-  Button,
-  Icon,
-  IconButton,
-  Logo,
-  Segmented,
-} from '../../components';
-import {
-  useRepositories,
-  useResource,
-  type RecordSort,
-  type Repositories,
-} from '../../data';
-import {
-  formatDotDate,
-  formatDuration,
-  formatKm,
-  formatMonth,
-  formatPace,
-} from '../../format';
+import { AppText, Backdrop, Button, IconButton, Logo } from '../../components';
+import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
-import { CardTitle, GlassCard, ListRow, PillLink } from './parts';
+import { fontFamily, size, spacing, useTheme } from '../../theme';
+import { GlassCard } from './parts';
+import { AnalysisCard, CoursesCard, RecordsCard } from './sections';
 import { HomeWidgets } from './widgets';
-
-const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-
-const sorts: { value: RecordSort; label: string }[] = [
-  { value: 'recent', label: '최신순' },
-  { value: 'distance', label: '거리순' },
-  { value: 'pace', label: '페이스순' },
-];
 
 const loadHome = (repositories: Repositories) =>
   Promise.all([
@@ -89,63 +62,16 @@ function Avatar({
   );
 }
 
-function RecordsCard() {
-  const navigation = useNavigation();
-  const [sort, setSort] = useState<RecordSort>('recent');
-  const records = useResource(
-    useCallback(
-      (repositories: Repositories) => repositories.records.getRecent(sort, 4),
-      [sort],
-    ),
-  );
-  return (
-    <GlassCard>
-      <CardTitle
-        title="과거 러닝 기록"
-        right={
-          <Segmented compact options={sorts} value={sort} onChange={setSort} />
-        }
-      />
-      {records.status === 'ready' ? (
-        <View>
-          {records.data.map(record => (
-            <ListRow
-              key={record.id}
-              title={record.title}
-              detail={`${formatDotDate(record.startedAt)} · ${formatKm(
-                record.distanceM,
-              )}km · ${formatDuration(record.durationSec)}`}
-              value={formatPace(record.averagePaceSecPerKm)}
-              shape={record.shape}
-              onPress={() =>
-                navigation.navigate('RecordDetail', { recordId: record.id })
-              }
-            />
-          ))}
-        </View>
-      ) : (
-        <ActivityIndicator />
-      )}
-      <PillLink
-        title="전체 기록 보기"
-        onPress={() => navigateTo(navigation, 'Records')}
-      />
-    </GlassCard>
-  );
-}
-
-// 2.1 홈: the widget board of 대표화면시안 on the K1 background, then the prototype's analysis, records and saved courses.
+// 2.1 홈: the widget board of 대표화면시안 on the K1 background, then the analysis, records and saved course sections.
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const repositories = useRepositories();
   const home = useResource(useCallback(loadHome, []));
   const insets = useSafeAreaInsets();
   const [me, today, summary, courses, notifications] =
     home.status === 'ready' ? home.data : [];
   const photo = me?.profileImageUrl ?? null;
   const unread = notifications?.some(item => !item.read) ?? false;
-  const peak = summary ? Math.max(...summary.weekdayRatios) : 0;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -180,113 +106,9 @@ export function HomeScreen() {
           </GlassCard>
         ) : null}
         {today ? <HomeWidgets today={today} /> : null}
-        {summary ? (
-          <GlassCard>
-            <CardTitle title="러닝 분석" note={formatMonth(summary.month)} />
-            <View style={styles.stats}>
-              {[
-                {
-                  value: String(summary.runCount),
-                  unit: '회',
-                  label: '러닝',
-                },
-                {
-                  value: formatKm(summary.totalDistanceM, 1),
-                  unit: 'km',
-                  label: '누적 거리',
-                },
-                {
-                  value:
-                    summary.averagePaceSecPerKm === null
-                      ? '– –'
-                      : formatPace(summary.averagePaceSecPerKm),
-                  unit: '',
-                  label: '평균 페이스',
-                },
-              ].map(stat => (
-                <View key={stat.label} style={styles.stat}>
-                  <AppText variant="metricLarge">
-                    {stat.value}
-                    <AppText variant="caption" tone="textTertiary">
-                      {stat.unit}
-                    </AppText>
-                  </AppText>
-                  <AppText style={styles.tiny} tone="textTertiary">
-                    {stat.label}
-                  </AppText>
-                </View>
-              ))}
-            </View>
-            <View style={styles.bars} accessibilityLabel="요일별 러닝 거리">
-              {summary.weekdayRatios.map((ratio, index) => (
-                <View key={weekdays[index]} style={styles.barColumn}>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          height: `${Math.max(ratio, 0.04) * 100}%`,
-                          backgroundColor:
-                            ratio === peak
-                              ? colors.accent
-                              : ratio > 0.05
-                              ? colors.accentSoft
-                              : colors.border,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <AppText style={styles.weekday} tone="textTertiary">
-                    {weekdays[index]}
-                  </AppText>
-                </View>
-              ))}
-            </View>
-            {summary.paceImprovementSec ? (
-              <AppText variant="caption" tone="textSecondary">
-                지난달보다 평균 페이스{' '}
-                <AppText variant="captionStrong" tone="accentText">
-                  {summary.paceImprovementSec > 0
-                    ? `${summary.paceImprovementSec}초 빨라졌어요`
-                    : `${-summary.paceImprovementSec}초 느려졌어요`}
-                </AppText>
-              </AppText>
-            ) : null}
-            <PillLink
-              title="분석 자세히 보기"
-              onPress={() => navigateTo(navigation, 'Analysis')}
-            />
-          </GlassCard>
-        ) : null}
+        {summary ? <AnalysisCard summary={summary} /> : null}
         {home.status === 'ready' ? <RecordsCard /> : null}
-        {courses ? (
-          <GlassCard>
-            <CardTitle title="저장한 코스" note={`${courses.length}개`} />
-            <View>
-              {courses.slice(0, 3).map(course => (
-                <ListRow
-                  key={course.id}
-                  title={course.myAlias ?? course.name}
-                  detail={`${formatKm(course.distanceM, 1)}km · ${
-                    course.expectedMinutes
-                  }분`}
-                  shape={course.shape}
-                  onPress={async () => {
-                    await repositories.courses.choose(course.id);
-                    navigateTo(navigation, 'CourseRun');
-                  }}
-                  trailing={
-                    <Icon name="bookmark" color={colors.accentText} size={16} />
-                  }
-                />
-              ))}
-            </View>
-            <PillLink
-              title="저장한 코스 전체 보기"
-              onPress={() => navigateTo(navigation, 'SavedCourses')}
-            />
-          </GlassCard>
-        ) : null}
+        {courses ? <CoursesCard courses={courses} /> : null}
       </ScrollView>
       {/* The header floats over the cards as they scroll up, as in the prototype. */}
       <SafeAreaView
@@ -296,7 +118,7 @@ export function HomeScreen() {
       >
         <View style={styles.header}>
           <View style={styles.logo}>
-            <Logo width={100} />
+            <Logo width={88} />
           </View>
           <IconButton
             icon="bell"
@@ -345,12 +167,12 @@ const styles = StyleSheet.create({
     paddingBottom: size.tabBar + size.tabBarInset * 2 + spacing.xxxl,
     gap: spacing.xl,
   },
-  // 25 Medium with the second line dimmed, as on the widget home draft.
+  // 25 Medium with a smaller, dimmed second line: it ranks by size, not by fading further.
   greetingText: {
     fontFamily: fontFamily.medium,
-    fontSize: 25,
-    lineHeight: 33,
-    letterSpacing: -0.7,
+    fontSize: 20,
+    lineHeight: 28,
+    letterSpacing: -0.5,
   },
   greeting: {
     fontFamily: fontFamily.medium,
@@ -359,12 +181,4 @@ const styles = StyleSheet.create({
     letterSpacing: -0.7,
     paddingTop: spacing.xl,
   },
-  stats: { flexDirection: 'row', gap: spacing.xs },
-  stat: { flex: 1, gap: spacing.xs },
-  tiny: { fontSize: 10, lineHeight: 14 },
-  bars: { flexDirection: 'row', gap: spacing.sm },
-  barColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
-  barTrack: { width: '100%', height: 64, justifyContent: 'flex-end' },
-  bar: { width: '100%', borderRadius: radius.xs },
-  weekday: { fontSize: 9, lineHeight: 12 },
 });
