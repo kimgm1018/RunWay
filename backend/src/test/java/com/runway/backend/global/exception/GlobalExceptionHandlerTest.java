@@ -22,6 +22,7 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -251,7 +252,17 @@ class GlobalExceptionHandlerTest {
 
     @Test
     void 일시적인_데이터접근_장애는_503이고_원인을_숨긴다() throws Exception {
-        for (String kind : new String[] {"lock", "timeout", "connection", "transaction"}) {
+        for (String kind :
+                new String[] {
+                    "lock",
+                    "timeout",
+                    "connection",
+                    "transaction",
+                    "jdbc-lock-timeout",
+                    "jdbc-statement-timeout",
+                    "jdbc-serialization",
+                    "jdbc-deadlock"
+                }) {
             mvc.perform(
                             get("/__test/data-access")
                                     .param("kind", kind)
@@ -266,6 +277,17 @@ class GlobalExceptionHandlerTest {
                                                     org.hamcrest.Matchers.containsString(
                                                             "running_sessions"))));
         }
+    }
+
+    /** JdbcTemplate이 분류하지 못한 SQL 오류 중 재시도 대상이 아닌 SQLState는 500이다. */
+    @Test
+    void 분류되지_않은_일반_SQL_오류는_500이다() throws Exception {
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "jdbc-other")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
     }
 
     @Test
@@ -372,6 +394,17 @@ class GlobalExceptionHandlerTest {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "database down");
         }
 
+        /**
+         * JdbcTemplate이 PostgreSQL 오류를 분류하지 못했을 때와 같은 예외. 현재 기본 변환기에서 실제로 이렇게 남는 것은 55P03이며, 나머지
+         * SQLState는 변환기 설정이 바뀌어도 503을 유지하는지 보는 방어 사례다.
+         */
+        private static UncategorizedSQLException uncategorized(String sqlState) {
+            return new UncategorizedSQLException(
+                    "PreparedStatementCallback",
+                    "SELECT id FROM running_sessions WHERE id = ? FOR UPDATE",
+                    new java.sql.SQLException("lock on running_sessions", sqlState));
+        }
+
         @GetMapping("/__test/data-access")
         void dataAccess(@RequestParam String kind) {
             String detail = "lock on running_sessions";
@@ -380,6 +413,11 @@ class GlobalExceptionHandlerTest {
                 case "timeout" -> new QueryTimeoutException(detail);
                 case "connection" -> new DataAccessResourceFailureException(detail);
                 case "transaction" -> new CannotCreateTransactionException(detail);
+                case "jdbc-lock-timeout" -> uncategorized("55P03");
+                case "jdbc-statement-timeout" -> uncategorized("57014");
+                case "jdbc-serialization" -> uncategorized("40001");
+                case "jdbc-deadlock" -> uncategorized("40P01");
+                case "jdbc-other" -> uncategorized("P0001");
                 default -> new DataIntegrityViolationException(detail);
             };
         }

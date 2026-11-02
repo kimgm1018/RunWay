@@ -735,6 +735,27 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 
 W07 본문도 32 KiB를 넘지 않는다. MessageClient는 envelope까지 32 KiB이므로 생산 기기는 그 오버헤드까지 반영해 더 작은 payload를 생성한다. HTTP Content-Length만 믿지 않고 실제 수신 바이트 상한을 검증한다.
 
+### 서버 검사 순서와 확정 정책 (S15P31E105-253 확정, 2026-11-02)
+
+지원 schemaVersion은 `"1"`이다. 서버는 아래 순서로 검사하며, 앞 단계에서 거절하면 뒤 단계를 수행하지 않고 어떤 행도 남기지 않는다.
+
+1. **크기:** Content-Length가 32 KiB(32,768바이트)를 넘으면 읽기 전에, Content-Length가 없으면(chunked 등) 실제로 읽은 바이트가 넘을 때 413 FILE_TOO_LARGE. Content-Length가 실제보다 작으면 표시된 길이까지만 읽으므로 잘린 본문은 400이다.
+2. **400 VALIDATION_ERROR:** JSON 구문, 중복 키, NaN/Infinity, 최상위 객체 아님, 최상위 필수 필드 누락, 최상위 자료형(id는 UUID v4 문자열, deviceId·sessionId는 양의 int64 정수, schemaVersion·payloadHash는 문자열, items는 배열), payloadHash 형식(소문자 hex 64자리 아님).
+3. **422 INVALID_BATCH:** 최상위 추가 필드, 지원하지 않는 schemaVersion, 빈 items, items 안의 모든 위반(객체 아님·미지원 type·키 누락/추가·자료형·단위/범위·DB 자릿수 초과·isHrMeasured 불일치·측정값 없음·measuredAt 형식), 그리고 해시 불일치. measuredAt은 `Z`로 끝나는 UTC이며 소수 초는 6자리(마이크로초)까지다. 24:00·윤초(:60)는 거절한다. 좌표는 PostGIS geography(double)로 저장하므로 별도 자릿수 제한이 없다. 지원하지 않는 키 이름은 오류 details에 되돌려 보내지 않는다. 숫자는 DB NUMERIC 자릿수(심박 7,2 / 케이던스 8,2 / 속도 10,3 / 경사 7,3 / 거리·진행 12,2 / 정확도·고도 10,2)를 넘으면 반올림하지 않고 거절한다.
+4. **트랜잭션 안:** 세션(FOR NO KEY UPDATE) → 본인 기기(FOR SHARE) 순서로 잠근다. 회원 행은 잠그지 않는다(로그인·프로필 저장의 회원 행 잠금과 간섭 방지). 건강 동의는 세션·기기 잠금을 얻은 뒤 다시 읽어, 잠금을 기다리는 동안 커밋된 철회는 반영한다. 다만 그 조회 이후 이 요청의 커밋 전까지 커밋된 철회는 반영되지 않을 수 있으며, 철회와의 엄격한 순서 보장은 W04에서 정한다.
+   - 탈퇴·없는 회원: 401 UNAUTHORIZED.
+   - 없는·삭제된·타인 세션: 403 SESSION_FORBIDDEN. 존재 여부를 구분해 알리지 않는다.
+   - 없는·타인 기기: 403 DEVICE_FORBIDDEN.
+   - 건강정보 동의(`users.health_data_access`)가 DISAGREE이고 items에 METRIC_SAMPLE이 하나라도 있으면 batch 전체를 403 CONSENT_REQUIRED로 거절한다. GPS_POINT만 있는 batch는 받는다. 위치 동의는 가입 필수이므로 다시 검사하지 않는다. 이 검사는 5의 재응답보다 먼저이므로, 저장 후 응답이 유실된 뒤 동의를 철회하면 같은 batch 재전송도 403이며 폰은 해당 batch를 저장 미확인으로 남긴다.
+5. **이미 저장된 batch:** 같은 `(deviceId, id)` 행이 있으면 session·schemaVersion·해시가 모두 같을 때 기존 ACK(200)를 반환하고, 하나라도 다르면 409 BATCH_HASH_CONFLICT다. 이 재응답은 기기 해제·세션 종료·폰 인계 뒤에도 적용한다. 기존 행이 COMMITTED가 아니면(이전 프로토콜의 RECEIVED/REJECTED) 같은 ID로 저장할 수 없으므로 409다.
+6. **새 batch 조건:**
+   - W03으로 해제된 기기: 403 DEVICE_FORBIDDEN.
+   - 기기가 세션의 controlDeviceId·relayDeviceId가 아님: 폰 인계(PHONE_FALLBACK) 세션에서 이 세션의 제어 기록이 있는 본인 워치이면 409 CONTROL_DEVICE_CHANGED, 그 밖에는 403 SESSION_FORBIDDEN.
+   - 세션 상태: RUNNING·PAUSED는 받는다(END 승인 후 결과 확정 전 포함). READY는 START 명령이 PENDING/UNKNOWN일 때만 받는다(워치가 이미 측정을 시작했을 수 있음). 그 밖의 READY, COMPLETED, CANCELLED, INTERRUPTED, 기존 기록(state_version=0)은 409 INVALID_SESSION_STATE.
+7. **저장:** sync_batches를 COMMITTED·committed_at과 함께 넣고 원본 행을 넣은 뒤 커밋한다. 다른 요청이 같은 키를 먼저 커밋했으면 그 행을 다시 읽어 5와 같이 판정한다.
+
+DB 쓰기 오류는 재시도 가능한 장애면 503, 그 밖에는 500이며 batch 기록과 원본이 모두 롤백된다. 오류 로그에는 SQLState만 남기고 드라이버 메시지의 바인딩 값은 남기지 않는다. 세션·기기 잠금 대기는 서버 공통 잠금 대기 상한(기본 5초, S15P31E105-294)을 따르며, 넘으면 503 SERVICE_UNAVAILABLE이고 아무것도 저장하지 않는다. 클라이언트는 위 재시도 규칙대로 같은 ID·본문으로 다시 보낸다.
+
 ACK 대기 초기값은 10초, 추가 시도는 1초·2초와 jitter를 두고 최대 2회다(구간별 최초 포함 3회). Retry-After가 있으면 우선하며 대기 중 새로운 batch로 제한을 우회하지 않는다. 상한 이후 저장 미확인으로 표시한다. timeout은 저장 실패의 증거가 아니다. 세션 종료 후 최대 2분의 마무리 전송에도 개별 시도 상한을 적용하고 인터넷 단절 후 장기 복구는 요구하지 않는다.
 
 생산 기기당 미확인 batch 64개의 ACK 대기 버퍼를 초기값으로 둔다. 상한·반복 실패 시 미확인 payload를 자동 폐기하지 않고 새 수집·자동 코칭을 중단해 실패를 표시하며 가능한 종료 조작은 유지한다. DB 용량·기기 부하·AI 유효 입력 기간은 구현 시 검증한다.

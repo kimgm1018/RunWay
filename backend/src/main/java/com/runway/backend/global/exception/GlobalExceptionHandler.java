@@ -2,6 +2,7 @@ package com.runway.backend.global.exception;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpMethod;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -202,6 +204,20 @@ public class GlobalExceptionHandler {
                 "SERVICE_UNAVAILABLE",
                 "일시적으로 처리할 수 없습니다.",
                 Map.of());
+    }
+
+    /**
+     * JdbcTemplate은 기본 설정에서 PostgreSQL의 잠금 대기 초과(55P03)를 분류하지 못하고 UncategorizedSQLException으로 남긴다. JPA 경로는
+     * 같은 장애를 일시적 장애로 바꾸므로, 저장소 기술과 무관하게 같은 503이 되도록 SQLState로 판별한다(S15P31E105-253, 공통 대기 상한
+     * S15P31E105-294). 판별 목록은 {@link RetryableSqlStates}를 따른다. 그 밖의 분류되지 않은 SQL 오류는 500을 유지한다.
+     */
+    @ExceptionHandler(UncategorizedSQLException.class)
+    ResponseEntity<ApiErrorResponse> handleUncategorizedSql(UncategorizedSQLException exception) {
+        SQLException cause = exception.getSQLException();
+        if (cause != null && RetryableSqlStates.contains(cause.getSQLState())) {
+            return handleTransientDataAccess(exception);
+        }
+        return handleUnexpected(exception);
     }
 
     @ExceptionHandler(ResponseStatusException.class)
