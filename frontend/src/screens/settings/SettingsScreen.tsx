@@ -467,6 +467,12 @@ export function SettingsScreen() {
                     size="medium"
                     onPress={() => navigation.navigate('HealthPoc')}
                   />
+                  <Button
+                    title="지도 확인"
+                    variant="secondary"
+                    size="medium"
+                    onPress={() => navigation.navigate('MapPoc')}
+                  />
                 </Card>
               ) : null}
             </ThemeProvider>

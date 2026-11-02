@@ -83,6 +83,7 @@ ADR에는 선택 이유를 기록하고, 구체적인 계약은 해당 기준 �
 | [ADR-0015](0015-redis-refresh-token-store.md) | Refresh Token과 로그인 계열 상태는 Redis에 저장한다 | 채택 | — (ADR-0014의 저장소 구체화) |
 | [ADR-0016](0016-image-volume-storage.md) | 이미지 바이너리는 서버 볼륨에 저장한다 | 채택 | — |
 | [ADR-0017](0017-redis-login-attempt-store.md) | 로그인 실패 횟수와 잠금 상태도 인증용 Redis에 저장한다 | 채택 | — (ADR-0015의 후속 범위 확장, 기존 결정 유지) |
+| [ADR-0018](0018-naver-map-sdk.md) | 앱 지도는 네이버 지도 SDK로 그린다 | 채택 | — |
 
 새 ADR을 추가할 때 번호에는 문서 링크를 연결하고, 대체 관계에는 `대체함: ADR-NNNN` 또는 `대체됨: ADR-NNNN`을 문서 링크와 함께 적는다. 관계가 없으면 `—`로 표시한다.
 

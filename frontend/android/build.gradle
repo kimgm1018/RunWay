@@ -18,4 +18,11 @@ buildscript {
     }
 }
 
+allprojects {
+    repositories {
+        // Naver Map SDK is not on Maven Central (ADR-0018).
+        maven { url "https://repository.map.naver.com/archive/maven" }
+    }
+}
+
 apply plugin: "com.facebook.react.rootproject"
