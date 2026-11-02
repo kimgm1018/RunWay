@@ -177,6 +177,23 @@ export function createCrewMock({
       addMember(id, fixtures.members.me);
       return respond({ id });
     },
+    leave: crewId => {
+      const crew = find(crewId);
+      if (membersOf(crew, joined.get(crewId) ?? [])[0].userId === me) {
+        return fail(
+          new DataError('OWNER_CANNOT_LEAVE', '크루장은 바로 나갈 수 없어요'),
+        );
+      }
+      update(crewId, {
+        myMembership: null,
+        memberCount: Math.max(0, crew.memberCount - 1),
+      });
+      joined.set(
+        crewId,
+        (joined.get(crewId) ?? []).filter(person => person.userId !== me),
+      );
+      return respond(undefined);
+    },
     decideJoinRequest: (crewId, userId, approve) => {
       const crew = find(crewId);
       const request = (requests.get(crewId) ?? []).find(

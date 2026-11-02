@@ -274,9 +274,7 @@ test('3.1b shows the server recommendation and saves it with C07', async () => {
   await press(screen, '코스 추천 받기');
   let page = texts(screen);
   expect(page).toContain('1 / 1');
-  expect(hasButton(screen, '부산광역시 수영구 코스, 코스 정보 보기')).toBe(
-    true,
-  );
+  expect(hasButton(screen, '부산 수영구 코스, 코스 정보 보기')).toBe(true);
 
   await press(screen, '내 코스에 저장');
   expect(sent('PUT')).toEqual(['/courses/21/bookmark']);
@@ -285,7 +283,7 @@ test('3.1b shows the server recommendation and saves it with C07', async () => {
   // 코스 선택 plans 2.0 on the server course.
   await press(screen, '코스 선택');
   page = texts(screen);
-  expect(page).toContain('부산광역시 수영구 코스');
+  expect(page).toContain('부산 수영구 코스');
   expect(page).toContain('오늘의 러닝 전략');
   await act(async () => screen.unmount());
 });

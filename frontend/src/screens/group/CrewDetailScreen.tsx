@@ -344,7 +344,9 @@ export function CrewDetailScreen() {
     }
   }, [loaded]);
   const [allMembers, setAllMembers] = useState(false);
-  const [sheet, setSheet] = useState<'full' | 'sent' | 'joined' | null>(null);
+  const [sheet, setSheet] = useState<
+    'full' | 'sent' | 'joined' | 'leave' | 'ownerLeave' | null
+  >(null);
   const [busy, setBusy] = useState(false);
 
   const requestJoin = async (current: CrewDetail) => {
@@ -358,8 +360,31 @@ export function CrewDetailScreen() {
     } catch (error) {
       if (errorCode(error) === 'CREW_CAPACITY_EXCEEDED') {
         setSheet('full');
+      } else if (errorCode(error) === 'ALREADY_MEMBER_OR_PENDING') {
+        // Asked from another device already: show where it stands.
+        toast('이미 가입했거나 승인을 기다리는 크루예요');
+        reload();
       } else {
         toast('가입 신청을 보내지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  // M08: the leader is asked to stay, as the server lets a leader leave only with a successor.
+  const leave = async (current: CrewDetail) => {
+    setSheet(null);
+    setBusy(true);
+    try {
+      await crews.leave(current.id);
+      changed();
+      toast(`‘${current.name}’에서 나왔어요`);
+      navigateTo(navigation, 'MyCrews');
+    } catch (error) {
+      if (errorCode(error) === 'OWNER_CANNOT_LEAVE') {
+        setSheet('ownerLeave');
+      } else {
+        toast('크루에서 나가지 못했어요. 잠시 후 다시 시도해 주세요');
       }
     } finally {
       setBusy(false);
@@ -538,6 +563,19 @@ export function CrewDetailScreen() {
               </Pressable>
             ) : null}
           </Card>
+          {crew.myMembership === 'MEMBER' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="크루 나가기"
+              disabled={busy}
+              onPress={() => setSheet(crew.amOwner ? 'ownerLeave' : 'leave')}
+              style={styles.leave}
+            >
+              <AppText variant="body" tone="danger" style={styles.underline}>
+                크루 나가기
+              </AppText>
+            </Pressable>
+          ) : null}
         </ScrollView>
       )}
       {footer ? (
@@ -587,6 +625,31 @@ export function CrewDetailScreen() {
               body={`‘${crew.name}’는 바로 가입 크루예요. 이제 내 크루에서 그룹런을 볼 수 있어요.`}
             >
               <FooterButton title="내 크루로" primary onPress={toMyCrews} />
+            </SheetBody>
+          ) : crew && sheet === 'leave' ? (
+            <SheetBody
+              icon="alert"
+              title="크루에서 나갈까요?"
+              body={`‘${crew.name}’의 그룹런과 구성원 목록에서 빠져요. 다시 함께하려면 가입 신청을 새로 보내야 해요.`}
+            >
+              <FooterButton title="취소" onPress={() => setSheet(null)} />
+              <FooterButton
+                title="나가기"
+                primary
+                onPress={() => leave(crew)}
+              />
+            </SheetBody>
+          ) : crew && sheet === 'ownerLeave' ? (
+            <SheetBody
+              icon="alert"
+              title="크루장은 바로 나갈 수 없어요"
+              body="크루장을 다른 구성원에게 넘긴 뒤에 나갈 수 있어요. 크루장 넘기기는 준비 중이에요."
+            >
+              <FooterButton
+                title="닫기"
+                primary
+                onPress={() => setSheet(null)}
+              />
             </SheetBody>
           ) : null}
         </BottomSheet>
@@ -665,6 +728,7 @@ const styles = StyleSheet.create({
   },
   pace: { fontFamily: fontFamily.medium, fontSize: 16, lineHeight: 22 },
   more: { alignSelf: 'flex-start', paddingVertical: spacing.xs },
+  leave: { alignSelf: 'center', paddingVertical: spacing.md },
   underline: { textDecorationLine: 'underline' },
   footer: {
     position: 'absolute',

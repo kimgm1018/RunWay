@@ -66,7 +66,7 @@ function requestLine(request: CrewJoinRequest, now: Date) {
     ? `${formatRelative(request.requestedAt, now)} 신청`
     : `${formatDotDate(request.requestedAt)} 신청`;
   return [
-    levelLabels[request.level],
+    request.level ? levelLabels[request.level] : null,
     request.recent5kPaceSecPerKm
       ? `최근 5km ${formatPace(request.recent5kPaceSecPerKm)}`
       : null,
@@ -106,7 +106,11 @@ function RequestRow({
         <AppText variant="bodyStrong">{request.nickname.slice(0, 1)}</AppText>
       </View>
       <View style={styles.flex}>
-        <AppText variant="bodyStrong">{`${request.nickname} · ${request.loginId}`}</AppText>
+        <AppText variant="bodyStrong">
+          {request.loginId
+            ? `${request.nickname} · ${request.loginId}`
+            : request.nickname}
+        </AppText>
         <AppText variant="caption" tone="textSecondary">
           {requestLine(request, clock.now())}
         </AppText>
@@ -203,11 +207,17 @@ export function CrewJoinRequestsScreen() {
       );
       reloadAll();
     } catch (error) {
+      const code = errorCode(error);
       toast(
-        errorCode(error) === 'CREW_CAPACITY_EXCEEDED'
+        code === 'CREW_CAPACITY_EXCEEDED'
           ? '정원이 가득 차서 승인할 수 없어요'
+          : code === 'NOT_PENDING'
+          ? '이미 처리된 신청이에요'
           : '처리하지 못했어요. 잠시 후 다시 시도해 주세요',
       );
+      if (code === 'NOT_PENDING') {
+        reloadAll();
+      }
     } finally {
       setBusy(false);
     }

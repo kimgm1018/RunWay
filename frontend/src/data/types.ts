@@ -372,17 +372,20 @@ export type CrewDetail = CrewListItem & {
 export type CrewDraft = {
   name: string;
   area: string;
+  // The picked place's address, which the server reads its region from.
+  address: string | null;
   description: string | null;
   joinPolicy: CrewJoinPolicy;
   capacity: number;
 };
 
 // 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
+// M05 has only the nickname, so loginId and level are null for server requests.
 export type CrewJoinRequest = {
   userId: string;
   nickname: string;
-  loginId: string;
-  level: SelfReportedLevel;
+  loginId: string | null;
+  level: SelfReportedLevel | null;
   recent5kPaceSecPerKm: number | null;
   // 첫 크루: the applicant has never been in a crew.
   firstCrew: boolean;
@@ -764,6 +767,8 @@ export type Repositories = {
     listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
     // M03: I become the leader and the only member.
     create: (draft: CrewDraft) => Promise<{ id: string }>;
+    // M08 크루 나가기. The leader cannot leave this way (OWNER_CANNOT_LEAVE).
+    leave: (crewId: string) => Promise<void>;
     // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
     decideJoinRequest: (
       crewId: string,
