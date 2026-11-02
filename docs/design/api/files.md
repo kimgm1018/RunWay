@@ -5,6 +5,8 @@
 | ID | 이름 | Method | Endpoint | 단계 | 인증 |
 |---|---|---|---|---|---|
 | [F01](#f01-이미지-업로드) | 이미지 업로드 | POST | `/images` | 1차 MVP | 회원 |
+| [F02](#f02-이미지-조회) | 이미지 조회 | GET | `/images/{imageId}` | 1차 MVP | 없음 |
+
 
 ## ERD 응답 대응 기준
 
@@ -25,7 +27,7 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 | 관련 요구사항 | USR-002 / MAT-003 / COM-003 |
 | 관련 화면 | 8.2 프로필 사진, 2.P′ 프로필 사진 추가, 6.3 크루 대표 사진, 7.3 결과 사진 (화면 설계 v10) |
 | 미정 사항 | 없음(MVP 최소) |
-| 비고 | 저장소·형식·크기·imageId/key는 217 확정. 미리보기 URL 서빙·도메인 연결은 후속 |
+| 비고 | 저장소·형식·크기·imageId/key는 217 확정. 조회 URL은 F02 |
 
 ### 설명
 
@@ -65,18 +67,18 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 ```json
 {
   "imageId": "550e8400-e29b-41d4-a716-446655440000",
-  "url": null
+  "url": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `imageId` | string (UUID) | O | 후속 API(U05/M03/CMT01 등)에 넘기는 참조. 저장 키는 `images/{purpose}/{userId}/{imageId}.jpg\|png` |
-| `url` | string / null | O | MVP에서는 항상 null. 미리보기 URL 서빙은 후속 |
+| `url` | string | O | [F02](#f02-이미지-조회) 상대 경로 `/api/v1/images/{imageId}` |
 
 **사용 흐름과 응답 판단**
 
-반환한 `imageId`를 U05/M03/CMT01에 넘겨 연결할 수 있어야 한다(연결 구현은 후속). 성공 시 빈 본문은 허용하지 않는다.
+반환한 `imageId`를 U05/M03/CMT01에 넘겨 연결할 수 있어야 한다(연결 구현은 도메인별). 성공 시 빈 본문은 허용하지 않는다.
 
 ### 오류 응답
 
@@ -94,9 +96,9 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 ### 처리 규칙
 
 - 저장 경로(image_key): `images/{purpose}/{userId}/{imageId}.jpg` 또는 `.png` (`purpose`는 소문자 path segment).
-- 새 업로드는 업로더 본인이 후속 API로 연결할 때만 사용한다. 연결 시 소유권·purpose·대상 수정 권한 검사는 도메인 API에서 수행한다(후속).
-- 연결 후 이미지 조회는 해당 리소스의 계정·게시물 접근 정책을 따른다.
-- 업로드 후 미연결 이미지 정리는 후속(제안).
+- F02 조회용으로 동일 파일을 `images/by-id/{imageId}.jpg` 또는 `.png`에도 둔다.
+- 새 업로드는 업로더 본인이 후속 API로 연결할 때만 사용한다. 연결 시 소유권·purpose·대상 수정 권한 검사는 도메인 API에서 수행한다.
+- 업로드 후 조회는 [F02](#f02-이미지-조회)를 쓴다. 미연결 이미지 정리는 후속(제안).
 
 ### 상태값
 
@@ -104,6 +106,43 @@ users.profile_image_key, crews.image_key, posts.image_key는 VARCHAR(1024)이며
 
 ### 미정 사항
 
-- [ ] 미리보기 `url` 서빙·접근 제어
 - [ ] 미연결(orphan) 이미지 정리
-- [ ] U05/M03/CMT01 `imageId` → `image_key` 저장 연동
+- [ ] M03/CMT01 `imageId` → `image_key` 저장 연동(프로필 U05는 244에서 연결)
+
+## F02 이미지 조회
+
+`GET` `/api/v1/images/{imageId}`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 없음 (공개) |
+| 관련 | F01, U04/U05 `profileImageUrl`, 게시물·크루 표시 |
+| 미정 사항 | 없음(MVP 최소) |
+| 비고 | 서버 볼륨에서 바이너리를 읽는다. S3 없음([ADR-0016](../../adr/0016-image-volume-storage.md)) |
+
+### 설명
+
+F01으로 저장한 이미지 파일을 `imageId`로 내려준다. 게시글·타인 프로필 등에서 URL만으로 표시할 수 있도록 **JWT를 요구하지 않는다**. 식별자는 UUID라 열거·추측이 어렵다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `imageId` | string (UUID) | O | F01 응답의 imageId |
+
+### Response
+
+`200 OK` — `image/jpeg` 또는 `image/png` 바이너리 본문.
+
+### 오류 응답
+
+| HTTP·코드 | 오류 종류 | 발생 조건 |
+|---|---|---|
+| `400 VALIDATION_ERROR` | 입력 | imageId가 UUID 형식이 아님 |
+| `404 IMAGE_NOT_FOUND` | 대상 없음 | 볼륨에 해당 파일 없음 |
+
+### 처리 규칙
+
+- `images/by-id/{imageId}.jpg` 또는 `.png`가 있으면 그 파일을 반환한다. 없으면 `IMAGE_NOT_FOUND`.
+- 볼륨 전체 탐색은 하지 않는다. path traversal 방지를 위해 `imageId`는 UUID만 허용한다.

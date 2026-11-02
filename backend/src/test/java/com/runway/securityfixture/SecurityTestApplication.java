@@ -54,6 +54,11 @@ public class SecurityTestApplication {
             return "public-handler";
         }
 
+        @GetMapping("/api/v1/images/{imageId}")
+        String publicImage() {
+            return "public-image";
+        }
+
         @GetMapping("/__test/who")
         Map<String, Long> who(@AuthenticationPrincipal AuthenticatedUser user) {
             return Map.of("id", user.id());

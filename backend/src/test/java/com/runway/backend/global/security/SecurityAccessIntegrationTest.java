@@ -42,6 +42,19 @@ class SecurityAccessIntegrationTest {
         mvc.perform(post("/api/v1/auth/login-id/availability"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/auth/login/extra")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/images/550e8400-e29b-41d4-a716-446655440000"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("public-image"));
+        mvc.perform(
+                        get("/api/v1/images/550e8400-e29b-41d4-a716-446655440000")
+                                .header("Authorization", "Bearer invalid"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/images/not-a-uuid"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("public-image"));
+        mvc.perform(post("/api/v1/images/550e8400-e29b-41d4-a716-446655440000"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/images/a/b")).andExpect(status().isUnauthorized());
     }
 
     @Test

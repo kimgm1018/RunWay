@@ -201,6 +201,8 @@ public class SecurityConfig {
         return isPublicEndpoint(request.getMethod(), path);
     }
 
+    private static final String PUBLIC_IMAGE_PREFIX = "/api/v1/images/";
+
     public static boolean isPublicEndpoint(String method, String path) {
         return (List.of("GET", "HEAD").contains(method) && path.equals("/"))
                 || (method.equals("POST")
@@ -210,7 +212,17 @@ public class SecurityConfig {
                                         "/api/v1/auth/refresh",
                                         "/api/v1/auth/logout")
                                 .contains(path))
-                || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"));
+                || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"))
+                || (List.of("GET", "HEAD").contains(method) && isPublicImagePath(path));
+    }
+
+    /** F02: GET/HEAD `/api/v1/images/{imageId}` only. UUID 검증은 컨트롤러에서 400으로 처리한다. */
+    private static boolean isPublicImagePath(String path) {
+        if (!path.startsWith(PUBLIC_IMAGE_PREFIX)) {
+            return false;
+        }
+        String imageId = path.substring(PUBLIC_IMAGE_PREFIX.length());
+        return !imageId.isEmpty() && imageId.indexOf('/') < 0;
     }
 
     private static boolean isDocumentationRequest(HttpServletRequest request) {

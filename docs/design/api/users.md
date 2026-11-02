@@ -334,17 +334,16 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 | 인증 | 회원 |
 | 관련 요구사항 | USR-001~007 / SYS-002 |
 | 관련 화면 | 2.1 홈 인사, 7.4b 내 프로필, 8.2 프로필 수정 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 미정 사항 | 없음(MVP) |
+| 비고 | 러닝 프로필(U06/U07)과 구분. 온보딩은 `onboardingCompleted` |
 
 ### 설명
 
-온보딩 설정 상태는 연결된 기본 프로필과 선호 데이터로 판단하는 안.
+본인 기본 계정 프로필을 조회한다. 온보딩 완료는 U01·U06과 같이 러닝 수준과 유효 평소 페이스 저장 여부로 판정한다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-- 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 로그인 사용자(JWT) 본인만.
 
 ### Path Parameters
 
@@ -358,10 +357,9 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 
 없음
 
-
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
@@ -370,56 +368,32 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
   "gender": "MALE",
   "birthDate": "2000-01-01",
   "loginId": "runner01",
-  "status": "ACTIVE"
+  "status": "ACTIVE",
+  "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000",
+  "onboardingCompleted": false
 }
 ```
 
-응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `id` | integer (int64) | O | `users.id` (BIGINT). 저장 값은 NULL 불가. |
-| `nickname` | string | O | `users.nickname` (VARCHAR(10)). 저장 값은 NULL 불가. |
-| `gender` | string | O | `users.gender` (ENUM('MALE', 'FEMALE')). 저장 값은 NULL 불가. 허용값: MALE, FEMALE. |
-| `birthDate` | string (YYYY-MM-DD) | O | `users.birth_date` (DATE). 저장 값은 NULL 불가. |
-| `profileImageUrl` | string / null | X | users.profile_image_key에서 파생하는 조회 URL. 키가 NULL이면 null. URL 생성 방식은 확인 필요. |
-| `loginId` | string | O | `users.login_id` (VARCHAR(16)). 저장 값은 NULL 불가. |
-| `status` | string | O | `users.account_status` (ENUM('ACTIVE', 'WITHDRAWN')). 저장 값은 NULL 불가. 허용값: ACTIVE, WITHDRAWN. |
-| `onboarding` | object | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
-
-
-**사용 흐름과 응답 판단**
-
-초기 설정 완료 여부는 U01의 수준·유효 페이스 저장 기준을 따른다. onboarding 객체의 상세 응답 구조는 별도이며 빈 객체로 완료를 추정하지 않는다.
+| `id` | integer (int64) | O | `users.id` |
+| `nickname` | string | O | `users.nickname` |
+| `gender` | string | O | MALE / FEMALE |
+| `birthDate` | string (YYYY-MM-DD) | O | `users.birth_date` |
+| `profileImageUrl` | string / null | O | [F02](files.md#f02-이미지-조회) 경로. `profile_image_key`가 없으면 null |
+| `loginId` | string | O | `users.login_id` |
+| `status` | string | O | ACTIVE / WITHDRAWN (`account_status`) |
+| `onboardingCompleted` | boolean | O | 러닝 수준·유효 페이스가 있으면 true |
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
-| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+| HTTP·코드 | 오류 종류 | 발생 조건 |
 |---|---|---|
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
-
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
 
 ### 처리 규칙
 
-- 온보딩 설정 상태는 연결된 기본 프로필과 선호 데이터로 판단하는 안.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
-
-### 상태값
-
-- PUBLIC / PRIVATE 또는 기능별 ERD CHECK 값, 해당 없으면 별도 상태 없음.
-
-### 미정 사항
-
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
-
+- 본인 행만 조회한다. phone·password는 반환하지 않는다.
 
 ## U05 내 프로필 수정
 
@@ -431,17 +405,16 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 | 인증 | 회원 |
 | 관련 요구사항 | USR-001~007 / SYS-002 |
 | 관련 화면 | 1.5 초기 설정 1/2, 8.2 프로필 수정 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 미정 사항 | 없음(MVP) |
+| 비고 | 부분 수정. 러닝 수준은 U07 |
 
 ### 설명
 
-초기 설정 1/2(닉네임·성별·생년월일)와 프로필 수정(사진·닉네임·성별·생년월일)에 사용한다. 러닝 수준은 [U07](#u07-러닝-프로필-저장부분-수정)로 따로 저장한다.
+닉네임·성별·생년월일·프로필 사진을 부분 수정한다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-- 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 로그인 사용자(JWT) 본인만.
 
 ### Path Parameters
 
@@ -455,18 +428,20 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `nickname` | string / object (확인 필요) | X | ERD 및 화면 요구사항을 기준으로 확정 필요 |
-| `gender` | string / object (확인 필요) | X | 사용자 성별(허용값 미정) |
-| `birthDate` | string (YYYY-MM-DD) | X | 생년월일. 심박 구간·권장 페이스 계산에 사용 |
-| `profileImageId` | string (UUID) | X | [F01 이미지 업로드](files.md#f01-이미지-업로드)로 받은 이미지 ID. null이면 사진 삭제 |
+| `nickname` | string | X | U15와 동일: 코드포인트 2~10·공백 불가·중복 불가 |
+| `gender` | string | X | MALE / FEMALE |
+| `birthDate` | string (YYYY-MM-DD) | X | 오늘(UTC) 이하 |
+| `profileImageId` | string (UUID) / null | X | F01 PROFILE 업로드 ID. null이면 사진 삭제. 생략 시 유지 |
 
 ```json
-{}
+{
+  "nickname": "러너"
+}
 ```
 
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
@@ -475,60 +450,36 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
   "gender": "MALE",
   "birthDate": "2000-01-01",
   "updatedAt": "2026-10-24T09:00:00Z",
-  "profileImageUrl": null
+  "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000",
+  "onboardingCompleted": true
 }
 ```
 
-응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `id` | integer (int64) | O | `users.id` (BIGINT). 저장 값은 NULL 불가. |
-| `nickname` | string | O | `users.nickname` (VARCHAR(10)). 저장 값은 NULL 불가. |
-| `gender` | string | O | `users.gender` (ENUM('MALE', 'FEMALE')). 저장 값은 NULL 불가. 허용값: MALE, FEMALE. |
-| `birthDate` | string (YYYY-MM-DD) | O | `users.birth_date` (DATE). 저장 값은 NULL 불가. |
-| `updatedAt` | string (ISO 8601 UTC) | O | `users.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
-| `profileImageUrl` | string / null | O | 적용된 프로필 사진 조회 참조. 미등록은 null. URL 생성 정책 확인 필요. |
-
-**사용 흐름과 응답 판단**
-
-수정된 프로필과 사진을 바로 다시 그릴 수 있어야 한다.
-
-위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
+| `id` | integer (int64) | O | `users.id` |
+| `nickname` | string | O | 저장 후 닉네임 |
+| `gender` | string | O | 저장 후 성별 |
+| `birthDate` | string (YYYY-MM-DD) | O | 저장 후 생년월일 |
+| `updatedAt` | string (ISO 8601 UTC) | O | `users.updated_at` |
+| `profileImageUrl` | string / null | O | F02 경로 또는 null |
+| `onboardingCompleted` | boolean | O | U04와 동일 판정 |
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
-| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+| HTTP·코드 | 오류 종류 | 발생 조건 |
 |---|---|---|
-| `400 INVALID_PROFILE` | 입력 값 | 닉네임·생년월일·성별 등 수정 값이 명세/ERD의 형식·허용 코드·길이와 맞지 않음 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
-
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
+| `400 INVALID_PROFILE` | 입력 값 | 닉네임·생년월일·성별 형식 불일치 |
+| `409 NICKNAME_DUPLICATED` | 중복 | 다른 사용자가 쓰는 닉네임 |
+| `422 INVALID_IMAGE` | 이미지 | 없거나 본인 PROFILE 업로드가 아닌 imageId |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+| `400 VALIDATION_ERROR` | 입력 형식 | JSON·자료형 오류 |
 
 ### 처리 규칙
 
-- 닉네임은 U15의 확정 정책을 공유한다: Unicode 코드포인트2~10자·공백 불가·중복 불가. DB UNIQUE는 가입과 수정에 공통 적용된다.
-- 닉네임과 프로필 데이터만 수정한다. 닉네임 외 프로필 값과 U05 세부 오류 계약은 기존 미정 상태를 유지한다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
-
-### 상태값
-
-- PUBLIC / PRIVATE 또는 기능별 ERD CHECK 값, 해당 없으면 별도 상태 없음.
-
-### 미정 사항
-
-- [x] 닉네임 중복 불가. U15와 같은 확정 정책 및 DB UNIQUE를 따른다.
-- [ ] 8.2 화면의 '연령대' 선택 UI를 생년월일 입력으로 바꿀지 디자인 확인
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
-
+- 요청에 있는 필드만 변경한다. 생략 필드는 유지한다.
+- `profileImageId`가 있으면 `images/profile/{userId}/{imageId}.jpg|png` 존재·소유를 검사한 뒤 `profile_image_key`에 저장한다.
+- `profileImageId: null`이면 `profile_image_key`를 null로 둔다.
 
 ## U06 러닝 프로필 조회
 
