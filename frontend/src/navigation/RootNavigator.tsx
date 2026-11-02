@@ -108,6 +108,11 @@ function loadHealthPoc() {
   return require('../screens/HealthPocScreen').HealthPocScreen;
 }
 
+// The map check pulls in the Naver Map native module the same way.
+function loadMapPoc() {
+  return require('../screens/MapPocScreen').MapPocScreen;
+}
+
 function RunTab() {
   return (
     <RunStack.Navigator screenOptions={noHeader}>
@@ -224,6 +229,7 @@ export function RootNavigator() {
                           name="HealthPoc"
                           getComponent={loadHealthPoc}
                         />
+                        <Root.Screen name="MapPoc" getComponent={loadMapPoc} />
                       </>
                     ) : null}
                   </Root.Group>

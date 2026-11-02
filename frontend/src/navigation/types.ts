@@ -57,6 +57,7 @@ export type RootStackParamList = Record<
   RecordDetail: { recordId: string } | undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   HealthPoc: undefined;
+  MapPoc: undefined;
   ComponentGallery: undefined;
 };
 

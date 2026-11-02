@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
+import { now } from '../src/data/mock/fixtures';
 
 // 3.1b 추천 코스, 3.1c 저장한 코스 and 2.1 저장한 코스 against the server (dataSource 'api'): C01·C03·C07·C08·C09.
 
@@ -196,16 +197,24 @@ async function press(screen: Screen, label: string) {
   await settle();
 }
 
+// The screen the current test opened; afterEach unmounts it even when an expectation fails.
+let mounted: Screen | null = null;
+
 async function launch() {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
       <App
-        repositories={createApiRepositories({ latencyMs: 0 })}
+        // Pin the clock to midday: after sunset 2.0 shows the night place card instead of the plan.
+        repositories={{
+          ...createApiRepositories({ latencyMs: 0 }),
+          clock: { now: () => new Date(now) },
+        }}
         initialSignedIn
       />,
     );
   });
+  mounted = screen!;
   await settle();
   await settle();
   return screen!;
@@ -228,13 +237,20 @@ beforeEach(async () => {
   serve();
 });
 
+afterEach(async () => {
+  const screen = mounted;
+  mounted = null;
+  if (screen) {
+    await act(async () => screen.unmount());
+  }
+});
+
 test('2.1 lists my saved courses from the server', async () => {
   const screen = await launch();
   const page = texts(screen);
   expect(page).toContain('저장한 코스');
   expect(page).toContain('내 아침 코스');
   expect(page).toContain('5.0km 코스');
-  await act(async () => screen.unmount());
 });
 
 test('3.1c shows the server list and an unsave goes to the server', async () => {
@@ -252,7 +268,6 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   await press(screen, '되돌리기');
   expect(hasButton(screen, '5.0km 코스 저장 해제')).toBe(true);
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
-  await act(async () => screen.unmount());
 });
 
 test('3.1c puts the course back when the server keeps it', async () => {
@@ -266,7 +281,6 @@ test('3.1c puts the course back when the server keeps it', async () => {
   expect(texts(screen)).toContain(
     '저장을 해제하지 못했어요. 잠시 후 다시 시도해 주세요',
   );
-  await act(async () => screen.unmount());
 });
 
 test('3.1b shows the server recommendation and saves it with C07', async () => {
@@ -285,5 +299,4 @@ test('3.1b shows the server recommendation and saves it with C07', async () => {
   page = texts(screen);
   expect(page).toContain('부산 수영구 코스');
   expect(page).toContain('오늘의 러닝 전략');
-  await act(async () => screen.unmount());
 });
