@@ -17,6 +17,7 @@ import {
   Backdrop,
   BottomSheet,
   Card,
+  EmptyState,
   Icon,
   IconButton,
   useToast,
@@ -95,7 +96,14 @@ export function GroupRunCancelScreen() {
           </AppText>
         </View>
       </SafeAreaView>
-      {!run ? (
+      {detail.status === 'error' ? (
+        <EmptyState
+          icon="alert"
+          title="그룹런 정보를 불러오지 못했어요"
+          actionLabel="다시 시도"
+          onAction={detail.reload}
+        />
+      ) : !run ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
         <View style={styles.content}>

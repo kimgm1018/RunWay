@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
-import { AppText, Icon, Segmented } from '../../components';
+import { AppText, Button, Icon, Segmented } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -316,7 +316,30 @@ function RecordsBody() {
         <AppText variant="bodyMedium">과거 러닝 기록</AppText>
         <Segmented compact options={sorts} value={sort} onChange={setSort} />
       </View>
-      {records.status === 'ready' ? (
+      {records.status === 'error' ? (
+        // A failed load says so and can be tried again instead of spinning on.
+        <View style={styles.railNotice}>
+          <AppText variant="caption" tone="textSecondary">
+            기록을 불러오지 못했어요
+          </AppText>
+          <Button
+            title="다시 시도"
+            variant="secondary"
+            size="small"
+            onPress={() => {
+              records.reload();
+              // The 최근 badge comes from its own load, which failed with the list.
+              newest.reload();
+            }}
+          />
+        </View>
+      ) : records.status === 'ready' && records.data.length === 0 ? (
+        <View style={styles.railNotice}>
+          <AppText variant="caption" tone="textSecondary">
+            아직 러닝 기록이 없어요. 첫 러닝을 시작해 보세요
+          </AppText>
+        </View>
+      ) : records.status === 'ready' ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -716,6 +739,7 @@ const styles = StyleSheet.create({
   },
   // 과거 러닝 기록
   rail: { marginRight: -18 },
+  railNotice: { alignItems: 'flex-start', gap: spacing.md },
   railContent: { gap: 10, paddingRight: 18 },
   tile: {
     width: 150,

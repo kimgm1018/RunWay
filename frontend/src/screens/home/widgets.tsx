@@ -943,7 +943,14 @@ function CardArrow() {
 
 // 연속 러닝 on a graphite tone card: weeks in a row with at least one run,
 // with the last six weeks as dots, the counted ones filled.
-function StreakWidget({ weeks, width }: { weeks: number; width: number }) {
+// weeks is null when my runs could not be loaded, so 0주 is never shown for a failed load.
+function StreakWidget({
+  weeks,
+  width,
+}: {
+  weeks: number | null;
+  width: number;
+}) {
   const { colors } = useTheme();
   return (
     <Widget
@@ -969,16 +976,18 @@ function StreakWidget({ weeks, width }: { weeks: number; width: number }) {
       <View style={styles.bottom}>
         <View>
           <AppText style={styles.mid}>
-            {weeks}
-            <AppText style={styles.midUnit} tone="textSecondary">
-              주
-            </AppText>
+            {weeks === null ? '– –' : weeks}
+            {weeks === null ? null : (
+              <AppText style={styles.midUnit} tone="textSecondary">
+                주
+              </AppText>
+            )}
           </AppText>
           <AppText style={styles.tiny} tone="textSecondary">
             매주 1회 이상
           </AppText>
         </View>
-        <WeekDots weeks={weeks} />
+        <WeekDots weeks={weeks ?? 0} />
       </View>
     </Widget>
   );
@@ -1187,7 +1196,7 @@ export function HomeWidgets({ today }: { today: TodayCondition }) {
       {data?.lastRun ? <SegmentWidget run={data.lastRun} width={full} /> : null}
       <View style={styles.pair}>
         <SleepWidget today={today} width={half} />
-        <StreakWidget weeks={data?.streakWeeks ?? 0} width={half} />
+        <StreakWidget weeks={data ? data.streakWeeks : null} width={half} />
       </View>
       {data ? (
         <LoadWidget
@@ -1197,6 +1206,20 @@ export function HomeWidgets({ today }: { today: TodayCondition }) {
         />
       ) : null}
       {data?.upcoming ? <GroupWidget run={data.upcoming} /> : null}
+      {board.status === 'error' ? (
+        // The course plan, my runs or group runs did not load: the widgets above show – – and this offers a retry.
+        <View style={styles.boardNotice}>
+          <AppText variant="caption" tone="textSecondary">
+            러닝 기록·그룹런 정보를 불러오지 못했어요
+          </AppText>
+          <Button
+            title="다시 시도"
+            variant="secondary"
+            size="small"
+            onPress={board.reload}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1206,6 +1229,7 @@ const styles = StyleSheet.create({
   center: { alignSelf: 'center' },
   centerText: { textAlign: 'center' },
   board: { gap },
+  boardNotice: { alignItems: 'flex-start', gap: spacing.md },
   pair: { flexDirection: 'row', gap },
   // DESIGN.md 2-1: corner 30, inside 18, pressed boxes shrink to 96%.
   widget: { borderRadius: 30, overflow: 'hidden', padding: 18 },
