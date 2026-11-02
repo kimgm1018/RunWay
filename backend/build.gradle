@@ -27,6 +27,8 @@ dependencies {
     implementation 'org.bouncycastle:bcprov-jdk18on:1.86'
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
+    // W07 payloadHash: RFC 8785 JSON Canonicalization Scheme reference implementation.
+    implementation 'io.github.erdtman:java-json-canonicalization:1.1'
     runtimeOnly 'org.postgresql:postgresql'
 
     compileOnly 'org.projectlombok:lombok'

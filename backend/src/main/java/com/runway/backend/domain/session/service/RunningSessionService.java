@@ -44,6 +44,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * 잠금 순서: 생성은 기기·코스(FOR SHARE) → 회원 advisory lock → 비교 대상 세션(FOR SHARE). 변경·삭제는 그룹런(FOR NO KEY
  * UPDATE) → 세션 → (기기·코스·비교 대상 세션 FOR SHARE | 게시물 ID순). 기기 해제(W03)와 코스 상태 변경은 해당 행만 갱신하므로 교차 대기가 없다. 비교 대상은 COMPLETED이고 변경 대상은 READY이므로 두 세션이 서로를 잠그며 기다리는 순서는 생기지 않는다.
+ * W07 배치 저장(SyncBatchService)도 세션 → 기기(FOR SHARE) 순서로 잠그며 회원 행은 잠그지 않는다. 세션 행을 잡은 뒤 회원 행을 갱신하는 기능을
+ * 추가하면 이 순서를 다시 검토한다.
  */
 @Slf4j
 @Service

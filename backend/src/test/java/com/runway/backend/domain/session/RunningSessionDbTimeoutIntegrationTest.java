@@ -71,6 +71,36 @@ class RunningSessionDbTimeoutIntegrationTest extends RunningSessionIntegrationSu
         assertThat(count("SELECT count(*) FROM pace_plans")).isZero();
     }
 
+    /**
+     * S01은 기기 행을 JdbcTemplate으로 FOR SHARE 잠근다. JdbcTemplate은 잠금 대기 초과(55P03)를 분류하지 못하므로 공통 처리기가 SQLState로 503을
+     * 응답해야 한다(S15P31E105-253에서 수정, 이전에는 500).
+     */
+    @Test
+    void JdbcTemplate_잠금_대기가_상한을_넘어도_503이고_세션을_만들지_않는다() throws Exception {
+        try (var holder =
+                DriverManager.getConnection(
+                        DATABASE.getJdbcUrl(), DATABASE.getUsername(), DATABASE.getPassword())) {
+            holder.setAutoCommit(false);
+            try (var statement =
+                    holder.prepareStatement("SELECT id FROM user_devices WHERE id=? FOR UPDATE")) {
+                statement.setLong(1, watchId);
+                statement.executeQuery().close();
+            }
+            try {
+                long started = System.nanoTime();
+                ResultActions result = mockMvc.perform(createRequest(userId, "{" + devices() + "}"));
+                long elapsed = (System.nanoTime() - started) / 1_000_000;
+                result.andExpect(status().isServiceUnavailable())
+                        .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                        .andExpect(jsonPath("$.details").isEmpty());
+                assertThat(elapsed).isBetween(LOCK_TIMEOUT_MS - 500, LOCK_TIMEOUT_MS + MARGIN_MS);
+            } finally {
+                holder.rollback();
+            }
+        }
+        assertThat(count("SELECT count(*) FROM running_sessions WHERE user_id=?", userId)).isZero();
+    }
+
     @Test
     void 쿼리_실행이_상한을_넘으면_503이고_세션은_바뀌지_않는다() throws Exception {
         long sessionId = insertReadySession();
