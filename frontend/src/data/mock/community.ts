@@ -189,7 +189,8 @@ export function createCommunityMock({
       if (post.liked !== liked) {
         update(postId, {
           liked,
-          likeCount: post.likeCount + (liked ? 1 : -1),
+          likeCount:
+            post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1),
         });
       }
       return respond(undefined);

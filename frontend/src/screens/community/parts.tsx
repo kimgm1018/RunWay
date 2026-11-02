@@ -88,7 +88,9 @@ export function usePostChanges(onChange: (post: Post) => void) {
   const { community } = useRepositories();
   const like = async (post: Post) => {
     const liked = !post.liked;
-    onChange({ ...post, liked, likeCount: post.likeCount + (liked ? 1 : -1) });
+    const likeCount =
+      post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1);
+    onChange({ ...post, liked, likeCount });
     try {
       await community.setLiked(post.id, liked);
     } catch {
@@ -115,8 +117,11 @@ export function recordLabel(record: PostRecord, courseShared: boolean) {
 }
 
 // 민락수변공원 · 코스 러닝
+// A server post has no place yet, so only the run type shows.
 export const placeLine = (record: PostRecord) =>
-  `${record.place} · ${record.courseRun ? '코스 러닝' : '자유 러닝'}`;
+  [record.place, record.courseRun ? '코스 러닝' : '자유 러닝']
+    .filter(Boolean)
+    .join(' · ');
 
 function Stat({
   value,
@@ -266,7 +271,9 @@ export function PostActions({
           solid={post.liked}
           size={22}
         />
-        <AppText style={styles.count}>{post.likeCount}</AppText>
+        {post.likeCount === null ? null : (
+          <AppText style={styles.count}>{post.likeCount}</AppText>
+        )}
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -276,7 +283,9 @@ export function PostActions({
         style={styles.action}
       >
         <Icon name="community" color={colors.text} size={22} />
-        <AppText style={styles.count}>{post.commentCount}</AppText>
+        {post.commentCount === null ? null : (
+          <AppText style={styles.count}>{post.commentCount}</AppText>
+        )}
       </Pressable>
       <Pressable
         accessibilityRole="button"

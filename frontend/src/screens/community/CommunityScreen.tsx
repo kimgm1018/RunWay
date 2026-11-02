@@ -112,7 +112,7 @@ function FeedItem({
           {post.body}
         </AppText>
       ) : null}
-      {post.commentCount > 0 ? (
+      {post.commentCount ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`댓글 ${post.commentCount}개 모두 보기`}

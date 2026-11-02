@@ -4,6 +4,7 @@ import {
 } from '../mock/createMockRepositories';
 import type { Repositories } from '../types';
 import { checkLoginId, login, signUp } from './auth';
+import { createCommunityApi } from './community';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
@@ -43,6 +44,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // Only 2.1 러닝 분석 reads my runs; 오늘 컨디션 stays on mock data until its own API task.
     home: { ...mock.home, getMonthlySummary },
     records,
+    // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
+    community: createCommunityApi({ records }),
     // Without a profile the expected course times fall back to 6′00″.
     courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
     watch: createWatchApi(mock.watch),
