@@ -783,6 +783,11 @@ export type Repositories = {
     join: (groupRunId: string) => Promise<void>;
     leave: (groupRunId: string) => Promise<void>;
     create: (draft: GroupRunDraft) => Promise<{ id: string }>;
+    // G04 그룹런 수정 (6.8 opened from 6.4 by the host): the crew stays.
+    update: (
+      groupRunId: string,
+      draft: Omit<GroupRunDraft, 'crewId'>,
+    ) => Promise<void>;
     cancel: (groupRunId: string, reason: GroupRunCancelReason) => Promise<void>;
     searchPlaces: (query: string) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
