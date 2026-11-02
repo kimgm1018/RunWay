@@ -218,10 +218,10 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
   await login(screen, 'halfway1', 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  // The pace tab takes the pace alone (U07 PACE).
   await press(screen, '페이스');
-  await type(screen, '거리', '3');
+  expect(texts(screen)).not.toContain('자동 계산');
   await type(screen, '페이스 (분:초/km)', '7:30');
-  expect(texts(screen)).toContain('22:30');
   await press(screen, '저장');
   await press(screen, '아니요, 휴대폰만 쓸게요');
   await press(screen, '다음');

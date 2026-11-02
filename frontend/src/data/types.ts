@@ -602,11 +602,34 @@ export type PhoneCodeRequest = {
 
 export type SelfReportedLevel = 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
 
-// U09 평소 러닝 정보.
+// 평소 러닝 정보, part of the running profile (U06). Distance and time are null when the pace was typed directly.
 export type RunningBaseline = {
   baselineDistanceM: number | null;
   baselineDurationSec: number | null;
   usualPaceSecPerKm: number;
+};
+
+// U06 러닝 프로필: the running level and the usual pace in one.
+export type RunningProfile = RunningBaseline & {
+  selfReportedLevel: SelfReportedLevel;
+  onboardingCompleted: boolean;
+};
+
+// How the usual pace was entered (U07 inputType). Sending the other way's fields is rejected as mixed input.
+export type PaceEntry =
+  | { inputType: 'PACE'; usualPaceSecPerKm: number }
+  | {
+      inputType: 'DISTANCE_TIME';
+      baselineDistanceM: number;
+      baselineDurationSec: number;
+      // Worked out on the phone; the server stores it as given.
+      usualPaceSecPerKm: number;
+    };
+
+// U07 저장·부분 수정. The first save needs both; after that either one alone keeps the other.
+export type RunningProfileChange = {
+  selfReportedLevel?: SelfReportedLevel;
+  pace?: PaceEntry;
 };
 
 export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
@@ -672,8 +695,11 @@ export type Repositories = {
   profile: {
     getMe: () => Promise<UserProfile>;
     updateBasic: (profile: BasicProfile) => Promise<void>;
-    setRunningLevel: (level: SelfReportedLevel) => Promise<void>;
-    setRunningBaseline: (baseline: RunningBaseline) => Promise<void>;
+    // null until the first U07 save (404 PROFILE_NOT_SET).
+    getRunningProfile: () => Promise<RunningProfile | null>;
+    saveRunningProfile: (
+      change: RunningProfileChange,
+    ) => Promise<RunningProfile>;
     getDetail: () => Promise<ProfileDetail>;
   };
   settings: {

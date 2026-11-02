@@ -56,6 +56,14 @@ function serve(signUpResponses: ReturnType<typeof respond>[]) {
     if (url.endsWith('/auth/signup')) {
       return signUpResponses.shift() ?? created;
     }
+    // 1.6 asks U06 for a saved profile; a fresh account has none.
+    if (url.endsWith('/users/me/running-profile')) {
+      return respond(404, {
+        code: 'PROFILE_NOT_SET',
+        message: '',
+        details: {},
+      });
+    }
     throw new Error(`unexpected request ${url}`);
   });
 }

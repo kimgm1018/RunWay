@@ -11,6 +11,10 @@ export const dataErrorCodes = [
   'INVALID_CONSENT',
   // U16 아이디 확인: more than 60 checks a minute from one IP.
   'TOO_MANY_REQUESTS',
+  // U06·U07 러닝 프로필.
+  'PROFILE_NOT_SET',
+  'INVALID_LEVEL',
+  'INVALID_RUNNING_BASELINE',
   'PHONE_NOT_REGISTERED',
   'PHONE_ALREADY_REGISTERED',
   'VERIFICATION_CODE_MISMATCH',

@@ -119,7 +119,8 @@ function Form({
         gender,
         birthDate: toBirthDate(year, month, day),
       });
-      await profile.setRunningLevel(level);
+      // U07 with the level alone keeps the saved pace.
+      await profile.saveRunningProfile({ selfReportedLevel: level });
       toast('프로필을 저장했어요');
       navigation.goBack();
     } catch {
