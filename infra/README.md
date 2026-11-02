@@ -26,6 +26,7 @@
 | `ai/Dockerfile`, `ai/compose.yaml` | FastAPI·GRU 후보 CPU 추론 이미지·내부 네트워크 실행 |
 | `ai/deploy.sh`, `ai/check.sh`, `jenkins/Jenkinsfile.ai-cd` | AI 이미지·모델 교체, 상태 확인·복구와 master 배포 흐름 |
 | `certbot/runway-cert-renew.*` | 인증서 갱신 스크립트·systemd service/timer |
+| `backup/` | DB·업로드 파일 암호화 백업, 보관 정책·격리 복원 검사 |
 
 ## 실행 전 준비
 
@@ -140,4 +141,45 @@ Data Layer 실기기 검증에는 applicationId·서명 인증서가 모두 일�
 
 - `BACKEND_IMAGE_VOLUME_PATH=/data/images`로 지정하고 EC2의 `~/runway/data/images`를 연결한다. 컨테이너 교체 후에도 파일은 호스트 폴더에 남는다.
 - Nginx의 백엔드 요청 경로는 전체 요청 크기를 `5m`로 제한한다. 백엔드도 전체 요청 5MB 제한을 사용하므로 multipart 부가 정보를 포함한 크기이며 파일만의 5MB 업로드를 보장하지 않는다.
-- 저장 경로는 Nginx로 직접 공개하지 않는다. 이미지 조회 URL과 자동 백업은 별도 작업이다.
+- 저장 경로는 Nginx로 직접 공개하지 않는다. 이미지 조회 URL은 별도 작업이며 백업은 아래 기준을 따른다.
+
+## 백업·복원
+
+| 대상 | 주기·보관 | EC2 저장 위치 |
+| --- | --- | --- |
+| DB·업로드 이미지 | 매일 04:00 한국 시간, 성공본 7개 | `~/runway/backups/automatic/data/` |
+| Jenkins 설정·플러그인 | 일요일 04:30 한국 시간, 암호화 성공본 4개 | `~/runway/backups/automatic/jenkins/` |
+
+- Python 3.11 이상·GPG·Docker를 사용한다. `backup/`의 서버용 Python 파일은 `/usr/local/lib/runway-backup/`에,
+  service/timer는 `/etc/systemd/system/`에 설치한다. `download_backups.py`는 PC용이다.
+- root로 `prepare_key.py`를 최초 실행하고, 아래 복원 검증 후 `runway-data-backup.timer`·`runway-jenkins-backup.timer`를 활성화한다.
+  암호화 키는 `/root/runway-backup-key`에 보관하며 기존 키를 덮어쓰지 않는다.
+- ThinBackup 2.1.5: 경로 `/var/jenkins_home/runway-backup-staging`, 전체 일정 `30 19 * * 6`(현재 JVM은 UTC),
+  CI 종료 대기·강제 Quiet mode `-1`·4개 보관. 플러그인·다음 빌드 번호를 포함하고 빌드 결과·APK·캐시는 제외한다.
+- Jenkins 완료 백업은 5분마다 확인해 암호화한다. `master.key`는 `automatic/recovery/`에 분리하며 PC 보관 전 자동 삭제하지 않는다.
+  백업 폴더는 실행 사용자만 접근하도록 권한 700을 유지한다.
+
+**수동 백업·격리 복원 검사 — EC2에서 실행**
+
+```bash
+sudo systemctl start runway-data-backup.service
+sudo systemctl start runway-jenkins-backup.service
+sudo python3 /usr/local/lib/runway-backup/verify_restore.py --latest-dir /home/ubuntu/runway/backups/automatic/data --key-file /root/runway-backup-key
+sudo python3 /usr/local/lib/runway-backup/verify_jenkins.py --key-file /root/runway-backup-key
+```
+
+복원 검사는 운영에 덮어쓰지 않고 임시 컨테이너에서 수행한다. 백업 당시 이미지가 로컬에 있어야 한다.
+실패 시 기존 성공 백업은 유지되며 `systemctl status runway-{data,jenkins}-backup.service`로 결과를 확인한다.
+DB 역할 비밀번호·앱 Secret은 별도 복구 대상이고, 실행 중 복사하는 DB·이미지는 동일 시점을 보장하지 않는다.
+
+**PC 다운로드 — 저장소 루트에서 실행**
+
+```powershell
+python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로"
+```
+
+사용자 홈의 `RunWayBackups/`에 암호화 백업을, `RunWayRecovery/`에 복구 키를 분리해 보관하고 해시를 확인한다.
+두 폴더는 Git·공유 채널에 올리지 않는다. 노트북이 꺼져 있어도 EC2 백업은 계속되며, 켠 뒤 같은 명령으로 내려받는다.
+
+참고: [PostgreSQL 17](https://www.postgresql.org/docs/17/backup-dump.html) · [ThinBackup](https://plugins.jenkins.io/thinBackup/) ·
+[Jenkins 백업 기준](https://www.jenkins.io/doc/book/system-administration/backing-up/) (2026-11-02 확인, GPG 2.4.4).
