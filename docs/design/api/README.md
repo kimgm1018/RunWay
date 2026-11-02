@@ -20,9 +20,9 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [그룹런](./group-runs.md) | 그룹런 | 13 |
 | [크루](./crews.md) | 크루 | 11 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
-| [공통 파일](./files.md) | 이미지 업로드 | 1 |
+| [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 
-총 **92개 공개 API 설계**. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류는 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
+총 **93개 공개 API 설계**. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류는 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -33,7 +33,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 ### 기본 URL 및 콘텐츠
 
 - Base path: `/api/v1`
-- `Content-Type: application/json; charset=utf-8` (예외: [F01 이미지 업로드](./files.md#f01-이미지-업로드)는 `multipart/form-data`)
+- `Content-Type: application/json; charset=utf-8` (예외: [F01 이미지 업로드](./files.md#f01-이미지-업로드)는 `multipart/form-data`, [F02 이미지 조회](./files.md#f02-이미지-조회)는 `image/jpeg` 또는 `image/png` 바이너리)
 - 키: `camelCase`; 서버 엔티티 식별자: BIGINT에 대응하는 정수(`int64`); URL Path에서는 십진 정수 표기; 시간: ISO 8601 UTC 문자열
 - 거리: m; 구간·경과 시간: sec; 페이스: sec/km; 심박수: bpm; 케이던스: spm
 - 좌표: WGS84, GeoJSON 좌표 순서 `[longitude, latitude]`
@@ -239,6 +239,7 @@ U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그�
 | CMT12 | [커뮤니티 지역 목록](./community.md#cmt12-커뮤니티-지역-목록) | GET | `/regions` | [community.md](./community.md) |
 | CMT13 | [통합 검색](./community.md#cmt13-통합-검색) | GET | `/search` | [community.md](./community.md) |
 | F01 | [이미지 업로드](./files.md#f01-이미지-업로드) | POST | `/images` | [files.md](./files.md) |
+| F02 | [이미지 조회](./files.md#f02-이미지-조회) | GET | `/images/{imageId}` | [files.md](./files.md) |
 
 ## 화면 설계 v10 대조 (2026-10-23)
 

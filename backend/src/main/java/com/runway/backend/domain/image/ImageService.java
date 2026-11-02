@@ -1,10 +1,12 @@
 package com.runway.backend.domain.image;
 
+import com.runway.backend.domain.image.ImageStorage.StoredImage;
 import com.runway.backend.domain.image.dto.ImageUploadResponse;
 import com.runway.backend.global.exception.ApiException;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -71,6 +73,7 @@ public class ImageService {
         }
 
         String imageId = UUID.randomUUID().toString();
+        String extension = format.extension();
         String imageKey =
                 "images/"
                         + purpose.pathSegment()
@@ -79,10 +82,67 @@ public class ImageService {
                         + "/"
                         + imageId
                         + "."
-                        + format.extension();
+                        + extension;
+        String lookupKey = "images/by-id/" + imageId + "." + extension;
         imageStorage.store(imageKey, new ByteArrayInputStream(bytes), bytes.length);
-        // MVP: 미리보기 URL 서빙은 후속. 응답 url은 null.
-        return new ImageUploadResponse(imageId, null);
+        imageStorage.store(lookupKey, new ByteArrayInputStream(bytes), bytes.length);
+        return new ImageUploadResponse(imageId, publicUrl(imageId));
+    }
+
+    public StoredImage load(String imageIdRaw) {
+        UUID imageId = parseImageId(imageIdRaw);
+        return imageStorage
+                .findByImageId(imageId)
+                .orElseThrow(
+                        () ->
+                                new ApiException(
+                                        HttpStatus.NOT_FOUND,
+                                        "IMAGE_NOT_FOUND",
+                                        "이미지를 찾을 수 없습니다."));
+    }
+
+    public Optional<String> resolveProfileImageKey(long userId, String imageIdRaw) {
+        UUID imageId = parseImageId(imageIdRaw);
+        String base = "images/profile/" + userId + "/" + imageId;
+        String jpg = base + ".jpg";
+        String png = base + ".png";
+        if (imageStorage.exists(jpg)) {
+            return Optional.of(jpg);
+        }
+        if (imageStorage.exists(png)) {
+            return Optional.of(png);
+        }
+        return Optional.empty();
+    }
+
+    public static String publicUrl(String imageId) {
+        return "/api/v1/images/" + imageId;
+    }
+
+    public static String publicUrlFromKey(String imageKey) {
+        if (imageKey == null || imageKey.isBlank()) {
+            return null;
+        }
+        int slash = imageKey.lastIndexOf('/');
+        String fileName = slash >= 0 ? imageKey.substring(slash + 1) : imageKey;
+        int dot = fileName.lastIndexOf('.');
+        if (dot <= 0) {
+            return null;
+        }
+        return publicUrl(fileName.substring(0, dot));
+    }
+
+    private static UUID parseImageId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "imageId가 올바르지 않습니다.");
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "imageId가 올바르지 않습니다.");
+        }
     }
 
     private static String normalizeContentType(String raw) {
