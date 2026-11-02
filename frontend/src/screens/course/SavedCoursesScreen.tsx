@@ -148,7 +148,14 @@ export function SavedCoursesScreen() {
   const unsave = async (course: SavedCourse) => {
     const before = items ?? [];
     setItems(before.filter(item => item.id !== course.id));
-    await courses.unsave(course.id);
+    try {
+      await courses.unsave(course.id);
+    } catch {
+      // The server kept the course, so it goes back on the list.
+      setItems(before);
+      toast('저장을 해제하지 못했어요. 잠시 후 다시 시도해 주세요');
+      return;
+    }
     toast('저장을 해제했어요', {
       actionLabel: '되돌리기',
       onAction: async () => {

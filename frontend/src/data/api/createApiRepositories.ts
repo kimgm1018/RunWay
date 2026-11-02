@@ -4,6 +4,7 @@ import {
 } from '../mock/createMockRepositories';
 import type { Repositories } from '../types';
 import { checkLoginId, login, signUp } from './auth';
+import { createCoursesApi } from './courses';
 import { getRunningProfile, saveRunningProfile } from './profile';
 import { createRecordsApi } from './records';
 
@@ -19,6 +20,15 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // Only 2.1 러닝 분석 reads my runs; 오늘 컨디션 stays on mock data until its own API task.
     home: { ...mock.home, getMonthlySummary },
     records,
+    // Expected course times use my usual pace (U06); without a profile the courses fall back to 6′00″.
+    courses: createCoursesApi({
+      mock: mock.courses,
+      usualPace: () =>
+        getRunningProfile().then(
+          profile => profile?.usualPaceSecPerKm ?? null,
+          () => null,
+        ),
+    }),
     // Server records are dated by the real calendar, so 5.1·5.3 open on this month rather than the mock's pinned day.
     clock: { now: () => new Date() },
   };

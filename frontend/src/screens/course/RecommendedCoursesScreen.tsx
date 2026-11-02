@@ -18,6 +18,7 @@ import {
   Card,
   Icon,
   IconButton,
+  useToast,
 } from '../../components';
 import { useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm } from '../../format';
@@ -262,7 +263,13 @@ function BackFace({
       <View style={[styles.stats, rule]}>
         <Stat label="거리" value={formatKm(course.distanceM, 1)} unit="km" />
         <Stat label="예상" value={String(minutes)} unit="분" />
-        <Stat label="고도" value={`↑${course.elevationGainM}`} unit="m" />
+        <Stat
+          label="고도"
+          value={
+            course.elevationGainM === null ? '– –' : `↑${course.elevationGainM}`
+          }
+          unit={course.elevationGainM === null ? '' : 'm'}
+        />
       </View>
       <AppText variant="label" tone="textSecondary">
         구간 고도
@@ -306,6 +313,7 @@ export function RecommendedCoursesScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const { courses } = useRepositories();
+  const toast = useToast();
   const { search, results, setResults } = useCourseSearch();
   const window = useWindowDimensions();
   const [failed, setFailed] = useState(false);
@@ -332,10 +340,15 @@ export function RecommendedCoursesScreen() {
   }, [courses, results, search, setResults]);
 
   const toggleSave = async (course: RecommendedCourse) => {
-    if (course.saved) {
-      await courses.unsave(course.id);
-    } else {
-      await courses.save(course.id);
+    try {
+      if (course.saved) {
+        await courses.unsave(course.id);
+      } else {
+        await courses.save(course.id);
+      }
+    } catch {
+      toast('코스를 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      return;
     }
     setResults(
       (results ?? []).map(item =>
