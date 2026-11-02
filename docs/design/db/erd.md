@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-10-29 · ERD ver.3 · **28개 테이블 / 256개 컬럼 / 51개 FK**
+기준: 2026-11-02 · ERD ver.3 · **28개 테이블 / 258개 컬럼 / 51개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -31,6 +31,17 @@
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
 | `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도 |
+
+#### daily_health_metrics — 날짜별 건강 요약
+
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`뿐이다.
+
+| 컬럼 | 타입·NULL | 용도 |
+| --- | --- | --- |
+| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). W06은 삼성 헬스 공식 안정 시 심박이 아니라 RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)를 저장한다 |
+| rhr_revision | INTEGER NULL | `rhr_bpm` 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이면 NULL(S15P31E105-252, V9) |
+
+수면·운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
 
 ### 러닝·페이스 코칭
 
