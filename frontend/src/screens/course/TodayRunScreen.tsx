@@ -270,9 +270,26 @@ export function TodayRunScreen() {
           <AppText style={styles.title} accessibilityRole="header">
             어디서, 얼마나 달릴까요?
           </AppText>
+          {options.status === 'error' ? (
+            // Without the origins 코스 추천 받기 stays off, so the screen says why and offers a retry.
+            // It sits above the panel, on the light part of the K1 background where the button reads.
+            <View style={styles.optionsError}>
+              <ErrorNotice
+                title="기준 위치를 불러오지 못했어요"
+                detail="기준 위치가 있어야 코스를 추천받을 수 있어요."
+              />
+              <Button
+                title="다시 시도"
+                variant="secondary"
+                size="small"
+                onPress={options.reload}
+              />
+            </View>
+          ) : null}
           <Card variant="deep" style={styles.panel}>
             <PanelContent
               place={place}
+              placeFailed={options.status === 'error'}
               onPickOrigin={() => setPicking(true)}
               distanceKm={distanceKm}
               setDistanceKm={setDistanceKm}
@@ -342,8 +359,11 @@ function PanelContent({
   picked,
   setPicked,
   readiness,
+  placeFailed,
 }: {
   place: Place | null;
+  // The origins did not load, so the row stops saying it is still looking.
+  placeFailed: boolean;
   onPickOrigin: () => void;
   distanceKm: number;
   setDistanceKm: (value: number) => void;
@@ -376,7 +396,8 @@ function PanelContent({
             기준 위치
           </AppText>
           <AppText style={styles.originName} numberOfLines={1}>
-            {place?.name ?? '위치를 찾는 중이에요'}
+            {place?.name ??
+              (placeFailed ? '불러오지 못했어요' : '위치를 찾는 중이에요')}
           </AppText>
         </View>
         <Icon name="forward" color={colors.textSecondary} size={16} />
@@ -530,6 +551,7 @@ function PanelContent({
 }
 
 const styles = StyleSheet.create({
+  optionsError: { gap: spacing.md, alignItems: 'flex-start' },
   root: { flex: 1 },
   flex: { flex: 1 },
   // 2-7: the map card at the top, rounded like the other boxes.

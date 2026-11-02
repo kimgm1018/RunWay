@@ -91,6 +91,15 @@ export function FreeRunScreen() {
       top={
         place.status === 'ready' ? (
           <PlaceCard name={place.data.name} gps={place.data.gps} />
+        ) : place.status === 'error' ? (
+          // A failed lookup stops saying it is still searching; a tap tries again.
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="현재 위치 다시 찾기"
+            onPress={place.reload}
+          >
+            <PlaceCard name="못 찾았어요 · 다시 찾기" gps="none" />
+          </Pressable>
         ) : (
           <PlaceCard name="현재 위치를 찾는 중이에요" gps="none" />
         )
