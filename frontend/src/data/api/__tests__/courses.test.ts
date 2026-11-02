@@ -2,6 +2,7 @@ import { appConfig } from '../../../config';
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import type { CourseSearch } from '../../types';
 import { createCoursesApi } from '../courses';
+import { createRegions } from '../regions';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -128,7 +129,11 @@ function api(usualPace: number | null = 400) {
   const mock = createMockRepositories({ latencyMs: 0 }).courses;
   return {
     mock,
-    courses: createCoursesApi({ mock, usualPace: async () => usualPace }),
+    courses: createCoursesApi({
+      mock,
+      usualPace: async () => usualPace,
+      regions: createRegions(),
+    }),
   };
 }
 
@@ -153,7 +158,7 @@ test('C09 saved courses get a region name, my alias, a shape and the time at my 
   expect(saved).toHaveLength(2);
   expect(saved[0]).toMatchObject({
     id: '7',
-    name: '부산광역시 수영구 코스',
+    name: '부산 수영구 코스',
     myAlias: '내 아침 코스',
     distanceM: 5000,
     // 5km at 6′40″ = 33:20.
@@ -249,7 +254,7 @@ test('C01 sends the search and each card is filled from C03', async () => {
   });
   expect(found[0]).toMatchObject({
     id: '7',
-    name: '부산광역시 수영구 코스',
+    name: '부산 수영구 코스',
     distanceM: 5000,
     estimatedDurationSec: 1800,
     shapeKind: '순환',
@@ -338,7 +343,7 @@ test('2.0 plans a chosen server course with its name, route and distance', async
 
   expect(plan).toMatchObject({
     courseId: '7',
-    name: '부산광역시 수영구 코스',
+    name: '부산 수영구 코스',
     distanceM: 5000,
     route: loop,
     expectedDurationSec: 2000,

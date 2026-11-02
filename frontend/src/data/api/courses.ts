@@ -6,6 +6,7 @@ import type {
   SavedCourse,
 } from '../types';
 import { apiRequest } from './http';
+import type { Regions } from './regions';
 
 // C01·C03·C07·C08·C09 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
@@ -41,8 +42,6 @@ type RecommendationItem = {
   environmentTags: EnvironmentType[];
   estimatedDurationSec: number;
 };
-
-type RegionItem = { regionCode: string; sidoName: string; sigunguName: string };
 
 const pageLimit = 50;
 // C01 also needs a C03 per card for the route, so the list stays short.
@@ -118,45 +117,26 @@ const kmLabel = (distanceM: number) => `${(distanceM / 1000).toFixed(1)}km`;
 export function createCoursesApi({
   mock,
   usualPace,
+  regions,
 }: {
   // Saving a free run as a course (4.5F) and the 2.0 pace plan have no API yet.
   mock: Repositories['courses'];
   usualPace: () => Promise<number | null>;
+  regions: Regions;
 }) {
-  let regions: Promise<Map<string, string>> | null = null;
   // The course picked on 3.1b or 3.1c, for 2.0.
   let chosen: string | null = null;
   // C03 has no region, so names worked out for the 3.1b and 3.1c lists are kept for 2.0.
   const named = new Map<string, string>();
 
-  // CMT12 region names, loaded once. Without them a course is named by its distance.
-  function regionNames() {
-    regions ??= apiRequest<{ items: RegionItem[] }>('/regions')
-      .then(
-        ({ items }) =>
-          new Map(
-            items.map(item => [
-              item.regionCode,
-              `${item.sidoName} ${item.sigunguName} 코스`,
-            ]),
-          ),
-      )
-      .catch(() => {
-        regions = null;
-        return new Map<string, string>();
-      });
-    return regions;
-  }
-
+  // Without a region name a course is named by its distance.
   async function nameOf(
     courseId: number,
     regionCode: string | null,
     distanceM: number,
   ) {
-    const names = await regionNames();
-    const name =
-      (regionCode ? names.get(regionCode) : undefined) ??
-      `${kmLabel(distanceM)} 코스`;
+    const region = await regions.name(regionCode);
+    const name = region ? `${region} 코스` : `${kmLabel(distanceM)} 코스`;
     named.set(String(courseId), name);
     return name;
   }

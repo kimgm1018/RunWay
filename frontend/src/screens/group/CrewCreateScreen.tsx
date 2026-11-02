@@ -105,8 +105,8 @@ function AreaPicker({
   area,
   onPick,
 }: {
-  area: string | null;
-  onPick: (area: string | null) => void;
+  area: MeetingPlace | null;
+  onPick: (area: MeetingPlace | null) => void;
 }) {
   const { colors } = useTheme();
   const { groupRuns } = useRepositories();
@@ -128,13 +128,13 @@ function AreaPicker({
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`지역 ${area}, 다시 검색`}
+        accessibilityLabel={`지역 ${area.name}, 다시 검색`}
         onPress={() => onPick(null)}
       >
         <InputBox>
           <Icon name="mapPin" color={colors.text} size={18} />
           <AppText variant="bodyStrong" style={styles.flex}>
-            {area}
+            {area.name}
           </AppText>
           <Icon name="close" color={colors.textSecondary} size={16} />
         </InputBox>
@@ -163,7 +163,7 @@ function AreaPicker({
           onPress={() => {
             setQuery('');
             setResults([]);
-            onPick(place.name);
+            onPick(place);
           }}
           style={styles.result}
         >
@@ -219,7 +219,7 @@ export function CrewCreateScreen() {
   const toast = useToast();
   const { changed } = useGroupRunDraft();
   const [name, setName] = useState('');
-  const [area, setArea] = useState<string | null>(null);
+  const [area, setArea] = useState<MeetingPlace | null>(null);
   const [description, setDescription] = useState('');
   const [joinPolicy, setJoinPolicy] = useState<CrewJoinPolicy>('APPROVAL');
   const [capacity, setCapacity] = useState(defaultCapacity);
@@ -234,7 +234,8 @@ export function CrewCreateScreen() {
     try {
       await crews.create({
         name: name.trim(),
-        area,
+        area: area.name,
+        address: area.address,
         description: description.trim() || null,
         joinPolicy,
         capacity,

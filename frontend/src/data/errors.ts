@@ -24,6 +24,11 @@ export const dataErrorCodes = [
   'RECORD_NOT_FOUND',
   // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
   'CREW_CAPACITY_EXCEEDED',
+  // M02–M08 크루.
+  'CREW_NOT_FOUND',
+  'ALREADY_MEMBER_OR_PENDING',
+  'NOT_PENDING',
+  'OWNER_CANNOT_LEAVE',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
   // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
