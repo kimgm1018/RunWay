@@ -98,6 +98,10 @@ const months = [
 function serve(runs = true) {
   fetchMock.mockImplementation(async (requested: string) => {
     const url = new URL(requested);
+    // 2.1 저장한 코스 (C09) has nothing saved in these tests.
+    if (url.pathname.endsWith('/users/me/bookmarked-courses')) {
+      return respond(200, { items: [] });
+    }
     const path = url.pathname.split('/running-records')[1];
     if (path === '/statistics/pace-trend') {
       return respond(200, {

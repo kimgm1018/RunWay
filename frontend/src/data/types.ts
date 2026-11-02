@@ -164,7 +164,8 @@ export type RecommendedCourse = {
   // 순환 · 왕복 · 편도 순환
   shapeKind: string;
   environmentLabels: string[];
-  elevationGainM: number;
+  // null when the course has no measured climb (C03 elevationGainM).
+  elevationGainM: number | null;
   // Relative height of each tenth of the course, 0–100 (구간 고도).
   elevationProfile: number[];
   reason: string;
