@@ -41,6 +41,41 @@ import tools.jackson.databind.json.JsonMapper;
 public class SecurityConfig {
 
     @Bean
+    @Order(0)
+    SecurityFilterChain managementSecurity(HttpSecurity http, Environment environment)
+            throws Exception {
+        http.securityMatcher(
+                        request ->
+                                managementPort(request, environment)
+                                        || request.getRequestURI().startsWith("/actuator"))
+                .sessionManagement(
+                        session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(csrf -> csrf.disable())
+                .requestCache(cache -> cache.disable())
+                .authorizeHttpRequests(
+                        auth ->
+                                auth.requestMatchers(
+                                                request ->
+                                                        managementPort(request, environment)
+                                                                && request.getLocalAddr().equals("127.0.0.1")
+                                                                && request.getRemoteAddr().equals("127.0.0.1")
+                                                                && request.getMethod().equals("GET")
+                                                                && request.getRequestURI().equals(
+                                                                        "/actuator/health/readiness"))
+                                        .permitAll()
+                                        .anyRequest()
+                                        .denyAll());
+        return http.build();
+    }
+
+    private static boolean managementPort(HttpServletRequest request, Environment environment) {
+        int port = environment.getProperty(
+                "local.management.port", Integer.class,
+                environment.getProperty("management.server.port", Integer.class, 8082));
+        return request.getLocalPort() == port;
+    }
+
+    @Bean
     SecuritySettings securitySettings(Environment environment) {
         return new SecuritySettings(environment);
     }

@@ -1,60 +1,88 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# 사용: bash check.sh <컨테이너 ID> <예상 이미지 ID> <검사 이미지> [대기 초]
-# 현재는 전용 readiness API가 없어 시작 로그·DB 연결 로그·HTTP 응답을 함께 확인한다.
-# 이 검사는 기본 기동 확인이며, 서비스 전체 기능이나 지속적인 DB 상태를 보장하지 않는다.
-# deploy.sh가 호출하며, 검사 통과는 종료 코드 0, 실패는 1로 전달한다.
-if [[ $# -lt 3 || $# -gt 4 ]]; then
-    echo 'check.sh에 컨테이너 ID·이미지 ID·검사 이미지가 필요합니다.' >&2
+# 사용: check.sh <컨테이너 ID> <예상 이미지 ID> <Python 검사 이미지> [대기 초] [readiness|legacy]
+# 새 배포는 readiness만 사용한다. legacy는 지정한 이전 이미지의 최초 복구에만 허용한다.
+if [[ $# -lt 3 || $# -gt 5 ]]; then
+    echo '컨테이너 ID·이미지 ID·검사 이미지가 필요합니다.' >&2
     exit 2
 fi
 container_id=$1
 expected_image_id=$2
 probe_image=$3
 wait_seconds=${4:-120}
-if [[ ! $wait_seconds =~ ^[1-9][0-9]*$ ]]; then
-    echo '대기 시간은 양의 정수여야 합니다.' >&2
+mode=${5:-readiness}
+if [[ ! $wait_seconds =~ ^[1-9][0-9]*$ || ! $mode =~ ^(readiness|legacy)$ ]]; then
+    echo '대기 시간 또는 검사 방식이 올바르지 않습니다.' >&2
     exit 2
 fi
-# 서버가 시작될 시간을 주기 위해 기본 120초 동안 반복해서 확인한다.
-deadline=$((SECONDS + wait_seconds))
+if [[ $mode == legacy ]]; then
+    if [[ ! ${BACKEND_LEGACY_HEALTH_IMAGE_ID:-} =~ ^sha256:[0-9a-f]{64}$ \
+        || $expected_image_id != "$BACKEND_LEGACY_HEALTH_IMAGE_ID" ]]; then
+        echo 'legacy 검사는 명시한 이전 이미지 ID에서만 허용합니다.' >&2
+        exit 2
+    fi
+fi
 
+# 검사 이미지에 Python 표준 JSON/HTTP 도구가 있어야 한다. 응답 원문은 출력하지 않는다.
+probe_code=$(cat <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+try:
+    if sys.argv[1] == 'readiness':
+        with urllib.request.urlopen('http://127.0.0.1:8082/actuator/health/readiness', timeout=4) as r:
+            data = r.read(4097)
+            if r.status != 200 or len(data) > 4096 or json.loads(data) != {'status': 'UP'}:
+                sys.exit(1)
+    # 별도 관리 서버만 살아 있고 업무 HTTP 서버가 죽은 상태도 통과시키지 않는다.
+    try:
+        with urllib.request.urlopen('http://127.0.0.1:8080/', timeout=2) as r:
+            code = r.status
+    except urllib.error.HTTPError as e:
+        code = e.code
+    valid = code == 404 if sys.argv[1] == 'legacy' else 200 <= code < 500
+    sys.exit(0 if valid else 1)
+except Exception:
+    sys.exit(1)
+PY
+)
+deadline=$((SECONDS + wait_seconds))
 while (( SECONDS < deadline )); do
-    # 원하는 이미지가 실제로 실행 중인지 먼저 확인한다. 다르면 즉시 실패한다.
     actual_image_id=$(docker inspect --format '{{.Image}}' "$container_id") || exit 1
     [[ $actual_image_id == "$expected_image_id" ]] || exit 1
     running=$(docker inspect --format '{{.State.Running}}' "$container_id") || exit 1
-    # 중단·재시작 중인 컨테이너는 이전 시작 로그가 있어도 정상으로 보지 않는다.
-    [[ $running == true ]] || exit 1
     restarting=$(docker inspect --format '{{.State.Restarting}}' "$container_id") || exit 1
-    [[ $restarting == false ]] || exit 1
+    [[ $running == true && $restarting == false ]] || exit 1
+    started_at=$(docker inspect --format '{{.State.StartedAt}}' "$container_id") || exit 1
+    [[ -n $started_at ]] || exit 1
 
-    # Spring 시작 완료와 DB 초기 연결 완료가 모두 로그에 있는지 확인한다.
-    # 로그는 내부 검사에만 사용한다. 원문을 Jenkins 로그에 다시 출력하지 않는다.
-    if [[ $running == true ]]; then
+    # 상태 API가 없는 최초 이전 이미지에만 기존 시작 로그 확인을 사용한다.
+    ready=true
+    if [[ $mode == legacy ]]; then
         startup_log=$(docker logs --tail 1000 "$container_id" 2>&1) || exit 1
-        if grep -q 'Started BackendApplication' <<<"$startup_log" \
-            && grep -q 'HikariPool.*Start completed' <<<"$startup_log"; then
-            # 임시 curl 컨테이너에서 백엔드 HTTP 응답을 확인하고 검사 후 제거한다.
-            # 백엔드의 네트워크를 공유하므로 아래 127.0.0.1은 백엔드를 가리킨다.
-            http_code=$(docker run --rm --pull never --read-only --cap-drop ALL \
-                --security-opt no-new-privileges \
-                --network "container:$container_id" "$probe_image" \
-                --silent --connect-timeout 2 --max-time 4 \
-                --output /dev/null --write-out '%{http_code}' \
-                http://127.0.0.1:8080/) || http_code=000
-            # 현재 '/' API가 없는 build-22의 응답을 기준으로 한다.
-            # readiness API가 추가되면 해당 경로의 200/UP 검사로 교체해야 한다.
-            if [[ $http_code == 404 ]]; then
-                echo '이미지 일치·DB 초기 연결·Spring 시작·HTTP 응답 확인 완료.'
-                exit 0
-            fi
+        if ! grep -q 'Started BackendApplication' <<<"$startup_log" \
+            || ! grep -q 'HikariPool.*Start completed' <<<"$startup_log"; then
+            ready=false
         fi
     fi
-    # 아직 시작 로그나 예상 응답이 없으면 3초 뒤 다시 확인한다.
+    if [[ $ready == true ]] && docker run --rm --pull never --read-only --cap-drop ALL \
+        --security-opt no-new-privileges --memory 64m --cpus 0.25 \
+        --network "container:$container_id" "$probe_image" \
+        python -c "$probe_code" "$mode" >/dev/null 2>&1; then
+        # 검사 중 컨테이너가 교체·재시작되지 않았는지 다시 확인한다.
+        [[ $(docker inspect --format '{{.Image}}' "$container_id") == "$expected_image_id" ]] || exit 1
+        [[ $(docker inspect --format '{{.State.Running}}' "$container_id") == true ]] || exit 1
+        [[ $(docker inspect --format '{{.State.Restarting}}' "$container_id") == false ]] || exit 1
+        # 동일 이미지·동일 ID로 재시작한 경우도 이전 프로세스의 응답으로 통과시키지 않는다.
+        [[ $(docker inspect --format '{{.State.StartedAt}}' "$container_id") == "$started_at" ]] || exit 1
+        echo "이미지 일치·백엔드 HTTP·${mode} 검사 완료."
+        exit 0
+    fi
     sleep 3
 done
 
-echo "${wait_seconds}초 안에 백엔드 기본 기동을 확인하지 못했습니다." >&2
+echo "${wait_seconds}초 안에 백엔드 ${mode} 검사를 통과하지 못했습니다." >&2
 exit 1
