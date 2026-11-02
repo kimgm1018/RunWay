@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
@@ -141,8 +142,19 @@ function MainTabs() {
 }
 
 export function RootNavigator() {
-  const { signedIn } = useSession();
+  const { signedIn, restoring } = useSession();
   const { name, colors } = useTheme();
+  if (restoring) {
+    // A blank background while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: colors.background },
+        ]}
+      />
+    );
+  }
   const base = name === 'dark' ? DarkTheme : DefaultTheme;
   const navigationTheme: NavigationTheme = {
     ...base,
