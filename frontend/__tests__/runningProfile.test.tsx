@@ -264,8 +264,11 @@ test('a rejected pace shows a notice and stays on 1.6', async () => {
 });
 
 test('8.2 saves a level change with the level alone', async () => {
-  fetchMock.mockResolvedValue(
-    profileResponse({ selfReportedLevel: 'ADVANCED' }),
+  // 8.1 also asks W02 for my watch; none is linked here.
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes('/devices')
+      ? respond(200, { items: [] })
+      : profileResponse({ selfReportedLevel: 'ADVANCED' }),
   );
   const screen = await launch(true);
   await press(screen, '설정');

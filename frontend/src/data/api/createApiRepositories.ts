@@ -5,6 +5,7 @@ import {
 import type { Repositories } from '../types';
 import { checkLoginId, login, signUp } from './auth';
 import { createCoursesApi } from './courses';
+import { createWatchApi } from './devices';
 import { getRunningProfile, saveRunningProfile } from './profile';
 import { createRecordsApi } from './records';
 
@@ -29,6 +30,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
           () => null,
         ),
     }),
+    watch: createWatchApi(mock.watch),
     // Server records are dated by the real calendar, so 5.1·5.3 open on this month rather than the mock's pinned day.
     clock: { now: () => new Date() },
   };
