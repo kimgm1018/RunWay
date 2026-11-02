@@ -14,8 +14,11 @@ type SessionValue = {
   signedIn: boolean;
   // True until the saved tokens have been read on launch.
   restoring: boolean;
-  // Pass the U01·U15 tokens so they are kept in the keystore; mock sign-ins have none.
+  // Keeps the tokens in the keystore and enters the app. Without tokens it keeps the held ones, if any.
   signIn: (tokens?: AuthTokens) => void;
+  // For an account that still has to finish 1.6 러닝 프로필: requests can use the tokens, but a relaunch starts signed out
+  // so the next U01 sends the user back to setup (users.md 초기 설정과 화면 분기).
+  holdTokens: (tokens: AuthTokens) => void;
   signOut: () => void;
 };
 
@@ -49,11 +52,16 @@ export function SessionProvider({
   }, [initialSignedIn]);
 
   const signIn = useCallback((tokens?: AuthTokens) => {
-    if (tokens) {
+    const kept = tokens ?? tokenStore.current();
+    if (kept) {
       // Fire and forget: the tokens are already in memory for this run.
-      tokenStore.save(tokens).catch(() => {});
+      tokenStore.save(kept).catch(() => {});
     }
     setSignedIn(true);
+  }, []);
+
+  const holdTokens = useCallback((tokens: AuthTokens) => {
+    tokenStore.hold(tokens);
   }, []);
 
   const signOut = useCallback(() => {
@@ -67,8 +75,8 @@ export function SessionProvider({
   useEffect(() => onUnauthorized(signOut), [signOut]);
 
   const value = useMemo(
-    () => ({ signedIn, restoring, signIn, signOut }),
-    [signedIn, restoring, signIn, signOut],
+    () => ({ signedIn, restoring, signIn, holdTokens, signOut }),
+    [signedIn, restoring, signIn, holdTokens, signOut],
   );
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
