@@ -34,6 +34,11 @@ export const tokenStore = {
     return current;
   },
 
+  // Uses the tokens for this run without writing them to the keystore.
+  hold(tokens: AuthTokens) {
+    current = tokens;
+  },
+
   async save(tokens: AuthTokens) {
     current = tokens;
     // AFTER_FIRST_UNLOCK keeps the tokens readable while the phone is locked mid-run (iOS; Android ignores it).

@@ -31,10 +31,27 @@ function describe(error: unknown): Failure {
         title: '로그인을 5회 실패해 10분간 제한돼요.',
         detail: '잠시 후 다시 시도하거나 비밀번호를 찾아 주세요.',
       };
-    default:
+    // U01 400: the server checks the format before the password, and it does not count as a failure.
+    case 'VALIDATION_ERROR':
+      return {
+        title: '아이디 또는 비밀번호가 맞지 않아요.',
+        detail: '아이디는 영문·숫자 4~16자, 비밀번호는 공백 없이 8~20자예요.',
+      };
+    case 'NETWORK_ERROR':
       return {
         title: '로그인하지 못했어요.',
         detail: '네트워크 연결을 확인하고 다시 시도해 주세요.',
+      };
+    // U01 503: the auth store could not be reached, which is not a wrong password.
+    case 'SERVER_ERROR':
+      return {
+        title: '로그인하지 못했어요.',
+        detail: '서버에 잠시 문제가 있어요. 잠시 후 다시 시도해 주세요.',
+      };
+    default:
+      return {
+        title: '로그인하지 못했어요.',
+        detail: '잠시 후 다시 시도해 주세요.',
       };
   }
 }
@@ -43,7 +60,7 @@ function describe(error: unknown): Failure {
 export function LoginScreen() {
   const navigation = useNavigation();
   const { auth } = useRepositories();
-  const { signIn } = useSession();
+  const { signIn, holdTokens } = useSession();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,10 +71,15 @@ export function LoginScreen() {
     try {
       const session = await auth.login({ loginId: loginId.trim(), password });
       setLoading(false);
+      const tokens = {
+        accessToken: session.accessToken,
+        refreshToken: session.refreshToken,
+      };
       if (session.onboardingCompleted) {
-        signIn();
+        signIn(tokens);
       } else {
-        // The account exists but 1.6 러닝 프로필 was never saved.
+        // The account exists but 1.6 러닝 프로필 was never saved. Finishing onboarding signs in with these tokens.
+        holdTokens(tokens);
         navigateTo(navigation, 'ProfileRunning');
       }
     } catch (error) {

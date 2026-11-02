@@ -288,6 +288,7 @@ export function createMockRepositories(
   const session = (loginId: string, account: Account): AuthSession => ({
     user: { id: nextUserId++, loginId },
     accessToken: `mock-token-${loginId}`,
+    refreshToken: `mock-refresh-${loginId}`,
     onboardingCompleted: account.onboardingCompleted,
   });
   const isRegistered = (phoneNumber: string) =>

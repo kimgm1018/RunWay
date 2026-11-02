@@ -15,6 +15,8 @@ export const dataErrorCodes = [
   'CREW_CAPACITY_EXCEEDED',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
+  // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
+  'VALIDATION_ERROR',
   // 401 on a member API: the access token is missing, expired or rejected. The session signs out.
   'UNAUTHORIZED',
   // The request never got an answer: no connection or the timeout passed.

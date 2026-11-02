@@ -562,6 +562,7 @@ export type MusicState = {
 export type AuthSession = {
   user: { id: number; loginId: string };
   accessToken: string;
+  refreshToken: string;
   onboardingCompleted: boolean;
 };
 
