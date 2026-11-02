@@ -1,8 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, IconButton, Screen } from '../../components';
-import { useRepositories, type SelfReportedLevel } from '../../data';
+import {
+  errorCode,
+  useRepositories,
+  type PaceEntry,
+  type SelfReportedLevel,
+} from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing, typography, useTheme } from '../../theme';
 import {
@@ -35,23 +40,61 @@ const paceInputs: { value: PaceInput; label: string }[] = [
   { value: 'pace', label: '페이스' },
 ];
 
-// Distance plus either the finish time or the pace; the other one is worked out (U09).
-function baselineFrom(input: PaceInput, distance: string, clock: string) {
-  const km = parseDistanceKm(distance);
+// Paces outside 2–20 min/km are almost certainly typos.
+const isLikelyPace = (secondsPerKm: number) =>
+  secondsPerKm >= 120 && secondsPerKm <= 1200;
+
+// U07 inputType: distance plus finish time works out the pace (DISTANCE_TIME); the pace tab sends the pace alone (PACE).
+function paceEntryFrom(
+  input: PaceInput,
+  distance: string,
+  clock: string,
+): PaceEntry | null {
   const seconds = parseClock(clock);
-  if (!km || !seconds) {
+  if (!seconds) {
     return null;
   }
-  const paceSec = input === 'duration' ? seconds / km : seconds;
-  // Paces outside 2–20 min/km are almost certainly typos.
-  if (paceSec < 120 || paceSec > 1200) {
+  if (input === 'pace') {
+    return isLikelyPace(seconds)
+      ? { inputType: 'PACE', usualPaceSecPerKm: seconds }
+      : null;
+  }
+  const km = parseDistanceKm(distance);
+  if (!km || !isLikelyPace(seconds / km)) {
     return null;
   }
   return {
+    inputType: 'DISTANCE_TIME',
     baselineDistanceM: Math.round(km * 1000),
-    baselineDurationSec: Math.round(input === 'duration' ? seconds : seconds * km),
-    usualPaceSecPerKm: Math.round(paceSec),
+    baselineDurationSec: seconds,
+    usualPaceSecPerKm: Math.round(seconds / km),
   };
+}
+
+function describeSaveError(error: unknown) {
+  switch (errorCode(error)) {
+    case 'INVALID_LEVEL':
+      return {
+        title: '러닝 수준을 확인하지 못했어요.',
+        detail: '수준을 다시 골라 주세요.',
+      };
+    case 'INVALID_RUNNING_BASELINE':
+    case 'VALIDATION_ERROR':
+      return {
+        title: '평소 페이스를 확인하지 못했어요.',
+        detail: '입력한 값을 다시 확인해 주세요.',
+      };
+    case 'NETWORK_ERROR':
+      return {
+        title: '저장하지 못했어요.',
+        detail: '네트워크 연결을 확인하고 다시 시도해 주세요.',
+      };
+    default:
+      return {
+        title: '저장하지 못했어요.',
+        detail: '잠시 후 다시 시도해 주세요.',
+      };
+  }
 }
 
 function MetricInput({
@@ -115,24 +158,56 @@ export function ProfileRunningScreen() {
   const [distance, setDistance] = useState('');
   const [clock, setClock] = useState('');
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const baseline = baselineFrom(input, distance, clock);
-  const typed = distance !== '' && clock !== '';
+  const [failure, setFailure] = useState<{
+    title: string;
+    detail: string;
+  } | null>(null);
+  const entry = paceEntryFrom(input, distance, clock);
+  const typed = clock !== '' && (input === 'pace' || distance !== '');
+
+  // A profile saved earlier (U06) fills the form; both ways of entering the pace stay available.
+  useEffect(() => {
+    let active = true;
+    profile.getRunningProfile().then(
+      saved => {
+        if (!active || !saved) {
+          return;
+        }
+        setLevel(saved.selfReportedLevel);
+        if (saved.baselineDistanceM && saved.baselineDurationSec) {
+          setInput('duration');
+          setDistance(String(saved.baselineDistanceM / 1000));
+          setClock(formatClock(saved.baselineDurationSec));
+        } else {
+          setInput('pace');
+          setClock(formatClock(saved.usualPaceSecPerKm));
+        }
+      },
+      // Without the saved values the form simply starts empty.
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [profile]);
 
   const save = async () => {
-    if (!level || !baseline) {
+    if (!level || !entry) {
       return;
     }
     setSaving(true);
-    setFailed(false);
+    setFailure(null);
     try {
-      await profile.setRunningLevel(level);
-      await profile.setRunningBaseline(baseline);
+      // One U07 call saves the level and the pace together.
+      await profile.saveRunningProfile({
+        selfReportedLevel: level,
+        pace: entry,
+      });
       setSaving(false);
       navigateTo(navigation, 'WatchChoice');
-    } catch {
+    } catch (error) {
       setSaving(false);
-      setFailed(true);
+      setFailure(describeSaveError(error));
     }
   };
 
@@ -155,7 +230,7 @@ export function ProfileRunningScreen() {
             />
             <GoButton
               title="저장"
-              disabled={!level || !baseline || saving}
+              disabled={!level || !entry || saving}
               onPress={save}
             />
           </View>
@@ -168,11 +243,8 @@ export function ProfileRunningScreen() {
         muted="달리나요?"
         description="거리와 횟수가 둘 다 맞지 않아도 괜찮아요 · 더 가까운 쪽을 골라 주세요"
       />
-      {failed ? (
-        <ErrorNotice
-          title="저장하지 못했어요."
-          detail="잠시 후 다시 시도해 주세요."
-        />
+      {failure ? (
+        <ErrorNotice title={failure.title} detail={failure.detail} />
       ) : null}
       <View accessibilityRole="radiogroup" style={styles.levels}>
         {levels.map(option => (
@@ -211,15 +283,18 @@ export function ProfileRunningScreen() {
             }}
           />
         </View>
+        {/* The pace tab takes the pace alone (U07 PACE), so distance and the worked-out line only show for 완주 시간. */}
         <View style={styles.inputs}>
-          <MetricInput
-            label="거리"
-            unit="km"
-            value={distance}
-            onChangeText={setDistance}
-            placeholder="5"
-            keyboardType="decimal-pad"
-          />
+          {input === 'duration' ? (
+            <MetricInput
+              label="거리"
+              unit="km"
+              value={distance}
+              onChangeText={setDistance}
+              placeholder="5"
+              keyboardType="decimal-pad"
+            />
+          ) : null}
           <MetricInput
             label={input === 'duration' ? '완주 시간' : '페이스 (분:초/km)'}
             value={clock}
@@ -228,23 +303,21 @@ export function ProfileRunningScreen() {
             keyboardType="numbers-and-punctuation"
           />
         </View>
-        <View style={[styles.auto, { borderTopColor: colors.border }]}>
-          <AppText variant="caption" tone="textSecondary" style={styles.flex}>
-            자동 계산 · {input === 'duration' ? '페이스' : '완주 시간'}
-          </AppText>
-          <AppText variant="metric">
-            {baseline
-              ? input === 'duration'
-                ? formatPace(baseline.usualPaceSecPerKm)
-                : formatClock(baseline.baselineDurationSec)
-              : '– –'}
-          </AppText>
-        </View>
-        {typed && !baseline ? (
+        {input === 'duration' ? (
+          <View style={[styles.auto, { borderTopColor: colors.border }]}>
+            <AppText variant="caption" tone="textSecondary" style={styles.flex}>
+              자동 계산 · 페이스
+            </AppText>
+            <AppText variant="metric">
+              {entry ? formatPace(entry.usualPaceSecPerKm) : '– –'}
+            </AppText>
+          </View>
+        ) : null}
+        {typed && !entry ? (
           <AppText variant="caption" tone="danger">
             {input === 'duration'
               ? '거리는 km, 완주 시간은 30:00처럼 입력해 주세요'
-              : '거리는 km, 페이스는 6:00처럼 입력해 주세요'}
+              : '페이스는 6:00처럼 입력해 주세요'}
           </AppText>
         ) : null}
       </View>

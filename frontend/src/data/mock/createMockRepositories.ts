@@ -11,6 +11,7 @@ import type {
   UserProfile,
   RecordSort,
   Repositories,
+  RunningProfile,
   RunRecordSummary,
   RunSample,
   SavedCourse,
@@ -254,6 +255,13 @@ export function createMockRepositories(
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
   let profile: ProfileDetail = { ...fixtures.profileDetail };
+  // The mock serves one signed-in user: the fixture account has a running profile, a fresh sign-up does not.
+  let runningProfileSaved = true;
+  const runningProfile = (): RunningProfile => ({
+    selfReportedLevel: profile.runningLevel,
+    ...profile.baseline,
+    onboardingCompleted: true,
+  });
   let settings: AppSettings = {
     ...fixtures.appSettings,
     notifications: { ...fixtures.appSettings.notifications },
@@ -408,6 +416,7 @@ export function createMockRepositories(
           onboardingCompleted: false,
         };
         accounts.set(request.loginId, account);
+        runningProfileSaved = false;
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {
@@ -441,13 +450,38 @@ export function createMockRepositories(
         profile = { ...profile, ...basic };
         return respond(undefined, options);
       },
-      setRunningLevel: runningLevel => {
-        profile = { ...profile, runningLevel };
-        return respond(undefined, options);
-      },
-      setRunningBaseline: baseline => {
-        profile = { ...profile, baseline };
-        return respond(undefined, options);
+      getRunningProfile: () =>
+        respond(runningProfileSaved ? runningProfile() : null, options),
+      saveRunningProfile: ({ selfReportedLevel, pace }) => {
+        // U07: the first save needs the level and the pace together.
+        if (!runningProfileSaved && !selfReportedLevel) {
+          return fail(new DataError('INVALID_LEVEL', '수준 누락'), options);
+        }
+        if (!runningProfileSaved && !pace) {
+          return fail(
+            new DataError('INVALID_RUNNING_BASELINE', '페이스 누락'),
+            options,
+          );
+        }
+        profile = {
+          ...profile,
+          runningLevel: selfReportedLevel ?? profile.runningLevel,
+          baseline: pace
+            ? {
+                baselineDistanceM:
+                  pace.inputType === 'DISTANCE_TIME'
+                    ? pace.baselineDistanceM
+                    : null,
+                baselineDurationSec:
+                  pace.inputType === 'DISTANCE_TIME'
+                    ? pace.baselineDurationSec
+                    : null,
+                usualPaceSecPerKm: pace.usualPaceSecPerKm,
+              }
+            : profile.baseline,
+        };
+        runningProfileSaved = true;
+        return respond(runningProfile(), options);
       },
       getDetail: () => respond(profile, options),
     },

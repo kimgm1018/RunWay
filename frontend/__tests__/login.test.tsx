@@ -123,13 +123,18 @@ test('a completed account enters home and stays signed in after a relaunch', asy
 });
 
 test('an account without a running profile goes to 1.6 and a relaunch starts signed out', async () => {
-  fetchMock.mockResolvedValue(loginResponse(false));
+  fetchMock.mockImplementation(async (url: string) =>
+    url.endsWith('/auth/login')
+      ? loginResponse(false)
+      : respond(404, { code: 'PROFILE_NOT_SET', message: '', details: {} }),
+  );
   const first = await launch();
   await login(first);
 
   expect(texts(first)).toContain('평소 어떻게');
-  // Requests during setup can use the tokens.
-  expect(tokenStore.current()?.accessToken).toBe('access-1');
+  // 1.6 asks U06 for a saved profile with the held token.
+  const [, profileRequest] = fetchMock.mock.calls[1];
+  expect(profileRequest.headers.Authorization).toBe('Bearer access-1');
   await act(async () => first.unmount());
 
   const relaunch = await launch();
