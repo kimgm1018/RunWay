@@ -237,6 +237,42 @@ abstract class RunningSessionIntegrationSupport {
                 .header("Authorization", SecurityTestSupport.bearer(user));
     }
 
+    /** S03~S06. path는 start·pause·resume·finish. */
+    protected MockHttpServletRequestBuilder postControl(
+            long user, Object sessionId, String path, String body) {
+        return post("/api/v1/running-sessions/" + sessionId + "/" + path)
+                .header("Authorization", SecurityTestSupport.bearer(user))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    /** S07. 본문이 없다. */
+    protected MockHttpServletRequestBuilder cancelRequest(long user, Object sessionId) {
+        return post("/api/v1/running-sessions/" + sessionId + "/cancel")
+                .header("Authorization", SecurityTestSupport.bearer(user));
+    }
+
+    protected String requestBody(long deviceId, long expectedVersion) {
+        return "{\"phase\":\"REQUEST\",\"deviceId\":" + deviceId + ",\"expectedVersion\":"
+                + expectedVersion + "}";
+    }
+
+    /** appliedAt은 APPLIED일 때만 따옴표로 감싼 값, 그 밖에는 null. */
+    protected String resultBody(long commandId, long deviceId, String result, String appliedAt) {
+        return "{\"phase\":\"RESULT\",\"commandId\":" + commandId + ",\"deviceId\":" + deviceId
+                + ",\"result\":\"" + result + "\",\"appliedAt\":"
+                + (appliedAt == null ? "null" : "\"" + appliedAt + "\"") + ",\"reasonCode\":null}";
+    }
+
+    protected int commandCount(long sessionId) {
+        return count("SELECT count(*) FROM session_control_events WHERE session_id=?", sessionId);
+    }
+
+    protected String sessionStatus(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT status::text FROM running_sessions WHERE id=?", String.class, sessionId);
+    }
+
     protected String devices() {
         return "\"controlDeviceId\":" + watchId + ",\"relayDeviceId\":" + phoneId;
     }

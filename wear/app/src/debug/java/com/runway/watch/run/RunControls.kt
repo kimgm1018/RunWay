@@ -10,7 +10,8 @@ import kotlinx.coroutines.flow.StateFlow
  * reopening the app returns to standby (the real flow waits for the phone to prepare the next run).
  */
 object RunControls {
-    fun create(): RunControl = SimulatedRunControl()
+    @Suppress("UNUSED_PARAMETER")
+    fun create(context: android.content.Context): RunControl = SimulatedRunControl()
 }
 
 class SimulatedRunControl(
@@ -33,6 +34,7 @@ class SimulatedRunControl(
             RunIntent.PAUSE -> if (current.state == RunState.RUNNING) current.copy(state = RunState.PAUSED) else current
             RunIntent.RESUME -> if (current.state == RunState.PAUSED) current.copy(state = RunState.RUNNING) else current
             RunIntent.END -> if (current.state in setOf(RunState.RUNNING, RunState.PAUSED)) current.copy(state = RunState.COMPLETED) else current
+            RunIntent.CANCEL -> if (current.state == RunState.READY) current.copy(state = RunState.CANCELLED) else current
             RunIntent.RECONNECT_PHONE -> current.copy(phoneConnected = true)
         }
     }

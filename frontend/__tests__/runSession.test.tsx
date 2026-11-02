@@ -91,6 +91,8 @@ async function startRun(
   for (let second = 0; second < 4; second += 1) {
     await settle(1000);
   }
+  // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
+  await settle(200);
   return screen!;
 }
 

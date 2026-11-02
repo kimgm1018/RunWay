@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from '@react-navigation/native';
 import Svg, {
   Circle,
   Defs,
@@ -17,7 +21,12 @@ import {
   type MusicService,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { useRunActions, type RunConfig } from './RunSession';
+import {
+  useRunActions,
+  useRunControlState,
+  type RunConfig,
+} from './RunSession';
+import type { ControlProblem } from './runControl';
 import {
   fontFamily,
   k1,
@@ -173,11 +182,31 @@ export function RunStartBar({
   const navigation = useNavigation();
   const { colors } = useTheme();
   const source = useMusicSource();
-  const { start: startRun } = useRunActions();
+  const { start: startRun, recheck, abortStart, cancel } = useRunActions();
+  const control = useRunControlState();
+  const focused = useIsFocused();
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
   const latest = useRef({ config, navigation, start: startRun });
   latest.current = { config, navigation, start: startRun };
   const [count, setCount] = useState<number | null>(null);
+  // 이 화면에서 시작을 요청했고 아직 확정되지 않았다. 워치가 실제로 시작해 서버가 확정해야 4.2로 넘어간다.
+  const [requested, setRequested] = useState(false);
+  // 시작이 확정되면(재확인 성공·늦은 결과·워치에서 시작 포함) 이 화면에 있을 때 4.2로 넘어간다.
+  const previousStatus = useRef(control?.status ?? null);
+  useEffect(() => {
+    const status = control?.status ?? null;
+    if (focused && status === 'RUNNING' && previousStatus.current !== 'RUNNING') {
+      setRequested(false);
+      navigateTo(navigation, 'RunProgress');
+    }
+    previousStatus.current = status;
+    if (control?.problem) {
+      setRequested(false);
+    }
+  }, [control, focused, navigation]);
+  const confirming =
+    requested || (control?.pending?.action === 'START' && !control.problem);
+  const notice = control?.status !== 'RUNNING' ? startNotice(control?.problem ?? null) : null;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (count === null) {
@@ -186,10 +215,13 @@ export function RunStartBar({
     if (count === 0) {
       setCount(null);
       const { config: chosen, navigation: nav, start } = latest.current;
-      if (chosen) {
+      if (chosen?.mode === 'GROUP') {
+        start(chosen);
+        navigateTo(nav, 'RunProgress');
+      } else if (chosen) {
+        setRequested(true);
         start(chosen);
       }
-      navigateTo(nav, 'RunProgress');
       return;
     }
     timer.current = setTimeout(() => setCount(count - 1), 1000);
@@ -211,13 +243,13 @@ export function RunStartBar({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="러닝 시작"
-        accessibilityState={{ disabled: !config }}
-        disabled={!config}
+        accessibilityState={{ disabled: !config || confirming }}
+        disabled={!config || confirming}
         onPress={() => setCount(countdownSeconds)}
         style={({ pressed }) => [
           styles.start,
           { backgroundColor: night ? colors.accent : k1.night },
-          (pressed || !config) && styles.pressed,
+          (pressed || !config || confirming) && styles.pressed,
         ]}
       >
         <AppText
@@ -226,7 +258,7 @@ export function RunStartBar({
             { color: night ? colors.onAccent : k1.ice },
           ]}
         >
-          러닝 시작
+          {confirming ? '시작 확인 중' : '러닝 시작'}
         </AppText>
         <View
           style={[
@@ -281,8 +313,88 @@ export function RunStartBar({
           </AppText>
         </Pressable>
       </Modal>
+      {notice ? (
+        <View style={styles.notice}>
+          <AppText variant="captionStrong" accessibilityLabel="시작 안내">
+            {notice.text}
+          </AppText>
+          <View style={styles.noticeActions}>
+            {notice.recheck ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다시 확인"
+                onPress={recheck}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  다시 확인
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.abort ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="이번 운동 중단"
+                onPress={abortStart}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  이번 운동 중단
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.restart && control?.status === 'READY' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="취소"
+                onPress={cancel}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  취소
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.restart ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다시 시작"
+                disabled={!config}
+                onPress={() => setCount(countdownSeconds)}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  다시 시작
+                </AppText>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
+}
+
+// 시작 확정 전 문제 안내. 실행 미확인은 성공·실패로 단정하지 않고 재확인·중단을 고르게 한다(sessions.md S03 시작 결과 미확인).
+function startNotice(problem: ControlProblem | null): {
+  text: string;
+  recheck?: boolean;
+  abort?: boolean;
+  restart?: boolean;
+} | null {
+  if (!problem) {
+    return null;
+  }
+  switch (problem.kind) {
+    case 'watchRequired':
+      return { text: '워치를 연결해 주세요' };
+    case 'watchNotReady':
+      return { text: '워치가 준비되지 않았어요', restart: true };
+    case 'rejected':
+      return { text: '워치가 시작하지 못했어요', restart: true };
+    case 'unconfirmed':
+      return { text: '시작 여부를 확인할 수 없습니다', recheck: true, abort: true };
+    case 'saveUnconfirmed':
+      return null;
+    case 'error':
+      return { text: '러닝을 시작하지 못했어요', restart: true };
+  }
 }
 
 const gpsLabels: Record<GpsQuality, string> = {
@@ -335,7 +447,14 @@ export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
-  bar: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  bar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
+  notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
+  noticeActions: { flexDirection: 'row', gap: spacing.lg },
   round: {
     width: 52,
     height: 52,

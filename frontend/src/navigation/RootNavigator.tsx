@@ -4,6 +4,7 @@ import {
   DarkTheme,
   DefaultTheme,
   NavigationContainer,
+  useNavigation,
   type Theme as NavigationTheme,
 } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -19,9 +20,10 @@ import { settingsScreens } from '../screens/settings';
 import { groupScreens, GroupRunDraftProvider } from '../screens/group';
 import { recordScreens } from '../screens/records';
 import { runScreens } from '../screens/run';
-import { RunSessionProvider } from '../screens/run/RunSession';
+import { RunSessionProvider, useRunResume } from '../screens/run/RunSession';
 import { useSession } from '../session/SessionProvider';
 import { fontFamily, useTheme } from '../theme';
+import { navigateTo } from './navigateTo';
 import { PillTabBar } from './PillTabBar';
 import {
   authRoutes,
@@ -131,6 +133,7 @@ function renderTabBar(props: React.ComponentProps<typeof PillTabBar>) {
 }
 
 function MainTabs() {
+  useResumeRun();
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
       <Tabs.Screen name="HomeTab" component={screens.Home} />
@@ -139,6 +142,18 @@ function MainTabs() {
       <Tabs.Screen name="CommunityTab" component={screens.Community} />
     </Tabs.Navigator>
   );
+}
+
+// 앱을 다시 열었을 때 진행 중인 개인 러닝이 있으면 그 화면으로 돌아간다.
+function useResumeRun() {
+  const navigation = useNavigation();
+  const { target, consume } = useRunResume();
+  React.useEffect(() => {
+    if (target) {
+      consume();
+      navigateTo(navigation, target);
+    }
+  }, [consume, navigation, target]);
 }
 
 export function RootNavigator() {

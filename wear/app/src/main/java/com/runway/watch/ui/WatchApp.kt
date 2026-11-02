@@ -70,7 +70,9 @@ private fun WatchScreen(
     nav: NavState, navigator: WatchNavigator,
 ) {
     when (route) {
-        WatchRoute.STANDBY -> StandbyScreen(snapshot, readiness) { navigator.send(RunIntent.START) }
+        WatchRoute.STANDBY -> StandbyScreen(snapshot, readiness, onCancel = { navigator.send(RunIntent.CANCEL) }) {
+            navigator.send(RunIntent.START)
+        }
         // OS pairing and the app link are checked on the phone; server registration is never shown as this link.
         WatchRoute.CONNECTION_ISSUE -> Notice("휴대폰 연결이 없어요", "휴대폰 블루투스와\nRunWay 앱을 확인해 주세요", StatusTone.WARNING) {
             PillButton("다시 연결", { navigator.send(RunIntent.RECONNECT_PHONE) }, enabled = !snapshot.pendingCommand)
@@ -84,7 +86,7 @@ private fun WatchScreen(
 }
 
 @Composable
-private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onStart: () -> Unit) {
+private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel: () -> Unit = {}, onStart: () -> Unit) {
     RoundScreen {
         StandbyStatus(readiness)
         if (snapshot.state == null) {
@@ -100,6 +102,11 @@ private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onStart: 
         }
         RoundButton(if (snapshot.pendingCommand) "시작 확인 중" else "시작", onStart, Modifier.padding(top = 4.dp),
             enabled = !snapshot.pendingCommand, size = 60, caption = snapshot.pendingCommand) { Icon(WatchIcon.PLAY, it, 22) }
+        ControlNotice(snapshot.notice.takeUnless { snapshot.pendingCommand })
+        // 준비된 개인 러닝은 시작 전에 취소할 수 있다(S07, 휴대폰이 서버에 요청).
+        if (snapshot.state == RunState.READY && !snapshot.pendingCommand) {
+            PillButton("취소", onCancel)
+        }
     }
 }
 
@@ -208,6 +215,7 @@ private fun PausedScreen(snapshot: RunSnapshot, onEnd: () -> Unit, onResume: () 
             RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.STOP, it, 16) }
             RoundButton("재개", onResume, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
         }
+        ControlNotice(snapshot.notice)
     }
 }
 
@@ -225,5 +233,14 @@ private fun EndConfirmScreen(snapshot: RunSnapshot, onCancel: () -> Unit, onEnd:
             RoundButton("취소", onCancel, kind = ButtonKind.SECONDARY) { Icon(WatchIcon.CLOSE, it, 18) }
             RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand) { Icon(WatchIcon.CHECK, it, 20) }
         }
+        ControlNotice(snapshot.notice)
+    }
+}
+
+/** One line for a request in flight, a refusal or an unconfirmed command; never shown as success (S15P31E105-256). */
+@Composable
+private fun ControlNotice(text: String?) {
+    if (text != null) {
+        Text(text, style = RunwayType.Caption, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
     }
 }

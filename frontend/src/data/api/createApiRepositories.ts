@@ -11,6 +11,10 @@ import { createGroupRunsApi } from './groupRuns';
 import { getRunningProfile, saveRunningProfile } from './profile';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
+import { serverRequest } from './request';
+import { createApiSessionRepository } from './sessionApi';
+import { createLinkedDevices } from './sessionDevices';
+import { createNativeWatchSession } from '../../watch/watchSession';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -42,6 +46,12 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // Without a profile the expected course times fall back to 6′00″.
     courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
     watch: createWatchApi(mock.watch),
+    // S15P31E105-256 러닝 세션 제어(S01~S08)와 워치 중계. 세션에 쓸 워치·폰 기기 ID는 W02로 읽고 폰이 없으면 W01로 연결한다.
+    session: createApiSessionRepository(serverRequest),
+    watchSession: {
+      ...createNativeWatchSession(),
+      getLinkedDevices: createLinkedDevices(serverRequest),
+    },
     crews,
     groupRuns: createGroupRunsApi({
       mock: mock.groupRuns,

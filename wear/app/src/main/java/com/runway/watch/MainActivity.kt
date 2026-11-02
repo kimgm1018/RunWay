@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         readiness = DeviceReadiness(this)
-        val control = RunControls.create()
+        val control = RunControls.create(this)
         val actions = ReadinessActions(requestPermission = ::requestByRunner, recheck = ::recheck)
         setContent { WatchApp(control, readiness.readiness, actions, onExit = ::finish) }
         // Without consent nothing is requested; the phone triggers registration when consent arrives.

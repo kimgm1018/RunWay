@@ -1,19 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  BackHandler,
   Easing,
   Pressable,
   StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
-import { CommonActions, useNavigation } from '@react-navigation/native';
+import {
+  CommonActions,
+  useFocusEffect,
+  useNavigation,
+} from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import { AppText, Backdrop, Card, Icon } from '../../components';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { fontFamily, spacing, useTheme } from '../../theme';
-import { useRunSession } from './RunSession';
+import { useRunControlState, useRunSession } from './RunSession';
+import { controlNotice } from './controlNotice';
 
 const holdMs = 1000;
 const buttonSize = 88;
@@ -117,7 +123,54 @@ export function ResumeButton({ onPress }: { onPress: () => void }) {
 export function RunPauseScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const { run, finish } = useRunSession();
+  const { run, finish, resume, recheck } = useRunSession();
+  const control = useRunControlState();
+  const problem = control?.problem ?? null;
+  const ending = problem === null && control?.pending?.action === 'END';
+  const resuming = problem === null && control?.pending?.action === 'RESUME';
+  const notice = controlNotice(problem, ['RESUME', 'END']);
+  // 개인 러닝은 재개를 요청하고 실제로 재개가 확정되면 4.2로 돌아간다. 그룹 러닝은 기존처럼 돌아가서 재개한다.
+  const personal = control !== null && run?.config.mode !== 'GROUP';
+  const onResume = useCallback(() => {
+    if (personal) {
+      resume();
+    } else {
+      navigation.goBack();
+    }
+  }, [navigation, personal, resume]);
+  const previous = useRef(run?.status);
+  useEffect(() => {
+    if (personal && previous.current === 'paused' && run?.status === 'running') {
+      navigation.goBack();
+    }
+    previous.current = run?.status;
+  }, [navigation, personal, run?.status]);
+  // 뒤로 가기도 재개 요청이다(확정 전에는 4.3에 머문다).
+  useFocusEffect(
+    useCallback(() => {
+      if (!personal) {
+        return undefined;
+      }
+      const back = BackHandler.addEventListener('hardwareBackPress', () => {
+        onResume();
+        return true;
+      });
+      return () => back.remove();
+    }, [onResume, personal]),
+  );
+
+  // 종료는 요청만 한다. 서버가 종료를 확정해야(finished) 결과로 넘어간다.
+  // 결과 replaces the run screens, so back from 4.5 cannot reopen a finished run.
+  useEffect(() => {
+    if (run?.status === 'finished') {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [{ name: 'MainTabs' }, { name: 'RunResult' }],
+        }),
+      );
+    }
+  }, [navigation, run?.status]);
 
   // Reached without a run (for example a stale deep link): nothing to pause.
   useEffect(() => {
@@ -159,28 +212,45 @@ export function RunPauseScreen() {
           <View style={styles.buttons}>
             <View style={styles.action}>
               {/* Going back to 4.2 resumes tracking there. */}
-              <ResumeButton onPress={() => navigation.goBack()} />
+              <ResumeButton onPress={onResume} />
               <AppText variant="captionStrong">재개</AppText>
             </View>
             <View style={styles.action}>
-              <StopButton
-                onFinish={() => {
-                  finish();
-                  // 결과 replaces the run screens, so back from 4.5 cannot reopen a finished run.
-                  navigation.dispatch(
-                    CommonActions.reset({
-                      index: 1,
-                      routes: [{ name: 'MainTabs' }, { name: 'RunResult' }],
-                    }),
-                  );
-                }}
-              />
+              <StopButton onFinish={finish} />
               <AppText variant="captionStrong">종료</AppText>
             </View>
           </View>
           <AppText variant="caption" tone="textSecondary">
             종료는 1초 길게 눌러야 동작해요
           </AppText>
+          {ending ? (
+            <AppText variant="captionStrong" accessibilityLabel="종료 안내">
+              종료 처리 중
+            </AppText>
+          ) : null}
+          {resuming ? (
+            <AppText variant="captionStrong" accessibilityLabel="종료 안내">
+              재개 확인 중
+            </AppText>
+          ) : null}
+          {notice ? (
+            <>
+              <AppText variant="captionStrong" accessibilityLabel="종료 안내">
+                {notice.text}
+              </AppText>
+              {notice.recheck ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="다시 확인"
+                  onPress={recheck}
+                >
+                  <AppText variant="captionStrong" tone="accentText">
+                    다시 확인
+                  </AppText>
+                </Pressable>
+              ) : null}
+            </>
+          ) : null}
         </Card>
         <View style={styles.spacer} />
       </SafeAreaView>

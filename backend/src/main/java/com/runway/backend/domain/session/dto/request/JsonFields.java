@@ -3,6 +3,9 @@ package com.runway.backend.domain.session.dto.request;
 import com.runway.backend.global.exception.ApiException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -25,6 +28,11 @@ final class JsonFields {
     /** 소수를 double로 거치지 않고 원문 그대로 BigDecimal로 읽는다. 300.0000000000000001이 300으로 반올림돼 통과하지 않게 한다. */
     private static final JsonMapper EXACT_NUMBERS =
             JsonMapper.builder().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
+
+    /** 기기 시각으로 받는 실제 적용시각의 허용 범위. 범위 밖은 TIMESTAMPTZ 저장에서 500이 되므로 400으로 막는다. */
+    private static final Instant MIN_INSTANT = Instant.parse("2000-01-01T00:00:00Z");
+
+    private static final Instant MAX_INSTANT = Instant.parse("9999-12-31T23:59:59.999999Z");
 
     private JsonFields() {}
 
@@ -130,6 +138,33 @@ final class JsonFields {
             throw invalid(name, "1~" + maxLength + "자 문자열 또는 null이어야 합니다.");
         }
         return node.stringValue();
+    }
+
+    /**
+     * 키는 반드시 있어야 하고 값은 `Z`로 끝나는 UTC ISO-8601 문자열 또는 null이다. DB(TIMESTAMPTZ) 정밀도와 같도록 마이크로초로 자른다. 같은 시각을 다른
+     * 소수 자릿수로 재전송해도 같은 값으로 비교된다.
+     */
+    static Instant requireNullableUtcInstant(JsonNode body, String name) {
+        JsonNode node = body.get(name);
+        if (node == null) {
+            throw invalid(name, "필수 값입니다. 값이 없으면 null로 보냅니다.");
+        }
+        if (node.isNull()) {
+            return null;
+        }
+        if (!node.isString() || !node.stringValue().endsWith("Z")) {
+            throw invalid(name, "UTC(Z) ISO-8601 시각이어야 합니다.");
+        }
+        Instant value;
+        try {
+            value = Instant.parse(node.stringValue()).truncatedTo(ChronoUnit.MICROS);
+        } catch (DateTimeParseException e) {
+            throw invalid(name, "UTC(Z) ISO-8601 시각이어야 합니다.");
+        }
+        if (value.isBefore(MIN_INSTANT) || value.isAfter(MAX_INSTANT)) {
+            throw invalid(name, "2000-01-01T00:00:00Z ~ 9999-12-31T23:59:59Z 범위여야 합니다.");
+        }
+        return value;
     }
 
     static void forbid(JsonNode body, String operation, String... names) {

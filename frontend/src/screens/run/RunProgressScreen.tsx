@@ -6,7 +6,11 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  CommonActions,
+  useFocusEffect,
+  useNavigation,
+} from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Card, Icon, IconButton } from '../../components';
@@ -23,7 +27,8 @@ import {
 } from '../../theme';
 import { MockMap } from './MockMap';
 import { AlbumArt } from './musicParts';
-import { useRunSession } from './RunSession';
+import { useRunControlState, useRunSession } from './RunSession';
+import { controlNotice } from './controlNotice';
 
 // The pace bar spans 20 seconds either side of the goal, with ±10 seconds highlighted.
 const barSpanSec = 20;
@@ -209,21 +214,53 @@ export function RunProgressScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const { music } = useRepositories();
-  const { run, start, pause, resume } = useRunSession();
+  const { run, start, pause, resume, recheck } = useRunSession();
   const [player, setPlayer] = useState<MusicState | null>(null);
   const status = useRef(run?.status);
   status.current = run?.status;
   const latest = useRef({ pause, resume });
   latest.current = { pause, resume };
 
+  const control = useRunControlState();
+  const focused = useRef(false);
+
+  // 일시정지는 요청만 한다. 실제로 멈춘 것이 확정되면(running → paused) 4.3을 연다.
   const openPause = useCallback(() => {
     latest.current.pause();
-    navigateTo(navigation, 'RunPause');
-  }, [navigation]);
+  }, []);
+  const previous = useRef(run?.status);
+  useEffect(() => {
+    if (
+      focused.current &&
+      previous.current === 'running' &&
+      run?.status === 'paused'
+    ) {
+      navigateTo(navigation, 'RunPause');
+    }
+    // 워치에서 종료해도 결과로 넘어간다. 결과는 진행 화면들을 대신하므로 뒤로 가도 끝난 러닝이 다시 열리지 않는다.
+    if (focused.current && run?.status === 'finished') {
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 1,
+          routes: [{ name: 'MainTabs' }, { name: 'RunResult' }],
+        }),
+      );
+    }
+    previous.current = run?.status;
+  }, [navigation, run?.status]);
+  const problem = control?.problem ?? null;
+  const waiting =
+    problem === null && control?.pending?.action === 'PAUSE'
+      ? '일시정지 확인 중'
+      : problem === null && control?.pending?.action === 'RESUME'
+      ? '재개 확인 중'
+      : null;
+  const notice = controlNotice(problem, ['PAUSE', 'RESUME']);
 
   // Coming back from 4.3 (재개 or the back key) carries on the run.
   useFocusEffect(
     useCallback(() => {
+      focused.current = true;
       if (status.current === 'paused') {
         latest.current.resume();
       }
@@ -232,7 +269,10 @@ export function RunProgressScreen() {
         openPause();
         return true;
       });
-      return () => back.remove();
+      return () => {
+        focused.current = false;
+        back.remove();
+      };
     }, [openPause]),
   );
 
@@ -409,9 +449,34 @@ export function RunProgressScreen() {
               />
             ) : null}
           </Card>
+          {waiting ? (
+            <AppText variant="captionStrong" accessibilityLabel="제어 확인">
+              {waiting}
+            </AppText>
+          ) : null}
+          {notice ? (
+            <View style={styles.notice}>
+              <AppText variant="captionStrong" accessibilityLabel="제어 안내">
+                {notice.text}
+              </AppText>
+              {notice.recheck ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="다시 확인"
+                  onPress={recheck}
+                >
+                  <AppText variant="captionStrong" tone="accentText">
+                    다시 확인
+                  </AppText>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="일시정지"
+            accessibilityState={{ disabled: waiting !== null }}
+            disabled={waiting !== null}
             onPress={openPause}
             style={({ pressed }) => [
               styles.pause,
@@ -511,6 +576,7 @@ const styles = StyleSheet.create({
     marginLeft: -2,
   },
   paceLabels: { flexDirection: 'row', justifyContent: 'space-between' },
+  notice: { alignItems: 'center', gap: spacing.xs },
   pause: {
     width: size.buttonLarge + 8,
     height: size.buttonLarge + 8,

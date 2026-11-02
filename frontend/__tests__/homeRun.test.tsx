@@ -240,6 +240,8 @@ test('run mode leads to course recommendations and a free run with a countdown',
   for (let second = 0; second < 3; second += 1) {
     await settle(1050);
   }
+  // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
+  await settle(200);
   expect(texts(free)).toContain('내 페이스');
   await act(async () => free.unmount());
 });
