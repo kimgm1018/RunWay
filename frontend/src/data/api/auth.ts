@@ -1,8 +1,13 @@
-import type { AuthSession, Repositories } from '../types';
+import type {
+  AuthSession,
+  LoginIdAvailability,
+  Repositories,
+  SignUpRequest,
+} from '../types';
 import { apiRequest } from './http';
 
-// U01 response (docs/design/api/users.md). expiresInSec and refreshExpiresAt matter once refresh (U02) lands.
-type LoginResponse = {
+// U01·U15 response (docs/design/api/users.md). expiresInSec and refreshExpiresAt matter once refresh (U02) lands.
+type SessionResponse = {
   user: { id: number; loginId: string };
   accessToken: string;
   refreshToken: string;
@@ -11,20 +16,56 @@ type LoginResponse = {
   onboardingCompleted: boolean;
 };
 
-// U01 로그인. Wrong credentials come back as INVALID_CREDENTIALS, five in a row as LOGIN_LOCKED.
-export const login: Repositories['auth']['login'] = async ({
-  loginId,
-  password,
-}): Promise<AuthSession> => {
-  const response = await apiRequest<LoginResponse>('/auth/login', {
-    method: 'POST',
-    body: { loginId, password },
-    auth: false,
-  });
+function toSession(response: SessionResponse): AuthSession {
   return {
     user: response.user,
     accessToken: response.accessToken,
     refreshToken: response.refreshToken,
     onboardingCompleted: response.onboardingCompleted,
   };
-};
+}
+
+// U01 로그인. Wrong credentials come back as INVALID_CREDENTIALS, five in a row as LOGIN_LOCKED.
+export const login: Repositories['auth']['login'] = async ({
+  loginId,
+  password,
+}) =>
+  toSession(
+    await apiRequest<SessionResponse>('/auth/login', {
+      method: 'POST',
+      body: { loginId, password },
+      auth: false,
+    }),
+  );
+
+// U16 아이디 사용 가능 여부. Checking does not reserve the ID; U15 decides.
+export const checkLoginId: Repositories['auth']['checkLoginId'] = loginId =>
+  apiRequest<LoginIdAvailability>('/auth/login-id/availability', {
+    query: { loginId },
+    auth: false,
+  });
+
+// U15 회원가입. 1.4 only lets the user continue once the three required consents are given,
+// so they go as granted and health data follows the user's choice.
+export const signUp: Repositories['auth']['signUp'] = async ({
+  healthDataAccess,
+  ...request
+}: SignUpRequest) =>
+  toSession(
+    await apiRequest<SessionResponse>('/auth/signup', {
+      method: 'POST',
+      body: {
+        ...request,
+        consents: [
+          { consentType: 'TERMS_OF_SERVICE', granted: true },
+          { consentType: 'PERSONAL_INFO', granted: true },
+          { consentType: 'LOCATION_DATA', granted: true },
+          {
+            consentType: 'HEALTH_DATA',
+            granted: healthDataAccess === 'AGREEE',
+          },
+        ],
+      },
+      auth: false,
+    }),
+  );

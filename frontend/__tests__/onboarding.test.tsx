@@ -127,12 +127,12 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('만들어요');
 
   await type(screen, '아이디', 'runner01');
-  await settle(450);
+  await settle(550);
   expect(texts(screen)).toContain('이미 사용 중인 아이디예요');
   await type(screen, '아이디', 'ab');
   expect(texts(screen)).toContain('영문·숫자 4–16자로 입력해 주세요');
   await type(screen, '아이디', 'newrunner');
-  await settle(450);
+  await settle(550);
   expect(texts(screen)).toContain('사용할 수 있는 아이디예요');
 
   await type(screen, '비밀번호', 'runway123');

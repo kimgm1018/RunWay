@@ -5,6 +5,7 @@ import { AppText, IconButton, Screen, TextField } from '../../components';
 import { errorCode, useRepositories, type Gender } from '../../data';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
+import { useSession } from '../../session/SessionProvider';
 import { spacing } from '../../theme';
 import {
   ErrorNotice,
@@ -34,6 +35,25 @@ const genders: { value: Gender; label: string }[] = [
   { value: 'FEMALE', label: '여성' },
 ];
 
+// U15 errors other than a taken nickname, which shows under the nickname field instead.
+function describeSignUpError(error: unknown) {
+  switch (errorCode(error)) {
+    case 'LOGIN_ID_DUPLICATED':
+      return '그사이 다른 사람이 이 아이디로 가입했어요. 회원가입에서 아이디를 바꿔 주세요.';
+    case 'INVALID_PASSWORD_POLICY':
+      return '비밀번호가 규칙에 맞지 않아요. 회원가입에서 공백 없이 8~20자로 바꿔 주세요.';
+    case 'INVALID_CONSENT':
+      return '필수 약관 동의가 확인되지 않았어요. 약관 동의를 다시 해 주세요.';
+    case 'INVALID_PROFILE':
+    case 'VALIDATION_ERROR':
+      return '입력한 정보를 확인하지 못했어요. 닉네임·생년월일·전화번호를 다시 확인해 주세요.';
+    case 'NETWORK_ERROR':
+      return '가입하지 못했어요. 네트워크 연결을 확인하고 다시 시도해 주세요.';
+    default:
+      return '가입하지 못했어요. 잠시 후 다시 시도해 주세요.';
+  }
+}
+
 function splitDate(date: string | undefined) {
   const [year, month, day] = (date ?? '').split('-').map(Number);
   return year ? { year, month, day } : { year: null, month: null, day: null };
@@ -43,6 +63,7 @@ function splitDate(date: string | undefined) {
 export function ProfileBasicScreen() {
   const navigation = useNavigation();
   const repositories = useRepositories();
+  const { holdTokens } = useSession();
   const { draft, update } = useSignUpDraft();
   const initial = splitDate(draft.profile?.birthDate);
   const [nickname, setNickname] = useState(draft.profile?.nickname ?? '');
@@ -55,6 +76,10 @@ export function ProfileBasicScreen() {
   const [day, setDay] = useState<number | null>(initial.day);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // The nickname U15 rejected as taken; editing it clears the field error.
+  const [takenNickname, setTakenNickname] = useState<string | null>(null);
+  const nicknameTaken =
+    takenNickname !== null && takenNickname === nickname.trim();
 
   const dayCount = year && month ? daysInMonth(year, month) : 31;
   const days = Array.from({ length: dayCount }, (_, index) => index + 1);
@@ -68,7 +93,8 @@ export function ProfileBasicScreen() {
   };
 
   const nicknameValid = isValidNickname(nickname);
-  const ready = nicknameValid && gender && year && month && day;
+  const ready =
+    nicknameValid && !nicknameTaken && gender && year && month && day;
 
   const submit = async () => {
     if (!ready) {
@@ -85,12 +111,17 @@ export function ProfileBasicScreen() {
       if (draft.accountCreated) {
         await repositories.profile.updateBasic(profile);
       } else {
-        await repositories.auth.signUp({
+        const session = await repositories.auth.signUp({
           loginId: draft.loginId,
           password: draft.password,
           phoneNumber: draft.phoneNumber,
           healthDataAccess: draft.healthDataAccess,
           ...profile,
+        });
+        // Setup is not finished yet, so the tokens stay in memory until 1.7 signs in (users.md 초기 설정과 화면 분기).
+        holdTokens({
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
         });
         // Fire and forget: the watch sync must not delay navigation.
         void setWatchHealthConsent(draft.healthDataAccess);
@@ -101,11 +132,11 @@ export function ProfileBasicScreen() {
       navigateTo(navigation, 'ProfileRunning');
     } catch (error) {
       setSaving(false);
-      setFailure(
-        errorCode(error) === 'LOGIN_ID_DUPLICATED'
-          ? '그사이 다른 사람이 이 아이디로 가입했어요. 회원가입에서 아이디를 바꿔 주세요.'
-          : '가입하지 못했어요. 잠시 후 다시 시도해 주세요.',
-      );
+      if (errorCode(error) === 'NICKNAME_DUPLICATED') {
+        setTakenNickname(profile.nickname);
+      } else {
+        setFailure(describeSignUpError(error));
+      }
     }
   };
 
@@ -146,9 +177,15 @@ export function ProfileBasicScreen() {
         onChangeText={setNickname}
         onBlur={() => setTouched(true)}
         maxLength={10}
-        status={touched && nickname && !nicknameValid ? 'error' : 'default'}
+        status={
+          nicknameTaken || (touched && nickname && !nicknameValid)
+            ? 'error'
+            : 'default'
+        }
         helper={
-          touched && nickname && !nicknameValid
+          nicknameTaken
+            ? '이미 사용 중인 닉네임이에요'
+            : touched && nickname && !nicknameValid
             ? '닉네임은 2–10자로 입력해 주세요'
             : nicknameRule
         }
