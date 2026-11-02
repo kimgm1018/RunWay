@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Screen, TextField } from '../../components';
-import { useRepositories, type LoginIdAvailability } from '../../data';
+import {
+  errorCode,
+  useRepositories,
+  type DataErrorCode,
+  type LoginIdAvailability,
+} from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { radius, spacing, useTheme } from '../../theme';
 import {
@@ -24,16 +29,16 @@ import {
 
 const passwordLabels = { length: '8자 이상', letter: '영문', digit: '숫자' };
 
-// Waits for typing to pause before asking U16 whether the ID is free.
-const checkDelayMs = 400;
+// Waits for typing to pause before asking U16 whether the ID is free (users.md suggests about 500ms).
+const checkDelayMs = 500;
 
 function useLoginIdCheck(loginId: string) {
   const { auth } = useRepositories();
   const [result, setResult] = useState<LoginIdAvailability | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<DataErrorCode | null>(null);
   const valid = isValidLoginId(loginId);
   useEffect(() => {
-    setFailed(false);
+    setFailure(null);
     if (!valid) {
       return;
     }
@@ -41,7 +46,7 @@ function useLoginIdCheck(loginId: string) {
     const timer = setTimeout(() => {
       auth.checkLoginId(loginId).then(
         availability => active && setResult(availability),
-        () => active && setFailed(true),
+        error => active && setFailure(errorCode(error)),
       );
     }, checkDelayMs);
     return () => {
@@ -51,7 +56,12 @@ function useLoginIdCheck(loginId: string) {
   }, [auth, loginId, valid]);
   // A late answer for an earlier input is ignored (U16 echoes loginId for this).
   const current = result?.loginId === loginId ? result : null;
-  return { valid, result: current, failed };
+  // The server's format check (400) agrees with isValidLoginId, so it reads as the same format error.
+  return {
+    valid: valid && failure !== 'VALIDATION_ERROR',
+    result: current,
+    failed: failure !== null && failure !== 'VALIDATION_ERROR',
+  };
 }
 
 // 1.3 회원가입
