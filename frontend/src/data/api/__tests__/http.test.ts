@@ -132,6 +132,7 @@ test('5xx without a domain code becomes SERVER_ERROR', async () => {
   const error = await failure(apiRequest('/running-records'));
 
   expect(error.code).toBe('SERVER_ERROR');
+  expect(error.status).toBe(503);
   expect(error.message).toBe('일시적으로 처리할 수 없습니다.');
 });
 
@@ -151,6 +152,7 @@ test('no connection becomes NETWORK_ERROR', async () => {
   fetchMock.mockRejectedValue(new TypeError('Network request failed'));
   const error = await failure(apiRequest('/users/me'));
   expect(error.code).toBe('NETWORK_ERROR');
+  expect(error.status).toBeNull();
 });
 
 test('a request past the timeout is aborted as NETWORK_ERROR', async () => {
