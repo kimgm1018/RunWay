@@ -1,8 +1,12 @@
 package com.runway.backend.domain.course;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -404,6 +408,133 @@ class CourseApiIntegrationTest {
     }
 
     @Test
+    void C01_ACTIVE만_추천하고_MERGED_BLOCKED_거리밖_반경밖은_제외한다() throws Exception {
+        insertCourse(
+                DESC_PREFIX + " blocked", "BLOCKED", null, DISTANCE_M, START_EWKT);
+        insertCourse(
+                DESC_PREFIX + " far",
+                "ACTIVE",
+                null,
+                DISTANCE_M,
+                "SRID=4326;POINT(128 36)");
+        long wrongDistanceId =
+                insertCourse(
+                        DESC_PREFIX + " wrong-distance",
+                        "ACTIVE",
+                        null,
+                        new BigDecimal("8000.00"),
+                        START_EWKT);
+        insertEnvironmentTag(wrongDistanceId, "PARK");
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "TIME",
+                                          "targetDurationSec": 1800,
+                                          "environmentTypes": ["PARK"],
+                                          "limit": 20
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses", hasSize(1)))
+                .andExpect(jsonPath("$.courses[0].id").value((int) activeCourseId))
+                .andExpect(jsonPath("$.courses[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.courses[0].distanceM").value(5000.0))
+                .andExpect(jsonPath("$.courses[0].environmentTags[0]").value("PARK"))
+                .andExpect(jsonPath("$.courses[0].estimatedDurationSec").value(1800));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "PACE",
+                                          "targetPaceSecPerKm": 360,
+                                          "environmentTypes": ["PARK", "RIVERSIDE"]
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses", hasSize(0)));
+    }
+
+    @Test
+    void C01_환경필터_없으면_태그가_없는_코스도_포함하고_잘못된조건은_422() throws Exception {
+        long plainId =
+                insertCourse(
+                        DESC_PREFIX + " plain",
+                        "ACTIVE",
+                        null,
+                        new BigDecimal("5100.00"),
+                        START_EWKT);
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "PACE",
+                                          "targetPaceSecPerKm": 300,
+                                          "environmentTypes": null,
+                                          "radiusM": 3000
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses.length()", greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.courses[*].id", hasItem((int) plainId)));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "TIME",
+                                          "targetDurationSec": 1800,
+                                          "environmentTypes": ["FOREST"]
+                                        }
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "PACE",
+                                          "targetPaceSecPerKm": 300
+                                        }
+                                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void X_User_Id단독으로는_인증할수없다() throws Exception {
         mockMvc.perform(
                         get("/api/v1/courses/{courseId}", activeCourseId)
@@ -428,6 +559,23 @@ class CourseApiIntegrationTest {
         mockMvc.perform(get("/api/v1/users/me/bookmarked-courses").header("X-User-Id", userId))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("X-User-Id", userId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.0,
+                                          "longitude": 129.0,
+                                          "targetDistanceM": 5000,
+                                          "goalInputType": "PACE",
+                                          "targetPaceSecPerKm": 300
+                                        }
+                                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     private long insertUser(String loginId, String nickname, String phone) {
@@ -445,6 +593,15 @@ class CourseApiIntegrationTest {
 
     private long insertCourse(
             String description, String status, Long mergedIntoCourseId, BigDecimal distanceM) {
+        return insertCourse(description, status, mergedIntoCourseId, distanceM, START_EWKT);
+    }
+
+    private long insertCourse(
+            String description,
+            String status,
+            Long mergedIntoCourseId,
+            BigDecimal distanceM,
+            String startEwkt) {
         return jdbc.queryForObject(
                 """
                 INSERT INTO courses(description, route, start_position, distance, status, region_code, merged_into_course_id)
@@ -454,7 +611,7 @@ class CourseApiIntegrationTest {
                 Long.class,
                 description,
                 ROUTE_EWKT,
-                START_EWKT,
+                startEwkt,
                 distanceM,
                 status,
                 mergedIntoCourseId);

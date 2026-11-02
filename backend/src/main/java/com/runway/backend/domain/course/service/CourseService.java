@@ -1,10 +1,13 @@
 package com.runway.backend.domain.course.service;
 
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
+import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
+import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
+import com.runway.backend.domain.course.dto.response.RecommendedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
@@ -12,11 +15,18 @@ import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkUpsertRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkedCourseRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.CourseRow;
+import com.runway.backend.domain.course.repository.CourseJdbcRepository.RecommendCourseRow;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.geo.GeoJsonGeographyMapper;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.geo.GeoJsonPoint;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,10 +41,46 @@ public class CourseService {
     private static final int ALIAS_MAX_LENGTH = 50;
     private static final int DEFAULT_BOOKMARK_LIMIT = 20;
     private static final int MAX_BOOKMARK_LIMIT = 50;
+    private static final int DEFAULT_RECOMMEND_LIMIT = 20;
+    private static final int MAX_RECOMMEND_LIMIT = 50;
+    private static final double DEFAULT_RADIUS_M = 3_000d;
+    private static final double DISTANCE_TOLERANCE_RATIO = 0.10d;
+    private static final Set<String> ALLOWED_ENVIRONMENT_TYPES =
+            Set.of("PARK", "RIVERSIDE", "URBAN", "BEACH", "TRACK");
 
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseBookmarkRepository courseBookmarkRepository;
     private final JsonMapper jsonMapper;
+
+    @Transactional(readOnly = true)
+    public RecommendCoursesResponse recommend(long userId, RecommendCoursesRequest request) {
+        requireExistingUser(userId);
+        ValidatedRecommendSearch search = validateRecommendSearch(request);
+
+        List<RecommendCourseRow> rows =
+                courseJdbcRepository.findRecommendations(
+                        search.startEwkt(),
+                        search.radiusM(),
+                        search.minDistanceM(),
+                        search.maxDistanceM(),
+                        search.environmentTypes(),
+                        search.limit());
+
+        List<RecommendedCourseItemResponse> courses = new ArrayList<>(rows.size());
+        for (RecommendCourseRow row : rows) {
+            int estimatedDurationSec =
+                    estimateDurationSecRequired(row.distanceM(), search.paceSecPerKm());
+            courses.add(
+                    new RecommendedCourseItemResponse(
+                            row.id(),
+                            row.regionCode(),
+                            row.status(),
+                            row.distanceM(),
+                            row.environmentTags(),
+                            estimatedDurationSec));
+        }
+        return new RecommendCoursesResponse(courses);
+    }
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -173,6 +219,117 @@ public class CourseService {
         }
     }
 
+    private static ValidatedRecommendSearch validateRecommendSearch(RecommendCoursesRequest request) {
+        if (request == null) {
+            throw invalidSearch("추천 조건이 필요합니다.");
+        }
+        double latitude = requireFinite(request.latitude(), "latitude");
+        double longitude = requireFinite(request.longitude(), "longitude");
+        if (latitude < -90 || latitude > 90) {
+            throw invalidSearch("latitude는 -90~90이어야 합니다.");
+        }
+        if (longitude < -180 || longitude > 180) {
+            throw invalidSearch("longitude는 -180~180이어야 합니다.");
+        }
+
+        double targetDistanceM = requirePositive(request.targetDistanceM(), "targetDistanceM");
+        double paceSecPerKm = resolvePaceSecPerKm(request, targetDistanceM);
+
+        double radiusM =
+                request.radiusM() == null
+                        ? DEFAULT_RADIUS_M
+                        : requirePositive(request.radiusM(), "radiusM");
+        int limit = resolveRecommendLimit(request.limit());
+        List<String> environmentTypes = normalizeEnvironmentTypes(request.environmentTypes());
+
+        BigDecimal target = BigDecimal.valueOf(targetDistanceM);
+        BigDecimal minDistanceM =
+                target.multiply(BigDecimal.valueOf(1.0d - DISTANCE_TOLERANCE_RATIO))
+                        .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal maxDistanceM =
+                target.multiply(BigDecimal.valueOf(1.0d + DISTANCE_TOLERANCE_RATIO))
+                        .setScale(2, RoundingMode.HALF_UP);
+
+        String startEwkt =
+                GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(longitude, latitude));
+        return new ValidatedRecommendSearch(
+                startEwkt, radiusM, minDistanceM, maxDistanceM, environmentTypes, limit, paceSecPerKm);
+    }
+
+    private static double resolvePaceSecPerKm(
+            RecommendCoursesRequest request, double targetDistanceM) {
+        String rawType = request.goalInputType();
+        if (rawType == null || rawType.isBlank()) {
+            throw invalidSearch("goalInputType은 TIME 또는 PACE여야 합니다.");
+        }
+        String goalInputType = rawType.trim().toUpperCase(Locale.ROOT);
+        return switch (goalInputType) {
+            case "TIME" -> {
+                if (request.targetPaceSecPerKm() != null) {
+                    throw invalidSearch("TIME 목표에는 targetPaceSecPerKm을 함께 보낼 수 없습니다.");
+                }
+                double durationSec =
+                        requirePositive(request.targetDurationSec(), "targetDurationSec");
+                double pace = durationSec * 1000.0d / targetDistanceM;
+                if (!(pace > 0) || Double.isInfinite(pace)) {
+                    throw invalidSearch("계산된 목표 페이스가 유효하지 않습니다.");
+                }
+                yield pace;
+            }
+            case "PACE" -> {
+                if (request.targetDurationSec() != null) {
+                    throw invalidSearch("PACE 목표에는 targetDurationSec을 함께 보낼 수 없습니다.");
+                }
+                yield requirePositive(request.targetPaceSecPerKm(), "targetPaceSecPerKm");
+            }
+            default -> throw invalidSearch("goalInputType은 TIME 또는 PACE여야 합니다.");
+        };
+    }
+
+    private static List<String> normalizeEnvironmentTypes(List<String> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String value : raw) {
+            if (value == null || value.isBlank()) {
+                throw invalidSearch("environmentTypes에 빈 값이 있습니다.");
+            }
+            String code = value.trim().toUpperCase(Locale.ROOT);
+            if (!ALLOWED_ENVIRONMENT_TYPES.contains(code)) {
+                throw invalidSearch("허용되지 않은 environmentTypes 코드입니다: " + value);
+            }
+            normalized.add(code);
+        }
+        return List.copyOf(normalized);
+    }
+
+    private static int resolveRecommendLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_RECOMMEND_LIMIT;
+        }
+        if (limit < 1 || limit > MAX_RECOMMEND_LIMIT) {
+            throw invalidSearch(
+                    "limit은 1 이상 " + MAX_RECOMMEND_LIMIT + " 이하여야 합니다.");
+        }
+        return limit;
+    }
+
+    private static double requireFinite(Double value, String field) {
+        if (value == null || value.isNaN() || value.isInfinite()) {
+            throw invalidSearch(field + "이(가) 올바르지 않습니다.");
+        }
+        return value;
+    }
+
+    private static double requirePositive(Double value, String field) {
+        double finite = requireFinite(value, field);
+        if (!(finite > 0)) {
+            throw invalidSearch(field + "은(는) 양수여야 합니다.");
+        }
+        return finite;
+    }
+
     private static Integer estimateDurationSec(BigDecimal distanceM, Double targetPaceSecPerKm) {
         if (targetPaceSecPerKm == null || targetPaceSecPerKm <= 0 || distanceM == null) {
             return null;
@@ -180,6 +337,27 @@ public class CourseService {
         double seconds = distanceM.doubleValue() / 1000.0 * targetPaceSecPerKm;
         return (int) Math.round(seconds);
     }
+
+    private static int estimateDurationSecRequired(BigDecimal distanceM, double paceSecPerKm) {
+        Integer estimated = estimateDurationSec(distanceM, paceSecPerKm);
+        if (estimated == null || estimated <= 0) {
+            throw invalidSearch("예상 시간을 계산할 수 없습니다.");
+        }
+        return estimated;
+    }
+
+    private static ApiException invalidSearch(String message) {
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", message);
+    }
+
+    private record ValidatedRecommendSearch(
+            String startEwkt,
+            double radiusM,
+            BigDecimal minDistanceM,
+            BigDecimal maxDistanceM,
+            List<String> environmentTypes,
+            int limit,
+            double paceSecPerKm) {}
 
     private GeoJsonLineString parseLineString(String geoJson) {
         try {
