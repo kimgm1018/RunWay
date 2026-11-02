@@ -1,10 +1,14 @@
 package com.runway.backend.domain.device;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.runway.backend.domain.device.service.BatchPayloadHasher;
+import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
+import java.time.Duration;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -56,8 +60,18 @@ abstract class SyncBatchIntegrationSupport {
     protected long otherWatchId;
     private int seq;
 
+    @Autowired private ReadinessEvaluationDispatcher readinessDispatcher;
+
+    /** 다른 컨텍스트의 테스트가 같은 컨테이너를 쓰므로, 이 테스트가 남긴 평가도 끝내고 넘긴다. */
+    @AfterEach
+    void awaitReadinessEvaluations() throws InterruptedException {
+        assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+    }
+
     @BeforeEach
-    void resetData() {
+    void resetData() throws InterruptedException {
+        // W06 커밋 후 준비도 평가(254)는 별도 스레드에서 돈다. 앞 테스트의 평가가 끝난 뒤 지워야 회원 삭제와 겹치지 않는다.
+        assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
         jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM running_route_points");
         jdbc.update("DELETE FROM sync_batches");
@@ -65,6 +79,8 @@ abstract class SyncBatchIntegrationSupport {
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM daily_health_metrics");
+        // 준비도 자동 평가(254)가 남긴 결과. 회원 FK가 있으므로 회원보다 먼저 지운다.
+        jdbc.update("DELETE FROM daily_readiness");
         jdbc.update("DELETE FROM users");
         userId = insertUser("AGREEE");
         otherUserId = insertUser("AGREEE");

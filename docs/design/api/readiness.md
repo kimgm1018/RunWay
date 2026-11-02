@@ -8,18 +8,38 @@
 
 ## ERD 응답 대응 기준
 
-**응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. 저장·전송 정책이 미정인 보완 필드는 구현 완료 계약을 뜻하지 않는다. 확인 필요 필드의 생략은 기능 삭제나 최종 선택 필드 확정을 뜻하지 않는다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
+**응답 해석:** R02는 S15P31E105-254에서 확정한 계약이다. 아래 Response 표의 필드만 구현 계약이며, "후속 필드" 표의 항목은 아직 계약이 아니다. `O`는 응답 객체가 있을 때 키를 항상 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 결과가 없는 경우는 오류 응답 절을 따른다.
 
-daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL 가능)를 저장한다. readinessLevel은 신뢰도와 다른 표시 값이며 등급 경계는 미정이다. daily_health_metrics는 user_id와 기준 날짜로 대응하며 FK로 일일 건강 행을 직접 참조하지 않는다.
+daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL 가능)를 저장한다. readinessLevel은 신뢰도와 다른 표시 값이며 등급 경계는 미정이다(후속). daily_health_metrics는 user_id와 기준 날짜로 대응하며 FK로 일일 건강 행을 직접 참조하지 않는다.
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
 ## 자동 평가 — 내부 필수 처리
 
+**상태: S15P31E105-254 확정(2026-11-02).** 산식은 [러닝 준비도 1차 산식](../readiness-formula.md)을 따른다.
+
 - 건강·활동 데이터가 수신·갱신되면 준비도를 자동 평가한다. 별도 공개 평가 요청 API는 두지 않는다.
 - 오늘의 컨디션은 결과 표시이며 선택·입력 기능이 아니다. 건강 데이터가 부족해도 컨디션 입력으로 대체하지 않는다.
-- 동의·데이터 가용성에 따라 평가 가능 여부를 구분하고, 재평가·정기 갱신 시점과 부족 상태 표시는 별도 정의한다.
 - R01은 공개 API에서 제외했으며 ID를 재사용하지 않는다. [자동 처리 요구사항](../requirements.md)를 따른다.
+
+처리 순서:
+
+1. W06이 `daily_health_metrics`를 저장·갱신한 날짜 목록을 `DailyHealthMetricsChangedEvent`로 알린다([W06 6항](devices-health.md)). 준비도 평가는 W06 트랜잭션 **커밋 후** 리스너가 받는다. 전부 duplicate·거절·롤백된 요청은 평가하지 않는다.
+2. 리스너는 DB를 쓰지 않고 평가를 준비도 전용 실행기(스레드 2개, 대기열 1,000건)에 넘긴 뒤 바로 돌아온다. W06 응답은 평가를 기다리지 않고, W06 요청은 자기 커넥션만 쓴다. 대기열이 차면 그 이벤트의 평가를 건너뛴다.
+3. 평가 대상 날짜는 바뀐 날짜 D 전부와, D+1~D+7 중 건강 행이 있는 날짜다. D가 이후 날짜의 평소 RHR(이전 7일)에 들어가므로, 과거 값이 늦게 도착해도 이후 날짜 결과에 반영된다.
+4. 날짜마다 별도 트랜잭션에서 평가한다. 평가 날짜는 W06 `metricDate`(워치 시간대 날짜)다.
+   1. 같은 회원 평가를 회원별 advisory lock으로 한 줄로 세운다. 겹친 평가 중 나중 평가는 앞 평가 커밋 뒤의 최신 건강값을 읽으므로 오래된 값으로 계산한 결과가 최신 결과를 덮어쓰지 않는다.
+   2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREEE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
+   3. D-27~D의 일별 건강값으로 [산식](../readiness-formula.md)을 계산한다. 계산 가능한 항목이 없으면 저장하지 않고 기존 결과를 그대로 둔다.
+   4. `(user_id, readiness_date)`로 넣거나 갱신한다. 같은 날짜가 다시 바뀌면 같은 행의 점수·신뢰도를 갱신한다.
+5. 한 날짜의 평가 실패는 다른 날짜 평가와 W06 응답·저장에 영향을 주지 않는다. 실패·대기열 초과 로그에는 회원 ID·날짜·예외 종류만 남기고 건강값과 예외 메시지는 남기지 않는다. 이벤트가 재전달되지 않으므로 이 로그가 누락 평가를 찾는 근거다.
+
+잠금 순서: 준비도 평가 advisory lock → 회원 행 FOR SHARE. W06은 회원 행 FOR SHARE만 잡는다. 회원 행을 갱신하는 기능(동의 철회·탈퇴 등)이 준비도 평가 advisory lock을 함께 잡게 되면 회원 행보다 먼저 잡아야 교착이 생기지 않는다.
+
+정하지 않은 것(후속):
+
+- 평가가 실패하거나, 대기열이 넘치거나, 서버가 종료 대기(10초)를 넘겨 중단되면 이벤트가 재전달되지 않는다. 같은 데이터 재전송은 duplicate라 다시 평가하지 않는다. 정기 재평가 등 누락 복구는 후속 업무에서 정한다.
+- W06은 서버 UTC 기준 내일 날짜까지 받는다. `readinessDate`는 워치 시간대 날짜라, UTC보다 앞선 시간대(KST 등)에서는 UTC 날짜보다 하루 늦은 날짜가 최신 결과가 될 수 있다. 이는 정상 동작이며 R02는 날짜를 그대로 반환한다.
 
 ## R02 최신 준비도 조회
 
@@ -30,17 +50,16 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | RDY-001~003 |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 상태 | S15P31E105-254 확정(2026-11-02). 등급·판단 요인은 후속 |
 
 ### 설명
 
-자동 평가된 본인의 오늘 컨디션·최신 준비도와 판단 요인을 조회한다. 조회가 평가를 실행시키지는 않는다.
+자동 평가된 본인의 최신 준비도를 조회한다. 조회가 평가를 실행시키지는 않는다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-- 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 로그인한 활성 회원 본인의 결과만 조회한다. 다른 회원의 결과를 지정하는 입력은 없다.
+- 건강정보 동의(`health_data_access = AGREEE`)가 없으면 저장된 결과가 있어도 반환하지 않는다(403 `CONSENT_REQUIRED`).
 
 ### Path Parameters
 
@@ -48,73 +67,60 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 
 ### Query Parameters
 
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|:---:|---|
-| `sessionId` | integer (int64) | X | 러닝 세션 BIGINT 식별자 |
+없음. 이전 초안의 `sessionId`는 의미가 정의되지 않아 254에서 제거했다.
 
 ### Request Body
 
 없음
 
-
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
   "id": 101,
-  "readinessScore": 75,
+  "readinessScore": 75.00,
   "readinessDate": "2026-10-24",
-  "readinessConfidence": null
+  "readinessConfidence": "LOW"
 }
 ```
 
-응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `id` | integer (int64) | O | `daily_readiness.id` (BIGINT). 저장 값은 NULL 불가. |
-| `readinessScore` | number | O | `daily_readiness.readiness_score` (NUMERIC(7,2)). 저장 값은 NULL 불가. |
-| `readinessLevel` | string (제안) | X | daily_readiness에는 준비도 등급 컬럼 없음. readiness_confidence는 신뢰도이므로 대체 불가. 점수별 표시 기준 확인 필요. |
-| `reasonDetails` | string / object (확인 필요) | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `assessedAt` | string (ISO 8601) | X | 독립 평가 시각 컬럼 없음. created_at/updated_at을 평가 시각으로 치환할 근거 확인 필요. |
-| `dataAvailability` | object | X | 사용 가능한 데이터·누락 상태. 세부 구조 미정 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `readinessDate` | string (YYYY-MM-DD) | O | daily_readiness.readiness_date. 오늘 결과/과거 최신 결과 구분. |
-| `readinessConfidence` | string / null | O | daily_readiness.readiness_confidence. LOW/MEDIUM/HIGH; 미산출은 null. |
+| `id` | integer (int64) | O | `daily_readiness.id` |
+| `readinessScore` | number | O | `daily_readiness.readiness_score` (0~100, 소수 둘째 자리) |
+| `readinessDate` | string (YYYY-MM-DD) | O | `daily_readiness.readiness_date`. 워치 시간대 날짜다. 서버는 회원 시간대를 모르므로 오늘 결과인지는 클라이언트가 이 값으로 판단한다. |
+| `readinessConfidence` | string / null | O | `daily_readiness.readiness_confidence`. 계산에 쓴 항목 수: HIGH 3 / MEDIUM 2 / LOW 1. 미산출은 null이며 키는 항상 포함한다. 준비도 등급이 아니다. |
 
-**사용 흐름과 응답 판단**
+- "최신"은 본인 결과 중 `readinessDate`가 가장 늦은 1건이다. 오늘 날짜 필터를 두지 않는다.
+- 점수만으로 날짜·신뢰도를 추측하지 않는다. 미산출 점수를 0으로 채우지 않는다.
 
-오늘 결과인지·얼마나 최신인지·근거 데이터가 부족한지 구분해 준비도를 표시한다. 점수만으로 날짜·신뢰도를 추측하지 않는다.
+후속 필드(이번 계약에 없음):
 
-위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
+| 필드 | 보류 이유 |
+|---|---|
+| `readinessLevel` | 점수 구간별 표시 등급을 산식 설계에서 정리 중이다. `readinessConfidence`로 대체하지 않는다. |
+| `reasonDetails` | 판단 요인(S/R/L 점수 등)의 표시 구조가 정해지지 않았다. 항목 점수는 저장 컬럼이 없다. |
+| `assessedAt` | 독립 평가 시각 컬럼이 없다. `updated_at`을 평가 시각으로 치환할지 정하지 않았다. |
+| `dataAvailability` | 데이터 부족 표시 구조가 정해지지 않았다. |
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `404 ASSESSMENT_NOT_FOUND` | 데이터 없음 | 기준 날짜의 준비도 결과가 없음. 건강 데이터 부족·계산 중·계산 실패를 같은 원인으로 확정하지 않음 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| `404 ASSESSMENT_NOT_FOUND` | 데이터 없음 | 본인 준비도 결과가 하나도 없음. 건강 데이터 부족·계산 전·계산 실패를 구분하지 않는다. |
+| `401 UNAUTHORIZED` | 인증 | 토큰이 없거나 만료·위변조, 또는 활성 회원이 아님(탈퇴) |
+| `403 CONSENT_REQUIRED` | 동의 | 건강정보 수집 동의가 없음(W06과 같은 코드) |
 
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- 종료 성공·원본 저장 완료와 분석 준비/실패를 구분한다. 아직 없는 결과나 미측정 값을 0/false로 채우거나 원 요청 전체를 재실행하도록 요구하지 않는다.
+- 공통 서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 따른다.
+- 아직 없는 결과나 미측정 값을 0/false로 채우거나 클라이언트에 재평가 요청을 요구하지 않는다.
 
 ### 처리 규칙
 
-- 자동 평가된 본인의 오늘 컨디션·최신 준비도와 판단 요인을 조회한다. 조회가 평가를 실행시키지는 않는다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+- 활성 회원 동의 확인과 결과 조회를 한 읽기 트랜잭션에서 한다.
+- 조회는 평가를 실행하지 않는다. 결과는 위 자동 평가가 만든다.
 
 ### 상태값
 
-- 평가 결과와 데이터 가용성을 표시한다. 결과 없음·데이터 부족 표시 규칙은 미정이며 사용자 입력을 요구하지 않는다.
-
-### 미정 사항
-
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
+- `readinessConfidence`: HIGH / MEDIUM / LOW / null
