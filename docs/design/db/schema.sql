@@ -1154,3 +1154,8 @@ ALTER TABLE "users" ADD CONSTRAINT "uq_users_nickname" UNIQUE ("nickname");
 -- S15P31E105-251 (V5): 회원별·유형별 연결 중(unlinked_at IS NULL) 기기는 하나만 허용한다.
 CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
     WHERE unlinked_at IS NULL;
+
+-- S15P31E105-255 (V8): 회원별 활성 세션(READY/RUNNING/PAUSED, state_version>=1, 미삭제)은 하나만 허용한다.
+-- 기존 기록(state_version=0)은 제외한다. S01의 회원별 생성 잠금을 DB에서 한 번 더 보장한다.
+CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
+    WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;

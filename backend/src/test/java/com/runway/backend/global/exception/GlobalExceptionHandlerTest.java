@@ -18,10 +18,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -245,6 +250,35 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void 일시적인_데이터접근_장애는_503이고_원인을_숨긴다() throws Exception {
+        for (String kind : new String[] {"lock", "timeout", "connection", "transaction"}) {
+            mvc.perform(
+                            get("/__test/data-access")
+                                    .param("kind", kind)
+                                    .header("Authorization", SecurityTestSupport.bearer(1)))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                    .andExpect(jsonPath("$.message").value("일시적으로 처리할 수 없습니다."))
+                    .andExpect(
+                            content()
+                                    .string(
+                                            org.hamcrest.Matchers.not(
+                                                    org.hamcrest.Matchers.containsString(
+                                                            "running_sessions"))));
+        }
+    }
+
+    @Test
+    void 제약위반은_재시도_대상이_아니므로_500이다() throws Exception {
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "integrity")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
     void 없는_detail값은_빼고_상태와_코드를_유지한다() throws Exception {
         mvc.perform(
                         get("/__test/null-detail")
@@ -336,6 +370,18 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/__test/unavailable")
         void unavailable() {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "database down");
+        }
+
+        @GetMapping("/__test/data-access")
+        void dataAccess(@RequestParam String kind) {
+            String detail = "lock on running_sessions";
+            throw switch (kind) {
+                case "lock" -> new CannotAcquireLockException(detail);
+                case "timeout" -> new QueryTimeoutException(detail);
+                case "connection" -> new DataAccessResourceFailureException(detail);
+                case "transaction" -> new CannotCreateTransactionException(detail);
+                default -> new DataIntegrityViolationException(detail);
+            };
         }
 
         @GetMapping("/__test/null-detail")

@@ -712,7 +712,12 @@ class SchemaIntegrityTest {
 
     @Test
     void coachingResultCannotReferenceAnotherSessionsRecommendation() throws Exception {
-        long otherSession = insert("INSERT INTO running_sessions(user_id) VALUES (" + user + ")");
+        // 회원별 활성 세션은 하나라 다른 세션은 종료된 기록으로 둔다(uq_running_sessions_active).
+        long otherSession =
+                insert(
+                        "INSERT INTO running_sessions(user_id,status) VALUES ("
+                                + user
+                                + ",'COMPLETED')");
         long coaching =
                 insert(
                         "INSERT INTO"
