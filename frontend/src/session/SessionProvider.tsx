@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
+import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
 import { setWatchHealthConsent } from '../health/watchHealth';
 
 type SessionValue = {
@@ -70,6 +71,9 @@ export function SessionProvider({
     tokenStore.clear().catch(() => {});
     setSignedIn(false);
   }, []);
+
+  // S15P31E105-281: the watch daily heart-rate estimate goes to W06 while signed in.
+  useWatchDailyHrUpload(signedIn);
 
   // An expired or rejected access token sends the user back to 1.2 로그인 until refresh lands.
   useEffect(() => onUnauthorized(signOut), [signOut]);

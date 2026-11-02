@@ -9,6 +9,7 @@ type NativeWatchHealth = {
   republishConsent(): Promise<void>;
   getDailyHr(): Promise<WatchDailyHr[]>;
   markUploaded(date: string, revision: number): Promise<void>;
+  markRejected(date: string, revision: number): Promise<void>;
 };
 
 // Read per call so a missing module (tests, unsupported builds) is a quiet no-op.
@@ -64,4 +65,11 @@ export async function markWatchDailyHrUploaded(
   revision: number,
 ): Promise<void> {
   await quietly(module => module.markUploaded(date, revision), undefined);
+}
+
+export async function markWatchDailyHrRejected(
+  date: string,
+  revision: number,
+): Promise<void> {
+  await quietly(module => module.markRejected(date, revision), undefined);
 }

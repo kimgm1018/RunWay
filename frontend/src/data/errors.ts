@@ -31,6 +31,10 @@ export const dataErrorCodes = [
   'OWNER_CANNOT_LEAVE',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
+  // W06 건강 기록 동기화 (docs/design/api/devices-health.md).
+  'CONSENT_REQUIRED',
+  'FILE_TOO_LARGE',
+  'UNSUPPORTED_RECORD_TYPE',
   // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
   'VALIDATION_ERROR',
   // 401 on a member API: the access token is missing, expired or rejected. The session signs out.
@@ -48,16 +52,20 @@ export class DataError extends Error {
   readonly code: DataErrorCode;
   // How many attempts have failed so far, when the server reports it (1.2 로그인 (2/5), 1.2s (1/5)).
   readonly failedCount: number | null;
+  // HTTP status of the failed response; null when no response arrived or the error was made on the phone.
+  readonly status: number | null;
 
   constructor(
     code: DataErrorCode,
     message: string,
     failedCount: number | null = null,
+    status: number | null = null,
   ) {
     super(message);
     this.name = 'DataError';
     this.code = code;
     this.failedCount = failedCount;
+    this.status = status;
   }
 }
 

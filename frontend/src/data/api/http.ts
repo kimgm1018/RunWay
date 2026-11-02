@@ -80,7 +80,7 @@ async function toDataError(response: Response) {
   } else {
     code = 'UNKNOWN';
   }
-  return new DataError(code, message, failedCount);
+  return new DataError(code, message, failedCount, response.status);
 }
 
 // Every server call goes through here: base URL, JSON, the Bearer token and a timeout.

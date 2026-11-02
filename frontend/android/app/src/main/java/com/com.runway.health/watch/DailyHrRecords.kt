@@ -13,6 +13,8 @@ data class DailyHrRecord(
   val validSampleCount: Int,
   val computedAt: String,
   val uploadedRevision: Int?,
+  /** Revision W06 rejected (record error, 400·413·422); resending the same content cannot succeed. */
+  val rejectedRevision: Int? = null,
 )
 
 /** A parsed DAILY_HR_SUMMARY with the envelope messageId needed for the reply. */
@@ -28,7 +30,7 @@ private const val PROTOCOL_VERSION = 1
 private const val MAX_KEEP_DAYS = 7L
 private const val UPLOADED_KEEP_DAYS = 1L
 
-/** Keeps the highest revision per date; a newer revision keeps the existing upload marker. */
+/** Keeps the highest revision per date; a newer revision keeps the existing upload marker and is sent again even if the older one was rejected. */
 fun merge(existing: DailyHrRecord?, incoming: DailyHrRecord): DailyHrRecord = when {
   existing == null -> incoming
   incoming.revision > existing.revision -> incoming.copy(uploadedRevision = existing.uploadedRevision)
@@ -51,7 +53,8 @@ fun retainRecord(record: DailyHrRecord, today: LocalDate): Boolean {
   }
   return when {
     date < today.minusDays(MAX_KEEP_DAYS) -> false
-    record.uploadedRevision == record.revision && date < today.minusDays(UPLOADED_KEEP_DAYS) -> false
+    (record.uploadedRevision == record.revision || record.rejectedRevision == record.revision) &&
+      date < today.minusDays(UPLOADED_KEEP_DAYS) -> false
     else -> true
   }
 }
@@ -120,6 +123,13 @@ class DailyHrPrefs(context: Context) {
     if (record != null && record.revision == revision) writeRecords(records + (date to record.copy(uploadedRevision = revision)))
   }
 
+  /** Persists a W06 rejection so the same revision is not resent after an app restart. */
+  fun markRejected(date: String, revision: Int) = synchronized(LOCK) {
+    val records = readRecords()
+    val record = records[date]
+    if (record != null && record.revision == revision) writeRecords(records + (date to record.copy(rejectedRevision = revision)))
+  }
+
   fun clear() = synchronized(LOCK) { check(prefs.edit().remove(KEY_RECORDS).commit()) }
 
   /** Saving DISAGREE also removes stored records in the same commit (withdrawal is atomic). */
@@ -157,6 +167,7 @@ class DailyHrPrefs(context: Context) {
         validSampleCount = r.getInt("validSampleCount"),
         computedAt = r.getString("computedAt"),
         uploadedRevision = if (r.has("uploadedRevision")) r.getInt("uploadedRevision") else null,
+        rejectedRevision = if (r.has("rejectedRevision")) r.getInt("rejectedRevision") else null,
       )
     }
   }
@@ -172,7 +183,10 @@ class DailyHrPrefs(context: Context) {
         .put("method", r.method)
         .put("validSampleCount", r.validSampleCount)
         .put("computedAt", r.computedAt)
-        .apply { r.uploadedRevision?.let { put("uploadedRevision", it) } })
+        .apply {
+          r.uploadedRevision?.let { put("uploadedRevision", it) }
+          r.rejectedRevision?.let { put("rejectedRevision", it) }
+        })
     }
     check(prefs.edit().putString(KEY_RECORDS, json.toString()).commit())
   }

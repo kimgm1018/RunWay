@@ -92,6 +92,19 @@ class DailyHrRecordsTest {
     assertTrue(retainRecord(record(3, uploaded = 2).copy(metricDate = "2026-10-28"), today))
   }
 
+  @Test fun mergeSendsNewerRevisionOfRejectedRecordAgain() {
+    val merged = merge(record(1).copy(rejectedRevision = 1), record(2))
+    assertEquals(2, merged.revision)
+    assertNull(merged.rejectedRevision)
+  }
+
+  @Test fun retainRecordTreatsRejectedLikeUploaded() {
+    val today = LocalDate.parse("2026-10-30")
+    fun rejected(date: String) = record(2).copy(metricDate = date, rejectedRevision = 2)
+    assertTrue(retainRecord(rejected("2026-10-29"), today))
+    assertFalse(retainRecord(rejected("2026-10-28"), today))
+  }
+
   @Test fun retainRecordKeepsUnparseableDate() {
     assertTrue(retainRecord(record(2, uploaded = 2).copy(metricDate = "not-a-date"), LocalDate.parse("2026-10-30")))
   }

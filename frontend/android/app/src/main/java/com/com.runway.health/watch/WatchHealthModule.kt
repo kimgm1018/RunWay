@@ -58,9 +58,11 @@ class WatchHealthModule(private val app: ReactApplicationContext) : ReactContext
           putString("metricDate", r.metricDate)
           putInt("revision", r.revision)
           putDouble("estimatedRestingHrBpm", r.estimatedRestingHrBpm)
+          putString("method", r.method)
           putInt("validSampleCount", r.validSampleCount)
           putString("computedAt", r.computedAt)
           putBoolean("uploaded", r.uploadedRevision == r.revision)
+          putBoolean("rejected", r.rejectedRevision == r.revision)
         })
       }
     }
@@ -68,6 +70,11 @@ class WatchHealthModule(private val app: ReactApplicationContext) : ReactContext
 
   @ReactMethod fun markUploaded(date: String, revision: Int, promise: Promise) = run(promise, "WATCH_STORAGE", "워치 심박 기록을 저장하지 못했습니다.") {
     prefs.markUploaded(date, revision)
+    null
+  }
+
+  @ReactMethod fun markRejected(date: String, revision: Int, promise: Promise) = run(promise, "WATCH_STORAGE", "워치 심박 기록을 저장하지 못했습니다.") {
+    prefs.markRejected(date, revision)
     null
   }
 
