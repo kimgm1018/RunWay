@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Screen, type IconName } from '../../components';
+import { errorCode, useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing } from '../../theme';
 import {
+  ErrorNotice,
   GoButton,
   IconBadge,
   OnboardingFooter,
@@ -39,8 +41,29 @@ const choices: {
 // 1.6w 워치 사용 여부: 네 → 1.7 워치 연결, 휴대폰만 → 2.1 홈.
 export function WatchChoiceScreen() {
   const navigation = useNavigation();
+  const { watch } = useRepositories();
   const finish = useFinishOnboarding();
   const [choice, setChoice] = useState<Choice | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  // 네 links the watch to my account (W01) first, so 1.7 opens on a registered watch.
+  const linkWatch = async () => {
+    setLinking(true);
+    setFailed(null);
+    try {
+      await watch.reconnect();
+      setLinking(false);
+      navigateTo(navigation, 'WatchConnect');
+    } catch (error) {
+      setLinking(false);
+      setFailed(
+        errorCode(error) === 'NETWORK_ERROR'
+          ? '네트워크 연결을 확인하고 다시 시도해 주세요.'
+          : '잠시 후 다시 시도해 주세요.',
+      );
+    }
+  };
   return (
     <Screen
       header={<OnboardingHeader onBack={navigation.goBack} />}
@@ -48,12 +71,8 @@ export function WatchChoiceScreen() {
         <OnboardingFooter>
           <GoButton
             title="다음"
-            disabled={!choice}
-            onPress={() =>
-              choice === 'watch'
-                ? navigateTo(navigation, 'WatchConnect')
-                : finish()
-            }
+            disabled={!choice || linking}
+            onPress={() => (choice === 'watch' ? linkWatch() : finish())}
           />
         </OnboardingFooter>
       }
@@ -63,6 +82,9 @@ export function WatchChoiceScreen() {
         muted="함께 쓰나요?"
         description="워치를 연결하면 심박·수면 기록으로 준비도와 러닝 코칭이 더 정확해져요."
       />
+      {failed ? (
+        <ErrorNotice title="워치를 등록하지 못했어요." detail={failed} />
+      ) : null}
       <View accessibilityRole="radiogroup" style={styles.choices}>
         {choices.map(option => (
           <SelectionCard

@@ -249,7 +249,13 @@ export function SettingsScreen() {
       setWatch(await watchApi.disconnect());
       toast(`${current.deviceName} 연결을 해제했어요`, {
         actionLabel: '실행 취소',
-        onAction: async () => setWatch(await watchApi.reconnect()),
+        onAction: async () => {
+          try {
+            setWatch(await watchApi.reconnect());
+          } catch {
+            toast('다시 연결하지 못했어요. 연결 버튼으로 다시 시도해 주세요');
+          }
+        },
       });
     } catch {
       toast('연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요');
