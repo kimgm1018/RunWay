@@ -38,8 +38,8 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | 인증 | 회원 |
 | 관련 요구사항 | CRS-001, CRS-003, CRS-005, CRS-007~008 / COM-002 / SYS-002 |
 | 관련 화면 | 3.1 오늘의 러닝, 3.1p 페이스 입력, 3.1b 추천 코스 목록 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 미정 사항 | 후속 생성 연동만 남음 |
+| 비고 | 1차 MVP는 기존 ACTIVE 코스 필터. AI 경로 생성은 범위 밖([코스 생성 후속](#코스-생성-후속-필요-사항)) |
 
 ### 설명
 
@@ -47,8 +47,8 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-- 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 로그인 사용자(JWT Access Token). 기존 코스 API와 동일하다.
+- 위치 좌표는 클라이언트가 전달한다. 앱에서 위치 권한을 받으며, 이 API는 서버측 `LOCATION_CONSENT`를 별도 검사하지 않는다.
 
 ### Path Parameters
 
@@ -65,11 +65,12 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `latitude` | number | O | 시작 위도(WGS84, -90~90) |
 | `longitude` | number | O | 시작 경도(WGS84, -180~180) |
 | `targetDistanceM` | number | O | 목표 거리, 미터, 양수 |
-| `goalInputType` | string (제안) | O | TIME/PACE 중 하나 |
-| `targetDurationSec` | number | 조건부 | TIME 선택 시 필수인 목표 완주 시간, 초, 양수 |
-| `targetPaceSecPerKm` | number | 조건부 | PACE 선택 시 필수인 목표 페이스, 초/km, 양수 |
-| `environmentTypes` | string[] | X | PARK/RIVERSIDE/URBAN/BEACH/TRACK 코드 배열. 미지정/빈 배열은 환경 필터 없음 |
-| `limit` | number | X | 조회 결과 최대 개수(최대값 미정) |
+| `goalInputType` | string | O | TIME/PACE 중 하나 |
+| `targetDurationSec` | number | 조건부 | TIME 선택 시 필수인 목표 완주 시간, 초, 양수. PACE와 동시 지정 불가 |
+| `targetPaceSecPerKm` | number | 조건부 | PACE 선택 시 필수인 목표 페이스, 초/km, 양수. TIME과 동시 지정 불가 |
+| `environmentTypes` | string[] / null | X | PARK/RIVERSIDE/URBAN/BEACH/TRACK. null·생략·빈 배열은 환경 필터 없음. 2개 이상이면 **AND**(요청한 태그를 모두 가진 코스만) |
+| `radiusM` | number | X | 출발점 검색 반경(m). 기본 3000(3km). 양수. 1~3km를 권장하나 상한은 열어 둔다 |
+| `limit` | number | X | 결과 최대 개수. 기본 20, 최대 50 |
 
 ```json
 {
@@ -109,59 +110,40 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `courses` | array | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 |
-| `emptyReason` | string / object (확인 필요) | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
+| `courses` | array | O | 추천 결과 목록. 없으면 빈 배열 |
 
-중첩 객체의 저장 필드 대응(추가 표시·집계 값은 기존 후보를 유지하며 별도 확인):
+중첩 객체의 저장 필드 대응:
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `courses[].id` | integer (int64) | O | `courses.id` (BIGINT). 저장 값은 NULL 불가. |
-| `courses[].regionCode` | string / null | O | `courses.region_code` (VARCHAR(40)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `courses[].status` | string | O | `courses.status` (ENUM('ACTIVE', 'MERGED', 'BLOCKED')). 저장 값은 NULL 불가. 허용값: ACTIVE, MERGED, BLOCKED. |
+| `courses[].regionCode` | string / null | O | `courses.region_code` (VARCHAR(40)). NULL 허용 |
+| `courses[].status` | string | O | 항상 `ACTIVE`(추천 대상만 반환) |
+| `courses[].distanceM` | number | O | `courses.distance`(m) |
+| `courses[].environmentTags` | string[] | O | 환경 코드 목록(없으면 빈 배열) |
+| `courses[].estimatedDurationSec` | number | O | 요청 목표 페이스(또는 TIME→페이스 환산) × 코스 거리로 산출한 예상 시간(초). `round(distanceM/1000 × paceSecPerKm)` |
 
-
-**사용 흐름과 응답 판단**
-
-추천 카드 선택에 코스 ID·거리·지역·환경·예상시간·경로 표시 참조가 필요하다. 공용 코스 이름 필수화를 뜻하지 않는다. 지역 조합 표시와 미판정 대체 표현을 구분한다. 예상시간은 파생값의 산식·준비 여부를 확인한다.
-
-**환경 전달 기준:** U10에서 받은 환경 코드를 environmentTypes로 전달하여 course_environment_tags.environment_type과 비교한다. 코드 배열은 필터 조건이며 태그 행 PK가 아니다. 복수 환경 결합 방식(AND/OR)은 별도 정책이다.
-
-표시·선택·후속 이동에 필요한 필드 보완안:
-
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|:---:|---|
-| `courses[].distanceM` | number | O | courses.distance(m). 이 응답의 distance 기존 표기는 단위 명시 필드로 통일. |
-| `courses[].environmentTags` | string[] | O | 환경 코드 목록. |
-| `courses[].estimatedDurationSec` | number / null | O | 요청 목표/사용자 기준으로 산출한 예상시간. 산식 확인 필요. |
+**환경 전달 기준:** environmentTypes를 `course_environment_tags.environment_type`과 비교한다. 코드 배열은 필터 조건이며 태그 행 PK가 아니다. **복수 값은 AND**다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `403 LOCATION_CONSENT_REQUIRED` | 동의 | 위치를 사용하는 요청에 필요한 위치 수집·이용 동의가 없음/철회됨 |
-| `422 INVALID_SEARCH` | 검색 조건 | 좌표 범위·목표 거리/시간/페이스 또는 추천 조건 조합이 유효하지 않음. environmentTypes에 허용되지 않은 환경 코드가 포함된 경우도 해당 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| `422 INVALID_SEARCH` | 검색 조건 | 좌표 범위·목표 거리/시간/페이스·goal 조합·radiusM·limit 또는 environmentTypes에 허용되지 않은 코드 |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형 불일치 |
 
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
-- 검색/조회 결과가 0건인 경우 자체는 오류가 아니다. 유효한 빈 목록과 잘못된 조회 조건을 구분한다.
+- 검색 결과 0건은 오류가 아니다.
 
 ### 처리 규칙
 
-- 화면 3.1의 추천 조건 필터로 코스를 찾는다. 공용 코스에는 이름을 두지 않으며 이름·키워드 검색은 제공하지 않는다. C02 별도 검색은 이 흐름에 통합한다.
-- 기준 위치·목표 거리·시간 또는 페이스·환경 필터를 사용한다. 추가 필터 값과 거리 오차 허용 범위는 별도 확정한다.
-- 결과는 코스 ID·거리·환경·경로 표시 등으로 구분한다. 개인 저장 별명을 공용 이름이나 타인의 검색 결과에 노출하지 않는다.
-
-- 러닝 수준·평소 정보·사용 가능한 최신 준비도는 서버가 본인 데이터에서 참조한다. 클라이언트가 준비도 평가를 실행하거나 평가 ID를 찾아 전달할 필요는 없다.
-
-- 1차 MVP는 `ACTIVE` 상태의 기존 서비스 공용 코스만 추천하며 새 코스를 생성하지 않는다. `MERGED`, `BLOCKED` 코스는 추천에서 제외하고 결과가 없으면 빈 배열을 반환한다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+- 화면 3.1의 추천 조건 필터로 **기존** 코스를 찾는다. 공용 코스에는 이름을 두지 않으며 이름·키워드 검색은 제공하지 않는다.
+- **거리 허용 오차:** 코스 `distance`가 `targetDistanceM`의 **±10%** 구간 안에 있어야 한다.
+- **출발점 반경:** `start_position`이 요청 좌표로부터 `radiusM`(기본 3km) 이내. `ST_DWithin` 사용.
+- **정렬:** 출발점까지 거리 오름차순, 같으면 `id` 오름차순.
+- `MERGED`·`BLOCKED`는 제외. 결과 없으면 빈 배열.
+- 1차 MVP는 새 코스를 생성하지 않는다. 개인 저장 별명을 추천 응답에 넣지 않는다.
 
 ### 상태값
 
@@ -169,9 +151,8 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 ### 미정 사항
 
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
+- [ ] 준비도·러닝 수준을 추천 순위에 반영할지(현재는 거리순만)
+- [ ] AI 경로 생성 연동([코스 생성 후속](#코스-생성-후속-필요-사항))
 
 ## C03 코스 상세 조회
 
@@ -619,6 +600,20 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 - [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
 - [ ] 접근 권한과 데이터 정합성의 구체적인 처리 조건 확정
+
+## 코스 생성 후속 필요 사항
+
+C01 1차 MVP는 기존 ACTIVE 코스 **필터만** 한다. CRS-002 동적 경로 **생성**을 C01(또는 별도 업무)에 붙이려면 아래가 선행이다. (상세 계약은 확정 전.)
+
+- BE↔Route AI HTTP 계약(URL·요청/응답·오류·타임아웃). 현재 Route는 워크스페이스 데모(`ai/workspace/seongyun/route`)이며 배포용 `ai/service`는 HR만 제공
+- Route 서비스 배포와 OSM/env/DEM 데이터(현재 커버리지는 부산 extract 기준)
+- 생성 경로를 `courses`에 넣을지·유사 경로 중복 기준·`creator_id`/`source_session_id` 정책
+- AI 선호 키(`river`/`park`/…) ↔ `PARK`/`RIVERSIDE`/`URBAN`/`BEACH`/`TRACK` 태그 매핑
+- 좌표 순서: AI `coords`는 `[lat,lon]`, GeoJSON·PostGIS는 `[lon,lat]`
+- 생성 지연(수 초)에 대한 동기/비동기·클라이언트 타임아웃
+- (선택) `shape`·도착점, 출발점→`region_code` 역지오코딩
+
+러닝 종료 후 경로 **자동 반영**(COM-002)은 아래 절·별도 구현 업무이며 C01과 구분한다.
 
 ## 러닝 경로 자동 코스 반영
 

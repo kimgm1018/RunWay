@@ -5,6 +5,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -95,6 +97,61 @@ public class CourseJdbcRepository {
                 courseId);
     }
 
+    /**
+     * ACTIVE 코스만. 출발점 반경·거리 ±오차·환경 태그 AND 필터. 출발점 거리·id 오름차순.
+     *
+     * @param environmentTypes 비어 있으면 환경 필터 없음. 있으면 나열된 태그를 모두 보유해야 함.
+     */
+    public List<RecommendCourseRow> findRecommendations(
+            String startEwkt,
+            double radiusM,
+            BigDecimal minDistanceM,
+            BigDecimal maxDistanceM,
+            List<String> environmentTypes,
+            int limit) {
+        StringBuilder sql = new StringBuilder(
+                """
+                SELECT c.id,
+                       c.region_code,
+                       c.status::text AS status,
+                       c.distance,
+                       COALESCE((
+                         SELECT string_agg(t.environment_type::text, ',' ORDER BY t.environment_type)
+                         FROM course_environment_tags t
+                         WHERE t.course_id = c.id
+                       ), '') AS environment_tags,
+                       ST_Distance(c.start_position, ST_GeogFromText(?)) AS start_distance_m
+                FROM courses c
+                WHERE c.status = 'ACTIVE'::courses_status_enum
+                  AND ST_DWithin(c.start_position, ST_GeogFromText(?), ?)
+                  AND c.distance BETWEEN ? AND ?
+                """);
+        List<Object> args = new ArrayList<>();
+        args.add(startEwkt);
+        args.add(startEwkt);
+        args.add(radiusM);
+        args.add(minDistanceM);
+        args.add(maxDistanceM);
+
+        for (String environmentType : environmentTypes) {
+            sql.append(
+                    """
+                      AND EXISTS (
+                        SELECT 1 FROM course_environment_tags t
+                        WHERE t.course_id = c.id
+                          AND t.environment_type = ?::course_environment_tags_environment_type_enum
+                      )
+                    """);
+            args.add(environmentType);
+        }
+
+        sql.append(" ORDER BY start_distance_m ASC, c.id ASC LIMIT ?");
+        args.add(limit);
+
+        return jdbcTemplate.query(
+                sql.toString(), (rs, rowNum) -> mapRecommendCourseRow(rs), args.toArray());
+    }
+
     public List<BookmarkedCourseRow> findBookmarkedCourses(
             long userId, Long cursorExclusive, int limit) {
         if (cursorExclusive == null) {
@@ -166,6 +223,20 @@ public class CourseJdbcRepository {
                 rs.getBigDecimal("distance"));
     }
 
+    private static RecommendCourseRow mapRecommendCourseRow(ResultSet rs) throws SQLException {
+        String tags = rs.getString("environment_tags");
+        List<String> environmentTags =
+                tags == null || tags.isBlank()
+                        ? List.of()
+                        : Arrays.asList(tags.split(","));
+        return new RecommendCourseRow(
+                rs.getLong("id"),
+                rs.getString("region_code"),
+                rs.getString("status"),
+                rs.getBigDecimal("distance"),
+                environmentTags);
+    }
+
     public record CourseRow(
             long id,
             String description,
@@ -186,6 +257,13 @@ public class CourseJdbcRepository {
             Long mergedIntoCourseId,
             String customName,
             BigDecimal distanceM) {}
+
+    public record RecommendCourseRow(
+            long id,
+            String regionCode,
+            String status,
+            BigDecimal distanceM,
+            List<String> environmentTags) {}
 
     public record BookmarkUpsertRow(String customName, Instant createdAt) {}
 
