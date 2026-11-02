@@ -1,20 +1,30 @@
 // Error codes the screens react to. Auth codes follow docs/design/api/users.md; phone codes have no spec yet.
-export type DataErrorCode =
-  | 'INVALID_CREDENTIALS'
-  | 'LOGIN_LOCKED'
-  | 'LOGIN_ID_DUPLICATED'
-  | 'PHONE_NOT_REGISTERED'
-  | 'PHONE_ALREADY_REGISTERED'
-  | 'VERIFICATION_CODE_MISMATCH'
-  | 'VERIFICATION_ATTEMPTS_EXCEEDED'
-  | 'VERIFICATION_EXPIRED'
+// A list rather than a bare union so server responses can be checked against it (src/data/api/http.ts).
+export const dataErrorCodes = [
+  'INVALID_CREDENTIALS',
+  'LOGIN_LOCKED',
+  'LOGIN_ID_DUPLICATED',
+  'PHONE_NOT_REGISTERED',
+  'PHONE_ALREADY_REGISTERED',
+  'VERIFICATION_CODE_MISMATCH',
+  'VERIFICATION_ATTEMPTS_EXCEEDED',
+  'VERIFICATION_EXPIRED',
   // H02 러닝 기록 상세 (docs/design/api/running-records.md).
-  | 'RECORD_NOT_FOUND'
+  'RECORD_NOT_FOUND',
   // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
-  | 'CREW_CAPACITY_EXCEEDED'
+  'CREW_CAPACITY_EXCEEDED',
   // U18 탈퇴 비밀번호 불일치.
-  | 'INVALID_PASSWORD'
-  | 'UNKNOWN';
+  'INVALID_PASSWORD',
+  // 401 on a member API: the access token is missing, expired or rejected. The session signs out.
+  'UNAUTHORIZED',
+  // The request never got an answer: no connection or the timeout passed.
+  'NETWORK_ERROR',
+  // 5xx (INTERNAL_ERROR, SERVICE_UNAVAILABLE) without a domain code.
+  'SERVER_ERROR',
+  'UNKNOWN',
+] as const;
+
+export type DataErrorCode = (typeof dataErrorCodes)[number];
 
 export class DataError extends Error {
   readonly code: DataErrorCode;

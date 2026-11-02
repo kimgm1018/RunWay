@@ -80,7 +80,9 @@ export function PlaceholderScreen({
               title={actionLabels[link]}
               variant={link === 'signIn' ? 'primary' : 'secondary'}
               size="medium"
-              onPress={link === 'signIn' ? session.signIn : session.signOut}
+              onPress={() =>
+                link === 'signIn' ? session.signIn() : session.signOut()
+              }
             />
           ) : (
             <Button
