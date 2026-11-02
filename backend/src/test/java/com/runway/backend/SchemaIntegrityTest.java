@@ -447,7 +447,8 @@ class SchemaIntegrityTest {
         "pace_plans,recommended_pace=0",
         "user_profiles,average_pace=0",
         "user_profiles,distance=0",
-        "user_profiles,duraction=0"
+        "user_profiles,duraction=0",
+        "daily_health_metrics,rhr_revision=0"
     })
     void invalidRangesAreRejected(String table, String assignment) throws Exception {
         if (!java.util.Set.of("running_sessions", "group_runs", "courses", "pace_plans")

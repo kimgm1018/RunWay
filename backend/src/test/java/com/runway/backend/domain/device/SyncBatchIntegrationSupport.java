@@ -64,6 +64,7 @@ abstract class SyncBatchIntegrationSupport {
         jdbc.update("DELETE FROM session_control_events");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
+        jdbc.update("DELETE FROM daily_health_metrics");
         jdbc.update("DELETE FROM users");
         userId = insertUser("AGREEE");
         otherUserId = insertUser("AGREEE");
