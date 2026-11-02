@@ -168,12 +168,14 @@ export function SplitChart({
             stroke={colors.background}
             strokeWidth={2}
           />
+          {/* On the right half the label sits left of the point, so a best last split stays inside the card. */}
           <Text
-            x={bestPoint.x + 10}
+            x={bestPoint.x > width / 2 ? bestPoint.x - 10 : bestPoint.x + 10}
             y={bestPoint.y - 10}
             fontSize={12}
             fontFamily={fontFamily.bold}
             fill={colors.text}
+            textAnchor={bestPoint.x > width / 2 ? 'end' : 'start'}
           >
             {`${formatValue(best.value)} 최고`}
           </Text>
