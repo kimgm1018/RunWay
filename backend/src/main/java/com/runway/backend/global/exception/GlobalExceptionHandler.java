@@ -8,11 +8,14 @@ import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotAcceptableException;
@@ -175,6 +178,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestTimeoutException.class)
     ResponseEntity<ApiErrorResponse> handleTimeout(AsyncRequestTimeoutException exception) {
         log.error("일시적으로 처리하지 못한 요청", exception);
+        return response(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "SERVICE_UNAVAILABLE",
+                "일시적으로 처리할 수 없습니다.",
+                Map.of());
+    }
+
+    /**
+     * 잠금 대기 초과·교착 상태·쿼리 시간초과·연결 실패처럼 다시 시도하면 성공할 수 있는 데이터 접근 장애는 503이다. 제약 위반 등 재시도해도
+     * 결과가 같은 데이터 오류는 500으로 남긴다(api/README.md 공통 오류 응답). 503도 저장 미완료를 보장하지 않으며 클라이언트가 결과를 확인한 뒤
+     * 재시도한다.
+     */
+    @ExceptionHandler({
+        TransientDataAccessException.class,
+        DataAccessResourceFailureException.class,
+        CannotCreateTransactionException.class
+    })
+    ResponseEntity<ApiErrorResponse> handleTransientDataAccess(Exception exception) {
+        log.error("일시적인 데이터 접근 장애", exception);
         return response(
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "SERVICE_UNAVAILABLE",

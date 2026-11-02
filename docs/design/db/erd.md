@@ -70,7 +70,7 @@
 | current_bpm | INTEGER/null, 60~220 | 실제 현재 BPM. READY/PAUSED에서는 값을 보존하되 소리를 재생하지 않음 |
 | analysis_status | running_sessions_analysis_status_enum NOT NULL, PENDING | 현재 결과 준비 상태만 표시. PENDING/PROCESSING/READY/FAILED/LEGACY |
 
-목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다.
+목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다.
 
 #### session_control_events — 제어 명령과 실행 결과
 
