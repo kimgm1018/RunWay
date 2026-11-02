@@ -204,9 +204,10 @@ export type Post = {
   record: PostRecord;
   courseShared: boolean;
   createdAt: string;
-  likeCount: number;
+  // null when the server does not count them yet (CMT02·CMT03); the screens then leave the number out.
+  likeCount: number | null;
   liked: boolean;
-  commentCount: number;
+  commentCount: number | null;
   bookmarked: boolean;
 };
 

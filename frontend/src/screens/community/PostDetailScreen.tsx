@@ -168,7 +168,7 @@ export function PostDetailScreen() {
       setPost({
         ...post,
         comments: [...post.comments, comment],
-        commentCount: post.commentCount + 1,
+        commentCount: post.commentCount === null ? null : post.commentCount + 1,
       });
       setDraft('');
     } catch {
