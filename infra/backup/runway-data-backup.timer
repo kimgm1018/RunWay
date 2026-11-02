@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily RunWay data backup at 04:00 Korea time
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Asia/Seoul
+Persistent=true
+
+[Install]
+WantedBy=timers.target

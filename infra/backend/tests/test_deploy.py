@@ -193,7 +193,7 @@ class DeploymentTests(unittest.TestCase):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stderr)
         probes = [line for line in self.calls().splitlines() if "--network container:" in line]
-        # Python probe 本文には改行があるので mode 引数も呼び出し記録から確認する。
+        # 검사 코드에 줄바꿈이 있어 호출 기록에서 검사 방식 인자도 확인한다.
         self.assertIn(" legacy", self.calls())
         self.assertIn(" readiness", self.calls())
         self.assertTrue(any("container:old" in line for line in probes))
