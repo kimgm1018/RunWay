@@ -1,9 +1,9 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
   View,
@@ -16,7 +16,7 @@ import {
 import { AppText, Backdrop, Button, IconButton, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, size, spacing, useTheme } from '../../theme';
+import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
 import { GlassCard } from './parts';
 import { AnalysisCard, CoursesCard, RecordsCard } from './sections';
 import { HomeWidgets } from './widgets';
@@ -72,6 +72,13 @@ export function HomeScreen() {
     home.status === 'ready' ? home.data : [];
   const photo = me?.profileImageUrl ?? null;
   const unread = notifications?.some(item => !item.read) ?? false;
+  const scrollY = useRef(new Animated.Value(0)).current;
+  // The header gets the K1 top colour once the cards start passing under it, so the two never overlap.
+  const headerFill = scrollY.interpolate({
+    inputRange: [0, spacing.xxxl],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -79,12 +86,17 @@ export function HomeScreen() {
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop />
       </View>
-      <ScrollView
+      <Animated.ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingTop: insets.top + size.header },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true },
+        )}
       >
         <AppText style={styles.greeting}>
           {me ? `${me.nickname}님,\n` : ''}
@@ -109,13 +121,20 @@ export function HomeScreen() {
         {summary ? <AnalysisCard summary={summary} /> : null}
         {home.status === 'ready' ? <RecordsCard /> : null}
         {courses ? <CoursesCard courses={courses} /> : null}
-      </ScrollView>
+      </Animated.ScrollView>
       {/* The header floats over the cards as they scroll up, as in the prototype. */}
       <SafeAreaView
         edges={['top']}
         style={styles.headerLayer}
         pointerEvents="box-none"
       >
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.headerFill,
+            { borderBottomColor: colors.border, opacity: headerFill },
+          ]}
+        />
         <View style={styles.header}>
           <View style={styles.logo}>
             <Logo width={88} />
@@ -145,6 +164,16 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
+  // Behind the status bar and the header row, the same colour as the top of the K1 background.
+  headerFill: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: k1.top,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   header: {
     height: size.header,
     flexDirection: 'row',
