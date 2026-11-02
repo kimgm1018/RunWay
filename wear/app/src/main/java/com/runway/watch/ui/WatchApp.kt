@@ -21,6 +21,10 @@ import com.runway.watch.navigation.RunPage
 import com.runway.watch.navigation.WatchNavigation
 import com.runway.watch.navigation.WatchNavigator
 import com.runway.watch.navigation.WatchRoute
+import com.runway.watch.readiness.CheckState
+import com.runway.watch.readiness.Readiness
+import com.runway.watch.readiness.ReadinessIssue
+import com.runway.watch.readiness.ReadinessRules
 import com.runway.watch.run.*
 import com.runway.watch.ui.component.*
 import com.runway.watch.ui.format.MetricFormat
@@ -28,6 +32,8 @@ import com.runway.watch.ui.screen.ResultScreen
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
 import com.runway.watch.ui.theme.RunwayWatchTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Watch app host. The visible route comes from the confirmed run state; taps only send intents.
@@ -36,29 +42,41 @@ import com.runway.watch.ui.theme.RunwayWatchTheme
  * [WatchNavigation.canExit] allows it; during a run the swipe stays with the running pages.
  */
 @Composable
-fun WatchApp(control: RunControl, onExit: () -> Unit = {}) {
+fun WatchApp(
+    control: RunControl,
+    readiness: StateFlow<Readiness> = remember { MutableStateFlow(Readiness()) },
+    actions: ReadinessActions = ReadinessActions(),
+    onExit: () -> Unit = {},
+) {
     val navigator = remember(control) { WatchNavigator(control) }
     val snapshot by control.snapshot.collectAsState()
+    val ready by readiness.collectAsState()
     val navState by navigator.state.collectAsState()
     val nav = WatchNavigation.reconcile(snapshot, navState)
-    val route = WatchNavigation.route(snapshot, nav)
+    val route = WatchNavigation.route(snapshot, nav, ready)
     val canExit = WatchNavigation.canExit(route)
     BackHandler(enabled = !canExit) { navigator.back() }
     RunwayWatchTheme {
         BasicSwipeToDismissBox(onDismissed = onExit, userSwipeEnabled = canExit) { isBackground ->
-            if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background)) else WatchScreen(route, snapshot, nav, navigator)
+            if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background))
+            else WatchScreen(route, snapshot, ready, actions, nav, navigator)
         }
     }
 }
 
 @Composable
-private fun WatchScreen(route: WatchRoute, snapshot: RunSnapshot, nav: NavState, navigator: WatchNavigator) {
+private fun WatchScreen(
+    route: WatchRoute, snapshot: RunSnapshot, readiness: Readiness, actions: ReadinessActions,
+    nav: NavState, navigator: WatchNavigator,
+) {
     when (route) {
-        WatchRoute.STANDBY -> StandbyScreen(snapshot) { navigator.send(RunIntent.START) }
-        WatchRoute.CONNECTION_ISSUE -> Notice("휴대폰과 연결이 끊겼어요", "블루투스를 확인해 주세요", StatusTone.WARNING) {
+        WatchRoute.STANDBY -> StandbyScreen(snapshot, readiness) { navigator.send(RunIntent.START) }
+        // OS pairing and the app link are checked on the phone; server registration is never shown as this link.
+        WatchRoute.CONNECTION_ISSUE -> Notice("휴대폰 연결이 없어요", "휴대폰 블루투스와\nRunWay 앱을 확인해 주세요", StatusTone.WARNING) {
             PillButton("다시 연결", { navigator.send(RunIntent.RECONNECT_PHONE) }, enabled = !snapshot.pendingCommand)
         }
-        WatchRoute.RUNNING -> RunPager(snapshot, nav.page, navigator::showPage) { navigator.send(RunIntent.PAUSE) }
+        WatchRoute.NOT_READY -> ReadinessScreen(ReadinessRules.issue(readiness), actions)
+        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage) { navigator.send(RunIntent.PAUSE) }
         WatchRoute.PAUSED -> PausedScreen(snapshot, onEnd = navigator::openEndConfirm) { navigator.send(RunIntent.RESUME) }
         WatchRoute.END_CONFIRM -> EndConfirmScreen(snapshot, onCancel = { navigator.back() }) { navigator.send(RunIntent.END) }
         WatchRoute.RESULT -> ResultScreen(snapshot)
@@ -66,9 +84,9 @@ private fun WatchScreen(route: WatchRoute, snapshot: RunSnapshot, nav: NavState,
 }
 
 @Composable
-private fun StandbyScreen(snapshot: RunSnapshot, onStart: () -> Unit) {
+private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onStart: () -> Unit) {
     RoundScreen {
-        StatusLine("휴대폰 연결됨" to StatusTone.NORMAL)
+        StandbyStatus(readiness)
         if (snapshot.state == null) {
             Text("휴대폰에서 러닝을 준비해 주세요", style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
             return@RoundScreen
@@ -82,6 +100,48 @@ private fun StandbyScreen(snapshot: RunSnapshot, onStart: () -> Unit) {
         }
         RoundButton(if (snapshot.pendingCommand) "시작 확인 중" else "시작", onStart, Modifier.padding(top = 4.dp),
             enabled = !snapshot.pendingCommand, size = 60, caption = snapshot.pendingCommand) { Icon(WatchIcon.PLAY, it, 22) }
+    }
+}
+
+/** Callbacks for the fixes the watch itself can start; the rest are done on the phone. */
+data class ReadinessActions(
+    /** Asks for the run permissions again, or opens app settings when the OS no longer asks. */
+    val requestPermission: () -> Unit = {},
+    /** Reads consent, permissions and the network again, e.g. after the runner fixed them on the phone. */
+    val recheck: () -> Unit = {},
+)
+
+/**
+ * The phone link and the internet as two items. Server registration is not listed: it is a
+ * separate step from the Bluetooth link, and an unknown internet state shows nothing rather than
+ * a ready mark. The phone still checks the server round trip before it allows the start.
+ */
+@Composable
+private fun StandbyStatus(readiness: Readiness) {
+    val internet = when (readiness.online) {
+        CheckState.OK -> "인터넷"
+        CheckState.CHECKING -> "인터넷 확인 중"
+        CheckState.UNKNOWN, CheckState.MISSING -> null
+    }
+    if (internet == null) StatusLine("휴대폰 연결됨" to StatusTone.NORMAL)
+    else StatusLine("폰" to StatusTone.NORMAL, internet to StatusTone.NORMAL)
+}
+
+/**
+ * 9.1b: one missing prerequisite at a time, with what the runner should do. Nothing here claims
+ * a run can go on offline or that records are recovered later.
+ */
+@Composable
+private fun ReadinessScreen(issue: ReadinessIssue?, actions: ReadinessActions) {
+    val recheck: @Composable RowScope.() -> Unit = { PillButton("다시 확인", actions.recheck, kind = ButtonKind.SECONDARY) }
+    when (issue) {
+        ReadinessIssue.CONSENT -> Notice("동의가 필요해요", "휴대폰 RunWay 앱에서\n건강정보 수집에\n동의해 주세요", StatusTone.WARNING, recheck)
+        ReadinessIssue.PERMISSION -> Notice("센서 권한이 필요해요", "심박·활동 인식 권한을\n허용해 주세요", StatusTone.WARNING) {
+            PillButton("권한 허용", actions.requestPermission)
+        }
+        ReadinessIssue.REGISTRATION -> Notice("워치 등록이 필요해요", "휴대폰 RunWay 앱에서\n워치를 등록해 주세요", StatusTone.WARNING, recheck)
+        ReadinessIssue.OFFLINE -> Notice("인터넷 연결이 없어요", "연결 전에는 러닝을\n시작할 수 없어요", StatusTone.WARNING, recheck)
+        null -> Unit
     }
 }
 
@@ -107,7 +167,7 @@ private fun GroupStandby(snapshot: RunSnapshot) {
 }
 
 @Composable
-private fun RunPager(snapshot: RunSnapshot, page: Int, onPage: (Int) -> Unit, onPause: () -> Unit) {
+private fun RunPager(snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onPause: () -> Unit) {
     val pages = WatchNavigation.pages(snapshot)
     val pager = rememberPagerState(initialPage = page) { pages.size }
     LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
@@ -115,7 +175,7 @@ private fun RunPager(snapshot: RunSnapshot, page: Int, onPage: (Int) -> Unit, on
     HorizontalPager(pager, Modifier.fillMaxSize()) { index ->
         val visible = pager.currentPage == index
         when (pages[index]) {
-            RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause)
+            RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause, online)
             RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible)

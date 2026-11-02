@@ -1,5 +1,7 @@
 package com.runway.watch.navigation
 
+import com.runway.watch.readiness.CheckState
+import com.runway.watch.readiness.Readiness
 import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.RunMode
 import com.runway.watch.run.RunSnapshot
@@ -34,6 +36,25 @@ class WatchNavigationTest {
         assertEquals(WatchRoute.CONNECTION_ISSUE, WatchNavigation.route(snapshot(null, phone = false), NavState()))
         assertEquals(WatchRoute.RUNNING, WatchNavigation.route(snapshot(RunState.RUNNING, phone = false), NavState()))
         assertEquals(WatchRoute.PAUSED, WatchNavigation.route(snapshot(RunState.PAUSED, phone = false), NavState()))
+    }
+
+    @Test fun missingReadinessReplacesOnlyTheScreensBeforeTheRun() {
+        val offline = Readiness(online = CheckState.MISSING)
+        assertEquals(WatchRoute.NOT_READY, WatchNavigation.route(snapshot(null), NavState(), offline))
+        assertEquals(WatchRoute.NOT_READY, WatchNavigation.route(snapshot(RunState.READY), NavState(), offline))
+        assertEquals(WatchRoute.RUNNING, WatchNavigation.route(snapshot(RunState.RUNNING), NavState(), offline))
+        assertEquals(WatchRoute.RESULT, WatchNavigation.route(snapshot(RunState.COMPLETED), NavState(), offline))
+        assertEquals(WatchRoute.STANDBY, WatchNavigation.route(snapshot(RunState.READY), NavState(), Readiness(online = CheckState.CHECKING)))
+        assertTrue(WatchNavigation.canExit(WatchRoute.NOT_READY))
+    }
+
+    @Test fun registrationIsNeverShownAsAPhoneConnection() {
+        // A registered watch without a phone link still gets the connection screen, not standby.
+        val registered = Readiness(registration = CheckState.OK)
+        assertEquals(WatchRoute.CONNECTION_ISSUE, WatchNavigation.route(snapshot(RunState.READY, phone = false), NavState(), registered))
+        // The phone link is checked first because consent and registration are fixed on the phone.
+        val unregistered = Readiness(registration = CheckState.MISSING)
+        assertEquals(WatchRoute.CONNECTION_ISSUE, WatchNavigation.route(snapshot(RunState.READY, phone = false), NavState(), unregistered))
     }
 
     @Test fun endConfirmIsOnlyReachableWhilePaused() {
@@ -91,6 +112,6 @@ class WatchNavigationTest {
 
     @Test fun swipeToCloseOnlyOutsideARun() {
         val exits = WatchRoute.entries.filter(WatchNavigation::canExit)
-        assertEquals(listOf(WatchRoute.STANDBY, WatchRoute.CONNECTION_ISSUE, WatchRoute.RESULT), exits)
+        assertEquals(listOf(WatchRoute.STANDBY, WatchRoute.CONNECTION_ISSUE, WatchRoute.NOT_READY, WatchRoute.RESULT), exits)
     }
 }
