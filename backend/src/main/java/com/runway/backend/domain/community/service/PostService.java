@@ -45,9 +45,10 @@ public class PostService {
     @Transactional
     public PostCreateResponse create(long userId, CreatePostRequest request) {
         requireExistingUser(userId);
+        // S09와 동일하게 세션→게시물 순서로 잠근다. 잠금 아래서 미삭제·COMPLETED를 재확인한다.
         SessionShareInfo session =
                 runningSessionLookupRepository
-                        .findById(request.sessionId())
+                        .findByIdForUpdate(request.sessionId())
                         .orElseThrow(PostService::invalidPost);
         if (session.userId() != userId) {
             throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_NOT_OWNED", "본인 소유 자원이 아닙니다.");
