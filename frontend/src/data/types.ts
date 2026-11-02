@@ -111,7 +111,8 @@ export type RunStatistics = PeriodSummary & {
   breakdown: number[];
   // Share of time in heart rate zones 1–5; empty without heart rate data.
   heartRateZones: number[];
-  previousPeriod: PeriodSummary | null;
+  // H06 previousPeriod has no time total; 5.3 compares count, distance and pace.
+  previousPeriod: Omit<PeriodSummary, 'totalDurationSec'> | null;
 };
 
 // 5.3 평균 페이스 추이 (H07), oldest month first.

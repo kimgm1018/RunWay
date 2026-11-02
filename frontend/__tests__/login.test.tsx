@@ -41,6 +41,28 @@ function loginResponse(onboardingCompleted: boolean) {
   });
 }
 
+// Home asks the server for my runs (H01·H06); a new account has none.
+function serveHome(onboardingCompleted: boolean) {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.endsWith('/auth/login')
+      ? loginResponse(onboardingCompleted)
+      : url.includes('/running-records/statistics')
+      ? respond(200, {
+          runCount: 0,
+          totalDistanceM: 0,
+          totalDurationSec: 0,
+          averagePaceSecPerKm: null,
+          breakdown: [],
+          heartRateZones: [],
+          previousPeriod: null,
+        })
+      : respond(200, { items: [] }),
+  );
+}
+
+const loginCalls = () =>
+  fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/login'));
+
 function texts(screen: Screen) {
   return screen.root
     .findAllByType(Text)
@@ -105,7 +127,7 @@ beforeEach(async () => {
 });
 
 test('a completed account enters home and stays signed in after a relaunch', async () => {
-  fetchMock.mockResolvedValue(loginResponse(true));
+  serveHome(true);
   const first = await launch();
   await login(first);
 
@@ -118,7 +140,8 @@ test('a completed account enters home and stays signed in after a relaunch', asy
 
   const relaunch = await launch();
   expect(texts(relaunch)).toContain('오늘 달리기 좋은 날이에요');
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  // The kept tokens sign in again without another login.
+  expect(loginCalls()).toHaveLength(1);
   await act(async () => relaunch.unmount());
 });
 
