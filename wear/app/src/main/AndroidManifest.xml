@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" android:maxSdkVersion="35" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Readiness: follow the watch's default network before a run (S15P31E105-265). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:allowBackup="false"

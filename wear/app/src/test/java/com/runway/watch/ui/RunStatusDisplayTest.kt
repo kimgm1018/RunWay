@@ -1,5 +1,6 @@
 package com.runway.watch.ui
 
+import com.runway.watch.readiness.CheckState
 import com.runway.watch.run.*
 import com.runway.watch.ui.format.MetricFormat
 import org.junit.Assert.*
@@ -78,5 +79,13 @@ class RunStatusDisplayTest {
         val v = view(pending = true, phone = false)
         assertTrue(v.pending)
         assertTrue(v.phoneLost)
+    }
+
+    @Test fun onlyAConfirmedLossOfInternetIsFlagged() {
+        val snapshot = RunSnapshot(RunState.RUNNING, metrics = measured)
+        assertTrue(RunStatusDisplay.from(snapshot, online = CheckState.MISSING).offline)
+        assertFalse(RunStatusDisplay.from(snapshot, online = CheckState.CHECKING).offline)
+        assertFalse(RunStatusDisplay.from(snapshot, online = CheckState.UNKNOWN).offline)
+        assertFalse(RunStatusDisplay.from(snapshot).offline)
     }
 }
