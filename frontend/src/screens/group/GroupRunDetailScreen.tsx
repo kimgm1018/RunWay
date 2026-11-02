@@ -22,8 +22,10 @@ import {
   EmptyState,
   Icon,
   IconButton,
+  useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
   type GroupRunCancelReason,
@@ -219,6 +221,7 @@ export function GroupRunDetailScreen() {
   const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const { changed } = useGroupRunDraft();
+  const toast = useToast();
   const detail = useResource(
     useCallback(
       (repositories: Repositories) => loadDetail(repositories, groupRunId),
@@ -283,6 +286,14 @@ export function GroupRunDetailScreen() {
       }
       setRun(await groupRuns.get(run.id));
       changed();
+    } catch (error) {
+      toast(
+        errorCode(error) === 'FULL_OR_ALREADY_JOINED'
+          ? '이미 참가했거나 자리가 없는 그룹런이에요'
+          : run.joined
+          ? '참가를 취소하지 못했어요. 잠시 후 다시 시도해 주세요'
+          : '참가하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
     } finally {
       setBusy(false);
     }
@@ -430,6 +441,18 @@ export function GroupRunDetailScreen() {
                   >
                     내가 만든 그룹런
                   </AppText>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="그룹런 수정"
+                    onPress={() =>
+                      navigation.navigate('GroupRunCreate', {
+                        groupRunId: run.id,
+                      })
+                    }
+                    hitSlop={8}
+                  >
+                    <AppText variant="captionStrong">수정</AppText>
+                  </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="그룹런 취소"

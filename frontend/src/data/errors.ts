@@ -29,6 +29,10 @@ export const dataErrorCodes = [
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',
+  // G03–G06 그룹런.
+  'GROUP_NOT_FOUND',
+  'FULL_OR_ALREADY_JOINED',
+  'EDIT_NOT_ALLOWED',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
   // W06 건강 기록 동기화 (docs/design/api/devices-health.md).

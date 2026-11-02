@@ -236,5 +236,5 @@ export function createCrewsApi({
     );
   };
 
-  return { crews, listMine };
+  return { crews, listMine, myId };
 }

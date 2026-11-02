@@ -93,6 +93,10 @@ function serve() {
           currentRegionCode: null,
         });
       }
+      // 6.0 also lists each crew's group runs (G02); none are planned here.
+      if (path === '/group-runs') {
+        return respond(200, { items: [] });
+      }
       if (path === '/users/me/crews') {
         return respond(200, {
           items: crews

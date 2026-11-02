@@ -240,6 +240,23 @@ export function createGroupRunMock({
       ];
       return respond({ id });
     },
+    update: (groupRunId, draft) => {
+      const run = find(groupRunId);
+      Object.assign(run, {
+        scheduledAt: draft.scheduledAt,
+        meetingPlaceName: draft.meetingPlaceName,
+        meetingAddress: draft.meetingAddress,
+        meetingPosition: draft.meetingPosition,
+        courseId: draft.courseId,
+        courseName: draft.courseId
+          ? fixtures.savedCourses.find(item => item.id === draft.courseId)
+              ?.name ?? run.courseName
+          : null,
+        targetDistanceM: draft.targetDistanceM,
+        targetDurationSec: draft.targetDurationSec,
+      });
+      return respond(undefined);
+    },
     cancel: (groupRunId, reason: GroupRunCancelReason) => {
       const run = find(groupRunId);
       run.status = 'CANCELLED';

@@ -7,6 +7,7 @@ import { checkLoginId, login, signUp } from './auth';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
+import { createGroupRunsApi } from './groupRuns';
 import { getRunningProfile, saveRunningProfile } from './profile';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
@@ -16,7 +17,17 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
   const mock = createMockRepositories(mockOptions);
   const { records, getMonthlySummary } = createRecordsApi();
   const regions = createRegions();
-  const { crews, listMine: myCrews } = createCrewsApi({
+  // My usual pace (U06) for course times and a group run's shared pace; null without a profile.
+  const usualPace = () =>
+    getRunningProfile().then(
+      profile => profile?.usualPaceSecPerKm ?? null,
+      () => null,
+    );
+  const {
+    crews,
+    listMine: myCrews,
+    myId,
+  } = createCrewsApi({
     mock: mock.crews,
     regions,
   });
@@ -28,42 +39,17 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // Only 2.1 러닝 분석 reads my runs; 오늘 컨디션 stays on mock data until its own API task.
     home: { ...mock.home, getMonthlySummary },
     records,
-    // Expected course times use my usual pace (U06); without a profile the courses fall back to 6′00″.
-    courses: createCoursesApi({
-      mock: mock.courses,
-      usualPace: () =>
-        getRunningProfile().then(
-          profile => profile?.usualPaceSecPerKm ?? null,
-          () => null,
-        ),
-      regions,
-    }),
+    // Without a profile the expected course times fall back to 6′00″.
+    courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
     watch: createWatchApi(mock.watch),
     crews,
-    // 6.0 내 크루 comes from M10; group runs stay on mock data until G02 (-306), so only a run of one of my crews shows.
-    groupRuns: {
-      ...mock.groupRuns,
-      listMine: async () => {
-        const [runs, mine] = await Promise.all([
-          mock.groupRuns.listMine(),
-          myCrews(),
-        ]);
-        const ids = new Set(mine.map(crew => crew.id));
-        return {
-          ...runs,
-          upcoming:
-            runs.upcoming && ids.has(runs.upcoming.crewId)
-              ? runs.upcoming
-              : null,
-          crews: mine.map(crew => ({
-            crew,
-            groupRuns:
-              runs.crews.find(item => item.crew.id === crew.id)?.groupRuns ??
-              [],
-          })),
-        };
-      },
-    },
+    groupRuns: createGroupRunsApi({
+      mock: mock.groupRuns,
+      crews,
+      myCrews,
+      myId,
+      usualPace,
+    }),
     // Server records are dated by the real calendar, so 5.1·5.3 open on this month rather than the mock's pinned day.
     clock: { now: () => new Date() },
   };

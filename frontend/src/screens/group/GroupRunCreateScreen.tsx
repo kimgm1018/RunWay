@@ -25,8 +25,10 @@ import {
   useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
+  type GroupRunDetail,
   type Repositories,
   type SavedCourse,
 } from '../../data';
@@ -61,6 +63,18 @@ const timeLabel = (minutes: number) => {
     hours % 12 === 0 ? 12 : hours % 12,
   )}:${pad(minutes % 60)}`;
 };
+// A route as the 0–1 outline the course thumbnails draw (y grows downward).
+function outlineOf(route: [number, number][]): [number, number][] {
+  const xs = route.map(point => point[0]);
+  const ys = route.map(point => point[1]);
+  const [minX, minY] = [Math.min(...xs), Math.min(...ys)];
+  const span = Math.max(Math.max(...xs) - minX, Math.max(...ys) - minY, 1e-6);
+  return route.map(([x, y]) => [
+    0.1 + ((x - minX) / span) * 0.8,
+    0.9 - ((y - minY) / span) * 0.8,
+  ]);
+}
+
 // YYYY-MM-DD in Korea, `days` after `from`.
 const dayAfter = (from: Date, days: number) =>
   new Date(from.getTime() + kstOffsetMs + days * 86400000)
@@ -173,14 +187,28 @@ function PickChip({
 }
 
 // 6.8 그룹런 만들기: course or free run, meeting place (6.9), date and time. The shared pace is estimated, not typed.
+// Opened from 6.4 with a groupRunId, the same form edits that run (G04).
 export function GroupRunCreateScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunCreate'>>();
+  const editingId = route.params?.groupRunId;
   const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const toast = useToast();
   const { draft, setPlace, changed } = useGroupRunDraft();
   const options = useResource(useCallback(loadOptions, []));
+  const editing = useResource(
+    useCallback(
+      (repositories: Repositories) =>
+        editingId
+          ? repositories.groupRuns.get(editingId)
+          : Promise.resolve(null),
+      [editingId],
+    ),
+  );
+  const edited: GroupRunDetail | null =
+    editing.status === 'ready' ? editing.data : null;
+  const [filled, setFilled] = useState(false);
   const [mode, setMode] = useState<Mode>('COURSE');
   const [course, setCourse] = useState<{
     id: string;
@@ -201,9 +229,49 @@ export function GroupRunCreateScreen() {
     mine?.crews.find(item => item.crew.membership === 'MEMBER')?.crew;
   const now = clock.now();
 
+  // Editing starts from the run as it is: its course or minutes, place, day and time (KST).
+  useEffect(() => {
+    if (!edited || !ready || filled) {
+      return;
+    }
+    const at = new Date(Date.parse(edited.scheduledAt) + kstOffsetMs);
+    setMode(edited.courseId ? 'COURSE' : 'FREE');
+    setCourse(
+      edited.courseId
+        ? {
+            id: edited.courseId,
+            name: edited.courseName ?? '',
+            distanceM: edited.targetDistanceM ?? 0,
+            shape:
+              saved?.find(item => item.id === edited.courseId)?.shape ??
+              (edited.route && edited.route.length > 1
+                ? outlineOf(edited.route)
+                : [
+                    [0.1, 0.6],
+                    [0.5, 0.3],
+                    [0.9, 0.5],
+                  ]),
+          }
+        : null,
+    );
+    if (edited.targetDurationSec) {
+      setMinutes(Math.round(edited.targetDurationSec / 60));
+    }
+    setPlace({
+      name: edited.meetingPlaceName,
+      address: edited.meetingAddress,
+      position: edited.meetingPosition,
+      distanceM: 0,
+      note: null,
+    });
+    setDay(at.toISOString().slice(0, 10));
+    setTime(at.getUTCHours() * 60 + at.getUTCMinutes());
+    setFilled(true);
+  }, [edited, filled, ready, saved, setPlace]);
+
   // Defaults: today's course, the nearest meeting place and the coming Saturday.
   useEffect(() => {
-    if (!ready) {
+    if (!ready || (editingId && !filled)) {
       return;
     }
     if (!course) {
@@ -230,7 +298,19 @@ export function GroupRunCreateScreen() {
       const weekday = new Date(now.getTime() + kstOffsetMs).getUTCDay();
       setDay(dayAfter(now, (6 - weekday + 7) % 7 || 7));
     }
-  }, [course, day, draft.place, now, places, plan, ready, saved, setPlace]);
+  }, [
+    course,
+    day,
+    draft.place,
+    editingId,
+    filled,
+    now,
+    places,
+    plan,
+    ready,
+    saved,
+    setPlace,
+  ]);
 
   const chooseCourse = (item: SavedCourse) => {
     setCourse({
@@ -243,32 +323,45 @@ export function GroupRunCreateScreen() {
   };
 
   const create = async () => {
-    if (!crew || !draft.place || !day) {
+    if ((!crew && !edited) || !draft.place || !day) {
       return;
     }
     setSaving(true);
-    try {
-      const scheduledAt = `${day}T${pad(Math.floor(time / 60))}:${pad(
+    const run = {
+      courseId: mode === 'COURSE' ? course?.id ?? null : null,
+      meetingPlaceName: draft.place.name,
+      meetingAddress: draft.place.address,
+      meetingPosition: draft.place.position,
+      meetingNote: draft.place.note,
+      scheduledAt: `${day}T${pad(Math.floor(time / 60))}:${pad(
         time % 60,
-      )}:00+09:00`;
-      const { id } = await groupRuns.create({
-        crewId: crew.id,
-        courseId: mode === 'COURSE' ? course?.id ?? null : null,
-        meetingPlaceName: draft.place.name,
-        meetingAddress: draft.place.address,
-        meetingPosition: draft.place.position,
-        meetingNote: draft.place.note,
-        scheduledAt,
-        targetDistanceM: mode === 'COURSE' ? course?.distanceM ?? null : null,
-        targetDurationSec: mode === 'FREE' ? minutes * 60 : null,
-      });
+      )}:00+09:00`,
+      targetDistanceM: mode === 'COURSE' ? course?.distanceM ?? null : null,
+      targetDurationSec: mode === 'FREE' ? minutes * 60 : null,
+    };
+    try {
+      if (edited) {
+        await groupRuns.update(edited.id, run);
+        setPlace(null);
+        changed();
+        toast('그룹런을 수정했어요');
+        navigation.goBack();
+        return;
+      }
+      const { id } = await groupRuns.create({ ...run, crewId: crew!.id });
       setPlace(null);
       changed();
       navigation.dispatch(
         StackActions.replace('GroupRunDetail', { groupRunId: id }),
       );
-    } catch {
-      toast('그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        !edited
+          ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
+          : errorCode(error) === 'EDIT_NOT_ALLOWED'
+          ? '출발 전 그룹런만 수정할 수 있어요'
+          : '그룹런을 수정하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
       setSaving(false);
     }
   };
@@ -287,13 +380,13 @@ export function GroupRunCreateScreen() {
             onPress={() => navigation.goBack()}
           />
           <AppText style={styles.title} accessibilityRole="header">
-            그룹런 만들기
+            {editingId ? '그룹런 수정' : '그룹런 만들기'}
           </AppText>
         </View>
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <AppText variant="caption" tone="textSecondary" style={styles.crew}>
-          {crew?.name ?? ''}
+          {(edited ? edited.crewName : crew?.name) ?? ''}
         </AppText>
         <Section
           title="코스"
@@ -409,10 +502,14 @@ export function GroupRunCreateScreen() {
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <BottomFade />
           <GlowButton
-            title="그룹런 만들기"
+            title={editingId ? '저장' : '그룹런 만들기'}
+            icon={editingId ? 'check' : 'plus'}
             loading={saving}
             disabled={
-              !crew || !draft.place || !day || (mode === 'COURSE' && !course)
+              (editingId ? !edited : !crew) ||
+              !draft.place ||
+              !day ||
+              (mode === 'COURSE' && !course)
             }
             onPress={create}
           />
