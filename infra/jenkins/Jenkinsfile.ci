@@ -217,7 +217,13 @@ pipeline {
                                         }
                                         try {
                                             stage('Mobile APK Build') {
-                                                sh 'sh infra/jenkins/build-mobile-apk.sh'
+                                                // 네이버 지도 Client ID는 APK 빌드 단계에만 전달한다.
+                                                withCredentials([string(
+                                                    credentialsId: 'runway-naver-map-client-id',
+                                                    variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
+                                                )]) {
+                                                    sh 'sh infra/jenkins/build-mobile-apk.sh'
+                                                }
                                             }
                                         } finally {
                                             stage('Mobile Reports') {
