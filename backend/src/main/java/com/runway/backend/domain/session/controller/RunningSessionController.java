@@ -1,11 +1,17 @@
 package com.runway.backend.domain.session.controller;
 
 import com.runway.backend.domain.session.dto.request.CreateRunningSessionRequest;
+import com.runway.backend.domain.session.dto.request.SessionControlRequest;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequest;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequestSchema;
+import com.runway.backend.domain.session.dto.response.CancelledSessionResponse;
+import com.runway.backend.domain.session.dto.response.ControlApprovalResponse;
+import com.runway.backend.domain.session.dto.response.ControlResultResponse;
 import com.runway.backend.domain.session.dto.response.DeletedSessionResponse;
 import com.runway.backend.domain.session.dto.response.PreparedResponse;
 import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
+import com.runway.backend.domain.session.entity.ControlAction;
+import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.domain.session.service.RunningSessionService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
@@ -38,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RunningSessionController {
 
     private final RunningSessionService runningSessionService;
+    private final RunningSessionControlService runningSessionControlService;
 
     @ApiResponse(
             responseCode = "201",
@@ -104,6 +111,135 @@ public class RunningSessionController {
             return runningSessionService.reportPrepared(userId, sessionId, request);
         }
         return runningSessionService.update(userId, sessionId, request, receivedAt);
+    }
+
+    /** S03. REQUEST는 ControlApprovalResponse, RESULT는 ControlResultResponse. */
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            schema =
+                                    @Schema(
+                                            oneOf = {
+                                                ControlApprovalResponse.class,
+                                                ControlResultResponse.class
+                                            })))
+    @PostMapping(value = "/{sessionId}/start", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Object start(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            required = true,
+                            content =
+                                    @Content(
+                                            schema =
+                                                    @Schema(
+                                                            implementation =
+                                                                    SessionControlRequest.class)))
+                    @RequestBody
+                    String body) {
+        return control(user, sessionId, ControlAction.START, body);
+    }
+
+    /** S04. 응답 형식은 S03과 같다. */
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            schema =
+                                    @Schema(
+                                            oneOf = {
+                                                ControlApprovalResponse.class,
+                                                ControlResultResponse.class
+                                            })))
+    @PostMapping(value = "/{sessionId}/pause", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Object pause(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            required = true,
+                            content =
+                                    @Content(
+                                            schema =
+                                                    @Schema(
+                                                            implementation =
+                                                                    SessionControlRequest.class)))
+                    @RequestBody
+                    String body) {
+        return control(user, sessionId, ControlAction.PAUSE, body);
+    }
+
+    /** S05. 응답 형식은 S03과 같다. */
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            schema =
+                                    @Schema(
+                                            oneOf = {
+                                                ControlApprovalResponse.class,
+                                                ControlResultResponse.class
+                                            })))
+    @PostMapping(value = "/{sessionId}/resume", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Object resume(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            required = true,
+                            content =
+                                    @Content(
+                                            schema =
+                                                    @Schema(
+                                                            implementation =
+                                                                    SessionControlRequest.class)))
+                    @RequestBody
+                    String body) {
+        return control(user, sessionId, ControlAction.RESUME, body);
+    }
+
+    /** S06. END의 RESULT/APPLIED는 uploadComplete=true가 있어야 종료를 확정한다. */
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            schema =
+                                    @Schema(
+                                            oneOf = {
+                                                ControlApprovalResponse.class,
+                                                ControlResultResponse.class
+                                            })))
+    @PostMapping(value = "/{sessionId}/finish", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Object finish(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            required = true,
+                            content =
+                                    @Content(
+                                            schema =
+                                                    @Schema(
+                                                            implementation =
+                                                                    SessionControlRequest.class)))
+                    @RequestBody
+                    String body) {
+        return control(user, sessionId, ControlAction.END, body);
+    }
+
+    /** S07. 본문이 없다. 준비(READY) 세션만 취소한다. */
+    @PostMapping("/{sessionId}/cancel")
+    public CancelledSessionResponse cancel(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return runningSessionControlService.cancel(userId, sessionId);
+    }
+
+    private Object control(
+            AuthenticatedUser user, long sessionId, ControlAction action, String body) {
+        Instant receivedAt = Instant.now();
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        SessionControlRequest request = SessionControlRequest.fromJson(body, action);
+        return runningSessionControlService.control(userId, sessionId, action, request, receivedAt);
     }
 
     @DeleteMapping("/{sessionId}")

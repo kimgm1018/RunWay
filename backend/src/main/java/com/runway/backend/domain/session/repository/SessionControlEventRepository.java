@@ -15,6 +15,12 @@ public interface SessionControlEventRepository extends JpaRepository<SessionCont
 
     Optional<SessionControlEvent> findFirstBySessionIdOrderByIdDesc(Long sessionId);
 
+    /** uq_control_version으로 세션·기준 버전별 요청 슬롯은 최대 하나다. */
+    Optional<SessionControlEvent> findBySessionIdAndExpectedVersion(
+            Long sessionId, Long expectedVersion);
+
+    Optional<SessionControlEvent> findByIdAndSessionId(Long id, Long sessionId);
+
     boolean existsBySessionIdAndActionAndResultIn(
             Long sessionId, ControlAction action, Collection<ControlResult> results);
 }

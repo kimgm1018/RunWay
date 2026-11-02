@@ -54,6 +54,15 @@
                     android:host="*"
                     android:pathPrefix="/runway/v1/health/"
                     android:scheme="wear" />
+                <!-- S15P31E105-256: run-session commands relayed by the phone, and its errors. -->
+                <data
+                    android:host="*"
+                    android:pathPrefix="/runway/v1/session/"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:path="/runway/v1/error"
+                    android:scheme="wear" />
             </intent-filter>
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />

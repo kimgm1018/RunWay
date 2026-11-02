@@ -678,6 +678,96 @@ export type WithdrawalSummary = {
   ownedCrews: string[];
 };
 
+// S01~S08 러닝 세션 제어 (docs/design/api/sessions.md). 서버 ID는 int64 정밀도를 지키기 위해 문자열로 다룬다.
+export type SessionStatus =
+  | 'READY'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'INTERRUPTED';
+
+export type ControlAction = 'START' | 'PAUSE' | 'RESUME' | 'END';
+
+export type ControlResultCode =
+  | 'PENDING'
+  | 'APPLIED'
+  | 'REJECTED'
+  | 'IGNORED'
+  | 'UNKNOWN';
+
+export type SessionCommand = {
+  commandId: string;
+  action: string;
+  expectedVersion: number;
+  result: ControlResultCode;
+  appliedAt: string | null;
+  reasonCode: string | null;
+};
+
+export type SessionGoalDraft = {
+  courseId: string | null;
+  comparisonSessionId: string | null;
+  targetDistanceM: number | null;
+  targetDurationSec: number | null;
+  targetPaceSecPerKm: number | null;
+};
+
+export type RunningSessionView = {
+  sessionId: string;
+  controlDeviceId: string | null;
+  relayDeviceId: string | null;
+  state: SessionStatus;
+  stateVersion: number;
+  startedAt: string | null;
+  endedAt: string | null;
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  pendingCommand: SessionCommand | null;
+  lastCommand: SessionCommand | null;
+  analysisStatus: string;
+};
+
+// S03~S06 REQUEST 응답. 같은 요청 슬롯의 재전송이면 저장된 결과가 온다.
+export type CommandApproval = {
+  commandId: string;
+  action: ControlAction;
+  expectedVersion: number;
+  result: ControlResultCode;
+};
+
+// S03~S06 RESULT 본문. 실행기기(워치)가 보고한 값을 그대로 옮긴다.
+export type CommandReport = {
+  commandId: string;
+  deviceId: string;
+  result: 'APPLIED' | 'REJECTED' | 'UNKNOWN';
+  appliedAt: string | null;
+  reasonCode: string | null;
+  uploadComplete?: boolean;
+};
+
+// W01 등록 기기(S15P31E105-308). 연동 전에는 목업 고정값이다.
+export type LinkedDevices = { watchDeviceId: string; phoneDeviceId: string };
+
+// 워치가 보낸 세션 메시지 (watch-mobile-server-integration.md 9.3).
+export type WatchSessionEvent =
+  | {
+      type: 'COMMAND_RESULT';
+      sessionId: string;
+      commandId: string;
+      result: 'APPLIED' | 'REJECTED' | 'UNKNOWN';
+      appliedAt: string | null;
+      reasonCode: string | null;
+      pendingBatchCount: number | null;
+      uploadComplete: boolean | null;
+    }
+  | { type: 'START_REQUEST'; sessionId: string; expectedVersion: number }
+  | {
+      type: 'COMMAND_REQUEST';
+      sessionId: string;
+      action: 'PAUSE' | 'RESUME' | 'END' | 'CANCEL';
+      expectedVersion: number;
+    };
+
 export type Repositories = {
   auth: {
     login: (request: {
@@ -851,6 +941,73 @@ export type Repositories = {
   // The current time; mock data pins it to the prototype's 12:45 so relative times and day/night match.
   clock: {
     now: () => Date;
+  };
+  // S01·S02·S03~S07·S08(REPORT_PREPARED·ABORT_UNCONFIRMED_START). 실패는 DataError(code)로 던진다.
+  session: {
+    create: (request: {
+      controlDeviceId: string;
+      relayDeviceId: string;
+      goal: SessionGoalDraft;
+    }) => Promise<RunningSessionView>;
+    get: (sessionId: string) => Promise<RunningSessionView>;
+    // 워치의 준비 결과를 그대로 전달한다(ready=false 포함, sessions.md S08 REPORT_PREPARED).
+    reportPrepared: (
+      sessionId: string,
+      request: {
+        deviceId: string;
+        expectedVersion: number;
+        ready: boolean;
+        reasonCode: string | null;
+      },
+    ) => Promise<void>;
+    requestControl: (
+      sessionId: string,
+      action: ControlAction,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<CommandApproval>;
+    reportResult: (
+      sessionId: string,
+      action: ControlAction,
+      report: CommandReport,
+    ) => Promise<{
+      commandId: string;
+      result: ControlResultCode;
+      session: RunningSessionView;
+    }>;
+    cancel: (sessionId: string) => Promise<{ id: string; status: SessionStatus }>;
+    abortUnconfirmedStart: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<RunningSessionView>;
+  };
+  // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
+  watchSession: {
+    getLinkedDevices: () => Promise<LinkedDevices | null>;
+    // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다.
+    prepare: (
+      sessionId: string,
+      request: { stateVersion: number; goal: SessionGoalDraft },
+    ) => Promise<{ stateVersion: number; ready: boolean; reasonCode: string | null }>;
+    // 서버가 승인한 명령을 전달만 한다. START는 START_AUTHORIZED, 그 외는 COMMAND_REQUEST(APPLY).
+    sendCommand: (sessionId: string, approval: CommandApproval) => Promise<void>;
+    sendReceived: (
+      sessionId: string,
+      receipt: { commandId: string; persisted: boolean; stateVersion: number | null },
+    ) => Promise<void>;
+    // STATE_RESULT(scope=SERVER).
+    sendServerState: (sessionId: string, session: RunningSessionView) => Promise<void>;
+    // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
+    sendError: (
+      sessionId: string,
+      error: { code: string; retryable: boolean; failedType: string },
+    ) => Promise<void>;
+    // 등록하면 수신함에 남은 이벤트부터 전달한다.
+    subscribe: (listener: (event: WatchSessionEvent) => void) => () => void;
+    // 러닝 중 포그라운드 서비스. 켜는 동안 활성 세션 ID를 기억해 앱 재실행 때 다시 붙는다.
+    setRunActive: (active: boolean, sessionId?: string) => Promise<void>;
+    getActiveSessionId: () => Promise<string | null>;
+    // 결과 대기 시간. 없으면 30초/120초.
+    timing?: { resultWaitMs: number; endResultWaitMs: number };
   };
   watch: {
     getConnection: () => Promise<WatchConnection>;

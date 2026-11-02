@@ -86,6 +86,32 @@ final class SessionErrors {
         return new ApiException(HttpStatus.CONFLICT, "INVALID_STATE", "현재 상태에서는 삭제할 수 없습니다.");
     }
 
+    /** S07은 준비(READY)가 아닌 세션 취소에 INVALID_STATE를 쓴다. */
+    static ApiException invalidCancelState() {
+        return new ApiException(HttpStatus.CONFLICT, "INVALID_STATE", "현재 상태에서는 취소할 수 없습니다.");
+    }
+
+    /** S07은 타인 세션에 FORBIDDEN을 쓰며 상태·명령 상세를 돌려주지 않는다. */
+    static ApiException forbidden() {
+        return new ApiException(HttpStatus.FORBIDDEN, "FORBIDDEN", "본인 러닝 세션이 아닙니다.");
+    }
+
+    /** 같은 요청 슬롯(세션·기준 버전) 또는 같은 명령에 다른 내용·결과가 왔다. */
+    static ApiException commandConflict() {
+        return new ApiException(
+                HttpStatus.CONFLICT, "COMMAND_CONFLICT", "같은 제어 요청에 다른 내용이 이미 처리되었습니다.");
+    }
+
+    static ApiException commandNotFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "COMMAND_NOT_FOUND", "제어 명령을 찾을 수 없습니다.");
+    }
+
+    /** 폰 인계 후 이전 워치의 결과. 저장하지 않는다. */
+    static ApiException controlDeviceChanged() {
+        return new ApiException(
+                HttpStatus.CONFLICT, "CONTROL_DEVICE_CHANGED", "현재 제어 기기가 바뀌어 결과를 저장할 수 없습니다.");
+    }
+
     /** 재시도해도 결과가 같은 데이터 정합성 오류는 503이 아니라 500이다(api/README 공통 오류 응답). */
     static ApiException integrityViolation() {
         return new ApiException(

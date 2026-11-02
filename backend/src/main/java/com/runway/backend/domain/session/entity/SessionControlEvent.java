@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -16,7 +17,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 서버가 승인한 제어 명령과 실제 결과. 명령 생성은 S03~S06·P07 업무가 맡고, 이 업무는 조회와 인계·중단 시 미확인 표시만 한다.
+ * 서버가 승인한 제어 명령과 실제 결과. S03~S06이 명령을 승인(PENDING)하고 실행기기의 결과를 기록하며, S08은 인계·중단 시 미확인으로 표시한다. P07(BPM·코칭)은 같은 행을 쓴다.
  */
 @Entity
 @Table(name = "session_control_events")
@@ -71,6 +72,42 @@ public class SessionControlEvent {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** S03~S06 REQUEST 승인. 실행기기의 실제 결과가 보고되기 전까지 PENDING이다. */
+    public static SessionControlEvent request(
+            long sessionId, long deviceId, ControlAction action, long expectedVersion, Instant now) {
+        SessionControlEvent event = new SessionControlEvent();
+        event.sessionId = sessionId;
+        event.deviceId = deviceId;
+        event.action = action;
+        event.expectedVersion = expectedVersion;
+        event.result = ControlResult.PENDING;
+        event.createdAt = now;
+        return event;
+    }
+
+    /** 확정 결과. 확정 후에는 다른 결과로 바꾸지 않는다. */
+    public boolean isConfirmed() {
+        return result == ControlResult.APPLIED
+                || result == ControlResult.REJECTED
+                || result == ControlResult.IGNORED;
+    }
+
+    public boolean sameOutcome(ControlResult result, Instant appliedAt, String reasonCode) {
+        return this.result == result
+                && Objects.equals(this.appliedAt, appliedAt)
+                && Objects.equals(this.reasonCode, reasonCode);
+    }
+
+    /** 미확정 명령에만 호출한다. UNKNOWN은 실제 적용 여부를 모른다는 뜻이므로 적용시각을 남기지 않는다. */
+    public void recordResult(ControlResult result, Instant appliedAt, String reasonCode) {
+        if (isConfirmed()) {
+            throw new IllegalStateException("command already confirmed: " + id);
+        }
+        this.result = result;
+        this.appliedAt = result == ControlResult.APPLIED ? appliedAt : null;
+        this.reasonCode = reasonCode;
+    }
 
     public boolean isPending() {
         return result == ControlResult.PENDING;

@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
@@ -41,7 +45,10 @@
         <intent-filter>
           <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/health/" />
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/session/" />
         </intent-filter>
       </service>
+      <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->
+      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

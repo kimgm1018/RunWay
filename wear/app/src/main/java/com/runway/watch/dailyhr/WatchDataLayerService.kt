@@ -1,5 +1,8 @@
 package com.runway.watch.dailyhr
 
+import com.runway.watch.session.RunSessions
+import com.runway.watch.session.SessionPaths
+import kotlinx.coroutines.runBlocking
 import android.annotation.SuppressLint
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
@@ -13,6 +16,11 @@ class WatchDataLayerService : WearableListenerService() {
     private val store by lazy { DailyHrStore.get(this) }
 
     override fun onMessageReceived(event: MessageEvent) {
+        // Run-session messages (S15P31E105-256) are handled by the shared controller; the listener thread may block.
+        if (event.path.startsWith(SessionPaths.PREFIX) || event.path == SessionPaths.ERROR) {
+            runBlocking { RunSessions.get(this@WatchDataLayerService).receive(event.data) }
+            return
+        }
         if (event.path != DailyHrMessages.RECEIVED_PATH) return
         val (date, revision) = DailyHrMessages.decodeReceived(event.data) ?: return
         store.markAcked(date, revision)

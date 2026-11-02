@@ -15,8 +15,6 @@ import com.runway.backend.domain.session.entity.RunningSession;
 import com.runway.backend.domain.session.entity.RunningSessionStatus;
 import com.runway.backend.domain.session.entity.SessionControlEvent;
 import com.runway.backend.domain.session.entity.SessionGoal;
-import com.runway.backend.domain.session.mapper.RunningSessionMapper;
-import com.runway.backend.domain.session.mapper.SessionSnapshot;
 import com.runway.backend.domain.session.repository.PacePlanRepository;
 import com.runway.backend.domain.session.repository.PacePlanSegmentRepository;
 import com.runway.backend.domain.session.repository.RunningSessionRepository;
@@ -25,13 +23,11 @@ import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.CourseInfo;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.DeviceRef;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.PostRef;
-import com.runway.backend.domain.session.repository.SessionReferenceRepository.SessionOwnership;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +62,7 @@ public class RunningSessionService {
     private final SessionControlEventRepository controlEventRepository;
     private final SessionReferenceRepository referenceRepository;
     private final SegmentDifficultyProvider segmentDifficultyProvider;
+    private final SessionAccess access;
 
     /**
      * S01. 응답 유실 후 재요청은 새 세션을 만들지 않고 409 ACTIVE_SESSION_EXISTS로 본인 활성 세션 ID를 알려준다.
@@ -77,12 +74,12 @@ public class RunningSessionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RunningSessionResponse create(
             long userId, CreateRunningSessionRequest request, Instant serverReceiveAt) {
-        requireActiveUser(userId);
-        requireOwnedDevice(userId, request.controlDeviceId(), DeviceType.WATCH);
-        requireOwnedDevice(userId, request.relayDeviceId(), DeviceType.PHONE);
+        access.requireActiveUser(userId);
+        access.requireOwnedDevice(userId, request.controlDeviceId(), DeviceType.WATCH);
+        access.requireOwnedDevice(userId, request.relayDeviceId(), DeviceType.PHONE);
         SessionGoal goal = request.goal();
         validateTargets(goal);
-        CourseInfo course = requireUsableCourse(goal.courseId());
+        CourseInfo course = access.requireUsableCourse(goal.courseId());
 
         referenceRepository.lockSessionCreation(userId);
         validateComparison(userId, goal);
@@ -106,13 +103,13 @@ public class RunningSessionService {
                                 goal,
                                 now));
         draft.ifPresent(plan -> savePlan(session.getId(), plan, now));
-        return response(session, serverReceiveAt);
+        return access.response(session, serverReceiveAt);
     }
 
     /** S02. 상태·계획·명령을 한 스냅샷에서 읽기 위해 REPEATABLE READ로 조회한다. */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RunningSessionResponse get(long userId, long sessionId, Instant serverReceiveAt) {
-        requireActiveUser(userId);
+        access.requireActiveUser(userId);
         RunningSession session =
                 sessionRepository.findById(sessionId).orElseThrow(SessionErrors::sessionNotFound);
         if (session.isDeleted()) {
@@ -121,7 +118,7 @@ public class RunningSessionService {
         if (session.getUserId() != userId) {
             throw SessionErrors.sessionForbidden();
         }
-        return response(session, serverReceiveAt);
+        return access.response(session, serverReceiveAt);
     }
 
     /** S08 UPDATE_GOAL / TAKE_OVER_PHONE / ABORT_UNCONFIRMED_START. 변경 후 전체 상태를 반환한다. */
@@ -131,7 +128,7 @@ public class RunningSessionService {
             long sessionId,
             UpdateRunningSessionRequest request,
             Instant serverReceiveAt) {
-        LockedSession locked = lockOwnedSession(userId, sessionId, false);
+        LockedSession locked = access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.UPDATE);
         RunningSession session = locked.session();
         switch (request.operation()) {
             case UPDATE_GOAL -> updateGoal(userId, locked, request);
@@ -141,14 +138,14 @@ public class RunningSessionService {
                     throw new IllegalArgumentException("REPORT_PREPARED는 reportPrepared로 처리한다.");
         }
         sessionRepository.flush();
-        return response(session, serverReceiveAt);
+        return access.response(session, serverReceiveAt);
     }
 
     /** S08 REPORT_PREPARED. 별도 준비 장부를 두지 않으며 DB를 바꾸지 않는다. */
     @Transactional(readOnly = true)
     public PreparedResponse reportPrepared(
             long userId, long sessionId, UpdateRunningSessionRequest request) {
-        requireActiveUser(userId);
+        access.requireActiveUser(userId);
         RunningSession session =
                 sessionRepository.findById(sessionId).orElseThrow(SessionErrors::sessionNotFound);
         if (session.isDeleted()) {
@@ -161,7 +158,7 @@ public class RunningSessionService {
                 || session.isPhoneFallback()) {
             throw SessionErrors.deviceForbidden();
         }
-        requireOwnedDevice(
+        SessionAccess.requireOwnedDevice(
                 userId, referenceRepository.findDevice(request.deviceId()), DeviceType.WATCH);
         if (session.getStatus() != RunningSessionStatus.READY) {
             throw SessionErrors.invalidSessionState();
@@ -175,7 +172,7 @@ public class RunningSessionService {
     /** S09. 세션과 본인 연결 게시물을 같은 시각으로 삭제 표시한다. 하나라도 실패하면 모두 롤백한다. */
     @Transactional
     public DeletedSessionResponse delete(long userId, long sessionId) {
-        LockedSession locked = lockOwnedSession(userId, sessionId, true);
+        LockedSession locked = access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.DELETE);
         RunningSession session = locked.session();
         requireDeletable(session);
         if (locked.groupRunId() != null) {
@@ -206,14 +203,14 @@ public class RunningSessionService {
         if (session.getStatus() != RunningSessionStatus.READY || locked.groupRunId() != null) {
             throw SessionErrors.invalidSessionState();
         }
-        if (pendingCommand(session) != null) {
+        if (access.pendingCommand(session) != null) {
             throw SessionErrors.commandPending();
         }
         if (session.getStateVersion() != request.expectedVersion()) {
             throw SessionErrors.staleState();
         }
         validateTargets(goal);
-        CourseInfo course = requireUsableCourse(goal.courseId());
+        CourseInfo course = access.requireUsableCourse(goal.courseId());
         // 비교 대상·코스가 그대로면 기존 참조를 보존한다(S09 삭제 후 참조 규칙). 새 조합만 다시 검사한다.
         SessionGoal current = session.goal();
         if (!Objects.equals(goal.comparisonSessionId(), current.comparisonSessionId())
@@ -266,7 +263,7 @@ public class RunningSessionService {
         if (isAbortedUnconfirmedStart(session)) {
             return;
         }
-        SessionControlEvent pending = pendingCommand(session);
+        SessionControlEvent pending = access.pendingCommand(session);
         if (session.getStatus() != RunningSessionStatus.READY
                 || session.getStartedAt() != null
                 || pending == null
@@ -291,10 +288,10 @@ public class RunningSessionService {
     private void requireDeletable(RunningSession session) {
         boolean allowed =
                 switch (session.getStatus()) {
-                    case CANCELLED -> pendingCommand(session) == null;
+                    case CANCELLED -> access.pendingCommand(session) == null;
                     case COMPLETED ->
                             ANALYSIS_SETTLED.contains(session.getAnalysisStatus())
-                                    && pendingCommand(session) == null;
+                                    && access.pendingCommand(session) == null;
                     // 관리상 중단 후 보존한 UNKNOWN은 현재 미확정 명령으로 보지 않는다.
                     case INTERRUPTED -> !hasPendingResult(session);
                     case READY, RUNNING, PAUSED -> false;
@@ -302,49 +299,6 @@ public class RunningSessionService {
         if (!allowed) {
             throw SessionErrors.invalidDeleteState();
         }
-    }
-
-    /**
-     * 그룹 연결 세션은 그룹 행을 먼저 잠근다. 잠금 전 확인과 잠금 후 재확인 사이에 삭제·소유 정보가 바뀌었을 수 있으므로 잠근 행으로 다시 판정한다.
-     * 그 사이 그룹 연결이 바뀌었으면 잠근 그룹 행이 맞지 않으므로 S08은 409 STALE_STATE, S09는 409 INVALID_STATE로 거절하고 재조회하게 한다.
-     * 세션 행 잠금(PESSIMISTIC_WRITE)은 PostgreSQL에서 FOR NO KEY UPDATE라 FK 검사를 막지 않는다. 이 재확인은 연결을 저장하는 쪽도
-     * group-runs.md "그룹 세션 연결의 불변조건"대로 그룹→세션 행을 잠근 뒤 저장한다는 전제에서 유효하다.
-     */
-    private LockedSession lockOwnedSession(long userId, long sessionId, boolean forDelete) {
-        requireActiveUser(userId);
-        SessionOwnership ownership =
-                referenceRepository
-                        .findOwnership(sessionId)
-                        .orElseThrow(SessionErrors::sessionNotFound);
-        if (ownership.deleted()) {
-            throw SessionErrors.sessionNotFound();
-        }
-        if (ownership.userId() != userId) {
-            throw forDelete ? SessionErrors.notOwner() : SessionErrors.sessionForbidden();
-        }
-        boolean groupCompleted = false;
-        if (ownership.groupRunId() != null) {
-            groupCompleted =
-                    referenceRepository
-                            .lockGroupRun(ownership.groupRunId())
-                            .map(SessionReferenceRepository.GroupRunState::isCompleted)
-                            .orElse(false);
-        }
-        RunningSession session =
-                sessionRepository
-                        .findByIdForUpdate(sessionId)
-                        .orElseThrow(SessionErrors::sessionNotFound);
-        if (session.isDeleted()) {
-            throw SessionErrors.sessionNotFound();
-        }
-        if (session.getUserId() != userId) {
-            throw forDelete ? SessionErrors.notOwner() : SessionErrors.sessionForbidden();
-        }
-        Long groupRunId = referenceRepository.findGroupRunId(sessionId).orElse(null);
-        if (!Objects.equals(groupRunId, ownership.groupRunId())) {
-            throw forDelete ? SessionErrors.invalidDeleteState() : SessionErrors.staleState();
-        }
-        return new LockedSession(session, ownership.groupRunId(), groupCompleted);
     }
 
     /**
@@ -366,32 +320,14 @@ public class RunningSessionService {
                 throw SessionErrors.deviceForbidden();
             }
         }
-        requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
+        access.requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
     }
 
     private void requireRelayPhone(long userId, RunningSession session, long deviceId) {
         if (session.getRelayDeviceId() == null || session.getRelayDeviceId() != deviceId) {
             throw SessionErrors.deviceForbidden();
         }
-        requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
-    }
-
-    /** 기기 행을 잠가 확인하므로 W03 해제와 겹쳐도 해제된 기기로 세션을 저장하지 않는다. */
-    private void requireOwnedDevice(long userId, long deviceId, DeviceType type) {
-        requireOwnedDevice(userId, referenceRepository.lockDevice(deviceId), type);
-    }
-
-    private static void requireOwnedDevice(long userId, Optional<DeviceRef> found, DeviceType type) {
-        DeviceRef device = found.orElseThrow(SessionErrors::deviceForbidden);
-        if (device.userId() != userId || !type.name().equals(device.deviceType()) || !device.linked()) {
-            throw SessionErrors.deviceForbidden();
-        }
-    }
-
-    private void requireActiveUser(long userId) {
-        if (!referenceRepository.activeUserExists(userId)) {
-            throw SessionErrors.unauthorized();
-        }
+        access.requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
     }
 
     /** 거리·시간·페이스는 양수이며 최대 2개까지 지정한다. 목표 거리는 45km 이하다. */
@@ -407,18 +343,6 @@ public class RunningSessionService {
 
     private static boolean isNotPositive(Integer value) {
         return value != null && value <= 0;
-    }
-
-    private CourseInfo requireUsableCourse(Long courseId) {
-        if (courseId == null) {
-            return null;
-        }
-        CourseInfo course =
-                referenceRepository.lockCourse(courseId).orElseThrow(SessionErrors::courseNotFound);
-        if (!course.isActive()) {
-            throw SessionErrors.courseInaccessible();
-        }
-        return course;
     }
 
     /** 자유러닝에는 비교 모드가 없다. 비교 기록은 본인·미삭제·COMPLETED·같은 코스여야 한다. */
@@ -456,18 +380,6 @@ public class RunningSessionService {
         }
     }
 
-    /** 현재 제어기기의 PENDING/UNKNOWN 명령. 관리상 중단한 세션은 없다. */
-    private SessionControlEvent pendingCommand(RunningSession session) {
-        if (session.getStatus() == RunningSessionStatus.INTERRUPTED
-                || session.getControlDeviceId() == null) {
-            return null;
-        }
-        return controlEventRepository
-                .findFirstBySessionIdAndDeviceIdAndResultIn(
-                        session.getId(), session.getControlDeviceId(), UNCONFIRMED)
-                .orElse(null);
-    }
-
     private boolean hasPendingResult(RunningSession session) {
         return session.getControlDeviceId() != null
                 && controlEventRepository
@@ -478,32 +390,8 @@ public class RunningSessionService {
                         .isPresent();
     }
 
-    private RunningSessionResponse response(RunningSession session, Instant serverReceiveAt) {
-        PacePlan plan = pacePlanRepository.findFirstBySessionIdOrderByIdDesc(session.getId()).orElse(null);
-        List<PacePlanSegment> segments =
-                plan == null
-                        ? List.of()
-                        : segmentRepository.findByPacePlanIdOrderBySegmentSequenceAsc(plan.getId());
-        SessionControlEvent pending = pendingCommand(session);
-        var coachingGuide =
-                pending != null && pending.getCoachingId() != null
-                        ? referenceRepository
-                                .findCoachingGuide(session.getId(), pending.getCoachingId())
-                                .orElse(null)
-                        : null;
-        SessionControlEvent last =
-                controlEventRepository.findFirstBySessionIdOrderByIdDesc(session.getId()).orElse(null);
-        Instant groupEndedAt = referenceRepository.findGroupEndedAt(session.getId()).orElse(null);
-        SessionSnapshot snapshot =
-                new SessionSnapshot(session, plan, segments, pending, coachingGuide, last, groupEndedAt);
-        return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, Instant.now());
-    }
-
     /** PostgreSQL TIMESTAMPTZ는 마이크로초까지 저장하므로 응답과 DB 값이 같도록 자른다. */
     private static Instant now() {
         return Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
-
-    private record LockedSession(
-            RunningSession session, Long groupRunId, boolean groupCompleted) {}
 }

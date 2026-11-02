@@ -38,7 +38,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 - **목표 조합:** 거리·시간·페이스는 각각 양수이며 **최대 2개**까지 지정한다. 목표 거리는 **45km(45000m) 이하**이며 넘으면 `422 INVALID_GOAL`이다(2026-10-30 확정). 세 값을 모두 지정하면 `422 INVALID_GOAL`이다. 모두 생략한 무목표 자유러닝은 허용한다. 페이스는 소수 둘째 자리까지 허용하며 그 이상의 정밀도는 `400 VALIDATION_ERROR`다.
 - **비교 기록:** 자유러닝(courseId=null)에는 비교 모드가 없다. 비교 기록은 코스가 있을 때만 지정할 수 있고, 본인·미삭제·COMPLETED이며 `course_id`가 선택 코스와 같아야 한다. 아니면 `422 INVALID_COMPARISON_SESSION`이다. 검증과 참조 저장은 대상 세션 행을 잠근 상태에서 한다.
 - **초기 계획(단순 규칙):** 추천 페이스(초/km)는 ① 목표 페이스, ② 없으면 목표 시간 ÷ (목표 거리 km), ③ 둘 다 없으면 목표 시간 ÷ (코스 거리 km) 순으로 정한다. 계산 근거가 없으면 계획 없이 생성하며 `plan=null`이다. 소수 셋째 자리에서 반올림한다. 반올림한 추천 페이스가 0 이하이거나 저장 범위(NUMERIC(10,2))를 넘는 비현실적인 목표 조합은 `422 INVALID_GOAL`이다. 끝 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누어 저장하고 마지막 구간은 남은 거리만큼 짧게 둔다. 끝 거리가 없거나 0(거리 0인 코스)이면 구간 없이 저장한다. 목표 거리 없이 45km를 넘는 코스를 고르면 구간이 45개를 넘으므로 전체를 구간 1개로 저장한다. 구간 추천 페이스는 AI가 제공하는 1km 구간별 상대 난이도 비율로 배분한다(구간 페이스 = 추천 페이스 × 구간 비율 ÷ 구간 길이로 가중한 평균 비율). 평균보다 힘든 구간은 느리게, 쉬운 구간은 빠르게 배분하며 전체 소요 시간은 추천 페이스 기준과 같다(구간별 반올림 오차 제외). 비율이 없거나(AI 연동 전) 구간 수와 맞지 않거나 양수가 아니거나 계산한 구간 페이스가 저장 범위를 벗어나면 요청을 거절하지 않고 모든 구간에 추천 페이스를 쓴다(2026-10-30 확정, AI 비율 연동은 후속). `pace_plans.cue_bpm`·`route_progress`는 null이다. 목표가 바뀌면 기존 계획·구간을 지우고 새로 저장한다. AI 기반 계획은 후속 업무에서 이 규칙을 대체한다.
-- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01·S02·S08·S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다.
+- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정).
 
 `plan` 객체 필드(객체가 null이면 내부 필드를 보내지 않음):
 
@@ -336,7 +336,7 @@ READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) /
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어 워치·버전을 결정한다. 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어 워치·버전을 결정한다. 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
 
 ### Path Parameters
 
@@ -430,7 +430,7 @@ READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) /
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `403 COURSE_INACCESSIBLE` | 새 REQUEST의 코스가 MERGED 또는 BLOCKED. 대표 코스 또는 다른 ACTIVE 코스로 다시 준비 |
 | `404 COURSE_NOT_FOUND` | 새 REQUEST에서 사용하는 코스가 없음 |
@@ -473,7 +473,7 @@ READY → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 상
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -590,7 +590,7 @@ READY → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 상
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -623,7 +623,7 @@ RUNNING → PAUSED (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -740,7 +740,7 @@ RUNNING → PAUSED (실제 적용 성공 기준). 거절·미확인은 운동 �
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -773,7 +773,7 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -909,6 +909,7 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 | --- | --- | --- |
 | APPLIED | false/생략 | 409 UPLOAD_PENDING, PENDING 유지·분석 미시작 |
 | APPLIED | true | 실제 종료·버전1회 증가·분석 요청 |
+| APPLIED(appliedAt ≤ 실제 시작시각) | 무관 | 400 VALIDATION_ERROR, PENDING 유지·분석 미시작 |
 | REJECTED | false/생략 | 거절 결과 저장·운동 상태 유지·버전1회 증가 |
 | UNKNOWN | false/생략 | 미확인 결과 저장·상태/버전 유지, 같은 명령 확인 |
 
@@ -916,9 +917,9 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 | HTTP·코드 | 발생 조건 |
 | --- | --- |
-| `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
+| `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류. END/APPLIED의 `appliedAt`(실제 종료시각)이 실제 시작시각(`startedAt`)보다 늦지 않음(같은 시각 포함, 2026-11-02 확정) |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -1496,7 +1497,7 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
 - 새 REQUEST는 현재 제어기기와 stateVersion을 확인한 뒤 하나만 승인한다. 해당 실행기기의 PENDING/UNKNOWN이 있으면 409 COMMAND_PENDING이며 폰은 다음 조작을 대기시킨다. AI와 수동 조작도 한 줄로 직렬화하며 오래 대기한 코칭은 취소된 것으로 추측하지 않고 위 만료 명령 재전달·결과 확인 절차로 정리한다.
 - 현재 실행기기(워치 또는 폰)는 commandId별 결과를 로컬에 보관한다. 같은 명령 재수신에는 동작을 재실행하지 않고 그 결과를 반환한다. 다른 명령은 결과의 서버 저장 확인 뒤 처리한다. 기기는 버전을 독립 발급하지 않는다.
 - RESULT 저장·실제 상태/BPM·started_at/ended_at 갱신은 한 트랜잭션이다. 확정 결과(APPLIED/REJECTED/IGNORED)를 처음 저장하면 단일 stateVersion을 1 증가시킨다. 같은 확정 결과는 증가시키지 않는다. 거절도 요청 슬롯을 마감하므로 증가시킨다. UNKNOWN은 현재 상태·버전을 변경하지 않고 명령을 미확인으로 남긴다.
-- 같은 commandId의 result/appliedAt/reasonCode가 같으면 기존 응답, 다른 최종 결과는 409 COMMAND_CONFLICT다. UNKNOWN→확정은 가능하지만 확정→UNKNOWN 회귀는 기존 결과를 반환한다. S08로 관리상 중단한 세션의 늦은 START 결과는 예외로 거절하며 상태를 되돌리지 않는다. 서버는 적용 시각을 추정하지 않는다.
+- 같은 commandId의 result/appliedAt/reasonCode가 같으면 기존 응답, 다른 최종 결과는 409 COMMAND_CONFLICT다. 이미 저장된 같은 결과의 재전송은 응답 유실 복구이므로 폰 인계·기기 연결 해제 뒤에도 현재 제어기기·기기 연결 검사보다 먼저 기존 응답을 돌려준다(2026-11-02 확정). 아래 CONTROL_DEVICE_CHANGED는 저장되지 않은 이전 워치 결과에 적용한다. UNKNOWN→확정은 가능하지만 확정→UNKNOWN 회귀는 기존 결과를 반환한다. S08로 관리상 중단한 세션의 늦은 START 결과는 예외로 거절하며 상태를 되돌리지 않는다. 서버는 적용 시각을 추정하지 않는다.
 - UNKNOWN은 같은 명령의 실행기기 저장 결과를 조회해 확인한다. 확인되지 않으면 WATCH 모드에서는 실패를 표시하고 새 제어를 자동 실행하지 않는다. 이미 실제 시작이 확인된 RUNNING/PAUSED 세션은 사용자가 폰으로 인계하면 이전 워치 UNKNOWN을 유지한 채 현재 폰의 REQUEST/RESULT로 기록·종료할 수 있다. 시작 자체가 미확인인 READY 세션은 S08의 결과 재확인·관리상 중단 규칙을 따른다. 장기 복구와 구간별 누락 탐색은 지원하지 않는다.
 - 초기 목표·수동 BPM·운동 상태 변경은 모두 stateVersion 하나로 보호한다. 별도 BPM·준비·전달·명령 순번 컬럼은 없다. 센서 batch 중복 방지는 기존 W07을 유지한다.
 
@@ -1504,7 +1505,7 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
 | --- | --- | --- |
 | 400 | VALIDATION_ERROR | 필수값·타입·양수 ID·BPM·phase 오류 |
 | 401 | UNAUTHORIZED | 인증 실패 |
-| 403 | SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED | 본인·기기·동의 위반 |
+| 403 | SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED | 본인·기기 위반. CONSENT_REQUIRED는 건강정보가 필요한 P07 코칭에만 사용 |
 | 404 | SESSION_NOT_FOUND / COMMAND_NOT_FOUND | 존재하지 않는 본인 세션·명령 |
 | 409 | STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT / INVALID_SESSION_STATE / UPLOAD_PENDING / CONTROL_DEVICE_CHANGED | 버전·미확인 제어·내용·상태·저장 확인 불일치 |
 | 503 | SERVICE_UNAVAILABLE | 저장 불가. 같은 요청을 최초 포함 최대3회만 시도 |

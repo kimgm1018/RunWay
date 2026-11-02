@@ -35,6 +35,20 @@ export const dataErrorCodes = [
   'EDIT_NOT_ALLOWED',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
+  // S01~S08 러닝 세션 제어 (docs/design/api/sessions.md, S15P31E105-256).
+  'SESSION_NOT_FOUND',
+  'SESSION_FORBIDDEN',
+  'DEVICE_FORBIDDEN',
+  'ACTIVE_SESSION_EXISTS',
+  'STALE_STATE',
+  'COMMAND_PENDING',
+  'COMMAND_CONFLICT',
+  'COMMAND_NOT_FOUND',
+  'INVALID_SESSION_STATE',
+  'INVALID_STATE',
+  'CONTROL_DEVICE_CHANGED',
+  'UPLOAD_PENDING',
+  'COURSE_INACCESSIBLE',
   // W06 건강 기록 동기화 (docs/design/api/devices-health.md).
   'CONSENT_REQUIRED',
   'FILE_TOO_LARGE',
@@ -58,18 +72,22 @@ export class DataError extends Error {
   readonly failedCount: number | null;
   // HTTP status of the failed response; null when no response arrived or the error was made on the phone.
   readonly status: number | null;
+  // 서버 오류 응답의 details(예: 409 ACTIVE_SESSION_EXISTS의 sessionId). 공통 요청 기반(S15P31E105-299)이 채운다.
+  readonly details: Record<string, unknown> | null;
 
   constructor(
     code: DataErrorCode,
     message: string,
     failedCount: number | null = null,
     status: number | null = null,
+    details: Record<string, unknown> | null = null,
   ) {
     super(message);
     this.name = 'DataError';
     this.code = code;
     this.failedCount = failedCount;
     this.status = status;
+    this.details = details;
   }
 }
 

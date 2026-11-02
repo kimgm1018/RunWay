@@ -21,6 +21,8 @@ import { createCommunityMock } from './community';
 import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
+import { createMockSession } from './mockSession';
+import { createMockWatchSession, type MockWatchBehavior } from './mockWatchSession';
 import {
   fromDraft,
   kstDay,
@@ -56,14 +58,44 @@ export type MockScenario =
   // 6.0b 가입한 크루 없음.
   | 'noCrews'
   // 4.5 휴대폰에 저장하지 못했어요.
-  | 'recordSaveFailed';
+  | 'recordSaveFailed'
+  // S15P31E105-256 워치 러닝 제어: 워치가 시작을 거절함·결과를 보내지 않음·같은 결과를 두 번 보냄.
+  | 'watchRejectsStart'
+  | 'watchNoResult'
+  | 'watchDuplicateResult'
+  // 워치가 준비하지 못함.
+  | 'watchNotReady'
+  // 서버가 RESULT를 저장했지만 첫 응답이 유실됨.
+  | 'sessionResultLost'
+  // 처음 세 번의 RESULT 보고가 저장되지 못함(재시도 소진).
+  | 'sessionResultDown';
 
 export type MockOptions = {
   scenario?: MockScenario;
   latencyMs?: number;
   // Real time between run samples; tests shorten it. Each sample is one second of running.
   tickMs?: number;
+  // 가짜 워치가 명령을 실행하고 결과를 보내기까지의 시간. 없으면 latencyMs.
+  watchLatencyMs?: number;
+  // 워치 결과 대기 시간(기본 30초/120초). 화면 테스트가 실제로 기다리지 않게 줄인다.
+  resultWaitMs?: number;
+  endResultWaitMs?: number;
 };
+
+function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
+  switch (scenario) {
+    case 'watchRejectsStart':
+      return 'rejectsStart';
+    case 'watchNoResult':
+      return 'noResult';
+    case 'watchDuplicateResult':
+      return 'duplicateResult';
+    case 'watchNotReady':
+      return 'notReady';
+    default:
+      return 'normal';
+  }
+}
 
 function respond<T>(
   value: T,
@@ -715,6 +747,24 @@ export function createMockRepositories(
         return respond(music, options);
       },
     },
+    session: createMockSession({
+      latencyMs: options.latencyMs ?? 300,
+      resultResponseLost: options.scenario === 'sessionResultLost',
+      resultDownTimes: options.scenario === 'sessionResultDown' ? 3 : 0,
+    }),
+    watchSession: createMockWatchSession({
+      latencyMs: options.watchLatencyMs ?? options.latencyMs ?? 300,
+      linked: () => watchConnected,
+      behavior: watchBehavior(options.scenario),
+      baseTime: new Date(options.scenario === 'night' ? fixtures.nightNow : fixtures.now),
+      timing:
+        options.resultWaitMs === undefined && options.endResultWaitMs === undefined
+          ? undefined
+          : {
+              resultWaitMs: options.resultWaitMs ?? 30_000,
+              endResultWaitMs: options.endResultWaitMs ?? 120_000,
+            },
+    }),
     clock: {
       now: () =>
         new Date(

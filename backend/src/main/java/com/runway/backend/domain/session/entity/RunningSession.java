@@ -143,6 +143,55 @@ public class RunningSession {
         bumpVersion(now);
     }
 
+    /** 세션 제어 공통 계약 "작업별 승인 조건". START·PAUSE·RESUME·END만 상태를 바꾼다. */
+    public static boolean canApprove(ControlAction action, RunningSessionStatus status) {
+        return switch (action) {
+            case START -> status == RunningSessionStatus.READY;
+            case PAUSE -> status == RunningSessionStatus.RUNNING;
+            case RESUME -> status == RunningSessionStatus.PAUSED;
+            case END -> status == RunningSessionStatus.RUNNING || status == RunningSessionStatus.PAUSED;
+            case SET_BPM, COACHING -> false;
+        };
+    }
+
+    /**
+     * S03~S06 RESULT/APPLIED. 실행기기가 보고한 실제 적용시각을 시작·종료시각으로 저장하고 버전을 1 올린다. 결과 저장과 같은 트랜잭션에서
+     * 호출한다.
+     */
+    public void applyControl(ControlAction action, Instant appliedAt, Instant now) {
+        if (!canApprove(action, status)) {
+            throw new IllegalStateException(action + " cannot be applied from " + status);
+        }
+        switch (action) {
+            case START -> {
+                status = RunningSessionStatus.RUNNING;
+                startedAt = appliedAt;
+            }
+            case PAUSE -> status = RunningSessionStatus.PAUSED;
+            case RESUME -> status = RunningSessionStatus.RUNNING;
+            case END -> {
+                status = RunningSessionStatus.COMPLETED;
+                endedAt = appliedAt;
+            }
+            default -> throw new IllegalStateException(action + " is not a state command");
+        }
+        bumpVersion(now);
+    }
+
+    /** RESULT/REJECTED. 운동 상태는 그대로 두고 요청 슬롯을 마감하기 위해 버전만 올린다. */
+    public void confirmRejection(Instant now) {
+        bumpVersion(now);
+    }
+
+    /** S07. 준비 상태만 취소하며 실제 시작·종료시각은 만들지 않는다. */
+    public void cancel(Instant now) {
+        if (status != RunningSessionStatus.READY) {
+            throw new IllegalStateException("only READY can be cancelled: " + status);
+        }
+        status = RunningSessionStatus.CANCELLED;
+        bumpVersion(now);
+    }
+
     /** S09. 상태·버전·분석·시작/종료시각은 바꾸지 않는다. */
     public void markDeleted(Instant deletedAt) {
         this.deletedAt = deletedAt;

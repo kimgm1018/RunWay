@@ -55,7 +55,7 @@ async function toDataError(response: Response) {
   let body: {
     code?: unknown;
     message?: unknown;
-    details?: { failedCount?: unknown };
+    details?: { failedCount?: unknown } & Record<string, unknown>;
   } | null = null;
   try {
     body = await response.json();
@@ -80,7 +80,10 @@ async function toDataError(response: Response) {
   } else {
     code = 'UNKNOWN';
   }
-  return new DataError(code, message, failedCount, response.status);
+  // details는 화면이 복구에 쓴다(예: 409 ACTIVE_SESSION_EXISTS의 sessionId, sessions.md S01).
+  const details =
+    body?.details && typeof body.details === 'object' ? body.details : null;
+  return new DataError(code, message, failedCount, response.status, details);
 }
 
 // Every server call goes through here: base URL, JSON, the Bearer token and a timeout.

@@ -78,10 +78,12 @@ data class RunSnapshot(
     val group: GroupStatus? = null,
     /** Save, analysis and goal state after the end; null until the controller reports any. */
     val result: RunResult? = null,
+    /** Request in flight, refusal or unconfirmed command, as one short line (S15P31E105-256); null when nothing to say. */
+    val notice: String? = null,
 )
 
 /** User requests. Only these reach the run controller; screen changes follow the confirmed state. */
-enum class RunIntent { START, PAUSE, RESUME, END, RECONNECT_PHONE }
+enum class RunIntent { START, PAUSE, RESUME, END, CANCEL, RECONNECT_PHONE }
 
 interface RunControl {
     val snapshot: StateFlow<RunSnapshot>

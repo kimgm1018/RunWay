@@ -199,3 +199,19 @@ test('F01 uploads the image as multipart and returns its imageId', async () => {
   expect(init.headers['Content-Type']).toBeUndefined();
   expect(init.headers.Authorization).toBe('Bearer access-1');
 });
+
+// S15P31E105-256: 409 ACTIVE_SESSION_EXISTS의 details.sessionId로 기존 세션을 복구한다(sessions.md S01).
+test('the error details are kept for recovery', async () => {
+  fetchMock.mockResolvedValue(
+    respond(409, {
+      code: 'ACTIVE_SESSION_EXISTS',
+      message: '진행 중인 러닝 세션이 있습니다.',
+      details: { sessionId: 201 },
+    }),
+  );
+
+  const error = await failure(apiRequest('/running-sessions', { method: 'POST', body: {} }));
+
+  expect(error.code).toBe('ACTIVE_SESSION_EXISTS');
+  expect(error.details).toEqual({ sessionId: 201 });
+});
