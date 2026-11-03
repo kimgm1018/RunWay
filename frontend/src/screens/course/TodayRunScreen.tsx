@@ -53,10 +53,11 @@ const environments: { value: EnvironmentType; label: string }[] = [
   { value: 'TRACK', label: '트랙' },
 ];
 
+// A readiness that did not load (R02 down) only leaves 준비도 미반영; the origins still decide the screen.
 const loadOptions = (repositories: Repositories) =>
   Promise.all([
     repositories.courses.getOrigins(),
-    repositories.home.getTodayCondition(),
+    repositories.home.getTodayCondition().catch(() => null),
   ]);
 
 function Chip({

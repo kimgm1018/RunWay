@@ -49,8 +49,10 @@ export const dataErrorCodes = [
   'CONTROL_DEVICE_CHANGED',
   'UPLOAD_PENDING',
   'COURSE_INACCESSIBLE',
-  // W06 건강 기록 동기화 (docs/design/api/devices-health.md).
+  // W06 건강 기록 동기화 (docs/design/api/devices-health.md). R02 answers it too.
   'CONSENT_REQUIRED',
+  // R02 최신 준비도: no result yet (docs/design/api/readiness.md).
+  'ASSESSMENT_NOT_FOUND',
   'FILE_TOO_LARGE',
   'UNSUPPORTED_RECORD_TYPE',
   // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
