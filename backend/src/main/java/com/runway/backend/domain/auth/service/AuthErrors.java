@@ -7,6 +7,10 @@ import org.springframework.http.HttpStatus;
 public final class AuthErrors {
     private AuthErrors() {}
 
+    public static ApiException invalidRefresh() {
+        return new ApiException(HttpStatus.UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "다시 로그인해 주세요.");
+    }
+
     public static ApiException invalidCredentials() {
         return new ApiException(
                 HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다.");

@@ -74,6 +74,7 @@ export function LoginScreen() {
       const tokens = {
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
+        refreshExpiresAt: session.refreshExpiresAt,
       };
       if (session.onboardingCompleted) {
         signIn(tokens);

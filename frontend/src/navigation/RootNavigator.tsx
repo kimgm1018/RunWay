@@ -162,7 +162,10 @@ function useResumeRun() {
 }
 
 export function RootNavigator() {
-  const { signedIn, restoring } = useSession();
+  const { signedIn, restoring, loginRequired } = useSession();
+  const signedOutRoutes = loginRequired
+    ? ['Login' as const, ...authRoutes.filter(route => route !== 'Login')]
+    : authRoutes;
   const { name, colors } = useTheme();
   if (restoring) {
     // A blank background while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
@@ -235,7 +238,7 @@ export function RootNavigator() {
                   </Root.Group>
                 ) : (
                   <Root.Group navigationKey="signed-out">
-                    {authRoutes.map(route => (
+                    {signedOutRoutes.map(route => (
                       <Root.Screen
                         key={route}
                         name={route}

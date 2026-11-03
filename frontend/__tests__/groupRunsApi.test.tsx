@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Alert, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
@@ -289,7 +289,11 @@ beforeEach(async () => {
   patched = [];
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
-  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  await tokenStore.save({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+    refreshExpiresAt: new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  });
   serve();
 });
 
@@ -311,6 +315,34 @@ test('6.0 pins my run that starts soon and 6.5 marks me ready with G16', async (
   expect(calls('POST')).toEqual(['/group-runs/61/participants/me/ready']);
   expect(texts(screen)).toContain('2명 준비 완료');
   await act(async () => screen.unmount());
+});
+
+test('6.5 requires a new login before readiness when less than a day remains', async () => {
+  await tokenStore.save({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+    refreshExpiresAt: new Date(now + 24 * 60 * 60 * 1000 - 1).toISOString(),
+  });
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const screen = await openGroup();
+  try {
+    await press(screen, '대기방 입장');
+    await press(screen, '준비 완료');
+    await settle(50);
+
+    expect(calls('POST')).toEqual([]);
+    expect(texts(screen)).toContain('1명 준비 완료');
+    expect(alert).toHaveBeenCalledWith(
+      '러닝 전에 다시 로그인해 주세요',
+      expect.any(String),
+      expect.arrayContaining([
+        expect.objectContaining({ text: '다시 로그인' }),
+      ]),
+    );
+  } finally {
+    await act(async () => screen.unmount());
+    alert.mockRestore();
+  }
 });
 
 test('6.4 joins and leaves a crewmate’s run', async () => {

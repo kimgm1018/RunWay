@@ -40,6 +40,7 @@ test('U01 posts the credentials without a token and returns the session', async 
     user: { id: 101, loginId: 'minjun01' },
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
+    refreshExpiresAt: '2026-12-02T01:00:00Z',
     onboardingCompleted: true,
   });
   const [url, init] = fetchMock.mock.calls[0];
@@ -123,6 +124,7 @@ test.each([
       user: { id: 102, loginId: 'newrunner' },
       accessToken: 'access-2',
       refreshToken: 'refresh-2',
+      refreshExpiresAt: '2026-12-02T01:00:00Z',
       onboardingCompleted: false,
     });
     const [url, init] = fetchMock.mock.calls[0];

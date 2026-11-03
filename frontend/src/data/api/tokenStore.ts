@@ -1,6 +1,11 @@
 import * as Keychain from 'react-native-keychain';
 
-export type AuthTokens = { accessToken: string; refreshToken: string };
+export type AuthTokens = {
+  accessToken: string;
+  refreshToken: string;
+  // Older installations did not retain this metadata. They must sign in before a new run.
+  refreshExpiresAt?: string;
+};
 
 const service = 'com.runway.health.auth';
 
@@ -12,7 +17,13 @@ function parse(saved: string): AuthTokens | null {
     const value = JSON.parse(saved);
     return typeof value?.accessToken === 'string' &&
       typeof value?.refreshToken === 'string'
-      ? { accessToken: value.accessToken, refreshToken: value.refreshToken }
+      ? {
+          accessToken: value.accessToken,
+          refreshToken: value.refreshToken,
+          ...(typeof value.refreshExpiresAt === 'string'
+            ? { refreshExpiresAt: value.refreshExpiresAt }
+            : {}),
+        }
       : null;
   } catch {
     return null;

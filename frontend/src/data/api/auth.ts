@@ -6,7 +6,7 @@ import type {
 } from '../types';
 import { apiRequest } from './http';
 
-// U01·U15 response (docs/design/api/users.md). expiresInSec and refreshExpiresAt matter once refresh (U02) lands.
+// U01·U15 response (docs/design/api/users.md).
 type SessionResponse = {
   user: { id: number; loginId: string };
   accessToken: string;
@@ -21,6 +21,7 @@ function toSession(response: SessionResponse): AuthSession {
     user: response.user,
     accessToken: response.accessToken,
     refreshToken: response.refreshToken,
+    refreshExpiresAt: response.refreshExpiresAt,
     onboardingCompleted: response.onboardingCompleted,
   };
 }
