@@ -13,7 +13,7 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon } from '../../components';
+import { AppText, glass, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
   type GpsQuality,
@@ -37,8 +37,8 @@ import {
   useTheme,
 } from '../../theme';
 
-// Round K1 badge brightening toward the bottom right (DESIGN.md 2-6): the music button with a
-// service connected and the 2.0F 자유 러닝 icon.
+// Round dark badge brightening toward the bottom right behind a white rim (runway-course-handoff 음악 원,
+// 자유 러닝 아바타): the music button and the 2.0F 자유 러닝 icon.
 export function K1Badge({
   diameter,
   children,
@@ -55,10 +55,19 @@ export function K1Badge({
     >
       <Svg style={StyleSheet.absoluteFill} width={diameter} height={diameter}>
         <Defs>
-          <RadialGradient id="badge" cx={1} cy={1} fx={1} fy={1} r={1.2}>
-            <Stop offset={0} stopColor={k1.mid} />
-            <Stop offset={0.45} stopColor={k1.deep} />
-            <Stop offset={1} stopColor={k1.night} />
+          <RadialGradient
+            id="badge"
+            cx={0.82}
+            cy={0.86}
+            fx={0.82}
+            fy={0.86}
+            r={1.19}
+          >
+            <Stop offset={0} stopColor="#8096AF" />
+            <Stop offset={0.26} stopColor="#46596E" />
+            <Stop offset={0.52} stopColor="#1C2A3A" />
+            <Stop offset={0.78} stopColor="#0C131F" />
+            <Stop offset={1} stopColor="#09101B" />
           </RadialGradient>
         </Defs>
         <Rect width={diameter} height={diameter} fill="url(#badge)" />
@@ -159,7 +168,7 @@ function RoundButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.round,
-        { backgroundColor: night ? colors.surfaceMuted : k1.field },
+        night ? { backgroundColor: colors.surfaceMuted } : styles.roundGlass,
         pressed && styles.pressed,
       ]}
     >
@@ -171,7 +180,8 @@ function RoundButton({
 const countdownSeconds = 3;
 
 // 2.0·2.0F 하단: settings, 러닝 시작 (3초 카운트다운 후 4.2), music.
-// Day screens use the black pill with a dot in a ring (DESIGN.md 2-6 러닝 시작); night uses the accent.
+// By day a glass circle, the black pill with a dot in a grey ring and the dark music badge
+// (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
   config,
@@ -244,7 +254,7 @@ export function RunStartBar({
     };
   }, [count, ensureRunLogin]);
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, !night && styles.barDay]}>
       <RoundButton
         label="설정"
         night={night}
@@ -264,33 +274,37 @@ export function RunStartBar({
         }}
         style={({ pressed }) => [
           styles.start,
-          { backgroundColor: night ? colors.accent : k1.night },
+          { backgroundColor: night ? colors.accent : startInk },
           (pressed || !config || confirming) && styles.pressed,
         ]}
       >
         <AppText
-          style={[
-            typography.button,
-            { color: night ? colors.onAccent : k1.ice },
-          ]}
+          style={
+            night
+              ? [typography.button, { color: colors.onAccent }]
+              : styles.startText
+          }
         >
           {confirming ? '시작 확인 중' : '러닝 시작'}
         </AppText>
         <View
           style={[
             styles.ring,
-            { borderColor: night ? colors.onAccent : k1.ice },
+            night
+              ? { borderColor: colors.onAccent }
+              : [styles.ringDay, { borderColor: startRing }],
           ]}
         >
           <View
             style={[
               styles.ringDot,
-              { backgroundColor: night ? colors.onAccent : k1.ice },
+              { backgroundColor: night ? colors.onAccent : startRing },
             ]}
           />
         </View>
       </Pressable>
-      {source === 'MELON' || source === 'SPOTIFY' ? (
+      {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
+      {!night || source === 'MELON' || source === 'SPOTIFY' ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="음악"
@@ -298,7 +312,11 @@ export function RunStartBar({
           style={({ pressed }) => pressed && styles.pressed}
         >
           <K1Badge diameter={52}>
-            <ServiceMark service={source} size={30} mono />
+            {source === 'MELON' || source === 'SPOTIFY' ? (
+              <ServiceMark service={source} size={30} mono />
+            ) : (
+              <Icon name="music" color={k1.ice} size={20} />
+            )}
           </K1Badge>
         </Pressable>
       ) : (
@@ -423,23 +441,40 @@ const gpsLabels: Record<GpsQuality, string> = {
   none: 'GPS 없음',
 };
 
-// The floating card at the top of the map: 현재 위치 · 민락수변공원 입구 · GPS 양호.
-// A white card with a navy dot and a black GPS chip (DESIGN.md 2-6 지도 위). After sunset the card
-// is dark, so the dot turns white and the chip light.
+// The floating bar at the top of the map: 현재 위치 · 민락수변공원 입구 · GPS 양호. By day a light glass pill
+// with a navy dot in a white ring and a black GPS chip (runway-course-handoff LocationBar). After sunset the
+// card is dark, so the dot turns white and the chip light.
 export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
   const theme = useTheme();
   const { colors } = theme;
   const night = theme.name === 'dark';
+  const good = gps === 'good';
   return (
-    <View style={[styles.place, { backgroundColor: colors.surfaceRaised }]}>
-      <View style={[styles.placeHalo, night && styles.placeHaloNight]}>
+    <LightGlass
+      radius={night ? 24 : 31}
+      solid={night ? colors.surfaceRaised : undefined}
+      style={night ? styles.place : styles.placeDay}
+    >
+      <View
+        style={[
+          styles.placeHalo,
+          night ? styles.placeHaloNight : styles.placeHaloDay,
+        ]}
+      >
         <View style={[styles.placeDot, night && styles.placeDotNight]} />
       </View>
       <View style={styles.flex}>
-        <AppText variant="label" tone="textSecondary" style={styles.regular}>
+        <AppText
+          variant="label"
+          tone="textSecondary"
+          style={night ? styles.regular : styles.placeLabelDay}
+        >
           현재 위치
         </AppText>
-        <AppText style={styles.placeName} numberOfLines={1}>
+        <AppText
+          style={night ? styles.placeName : styles.placeNameDay}
+          numberOfLines={1}
+        >
           {name}
         </AppText>
       </View>
@@ -447,22 +482,29 @@ export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
         style={[
           styles.gps,
           {
-            backgroundColor:
-              gps === 'good' ? colors.accent : colors.dangerSurface,
+            backgroundColor: good
+              ? night
+                ? colors.accent
+                : startInk
+              : colors.dangerSurface,
           },
         ]}
       >
         <AppText
           variant="labelStrong"
-          style={gps === 'good' ? { color: colors.onAccent } : undefined}
-          tone={gps === 'good' ? undefined : 'danger'}
+          style={good ? { color: night ? colors.onAccent : k1.ice } : undefined}
+          tone={good ? undefined : 'danger'}
         >
           {gpsLabels[gps]}
         </AppText>
       </View>
-    </View>
+    </LightGlass>
   );
 }
+
+// The day 러닝 시작 pill and its ring (runway-course-handoff).
+const startInk = '#02050E';
+const startRing = '#A3A8AF';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
@@ -473,6 +515,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.lg,
   },
+  barDay: { gap: 10 },
   notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
   noticeActions: { flexDirection: 'row', gap: spacing.lg },
   round: {
@@ -481,6 +524,11 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  roundGlass: {
+    backgroundColor: glass.circle,
+    borderWidth: 1,
+    borderColor: glass.circleRim,
   },
   start: {
     flex: 1,
@@ -502,7 +550,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ringDot: { width: 4, height: 4, borderRadius: 2 },
+  ringDay: { opacity: 1 },
+  startText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.3,
+    color: k1.ice,
+  },
   badge: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -549,13 +607,40 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: k1.deep,
   },
+  placeDay: {
+    height: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 26,
+    paddingLeft: 16,
+    paddingRight: 14,
+  },
+  placeHaloDay: {
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
+  },
+  placeLabelDay: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#67696E',
+  },
+  placeNameDay: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: startInk,
+  },
   placeHaloNight: { backgroundColor: 'rgba(232,238,244,0.22)' },
   placeDotNight: { backgroundColor: k1.ice },
   regular: { fontFamily: fontFamily.regular },
   placeName: { ...typography.bodyStrong, fontFamily: fontFamily.medium },
   gps: {
+    height: 26,
+    justifyContent: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: 13,
   },
 });

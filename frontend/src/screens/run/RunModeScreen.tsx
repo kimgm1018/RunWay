@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Image,
   Pressable,
@@ -6,39 +6,12 @@ import {
   useWindowDimensions,
   View,
   type ImageSourcePropType,
-  type LayoutChangeEvent,
 } from 'react-native';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Logo, Screen } from '../../components';
+import { AppText, Logo, MistFill, Screen } from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
-
-// 2.0M 핸드오프 (S15P31E105-374): white at the top through blue grey to near black, every 5%.
-const mist = [
-  '#F9F9F9',
-  '#F8F8F8',
-  '#F3F5F6',
-  '#E2EAEE',
-  '#C4D4DC',
-  '#A4BDC9',
-  '#8DACBA',
-  '#81A3B3',
-  '#7DA0B2',
-  '#7DA0B2',
-  '#7DA0B2',
-  '#7599AB',
-  '#5D8194',
-  '#3A5A6C',
-  '#182E3D',
-  '#091019',
-  '#060709',
-  '#060606',
-  '#06080B',
-  '#0D171F',
-  '#1A2E39',
-];
 
 type Mode = {
   route: RouteName;
@@ -77,37 +50,9 @@ const modes: Mode[] = [
   },
 ];
 
-const noise = require('../../../assets/images/card-noise.png');
 const cardHeight = 272;
 const gutter = 8;
 const gap = 12;
-
-// The card's mist. It takes the measured size: an Svg sized in percent falls back to 300×150 on Android.
-function Mist({
-  id,
-  flipped,
-  width,
-  height,
-}: {
-  id: string;
-  flipped: boolean;
-  width: number;
-  height: number;
-}) {
-  const colors = flipped ? [...mist].reverse() : mist;
-  return (
-    <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          {colors.map((color, index) => (
-            <Stop key={index} offset={index / 20} stopColor={color} />
-          ))}
-        </LinearGradient>
-      </Defs>
-      <Rect width={width} height={height} fill={`url(#${id})`} />
-    </Svg>
-  );
-}
 
 // A whole card is the button: the mist, a coarse grain over it, the picture and the title at the bottom left.
 function ModeCard({
@@ -119,18 +64,12 @@ function ModeCard({
   width: number;
   onPress: () => void;
 }) {
-  const [box, setBox] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-  const measure = (event: LayoutChangeEvent) =>
-    setBox(event.nativeEvent.layout);
   const imageHeight = mode.imageWidth * mode.imageAspect;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={mode.title}
       onPress={onPress}
-      onLayout={measure}
       style={({ pressed }) => [
         styles.card,
         mode.flipped ? styles.cardLight : styles.cardDark,
@@ -138,12 +77,7 @@ function ModeCard({
         pressed && styles.pressed,
       ]}
     >
-      {box ? <Mist id={mode.route} flipped={mode.flipped} {...box} /> : null}
-      {/* The mockup's feTurbulence grain (22% overlay), as tiled white and black specks at 10%: a blended layer
-          spills past the round corners on Android. */}
-      <View style={styles.grain} pointerEvents="none">
-        <Image source={noise} resizeMode="repeat" style={styles.fill} />
-      </View>
+      <MistFill id={`mode${mode.route}`} flipped={mode.flipped} />
       <Image
         source={mode.image}
         accessibilityIgnoresInvertColors
@@ -234,15 +168,6 @@ const styles = StyleSheet.create({
   },
   cardLight: { boxShadow: '0 12px 30px rgba(0,0,0,0.12)' },
   pressed: { transform: [{ scale: 0.98 }] },
-  fill: { width: '100%', height: '100%' },
-  grain: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    opacity: 0.1,
-  },
   picture: { position: 'absolute', left: '50%' },
   text: { position: 'absolute', left: 16, right: 16, bottom: 18 },
   title: {

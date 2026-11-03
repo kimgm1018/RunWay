@@ -295,8 +295,8 @@ test('3.1b shows the server recommendation and saves it with C07', async () => {
   expect(sent('PUT')).toEqual(['/courses/21/bookmark']);
   expect(() => labelled(screen, '저장 해제')).not.toThrow();
 
-  // 코스 선택 plans 2.0 on the server course.
-  await press(screen, '코스 선택');
+  // 이 코스로 달리기 plans 2.0 on the server course.
+  await press(screen, '이 코스로 달리기');
   page = texts(screen);
   expect(page).toContain('부산 수영구 코스');
   expect(page).toContain('오늘의 러닝 전략');

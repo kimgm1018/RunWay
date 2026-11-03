@@ -300,6 +300,8 @@ const icons = {
       <Circle cx="12" cy="12" r="3" />
     </>
   ),
+  // 3.1b 오르막.
+  mountain: <Path d="M3 19l6.5-10 4 6 2.5-3.5L21 19z" />,
 } as const;
 
 export type IconName = keyof typeof icons;
