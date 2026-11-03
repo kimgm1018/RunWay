@@ -7,12 +7,13 @@ import type {
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
-export type GroupStackParamList = Record<GroupTabRouteName, undefined>;
+// The group tab is one pager screen; screen picks the page to show (GroupTabScreen).
+export type GroupTabParams = { screen?: GroupTabRouteName };
 
 export type MainTabParamList = {
   HomeTab: undefined;
   RunTab: NavigatorScreenParams<RunStackParamList> | undefined;
-  GroupTab: NavigatorScreenParams<GroupStackParamList> | undefined;
+  GroupTab: GroupTabParams | undefined;
   CommunityTab: undefined;
 };
 

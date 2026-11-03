@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
+import { MyCrewsPage } from '../src/screens/group/GroupScreen';
 
 // 6.0 내 크루, 6.1 크루 모집, 6.2 크루 상세·나가기, 6.2a 가입 신청, 6.3 크루 만들기 against the server (dataSource 'api').
 
@@ -321,7 +322,13 @@ beforeEach(async () => {
 
 test('6.0 lists my crews from M10', async () => {
   const screen = await openGroup();
-  const page = texts(screen);
+  // 크루 모집 sits beside it in the same pager and lists every crew, so read the 내 크루 page only.
+  const page = screen.root
+    .findByType(MyCrewsPage)
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string')
+    .join(' ');
   expect(page).toContain('광안리 새벽 크루');
   expect(page).toContain('민락 야경 러너스');
   expect(page).not.toContain('수영강 아침 크루');

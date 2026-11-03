@@ -3,14 +3,13 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Backdrop, Card, EmptyState, Icon } from '../../components';
+import { AppText, Card, EmptyState, Icon } from '../../components';
 import { useResource, type CrewListItem, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import {
@@ -23,7 +22,6 @@ import {
   typography,
   useTheme,
 } from '../../theme';
-import { GroupTabs } from './GroupScreen';
 
 // Member dots stand in for faces on the 6.1 cards; there are no profile photos.
 const dotTones = [k1.top, k1.mid, k1.deep, k1.light];
@@ -119,7 +117,8 @@ function CreateBox() {
 }
 
 // 6.1 크루 모집: search by name or area, 내 근처 (3km) on by default.
-export function CrewRecruitScreen() {
+// One page of the group tab pager (GroupTabScreen).
+export function CrewRecruitPage() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
@@ -142,14 +141,7 @@ export function CrewRecruitScreen() {
   const list = ready ?? last;
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <View style={{ paddingTop: insets.top }}>
-        <GroupTabs active="recruit" />
-      </View>
+    <View style={styles.root}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
