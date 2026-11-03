@@ -1,5 +1,6 @@
 package com.runway.watch.dailyhr
 
+import com.runway.watch.batch.DATA_PATH_PREFIX
 import com.runway.watch.session.RunSessions
 import com.runway.watch.session.SessionPaths
 import kotlinx.coroutines.runBlocking
@@ -16,8 +17,9 @@ class WatchDataLayerService : WearableListenerService() {
     private val store by lazy { DailyHrStore.get(this) }
 
     override fun onMessageReceived(event: MessageEvent) {
-        // Run-session messages (S15P31E105-256) are handled by the shared controller; the listener thread may block.
-        if (event.path.startsWith(SessionPaths.PREFIX) || event.path == SessionPaths.ERROR) {
+        // Run-session messages (S15P31E105-256) go to the shared controller's queue; batch ACKs are applied at once.
+        // Batch receipts and save ACKs (S15P31E105-311) go to the same place.
+        if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) || event.path == SessionPaths.ERROR) {
             runBlocking { RunSessions.get(this@WatchDataLayerService).receive(event.data) }
             return
         }

@@ -129,6 +129,8 @@ export function createMockWatchSession(options: Options): MockWatchSession {
     sendReceived: () => Promise.resolve(),
     sendServerState: () => Promise.resolve(),
     sendError: () => Promise.resolve(),
+    commitBatch: () => Promise.resolve(),
+    failBatch: () => Promise.resolve(),
     subscribe: listener => {
       listeners.add(listener);
       inbox.splice(0).forEach(event => listener(event));

@@ -77,6 +77,7 @@ class WatchSessionInbox(context: Context) {
 class WatchSessionModule(private val app: ReactApplicationContext) : ReactContextBaseJavaModule(app) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val inbox by lazy { WatchSessionInbox(app) }
+  private val batches by lazy { WatchBatchStore(app) }
 
   override fun getName() = "WatchSession"
 
@@ -133,6 +134,59 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
       }
       promise.reject("WATCH_UNAVAILABLE", "워치에 메시지를 보내지 못했습니다.")
     }
+  }
+
+  /** JSON array of BATCH_DATA events still waiting for W07 (S15P31E105-311), oldest first. */
+  @ReactMethod fun pendingBatches(promise: Promise) {
+    scope.launch {
+      try {
+        val array = JSONArray()
+        batches.open().forEach { array.put(org.json.JSONObject(batchJsEvent(it))) }
+        promise.resolve(array.toString())
+      } catch (_: Exception) {
+        promise.reject("WATCH_STORAGE", "워치 기록을 읽지 못했습니다.")
+      }
+    }
+  }
+
+  /** W07 answered COMMITTED: store the ACK, then send BATCH_COMMITTED to the watch. Rejects an ACK that does not match. */
+  @ReactMethod fun commitBatch(batchId: String, acceptedCount: Double, promise: Promise) {
+    scope.launch {
+      val batch = try { batches.commit(batchId, acceptedCount.toInt()) } catch (_: Exception) { null }
+      if (batch == null) {
+        promise.reject("WATCH_BATCH", "저장 확인이 기록과 맞지 않습니다.")
+        return@launch
+      }
+      promise.resolve(sendToWatch(BATCH_COMMITTED_PATH, batchCommitted(inbox.nextMessageId(), batch)))
+    }
+  }
+
+  /** W07 refused the batch for good: keep it as FAILED and tell the watch to stop resending it. */
+  @ReactMethod fun failBatch(batchId: String, code: String, promise: Promise) {
+    scope.launch {
+      val batch = try { batches.fail(batchId, code) } catch (_: Exception) { null }
+      if (batch == null) {
+        promise.resolve(false)
+        return@launch
+      }
+      promise.resolve(sendToWatch(ERROR_PATH, batchError(inbox.nextMessageId(), batch)))
+    }
+  }
+
+  private suspend fun sendToWatch(path: String, bytes: ByteArray): Boolean {
+    for (delayMs in retryDelaysMs { Random.nextLong(0, 501) }) {
+      if (delayMs > 0) delay(delayMs)
+      try {
+        val nodes = Tasks.await(Wearable.getNodeClient(app).connectedNodes, 10, TimeUnit.SECONDS)
+        if (nodes.isNotEmpty()) {
+          nodes.forEach { Tasks.await(Wearable.getMessageClient(app).sendMessage(it.id, path, bytes), 10, TimeUnit.SECONDS) }
+          return true
+        }
+      } catch (_: Exception) {
+        // Retried; the watch resends the batch and gets the stored answer anyway.
+      }
+    }
+    return false
   }
 
   /** JSON array of events (ids as strings) left in the inbox. */

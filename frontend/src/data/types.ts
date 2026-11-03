@@ -767,7 +767,19 @@ export type WatchSessionEvent =
       sessionId: string;
       action: 'PAUSE' | 'RESUME' | 'END' | 'CANCEL';
       expectedVersion: number;
+    }
+  // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
+  | {
+      type: 'BATCH_DATA';
+      sessionId: string;
+      batchId: string;
+      deviceId: string;
+      itemCount: number;
+      body: string;
     };
+
+// W07 서버 저장 ACK (devices-health.md W07 Response).
+export type SyncBatchAck = { status: string; batchId: string; acceptedCount: number };
 
 export type Repositories = {
   auth: {
@@ -980,14 +992,16 @@ export type Repositories = {
       sessionId: string,
       request: { deviceId: string; expectedVersion: number },
     ) => Promise<RunningSessionView>;
+    // W07. 워치 batch 본문 원문을 바꾸지 않고 보낸다(S15P31E105-311).
+    uploadBatch: (body: string) => Promise<SyncBatchAck>;
   };
   // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
   watchSession: {
     getLinkedDevices: () => Promise<LinkedDevices | null>;
-    // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다.
+    // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
     prepare: (
       sessionId: string,
-      request: { stateVersion: number; goal: SessionGoalDraft },
+      request: { stateVersion: number; deviceId: string; goal: SessionGoalDraft },
     ) => Promise<{ stateVersion: number; ready: boolean; reasonCode: string | null }>;
     // 서버가 승인한 명령을 전달만 한다. START는 START_AUTHORIZED, 그 외는 COMMAND_REQUEST(APPLY).
     sendCommand: (sessionId: string, approval: CommandApproval) => Promise<void>;
@@ -1002,6 +1016,10 @@ export type Repositories = {
       sessionId: string,
       error: { code: string; retryable: boolean; failedType: string },
     ) => Promise<void>;
+    // W07 COMMITTED를 폰에 기록하고 워치에 BATCH_COMMITTED를 보낸다. 기록과 맞지 않으면 실패한다.
+    commitBatch: (batchId: string, acceptedCount: number) => Promise<void>;
+    // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
+    failBatch: (batchId: string, code: string) => Promise<void>;
     // 등록하면 수신함에 남은 이벤트부터 전달한다.
     subscribe: (listener: (event: WatchSessionEvent) => void) => () => void;
     // 러닝 중 포그라운드 서비스. 켜는 동안 활성 세션 ID를 기억해 앱 재실행 때 다시 붙는다.

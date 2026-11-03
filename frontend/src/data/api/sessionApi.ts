@@ -77,7 +77,10 @@ function sessionView(value: ServerSession): RunningSessionView {
   };
 }
 
-export function createApiSessionRepository(request: ApiRequest): Repositories['session'] {
+// W07 업로드(uploadBatch)는 본문 원문을 보내야 해서 syncBatches.ts가 맡는다.
+export function createApiSessionRepository(
+  request: ApiRequest,
+): Omit<Repositories['session'], 'uploadBatch'> {
   return {
     create: async ({ controlDeviceId, relayDeviceId, goal }) =>
       sessionView(
