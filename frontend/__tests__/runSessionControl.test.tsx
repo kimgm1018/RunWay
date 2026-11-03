@@ -143,10 +143,10 @@ test('종료 shows 종료 처리 중 then the result', async () => {
 
   await hold(screen, '종료');
   expect(texts(screen)).toContain('종료 처리 중');
-  expect(texts(screen)).not.toContain('자유 러닝 · 종료');
+  expect(texts(screen)).not.toContain('평균 페이스 /km');
 
   await settle(1000);
-  expect(texts(screen)).toContain('자유 러닝 · 종료');
+  expect(texts(screen)).toContain('평균 페이스 /km');
   await act(async () => screen.unmount());
 });
 
@@ -195,7 +195,7 @@ test('종료 pressed on the watch moves the progress screen to the result', asyn
     });
   });
   await settle(800);
-  expect(texts(screen)).toContain('자유 러닝 · 종료');
+  expect(texts(screen)).toContain('평균 페이스 /km');
   await act(async () => screen.unmount());
 });
 

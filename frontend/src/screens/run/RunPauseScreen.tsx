@@ -15,9 +15,9 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
-import { AppText, Backdrop, Card, Icon } from '../../components';
+import { AppText, Backdrop, Icon } from '../../components';
 import { formatDuration, formatKm, formatPace } from '../../format';
-import { fontFamily, spacing, useTheme } from '../../theme';
+import { fontFamily, useTheme } from '../../theme';
 import { useRunControlState, useRunSession } from './RunSession';
 import { controlNotice } from './controlNotice';
 
@@ -31,7 +31,7 @@ const ringLength = 2 * Math.PI * ringRadius;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // 종료 needs a one-second hold instead of a confirm dialog (4.3 설계 메모).
-// An outlined circle; while held, an arc fills the ring around it (DESIGN.md 2-7 일시정지).
+// An outlined circle on a white 55% fill; while held, an arc fills the ring around it (runway-running-handoff 4.3).
 export function StopButton({ onFinish }: { onFinish: () => void }) {
   const { colors } = useTheme();
   const fill = useRef(new Animated.Value(0)).current;
@@ -46,6 +46,7 @@ export function StopButton({ onFinish }: { onFinish: () => void }) {
   return (
     <View style={styles.ring}>
       <Svg width={ringSize} height={ringSize} style={StyleSheet.absoluteFill}>
+        {/* The track shows only while held: at rest 종료 is the bare circle of the mockup. */}
         <Circle
           cx={ringSize / 2}
           cy={ringSize / 2}
@@ -53,6 +54,7 @@ export function StopButton({ onFinish }: { onFinish: () => void }) {
           stroke={colors.border}
           strokeWidth={3}
           fill="none"
+          opacity={holding ? 1 : 0}
         />
         <AnimatedCircle
           cx={ringSize / 2}
@@ -89,7 +91,12 @@ export function StopButton({ onFinish }: { onFinish: () => void }) {
         }}
         onPressOut={release}
         onLongPress={onFinish}
-        style={[styles.round, styles.stop, { borderColor: colors.text }]}
+        style={[
+          styles.round,
+          styles.stop,
+          { borderColor: colors.text },
+          holding && styles.held,
+        ]}
       >
         <View style={[styles.stopMark, { backgroundColor: colors.text }]} />
       </Pressable>
@@ -97,8 +104,8 @@ export function StopButton({ onFinish }: { onFinish: () => void }) {
   );
 }
 
-// 재개: the light circle with a black ▶. It reads the dark tone of the glass card it sits on,
-// and takes the same box as the stop ring so both labels line up.
+// 재개: the navy circle with a light ▶ and a soft shadow. It takes the same box as the stop ring so both
+// labels line up.
 export function ResumeButton({ onPress }: { onPress: () => void }) {
   const { colors } = useTheme();
   return (
@@ -109,17 +116,19 @@ export function ResumeButton({ onPress }: { onPress: () => void }) {
         onPress={onPress}
         style={({ pressed }) => [
           styles.round,
+          styles.resume,
           { backgroundColor: colors.accent },
           pressed && styles.pressed,
         ]}
       >
-        <Icon name="play" color={colors.onAccent} size={30} />
+        <Icon name="play" color={colors.onAccent} size={30} solid />
       </Pressable>
     </View>
   );
 }
 
-// 4.3 일시정지: the elapsed time on the K1 background, with 재개 and a hold-to-finish 종료 on a dark glass card.
+// 4.3 일시정지 (runway-running-handoff): the elapsed time on the K1 background, then 재개 and a hold-to-finish
+// 종료 straight on the background, without a card.
 export function RunPauseScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -140,7 +149,11 @@ export function RunPauseScreen() {
   }, [navigation, personal, resume]);
   const previous = useRef(run?.status);
   useEffect(() => {
-    if (personal && previous.current === 'paused' && run?.status === 'running') {
+    if (
+      personal &&
+      previous.current === 'paused' &&
+      run?.status === 'running'
+    ) {
       navigation.goBack();
     }
     previous.current = run?.status;
@@ -196,33 +209,29 @@ export function RunPauseScreen() {
       </View>
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.center}>
-          <AppText style={styles.label} tone="textSecondary">
-            일시정지
-          </AppText>
+          <AppText style={styles.label}>일시정지</AppText>
           <AppText style={styles.time} accessibilityLabel="경과 시간">
             {formatDuration(sample.elapsedSec)}
           </AppText>
-          <AppText variant="body" tone="textSecondary">
+          <AppText style={styles.summary}>
             {`${formatKm(sample.distanceM)}km · 평균 ${
               average === null ? '– –' : formatPace(average)
             }/km`}
           </AppText>
         </View>
-        <Card variant="deep" style={styles.actions}>
+        <View style={styles.actions}>
           <View style={styles.buttons}>
             <View style={styles.action}>
               {/* Going back to 4.2 resumes tracking there. */}
               <ResumeButton onPress={onResume} />
-              <AppText variant="captionStrong">재개</AppText>
+              <AppText style={styles.actionLabel}>재개</AppText>
             </View>
             <View style={styles.action}>
               <StopButton onFinish={finish} />
-              <AppText variant="captionStrong">종료</AppText>
+              <AppText style={styles.actionLabel}>종료</AppText>
             </View>
           </View>
-          <AppText variant="caption" tone="textSecondary">
-            종료는 1초 길게 눌러야 동작해요
-          </AppText>
+          <AppText style={styles.hint}>종료는 1초 길게 눌러야 동작해요</AppText>
           {ending ? (
             <AppText variant="captionStrong" accessibilityLabel="종료 안내">
               종료 처리 중
@@ -251,7 +260,7 @@ export function RunPauseScreen() {
               ) : null}
             </>
           ) : null}
-        </Card>
+        </View>
         <View style={styles.spacer} />
       </SafeAreaView>
     </View>
@@ -261,18 +270,47 @@ export function RunPauseScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   layout: { flex: 1, paddingHorizontal: 14 },
+  // The summary sits around a fifth down, the buttons 52 under it (390×844 mockup: 160 and 387).
   center: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    justifyContent: 'flex-end',
   },
-  label: { fontSize: 15, lineHeight: 22 },
-  // Big numbers stay Barlow Regular at the sheet's 96.
-  time: { fontFamily: fontFamily.numberRegular, fontSize: 96, lineHeight: 104 },
-  actions: { alignItems: 'center', gap: spacing.xl, paddingVertical: 24 },
-  buttons: { flexDirection: 'row', gap: spacing.xxxl * 1.5 },
-  action: { alignItems: 'center', gap: spacing.lg },
+  label: {
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#4E5560',
+  },
+  // Big numbers stay Barlow Regular, here at the mockup's 100.
+  time: {
+    marginTop: 12,
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 100,
+    lineHeight: 104,
+    letterSpacing: 2,
+  },
+  summary: {
+    marginTop: 11,
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#4E5560',
+  },
+  actions: { alignItems: 'center', gap: 10, paddingTop: 84 },
+  buttons: { flexDirection: 'row', gap: 26 },
+  action: { width: 102, alignItems: 'center', gap: 8 },
+  actionLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  hint: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: '#67696E',
+  },
   round: {
     width: buttonSize,
     height: buttonSize,
@@ -286,8 +324,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stop: { borderWidth: 1.5 },
+  stop: { borderWidth: 1.5, backgroundColor: 'rgba(255,255,255,0.55)' },
+  resume: { boxShadow: '0 10px 24px rgba(2,5,14,0.25)' },
+  held: { opacity: 0.85 },
   stopMark: { width: 26, height: 26, borderRadius: 7 },
-  spacer: { flex: 0.8 },
+  spacer: { flex: 1.15 },
   pressed: { opacity: 0.8 },
 });

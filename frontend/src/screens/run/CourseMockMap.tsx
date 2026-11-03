@@ -27,6 +27,7 @@ export function CourseMockMap({
   colors,
   paceLabels,
   position,
+  trail,
 }: {
   project: (point: LngLat) => { x: number; y: number };
   // The course split per km; empty without a course.
@@ -35,6 +36,8 @@ export function CourseMockMap({
   // One label per part, or none.
   paceLabels: string[] | null;
   position?: LngLat;
+  // 4.2: the path run so far, drawn as a black hollow line with a white start and me at its end.
+  trail?: LngLat[];
 }) {
   const toPoints = (line: LngLat[]) =>
     line
@@ -43,8 +46,13 @@ export function CourseMockMap({
         return `${x},${y}`;
       })
       .join(' ');
-  const start = parts.length > 0 ? project(parts[0][0]) : null;
-  const here = position && parts.length === 0 ? project(position) : null;
+  const start = parts.length > 0 && !trail ? project(parts[0][0]) : null;
+  const here = trail
+    ? project(trail[trail.length - 1])
+    : position && parts.length === 0
+    ? project(position)
+    : null;
+  const trailStart = trail ? project(trail[0]) : null;
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <Svg
@@ -110,6 +118,36 @@ export function CourseMockMap({
             strokeLinejoin="round"
           />
         ))}
+        {trail && trail.length > 1 ? (
+          <>
+            <Polyline
+              points={toPoints(trail)}
+              stroke="#060606"
+              strokeWidth={6}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Polyline
+              points={toPoints(trail)}
+              stroke="#F9F9F9"
+              strokeWidth={1.8}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </>
+        ) : null}
+        {trailStart ? (
+          <Circle
+            cx={trailStart.x}
+            cy={trailStart.y}
+            r={5}
+            fill="#FFFFFF"
+            stroke="#060606"
+            strokeWidth={2.5}
+          />
+        ) : null}
         {courseMapLabels.map(label => (
           <Text
             key={label.text}
