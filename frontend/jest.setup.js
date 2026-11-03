@@ -28,3 +28,8 @@ jest.mock('react-native-keychain', () => {
 beforeEach(() => {
   require('react-native-keychain').__reset();
 });
+
+// react-native-image-picker is a native module; tests set what the picker answers per test (8.2 사진 바꾸기).
+jest.mock('react-native-image-picker', () => ({
+  launchImageLibrary: jest.fn(async () => ({ didCancel: true })),
+}));

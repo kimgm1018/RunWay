@@ -91,6 +91,19 @@ function serve() {
         linked = false;
         return respond(200, {});
       }
+      // U04 for the 8.1 profile row (S15P31E105-321).
+      if (path === '/users/me' && init.method === 'GET') {
+        return respond(200, {
+          id: 101,
+          nickname: '민준',
+          gender: 'MALE',
+          birthDate: '1995-03-14',
+          loginId: 'minjun01',
+          status: 'ACTIVE',
+          profileImageUrl: null,
+          onboardingCompleted: true,
+        });
+      }
       throw new Error(`unexpected request ${init.method} ${address}`);
     },
   );

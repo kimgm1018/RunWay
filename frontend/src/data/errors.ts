@@ -55,6 +55,10 @@ export const dataErrorCodes = [
   'ASSESSMENT_NOT_FOUND',
   'FILE_TOO_LARGE',
   'UNSUPPORTED_RECORD_TYPE',
+  // F01 이미지 업로드 (docs/design/api/files.md) and U05 with an imageId that is not my profile upload.
+  'UNSUPPORTED_MEDIA_TYPE',
+  'INVALID_FILE',
+  'INVALID_IMAGE',
   // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
   'VALIDATION_ERROR',
   // 401 on a member API: the access token is missing, expired or rejected. The session signs out.
