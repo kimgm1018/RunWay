@@ -1,4 +1,5 @@
 import { DataError, errorCode, type DataErrorCode } from '../../data/errors';
+import { createBatchRelay } from '../../watch/batchRelay';
 import type {
   CommandApproval,
   ControlAction,
@@ -335,7 +336,12 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
   async function prepareWatch(goal: SessionGoalDraft): Promise<boolean> {
     const sessionId = state.sessionId as string;
     const stateVersion = state.stateVersion;
-    const prepared = await watch.prepare(sessionId, { stateVersion, goal });
+    // 워치는 이 기기 ID를 측정 batch의 생산 기기로 쓴다(S15P31E105-311).
+    const prepared = await watch.prepare(sessionId, {
+      stateVersion,
+      deviceId: controlDeviceId ?? devices?.watchDeviceId ?? '',
+      goal,
+    });
     const ready = prepared.ready && prepared.stateVersion === stateVersion;
     await call(() =>
       session.reportPrepared(sessionId, {
@@ -485,8 +491,15 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
     await control('START');
   };
 
+  // 워치 측정 batch는 세션 제어 순서와 별개로 바로 W07에 올린다(제어 메시지를 batch 뒤에 묶지 않는다, 6장).
+  const batches = createBatchRelay({ upload: session.uploadBatch, watch });
+
   const onEvent = (event: WatchSessionEvent) => {
     if (disposed) {
+      return;
+    }
+    if (event.type === 'BATCH_DATA') {
+      batches.handle(event);
       return;
     }
     if (event.type === 'COMMAND_RESULT') {

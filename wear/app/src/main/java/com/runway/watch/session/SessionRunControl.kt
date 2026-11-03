@@ -1,5 +1,6 @@
 package com.runway.watch.session
 
+import com.runway.watch.batch.UploadState
 import com.runway.watch.run.AnalysisStatus
 import com.runway.watch.run.RunControl
 import com.runway.watch.run.RunIntent
@@ -10,22 +11,25 @@ import com.runway.watch.run.SaveStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
  * The existing watch screens read the session controller through [RunControl]. The run state shown is always the
  * server-confirmed one; a request in flight, a refusal or an unconfirmed command is a one-line [RunSnapshot.notice].
- * Live metrics stay empty until the measurement batches arrive (S15P31E105-311).
+ * A batch whose server save could not be confirmed (S15P31E105-311) shows as 기록 저장 미확인 and keeps an ended run
+ * from showing as saved.
  */
 class SessionRunControl(
     private val controller: WatchSessionController,
     private val scope: CoroutineScope,
+    private val uploads: StateFlow<UploadState> = MutableStateFlow(UploadState()),
 ) : RunControl {
-    private val state = MutableStateFlow(toSnapshot(controller.state.value))
+    private val state = MutableStateFlow(toSnapshot(controller.state.value, uploads.value))
     override val snapshot: StateFlow<RunSnapshot> = state
 
     init {
-        scope.launch { controller.state.collect { state.value = toSnapshot(it) } }
+        scope.launch { controller.state.combine(uploads) { s, u -> toSnapshot(s, u) }.collect { state.value = it } }
     }
 
     override fun send(intent: RunIntent) {
@@ -44,16 +48,21 @@ class SessionRunControl(
     companion object {
         private val verb = mapOf("START" to "시작", "PAUSE" to "일시정지", "RESUME" to "재개", "END" to "종료", "CANCEL" to "취소")
 
-        fun toSnapshot(session: WatchSessionState) = RunSnapshot(
+        fun toSnapshot(session: WatchSessionState, upload: UploadState = UploadState()) = RunSnapshot(
             state = session.confirmed,
             phoneConnected = session.problem != WatchProblem.PhoneUnreachable,
             pendingCommand = session.pending != null && session.problem == null,
-            notice = notice(session),
-            result = result(session),
+            notice = notice(session) ?: if (upload.unconfirmed) "기록 저장을 확인할 수 없어요" else null,
+            result = result(session, upload),
         )
 
-        /** 서버가 종료를 저장했으면 저장 완료·분석 대기(분석 계산은 S15P31E105-312), 종료를 확인하지 못했으면 저장 미확인. */
-        fun result(session: WatchSessionState): RunResult? = when {
+        /**
+         * 서버가 종료를 저장했으면 저장 완료·분석 대기(분석 계산은 S15P31E105-312), 종료나 마지막 기록 저장을 확인하지 못했으면
+         * 저장 미확인.
+         */
+        fun result(session: WatchSessionState, upload: UploadState = UploadState()): RunResult? = when {
+            upload.unconfirmed && (session.confirmed == RunState.COMPLETED || session.pending?.action == "END") ->
+                RunResult(save = SaveStatus.UNCONFIRMED)
             session.confirmed == RunState.COMPLETED -> RunResult(save = SaveStatus.SAVED, analysis = AnalysisStatus.PENDING)
             (session.problem as? WatchProblem.Unconfirmed)?.action == "END" -> RunResult(save = SaveStatus.UNCONFIRMED)
             else -> null

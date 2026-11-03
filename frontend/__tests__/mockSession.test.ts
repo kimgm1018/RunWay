@@ -156,7 +156,7 @@ test('mock watch answers a command once per commandId and replays the stored res
   const stop = r.watchSession.subscribe(event => events.push(event));
   const approval = { commandId: '501', action: 'START' as const, expectedVersion: 1, result: 'PENDING' as const };
   // 워치는 준비한 버전과 승인 버전이 같을 때만 시작한다(9.4).
-  await r.watchSession.prepare('9', { stateVersion: 1, goal });
+  await r.watchSession.prepare('9', { stateVersion: 1, deviceId: '101', goal });
 
   await r.watchSession.sendCommand('9', approval);
   await new Promise<void>(resolve => setTimeout(resolve, 10));
@@ -172,7 +172,7 @@ test('mock watch answers a command once per commandId and replays the stored res
 test('mock watch prepares, reports linked devices, and is missing when disconnected', async () => {
   const r = repos();
   expect(await r.watchSession.getLinkedDevices()).toEqual({ watchDeviceId: '101', phoneDeviceId: '102' });
-  expect(await r.watchSession.prepare('9', { stateVersion: 3, goal })).toEqual({
+  expect(await r.watchSession.prepare('9', { stateVersion: 3, deviceId: '101', goal })).toEqual({
     stateVersion: 3,
     ready: true,
     reasonCode: null,

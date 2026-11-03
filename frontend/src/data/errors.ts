@@ -49,6 +49,9 @@ export const dataErrorCodes = [
   'CONTROL_DEVICE_CHANGED',
   'UPLOAD_PENDING',
   'COURSE_INACCESSIBLE',
+  // W07 워치 운동 배치 동기화: 같은 ID의 다른 내용, 본문 규칙 위반 (S15P31E105-311).
+  'BATCH_HASH_CONFLICT',
+  'INVALID_BATCH',
   // W06 건강 기록 동기화 (docs/design/api/devices-health.md). R02 answers it too.
   'CONSENT_REQUIRED',
   // R02 최신 준비도: no result yet (docs/design/api/readiness.md).

@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.BODY_SENSORS_BACKGROUND" android:maxSdkVersion="35" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- S15P31E105-311: keeps the run process alive while batches are recorded and sent. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
     <!-- Readiness: follow the watch's default network before a run (S15P31E105-265). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -41,6 +44,11 @@
         </activity>
 
         <service
+            android:name=".session.RunForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="health" />
+
+        <service
             android:name=".dailyhr.PassiveHrService"
             android:exported="true"
             android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" />
@@ -58,6 +66,11 @@
                 <data
                     android:host="*"
                     android:pathPrefix="/runway/v1/session/"
+                    android:scheme="wear" />
+                <!-- S15P31E105-311: BATCH_RECEIVED / BATCH_COMMITTED for the watch's measurement batches. -->
+                <data
+                    android:host="*"
+                    android:pathPrefix="/runway/v1/data/"
                     android:scheme="wear" />
                 <data
                     android:host="*"

@@ -11,6 +11,9 @@ const native = {
   ackInbox: jest.fn(),
   setRunActive: jest.fn(),
   getActiveSessionId: jest.fn(),
+  pendingBatches: jest.fn(),
+  commitBatch: jest.fn(),
+  failBatch: jest.fn(),
 };
 
 function emitter() {
@@ -38,6 +41,7 @@ const result = {
 beforeEach(() => {
   Object.values(native).forEach(fn => fn.mockReset().mockResolvedValue(undefined));
   native.drainInbox.mockResolvedValue('[]');
+  native.pendingBatches.mockResolvedValue('[]');
   native.send.mockResolvedValue('phone:1');
   (NativeModules as Record<string, unknown>).WatchSession = native;
 });
@@ -104,7 +108,7 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
   const watch = load().createNativeWatchSession({ emitter: events, prepareTimeoutMs: 50 });
   const goal = { courseId: '7', comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: null };
 
-  const preparing = watch.prepare('201', { stateVersion: 3, goal });
+  const preparing = watch.prepare('201', { stateVersion: 3, deviceId: '101', goal });
   await flush();
   events.fire({ type: 'SESSION_PREPARED', messageId: 'w:3', sessionId: '999', payload: { stateVersion: 3, ready: true, reasonCode: null } });
   events.fire({ type: 'SESSION_PREPARED', messageId: 'w:4', sessionId: '201', payload: { stateVersion: 3, ready: true, reasonCode: null } });
@@ -114,15 +118,28 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
   expect([path, type, sessionId]).toEqual(['/runway/v1/session/prepare', 'SESSION_PREPARE', '201']);
   expect(JSON.parse(payload)).toEqual({
     stateVersion: 3,
+    deviceId: 101,
     goal: { courseId: 7, comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: null },
     initialBpm: null,
   });
 
-  expect(await watch.prepare('201', { stateVersion: 4, goal })).toEqual({
+  expect(await watch.prepare('201', { stateVersion: 4, deviceId: '101', goal })).toEqual({
     stateVersion: 4,
     ready: false,
     reasonCode: 'PREPARE_TIMEOUT',
   });
+});
+
+test('prepare without a watch device id answers not ready and sends nothing', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter(), prepareTimeoutMs: 50 });
+  const goal = { courseId: null, comparisonSessionId: null, targetDistanceM: null, targetDurationSec: null, targetPaceSecPerKm: null };
+
+  expect(await watch.prepare('201', { stateVersion: 3, deviceId: '', goal })).toEqual({
+    stateVersion: 3,
+    ready: false,
+    reasonCode: 'DEVICE_ID_MISSING',
+  });
+  expect(native.send).not.toHaveBeenCalled();
 });
 
 test('sendCommand uses start-authorized for START and command(APPLY) otherwise, keeping ids exact', async () => {
@@ -203,4 +220,29 @@ test('a SESSION_PREPARED nobody waits for is cleared from the inbox', async () =
   await flush();
 
   expect(native.ackInbox).toHaveBeenCalledWith(['w:9']);
+});
+
+test('stored and new watch batches reach the listener with their body text, and acks go to native', async () => {
+  const body = '{"deviceId":101,"id":"00000000-0000-4000-8000-000000000101","items":[{}],"sessionId":201}';
+  const stored = { type: 'BATCH_DATA', sessionId: '201', batchId: '00000000-0000-4000-8000-000000000101', deviceId: '101', itemCount: 1, body };
+  native.pendingBatches.mockResolvedValue(JSON.stringify([stored]));
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events });
+  const received: WatchSessionEvent[] = [];
+
+  watch.subscribe(event => received.push(event));
+  await flush();
+  await flush();
+  events.fire({ ...stored, batchId: '00000000-0000-4000-8000-000000000102' });
+
+  expect(received).toEqual([
+    { type: 'BATCH_DATA', sessionId: '201', batchId: '00000000-0000-4000-8000-000000000101', deviceId: '101', itemCount: 1, body },
+    { type: 'BATCH_DATA', sessionId: '201', batchId: '00000000-0000-4000-8000-000000000102', deviceId: '101', itemCount: 1, body },
+  ]);
+  expect(native.ackInbox).not.toHaveBeenCalled();
+
+  await watch.commitBatch('00000000-0000-4000-8000-000000000101', 1);
+  await watch.failBatch('00000000-0000-4000-8000-000000000102', 'INVALID_BATCH');
+  expect(native.commitBatch).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000101', 1);
+  expect(native.failBatch).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000102', 'INVALID_BATCH');
 });

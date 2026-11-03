@@ -24,7 +24,11 @@ private const val MAX_BYTES = 32 * 1024
 private const val PROTOCOL_VERSION = 1
 
 /** Types the watch accepts. A COMMAND_REQUEST is accepted only in APPLY phase (REQUEST is what the watch sends). */
-private val INCOMING_TYPES = setOf("SESSION_PREPARE", "START_AUTHORIZED", "COMMAND_REQUEST", "COMMAND_RECEIVED", "STATE_RESULT", "ERROR")
+private val INCOMING_TYPES = setOf(
+    "SESSION_PREPARE", "START_AUTHORIZED", "COMMAND_REQUEST", "COMMAND_RECEIVED", "STATE_RESULT", "ERROR",
+    // S15P31E105-311: phone receipt and server save ACK of a watch batch.
+    "BATCH_RECEIVED", "BATCH_COMMITTED",
+)
 
 data class SessionEnvelope(
     val type: String,
@@ -35,6 +39,12 @@ data class SessionEnvelope(
 ) {
     /** Server command id as text so int64 values are never rounded. */
     fun commandId(): String? = payload.idText("commandId")
+
+    /** SESSION_PREPARE.deviceId: this watch's server device id (S15P31E105-311), positive int64 as text. */
+    /** BATCH_RECEIVED/BATCH_COMMITTED.batchId (UUID text, original spelling). */
+    fun batchId(): String? = payload.optString("batchId").takeIf { it.isNotEmpty() && it.length <= 64 }
+
+    fun deviceId(): String? = payload.idText("deviceId")?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true }
 }
 
 private fun JSONObject.idText(name: String): String? =
@@ -84,7 +94,8 @@ object SessionMessages {
 
     /**
      * The real result of an approved command. appliedAt only for APPLIED; reasonCode key always present.
-     * END adds the upload fields: no watch batches exist yet (D-3, S15P31E105-311), so a real end has none pending.
+     * END adds the upload fields (S15P31E105-311): [pendingBatchCount] watch batches still lack the server save ACK, and
+     * uploadComplete is true only for an applied end with none left.
      */
     fun commandResult(
         messageId: String,
@@ -95,6 +106,7 @@ object SessionMessages {
         appliedAt: Instant?,
         reasonCode: String?,
         end: Boolean,
+        pendingBatchCount: Int = 0,
     ): ByteArray {
         val payload = JSONObject()
             .put("commandId", commandId.toLong())
@@ -103,7 +115,7 @@ object SessionMessages {
             .put("reasonCode", reasonCode ?: JSONObject.NULL)
         if (end) {
             val applied = result == "APPLIED"
-            payload.put("pendingBatchCount", 0).put("uploadComplete", applied)
+            payload.put("pendingBatchCount", pendingBatchCount).put("uploadComplete", applied && pendingBatchCount == 0)
         }
         return encode("COMMAND_RESULT", messageId, replyTo, sessionId, payload)
     }

@@ -53,7 +53,7 @@ class WatchSessionControllerTest {
                 .toByteArray(),
         )!!
 
-    private fun prepare(version: Long = 1) = message("SESSION_PREPARE", """{"stateVersion":$version,"goal":{},"initialBpm":null}""")
+    private fun prepare(version: Long = 1) = message("SESSION_PREPARE", """{"stateVersion":$version,"deviceId":101,"goal":{},"initialBpm":null}""")
     private fun authorize(commandId: Long, version: Long, sessionId: String = "201") =
         message("START_AUTHORIZED", """{"commandId":$commandId,"expectedVersion":$version,"targetBpm":null,"coachingId":null}""", sessionId)
     private fun apply(action: String, commandId: Long, version: Long) =
@@ -72,7 +72,7 @@ class WatchSessionControllerTest {
         val c = controller()
         c.onMessage(prepare(3))
 
-        assertEquals(Prepared("201", 3, ready = true), store.prepared())
+        assertEquals(Prepared("201", 3, ready = true, deviceId = "101"), store.prepared())
         val reply = sender.last("SESSION_PREPARED").getJSONObject("payload")
         assertEquals(3L, reply.getLong("stateVersion"))
         assertTrue(reply.getBoolean("ready"))
@@ -134,7 +134,7 @@ class WatchSessionControllerTest {
     @Test
     fun `a command interrupted mid-run is reported UNKNOWN instead of running again`() = runBlocking {
         store.saveOutcome(CommandOutcome("201", "501", "START", OutcomeResult.EXECUTING, null, null, persisted = false, stateVersion = null))
-        store.savePrepared(Prepared("201", 1, ready = true))
+        store.savePrepared(Prepared("201", 1, ready = true, deviceId = "101"))
         val c = controller()
         c.onMessage(authorize(501, 1))
 
@@ -246,5 +246,63 @@ class WatchSessionControllerTest {
         assertEquals(3, sender.count("COMMAND_RESULT"))
         assertEquals(WatchProblem.Unconfirmed("START"), c.state.value.problem)
         assertEquals(OutcomeResult.APPLIED, store.outcome("501")?.result)
+    }
+
+    private class FakeUploads(var pending: Int = 0) : com.runway.watch.batch.RunUploads {
+        val calls = mutableListOf<String>()
+        override suspend fun begin(sessionId: String, deviceId: String) { calls += "begin:$sessionId:$deviceId" }
+        override suspend fun finish(sessionId: String): Int { calls += "finish:$sessionId"; return pending }
+        override suspend fun pendingCount(sessionId: String) = pending
+    }
+
+    @Test
+    fun `prepare without the watch device id is not ready and start is refused`() = runBlocking {
+        val c = controller()
+        c.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"goal":{},"initialBpm":null}"""))
+
+        val reply = sender.last("SESSION_PREPARED").getJSONObject("payload")
+        assertFalse(reply.getBoolean("ready"))
+        assertEquals("DEVICE_ID_MISSING", reply.getString("reasonCode"))
+        c.onMessage(authorize(501, 1))
+        assertEquals("NOT_PREPARED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("reasonCode"))
+        assertTrue(gateway.calls.isEmpty())
+    }
+
+    @Test
+    fun `start begins the batches and end waits for them before reporting what is still unsaved`() = runBlocking {
+        val uploads = FakeUploads()
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads)
+        c.running()
+        assertEquals(listOf("begin:201:101"), uploads.calls)
+
+        uploads.pending = 2
+        c.onMessage(apply("END", 504, 2))
+        assertEquals(listOf("begin:201:101", "finish:201"), uploads.calls)
+        val end = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals("APPLIED", end.getString("result"))
+        assertEquals(2, end.getInt("pendingBatchCount"))
+        assertFalse(end.getBoolean("uploadComplete"))
+
+        // 같은 END를 다시 받으면 실행하지 않고, 그 사이 저장이 확인됐으면 0으로 보고한다.
+        uploads.pending = 0
+        c.onMessage(apply("END", 504, 2))
+        val again = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals(0, again.getInt("pendingBatchCount"))
+        assertTrue(again.getBoolean("uploadComplete"))
+        assertEquals(listOf("start", "end"), gateway.calls)
+    }
+
+    @Test
+    fun `the run keeps the process alive from start until the applied end`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val keepAlive = object : RunKeepAlive {
+            override fun start() { calls += "start" }
+            override fun stop() { calls += "stop" }
+        }
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, keepAlive = keepAlive)
+        c.running()
+        assertEquals(listOf("start"), calls)
+        c.onMessage(apply("END", 504, 2))
+        assertEquals(listOf("start", "stop"), calls)
     }
 }

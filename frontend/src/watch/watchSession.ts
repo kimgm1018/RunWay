@@ -13,6 +13,8 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
     sendReceived: async () => undefined,
     sendServerState: async () => undefined,
     sendError: async () => undefined,
+    commitBatch: async () => undefined,
+    failBatch: async () => undefined,
     subscribe: () => () => undefined,
     setRunActive: async () => undefined,
     getActiveSessionId: async () => null,

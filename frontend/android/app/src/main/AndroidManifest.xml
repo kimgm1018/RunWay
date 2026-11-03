@@ -49,6 +49,8 @@
           <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/health/" />
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/session/" />
+          <!-- S15P31E105-311: BATCH_DATA measurement batches from the watch. -->
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/data/" />
         </intent-filter>
       </service>
       <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->

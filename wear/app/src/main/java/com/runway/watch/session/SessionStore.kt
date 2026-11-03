@@ -4,8 +4,11 @@ import android.content.Context
 import org.json.JSONObject
 import java.time.Instant
 
-/** The session and version the phone asked the watch to prepare (SESSION_PREPARE). */
-data class Prepared(val sessionId: String, val stateVersion: Long, val ready: Boolean)
+/**
+ * The session and version the phone asked the watch to prepare (SESSION_PREPARE). [deviceId] is this watch's
+ * user_devices.id from the same message; batches carry it as their producer (S15P31E105-311).
+ */
+data class Prepared(val sessionId: String, val stateVersion: Long, val ready: Boolean, val deviceId: String? = null)
 
 /** EXECUTING is written before the exercise call so a crash mid-call is never re-executed (9.4). */
 enum class OutcomeResult { EXECUTING, APPLIED, REJECTED, UNKNOWN }
@@ -53,7 +56,12 @@ class PrefsSessionStore(context: Context) : SessionStore {
     override fun prepared(): Prepared? = synchronized(LOCK) {
         val json = prefs.getString(KEY_PREPARED, null) ?: return null
         try {
-            JSONObject(json).let { Prepared(it.getString("sessionId"), it.getLong("stateVersion"), it.getBoolean("ready")) }
+            JSONObject(json).let {
+                Prepared(
+                    it.getString("sessionId"), it.getLong("stateVersion"), it.getBoolean("ready"),
+                    if (it.isNull("deviceId")) null else it.optString("deviceId").takeIf { id -> id.isNotEmpty() },
+                )
+            }
         } catch (_: Exception) {
             null
         }
@@ -61,6 +69,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
 
     override fun savePrepared(prepared: Prepared) = synchronized(LOCK) {
         val json = JSONObject().put("sessionId", prepared.sessionId).put("stateVersion", prepared.stateVersion).put("ready", prepared.ready)
+            .put("deviceId", prepared.deviceId ?: JSONObject.NULL)
         check(prefs.edit().putString(KEY_PREPARED, json.toString()).commit())
     }
 

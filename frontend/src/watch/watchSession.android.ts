@@ -15,6 +15,10 @@ type NativeWatchSession = {
   ackInbox(messageIds: string[]): Promise<void>;
   setRunActive(active: boolean, sessionId: string | null): Promise<void>;
   getActiveSessionId(): Promise<string | null>;
+  // S15P31E105-311 워치 batch. pendingBatches는 아직 W07 저장 확인이 없는 batch 이벤트의 JSON 배열.
+  pendingBatches(): Promise<string>;
+  commitBatch(batchId: string, acceptedCount: number): Promise<boolean>;
+  failBatch(batchId: string, code: string): Promise<boolean>;
 };
 
 type Subscription = { remove: () => void };
@@ -28,6 +32,30 @@ type NativeEvent = {
   sessionId: string;
   payload: Record<string, unknown>;
 };
+
+// 네이티브가 영속 저장한 워치 batch. 본문은 원문 문자열이고 ID는 문자열이다.
+type NativeBatch = {
+  type: 'BATCH_DATA';
+  sessionId: string;
+  batchId: string;
+  deviceId: string;
+  itemCount: number;
+  body: string;
+};
+
+function toBatchEvent(raw: NativeBatch): WatchSessionEvent | null {
+  if (typeof raw.body !== 'string' || typeof raw.batchId !== 'string') {
+    return null;
+  }
+  return {
+    type: 'BATCH_DATA',
+    sessionId: String(raw.sessionId),
+    batchId: raw.batchId,
+    deviceId: String(raw.deviceId),
+    itemCount: Number(raw.itemCount),
+    body: raw.body,
+  };
+}
 
 const EVENT = 'RunwayWatchSession';
 const PATH = '/runway/v1/session';
@@ -110,7 +138,16 @@ export function createNativeWatchSession(
   const unsavedResults = new Map<string, string[]>();
 
   // 수신함에 남은 메시지는 리스너가 붙기 전까지 지우지 않는다(subscribe 때 drain으로 다시 받는다).
-  const handle = (raw: NativeEvent) => {
+  const handle = (input: NativeEvent | NativeBatch) => {
+    if (input.type === 'BATCH_DATA') {
+      // batch는 수신함이 아니라 네이티브 batch 저장소에 남는다. 리스너가 없으면 subscribe 때 다시 받는다.
+      const batch = toBatchEvent(input as NativeBatch);
+      if (batch) {
+        listeners.forEach(listener => listener(batch));
+      }
+      return;
+    }
+    const raw = input as NativeEvent;
     if (raw.type === 'SESSION_PREPARED') {
       // 기다리는 준비 요청이 없으면 지난 응답이므로 수신함에서 지운다.
       preparing.get(raw.sessionId)?.(raw);
@@ -136,7 +173,7 @@ export function createNativeWatchSession(
 
   source.addListener(EVENT, json => {
     try {
-      handle(JSON.parse(json) as NativeEvent);
+      handle(JSON.parse(json) as NativeEvent | NativeBatch);
     } catch {
       // 형식이 맞지 않는 이벤트는 버린다. 값은 로그에 남기지 않는다.
     }
@@ -150,8 +187,13 @@ export function createNativeWatchSession(
   return {
     getLinkedDevices: async () => null,
 
-    prepare: (sessionId, { stateVersion, goal }) =>
+    prepare: (sessionId, { stateVersion, deviceId, goal }) =>
       new Promise(resolve => {
+        // 워치 기기 ID가 없으면 batch 생산 기기를 정할 수 없어 보내지 않고 준비 실패로 답한다(9.3 SESSION_PREPARE).
+        if (!/^[1-9]\d*$/.test(deviceId)) {
+          resolve({ stateVersion, ready: false, reasonCode: 'DEVICE_ID_MISSING' });
+          return;
+        }
         const timer = setTimeout(() => {
           preparing.delete(sessionId);
           resolve({ stateVersion, ready: false, reasonCode: 'PREPARE_TIMEOUT' });
@@ -169,7 +211,8 @@ export function createNativeWatchSession(
           'prepare',
           'SESSION_PREPARE',
           sessionId,
-          `{"stateVersion":${stateVersion},"goal":${goalJson(goal)},"initialBpm":null}`,
+          `{"stateVersion":${stateVersion},"deviceId":${idToken(deviceId)},` +
+            `"goal":${goalJson(goal)},"initialBpm":null}`,
         ).catch(() => undefined);
       }),
 
@@ -207,6 +250,13 @@ export function createNativeWatchSession(
       );
     },
 
+    commitBatch: async (batchId, acceptedCount) => {
+      await native.commitBatch(batchId, acceptedCount);
+    },
+    failBatch: async (batchId, code) => {
+      await native.failBatch(batchId, code);
+    },
+
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
 
@@ -237,6 +287,10 @@ export function createNativeWatchSession(
         native
           .drainInbox()
           .then(json => (JSON.parse(json) as NativeEvent[]).forEach(handle))
+          .catch(() => undefined)
+          // 앱이 없던 동안 저장만 되고 올리지 못한 워치 batch.
+          .then(() => native.pendingBatches())
+          .then(json => (JSON.parse(json ?? '[]') as NativeBatch[]).forEach(handle))
           .catch(() => undefined)
           .finally(() => {
             draining = null;

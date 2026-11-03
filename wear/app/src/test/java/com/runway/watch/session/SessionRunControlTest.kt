@@ -49,7 +49,7 @@ class SessionRunControlTest {
 
     @Test
     fun `the snapshot follows the confirmed state and shows a request in flight`() = runBlocking {
-        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"goal":{},"initialBpm":null}"""))
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}"""))
         assertEquals(RunState.READY, control.snapshot.value.state)
 
         control.send(RunIntent.START)
@@ -66,7 +66,7 @@ class SessionRunControlTest {
 
     @Test
     fun `watch buttons become requests to the phone`() = runBlocking {
-        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"goal":{},"initialBpm":null}"""))
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}"""))
         control.send(RunIntent.CANCEL)
 
         assertEquals(listOf("SESSION_PREPARED", "COMMAND_REQUEST:CANCEL"), sender.types)
@@ -74,7 +74,7 @@ class SessionRunControlTest {
 
     @Test
     fun `problems become notices the runner can read`() = runBlocking {
-        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"goal":{},"initialBpm":null}"""))
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}"""))
         control.send(RunIntent.CANCEL)
         controller.onMessage(message("ERROR", """{"code":"COMMAND_PENDING","retryable":false,"failedType":"COMMAND_REQUEST"}"""))
 

@@ -297,5 +297,12 @@ export function createMockSession(options: Options = {}): Repositories['session'
         bump(stored);
         return view(stored);
       }),
+
+    // W07 목업: 받은 batch를 그대로 저장 확인한다. 본문의 id·items 개수만 읽는다.
+    uploadBatch: body =>
+      later(() => {
+        const parsed = JSON.parse(body) as { id: string; items: unknown[] };
+        return { status: 'COMMITTED', batchId: parsed.id, acceptedCount: parsed.items.length };
+      }),
   };
 }

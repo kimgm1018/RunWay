@@ -10,8 +10,13 @@ import java.util.concurrent.TimeUnit
 class WatchListenerService : WearableListenerService() {
   private val prefs by lazy { DailyHrPrefs(this) }
   private val sessionInbox by lazy { WatchSessionInbox(this) }
+  private val batches by lazy { WatchBatchStore(this) }
 
   override fun onMessageReceived(event: MessageEvent) {
+    if (event.path == BATCH_PATH) {
+      onBatch(event)
+      return
+    }
     if (event.path.startsWith(SESSION_PATH_PREFIX)) {
       onSessionMessage(event)
       return
@@ -44,6 +49,39 @@ class WatchListenerService : WearableListenerService() {
       }
     } catch (_: Exception) {
       // Stored messages stay in the inbox; the watch resends unconfirmed results.
+    }
+  }
+
+  /**
+   * BATCH_DATA (S15P31E105-311): store the body unchanged, answer BATCH_RECEIVED, then hand it to JS for W07.
+   * A resend of a saved batch gets BATCH_COMMITTED again, of a refused one the same ERROR; nothing is uploaded twice
+   * from here once it is COMMITTED.
+   */
+  private fun onBatch(event: MessageEvent) {
+    try {
+      val incoming = decodeBatchMessage(event.data) ?: return
+      val batch = when (val arrival = batches.arrive(incoming)) {
+        is BatchArrival.Stored -> arrival.batch
+        is BatchArrival.Known -> arrival.batch
+        // 같은 ID에 다른 내용이면 저장하지 않고, 64개 상한이면 받지 않는다. 워치는 ACK가 없으므로 저장 미확인으로 남긴다.
+        BatchArrival.Conflict, BatchArrival.Full -> return
+      }
+      val messages = Wearable.getMessageClient(this)
+      when (batch.status) {
+        BatchStatus.RECEIVED -> {
+          // JS first: a failed receipt must not keep the batch from its upload.
+          WatchSessionModule.emitter?.invoke(batchJsEvent(batch))
+          Tasks.await(messages.sendMessage(event.sourceNodeId, BATCH_RECEIVED_PATH, batchReceived(sessionInbox.nextMessageId(), batch)), 10, TimeUnit.SECONDS)
+        }
+        BatchStatus.COMMITTED -> {
+          Tasks.await(messages.sendMessage(event.sourceNodeId, BATCH_RECEIVED_PATH, batchReceived(sessionInbox.nextMessageId(), batch)), 10, TimeUnit.SECONDS)
+          Tasks.await(messages.sendMessage(event.sourceNodeId, BATCH_COMMITTED_PATH, batchCommitted(sessionInbox.nextMessageId(), batch)), 10, TimeUnit.SECONDS)
+        }
+        BatchStatus.FAILED ->
+          Tasks.await(messages.sendMessage(event.sourceNodeId, ERROR_PATH, batchError(sessionInbox.nextMessageId(), batch)), 10, TimeUnit.SECONDS)
+      }
+    } catch (_: Exception) {
+      // A stored batch is uploaded when JS drains it; the watch resends one it got no receipt for.
     }
   }
 }

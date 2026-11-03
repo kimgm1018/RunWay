@@ -6,6 +6,8 @@ export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   // Sent as JSON, or as multipart/form-data when it is a FormData (F01).
   body?: unknown;
+  // A JSON text sent as it is, e.g. a W07 batch whose bytes were hashed on the watch (S15P31E105-311).
+  jsonText?: string;
   query?: Record<string, string | number | boolean | null | undefined>;
   // U01 로그인·U15 가입·U16 아이디 확인 run without the access token (docs/design/api/README.md 인증 요청과 복구).
   auth?: boolean;
@@ -94,13 +96,14 @@ export async function apiRequest<T>(
   const {
     method = 'GET',
     body,
+    jsonText,
     query,
     auth = true,
     timeoutMs = defaultTimeoutMs,
   } = options;
   const form = body instanceof FormData;
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (body !== undefined && !form) {
+  if ((body !== undefined && !form) || jsonText !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
   const accessToken = auth ? tokenStore.current()?.accessToken : undefined;
@@ -116,7 +119,9 @@ export async function apiRequest<T>(
       method,
       headers,
       body:
-        body === undefined
+        jsonText !== undefined
+          ? jsonText
+          : body === undefined
           ? undefined
           : form
           ? (body as FormData)
