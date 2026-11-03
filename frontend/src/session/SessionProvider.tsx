@@ -4,12 +4,17 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
+import { serverHealthConsentReader } from '../health/serverHealthConsent';
 import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
-import { setWatchHealthConsent } from '../health/watchHealth';
+import {
+  refreshWatchHealthConsent,
+  setWatchHealthConsent,
+} from '../health/watchHealth';
 
 type SessionValue = {
   signedIn: boolean;
@@ -71,6 +76,23 @@ export function SessionProvider({
     tokenStore.clear().catch(() => {});
     setSignedIn(false);
   }, []);
+
+  // S15P31E105-313: a login or a restored session hands the server's current consent (W05) to the watch, since
+  // signOut left it at DISAGREE. If W05 cannot be read, only a saved consent whose delivery failed is re-sent.
+  // Signed out, it runs once at launch for a failed withdrawal. Fire and forget: a failed refresh or a missing
+  // watch never holds the sign-in.
+  const launchChecked = useRef(false);
+  useEffect(() => {
+    if (restoring) {
+      return;
+    }
+    if (signedIn || !launchChecked.current) {
+      void refreshWatchHealthConsent(
+        signedIn ? serverHealthConsentReader() : undefined,
+      );
+    }
+    launchChecked.current = true;
+  }, [signedIn, restoring]);
 
   // S15P31E105-281: the watch daily heart-rate estimate goes to W06 while signed in.
   useWatchDailyHrUpload(signedIn);
