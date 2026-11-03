@@ -23,7 +23,7 @@
 | `redis/compose.yaml`, `redis/start-redis.sh` | Redis 실행·Secret 주입·영속 저장 |
 | `backend/compose.yaml`, `backend/Dockerfile` | 백엔드 실행 설정·이미지 제작 |
 | `backend/deploy.sh`, `backend/check.sh` | 배포 전후 기동 검사·실패 시 이전 이미지 복구 |
-| `ai/Dockerfile`, `ai/compose.yaml` | FastAPI·GRU 후보 CPU 추론 이미지·내부 네트워크 실행 |
+| `ai/Dockerfile`, `ai/compose.yaml` | FastAPI·GRU/ODE CPU 추론 이미지·내부 네트워크 실행 |
 | `ai/deploy.sh`, `ai/check.sh`, `jenkins/Jenkinsfile.ai-cd` | AI 이미지·모델 교체, 상태 확인·복구와 master 배포 흐름 |
 | `certbot/runway-cert-renew.*` | 인증서 갱신 스크립트·systemd service/timer |
 | `backup/` | DB·업로드 파일 암호화 백업, 보관 정책·격리 복원 검사 |
@@ -58,9 +58,12 @@
   Android 공식 도구 다운로드·사용 전 약관을 확인하며 Dockerfile은 약관에 자동 동의하지 않는다.
 - AI 이미지는 저장소 루트에서 `docker build -f infra/ai/Dockerfile -t runway-ai:<버전> .`로 빌드한다.
   Python 3.12·CPU PyTorch를 사용하며, 모델 파일은 이미지에 포함하지 않는다.
-- AI Compose에는 `AI_IMAGE`·`AI_MODEL_FILE`·`HR_MODEL_SHA256`을 환경변수로 지정한다([예시](ai/.env.example)).
-  모델 파일은 읽기 전용으로 연결하며 컨테이너의 `HR_MODEL_PATH`는 `/models/gru_final.pt`다. 새 모델은 새 경로에 보관하고 기존 파일을 덮어쓰지 않는다.
-  현재 GRU는 후보 모델이며, 최종 모델 확정 시 연결 코드·의존성을 재확인한다. 자세한 기준은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
+- AI 모델은 `ai/models.json`의 고정 HF revision·SHA로 4개를 준비한다. `AI_MODELS_ROOT`를 UID 10001 소유로 먼저 만들고,
+  Jenkins Secret text `runway-hf-read-token`을 등록한다. 모델은 버전별 읽기 전용 폴더에 두며 이미지·Git에 넣지 않는다.
+- AI DB 계정은 EC2에서 `sudo python3 <prepare_db.py 경로> --container <DB 컨테이너> --secret-file <Secret 경로>`로 준비한다.
+  `AI_DB_URL_FILE`로 파일 경로만 전달한다. 계정은 CONNECT·USAGE·courses SELECT만 먼저 받고,
+  배포 시 V10 완료 후 user_hr_personalization SELECT를 추가한다. user_gru_personalization과 미래 테이블 전체 권한은 제외한다.
+  변수·기능 기본값은 [예시](ai/.env.example), API·모델 계약은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
 
 ## 적용 순서
 
@@ -80,8 +83,8 @@
 4. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
 5. AI를 실행할 때는 준비한 변수를 환경변수 또는 `--env-file <설정 파일>`로 전달하고
    `docker compose -f ~/runway/infra/ai/compose.yaml up -d --wait`를 실행한다.
-   모델 로드까지 완료되어야 정상으로 판단한다. 현재 GRU 기준은 CPU 1개·메모리 1GiB다.
-   외부 포트 없이 내부 네트워크 `runway-ai_default`를 사용하며, 백엔드 연결은 후속 적용한다.
+   GRU·ODE 모델 로드까지 완료되어야 정상으로 판단한다. CPU 1개·메모리 1GiB 제한에서 실제 사용량을 확인한다.
+   외부 포트 없이 `runway-ai_default`와 DB 내부 네트워크에 연결하며, 백엔드 호출 연결은 후속 적용한다.
 6. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
 
 ## Jenkins 설정
@@ -99,7 +102,7 @@
 | 모바일 APK | `runway-mobile-apk`, `infra/jenkins/Jenkinsfile.mobile-apk`. master Push 후 ARM64 디버그 APK 생성·보관, 산출물은 최근 5개 빌드 기준으로 제한. 정식 출시 서명·스토어 배포 제외 |
 | 워치 APK | `runway-watch-apk`, `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
 | 백엔드 CD | `runway-backend-cd`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.backend-cd`. master Push 배포 |
-| AI CD | `infra/jenkins/Jenkinsfile.ai-cd`. master 전용, 초기에는 `DEPLOY` 해제. 모델은 `MODEL_FILE`·`MODEL_SHA256`(수동) 또는 `AI_MODEL_FILE`·`HR_MODEL_SHA256`(Jenkins)으로 지정하며 실패 시 이전 이미지·모델로 복구. Job·Webhook 연결 예정 |
+| AI CD | `infra/jenkins/Jenkinsfile.ai-cd`. master 전용. `AI_MODELS_ROOT`·`AI_DB_URL_FILE`을 지정한다. 모델 준비 → V10/읽기 권한 → 사전 로드 → 교체/검사 순서이며, 실패 시 이전 이미지·모델·공개 설정을 복구. `DEPLOY=false`, `PREPARE_MODELS=true`는 운영 교체 없이 모델만 준비 |
 | 기존 단독 CI | `Jenkinsfile.backend`·`Jenkinsfile.mobile`은 기존 단독 검사 파일이며 신규 MR 검사는 통합 CI 사용 |
 | 권한 | 관리자와 조회 권한 분리. 익명 접근·자가 가입 제외 |
 
@@ -111,6 +114,12 @@
 | 모바일 | MR·master 모두 팀 테스트용 ARM64 APK 빌드. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
 | 워치 | 검사·빌드 시간과 JUnit·Lint·Gradle profile 보고서 보관 |
 | AI | MR CI는 모델 없는 API·배포 회귀 테스트를 수행하고 실제 모델 테스트 생략 여부를 JUnit에 기록. 실제 모델 로드·예측은 별도로 검증 |
+
+AI 배포는 `.env` 자동 로딩을 사용하지 않는다. Jenkins가 전달한 값과 검증된 모델 설정만 사용하며,
+HF 토큰은 다운로드 단계에만 주입한다. DB Secret은 컨테이너 시작 시 파일에서 읽고 복구 기록에 저장하지 않는다.
+GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09를 검증할 때는 `PERSONAL_PLAN_EXPERIMENTAL_ENABLED=true`와 유효한 코스를 준비한다.
+`bash infra/ai/verify-isolated.sh <실행 이미지> <공개 모델 설정 파일> <PostGIS 이미지>`는 합성 코스 DB·기동 API·실패 롤백을 별도 환경에서 검증하고 정리한다.
+짧은 요청의 메모리 측정은 장거리·동시 부하 성능 보장과 구분한다.
 
 모바일·워치 debug APK는 같은 테스트 서명을 사용하며 서명 변경 시 두 앱을 모두 검사한다.
 Data Layer 실기기 검증에는 applicationId·서명 인증서가 모두 일치해야 한다. APK 생성 성공과 설치·연결 성공은 구분한다.

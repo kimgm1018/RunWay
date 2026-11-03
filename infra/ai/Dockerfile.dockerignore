@@ -10,6 +10,8 @@
 !ai/service/app/**
 !ai/service/tools/
 !ai/service/tools/**
+!ai/service/scripts/
+!ai/service/scripts/**
 !ai/workspace/
 !ai/workspace/doyeon/
 !ai/workspace/doyeon/gru/
@@ -26,6 +28,11 @@
 !infra/ai/check.sh
 !infra/ai/deploy.sh
 !infra/ai/compose.yaml
+!infra/ai/public-settings.sh
+!infra/ai/preflight.py
+!infra/ai/prepare_models.py
+!infra/ai/models.json
+!infra/ai/grant-readonly.sh
 !infra/ai/tests/
 !infra/ai/tests/**
 # 허용한 코드 폴더 안에서도 환경 파일·Python 캐시는 제외한다.

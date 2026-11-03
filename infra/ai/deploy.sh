@@ -12,6 +12,7 @@ next_model=$3
 next_sha=$4
 project=${COMPOSE_PROJECT_NAME:-runway-ai}
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$script_dir/public-settings.sh"
 [[ $project =~ ^[a-z0-9][a-z0-9_-]*$ ]] || exit 2
 [[ $compose_file == /* && -r $compose_file && $next_model == /* ]] || exit 2
 [[ $next_model != *$'\n'* && $next_model != *$'\r'* ]] || exit 2
@@ -19,29 +20,42 @@ for tool in docker flock; do command -v "$tool" >/dev/null || exit 2; done
 
 state_dir=${5:-/home/jenkins/agent/deploy-state/ai/$project}
 mkdir -p "$state_dir"
+chmod 700 "$state_dir"
 exec 9>"$state_dir/deploy.lock"
 flock -n 9 || { echo '같은 AI 프로젝트가 이미 배포 중입니다.' >&2; exit 2; }
-compose() {
-    local image=$1 model=$2 sha=$3 model_dir
+next_settings="$state_dir/next-public-settings.sh"
+previous_settings="$state_dir/previous-public-settings.sh"
+write_settings "$next_settings"
+
+compose() (
+    local image=$1 model=$2 sha=$3 settings=$4 model_dir key
     model_dir=$(dirname -- "$model")
-    shift 3
+    shift 4
+    for key in "${PUBLIC_KEYS[@]}"; do unset "$key"; done
+    source "$settings"
     AI_IMAGE="$image" AI_MODEL_FILE="$model" AI_MODEL_DIR="$model_dir" HR_MODEL_SHA256="$sha" \
         docker compose --env-file /dev/null -p "$project" -f "$compose_file" "$@"
-}
-check_current() {
-    local image=$1 model=$2 sha=$3 expected_id=$4 id
-    id=$(compose "$image" "$model" "$sha" ps -a -q ai) || return 1
+)
+check_current() (
+    local image=$1 model=$2 sha=$3 expected_id=$4 settings=$5 id key
+    id=$(compose "$image" "$model" "$sha" "$settings" ps -a -q ai) || return 1
     [[ -n $id && $id != *$'\n'* ]] || return 1
-    bash "$script_dir/check.sh" "$id" "$expected_id" "$sha"
-}
+    for key in "${PUBLIC_KEYS[@]}"; do unset "$key"; done
+    source "$settings"
+    local require_ode=false
+    [[ -z ${ODEV21_CHECKPOINT_PATH:-} ]] || require_ode=true
+    bash "$script_dir/check.sh" "$id" "$expected_id" "$sha" 120 "$require_ode" \
+        "${ODEV21_CHECKPOINT_SHA256:-}" "${ODEV21_SUMMARY_STATS_SHA256:-}" "${ODEV21_POPULATION_BUNDLE_SHA256:-}"
+)
 record_current() {
     printf '%s\n' "$1" "$2" "$3" >"$state_dir/current-release.tmp"
     mv "$state_dir/current-release.tmp" "$state_dir/current-release"
+    cp -- "$4" "$state_dir/current-public-settings.sh"
 }
 
 next_id=$(docker image inspect --format '{{.Id}}' "$next_image")
-compose "$next_image" "$next_model" "$next_sha" config --quiet
-previous_container=$(compose "$next_image" "$next_model" "$next_sha" ps -a -q ai)
+compose "$next_image" "$next_model" "$next_sha" "$next_settings" config --quiet
+previous_container=$(compose "$next_image" "$next_model" "$next_sha" "$next_settings" ps -a -q ai)
 [[ $previous_container != *$'\n'* ]] || exit 2
 previous_id=
 previous_model=
@@ -56,17 +70,42 @@ if [[ -n $previous_container ]]; then
         echo '모델 버전 변경 시 기존 파일을 덮어쓰지 말고 새 파일 경로를 사용하세요.' >&2
         exit 2
     fi
-    check_current "$previous_id" "$previous_model" "$previous_sha" "$previous_id"
+    # 실행 중 컨테이너에서 허용한 공개 값만 가져온다. Secret은 기록하지 않는다.
+    captured=$(docker exec "$previous_container" python -c '
+import os, sys
+for key in sys.argv[1:]:
+    sys.stdout.buffer.write(os.environ.get(key, "").encode() + b"\0")
+' "${PUBLIC_KEYS[@]}" | base64 -w 0)
+    mapfile -d '' -t previous_values < <(printf '%s' "$captured" | base64 -d)
+    [[ ${#previous_values[@]} == ${#PUBLIC_KEYS[@]} ]] || exit 2
+    write_settings "$previous_settings" "${previous_values[@]}"
+    if [[ $(dirname -- "$previous_model") == $(dirname -- "$next_model") ]]; then
+        for key in ODEV21_CHECKPOINT_SHA256 ODEV21_SUMMARY_STATS_SHA256 ODEV21_POPULATION_BUNDLE_SHA256; do
+            old_value=$(source "$previous_settings"; printf '%s' "${!key-}")
+            if [[ $old_value != "${!key-}" ]]; then
+                echo 'ODE·평균 묶음 변경도 새 모델 폴더를 사용해야 합니다.' >&2
+                exit 2
+            fi
+        done
+    fi
+    check_current "$previous_id" "$previous_model" "$previous_sha" "$previous_id" "$previous_settings"
 fi
 
 # 교체 전에 새 이미지가 모델을 읽을 수 있는지 독립 컨테이너로 검사한다.
 # --mount는 모델 파일이 없으면 실패하며 잘못된 디렉터리를 만들지 않는다.
-docker run --rm --pull never --network none --read-only --memory 1g --cpus 1 \
-    --tmpfs /tmp:rw,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges:true \
-    --mount "type=bind,source=$next_model,target=/models/gru_final.pt,readonly" \
-    -e HR_MODEL_PATH=/models/gru_final.pt -e HR_MODEL_SHA256="$next_sha" \
-    -e HR_DEVICE=cpu -e TORCH_NUM_THREADS=1 "$next_id" \
-    python -c 'from app.main import default_loader; model=default_loader(); print("새 AI 이미지·모델 로드 사전 검증 통과")'
+(
+    source "$next_settings"
+    env_flags=()
+    for key in "${PUBLIC_KEYS[@]}"; do env_flags+=(-e "$key"); done
+    docker run --rm --pull never --network none --read-only --memory 1g --cpus 1 \
+        --tmpfs /tmp:rw,nosuid,size=64m --cap-drop ALL --security-opt no-new-privileges:true \
+        --mount "type=bind,source=$next_model,target=/models/gru_final.pt,readonly" \
+        --mount "type=bind,source=$(dirname -- "$next_model"),target=/models/ode,readonly" \
+        "${env_flags[@]}" -e AI_DB_URL= \
+        -e HR_MODEL_PATH=/models/gru_final.pt -e HR_MODEL_SHA256="$next_sha" \
+        -e HR_DEVICE=cpu -e TORCH_NUM_THREADS=1 "$next_id" \
+        python -c "$(cat "$script_dir/preflight.py")"
+)
 
 if [[ -n $previous_id ]]; then
     docker image tag "$previous_id" "runway-ai:previous-$project"
@@ -80,16 +119,16 @@ rollback() {
     if [[ $started == true ]]; then
         if [[ -n $previous_id ]]; then
             echo 'AI 배포 확인 실패: 이전 이미지·모델로 복구합니다.' >&2
-            if compose "$previous_id" "$previous_model" "$previous_sha" up -d --no-deps --no-build --pull never ai \
-                && check_current "$previous_id" "$previous_model" "$previous_sha" "$previous_id"; then
-                record_current "$previous_id" "$previous_model" "$previous_sha"
+            if compose "$previous_id" "$previous_model" "$previous_sha" "$previous_settings" up -d --no-deps --no-build --pull never ai \
+                && check_current "$previous_id" "$previous_model" "$previous_sha" "$previous_id" "$previous_settings"; then
+                record_current "$previous_id" "$previous_model" "$previous_sha" "$previous_settings"
                 echo 'AI 이전 버전 복구 완료. 이번 배포 결과는 실패입니다.' >&2
             else
                 echo 'AI 복구 확인도 실패했습니다. 수동 확인이 필요합니다.' >&2
             fi
         else
             # 첫 배포에는 이전 버전이 없으므로 이번에 만든 AI 서비스만 제거한다.
-            compose "$next_image" "$next_model" "$next_sha" rm -s -f ai || true
+            compose "$next_image" "$next_model" "$next_sha" "$next_settings" rm -s -f ai || true
             echo '첫 AI 배포 실패: 새 서비스 정리 완료 여부를 확인하세요.' >&2
         fi
     fi
@@ -99,9 +138,9 @@ trap rollback EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 started=true
-compose "$next_image" "$next_model" "$next_sha" up -d --no-deps --no-build --pull never ai
-check_current "$next_image" "$next_model" "$next_sha" "$next_id"
-record_current "$next_image" "$next_model" "$next_sha"
+compose "$next_image" "$next_model" "$next_sha" "$next_settings" up -d --no-deps --no-build --pull never ai
+check_current "$next_image" "$next_model" "$next_sha" "$next_id" "$next_settings"
+record_current "$next_image" "$next_model" "$next_sha" "$next_settings"
 started=false
 trap - EXIT INT TERM
 echo "AI 배포 확인 완료: $next_image"
