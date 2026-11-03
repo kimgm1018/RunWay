@@ -332,6 +332,7 @@ export function createMockRepositories(
   // 7.3 shares and 7.4b lists the runs this mock keeps, including ones saved while the app runs.
   const social = createCommunityMock({
     respond: value => respond(value, options),
+    fail: error => fail(error, options),
     records: () => records,
   });
   let music = musicFor(options.scenario);

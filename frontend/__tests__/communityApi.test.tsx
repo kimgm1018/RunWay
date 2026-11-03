@@ -198,3 +198,89 @@ test('7.2 shows the comments with what is known of their authors and adds mine',
   expect(page).toContain('같이 달려요');
   expect(page).toContain('나');
 });
+
+test('7.2 edits and deletes my comment through CMT08 · CMT09 and keeps it when that fails', async () => {
+  // Each PATCH or DELETE /comments/2 takes the next answer.
+  const answers = [
+    () => respond(403, { code: 'NOT_AUTHOR', message: '' }),
+    () =>
+      respond(200, {
+        id: 2,
+        body: '다음 주에 같이 달려요',
+        updatedAt: createdAt,
+      }),
+    () => Promise.reject(new TypeError('Network request failed')),
+    () => respond(404, { code: 'COMMENT_NOT_FOUND', message: '' }),
+    () => respond(200, { deletedAt: createdAt }),
+  ];
+  const base = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, init: { method: string }) =>
+    url.endsWith('/comments/2') ? answers.shift()!() : base(url, init),
+  );
+  const screen = await openCommunity();
+  await press(screen, '서윤의 게시물');
+  const menus = () =>
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === '댓글 메뉴' &&
+        typeof node.props.onPress === 'function',
+    ).length;
+  // Someone else's comment has no menu.
+  expect(menus()).toBe(0);
+  await act(async () => {
+    labelled(screen, '댓글 입력', 'onChangeText').props.onChangeText(
+      '같이 달려요',
+    );
+  });
+  await press(screen, '게시');
+  expect(menus()).toBe(1);
+
+  const edit = async (text: string) => {
+    await press(screen, '댓글 메뉴');
+    await press(screen, '댓글 수정');
+    await act(async () => {
+      labelled(screen, '댓글 입력', 'onChangeText').props.onChangeText(text);
+    });
+    await press(screen, '댓글 수정 저장');
+    await settle(50);
+  };
+  await edit('다음 주에 같이 달려요');
+  let page = texts(screen);
+  expect(page).toContain('내가 쓴 댓글만 수정할 수 있어요');
+  expect(page).toContain('같이 달려요');
+  await press(screen, '수정 취소');
+
+  await edit('다음 주에 같이 달려요');
+  page = texts(screen);
+  expect(page).toContain('댓글을 수정했어요');
+  expect(page).toContain('다음 주에 같이 달려요');
+  const patch = fetchMock.mock.calls.filter(
+    ([url, init]) => url.endsWith('/comments/2') && init.method === 'PATCH',
+  );
+  expect(JSON.parse(patch[patch.length - 1][1].body)).toEqual({
+    body: '다음 주에 같이 달려요',
+  });
+
+  const remove = async () => {
+    await press(screen, '댓글 메뉴');
+    await press(screen, '삭제');
+    expect(texts(screen)).toContain('댓글을 삭제할까요?');
+    await press(screen, '삭제');
+    await settle(50);
+  };
+  await remove();
+  page = texts(screen);
+  expect(page).toContain(
+    '댓글을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+  expect(page).toContain('다음 주에 같이 달려요');
+  await remove();
+  page = texts(screen);
+  expect(page).toContain('이미 삭제된 댓글이에요');
+  expect(page).toContain('다음 주에 같이 달려요');
+  await remove();
+  page = texts(screen);
+  expect(page).toContain('댓글을 삭제했어요');
+  expect(page).not.toContain('다음 주에 같이 달려요');
+  expect(menus()).toBe(0);
+});

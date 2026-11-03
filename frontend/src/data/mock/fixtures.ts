@@ -1213,8 +1213,9 @@ const sharedRun = (
   cadence: heart[1],
 });
 
+// isMine is worked out from the author, as for the post.
 export type PostFixture = Omit<Post, 'isMine' | 'commentCount'> & {
-  comments: PostComment[];
+  comments: Omit<PostComment, 'isMine'>[];
 };
 
 // 7.1 피드, newest first. The 7.4 lists show each runner's posts.
