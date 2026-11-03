@@ -1,13 +1,20 @@
 import React, { useCallback } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Icon } from '../../components';
+import { AppText, Icon, LightGlass } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
-import { formatDuration, formatKm, formatPace, isNight } from '../../format';
+import {
+  formatDuration,
+  formatKm,
+  formatPace,
+  isNight,
+  withoutDistance,
+} from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { k1, radius, spacing, useTheme } from '../../theme';
+import { fontFamily, radius, spacing, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
-import { k1PaceColors, MockMap } from './MockMap';
+import { coursePaceColors } from './CourseMockMap';
+import { MockMap } from './MockMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 
@@ -17,7 +24,7 @@ const loadCourse = (repositories: Repositories) =>
     repositories.run.getCurrentPlace(),
   ]);
 
-function ChangeLink() {
+function ChangeLink({ large = false }: { large?: boolean }) {
   const navigation = useNavigation();
   return (
     <Pressable
@@ -26,29 +33,35 @@ function ChangeLink() {
       onPress={() => navigateTo(navigation, 'TodayRun')}
       hitSlop={8}
     >
-      <AppText variant="captionStrong">변경</AppText>
+      <AppText
+        variant="captionStrong"
+        style={large ? styles.changeText : undefined}
+      >
+        변경
+      </AppText>
     </Pressable>
   );
 }
 
-// Legend for the segment colors: 빠름 ■■■ 느림, in the K1 map's scale.
+// Legend for the segment colors: 빠름 ■■■ 느림, a small glass pill (runway-course-handoff PaceLegend).
 function PaceLegend() {
-  const { colors } = useTheme();
   return (
-    <View style={[styles.legend, { backgroundColor: colors.surfaceRaised }]}>
-      <AppText variant="labelStrong">빠름</AppText>
-      {k1PaceColors.map(color => (
+    <LightGlass radius={11} style={styles.legend}>
+      <AppText style={[styles.legendText, styles.legendStart]}>빠름</AppText>
+      {coursePaceColors.map(color => (
         <View
           key={color}
           style={[styles.legendBar, { backgroundColor: color }]}
         />
       ))}
-      <AppText variant="labelStrong">느림</AppText>
-    </View>
+      <AppText style={[styles.legendText, styles.legendEnd]}>느림</AppText>
+    </LightGlass>
   );
 }
 
-// 2.0 코스 러닝 (낮) and 2.0N (밤): the chosen course with a pace per km, ready to start.
+// 2.0 코스 러닝 (낮) and 2.0N (밤): the chosen course with a pace per km, ready to start. By day the
+// runway-course-handoff screen: a glass strategy bar, the legend, the hollow pace-colored course and a
+// glass strategy sheet.
 export function CourseRunScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -66,30 +79,31 @@ export function CourseRunScreen() {
       }
     : null;
 
+  const title = plan
+    ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
+    : '';
   const top = !plan ? null : night && place ? (
     <PlaceCard name={place.name} gps={place.gps} />
   ) : (
     <>
-      <View style={[styles.topCard, { backgroundColor: colors.surfaceRaised }]}>
+      <LightGlass radius={31} style={styles.topBar}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="뒤로"
           onPress={navigation.goBack}
-          hitSlop={12}
+          hitSlop={8}
           style={styles.back}
         >
-          <Icon name="back" color={colors.text} size={18} />
+          <Icon name="back" color={ink} size={20} strokeWidth={2} />
         </Pressable>
         <View style={styles.flex}>
-          <AppText variant="label" tone="textTertiary">
-            오늘의 러닝 전략
-          </AppText>
-          <AppText variant="bodyStrong" numberOfLines={1}>
-            {`${plan.name} ${formatKm(plan.distanceM, 1)}km`}
+          <AppText style={styles.kicker}>오늘의 러닝 전략</AppText>
+          <AppText style={styles.topTitle} numberOfLines={1}>
+            {title}
           </AppText>
         </View>
-        <ChangeLink />
-      </View>
+        <ChangeLink large />
+      </LightGlass>
       <PaceLegend />
     </>
   );
@@ -111,7 +125,7 @@ export function CourseRunScreen() {
             코스 러닝
           </AppText>
           <AppText variant="heading" numberOfLines={1}>
-            {`${plan.name} · ${formatKm(plan.distanceM, 1)}km`}
+            {`${withoutDistance(plan.name)} · ${formatKm(plan.distanceM, 1)}km`}
           </AppText>
         </View>
         <ChangeLink />
@@ -120,19 +134,17 @@ export function CourseRunScreen() {
     </>
   ) : (
     <>
-      <View style={styles.strategy}>
-        <AppText variant="label" tone="textTertiary">
-          오늘의 전략
+      <View>
+        <AppText style={styles.kickerSheet}>오늘의 전략</AppText>
+        <AppText style={styles.strategy} numberOfLines={1} adjustsFontSizeToFit>
+          {plan.strategy}
         </AppText>
-        <AppText variant="heading">{plan.strategy}</AppText>
-        <AppText variant="label" tone="textSecondary">
+        <AppText style={styles.goal} numberOfLines={1}>
           {`목표 ${formatPace(plan.targetPaceSecPerKm)} · 예상 ${formatDuration(
             plan.expectedDurationSec,
           )}`}
           {plan.caution ? (
-            <AppText variant="labelStrong" tone="danger">
-              {` · ${plan.caution}`}
-            </AppText>
+            <AppText style={styles.caution}>{` · ${plan.caution}`}</AppText>
           ) : null}
         </AppText>
       </View>
@@ -158,34 +170,84 @@ export function CourseRunScreen() {
   );
 }
 
+const ink = '#02050E';
+const grey = '#95969A';
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  // White card with a bare back chevron (DESIGN.md 2-6 지도 위 흰 카드).
-  topCard: {
+  // The glass strategy bar: a bare back chevron, the course and 변경.
+  topBar: {
+    height: 62,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingVertical: 14,
-    paddingLeft: 12,
+    gap: 6,
+    paddingLeft: 8,
     paddingRight: 18,
-    borderRadius: 24,
-    shadowColor: k1.night,
-    shadowOpacity: 0.12,
-    shadowRadius: 13,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
   },
-  back: { width: 24, alignItems: 'center' },
+  back: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kicker: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: grey,
+  },
+  topTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: ink,
+  },
+  changeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: ink,
+  },
   legend: {
     alignSelf: 'flex-end',
+    height: 22,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
+    gap: 4,
+    paddingHorizontal: 10,
+    boxShadow: '0 4px 14px rgba(30,45,60,0.12)',
   },
+  legendText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 11,
+    lineHeight: 14,
+    color: ink,
+  },
+  legendStart: { marginRight: 2 },
+  legendEnd: { marginLeft: 2 },
   legendBar: { width: 14, height: 5, borderRadius: 3 },
+  kickerSheet: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: grey,
+  },
+  strategy: {
+    marginTop: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 27,
+    letterSpacing: -0.5,
+    color: ink,
+  },
+  goal: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#67696E',
+  },
+  caution: { fontFamily: fontFamily.bold, color: '#C4644B' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   tile: {
     width: 38,
@@ -194,5 +256,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  strategy: { gap: spacing.xs },
 });

@@ -223,7 +223,7 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(screen, '러닝 시작');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '코스 러닝');
-  expect(texts(screen)).toContain('어디서, 얼마나 달릴까요?');
+  expect(texts(screen)).toContain('환경 · 여러 개 선택');
   await act(async () => screen.unmount());
 
   const free = await render();

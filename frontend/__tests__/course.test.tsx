@@ -84,7 +84,7 @@ test('today’s run works out pace and finish time from the distance', async () 
   const screen = await openTodayRun();
   let page = texts(screen);
   for (const text of [
-    '어디서, 얼마나 달릴까요?',
+    '환경 · 여러 개 선택',
     '광안리해수욕장 · 현재 위치',
     '목표 완주 시간',
     '6′00″',
@@ -129,13 +129,18 @@ test('recommended courses turn over to their detail and lead to the course run',
   await press(screen, '코스 추천 받기');
   let page = texts(screen);
   expect(page).toContain('1 / 4');
-  expect(page).toContain('민락수변공원 출발 5.0km');
-  expect(page).toContain('카드를 누르면 코스 정보를 볼 수 있어요');
+  // The card puts the distance in its own pill, so the name loses its trailing 5.0km.
+  expect(page).toContain('민락수변공원 출발');
+  expect(page).toContain('5.0km');
+  expect(page).toContain('목표 6′00″/km');
+  expect(page).toContain('이 코스로 달리기');
   await press(screen, '민락수변공원 출발 5.0km, 코스 정보 보기');
   expect(() =>
     labelled(screen, '민락수변공원 출발 5.0km, 앞면 보기'),
   ).not.toThrow();
   page = texts(screen);
+  // The page count steps aside while the card in view shows its back.
+  expect(page).not.toContain('1 / 4');
   for (const text of ['순환', '공원 · 하천변 · 평지', '추천 이유', '↑12']) {
     expect(page).toContain(text);
   }
@@ -146,13 +151,15 @@ test('recommended courses turn over to their detail and lead to the course run',
     screen.root
       .findAll(
         node =>
-          node.props.accessibilityLabel === '코스 선택' &&
+          node.props.accessibilityLabel === '이 코스로 달리기' &&
           typeof node.props.onPress === 'function',
       )[0]
       .props.onPress();
   });
   await settle();
-  expect(texts(screen)).toContain('민락수변공원 출발 5.0km 5.0km');
+  // The name already ends in its distance, so the bar shows it once.
+  expect(texts(screen)).toContain('민락수변공원 출발 5.0km');
+  expect(texts(screen)).not.toContain('민락수변공원 출발 5.0km 5.0km');
   expect(texts(screen)).toContain('오늘의 러닝 전략');
   await act(async () => screen.unmount());
 });
@@ -166,8 +173,8 @@ test.each([
     const screen = await openTodayRun(scenario);
     await press(screen, '코스 추천 받기');
     expect(texts(screen)).toContain(message);
-    expect(texts(screen)).toContain('어디서, 얼마나 달릴까요?');
-    expect(() => labelled(screen, '조건 변경')).toThrow();
+    expect(texts(screen)).toContain('환경 · 여러 개 선택');
+    expect(() => labelled(screen, '이 코스로 달리기')).toThrow();
     await act(async () => screen.unmount());
   },
 );
@@ -181,7 +188,8 @@ test('saved courses show nicknames, undo an unsave and open the course run', asy
     '민락수변 왕복',
     '수영강 하천길',
     '이기대 갈맷길',
-    'APEC 나루공원 루프',
+    // Too long for one line on the card, so it breaks at a space.
+    'APEC\n나루공원 루프',
   ]) {
     expect(page).toContain(text);
   }

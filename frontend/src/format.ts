@@ -118,3 +118,9 @@ export function isNight(now: Date) {
   const minuteOfDay = hours * 60 + minutes;
   return minuteOfDay >= 17 * 60 + 40 || minuteOfDay < 6 * 60 + 30;
 }
+
+// Some course names already end in their distance (민락수변공원 출발 5.0km), so it is dropped before the
+// real distance goes on.
+export function withoutDistance(name: string) {
+  return name.replace(/\s*\d+(\.\d+)?\s*km$/, '');
+}
