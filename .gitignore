@@ -99,3 +99,6 @@ temp/
 
 # EC2 uploaded image binaries
 /data/images/
+
+wandb/
+__pycache__/
