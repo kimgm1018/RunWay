@@ -50,6 +50,7 @@ import {
   useTheme,
   widgetPalette,
 } from '../../theme';
+import { RetryNotice, useHomeRefresh } from './parts';
 
 const { steel, graphite, core } = widgetPalette;
 const gap = 10;
@@ -1179,6 +1180,7 @@ function GroupWidget({ run }: { run: GroupRunSummary }) {
 export function HomeWidgets({ today }: { today: TodayCondition }) {
   const { width } = useWindowDimensions();
   const board = useResource(useCallback(loadBoard, []));
+  useHomeRefresh(board.refresh);
   const data = board.status === 'ready' ? board.data : null;
   const half = (width - spacing.screen * 2 - gap) / 2;
   const full = width - spacing.screen * 2;
@@ -1208,17 +1210,10 @@ export function HomeWidgets({ today }: { today: TodayCondition }) {
       {data?.upcoming ? <GroupWidget run={data.upcoming} /> : null}
       {board.status === 'error' ? (
         // The course plan, my runs or group runs did not load: the widgets above show – – and this offers a retry.
-        <View style={styles.boardNotice}>
-          <AppText variant="caption" tone="textSecondary">
-            러닝 기록·그룹런 정보를 불러오지 못했어요
-          </AppText>
-          <Button
-            title="다시 시도"
-            variant="secondary"
-            size="small"
-            onPress={board.reload}
-          />
-        </View>
+        <RetryNotice
+          message="러닝 기록·그룹런 정보를 불러오지 못했어요"
+          onRetry={board.reload}
+        />
       ) : null}
     </View>
   );
@@ -1229,7 +1224,6 @@ const styles = StyleSheet.create({
   center: { alignSelf: 'center' },
   centerText: { textAlign: 'center' },
   board: { gap },
-  boardNotice: { alignItems: 'flex-start', gap: spacing.md },
   pair: { flexDirection: 'row', gap },
   // DESIGN.md 2-1: corner 30, inside 18, pressed boxes shrink to 96%.
   widget: { borderRadius: 30, overflow: 'hidden', padding: 18 },
