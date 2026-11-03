@@ -17,7 +17,7 @@ import {
 import { AppText, Backdrop, Button, IconButton, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
+import { fontFamily, k1Gradient, size, spacing, useTheme } from '../../theme';
 import { GlassCard, HomeRefreshProvider, RetryNotice } from './parts';
 import { AnalysisCard, CoursesCard, RecordsCard } from './sections';
 import { HomeWidgets } from './widgets';
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: k1.top,
+    backgroundColor: k1Gradient.colors[0],
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   header: {
