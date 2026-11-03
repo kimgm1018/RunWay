@@ -122,7 +122,7 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   expect(page).not.toContain('불러오지 못했어요');
 });
 
-test('2.1 says when the analysis did not load and loads it again on retry', async () => {
+test('2.1 says when this month did not load and loads it again on retry', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const getMonthlySummary = repositories.home.getMonthlySummary;
   const failing = jest
@@ -130,16 +130,17 @@ test('2.1 says when the analysis did not load and loads it again on retry', asyn
     .mockRejectedValue(offline());
   const screen = await launch(repositories);
 
-  expect(texts(screen)).toContain('러닝 분석을 불러오지 못했어요');
+  expect(texts(screen)).toContain('이번 달 기록을 불러오지 못했어요');
   expect(texts(screen)).toContain('러닝 시작');
+  expect(texts(screen)).not.toContain('누적 34km');
 
   failing.mockImplementation(getMonthlySummary);
   await act(async () => retry(screen).props.onPress());
   await settle();
   await settle();
 
-  expect(texts(screen)).not.toContain('러닝 분석을 불러오지 못했어요');
-  expect(texts(screen)).toContain('러닝 분석');
+  expect(texts(screen)).not.toContain('이번 달 기록을 불러오지 못했어요');
+  expect(texts(screen)).toContain('누적 34km · 7회');
 });
 
 test('2.1 says when today’s condition did not load, with the other sections still shown', async () => {
@@ -153,23 +154,4 @@ test('2.1 says when today’s condition did not load, with the other sections st
   expect(page).toContain('오늘 컨디션을 불러오지 못했어요');
   expect(page).toContain('러닝 분석');
   expect(page).toContain('과거 러닝 기록');
-});
-
-test('2.1 stays on the home with a toast when a saved course cannot be chosen', async () => {
-  const repositories = createMockRepositories({ latencyMs: 0 });
-  jest.spyOn(repositories.courses, 'choose').mockRejectedValue(offline());
-  const screen = await launch(repositories);
-  const course = screen.root.findAll(
-    node =>
-      node.props.accessibilityHint === '이 코스로 러닝을 준비해요' &&
-      typeof node.props.onPress === 'function',
-  )[0];
-
-  await act(async () => course.props.onPress());
-  await settle();
-
-  expect(texts(screen)).toContain(
-    '코스를 고르지 못했어요. 잠시 후 다시 시도해 주세요',
-  );
-  expect(texts(screen)).toContain('저장한 코스');
 });

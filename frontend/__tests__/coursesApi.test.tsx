@@ -248,9 +248,10 @@ afterEach(async () => {
 test('2.1 lists my saved courses from the server', async () => {
   const screen = await launch();
   const page = texts(screen);
+  // 2.1 저장한 코스 shows how many there are and the first one's distance (S15P31E105-367).
   expect(page).toContain('저장한 코스');
-  expect(page).toContain('내 아침 코스');
-  expect(page).toContain('5.0km 코스');
+  expect(page).toContain('2개 코스');
+  expect(page).toContain('5.0km');
 });
 
 test('3.1c shows the server list and an unsave goes to the server', async () => {

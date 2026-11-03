@@ -81,7 +81,9 @@ async function startRun(
   await settle();
   await settle();
   if (kind === 'course') {
-    await press(screen!, '광안대교 루프, 5.0km · 30분');
+    // 2.1 저장한 코스 → 3.1c, where a course sets up the run.
+    await press(screen!, '저장한 코스');
+    await press(screen!, '광안대교 루프, 5.0km 30분');
   } else {
     await press(screen!, '러닝');
     await press(screen!, '자유 러닝');
@@ -168,7 +170,7 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   expect(texts(screen)).toContain('내 코스에 저장했어요');
 
   await press(screen, '완료');
-  expect(texts(screen)).toContain('오늘 컨디션');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
