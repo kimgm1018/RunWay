@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, IconButton, Screen } from '../../components';
@@ -21,6 +21,13 @@ import {
   StepTitle,
 } from './parts';
 import {
+  applyLevelPreset,
+  switchPaceInput,
+  type PaceForm,
+  type PaceInput,
+} from './runningPresets';
+import {
+  editClock,
   formatClock,
   formatPace,
   parseClock,
@@ -33,12 +40,23 @@ const levels: { value: SelfReportedLevel; title: string; detail: string }[] = [
   { value: 'ADVANCED', title: '상급', detail: '하프 이상\n주 4회+' },
 ];
 
-type PaceInput = 'duration' | 'pace';
-
 const paceInputs: { value: PaceInput; label: string }[] = [
   { value: 'duration', label: '완주 시간' },
   { value: 'pace', label: '페이스' },
 ];
+
+// Time inputs take h:mm:ss for the finish time and mm:ss for the pace.
+const clockDigits: Record<PaceInput, number> = { duration: 6, pace: 4 };
+
+const emptyForm: PaceForm = {
+  input: 'duration',
+  distance: '',
+  clock: '',
+  auto: false,
+};
+
+// How long after a reformat the keyboard's own cursor report is still the stale one.
+const STALE_SELECTION_MS = 300;
 
 // Paces outside 2–20 min/km are almost certainly typos.
 const isLikelyPace = (secondsPerKm: number) =>
@@ -104,16 +122,50 @@ function MetricInput({
   onChangeText,
   placeholder,
   keyboardType,
+  maxClockDigits,
 }: {
   label: string;
   unit?: string;
   value: string;
   onChangeText: (text: string) => void;
   placeholder: string;
-  keyboardType: 'decimal-pad' | 'numbers-and-punctuation';
+  keyboardType: 'decimal-pad' | 'number-pad';
+  // Set for time inputs: digits only, with the colons put in as you type.
+  maxClockDigits?: number;
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  // The cursor is held only for the text it was worked out for; a value filled in from outside keeps the native cursor.
+  const [cursor, setCursor] = useState<{ text: string; at: number } | null>(
+    null,
+  );
+  const reformatted = useRef<{ at: number; until: number } | null>(null);
+  const selection =
+    maxClockDigits && cursor && cursor.text === value
+      ? { start: cursor.at, end: cursor.at }
+      : undefined;
+  const change = (raw: string) => {
+    if (!maxClockDigits) {
+      onChangeText(raw);
+      return;
+    }
+    const edit = editClock(value, raw, maxClockDigits);
+    reformatted.current = {
+      at: edit.cursor,
+      until: Date.now() + STALE_SELECTION_MS,
+    };
+    setCursor({ text: edit.text, at: edit.cursor });
+    onChangeText(edit.text);
+  };
+  const selectionChange = (at: number) => {
+    // Android reports the cursor of the raw keystroke after the change; once a colon moved the digits it is stale.
+    const pending = reformatted.current;
+    reformatted.current = null;
+    if (pending && pending.at !== at && Date.now() < pending.until) {
+      return;
+    }
+    setCursor({ text: value, at });
+  };
   // A small label over an underlined number; the line darkens while typing.
   return (
     <View style={styles.metric}>
@@ -129,14 +181,24 @@ function MetricInput({
         <TextInput
           accessibilityLabel={label}
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={change}
+          selection={selection}
+          onSelectionChange={
+            maxClockDigits
+              ? event => selectionChange(event.nativeEvent.selection.end)
+              : undefined
+          }
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
           placeholderTextColor={colors.textDisabled}
           keyboardType={keyboardType}
           selectionColor={colors.accent}
-          style={[typography.metricLarge, styles.metricInput, { color: colors.text }]}
+          style={[
+            typography.metricLarge,
+            styles.metricInput,
+            { color: colors.text },
+          ]}
         />
         {unit ? (
           <AppText variant="caption" tone="textSecondary">
@@ -154,9 +216,8 @@ export function ProfileRunningScreen() {
   const { colors } = useTheme();
   const { profile } = useRepositories();
   const [level, setLevel] = useState<SelfReportedLevel | null>(null);
-  const [input, setInput] = useState<PaceInput>('duration');
-  const [distance, setDistance] = useState('');
-  const [clock, setClock] = useState('');
+  const [form, setForm] = useState<PaceForm>(emptyForm);
+  const { input, distance, clock } = form;
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<{
     title: string;
@@ -174,13 +235,21 @@ export function ProfileRunningScreen() {
           return;
         }
         setLevel(saved.selfReportedLevel);
+        // Saved values show as they are; picking a level replaces them with its recommendation.
         if (saved.baselineDistanceM && saved.baselineDurationSec) {
-          setInput('duration');
-          setDistance(String(saved.baselineDistanceM / 1000));
-          setClock(formatClock(saved.baselineDurationSec));
+          setForm({
+            input: 'duration',
+            distance: String(saved.baselineDistanceM / 1000),
+            clock: formatClock(saved.baselineDurationSec),
+            auto: false,
+          });
         } else {
-          setInput('pace');
-          setClock(formatClock(saved.usualPaceSecPerKm));
+          setForm({
+            input: 'pace',
+            distance: '',
+            clock: formatClock(saved.usualPaceSecPerKm),
+            auto: false,
+          });
         }
       },
       // Without the saved values the form simply starts empty.
@@ -251,8 +320,14 @@ export function ProfileRunningScreen() {
           <SelectionCard
             key={option.value}
             selected={level === option.value}
-            onPress={() => setLevel(option.value)}
-            accessibilityLabel={`${option.title}, ${option.detail.replace('\n', ' ')}`}
+            onPress={() => {
+              setLevel(option.value);
+              setForm(current => applyLevelPreset(current, option.value));
+            }}
+            accessibilityLabel={`${option.title}, ${option.detail.replace(
+              '\n',
+              ' ',
+            )}`}
             style={styles.level}
           >
             <AppText variant="bodyMedium">{option.title}</AppText>
@@ -277,10 +352,9 @@ export function ProfileRunningScreen() {
             compact
             options={paceInputs}
             value={input}
-            onChange={value => {
-              setInput(value);
-              setClock('');
-            }}
+            onChange={value =>
+              setForm(current => switchPaceInput(current, value, level))
+            }
           />
         </View>
         {/* The pace tab takes the pace alone (U07 PACE), so distance and the worked-out line only show for 완주 시간. */}
@@ -290,7 +364,13 @@ export function ProfileRunningScreen() {
               label="거리"
               unit="km"
               value={distance}
-              onChangeText={setDistance}
+              onChangeText={text =>
+                setForm(current => ({
+                  ...current,
+                  distance: text,
+                  auto: false,
+                }))
+              }
               placeholder="5"
               keyboardType="decimal-pad"
             />
@@ -298,9 +378,12 @@ export function ProfileRunningScreen() {
           <MetricInput
             label={input === 'duration' ? '완주 시간' : '페이스 (분:초/km)'}
             value={clock}
-            onChangeText={setClock}
+            onChangeText={text =>
+              setForm(current => ({ ...current, clock: text, auto: false }))
+            }
             placeholder={input === 'duration' ? '30:00' : '6:00'}
-            keyboardType="numbers-and-punctuation"
+            keyboardType="number-pad"
+            maxClockDigits={clockDigits[input]}
           />
         </View>
         {input === 'duration' ? (

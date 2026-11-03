@@ -229,6 +229,83 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
   await act(async () => screen.unmount());
 });
 
+async function resumeAtRunningProfile(loginId: string) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  await repositories.auth.signUp({
+    loginId,
+    password: 'runway123',
+    nickname: '러너',
+    birthDate: '1995-05-05',
+    gender: 'FEMALE',
+    phoneNumber: '01011112222',
+    healthDataAccess: 'DISAGREE',
+  });
+  const save = jest.spyOn(repositories.profile, 'saveRunningProfile');
+  const screen = await render({ repositories });
+  await press(screen, '로그인');
+  await login(screen, loginId, 'runway123');
+  expect(texts(screen)).toContain('평소 어떻게');
+  return { screen, save };
+}
+
+function field(screen: Screen, label: string) {
+  return last(screen, label, 'onChangeText').props.value;
+}
+
+test('picking a level fills its recommended values, which save as the same U07 request', async () => {
+  const { screen, save } = await resumeAtRunningProfile('preset01');
+  await press(screen, '초급, 5km 미만 주 1회 이하');
+  expect(field(screen, '거리')).toBe('3');
+  expect(field(screen, '완주 시간')).toBe('20:00');
+  // Values the level filled in follow a new level.
+  await press(screen, '상급, 하프 이상 주 4회+');
+  expect(field(screen, '거리')).toBe('10');
+  expect(field(screen, '완주 시간')).toBe('55:00');
+  expect(texts(screen)).toContain('5′30″/km');
+  expect(isDisabled(screen, '저장')).toBe(false);
+  await press(screen, '저장');
+  expect(save).toHaveBeenCalledWith({
+    selfReportedLevel: 'ADVANCED',
+    pace: {
+      inputType: 'DISTANCE_TIME',
+      baselineDistanceM: 10000,
+      baselineDurationSec: 3300,
+      usualPaceSecPerKm: 330,
+    },
+  });
+  await act(async () => screen.unmount());
+});
+
+test('a level resets typed values and digits alone get the colons', async () => {
+  const { screen, save } = await resumeAtRunningProfile('preset02');
+  await press(screen, '중급, 5–10km 주 2–3회');
+  await type(screen, '거리', '7');
+  await type(screen, '완주 시간', '4000');
+  expect(field(screen, '완주 시간')).toBe('40:00');
+  // Typed time is cleared when the tab changes.
+  await press(screen, '페이스');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('');
+  await press(screen, '완주 시간');
+  // Picking a level always brings back its recommendation.
+  await press(screen, '초급, 5km 미만 주 1회 이하');
+  expect(field(screen, '거리')).toBe('3');
+  expect(field(screen, '완주 시간')).toBe('20:00');
+  // The pace tab also takes digits only (number pad).
+  await press(screen, '페이스');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('6:40');
+  expect(
+    last(screen, '페이스 (분:초/km)', 'onChangeText').props.keyboardType,
+  ).toBe('number-pad');
+  await type(screen, '페이스 (분:초/km)', '600');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('6:00');
+  await press(screen, '저장');
+  expect(save).toHaveBeenCalledWith({
+    selfReportedLevel: 'BEGINNER',
+    pace: { inputType: 'PACE', usualPaceSecPerKm: 360 },
+  });
+  await act(async () => screen.unmount());
+});
+
 test('password reset handles unknown numbers and wrong codes, then logs in with the new password', async () => {
   const screen = await render();
   await press(screen, '로그인');
