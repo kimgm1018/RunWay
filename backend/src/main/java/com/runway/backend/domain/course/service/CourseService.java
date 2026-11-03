@@ -1,6 +1,8 @@
 package com.runway.backend.domain.course.service;
 
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
+import com.runway.backend.domain.course.dto.request.GradeSegment;
+import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
 import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
@@ -49,6 +51,11 @@ public class CourseService {
     private static final int MAX_RECOMMEND_LIMIT = 50;
     private static final double DEFAULT_RADIUS_M = 3_000d;
     private static final double DISTANCE_TOLERANCE_RATIO = 0.10d;
+    /** courses.distance NUMERIC(12,2) 상한. */
+    private static final BigDecimal MAX_COURSE_DISTANCE_M = new BigDecimal("9999999999.99");
+    /** courses.elevation_gain NUMERIC(10,2) 상한. */
+    private static final BigDecimal MAX_ELEVATION_GAIN_M = new BigDecimal("99999999.99");
+    private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
     private static final Set<String> ALLOWED_ENVIRONMENT_TYPES =
             Set.of("PARK", "RIVERSIDE", "URBAN", "BEACH", "TRACK");
 
@@ -114,6 +121,52 @@ public class CourseService {
                 estimatedDurationSec,
                 course.status(),
                 course.mergedIntoCourseId());
+    }
+
+    /**
+     * AI 생성 코스를 courses에 저장한다. 경로·거리·누적 상승과 100m 경사 목록(elevation_profile)을 함께 기록하며,
+     * 입력이 계약을 위반하면 아무것도 쓰지 않고 {@code VALIDATION_ERROR}(400) {@link ApiException}을 던진다.
+     *
+     * @return 생성된 코스 ID
+     */
+    @Transactional
+    public long saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+        if (command == null) {
+            throw GradeProfileValidator.invalid("body", "필수입니다.");
+        }
+        GeoJsonLineString route = command.route();
+        if (route == null) {
+            throw GradeProfileValidator.invalid("route", "필수입니다.");
+        }
+        // DB(NUMERIC(12,2)·(10,2))와 같은 반올림을 먼저 적용해, 검증한 값과 저장되는 값을 일치시킨다.
+        BigDecimal distanceM = toStoredScale(command.distanceM());
+        if (distanceM == null
+                || distanceM.signum() <= 0
+                || distanceM.compareTo(MAX_COURSE_DISTANCE_M) > 0) {
+            throw GradeProfileValidator.invalid(
+                    "distanceM", "0 초과 " + MAX_COURSE_DISTANCE_M + " 이하여야 합니다.");
+        }
+        BigDecimal elevationGainM = toStoredScale(command.elevationGainM());
+        // 음수는 반올림으로 0이 되기 전 원본 부호로 거절한다(예: -0.004).
+        if (elevationGainM != null
+                && (command.elevationGainM().signum() < 0
+                        || elevationGainM.compareTo(MAX_ELEVATION_GAIN_M) > 0)) {
+            throw GradeProfileValidator.invalid(
+                    "elevationGainM", "null 또는 0 이상 " + MAX_ELEVATION_GAIN_M + " 이하여야 합니다.");
+        }
+        // 검증한 값과 저장하는 값이 같도록 정규화된 목록을 저장한다.
+        List<GradeSegment> gradeProfile =
+                GradeProfileValidator.validate(command.gradeProfile(), distanceM);
+
+        List<Double> first = route.coordinates().get(0);
+        String startEwkt =
+                GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(first.get(0), first.get(1)));
+        return courseJdbcRepository.insertGeneratedCourse(
+                GeoJsonGeographyMapper.toEwkt(route),
+                startEwkt,
+                distanceM,
+                elevationGainM,
+                jsonMapper.writeValueAsString(gradeProfile));
     }
 
     @Transactional
@@ -392,6 +445,22 @@ public class CourseService {
         } catch (Exception ex) {
             throw new IllegalStateException("failed to parse elevationProfile JSON", ex);
         }
+    }
+
+    /**
+     * courses의 NUMERIC(…,2) 컬럼과 같은 소수 2자리 반올림(HALF_UP). 크기 검사 전에 지수가 매우 큰 값의 반올림 비용을
+     * 피하도록 상한을 넘는 값은 그대로 돌려 호출부의 범위 검사에서 거절되게 한다.
+     */
+    private static BigDecimal toStoredScale(BigDecimal value) {
+        if (value == null || value.abs().compareTo(MAX_COURSE_DISTANCE_M) > 0) {
+            return value;
+        }
+        // 0.005 미만은 HALF_UP 결과가 0.00이다. 1E-100000000처럼 소수 자릿수가 거대한 값의 setScale 비용을 피한다.
+        // 음수 판정은 호출부가 원본 부호로 한다.
+        if (value.abs().compareTo(HALF_CENT) < 0) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
     }
 
     private static ApiException courseNotFound() {
