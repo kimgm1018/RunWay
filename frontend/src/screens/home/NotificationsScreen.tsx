@@ -1,15 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
-import { useNavigation } from '@react-navigation/native';
-import {
-  AppText,
-  Button,
-  Icon,
-  Screen,
-  ScreenHeader,
-  type IconName,
-} from '../../components';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { AppText, Button, Icon, Logo, Screen } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -20,17 +13,36 @@ import {
 import { formatRelative, isSameDay } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
-import { fontFamily, k1, spacing, useTheme } from '../../theme';
+import { fontFamily, k1 } from '../../theme';
 
-// Each kind's icon and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
-const kinds: Record<NotificationKind, { icon: IconName; route: RouteName }> = {
-  GROUP_RUN_STARTING: { icon: 'clock', route: 'GroupRunDetail' },
-  CREW_JOIN_APPROVED: { icon: 'userCheck', route: 'CrewDetail' },
-  CREW_JOIN_REJECTED: { icon: 'userX', route: 'CrewDetail' },
-  POST_COMMENT: { icon: 'community', route: 'PostDetail' },
-  GROUP_RUN_CANCELED: { icon: 'circleX', route: 'GroupRunDetail' },
-  FOLLOW_REQUEST: { icon: 'userPlus', route: 'RunnerProfile' },
+// Each kind's title and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
+const kinds: Record<NotificationKind, { title: string; route: RouteName }> = {
+  GROUP_RUN_STARTING: { title: '그룹런 곧 시작', route: 'GroupRunDetail' },
+  CREW_JOIN_APPROVED: { title: '크루 가입 승인', route: 'CrewDetail' },
+  CREW_JOIN_REJECTED: { title: '크루 가입 거절', route: 'CrewDetail' },
+  POST_COMMENT: { title: '새 댓글', route: 'PostDetail' },
+  GROUP_RUN_CANCELED: { title: '그룹런 취소', route: 'GroupRunDetail' },
+  FOLLOW_REQUEST: { title: '팔로우 요청', route: 'RunnerProfile' },
 };
+
+type Tab = 'today' | 'week';
+const tabs: { value: Tab; label: string }[] = [
+  { value: 'today', label: '오늘' },
+  { value: 'week', label: '이번 주' },
+];
+
+// The part of a message the 2.9 핸드오프 sets in bold: the ‘quoted’ name, or the runner's 님 at the start.
+function splitEmphasis(message: string) {
+  const match = message.match(/‘[^’]+’/) ?? message.match(/^\S+님/);
+  if (!match || match.index === undefined) {
+    return { before: message, bold: '', after: '' };
+  }
+  return {
+    before: message.slice(0, match.index),
+    bold: match[0],
+    after: message.slice(match.index + match[0].length),
+  };
+}
 
 // 2.9b 알림 없음: 60 ticks between radius 80 and 92 around the 190 ring.
 const ring = 190;
@@ -46,55 +58,46 @@ const ticks = Array.from({ length: 60 }, (_, index) => {
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
 
+// Title with the blue unread dot and the time, then the message with its name in bold.
 function NotificationRow({
   item,
+  first,
   now,
   onPress,
 }: {
   item: AppNotification;
+  first: boolean;
   now: Date;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
-  const kind = kinds[item.kind];
-  // Unread is a white card with a black icon circle; read is a plain line with a coral icon (DESIGN.md 2-6).
+  const { before, bold, after } = splitEmphasis(item.message);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${item.read ? '' : '읽지 않음, '}${item.message}`}
+      accessibilityLabel={`${item.read ? '' : '읽지 않음, '}${
+        kinds[item.kind].title
+      }, ${item.message}`}
       onPress={onPress}
       style={({ pressed }) => [
-        item.read
-          ? [styles.readRow, { borderBottomColor: colors.border }]
-          : [styles.card, { backgroundColor: colors.surfaceRaised }],
+        styles.row,
+        !first && styles.divided,
         pressed && styles.pressed,
       ]}
     >
-      <View
-        style={[
-          styles.icon,
-          item.read ? styles.readIcon : { backgroundColor: colors.accent },
-        ]}
-      >
-        <Icon
-          name={kind.icon}
-          color={item.read ? k1.coral : colors.onAccent}
-          size={18}
-          strokeWidth={1.6}
-        />
-      </View>
-      <View style={styles.text}>
-        <AppText
-          style={[styles.message, !item.read && styles.messageUnread]}
-          numberOfLines={1}
-        >
-          {item.message}
+      <View style={styles.rowHead}>
+        {item.read ? null : <View style={styles.unread} />}
+        <AppText style={styles.rowTitle} numberOfLines={1}>
+          {kinds[item.kind].title}
         </AppText>
-        <AppText variant="label" tone="textSecondary" style={styles.time}>
+        <AppText style={styles.time}>
           {formatRelative(item.createdAt, now)}
         </AppText>
       </View>
-      {item.read ? null : <View style={styles.dot} />}
+      <AppText style={styles.body}>
+        {before}
+        {bold ? <AppText style={styles.bold}>{bold}</AppText> : null}
+        {after}
+      </AppText>
     </Pressable>
   );
 }
@@ -122,72 +125,72 @@ function EmptyBell() {
         </View>
       </View>
       <AppText style={styles.emptyTitle}>아직 받은 알림이 없어요</AppText>
-      <AppText variant="caption" tone="textSecondary" style={styles.emptyText}>
+      <AppText style={styles.emptyText}>
         그룹런, 크루, 커뮤니티 소식이 생기면{'\n'}여기에서 알려 드려요.
       </AppText>
     </View>
   );
 }
 
-// 2.9 알림 and 2.9b 알림 없음.
+// 2.9 알림 (S15P31E105-374 핸드오프): no card behind the list, 오늘 · 이번 주 tabs, and no 모두 읽음
+// button. Everything shown here counts as read once the screen is left (담당자 결정). 2.9b 알림 없음 stays.
 export function NotificationsScreen() {
   const navigation = useNavigation();
   const repositories = useRepositories();
   const resource = useResource(useCallback(loadNotifications, []));
   const [items, setItems] = useState<AppNotification[] | null>(null);
+  const [tab, setTab] = useState<Tab>('today');
   useEffect(() => {
     if (resource.status === 'ready') {
       setItems(resource.data);
     }
   }, [resource.status, resource.data]);
   const now = repositories.clock.now();
-  const unread = items?.some(item => !item.read) ?? false;
-  const markAllRead = async () => {
-    setItems(
-      current => current?.map(item => ({ ...item, read: true })) ?? null,
-    );
-    await repositories.notifications.markAllRead();
-  };
-  const groups = items
-    ? [
-        {
-          title: '오늘',
-          items: items.filter(item => isSameDay(item.createdAt, now)),
-        },
-        {
-          title: '이번 주',
-          items: items.filter(item => !isSameDay(item.createdAt, now)),
-        },
-      ].filter(group => group.items.length > 0)
-    : [];
+  // Leaving the screen marks everything read, so the dots stay while the list is open.
+  const unread = useRef(false);
+  unread.current = items?.some(item => !item.read) ?? false;
+  const { notifications } = repositories;
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        if (unread.current) {
+          setItems(current =>
+            current ? current.map(item => ({ ...item, read: true })) : null,
+          );
+          notifications.markAllRead().catch(() => {});
+        }
+      },
+      [notifications],
+    ),
+  );
+  const shown = (items ?? []).filter(item =>
+    tab === 'today'
+      ? isSameDay(item.createdAt, now)
+      : !isSameDay(item.createdAt, now),
+  );
 
   return (
     <Screen
       header={
-        <ScreenHeader
-          symbol
-          title="알림"
-          onBack={navigation.goBack}
-          right={
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="모두 읽음"
-              accessibilityState={{ disabled: !unread }}
-              disabled={!unread}
-              onPress={markAllRead}
-              hitSlop={8}
-            >
-              <AppText
-                variant="captionStrong"
-                tone={unread ? 'textSecondary' : 'textDisabled'}
-              >
-                모두 읽음
-              </AppText>
-            </Pressable>
-          }
-        />
+        <View style={styles.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="뒤로"
+            hitSlop={6}
+            onPress={navigation.goBack}
+            style={styles.back}
+          >
+            <Icon name="back" color="#02050E" size={18} />
+          </Pressable>
+          <View style={styles.logo} pointerEvents="none">
+            <Logo width={34} symbol />
+          </View>
+        </View>
       }
-      contentStyle={items?.length === 0 ? styles.emptyContent : undefined}
+      contentStyle={[
+        styles.content,
+        items?.length === 0 && styles.emptyContent,
+      ]}
     >
       {resource.status === 'loading' ? (
         <ActivityIndicator />
@@ -204,69 +207,159 @@ export function NotificationsScreen() {
       ) : items?.length === 0 ? (
         <EmptyBell />
       ) : (
-        groups.map(group => (
-          <View key={group.title}>
-            <AppText
-              variant="caption"
-              tone="textSecondary"
-              style={styles.groupTitle}
-            >
-              {group.title}
+        <>
+          <View style={styles.titleRow}>
+            <AppText accessibilityRole="header" style={styles.title}>
+              알림
             </AppText>
-            {group.items.map(item => (
-              <NotificationRow
-                key={item.id}
-                item={item}
-                now={now}
-                onPress={() => navigateTo(navigation, kinds[item.kind].route)}
-              />
-            ))}
           </View>
-        ))
+          <View accessibilityRole="tablist" style={styles.tabs}>
+            {tabs.map(item => {
+              const on = tab === item.value;
+              return (
+                <Pressable
+                  key={item.value}
+                  accessibilityRole="tab"
+                  accessibilityLabel={item.label}
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setTab(item.value)}
+                  style={[styles.tab, on && styles.tabOn]}
+                >
+                  <AppText style={[styles.tabText, on && styles.tabTextOn]}>
+                    {item.label}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.list}>
+            {shown.length ? (
+              shown.map((item, index) => (
+                <NotificationRow
+                  key={item.id}
+                  item={item}
+                  first={index === 0}
+                  now={now}
+                  onPress={() => navigateTo(navigation, kinds[item.kind].route)}
+                />
+              ))
+            ) : (
+              <AppText style={styles.none}>
+                {tab === 'today'
+                  ? '오늘 받은 알림이 없어요'
+                  : '이번 주에 받은 알림이 없어요'}
+              </AppText>
+            )}
+          </View>
+        </>
       )}
     </Screen>
   );
 }
 
+const ink = '#0A1631';
+
 const styles = StyleSheet.create({
-  groupTitle: {
-    fontFamily: fontFamily.medium,
-    marginTop: spacing.lg,
-    marginBottom: spacing.md,
-    marginHorizontal: spacing.xs,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 22,
-    marginBottom: spacing.md,
-  },
-  readRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: spacing.xs,
-    borderBottomWidth: 1,
-  },
-  pressed: { transform: [{ scale: 0.96 }] },
-  icon: {
+  header: { height: 56 },
+  back: {
+    position: 'absolute',
+    left: 17,
+    top: 9,
     width: 38,
     height: 38,
     borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#C6CBD2',
+    backgroundColor: '#E0E7ED',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Coral 14% behind a read notification's icon.
-  readIcon: { backgroundColor: 'rgba(226,135,111,0.14)' },
-  text: { flex: 1, gap: 2 },
-  message: { fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 19 },
-  messageUnread: { fontFamily: fontFamily.medium },
-  time: { fontFamily: fontFamily.regular },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: k1.deep },
+  logo: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // The mockup's list sits 12 + 6 + 18 from the edges, without the old glass card.
+  content: { paddingHorizontal: 36, paddingTop: 34 },
+  titleRow: { height: 38, justifyContent: 'center' },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 21,
+    lineHeight: 27,
+    letterSpacing: -0.5,
+    color: '#02050E',
+  },
+  tabs: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 16,
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: 'rgba(10,22,49,0.05)',
+  },
+  tab: {
+    flex: 1,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabOn: {
+    backgroundColor: ink,
+    boxShadow: '0 2px 6px rgba(10,22,49,0.3)',
+  },
+  tabText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: ink,
+  },
+  tabTextOn: { fontFamily: fontFamily.bold, color: '#FFFFFF' },
+  list: { marginTop: 6 },
+  row: { paddingVertical: 16, paddingHorizontal: 2, gap: 5 },
+  divided: { borderTopWidth: 1, borderTopColor: 'rgba(27,30,34,0.1)' },
+  pressed: { opacity: 0.6 },
+  rowHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  unread: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#1E90FF',
+    boxShadow: '0 0 6px rgba(30,144,255,0.6)',
+  },
+  rowTitle: {
+    flex: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: '#02050E',
+  },
+  time: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: '#56606A',
+  },
+  body: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3F4851',
+  },
+  bold: { fontFamily: fontFamily.bold, color: '#02050E' },
+  none: {
+    marginTop: 24,
+    textAlign: 'center',
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#56606A',
+  },
   emptyContent: { flexGrow: 1, justifyContent: 'center' },
   empty: { alignItems: 'center', paddingBottom: 60 },
   ring: {
@@ -288,12 +381,15 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 24,
     marginTop: 26,
+    color: '#02050E',
   },
   emptyText: {
+    fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 20,
     textAlign: 'center',
-    marginTop: spacing.md,
+    marginTop: 10,
+    color: '#56606A',
   },
-  error: { alignItems: 'center', gap: spacing.md },
+  error: { alignItems: 'center', gap: 10 },
 });

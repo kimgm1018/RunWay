@@ -108,21 +108,24 @@ export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const me = useResource(loadMe);
-  // Back from 8.2 the greeting and avatar show the saved nickname and photo; the first focus is the first load.
+  const today = useResource(loadToday);
+  const summary = useResource(loadSummary);
+  const courses = useResource(loadCourses);
+  const notifications = useResource(loadNotifications);
+  // Back from 8.2 the greeting and avatar show the saved nickname and photo, and back from 2.9 the bell
+  // loses its dot (leaving 2.9 marks all read). The first focus is the first load.
   const refreshMe = me.refresh;
+  const refreshNotifications = notifications.refresh;
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (focused.current) {
         void refreshMe();
+        void refreshNotifications();
       }
       focused.current = true;
-    }, [refreshMe]),
+    }, [refreshMe, refreshNotifications]),
   );
-  const today = useResource(loadToday);
-  const summary = useResource(loadSummary);
-  const courses = useResource(loadCourses);
-  const notifications = useResource(loadNotifications);
   const insets = useSafeAreaInsets();
   const photo = me.data?.profileImageUrl ?? null;
   // Notifications that did not load only leave the bell without its dot.

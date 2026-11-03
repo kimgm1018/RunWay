@@ -538,6 +538,8 @@ export type Track = {
   title: string;
   subtitle: string;
   durationSec: number;
+  // The album cover (Spotify Web API); without one 2.7 draws its default 'ocean' cover.
+  artworkUrl?: string | null;
 };
 
 export type Playlist = { id: string; title: string };
@@ -955,10 +957,16 @@ export type Repositories = {
   };
   music: {
     getState: () => Promise<MusicState>;
-    selectSource: (source: MusicSource) => Promise<MusicState>;
+    // null clears the pick (2.8: the picked row pressed again), back to 2.7a 미연결.
+    selectSource: (source: MusicSource | null) => Promise<MusicState>;
     // Opens login, permission or install for a service (2.8 오른쪽 버튼).
     resolveService: (service: MusicService) => Promise<MusicState>;
     reconnect: () => Promise<MusicState>;
+    // 2.7 이전 · 재생/일시정지 · 다음. Each resolves to the state read back after the command (MUS-004).
+    play: () => Promise<MusicState>;
+    pause: () => Promise<MusicState>;
+    next: () => Promise<MusicState>;
+    previous: () => Promise<MusicState>;
   };
   // The current time; mock data pins it to the prototype's 12:45 so relative times and day/night match.
   clock: {

@@ -11,6 +11,7 @@ import { Alert } from 'react-native';
 import { appConfig } from '../config';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
+import { spotifyTokens } from '../data/spotify/auth';
 import { serverHealthConsentReader } from '../health/serverHealthConsent';
 import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
 import {
@@ -113,6 +114,8 @@ export function SessionProvider({
     // Fire and forget: withdraw consent on the watch and clear its records.
     void setWatchHealthConsent('DISAGREE');
     tokenStore.clear().catch(() => {});
+    // The next person on this phone should not inherit the Spotify account.
+    spotifyTokens.clear().catch(() => {});
     setSignedIn(false);
   }, []);
 

@@ -1,106 +1,306 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Pressable,
-  ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { AppText, Button, Icon, useToast } from '../../components';
-import { useRepositories, type MusicState, type Track } from '../../data';
-import { formatClockTime, formatDuration } from '../../format';
+import Svg, {
+  Defs,
+  LinearGradient,
+  Pattern,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
+import { AppText, Icon, useToast } from '../../components';
+import {
+  spotifyFailureMessage,
+  useRepositories,
+  type MusicState,
+} from '../../data';
+import { formatDuration } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
-import { AlbumArt, MusicSheet, SectionTitle } from './musicParts';
+import { fontFamily } from '../../theme';
+import { MusicOverlay } from './musicParts';
 
 const serviceNames = { MELON: '멜론', SPOTIFY: 'Spotify' };
 
 // Deep links into the music apps; a missing app falls back to a toast.
 const appLinks = { MELON: 'melonapp://', SPOTIFY: 'spotify://' };
 
+// 2.7 핸드오프 (S15P31E105-374): the card is 370×500 on a 390 screen; a shorter phone gets a shorter card.
+const cardHeight = 500;
+// A song without album art (멜론, mock data) takes the mockup's default 'ocean' cover.
+const ocean = ['#2F5174', '#22446A', '#1A3A5C', '#12304D'];
+
+// Spotify plays on the account's own devices, so its card re-reads the state every few seconds.
+const spotifyPollMs = 5000;
+
 function useMusicState() {
   const { music } = useRepositories();
   const [state, setState] = useState<MusicState | null>(null);
   const [failed, setFailed] = useState(false);
-  // 2.8 sits on top of this card, so re-read the state whenever the card shows again.
+  const polling = useRef(false);
+  polling.current = state?.source === 'SPOTIFY' && state.linked;
+  // 2.8 opens on top of this card, so re-read the state whenever the card shows again.
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      music.getState().then(
-        next => active && (setState(next), setFailed(false)),
-        () => active && setFailed(true),
-      );
+      const read = () =>
+        music.getState().then(
+          next => active && (setState(next), setFailed(false)),
+          () => active && setFailed(true),
+        );
+      read();
+      const timer = setInterval(() => polling.current && read(), spotifyPollMs);
       return () => {
         active = false;
+        clearInterval(timer);
       };
     }, [music]),
   );
   return { state, setState, failed };
 }
 
-// The black round gear that opens 2.8 (DESIGN.md 2-6 음악 카드).
-function SettingsButton({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
+// The cover behind the whole card: the ocean gradient, a soft light, fine slanted lines and a tint
+// that darkens the bottom 300 under the text. It takes the measured size (Android drops percent Svgs).
+function Cover({ width, height }: { width: number; height: number }) {
+  return (
+    <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
+      <Defs>
+        <LinearGradient id="cover" x1="0" y1="0" x2="0" y2="1">
+          {ocean.map((color, index) => (
+            <Stop
+              key={color}
+              offset={[0, 0.45, 0.75, 1][index]}
+              stopColor={color}
+            />
+          ))}
+        </LinearGradient>
+        <RadialGradient
+          id="coverLight"
+          cx={0.68}
+          cy={0.34}
+          fx={0.68}
+          fy={0.34}
+          rx={0.8}
+          ry={0.3}
+        >
+          <Stop offset={0} stopColor="#FFFFFF" stopOpacity={0.24} />
+          <Stop offset={0.7} stopColor="#FFFFFF" stopOpacity={0} />
+        </RadialGradient>
+        <Pattern
+          id="coverLines"
+          width={9}
+          height={9}
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(-4)"
+        >
+          <Rect width={9} height={2} fill="#FFFFFF" fillOpacity={0.05} />
+        </Pattern>
+        <LinearGradient id="coverTint" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset={0} stopColor="#0E2238" stopOpacity={0} />
+          <Stop offset={0.45} stopColor="#0E2238" stopOpacity={0.16} />
+          <Stop offset={1} stopColor="#0E2238" stopOpacity={0.16} />
+        </LinearGradient>
+      </Defs>
+      <Rect width={width} height={height} fill="url(#cover)" />
+      <Rect width={width} height={height} fill="url(#coverLight)" />
+      <Rect width={width} height={height} fill="url(#coverLines)" />
+      <Rect
+        y={height - 300}
+        width={width}
+        height={300}
+        fill="url(#coverTint)"
+      />
+    </Svg>
+  );
+}
+
+// The song's album cover over the card (2.7 핸드오프: art with a 10px blur over the bottom 300 that fades upward).
+// React Native cannot fade a blur with a mask, so stacked bands blur a little harder every 40 toward the foot,
+// and a dark tint over the bottom keeps the white text readable on any cover.
+const blurBands = [
+  { height: 300, radius: 1 },
+  { height: 260, radius: 2 },
+  { height: 220, radius: 4 },
+  { height: 180, radius: 6 },
+  { height: 140, radius: 8 },
+  { height: 100, radius: 10 },
+];
+
+function Artwork({
+  uri,
+  width,
+  height,
+  onLoad,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  onLoad: () => void;
+}) {
+  return (
+    <>
+      <Image
+        source={{ uri }}
+        resizeMode="cover"
+        accessibilityIgnoresInvertColors
+        onLoad={onLoad}
+        style={StyleSheet.absoluteFill}
+      />
+      {blurBands.map(band => (
+        <View
+          key={band.height}
+          pointerEvents="none"
+          style={[styles.band, { height: band.height }]}
+        >
+          <Image
+            source={{ uri }}
+            resizeMode="cover"
+            blurRadius={band.radius}
+            style={[
+              styles.bandImage,
+              { width, height, top: band.height - height },
+            ]}
+          />
+        </View>
+      ))}
+      {/* 2 taller than the card: the measured height is fractional, and a tint that stops short leaves a
+          bright hairline of bare art along the round bottom edge. */}
+      <Svg
+        style={styles.tint}
+        width={width}
+        height={height + 2}
+        pointerEvents="none"
+      >
+        <Defs>
+          <LinearGradient id="artTint" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset={0} stopColor="#000000" stopOpacity={0} />
+            <Stop offset={0.3} stopColor="#000000" stopOpacity={0.3} />
+            <Stop offset={1} stopColor="#000000" stopOpacity={0.6} />
+          </LinearGradient>
+        </Defs>
+        <Rect
+          y={height - 340}
+          width={width}
+          height={342}
+          fill="url(#artTint)"
+        />
+      </Svg>
+    </>
+  );
+}
+
+// The glass pill at the top right. It also opens 2.8, which the mockup has no other way into.
+function Badge({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="음원 선택"
+      hitSlop={8}
       onPress={onPress}
-      hitSlop={6}
-      style={[styles.gear, { backgroundColor: colors.accent }]}
+      style={styles.badge}
     >
-      <Icon name="settings" color={colors.onAccent} size={18} />
+      <View style={styles.badgeDot} />
+      <AppText style={styles.badgeText}>{label}</AppText>
     </Pressable>
   );
 }
 
+// The white button at the foot of the card.
+function WideButton({
+  label,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.wide,
+        (pressed || disabled) && styles.pressed,
+      ]}
+    >
+      <AppText style={styles.wideText}>{label}</AppText>
+    </Pressable>
+  );
+}
+
+type Command = 'play' | 'pause' | 'next' | 'previous';
+
+// 곡 제목 with its length, then the artist or album line, the position and 이전 · 재생/일시정지 · 다음.
+// The mockup's 셔플·반복 are left out: the app has no shuffle or repeat (담당자 결정).
+// The buttons show the state read back after a command, never a guess (MUS-004).
 function Player({
   state,
-  onSettings,
+  busy,
+  onCommand,
 }: {
   state: MusicState;
-  onSettings: () => void;
+  busy: boolean;
+  onCommand: (command: Command) => void;
 }) {
-  const { colors } = useTheme();
   const track = state.nowPlaying;
-  const [playing, setPlaying] = useState(track?.playing ?? false);
-  useEffect(() => setPlaying(track?.playing ?? false), [track]);
+  const playing = track?.playing ?? false;
   const progress = track ? track.positionSec / track.durationSec : 0;
+  const idle = !track || busy;
   return (
-    <View style={styles.player}>
-      <View style={styles.playerHead}>
+    <>
+      <View style={styles.titleRow}>
+        <AppText style={styles.title} numberOfLines={1}>
+          {track?.title ?? '재생 중인 곡이 없어요'}
+        </AppText>
         {track ? (
-          <AlbumArt index={0} size={52} />
-        ) : (
-          <View style={[styles.emptyArt, { backgroundColor: colors.border }]}>
-            <Icon name="music" color={colors.textSecondary} size={20} />
+          <View style={styles.length}>
+            <AppText style={styles.lengthText}>
+              {formatDuration(track.durationSec)}
+            </AppText>
           </View>
-        )}
-        <View style={styles.flex}>
-          <AppText style={styles.trackTitle} numberOfLines={1}>
-            {track?.title ?? '--'}
-          </AppText>
-          <AppText variant="caption" tone="textSecondary" numberOfLines={1}>
-            {track?.subtitle ?? '--'}
-          </AppText>
-        </View>
-        <SettingsButton onPress={onSettings} />
+        ) : null}
       </View>
-      <View style={[styles.progress, { backgroundColor: colors.border }]}>
-        <View
-          style={[
-            styles.progressFill,
-            { width: `${progress * 100}%`, backgroundColor: colors.text },
-          ]}
-        />
+      <AppText style={styles.subtitle} numberOfLines={1}>
+        {track?.subtitle ??
+          (state.source === 'SPOTIFY'
+            ? 'Spotify 앱에서 곡을 재생하면 여기에 보여요'
+            : '--')}
+      </AppText>
+      {state.source === 'SPOTIFY' && !state.premium ? (
+        <AppText style={styles.notice}>
+          재생을 조작하려면 Spotify Premium이 필요해요
+        </AppText>
+      ) : null}
+      <View
+        accessibilityLabel="재생 위치"
+        accessibilityValue={{
+          min: 0,
+          max: track?.durationSec ?? 0,
+          now: track?.positionSec ?? 0,
+        }}
+        style={styles.progress}
+      >
+        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+        <View style={[styles.knob, { left: `${progress * 100}%` }]} />
       </View>
       <View style={styles.times}>
-        <AppText variant="label" tone="textSecondary" style={styles.number}>
+        <AppText style={styles.time}>
           {track ? formatDuration(track.positionSec) : '0:00'}
         </AppText>
-        <AppText variant="label" tone="textSecondary" style={styles.number}>
+        <AppText style={styles.time}>
           {track ? formatDuration(track.durationSec) : '0:00'}
         </AppText>
       </View>
@@ -108,140 +308,63 @@ function Player({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="이전 곡"
-          disabled={!track}
+          accessibilityState={{ disabled: idle }}
+          disabled={idle}
+          onPress={() => onCommand('previous')}
           style={styles.control}
         >
-          <Icon name="skipBack" color={colors.text} size={16} />
+          <Icon name="skipBack" color="#FFFFFF" size={22} />
         </Pressable>
-        {/* The play button sits inside a dashed ring. */}
-        <View style={[styles.playRing, { borderColor: colors.borderStrong }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={playing ? '일시정지' : '재생'}
-            disabled={!track}
-            onPress={() => setPlaying(value => !value)}
-            style={[styles.play, { backgroundColor: colors.accent }]}
-          >
-            <Icon
-              name={playing ? 'pause' : 'play'}
-              color={colors.onAccent}
-              size={24}
-            />
-          </Pressable>
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={playing ? '일시정지' : '재생'}
+          accessibilityState={{ disabled: idle }}
+          disabled={idle}
+          onPress={() => onCommand(playing ? 'pause' : 'play')}
+          style={styles.play}
+        >
+          {playing ? (
+            <>
+              <View style={styles.bar} />
+              <View style={styles.bar} />
+            </>
+          ) : (
+            <Icon name="play" color="#FFFFFF" size={22} />
+          )}
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="다음 곡"
-          disabled={!track}
+          accessibilityState={{ disabled: idle }}
+          disabled={idle}
+          onPress={() => onCommand('next')}
           style={styles.control}
         >
-          <Icon name="skipForward" color={colors.text} size={16} />
+          <Icon name="skipForward" color="#FFFFFF" size={22} />
         </Pressable>
       </View>
-    </View>
+    </>
   );
 }
 
-// Rows after the first get a thin line above them.
-function TrackRow({ track, index }: { track: Track; index: number }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        styles.track,
-        index > 0 && [styles.trackLine, { borderTopColor: colors.border }],
-      ]}
-    >
-      <AlbumArt index={index} size={40} />
-      <View style={styles.flex}>
-        <AppText style={styles.rowTitle} numberOfLines={1}>
-          {track.title}
-        </AppText>
-        <AppText variant="label" tone="textSecondary">
-          {track.subtitle}
-        </AppText>
-      </View>
-      <AppText variant="label" tone="textSecondary" style={styles.number}>
-        {formatDuration(track.durationSec)}
-      </AppText>
-    </View>
-  );
-}
-
-function PlaylistGrid({ titles }: { titles: string[] }) {
-  return (
-    <View style={styles.grid}>
-      {titles.map((title, index) => (
-        <View key={title} style={styles.gridItem}>
-          <AlbumArt index={index} />
-          <AppText variant="label" tone="textSecondary" numberOfLines={1}>
-            {title}
-          </AppText>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-// 멜론 열기 on the black bottom of the card: the light pill with a dot in a ring (DESIGN.md 2-6 시트 버튼).
-function OpenButton({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.open,
-        { backgroundColor: colors.accent },
-        pressed && styles.pressed,
-      ]}
-    >
-      <AppText variant="bodyStrong" style={{ color: colors.onAccent }}>
-        {label}
-      </AppText>
-      <View style={[styles.ring, { borderColor: colors.onAccent }]}>
-        <View style={[styles.ringDot, { backgroundColor: colors.onAccent }]} />
-      </View>
-    </Pressable>
-  );
-}
-
-// 2.7 음악 카드 — 멜론, 2.7S Spotify, 2.7a 미연결, 2.7b 연결 끊김.
+// 2.7 음악 카드 — 멜론, 2.7S Spotify, 2.7a 미연결, 2.7b 연결 끊김, all on one cover card.
 export function MusicCardScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const { height: screenHeight } = useWindowDimensions();
   const { music } = useRepositories();
   const toast = useToast();
   const { state, setState, failed } = useMusicState();
   const [reconnecting, setReconnecting] = useState(false);
-  const openSettings = () => navigateTo(navigation, 'MusicSource');
-
-  if (!state) {
-    return (
-      <MusicSheet>
-        <View style={styles.center}>
-          {failed ? (
-            <AppText tone="danger">음악 정보를 불러오지 못했어요</AppText>
-          ) : (
-            <ActivityIndicator />
-          )}
-        </View>
-      </MusicSheet>
-    );
-  }
-
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const measure = (event: LayoutChangeEvent) =>
+    setBox(event.nativeEvent.layout);
+  const openSource = () => navigateTo(navigation, 'MusicSource');
   const service =
-    state.source === 'MELON' || state.source === 'SPOTIFY'
+    state?.source === 'MELON' || state?.source === 'SPOTIFY'
       ? state.source
       : null;
-  const library = state.library;
   const openApp = async () => {
     if (!service) {
       return;
@@ -252,275 +375,297 @@ export function MusicCardScreen() {
       toast(`${serviceNames[service]} 앱을 열 수 없어요`);
     }
   };
-
+  const say = (message: string | null) => message && toast(message);
   const reconnect = async () => {
     setReconnecting(true);
     try {
       setState(await music.reconnect());
-    } catch {
-      toast('다시 연결하지 못했어요');
+    } catch (error) {
+      say(spotifyFailureMessage(error, '다시 연결하지 못했어요'));
     }
     setReconnecting(false);
   };
-
+  const [busy, setBusy] = useState(false);
+  const runCommand = async (command: Command) => {
+    setBusy(true);
+    try {
+      setState(await music[command]());
+    } catch (error) {
+      say(spotifyFailureMessage(error, '음악을 조작하지 못했어요'));
+    }
+    setBusy(false);
+  };
+  const playing = state?.nowPlaying?.playing ?? false;
+  const artwork = service ? state?.nowPlaying?.artworkUrl : null;
+  const [loadedArt, setLoadedArt] = useState<string | null>(null);
   return (
-    <MusicSheet
-      footer={
-        service ? (
-          <OpenButton
-            label={`${serviceNames[service]} 열기`}
-            onPress={openApp}
+    <MusicOverlay dark>
+      <View
+        style={[
+          styles.card,
+          { height: Math.min(cardHeight, screenHeight - 160) },
+        ]}
+        onLayout={measure}
+      >
+        {/* The ocean cover shows while a song's art loads, or if it never does. Once the art is in it goes,
+            or its light blue would show through the soft pixels of the round edge. */}
+        {box && loadedArt !== artwork ? <Cover {...box} /> : null}
+        {box && artwork ? (
+          <Artwork
+            uri={artwork}
+            onLoad={() => setLoadedArt(artwork)}
+            {...box}
           />
-        ) : null
-      }
-    >
-      <View style={styles.top}>
-        {!service ? (
-          <Player state={state} onSettings={openSettings} />
-        ) : !state.linked ? (
-          // 2.7b: the player is replaced by the reconnect prompt, a black row with a coral rim; the list below stays.
-          <ThemeProvider tone="dark">
-            <View style={styles.cut}>
-              <View style={styles.playerHead}>
-                <View style={[styles.emptyArt, styles.cutArt]}>
-                  <Icon name="musicOff" color={k1.coral} size={20} />
-                </View>
-                <View style={styles.flex}>
-                  <AppText style={styles.trackTitle}>연결이 끊겼어요</AppText>
-                  <AppText variant="caption" tone="textSecondary">
-                    {`${serviceNames[service]} 앱과 연결을 다시 확인해 주세요`}
-                  </AppText>
-                </View>
-                <SettingsButton onPress={openSettings} />
-              </View>
-              <Button
-                title="다시 연결"
-                variant="danger"
-                size="medium"
-                loading={reconnecting}
-                onPress={reconnect}
-              />
-            </View>
-          </ThemeProvider>
-        ) : (
-          <Player state={state} onSettings={openSettings} />
-        )}
-      </View>
-      {!service ? (
-        <View style={styles.connect}>
-          <View
-            style={[styles.connectIcon, { backgroundColor: colors.accent }]}
-          >
-            <Icon name="music" color={colors.onAccent} size={22} />
-          </View>
-          <AppText variant="heading">음악 서비스를 연결해 주세요</AppText>
-          <AppText
-            variant="caption"
-            tone="textSecondary"
-            style={styles.centerText}
-          >
-            멜론이나 Spotify를 연결하면{'\n'}여기서 재생목록을 고를 수 있어요
-          </AppText>
-          <Button title="음원 선택" size="medium" onPress={openSettings} />
-        </View>
-      ) : library ? (
-        <ScrollView style={styles.flex} contentContainerStyle={styles.library}>
-          {service === 'SPOTIFY' ? (
+        ) : null}
+        {state && service && state.linked ? (
+          <Badge
+            label={playing ? '재생 중' : '일시정지'}
+            onPress={openSource}
+          />
+        ) : null}
+        <View style={styles.body}>
+          {!state ? (
+            failed ? (
+              <AppText style={styles.message}>
+                음악 정보를 불러오지 못했어요
+              </AppText>
+            ) : (
+              <ActivityIndicator color="#FFFFFF" />
+            )
+          ) : !service ? (
+            // 2.7a 미연결 (also 음악 없음): pick a service in 2.8.
             <>
-              {!state.premium ? (
-                <View
-                  style={[
-                    styles.notice,
-                    {
-                      backgroundColor: colors.surfaceMuted,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Icon name="alert" color={colors.textSecondary} size={16} />
-                  <AppText
-                    variant="caption"
-                    tone="textSecondary"
-                    style={styles.flex}
-                  >
-                    곡을 골라 재생하려면{' '}
-                    <AppText variant="captionStrong">Spotify Premium</AppText>이
-                    필요해요. 무료 계정은 셔플 재생만 돼요.
-                  </AppText>
-                </View>
-              ) : null}
-              <SectionTitle
-                title="내 플레이리스트"
-                note={`${library.playlists.length}개`}
-              />
-              <PlaylistGrid
-                titles={library.playlists.map(item => item.title)}
+              <AppText style={styles.title}>
+                음악 서비스를 연결해 주세요
+              </AppText>
+              <AppText style={styles.subtitle}>
+                멜론이나 Spotify를 연결하면 여기서 들을 수 있어요
+              </AppText>
+              <WideButton label="음원 선택" onPress={openSource} />
+            </>
+          ) : !state.linked ? (
+            // 2.7b: the link to the music app dropped.
+            <>
+              <AppText style={styles.title}>연결이 끊겼어요</AppText>
+              <AppText style={styles.subtitle}>
+                {`${serviceNames[service]} 앱과 연결을 다시 확인해 주세요`}
+              </AppText>
+              <WideButton
+                label={reconnecting ? '다시 연결하는 중' : '다시 연결'}
+                disabled={reconnecting}
+                onPress={reconnect}
               />
             </>
           ) : (
             <>
-              <SectionTitle
-                title="좋아요한 곡"
-                note={`${library.likedCount}곡`}
+              {/* The page dots of the mockup: this card is the first of three. */}
+              <View
+                style={styles.dots}
+                importantForAccessibility="no-hide-descendants"
+              >
+                <View style={[styles.dot, styles.dotOn]} />
+                <View style={styles.dot} />
+                <View style={styles.dot} />
+              </View>
+              <Player state={state} busy={busy} onCommand={runCommand} />
+              <WideButton
+                label={`${serviceNames[service]} 열기`}
+                onPress={openApp}
               />
-              {library.liked.map((track, index) => (
-                <TrackRow key={track.id} track={track} index={index} />
-              ))}
-              <SectionTitle title="최근 들은 곡" />
-              <PlaylistGrid titles={library.recent.map(item => item.title)} />
-              <SectionTitle title="내 플레이리스트" />
-              <PlaylistGrid
-                titles={library.playlists.map(item => item.title)}
-              />
-              {library.top100.length > 0 ? (
-                <>
-                  <SectionTitle
-                    title="TOP100"
-                    note={
-                      library.top100UpdatedAt
-                        ? `오늘 ${formatClockTime(
-                            library.top100UpdatedAt,
-                          )} 기준`
-                        : undefined
-                    }
-                  />
-                  {library.top100.map((track, index) => (
-                    <TrackRow key={track.id} track={track} index={index} />
-                  ))}
-                </>
-              ) : null}
             </>
           )}
-        </ScrollView>
-      ) : null}
-    </MusicSheet>
+        </View>
+      </View>
+    </MusicOverlay>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  center: { padding: spacing.xxxl, alignItems: 'center' },
-  centerText: { textAlign: 'center' },
-  top: { padding: spacing.xl, paddingBottom: 0 },
-  // The player sits right on the card, without a box of its own.
-  player: { gap: spacing.lg },
-  playerHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  trackTitle: { fontFamily: fontFamily.medium, fontSize: 17, lineHeight: 24 },
-  rowTitle: { fontFamily: fontFamily.medium, fontSize: 14, lineHeight: 20 },
-  number: { fontFamily: fontFamily.numberRegular },
-  gear: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  // Dark behind the cover, so the soft pixels of the round edge blend into it.
+  card: { borderRadius: 34, overflow: 'hidden', backgroundColor: '#0B1520' },
+  band: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: 'hidden',
+  },
+  bandImage: { position: 'absolute', left: 0 },
+  tint: { position: 'absolute', top: 0, left: 0 },
+  body: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+    justifyContent: 'flex-end',
+  },
+  message: {
+    textAlign: 'center',
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#FFFFFF',
+  },
+  badge: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 1,
+    height: 28,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  badgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+  badgeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#FFFFFF',
+  },
+  dots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 5,
+    marginBottom: 16,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+  },
+  dotOn: { backgroundColor: '#FFFFFF' },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  title: {
+    flexShrink: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 26,
+    lineHeight: 31,
+    letterSpacing: -0.6,
+    color: '#FFFFFF',
+  },
+  length: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.12)',
     justifyContent: 'center',
   },
-  emptyArt: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+  lengthText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    fontVariant: ['tabular-nums'],
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    marginTop: 6,
+    fontFamily: fontFamily.regular,
+    fontSize: 15,
+    lineHeight: 21,
+    color: 'rgba(255,255,255,0.66)',
+  },
+  notice: {
+    marginTop: 6,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.66)',
   },
   progress: {
     height: 3,
+    marginTop: 18,
+    marginHorizontal: 4,
     borderRadius: 2,
-    marginTop: spacing.sm,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
-  progressFill: { height: 3, borderRadius: 2 },
-  times: { flexDirection: 'row', justifyContent: 'space-between' },
+  progressFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  knob: {
+    position: 'absolute',
+    top: -3,
+    width: 9,
+    height: 9,
+    marginLeft: -4,
+    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
+  },
+  times: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginHorizontal: 4,
+  },
+  time: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    fontVariant: ['tabular-nums'],
+    color: 'rgba(255,255,255,0.72)',
+  },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xl,
+    gap: 36,
+    marginTop: 6,
   },
   control: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: 'rgba(2,5,14,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playRing: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    borderWidth: 1,
-    borderStyle: 'dashed',
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   play: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // 2.7b 연결 끊김: a black row with a coral 60% rim.
-  cut: {
-    gap: spacing.lg,
-    padding: spacing.xl,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(226,135,111,0.6)',
-    backgroundColor: k1.night,
-  },
-  cutArt: { backgroundColor: 'rgba(226,135,111,0.14)' },
-  library: { padding: spacing.xl, gap: spacing.lg },
-  track: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.sm,
-  },
-  trackLine: { borderTopWidth: 1 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  // Three per row, as in the prototype.
-  gridItem: { width: '31.5%', gap: spacing.xs },
-  notice: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.xl,
-    borderRadius: 22,
-    borderWidth: 1,
-  },
-  connect: {
-    alignItems: 'center',
-    gap: spacing.lg,
-    paddingVertical: spacing.xxxl * 2,
-    paddingHorizontal: spacing.xxl,
-  },
-  connectIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  open: {
+    width: 54,
     height: 54,
-    minWidth: 206,
     borderRadius: 27,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 24,
-    paddingRight: 10,
-    gap: spacing.xl,
+    justifyContent: 'center',
+    gap: 5,
   },
-  pressed: { transform: [{ scale: 0.96 }] },
-  ring: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
+  bar: { width: 4, height: 17, borderRadius: 1, backgroundColor: '#FFFFFF' },
+  wide: {
+    marginTop: 12,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ringDot: { width: 8, height: 8, borderRadius: 4 },
+  pressed: { opacity: 0.8 },
+  wideText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.3,
+    color: '#02050E',
+  },
 });

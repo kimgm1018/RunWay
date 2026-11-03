@@ -34,6 +34,9 @@ jest.mock('react-native-image-picker', () => ({
   launchImageLibrary: jest.fn(async () => ({ didCancel: true })),
 }));
 
+// react-native-get-random-values polyfills crypto.getRandomValues through a native module; Node already has it.
+jest.mock('react-native-get-random-values', () => ({}));
+
 // react-native-pager-view is a native pager; tests render every page and report page changes the way the
 // native view does, so a test drives a swipe through onPageScroll and onPageSelected.
 jest.mock('react-native-pager-view', () => {

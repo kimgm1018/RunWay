@@ -164,32 +164,47 @@ test.each([
   },
 );
 
-test('notifications group by day, mark all read and open the related screen', async () => {
+test('notifications split into 오늘 and 이번 주, count as read once left, and open the related screen', async () => {
   const screen = await render();
   await press(screen, '알림');
-  const list = texts(screen);
+  let list = texts(screen);
   for (const text of [
     '오늘',
     '이번 주',
+    '그룹런 곧 시작',
     '3분 전',
     '12분 전',
     '1시간 전',
-    '2일 전',
-    '3일 전',
   ]) {
     expect(list).toContain(text);
   }
+  // The 2.9 핸드오프 has no 모두 읽음; the unread dots stay while the list is open.
+  expect(() => labelled(screen, '모두 읽음')).toThrow();
   expect(() =>
-    labelled(screen, '읽지 않음, ‘민락 야경 러너스’ 가입이 승인됐어요'),
+    labelled(
+      screen,
+      '읽지 않음, 크루 가입 승인, ‘민락 야경 러너스’ 가입이 승인됐어요',
+    ),
   ).not.toThrow();
-  await press(screen, '모두 읽음');
+  await press(screen, '이번 주');
+  list = texts(screen);
+  expect(list).toContain('2일 전');
+  expect(list).toContain('3일 전');
+  expect(list).not.toContain('3분 전');
+
+  // Leaving marks everything read.
+  await press(screen, '뒤로');
+  await press(screen, '알림');
   expect(() =>
-    labelled(screen, '읽지 않음, ‘민락 야경 러너스’ 가입이 승인됐어요'),
+    labelled(
+      screen,
+      '읽지 않음, 크루 가입 승인, ‘민락 야경 러너스’ 가입이 승인됐어요',
+    ),
   ).toThrow();
-  expect(labelled(screen, '모두 읽음').props.accessibilityState).toEqual({
-    disabled: true,
-  });
-  await press(screen, '‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요');
+  await press(
+    screen,
+    '그룹런 곧 시작, ‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
+  );
   await settle();
   expect(texts(screen)).toContain('예상 공동 페이스');
   await act(async () => screen.unmount());
@@ -199,9 +214,7 @@ test('an empty inbox shows the 2.9b empty state', async () => {
   const screen = await render('noNotifications');
   await press(screen, '알림');
   expect(texts(screen)).toContain('아직 받은 알림이 없어요');
-  expect(labelled(screen, '모두 읽음').props.accessibilityState).toEqual({
-    disabled: true,
-  });
+  expect(() => labelled(screen, '모두 읽음')).toThrow();
   await act(async () => screen.unmount());
 });
 
@@ -271,39 +284,54 @@ async function openMusic(scenario: MockScenario) {
   return screen;
 }
 
-test('the music card lists Melon and switching to Spotify changes the list', async () => {
+test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick', async () => {
   const screen = await openMusic('default');
   const card = texts(screen);
   for (const text of [
+    '재생 중',
     '바다 쪽으로 달리기',
     '1:24',
     '3:41',
-    '좋아요한 곡',
-    '128곡',
-    '최근 들은 곡',
-    'TOP100',
-    '오늘 12:00 기준',
     '멜론 열기',
   ]) {
     expect(card).toContain(text);
   }
+  // The 2.7 핸드오프 card has no lists and no shuffle or repeat.
+  expect(card).not.toContain('좋아요한 곡');
+  expect(() => labelled(screen, '셔플')).toThrow();
   await press(screen, '일시정지');
   expect(() => labelled(screen, '재생')).not.toThrow();
+  // 다음 곡 goes through the music repository and shows the song it reports.
+  await press(screen, '다음 곡');
+  expect(texts(screen)).not.toContain('바다 쪽으로 달리기');
+  await press(screen, '이전 곡');
+  expect(texts(screen)).toContain('바다 쪽으로 달리기');
+
   await press(screen, '음원 선택');
-  expect(texts(screen)).toContain('로그인 필요');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
     disabled: true,
   });
   await press(screen, 'Spotify 로그인');
   await press(screen, 'Spotify');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
-    selected: true,
+    checked: true,
   });
-  await press(screen, '뒤로');
+  expect(labelled(screen, '멜론').props.accessibilityState).toMatchObject({
+    checked: false,
+  });
+  await press(screen, '닫기');
   const spotify = texts(screen);
   expect(spotify).toContain('Spotify Premium');
-  expect(spotify).toContain('6개');
   expect(spotify).toContain('Spotify 열기');
+
+  // The picked row pressed again clears the pick, back to 2.7a.
+  await press(screen, '음원 선택');
+  await press(screen, 'Spotify');
+  expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
+    checked: false,
+  });
+  await press(screen, '닫기');
+  expect(texts(screen)).toContain('음악 서비스를 연결해 주세요');
   await act(async () => screen.unmount());
 });
 
@@ -316,7 +344,6 @@ test('the music card shows the not-connected and disconnected states', async () 
 
   const dropped = await openMusic('musicDisconnected');
   expect(texts(dropped)).toContain('연결이 끊겼어요');
-  expect(texts(dropped)).toContain('좋아요한 곡');
   await press(dropped, '다시 연결');
   expect(texts(dropped)).not.toContain('연결이 끊겼어요');
   expect(texts(dropped)).toContain('바다 쪽으로 달리기');
@@ -325,7 +352,7 @@ test('the music card shows the not-connected and disconnected states', async () 
   const setup = await openMusic('musicNeedsSetup');
   await press(setup, '음원 선택');
   const sources = texts(setup);
-  for (const text of ['권한 필요', '앱 설치 필요', '허용', '설치']) {
+  for (const text of ['허용', '설치']) {
     expect(sources).toContain(text);
   }
   await act(async () => setup.unmount());
