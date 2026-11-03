@@ -39,12 +39,23 @@ case "$1" in
    '{{.State.Running}}')
     if [[ ${!#} == new && ( ${MODE:-} == health-fails || ${MODE:-} == rollback-fails ) ]]; then echo false; else echo true; fi ;;
    '{{.State.Restarting}}') echo false ;;
+   '{{.State.StartedAt}}') echo started ;;
    *'.Mounts'*) printf '%s\n' "$OLD_MODEL" ;;
    *) exit 92 ;;
   esac ;;
  exec)
   # 모의 모델 메타데이터와 상태 조회를 구분한다.
-  if [[ "$*" != *urllib.request* ]]; then printf '%s\n' "$OLD_SHA"; fi ;;
+  if [[ "$*" == *sys.stdout.buffer* ]]; then
+   shift 5
+   for key in "$@"; do
+    case "$key" in
+     ODEV21_CHECKPOINT_PATH) printf '%s\0' "${MOCK_OLD_ODE_PATH:-}" ;;
+     ODEV21_CHECKPOINT_SHA256|ODEV21_SUMMARY_STATS_SHA256|ODEV21_POPULATION_BUNDLE_SHA256)
+      printf '%s\0' "${MOCK_OLD_ODE_SHA:-}" ;;
+     *) printf '\0' ;;
+    esac
+   done
+  elif [[ "$*" != *urllib.request* ]]; then printf '%s\n' "$OLD_SHA"; fi ;;
  run) [[ ${MODE:-} != preflight-fails ]] ;;
  *) exit 93 ;;
 esac
@@ -72,6 +83,10 @@ class DeploymentTests(unittest.TestCase):
         self.env.update(PATH=str(bin_path) + os.pathsep + self.env["PATH"], MOCK_DIR=self.posix(self.path),
                         EXISTING="1", OLD_MODEL="/models/previous/gru.pt", OLD_SHA="a" * 64,
                         COMPOSE_PROJECT_NAME="runway-ai-unit", MODE="")
+        self.env.update(ODEV21_CHECKPOINT_PATH="/models/ode/new.pt",
+                        ODEV21_CHECKPOINT_SHA256="b" * 64,
+                        ODEV21_SUMMARY_STATS_SHA256="c" * 64,
+                        ODEV21_POPULATION_BUNDLE_SHA256="d" * 64)
 
     @staticmethod
     def posix(path):
@@ -148,6 +163,31 @@ class DeploymentTests(unittest.TestCase):
         result = self.deploy(image="other:image")
         self.assertEqual(result.returncode, 2)
         self.assertEqual(self.calls(), "")
+
+    def test_rollback_keeps_old_ode_settings_and_excludes_secrets(self):
+        self.env.update(MOCK_OLD_ODE_PATH="/models/ode/old.pt", MOCK_OLD_ODE_SHA="a" * 64,
+                        AI_DB_URL="fake-db-secret", HF_TOKEN="fake-hf-secret")
+        result = self.deploy("health-fails")
+        self.assertNotEqual(result.returncode, 0)
+        settings = (self.state / "current-public-settings.sh").read_text()
+        self.assertIn("/models/ode/old.pt", settings)
+        self.assertNotIn("new.pt", settings)
+        self.assertNotIn("fake-db-secret", settings)
+        self.assertNotIn("fake-hf-secret", settings)
+
+    def test_unspecified_public_settings_preserve_app_defaults(self):
+        self.env["EXISTING"] = "0"
+        self.env.pop("PERSONAL_PLAN_POPULATION_MODE", None)
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        settings = (self.state / "current-public-settings.sh").read_text()
+        self.assertIn("unset PERSONAL_PLAN_POPULATION_MODE", settings)
+
+    def test_ode_change_requires_new_directory_even_when_gru_is_same(self):
+        self.env.update(MOCK_OLD_ODE_PATH="/models/ode/old.pt", MOCK_OLD_ODE_SHA="a" * 64)
+        result = self.deploy(model=self.env["OLD_MODEL"], sha=self.env["OLD_SHA"])
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("up -d", self.calls())
 
 if __name__ == "__main__":
     unittest.main()
