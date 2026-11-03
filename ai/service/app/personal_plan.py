@@ -85,9 +85,9 @@ class SelectedGoal(CamelModel):
 
 
 class PersonalPlanRequest(CamelModel):
-    """Internal backend request. userId must come from authenticated backend context."""
+    """Internal backend request. Include userId only for a health-consented user."""
 
-    user_id: ServerId
+    user_id: ServerId | None = None
     course_id: ServerId
     selected_goal: SelectedGoal | None = None
 
@@ -95,7 +95,9 @@ class PersonalPlanRequest(CamelModel):
 
     @field_validator("user_id", "course_id", mode="before")
     @classmethod
-    def server_ids_are_signed_int64(cls, value):
+    def server_ids_are_signed_int64(cls, value, info):
+        if info.field_name == "user_id" and value is None:
+            return None
         return normalize_server_id(value)
 
 
@@ -119,7 +121,7 @@ class CoursePlanSnapshot:
 
 @dataclass(frozen=True)
 class UserPersonalizationSnapshot:
-    user_id: int
+    user_id: int | None
     # None이면 개인화 행이 없다는 뜻(신규 사용자 경로). warnings로 이유를 알린다(예: PERSONALIZATION_TABLE_MISSING).
     payload: dict | None
     # AI06가 계산한 개인 위험·지속 기준. 없으면 정책의 모집단 값을 쓴다.
@@ -227,7 +229,7 @@ class PersonalPaceOptimizer(Protocol):
 
 class PersonalPlanResponse(CamelModel):
     plan_status: str
-    user_id: ServerId
+    user_id: ServerId | None
     course_id: ServerId
     course_version: str
     model_version: str
@@ -964,9 +966,11 @@ def build_personal_plan(
                            "ODE_GRADE_FILLED_0"]
     goal = resolve_selected_goal(body.selected_goal, course)
     personalization = (personalization_lookup.get_personalization(body.user_id)
-                       if personalization_lookup is not None else None)
+                       if body.user_id is not None and personalization_lookup is not None else None)
     lookup_warnings = list(personalization.warnings) if personalization is not None else []
     course_warnings = course_warnings + lookup_warnings
+    if body.user_id is None:
+        course_warnings.append("USER_ID_NOT_PROVIDED")
     user_thresholds = ((personalization.hr_danger_bpm, personalization.hr_sustain_bpm,
                         personalization.hr_threshold_run_count) if personalization is not None
                        else (None, None, None))

@@ -61,12 +61,6 @@ def _finite(name: str, value: Any) -> float:
     return v
 
 
-def format_pace(sec_per_km: float) -> str:
-    """312.0 → '5:12'."""
-    total = int(round(sec_per_km))
-    return f'{total // 60}:{total % 60:02d}'
-
-
 def goal_profile(goal_preference: float) -> str:
     """goal_preference 구간 이름. 0.5는 명시적인 BALANCED다."""
     p = float(goal_preference)

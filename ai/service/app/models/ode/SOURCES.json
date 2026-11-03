@@ -1,6 +1,27 @@
 {
   "schemaVersion": "runway.ai.sources.v1",
   "createdAt": "2026-11-01",
+  "huggingFaceModelAssets": {
+    "repository": "AnSeongYun/runway-hr-models",
+    "revision": "11a3d0cce3062c84aa7ffee1740a93d204462190",
+    "files": [
+      {
+        "path": "ode_v21_stage1_base/selected_model.pt",
+        "installedName": "ode_epoch_020.pt",
+        "sha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061"
+      },
+      {
+        "path": "ode_v21_stage1_base/summary_stats.json",
+        "installedName": "ode_summary_stats.json",
+        "sha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066"
+      },
+      {
+        "path": "ode_v21_stage1_base/population_bundle_v2train_median.json",
+        "installedName": "population_bundle_v2train_median.json",
+        "sha256": "9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1"
+      }
+    ]
+  },
   "selectedOde": {
     "variant": "ode_v21_base_epoch20_legacy27",
     "epoch": 20,
@@ -25,8 +46,8 @@
       "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/summary.py",
       "sourceSha256": "ca775a0551f59f4b57a377aed4cb9ba5260692c12604ae8cc83659b4e6e3e19d",
       "vendoredPath": "app/models/ode/odev21_legacy/summary.py",
-      "vendoredSha256": "ca775a0551f59f4b57a377aed4cb9ba5260692c12604ae8cc83659b4e6e3e19d",
-      "transformation": "byte-for-byte copy"
+      "vendoredSha256": "20cde5a2946aa0e0ddb313fd212b9ead0cfe81ab57419bf35579eaf9b88fde16",
+      "transformation": "참조되지 않는 fit_stats helper 제거"
     },
     {
       "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/batch.py",
@@ -74,15 +95,15 @@
       "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/samples.py",
       "sourceSha256": "94777dbb7f739f4d3699fd1207174cdfe4bad3522116db0f05636a69b88e6ca3",
       "vendoredPath": "app/models/ode/odev21_legacy/samples.py",
-      "vendoredSha256": "94777dbb7f739f4d3699fd1207174cdfe4bad3522116db0f05636a69b88e6ca3",
-      "transformation": "byte-for-byte copy"
+      "vendoredSha256": "3462c7ab151d18a9065d4f8c24217c3c2ffe4042b47d0573418f07643fa76045",
+      "transformation": "참조되지 않는 epoch_plan helper와 관련 상수 제거"
     },
     {
       "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/training.py",
       "sourceSha256": "63f299605ac76f7cd59ba091e17ea788c53f3dc5a5b347269b828348dc592f95",
       "vendoredPath": "app/models/ode/odev21_legacy/training.py",
-      "vendoredSha256": "63f299605ac76f7cd59ba091e17ea788c53f3dc5a5b347269b828348dc592f95",
-      "transformation": "byte-for-byte copy"
+      "vendoredSha256": "c9bb38c31bbd53be15e0f440ce7311260ed623faed8796d371ac578bb59aab97",
+      "transformation": "참조되지 않는 학습·통계·일괄 예측 helper 제거, fit.py가 쓰는 to_device 유지"
     },
     {
       "sourcePath": "<SERVER_WORKSPACE>/prerun_adapters/validation_v1/pv_data.py",
@@ -95,8 +116,8 @@
       "sourcePath": "<SERVER_WORKSPACE>/prerun_planner.py",
       "sourceSha256": "5935c1f74f6680ea310d96c592db7117de717087ea214067a99e2b94aa26e0ff",
       "vendoredPath": "app/planner/prerun_planner.py",
-      "vendoredSha256": "5935c1f74f6680ea310d96c592db7117de717087ea214067a99e2b94aa26e0ff",
-      "transformation": "byte-for-byte copy"
+      "vendoredSha256": "0c7b6f7f51896a0d93ef158f25c6ab7f5499619274fb4d8cbaf5d6f49768f1f1",
+      "transformation": "참조되지 않는 format_pace helper 제거"
     }
   ]
 }

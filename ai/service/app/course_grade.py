@@ -1,6 +1,6 @@
 """courses.elevation_profile(JSONB) → 순서 있는 100 m 경사 구간.
 
-형식은 팀 합의 전이다(문서: app/COURSE_ELEVATION_PROFILE_PROPOSAL.md). 지금은 두 형식만 받는다.
+형식은 팀 합의 전이다(문서: docs/design/db/proposals/COURSE_ELEVATION_PROFILE_PROPOSAL.md). 지금은 두 형식만 받는다.
   - 숫자 배열: 코스 거리 위에 0 m부터 끝까지 고르게 놓인 고도(m)
   - [{"distanceM": 거리, "elevationM": 고도}] : 거리 오름차순
 스무딩은 라우팅 모듈(runway_routing/features.py profile_features)과 같다:

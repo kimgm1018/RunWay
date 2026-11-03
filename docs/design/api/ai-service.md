@@ -19,11 +19,15 @@
 | Base path | `/` |
 | Content-Type | `application/json; charset=utf-8` |
 | 키·단위 | camelCase, 숫자 단위 접미사 사용. 거리 m, 시간 sec, 페이스 sec/km, 심박 bpm, 속도 m/s, 경사 % |
-| 서버 엔티티 ID | 논리 양수 `int64`; API 모델과 응답은 정수형. 기존 클라이언트 호환을 위해 입력 십진 숫자 문자열도 현재 구현에서 정수로 변환하지만, 전체 BIGINT 범위의 JSON 숫자/문자열 wire 선택을 확정한 것은 아니다. 숫자 정밀도 보존은 클라이언트 확인 사항 |
+| 서버 엔티티 ID | 값이 있을 때 논리 양수 `int64`; API 모델과 응답은 정수형. AI09 `userId`는 생략 시 응답에서 null이다. 기존 클라이언트 호환을 위해 입력 십진 숫자 문자열도 현재 구현에서 정수로 변환하지만, 전체 BIGINT 범위의 JSON 숫자/문자열 wire 선택을 확정한 것은 아니다. 숫자 정밀도 보존은 클라이언트 확인 사항 |
 | 시간 | UTC ISO 8601 (`Z` 또는 `+00:00`) |
 | 호출 주체 | Spring 백엔드. 외부 앱은 백엔드만 호출 |
 | 오류 | `{ "code": "...", "message": "...", "details": { ... } }`. 기존 AI03의 `details: null` 허용과 `details={}` 정규화는 전역 변경하지 않았으며 팀 합의 사항으로 남김 |
 | 개인정보 로그 | HR·속도·경사·GPS 원본과 요청 본문을 로그로 남기지 않는다 |
+
+### 건강정보 동의에 따른 사용자 ID 전달 (MR !142 리뷰 합의)
+
+백엔드는 호출 직전 건강정보 동의 상태가 '동의'인 사용자만 AI 요청에 `userId`를 넣는다. 철회했거나 동의하지 않은 사용자는 `userId`를 생략한다. 생략 시 AI03·AI04는 개인화·학습 기준 대신 모집단 기준(위험 178 bpm / 지속 163 bpm)을 쓰고, AI09는 평균 기반 계획을 쓴다. 동의 상태는 백엔드 건강정보 동의 API(S15P31E105-250)의 응답을 기준으로 확인한다.
 
 AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVersion, models}`를 사용한다. readiness는 필수 모델인 GRU를 기준으로 하며 ODE 상태는 선택 기능의 가용성을 별도로 나타낸다. health 본문은 probe 전용 형식이므로 O11 합의 대상이다.
 
@@ -110,6 +114,8 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `hrPersonalized` | boolean | `userId`를 보내면 개인 출력층을 사용했는지. `userId`가 없으면 생략 |
 | `hrPersonalizationVersion` | integer / null | 사용한 행 버전. 조회 실패면 null, `userId`가 없으면 생략 |
 
+자유러닝에서 과거 또는 미래 경사 정보가 없으면 0% 평지로 계산하고 HTTP 200과 경고를 반환한다(MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`). AI03은 `X-RunWay-Warnings` 헤더에 `FREE_RUN_GRADE_POLICY_FLAT0_PROVISIONAL`, `FREE_RUN_HISTORY_GRADE_FILLED_0`를 담는다. 후보별 `futureGradeUsed`는 미래 경사를 모델에 넣었는지 나타내며, flat0로 채운 경사를 사용한 경우 true다.
+
 `userId`가 있고 개인화 조회가 실패하면 `X-RunWay-Warnings`에 경고 코드를 넣고 기본 GRU로 예측한다. GRU 개인화가 설정상 꺼져 있으면(`GRU_PERSONALIZATION_ENABLED=false`, 기본값) 조회하지 않고 경고도 붙이지 않으며 `hrPersonalized=false`만 돌려준다. 경고가 없고 ID가 없으면 기존 응답과 같다. 계약 회귀 예시는 기존 `ai/service/README.md` 본문 요청을 그대로 사용한다. 입력 부족은 과거값으로 채우지 않고 `422 INPUT_INSUFFICIENT`다.
 
 ## AI04 — 러닝 중 페이스 결정
@@ -192,7 +198,7 @@ GRU 개인화가 설정상 꺼져 있으면(`GRU_PERSONALIZATION_ENABLED=false`,
 
 학습 심박 기준 조회도 같은 방식으로 나눈다. `AI_DB_URL`이 아예 없는 환경(설정상 DB 없음)에서는 경고 없이 일반화(모집단) 기준을 쓰고 시작 로그에만 한 번 남긴다. `AI_DB_URL`이 있는데 시작 연결이 실패했거나 조회가 실패하면 일반화 기준으로 계속 판단하고 `HR_THRESHOLD_LOOKUP_UNAVAILABLE`을 붙인다.
 
-계획이 있는 t0 한 칸 `PLAN_HOLD` 응답은 GRU 예측을 하지 않아 경사를 채우지 않으므로, history 경사가 비어 있어도 자유러닝 경고(`FREE_RUN_GRADE_POLICY_<값>_PROVISIONAL`, `FREE_RUN_HISTORY_GRADE_FILLED_0`)를 붙이지 않는다. 일반 예측 경로의 자유러닝 판정은 바뀌지 않는다.
+일반 예측 경로에서 자유러닝 경사 정보가 없으면 0% 평지로 계산하고 HTTP 200과 경고를 반환한다(MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`). AI04 응답 `warnings[]`에 `FREE_RUN_GRADE_POLICY_FLAT0_PROVISIONAL`, `FREE_RUN_HISTORY_GRADE_FILLED_0`를 담는다. 계획이 있는 t0 한 칸 `PLAN_HOLD` 응답은 GRU 예측을 하지 않아 경사를 채우지 않으므로, history 경사가 비어 있어도 이 경고를 붙이지 않는다.
 
 ### 러닝 초반 계획 넘겨주기
 
@@ -374,6 +380,114 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | 재시도 | 429 응답에 `Retry-After: 1`; 동일 ID·동일 본문만 허용 |
 | 오류 | 공통 오류 body. 비활성화 503 `DEMO_DISABLED`, 인증 실패 401, 세션 없음 404, 제한 429 |
 
+## AI09 — 개인 페이스 계획
+
+`POST /v1/pace/personal-plan` — **팀 계약 제안**. 코드 기준으로 코스와 선택 목표에 대한 페이스 계획을 계산한다. AI 서비스가 DB를 직접 쓰지 않는다.
+
+### Request Body
+
+허용하는 최상위 입력은 필수 `courseId`와 선택 `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `userId` | integer (int64) / null | X | 건강정보 동의 사용자만 보냄. 생략 또는 null이면 개인 데이터를 조회하지 않고 평균 기반 계획(`personalized=false`, `USER_ID_NOT_PROVIDED`)을 쓴다 |
+| `courseId` | integer (int64) | O | 계획할 ACTIVE 코스 ID |
+| `selectedGoal` | object / null | X | 선택 목표. 생략하면 코스 거리로 계획한다. 내부에 정의된 필드 외에는 허용하지 않는다 |
+| `selectedGoal.targetDistanceM` | integer / null | X | 목표 거리(m). |
+| `selectedGoal.targetDurationSec` | integer / null | X | 목표 완주 시간(초). |
+| `selectedGoal.targetPaceSecPerKm` | number / null | X | 목표 페이스(초/km). |
+| `selectedGoal.goalPreference` | number | X | 현재 공개값은 `0.5`로 고정한다. 생략 시 `0.5` |
+
+### Response
+
+`segments`는 1 km 단위와 마지막 잔여 거리로 나눈다. `paceSecPerKm`와 `paceRatio`는 소수 둘째 자리까지 반올림한다. `paceRatio`는 각 구간 페이스를 계획 전체의 거리 가중 평균 페이스로 나눈 값이다.
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `planStatus` | string | `EXPERIMENTAL` 또는 `AVERAGE_BASED` |
+| `userId` | integer (int64) / null | 요청 사용자 ID. 요청에서 생략했으면 null |
+| `courseId` | integer (int64) | 요청 코스 ID |
+| `courseVersion` | string | 계획에 사용한 코스 버전 |
+| `modelVersion` / `policyVersion` | string | 사용 모델·정책 버전 |
+| `personalized` | boolean | 개인 ODE 경로는 true, 평균 기반 경로는 false |
+| `planSource` | string | `PERSONAL_ODE_HR_BALANCE`, `POPULATION_MEDIAN_ODE`, `POPULATION_EMPTY_G0_ODE` 또는 모집단 계획의 출처 |
+| `policyValidated` / `hr0Used` | boolean | 현재 응답은 두 값 모두 false |
+| `hrReferenceBpm` / `hrReferenceSource` | number / string / null | 계획에 사용한 심박 기준과 출처 |
+| `meanPredictedHrBpm` / `peakPredictedHrBpm` | number / null | ODE 개인 계획의 예측 평균·최고 심박 |
+| `maxHrReferenceDeviationBpm` / `hrReferenceBandBpm` | number / null | 심박 기준에서 가장 벗어난 정도와 비교 band |
+| `hrReferenceBandSatisfied` | boolean / null | 예측 구간이 심박 기준 band 안에 드는지 여부 |
+| `hrReferenceValidated` | boolean | 심박 기준 예측의 검증 여부. 현재 실험 경로는 false |
+| `paceSearchSupportScope` | string / null | 페이스 탐색 근거 범위 |
+| `paceSearchGridStepMps` | number / null | 페이스 탐색 속도 격자 간격(m/s) |
+| `paceSearchBoundaryHit` | boolean / null | 탐색 결과가 속도 범위 끝에 닿았는지 여부 |
+| `personalizationBundleSha256` | string / null | 사용한 개인화·평균 묶음 checksum |
+| `personalizationSupportCutoffAt` / `personalizationBundleCreatedAt` | string / null | 개인화 Support 데이터 기준 시각·묶음 생성 시각 |
+| `odeCheckpointSha256` / `odeSummaryStatsSha256` | string / null | 사용한 ODE checkpoint·통계 checksum |
+| `validatedHorizonSec` | number / null | ODE 검증 지평(초). 시간 상한은 아니며 초과 계획에는 경고를 붙인다 |
+| `populationMeanPaceSecPerKm` | number / null | 모집단 평균 계획 페이스 |
+| `populationSourceScope` / `populationDatasetVersion` | string / null | 모집단 계획 출처·dataset 버전 |
+| `trainSubjectCount` / `trainRunCount` | integer / null | 평균 묶음에 사용한 학습자·러닝 수 |
+| `courseProfileCoverage` | number / null | 모집단 계획의 코스 프로파일 coverage (0~1) |
+| `targetDistanceM` | number | 계획 거리(m) |
+| `targetPaceSecPerKm` | number | 목표 또는 거리 가중 계획 평균 페이스(초/km) |
+| `predictedFinishSec` | integer | 반올림된 구간 페이스로 계산한 완주 시간(초) |
+| `segments[]` | object[] | 구간별 계획 페이스 |
+| `segments[].sequence` | integer | 1부터 시작하는 구간 순서 |
+| `segments[].startDistanceM` / `endDistanceM` | number | 구간 시작·끝 거리(m) |
+| `segments[].lengthM` | number | 구간 길이(m) |
+| `segments[].paceSecPerKm` | number | 구간 페이스(초/km), 소수 둘째 자리 |
+| `segments[].paceRatio` | number | 전체 거리 가중 평균 대비 구간 페이스 비율, 소수 둘째 자리 |
+| `warnings[]` | string[] | 경고 코드와 provenance 값 |
+
+`userId`가 생략되거나 null이면 AI09는 사용자 개인화와 사용자 HR 기준을 조회하지 않는다. 기존 신규 사용자와 같은 평균 기반 경로를 사용해 `userId=null`, `planStatus=AVERAGE_BASED`, `personalized=false`와 `USER_ID_NOT_PROVIDED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false` 경고를 반환한다. 개인화 행이 없는 동의 사용자도 `AVERAGE_BASED`와 `personalized=false`를 반환하지만 `USER_ID_NOT_PROVIDED`는 붙이지 않는다. 평균 경로의 실험 스위치, ODE 및 평균 묶음이 준비되지 않으면 기존 `503 PERSONAL_PLAN_NOT_READY`를 반환한다. 클라이언트는 평균 기반 계획을 개인화 완료로 표시하지 않는다.
+
+코드에서 만드는 경고는 `USER_ID_NOT_PROVIDED`, `PERSONALIZATION_TABLE_MISSING`, `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_<mode>_PROVISIONAL`, `ODE_GRADE_FILLED_0`, `FINAL_PARTIAL_30S_CELL_HR_HOLD_LAST_OBSERVED_SAMPLE`, `HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN`, `PACE_SEARCH_SUPPORT=<scope>`, `PACE_SEARCH_DOMAIN_BOUNDARY_HIT_BEST_EFFORT`, `ODE_BEYOND_VALIDATED_HORIZON`, `PLAN_SEARCH_BUDGET_LIMITED`, `PLAN_FIRST_SEGMENT_CAPPED`, `PACE_SEARCH_GRID_STEP_MPS=<value>`, `POLICY_UNVALIDATED_NO_SAFETY_CLAIM`, `PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN`, `HR0_NOT_MEASURED_SUPPORT_MEDIAN_USED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false`, `POPULATION_MODE=<mode>`, `TRAIN_SUBJECTS=<count>`, `TRAIN_RUNS=<count>`, `COURSE_PROFILE_COVERAGE=<value>`, `FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION`이다. 경고는 해당 데이터·계획 경로에서만 붙는다.
+
+경사 정보가 없으면 0% 평지로 계산하고 HTTP 200과 경고를 반환한다(MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`). AI09 응답 `warnings[]`에는 `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_FLAT0_PROVISIONAL`, `ODE_GRADE_FILLED_0`가 담긴다. 코스 러닝 경사 저장은 S15P31E105-319에서 처리하며, unknown 정책과 GPS 고도 활용은 MVP 이후 과제다.
+
+### 설정
+
+| 설정 | 역할 |
+| --- | --- |
+| `AI_DB_URL` | 읽기 전용 DB에서 ACTIVE 코스를 조회하고, `userId`가 있을 때만 사용자 개인화·학습 심박 기준을 조회한다. `userId`가 없으면 사용자 조회는 하지 않는다. 설정 또는 필요한 조회에 문제가 있으면 계획을 만들 수 없으며 해당 오류를 반환한다 |
+| `PERSONAL_PLAN_EXPERIMENTAL_ENABLED` | 기본 `false`. ODE 개인 계획과 평균 묶음 계획 경로를 켠다 |
+| `ODEV21_CHECKPOINT_PATH` / `ODEV21_SUMMARY_STATS_PATH` 및 각 SHA 변수 | ODE runtime 모델·통계 파일과 checksum. ODE 계획 경로를 사용할 때 필요 |
+| `ODEV21_POPULATION_BUNDLE_PATH` / `ODEV21_POPULATION_BUNDLE_SHA256` | 신규 사용자 평균 묶음 파일과 필수 SHA-256. 시작 때 형식·hash·ODE modelVersion을 확인한다 |
+| `PERSONAL_PLAN_POPULATION_MODE` | `median_bundle`(기본), `empty`, `off`. 평균 묶음 기반 신규 사용자 경로 선택 |
+| `HEAVY_MAX_CONCURRENCY` / `HEAVY_QUEUE_WAIT_SEC` | AI05·AI09 계획 대기열의 동시 실행 수와 대기 한도. 넘으면 `503 AI_BUSY`와 `Retry-After`를 반환한다 |
+
+### 오류
+
+| HTTP | code | 발생 조건 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` | JSON 형식·ID·허용하지 않은 요청 필드 |
+| 404 | `COURSE_NOT_FOUND` | ACTIVE 코스 조회 결과가 없음 |
+| 422 | `INVALID_GOAL`, `COURSE_DATA_MISMATCH`, `COURSE_GRADE_UNAVAILABLE` | 목표·코스 거리·경사 정보가 유효하지 않음 |
+| 422 | `GOAL_OUTSIDE_PACE_SEARCH_SUPPORT`, `PERSONAL_PLAN_NOT_FEASIBLE`, `PERSONAL_PLAN_GOAL_NOT_PRESERVED`, `POPULATION_PLAN_GOAL_NOT_PRESERVED` | 목표가 탐색 범위를 벗어나거나 계획 제약·시간 보존을 만족하지 못함 |
+| 422 / 503 | `PERSONAL_PLAN_PREDICTION_INVALID` | ODE 개인 계획 예측 출력·상태가 유효하지 않음 |
+| 503 | `PERSONALIZATION_NOT_SUPPORTED` | ODE 모델이 필요한 개인화 계획 입력을 지원하지 않음 |
+| 422 | `PLAN_HORIZON_TOO_SHORT` | 완주 전 평가 가능한 완전한 30초 ODE cell이 하나도 없음 |
+| 503 | `AI_DB_UNAVAILABLE` | DB 조회 실패 또는 시간 초과 |
+| 503 | `PERSONAL_PLAN_NOT_READY` | DB·ODE·평균 계획 데이터 또는 실험 설정이 준비되지 않음 |
+| 503 | `AI_BUSY` | 공용 계획 대기열의 최대 대기 시간을 넘김 |
+
+모든 오류는 공통 `{code, message, details}` 형식을 따른다. 이는 현재 코드의 동작을 정리한 **팀 계약 제안**이며, 백엔드 저장 필드·클라이언트 표시는 별도 합의가 필요하다.
+
+### DB 대응
+
+AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 저장하지 않는다. 저장은 백엔드가 담당한다.
+
+| 구분 | AI09 필드·테이블 | DB 대응·비고 |
+| --- | --- | --- |
+| 저장 후보 | `targetPaceSecPerKm` | `pace_plans.recommended_pace` (`NUMERIC(10,2)`). 구간 페이스는 소수 둘째 자리까지 반올림하지만, 최상위 값은 목표 페이스 또는 거리 가중 평균이므로 저장 시 두 자리 반올림 규칙을 백엔드에서 확인한다 |
+| 저장 후보 | `segments[].sequence`, `startDistanceM`, `endDistanceM`, `paceSecPerKm` | `pace_plan_segments.segment_sequence`, `start_distance`, `end_distance`, `recommended_pace` (`INTEGER`, `NUMERIC(12,2)`, `NUMERIC(12,2)`, `NUMERIC(10,2)`) |
+| 세션 연결 | AI09 요청·응답에는 `session_id` 없음 | `pace_plans.session_id`는 `NOT NULL`; 백엔드 세션 ID가 필요하며 저장 시점은 별도 합의 필요 |
+| 대응 컬럼 없음 | `segments[].paceRatio`, `segments[].lengthM`, `warnings[]`, `planSource` 및 출처·provenance 정보 | 현재 `pace_plans`·`pace_plan_segments`에 대응 컬럼 없음 |
+| AI 조회 | `courses` | 현재 조회는 `id`, `distance`, `elevation_profile`, `status`, `updated_at`을 사용. `schema.sql`의 `courses` 테이블에 정의됨 |
+| AI 조회 | `user_hr_personalization` | AI09는 `userId`가 있을 때만 `user_id` 기준 최신 행의 `personalization_version`, `schema_version`, `model_version`, `support_run_count`, `summary_u_json`, `history8_json`, `p4_json`, `hr0_sub_bpm`, `hr_ref_bpm`, `hr_danger_bpm`, `hr_sustain_bpm`, `hr_threshold_run_count`, `created_at`을 조회한다. ERD V10 반영 대상이며, 현재 `schema.sql` 스냅샷에는 테이블 정의가 없음 |
+
+`schema.sql` 기준 컬럼은 `pace_plans.recommended_pace NUMERIC(10,2)`, `pace_plans.session_id BIGINT NOT NULL`, `pace_plan_segments.segment_sequence INTEGER`, `start_distance NUMERIC(12,2)`, `end_distance NUMERIC(12,2)`, `recommended_pace NUMERIC(10,2)`다. ERD V10에는 `user_hr_personalization`만 반영하고, `user_gru_personalization` 등 나머지 제안은 필요할 때 검토한다.
+
 ## DB 대응 요약
 
 | AI 응답 | DB 테이블·컬럼 |
@@ -386,8 +500,9 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | AI05 `segments[].recommendedPaceSecPerKm` | `pace_plan_segments.recommended_pace` |
 | AI04 `elapsedSec` | `coaching_decisions.elapsed_duration`; 패키지 권고는 `floor()` |
 | AI04 decision·version | `coaching_decisions` 저장 여부/버전 컬럼은 O4~O6 합의 필요 |
-| AI06 response JSON | 제안 `user_hr_personalization`; schema.sql은 변경하지 않음 |
-| AI06 `gruPersonalization` | 제안 `user_gru_personalization`; 백엔드가 행 버전을 늘려 저장 |
+| AI06 response JSON | ERD V10 `user_hr_personalization`; 최신 행의 HR 기준·ODE 개인화 입력을 저장 |
+| AI06 `gruPersonalization` | `user_gru_personalization`은 V10에 포함하지 않으며 필요할 때 별도 검토 |
+| AI09 `segments[]`·계획 metadata | AI 서비스는 DB에 쓰지 않음. `pace_plans`·`pace_plan_segments`에 저장할 필드와 `personalized=false` 표시 규칙(C12)은 팀 계약 제안 |
 
 ## 백엔드 호출 순서
 
@@ -409,12 +524,12 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | N7-1 | 학습 HR 기준 | 최근 20회 GOOD HR의 P98·P85를 모집단 중앙값과 정책 비중으로 섞는다. 위험 기준 = 섞은 P98 + 3(일반화 178), 지속 기준 = 섞은 P85 | v6_8_2 반영 |
 | N7-2 | cueBpm | AI04가 null을 반환할 수 있음. null이면 필수 정수 `targetBpm`을 넣는 COACHING 명령을 만들 수 없어 W07 → AI04 → S10 전체 경로가 막힘 | 합의 필요 |
 | N7-3 | 러닝 mode enum | AI05 `COURSE/FREE_WITH_GOAL/FREE_NO_GOAL`; AI04 입력 문자열 유지 | 잠정 |
-| N7-4 / O1 | 자유러닝 경사 null vs 0 | API는 null, AI 내부에서 0% 채움 후 경고/플래그 | 제안 |
+| N7-4 / O1 | 자유러닝 경사 null vs 0 | MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`; 경사 정보가 없으면 0% 평지 계산 후 HTTP 200과 경로별 경고 반환. 코스 경사 저장은 S15P31E105-319, unknown 정책·GPS 고도 활용은 MVP 이후 | flat0 MVP 기본값 합의(MR !142 리뷰) |
 | N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 제안 |
 | N7-6 / O2 | HRmax source | 나이 공식·HRR 경로를 기준 계산에서 제거. 마지막 400m는 안전 한계만 위험 기준 + 5 bpm(허용선은 위험 기준) | v6_8_2 반영 |
 | N7-7 | 목표 시간 기준 | MPC policy v0.4.0의 일시정지 제외 activeSec | 제안 |
 | N8 | 워치 demo 실시간 전송 | 기본 OFF, 5초 batch, 실기기 테스트는 별도 | 합의 필요 |
-| O1 | 자유러닝 경사 의미 | N7-4 처리 | 제안 |
+| O1 | 자유러닝 경사 의미 | N7-4 처리 | flat0 MVP 기본값 합의(MR !142 리뷰) |
 | O2 | HRmax ERD 출처 | N7-6 처리 | 제안 |
 | O3 | GOOD 판정·최근 20회 P98/P85 | AI06의 GOOD 표본 품질 필드와 `sessionStartedAt` 순서를 사용 | v6_8_2 반영 |
 | O4 | 5초 판단·trace·저장·발행 주기 | 계산과 저장/발행 분리, 발행 판단만 백엔드 저장 | 합의 필요 |
@@ -422,9 +537,9 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | O6 | model/policy 버전 저장 | nullable 컬럼 2개 추가 제안; migration은 합의 전 | 제안 |
 | O7 | plan ratio와 절대 페이스 변환 | 기준 목표 pace×ratio, DB에는 sec/km 절대값 | 제안 |
 | O8 | AI05 모델·goal 조합·HR 지평 | Planner v1, 코스/목표 있는 자유러닝 계획, HR 미리보기 기본 OFF, 켜면 90분(5400초) 설정. 개인 계획은 **시간 상한 없음**: 예상 완주가 90분(평가로 확인된 범위)을 넘으면 경고 `ODE_BEYOND_VALIDATED_HORIZON`, `validatedHorizonSec`=5400은 정보용. 계산 안전장치는 코스 45 km(422 `INVALID_GOAL`)와 탐색 예산(`PERSONAL_PLAN_SEARCH_BUDGET_CELLS`, 넘으면 탐색을 줄이고 경고 `PLAN_SEARCH_BUDGET_LIMITED`). MVP 이식 후 점검·보완 | 제안 |
-| O9 | AI06 vector 차원·저장·전달 | versioned JSON, 다음 요청은 백엔드가 AI05 personalization으로 전달 가능 | 합의 필요 |
+| O9 | AI06 vector 차원·저장·전달 | versioned JSON, 다음 요청은 백엔드가 AI05 personalization으로 전달 가능; ERD V10에는 `user_hr_personalization`만 반영하고 나머지 제안은 필요할 때 검토 | V10 범위 합의 |
 | C11 | AI03/AI04 GRU 개인화 | GRU 개인 출력층 조회는 MVP 이후 선택. `GRU_PERSONALIZATION_ENABLED=false` 기본 | MVP 이후 |
-| C12 | AI06 GRU 출력층 저장 | GRU 개인화 블록 저장은 MVP 이후 선택. 기본 OFF에서는 null과 비활성 경고 | MVP 이후 |
+| C12 | AI06 GRU 출력층 저장 | GRU 개인화 블록 저장은 MVP 이후 선택. `user_gru_personalization`은 ERD V10에 포함하지 않고 필요할 때 검토 | V10 미포함(MVP 이후 필요 시) |
 | C13 | AI04 HR 입력·응답 | `context.hrReference` 선택화·무시 경고, pacing 학습 기준 필드, `userId`가 있을 때 학습 기준 조회 | v6_8_2 반영 |
 | O10 | elapsedSec integer 저장 | `floor()` | 제안 |
 | O11 | health probe와 공통 오류 | 팀 HEALTHCHECK가 `status=UP`·`modelLoaded=true`를 요구해 DEGRADED를 제거; ODE는 `models.ode.status=UP/DOWN`으로 확인; probe 전용 body 유지 | 합의 필요 |
@@ -432,3 +547,4 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | O13 | AI07/AI08 오류·상태 code | bearer 인증, `{code,message,details}`, 비활성화 503·401/404/429 | 제안 |
 | O14 | AI04 timeout/500/503 retry와 중복 | 다음 W07 batch의 최신 입력에서 재판단, 같은 입력 자동 retry 없음 | 제안 |
 | O15 | 인스턴스 자원·동시 처리량 | 단일 worker 예시; memory/CPU/GPU 부하 검증 후 제한 합의 | 합의 필요 |
+| AI09 | 개인 페이스 계획 요청·응답 및 신규 사용자 표시 | 건강정보 동의 사용자만 `userId`를 보내며, 생략 시 개인 조회 없이 평균 경로(`AVERAGE_BASED`, `personalized=false`) 사용; AI 서비스는 DB에 저장하지 않음 | userId 선택 입력·동의 규칙 합의(MR !142 리뷰) |
