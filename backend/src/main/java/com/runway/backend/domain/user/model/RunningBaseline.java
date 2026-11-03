@@ -1,6 +1,7 @@
 package com.runway.backend.domain.user.model;
 
-import com.runway.backend.domain.user.exception.RunningProfileErrors;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -15,13 +16,13 @@ public record RunningBaseline(BigDecimal pace, Integer distance, Integer duratio
                 || pace.compareTo(MAX_PACE) > 0
                 || (distance == null) != (duration == null)
                 || (distance != null && (distance <= 0 || duration <= 0))) {
-            throw RunningProfileErrors.invalidBaseline();
+            throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
         }
         // Reject values that round to zero before rescaling; a tiny exponent can require
         // an enormous power of ten even when the JSON token itself is short.
         pace = pace.setScale(2, RoundingMode.HALF_UP);
         if (pace.signum() <= 0 || pace.compareTo(MAX_PACE) > 0) {
-            throw RunningProfileErrors.invalidBaseline();
+            throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
         }
     }
 

@@ -27,7 +27,11 @@ public record ApiErrorResponse(String code, String message, Map<String, Object> 
         return Map.copyOf(copied);
     }
 
-    public static ApiErrorResponse of(String code, String message, Map<String, Object> details) {
-        return new ApiErrorResponse(code, message, details);
+    public static ApiErrorResponse of(ErrorCode errorCode, Map<String, Object> details) {
+        return new ApiErrorResponse(errorCode.code(), errorCode.message(), details);
+    }
+
+    public static ApiErrorResponse of(ApiException exception) {
+        return new ApiErrorResponse(exception.code(), exception.getMessage(), exception.details());
     }
 }

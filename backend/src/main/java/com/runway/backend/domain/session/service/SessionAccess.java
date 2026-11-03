@@ -19,18 +19,20 @@ import com.runway.backend.domain.session.repository.SessionReferenceRepository.C
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.DeviceRef;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.SessionOwnership;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Component;
+
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
-/**
- * 세션 유스케이스(S01~S09)가 공유하는 회원·소유·잠금·기기·코스 검사와 S02 응답 조립. 호출하는 서비스의 트랜잭션 안에서만 사용한다.
- */
+/** 세션 유스케이스(S01~S09)가 공유하는 회원·소유·잠금·기기·코스 검사와 S02 응답 조립. 호출하는 서비스의 트랜잭션 안에서만 사용한다. */
 @Component
 @RequiredArgsConstructor
 class SessionAccess {
@@ -52,8 +54,8 @@ class SessionAccess {
     private final SessionReferenceRepository referenceRepository;
 
     /**
-     * 그룹 연결 세션은 그룹 행을 먼저 잠근다. 잠금 전 확인과 잠금 후 재확인 사이에 삭제·소유 정보가 바뀌었을 수 있으므로 잠근 행으로 다시 판정한다.
-     * 그 사이 그룹 연결이 바뀌었으면 잠근 그룹 행이 맞지 않으므로 S08은 409 STALE_STATE, S09·S07은 409 INVALID_STATE로 거절하고 재조회하게 한다.
+     * 그룹 연결 세션은 그룹 행을 먼저 잠근다. 잠금 전 확인과 잠금 후 재확인 사이에 삭제·소유 정보가 바뀌었을 수 있으므로 잠근 행으로 다시 판정한다. 그 사이 그룹
+     * 연결이 바뀌었으면 잠근 그룹 행이 맞지 않으므로 S08은 409 STALE_STATE, S09·S07은 409 INVALID_STATE로 거절하고 재조회하게 한다.
      * 세션 행 잠금(PESSIMISTIC_WRITE)은 PostgreSQL에서 FOR NO KEY UPDATE라 FK 검사를 막지 않는다. 이 재확인은 연결을 저장하는 쪽도
      * group-runs.md "그룹 세션 연결의 불변조건"대로 그룹→세션 행을 잠근 뒤 저장한다는 전제에서 유효하다.
      */
@@ -62,9 +64,9 @@ class SessionAccess {
         SessionOwnership ownership =
                 referenceRepository
                         .findOwnership(sessionId)
-                        .orElseThrow(SessionErrors::sessionNotFound);
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (ownership.deleted()) {
-            throw SessionErrors.sessionNotFound();
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
         }
         if (ownership.userId() != userId) {
             throw notOwner(purpose);
@@ -80,9 +82,9 @@ class SessionAccess {
         RunningSession session =
                 sessionRepository
                         .findByIdForUpdate(sessionId)
-                        .orElseThrow(SessionErrors::sessionNotFound);
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.isDeleted()) {
-            throw SessionErrors.sessionNotFound();
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
         }
         if (session.getUserId() != userId) {
             throw notOwner(purpose);
@@ -90,9 +92,9 @@ class SessionAccess {
         Long groupRunId = referenceRepository.findGroupRunId(sessionId).orElse(null);
         if (!Objects.equals(groupRunId, ownership.groupRunId())) {
             throw switch (purpose) {
-                case UPDATE -> SessionErrors.staleState();
-                case DELETE -> SessionErrors.invalidDeleteState();
-                case CANCEL -> SessionErrors.invalidCancelState();
+                case UPDATE -> new ApiException(ErrorCode.STALE_STATE);
+                case DELETE -> new ApiException(ErrorCode.SESSION_INVALID_STATE, "삭제");
+                case CANCEL -> new ApiException(ErrorCode.SESSION_INVALID_STATE, "취소");
             };
         }
         return new LockedSession(session, ownership.groupRunId(), groupCompleted);
@@ -100,15 +102,15 @@ class SessionAccess {
 
     private static ApiException notOwner(LockPurpose purpose) {
         return switch (purpose) {
-            case UPDATE -> SessionErrors.sessionForbidden();
-            case DELETE -> SessionErrors.notOwner();
-            case CANCEL -> SessionErrors.forbidden();
+            case UPDATE -> new ApiException(ErrorCode.SESSION_FORBIDDEN);
+            case DELETE -> new ApiException(ErrorCode.SESSION_DELETE_NOT_OWNER);
+            case CANCEL -> new ApiException(ErrorCode.SESSION_CANCEL_FORBIDDEN);
         };
     }
 
     void requireActiveUser(long userId) {
         if (!referenceRepository.activeUserExists(userId)) {
-            throw SessionErrors.unauthorized();
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -118,9 +120,11 @@ class SessionAccess {
     }
 
     static void requireOwnedDevice(long userId, Optional<DeviceRef> found, DeviceType type) {
-        DeviceRef device = found.orElseThrow(SessionErrors::deviceForbidden);
-        if (device.userId() != userId || !type.name().equals(device.deviceType()) || !device.linked()) {
-            throw SessionErrors.deviceForbidden();
+        DeviceRef device = found.orElseThrow(() -> new ApiException(ErrorCode.DEVICE_FORBIDDEN));
+        if (device.userId() != userId
+                || !type.name().equals(device.deviceType())
+                || !device.linked()) {
+            throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
     }
 
@@ -129,9 +133,11 @@ class SessionAccess {
             return null;
         }
         CourseInfo course =
-                referenceRepository.lockCourse(courseId).orElseThrow(SessionErrors::courseNotFound);
+                referenceRepository
+                        .lockCourse(courseId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.COURSE_NOT_FOUND));
         if (!course.isActive()) {
-            throw SessionErrors.courseInaccessible();
+            throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
         }
         return course;
     }
@@ -153,7 +159,8 @@ class SessionAccess {
     }
 
     RunningSessionResponse response(RunningSession session, Instant serverReceiveAt) {
-        PacePlan plan = pacePlanRepository.findFirstBySessionIdOrderByIdDesc(session.getId()).orElse(null);
+        PacePlan plan =
+                pacePlanRepository.findFirstBySessionIdOrderByIdDesc(session.getId()).orElse(null);
         List<PacePlanSegment> segments =
                 plan == null
                         ? List.of()
@@ -166,10 +173,13 @@ class SessionAccess {
                                 .orElse(null)
                         : null;
         SessionControlEvent last =
-                controlEventRepository.findFirstBySessionIdOrderByIdDesc(session.getId()).orElse(null);
+                controlEventRepository
+                        .findFirstBySessionIdOrderByIdDesc(session.getId())
+                        .orElse(null);
         Instant groupEndedAt = referenceRepository.findGroupEndedAt(session.getId()).orElse(null);
         SessionSnapshot snapshot =
-                new SessionSnapshot(session, plan, segments, pending, coachingGuide, last, groupEndedAt);
+                new SessionSnapshot(
+                        session, plan, segments, pending, coachingGuide, last, groupEndedAt);
         return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, Instant.now());
     }
 }

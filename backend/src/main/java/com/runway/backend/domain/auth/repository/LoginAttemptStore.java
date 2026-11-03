@@ -1,6 +1,7 @@
 package com.runway.backend.domain.auth.repository;
 
-import com.runway.backend.domain.auth.service.AuthErrors;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
@@ -24,8 +25,9 @@ public class LoginAttemptStore {
 
     // 실패횟수 확인(5회 실패 시 잠금)
     public void ensureAllowed(String loginId) {
-        if (execute(loginId, "check") == 5) throw AuthErrors.locked();
-    };
+        if (execute(loginId, "check") == 5) throw new ApiException(ErrorCode.LOGIN_LOCKED);
+    }
+    ;
 
     /** Redis writes survive the caller's PostgreSQL transaction rollback. */
     public int recordFailure(String loginId) {
@@ -38,15 +40,16 @@ public class LoginAttemptStore {
             result = redis.execute(script, List.of(key(loginId)), operation);
         } catch (RuntimeException exception) {
             // Do not expose driver messages, key names or uncertain writes; never replay here.
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
-        if (result == null || result < 0 || result > 5) throw AuthErrors.unavailable();
+        if (result == null || result < 0 || result > 5)
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         return result.intValue();
     }
 
     public static String key(String loginId) {
         if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         return "runway:auth:attempt:" + loginId;
     }
 }

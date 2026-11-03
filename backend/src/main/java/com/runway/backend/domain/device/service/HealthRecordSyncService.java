@@ -8,24 +8,29 @@ import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse;
 import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse.RecordError;
 import com.runway.backend.domain.device.event.DailyHealthMetricsChangedEvent;
 import com.runway.backend.domain.device.repository.HealthRecordJdbcRepository;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.TreeSet;
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * W06 Samsung Health 데이터 동기화(devices-health.md W06). 현재 지원 레코드는 RunWay 워치 일상 심박 하루 추정값 하나다.
  *
- * <p>검사 순서: 회원 행 FOR SHARE(활성 회원·건강 동의) → 유효 레코드를 날짜 오름차순(같은 날짜는 요청 순서)으로 조건부 upsert → 변경 날짜 이벤트 발행. 동의가 없으면
- * 아무것도 저장하지 않는다. 거절 레코드는 파싱 단계에서 이미 판정됐고 저장하지 않는다.
+ * <p>검사 순서: 회원 행 FOR SHARE(활성 회원·건강 동의) → 유효 레코드를 날짜 오름차순(같은 날짜는 요청 순서)으로 조건부 upsert → 변경 날짜 이벤트
+ * 발행. 동의가 없으면 아무것도 저장하지 않는다. 거절 레코드는 파싱 단계에서 이미 판정됐고 저장하지 않는다.
  *
- * <p>유효 레코드는 한 트랜잭션으로 저장한다. 어느 쓰기든 실패하면 모두 롤백되고 이벤트도 구독자에게 전달되지 않는다. 같은 요청을 다시 보내면 조건부
- * upsert라 같은 최종 상태가 된다.
+ * <p>유효 레코드는 한 트랜잭션으로 저장한다. 어느 쓰기든 실패하면 모두 롤백되고 이벤트도 구독자에게 전달되지 않는다. 같은 요청을 다시 보내면 조건부 upsert라 같은
+ * 최종 상태가 된다.
  */
 @Service
 @RequiredArgsConstructor
@@ -39,9 +44,9 @@ public class HealthRecordSyncService {
         boolean consented =
                 repository
                         .lockActiveUserConsent(userId)
-                        .orElseThrow(HealthRecordSyncErrors::unauthorized);
+                        .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
         if (!consented) {
-            throw HealthRecordSyncErrors.consentRequired();
+            throw new ApiException(ErrorCode.CONSENT_REQUIRED);
         }
 
         int accepted = 0;
@@ -71,7 +76,8 @@ public class HealthRecordSyncService {
             events.publishEvent(new DailyHealthMetricsChangedEvent(userId, List.copyOf(changed)));
         }
         errors.sort(Comparator.comparingInt(RecordError::index));
-        return new HealthRecordSyncResponse(accepted, duplicate, errors.size(), List.copyOf(errors));
+        return new HealthRecordSyncResponse(
+                accepted, duplicate, errors.size(), List.copyOf(errors));
     }
 
     /** 유효 레코드는 날짜 오름차순으로 안정 정렬하고 거절 레코드는 앞에 둔다(저장하지 않으므로 순서 무관). */

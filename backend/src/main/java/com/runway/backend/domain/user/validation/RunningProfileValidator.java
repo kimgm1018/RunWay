@@ -2,8 +2,9 @@ package com.runway.backend.domain.user.validation;
 
 import com.runway.backend.domain.user.dto.request.RunningProfileRequest;
 import com.runway.backend.domain.user.entity.RunningLevel;
-import com.runway.backend.domain.user.exception.RunningProfileErrors;
 import com.runway.backend.domain.user.model.RunningBaseline;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.springframework.stereotype.Component;
 
@@ -18,7 +19,7 @@ public class RunningProfileValidator {
             try {
                 level = RunningLevel.valueOf(request.selfReportedLevel().stringValue());
             } catch (IllegalArgumentException exception) {
-                throw RunningProfileErrors.invalidLevel();
+                throw new ApiException(ErrorCode.INVALID_LEVEL);
             }
         }
         return new ProfileInput(
@@ -35,22 +36,22 @@ public class RunningProfileValidator {
         if (absent(type) && absent(pace) && absent(distance) && absent(duration)) {
             return null;
         }
-        if (absent(type)) throw RunningProfileErrors.invalidBaseline();
+        if (absent(type)) throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
         return switch (type.stringValue()) {
             case "PACE" -> {
                 if (absent(pace) || !absent(distance) || !absent(duration)) {
-                    throw RunningProfileErrors.invalidBaseline();
+                    throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
                 }
                 yield RunningBaseline.pace(pace.decimalValue());
             }
             case "DISTANCE_TIME" -> {
                 if (absent(pace) || absent(distance) || absent(duration)) {
-                    throw RunningProfileErrors.invalidBaseline();
+                    throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
                 }
                 yield RunningBaseline.distanceTime(
                         pace.decimalValue(), distance.intValue(), duration.intValue());
             }
-            default -> throw RunningProfileErrors.invalidBaseline();
+            default -> throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
         };
     }
 

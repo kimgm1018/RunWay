@@ -3,19 +3,24 @@ package com.runway.backend.domain.device.controller;
 import com.runway.backend.domain.device.dto.request.SyncBatchRequest;
 import com.runway.backend.domain.device.dto.response.SyncBatchAckResponse;
 import com.runway.backend.domain.device.service.BatchPayloadHasher;
-import com.runway.backend.domain.device.service.SyncBatchErrors;
 import com.runway.backend.domain.device.service.SyncBatchService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.security.AuthenticatedUser;
+
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.io.InputStream;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.io.InputStream;
 
 /** W07 워치 운동 배치 동기화. 폰이 본인 로그인으로 워치·폰 batch를 그대로 중계한다. */
 @RestController
@@ -40,12 +45,12 @@ public class SyncBatchController {
 
     static byte[] readBody(HttpServletRequest request) throws IOException {
         if (request.getContentLengthLong() > MAX_BODY_BYTES) {
-            throw SyncBatchErrors.tooLarge();
+            throw new ApiException(ErrorCode.FILE_TOO_LARGE);
         }
         try (InputStream in = request.getInputStream()) {
             byte[] body = in.readNBytes(MAX_BODY_BYTES + 1);
             if (body.length > MAX_BODY_BYTES) {
-                throw SyncBatchErrors.tooLarge();
+                throw new ApiException(ErrorCode.FILE_TOO_LARGE);
             }
             return body;
         }

@@ -4,16 +4,19 @@ import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.user.dto.request.UpdateProfileRequest;
 import com.runway.backend.domain.user.dto.response.UpdatedUserProfileResponse;
 import com.runway.backend.domain.user.dto.response.UserProfileResponse;
-import com.runway.backend.domain.user.exception.UserProfileErrors;
 import com.runway.backend.domain.user.repository.UserAccountRepository;
 import com.runway.backend.domain.user.repository.UserAccountRepository.UserAccountRow;
 import com.runway.backend.domain.user.validation.UserProfileValidator;
 import com.runway.backend.domain.user.validation.UserProfileValidator.Patch;
 import com.runway.backend.global.exception.ApiException;
-import java.sql.SQLException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.SQLException;
 
 @Service
 @RequiredArgsConstructor
@@ -27,7 +30,8 @@ public class UserProfileService {
     @Transactional(readOnly = true)
     public UserProfileResponse read(long userId) {
         UserAccountRow row =
-                accounts.findById(userId).orElseThrow(UserProfileErrors::unavailable);
+                accounts.findById(userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SERVICE_UNAVAILABLE));
         return new UserProfileResponse(
                 row.id(),
                 row.nickname(),
@@ -44,12 +48,13 @@ public class UserProfileService {
         Patch patch = validator.validate(request);
         try {
             UserAccountRow current =
-                    accounts.lock(userId).orElseThrow(UserProfileErrors::unavailable);
+                    accounts.lock(userId)
+                            .orElseThrow(() -> new ApiException(ErrorCode.SERVICE_UNAVAILABLE));
 
             String nickname = current.nickname();
             if (patch.nicknamePresent()) {
                 if (accounts.nicknameTakenByOther(patch.nickname(), userId)) {
-                    throw UserProfileErrors.nicknameDuplicated();
+                    throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);
                 }
                 nickname = patch.nickname();
             }
@@ -71,7 +76,7 @@ public class UserProfileService {
                 } else {
                     profileImageKey =
                             images.resolveProfileImageKey(userId, patch.profileImageId())
-                                    .orElseThrow(UserProfileErrors::invalidImage);
+                                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_IMAGE));
                 }
             }
 
@@ -89,9 +94,9 @@ public class UserProfileService {
             throw ex;
         } catch (RuntimeException ex) {
             if ("uq_users_nickname".equals(uniqueConstraint(ex))) {
-                throw UserProfileErrors.nicknameDuplicated();
+                throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);
             }
-            throw UserProfileErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 

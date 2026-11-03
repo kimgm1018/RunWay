@@ -28,16 +28,20 @@ import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepo
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
 import com.runway.backend.domain.grouprun.repository.GroupRunRow;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonPoint;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import tools.jackson.databind.json.JsonMapper;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.json.JsonMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -165,17 +169,13 @@ public class GroupRunService {
     public PatchGroupRunResponse patch(long userId, long groupRunId, PatchGroupRunRequest request) {
         GroupRunRow row = requireGroupRun(groupRunId);
         if (row.hostId() != userId) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "NOT_HOST", "그룹장만 수정할 수 있습니다.");
+            throw new ApiException(ErrorCode.NOT_HOST);
         }
         if (!GroupRunStatus.SCHEDULED.name().equals(row.status())) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "EDIT_NOT_ALLOWED", "출발 전 그룹런만 수정할 수 있습니다.");
+            throw new ApiException(ErrorCode.EDIT_NOT_ALLOWED);
         }
 
-        String title =
-                request.titlePresent()
-                        ? requireNonBlankTitle(request.title())
-                        : row.title();
+        String title = request.titlePresent() ? requireNonBlankTitle(request.title()) : row.title();
         String description =
                 request.descriptionPresent()
                         ? blankToNull(request.description())
@@ -227,9 +227,7 @@ public class GroupRunService {
                     GroupRunGoalCalculator.resolve(
                             request.goalInputTypePresent() ? request.goalInputType() : null,
                             distanceInput,
-                            request.targetDurationSecPresent()
-                                    ? request.targetDurationSec()
-                                    : null,
+                            request.targetDurationSecPresent() ? request.targetDurationSec() : null,
                             request.targetPaceSecPerKmPresent()
                                     ? request.targetPaceSecPerKm()
                                     : null,
@@ -274,18 +272,13 @@ public class GroupRunService {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireApprovedActiveCrewMember(row.crewId(), userId);
         if (!GroupRunStatus.SCHEDULED.name().equals(row.status())) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "INVALID_GROUP_STATE", "모집 중인 그룹런에만 참가할 수 있습니다.");
+            throw new ApiException(ErrorCode.INVALID_GROUP_STATE_GROUPRUN_JOIN);
         }
         try {
             var joinedAt = participantJdbcRepository.insert(groupRunId, userId, false);
             return new JoinGroupRunResponse(groupRunId, userId, joinedAt);
         } catch (DataIntegrityViolationException ex) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "FULL_OR_ALREADY_JOINED",
-                    "이미 참가한 그룹런입니다.",
-                    Map.of());
+            throw new ApiException(ErrorCode.FULL_OR_ALREADY_JOINED, Map.of());
         }
     }
 
@@ -293,18 +286,13 @@ public class GroupRunService {
     public Map<String, Object> leave(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         if (!GroupRunStatus.SCHEDULED.name().equals(row.status())) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "RUN_ALREADY_STARTED", "출발 전에만 참가를 취소할 수 있습니다.");
+            throw new ApiException(ErrorCode.RUN_ALREADY_STARTED);
         }
         if (row.hostId() == userId) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "INVALID_GROUP_STATE",
-                    "그룹장은 참가 취소 대신 그룹런 취소를 사용해야 합니다.");
+            throw new ApiException(ErrorCode.INVALID_GROUP_STATE_GROUPRUN_LEAVE);
         }
         if (!participantJdbcRepository.exists(groupRunId, userId)) {
-            throw new ApiException(
-                    HttpStatus.FORBIDDEN, "NOT_PARTICIPANT", "참가하지 않은 그룹런입니다.");
+            throw new ApiException(ErrorCode.NOT_PARTICIPANT);
         }
         participantJdbcRepository.delete(groupRunId, userId);
         return Map.of();
@@ -339,12 +327,10 @@ public class GroupRunService {
             long userId, long groupRunId, ReadyGroupRunRequest request) {
         GroupRunRow row = requireGroupRun(groupRunId);
         if (!GroupRunStatus.SCHEDULED.name().equals(row.status())) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT, "INVALID_GROUP_STATE", "출발 전 대기방에서만 준비를 변경할 수 있습니다.");
+            throw new ApiException(ErrorCode.INVALID_GROUP_STATE);
         }
         if (!participantJdbcRepository.exists(groupRunId, userId)) {
-            throw new ApiException(
-                    HttpStatus.FORBIDDEN, "NOT_PARTICIPANT", "참가하지 않은 그룹런입니다.");
+            throw new ApiException(ErrorCode.NOT_PARTICIPANT);
         }
         boolean ready = request == null ? true : request.resolvedReady();
         participantJdbcRepository.updateReady(groupRunId, userId, ready);
@@ -358,35 +344,28 @@ public class GroupRunService {
         Crew crew =
                 crewRepository
                         .findById(crewId)
-                        .orElseThrow(
-                                () ->
-                                        new ApiException(
-                                                HttpStatus.FORBIDDEN,
-                                                "CREW_FORBIDDEN",
-                                                "크루 멤버만 이용할 수 있습니다."));
+                        .orElseThrow(() -> new ApiException(ErrorCode.CREW_FORBIDDEN));
         if (crew.getStatus() != CrewStatus.ACTIVE) {
             throw new ApiException(
-                    HttpStatus.FORBIDDEN, "CREW_FORBIDDEN", "활성 크루의 멤버만 이용할 수 있습니다.");
+                    ErrorCode.CREW_FORBIDDEN_GROUPRUN_REQUIRE_APPROVED_ACTIVE_CREW_MEMBER);
         }
         Optional<CrewMembership> membership =
                 crewMembershipRepository.findByCrewIdAndUserId(crewId, userId);
-        if (membership.isEmpty()
-                || membership.get().getStatus() != CrewMembershipStatus.APPROVED) {
-            throw new ApiException(
-                    HttpStatus.FORBIDDEN, "CREW_FORBIDDEN", "크루 멤버만 이용할 수 있습니다.");
+        if (membership.isEmpty() || membership.get().getStatus() != CrewMembershipStatus.APPROVED) {
+            throw new ApiException(ErrorCode.CREW_FORBIDDEN);
         }
     }
 
     private Integer requireAssignableCourseDistance(long courseId) {
         CourseRow course =
-                courseJdbcRepository.findById(courseId).orElseThrow(GroupRunService::courseNotFound);
+                courseJdbcRepository
+                        .findById(courseId)
+                        .orElseThrow(GroupRunService::courseNotFound);
         if ("MERGED".equals(course.status()) || "BLOCKED".equals(course.status())) {
-            throw new ApiException(
-                    HttpStatus.FORBIDDEN, "COURSE_INACCESSIBLE", "사용할 수 없는 코스입니다.");
+            throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
         }
         if (!"ACTIVE".equals(course.status())) {
-            throw new ApiException(
-                    HttpStatus.FORBIDDEN, "COURSE_INACCESSIBLE", "사용할 수 없는 코스입니다.");
+            throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
         }
         if (course.distanceM() == null) {
             throw courseNotFound();
@@ -397,12 +376,7 @@ public class GroupRunService {
     private GroupRunRow requireGroupRun(long groupRunId) {
         return groupRunJdbcRepository
                 .findById(groupRunId)
-                .orElseThrow(
-                        () ->
-                                new ApiException(
-                                        HttpStatus.NOT_FOUND,
-                                        "GROUP_NOT_FOUND",
-                                        "그룹런을 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
     }
 
     private GroupRunDetailResponse toDetail(GroupRunRow row, int participantCount) {
@@ -431,10 +405,7 @@ public class GroupRunService {
         try {
             return jsonMapper.readValue(geoJson, GeoJsonPoint.class);
         } catch (Exception ex) {
-            throw new ApiException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR",
-                    "모임 위치를 읽을 수 없습니다.");
+            throw new ApiException(ErrorCode.GROUP_MEETING_POSITION_ERROR);
         }
     }
 
@@ -444,40 +415,34 @@ public class GroupRunService {
                 || (request.targetPaceSecPerKmPresent() && request.targetPaceSecPerKm() == null)
                 || (request.goalInputTypePresent() && request.goalInputType() == null)) {
             throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT,
-                    "INVALID_GOAL",
-                    "부분 목표 해제는 지원하지 않습니다.");
+                    ErrorCode.INVALID_GOAL_GROUPRUN_REJECT_PARTIAL_GOAL_NULL_RELEASE);
         }
     }
 
     private static String requireNonBlankTitle(String title) {
         if (title == null || title.isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "title은 필수입니다.");
+            throw new ApiException(ErrorCode.VALIDATION_REQUIRED_FIELD, "title");
         }
         return title.trim();
     }
 
     private static String requireNonBlankMeetingName(String name) {
         if (name == null || name.isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "meetingPlaceName은 필수입니다.");
+            throw new ApiException(ErrorCode.VALIDATION_REQUIRED_FIELD, "meetingPlaceName");
         }
         return name.trim();
     }
 
     private static java.time.Instant requireScheduledAt(java.time.Instant scheduledAt) {
         if (scheduledAt == null) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "scheduledAt은 필수입니다.");
+            throw new ApiException(ErrorCode.VALIDATION_REQUIRED_FIELD, "scheduledAt");
         }
         return scheduledAt;
     }
 
     private static GeoJsonPoint requireMeetingPosition(GeoJsonPoint position) {
         if (position == null) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "meetingPosition은 필수입니다.");
+            throw new ApiException(ErrorCode.VALIDATION_REQUIRED_FIELD, "meetingPosition");
         }
         return position;
     }
@@ -489,10 +454,7 @@ public class GroupRunService {
         try {
             return GroupRunStatus.valueOf(status.trim()).name();
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "status는 SCHEDULED, RUNNING, COMPLETED, CANCELLED만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_GROUPRUN_NORMALIZE_STATUS_FILTER);
         }
     }
 
@@ -502,8 +464,7 @@ public class GroupRunService {
         }
         String value = participation.trim();
         if (!"ME".equals(value) && !"NONE".equals(value)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "INVALID_FILTER", "participation은 ME 또는 NONE만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_GROUPRUN_NORMALIZE_PARTICIPATION);
         }
         return value;
     }
@@ -514,20 +475,15 @@ public class GroupRunService {
             return;
         }
         if (latitude == null || longitude == null || radiusM == null) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "근처 검색은 latitude, longitude, radiusM을 모두 지정해야 합니다.");
+            throw new ApiException(ErrorCode.GROUP_GEO_FILTER_INCOMPLETE);
         }
         if (radiusM <= 0) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "INVALID_FILTER", "radiusM은 양수여야 합니다.");
+            throw new ApiException(ErrorCode.GROUP_GEO_RADIUS_INVALID);
         }
         try {
             GeoJsonPoint.of(longitude, latitude);
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "INVALID_FILTER", "위도·경도 값이 올바르지 않습니다.");
+            throw new ApiException(ErrorCode.GROUP_GEO_COORDINATES_INVALID);
         }
     }
 
@@ -537,9 +493,7 @@ public class GroupRunService {
         }
         if (limit < 1 || limit > MAX_LIMIT) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
+                    ErrorCode.INVALID_FILTER_GROUPRUN_RESOLVE_LIMIT, String.valueOf(MAX_LIMIT));
         }
         return limit;
     }
@@ -560,11 +514,11 @@ public class GroupRunService {
     }
 
     private static ApiException invalidCursor() {
-        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "cursor가 올바르지 않습니다.");
+        return new ApiException(ErrorCode.INVALID_FILTER_GROUPRUN_INVALID_CURSOR);
     }
 
     private static ApiException courseNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", "코스를 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.COURSE_NOT_FOUND);
     }
 
     private static String blankToNull(String value) {

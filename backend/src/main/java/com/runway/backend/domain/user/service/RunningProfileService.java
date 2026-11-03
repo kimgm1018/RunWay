@@ -2,8 +2,9 @@ package com.runway.backend.domain.user.service;
 
 import com.runway.backend.domain.user.dto.request.RunningProfileRequest;
 import com.runway.backend.domain.user.dto.response.RunningProfileResponse;
-import com.runway.backend.domain.user.exception.RunningProfileErrors;
 import com.runway.backend.domain.user.validation.RunningProfileValidator;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import jakarta.persistence.PersistenceException;
 
@@ -36,7 +37,7 @@ public class RunningProfileService {
             return action.get();
         } catch (DataAccessException | TransactionException | PersistenceException exception) {
             // Do not expose driver messages, SQL, submitted values, or exception causes.
-            throw RunningProfileErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 }

@@ -10,16 +10,19 @@ import com.runway.backend.domain.crew.entity.Crew;
 import com.runway.backend.domain.crew.entity.CrewStatus;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -43,7 +46,7 @@ public class SearchService {
 
         String keyword = q == null ? "" : q.trim();
         if (keyword.isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "QUERY_TOO_SHORT", "검색어가 너무 짧습니다.");
+            throw new ApiException(ErrorCode.QUERY_TOO_SHORT);
         }
         SearchType searchType = parseType(type);
         int pageSize = resolveLimit(limit);
@@ -108,7 +111,7 @@ public class SearchService {
 
     private void requireExistingUser(long userId) {
         if (!communityUserQueryRepository.existsById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -119,11 +122,7 @@ public class SearchService {
         return switch (type) {
             case "USER" -> SearchType.USER;
             case "CREW" -> SearchType.CREW;
-            default ->
-                    throw new ApiException(
-                            HttpStatus.BAD_REQUEST,
-                            "VALIDATION_ERROR",
-                            "type은 USER 또는 CREW여야 합니다.");
+            default -> throw new ApiException(ErrorCode.VALIDATION_ERROR_COMMUNITY_PARSE_TYPE);
         };
     }
 
@@ -133,9 +132,7 @@ public class SearchService {
         }
         if (limit < 1 || limit > MAX_LIMIT) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
+                    ErrorCode.VALIDATION_LIMIT_OUT_OF_RANGE, String.valueOf(MAX_LIMIT));
         }
         return limit;
     }
@@ -216,8 +213,7 @@ public class SearchService {
     }
 
     private static ApiException invalidCursor() {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor 형식이 올바르지 않습니다.");
+        return new ApiException(ErrorCode.VALIDATION_ERROR_CURSOR_FORMAT);
     }
 
     private enum SearchType {

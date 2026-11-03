@@ -2,10 +2,11 @@ package com.runway.backend.domain.user.service;
 
 import com.runway.backend.domain.user.dto.response.RunningProfileResponse;
 import com.runway.backend.domain.user.entity.UserProfile;
-import com.runway.backend.domain.user.exception.RunningProfileErrors;
 import com.runway.backend.domain.user.repository.ProfileOwnerLockRepository;
 import com.runway.backend.domain.user.repository.UserProfileRepository;
 import com.runway.backend.domain.user.validation.RunningProfileValidator.ProfileInput;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import jakarta.persistence.EntityManager;
 
@@ -32,8 +33,9 @@ public class RunningProfileTransactions {
         lockOwner(userId);
         UserProfile profile = profiles.findByUserId(userId).orElse(null);
         if (profile == null) {
-            if (input.level() == null) throw RunningProfileErrors.invalidLevel();
-            if (input.baseline() == null) throw RunningProfileErrors.invalidBaseline();
+            if (input.level() == null) throw new ApiException(ErrorCode.INVALID_LEVEL);
+            if (input.baseline() == null)
+                throw new ApiException(ErrorCode.INVALID_RUNNING_BASELINE);
             profile = profiles.save(UserProfile.create(userId, input.level(), input.baseline()));
         } else {
             if (input.level() != null) profile.changeLevel(input.level());
@@ -46,10 +48,11 @@ public class RunningProfileTransactions {
     }
 
     private void lockOwner(long userId) {
-        if (!owners.lock(userId)) throw RunningProfileErrors.notSet();
+        if (!owners.lock(userId)) throw new ApiException(ErrorCode.PROFILE_NOT_SET);
     }
 
     private UserProfile find(long userId) {
-        return profiles.findByUserId(userId).orElseThrow(() -> RunningProfileErrors.notSet());
+        return profiles.findByUserId(userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.PROFILE_NOT_SET));
     }
 }

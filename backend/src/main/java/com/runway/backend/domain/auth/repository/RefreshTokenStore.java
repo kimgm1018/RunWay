@@ -1,9 +1,9 @@
 package com.runway.backend.domain.auth.repository;
 
-import com.runway.backend.domain.auth.service.AuthErrors;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.IssuedRefreshToken;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.PresentedToken;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
@@ -64,19 +64,19 @@ public class RefreshTokenStore {
                     || ttl <= 0
                     || fields.subList(0, 6).contains(null)
                     || (!token.hash().equals(fields.get(5)) && !"1".equals(fields.get(6))))
-                throw AuthErrors.invalidRefresh();
+                throw new ApiException(ErrorCode.INVALID_REFRESH_TOKEN);
             long user = Long.parseLong((String) fields.get(1));
             Instant created = Instant.ofEpochSecond(Long.parseLong((String) fields.get(2)));
             Instant expires = Instant.ofEpochSecond(Long.parseLong((String) fields.get(3)));
             if (user <= 0
                     || !expires.isAfter(created)
                     || expires.getEpochSecond() - created.getEpochSecond() > 2592000)
-                throw AuthErrors.invalidRefresh();
+                throw new ApiException(ErrorCode.INVALID_REFRESH_TOKEN);
             return new Family(user, created, expires);
         } catch (ApiException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 
@@ -94,19 +94,20 @@ public class RefreshTokenStore {
                             Long.toString(next.expiresAt().getEpochSecond()),
                             Long.toString(now.toEpochMilli()));
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
-        if (Long.valueOf(0).equals(result)) throw AuthErrors.invalidRefresh();
-        if (!Long.valueOf(1).equals(result)) throw AuthErrors.unavailable();
+        if (Long.valueOf(0).equals(result)) throw new ApiException(ErrorCode.INVALID_REFRESH_TOKEN);
+        if (!Long.valueOf(1).equals(result)) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
     }
 
     /** Also used to compensate an uncertain rotation, including when the old token is now used. */
     public void logout(PresentedToken token) {
         try {
             Long result = redis.execute(logout, List.of(familyKey(token.familyId())), token.hash());
-            if (!Long.valueOf(1).equals(result)) throw AuthErrors.unavailable();
+            if (!Long.valueOf(1).equals(result))
+                throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 
@@ -126,10 +127,10 @@ public class RefreshTokenStore {
                             Long.toString(token.createdAt().getEpochSecond()),
                             Long.toString(token.expiresAt().getEpochSecond()));
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
-        if (Long.valueOf(5).equals(result)) throw AuthErrors.locked();
-        if (!Long.valueOf(1).equals(result)) throw AuthErrors.unavailable();
+        if (Long.valueOf(5).equals(result)) throw new ApiException(ErrorCode.LOGIN_LOCKED);
+        if (!Long.valueOf(1).equals(result)) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
     }
 
     /** Best effort compensation: no token material or driver exception enters logs. */
