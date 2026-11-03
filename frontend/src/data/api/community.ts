@@ -143,6 +143,7 @@ export function createCommunityApi({
     return {
       id: String(response.id),
       author: authorOf(response.authorId, nickname),
+      isMine: me,
       body: response.body,
       createdAt: response.createdAt,
       // Comment likes have no API.
@@ -225,11 +226,22 @@ export function createCommunityApi({
       return {
         id: String(comment.id),
         author: authorOf(comment.authorId, myName),
+        isMine: true,
         body: comment.body,
         createdAt: comment.createdAt,
         likeCount: 0,
         liked: false,
       };
+    },
+    updateComment: async (commentId, body) => {
+      const comment = await apiRequest<{ body: string }>(
+        `/comments/${commentId}`,
+        { method: 'PATCH', body: { body } },
+      );
+      return comment.body;
+    },
+    removeComment: async commentId => {
+      await apiRequest(`/comments/${commentId}`, { method: 'DELETE' });
     },
   };
 }

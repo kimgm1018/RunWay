@@ -213,6 +213,8 @@ export type Post = {
 export type PostComment = {
   id: string;
   author: PostAuthor;
+  // Mine shows 7.2's 댓글 수정·삭제 menu (CMT08·CMT09).
+  isMine: boolean;
   body: string;
   createdAt: string;
   likeCount: number;
@@ -930,6 +932,9 @@ export type Repositories = {
     setLiked: (postId: string, liked: boolean) => Promise<void>;
     setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
     addComment: (postId: string, body: string) => Promise<PostComment>;
+    // CMT08 · CMT09 on one of my comments; updateComment answers with the saved text.
+    updateComment: (commentId: string, body: string) => Promise<string>;
+    removeComment: (commentId: string) => Promise<void>;
   };
   // 7.4 · 7.4b (U21–U23). userId null is me.
   runners: {

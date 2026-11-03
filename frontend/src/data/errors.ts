@@ -33,6 +33,10 @@ export const dataErrorCodes = [
   'GROUP_NOT_FOUND',
   'FULL_OR_ALREADY_JOINED',
   'EDIT_NOT_ALLOWED',
+  // CMT08 · CMT09 댓글 수정·삭제 (docs/design/api/community.md).
+  'EMPTY_COMMENT',
+  'NOT_AUTHOR',
+  'COMMENT_NOT_FOUND',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
   // S01~S08 러닝 세션 제어 (docs/design/api/sessions.md, S15P31E105-256).
