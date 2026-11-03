@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BackHandler,
+  Image,
   Pressable,
   StatusBar,
   StyleSheet,
@@ -13,9 +14,27 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Card, Icon, IconButton } from '../../components';
-import { useRepositories, type MusicState } from '../../data';
-import { formatDuration, formatKm, formatPace } from '../../format';
+import {
+  AppText,
+  Card,
+  Icon,
+  IconButton,
+  LightGlass,
+  MistFill,
+  mistColors,
+  useToast,
+} from '../../components';
+import {
+  spotifyFailureMessage,
+  useRepositories,
+  type MusicState,
+} from '../../data';
+import {
+  formatDuration,
+  formatKm,
+  formatPace,
+  withoutDistance,
+} from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import {
   fontFamily,
@@ -27,6 +46,7 @@ import {
 } from '../../theme';
 import { MockMap } from './MockMap';
 import { AlbumArt } from './musicParts';
+import { K1Badge } from './parts';
 import { useRunControlState, useRunSession } from './RunSession';
 import { controlNotice } from './controlNotice';
 
@@ -209,11 +229,231 @@ function Progress({ ratio }: { ratio: number }) {
   );
 }
 
+// ---- 4.2 by day (runway-running-handoff): light map, glass strip, the pace and music card. ----
+
+const ink = '#02050E';
+
+// 자유 러닝 / the course: a small glass pill with a recording dot.
+function ModeChip({ label }: { label: string }) {
+  return (
+    <LightGlass radius={13} style={styles.modeChip}>
+      <View style={styles.recDot} />
+      <AppText style={styles.modeText} numberOfLines={1}>
+        {label}
+      </AppText>
+    </LightGlass>
+  );
+}
+
+function StripStat({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+}) {
+  return (
+    <View style={styles.stripStat}>
+      <AppText style={styles.stripValue}>
+        {value}
+        {unit ? <AppText style={styles.stripUnit}>{` ${unit}`}</AppText> : null}
+      </AppText>
+      <AppText style={styles.stripLabel}>{label}</AppText>
+    </View>
+  );
+}
+
+// 거리 · 경과 시간 · 심박 (or 남은 거리 on a course) in a 88 glass pill; a course adds a thin progress line.
+function StatStrip({
+  children,
+  ratio,
+}: {
+  children: React.ReactNode;
+  ratio: number | null;
+}) {
+  return (
+    <LightGlass radius={44} style={styles.strip}>
+      <View style={styles.stripRow}>{children}</View>
+      {ratio !== null ? (
+        <View style={styles.stripTrack}>
+          <View style={[styles.stripFill, { width: `${ratio * 100}%` }]} />
+        </View>
+      ) : null}
+    </LightGlass>
+  );
+}
+
+type MusicCommand = 'play' | 'pause' | 'next' | 'previous';
+
+// The song row at the foot of the pace card: the cover, the song, 이전 · 재생/일시정지 · 다음 and how far in.
+function PaceCardMusic({
+  music,
+  busy,
+  onCommand,
+}: {
+  music: MusicState;
+  busy: boolean;
+  onCommand: (command: MusicCommand) => void;
+}) {
+  const track = music.nowPlaying;
+  if (!track) {
+    return null;
+  }
+  const progress = track.durationSec
+    ? Math.min(track.positionSec / track.durationSec, 1)
+    : 0;
+  return (
+    <View style={styles.music}>
+      <View style={styles.musicRow}>
+        {track.artworkUrl ? (
+          <Image
+            source={{ uri: track.artworkUrl }}
+            accessibilityIgnoresInvertColors
+            style={styles.cover}
+          />
+        ) : (
+          <K1Badge diameter={40}>{null}</K1Badge>
+        )}
+        <View style={styles.flex}>
+          <AppText style={styles.song} numberOfLines={1}>
+            {track.title}
+          </AppText>
+          <AppText style={styles.album} numberOfLines={1}>
+            {track.subtitle}
+          </AppText>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="이전 곡"
+          disabled={busy}
+          onPress={() => onCommand('previous')}
+          hitSlop={6}
+          style={styles.skip}
+        >
+          <Icon name="skipBack" color={ink} size={16} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={track.playing ? '음악 일시정지' : '음악 재생'}
+          disabled={busy}
+          onPress={() => onCommand(track.playing ? 'pause' : 'play')}
+          style={styles.playRound}
+        >
+          <Icon
+            name={track.playing ? 'pause' : 'play'}
+            color="#E8EEF4"
+            size={16}
+          />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="다음 곡"
+          disabled={busy}
+          onPress={() => onCommand('next')}
+          hitSlop={6}
+          style={styles.skip}
+        >
+          <Icon name="skipForward" color={ink} size={16} />
+        </Pressable>
+      </View>
+      <View style={styles.songTrack}>
+        <View style={[styles.songFill, { width: `${progress * 100}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+// How the pace stands against the goal: 목표보다 2초 빠름.
+function goalGap(pace: number | null, goal: number | null) {
+  if (pace === null || !goal) {
+    return null;
+  }
+  const gap = Math.round(goal - pace);
+  return gap === 0
+    ? '목표 페이스'
+    : gap > 0
+    ? `목표보다 ${gap}초 빠름`
+    : `목표보다 ${-gap}초 느림`;
+}
+
+// 내 페이스 and the music player as one card on the 코스 러닝 그라데이션 (dark at the top, light at the foot).
+// Without music the card keeps only its dark top half (담당자 결정: 음악 줄 숨기기).
+function PaceCard({
+  pace,
+  goal,
+  side,
+  music,
+  busy,
+  onCommand,
+}: {
+  pace: number | null;
+  goal: number | null;
+  // The note on the right of the pace: the goal gap, or the heart rate on a course.
+  side: string | null;
+  music: MusicState | null;
+  busy: boolean;
+  onCommand: (command: MusicCommand) => void;
+}) {
+  const withMusic = Boolean(music?.nowPlaying);
+  return (
+    <View style={styles.paceGlassCard}>
+      <MistFill
+        id="runPaceCard"
+        colors={withMusic ? runGradient : runGradient.slice(0, 11)}
+      />
+      <View style={styles.paceHead}>
+        <View style={styles.paceKicker}>
+          <View style={styles.whiteDot} />
+          <AppText style={styles.kickerText}>내 페이스</AppText>
+        </View>
+        {goal ? (
+          <View style={styles.goalChip}>
+            <AppText style={styles.goalChipText}>{`목표 ${formatPace(
+              goal,
+            )}`}</AppText>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.paceLine}>
+        <AppText style={styles.bigPace} accessibilityLabel="내 페이스">
+          {pace === null ? '– –' : formatPace(pace)}
+        </AppText>
+        <AppText style={styles.perKm}>/km</AppText>
+        {side ? <AppText style={styles.paceSide}>{side}</AppText> : null}
+      </View>
+      {music && withMusic ? (
+        <PaceCardMusic music={music} busy={busy} onCommand={onCommand} />
+      ) : null}
+    </View>
+  );
+}
+
+// 코스 러닝 그라데이션 (runway-running-handoff 공통): the 2.0M mist turned upside down.
+const runGradient = [...mistColors].reverse();
+
 // 4.2 러닝 진행 (낮) and 4.2N (밤): the run so far on the map, live numbers and pause.
 export function RunProgressScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const { colors, name: themeName } = useTheme();
+  // By day the runway-running-handoff screen; after sunset the dark 4.2N (담당자 결정).
+  const night = themeName === 'dark';
   const { music } = useRepositories();
+  const toast = useToast();
+  const [musicBusy, setMusicBusy] = useState(false);
+  const runMusic = async (command: MusicCommand) => {
+    setMusicBusy(true);
+    try {
+      setPlayer(await music[command]());
+    } catch (error) {
+      const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
+      if (message) {
+        toast(message);
+      }
+    }
+    setMusicBusy(false);
+  };
   const { run, start, pause, resume, recheck } = useRunSession();
   const [player, setPlayer] = useState<MusicState | null>(null);
   const status = useRef(run?.status);
@@ -320,11 +560,165 @@ export function RunProgressScreen() {
       : null;
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
+  const modeLabel = plan
+    ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km${
+        plan.rival ? ' · 경쟁 모드' : ''
+      }`
+    : '자유 러닝';
+
+  if (!night) {
+    return (
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        <MockMap
+          k1Style
+          route={plan?.route}
+          trail={trail.length > 0 ? trail : undefined}
+        />
+        <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
+          <View style={styles.dayTop}>
+            <ModeChip label={modeLabel} />
+            {rivalGap !== null && plan?.rival ? (
+              <LightGlass radius={14} style={styles.rivalGlass}>
+                <AppText style={styles.rivalText}>
+                  {`${Number(
+                    plan.rival.startedAt.slice(5, 7),
+                  )}.${plan.rival.startedAt.slice(8, 10)} 기록보다 ${
+                    rivalGap >= 0
+                      ? `${rivalGap}초 앞서는 중`
+                      : `${-rivalGap}초 뒤처지는 중`
+                  }`}
+                </AppText>
+              </LightGlass>
+            ) : null}
+            <StatStrip
+              ratio={total ? Math.min(sample.distanceM / total, 1) : null}
+            >
+              <StripStat
+                label="거리"
+                value={formatKm(sample.distanceM)}
+                unit="km"
+              />
+              <StripStat
+                label="경과 시간"
+                value={formatDuration(sample.elapsedSec)}
+              />
+              {remaining !== null ? (
+                <StripStat
+                  label="남은 거리"
+                  value={formatKm(remaining)}
+                  unit="km"
+                />
+              ) : (
+                <StripStat
+                  label="심박"
+                  value={
+                    sample.heartRate === null ? '– –' : String(sample.heartRate)
+                  }
+                  unit="bpm"
+                />
+              )}
+            </StatStrip>
+            {guidance && plan ? (
+              <LightGlass radius={24} style={styles.guideGlass}>
+                <View
+                  style={[
+                    styles.guideIconDay,
+                    guidance.instruction.includes('오른쪽') && styles.mirror,
+                  ]}
+                >
+                  <Icon
+                    name={
+                      guidance.instruction.includes('직진')
+                        ? 'straight'
+                        : 'turnLeft'
+                    }
+                    color={ink}
+                    size={22}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <AppText style={styles.guideTitle}>
+                    {guidance.instruction}
+                  </AppText>
+                  <AppText style={styles.guideDetail}>
+                    {guidance.detail}
+                  </AppText>
+                </View>
+              </LightGlass>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="내 위치로 이동"
+              onPress={() => undefined}
+              style={styles.locateDay}
+            >
+              <LightGlass radius={20} style={styles.locateGlass}>
+                <Icon name="locate" color={ink} size={18} />
+              </LightGlass>
+            </Pressable>
+          </View>
+          <View style={styles.dayBottom}>
+            {waiting ? (
+              <AppText style={styles.dayNote} accessibilityLabel="제어 확인">
+                {waiting}
+              </AppText>
+            ) : null}
+            {notice ? (
+              <View style={styles.notice}>
+                <AppText style={styles.dayNote} accessibilityLabel="제어 안내">
+                  {notice.text}
+                </AppText>
+                {notice.recheck ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="다시 확인"
+                    onPress={recheck}
+                  >
+                    <AppText style={[styles.dayNote, styles.underline]}>
+                      다시 확인
+                    </AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            {/* The mockup dropped the pause button (README 알려진 문제); its 4.2-PauseButton returns here. */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="일시정지"
+              accessibilityState={{ disabled: waiting !== null }}
+              disabled={waiting !== null}
+              onPress={openPause}
+              style={({ pressed }) => [
+                styles.pauseDay,
+                (pressed || waiting !== null) && styles.pressed,
+              ]}
+            >
+              <Icon name="pause" color="#E8EEF4" size={24} />
+            </Pressable>
+            <PaceCard
+              pace={sample.paceSecPerKm}
+              goal={config.goalPaceSecPerKm}
+              side={
+                goalGap(sample.paceSecPerKm, config.goalPaceSecPerKm) ??
+                (remaining !== null && sample.heartRate !== null
+                  ? `심박 ${sample.heartRate} bpm`
+                  : null)
+              }
+              music={showPlayer ? player : null}
+              busy={musicBusy}
+              onCommand={runMusic}
+            />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
-      {/* The whole screen is the K1 dark map, day and night (DESIGN.md 2-7). */}
+      {/* After sunset the whole screen is the K1 dark map (DESIGN.md 2-7). */}
       <MockMap
         k1Style
         night
@@ -494,7 +888,244 @@ export function RunProgressScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: '#F3F5F6' },
+  dayTop: { paddingHorizontal: 14, paddingTop: 8, gap: 8 },
+  modeChip: {
+    alignSelf: 'center',
+    height: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 12,
+    paddingRight: 12,
+  },
+  recDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#C4644B',
+    boxShadow: '0 0 0 3px rgba(196,100,75,0.18)',
+  },
+  modeText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12.5,
+    lineHeight: 16,
+    letterSpacing: -0.2,
+    color: ink,
+  },
+  rivalGlass: {
+    alignSelf: 'center',
+    height: 28,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  rivalText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: ink,
+  },
+  strip: { minHeight: 88, justifyContent: 'center', paddingHorizontal: 20 },
+  stripRow: { flexDirection: 'row' },
+  stripStat: { flex: 1, alignItems: 'center', gap: 4 },
+  stripValue: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 32,
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    color: ink,
+  },
+  stripUnit: { fontFamily: fontFamily.medium, fontSize: 12, color: '#67696E' },
+  stripLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#95969A',
+  },
+  stripTrack: {
+    height: 3,
+    borderRadius: 2,
+    marginTop: 10,
+    marginBottom: 2,
+    backgroundColor: 'rgba(2,5,14,0.1)',
+    overflow: 'hidden',
+  },
+  stripFill: { height: 3, borderRadius: 2, backgroundColor: ink },
+  guideGlass: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  guideIconDay: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: ink,
+  },
+  guideDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#67696E',
+  },
+  locateDay: { alignSelf: 'flex-end' },
+  locateGlass: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayBottom: {
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 12,
+  },
+  dayNote: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    color: ink,
+  },
+  underline: { textDecorationLine: 'underline' },
+  pauseDay: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 10px 24px rgba(2,5,14,0.28)',
+  },
+  paceGlassCard: {
+    alignSelf: 'stretch',
+    borderRadius: 32,
+    overflow: 'hidden',
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    boxShadow: '0 16px 36px rgba(2,5,14,0.24)',
+  },
+  paceHead: {
+    height: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  paceKicker: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  whiteDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F9F9F9',
+    boxShadow: '0 0 0 3px rgba(255,255,255,0.18)',
+  },
+  kickerText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  goalChip: {
+    height: 24,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    justifyContent: 'center',
+  },
+  goalChipText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: '#F9F9F9',
+  },
+  paceLine: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  bigPace: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 64,
+    lineHeight: 68,
+    letterSpacing: -1.5,
+    color: '#F9F9F9',
+  },
+  perKm: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  paceSide: {
+    marginLeft: 'auto',
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  music: { marginTop: 26 },
+  musicRow: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cover: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  song: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    color: '#111111',
+  },
+  album: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: '#67696E',
+  },
+  skip: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playRound: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  songTrack: {
+    height: 2,
+    borderRadius: 1,
+    marginTop: 12,
+    backgroundColor: 'rgba(17,17,17,0.1)',
+    overflow: 'hidden',
+  },
+  songFill: { height: 2, borderRadius: 1, backgroundColor: ink },
   flex: { flex: 1 },
   layout: { flex: 1, justifyContent: 'space-between' },
   top: {

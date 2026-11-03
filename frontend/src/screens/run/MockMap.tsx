@@ -14,6 +14,8 @@ const viewWidth = 360;
 const viewHeight = 760;
 // Where a course sits on the 390×844 day map: the mockup's loop, above the 2.0 sheet.
 const courseRouteArea = { top: 160, bottom: 470 };
+// 4.2 by day: the run so far between the stat strip and the pace card (runway-running-handoff RunMap).
+const runRouteArea = { top: 330, bottom: 470 };
 
 const looks = {
   day: {
@@ -186,15 +188,21 @@ export function MockMap({
 }) {
   const k1Day = k1Style && !night;
   const k1Night = k1Style && night;
-  if (k1Day && !trail) {
-    // 2.0·2.0F by day: the thin-line map of runway-course-handoff, in its 390×844 frame.
+  if (k1Day) {
+    // 2.0·2.0F·3.1·4.2 by day: the thin-line map of runway-course-handoff, in its 390×844 frame.
+    const running = trail && trail.length > 0;
     const fit = projector(
-      [...(route ?? []), ...(position ? [position] : [])],
-      route ? courseRouteArea : { top: positionY, bottom: positionY },
+      [...(route ?? []), ...(trail ?? []), ...(position ? [position] : [])],
+      running
+        ? runRouteArea
+        : route
+        ? courseRouteArea
+        : { top: positionY, bottom: positionY },
       courseMapSize.width,
     );
+    // While running, the course is only a guide under the run; its pace colors belong to 2.0.
     const pieces = route
-      ? segmentPaces && segmentPaces.length > 0
+      ? !running && segmentPaces && segmentPaces.length > 0
         ? splitRoute(route, segmentPaces.length)
         : [route]
       : [];
@@ -205,7 +213,9 @@ export function MockMap({
         project={fit}
         parts={pieces}
         colors={pieces.map((_, index) =>
-          segmentPaces
+          running
+            ? coursePaceColors[2]
+            : segmentPaces
             ? paceColor(
                 segmentPaces[index],
                 fastestPace,
@@ -222,6 +232,7 @@ export function MockMap({
             : null
         }
         position={position}
+        trail={running ? trail : undefined}
       />
     );
   }

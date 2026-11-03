@@ -160,11 +160,13 @@ test('a course run shows live numbers, the rival gap and turn guidance', async (
     '경과 시간',
     '남은 거리',
     '내 페이스',
-    '목표 6′00″ ±10″',
+    // The pace card names the goal and how the pace stands against it.
+    '목표 6′00″',
   ]) {
     expect(shown).toContain(text);
   }
   expect(shown).toMatch(/\d+초 (앞서는|뒤처지는) 중/);
+  expect(shown).toMatch(/목표보다 \d+초 (빠름|느림)|목표 페이스/);
   expect(shown).toMatch(/앞 .+(직진|왼쪽|오른쪽)/);
   expect(textOf(screen, '내 페이스')).toMatch(/^\d′\d\d″$/);
   await act(async () => screen.unmount());
@@ -201,17 +203,16 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   const result = texts(screen);
   for (const text of [
     // Stopped well before 5km, so the course is not 완주 and no goal line shows.
-    '광안대교 루프 5.0km · 종료',
-    '평균 페이스',
-    '목표 6′00″',
+    '평균 페이스 /km · 목표 6′00″',
     '시간',
     '거리',
     '평균 심박',
     '평균 케이던스',
-    '기록 저장됨 · 동기화 완료',
   ]) {
     expect(result).toContain(text);
   }
+  // A good save stays quiet; only a failed one is shown.
+  expect(result).not.toContain('기록을 저장하지 못했어요');
   expect(result).not.toContain('달성');
   expect(textOf(screen, '평균 페이스')).toMatch(/^\d′\d\d″$/);
 
@@ -233,7 +234,7 @@ test('a free run result can be saved as my course, and a failed save offers 다�
   await press(free, '일시정지');
   await hold(free, '종료');
   await settle();
-  expect(texts(free)).toContain('자유 러닝 · 종료');
+  expect(texts(free)).toContain('평균 페이스 /km');
   await press(free, '내 코스에 저장');
   expect(texts(free)).toContain('내 코스에 저장했어요');
   expect(texts(free)).toContain('내 코스에 저장됨');
