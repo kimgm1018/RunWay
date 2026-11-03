@@ -11,7 +11,7 @@ BASH = str(Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Git/bin/b
 
 DOCKER = r"""#!/usr/bin/env bash
 set -eu
-printf '%s|%s|%s|%s\n' "${AI_IMAGE:-}" "${AI_MODEL_FILE:-}" "${HR_MODEL_SHA256:-}" "$*" >> "$MOCK_DIR/calls"
+printf '%s|%s|%s|%s|%s\n' "${AI_IMAGE:-}" "${AI_MODEL_FILE:-}" "${AI_MODEL_DIR:-}" "${HR_MODEL_SHA256:-}" "$*" >> "$MOCK_DIR/calls"
 case "$1" in
  image)
   case "$2" in inspect) echo sha256:new ;; tag) exit 0 ;; *) exit 90 ;; esac ;;
@@ -92,6 +92,8 @@ class DeploymentTests(unittest.TestCase):
         self.env["EXISTING"] = "0"
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(line.startswith("runway-ai:new|/models/next/gru.pt|/models/next|")
+                            for line in self.calls().splitlines()))
         self.assertEqual((self.state / "current-release").read_text().splitlines(),
                          ["runway-ai:new", "/models/next/gru.pt", "b" * 64])
 

@@ -1,6 +1,7 @@
 """API 테스트. 기본은 가짜 모델이라 체크포인트 없이 돈다. models/gru_final.pt가 있으면 실제 GRU도 확인한다."""
 import numpy as np
 import pytest
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import load_settings
@@ -24,6 +25,13 @@ class FakeModel:
         return hr0[:, None] + speed[:, None] * np.array([1.0, 2.0, 3.0])
 
 
+class FakeODE:
+    info = SimpleNamespace(model_version="ode-test", model_type="ODE-v2.1", variant="test",
+                           checkpoint_sha256="0" * 64, summary_feature_count=27, hr0_head=False,
+                           device="cpu", validated_horizon_sec=5400, sample_interval_sec=30,
+                           horizons_sec=(30, 60, 120))
+
+
 def failing_loader():
     raise FileNotFoundError("체크포인트가 없습니다")
 
@@ -42,19 +50,25 @@ def fake():
 
 @pytest.fixture
 def client(fake):
-    with TestClient(create_app(lambda: fake)) as c:
+    with TestClient(create_app(lambda: fake, ode_loader=lambda: FakeODE())) as c:
         yield c
 
 
 def test_health_up(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "UP", "modelLoaded": True, "modelVersion": "fake-1"}
+    assert r.json()["status"] == "UP" and r.json()["modelLoaded"] is True
+    assert r.json()["models"]["gru"]["modelVersion"] == "fake-1"
+    assert r.json()["models"]["ode"]["modelVersion"] == "ode-test"
 
 
 def test_health_down_when_model_missing():
-    with TestClient(create_app(failing_loader)) as c:
-        assert c.get("/health").status_code == 503
+    with TestClient(create_app(failing_loader, ode_loader=lambda: FakeODE())) as c:
+        health = c.get("/health")
+        assert health.status_code == 503
+        assert health.json()["status"] == "DOWN"
+        assert health.json()["models"]["gru"]["status"] == "DOWN"
+        assert health.json()["models"]["ode"]["status"] == "UP"
         r = c.post("/v1/hr/predict", json=body())
         assert r.status_code == 503 and r.json()["code"] == "MODEL_NOT_READY"
 
@@ -115,13 +129,30 @@ def test_insufficient_without_hr0(client):
     assert r.status_code == 422 and r.json()["code"] == "INPUT_INSUFFICIENT"
 
 
-def test_insufficient_without_complete_rows(client):
-    r = client.post("/v1/hr/predict", json=body(n_hist=3, gradePct=[None, None, None]))
+def test_insufficient_without_complete_rows(fake, monkeypatch):
+    # 팀 기존 계약은 FREE_RUN_GRADE_POLICY=reject로 유지·검증한다. 기본값(flat0)은 tests/test_free_run_grade.py.
+    monkeypatch.setenv("FREE_RUN_GRADE_POLICY", "reject")
+    with TestClient(create_app(lambda: fake, ode_loader=lambda: FakeODE())) as c:
+        r = c.post("/v1/hr/predict", json=body(n_hist=3, gradePct=[None, None, None]))
     assert r.status_code == 422 and r.json()["code"] == "INPUT_INSUFFICIENT"
 
 
-@pytest.mark.skipif(not load_settings().model_path.is_file(), reason="models/gru_final.pt 없음")
-def test_real_gru():
+def _real_gru_path():
+    # 찾는 순서(v6_8 E): ① RUNWAY_TEST_ARTIFACTS_DIR/gru_final.pt ② HR_MODEL_PATH ③ models/gru_final.pt
+    import os
+    from pathlib import Path
+    artifact_dir = os.getenv("RUNWAY_TEST_ARTIFACTS_DIR")
+    if artifact_dir and (Path(artifact_dir) / "gru_final.pt").is_file():
+        return Path(artifact_dir) / "gru_final.pt"
+    path = load_settings().model_path
+    return path if path.is_file() else None
+
+
+@pytest.mark.skipif(_real_gru_path() is None,
+                    reason="실제 GRU 체크포인트 없음(RUNWAY_TEST_ARTIFACTS_DIR, HR_MODEL_PATH, models/gru_final.pt 확인)")
+def test_real_gru(monkeypatch):
+    monkeypatch.setenv("HR_MODEL_PATH", str(_real_gru_path()))
+    monkeypatch.delenv("HR_MODEL_SHA256", raising=False)
     with TestClient(create_app()) as c:
         assert c.get("/health").json()["modelLoaded"]
         info = c.get("/v1/model-info").json()

@@ -40,6 +40,7 @@
 - [상세 요구사항](docs/design/requirements.md): 1·2차 MVP 요구사항과 향후 검토 기능
 - [데이터 모델](docs/design/db/erd.md): 테이블 설명 · [기준 스키마](docs/design/db/schema.sql) · [ERD 이미지](docs/design/db/erd.png)
 - [1차 MVP API 명세](docs/design/api/README.md): 공통 규약, 전체 API 색인 및 도메인별 상세 초안
+- [AI 서비스 API 명세](docs/design/api/ai-service.md): 학습 심박 기준, AI04 호출 규약, AI05·AI06 요청·응답
 
 ## 앱 문서
 
