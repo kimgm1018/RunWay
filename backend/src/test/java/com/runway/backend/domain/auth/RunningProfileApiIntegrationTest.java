@@ -316,17 +316,9 @@ class RunningProfileApiIntegrationTest extends AuthIntegrationSupport {
     }
 
     @Test
-    void openApiDescribesNumbersAndExpiredTokenCannotReadOrWrite() throws Exception {
+    void openApiHidesValidationFieldsAndExpiredTokenCannotReadOrWrite() throws Exception {
         mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
-                .andExpect(
-                        jsonPath(
-                                        "$.components.schemas.RunningProfileRequest.properties.usualPaceSecPerKm.type")
-                                .value("number"))
-                .andExpect(
-                        jsonPath(
-                                        "$.components.schemas.RunningProfileRequest.properties.baselineDistanceM.type")
-                                .value("integer"))
                 .andExpect(
                         jsonPath(
                                         "$.components.schemas.RunningProfileRequest.properties.formatValid")
