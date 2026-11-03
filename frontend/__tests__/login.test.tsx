@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
+import { refreshWatchHealthConsent } from '../src/health/watchHealth';
 
 // 1.2 로그인 against the server (dataSource 'api'): U01 is the only API here, the rest stays on mock data.
 
@@ -121,6 +122,7 @@ async function login(screen: Screen, password = 'runway123') {
 }
 
 beforeEach(async () => {
+  jest.mocked(refreshWatchHealthConsent).mockClear();
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.clear();
@@ -129,9 +131,13 @@ beforeEach(async () => {
 test('a completed account enters home and stays signed in after a relaunch', async () => {
   serveHome(true);
   const first = await launch();
+  // Signed out at launch: the watch only gets a withdrawal whose delivery failed.
+  expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(1);
   await login(first);
 
   expect(texts(first)).toContain('오늘 달리기 좋은 날이에요');
+  // S15P31E105-313: the login hands the consent to the watch again.
+  expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(2);
   expect(tokenStore.current()).toEqual({
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
@@ -140,6 +146,8 @@ test('a completed account enters home and stays signed in after a relaunch', asy
 
   const relaunch = await launch();
   expect(texts(relaunch)).toContain('오늘 달리기 좋은 날이에요');
+  // The restored session refreshes the watch consent as well.
+  expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(3);
   // The kept tokens sign in again without another login.
   expect(loginCalls()).toHaveLength(1);
   await act(async () => relaunch.unmount());
