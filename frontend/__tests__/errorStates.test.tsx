@@ -106,7 +106,7 @@ test('2.1 says when my runs did not load, shows – – and loads again on retry
   await settle();
   page = texts(screen);
   expect(page).not.toContain('러닝 기록을 불러오지 못했어요');
-  expect(page).toContain('4일 전 · 30분');
+  expect(page).toContain('5.0 km');
 });
 
 test('2.1 shows that there are no runs yet instead of empty cards', async () => {

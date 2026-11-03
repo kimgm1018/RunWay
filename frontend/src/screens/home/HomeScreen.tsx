@@ -35,8 +35,10 @@ import {
   HomeGrid,
 } from './widgets';
 
-// The greeting's two lines (22 over 28) under the header, as the 114 header of the 핸드오프.
-const greetingHeight = 58;
+// S15P31E105-382 (in -391): no greeting, so 오늘 컨디션 sits 4 under the header and the last cards keep
+// 14 clear of the floating tab bar.
+const headerGap = 4;
+const tabBarGap = 14;
 // Cards stop above the floating tab bar and its margins.
 const bottomSpace = size.tabBar + size.tabBarInset * 2;
 
@@ -44,8 +46,6 @@ const bottomSpace = size.tabBar + size.tabBarInset * 2;
 const loadMe = (repositories: Repositories) => repositories.profile.getMe();
 const loadToday = (repositories: Repositories) =>
   repositories.home.getTodayCondition();
-const loadSummary = (repositories: Repositories) =>
-  repositories.home.getMonthlySummary();
 const loadCourses = (repositories: Repositories) =>
   repositories.courses.getSaved();
 const loadNotifications = (repositories: Repositories) =>
@@ -103,16 +103,15 @@ function Avatar({
   );
 }
 
-// 2.1 홈 (S15P31E105-367 핸드오프): the greeting, 오늘 컨디션 with 러닝 시작, then two columns of cards.
+// 2.1 홈 (S15P31E105-367·-391 핸드오프): 오늘 컨디션 with 러닝 시작, then two columns of cards.
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const me = useResource(loadMe);
   const today = useResource(loadToday);
-  const summary = useResource(loadSummary);
   const courses = useResource(loadCourses);
   const notifications = useResource(loadNotifications);
-  // Back from 8.2 the greeting and avatar show the saved nickname and photo, and back from 2.9 the bell
+  // Back from 8.2 the avatar shows the saved nickname and photo, and back from 2.9 the bell
   // loses its dot (leaving 2.9 marks all read). The first focus is the first load.
   const refreshMe = me.refresh;
   const refreshNotifications = notifications.refresh;
@@ -139,17 +138,23 @@ export function HomeScreen() {
   }, []);
   const refresh = useMemo(() => ({ pull, track }), [pull, track]);
   const onRefresh = () => {
-    [me, today, summary, courses, notifications].forEach(resource =>
+    [me, today, courses, notifications].forEach(resource =>
       track(resource.refresh()),
     );
     setPull(count => count + 1);
   };
-  // 2.1 fits one screen: the two rows of cards share the height left under the header, greeting and
-  // 오늘 컨디션, above the tab bar. They never go below the mockup's 216; a shorter phone scrolls instead.
+  // 2.1 fits one screen: the two rows of cards share the height left under the header and 오늘 컨디션,
+  // above the tab bar. They never go below the mockup's 216; a shorter phone scrolls instead.
   const [viewport, setViewport] = useState(0);
   const top = insets.top + size.header;
   const room =
-    viewport - top - bottomSpace - greetingHeight - conditionHeight - gap * 3;
+    viewport -
+    top -
+    headerGap -
+    bottomSpace -
+    tabBarGap -
+    conditionHeight -
+    gap * 2;
   const gridHeight = viewport ? Math.max(cardHeight, room / 2) : cardHeight;
   const scrollY = useRef(new Animated.Value(0)).current;
   // The header gets the K1 top colour once the cards start passing under it, so the two never overlap.
@@ -171,7 +176,7 @@ export function HomeScreen() {
       <Animated.ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + size.header },
+          { paddingTop: insets.top + size.header + headerGap },
         ]}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
@@ -192,12 +197,6 @@ export function HomeScreen() {
         }
       >
         <HomeRefreshProvider value={refresh}>
-          <AppText style={styles.greeting}>
-            {me.data ? `${me.data.nickname}님,\n` : ''}
-            <AppText style={styles.greetingText}>
-              오늘 달리기 좋은 날이에요
-            </AppText>
-          </AppText>
           {today.status === 'loading' ? (
             <ActivityIndicator color={colors.accent} />
           ) : today.status === 'error' ? (
@@ -213,17 +212,7 @@ export function HomeScreen() {
           ) : (
             <ConditionCard today={today.data} />
           )}
-          <HomeGrid
-            summary={summary.data}
-            courses={courses.data}
-            height={gridHeight}
-          />
-          {summary.status === 'error' ? (
-            <RetryNotice
-              message="이번 달 기록을 불러오지 못했어요"
-              onRetry={summary.reload}
-            />
-          ) : null}
+          <HomeGrid courses={courses.data} height={gridHeight} />
           {courses.status === 'error' ? (
             <RetryNotice
               message="저장한 코스를 불러오지 못했어요"
@@ -247,7 +236,7 @@ export function HomeScreen() {
         />
         <View style={styles.header}>
           <View style={styles.logo}>
-            <Logo width={88} />
+            <Logo width={104} />
           </View>
           <HeaderButton
             icon="bell"
@@ -327,24 +316,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#FFFFFF',
   },
-  // Cards sit 8 from the edges; the greeting lines up with the header at 16.
+  // Cards sit 8 from the edges, 14 above the tab bar.
   content: {
     paddingHorizontal: gutter,
-    paddingBottom: bottomSpace,
+    paddingBottom: bottomSpace + tabBarGap,
     gap,
-  },
-  // 22 over 28: the name in the header ink, the second line in blue grey.
-  greeting: {
-    paddingHorizontal: 8,
-    paddingTop: 2,
-    fontFamily: fontFamily.bold,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.6,
-    color: homePalette.header,
-  },
-  greetingText: {
-    fontFamily: fontFamily.medium,
-    color: homePalette.sub,
   },
 });

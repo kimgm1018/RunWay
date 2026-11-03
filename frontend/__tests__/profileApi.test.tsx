@@ -195,7 +195,7 @@ test('2.1 greets me with my U04 nickname and shows the U04 photo', async () => {
   await settle();
   await settle();
 
-  expect(texts(screen!)).toContain('새벽러너님,');
+  // 2.1 has no greeting any more (S15P31E105-382); the profile shows in the header avatar.
   const avatar = labelled(screen!, '내 프로필');
   const photo = avatar.findAll(node => node.props.source?.uri !== undefined)[0];
   expect(photo.props.source.uri).toBe(
