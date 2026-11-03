@@ -84,7 +84,10 @@ export function ProfileBasicScreen() {
   const dayCount = year && month ? daysInMonth(year, month) : 31;
   const days = Array.from({ length: dayCount }, (_, index) => index + 1);
   // Moving to a shorter month pulls the day back to its last date.
-  const changeMonthOrYear = (nextYear: number | null, nextMonth: number | null) => {
+  const changeMonthOrYear = (
+    nextYear: number | null,
+    nextMonth: number | null,
+  ) => {
     setYear(nextYear);
     setMonth(nextMonth);
     if (day && nextYear && nextMonth) {
@@ -122,6 +125,7 @@ export function ProfileBasicScreen() {
         holdTokens({
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
+          refreshExpiresAt: session.refreshExpiresAt,
         });
         // Fire and forget: the watch sync must not delay navigation.
         void setWatchHealthConsent(draft.healthDataAccess);

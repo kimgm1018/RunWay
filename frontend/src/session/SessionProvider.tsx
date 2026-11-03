@@ -7,6 +7,8 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Alert } from 'react-native';
+import { appConfig } from '../config';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
 import { serverHealthConsentReader } from '../health/serverHealthConsent';
@@ -20,6 +22,9 @@ type SessionValue = {
   signedIn: boolean;
   // True until the saved tokens have been read on launch.
   restoring: boolean;
+  loginRequired: boolean;
+  // Called only before a new run, never from an expiry timer or a resume path.
+  ensureRunLogin: () => boolean;
   // Keeps the tokens in the keystore and enters the app. Without tokens it keeps the held ones, if any.
   signIn: (tokens?: AuthTokens) => void;
   // For an account that still has to finish 1.6 러닝 프로필: requests can use the tokens, but a relaunch starts signed out
@@ -40,6 +45,7 @@ export function SessionProvider({
 }) {
   const [signedIn, setSignedIn] = useState(initialSignedIn);
   const [restoring, setRestoring] = useState(!initialSignedIn);
+  const [loginRequired, setLoginRequired] = useState(false);
 
   useEffect(() => {
     if (initialSignedIn) {
@@ -64,6 +70,39 @@ export function SessionProvider({
       tokenStore.save(kept).catch(() => {});
     }
     setSignedIn(true);
+    setLoginRequired(false);
+  }, []);
+
+  const ensureRunLogin = useCallback(() => {
+    const kept = tokenStore.current();
+    // The mock-only, initially signed-in preview has no server-issued credentials.
+    if (!kept && appConfig.dataSource === 'mock') {
+      return true;
+    }
+    const deadline = Date.parse(kept?.refreshExpiresAt ?? '');
+    if (
+      Number.isFinite(deadline) &&
+      deadline - Date.now() >= 24 * 60 * 60 * 1000
+    ) {
+      return true;
+    }
+    Alert.alert(
+      '러닝 전에 다시 로그인해 주세요',
+      '운동 중 로그인 유지 기간이 끝나지 않도록, 다시 로그인한 뒤 러닝을 시작해 주세요.',
+      [
+        { text: '나중에', style: 'cancel' },
+        {
+          text: '다시 로그인',
+          onPress: () => {
+            // Reauthentication is not withdrawal of health-data consent.
+            tokenStore.clear().catch(() => {});
+            setLoginRequired(true);
+            setSignedIn(false);
+          },
+        },
+      ],
+    );
+    return false;
   }, []);
 
   const holdTokens = useCallback((tokens: AuthTokens) => {
@@ -101,8 +140,24 @@ export function SessionProvider({
   useEffect(() => onUnauthorized(signOut), [signOut]);
 
   const value = useMemo(
-    () => ({ signedIn, restoring, signIn, holdTokens, signOut }),
-    [signedIn, restoring, signIn, holdTokens, signOut],
+    () => ({
+      signedIn,
+      restoring,
+      loginRequired,
+      ensureRunLogin,
+      signIn,
+      holdTokens,
+      signOut,
+    }),
+    [
+      signedIn,
+      restoring,
+      loginRequired,
+      ensureRunLogin,
+      signIn,
+      holdTokens,
+      signOut,
+    ],
   );
   return (
     <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

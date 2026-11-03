@@ -1,7 +1,11 @@
 import * as Keychain from 'react-native-keychain';
 import { tokenStore } from '../tokenStore';
 
-const tokens = { accessToken: 'access-1', refreshToken: 'refresh-1' };
+const tokens = {
+  accessToken: 'access-1',
+  refreshToken: 'refresh-1',
+  refreshExpiresAt: '2026-12-02T01:00:00Z',
+};
 
 beforeEach(async () => {
   await tokenStore.clear();
@@ -49,4 +53,13 @@ test('a keystore failure counts as signed out', async () => {
     .mocked(Keychain.getGenericPassword)
     .mockRejectedValueOnce(new Error('keystore locked'));
   await expect(tokenStore.load()).resolves.toBeNull();
+});
+
+test('legacy entries stay readable without inventing an expiry', async () => {
+  const legacy = { accessToken: 'old-access', refreshToken: 'old-refresh' };
+  await Keychain.setGenericPassword('runway', JSON.stringify(legacy), {
+    service: 'com.runway.health.auth',
+  });
+  await expect(tokenStore.load()).resolves.toEqual(legacy);
+  expect(tokenStore.current()?.refreshExpiresAt).toBeUndefined();
 });

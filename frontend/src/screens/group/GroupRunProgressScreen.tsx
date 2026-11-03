@@ -17,6 +17,7 @@ import {
 import { formatPace } from '../../format';
 import { walkAlong, routeLengthM } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
+import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
 import { MockMap } from '../run/MockMap';
 import { MiniPlayer, PaceBar } from '../run/RunProgressScreen';
@@ -155,6 +156,7 @@ export function GroupRunProgressScreen({
   const { colors } = useTheme();
   const { groupRuns, music } = useRepositories();
   const { run, start, pause, resume } = useRunSession();
+  const { ensureRunLogin } = useSession();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [live, setLive] = useState<GroupRunLive | null>(null);
   const [player, setPlayer] = useState<MusicState | null>(null);
@@ -163,6 +165,9 @@ export function GroupRunProgressScreen({
   // Opened without a run: start a group run without a course.
   useEffect(() => {
     if (!run) {
+      if (!ensureRunLogin()) {
+        return;
+      }
       start({
         mode: 'GROUP',
         plan: null,
@@ -171,7 +176,7 @@ export function GroupRunProgressScreen({
         goalPaceSecPerKm: 360,
       });
     }
-  }, [groupRunId, run, start]);
+  }, [groupRunId, run, start, ensureRunLogin]);
   useEffect(
     () => groupRuns.watchLive(groupRunId, setLive),
     [groupRunId, groupRuns],

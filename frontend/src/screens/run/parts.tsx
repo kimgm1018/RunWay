@@ -21,6 +21,7 @@ import {
   type MusicService,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
+import { useSession } from '../../session/SessionProvider';
 import {
   useRunActions,
   useRunControlState,
@@ -183,6 +184,7 @@ export function RunStartBar({
   const { colors } = useTheme();
   const source = useMusicSource();
   const { start: startRun, recheck, abortStart, cancel } = useRunActions();
+  const { ensureRunLogin } = useSession();
   const control = useRunControlState();
   const focused = useIsFocused();
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
@@ -195,7 +197,11 @@ export function RunStartBar({
   const previousStatus = useRef(control?.status ?? null);
   useEffect(() => {
     const status = control?.status ?? null;
-    if (focused && status === 'RUNNING' && previousStatus.current !== 'RUNNING') {
+    if (
+      focused &&
+      status === 'RUNNING' &&
+      previousStatus.current !== 'RUNNING'
+    ) {
       setRequested(false);
       navigateTo(navigation, 'RunProgress');
     }
@@ -206,7 +212,10 @@ export function RunStartBar({
   }, [control, focused, navigation]);
   const confirming =
     requested || (control?.pending?.action === 'START' && !control.problem);
-  const notice = control?.status !== 'RUNNING' ? startNotice(control?.problem ?? null) : null;
+  const notice =
+    control?.status !== 'RUNNING'
+      ? startNotice(control?.problem ?? null)
+      : null;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (count === null) {
@@ -214,6 +223,9 @@ export function RunStartBar({
     }
     if (count === 0) {
       setCount(null);
+      if (!ensureRunLogin()) {
+        return;
+      }
       const { config: chosen, navigation: nav, start } = latest.current;
       if (chosen?.mode === 'GROUP') {
         start(chosen);
@@ -230,7 +242,7 @@ export function RunStartBar({
         clearTimeout(timer.current);
       }
     };
-  }, [count]);
+  }, [count, ensureRunLogin]);
   return (
     <View style={styles.bar}>
       <RoundButton
@@ -245,7 +257,11 @@ export function RunStartBar({
         accessibilityLabel="러닝 시작"
         accessibilityState={{ disabled: !config || confirming }}
         disabled={!config || confirming}
-        onPress={() => setCount(countdownSeconds)}
+        onPress={() => {
+          if (ensureRunLogin()) {
+            setCount(countdownSeconds);
+          }
+        }}
         style={({ pressed }) => [
           styles.start,
           { backgroundColor: night ? colors.accent : k1.night },
@@ -389,7 +405,11 @@ function startNotice(problem: ControlProblem | null): {
     case 'rejected':
       return { text: '워치가 시작하지 못했어요', restart: true };
     case 'unconfirmed':
-      return { text: '시작 여부를 확인할 수 없습니다', recheck: true, abort: true };
+      return {
+        text: '시작 여부를 확인할 수 없습니다',
+        recheck: true,
+        abort: true,
+      };
     case 'saveUnconfirmed':
       return null;
     case 'error':

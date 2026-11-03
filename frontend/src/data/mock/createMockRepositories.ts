@@ -21,7 +21,10 @@ import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
 import { createMockSession } from './mockSession';
-import { createMockWatchSession, type MockWatchBehavior } from './mockWatchSession';
+import {
+  createMockWatchSession,
+  type MockWatchBehavior,
+} from './mockWatchSession';
 import {
   fromDraft,
   kstDay,
@@ -330,6 +333,9 @@ export function createMockRepositories(
     user: { id: nextUserId++, loginId },
     accessToken: `mock-token-${loginId}`,
     refreshToken: `mock-refresh-${loginId}`,
+    refreshExpiresAt: new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString(),
     onboardingCompleted: account.onboardingCompleted,
   });
   const isRegistered = (phoneNumber: string) =>
@@ -471,7 +477,11 @@ export function createMockRepositories(
     profile: {
       getMe: () =>
         respond(
-          { ...fixtures.me, nickname: profile.nickname, profileImageUrl: photo },
+          {
+            ...fixtures.me,
+            nickname: profile.nickname,
+            profileImageUrl: photo,
+          },
           options,
         ),
       updateBasic: basic => {
@@ -756,9 +766,12 @@ export function createMockRepositories(
       latencyMs: options.watchLatencyMs ?? options.latencyMs ?? 300,
       linked: () => watchConnected,
       behavior: watchBehavior(options.scenario),
-      baseTime: new Date(options.scenario === 'night' ? fixtures.nightNow : fixtures.now),
+      baseTime: new Date(
+        options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
+      ),
       timing:
-        options.resultWaitMs === undefined && options.endResultWaitMs === undefined
+        options.resultWaitMs === undefined &&
+        options.endResultWaitMs === undefined
           ? undefined
           : {
               resultWaitMs: options.resultWaitMs ?? 30_000,

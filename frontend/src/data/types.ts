@@ -568,6 +568,7 @@ export type AuthSession = {
   user: { id: number; loginId: string };
   accessToken: string;
   refreshToken: string;
+  refreshExpiresAt: string;
   onboardingCompleted: boolean;
 };
 
@@ -995,7 +996,9 @@ export type Repositories = {
       result: ControlResultCode;
       session: RunningSessionView;
     }>;
-    cancel: (sessionId: string) => Promise<{ id: string; status: SessionStatus }>;
+    cancel: (
+      sessionId: string,
+    ) => Promise<{ id: string; status: SessionStatus }>;
     abortUnconfirmedStart: (
       sessionId: string,
       request: { deviceId: string; expectedVersion: number },
@@ -1010,15 +1013,29 @@ export type Repositories = {
     prepare: (
       sessionId: string,
       request: { stateVersion: number; deviceId: string; goal: SessionGoalDraft },
-    ) => Promise<{ stateVersion: number; ready: boolean; reasonCode: string | null }>;
+    ) => Promise<{
+      stateVersion: number;
+      ready: boolean;
+      reasonCode: string | null;
+    }>;
     // 서버가 승인한 명령을 전달만 한다. START는 START_AUTHORIZED, 그 외는 COMMAND_REQUEST(APPLY).
-    sendCommand: (sessionId: string, approval: CommandApproval) => Promise<void>;
+    sendCommand: (
+      sessionId: string,
+      approval: CommandApproval,
+    ) => Promise<void>;
     sendReceived: (
       sessionId: string,
-      receipt: { commandId: string; persisted: boolean; stateVersion: number | null },
+      receipt: {
+        commandId: string;
+        persisted: boolean;
+        stateVersion: number | null;
+      },
     ) => Promise<void>;
     // STATE_RESULT(scope=SERVER).
-    sendServerState: (sessionId: string, session: RunningSessionView) => Promise<void>;
+    sendServerState: (
+      sessionId: string,
+      session: RunningSessionView,
+    ) => Promise<void>;
     // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
     sendError: (
       sessionId: string,

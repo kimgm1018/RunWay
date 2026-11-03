@@ -141,11 +141,13 @@ test('a completed account enters home and stays signed in after a relaunch', asy
   expect(tokenStore.current()).toEqual({
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
+    refreshExpiresAt: '2026-12-02T01:00:00Z',
   });
   await act(async () => first.unmount());
 
   const relaunch = await launch();
   expect(texts(relaunch)).toContain('오늘 달리기 좋은 날이에요');
+  expect(tokenStore.current()?.refreshExpiresAt).toBe('2026-12-02T01:00:00Z');
   // The restored session refreshes the watch consent as well.
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(3);
   // The kept tokens sign in again without another login.
