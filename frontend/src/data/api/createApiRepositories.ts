@@ -10,6 +10,7 @@ import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
 import { createGroupRunsApi } from './groupRuns';
 import { getRunningProfile, saveRunningProfile } from './profile';
+import { createReadinessApi } from './readiness';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
 import { serverRequest } from './request';
@@ -41,8 +42,14 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // Phone verification has no API yet, so it stays on mock data.
     auth: { ...mock.auth, login, checkLoginId, signUp },
     profile: { ...mock.profile, getRunningProfile, saveRunningProfile },
-    // Only 2.1 러닝 분석 reads my runs; 오늘 컨디션 stays on mock data until its own API task.
-    home: { ...mock.home, getMonthlySummary },
+    // 2.1 러닝 분석 reads my runs; 오늘 컨디션 takes its readiness from R02 and the rest from mock data.
+    home: {
+      getMonthlySummary,
+      getTodayCondition: createReadinessApi({
+        base: mock.home.getTodayCondition,
+        now: () => new Date(),
+      }),
+    },
     records,
     // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
     community: createCommunityApi({ records }),

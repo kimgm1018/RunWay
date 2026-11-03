@@ -439,7 +439,12 @@ function ReadinessWidget({ today }: { today: TodayCondition }) {
           <AppText variant="caption" tone="textSecondary">
             {fallback
               ? fallback.explain
-              : [`컨디션 ${today.condition}`, ...reason].join(' · ')}
+              : [
+                  today.condition ? `컨디션 ${today.condition}` : null,
+                  ...reason,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
           </AppText>
         </View>
         {/* The sync time is information, not a button. */}
@@ -451,7 +456,10 @@ function ReadinessWidget({ today }: { today: TodayCondition }) {
       </View>
       <Orb
         score={fallback ? null : today.readinessScore}
-        label={fallback ? fallback.emphasis : `준비도 ${grade}`}
+        // A score without a grade (R02 has none yet) is labelled 준비도 alone.
+        label={
+          fallback ? fallback.emphasis : grade ? `준비도 ${grade}` : '준비도'
+        }
       />
       {fallback ? (
         fallback.action ? (
