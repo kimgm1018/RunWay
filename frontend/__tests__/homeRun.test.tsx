@@ -71,24 +71,33 @@ async function render(scenario: MockScenario = 'default') {
 test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async () => {
   const screen = await render();
   const home = texts(screen);
+  // S15P31E105-382: the greeting is gone, 오늘 컨디션 sits right under the header.
+  expect(home).not.toContain('오늘 달리기 좋은 날이에요');
+  // The disc shows the score alone, the records panel has no 누적 line, and the small cards carry
+  // their title only (담당자 결정).
+  for (const gone of [
+    '누적 34km · 7회',
+    '4일 전 · 30분',
+    '이번 주 강도',
+    '10월 · 7회',
+    '5개 코스',
+  ]) {
+    expect(home).not.toContain(gone);
+  }
   for (const text of [
-    '오늘 달리기 좋은 날이에요',
     // 오늘 컨디션 with 러닝 시작: the score, its grade, sleep and resting heart rate.
     '82',
     '오늘 준비도 양호',
     '7h 12m',
     '58 bpm',
     '러닝 시작',
-    // 지난 러닝: the newest of my runs (10.15, four days before the mock day).
-    '4일 전 · 30분',
-    '5′55″ /km',
-    // 과거 러닝 기록: my five newest runs and this month's total; group runs (10.11) stay out.
-    '10월 · 7회',
+    // 지난 러닝: the newest of my runs (10.15), its pace over its distance.
+    '5′55″',
+    '5.0 km',
+    // 과거 러닝 기록: my five newest runs; group runs (10.11) stay out.
     '10.15',
     '10.03',
-    '누적 34km · 7회',
-    // 저장한 코스
-    '5개 코스',
+    '저장한 코스',
   ]) {
     expect(home).toContain(text);
   }

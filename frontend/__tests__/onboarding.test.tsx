@@ -105,7 +105,7 @@ test('login shows the failure count, then enters home with the right password', 
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
   expect(texts(screen)).toContain('5회 실패 시 10분간 제한돼요 (1/5)');
   await login(screen, fixtures.account.loginId, fixtures.account.password);
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -198,7 +198,7 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('82%');
   expect(texts(screen)).toContain('심박수');
   await slide(screen, '밀어서 시작하기');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -225,7 +225,7 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
   await press(screen, '저장');
   await press(screen, '아니요, 휴대폰만 쓸게요');
   await press(screen, '다음');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -334,7 +334,7 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
   await login(screen, fixtures.account.loginId, fixtures.account.password);
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
   await login(screen, fixtures.account.loginId, 'newpass123');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -370,6 +370,6 @@ test('a disconnected watch shows the 1.8 state and can be skipped from settings'
   await slide(screen, '밀어서 다시 연결');
   expect(texts(screen)).toContain('연결 끊김');
   await press(screen, '나중에 연결하기');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });

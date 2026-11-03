@@ -17,9 +17,10 @@ export const k1 = {
 
 // 2.1 홈 cards (DESIGN.md 1-2, S15P31E105-367 핸드오프 tokens.css): sky blue accents on black, off-white,
 // greige and graphite cards. No other screen uses them.
+// 2.1 홈 (S15P31E105-391 핸드오프 tokens.css): the cards take the 2.0M mist and deep teal colours.
 export const homePalette = {
-  accent: '#3FA9F5',
-  accentLight: '#B9E0FB',
+  // 주 버튼 포인트: the play dot of 러닝 시작.
+  button: '#02050E',
   ink: '#111111',
   header: '#0B1418',
   sub: '#56646C',
@@ -28,15 +29,42 @@ export const homePalette = {
   unread: '#E2553F',
   headerButton: 'rgba(255,255,255,0.55)',
   avatar: '#2A3238',
-  cardBlack: '#0B0B0B',
-  cardWhite: '#FFFFFF',
-  cardGraphite: '#3A3A3A',
-  cardGreige: ['#E8E4E0', '#DBD7D3', '#CBCAC9', '#B9BEC5'],
-  greigeShade: '#A09A94',
-  conditionDisc: ['#F2F9FE', '#D3EBFC', '#A6D6F8', '#8AC7F4'],
-  barRest: '#E6E6E4',
-  recordsPanel: ['#8F8C89', '#8C9399', '#7FADD2', '#93BFE0'],
-  courseGlow: ['#2F9BF0', '#7CC6F7', '#D6ECFA', '#ECEBE8'],
+  // --card-condition at 115°: black through deep teal to steel blue.
+  cardCondition: ['#060606', '#091019', '#182E3D', '#3A5A6C', '#5D8194'],
+  cardConditionStops: [0, 0.28, 0.55, 0.8, 1],
+  // --card-analysis: dark all the way, deep teal at the foot.
+  cardAnalysis: [
+    '#1A2E39',
+    '#0D171F',
+    '#060606',
+    '#091019',
+    '#182E3D',
+    '#3A5A6C',
+  ],
+  cardAnalysisStops: [0, 0.12, 0.3, 0.55, 0.8, 1],
+  // --card-past-records: white into pale blue grey, and its black-to-steel panel.
+  cardPastRecords: ['#F9F9F9', '#F3F5F6', '#E2EAEE', '#C4D4DC'],
+  cardPastRecordsStops: [0, 0.28, 0.6, 1],
+  recordsPanel: ['#060606', '#091019', '#182E3D', '#3A5A6C', '#5D8194'],
+  recordsPanelStops: [0, 0.24, 0.5, 0.76, 1],
+  conditionDisc: ['#FFFFFF', '#F3F5F6', '#E2EAEE', '#C4D4DC'],
+  conditionDiscStops: [0, 0.42, 0.7, 1],
+  // 지난 러닝 bars: a deep teal-to-steel top over a white 60% rest.
+  barAccent: ['#182E3D', '#5D8194'],
+  barRest: 'rgba(255,255,255,0.6)',
+  courseEllipse: ['#182E3D', '#3A5A6C', '#7DA0B2', '#C4D4DC'],
+  courseEllipseStops: [0, 0.3, 0.62, 1],
+  // 러닝 분석 dots in the mist blues.
+  scatter: [
+    '#F3F5F6',
+    '#C4D4DC',
+    '#A4BDC9',
+    '#8DACBA',
+    '#7DA0B2',
+    '#5D8194',
+    '#3A5A6C',
+  ],
+  courseTag: '#182E3D',
   // The ↗ circle of a card that opens a screen.
   tapHintOnLight: 'rgba(17,17,17,0.06)',
   tapHintOnDark: 'rgba(255,255,255,0.12)',
@@ -44,6 +72,8 @@ export const homePalette = {
   shadowDark:
     'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.2)',
   shadowGraphite: '0 12px 30px rgba(0,0,0,0.2)',
+  shadowMist:
+    'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.18)',
 } as const;
 
 // The K1 background, top to bottom (DESIGN.md 1-1): white to 35%, then one even darkening

@@ -226,15 +226,13 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test('2.1 shows this month and my recent runs from the server', async () => {
+test('2.1 shows my recent runs from the server', async () => {
   serve();
   const screen = await launch();
   const page = texts(screen);
   for (const text of [
-    // 과거 러닝 기록: this month's count and total, then my runs by date (S15P31E105-367).
+    // 과거 러닝 기록: my runs by date (S15P31E105-367).
     '과거 러닝 기록',
-    '11월 · 2회',
-    '누적 11km · 2회',
     '11.01',
     '5.0km',
   ]) {

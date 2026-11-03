@@ -5,7 +5,7 @@ import App from '../App';
 import {
   createMockRepositories,
   DataError,
-  type MonthlyRunSummary,
+  type RunStatistics,
   type Repositories,
 } from '../src/data';
 
@@ -28,16 +28,6 @@ function texts(screen: Screen) {
     .flatMap(node => [node.props.children].flat())
     .filter(child => typeof child === 'string' || typeof child === 'number')
     .join(' ');
-}
-
-// The newest 다시 시도 button on screen.
-function retry(screen: Screen) {
-  const buttons = screen.root.findAll(
-    node =>
-      node.props.accessibilityLabel === '다시 시도' &&
-      typeof node.props.onPress === 'function',
-  );
-  return buttons[buttons.length - 1];
 }
 
 const refreshControl = (screen: Screen) =>
@@ -74,22 +64,22 @@ afterEach(async () => {
 test('2.1 pull to refresh loads every section again and keeps the cards on screen until it settles', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const today = jest.spyOn(repositories.home, 'getTodayCondition');
-  const getMonthlySummary = repositories.home.getMonthlySummary;
-  const summary = jest.spyOn(repositories.home, 'getMonthlySummary');
+  const getStatistics = repositories.records.getStatistics;
   const statistics = jest.spyOn(repositories.records, 'getStatistics');
   const recent = jest.spyOn(repositories.records, 'getRecent');
   const saved = jest.spyOn(repositories.courses, 'getSaved');
   const screen = await launch(repositories);
-  const before = [today, summary, statistics, recent, saved].map(
+  const before = [today, statistics, recent, saved].map(
     spy => spy.mock.calls.length,
   );
 
   // The analysis reload is held so the screen can be checked mid-refresh.
   let release = () => {};
-  summary.mockImplementationOnce(
-    () =>
-      new Promise<MonthlyRunSummary>(resolve => {
-        release = () => getMonthlySummary().then(resolve);
+  statistics.mockImplementationOnce(
+    (...args) =>
+      new Promise<RunStatistics>(resolve => {
+        release = () =>
+          getStatistics.apply(repositories.records, args).then(resolve);
       }),
   );
   await act(async () => refreshControl(screen).props.onRefresh());
@@ -104,7 +94,7 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(false);
-  [today, summary, statistics, recent, saved].forEach((spy, index) =>
+  [today, statistics, recent, saved].forEach((spy, index) =>
     expect(spy.mock.calls.length).toBeGreaterThan(before[index]),
   );
   expect(texts(screen)).toContain('러닝 분석');
@@ -120,27 +110,6 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   expect(page).toContain('러닝 분석');
   expect(page).toContain('저장한 코스');
   expect(page).not.toContain('불러오지 못했어요');
-});
-
-test('2.1 says when this month did not load and loads it again on retry', async () => {
-  const repositories = createMockRepositories({ latencyMs: 0 });
-  const getMonthlySummary = repositories.home.getMonthlySummary;
-  const failing = jest
-    .spyOn(repositories.home, 'getMonthlySummary')
-    .mockRejectedValue(offline());
-  const screen = await launch(repositories);
-
-  expect(texts(screen)).toContain('이번 달 기록을 불러오지 못했어요');
-  expect(texts(screen)).toContain('러닝 시작');
-  expect(texts(screen)).not.toContain('누적 34km');
-
-  failing.mockImplementation(getMonthlySummary);
-  await act(async () => retry(screen).props.onPress());
-  await settle();
-  await settle();
-
-  expect(texts(screen)).not.toContain('이번 달 기록을 불러오지 못했어요');
-  expect(texts(screen)).toContain('누적 34km · 7회');
 });
 
 test('2.1 says when today’s condition did not load, with the other sections still shown', async () => {

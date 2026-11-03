@@ -18,11 +18,9 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon } from '../../components';
+import { AppText, Icon, mistColors } from '../../components';
 import {
-  useRepositories,
   useResource,
-  type MonthlyRunSummary,
   type ReadinessState,
   type Repositories,
   type RunRecordDetail,
@@ -45,10 +43,14 @@ import { RetryNotice, useHomeRefresh } from './parts';
 
 // 2.1 홈 (S15P31E105-367 핸드오프, 390×844 한 화면): the condition card, then two columns of cards,
 // 10 apart, 8 from the edges. A taller phone stretches the cards; their parts keep to the top or the bottom.
+// S15P31E105-391 repainted the cards in the 2.0M colours: light and dark cards cross in the grid. The
+// mockup's grain is left out (S15P31E105-385 담당자 결정).
 export const gutter = 8;
 export const gap = 10;
 export const cardHeight = 216;
 export const conditionHeight = 162;
+// The title row of the small cards: 14 down and as tall as the ↗ circle (26).
+const headTop = 14 + 26;
 
 // ── Data ────────────────────────────────────────────────────────────────
 
@@ -59,7 +61,6 @@ type Board = {
 };
 
 const kstMs = 9 * 60 * 60 * 1000;
-const dayMs = 24 * 60 * 60 * 1000;
 
 // Dates are counted in KST like the rest of the app.
 const kstDate = (time: number) =>
@@ -77,22 +78,6 @@ const loadBoard = async (repositories: Repositories): Promise<Board> => {
   return { recent, lastRun, week };
 };
 
-// 오늘, 어제, 3일 전, then 10.15.
-function dayLabel(startedAt: string, now: Date) {
-  const days = Math.round(
-    (Date.parse(kstDate(now.getTime())) -
-      Date.parse(kstDate(Date.parse(startedAt)))) /
-      dayMs,
-  );
-  if (days <= 0) {
-    return '오늘';
-  }
-  if (days === 1) {
-    return '어제';
-  }
-  return days < 7 ? `${days}일 전` : formatDotDate(startedAt);
-}
-
 // ── Painting ────────────────────────────────────────────────────────────
 
 type GradientStop = [offset: number, color: string, opacity?: number];
@@ -106,6 +91,29 @@ export type Layer =
       ry: number;
       stops: GradientStop[];
     };
+
+// One CSS linear-gradient as a layer: its angle, colours and where each colour sits.
+const linear = (
+  angle: number,
+  colors: readonly string[],
+  stops: readonly number[],
+): Layer => ({
+  kind: 'linear',
+  angle,
+  stops: colors.map((color, index): GradientStop => [stops[index], color]),
+});
+
+// The 2.0M mist, white at the top to black at the foot (지난 러닝), and turned over (저장한 코스).
+const freeRun = linear(
+  180,
+  mistColors,
+  mistColors.map((_, index) => index / 20),
+);
+const courseRun = linear(
+  180,
+  [...mistColors].reverse(),
+  mistColors.map((_, index) => index / 20),
+);
 
 // The CSS angle (0 = up, clockwise) as the two ends of an objectBoundingBox line.
 function ends(angle: number) {
@@ -203,23 +211,13 @@ function Painted({
 
 // ── Card parts ──────────────────────────────────────────────────────────
 
-// The title block at the top left, behind a thin line, in the card's own tone.
-function CardLabel({
-  title,
-  sub,
-  dark = false,
-}: {
-  title: string;
-  sub: string;
-  dark?: boolean;
-}) {
+// The title at the top left in the card's own tone, level with the ↗ circle and as
+// far in from the corner (14). The second line was dropped (담당자 결정).
+function CardLabel({ title, dark = false }: { title: string; dark?: boolean }) {
   return (
-    <View style={[styles.label, dark && styles.labelDark]}>
+    <View style={styles.label}>
       <AppText style={[styles.labelTitle, dark && styles.labelTitleDark]}>
         {title}
-      </AppText>
-      <AppText style={[styles.labelSub, dark && styles.labelSubDark]}>
-        {sub}
       </AppText>
     </View>
   );
@@ -310,7 +308,7 @@ const conditionStates: Record<
 
 const discSize = 106;
 
-// The readiness disc: sky blue light in a white ring of four ticks, the score in dots.
+// The readiness disc: white mist in a white ring of four ticks, the score in dots at its centre.
 function ReadinessDisc({ score }: { score: number | null }) {
   return (
     <View style={styles.discBox}>
@@ -329,7 +327,7 @@ function ReadinessDisc({ score }: { score: number | null }) {
               {palette.conditionDisc.map((color, index) => (
                 <Stop
                   key={color}
-                  offset={[0, 0.5, 0.82, 1][index]}
+                  offset={palette.conditionDiscStops[index]}
                   stopColor={color}
                 />
               ))}
@@ -342,8 +340,13 @@ function ReadinessDisc({ score }: { score: number | null }) {
             fill="url(#disc)"
           />
         </Svg>
-        <AppText style={styles.score}>{score ?? '--'}</AppText>
-        <AppText style={styles.scoreLabel}>준비도</AppText>
+        {/* The score alone in the middle (담당자 결정: 준비도 글자 없음); readers hear what it is. */}
+        <AppText
+          style={styles.score}
+          accessibilityLabel={`준비도 ${score ?? '없음'}`}
+        >
+          {score ?? '--'}
+        </AppText>
       </View>
     </View>
   );
@@ -371,7 +374,11 @@ function ConditionRow({
   );
 }
 
-// 오늘 컨디션 with 러닝 시작 on one black card. Without a usable score the button turns into what fixes it.
+const conditionLayers = [
+  linear(115, palette.cardCondition, palette.cardConditionStops),
+];
+
+// 오늘 컨디션 with 러닝 시작 on one black-to-steel card. Without a usable score the button turns into what fixes it.
 // R02 has no grade yet, so the title names one only when the data has it (mock data).
 export function ConditionCard({ today }: { today: TodayCondition }) {
   const navigation = useNavigation();
@@ -393,7 +400,11 @@ export function ConditionCard({ today }: { today: TodayCondition }) {
       ? `${today.restingHeartRate} bpm`
       : '– –';
   return (
-    <View style={[styles.condition, { width: width - gutter * 2 }]}>
+    <Painted
+      id="condition"
+      layers={conditionLayers}
+      style={[styles.condition, { width: width - gutter * 2 }]}
+    >
       <ReadinessDisc score={ready ? today.readinessScore : null} />
       <View style={styles.conditionSide}>
         <View>
@@ -418,7 +429,7 @@ export function ConditionCard({ today }: { today: TodayCondition }) {
           <AppText style={styles.ctaText}>{action.title}</AppText>
         </Pressable>
       </View>
-    </View>
+    </Painted>
   );
 }
 
@@ -429,7 +440,7 @@ const barGap = 5;
 const barColumn = 52;
 const barStep = 3;
 
-// Each 1 km split as a bar: the sky blue top grows with the speed, the grey rest makes up the column.
+// Each 1 km split as a bar: the deep teal top grows with the speed, the white rest makes up the column.
 function SplitBars({ paces }: { paces: number[] }) {
   const fastest = Math.min(...paces);
   const slowest = Math.max(...paces);
@@ -438,8 +449,8 @@ function SplitBars({ paces }: { paces: number[] }) {
     <Svg width={width} height={barColumn + barStep}>
       <Defs>
         <LinearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset={0} stopColor={palette.accent} />
-          <Stop offset={1} stopColor={palette.accentLight} />
+          <Stop offset={0} stopColor={palette.barAccent[0]} />
+          <Stop offset={1} stopColor={palette.barAccent[1]} />
         </LinearGradient>
       </Defs>
       {paces.map((pace, index) => {
@@ -474,12 +485,10 @@ function SplitBars({ paces }: { paces: number[] }) {
 
 function LastRunCard({
   run,
-  now,
   width,
   height,
 }: {
   run: RunRecordDetail | null;
-  now: Date;
   width: number;
   height: number;
 }) {
@@ -491,42 +500,33 @@ function LastRunCard({
   return (
     <CardFrame
       title="지난 러닝"
+      id="lastRun"
+      layers={[freeRun]}
       onPress={
         run
           ? () => navigation.navigate('RecordDetail', { recordId: run.id })
           : undefined
       }
-      style={[
-        styles.card,
-        styles.shadowLight,
-        { width, height, backgroundColor: palette.cardWhite },
-      ]}
+      style={[styles.card, styles.shadowMist, { width, height }]}
     >
-      <CardLabel
-        title="지난 러닝"
-        sub={
-          run
-            ? `${dayLabel(run.startedAt, now)} · ${Math.round(
-                run.durationSec / 60,
-              )}분`
-            : '아직 기록이 없어요'
-        }
-      />
+      <CardLabel title="지난 러닝" />
+      {/* The bars sit in the middle of the room between the title and the pace. */}
       {paces.length > 1 ? (
         <View
           style={styles.bars}
           importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
         >
           <SplitBars paces={paces} />
         </View>
       ) : null}
-      <View style={styles.baseline} />
+      {/* The pace leads, the distance under it in a faint white (담당자 결정). */}
       <AppText style={styles.lastValue}>
-        {run ? formatKm(run.distanceM, 1) : '– –'}
-        <AppText style={styles.lastUnit}> km</AppText>
+        {run ? formatPace(run.averagePaceSecPerKm) : '– –'}
+        <AppText style={styles.lastUnit}> /km</AppText>
       </AppText>
       <AppText style={styles.lastPace}>
-        {run ? `${formatPace(run.averagePaceSecPerKm)} /km` : ''}
+        {run ? `${formatKm(run.distanceM, 1)} km` : '아직 기록이 없어요'}
       </AppText>
     </CardFrame>
   );
@@ -534,17 +534,23 @@ function LastRunCard({
 
 // ── 러닝 분석 ──────────────────────────────────────────────────────────
 
-// The mockup's scatter of grey dots: decoration, not data (left, top, diameter, color).
+// The mockup's scatter of mist blue dots: decoration, not data (left, top, diameter, color), in the
+// 84×130 box of the two axes.
+const [mist100, mist300, mist400, mist500, steel500, steel600, teal700] =
+  palette.scatter;
 const scatter: [number, number, number, string][] = [
-  [34, 84, 9, '#8A8A8A'],
-  [48, 97, 12, '#A3A3A3'],
-  [40, 112, 8, '#6F6F6F'],
-  [58, 114, 10, '#9A9A9A'],
-  [30, 127, 7, '#5E5E5E'],
-  [52, 134, 9, '#7C7C7C'],
-  [66, 93, 6, '#5A5A5A'],
-  [44, 147, 6, '#505050'],
-  [22, 103, 5, '#4A4A4A'],
+  [22, 24, 9, mist300],
+  [36, 37, 12, mist100],
+  [28, 52, 8, mist500],
+  [46, 54, 10, mist400],
+  [18, 67, 7, steel500],
+  [40, 74, 9, mist400],
+  [54, 32, 6, steel600],
+  [32, 87, 6, steel600],
+  [10, 43, 5, teal700],
+];
+const analysisLayers = [
+  linear(180, palette.cardAnalysis, palette.cardAnalysisStops),
 ];
 
 // This week's heart rate zones grouped as 이지 (1–2), 템포 (3) and 인터벌 (4–5); the server has no intensity mix.
@@ -575,51 +581,53 @@ function AnalysisCard({
     <CardFrame
       title="러닝 분석"
       dark
+      id="analysis"
+      layers={analysisLayers}
       onPress={() => navigateTo(navigation, 'Analysis')}
-      style={[
-        styles.card,
-        styles.shadowDark,
-        { width, height, backgroundColor: palette.cardBlack },
-      ]}
+      style={[styles.card, styles.shadowDark, { width, height }]}
     >
-      <CardLabel title="러닝 분석" sub="이번 주 강도" dark />
-      <View
-        style={StyleSheet.absoluteFill}
-        importantForAccessibility="no-hide-descendants"
-        pointerEvents="none"
-      >
-        <View style={styles.scatterV} />
-        <View style={styles.scatterH} />
-        {scatter.map(([left, top, size, color]) => (
-          <View
-            key={`${left}-${top}`}
-            style={[
-              styles.dot,
-              {
-                left,
-                top,
-                width: size,
-                height: size,
-                borderRadius: size / 2,
-                backgroundColor: color,
-              },
-            ]}
-          />
-        ))}
-      </View>
-      <View style={styles.legend}>
-        {(
-          mix ?? [
-            { name: '이지', value: '– –' },
-            { name: '템포', value: '– –' },
-            { name: '인터벌', value: '– –' },
-          ]
-        ).map(item => (
-          <View key={item.name} style={styles.legendItem}>
-            <AppText style={styles.legendName}>{item.name}</AppText>
-            <AppText style={styles.legendValue}>{item.value}</AppText>
-          </View>
-        ))}
+      <CardLabel title="러닝 분석" dark />
+      {/* The scatter and the legend as one group in the middle of the room under the label, the same
+          space left and right and above and below (담당자 결정). */}
+      <View style={styles.analysisBody} pointerEvents="box-none">
+        <View
+          style={styles.scatterBox}
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+        >
+          <View style={styles.scatterV} />
+          <View style={styles.scatterH} />
+          {scatter.map(([left, top, size, color]) => (
+            <View
+              key={`${left}-${top}`}
+              style={[
+                styles.dot,
+                {
+                  left,
+                  top,
+                  width: size,
+                  height: size,
+                  borderRadius: size / 2,
+                  backgroundColor: color,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <View style={styles.legend}>
+          {(
+            mix ?? [
+              { name: '이지', value: '– –' },
+              { name: '템포', value: '– –' },
+              { name: '인터벌', value: '– –' },
+            ]
+          ).map(item => (
+            <View key={item.name} style={styles.legendItem}>
+              <AppText style={styles.legendName}>{item.name}</AppText>
+              <AppText style={styles.legendValue}>{item.value}</AppText>
+            </View>
+          ))}
+        </View>
       </View>
     </CardFrame>
   );
@@ -627,63 +635,33 @@ function AnalysisCard({
 
 // ── 과거 러닝 기록 ─────────────────────────────────────────────────────
 
-const greige: Layer[] = [
-  {
-    kind: 'linear',
-    angle: 155,
-    stops: palette.cardGreige.map(
-      (color, index): GradientStop => [[0, 0.42, 0.72, 1][index], color],
-    ),
-  },
-  {
-    kind: 'radial',
-    cx: 0,
-    cy: 0.6,
-    rx: 0.6,
-    ry: 0.7,
-    stops: [
-      [0, palette.greigeShade, 0.35],
-      [0.7, palette.greigeShade, 0],
-      [1, palette.greigeShade, 0],
-    ],
-  },
+const pastRecordsLayers = [
+  linear(180, palette.cardPastRecords, palette.cardPastRecordsStops),
 ];
 
-const recordsPanel: Layer[] = [
-  {
-    kind: 'linear',
-    angle: 180,
-    stops: palette.recordsPanel.map(
-      (color, index): GradientStop => [[0, 0.4, 0.82, 1][index], color],
-    ),
-  },
+const recordsPanel = [
+  linear(180, palette.recordsPanel, palette.recordsPanelStops),
 ];
 
 function PastRecordsCard({
   recent,
-  summary,
   width,
   height,
 }: {
   recent: RunRecordSummary[];
-  summary: MonthlyRunSummary | null;
   width: number;
   height: number;
 }) {
   const navigation = useNavigation();
-  const month = summary ? `${Number(summary.month.split('-')[1])}월` : '';
   return (
     <CardFrame
       title="과거 러닝 기록"
       id="records"
-      layers={greige}
+      layers={pastRecordsLayers}
       onPress={() => navigateTo(navigation, 'Records')}
       style={[styles.card, styles.shadowLight, { width, height }]}
     >
-      <CardLabel
-        title="과거 러닝 기록"
-        sub={summary ? `${month} · ${summary.runCount}회` : ' '}
-      />
+      <CardLabel title="과거 러닝 기록" />
       {/* The panel grows with the card. */}
       <Painted id="recordsPanel" layers={recordsPanel} style={styles.panel}>
         {recent.length ? (
@@ -700,13 +678,6 @@ function PastRecordsCard({
         ) : (
           <AppText style={styles.panelText}>아직 기록이 없어요</AppText>
         )}
-        {summary ? (
-          <AppText style={styles.panelTotal}>
-            {`누적 ${Math.round(summary.totalDistanceM / 1000)}km · ${
-              summary.runCount
-            }회`}
-          </AppText>
-        ) : null}
       </Painted>
     </CardFrame>
   );
@@ -716,7 +687,6 @@ function PastRecordsCard({
 
 const glowWidth = 112;
 const glowHeight = 150;
-const glowTop = 54;
 const courseGlow: Layer[] = [
   {
     kind: 'radial',
@@ -724,8 +694,11 @@ const courseGlow: Layer[] = [
     cy: 0.6,
     rx: 0.7,
     ry: 0.55,
-    stops: palette.courseGlow.map(
-      (color, index): GradientStop => [[0, 0.34, 0.7, 1][index], color],
+    stops: palette.courseEllipse.map(
+      (color, index): GradientStop => [
+        palette.courseEllipseStops[index],
+        color,
+      ],
     ),
   },
 ];
@@ -779,19 +752,13 @@ function SavedCoursesCard({
     <CardFrame
       title="저장한 코스"
       dark
+      id="savedCourses"
+      layers={[courseRun]}
       onPress={() => navigateTo(navigation, 'SavedCourses')}
-      style={[
-        styles.card,
-        styles.shadowGraphite,
-        { width, height, backgroundColor: palette.cardGraphite },
-      ]}
+      style={[styles.card, styles.shadowGraphite, { width, height }]}
     >
-      <CardLabel
-        title="저장한 코스"
-        sub={courses ? `${courses.length}개 코스` : ' '}
-        dark
-      />
-      {/* The oval sits in the middle of the room a taller card gains. */}
+      <CardLabel title="저장한 코스" dark />
+      {/* The oval sits in the middle of the room under the title. */}
       <Painted
         id="courseGlow"
         layers={courseGlow}
@@ -799,7 +766,7 @@ function SavedCoursesCard({
           styles.glow,
           {
             left: (width - glowWidth) / 2,
-            top: glowTop + (height - cardHeight) / 2,
+            top: headTop + (height - headTop - glowHeight) / 2,
           },
         ]}
       >
@@ -828,13 +795,11 @@ function SavedCoursesCard({
 // ── Grid ────────────────────────────────────────────────────────────────
 
 // The four cards under 오늘 컨디션. 러닝 분석·지난 러닝·과거 기록 share one load (H01·H02·H06);
-// the month summary and saved courses come from 2.1's own loads. height is each card's, 216 or taller.
+// saved courses come from 2.1's own load. height is each card's, 216 or taller.
 export function HomeGrid({
-  summary,
   courses,
   height = cardHeight,
 }: {
-  summary: MonthlyRunSummary | null;
   courses: SavedCourse[] | null;
   height?: number;
 }) {
@@ -843,23 +808,15 @@ export function HomeGrid({
   useHomeRefresh(board.refresh);
   const data = board.status === 'ready' ? board.data : null;
   const half = (width - gutter * 2 - gap) / 2;
-  // 오늘·어제 follow the app clock, so the mock data's day reads the same as on the server.
-  const now = useRepositories().clock.now();
   return (
     <View style={styles.grid}>
       <View style={styles.row}>
-        <LastRunCard
-          run={data?.lastRun ?? null}
-          now={now}
-          width={half}
-          height={height}
-        />
+        <LastRunCard run={data?.lastRun ?? null} width={half} height={height} />
         <AnalysisCard week={data?.week ?? null} width={half} height={height} />
       </View>
       <View style={styles.row}>
         <PastRecordsCard
           recent={data?.recent ?? []}
-          summary={summary}
           width={half}
           height={height}
         />
@@ -882,31 +839,24 @@ const styles = StyleSheet.create({
   shadowLight: { boxShadow: palette.shadowLight },
   shadowDark: { boxShadow: palette.shadowDark },
   shadowGraphite: { boxShadow: palette.shadowGraphite },
+  shadowMist: { boxShadow: palette.shadowMist },
   pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
-  // Card label: 13 bold over 10.5, behind a 1.5 line.
+  // Card label: 16 bold, 14 from the corner like the ↗ circle and as tall as it; no line beside it
+  // (담당자 결정), so it lines up with the 지난 러닝 figures under it.
   label: {
     position: 'absolute',
-    left: 16,
-    top: 16,
-    paddingLeft: 8,
-    borderLeftWidth: 1.5,
-    borderLeftColor: palette.ink,
+    left: 14,
+    top: 14,
+    height: 26,
+    justifyContent: 'center',
   },
-  labelDark: { borderLeftColor: 'rgba(255,255,255,0.9)' },
   labelTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 16,
+    lineHeight: 21,
     color: palette.ink,
   },
   labelTitleDark: { color: '#FFFFFF' },
-  labelSub: {
-    fontFamily: fontFamily.regular,
-    fontSize: 10.5,
-    lineHeight: 15,
-    color: palette.muted,
-  },
-  labelSubDark: { color: 'rgba(255,255,255,0.5)' },
   // The ↗ circle of a card that opens a screen.
   hint: {
     position: 'absolute',
@@ -928,7 +878,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     flexDirection: 'row',
     gap: 14,
-    backgroundColor: palette.cardBlack,
+    overflow: 'hidden',
     boxShadow: palette.shadowDark,
   },
   discBox: { width: 134, height: 134 },
@@ -949,7 +899,6 @@ const styles = StyleSheet.create({
     height: discSize,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
   },
   score: {
     fontFamily: fontFamily.score,
@@ -957,12 +906,8 @@ const styles = StyleSheet.create({
     lineHeight: 42,
     letterSpacing: 1,
     color: '#1A1A1A',
-  },
-  scoreLabel: {
-    fontFamily: fontFamily.mono,
-    fontSize: 9,
-    lineHeight: 12,
-    color: 'rgba(26,26,26,0.6)',
+    // Doto leaves more room after a digit than before it; this centres the dots themselves.
+    transform: [{ translateX: 2 }],
   },
   conditionSide: {
     flex: 1,
@@ -983,7 +928,8 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: 'rgba(255,255,255,0.5)',
   },
-  conditionRows: { gap: 8 },
+  // 수면 and 안정 심박 side by side (담당자 결정).
+  conditionRows: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
   conditionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   conditionIcon: {
     width: 28,
@@ -1017,7 +963,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingLeft: 1,
-    backgroundColor: palette.accent,
+    backgroundColor: palette.button,
   },
   ctaText: {
     fontFamily: fontFamily.bold,
@@ -1025,64 +971,77 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: palette.ink,
   },
-  // 지난 러닝: the bars, baseline and figures keep to the bottom (216 card: bars from 60, line at 134).
-  bars: { position: 'absolute', right: 14, bottom: 101 },
-  baseline: {
+  // 지난 러닝: the pace and distance keep to the bottom left, 14 in; the bars sit centred in the room
+  // between the title and the pace.
+  bars: {
     position: 'absolute',
-    left: 16,
-    right: 70,
-    bottom: 81,
-    height: 1,
-    backgroundColor: palette.ink,
+    top: headTop,
+    right: 14,
+    bottom: 14 + 15 + 2 + 38,
+    justifyContent: 'center',
   },
+  // The figures sit on the black foot of the mist, so they are white.
   lastValue: {
     position: 'absolute',
-    left: 16,
-    bottom: 36,
+    left: 14,
+    bottom: 14 + 15 + 2,
     fontFamily: fontFamily.medium,
     fontSize: 32,
     lineHeight: 38,
     letterSpacing: -1,
-    color: palette.ink,
+    color: '#FFFFFF',
   },
   lastUnit: {
     fontFamily: fontFamily.regular,
     fontSize: 12,
     letterSpacing: 0,
-    color: palette.unit,
+    color: 'rgba(255,255,255,0.7)',
   },
   lastPace: {
     position: 'absolute',
-    left: 16,
-    bottom: 22,
+    left: 14,
+    bottom: 14,
     fontFamily: fontFamily.mono,
-    fontSize: 10,
-    lineHeight: 14,
-    color: palette.muted,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.55)',
   },
   // 러닝 분석: the scatter and legend keep to the top.
+  // Everything under the title row, the group centred in it.
+  analysisBody: {
+    position: 'absolute',
+    top: headTop,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  scatterBox: { width: 84, height: 130 },
   scatterV: {
     position: 'absolute',
-    left: 42,
-    top: 60,
+    left: 30,
+    top: 0,
     width: 1,
     height: 130,
     backgroundColor: 'rgba(255,255,255,0.22)',
   },
   scatterH: {
     position: 'absolute',
-    left: 12,
-    top: 121,
+    left: 0,
+    top: 61,
     width: 84,
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.22)',
   },
   dot: { position: 'absolute' },
-  legend: { position: 'absolute', left: 104, top: 66, gap: 16 },
+  legend: { gap: 16 },
   legendItem: {
     paddingLeft: 7,
     borderLeftWidth: 1.5,
-    borderLeftColor: '#FFFFFF',
+    borderLeftColor: 'rgba(255,255,255,0.85)',
   },
   legendName: {
     fontFamily: fontFamily.regular,
@@ -1097,38 +1056,35 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
   },
   // 과거 러닝 기록
+  // 12 from the sides and the foot, and 12 under the title row.
   panel: {
     position: 'absolute',
     left: 12,
     right: 12,
-    top: 58,
+    top: headTop + 12,
     bottom: 12,
     padding: 12,
     borderRadius: 22,
     overflow: 'hidden',
   },
   panelRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  // 13 over 24 (담당자 결정; the mockup's 10 was hard to read on the phone).
   panelText: {
     fontFamily: fontFamily.mono,
-    fontSize: 10,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 24,
     color: 'rgba(255,255,255,0.92)',
-  },
-  panelTotal: {
-    marginTop: 8,
-    fontFamily: fontFamily.mono,
-    fontSize: 10,
-    lineHeight: 14,
-    color: 'rgba(255,255,255,0.75)',
   },
   // 저장한 코스
   glow: {
     position: 'absolute',
     width: glowWidth,
     height: glowHeight,
-    // A tall oval, as border-radius 50% in the mockup.
+    // A tall oval, as border-radius 50% in the mockup, with a faint white rim.
     borderRadius: '50%',
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   distanceTag: {
     position: 'absolute',
@@ -1144,7 +1100,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.mono,
     fontSize: 9.5,
     lineHeight: 12,
-    color: palette.cardGraphite,
+    color: palette.courseTag,
   },
   courseLine: { position: 'absolute', left: 0, top: 50 },
   countRow: {
@@ -1159,7 +1115,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 11,
     justifyContent: 'center',
-    backgroundColor: 'rgba(90,90,90,0.55)',
+    backgroundColor: 'rgba(6,6,6,0.45)',
   },
   countText: {
     fontFamily: fontFamily.regular,
