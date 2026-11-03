@@ -58,6 +58,38 @@ public class CourseJdbcRepository {
     }
 
     /**
+     * AI 생성 코스 저장. creator_id·source_session_id·region_code·description은 NULL, status는 기본값
+     * ACTIVE.
+     *
+     * @return 생성된 courses.id
+     */
+    public long insertGeneratedCourse(
+            String routeEwkt,
+            String startEwkt,
+            BigDecimal distanceM,
+            BigDecimal elevationGainM,
+            String elevationProfileJson) {
+        Long id =
+                jdbcTemplate.queryForObject(
+                        """
+                        INSERT INTO courses(
+                          route, start_position, distance, elevation_gain, elevation_profile)
+                        VALUES (ST_GeogFromText(?), ST_GeogFromText(?), ?, ?, CAST(? AS jsonb))
+                        RETURNING id
+                        """,
+                        Long.class,
+                        routeEwkt,
+                        startEwkt,
+                        distanceM,
+                        elevationGainM,
+                        elevationProfileJson);
+        if (id == null) {
+            throw new IllegalStateException("courses INSERT did not return id");
+        }
+        return id;
+    }
+
+    /**
      * 북마크 멱등 저장. {@code aliasPresent=false}이면 충돌 시 기존 custom_name 유지, 신규면 null. {@code
      * aliasPresent=true}이면 EXCLUDED 값(null 포함)으로 설정.
      */

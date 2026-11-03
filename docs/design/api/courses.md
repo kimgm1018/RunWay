@@ -242,7 +242,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `startPosition` | GeoJSON Point | O | `courses.start_position` (geography(Point,4326)). 저장 값은 NULL 불가. |
 | `distanceM` | number | O | `courses.distance` (NUMERIC(12,2)). 저장 값은 NULL 불가. |
 | `elevationGainM` | number / null | O | `courses.elevation_gain` (NUMERIC(10,2)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `elevationProfile` | JSON (구조 확인 필요) / null | O | `courses.elevation_profile` (JSONB). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `elevationProfile` | array / null | O | `courses.elevation_profile` (JSONB). 구조는 [100m 경사 구조](#elevationprofile-100m-경사-구조). 저장 값을 그대로 반환한다. NULL 허용(경사가 없는 기존 코스); 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `environmentTags` | string[] | X | course_environment_tags.environment_type 코드 배열: PARK/RIVERSIDE/URBAN/BEACH/TRACK. PK 배열과 구분. |
 | `estimatedDurationSec` | number | X | 코스와 페이스로 계산한 표시 값. courses 저장 컬럼이 아니며 계산·반올림 규칙 확인 필요. |
 | `status` | string | O | `courses.status` (ENUM('ACTIVE', 'MERGED', 'BLOCKED')). 저장 값은 NULL 불가. 허용값: ACTIVE, MERGED, BLOCKED. |
@@ -252,6 +252,38 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 **사용 흐름과 응답 판단**
 
 상세 지도와 출발 버튼에 경로·거리·상태가 필요하다. MERGED는 대표 코스로 이동할 수 있는 ID를 제공하고 BLOCKED를 추천 가능으로 표현하지 않는다.
+
+#### elevationProfile 100m 경사 구조
+
+**상태: 확정([S15P31E105-319](https://ssafy.atlassian.net/browse/S15P31E105-319)).** 코스 경사를 100m 조각 목록으로 저장한다. 형식은 AI 개인 페이스 계획의 경사 구간(`PlanGradeSegment`: `startDistanceM`·`endDistanceM`·`gradePercent`)과 같아 AI가 변환 없이 사용한다. AI 생성 코스 저장 시 서버가 아래 규칙으로 검증·정규화한 뒤 `courses.elevation_profile`에 저장하고, C03은 저장 값을 그대로 반환한다.
+
+```json
+[
+  {"startDistanceM": 0,    "endDistanceM": 100,    "gradePercent": -0.75},
+  {"startDistanceM": 100,  "endDistanceM": 200,    "gradePercent": -0.5},
+  …
+  {"startDistanceM": 2400, "endDistanceM": 2450.5, "gradePercent": 0}
+]
+```
+
+예시는 2450.5m 코스(25조각, 마지막 50.5m)다. 1km 단위 값이 필요하면 조각 10개(1km)씩 묶어 계산한다. 저장하지 않는다.
+
+| 필드 | 타입 | 필수 | 규칙 |
+|---|---|:---:|---|
+| (최상위) | array | O | 1 ~ 450개. 출발점부터 순서대로 |
+| `[].startDistanceM` | number | O | 출발점부터의 거리(m). i번째 = i × 조각 폭(정확히 일치). 첫 조각은 0 |
+| `[].endDistanceM` | number | O | 다음 조각의 `startDistanceM`과 정확히 같다. 마지막이 아닌 조각 폭은 조각 폭과 정확히 같고, 마지막 조각은 0 초과 조각 폭 이하이며 끝이 저장되는 `courses.distance`(소수 2자리 반올림 후)와 ±0.99m 이내 |
+| `[].gradePercent` | number | O | 조각 경사(%) = (조각 끝 고도 − 시작 고도) / 조각 길이 × 100. 산출 측 스무딩 고도 기준, 오르막 양수. -100 ~ 100 |
+
+- **조각 폭**은 100m다. 100m로 나눈 개수 ceil(`courses.distance` / 100)이 450을 넘으면(45km 초과) 100 × ceil(`courses.distance` / 45000)m로 넓힌다(예: 50km → 200m). AI 고도→경사 변환(`ai/service/app/course_grade.py`)과 같은 규칙이다. 여기서 거리는 **저장될 소수 2자리 반올림 값**이다(예: 45000.004m는 45000.00m로 보고 100m 폭).
+- 최대 450개는 AI 저장 경사 검사(`ai/service/app/db_lookup.py` `_stored_grade`)와 같다. 허용 오차는 AI(float로 연속 1e-6m, 총거리 1m)보다 엄격하게 둔다(시작·연속·폭 정확히 일치, 총거리 0.99m). 경계값이 float 오차로 AI에서 거절되지 않도록 하기 위해서이며, 서버를 통과한 값은 AI 검사도 통과한다. AI 변환 결과는 정확한 격자이고 끝이 코스 거리와 같아 그대로 통과한다.
+- `null`은 허용하지 않는다. DEM 범위 밖·다리·터널 등 경사를 알 수 없거나, 계산 값이 -100 ~ 100%를 벗어나는 조각(예: 수 m 이하의 짧은 마지막 조각)은 산출 측이 앞뒤 고도로 보간한 값을 넣는다. 현재 AI 고도→경사 변환을 그대로 쓰면 짧은 꼬리 조각에서 스무딩으로 ±100%를 넘을 수 있어(예: 0.01m 조각) 산출 측 보정이 필요하다.
+- 숫자는 유한값이며 소수 6자리까지 허용한다(초과 시 거절, 끝자리 0은 자릿수에 넣지 않음). 산출 측은 소수 6자리 이하로 반올림해 보낸다(예: Python float `1e-07`, `2450.123456789`는 거절).
+- 서버는 숫자를 정규화해 저장한다: 0은 `0`, 지수 표기 정수는 일반 정수(`1E+3` → `1000`), 끝자리 0 제거(`1.10` → `1.1`). C03 응답의 숫자 표기는 보낸 값과 다를 수 있으나 값은 같다.
+- 위 표에 없는 키는 저장하지 않는다(AI의 선택 필드 `basePaceRatio` 포함).
+- 코스 거리(`courses.distance`)와 누적 상승(`courses.elevation_gain`)은 컬럼과 같은 소수 2자리(반올림)로 맞춘 값으로 검증·저장한다. 코스 거리는 0 초과 9999999999.99 이하, 누적 상승은 null 또는 0 ~ 99999999.99(컬럼 범위)이다. 경사와 누적 상승의 일치는 검증하지 않는다.
+- 위 규칙을 어긴 입력(순서·격자 불일치, 조각 사이 틈·겹침, 총거리 불일치, 개수 초과, 범위 밖 값, 필수 누락·null)은 저장하지 않고 거절한다. 서버 내부 저장 로직은 공통 `400 VALIDATION_ERROR`를 사용하고 `details.fields`에 위반 필드 이름(예: `elevationProfile[3].gradePercent`)과 사유만 담는다. 외부 생성 API를 공개할 때의 오류 계약은 해당 엔드포인트 업무에서 확정한다.
+- 경사가 없는 기존 코스는 `elevationProfile: null`이다.
 
 ### 오류 응답
 
@@ -607,7 +639,7 @@ C01 1차 MVP는 기존 ACTIVE 코스 **필터만** 한다. CRS-002 동적 경로
 
 - BE↔Route AI HTTP 계약(URL·요청/응답·오류·타임아웃). 현재 Route는 워크스페이스 데모(`ai/workspace/seongyun/route`)이며 배포용 `ai/service`는 HR만 제공
 - Route 서비스 배포와 OSM/env/DEM 데이터(현재 커버리지는 부산 extract 기준)
-- 생성 경로를 `courses`에 넣을지·유사 경로 중복 기준·`creator_id`/`source_session_id` 정책
+- 생성 경로는 `courses`에 저장한다(서버 내부 저장 로직 구현, [S15P31E105-319](https://ssafy.atlassian.net/browse/S15P31E105-319)). 출발점은 경로 첫 좌표, `creator_id`·`source_session_id`·`region_code`·`description`은 NULL, 상태는 ACTIVE, 경사는 [elevationProfile 구조](#elevationprofile-100m-경사-구조)를 따른다. 미정: 저장 호출 시점(후보 경로 생성 시 전부 저장 vs 사용자가 고른 경로만 저장 — 전부 저장하면 고르지 않은 후보도 ACTIVE 공용 코스로 C01 추천 대상이 됨), 유사 경로 중복 기준, 재시도·동시 호출 시 멱등 처리, 경로 실제 길이와 `distanceM`의 일치 검증, 외부 API 오류 코드. 후속 연결: AI가 `elevation_profile`을 경사 구간 목록으로 읽는 구현(`StoredCourseGradeSource`, 현재 꺼짐)과 범위 밖 경사 보정, FE 고도 그래프의 경사 누적 변환
 - AI 선호 키(`river`/`park`/…) ↔ `PARK`/`RIVERSIDE`/`URBAN`/`BEACH`/`TRACK` 태그 매핑
 - 좌표 순서: AI `coords`는 `[lat,lon]`, GeoJSON·PostGIS는 `[lon,lat]`
 - 생성 지연(수 초)에 대한 동기/비동기·클라이언트 타임아웃
