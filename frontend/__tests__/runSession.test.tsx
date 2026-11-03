@@ -45,6 +45,48 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+function shows(screen: Screen, label: string) {
+  return (
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === label &&
+        typeof node.props.onPress === 'function',
+    ).length > 0
+  );
+}
+
+// 홈 위젯에도 '러닝 시작'(러닝 방식 선택으로 이동)이 있으므로, 맨 위 화면의 시작 버튼이
+// 설정을 받아 활성화된 뒤에 누른다. 코스 화면은 코스 계획을 불러온 뒤에 시작 버튼을 그린다.
+function startReady(screen: Screen) {
+  const matches = screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === '러닝 시작' &&
+      typeof node.props.onPress === 'function',
+  );
+  return (
+    matches.length > 0 &&
+    matches[matches.length - 1].props.accessibilityState?.disabled === false
+  );
+}
+
+// 앱 타이머가 낸 갱신은 act가 끝날 때 반영되므로 짧게 나눠 기다리며 조건을 확인한다.
+async function settleUntil(
+  screen: Screen,
+  ready: () => boolean,
+  what: string,
+  timeoutMs = 15000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (!ready()) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${what} 화면이 ${timeoutMs}ms 안에 열리지 않음: ${texts(screen)}`,
+      );
+    }
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -78,22 +120,32 @@ async function startRun(
       />,
     );
   });
-  await settle();
-  await settle();
+  // 화면 이동과 mock 응답은 settle의 act가 끝날 때 반영되므로, 고정 시간 대신 누를 대상이 열릴 때까지
+  // 기다린다. 부하가 큰 전체 jest 실행에서는 짧은 고정 대기 안에 다음 화면이 준비되지 않는다(S15P31E105-323).
+  const open = async (label: string, what: string) => {
+    await settleUntil(screen!, () => shows(screen!, label), what);
+    await press(screen!, label);
+  };
   if (kind === 'course') {
     // 2.1 저장한 코스 → 3.1c, where a course sets up the run.
-    await press(screen!, '저장한 코스');
-    await press(screen!, '광안대교 루프, 5.0km 30분');
+    await open('저장한 코스', '홈');
+    await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
   } else {
-    await press(screen!, '러닝');
-    await press(screen!, '자유 러닝');
+    await open('러닝', '홈 탭');
+    await open('자유 러닝', '러닝 방식 선택');
   }
+  await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
   await press(screen!, '러닝 시작');
-  // Each count renders before the next second starts, so wait a second at a time.
-  for (let second = 0; second < 4; second += 1) {
-    await settle(1000);
-  }
   // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
+  // 카운트다운 뒤 확정까지는 mock 응답 타이머가 이어지는 비동기 흐름이고, 화면은 settle의 act가 끝날 때만
+  // 갱신된다. 고정 시간 대기는 전체 jest 부하에서 확정이 늦으면 진행 화면 전이나 첫 샘플 전에 끝나므로
+  // 진행 화면이 열릴 때까지 기다린다(S15P31E105-323).
+  await settleUntil(
+    screen!,
+    () => shows(screen!, '일시정지'),
+    '4.2 러닝 진행',
+  );
+  // 진행 화면이 열릴 때 추적이 시작된다. 50ms 간격 샘플은 이 200ms 대기보다 먼저 도착한다.
   await settle(200);
   return screen!;
 }
