@@ -108,3 +108,67 @@ export function parseDistanceKm(value: string) {
   const km = Number(value);
   return km > 0 && km <= 100 ? km : null;
 }
+
+// Time inputs take digits only and put the colons in: 3000 → 30:00, 10530 → 1:05:30, 600 → 6:00.
+export function formatClockDigits(value: string, maxDigits: number) {
+  const digits = digitsOnly(value).slice(0, maxDigits);
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, -2)}:${digits.slice(-2)}`;
+  }
+  return `${digits.slice(0, -4)}:${digits.slice(-4, -2)}:${digits.slice(-2)}`;
+}
+
+// Text position right after the given number of digits.
+function positionAfterDigits(text: string, count: number) {
+  if (count <= 0) {
+    return 0;
+  }
+  let seen = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    if (/\d/.test(text[index])) {
+      seen += 1;
+      if (seen === count) {
+        return index + 1;
+      }
+    }
+  }
+  return text.length;
+}
+
+// Reformats one edit of a time input and keeps the cursor next to the same digit.
+// Deleting a colon deletes the digit before it, so backspace never gets stuck.
+export function editClock(previous: string, raw: string, maxDigits: number) {
+  let prefix = 0;
+  while (
+    prefix < previous.length &&
+    prefix < raw.length &&
+    previous[prefix] === raw[prefix]
+  ) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  const room = Math.min(previous.length, raw.length) - prefix;
+  while (
+    suffix < room &&
+    previous[previous.length - 1 - suffix] === raw[raw.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  let digits = digitsOnly(raw);
+  let digitsBeforeCursor = digitsOnly(raw.slice(0, raw.length - suffix)).length;
+  if (digits === digitsOnly(previous) && raw.length < previous.length) {
+    const before = digitsOnly(raw.slice(0, prefix)).length;
+    if (before > 0) {
+      digits = digits.slice(0, before - 1) + digits.slice(before);
+      digitsBeforeCursor = before - 1;
+    }
+  }
+  if (digits.length > maxDigits) {
+    return { text: previous, cursor: Math.min(prefix, previous.length) };
+  }
+  const text = formatClockDigits(digits, maxDigits);
+  return { text, cursor: positionAfterDigits(text, digitsBeforeCursor) };
+}
