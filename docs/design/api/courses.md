@@ -637,8 +637,9 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 C01 1차 MVP는 기존 ACTIVE 코스 **필터만** 한다. CRS-002 동적 경로 **생성**을 C01(또는 별도 업무)에 붙이려면 아래가 선행이다. (상세 계약은 확정 전.)
 
-- BE↔Route AI HTTP 계약(URL·요청/응답·오류·타임아웃). 현재 Route는 워크스페이스 데모(`ai/workspace/seongyun/route`)이며 배포용 `ai/service`는 HR만 제공
-- Route 서비스 배포와 OSM/env/DEM 데이터(현재 커버리지는 부산 extract 기준)
+- 경사는 생성 주체와 관계없이 백엔드가 경로로 DEM 고도를 조회해 계산한다([ADR-0019](../../adr/0019-course-generation-backend.md), [S15P31E105-369](https://ssafy.atlassian.net/browse/S15P31E105-369)). 코스 생성은 AI Route(`ai/workspace/seongyun/route`) 최적화를 먼저 시도하고, 판정 기준을 만족하지 못하면 백엔드 Java 이식으로 전환한다. 코스 생성 API·BE↔Route 계약 설계는 [S15P31E105-370](https://ssafy.atlassian.net/browse/S15P31E105-370)
+- AI 유지 시: BE↔Route HTTP 계약(URL·요청/응답·오류·타임아웃)과 Route 배포(`ai/service`와 분리된 별도 Python 서비스 컨테이너). Route는 경로만 반환하고 경사는 만들지 않는다
+- 실행 데이터 배포(현재 커버리지는 부산 extract 기준): DEM은 백엔드, OSM/env는 생성 담당 쪽 서버 볼륨(방식은 ADR-0019)
 - 생성 경로는 `courses`에 저장한다(서버 내부 저장 로직 구현, [S15P31E105-319](https://ssafy.atlassian.net/browse/S15P31E105-319)). 출발점은 경로 첫 좌표, `creator_id`·`source_session_id`·`region_code`·`description`은 NULL, 상태는 ACTIVE, 경사는 [elevationProfile 구조](#elevationprofile-100m-경사-구조)를 따른다. 미정: 저장 호출 시점(후보 경로 생성 시 전부 저장 vs 사용자가 고른 경로만 저장 — 전부 저장하면 고르지 않은 후보도 ACTIVE 공용 코스로 C01 추천 대상이 됨), 유사 경로 중복 기준, 재시도·동시 호출 시 멱등 처리, 경로 실제 길이와 `distanceM`의 일치 검증, 외부 API 오류 코드. 후속 연결: AI가 `elevation_profile`을 경사 구간 목록으로 읽는 구현(`StoredCourseGradeSource`, 현재 꺼짐)과 범위 밖 경사 보정, FE 고도 그래프의 경사 누적 변환
 - AI 선호 키(`river`/`park`/…) ↔ `PARK`/`RIVERSIDE`/`URBAN`/`BEACH`/`TRACK` 태그 매핑
 - 좌표 순서: AI `coords`는 `[lat,lon]`, GeoJSON·PostGIS는 `[lon,lat]`
