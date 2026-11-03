@@ -2,22 +2,27 @@ package com.runway.backend.domain.device.controller;
 
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest;
 import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse;
-import com.runway.backend.domain.device.service.HealthRecordSyncErrors;
 import com.runway.backend.domain.device.service.HealthRecordSyncService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.security.AuthenticatedUser;
+
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.io.InputStream;
-import java.time.Clock;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 /** W06 Samsung Health 데이터 동기화. 폰이 본인 로그인으로 워치 일상 심박 하루 추정값을 올린다. */
 @RestController
@@ -43,12 +48,12 @@ public class HealthRecordSyncController {
 
     static byte[] readBody(HttpServletRequest request) throws IOException {
         if (request.getContentLengthLong() > MAX_BODY_BYTES) {
-            throw HealthRecordSyncErrors.tooLarge();
+            throw new ApiException(ErrorCode.FILE_TOO_LARGE);
         }
         try (InputStream in = request.getInputStream()) {
             byte[] body = in.readNBytes(MAX_BODY_BYTES + 1);
             if (body.length > MAX_BODY_BYTES) {
-                throw HealthRecordSyncErrors.tooLarge();
+                throw new ApiException(ErrorCode.FILE_TOO_LARGE);
             }
             return body;
         }

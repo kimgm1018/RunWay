@@ -11,13 +11,17 @@ import com.runway.backend.domain.community.entity.Comment;
 import com.runway.backend.domain.community.repository.CommentRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import jakarta.persistence.EntityManager;
-import java.time.Instant;
-import java.util.List;
+
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -100,13 +104,13 @@ public class CommentService {
 
     private void requireAuthor(Comment comment, long userId) {
         if (!comment.isAuthoredBy(userId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 수정·삭제할 수 있습니다.");
+            throw new ApiException(ErrorCode.NOT_AUTHOR, "수정·삭제");
         }
     }
 
     private void requireExistingUser(long userId) {
         if (!communityUserQueryRepository.existsById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -118,16 +122,14 @@ public class CommentService {
     }
 
     private static ApiException emptyComment() {
-        return new ApiException(
-                HttpStatus.UNPROCESSABLE_CONTENT, "EMPTY_COMMENT", "댓글 본문이 비어 있습니다.");
+        return new ApiException(ErrorCode.EMPTY_COMMENT);
     }
 
     private static ApiException invalidParentComment() {
-        return new ApiException(
-                HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PARENT_COMMENT", "유효하지 않은 부모 댓글입니다.");
+        return new ApiException(ErrorCode.INVALID_PARENT_COMMENT);
     }
 
     private static ApiException commentNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.COMMENT_NOT_FOUND);
     }
 }

@@ -12,16 +12,19 @@ import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.device.entity.UserDevice;
 import com.runway.backend.domain.device.repository.UserDeviceRepository;
 import com.runway.backend.domain.device.service.DeviceService;
-import java.time.Instant;
-import java.util.Optional;
+import com.runway.backend.global.exception.ApiException;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
+import java.util.Optional;
+
 /**
- * 동시 등록 경합의 재조회 분기를 결정적으로 재현한다. 실제 DB 경합은 DeviceConcurrencyIntegrationTest가 확인하며, 이 테스트는 인덱스
- * 위반 뒤 승자 행이 이미 해제된 실행 순서를 고정한다.
+ * 동시 등록 경합의 재조회 분기를 결정적으로 재현한다. 실제 DB 경합은 DeviceConcurrencyIntegrationTest가 확인하며, 이 테스트는 인덱스 위반 뒤
+ * 승자 행이 이미 해제된 실행 순서를 고정한다.
  */
 class DeviceServiceRegisterRetryTest {
 
@@ -93,6 +96,11 @@ class DeviceServiceRegisterRetryTest {
                 .thenThrow(new DataIntegrityViolationException("FK_users_TO_user_devices_1"));
 
         assertThatThrownBy(() -> service.register(USER_ID, DeviceType.WATCH))
-                .hasFieldOrPropertyWithValue("code", "UNAUTHORIZED");
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        exception -> {
+                            assertThat(exception.code()).isEqualTo("UNAUTHORIZED");
+                            assertThat(exception.status().value()).isEqualTo(401);
+                        });
     }
 }

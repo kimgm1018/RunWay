@@ -1,13 +1,16 @@
 package com.runway.backend.domain.user.validation;
 
 import com.runway.backend.domain.user.dto.request.UpdateProfileRequest;
-import com.runway.backend.domain.user.exception.UserProfileErrors;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import org.springframework.stereotype.Component;
+
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.Set;
-import org.springframework.stereotype.Component;
 
 @Component
 public class UserProfileValidator {
@@ -20,13 +23,13 @@ public class UserProfileValidator {
 
     public Patch validate(UpdateProfileRequest request) {
         if (request == null || !request.hasAnyField()) {
-            throw UserProfileErrors.validation();
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
 
         String nickname = null;
         if (request.nicknamePresent()) {
             if (request.nickname() == null || !text(request.nickname(), 2, 10, false)) {
-                throw UserProfileErrors.invalidProfile();
+                throw new ApiException(ErrorCode.INVALID_PROFILE);
             }
             nickname = request.nickname();
         }
@@ -34,7 +37,7 @@ public class UserProfileValidator {
         String gender = null;
         if (request.genderPresent()) {
             if (request.gender() == null || !Set.of("MALE", "FEMALE").contains(request.gender())) {
-                throw UserProfileErrors.invalidProfile();
+                throw new ApiException(ErrorCode.INVALID_PROFILE);
             }
             gender = request.gender();
         }
@@ -52,7 +55,7 @@ public class UserProfileValidator {
             } else {
                 profileImageId = request.profileImageId().trim();
                 if (profileImageId.isEmpty()) {
-                    throw UserProfileErrors.invalidImage();
+                    throw new ApiException(ErrorCode.INVALID_IMAGE);
                 }
             }
         }
@@ -71,17 +74,16 @@ public class UserProfileValidator {
 
     private LocalDate parseBirthDate(String raw) {
         if (raw == null || !raw.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
-            throw UserProfileErrors.invalidProfile();
+            throw new ApiException(ErrorCode.INVALID_PROFILE);
         }
         LocalDate birth;
         try {
             birth = LocalDate.parse(raw);
         } catch (DateTimeParseException ex) {
-            throw UserProfileErrors.invalidProfile();
+            throw new ApiException(ErrorCode.INVALID_PROFILE);
         }
-        if (birth.getYear() < 1
-                || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC)))) {
-            throw UserProfileErrors.invalidProfile();
+        if (birth.getYear() < 1 || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC)))) {
+            throw new ApiException(ErrorCode.INVALID_PROFILE);
         }
         return birth;
     }

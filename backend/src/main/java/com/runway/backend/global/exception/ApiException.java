@@ -1,32 +1,34 @@
 package com.runway.backend.global.exception;
 
-import java.util.Map;
 import org.springframework.http.HttpStatusCode;
 
-public class ApiException extends RuntimeException {
+import java.util.Map;
+import java.util.Objects;
 
-    private final HttpStatusCode status;
-    private final String code;
+public class ApiException extends RuntimeException {
+    private final ErrorCode errorCode;
     private final Map<String, Object> details;
 
-    public ApiException(HttpStatusCode status, String code, String message) {
-        this(status, code, message, Map.of());
+    public ApiException(ErrorCode errorCode, String... arguments) {
+        this(errorCode, Map.of(), arguments);
     }
 
-    public ApiException(
-            HttpStatusCode status, String code, String message, Map<String, Object> details) {
-        super(message == null ? ApiErrorResponse.FALLBACK_MESSAGE : message);
-        this.status = status;
-        this.code = code;
+    public ApiException(ErrorCode errorCode, Map<String, Object> details, String... arguments) {
+        super(Objects.requireNonNull(errorCode).message(arguments));
+        this.errorCode = errorCode;
         this.details = ApiErrorResponse.copyDetails(details);
     }
 
+    public ErrorCode errorCode() {
+        return errorCode;
+    }
+
     public HttpStatusCode status() {
-        return status;
+        return errorCode.status();
     }
 
     public String code() {
-        return code;
+        return errorCode.code();
     }
 
     public Map<String, Object> details() {

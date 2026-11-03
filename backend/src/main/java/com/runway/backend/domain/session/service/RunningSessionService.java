@@ -23,26 +23,33 @@ import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.CourseInfo;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.DeviceRef;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.PostRef;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
 /**
  * S01·S02·S08·S09. 상태를 바꾸는 요청은 (그룹 행 →) 세션 행 순서로 잠근 뒤 소유·상태·버전을 다시 검사한다.
  *
- * 잠금 순서: 생성은 기기·코스(FOR SHARE) → 회원 advisory lock → 비교 대상 세션(FOR SHARE). 변경·삭제는 그룹런(FOR NO KEY
- * UPDATE) → 세션 → (기기·코스·비교 대상 세션 FOR SHARE | 게시물 ID순). 기기 해제(W03)와 코스 상태 변경은 해당 행만 갱신하므로 교차 대기가 없다. 비교 대상은 COMPLETED이고 변경 대상은 READY이므로 두 세션이 서로를 잠그며 기다리는 순서는 생기지 않는다.
- * W07 배치 저장(SyncBatchService)도 세션 → 기기(FOR SHARE) 순서로 잠그며 회원 행은 잠그지 않는다.
- * W04 동의 철회(ConsentService)는 회원 advisory lock → 회원 행 UPDATE → 본인 진행 가능 세션 FOR SHARE 순서로 잠근다. 따라서 세션 행이나 회원
- * advisory lock을 잡은 뒤에는 회원 행을 잠그지 않는다(FOR SHARE 포함). 동의 확인이 필요하면 잠그지 않고 읽는다. 어기면 철회와 교착한다.
+ * <p>잠금 순서: 생성은 기기·코스(FOR SHARE) → 회원 advisory lock → 비교 대상 세션(FOR SHARE). 변경·삭제는 그룹런(FOR NO KEY
+ * UPDATE) → 세션 → (기기·코스·비교 대상 세션 FOR SHARE | 게시물 ID순). 기기 해제(W03)와 코스 상태 변경은 해당 행만 갱신하므로 교차 대기가 없다.
+ * 비교 대상은 COMPLETED이고 변경 대상은 READY이므로 두 세션이 서로를 잠그며 기다리는 순서는 생기지 않는다. W07 배치 저장(SyncBatchService)도
+ * 세션 → 기기(FOR SHARE) 순서로 잠그며 회원 행은 잠그지 않는다. W04 동의 철회(ConsentService)는 회원 advisory lock → 회원 행
+ * UPDATE → 본인 진행 가능 세션 FOR SHARE 순서로 잠근다. 따라서 세션 행이나 회원 advisory lock을 잡은 뒤에는 회원 행을 잠그지 않는다(FOR
+ * SHARE 포함). 동의 확인이 필요하면 잠그지 않고 읽는다. 어기면 철회와 교착한다.
  */
 @Slf4j
 @Service
@@ -51,6 +58,7 @@ public class RunningSessionService {
 
     private static final Set<ControlResult> UNCONFIRMED =
             EnumSet.of(ControlResult.PENDING, ControlResult.UNKNOWN);
+
     /** 목표 거리 상한(m). 풀코스 마라톤(42.195km)을 포함하는 45km. */
     static final int MAX_TARGET_DISTANCE_M = 45_000;
 
@@ -68,9 +76,9 @@ public class RunningSessionService {
     /**
      * S01. 응답 유실 후 재요청은 새 세션을 만들지 않고 409 ACTIVE_SESSION_EXISTS로 본인 활성 세션 ID를 알려준다.
      *
-     * <p>활성 세션 검사는 회원 잠금 뒤 새 스냅샷을 읽어야 하므로 READ COMMITTED를 명시한다(REPEATABLE READ면 잠금 전
-     * 스냅샷이 고정돼 동시 생성이 모두 통과한다). 세션을 만드는 다른 경로도 같은 회원 잠금을 쓰며, 잠금을 놓친 경로는 부분
-     * UNIQUE uq_running_sessions_active(V8)가 막는다.
+     * <p>활성 세션 검사는 회원 잠금 뒤 새 스냅샷을 읽어야 하므로 READ COMMITTED를 명시한다(REPEATABLE READ면 잠금 전 스냅샷이 고정돼 동시
+     * 생성이 모두 통과한다). 세션을 만드는 다른 경로도 같은 회원 잠금을 쓰며, 잠금을 놓친 경로는 부분 UNIQUE
+     * uq_running_sessions_active(V8)가 막는다.
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RunningSessionResponse create(
@@ -88,12 +96,15 @@ public class RunningSessionService {
                 .findActiveSessionId(userId)
                 .ifPresent(
                         activeId -> {
-                            throw SessionErrors.activeSessionExists(activeId);
+                            throw new ApiException(
+                                    ErrorCode.ACTIVE_SESSION_EXISTS, Map.of("sessionId", activeId));
                         });
 
         var draft =
                 InitialPacePlanCalculator.calculate(
-                        goal, course == null ? null : course.distanceM(), segmentDifficultyProvider);
+                        goal,
+                        course == null ? null : course.distanceM(),
+                        segmentDifficultyProvider);
         Instant now = now();
         RunningSession session =
                 sessionRepository.saveAndFlush(
@@ -112,12 +123,14 @@ public class RunningSessionService {
     public RunningSessionResponse get(long userId, long sessionId, Instant serverReceiveAt) {
         access.requireActiveUser(userId);
         RunningSession session =
-                sessionRepository.findById(sessionId).orElseThrow(SessionErrors::sessionNotFound);
+                sessionRepository
+                        .findById(sessionId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.isDeleted()) {
-            throw SessionErrors.sessionNotFound();
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
         }
         if (session.getUserId() != userId) {
-            throw SessionErrors.sessionForbidden();
+            throw new ApiException(ErrorCode.SESSION_FORBIDDEN);
         }
         return access.response(session, serverReceiveAt);
     }
@@ -129,7 +142,8 @@ public class RunningSessionService {
             long sessionId,
             UpdateRunningSessionRequest request,
             Instant serverReceiveAt) {
-        LockedSession locked = access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.UPDATE);
+        LockedSession locked =
+                access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.UPDATE);
         RunningSession session = locked.session();
         switch (request.operation()) {
             case UPDATE_GOAL -> updateGoal(userId, locked, request);
@@ -148,24 +162,25 @@ public class RunningSessionService {
             long userId, long sessionId, UpdateRunningSessionRequest request) {
         access.requireActiveUser(userId);
         RunningSession session =
-                sessionRepository.findById(sessionId).orElseThrow(SessionErrors::sessionNotFound);
+                sessionRepository
+                        .findById(sessionId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.isDeleted()) {
-            throw SessionErrors.sessionNotFound();
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
         }
         if (session.getUserId() != userId) {
-            throw SessionErrors.sessionForbidden();
+            throw new ApiException(ErrorCode.SESSION_FORBIDDEN);
         }
-        if (!request.deviceId().equals(session.getControlDeviceId())
-                || session.isPhoneFallback()) {
-            throw SessionErrors.deviceForbidden();
+        if (!request.deviceId().equals(session.getControlDeviceId()) || session.isPhoneFallback()) {
+            throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
         SessionAccess.requireOwnedDevice(
                 userId, referenceRepository.findDevice(request.deviceId()), DeviceType.WATCH);
         if (session.getStatus() != RunningSessionStatus.READY) {
-            throw SessionErrors.invalidSessionState();
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         if (session.getStateVersion() != request.expectedVersion()) {
-            throw SessionErrors.staleState();
+            throw new ApiException(ErrorCode.STALE_STATE);
         }
         return new PreparedResponse(request.expectedVersion());
     }
@@ -173,20 +188,21 @@ public class RunningSessionService {
     /** S09. 세션과 본인 연결 게시물을 같은 시각으로 삭제 표시한다. 하나라도 실패하면 모두 롤백한다. */
     @Transactional
     public DeletedSessionResponse delete(long userId, long sessionId) {
-        LockedSession locked = access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.DELETE);
+        LockedSession locked =
+                access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.DELETE);
         RunningSession session = locked.session();
         requireDeletable(session);
         if (locked.groupRunId() != null) {
             if (!locked.groupCompleted()
                     || !referenceRepository.groupAnalysisSettled(locked.groupRunId())) {
-                throw SessionErrors.invalidDeleteState();
+                throw new ApiException(ErrorCode.SESSION_INVALID_STATE, "삭제");
             }
         }
 
         List<PostRef> posts = referenceRepository.lockPostsOfSession(sessionId);
         if (posts.stream().anyMatch(post -> post.authorId() != userId)) {
             log.error("다른 회원의 게시물이 러닝 세션을 참조해 삭제를 중단함. sessionId={}", sessionId);
-            throw SessionErrors.integrityViolation();
+            throw new ApiException(ErrorCode.INTERNAL_ERROR);
         }
         Instant deletedAt = now();
         session.markDeleted(deletedAt);
@@ -195,20 +211,21 @@ public class RunningSessionService {
         return new DeletedSessionResponse(sessionId, deletedAt);
     }
 
-    private void updateGoal(long userId, LockedSession locked, UpdateRunningSessionRequest request) {
+    private void updateGoal(
+            long userId, LockedSession locked, UpdateRunningSessionRequest request) {
         RunningSession session = locked.session();
         SessionGoal goal = request.goalPatch().applyTo(session.goal());
         if (goal.sameAs(session.goal())) {
             return;
         }
         if (session.getStatus() != RunningSessionStatus.READY || locked.groupRunId() != null) {
-            throw SessionErrors.invalidSessionState();
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         if (access.pendingCommand(session) != null) {
-            throw SessionErrors.commandPending();
+            throw new ApiException(ErrorCode.COMMAND_PENDING);
         }
         if (session.getStateVersion() != request.expectedVersion()) {
-            throw SessionErrors.staleState();
+            throw new ApiException(ErrorCode.STALE_STATE);
         }
         validateTargets(goal);
         CourseInfo course = access.requireUsableCourse(goal.courseId());
@@ -221,7 +238,9 @@ public class RunningSessionService {
 
         var draft =
                 InitialPacePlanCalculator.calculate(
-                        goal, course == null ? null : course.distanceM(), segmentDifficultyProvider);
+                        goal,
+                        course == null ? null : course.distanceM(),
+                        segmentDifficultyProvider);
         Instant now = now();
         pacePlanRepository.deleteSegmentsBySessionId(session.getId());
         pacePlanRepository.deletePlansBySessionId(session.getId());
@@ -237,23 +256,24 @@ public class RunningSessionService {
             return;
         }
         if (!request.receivedWatchBatchesUploaded()) {
-            throw SessionErrors.uploadPending();
+            throw new ApiException(ErrorCode.UPLOAD_PENDING);
         }
         boolean started =
                 session.getStartedAt() != null
                         && (session.getStatus() == RunningSessionStatus.RUNNING
                                 || session.getStatus() == RunningSessionStatus.PAUSED);
         if (!started || session.getStateVersion() < 1 || session.getControlDeviceId() == null) {
-            throw SessionErrors.invalidSessionState();
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         if (session.getStateVersion() != request.expectedVersion()) {
-            throw SessionErrors.staleState();
+            throw new ApiException(ErrorCode.STALE_STATE);
         }
         controlEventRepository
                 .findFirstBySessionIdAndDeviceIdAndResultIn(
                         session.getId(), session.getControlDeviceId(), UNCONFIRMED)
                 .ifPresent(
-                        event -> event.markUnknownIfPending(SessionControlEvent.WATCH_DISCONNECTED));
+                        event ->
+                                event.markUnknownIfPending(SessionControlEvent.WATCH_DISCONNECTED));
         session.takeOverByRelayPhone(now());
     }
 
@@ -269,10 +289,10 @@ public class RunningSessionService {
                 || session.getStartedAt() != null
                 || pending == null
                 || pending.getAction() != ControlAction.START) {
-            throw SessionErrors.invalidSessionState();
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         if (session.getStateVersion() != request.expectedVersion()) {
-            throw SessionErrors.staleState();
+            throw new ApiException(ErrorCode.STALE_STATE);
         }
         pending.markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
         session.abortUnconfirmedStart(now());
@@ -298,18 +318,18 @@ public class RunningSessionService {
                     case READY, RUNNING, PAUSED -> false;
                 };
         if (!allowed) {
-            throw SessionErrors.invalidDeleteState();
+            throw new ApiException(ErrorCode.SESSION_INVALID_STATE, "삭제");
         }
     }
 
     /**
-     * 시작 미확인 중단은 세션의 중계 폰이 요청한다. 중계 폰이 연결 해제됐으면(재설치 후 새 ID 등록 등) 세션을 정리할 다른 방법이 없으므로 본인의
-     * 현재 연결된 다른 폰도 허용한다. 중계 폰이 연결 중이면 그 폰만 허용한다. 세션의 relayDeviceId는 바꾸지 않는다.
+     * 시작 미확인 중단은 세션의 중계 폰이 요청한다. 중계 폰이 연결 해제됐으면(재설치 후 새 ID 등록 등) 세션을 정리할 다른 방법이 없으므로 본인의 현재 연결된 다른
+     * 폰도 허용한다. 중계 폰이 연결 중이면 그 폰만 허용한다. 세션의 relayDeviceId는 바꾸지 않는다.
      */
     private void requireAbortingPhone(long userId, RunningSession session, long deviceId) {
         Long relayDeviceId = session.getRelayDeviceId();
         if (relayDeviceId == null) {
-            throw SessionErrors.deviceForbidden();
+            throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
         if (relayDeviceId != deviceId) {
             boolean relayLinked =
@@ -318,7 +338,7 @@ public class RunningSessionService {
                             .map(DeviceRef::linked)
                             .orElse(false);
             if (relayLinked) {
-                throw SessionErrors.deviceForbidden();
+                throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
             }
         }
         access.requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
@@ -326,7 +346,7 @@ public class RunningSessionService {
 
     private void requireRelayPhone(long userId, RunningSession session, long deviceId) {
         if (session.getRelayDeviceId() == null || session.getRelayDeviceId() != deviceId) {
-            throw SessionErrors.deviceForbidden();
+            throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
         }
         access.requireOwnedDevice(userId, deviceId, DeviceType.PHONE);
     }
@@ -338,7 +358,7 @@ public class RunningSessionService {
                 || isNotPositive(goal.durationSec())
                 || (goal.paceSecPerKm() != null && goal.paceSecPerKm().signum() <= 0)
                 || goal.targetCount() > 2) {
-            throw SessionErrors.invalidGoal();
+            throw new ApiException(ErrorCode.INVALID_GOAL);
         }
     }
 
@@ -352,7 +372,7 @@ public class RunningSessionService {
             return;
         }
         if (goal.courseId() == null) {
-            throw SessionErrors.invalidComparisonSession();
+            throw new ApiException(ErrorCode.INVALID_COMPARISON_SESSION);
         }
         boolean valid =
                 referenceRepository
@@ -362,7 +382,7 @@ public class RunningSessionService {
                         .filter(c -> goal.courseId().equals(c.courseId()))
                         .isPresent();
         if (!valid) {
-            throw SessionErrors.invalidComparisonSession();
+            throw new ApiException(ErrorCode.INVALID_COMPARISON_SESSION);
         }
     }
 

@@ -17,9 +17,19 @@ import com.runway.backend.domain.course.repository.CourseJdbcRepository.Bookmark
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.CourseRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.RecommendCourseRow;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonGeographyMapper;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.geo.GeoJsonPoint;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -27,12 +37,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -172,7 +176,7 @@ public class CourseService {
 
     private void requireExistingUser(long userId) {
         if (!courseJdbcRepository.existsUserById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -185,9 +189,8 @@ public class CourseService {
     private static void validateAliasLength(String alias) {
         if (alias != null && alias.length() > ALIAS_MAX_LENGTH) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "별명은 최대 " + ALIAS_MAX_LENGTH + "자까지 가능합니다.");
+                    ErrorCode.VALIDATION_ERROR_COURSE_VALIDATE_ALIAS_LENGTH,
+                    String.valueOf(ALIAS_MAX_LENGTH));
         }
     }
 
@@ -197,9 +200,7 @@ public class CourseService {
         }
         if (limit < 1 || limit > MAX_BOOKMARK_LIMIT) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "limit은 1 이상 " + MAX_BOOKMARK_LIMIT + " 이하여야 합니다.");
+                    ErrorCode.VALIDATION_LIMIT_OUT_OF_RANGE, String.valueOf(MAX_BOOKMARK_LIMIT));
         }
         return limit;
     }
@@ -219,17 +220,18 @@ public class CourseService {
         }
     }
 
-    private static ValidatedRecommendSearch validateRecommendSearch(RecommendCoursesRequest request) {
+    private static ValidatedRecommendSearch validateRecommendSearch(
+            RecommendCoursesRequest request) {
         if (request == null) {
-            throw invalidSearch("추천 조건이 필요합니다.");
+            throw new ApiException(ErrorCode.SEARCH_CONDITIONS_REQUIRED);
         }
         double latitude = requireFinite(request.latitude(), "latitude");
         double longitude = requireFinite(request.longitude(), "longitude");
         if (latitude < -90 || latitude > 90) {
-            throw invalidSearch("latitude는 -90~90이어야 합니다.");
+            throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
         }
         if (longitude < -180 || longitude > 180) {
-            throw invalidSearch("longitude는 -180~180이어야 합니다.");
+            throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
         }
 
         double targetDistanceM = requirePositive(request.targetDistanceM(), "targetDistanceM");
@@ -250,39 +252,44 @@ public class CourseService {
                 target.multiply(BigDecimal.valueOf(1.0d + DISTANCE_TOLERANCE_RATIO))
                         .setScale(2, RoundingMode.HALF_UP);
 
-        String startEwkt =
-                GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(longitude, latitude));
+        String startEwkt = GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(longitude, latitude));
         return new ValidatedRecommendSearch(
-                startEwkt, radiusM, minDistanceM, maxDistanceM, environmentTypes, limit, paceSecPerKm);
+                startEwkt,
+                radiusM,
+                minDistanceM,
+                maxDistanceM,
+                environmentTypes,
+                limit,
+                paceSecPerKm);
     }
 
     private static double resolvePaceSecPerKm(
             RecommendCoursesRequest request, double targetDistanceM) {
         String rawType = request.goalInputType();
         if (rawType == null || rawType.isBlank()) {
-            throw invalidSearch("goalInputType은 TIME 또는 PACE여야 합니다.");
+            throw new ApiException(ErrorCode.SEARCH_GOAL_TYPE_INVALID);
         }
         String goalInputType = rawType.trim().toUpperCase(Locale.ROOT);
         return switch (goalInputType) {
             case "TIME" -> {
                 if (request.targetPaceSecPerKm() != null) {
-                    throw invalidSearch("TIME 목표에는 targetPaceSecPerKm을 함께 보낼 수 없습니다.");
+                    throw new ApiException(ErrorCode.SEARCH_TIME_PACE_CONFLICT);
                 }
                 double durationSec =
                         requirePositive(request.targetDurationSec(), "targetDurationSec");
                 double pace = durationSec * 1000.0d / targetDistanceM;
                 if (!(pace > 0) || Double.isInfinite(pace)) {
-                    throw invalidSearch("계산된 목표 페이스가 유효하지 않습니다.");
+                    throw new ApiException(ErrorCode.SEARCH_CALCULATED_PACE_INVALID);
                 }
                 yield pace;
             }
             case "PACE" -> {
                 if (request.targetDurationSec() != null) {
-                    throw invalidSearch("PACE 목표에는 targetDurationSec을 함께 보낼 수 없습니다.");
+                    throw new ApiException(ErrorCode.SEARCH_PACE_DURATION_CONFLICT);
                 }
                 yield requirePositive(request.targetPaceSecPerKm(), "targetPaceSecPerKm");
             }
-            default -> throw invalidSearch("goalInputType은 TIME 또는 PACE여야 합니다.");
+            default -> throw new ApiException(ErrorCode.SEARCH_GOAL_TYPE_INVALID);
         };
     }
 
@@ -293,11 +300,13 @@ public class CourseService {
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String value : raw) {
             if (value == null || value.isBlank()) {
-                throw invalidSearch("environmentTypes에 빈 값이 있습니다.");
+                throw new ApiException(ErrorCode.SEARCH_ENVIRONMENT_EMPTY);
             }
             String code = value.trim().toUpperCase(Locale.ROOT);
             if (!ALLOWED_ENVIRONMENT_TYPES.contains(code)) {
-                throw invalidSearch("허용되지 않은 environmentTypes 코드입니다: " + value);
+                throw new ApiException(
+                        ErrorCode.INVALID_SEARCH_COURSE_NORMALIZE_ENVIRONMENT_TYPES,
+                        String.valueOf(value));
             }
             normalized.add(code);
         }
@@ -309,15 +318,17 @@ public class CourseService {
             return DEFAULT_RECOMMEND_LIMIT;
         }
         if (limit < 1 || limit > MAX_RECOMMEND_LIMIT) {
-            throw invalidSearch(
-                    "limit은 1 이상 " + MAX_RECOMMEND_LIMIT + " 이하여야 합니다.");
+            throw new ApiException(
+                    ErrorCode.INVALID_SEARCH_COURSE_RESOLVE_RECOMMEND_LIMIT,
+                    String.valueOf(MAX_RECOMMEND_LIMIT));
         }
         return limit;
     }
 
     private static double requireFinite(Double value, String field) {
         if (value == null || value.isNaN() || value.isInfinite()) {
-            throw invalidSearch(field + "이(가) 올바르지 않습니다.");
+            throw new ApiException(
+                    ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_FINITE, String.valueOf(field));
         }
         return value;
     }
@@ -325,7 +336,8 @@ public class CourseService {
     private static double requirePositive(Double value, String field) {
         double finite = requireFinite(value, field);
         if (!(finite > 0)) {
-            throw invalidSearch(field + "은(는) 양수여야 합니다.");
+            throw new ApiException(
+                    ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_POSITIVE, String.valueOf(field));
         }
         return finite;
     }
@@ -341,13 +353,9 @@ public class CourseService {
     private static int estimateDurationSecRequired(BigDecimal distanceM, double paceSecPerKm) {
         Integer estimated = estimateDurationSec(distanceM, paceSecPerKm);
         if (estimated == null || estimated <= 0) {
-            throw invalidSearch("예상 시간을 계산할 수 없습니다.");
+            throw new ApiException(ErrorCode.INVALID_SEARCH);
         }
         return estimated;
-    }
-
-    private static ApiException invalidSearch(String message) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", message);
     }
 
     private record ValidatedRecommendSearch(
@@ -387,11 +395,10 @@ public class CourseService {
     }
 
     private static ApiException courseNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", "코스를 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.COURSE_NOT_FOUND);
     }
 
     private static ApiException invalidCursor() {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor 형식이 올바르지 않습니다.");
+        return new ApiException(ErrorCode.VALIDATION_ERROR_CURSOR_FORMAT);
     }
 }

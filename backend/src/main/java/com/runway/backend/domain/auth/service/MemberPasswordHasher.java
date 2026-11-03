@@ -1,11 +1,15 @@
 package com.runway.backend.domain.auth.service;
 
 import com.runway.backend.domain.auth.validation.PasswordPolicy;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
+import org.springframework.stereotype.Component;
+
 import java.util.Base64;
 import java.util.UUID;
 import java.util.regex.Pattern;
-import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
-import org.springframework.stereotype.Component;
 
 @Component
 public class MemberPasswordHasher {
@@ -22,11 +26,11 @@ public class MemberPasswordHasher {
     }
 
     public boolean matches(String password, String encoded) {
-        if (!validEncoding(encoded)) throw AuthErrors.unavailable();
+        if (!validEncoding(encoded)) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         try {
             return encoder.matches(password, encoded);
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 

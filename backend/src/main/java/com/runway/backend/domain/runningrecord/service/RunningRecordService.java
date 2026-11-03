@@ -24,6 +24,13 @@ import com.runway.backend.domain.runningrecord.repository.RunningRecordJdbcRepos
 import com.runway.backend.domain.runningrecord.repository.RunningRecordJdbcRepository.SortType;
 import com.runway.backend.domain.runningrecord.repository.RunningRecordJdbcRepository.StatsSessionRow;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
@@ -40,10 +47,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -85,10 +88,7 @@ public class RunningRecordService {
         Instant fromInclusive = parseInstantParam(from, "from");
         Instant toExclusive = parseInstantParam(to, "to");
         if (fromInclusive != null && toExclusive != null && !fromInclusive.isBefore(toExclusive)) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "from은 to보다 이전이어야 합니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_RUNNINGRECORD_LIST);
         }
         RunTypeFilter runTypeFilter = parseRunType(runType);
         SortType sortType = parseSort(sort);
@@ -225,10 +225,7 @@ public class RunningRecordService {
 
         List<StatsSessionRow> sessions =
                 runningRecordJdbcRepository.findStatsSessions(
-                        userId,
-                        window.fromInclusive(),
-                        window.toExclusive(),
-                        RunTypeFilter.ALL);
+                        userId, window.fromInclusive(), window.toExclusive(), RunTypeFilter.ALL);
 
         Map<YearMonth, List<StatsSessionRow>> byMonth = new LinkedHashMap<>();
         for (YearMonth ym : StatisticsPeriodHelper.yearMonthsInRange(today, resolvedMonths)) {
@@ -280,8 +277,7 @@ public class RunningRecordService {
         List<BigDecimal> samples =
                 runningRecordJdbcRepository.findHeartRateSamplesInPeriod(
                         userId, fromInclusive, toExclusive, runType);
-        List<Double> bpm =
-                samples.stream().map(BigDecimal::doubleValue).toList();
+        List<Double> bpm = samples.stream().map(BigDecimal::doubleValue).toList();
         return KarvonenHeartRateZoneHelper.ratios(bpm, hrMax.get(), rhr.get()).stream()
                 .map(z -> new RunningRecordHeartRateZoneResponse(z.zone(), z.ratio()))
                 .toList();
@@ -386,7 +382,8 @@ public class RunningRecordService {
             }
             String month =
                     StatisticsPeriodHelper.formatYearMonth(
-                            YearMonth.from(StatisticsPeriodHelper.toLocalDate(session.startedAt())));
+                            YearMonth.from(
+                                    StatisticsPeriodHelper.toLocalDate(session.startedAt())));
             if (distances.containsKey(month)) {
                 distances.merge(month, distanceOrZero(session), BigDecimal::add);
             }
@@ -445,14 +442,12 @@ public class RunningRecordService {
 
     private static PeriodType parsePeriod(String period) {
         if (period == null || period.isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "INVALID_PERIOD", "period는 WEEK, MONTH, YEAR만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_PERIOD_RUNNINGRECORD_PARSE_PERIOD);
         }
         try {
             return PeriodType.valueOf(period.trim());
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "INVALID_PERIOD", "period는 WEEK, MONTH, YEAR만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_PERIOD_RUNNINGRECORD_PARSE_PERIOD);
         }
     }
 
@@ -463,10 +458,7 @@ public class RunningRecordService {
         try {
             return LocalDate.parse(baseDate.trim());
         } catch (DateTimeParseException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_PERIOD",
-                    "baseDate는 YYYY-MM-DD 형식이어야 합니다.");
+            throw new ApiException(ErrorCode.INVALID_PERIOD);
         }
     }
 
@@ -476,9 +468,8 @@ public class RunningRecordService {
         }
         if (months < 1 || months > MAX_PACE_TREND_MONTHS) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "months는 1 이상 " + MAX_PACE_TREND_MONTHS + " 이하여야 합니다.");
+                    ErrorCode.VALIDATION_ERROR_RUNNINGRECORD_RESOLVE_PACE_TREND_MONTHS,
+                    String.valueOf(MAX_PACE_TREND_MONTHS));
         }
         return months;
     }
@@ -491,7 +482,7 @@ public class RunningRecordService {
 
     private void requireExistingUser(long userId) {
         if (!runningRecordJdbcRepository.existsUserById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -501,9 +492,7 @@ public class RunningRecordService {
         }
         if (limit < 1 || limit > MAX_LIMIT) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "limit은 1 이상 " + MAX_LIMIT + " 이하여야 합니다.");
+                    ErrorCode.VALIDATION_LIMIT_OUT_OF_RANGE, String.valueOf(MAX_LIMIT));
         }
         return limit;
     }
@@ -516,9 +505,8 @@ public class RunningRecordService {
             return Instant.parse(raw.trim());
         } catch (DateTimeParseException ex) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    name + "은 ISO-8601 Instant 형식이어야 합니다.");
+                    ErrorCode.VALIDATION_ERROR_RUNNINGRECORD_PARSE_INSTANT_PARAM,
+                    String.valueOf(name));
         }
     }
 
@@ -529,10 +517,7 @@ public class RunningRecordService {
         try {
             return RunTypeFilter.valueOf(runType.trim());
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "runType은 ALL, SOLO, GROUP만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_RUNNINGRECORD_PARSE_RUN_TYPE);
         }
     }
 
@@ -543,10 +528,7 @@ public class RunningRecordService {
         try {
             return SortType.valueOf(sort.trim());
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "sort는 LATEST, DISTANCE, PACE만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_RUNNINGRECORD_PARSE_SORT);
         }
     }
 
@@ -590,14 +572,10 @@ public class RunningRecordService {
     private static String encodeCursor(SortType sort, ListItemRow row) {
         String sortValue =
                 switch (sort) {
-                    case LATEST ->
-                            row.startedAt() == null ? "" : row.startedAt().toString();
+                    case LATEST -> row.startedAt() == null ? "" : row.startedAt().toString();
                     case DISTANCE ->
-                            row.totalDistance() == null
-                                    ? ""
-                                    : row.totalDistance().toPlainString();
-                    case PACE ->
-                            row.averagePace() == null ? "" : row.averagePace().toPlainString();
+                            row.totalDistance() == null ? "" : row.totalDistance().toPlainString();
+                    case PACE -> row.averagePace() == null ? "" : row.averagePace().toPlainString();
                 };
         String raw = sort.name() + "|" + sortValue + "|" + row.id();
         return Base64.getUrlEncoder()
@@ -606,7 +584,6 @@ public class RunningRecordService {
     }
 
     private static ApiException invalidCursor() {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor 형식이 올바르지 않습니다.");
+        return new ApiException(ErrorCode.VALIDATION_ERROR_CURSOR_FORMAT);
     }
 }

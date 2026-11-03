@@ -1,7 +1,10 @@
 package com.runway.backend.domain.device.dto.request;
 
-import com.runway.backend.domain.device.service.ConsentErrors;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import io.swagger.v3.oas.annotations.media.Schema;
+
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationFeature;
@@ -25,23 +28,21 @@ public record ConsentChangeRequest(
                     .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                     .build();
 
-    /**
-     * 형식만 검증한다. 구문 오류·객체 아님·중복 키·필드 누락·자료형 오류는 400 VALIDATION_ERROR다. 유형 값의 허용 여부는 서비스가 판정한다.
-     */
+    /** 형식만 검증한다. 구문 오류·객체 아님·중복 키·필드 누락·자료형 오류는 400 VALIDATION_ERROR다. 유형 값의 허용 여부는 서비스가 판정한다. */
     public static ConsentChangeRequest parse(String raw) {
         JsonNode body;
         try {
             body = raw == null ? null : STRICT.readTree(raw);
         } catch (JacksonException e) {
-            throw ConsentErrors.validation();
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         if (body == null || !body.isObject()) {
-            throw ConsentErrors.validation();
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         JsonNode type = body.get("consentType");
         JsonNode granted = body.get("granted");
         if (type == null || !type.isString() || granted == null || !granted.isBoolean()) {
-            throw ConsentErrors.validation();
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         return new ConsentChangeRequest(type.stringValue(), granted.booleanValue());
     }

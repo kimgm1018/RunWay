@@ -1,27 +1,32 @@
 package com.runway.backend.domain.device.dto.request;
 
 import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse.RecordError;
-import com.runway.backend.domain.device.service.HealthRecordSyncErrors;
-import java.math.BigDecimal;
-import java.time.DateTimeException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-import java.util.regex.Pattern;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.global.exception.HealthRecordErrorCode;
+
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
+
 /**
  * W06 요청(devices-health.md W06). 원문 바이트를 직접 파싱해 중복 키·NaN을 거절하고 소수를 BigDecimal 원문 그대로 읽는다.
  *
- * <p>오류 구분: JSON 구문·최상위 필드(누락·자료형·추가 필드)·records 형태(배열·1~31개·각 원소 객체)는 400 VALIDATION_ERROR로
- * 전체 거절한다. 지원하지 않는 provider는 422 UNSUPPORTED_RECORD_TYPE로 전체 거절한다. 그 밖의 레코드 안 위반은 해당 레코드만 거절하고
- * 응답 errors에 index·code·field·reason을 담는다. 오류에는 값 원문을 넣지 않는다.
+ * <p>오류 구분: JSON 구문·최상위 필드(누락·자료형·추가 필드)·records 형태(배열·1~31개·각 원소 객체)는 400 VALIDATION_ERROR로 전체
+ * 거절한다. 지원하지 않는 provider는 422 UNSUPPORTED_RECORD_TYPE로 전체 거절한다. 그 밖의 레코드 안 위반은 해당 레코드만 거절하고 응답
+ * errors에 index·code·field·reason을 담는다. 오류에는 값 원문을 넣지 않는다.
  *
  * @param records 요청 순서의 레코드 판정 결과. 유효하면 {@link DailyHrEstimate}, 아니면 {@link Rejected}
  */
@@ -100,38 +105,70 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
         try {
             body = STRICT.readTree(raw);
         } catch (JacksonException | NumberFormatException | ArithmeticException e) {
-            // BigDecimal 한계를 넘는 지수(예: 1e2147483648)는 JacksonException이 아니라 NumberFormatException으로 온다.
+            // BigDecimal 한계를 넘는 지수(예: 1e2147483648)는 JacksonException이 아니라 NumberFormatException으로
+            // 온다.
             // 공통 처리기로 넘기면 500과 입력 원문 로그가 되므로 구문 오류와 같게 거절한다. 원인 메시지는 쓰지 않는다.
-            throw HealthRecordSyncErrors.validation();
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         if (body == null || !body.isObject()) {
-            throw HealthRecordSyncErrors.validation("body", "JSON 객체여야 합니다.");
+            throw new ApiException(
+                    ErrorCode.VALIDATION_ERROR,
+                    Map.of("fields", List.of(Map.of("name", "body", "reason", "JSON 객체여야 합니다."))));
         }
         // 지원하지 않는 키 이름은 클라이언트가 보낸 임의 문자열이므로 오류에 되돌려 보내지 않는다.
         for (String name : body.propertyNames()) {
             if (!TOP_LEVEL_KEYS.contains(name)) {
-                throw HealthRecordSyncErrors.validation("body", "지원하지 않는 필드가 있습니다.");
+                throw new ApiException(
+                        ErrorCode.VALIDATION_ERROR,
+                        Map.of(
+                                "fields",
+                                List.of(Map.of("name", "body", "reason", "지원하지 않는 필드가 있습니다."))));
             }
         }
         JsonNode provider = body.get("provider");
         if (provider == null || !provider.isString()) {
-            throw HealthRecordSyncErrors.validation("provider", "문자열이어야 합니다.");
+            throw new ApiException(
+                    ErrorCode.VALIDATION_ERROR,
+                    Map.of("fields", List.of(Map.of("name", "provider", "reason", "문자열이어야 합니다."))));
         }
         JsonNode recordsNode = body.get("records");
         if (recordsNode == null || !recordsNode.isArray()) {
-            throw HealthRecordSyncErrors.validation("records", "배열이어야 합니다.");
+            throw new ApiException(
+                    ErrorCode.VALIDATION_ERROR,
+                    Map.of("fields", List.of(Map.of("name", "records", "reason", "배열이어야 합니다."))));
         }
         if (recordsNode.isEmpty() || recordsNode.size() > MAX_RECORDS) {
-            throw HealthRecordSyncErrors.validation(
-                    "records", "1개 이상 " + MAX_RECORDS + "개 이하여야 합니다.");
+            throw new ApiException(
+                    ErrorCode.VALIDATION_ERROR,
+                    Map.of(
+                            "fields",
+                            List.of(
+                                    Map.of(
+                                            "name",
+                                            "records",
+                                            "reason",
+                                            "1개 이상 " + MAX_RECORDS + "개 이하여야 합니다."))));
         }
         for (int i = 0; i < recordsNode.size(); i++) {
             if (!recordsNode.get(i).isObject()) {
-                throw HealthRecordSyncErrors.validation("records[" + i + "]", "객체여야 합니다.");
+                throw new ApiException(
+                        ErrorCode.VALIDATION_ERROR,
+                        Map.of(
+                                "fields",
+                                List.of(
+                                        Map.of(
+                                                "name",
+                                                "records[" + i + "]",
+                                                "reason",
+                                                "객체여야 합니다."))));
             }
         }
         if (!PROVIDER_RUNWAY_WATCH.equals(provider.stringValue())) {
-            throw HealthRecordSyncErrors.unsupportedProvider();
+            throw new ApiException(
+                    ErrorCode.UNSUPPORTED_RECORD_TYPE,
+                    Map.of(
+                            "fields",
+                            List.of(Map.of("name", "provider", "reason", "지원하지 않는 값입니다."))));
         }
 
         LocalDate earliest = today.minusDays(MAX_PAST_DAYS);
@@ -234,11 +271,11 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
     }
 
     private static RecordViolation invalid(String field, String reason) {
-        return new RecordViolation(HealthRecordSyncErrors.INVALID_RECORD, field, reason);
+        return new RecordViolation(HealthRecordErrorCode.INVALID_RECORD.name(), field, reason);
     }
 
     private static RecordViolation unsupported(String field) {
         return new RecordViolation(
-                HealthRecordSyncErrors.UNSUPPORTED_RECORD_TYPE, field, "UNSUPPORTED");
+                HealthRecordErrorCode.UNSUPPORTED_RECORD_TYPE.name(), field, "UNSUPPORTED");
     }
 }

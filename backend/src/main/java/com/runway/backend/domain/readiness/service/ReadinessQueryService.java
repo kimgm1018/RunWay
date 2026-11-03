@@ -2,7 +2,11 @@ package com.runway.backend.domain.readiness.service;
 
 import com.runway.backend.domain.readiness.dto.response.ReadinessLatestResponse;
 import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,13 +24,15 @@ public class ReadinessQueryService {
     @Transactional(readOnly = true)
     public ReadinessLatestResponse getLatest(long userId) {
         boolean consented =
-                repository.findActiveUserConsent(userId).orElseThrow(ReadinessErrors::unauthorized);
+                repository
+                        .findActiveUserConsent(userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
         if (!consented) {
-            throw ReadinessErrors.consentRequired();
+            throw new ApiException(ErrorCode.CONSENT_REQUIRED);
         }
         return repository
                 .findLatest(userId)
                 .map(ReadinessLatestResponse::from)
-                .orElseThrow(ReadinessErrors::notFound);
+                .orElseThrow(() -> new ApiException(ErrorCode.ASSESSMENT_NOT_FOUND));
     }
 }

@@ -3,17 +3,20 @@ package com.runway.backend.domain.image;
 import com.runway.backend.domain.image.ImageStorage.StoredImage;
 import com.runway.backend.domain.image.dto.ImageUploadResponse;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -28,61 +31,42 @@ public class ImageService {
     public ImageUploadResponse upload(long userId, MultipartFile file, String purposeRaw) {
         ImagePurpose purpose = ImagePurpose.from(purposeRaw);
         if (file == null || file.isEmpty()) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_FILE", "이미지 파일이 비어 있습니다.");
+            throw new ApiException(ErrorCode.IMAGE_FILE_EMPTY);
         }
         if (file.getSize() > properties.getMaxBytes()) {
-            throw new ApiException(
-                    HttpStatus.CONTENT_TOO_LARGE, "FILE_TOO_LARGE", "업로드 크기를 초과했습니다.");
+            throw new ApiException(ErrorCode.FILE_TOO_LARGE);
         }
 
         String contentType = normalizeContentType(file.getContentType());
         if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
-            throw new ApiException(
-                    HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                    "UNSUPPORTED_MEDIA_TYPE",
-                    "jpeg 또는 png만 업로드할 수 있습니다.");
+            throw new ApiException(ErrorCode.UNSUPPORTED_MEDIA_TYPE_IMAGE_MEDIA_TYPE);
         }
 
         byte[] bytes;
         try {
             bytes = file.getBytes();
         } catch (IOException ex) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_FILE", "이미지를 읽을 수 없습니다.");
+            throw new ApiException(ErrorCode.IMAGE_READ_FAILED);
         }
         if (bytes.length == 0) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_FILE", "이미지 파일이 비어 있습니다.");
+            throw new ApiException(ErrorCode.IMAGE_FILE_EMPTY);
         }
         if (bytes.length > properties.getMaxBytes()) {
-            throw new ApiException(
-                    HttpStatus.CONTENT_TOO_LARGE, "FILE_TOO_LARGE", "업로드 크기를 초과했습니다.");
+            throw new ApiException(ErrorCode.FILE_TOO_LARGE);
         }
 
         DetectedFormat format = detectFormat(bytes);
         if (format == null) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_FILE", "이미지로 해석할 수 없습니다.");
+            throw new ApiException(ErrorCode.IMAGE_DECODE_FAILED);
         }
         if (!format.contentType().equals(contentType)) {
-            throw new ApiException(
-                    HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                    "UNSUPPORTED_MEDIA_TYPE",
-                    "선언한 형식과 실제 파일 내용이 일치하지 않습니다.");
+            throw new ApiException(ErrorCode.IMAGE_MEDIA_MISMATCH);
         }
 
         String imageId = UUID.randomUUID().toString();
         String extension = format.extension();
         String imageKey =
-                "images/"
-                        + purpose.pathSegment()
-                        + "/"
-                        + userId
-                        + "/"
-                        + imageId
-                        + "."
-                        + extension;
+                "images/" + purpose.pathSegment() + "/" + userId + "/" + imageId + "." + extension;
         String lookupKey = "images/by-id/" + imageId + "." + extension;
         imageStorage.store(imageKey, new ByteArrayInputStream(bytes), bytes.length);
         imageStorage.store(lookupKey, new ByteArrayInputStream(bytes), bytes.length);
@@ -93,12 +77,7 @@ public class ImageService {
         UUID imageId = parseImageId(imageIdRaw);
         return imageStorage
                 .findByImageId(imageId)
-                .orElseThrow(
-                        () ->
-                                new ApiException(
-                                        HttpStatus.NOT_FOUND,
-                                        "IMAGE_NOT_FOUND",
-                                        "이미지를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(ErrorCode.IMAGE_NOT_FOUND));
     }
 
     public Optional<String> resolveProfileImageKey(long userId, String imageIdRaw) {
@@ -134,14 +113,12 @@ public class ImageService {
 
     private static UUID parseImageId(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "imageId가 올바르지 않습니다.");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_IMAGE_PARSE_IMAGE_ID);
         }
         try {
             return UUID.fromString(raw.trim());
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "imageId가 올바르지 않습니다.");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_IMAGE_PARSE_IMAGE_ID);
         }
     }
 

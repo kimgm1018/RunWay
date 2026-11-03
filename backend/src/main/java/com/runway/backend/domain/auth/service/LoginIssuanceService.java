@@ -7,6 +7,8 @@ import com.runway.backend.domain.auth.repository.LoginAttemptStore;
 import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.IssuedRefreshToken;
 import com.runway.backend.domain.user.service.OnboardingStatusService;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.security.JwtAccessTokenService;
 
 import org.springframework.stereotype.Service;
@@ -39,7 +41,10 @@ public class LoginIssuanceService {
         if (current == null
                 || !current.active()
                 || !current.passwordHash().equals(verified.passwordHash()))
-            throw AuthErrors.credentialFailure(attempts.recordFailure(verified.loginId()));
+            throw new ApiException(
+                    attempts.recordFailure(verified.loginId()) == 5
+                            ? ErrorCode.LOGIN_LOCKED
+                            : ErrorCode.INVALID_CREDENTIALS);
         boolean completed = onboarding.isCompleted(current.id());
         var access = accessTokens.issue(current.id(), refresh.expiresAt());
         store.createForLogin(refresh, current.loginId());

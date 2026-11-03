@@ -10,10 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.runway.backend.global.security.SecurityConfig;
 import com.runway.backend.global.security.SecurityTestSupport;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import java.util.HashMap;
-import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -22,10 +22,10 @@ import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
-import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,6 +39,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @WebMvcTest(GlobalExceptionHandlerTest.FixtureController.class)
 @Import({
@@ -115,7 +118,7 @@ class GlobalExceptionHandlerTest {
         mvc.perform(get("/__test/missing").header("Authorization", SecurityTestSupport.bearer(1)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("세션을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.message").value("러닝 세션을 찾을 수 없습니다."))
                 .andExpect(jsonPath("$.details").isMap());
     }
 
@@ -307,7 +310,7 @@ class GlobalExceptionHandlerTest {
                                 .header("Authorization", SecurityTestSupport.bearer(1)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("세션을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.message").value("러닝 세션을 찾을 수 없습니다."))
                 .andExpect(jsonPath("$.details.keep").value("ok"))
                 .andExpect(jsonPath("$.details.hint").doesNotExist());
     }
@@ -356,8 +359,7 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/__test/missing")
         void missing() {
-            throw new ApiException(
-                    HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.", Map.of());
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, Map.of());
         }
 
         @GetMapping("/__test/boom")
@@ -427,13 +429,13 @@ class GlobalExceptionHandlerTest {
             Map<String, Object> details = new HashMap<>();
             details.put("hint", null);
             details.put("keep", "ok");
-            throw new ApiException(
-                    HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.", details);
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, details);
         }
 
         @GetMapping("/__test/null-message")
-        void nullMessage() {
-            throw new ApiException(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", null);
+        org.springframework.http.ResponseEntity<ApiErrorResponse> nullMessage() {
+            return org.springframework.http.ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ApiErrorResponse(ErrorCode.SESSION_NOT_FOUND.code(), null, Map.of()));
         }
     }
 
