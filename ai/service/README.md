@@ -9,7 +9,7 @@ RunWay AI 추론용 **내부 API 서버**다. 앱이 직접 부르지 않고 **�
 - AI07·AI08 시연 기능은 `DEMO_STREAM_ENABLED=false`가 기본이다. W07 GPS 표본은 AI07 SSE의 코스·고도 표시용 메모리 데이터로만 사용하며 서버 로그/파일에 저장하지 않는다.
 - ODE 1차 epoch20 checkpoint는 Amendment 2보다 앞선 27개 summary feature 구조다. 서비스 로더는 이 27특징 구조만 불러온다(28특징 Amendment 2 코드는 MVP 패키지에서 뺐다).
 
-전체 AI01~AI08 계약, N/O 합의 항목, DB 매핑은 [`docs/design/api/ai-service.md`](../../docs/design/api/ai-service.md)를 참고한다.
+전체 AI01~AI09 계약, N/O 합의 항목, DB 매핑은 [`docs/design/api/ai-service.md`](../../docs/design/api/ai-service.md)를 참고한다.
 
 ## 요약 (배포용)
 
@@ -21,9 +21,9 @@ RunWay AI 추론용 **내부 API 서버**다. 앱이 직접 부르지 않고 **�
 | 포트 | 8000 (`--port`로 변경) |
 | 상태 확인 | `GET /health` → GRU 준비 시 200 `UP` 및 `modelLoaded=true`, GRU 미준비 시 503 `DOWN` |
 | 의존성 | `requirements.txt` (테스트는 `requirements-dev.txt`) |
-| 모델 파일 | GRU·ODE weight(`ode_epoch_020.pt`)와 `ode_summary_stats.json` (Git에 없음), 정책 설정 `app/policy/data/margin_gru.json` (Git 포함) |
+| 모델 파일 | GRU·ODE weight, 통계, 평균 계획 묶음 (Git에 없음), 정책 설정 `app/policy/data/margin_gru.json` (Git 포함) |
 | 필요한 코드 | `ai/service/` + `ai/workspace/doyeon/gru/src/` (GRU predictor) |
-| 비밀값 | 없음 |
+| 비밀값 | 모델 다운로드 때 HF 읽기 권한 `HF_TOKEN`이 필요하다. 서비스 실행 시 다운로드 토큰은 필요하지 않다. |
 | 장치 | GRU는 CPU, ODE는 `ODEV21_DEVICE=cpu|cuda` (기본 `cpu`) |
 
 ## 1. 설치
@@ -43,22 +43,18 @@ pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 
 ## 2. 모델 파일 준비
 
-체크포인트는 Git에 넣지 않고 Hugging Face 공개 저장소에서 받는다.
+모델 weight와 평균 묶음은 Git에 넣지 않는다. 기본 설치는 비공개 Hugging Face 저장소에서 네 파일을 모두 받는다.
 
 | 항목 | 값 |
 | --- | --- |
-| 저장소 | `doyeonkoo/runway-hr-gru` |
-| 파일 | `gru_final.pt` (4.8MB) |
-| SHA256 | `db59d414b8b88a6ac1140dd5bbce40475878d97a6436fb087141e25bdb3887fe` |
-| 둘 위치 | `ai/service/models/gru_final.pt` (`HR_MODEL_PATH`로 변경) |
+| 저장소 | `AnSeongYun/runway-hr-models` (비공개, 읽기 권한 필요) |
+| revision | `11a3d0cce3062c84aa7ffee1740a93d204462190` |
+| 설치 파일 | GRU `models/gru_final.pt`; ODE·통계·평균 묶음 `models/ode/` |
+| 다운로드 | `scripts/fetch_models.sh` (Linux) 또는 `scripts/fetch_models.ps1` (Windows) |
 
-```bash
-curl -L -o models/gru_final.pt https://huggingface.co/doyeonkoo/runway-hr-gru/resolve/main/gru_final.pt
-```
+기본 HF 모드에서는 `HF_TOKEN`에 저장소 읽기 권한이 있어야 한다. 토큰은 환경변수로 주입하고 Jenkins에서는 credential binding을 사용한다. 스크립트는 토큰을 명령줄 인자·파일·로그에 남기지 않는다. 받은 각 파일은 임시 파일에서 SHA-256을 확인한 뒤 설치한다. 세부 경로와 SHA는 [`models/README.md`](models/README.md)를 참고한다.
 
-```bash
-sha256sum models/gru_final.pt
-```
+예전 로컬 ODE 복사 방식은 `ODEV21_SOURCE_MODE=local`과 `ODEV21_SOURCE_CHECKPOINT`, `ODEV21_SOURCE_STATS`, `ODEV21_POPULATION_BUNDLE_SOURCE`로 선택할 수 있다. 이 모드에서 GRU는 예전 공개 주소를 사용한다. `GRU_MODEL_URL`을 지정하면 해당 URL을 사용하며 Authorization 헤더를 보내지 않는다.
 
 `HR_MODEL_SHA256`을 설정하면 서버가 시작할 때 SHA256을 확인하고, 다르면 모델을 로드하지 않는다(`/health` 503).
 
@@ -66,11 +62,20 @@ ODE만 준비되지 않으면 `/health`는 팀 HEALTHCHECK 계약에 맞춰 `200
 
 ## 3. 환경변수
 
-환경변수 예시는 [`.env.example`](.env.example). 상대 경로는 `ai/service/` 기준이다. 배포에서는 GRU·ODE SHA를 고정하고 `ODEV21_DEVICE=cpu`를 사용한다.
+배포 환경변수 예시는 [`infra/ai/.env.example`](../../infra/ai/.env.example). 런타임 상대 경로는 `ai/service/` 기준이다. 배포에서는 GRU·ODE SHA를 고정하고 `ODEV21_DEVICE=cpu`를 사용한다.
 release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECAST_ENABLED`를 앱에 전달하며 기본값은 `false`다. `deploy.sh`는 Compose를 `--env-file /dev/null`로 실행하므로 이 값과 ODE 파일/SHA는 배포 프로세스 환경에 export해야 한다. 운영 기본값은 두 기능 모두 OFF다.
 
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
+| `RUNWAY_MODEL_HF_REPO` | `AnSeongYun/runway-hr-models` | 모델 다운로드 저장소. 필요하면 배포 환경에서 재정의한다 |
+| `RUNWAY_MODEL_HF_REVISION` | `11a3d0cce3062c84aa7ffee1740a93d204462190` | 모델 다운로드 고정 revision |
+| `HF_TOKEN` | HF 모드에서 필수 | 비공개 저장소 읽기 권한. Jenkins credential로 주입하며 실제 값은 파일에 저장하지 않는다 |
+| `ODEV21_SOURCE_MODE` | `hf` | `hf`는 네 파일을 HF에서 받으며 `local`은 ODE checkpoint·통계·평균 묶음을 로컬 경로에서 복사한다. `local`은 HF_TOKEN을 요구하지 않는다 |
+| `ODEV21_SOURCE_CHECKPOINT` | (local 모드에서 필수) | 로컬 ODE checkpoint 원본 경로 |
+| `ODEV21_SOURCE_STATS` | (local 모드에서 필수) | 로컬 ODE summary stats 원본 경로 |
+| `ODEV21_POPULATION_BUNDLE_SOURCE` | (local 모드에서 필수) | 로컬 평균 묶음 원본 경로 |
+| `GRU_MODEL_URL` | (없음) | 지정하면 GRU에 사용할 직접 URL. 호환용 override이며 Authorization 헤더를 보내지 않는다 |
+| `GRU_MODEL_SHA256` | `db59d414…3887fe` | 다운로드한 GRU 파일 검증 기본값 |
 | `HR_MODEL_TYPE` | `gru` | 모델 종류. gru 외 모델은 아래 플러그인 두 값과 같은 계열의 MPC 여유 표가 필요 ([`app/models/HR_MODEL_PLUGIN.md`](app/models/HR_MODEL_PLUGIN.md)) |
 | `HR_MODEL_PLUGIN` | (없음) | gru 외 모델의 `모듈:팩토리`. 팩토리(settings)가 HRModel을 돌려주며 시작 시 `[N, 3]` 출력 규격을 확인 |
 | `HR_MODEL_PLUGIN_DIR` | (없음) | 위 모듈을 찾을 폴더(sys.path 앞에 추가) |
@@ -98,9 +103,9 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | `ODEV21_CHECKPOINT_SHA256` | `ba767a64…b14061` | 시작 시 ODE SHA 검증 |
 | `ODEV21_SUMMARY_STATS_PATH` | `models/ode/ode_summary_stats.json` | 앱 기본 경로. 배포(`/models/ode/ode_summary_stats.json`)와 같은 이름이다. env가 없고 이 파일이 없을 때만 예전 이름 `models/ode/summary_stats.json`을 읽는다. |
 | `ODEV21_SUMMARY_STATS_SHA256` | `9251e04e…e4e066` | 시작 시 통계 SHA 검증 |
-| `ODEV21_POPULATION_BUNDLE_PATH` | (없음) | 신규 사용자 평균 묶음 JSON(`population_bundle_v2train_median.json`, V2 Train 545명·39,360러닝 사람별 중앙값). 모델 파일처럼 배포 때 받으며 저장소·patch에 넣지 않는다. 비면 평균 계획 없음(503 `POPULATION_MEAN_MODEL_NOT_CONFIGURED`) |
-| `ODEV21_POPULATION_BUNDLE_SHA256` | (없음) | 묶음 sha256(`9dcb5f4c…7ef1`). 다르면 시작 실패. 묶음 `modelVersion`이 ODE runtime과 다르면 시작 실패 |
-| `PERSONAL_PLAN_POPULATION_MODE` | `median_bundle` | 개인화 행이 없거나 개인화 테이블이 없을 때: `median_bundle`(묶음 payload로 같은 ODE 계획, `AVERAGE_BASED`·`planSource=POPULATION_MEDIAN_ODE`) / `empty`(P4·history·요약을 비운 G0, `POPULATION_EMPTY_G0_ODE`) / `off`(기존 503). 기준 HR은 묶음이 아니라 사용자 자신의 나이·RHR. 정확도는 V2 Val에서 B_THS와 동률이라 우위를 주장하지 않는다 |
+| `ODEV21_POPULATION_BUNDLE_PATH` | (없음) | 신규 사용자 평균 묶음 JSON(`population_bundle_v2train_median.json`). 다운로드 파일은 `models/ode/`에 설치한다. 비면 평균 계획 없음(503 `POPULATION_MEAN_MODEL_NOT_CONFIGURED`) |
+| `ODEV21_POPULATION_BUNDLE_SHA256` | (런타임에서 설정) | 묶음 sha256. 다운로더 기본값은 `9dcb5f4c…7ef1`; 다르면 시작 실패. 묶음 `modelVersion`이 ODE runtime과 다르면 시작 실패 |
+| `PERSONAL_PLAN_POPULATION_MODE` | `median_bundle` | 개인화 행이 없거나 `userId`가 생략된 경우: `median_bundle`(묶음 payload로 같은 ODE 계획, `AVERAGE_BASED`·`planSource=POPULATION_MEDIAN_ODE`) / `empty`(P4·history·요약을 비운 G0, `POPULATION_EMPTY_G0_ODE`) / `off`(기존 503). 사용자 ID가 없으면 사용자 HR 기준을 조회하지 않고 모집단 학습 기준을 쓴다. 정확도는 V2 Val에서 B_THS와 동률이라 우위를 주장하지 않는다 |
 | `ODEV21_DEVICE` | `cpu` | ODE 장치 (`cpu` 또는 `cuda`) |
 | `ODEV21_TORCH_THREADS` | `1` | ODE CPU 추론 스레드 수 |
 | `ODEV21_WARMUP_ENABLED` | `true` | ODE가 준비됐을 때 서버 시작 중 Adam 1단계를 실행해 첫 개인화 호출의 지연 import를 미리 끝냄 |
@@ -254,12 +259,12 @@ history의 `gradePct`가 **전부** null이면 자유러닝으로 본다(코스 
 
 ### 개인 계획 DB 조회 (`AI_DB_URL`)
 
-`/v1/pace/personal-plan` 요청은 `{userId, courseId, selectedGoal?}`만 받는다. AI 서비스가 직접 읽는다(`app/db_lookup.py`, SQL은 바인딩 파라미터만):
+`/v1/pace/personal-plan` 요청은 `{courseId, userId?, selectedGoal?}`만 받는다. 백엔드는 건강정보 동의 사용자에만 `userId`를 넣고, 철회·미동의 사용자는 생략한다. `userId`가 생략되거나 null이면 AI 서비스는 사용자 개인화·HR 기준을 조회하지 않고 평균 기반 계획(`USER_ID_NOT_PROVIDED`)을 반환한다. AI 서비스는 필요한 데이터를 직접 읽는다(`app/db_lookup.py`, SQL은 바인딩 파라미터만):
 
 | 무엇 | 테이블·컬럼 | 비고 |
 | --- | --- | --- |
-| 코스 거리·경사 | `courses.distance`, `elevation_profile`, `status`, `updated_at` | ACTIVE만. 없거나 MERGED/BLOCKED면 404. 고도 형식은 [`app/COURSE_ELEVATION_PROFILE_PROPOSAL.md`](app/COURSE_ELEVATION_PROFILE_PROPOSAL.md). 경사 찾는 순서는 아래 "코스 경사 출처" |
-| 개인화·학습 심박 | `user_hr_personalization` 최신 `personalization_version` | **팀 DB에 없는 제안 테이블**. 행이 없으면 모집단 학습 심박 기준으로 평균 묶음(`PERSONAL_PLAN_POPULATION_MODE`) 계획을 만든다. HR 강도 기준은 P85 지속 기준이며 출처는 `LEARNED_POPULATION`, `LEARNED_BLENDED`, `LEARNED_PERSONAL`이다. 테이블·컬럼이 아직 없으면 경고 `PERSONALIZATION_TABLE_MISSING`을 붙인다. 연결 실패·시간 초과는 503 `AI_DB_UNAVAILABLE` |
+| 코스 거리·경사 | `courses.distance`, `elevation_profile`, `status`, `updated_at` | ACTIVE만. 없거나 MERGED/BLOCKED면 404. 고도 형식은 [`COURSE_ELEVATION_PROFILE_PROPOSAL.md`](../../docs/design/db/proposals/COURSE_ELEVATION_PROFILE_PROPOSAL.md). 경사 찾는 순서는 아래 "코스 경사 출처" |
+| 개인화·학습 심박 | `user_hr_personalization` 최신 `personalization_version` | **팀 DB에 없는 제안 테이블**. `userId`가 있는 동의 사용자만 조회한다. 행이 없거나 ID를 생략하면 모집단 학습 심박 기준으로 평균 묶음(`PERSONAL_PLAN_POPULATION_MODE`) 계획을 만든다. HR 강도 기준은 P85 지속 기준이며 출처는 `LEARNED_POPULATION`, `LEARNED_BLENDED`, `LEARNED_PERSONAL`이다. 테이블·컬럼이 아직 없으면 경고 `PERSONALIZATION_TABLE_MISSING`을 붙인다. 연결 실패·시간 초과는 503 `AI_DB_UNAVAILABLE` |
 | 제외한 입력 | `users.birth_date`, `daily_health_metrics.rhr_bpm` | AI는 두 값을 읽지 않는다. 나이 공식과 RHR·Karvonen 기준은 계산에서 제거했다. |
 
 DB 오류·시간 초과는 503 `AI_DB_UNAVAILABLE`(원문 미노출).

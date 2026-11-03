@@ -114,18 +114,6 @@ def identity_stats() -> dict:
     return dict(mean=np.zeros(N_FEATURES), std=np.ones(N_FEATURES))
 
 
-def fit_stats(raws) -> dict:
-    """Train 표본의 항목별 평균·표준편차(유한 값만, ddof 0). 값이 없거나 표준편차 0이면 1."""
-    x = np.stack([vector(r) for r in raws])
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=RuntimeWarning)
-        mean = np.nanmean(x, axis=0)
-        std = np.nanstd(x, axis=0)
-    mean = np.where(np.isfinite(mean), mean, 0.0)
-    std = np.where(np.isfinite(std) & (std > 0), std, 1.0)
-    return dict(mean=mean, std=std)
-
-
 def normalize(raw: dict, stats: dict) -> tuple:
     """(값 27 float32, 결측 mask 27 bool). 결측 값은 0."""
     x = vector(raw)
