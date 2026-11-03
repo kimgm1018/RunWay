@@ -6,7 +6,25 @@ import { k1Gradient, useTheme } from '../theme';
 // The dark tone (maps, dark parts) draws nothing, so the plain dark background underneath shows.
 // tail keeps the light part down to about 80% for screens whose plain text runs the full height
 // (7.1 피드, 7.2 댓글), so only the tab bar or the comment bar sits on the dark end.
-const tailLocations = [0, 0.12, 0.24, 0.36, 0.48, 0.6, 0.7, 0.8, 0.88, 0.95, 1];
+// Each stop moves down along these points (where it sits → where tail puts it), whatever the stop count.
+const tailPoints: [number, number][] = [
+  [0, 0],
+  [0.5, 0.6],
+  [0.7, 0.8],
+  [0.8, 0.88],
+  [0.9, 0.95],
+  [1, 1],
+];
+
+function tailOf(location: number) {
+  const next = tailPoints.findIndex(([from]) => from >= location);
+  if (next <= 0) {
+    return tailPoints[0][1];
+  }
+  const [x0, y0] = tailPoints[next - 1];
+  const [x1, y1] = tailPoints[next];
+  return y0 + ((location - x0) / (x1 - x0)) * (y1 - y0);
+}
 
 export function Backdrop({ tail = false }: { tail?: boolean }) {
   const { name } = useTheme();
@@ -20,7 +38,11 @@ export function Backdrop({ tail = false }: { tail?: boolean }) {
           {k1Gradient.colors.map((color, index) => (
             <Stop
               key={index}
-              offset={(tail ? tailLocations : k1Gradient.locations)[index]}
+              offset={
+                tail
+                  ? tailOf(k1Gradient.locations[index])
+                  : k1Gradient.locations[index]
+              }
               stopColor={color}
             />
           ))}

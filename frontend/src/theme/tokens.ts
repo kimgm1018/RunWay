@@ -46,22 +46,33 @@ export const widgetPalette = {
   core: '#020405',
 } as const;
 
-// The K1 background, top to bottom (DESIGN.md 1-1).
+// The K1 background, top to bottom (DESIGN.md 1-1): white to 35%, then one even darkening
+// through the K1 blue-greys to the darkest navy, sampled every 5% so the steps do not show.
 export const k1Gradient = {
   colors: [
-    '#C1CEDB',
-    '#C1CEDB',
-    '#C1CFDC',
-    '#C4D1DE',
-    '#C3D1DD',
-    '#C2D0DC',
-    '#B3C4D3',
-    '#8096AF',
-    '#253649',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#F6F8FA',
+    '#ECF0F4',
+    '#E1E8EE',
+    '#D4DEE7',
+    '#C7D4DF',
+    '#B1C1D1',
+    '#96A9BE',
+    '#7A90A8',
+    '#566A80',
+    '#36485D',
+    '#1D2C3D',
+    '#0B1522',
     '#02050E',
-    '#000000',
   ],
-  locations: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+  locations: Array.from({ length: 21 }, (_, index) => index / 20),
 } as const;
 
 // Prototype v15 colors. Screens still reading these move to the K1 theme one by one (S15P31E105-206).
