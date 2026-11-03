@@ -81,7 +81,7 @@ class SyncBatchAuthorizationIntegrationTest extends SyncBatchIntegrationSupport 
     @Test
     void 건강정보_미동의면_측정_샘플이_있는_batch는_403이고_GPS만은_저장한다() throws Exception {
         long sessionId = runningSession();
-        // 동의 철회가 먼저 확정된 상황을 DB 변경으로 재현한다(W04 미구현).
+        // 동의 철회가 먼저 확정된 상황을 DB 변경으로 재현한다(W04 경합은 ConsentConcurrencyIntegrationTest).
         jdbc.update(
                 "UPDATE users SET health_data_access='DISAGREE'::users_health_data_access_enum WHERE id=?",
                 userId);

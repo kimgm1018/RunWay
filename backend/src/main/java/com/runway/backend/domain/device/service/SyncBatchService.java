@@ -21,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>잠금 순서: 세션(FOR NO KEY UPDATE) → 기기(FOR SHARE). 세션 서비스의 세션 → 기기 순서와 같고, W03 해제는 기기 행만 갱신하므로 교차 대기가
  * 없다. 회원 행은 잠그지 않는다(로그인과의 간섭 방지). 같은 세션의 종료·인계와는 세션 행 잠금으로 한 번에 하나씩 처리된다.
  *
+ * <p>W04 동의 철회는 회원 행 UPDATE → 본인 진행 가능 세션 FOR SHARE 순서로 잠가 이 저장과 순서를 정한다. 세션 행을 잡은 이 트랜잭션에서 회원
+ * 행을 잠그면(FOR SHARE 포함) 철회와 교착하므로 동의는 잠그지 않고 읽는다.
+ *
  * <p>건강 동의는 기존 batch 재응답보다 먼저 검사한다(계약 "권한·동의를 먼저 검사"). 저장 후 응답이 유실된 뒤 동의를 철회하면 같은 batch 재전송도
  * 403이다.
  *
@@ -115,6 +118,9 @@ public class SyncBatchService {
     /**
      * RUNNING·PAUSED는 END 확정 전이므로 받는다. READY는 START를 승인받아 결과를 기다리거나 확인하지 못한 경우에만 받는다(D-1, 워치가 이미 측정을
      * 시작했을 수 있다). COMPLETED·CANCELLED·INTERRUPTED와 기존 기록(state_version=0)은 받지 않는다.
+     *
+     * <p>W04 동의 철회는 이 조건(새 batch는 READY·RUNNING·PAUSED에만, 종료 상태는 되돌아가지 않음)을 전제로 진행 가능 세션만 잠근다. 받는 상태를
+     * 넓히거나 종료 상태에서 돌아가는 전이를 추가하면 ConsentJdbcRepository.lockOwnActiveSessions도 함께 바꾼다.
      */
     private boolean acceptsNewBatch(long sessionId, SessionRef session) {
         if (session.stateVersion() < 1) {

@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * W06 AC-6·AC-8. 동시에 출발시킨 요청과 동의 철회가 실제 DB 트랜잭션에서 겹치도록 실행하고 응답과 최종 DB 행으로 판정한다. 단일 서버·단일 DB 범위의
- * 확인이며 W04 실제 구현과의 통합은 포함하지 않는다(W04 미구현, 회원 행 UPDATE로 철회를 재현).
+ * 확인이다. 철회는 회원 행 UPDATE로 재현한다. W04 실제 서비스와의 경합은 ConsentConcurrencyIntegrationTest가 확인한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc

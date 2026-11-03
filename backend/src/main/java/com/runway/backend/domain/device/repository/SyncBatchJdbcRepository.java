@@ -48,7 +48,7 @@ public class SyncBatchJdbcRepository {
 
     /**
      * 활성 회원과 현재 건강 동의. 회원 행은 잠그지 않는다. 잠그면 세션 잠금을 기다리는 동안 같은 회원의 로그인·프로필 저장(회원 행 FOR UPDATE, 2초
-     * 제한)이 실패하고 회원 → 세션 잠금 순서가 새로 생긴다(2026-11-02 사용자 결정). 동의 변경과의 순서 보장은 W04에서 정한다.
+     * 제한)이 실패하고 회원 → 세션 잠금 순서가 새로 생긴다(2026-11-02 사용자 결정). 동의 철회와의 순서는 W04가 본인 세션 행 FOR SHARE로 보장한다(ConsentService).
      */
     public Optional<UserRef> findActiveUser(long userId) {
         return db(
