@@ -79,7 +79,7 @@ async function render() {
 
 test('5.1 shows the month by week, filters group runs and steps back a month', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   let page = texts(screen);
   for (const text of [
     '내 기록',
@@ -123,7 +123,7 @@ test('5.1 shows the month by week, filters group runs and steps back a month', a
 
 test('5.2 opens from 5.1 with the goal result, AI advice and split graphs', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
   const page = texts(screen);
   for (const text of [
@@ -156,7 +156,7 @@ test('5.2 opens from 5.1 with the goal result, AI advice and split graphs', asyn
 
 test('5.2 hides graphs a run did not measure and saves a free run as my course', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   await press(screen, '남천 해변 언덕길, 10.08 목 · 33:02, 5.20km');
   let page = texts(screen);
   expect(page).toContain('목표 31:12 미달성 · 1분 50초 늦음');
@@ -177,7 +177,7 @@ test('5.2 hides graphs a run did not measure and saves a free run as my course',
 
 test('5.3 shows the month, switches to week and year, and links to 5.1', async () => {
   const screen = await render();
-  await press(screen, '분석 자세히 보기');
+  await press(screen, '러닝 분석');
   let page = texts(screen);
   for (const text of [
     '러닝 분석',

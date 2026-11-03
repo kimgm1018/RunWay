@@ -34,20 +34,6 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
   return matches[matches.length - 1];
 }
 
-// The pressable record tiles on 홈, labelled "title, date · distance · time, pace".
-function recordTiles(screen: Screen): string[] {
-  return screen.root
-    .findAll(
-      node =>
-        typeof node.props.accessibilityLabel === 'string' &&
-        /, [\d.]+ · .*km · /.test(node.props.accessibilityLabel) &&
-        node.props.accessibilityRole === 'button' &&
-        typeof node.props.onPress === 'function',
-    )
-    .map(node => node.props.accessibilityLabel)
-    .filter((label, index, all) => all.indexOf(label) === index);
-}
-
 async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
@@ -82,38 +68,33 @@ async function render(scenario: MockScenario = 'default') {
   return screen!;
 }
 
-test('home shows the prototype values and re-sorts past runs', async () => {
+test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async () => {
   const screen = await render();
   const home = texts(screen);
   for (const text of [
     '오늘 달리기 좋은 날이에요',
-    // 컨디션 and 준비도 each under their own name.
-    '컨디션 보통',
-    '준비도 양호',
+    // 오늘 컨디션 with 러닝 시작: the score, its grade, sleep and resting heart rate.
     '82',
+    '오늘 준비도 양호',
     '7h 12m',
-    '58',
-    '적정',
-    '과부하 없음',
-    '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
-    '34.2',
-    '5′52″',
-    '8초 단축',
-    '8초 빨라졌어요',
-    '총 5개 · 3개 미리보기',
-    '눌러서 러닝 방식 선택',
+    '58 bpm',
+    '러닝 시작',
+    // 지난 러닝: the newest of my runs (10.15, four days before the mock day).
+    '4일 전 · 30분',
+    '5′55″ /km',
+    // 과거 러닝 기록: my five newest runs and this month's total; group runs (10.11) stay out.
+    '10월 · 7회',
+    '10.15',
+    '10.03',
+    '누적 34km · 7회',
+    // 저장한 코스
+    '5개 코스',
   ]) {
     expect(home).toContain(text);
   }
-  // Newest four of my own runs as tiles; group runs (10.11) and older ones are left for 전체 기록 보기.
-  const tiles = recordTiles(screen);
-  expect(tiles).toHaveLength(4);
-  expect(tiles[0]).toBe('민락수변공원 출발, 10.15 · 5.02km · 29:41, 5′55″');
-  expect(tiles[3]).toContain('10.05 · 4.10km · 24:30');
-  expect(tiles.join(' ')).not.toContain('10.11 ·');
-  expect(tiles.join(' ')).not.toContain('10.03 ·');
-  await press(screen, '거리순');
-  expect(recordTiles(screen)[0]).toContain('광안리 해변 롱런');
+  expect(home).not.toContain('10.11');
+  await press(screen, '과거 러닝 기록');
+  expect(texts(screen)).toContain('내 기록');
   await act(async () => screen.unmount());
 });
 
@@ -142,19 +123,28 @@ test('the home has no background photo and keeps the profile photo as the avatar
   await act(async () => screen!.unmount());
 });
 
+// Each state without a usable score says why and turns 러닝 시작 into what fixes it (2.1 핸드오프 ConditionCard).
 test.each([
-  ['newUser', ['준비도 수집 중', '점수 산출 전'], null],
+  [
+    'newUser',
+    ['오늘 준비도', '데이터를 모으는 중이에요'],
+    ['워치 동기화', '심박수'],
+  ],
   [
     'staleHealth',
-    ['마지막 평가 10월 15일', '오늘 점수로 쓰지 않아요'],
+    ['오늘 준비도', '마지막 평가 10월 15일'],
     ['워치 동기화', '심박수'],
   ],
   [
     'healthDenied',
-    ['권한 없음', 'Health Connect'],
+    ['오늘 준비도', '건강 데이터 권한이 없어요'],
     ['설정 열기', '계정 공개 범위'],
   ],
-  ['watchDisconnected', ['미연결', '워치를 연결하면'], ['워치 연결', '심박수']],
+  [
+    'watchDisconnected',
+    ['오늘 준비도', '연결된 워치가 없어요'],
+    ['워치 연결', '심박수'],
+  ],
 ] as const)(
   'home readiness shows the %s state without a score',
   async (scenario, lines, action) => {
@@ -165,12 +155,11 @@ test.each([
     }
     expect(home).toContain('– –');
     expect(home).not.toContain('7h 12m');
-    if (action) {
-      const [button, destination] = action;
-      expect(home).not.toContain(destination);
-      await press(screen, button);
-      expect(texts(screen)).toContain(destination);
-    }
+    expect(home).not.toContain('오늘 준비도 양호');
+    const [button, destination] = action;
+    expect(home).not.toContain(destination);
+    await press(screen, button);
+    expect(texts(screen)).toContain(destination);
     await act(async () => screen.unmount());
   },
 );
@@ -248,7 +237,8 @@ test('run mode leads to course recommendations and a free run with a countdown',
 
 test('course run shows the pace plan by day and the night layout after sunset', async () => {
   const day = await render();
-  await press(day, '광안대교 루프, 5.0km · 30분');
+  await press(day, '저장한 코스');
+  await press(day, '광안대교 루프, 5.0km 30분');
   const plan = texts(day);
   for (const text of [
     '오늘의 러닝 전략',
@@ -263,7 +253,8 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   await act(async () => day.unmount());
 
   const night = await render('night');
-  await press(night, '광안대교 루프, 5.0km · 30분');
+  await press(night, '저장한 코스');
+  await press(night, '광안대교 루프, 5.0km 30분');
   const dark = texts(night);
   expect(dark).toContain('코스 러닝');
   expect(dark).toContain('광안대교 루프 · 5.0km');

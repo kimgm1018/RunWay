@@ -88,11 +88,11 @@ test("2.1 shows today's R02 score without a made-up grade", async () => {
   const screen = await launch();
 
   const page = texts(screen);
-  expect(page).toContain('오늘 컨디션');
   expect(page).toContain('75');
-  expect(page).toContain('/100');
-  expect(page).toContain('준비도');
-  expect(page).not.toContain('준비도 양호');
+  // No grade from R02, so the title names none.
+  expect(page).toContain('오늘 준비도');
+  expect(page).not.toContain('오늘 준비도 양호');
+  expect(page).toContain('러닝 시작');
   expect(page).not.toContain('undefined');
   await act(async () => screen.unmount());
 });
@@ -108,27 +108,27 @@ test('2.1 shows 2.P′ 오래된 데이터 for an earlier day', async () => {
 
   const page = texts(screen);
   expect(page).toContain('마지막 평가 10월 30일');
-  expect(page).toContain('오늘 점수로 쓰지 않아요');
+  expect(page).toContain('워치 동기화');
   expect(page).not.toContain('81');
   await act(async () => screen.unmount());
 });
 
-test('2.1 shows 준비도 수집 중 when there is no result yet', async () => {
+test('2.1 says the data is still being collected when there is no result yet', async () => {
   serve(404, { code: 'ASSESSMENT_NOT_FOUND', message: '', details: {} });
   const screen = await launch();
 
   const page = texts(screen);
-  expect(page).toContain('준비도 수집 중');
+  expect(page).toContain('데이터를 모으는 중이에요');
   expect(page).not.toContain('오늘 컨디션을 불러오지 못했어요');
   await act(async () => screen.unmount());
 });
 
-test('2.1 shows 권한 없음 without health consent', async () => {
+test('2.1 says there is no health data permission without health consent', async () => {
   serve(403, { code: 'CONSENT_REQUIRED', message: '', details: {} });
   const screen = await launch();
 
   const page = texts(screen);
-  expect(page).toContain('권한 없음');
+  expect(page).toContain('건강 데이터 권한이 없어요');
   expect(page).not.toContain('오늘 컨디션을 불러오지 못했어요');
   await act(async () => screen.unmount());
 });

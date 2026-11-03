@@ -14,13 +14,31 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { AppText, Backdrop, Button, IconButton, Logo } from '../../components';
+import { AppText, Backdrop, Button, Icon, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, k1Gradient, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  homePalette,
+  k1Gradient,
+  size,
+  spacing,
+  useTheme,
+} from '../../theme';
 import { GlassCard, HomeRefreshProvider, RetryNotice } from './parts';
-import { AnalysisCard, CoursesCard, RecordsCard } from './sections';
-import { HomeWidgets } from './widgets';
+import {
+  cardHeight,
+  ConditionCard,
+  conditionHeight,
+  gap,
+  gutter,
+  HomeGrid,
+} from './widgets';
+
+// The greeting's two lines (22 over 28) under the header, as the 114 header of the 핸드오프.
+const greetingHeight = 58;
+// Cards stop above the floating tab bar and its margins.
+const bottomSpace = size.tabBar + size.tabBarInset * 2;
 
 // Each part loads on its own, so one that fails (the notifications, say) leaves the rest of 2.1 on screen.
 const loadMe = (repositories: Repositories) => repositories.profile.getMe();
@@ -33,6 +51,32 @@ const loadCourses = (repositories: Repositories) =>
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
 
+// The 40 round header buttons of the 2.1 핸드오프: a misty white disc, no border, an orange dot for unread.
+function HeaderButton({
+  icon,
+  label,
+  dot = false,
+  onPress,
+}: {
+  icon: 'bell' | 'settings';
+  label: string;
+  dot?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={4}
+      onPress={onPress}
+      style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
+    >
+      <Icon name={icon} color={homePalette.header} size={20} />
+      {dot ? <View style={styles.unread} /> : null}
+    </Pressable>
+  );
+}
+
 function Avatar({
   nickname,
   photo,
@@ -42,30 +86,24 @@ function Avatar({
   photo: string | null;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="내 프로필"
+      hitSlop={4}
       onPress={onPress}
-      style={[
-        styles.avatar,
-        {
-          borderColor: colors.borderStrong,
-          backgroundColor: colors.surfaceMuted,
-        },
-      ]}
+      style={styles.avatar}
     >
       {photo ? (
         <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} />
       ) : (
-        <AppText variant="bodyStrong">{nickname.slice(0, 1)}</AppText>
+        <AppText style={styles.initial}>{nickname.slice(0, 1)}</AppText>
       )}
     </Pressable>
   );
 }
 
-// 2.1 홈: the widget board of 대표화면시안 on the K1 background, then the analysis, records and saved course sections.
+// 2.1 홈 (S15P31E105-367 핸드오프): the greeting, 오늘 컨디션 with 러닝 시작, then two columns of cards.
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -103,6 +141,13 @@ export function HomeScreen() {
     );
     setPull(count => count + 1);
   };
+  // 2.1 fits one screen: the two rows of cards share the height left under the header, greeting and
+  // 오늘 컨디션, above the tab bar. They never go below the mockup's 216; a shorter phone scrolls instead.
+  const [viewport, setViewport] = useState(0);
+  const top = insets.top + size.header;
+  const room =
+    viewport - top - bottomSpace - greetingHeight - conditionHeight - gap * 3;
+  const gridHeight = viewport ? Math.max(cardHeight, room / 2) : cardHeight;
   const scrollY = useRef(new Animated.Value(0)).current;
   // The header gets the K1 top colour once the cards start passing under it, so the two never overlap.
   const headerFill = scrollY.interpolate({
@@ -112,7 +157,10 @@ export function HomeScreen() {
   });
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.root, { backgroundColor: colors.background }]}
+      onLayout={event => setViewport(event.nativeEvent.layout.height)}
+    >
       <StatusBar barStyle={colors.statusBar} />
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop />
@@ -143,7 +191,7 @@ export function HomeScreen() {
         <HomeRefreshProvider value={refresh}>
           <AppText style={styles.greeting}>
             {me.data ? `${me.data.nickname}님,\n` : ''}
-            <AppText tone="textTertiary" style={styles.greetingText}>
+            <AppText style={styles.greetingText}>
               오늘 달리기 좋은 날이에요
             </AppText>
           </AppText>
@@ -160,20 +208,20 @@ export function HomeScreen() {
               />
             </GlassCard>
           ) : (
-            <HomeWidgets today={today.data} />
+            <ConditionCard today={today.data} />
           )}
-          {summary.status === 'ready' ? (
-            <AnalysisCard summary={summary.data} />
-          ) : summary.status === 'error' ? (
+          <HomeGrid
+            summary={summary.data}
+            courses={courses.data}
+            height={gridHeight}
+          />
+          {summary.status === 'error' ? (
             <RetryNotice
-              message="러닝 분석을 불러오지 못했어요"
+              message="이번 달 기록을 불러오지 못했어요"
               onRetry={summary.reload}
             />
           ) : null}
-          <RecordsCard />
-          {courses.status === 'ready' ? (
-            <CoursesCard courses={courses.data} />
-          ) : courses.status === 'error' ? (
+          {courses.status === 'error' ? (
             <RetryNotice
               message="저장한 코스를 불러오지 못했어요"
               onRetry={courses.reload}
@@ -198,15 +246,15 @@ export function HomeScreen() {
           <View style={styles.logo}>
             <Logo width={88} />
           </View>
-          <IconButton
+          <HeaderButton
             icon="bell"
-            accessibilityLabel="알림"
-            badge={unread}
+            label="알림"
+            dot={unread}
             onPress={() => navigateTo(navigation, 'Notifications')}
           />
-          <IconButton
+          <HeaderButton
             icon="settings"
-            accessibilityLabel="설정"
+            label="설정"
             onPress={() => navigateTo(navigation, 'Settings')}
           />
           <Avatar
@@ -237,36 +285,63 @@ const styles = StyleSheet.create({
     height: size.header,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.screen,
+    gap: 8,
+    paddingHorizontal: 16,
   },
   logo: { flex: 1 },
+  pressed: { opacity: 0.7 },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: homePalette.headerButton,
+  },
+  unread: {
+    position: 'absolute',
+    top: 9,
+    right: 10,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: homePalette.unread,
+  },
   avatar: {
-    width: size.iconButton,
-    height: size.iconButton,
-    borderRadius: size.iconButton / 2,
-    borderWidth: 1.5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: homePalette.avatar,
   },
+  initial: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#FFFFFF',
+  },
+  // Cards sit 8 from the edges; the greeting lines up with the header at 16.
   content: {
-    paddingHorizontal: spacing.screen,
-    paddingBottom: size.tabBar + size.tabBarInset * 2 + spacing.xxxl,
-    gap: spacing.xl,
+    paddingHorizontal: gutter,
+    paddingBottom: bottomSpace,
+    gap,
   },
-  // 25 Medium with a smaller, dimmed second line: it ranks by size, not by fading further.
+  // 22 over 28: the name in the header ink, the second line in blue grey.
+  greeting: {
+    paddingHorizontal: 8,
+    paddingTop: 2,
+    fontFamily: fontFamily.bold,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.6,
+    color: homePalette.header,
+  },
   greetingText: {
     fontFamily: fontFamily.medium,
-    fontSize: 20,
-    lineHeight: 28,
-    letterSpacing: -0.5,
-  },
-  greeting: {
-    fontFamily: fontFamily.medium,
-    fontSize: 25,
-    lineHeight: 33,
-    letterSpacing: -0.7,
-    paddingTop: spacing.xl,
+    color: homePalette.sub,
   },
 });

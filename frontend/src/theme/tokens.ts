@@ -15,35 +15,35 @@ export const k1 = {
   field: '#EDF1F5',
 } as const;
 
-// 2.1 홈 widget palettes (DESIGN.md 1-2): steel blue for the main and healthy states, graphite for the rest.
-// Each widget picks one; no other screen uses them.
-export const widgetPalette = {
-  steel: {
-    rim: '#3E6B80',
-    mid: '#0F2530',
-    sky: ['#2B5A72', '#4C7487', '#6A8794'],
-    haze: ['#C9D3D6', '#8AA3AE'],
-    glassLight: ['#6F8A96', '#5F8AA0'],
-    glass: ['#4E5F66', '#2D4752'],
-    tone: ['#56717C', '#33464E'],
-    dots: ['#4A6470', '#26363E', '#141C20'],
-    orb: ['#6F97A6', '#A8C2CB'],
-    tick: '#9CC0CF',
-  },
-  graphite: {
-    rim: '#6A7179',
-    mid: '#1E242B',
-    sky: ['#3C434A', '#6A7179', '#8D949A'],
-    haze: ['#C2C7CB', '#9AA1A7'],
-    glassLight: ['#8B939A', '#8B949C'],
-    glass: ['#4A5056', '#2C3237'],
-    tone: ['#6A7179', '#3C434A'],
-    dots: ['#5A6168', '#2E343A', '#15181B'],
-    orb: ['#7D858C', '#B7BDC2'],
-    tick: '#B8BEC3',
-  },
-  // The dark middle of every vignette.
-  core: '#020405',
+// 2.1 홈 cards (DESIGN.md 1-2, S15P31E105-367 핸드오프 tokens.css): sky blue accents on black, off-white,
+// greige and graphite cards. No other screen uses them.
+export const homePalette = {
+  accent: '#3FA9F5',
+  accentLight: '#B9E0FB',
+  ink: '#111111',
+  header: '#0B1418',
+  sub: '#56646C',
+  muted: '#8A8A8A',
+  unit: '#6A6A6A',
+  unread: '#E2553F',
+  headerButton: 'rgba(255,255,255,0.55)',
+  avatar: '#2A3238',
+  cardBlack: '#0B0B0B',
+  cardWhite: '#FFFFFF',
+  cardGraphite: '#3A3A3A',
+  cardGreige: ['#E8E4E0', '#DBD7D3', '#CBCAC9', '#B9BEC5'],
+  greigeShade: '#A09A94',
+  conditionDisc: ['#F2F9FE', '#D3EBFC', '#A6D6F8', '#8AC7F4'],
+  barRest: '#E6E6E4',
+  recordsPanel: ['#8F8C89', '#8C9399', '#7FADD2', '#93BFE0'],
+  courseGlow: ['#2F9BF0', '#7CC6F7', '#D6ECFA', '#ECEBE8'],
+  // The ↗ circle of a card that opens a screen.
+  tapHintOnLight: 'rgba(17,17,17,0.06)',
+  tapHintOnDark: 'rgba(255,255,255,0.12)',
+  shadowLight: '0 12px 30px rgba(0,0,0,0.12)',
+  shadowDark:
+    'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.2)',
+  shadowGraphite: '0 12px 30px rgba(0,0,0,0.2)',
 } as const;
 
 // The K1 background, top to bottom (DESIGN.md 1-1): white to 35%, then one even darkening
@@ -119,6 +119,10 @@ export const fontFamily = {
   numberMedium: 'Barlow-Medium',
   numberSemiBold: 'Barlow-SemiBold',
   numberBold: 'Barlow-Bold',
+  // 2.1 홈: the readiness score in dots and the figures in records.
+  score: 'Doto-Black',
+  mono: 'IBMPlexMono-Regular',
+  monoMedium: 'IBMPlexMono-Medium',
 } as const;
 
 // Android picks a weight by file, so each variant names its family instead of setting fontWeight.

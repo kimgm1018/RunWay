@@ -231,10 +231,12 @@ test('2.1 shows this month and my recent runs from the server', async () => {
   const screen = await launch();
   const page = texts(screen);
   for (const text of [
-    '러닝 분석 11월 2 회 러닝 11.0 km 누적 거리 5′59″',
-    // October averaged 6′11″, so this month is 12 seconds faster.
-    '12초 빨라졌어요',
-    '아침 러닝 5.02  km 30:00 · 5′59″/km',
+    // 과거 러닝 기록: this month's count and total, then my runs by date (S15P31E105-367).
+    '과거 러닝 기록',
+    '11월 · 2회',
+    '누적 11km · 2회',
+    '11.01',
+    '5.0km',
   ]) {
     expect(page).toContain(text);
   }
@@ -244,7 +246,7 @@ test('2.1 shows this month and my recent runs from the server', async () => {
 test('5.1 lists the month from the server and 5.2 opens a run with its splits', async () => {
   serve();
   const screen = await launch();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   let page = texts(screen);
   for (const text of [
     '2026년 11월',
@@ -278,7 +280,7 @@ test('5.1 lists the month from the server and 5.2 opens a run with its splits', 
 test('5.3 shows the server statistics, pace trend and last month', async () => {
   serve();
   const screen = await launch();
-  await press(screen, '분석 자세히 보기');
+  await press(screen, '러닝 분석');
   const page = texts(screen);
   for (const text of [
     '2026년 11월',
@@ -302,12 +304,12 @@ test('5.3 shows the server statistics, pace trend and last month', async () => {
 test('without any runs 5.1 and 5.3 show their empty states', async () => {
   serve(false);
   const screen = await launch();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   expect(texts(screen)).toContain('이 달에는 기록이 없어요');
   await act(async () => screen.unmount());
 
   const analysis = await launch();
-  await press(analysis, '분석 자세히 보기');
+  await press(analysis, '러닝 분석');
   expect(texts(analysis)).toContain('이 기간에는 기록이 없어요');
   await act(async () => analysis.unmount());
 });
