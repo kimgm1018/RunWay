@@ -158,8 +158,8 @@ const recordOrder: Record<
 };
 
 // Picking a source swaps in that service's library; 음악 없음 clears the player.
-function withSource(state: MusicState, source: MusicSource): MusicState {
-  if (source === 'NONE') {
+function withSource(state: MusicState, source: MusicSource | null): MusicState {
+  if (source === null || source === 'NONE') {
     return { ...state, source, nowPlaying: null, library: null };
   }
   const library = fixtures.musicLibraries[source];
@@ -170,6 +170,26 @@ function withSource(state: MusicState, source: MusicSource): MusicState {
     library,
     nowPlaying: first ? { ...first, positionSec: 84, playing: true } : null,
   };
+}
+
+// 이전 · 다음 walk the liked songs, starting the new one from the top.
+function stepTrack(state: MusicState, delta: number): MusicState {
+  const list = state.library?.liked ?? [];
+  const at = list.findIndex(track => track.id === state.nowPlaying?.id);
+  if (!state.nowPlaying || at < 0) {
+    return state;
+  }
+  const track = list[(at + delta + list.length) % list.length];
+  return {
+    ...state,
+    nowPlaying: { ...track, positionSec: 0, playing: true },
+  };
+}
+
+function withPlaying(state: MusicState, playing: boolean): MusicState {
+  return state.nowPlaying
+    ? { ...state, nowPlaying: { ...state.nowPlaying, playing } }
+    : state;
 }
 
 function musicFor(scenario: MockScenario = 'default'): MusicState {
@@ -754,6 +774,22 @@ export function createMockRepositories(
       },
       reconnect: () => {
         music = { ...music, linked: true };
+        return respond(music, options);
+      },
+      play: () => {
+        music = withPlaying(music, true);
+        return respond(music, options);
+      },
+      pause: () => {
+        music = withPlaying(music, false);
+        return respond(music, options);
+      },
+      next: () => {
+        music = stepTrack(music, 1);
+        return respond(music, options);
+      },
+      previous: () => {
+        music = stepTrack(music, -1);
         return respond(music, options);
       },
     },

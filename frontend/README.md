@@ -38,6 +38,20 @@ Maps Application `runway-mobile`의 **Client ID**가 필요하며, 없으면 Gra
 - 지도·현재 위치·코스 선은 설정 > 개발용 > 지도 확인에서 확인합니다.
 - iOS 키 설정(`Info.plist`의 `NMFNcpKeyId`)은 macOS/Xcode 환경에서 후속으로 추가합니다.
 
+## Spotify 연동
+
+2.7 음악 카드는 Spotify Web API로 지금 재생 중인 곡·앨범 표지를 읽고 이전·재생/일시정지·다음을 보냅니다
+(S15P31E105-374). 로그인은 앱 안에서 Authorization Code + PKCE로 하므로 **Client Secret은 쓰지 않습니다.**
+
+1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)에서 앱을 만들고 Web API를 고릅니다.
+2. Redirect URI에 `runway://spotify-callback`을 등록합니다.
+3. 개발 모드에서는 대시보드 User Management에 등록한 계정만 로그인됩니다.
+4. Client ID를 `src/config.ts`의 `spotifyClientId`에 넣습니다. 비어 있으면 Spotify도 목업 데이터로 동작합니다.
+
+- 표지와 지금 곡은 무료 계정도 보이지만, 재생 조작은 Spotify Premium 계정만 됩니다(Web API 제한).
+- 곡은 계정의 다른 기기(폰·PC의 Spotify 앱)에서 재생 중이어야 보입니다. 카드는 5초마다 다시 읽습니다.
+- RunWay에서 로그아웃하면 Spotify 토큰도 지웁니다. iOS의 redirect 처리는 아직 넣지 않았습니다.
+
 ## 건강 데이터 PoC
 
 Android 삼성 헬스 직접 조회·Health Connect 보완과 iOS HealthKit의 실제 기록을 확인하는 화면은

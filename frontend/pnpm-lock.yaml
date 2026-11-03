@@ -26,6 +26,9 @@ importers:
       '@react-navigation/native-stack':
         specifier: ^7.21.0
         version: 7.21.0(9753dc1fa48f65b252f1c6e49d93da79)
+      js-sha256:
+        specifier: 0.11.1
+        version: 0.11.1
       react:
         specifier: 19.2.3
         version: 19.2.3
@@ -35,6 +38,9 @@ importers:
       react-native-device-info:
         specifier: 15.0.2
         version: 15.0.2(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1))
+      react-native-get-random-values:
+        specifier: 2.0.0
+        version: 2.0.0(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1))
       react-native-health-connect:
         specifier: 4.1.3
         version: 4.1.3(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
@@ -1996,6 +2002,9 @@ packages:
   exponential-backoff@3.1.3:
     resolution: {integrity: sha512-ZgEeZXj30q+I0EN+CbSSpIyPaJ5HVQD18Z1m+u1FXbAeT94mr1zw50q4q6jiiC447Nl/YTcIYSAftiGqetwXCA==}
 
+  fast-base64-decode@1.0.0:
+    resolution: {integrity: sha512-qwaScUgUGBYeDNRnbc/KyllVU88Jk1pRHPStuF/lO7B0/RTRLj7U0lkdTAutlBblY08rwZDff6tNU9cjv6j//Q==}
+
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
@@ -2577,6 +2586,9 @@ packages:
   joi@17.13.8:
     resolution: {integrity: sha512-iPKOGmiRw1jxf/JOPwxmCcUQAOdF359mdzYiP2DJ+TMX0YK2zjK3D+zYOaGjpumWxOFF/l2xVWjRVK5bGSLdEw==}
 
+  js-sha256@0.11.1:
+    resolution: {integrity: sha512-o6WSo/LUvY2uC4j7mO50a2ms7E/EAdbP0swigLV+nzHKTTaYnaLIWJ02VdXrsJX0vGedDESQnLsOekr94ryfjg==}
+
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -3084,6 +3096,11 @@ packages:
     resolution: {integrity: sha512-dd71eXG2l3Cwp66IvKNadMTB8fhU3PEjyVddI97sYan+D4bgIAUmgGDhbSOFvHcGavksb2U17kiQYaDiK2WK2g==}
     peerDependencies:
       react-native: '*'
+
+  react-native-get-random-values@2.0.0:
+    resolution: {integrity: sha512-wx7/aPqsUIiWsG35D+MsUJd8ij96e3JKddklSdrdZUrheTx89gPtz3Q2yl9knBArj5u26Cl23T88ai+Q0vypdQ==}
+    peerDependencies:
+      react-native: '>=0.81'
 
   react-native-health-connect@4.1.3:
     resolution: {integrity: sha512-osiWh4RD4tNHdHeggzOeGZFeEVaLQQr0+Yezq61WsPRvN1Yb6eA10rMfSU0+dqcfm6ZvIXSr2tYns+Yg1s37nw==}
@@ -6314,6 +6331,8 @@ snapshots:
 
   exponential-backoff@3.1.3: {}
 
+  fast-base64-decode@1.0.0: {}
+
   fast-deep-equal@3.1.3: {}
 
   fast-glob@3.3.3:
@@ -7093,6 +7112,8 @@ snapshots:
       '@sideway/formula': 3.0.1
       '@sideway/pinpoint': 2.0.0
 
+  js-sha256@0.11.1: {}
+
   js-tokens@4.0.0: {}
 
   js-yaml@3.15.2:
@@ -7677,6 +7698,11 @@ snapshots:
 
   react-native-device-info@15.0.2(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1)):
     dependencies:
+      react-native: 0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1)
+
+  react-native-get-random-values@2.0.0(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1)):
+    dependencies:
+      fast-base64-decode: 1.0.0
       react-native: 0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1)
 
   react-native-health-connect@4.1.3(react-native@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native-community/cli@20.1.0(supports-color@8.1.1)(typescript@5.9.3))(@react-native/jest-preset@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.85.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3):
