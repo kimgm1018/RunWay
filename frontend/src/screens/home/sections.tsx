@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
-import { AppText, Button, Icon, Segmented } from '../../components';
+import { AppText, Icon, Segmented, useToast } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -28,6 +28,7 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, useTheme, widgetPalette } from '../../theme';
+import { RetryNotice, useHomeRefresh } from './parts';
 import { spot, vignette, Widget, type Layer } from './widgets';
 
 // The three sections under the 2.1 홈 widgets (S15P31E105-262): 러닝 분석, 과거 러닝 기록, 저장한 코스.
@@ -309,6 +310,8 @@ function RecordsBody() {
       [],
     ),
   );
+  useHomeRefresh(records.refresh);
+  useHomeRefresh(newest.refresh);
   const newestId = newest.status === 'ready' ? newest.data[0]?.id : undefined;
   return (
     <View style={styles.body}>
@@ -318,21 +321,14 @@ function RecordsBody() {
       </View>
       {records.status === 'error' ? (
         // A failed load says so and can be tried again instead of spinning on.
-        <View style={styles.railNotice}>
-          <AppText variant="caption" tone="textSecondary">
-            기록을 불러오지 못했어요
-          </AppText>
-          <Button
-            title="다시 시도"
-            variant="secondary"
-            size="small"
-            onPress={() => {
-              records.reload();
-              // The 최근 badge comes from its own load, which failed with the list.
-              newest.reload();
-            }}
-          />
-        </View>
+        <RetryNotice
+          message="기록을 불러오지 못했어요"
+          onRetry={() => {
+            records.reload();
+            // The 최근 badge comes from its own load, which failed with the list.
+            newest.reload();
+          }}
+        />
       ) : records.status === 'ready' && records.data.length === 0 ? (
         <View style={styles.railNotice}>
           <AppText variant="caption" tone="textSecondary">
@@ -464,9 +460,16 @@ export function CoursesCard({ courses }: { courses: SavedCourse[] }) {
 function CoursesBody({ courses }: { courses: SavedCourse[] }) {
   const navigation = useNavigation();
   const repositories = useRepositories();
+  const toast = useToast();
   const shown = courses.slice(0, shownCourses);
+  // A course that could not be chosen stays on 2.1 and says so, rather than opening the run without it.
   const choose = async (course: SavedCourse) => {
-    await repositories.courses.choose(course.id);
+    try {
+      await repositories.courses.choose(course.id);
+    } catch {
+      toast('코스를 고르지 못했어요. 잠시 후 다시 시도해 주세요');
+      return;
+    }
     navigateTo(navigation, 'CourseRun');
   };
   return (

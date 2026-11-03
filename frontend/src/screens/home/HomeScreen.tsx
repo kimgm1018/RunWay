@@ -1,9 +1,10 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Image,
   Pressable,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   View,
@@ -17,18 +18,20 @@ import { AppText, Backdrop, Button, IconButton, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
-import { GlassCard } from './parts';
+import { GlassCard, HomeRefreshProvider, RetryNotice } from './parts';
 import { AnalysisCard, CoursesCard, RecordsCard } from './sections';
 import { HomeWidgets } from './widgets';
 
-const loadHome = (repositories: Repositories) =>
-  Promise.all([
-    repositories.profile.getMe(),
-    repositories.home.getTodayCondition(),
-    repositories.home.getMonthlySummary(),
-    repositories.courses.getSaved(),
-    repositories.notifications.list(),
-  ]);
+// Each part loads on its own, so one that fails (the notifications, say) leaves the rest of 2.1 on screen.
+const loadMe = (repositories: Repositories) => repositories.profile.getMe();
+const loadToday = (repositories: Repositories) =>
+  repositories.home.getTodayCondition();
+const loadSummary = (repositories: Repositories) =>
+  repositories.home.getMonthlySummary();
+const loadCourses = (repositories: Repositories) =>
+  repositories.courses.getSaved();
+const loadNotifications = (repositories: Repositories) =>
+  repositories.notifications.list();
 
 function Avatar({
   nickname,
@@ -66,12 +69,29 @@ function Avatar({
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const home = useResource(useCallback(loadHome, []));
+  const me = useResource(loadMe);
+  const today = useResource(loadToday);
+  const summary = useResource(loadSummary);
+  const courses = useResource(loadCourses);
+  const notifications = useResource(loadNotifications);
   const insets = useSafeAreaInsets();
-  const [me, today, summary, courses, notifications] =
-    home.status === 'ready' ? home.data : [];
-  const photo = me?.profileImageUrl ?? null;
-  const unread = notifications?.some(item => !item.read) ?? false;
+  const photo = me.data?.profileImageUrl ?? null;
+  // Notifications that did not load only leave the bell without its dot.
+  const unread = notifications.data?.some(item => !item.read) ?? false;
+  // Pull to refresh: the spinner stays until every section that reloads has settled.
+  const [pull, setPull] = useState(0);
+  const [pending, setPending] = useState(0);
+  const track = useCallback((load: Promise<void>) => {
+    setPending(count => count + 1);
+    load.finally(() => setPending(count => count - 1));
+  }, []);
+  const refresh = useMemo(() => ({ pull, track }), [pull, track]);
+  const onRefresh = () => {
+    [me, today, summary, courses, notifications].forEach(resource =>
+      track(resource.refresh()),
+    );
+    setPull(count => count + 1);
+  };
   const scrollY = useRef(new Animated.Value(0)).current;
   // The header gets the K1 top colour once the cards start passing under it, so the two never overlap.
   const headerFill = scrollY.interpolate({
@@ -97,30 +117,58 @@ export function HomeScreen() {
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true },
         )}
+        refreshControl={
+          <RefreshControl
+            refreshing={pending > 0}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={colors.surfaceRaised}
+            // Below the floating header, not under it.
+            progressViewOffset={insets.top + size.header}
+          />
+        }
       >
-        <AppText style={styles.greeting}>
-          {me ? `${me.nickname}님,\n` : ''}
-          <AppText tone="textTertiary" style={styles.greetingText}>
-            오늘 달리기 좋은 날이에요
+        <HomeRefreshProvider value={refresh}>
+          <AppText style={styles.greeting}>
+            {me.data ? `${me.data.nickname}님,\n` : ''}
+            <AppText tone="textTertiary" style={styles.greetingText}>
+              오늘 달리기 좋은 날이에요
+            </AppText>
           </AppText>
-        </AppText>
-        {home.status === 'loading' ? (
-          <ActivityIndicator color={colors.accent} />
-        ) : home.status === 'error' ? (
-          <GlassCard>
-            <AppText tone="danger">홈 정보를 불러오지 못했어요</AppText>
-            <Button
-              title="다시 시도"
-              variant="secondary"
-              size="small"
-              onPress={home.reload}
+          {today.status === 'loading' ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : today.status === 'error' ? (
+            <GlassCard>
+              <AppText tone="danger">오늘 컨디션을 불러오지 못했어요</AppText>
+              <Button
+                title="다시 시도"
+                variant="secondary"
+                size="small"
+                onPress={today.reload}
+              />
+            </GlassCard>
+          ) : (
+            <HomeWidgets today={today.data} />
+          )}
+          {summary.status === 'ready' ? (
+            <AnalysisCard summary={summary.data} />
+          ) : summary.status === 'error' ? (
+            <RetryNotice
+              message="러닝 분석을 불러오지 못했어요"
+              onRetry={summary.reload}
             />
-          </GlassCard>
-        ) : null}
-        {today ? <HomeWidgets today={today} /> : null}
-        {summary ? <AnalysisCard summary={summary} /> : null}
-        {home.status === 'ready' ? <RecordsCard /> : null}
-        {courses ? <CoursesCard courses={courses} /> : null}
+          ) : null}
+          <RecordsCard />
+          {courses.status === 'ready' ? (
+            <CoursesCard courses={courses.data} />
+          ) : courses.status === 'error' ? (
+            <RetryNotice
+              message="저장한 코스를 불러오지 못했어요"
+              onRetry={courses.reload}
+            />
+          ) : null}
+        </HomeRefreshProvider>
       </Animated.ScrollView>
       {/* The header floats over the cards as they scroll up, as in the prototype. */}
       <SafeAreaView
@@ -151,7 +199,7 @@ export function HomeScreen() {
             onPress={() => navigateTo(navigation, 'Settings')}
           />
           <Avatar
-            nickname={me?.nickname ?? ''}
+            nickname={me.data?.nickname ?? ''}
             photo={photo}
             onPress={() => navigateTo(navigation, 'MyProfile')}
           />
