@@ -17,6 +17,7 @@ class ModelInfo:
     min_samples: int                                # t0와 같은 구간에서 심박·속도·경사가 모두 있는 최소 칸 수
     required_metrics: tuple[str, ...] = ("hrBpm", "speedMps", "gradePct")
     missing_policy: dict = field(default_factory=dict)
+    horizons_sec: tuple[int, ...] = HORIZONS_SEC
 
 
 class HRModel(Protocol):

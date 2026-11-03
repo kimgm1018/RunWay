@@ -27,6 +27,7 @@ def sha256_of(path: Path) -> str:
 class GRUModel:
     def __init__(self, predictor, sha256: str):
         self.predictor = predictor
+        self.sha256 = sha256.lower()
         self.lock = threading.Lock()   # predictor는 개인화 상태를 객체에 끼우므로 한 번에 한 요청만 쓴다
         self.info = ModelInfo(
             model_type="gru",
@@ -39,6 +40,15 @@ class GRUModel:
     def predict(self, batch: dict) -> np.ndarray:
         with self.lock:
             return self.predictor.predict(batch, personalized=False)
+
+    def predict_with_state(self, batch: dict, state: dict) -> np.ndarray:
+        """사용자 출력층을 한 요청 동안만 올리고 끝나면 기본 상태로 되돌린다."""
+        with self.lock:
+            try:
+                self.predictor.load_state(state)
+                return self.predictor.predict(batch, personalized=True)
+            finally:
+                self.predictor.load_state(None)
 
 
 def load_gru(settings: Settings) -> GRUModel:

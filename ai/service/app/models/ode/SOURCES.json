@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "runway.ai.sources.v1",
+  "createdAt": "2026-11-01",
+  "selectedOde": {
+    "variant": "ode_v21_base_epoch20_legacy27",
+    "epoch": 20,
+    "checkpointPath": "<SERVER_WORKSPACE>/ode_v21_20261101/runs/full_base_20261101T101637/checkpoints/model_epoch_020.pt",
+    "checkpointSha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061",
+    "summaryStatsPath": "<SERVER_WORKSPACE>/ode_v21_20261101/runs/full_base_20261101T101637/summary_stats.json",
+    "summaryStatsSha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066",
+    "summaryFeatureCount": 27,
+    "hr0Head": false,
+    "preRunHr0Fallback": "median of support-session start HR; 85 bpm when support is absent"
+  },
+  "modelFilesIncluded": false,
+  "vendoredCode": [
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/model.py",
+      "sourceSha256": "3ab23802ec7d7e0df670a4a66509fe0bba72274b3dfdede95b990850855deffb",
+      "vendoredPath": "app/models/ode/odev21_legacy/model.py",
+      "vendoredSha256": "3ab23802ec7d7e0df670a4a66509fe0bba72274b3dfdede95b990850855deffb",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/summary.py",
+      "sourceSha256": "ca775a0551f59f4b57a377aed4cb9ba5260692c12604ae8cc83659b4e6e3e19d",
+      "vendoredPath": "app/models/ode/odev21_legacy/summary.py",
+      "vendoredSha256": "ca775a0551f59f4b57a377aed4cb9ba5260692c12604ae8cc83659b4e6e3e19d",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/batch.py",
+      "sourceSha256": "1ec2fc1b184b4c388c3c30aeb8bf5ce627b8c7cd3699c7008652635c641db80c",
+      "vendoredPath": "app/models/ode/odev21_legacy/batch.py",
+      "vendoredSha256": "1ec2fc1b184b4c388c3c30aeb8bf5ce627b8c7cd3699c7008652635c641db80c",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/cells.py",
+      "sourceSha256": "9a5bc92981a5859722dc746743ed625fe73494d19728f4b8442d7570ed7cced0",
+      "vendoredPath": "app/models/ode/odev21_legacy/cells.py",
+      "vendoredSha256": "e40dc6c5416d2b8ce2d98b0df07630d79f9105b3a25f712147f11a460a826fa5",
+      "transformation": "Absolute pv_data import changed to package-local validation import."
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/context.py",
+      "sourceSha256": "0179a4df2355d774e19e96d18f645b1bfd665873abaf6a00c2d28f9f702d9f6d",
+      "vendoredPath": "app/models/ode/odev21_legacy/context.py",
+      "vendoredSha256": "0179a4df2355d774e19e96d18f645b1bfd665873abaf6a00c2d28f9f702d9f6d",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/history.py",
+      "sourceSha256": "4435bd4c1968475238c373a672c5fc9c3326db297fcb1ed4821c543001f2a6e8",
+      "vendoredPath": "app/models/ode/odev21_legacy/history.py",
+      "vendoredSha256": "cde0f64cc76cbcd74db487e8f0c42d4104c41ab86469cef00fdc6576a5d01243",
+      "transformation": "Absolute pv_data import changed to package-local validation import."
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/today.py",
+      "sourceSha256": "2d99f2b5262e0128923f66a31563b40711ea77a546d2a057e6be19147adf848f",
+      "vendoredPath": "app/models/ode/odev21_legacy/today.py",
+      "vendoredSha256": "2d99f2b5262e0128923f66a31563b40711ea77a546d2a057e6be19147adf848f",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/fit.py",
+      "sourceSha256": "807c9fed0c6e1d8318b86079cc326b28f5814e9a3c283a8334fdb5491830d437",
+      "vendoredPath": "app/models/ode/odev21_legacy/fit.py",
+      "vendoredSha256": "807c9fed0c6e1d8318b86079cc326b28f5814e9a3c283a8334fdb5491830d437",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/samples.py",
+      "sourceSha256": "94777dbb7f739f4d3699fd1207174cdfe4bad3522116db0f05636a69b88e6ca3",
+      "vendoredPath": "app/models/ode/odev21_legacy/samples.py",
+      "vendoredSha256": "94777dbb7f739f4d3699fd1207174cdfe4bad3522116db0f05636a69b88e6ca3",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/ode_v21_20261101/odev21/training.py",
+      "sourceSha256": "63f299605ac76f7cd59ba091e17ea788c53f3dc5a5b347269b828348dc592f95",
+      "vendoredPath": "app/models/ode/odev21_legacy/training.py",
+      "vendoredSha256": "63f299605ac76f7cd59ba091e17ea788c53f3dc5a5b347269b828348dc592f95",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/prerun_adapters/validation_v1/pv_data.py",
+      "sourceSha256": "3142328fcd389725403b7bd4c27b1400be2c13a40f2f40965db4ec2a3b42d233",
+      "vendoredPath": "app/models/ode/validation/pv_data.py",
+      "vendoredSha256": "3142328fcd389725403b7bd4c27b1400be2c13a40f2f40965db4ec2a3b42d233",
+      "transformation": "byte-for-byte copy"
+    },
+    {
+      "sourcePath": "<SERVER_WORKSPACE>/prerun_planner.py",
+      "sourceSha256": "5935c1f74f6680ea310d96c592db7117de717087ea214067a99e2b94aa26e0ff",
+      "vendoredPath": "app/planner/prerun_planner.py",
+      "vendoredSha256": "5935c1f74f6680ea310d96c592db7117de717087ea214067a99e2b94aa26e0ff",
+      "transformation": "byte-for-byte copy"
+    }
+  ]
+}

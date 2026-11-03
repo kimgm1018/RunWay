@@ -1,0 +1,540 @@
+{
+  "plannerVersion": "prerun_planner_v1",
+  "mode": "COURSE",
+  "planStatus": "PLANNED",
+  "targetDistanceM": 10000.0,
+  "targetPaceSecPerKm": 360.0,
+  "targetPaceSource": "TARGET_DURATION",
+  "goalPreference": 0.5,
+  "recommendedPaceSecPerKm": 362.4,
+  "cueBpm": null,
+  "routeProgressM": null,
+  "predictedFinishSec": 3624,
+  "segmentDifficultyRatios": [
+    0.986193,
+    1.035503,
+    1.065089,
+    0.956607,
+    0.986193,
+    0.946746,
+    1.025641,
+    0.986193,
+    1.045365,
+    0.966469
+  ],
+  "segments": [
+    {
+      "segmentSequence": 1,
+      "startDistanceM": 0.0,
+      "endDistanceM": 1000.0,
+      "recommendedPaceSecPerKm": 357.51,
+      "ratio": 0.9931,
+      "gradePercent": 0.0
+    },
+    {
+      "segmentSequence": 2,
+      "startDistanceM": 1000.0,
+      "endDistanceM": 2000.0,
+      "recommendedPaceSecPerKm": 375.39,
+      "ratio": 1.0428,
+      "gradePercent": 4.0
+    },
+    {
+      "segmentSequence": 3,
+      "startDistanceM": 2000.0,
+      "endDistanceM": 3000.0,
+      "recommendedPaceSecPerKm": 386.12,
+      "ratio": 1.0725,
+      "gradePercent": 6.0
+    },
+    {
+      "segmentSequence": 4,
+      "startDistanceM": 3000.0,
+      "endDistanceM": 4000.0,
+      "recommendedPaceSecPerKm": 346.79,
+      "ratio": 0.9633,
+      "gradePercent": -4.0
+    },
+    {
+      "segmentSequence": 5,
+      "startDistanceM": 4000.0,
+      "endDistanceM": 5000.0,
+      "recommendedPaceSecPerKm": 357.51,
+      "ratio": 0.9931,
+      "gradePercent": 0.0
+    },
+    {
+      "segmentSequence": 6,
+      "startDistanceM": 5000.0,
+      "endDistanceM": 6000.0,
+      "recommendedPaceSecPerKm": 343.21,
+      "ratio": 0.9534,
+      "gradePercent": -5.0
+    },
+    {
+      "segmentSequence": 7,
+      "startDistanceM": 6000.0,
+      "endDistanceM": 7000.0,
+      "recommendedPaceSecPerKm": 371.82,
+      "ratio": 1.0328,
+      "gradePercent": 3.0
+    },
+    {
+      "segmentSequence": 8,
+      "startDistanceM": 7000.0,
+      "endDistanceM": 8000.0,
+      "recommendedPaceSecPerKm": 357.51,
+      "ratio": 0.9931,
+      "gradePercent": 0.0
+    },
+    {
+      "segmentSequence": 9,
+      "startDistanceM": 8000.0,
+      "endDistanceM": 9000.0,
+      "recommendedPaceSecPerKm": 378.76,
+      "ratio": 1.0521,
+      "gradePercent": 5.0
+    },
+    {
+      "segmentSequence": 10,
+      "startDistanceM": 9000.0,
+      "endDistanceM": 10000.0,
+      "recommendedPaceSecPerKm": 349.34,
+      "ratio": 0.9704,
+      "gradePercent": -3.0
+    }
+  ],
+  "hrPreview": {
+    "status": "PREDICTED",
+    "provider": "ode_v21",
+    "modelName": "ODE-v2.1",
+    "modelVersion": "ode_v21_base_epoch20_legacy27:ba767a645c2b",
+    "personalized": false,
+    "validatedHorizonSec": 2400.0,
+    "validationRef": "ODE v2.1 검증 지평 설정값",
+    "sampleIntervalSec": 30,
+    "curve": "MEAN",
+    "points": [
+      {
+        "elapsedSec": 30,
+        "distanceM": 83.91,
+        "hrBpm": 116.36
+      },
+      {
+        "elapsedSec": 60,
+        "distanceM": 167.83,
+        "hrBpm": 129.32
+      },
+      {
+        "elapsedSec": 90,
+        "distanceM": 251.74,
+        "hrBpm": 134.87
+      },
+      {
+        "elapsedSec": 120,
+        "distanceM": 335.65,
+        "hrBpm": 137.64
+      },
+      {
+        "elapsedSec": 150,
+        "distanceM": 419.56,
+        "hrBpm": 139.14
+      },
+      {
+        "elapsedSec": 180,
+        "distanceM": 503.48,
+        "hrBpm": 140.02
+      },
+      {
+        "elapsedSec": 210,
+        "distanceM": 587.39,
+        "hrBpm": 140.56
+      },
+      {
+        "elapsedSec": 240,
+        "distanceM": 671.3,
+        "hrBpm": 140.91
+      },
+      {
+        "elapsedSec": 270,
+        "distanceM": 755.21,
+        "hrBpm": 141.16
+      },
+      {
+        "elapsedSec": 300,
+        "distanceM": 839.13,
+        "hrBpm": 141.36
+      },
+      {
+        "elapsedSec": 330,
+        "distanceM": 923.04,
+        "hrBpm": 141.52
+      },
+      {
+        "elapsedSec": 360,
+        "distanceM": 1006.62,
+        "hrBpm": 141.66
+      },
+      {
+        "elapsedSec": 390,
+        "distanceM": 1086.54,
+        "hrBpm": 142.42
+      },
+      {
+        "elapsedSec": 420,
+        "distanceM": 1166.45,
+        "hrBpm": 142.95
+      },
+      {
+        "elapsedSec": 450,
+        "distanceM": 1246.37,
+        "hrBpm": 143.3
+      },
+      {
+        "elapsedSec": 480,
+        "distanceM": 1326.29,
+        "hrBpm": 143.56
+      },
+      {
+        "elapsedSec": 510,
+        "distanceM": 1406.2,
+        "hrBpm": 143.75
+      },
+      {
+        "elapsedSec": 540,
+        "distanceM": 1486.12,
+        "hrBpm": 143.91
+      },
+      {
+        "elapsedSec": 570,
+        "distanceM": 1566.04,
+        "hrBpm": 144.05
+      },
+      {
+        "elapsedSec": 600,
+        "distanceM": 1645.95,
+        "hrBpm": 144.17
+      },
+      {
+        "elapsedSec": 630,
+        "distanceM": 1725.87,
+        "hrBpm": 144.28
+      },
+      {
+        "elapsedSec": 660,
+        "distanceM": 1805.79,
+        "hrBpm": 144.39
+      },
+      {
+        "elapsedSec": 690,
+        "distanceM": 1885.7,
+        "hrBpm": 144.5
+      },
+      {
+        "elapsedSec": 720,
+        "distanceM": 1965.62,
+        "hrBpm": 144.6
+      },
+      {
+        "elapsedSec": 750,
+        "distanceM": 2044.27,
+        "hrBpm": 144.91
+      },
+      {
+        "elapsedSec": 780,
+        "distanceM": 2121.97,
+        "hrBpm": 145.15
+      },
+      {
+        "elapsedSec": 810,
+        "distanceM": 2199.67,
+        "hrBpm": 145.34
+      },
+      {
+        "elapsedSec": 840,
+        "distanceM": 2277.36,
+        "hrBpm": 145.48
+      },
+      {
+        "elapsedSec": 870,
+        "distanceM": 2355.06,
+        "hrBpm": 145.61
+      },
+      {
+        "elapsedSec": 900,
+        "distanceM": 2432.76,
+        "hrBpm": 145.72
+      },
+      {
+        "elapsedSec": 930,
+        "distanceM": 2510.45,
+        "hrBpm": 145.83
+      },
+      {
+        "elapsedSec": 960,
+        "distanceM": 2588.15,
+        "hrBpm": 145.93
+      },
+      {
+        "elapsedSec": 990,
+        "distanceM": 2665.85,
+        "hrBpm": 146.02
+      },
+      {
+        "elapsedSec": 1020,
+        "distanceM": 2743.55,
+        "hrBpm": 146.11
+      },
+      {
+        "elapsedSec": 1050,
+        "distanceM": 2821.24,
+        "hrBpm": 146.2
+      },
+      {
+        "elapsedSec": 1080,
+        "distanceM": 2898.94,
+        "hrBpm": 146.28
+      },
+      {
+        "elapsedSec": 1110,
+        "distanceM": 2976.64,
+        "hrBpm": 146.37
+      },
+      {
+        "elapsedSec": 1140,
+        "distanceM": 3060.49,
+        "hrBpm": 144.74
+      },
+      {
+        "elapsedSec": 1170,
+        "distanceM": 3147.0,
+        "hrBpm": 143.61
+      },
+      {
+        "elapsedSec": 1200,
+        "distanceM": 3233.51,
+        "hrBpm": 142.95
+      },
+      {
+        "elapsedSec": 1230,
+        "distanceM": 3320.02,
+        "hrBpm": 142.58
+      },
+      {
+        "elapsedSec": 1260,
+        "distanceM": 3406.53,
+        "hrBpm": 142.4
+      },
+      {
+        "elapsedSec": 1290,
+        "distanceM": 3493.03,
+        "hrBpm": 142.32
+      },
+      {
+        "elapsedSec": 1320,
+        "distanceM": 3579.54,
+        "hrBpm": 142.3
+      },
+      {
+        "elapsedSec": 1350,
+        "distanceM": 3666.05,
+        "hrBpm": 142.32
+      },
+      {
+        "elapsedSec": 1380,
+        "distanceM": 3752.56,
+        "hrBpm": 142.36
+      },
+      {
+        "elapsedSec": 1410,
+        "distanceM": 3839.06,
+        "hrBpm": 142.41
+      },
+      {
+        "elapsedSec": 1440,
+        "distanceM": 3925.57,
+        "hrBpm": 142.47
+      },
+      {
+        "elapsedSec": 1470,
+        "distanceM": 4011.72,
+        "hrBpm": 142.53
+      },
+      {
+        "elapsedSec": 1500,
+        "distanceM": 4095.63,
+        "hrBpm": 143.55
+      },
+      {
+        "elapsedSec": 1530,
+        "distanceM": 4179.54,
+        "hrBpm": 144.24
+      },
+      {
+        "elapsedSec": 1560,
+        "distanceM": 4263.46,
+        "hrBpm": 144.67
+      },
+      {
+        "elapsedSec": 1590,
+        "distanceM": 4347.37,
+        "hrBpm": 144.96
+      },
+      {
+        "elapsedSec": 1620,
+        "distanceM": 4431.28,
+        "hrBpm": 145.15
+      },
+      {
+        "elapsedSec": 1650,
+        "distanceM": 4515.19,
+        "hrBpm": 145.3
+      },
+      {
+        "elapsedSec": 1680,
+        "distanceM": 4599.11,
+        "hrBpm": 145.41
+      },
+      {
+        "elapsedSec": 1710,
+        "distanceM": 4683.02,
+        "hrBpm": 145.5
+      },
+      {
+        "elapsedSec": 1740,
+        "distanceM": 4766.93,
+        "hrBpm": 145.58
+      },
+      {
+        "elapsedSec": 1770,
+        "distanceM": 4850.84,
+        "hrBpm": 145.64
+      },
+      {
+        "elapsedSec": 1800,
+        "distanceM": 4934.76,
+        "hrBpm": 145.71
+      },
+      {
+        "elapsedSec": 1830,
+        "distanceM": 5019.45,
+        "hrBpm": 145.77
+      },
+      {
+        "elapsedSec": 1860,
+        "distanceM": 5106.86,
+        "hrBpm": 144.71
+      },
+      {
+        "elapsedSec": 1890,
+        "distanceM": 5194.27,
+        "hrBpm": 143.99
+      },
+      {
+        "elapsedSec": 1920,
+        "distanceM": 5281.67,
+        "hrBpm": 143.57
+      },
+      {
+        "elapsedSec": 1950,
+        "distanceM": 5369.08,
+        "hrBpm": 143.34
+      },
+      {
+        "elapsedSec": 1980,
+        "distanceM": 5456.49,
+        "hrBpm": 143.22
+      },
+      {
+        "elapsedSec": 2010,
+        "distanceM": 5543.9,
+        "hrBpm": 143.16
+      },
+      {
+        "elapsedSec": 2040,
+        "distanceM": 5631.31,
+        "hrBpm": 143.15
+      },
+      {
+        "elapsedSec": 2070,
+        "distanceM": 5718.72,
+        "hrBpm": 143.16
+      },
+      {
+        "elapsedSec": 2100,
+        "distanceM": 5806.13,
+        "hrBpm": 143.19
+      },
+      {
+        "elapsedSec": 2130,
+        "distanceM": 5893.54,
+        "hrBpm": 143.22
+      },
+      {
+        "elapsedSec": 2160,
+        "distanceM": 5980.95,
+        "hrBpm": 143.26
+      },
+      {
+        "elapsedSec": 2190,
+        "distanceM": 6063.1,
+        "hrBpm": 144.88
+      },
+      {
+        "elapsedSec": 2220,
+        "distanceM": 6143.78,
+        "hrBpm": 145.96
+      },
+      {
+        "elapsedSec": 2250,
+        "distanceM": 6224.47,
+        "hrBpm": 146.62
+      },
+      {
+        "elapsedSec": 2280,
+        "distanceM": 6305.15,
+        "hrBpm": 147.05
+      },
+      {
+        "elapsedSec": 2310,
+        "distanceM": 6385.84,
+        "hrBpm": 147.32
+      },
+      {
+        "elapsedSec": 2340,
+        "distanceM": 6466.52,
+        "hrBpm": 147.51
+      },
+      {
+        "elapsedSec": 2370,
+        "distanceM": 6547.21,
+        "hrBpm": 147.64
+      },
+      {
+        "elapsedSec": 2400,
+        "distanceM": 6627.89,
+        "hrBpm": 147.74
+      }
+    ],
+    "warnings": [
+      {
+        "code": "PEAK_HR_UNDERESTIMATED",
+        "message": "평균 곡선만 보여 준다. 세션 최고 HR은 실측보다 9~10 bpm 낮게 보는 경향이 있다 (Pre-run 검증: LightGBM ON 중앙값 −10, B_THS_pers −8.8 bpm)"
+      },
+      {
+        "code": "HR_PREVIEW_TRUNCATED",
+        "message": "HR은 검증된 출발 후 40분까지만 보여 준다. 그 뒤는 pace 계획만 있다. 검증 근거: ODE v2.1 검증 지평 설정값"
+      },
+      {
+        "code": "MODEL_NOTE",
+        "message": "HR0 미입력: support 시작 HR 중앙값 85.0 bpm(없으면 85 bpm)을 대체값으로 쓴다."
+      }
+    ]
+  },
+  "warnings": [
+    {
+      "code": "CUE_BPM_NOT_COMPUTED",
+      "message": "cue_bpm 계산 기준이 아직 정해지지 않아 null로 둔다"
+    }
+  ]
+}

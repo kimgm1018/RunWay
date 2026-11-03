@@ -22,9 +22,10 @@ mkdir -p "$state_dir"
 exec 9>"$state_dir/deploy.lock"
 flock -n 9 || { echo '같은 AI 프로젝트가 이미 배포 중입니다.' >&2; exit 2; }
 compose() {
-    local image=$1 model=$2 sha=$3
+    local image=$1 model=$2 sha=$3 model_dir
+    model_dir=$(dirname -- "$model")
     shift 3
-    AI_IMAGE="$image" AI_MODEL_FILE="$model" HR_MODEL_SHA256="$sha" \
+    AI_IMAGE="$image" AI_MODEL_FILE="$model" AI_MODEL_DIR="$model_dir" HR_MODEL_SHA256="$sha" \
         docker compose --env-file /dev/null -p "$project" -f "$compose_file" "$@"
 }
 check_current() {

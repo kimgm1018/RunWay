@@ -2,10 +2,11 @@
 import math
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 from app.models.base import FUTURE_STEPS, HORIZONS_SEC, STEP_SEC
+from app.id_types import ServerId, normalize_server_id
 
 MAX_HISTORY = 1440   # 5초 × 1440 = 2시간
 MAX_CANDIDATES = 20
@@ -81,8 +82,14 @@ class Candidate(CamelModel):
 class PredictRequest(CamelModel):
     elapsed_sec: float = Field(ge=0, description="t0의 러닝 시작 후 경과 시간(초)")
     session_started_at: datetime | None = Field(default=None, description="러닝 시작 시각(UTC). 개인화 모델용, GRU는 쓰지 않음")
+    user_id: ServerId | None = Field(default=None, description="선택: 러닝 중 GRU 개인화 조회에 쓰는 회원 ID")
     history: History
     candidates: list[Candidate] = Field(min_length=1, max_length=MAX_CANDIDATES)
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def server_user_id_is_int64(cls, value):
+        return None if value is None else normalize_server_id(value)
 
 
 class Prediction(CamelModel):
@@ -94,6 +101,18 @@ class PredictResponse(CamelModel):
     model_version: str
     horizons_sec: list[int] = list(HORIZONS_SEC)
     predictions: list[Prediction]
+    hr_personalized: bool | None = None
+    hr_personalization_version: int | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_personalization_when_unused(self, handler):
+        data = handler(self)
+        if self.hr_personalized is None:
+            data.pop("hr_personalized", None)
+            data.pop("hrPersonalized", None)
+            data.pop("hr_personalization_version", None)
+            data.pop("hrPersonalizationVersion", None)
+        return data
 
 
 class ModelInfoResponse(CamelModel):
@@ -106,12 +125,15 @@ class ModelInfoResponse(CamelModel):
     required_metrics: list[str]
     min_samples: int
     missing_policy: dict[str, str]
+    policy_version: str | None = None
+    models: dict[str, dict] = Field(default_factory=dict)
 
 
 class HealthResponse(CamelModel):
     status: str
     model_loaded: bool
     model_version: str | None = None
+    models: dict[str, dict] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):

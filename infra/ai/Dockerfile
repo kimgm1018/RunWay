@@ -36,7 +36,8 @@ COPY ai/service/requirements-dev.txt ./requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt && pip check \
     && mkdir /reports && chown 10001:10001 /reports
 COPY ai/service/tests/ ./tests/
-COPY infra/ai/check.sh infra/ai/deploy.sh /app/infra/ai/
+COPY ai/service/tools/ ./tools/
+COPY infra/ai/check.sh infra/ai/deploy.sh infra/ai/compose.yaml /app/infra/ai/
 COPY infra/ai/tests/ /app/infra/ai/tests/
 # 배포 테스트의 모의 Shell 파일은 실행 제한이 있는 /tmp 대신 이 경로에 둔다.
 ENV TMPDIR=/reports
