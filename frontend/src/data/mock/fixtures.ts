@@ -83,7 +83,6 @@ const assetUri = (asset: number) =>
 export const me: UserProfile = {
   id: 'user-minjun',
   nickname: '민준',
-  runningLevel: 'intermediate',
   profileImageUrl: assetUri(mockProfilePhoto),
 };
 

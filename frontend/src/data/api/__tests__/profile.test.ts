@@ -1,5 +1,12 @@
 import { appConfig } from '../../../config';
-import { getRunningProfile, saveRunningProfile } from '../profile';
+import {
+  changePhoto,
+  getDetail,
+  getMe,
+  getRunningProfile,
+  saveRunningProfile,
+  updateBasic,
+} from '../profile';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -117,4 +124,110 @@ test('U07 with the level alone sends only the level', async () => {
   fetchMock.mockResolvedValue(respond(200, saved));
   await saveRunningProfile({ selfReportedLevel: 'INTERMEDIATE' });
   expect(sentBody()).toEqual({ selfReportedLevel: 'INTERMEDIATE' });
+});
+
+const me = {
+  id: 101,
+  nickname: '새벽러너',
+  gender: 'FEMALE',
+  birthDate: '1998-04-12',
+  loginId: 'runner01',
+  status: 'ACTIVE',
+  profileImageUrl: '/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
+  onboardingCompleted: true,
+};
+
+const meUrl = `${appConfig.apiBaseUrl}/users/me`;
+
+test('U04 gives my id, nickname and the full photo address', async () => {
+  fetchMock.mockResolvedValue(respond(200, me));
+
+  await expect(getMe()).resolves.toEqual({
+    id: '101',
+    nickname: '새벽러너',
+    profileImageUrl:
+      'https://k15e105.p.ssafy.io/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
+  });
+  const [requested, init] = fetchMock.mock.calls[0];
+  expect(requested).toBe(meUrl);
+  expect(init.method).toBe('GET');
+});
+
+test('U04 without a photo leaves it null for the initial', async () => {
+  fetchMock.mockResolvedValue(respond(200, { ...me, profileImageUrl: null }));
+  await expect(getMe()).resolves.toMatchObject({ profileImageUrl: null });
+});
+
+test('8.2 takes the account part from U04 and the level and pace from U06', async () => {
+  fetchMock.mockImplementation(async (requested: string) =>
+    respond(200, requested === url ? saved : me),
+  );
+
+  await expect(getDetail()).resolves.toEqual({
+    nickname: '새벽러너',
+    gender: 'FEMALE',
+    birthDate: '1998-04-12',
+    runningLevel: 'BEGINNER',
+    baseline: {
+      baselineDistanceM: 5000,
+      baselineDurationSec: 1800,
+      usualPaceSecPerKm: 360,
+    },
+  });
+});
+
+test('U05 sends the nickname, gender and birth date in one PATCH', async () => {
+  fetchMock.mockResolvedValue(respond(200, me));
+
+  await updateBasic({
+    nickname: '새벽러너',
+    gender: 'FEMALE',
+    birthDate: '1998-04-12',
+  });
+
+  const [requested, init] = fetchMock.mock.calls[0];
+  expect(requested).toBe(meUrl);
+  expect(init.method).toBe('PATCH');
+  expect(sentBody()).toEqual({
+    nickname: '새벽러너',
+    gender: 'FEMALE',
+    birthDate: '1998-04-12',
+  });
+});
+
+test('U05 passes a taken nickname on as its code', async () => {
+  fetchMock.mockResolvedValue(
+    respond(409, { code: 'NICKNAME_DUPLICATED', message: '', details: {} }),
+  );
+  await expect(
+    updateBasic({ nickname: '민준', gender: 'MALE', birthDate: '1995-01-01' }),
+  ).rejects.toMatchObject({ code: 'NICKNAME_DUPLICATED' });
+});
+
+test('8.2 사진: F01 upload with PROFILE, then U05 with the image id', async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      respond(201, {
+        imageId: '550e8400-e29b-41d4-a716-446655440000',
+        url: null,
+      }),
+    )
+    .mockResolvedValueOnce(respond(200, me));
+
+  await expect(
+    changePhoto({
+      uri: 'file:///cache/picked.jpg',
+      type: 'image/jpeg',
+      name: 'picked.jpg',
+    }),
+  ).resolves.toBe(
+    'https://k15e105.p.ssafy.io/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
+  );
+  const [[uploadUrl, uploadInit], [patchUrl, patchInit]] = fetchMock.mock.calls;
+  expect(uploadUrl).toBe(`${appConfig.apiBaseUrl}/images`);
+  expect(uploadInit.method).toBe('POST');
+  expect(patchUrl).toBe(meUrl);
+  expect(JSON.parse(patchInit.body)).toEqual({
+    profileImageId: '550e8400-e29b-41d4-a716-446655440000',
+  });
 });

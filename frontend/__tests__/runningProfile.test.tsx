@@ -48,6 +48,17 @@ function profileResponse(fields: Record<string, unknown> = {}) {
   });
 }
 
+const me = {
+  id: 101,
+  nickname: '민준',
+  gender: 'MALE',
+  birthDate: '1995-03-14',
+  loginId: 'minjun01',
+  status: 'ACTIVE',
+  profileImageUrl: null,
+  onboardingCompleted: true,
+};
+
 // U01 for an account that has not finished setup, U06 with `saved`, U07 with `onSave` (default: success).
 function serve(
   saved: ReturnType<typeof respond>,
@@ -67,6 +78,10 @@ function serve(
       }
       if (url.endsWith('/users/me/running-profile')) {
         return init.method === 'PATCH' ? onSave : saved;
+      }
+      // U04·U05 for 8.1 and 8.2 (S15P31E105-321).
+      if (url.endsWith('/users/me')) {
+        return respond(200, me);
       }
       throw new Error(`unexpected request ${url}`);
     },
@@ -264,10 +279,12 @@ test('a rejected pace shows a notice and stays on 1.6', async () => {
 });
 
 test('8.2 saves a level change with the level alone', async () => {
-  // 8.1 also asks W02 for my watch; none is linked here.
+  // 8.1 also asks W02 for my watch; none is linked here. U04·U05 answer with my account.
   fetchMock.mockImplementation(async (url: string) =>
     url.includes('/devices')
       ? respond(200, { items: [] })
+      : url.endsWith('/users/me')
+      ? respond(200, me)
       : profileResponse({ selfReportedLevel: 'ADVANCED' }),
   );
   const screen = await launch(true);
@@ -280,7 +297,11 @@ test('8.2 saves a level change with the level alone', async () => {
   await press(screen, '저장');
   await settle(50);
 
-  expect(patchBodies()).toEqual([{ selfReportedLevel: 'ADVANCED' }]);
+  // U05 with the account part, then U07 with the level alone.
+  expect(patchBodies()).toEqual([
+    { nickname: '민준', gender: 'MALE', birthDate: '1995-03-14' },
+    { selfReportedLevel: 'ADVANCED' },
+  ]);
   expect(texts(screen)).toContain('프로필을 저장했어요');
   await act(async () => screen.unmount());
 });

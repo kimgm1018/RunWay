@@ -8,7 +8,6 @@ export type ReadinessState =
 export type UserProfile = {
   id: string;
   nickname: string;
-  runningLevel: 'beginner' | 'intermediate' | 'advanced';
   // 2.1 홈 avatar; null shows the first letter of the nickname.
   profileImageUrl: string | null;
 };
@@ -587,6 +586,13 @@ export type SignUpRequest = {
   healthDataAccess: HealthDataAccess;
 };
 
+// A photo picked on the phone, as React Native's FormData sends it. The server takes jpeg or png up to 5MB.
+export type PhotoFile = {
+  uri: string;
+  type: 'image/jpeg' | 'image/png';
+  name: string;
+};
+
 export type BasicProfile = Pick<
   SignUpRequest,
   'nickname' | 'birthDate' | 'gender'
@@ -797,6 +803,8 @@ export type Repositories = {
       change: RunningProfileChange,
     ) => Promise<RunningProfile>;
     getDetail: () => Promise<ProfileDetail>;
+    // 8.2 사진 바꾸기: F01 upload, then U05 profileImageId. Resolves to the new photo address.
+    changePhoto: (photo: PhotoFile) => Promise<string | null>;
   };
   settings: {
     get: () => Promise<AppSettings>;

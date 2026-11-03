@@ -9,7 +9,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -70,6 +70,17 @@ export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
   const me = useResource(loadMe);
+  // Back from 8.2 the greeting and avatar show the saved nickname and photo; the first focus is the first load.
+  const refreshMe = me.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshMe();
+      }
+      focused.current = true;
+    }, [refreshMe]),
+  );
   const today = useResource(loadToday);
   const summary = useResource(loadSummary);
   const courses = useResource(loadCourses);

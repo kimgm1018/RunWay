@@ -8,7 +8,6 @@ import type {
   PhoneCodeRequest,
   ProfileDetail,
   AppSettings,
-  UserProfile,
   RecordSort,
   Repositories,
   RunningProfile,
@@ -287,6 +286,8 @@ export function createMockRepositories(
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
   let profile: ProfileDetail = { ...fixtures.profileDetail };
+  // 8.2 사진 바꾸기 shows the picked photo from the phone itself.
+  let photo = fixtures.me.profileImageUrl;
   // The mock serves one signed-in user: the fixture account has a running profile, a fresh sign-up does not.
   let runningProfileSaved = true;
   const runningProfile = (): RunningProfile => ({
@@ -470,12 +471,7 @@ export function createMockRepositories(
     profile: {
       getMe: () =>
         respond(
-          {
-            ...fixtures.me,
-            nickname: profile.nickname,
-            runningLevel:
-              profile.runningLevel.toLowerCase() as UserProfile['runningLevel'],
-          },
+          { ...fixtures.me, nickname: profile.nickname, profileImageUrl: photo },
           options,
         ),
       updateBasic: basic => {
@@ -516,6 +512,10 @@ export function createMockRepositories(
         return respond(runningProfile(), options);
       },
       getDetail: () => respond(profile, options),
+      changePhoto: picked => {
+        photo = picked.uri;
+        return respond(photo, options);
+      },
     },
     settings: {
       get: () => respond(settings, options),
