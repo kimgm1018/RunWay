@@ -17,7 +17,11 @@ import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { communityScreens } from '../screens/community';
 import { settingsScreens } from '../screens/settings';
-import { groupScreens, GroupRunDraftProvider } from '../screens/group';
+import {
+  groupScreens,
+  GroupRunDraftProvider,
+  GroupTabScreen,
+} from '../screens/group';
 import { recordScreens } from '../screens/records';
 import { runScreens } from '../screens/run';
 import { RunSessionProvider, useRunResume } from '../screens/run/RunSession';
@@ -33,7 +37,6 @@ import {
   type RouteName,
 } from './routes';
 import type {
-  GroupStackParamList,
   MainTabParamList,
   RootStackParamList,
   RunStackParamList,
@@ -42,7 +45,6 @@ import type {
 const Root = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
-const GroupStack = createNativeStackNavigator<GroupStackParamList>();
 
 // Built once per route so React Navigation always receives the same component.
 const placeholders = Object.fromEntries(
@@ -123,16 +125,6 @@ function RunTab() {
   );
 }
 
-function GroupTab() {
-  return (
-    <GroupStack.Navigator screenOptions={noHeader}>
-      {groupTabRoutes.map(name => (
-        <GroupStack.Screen key={name} name={name} component={screens[name]} />
-      ))}
-    </GroupStack.Navigator>
-  );
-}
-
 function renderTabBar(props: React.ComponentProps<typeof PillTabBar>) {
   return <PillTabBar {...props} />;
 }
@@ -143,7 +135,7 @@ function MainTabs() {
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
       <Tabs.Screen name="HomeTab" component={screens.Home} />
       <Tabs.Screen name="RunTab" component={RunTab} />
-      <Tabs.Screen name="GroupTab" component={GroupTab} />
+      <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
       <Tabs.Screen name="CommunityTab" component={screens.Community} />
     </Tabs.Navigator>
   );

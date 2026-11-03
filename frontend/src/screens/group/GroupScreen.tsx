@@ -3,13 +3,12 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Backdrop, EmptyState, Icon } from '../../components';
+import { AppText, EmptyState, Icon } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -34,52 +33,6 @@ import {
 
 const loadMine = (repositories: Repositories, _version: number) =>
   repositories.groupRuns.listMine();
-
-// 내 크루 · 크루 모집 (6.0 · 6.1). 크루 모집 is its own screen in the same tab.
-export function GroupTabs({ active }: { active: 'mine' | 'recruit' }) {
-  const navigation = useNavigation();
-  const { colors } = useTheme();
-  const tab = (key: 'mine' | 'recruit', label: string) => {
-    const selected = key === active;
-    return (
-      <Pressable
-        accessibilityRole="tab"
-        accessibilityLabel={label}
-        accessibilityState={{ selected }}
-        onPress={() =>
-          !selected &&
-          navigateTo(navigation, key === 'mine' ? 'MyCrews' : 'CrewRecruit')
-        }
-        style={styles.tab}
-      >
-        <View style={styles.tabLabel}>
-          <AppText
-            variant="heading"
-            tone={selected ? 'text' : 'textTertiary'}
-            style={styles.tabText}
-          >
-            {label}
-          </AppText>
-          {selected ? (
-            <View style={[styles.tabDot, { backgroundColor: colors.accent }]} />
-          ) : null}
-        </View>
-        <View
-          style={[
-            styles.tabLine,
-            { backgroundColor: selected ? colors.accent : 'transparent' },
-          ]}
-        />
-      </Pressable>
-    );
-  };
-  return (
-    <View style={[styles.tabs, { borderColor: colors.border }]}>
-      {tab('mine', '내 크루')}
-      {tab('recruit', '크루 모집')}
-    </View>
-  );
-}
 
 function UpcomingCard({ run }: { run: GroupRunSummary }) {
   const navigation = useNavigation();
@@ -387,8 +340,8 @@ function NoCrews({ data }: { data: MyGroupRuns }) {
 }
 
 // 6.0 그룹 · 내 크루 (6.0b without crews): the next group run pinned on top, then each crew's runs.
-export function GroupScreen() {
-  const { colors } = useTheme();
+// One page of the group tab pager (GroupTabScreen).
+export function MyCrewsPage() {
   const insets = useSafeAreaInsets();
   const { groupRuns } = useRepositories();
   const { version } = useGroupRunDraft();
@@ -423,14 +376,7 @@ export function GroupScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <View style={{ paddingTop: insets.top }}>
-        <GroupTabs active="mine" />
-      </View>
+    <View style={styles.root}>
       {mine.status === 'loading' ? (
         <ActivityIndicator style={styles.loading} />
       ) : mine.status === 'error' ? (
@@ -474,16 +420,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  tabs: {
-    flexDirection: 'row',
-    marginHorizontal: spacing.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  tab: { flex: 1, alignItems: 'center', paddingTop: spacing.xl },
-  tabLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  tabText: { paddingBottom: spacing.lg },
-  tabDot: { width: 5, height: 5, borderRadius: 3, marginBottom: spacing.lg },
-  tabLine: { height: 2, width: 52, borderRadius: 1 },
   content: { padding: spacing.screen, gap: spacing.xl },
   upcoming: {
     flexDirection: 'row',
