@@ -39,6 +39,7 @@ public enum ErrorCode {
     NICKNAME_DUPLICATED(HttpStatus.CONFLICT, "NICKNAME_DUPLICATED", "이미 사용 중인 닉네임입니다."),
     LOGIN_ID_DUPLICATED(HttpStatus.CONFLICT, "LOGIN_ID_DUPLICATED", "이미 사용 중인 아이디입니다."),
     INVALID_CONSENT(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CONSENT", "요청 값이 유효하지 않습니다."),
+    INVALID_SETTING(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SETTING", "요청한 설정이 유효하지 않습니다."),
     INVALID_PROFILE(HttpStatus.BAD_REQUEST, "INVALID_PROFILE", "요청 값이 유효하지 않습니다."),
     INVALID_PASSWORD_POLICY(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PASSWORD_POLICY", "요청 값이 유효하지 않습니다."),

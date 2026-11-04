@@ -56,6 +56,14 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
         var body = mapper.readTree(response.getContentAsString());
         long id = body.get("user").get("id").asLong();
         assertThat(id).isPositive();
+        mvc.perform(get("/api/v1/users/me/settings")
+                        .header("Authorization", "Bearer " + body.get("accessToken").asString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.voiceCoachingEnabled").value(false))
+                .andExpect(jsonPath("$.bpmGuideEnabled").value(false))
+                .andExpect(jsonPath("$.locationRecordingMode").value("OFF"))
+                .andExpect(jsonPath("$.notifications.groupRun").value(false))
+                .andExpect(jsonPath("$.notifications.community").value(false));
         assertThat(body.get("user").get("loginId").asString()).isEqualTo("newrunner");
         var saved =
                 jdbc.queryForMap(
