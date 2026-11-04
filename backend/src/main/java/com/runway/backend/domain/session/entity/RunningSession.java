@@ -17,7 +17,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 러닝 세션의 현재 상태. 상태·목표·BPM의 확정 변경은 모두 stateVersion 하나로 보호한다. 기록 통계 컬럼은 결과 집계 업무에서 매핑한다.
+ * 러닝 세션의 현재 상태. 상태·목표·BPM의 확정 변경은 모두 stateVersion 하나로 보호한다. 기록 통계 컬럼은 종료 후 분석만 쓴다.
  */
 @Entity
 @Table(name = "running_sessions")
@@ -80,6 +80,34 @@ public class RunningSession {
             nullable = false,
             columnDefinition = "running_sessions_analysis_status_enum")
     private AnalysisStatus analysisStatus;
+
+    // 종료 후 분석(S15P31E105-312)이 덮어쓰는 기록 통계. 분석 전·미측정은 null이다.
+    @Column(name = "total_distance", precision = 12, scale = 2)
+    private BigDecimal totalDistance;
+
+    @Column(name = "moving_duration")
+    private Integer movingDuration;
+
+    @Column(name = "elapsed_duration")
+    private Integer elapsedDuration;
+
+    @Column(name = "moving_duration_to_goal")
+    private Integer movingDurationToGoal;
+
+    @Column(name = "goal_achieved")
+    private Boolean goalAchieved;
+
+    @Column(name = "average_pace", precision = 10, scale = 2)
+    private BigDecimal averagePace;
+
+    @Column(name = "average_heart_rate", precision = 7, scale = 2)
+    private BigDecimal averageHeartRate;
+
+    @Column(name = "average_cadence", precision = 8, scale = 2)
+    private BigDecimal averageCadence;
+
+    @Column(name = "max_heart_rate", precision = 7, scale = 2)
+    private BigDecimal maxHeartRate;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -190,6 +218,54 @@ public class RunningSession {
         }
         status = RunningSessionStatus.CANCELLED;
         bumpVersion(now);
+    }
+
+    /** 종료 후 분석을 시작할 수 있는 세션인지. 신규 프로토콜의 COMPLETED이면서 분석 대기(PENDING)여야 한다. */
+    public boolean canStartAnalysis() {
+        return stateVersion >= 1
+                && status == RunningSessionStatus.COMPLETED
+                && analysisStatus == AnalysisStatus.PENDING;
+    }
+
+    /**
+     * 분석 PENDING → PROCESSING. 세션 행을 잠근 트랜잭션에서 호출해 한 경로만 시작하게 한다. PENDING과 PROCESSING은 모두 "분석 중"으로
+     * 표시되므로 버전은 올리지 않는다.
+     */
+    public void startAnalysis(Instant now) {
+        if (!canStartAnalysis()) {
+            throw new IllegalStateException("analysis cannot start from " + analysisStatus);
+        }
+        analysisStatus = AnalysisStatus.PROCESSING;
+        updatedAt = now;
+    }
+
+    /** 분석 PROCESSING → READY. 계산 결과를 덮어쓰며(가산하지 않음) 버전을 1 올린다. 분할 저장과 같은 트랜잭션에서 호출한다. */
+    public void completeAnalysis(SessionAnalysisStats stats, Instant now) {
+        requireProcessing();
+        totalDistance = stats.totalDistance();
+        movingDuration = stats.movingDuration();
+        elapsedDuration = stats.elapsedDuration();
+        movingDurationToGoal = stats.movingDurationToGoal();
+        goalAchieved = stats.goalAchieved();
+        averagePace = stats.averagePace();
+        averageHeartRate = stats.averageHeartRate();
+        averageCadence = stats.averageCadence();
+        maxHeartRate = stats.maxHeartRate();
+        analysisStatus = AnalysisStatus.READY;
+        bumpVersion(now);
+    }
+
+    /** 분석 PROCESSING → FAILED. 통계는 건드리지 않고 버전을 1 올린다. 자동 재시도하지 않는다. */
+    public void failAnalysis(Instant now) {
+        requireProcessing();
+        analysisStatus = AnalysisStatus.FAILED;
+        bumpVersion(now);
+    }
+
+    private void requireProcessing() {
+        if (analysisStatus != AnalysisStatus.PROCESSING) {
+            throw new IllegalStateException("analysis is not PROCESSING: " + analysisStatus);
+        }
     }
 
     /** S09. 상태·버전·분석·시작/종료시각은 바꾸지 않는다. */
