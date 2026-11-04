@@ -3,7 +3,7 @@ import {
   type MockOptions,
 } from '../mock/createMockRepositories';
 import type { Repositories } from '../types';
-import { checkLoginId, login, signUp } from './auth';
+import { checkLoginId, login, logout, signUp } from './auth';
 import { createCommunityApi } from './community';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
@@ -48,7 +48,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
   return {
     ...mock,
     // Phone verification has no API yet, so it stays on mock data.
-    auth: { ...mock.auth, login, checkLoginId, signUp },
+    auth: { ...mock.auth, login, checkLoginId, signUp, logout },
     profile: {
       getMe,
       getDetail,

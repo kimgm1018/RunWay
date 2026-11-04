@@ -494,6 +494,8 @@ export function createMockRepositories(
         verifiedPhones.delete(verificationToken);
         return respond(undefined, options);
       },
+      // U03: the mock keeps no refresh tokens, so every logout is a 204 like an unknown token on the server.
+      logout: () => respond(undefined, options),
     },
     profile: {
       getMe: () =>

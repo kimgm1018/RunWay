@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { Alert } from 'react-native';
 import { appConfig } from '../config';
+import { useRepositories } from '../data/DataProvider';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
 import { spotifyTokens } from '../data/spotify/auth';
@@ -18,6 +19,7 @@ import {
   refreshWatchHealthConsent,
   setWatchHealthConsent,
 } from '../health/watchHealth';
+import { retryPendingLogouts, revokeOnServer } from './serverLogout';
 
 type SessionValue = {
   signedIn: boolean;
@@ -31,7 +33,10 @@ type SessionValue = {
   // For an account that still has to finish 1.6 러닝 프로필: requests can use the tokens, but a relaunch starts signed out
   // so the next U01 sends the user back to setup (users.md 초기 설정과 화면 분기).
   holdTokens: (tokens: AuthTokens) => void;
+  // Leaves on the phone only: a rejected token (401) and the end of 회원탈퇴 use it.
   signOut: () => void;
+  // 설정 로그아웃: revokes the refresh token on the server (U03) first, then signs out on the phone.
+  logOut: () => Promise<void>;
 };
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -47,6 +52,12 @@ export function SessionProvider({
   const [signedIn, setSignedIn] = useState(initialSignedIn);
   const [restoring, setRestoring] = useState(!initialSignedIn);
   const [loginRequired, setLoginRequired] = useState(false);
+  const { auth } = useRepositories();
+
+  // S15P31E105-393: a logout whose U03 got no answer is sent again once per launch. Fire and forget.
+  useEffect(() => {
+    void retryPendingLogouts(auth.logout);
+  }, [auth]);
 
   useEffect(() => {
     if (initialSignedIn) {
@@ -119,6 +130,16 @@ export function SessionProvider({
     setSignedIn(false);
   }, []);
 
+  // Waits for U03 (5 seconds at most) so the server forgets the login, then leaves like signOut. A failed U03
+  // still signs out here; revokeOnServer keeps the token for the next launch instead of calling it revoked.
+  const logOut = useCallback(async () => {
+    const refreshToken = tokenStore.current()?.refreshToken;
+    if (refreshToken) {
+      await revokeOnServer(auth.logout, refreshToken);
+    }
+    signOut();
+  }, [auth, signOut]);
+
   // S15P31E105-313: a login or a restored session hands the server's current consent (W05) to the watch, since
   // signOut left it at DISAGREE. If W05 cannot be read, only a saved consent whose delivery failed is re-sent.
   // Signed out, it runs once at launch for a failed withdrawal. Fire and forget: a failed refresh or a missing
@@ -151,6 +172,7 @@ export function SessionProvider({
       signIn,
       holdTokens,
       signOut,
+      logOut,
     }),
     [
       signedIn,
@@ -160,6 +182,7 @@ export function SessionProvider({
       signIn,
       holdTokens,
       signOut,
+      logOut,
     ],
   );
   return (

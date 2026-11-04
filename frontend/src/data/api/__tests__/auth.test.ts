@@ -1,6 +1,7 @@
 import { appConfig } from '../../../config';
 import { DataError } from '../../errors';
-import { checkLoginId, login, signUp } from '../auth';
+import { checkLoginId, login, logout, signUp } from '../auth';
+import { onUnauthorized } from '../http';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -147,3 +148,41 @@ test.each([
     });
   },
 );
+
+test('U03 posts the refresh token without the access token and settles on 204', async () => {
+  // An expired access token must not ride along or stop the logout.
+  tokenStore.hold({ accessToken: 'expired', refreshToken: 'refresh-1' });
+  const unauthorized = jest.fn();
+  const stop = onUnauthorized(unauthorized);
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 204,
+    text: async () => '',
+    json: async () => undefined,
+  });
+
+  await expect(logout('refresh-1')).resolves.toBeUndefined();
+
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe(`${appConfig.apiBaseUrl}/auth/logout`);
+  expect(init.method).toBe('POST');
+  expect(JSON.parse(init.body)).toEqual({ refreshToken: 'refresh-1' });
+  expect(init.headers.Authorization).toBeUndefined();
+  expect(unauthorized).not.toHaveBeenCalled();
+  stop();
+});
+
+test('a 503 from U03 rejects without the refresh token in the error', async () => {
+  fetchMock.mockResolvedValue(
+    respond(503, {
+      code: 'SERVICE_UNAVAILABLE',
+      message: '잠시 후 다시 시도해 주세요.',
+    }),
+  );
+  const error = await logout('refresh-secret').catch(caught => caught);
+  expect(error).toBeInstanceOf(DataError);
+  expect(error.status).toBe(503);
+  expect(JSON.stringify({ ...error, message: error.message })).not.toContain(
+    'refresh-secret',
+  );
+});

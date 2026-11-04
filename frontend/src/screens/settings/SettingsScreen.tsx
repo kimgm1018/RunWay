@@ -219,6 +219,12 @@ export function SettingsScreen() {
   useFocusEffect(useCallback(() => reload(), [reload]));
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
+  // True while U03 runs (5 seconds at most), so 로그아웃 is not sent twice.
+  const [leaving, setLeaving] = useState(false);
+  const logOut = () => {
+    setLeaving(true);
+    void session.logOut();
+  };
   const data = loaded.status === 'ready' ? loaded.data : null;
   useEffect(() => {
     if (data) {
@@ -437,8 +443,11 @@ export function SettingsScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="로그아웃"
-                  onPress={session.signOut}
+                  accessibilityState={{ busy: leaving, disabled: leaving }}
+                  disabled={leaving}
+                  onPress={logOut}
                   hitSlop={8}
+                  style={leaving && styles.leaving}
                 >
                   <AppText variant="bodyStrong">로그아웃</AppText>
                 </Pressable>
@@ -533,5 +542,6 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingVertical: spacing.xxl,
   },
+  leaving: { opacity: 0.5 },
   bar: { width: 1, height: 14 },
 });
