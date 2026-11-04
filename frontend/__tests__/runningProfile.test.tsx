@@ -168,7 +168,7 @@ async function launch(signedIn = false) {
 // 1.2 로그인 with an account that still needs setup lands on 1.6.
 async function openRunningProfile() {
   const screen = await launch();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await type(screen, '아이디', 'minjun01');
   await type(screen, '비밀번호', 'runway123');
   await press(screen, '로그인');

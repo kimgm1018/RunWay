@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The middle of the 1.1 시작 background (S15P31E105-425), shown before the first JS frame and behind the
+         Android 12+ launch splash, so opening the app runs into the same light blue-grey as 1.1. -->
+    <color name="start_background">#C9D3D9</color>
+</resources>

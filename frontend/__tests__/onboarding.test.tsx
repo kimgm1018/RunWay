@@ -98,8 +98,8 @@ async function login(screen: Screen, loginId: string, password: string) {
 
 test('login shows the failure count, then enters home with the right password', async () => {
   const screen = await render();
-  expect(texts(screen)).toContain('RUN YOUR WAY');
-  await press(screen, '로그인');
+  expect(texts(screen)).toContain('시작하기');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   expect(isDisabled(screen, '로그인')).toBe(true);
   await login(screen, fixtures.account.loginId, 'wrong-pass1');
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
@@ -111,7 +111,7 @@ test('login shows the failure count, then enters home with the right password', 
 
 test('five failed logins lock the account for ten minutes', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await login(screen, fixtures.account.loginId, 'wrong-pass1');
   }
@@ -124,6 +124,7 @@ test('five failed logins lock the account for ten minutes', async () => {
 test('sign-up validates each field and reaches home through the watch connection', async () => {
   const screen = await render();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
   expect(texts(screen)).toContain('만들어요');
 
   await type(screen, '아이디', 'runner01');
@@ -214,7 +215,7 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
     healthDataAccess: 'DISAGREE',
   });
   const screen = await render({ repositories });
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await login(screen, 'halfway1', 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   await press(screen, '초급, 5km 미만 주 1회 이하');
@@ -242,7 +243,7 @@ async function resumeAtRunningProfile(loginId: string) {
   });
   const save = jest.spyOn(repositories.profile, 'saveRunningProfile');
   const screen = await render({ repositories });
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await login(screen, loginId, 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   return { screen, save };
@@ -308,7 +309,7 @@ test('a level resets typed values and digits alone get the colons', async () => 
 
 test('password reset handles unknown numbers and wrong codes, then logs in with the new password', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await press(screen, '비밀번호를 잊으셨나요?');
   expect(texts(screen)).toContain('가입한 전화번호 입력');
   await press(screen, '전화번호로 찾기');
@@ -340,7 +341,7 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
 
 test('five wrong codes require a new code', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await press(screen, '비밀번호를 잊으셨나요?');
   await press(screen, '전화번호로 찾기');
   await type(screen, '전화번호', fixtures.account.phoneNumber);

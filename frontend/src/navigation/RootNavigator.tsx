@@ -1,5 +1,4 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
@@ -15,6 +14,7 @@ import { CourseSearchProvider, courseScreens } from '../screens/course';
 import { homeScreens } from '../screens/home';
 import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
+import { SplashScreen } from '../screens/SplashScreen';
 import { communityScreens } from '../screens/community';
 import { settingsScreens } from '../screens/settings';
 import {
@@ -160,15 +160,8 @@ export function RootNavigator() {
     : authRoutes;
   const { name, colors } = useTheme();
   if (restoring) {
-    // A blank background while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
-    return (
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: colors.background },
-        ]}
-      />
-    );
+    // The splash while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
+    return <SplashScreen />;
   }
   const base = name === 'dark' ? DarkTheme : DefaultTheme;
   const navigationTheme: NavigationTheme = {
