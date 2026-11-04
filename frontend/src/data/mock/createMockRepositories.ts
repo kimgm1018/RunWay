@@ -619,6 +619,18 @@ export function createMockRepositories(
           paceTrendOf(records, months, kstDay(fixtures.now).slice(0, 7)),
           options,
         ),
+      // S09: the run goes, and so do my posts sharing it, as one call on the server.
+      remove: recordId => {
+        if (!records.some(run => run.id === recordId)) {
+          return fail(
+            new DataError('SESSION_NOT_FOUND', '기록 없음', null, 404),
+            options,
+          );
+        }
+        records = records.filter(run => run.id !== recordId);
+        social.removeRecordPosts(recordId);
+        return respond(undefined, options);
+      },
     },
     courses: {
       getSaved: () => respond(saved, options),

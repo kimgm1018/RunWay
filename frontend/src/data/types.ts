@@ -850,6 +850,8 @@ export type Repositories = {
       baseDate: string,
     ) => Promise<RunStatistics>;
     getPaceTrend: (months: number) => Promise<PaceTrend>;
+    // S09: deletes my run and, on the server in the same call, my posts that share it.
+    remove: (recordId: string) => Promise<void>;
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;

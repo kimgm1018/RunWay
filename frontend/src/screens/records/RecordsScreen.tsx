@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -34,6 +34,7 @@ import {
   type Repositories,
   type RunRecordSummary,
 } from '../../data';
+import { onRecordsChanged } from '../../data/recordsChanged';
 import {
   formatDotDateWeekday,
   formatDuration,
@@ -199,6 +200,15 @@ export function RecordsScreen() {
     ),
   );
   const records = data.status === 'ready' ? data.data : null;
+  // A run deleted on 5.2 leaves the month list (S15P31E105-394).
+  const refreshMonth = data.refresh;
+  useEffect(
+    () =>
+      onRecordsChanged(() => {
+        void refreshMonth();
+      }),
+    [refreshMonth],
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>

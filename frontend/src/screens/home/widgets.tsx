@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -36,6 +36,7 @@ import {
   formatPace,
   formatSleep,
 } from '../../format';
+import { onRecordsChanged } from '../../data/recordsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily, homePalette as palette } from '../../theme';
@@ -806,6 +807,15 @@ export function HomeGrid({
   const { width } = useWindowDimensions();
   const board = useResource(useCallback(loadBoard, []));
   useHomeRefresh(board.refresh);
+  // A run deleted on 5.2 leaves 지난 러닝 · 과거 러닝 기록 (S15P31E105-394).
+  const refreshBoard = board.refresh;
+  useEffect(
+    () =>
+      onRecordsChanged(() => {
+        void refreshBoard();
+      }),
+    [refreshBoard],
+  );
   const data = board.status === 'ready' ? board.data : null;
   const half = (width - gutter * 2 - gap) / 2;
   return (

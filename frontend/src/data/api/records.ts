@@ -291,6 +291,11 @@ export function createRecordsApi() {
         changeSecPerKm: roundPace(response.changeSecPerKm),
       };
     },
+    // S09 러닝 세션 삭제: the record ID is the session ID. The server also deletes my posts sharing it.
+    remove: async recordId => {
+      await apiRequest(`/running-sessions/${recordId}`, { method: 'DELETE' });
+      known.delete(recordId);
+    },
   };
 
   // 2.1 러닝 분석: this month's H06 totals, with the weekday bars summed from the month's H01 runs.

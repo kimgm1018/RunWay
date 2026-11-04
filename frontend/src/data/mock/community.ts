@@ -42,6 +42,7 @@ export function createCommunityMock({
   runners: Repositories['runners'];
   myPostCount: () => number;
   setPrivate: (isPrivate: boolean) => void;
+  removeRecordPosts: (recordId: string) => void;
 } {
   const first = records().find(run => run.id === fixtures.myPost.recordId);
   // My own post (7.2b 게시물 메뉴) shares one of my runs, so it is built from the records mock.
@@ -293,6 +294,13 @@ export function createCommunityMock({
       if (profile) {
         profile.isPrivate = isPrivate;
       }
+    },
+    // S09 기록 삭제 takes my posts sharing that run with it.
+    removeRecordPosts: (recordId: string) => {
+      posts = posts.filter(
+        post =>
+          !(post.author.userId === me.userId && post.record.id === recordId),
+      );
     },
   };
 }

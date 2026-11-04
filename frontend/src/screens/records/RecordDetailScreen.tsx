@@ -17,6 +17,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   AppText,
   Backdrop,
+  BottomSheet,
   Card,
   EmptyState,
   Icon,
@@ -25,11 +26,13 @@ import {
   useToast,
 } from '../../components';
 import {
+  DataError,
   useRepositories,
   useResource,
   type Repositories,
   type RunRecordDetail,
 } from '../../data';
+import { recordsChanged } from '../../data/recordsChanged';
 import {
   formatDotDateWeekday,
   formatDuration,
@@ -46,6 +49,7 @@ import {
   ThemeProvider,
   useTheme,
 } from '../../theme';
+import { FooterButton } from '../group/GroupRunDetailScreen';
 import { MockMap } from '../run/MockMap';
 import { SplitChart, type SplitMetric } from './SplitChart';
 
@@ -252,13 +256,91 @@ function MapHead({ record }: { record: RunRecordDetail }) {
 }
 
 // 5.2 기록 상세: one run's route, result against its goal, AI advice and split graphs.
+// S09 failures stay on 5.2 with a toast (sessions.md S09 오류 응답).
+function deleteFailure(error: unknown) {
+  const code = error instanceof DataError ? error.code : null;
+  const status = error instanceof DataError ? error.status : null;
+  if (status === 403) {
+    return '내 기록만 삭제할 수 있어요';
+  }
+  if (code === 'SESSION_NOT_FOUND' || status === 404) {
+    return '이미 삭제된 기록이에요';
+  }
+  if (code === 'INVALID_STATE' || status === 409) {
+    return '기록을 정리하는 중이라 지금은 삭제할 수 없어요. 잠시 후 다시 시도해 주세요';
+  }
+  return '기록을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요';
+}
+
+// 5.2 기록 메뉴 and its 삭제 확인 (S15P31E105-394): the light sheet of 7.2b 게시물 메뉴, with S09's own wording.
+function RecordMenu({
+  visible,
+  onClose,
+  onDelete,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onDelete: () => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const close = () => {
+    setConfirming(false);
+    onClose();
+  };
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await onDelete();
+    } finally {
+      setBusy(false);
+      close();
+    }
+  };
+  return (
+    <BottomSheet
+      visible={visible}
+      onClose={close}
+      title={confirming ? '이 운동 기록을 삭제할까요?' : undefined}
+      description={
+        confirming ? '이 기록을 공유한 게시물도 함께 삭제됩니다.' : undefined
+      }
+    >
+      {confirming ? (
+        <View style={styles.sheetButtons}>
+          <FooterButton title="취소" onPress={close} />
+          <FooterButton title="삭제" danger disabled={busy} onPress={remove} />
+        </View>
+      ) : (
+        <View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="기록 삭제"
+            onPress={() => setConfirming(true)}
+            style={styles.menuRow}
+          >
+            <Icon name="trash" color={k1.coral} size={20} />
+            <AppText variant="body" style={{ color: k1.coralText }}>
+              기록 삭제
+            </AppText>
+          </Pressable>
+          <View style={styles.sheetButtons}>
+            <FooterButton title="닫기" onPress={close} />
+          </View>
+        </View>
+      )}
+    </BottomSheet>
+  );
+}
+
 export function RecordDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'RecordDetail'>>();
   const recordId = route.params?.recordId;
   const { colors } = useTheme();
-  const { courses } = useRepositories();
+  const { courses, records } = useRepositories();
   const toast = useToast();
+  const [menu, setMenu] = useState(false);
   const detail = useResource(
     useCallback(
       async (repositories: Repositories) => {
@@ -282,6 +364,21 @@ export function RecordDetailScreen() {
     navigation.canGoBack()
       ? navigation.goBack()
       : navigateTo(navigation, 'Records');
+
+  // On success 5.1 and 2.1 read again without this run, and 5.2 closes.
+  const deleteRecord = async () => {
+    if (!record) {
+      return;
+    }
+    try {
+      await records.remove(record.id);
+      recordsChanged();
+      toast('기록을 삭제했어요');
+      close();
+    } catch (error) {
+      toast(deleteFailure(error));
+    }
+  };
 
   const toggleSaved = async () => {
     if (!record) {
@@ -383,6 +480,11 @@ export function RecordDetailScreen() {
                 navigation.navigate('PostWrite', { recordId: record.id })
               }
             />
+            <IconButton
+              icon="moreVertical"
+              accessibilityLabel="기록 메뉴"
+              onPress={() => setMenu(true)}
+            />
           </View>
         </SafeAreaView>
         {/* The three buttons sit on the black lower part (DESIGN.md 2-8 5.2 버튼, 1.4 : 1 : 1). */}
@@ -409,12 +511,28 @@ export function RecordDetailScreen() {
           </View>
         </SafeAreaView>
       </ThemeProvider>
+      <RecordMenu
+        visible={menu}
+        onClose={() => setMenu(false)}
+        onDelete={deleteRecord}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+    paddingVertical: spacing.xl,
+  },
+  sheetButtons: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
   loading: { marginTop: spacing.xxxl },
   scroll: { paddingBottom: spacing.xxl },
   map: { height: mapHeight, overflow: 'hidden' },
