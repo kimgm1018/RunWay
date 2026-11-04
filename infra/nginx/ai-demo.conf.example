@@ -1,0 +1,35 @@
+# Add the upstream at infra/nginx/default.conf's http{} scope, beside the existing upstreams.
+# Add the locations inside its HTTPS server{} only during the demonstration window.
+# AI APIs remain reachable only from the docker network; only the demo page and read-only SSE are proxied.
+# For a demo, attach Nginx to the internal runway-ai_default network and use the Compose service name ai.
+upstream runway_ai_service {
+    zone runway_ai_service 64k;
+    server ai:8000 resolve;
+}
+
+location = /ai-demo {
+    return 308 /ai-demo/;
+}
+
+location ^~ /ai-demo/ {
+    proxy_pass http://runway_ai_service/demo/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 60s;
+}
+
+location ~ ^/v1/demo/sessions/(latest|[0-9]+)/events$ {
+    limit_except GET { deny all; }
+    proxy_pass http://runway_ai_service;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
+
+# AI08 batch ingress is deliberately not routed through public Nginx.

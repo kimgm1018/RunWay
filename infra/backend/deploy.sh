@@ -13,7 +13,7 @@ fi
 next_image=$1
 compose_file=$2
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-probe_image=curlimages/curl:8.17.0
+probe_image=python:3.12-alpine
 deployment_started=false
 previous_image_id=
 
@@ -25,6 +25,12 @@ fi
 for tool in docker flock grep; do
     command -v "$tool" >/dev/null || { echo "필요한 도구가 없습니다: $tool" >&2; exit 2; }
 done
+
+if [[ -n ${BACKEND_LEGACY_HEALTH_IMAGE_ID:-} \
+    && ! $BACKEND_LEGACY_HEALTH_IMAGE_ID =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo 'BACKEND_LEGACY_HEALTH_IMAGE_ID는 정확한 sha256 이미지 ID여야 합니다.' >&2
+    exit 2
+fi
 
 # 같은 에이전트의 다른 작업에서도 동시에 백엔드를 배포하지 못하게 한다.
 # 이 경로는 에이전트의 영속 볼륨 안에 있으며 비밀 설정은 저장하지 않는다.
@@ -50,18 +56,23 @@ fi
 # 태그 이름이 바뀌어도 정확한 이전 이미지로 돌아갈 수 있도록 실제 ID를 기억한다.
 previous_image_id=$(docker inspect --format '{{.Image}}' "$previous_container")
 docker image inspect "$previous_image_id" >/dev/null
+previous_check_mode=readiness
+if [[ -n ${BACKEND_LEGACY_HEALTH_IMAGE_ID:-} \
+    && $previous_image_id == "$BACKEND_LEGACY_HEALTH_IMAGE_ID" ]]; then
+    previous_check_mode=legacy
+fi
 
 # 현재 백엔드의 ID를 찾아 check.sh에 상태 검사를 맡긴다.
 # 배포 전·배포 후·복구 후에 같은 함수를 사용한다.
 check_current() {
-    local image=$1 expected_id=$2 container_id
+    local image=$1 expected_id=$2 mode=${3:-readiness} container_id
     container_id=$(compose "$image" ps -a -q backend)
     [[ -n $container_id ]] || return 1
-    bash "$script_dir/check.sh" "$container_id" "$expected_id" "$probe_image"
+    bash "$script_dir/check.sh" "$container_id" "$expected_id" "$probe_image" 120 "$mode"
 }
 
 # 이전 버전이 정상일 때만 교체한다. 삭제되지 않도록 복구용 태그도 남긴다.
-check_current "$next_image" "$previous_image_id"
+check_current "$next_image" "$previous_image_id" "$previous_check_mode"
 docker image tag "$previous_image_id" runway-backend:previous
 next_image_id=$(docker image inspect --format '{{.Id}}' "$next_image")
 
@@ -73,7 +84,7 @@ rollback() {
     if [[ $deployment_started == true ]]; then
         echo '배포 확인 실패: 이전 이미지로 백엔드를 복구합니다.' >&2
         if compose "$previous_image_id" up -d --no-deps --no-build --pull never backend \
-            && check_current "$previous_image_id" "$previous_image_id"; then
+            && check_current "$previous_image_id" "$previous_image_id" "$previous_check_mode"; then
             printf '%s\n' "$previous_image_id" >"$state_dir/current-image"
             echo '이전 이미지 복구 확인 완료. 이번 배포 결과는 실패입니다.' >&2
         else

@@ -1,0 +1,12 @@
+modules:
+  backend_https:
+    prober: http
+    timeout: 8s
+    http:
+      preferred_ip_protocol: ip4
+      valid_status_codes: [404]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      body_size_limit: 16KB
+      fail_if_body_not_matches_regexp:
+        - '"code"\s*:\s*"NOT_FOUND"'

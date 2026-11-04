@@ -1,5 +1,7 @@
 import {
   daysInMonth,
+  editClock,
+  formatClockDigits,
   formatClock,
   formatPace,
   formatPhoneNumber,
@@ -64,4 +66,34 @@ test('finish time and pace convert both ways', () => {
   expect(formatPace(1800 / 5)).toBe('6′00″/km');
   expect(formatClock(3930)).toBe('1:05:30');
   expect(formatClock(1800)).toBe('30:00');
+});
+
+test('digits typed for a time get the colons put in', () => {
+  expect(formatClockDigits('3000', 6)).toBe('30:00');
+  expect(formatClockDigits('10530', 6)).toBe('1:05:30');
+  expect(formatClockDigits('600', 4)).toBe('6:00');
+  expect(formatClockDigits('5', 4)).toBe('5');
+  expect(formatClockDigits('0530', 4)).toBe('05:30');
+  expect(formatClockDigits('12345', 4)).toBe('12:34');
+  expect(formatClockDigits('', 6)).toBe('');
+  expect(parseClock(formatClockDigits('10530', 6))).toBe(3930);
+});
+
+test('editing a time keeps the value and cursor on the digits', () => {
+  // Typing at the end.
+  expect(editClock('3:00', '3:000', 6)).toEqual({ text: '30:00', cursor: 5 });
+  // Backspace at the end.
+  expect(editClock('30:00', '30:0', 6)).toEqual({ text: '3:00', cursor: 4 });
+  expect(editClock('6:00', '6:0', 4)).toEqual({ text: '60', cursor: 2 });
+  // Backspace right after a colon removes the digit before it.
+  expect(editClock('30:00', '3000', 6)).toEqual({ text: '3:00', cursor: 1 });
+  // Typing in the middle keeps the cursor after the new digit.
+  expect(editClock('30:00', '310:00', 6)).toEqual({
+    text: '3:10:00',
+    cursor: 3,
+  });
+  // Pasted or typed punctuation is ignored.
+  expect(editClock('', '30:00', 6)).toEqual({ text: '30:00', cursor: 5 });
+  // Beyond the length limit nothing changes.
+  expect(editClock('12:34', '12:345', 4)).toEqual({ text: '12:34', cursor: 5 });
 });

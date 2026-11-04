@@ -1,0 +1,14 @@
+[Unit]
+Description=Encrypted RunWay database and image backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/lib/runway-backup/backup.py --key-file /root/runway-backup-key
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

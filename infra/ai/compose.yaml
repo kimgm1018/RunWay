@@ -1,0 +1,107 @@
+name: runway-ai
+
+services:
+  ai:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    image: ${AI_IMAGE:?AI_IMAGE is required}
+    restart: unless-stopped
+    init: true
+    environment:
+      HR_MODEL_TYPE: gru
+      HR_MODEL_PATH: /models/gru_final.pt
+      HR_MODEL_SHA256: ${HR_MODEL_SHA256:?HR_MODEL_SHA256 is required}
+      HR_DEVICE: cpu
+      TORCH_NUM_THREADS: "1"
+      # 비우면 ODE 파일을 찾지 않아 GRU 전용으로 동작한다.
+      ODEV21_CHECKPOINT_PATH: ${ODEV21_CHECKPOINT_PATH:-}
+      ODEV21_CHECKPOINT_SHA256: ${ODEV21_CHECKPOINT_SHA256:-}
+      ODEV21_SUMMARY_STATS_PATH: ${ODEV21_SUMMARY_STATS_PATH:-}
+      ODEV21_SUMMARY_STATS_SHA256: ${ODEV21_SUMMARY_STATS_SHA256:-}
+      # 신규 사용자 평균 묶음(모델 파일처럼 /models/ode에 둔다). 경로가 비면 평균 계획 없음(503).
+      ODEV21_POPULATION_BUNDLE_PATH: ${ODEV21_POPULATION_BUNDLE_PATH:-}
+      ODEV21_POPULATION_BUNDLE_SHA256: ${ODEV21_POPULATION_BUNDLE_SHA256:-}
+      PERSONAL_PLAN_POPULATION_MODE: "${PERSONAL_PLAN_POPULATION_MODE:-median_bundle}"
+      ODEV21_VARIANT: ${ODEV21_VARIANT:-}
+      ODEV21_DEVICE: ${ODEV21_DEVICE:-cpu}
+      ODEV21_TORCH_THREADS: "${ODEV21_TORCH_THREADS:-1}"
+      ODEV21_WARMUP_ENABLED: "${ODEV21_WARMUP_ENABLED:-true}"
+      ODEV21_VALIDATED_HORIZON_SEC: "${ODEV21_VALIDATED_HORIZON_SEC:-5400}"
+      # 앱에서 읽는 선택 기능. 값이 없으면 두 기능 모두 꺼진다.
+      ODE_PREVIEW_ENABLED: "${ODE_PREVIEW_ENABLED:-false}"
+      DECIDE_FORECAST_ENABLED: "${DECIDE_FORECAST_ENABLED:-false}"
+      # 자유러닝 경사 처리: reject(팀 기존 계약) | unknown | flat0(기본값, 0% 평지)
+      FREE_RUN_GRADE_POLICY: "${FREE_RUN_GRADE_POLICY:-flat0}"
+      # 개인 계획: 팀 DB 읽기 전용 접속(비우면 503 NOT_READY)과 실험 기능 스위치. 값은 배포 환경에서만 준다.
+      AI_DB_URL: ${AI_DB_URL:-}
+      GRU_PERSONALIZATION_ENABLED: "${GRU_PERSONALIZATION_ENABLED:-false}"
+      GRU_PERSONALIZATION_MAX_WINDOWS: "${GRU_PERSONALIZATION_MAX_WINDOWS:-2000}"
+      GRU_PERSONALIZATION_CACHE_TTL_SEC: "${GRU_PERSONALIZATION_CACHE_TTL_SEC:-300}"
+      GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC: "${GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC:-60}"
+      GRU_PERSONALIZATION_CACHE_MAX_USERS: "${GRU_PERSONALIZATION_CACHE_MAX_USERS:-1024}"
+      GRU_PERSONALIZATION_DB_TIMEOUT_MS: "${GRU_PERSONALIZATION_DB_TIMEOUT_MS:-300}"
+      # 무거운 요청 대기열 두 줄: 계획(AI05·AI09)과 개인화(AI06). 대기 한도는 공통.
+      HEAVY_MAX_CONCURRENCY: "${HEAVY_MAX_CONCURRENCY:-1}"
+      HEAVY_PERSONALIZE_MAX_CONCURRENCY: "${HEAVY_PERSONALIZE_MAX_CONCURRENCY:-1}"
+      HEAVY_QUEUE_WAIT_SEC: "${HEAVY_QUEUE_WAIT_SEC:-30}"
+      PERSONAL_PLAN_EXPERIMENTAL_ENABLED: "${PERSONAL_PLAN_EXPERIMENTAL_ENABLED:-false}"
+      PERSONAL_PLAN_SEARCH_BUDGET_CELLS: "${PERSONAL_PLAN_SEARCH_BUDGET_CELLS:-70000}"
+      PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN: "${PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN:-true}"
+      ODEV21_VALIDATION_REF: ${ODEV21_VALIDATION_REF:-}
+      ODEV21_P4_LR: "${ODEV21_P4_LR:-0.03}"
+      ODEV21_P4_LAMBDA: "${ODEV21_P4_LAMBDA:-1.0}"
+      ODEV21_P4_STEPS: "${ODEV21_P4_STEPS:-100}"
+      MPC_MARGIN_TABLE_PATH: ${MPC_MARGIN_TABLE_PATH:-}
+    # 실제 DB URL은 이미지·Compose 출력 대신 Secret 파일에서 읽는다.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        export AI_DB_URL="$$(cat /run/secrets/ai_db_url)"
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    secrets:
+      - ai_db_url
+    networks:
+      - default
+      - database
+    # GRU·ODE 동시 요청의 실제 최고 사용량을 확인한 뒤 조정한다.
+    mem_limit: 1g
+    cpus: 1.0
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - type: bind
+        source: ${AI_MODEL_FILE:?AI_MODEL_FILE is required}
+        target: /models/gru_final.pt
+        read_only: true
+        bind:
+          create_host_path: false
+      # ODE는 같은 host 디렉터리에 두는 선택 기능이다. 파일이 없으면 GRU만 준비된다.
+      - type: bind
+        source: ${AI_MODEL_DIR:?AI_MODEL_DIR is required}
+        target: /models/ode
+        read_only: true
+        bind:
+          create_host_path: false
+    expose:
+      - "8000"
+
+# 외부 포트 없이 이 네트워크에 연결한 컨테이너만 접근한다.
+networks:
+  default:
+    internal: true
+  database:
+    external: true
+    name: runway-db_default
+
+secrets:
+  ai_db_url:
+    file: ${AI_DB_URL_FILE:?AI_DB_URL_FILE is required}

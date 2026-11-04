@@ -1,12 +1,9 @@
 package com.runway.watch.run
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import android.content.Context
+import com.runway.watch.session.RunSessions
 
-/** Release builds have no run controller until 256; the app only shows the waiting screen. */
+/** Release builds use the real controller: approved commands from the phone start and stop the exercise (S15P31E105-256). */
 object RunControls {
-    fun create(): RunControl = object : RunControl {
-        override val snapshot: StateFlow<RunSnapshot> = MutableStateFlow(RunSnapshot())
-        override fun send(intent: RunIntent) = Unit
-    }
+    fun create(context: Context): RunControl = RunSessions.get(context).control
 }

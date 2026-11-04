@@ -8,7 +8,6 @@ export type ReadinessState =
 export type UserProfile = {
   id: string;
   nickname: string;
-  runningLevel: 'beginner' | 'intermediate' | 'advanced';
   // 2.1 홈 avatar; null shows the first letter of the nickname.
   profileImageUrl: string | null;
 };
@@ -111,7 +110,8 @@ export type RunStatistics = PeriodSummary & {
   breakdown: number[];
   // Share of time in heart rate zones 1–5; empty without heart rate data.
   heartRateZones: number[];
-  previousPeriod: PeriodSummary | null;
+  // H06 previousPeriod has no time total; 5.3 compares count, distance and pace.
+  previousPeriod: Omit<PeriodSummary, 'totalDurationSec'> | null;
 };
 
 // 5.3 평균 페이스 추이 (H07), oldest month first.
@@ -163,7 +163,8 @@ export type RecommendedCourse = {
   // 순환 · 왕복 · 편도 순환
   shapeKind: string;
   environmentLabels: string[];
-  elevationGainM: number;
+  // null when the course has no measured climb (C03 elevationGainM).
+  elevationGainM: number | null;
   // Relative height of each tenth of the course, 0–100 (구간 고도).
   elevationProfile: number[];
   reason: string;
@@ -202,15 +203,18 @@ export type Post = {
   record: PostRecord;
   courseShared: boolean;
   createdAt: string;
-  likeCount: number;
+  // null when the server does not count them yet (CMT02·CMT03); the screens then leave the number out.
+  likeCount: number | null;
   liked: boolean;
-  commentCount: number;
+  commentCount: number | null;
   bookmarked: boolean;
 };
 
 export type PostComment = {
   id: string;
   author: PostAuthor;
+  // Mine shows 7.2's 댓글 수정·삭제 menu (CMT08·CMT09).
+  isMine: boolean;
   body: string;
   createdAt: string;
   likeCount: number;
@@ -370,17 +374,20 @@ export type CrewDetail = CrewListItem & {
 export type CrewDraft = {
   name: string;
   area: string;
+  // The picked place's address, which the server reads its region from.
+  address: string | null;
   description: string | null;
   joinPolicy: CrewJoinPolicy;
   capacity: number;
 };
 
 // 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
+// M05 has only the nickname, so loginId and level are null for server requests.
 export type CrewJoinRequest = {
   userId: string;
   nickname: string;
-  loginId: string;
-  level: SelfReportedLevel;
+  loginId: string | null;
+  level: SelfReportedLevel | null;
   recent5kPaceSecPerKm: number | null;
   // 첫 크루: the applicant has never been in a crew.
   firstCrew: boolean;
@@ -533,6 +540,8 @@ export type Track = {
   title: string;
   subtitle: string;
   durationSec: number;
+  // The album cover (Spotify Web API); without one 2.7 draws its default 'ocean' cover.
+  artworkUrl?: string | null;
 };
 
 export type Playlist = { id: string; title: string };
@@ -562,6 +571,8 @@ export type MusicState = {
 export type AuthSession = {
   user: { id: number; loginId: string };
   accessToken: string;
+  refreshToken: string;
+  refreshExpiresAt: string;
   onboardingCompleted: boolean;
 };
 
@@ -578,6 +589,13 @@ export type SignUpRequest = {
   gender: Gender;
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
+};
+
+// A photo picked on the phone, as React Native's FormData sends it. The server takes jpeg or png up to 5MB.
+export type PhotoFile = {
+  uri: string;
+  type: 'image/jpeg' | 'image/png';
+  name: string;
 };
 
 export type BasicProfile = Pick<
@@ -601,11 +619,34 @@ export type PhoneCodeRequest = {
 
 export type SelfReportedLevel = 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
 
-// U09 평소 러닝 정보.
+// 평소 러닝 정보, part of the running profile (U06). Distance and time are null when the pace was typed directly.
 export type RunningBaseline = {
   baselineDistanceM: number | null;
   baselineDurationSec: number | null;
   usualPaceSecPerKm: number;
+};
+
+// U06 러닝 프로필: the running level and the usual pace in one.
+export type RunningProfile = RunningBaseline & {
+  selfReportedLevel: SelfReportedLevel;
+  onboardingCompleted: boolean;
+};
+
+// How the usual pace was entered (U07 inputType). Sending the other way's fields is rejected as mixed input.
+export type PaceEntry =
+  | { inputType: 'PACE'; usualPaceSecPerKm: number }
+  | {
+      inputType: 'DISTANCE_TIME';
+      baselineDistanceM: number;
+      baselineDurationSec: number;
+      // Worked out on the phone; the server stores it as given.
+      usualPaceSecPerKm: number;
+    };
+
+// U07 저장·부분 수정. The first save needs both; after that either one alone keeps the other.
+export type RunningProfileChange = {
+  selfReportedLevel?: SelfReportedLevel;
+  pace?: PaceEntry;
 };
 
 export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
@@ -649,6 +690,108 @@ export type WithdrawalSummary = {
   ownedCrews: string[];
 };
 
+// S01~S08 러닝 세션 제어 (docs/design/api/sessions.md). 서버 ID는 int64 정밀도를 지키기 위해 문자열로 다룬다.
+export type SessionStatus =
+  | 'READY'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'INTERRUPTED';
+
+export type ControlAction = 'START' | 'PAUSE' | 'RESUME' | 'END';
+
+export type ControlResultCode =
+  | 'PENDING'
+  | 'APPLIED'
+  | 'REJECTED'
+  | 'IGNORED'
+  | 'UNKNOWN';
+
+export type SessionCommand = {
+  commandId: string;
+  action: string;
+  expectedVersion: number;
+  result: ControlResultCode;
+  appliedAt: string | null;
+  reasonCode: string | null;
+};
+
+export type SessionGoalDraft = {
+  courseId: string | null;
+  comparisonSessionId: string | null;
+  targetDistanceM: number | null;
+  targetDurationSec: number | null;
+  targetPaceSecPerKm: number | null;
+};
+
+export type RunningSessionView = {
+  sessionId: string;
+  controlDeviceId: string | null;
+  relayDeviceId: string | null;
+  state: SessionStatus;
+  stateVersion: number;
+  startedAt: string | null;
+  endedAt: string | null;
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  pendingCommand: SessionCommand | null;
+  lastCommand: SessionCommand | null;
+  analysisStatus: string;
+};
+
+// S03~S06 REQUEST 응답. 같은 요청 슬롯의 재전송이면 저장된 결과가 온다.
+export type CommandApproval = {
+  commandId: string;
+  action: ControlAction;
+  expectedVersion: number;
+  result: ControlResultCode;
+};
+
+// S03~S06 RESULT 본문. 실행기기(워치)가 보고한 값을 그대로 옮긴다.
+export type CommandReport = {
+  commandId: string;
+  deviceId: string;
+  result: 'APPLIED' | 'REJECTED' | 'UNKNOWN';
+  appliedAt: string | null;
+  reasonCode: string | null;
+  uploadComplete?: boolean;
+};
+
+// W01 등록 기기(S15P31E105-308). 연동 전에는 목업 고정값이다.
+export type LinkedDevices = { watchDeviceId: string; phoneDeviceId: string };
+
+// 워치가 보낸 세션 메시지 (watch-mobile-server-integration.md 9.3).
+export type WatchSessionEvent =
+  | {
+      type: 'COMMAND_RESULT';
+      sessionId: string;
+      commandId: string;
+      result: 'APPLIED' | 'REJECTED' | 'UNKNOWN';
+      appliedAt: string | null;
+      reasonCode: string | null;
+      pendingBatchCount: number | null;
+      uploadComplete: boolean | null;
+    }
+  | { type: 'START_REQUEST'; sessionId: string; expectedVersion: number }
+  | {
+      type: 'COMMAND_REQUEST';
+      sessionId: string;
+      action: 'PAUSE' | 'RESUME' | 'END' | 'CANCEL';
+      expectedVersion: number;
+    }
+  // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
+  | {
+      type: 'BATCH_DATA';
+      sessionId: string;
+      batchId: string;
+      deviceId: string;
+      itemCount: number;
+      body: string;
+    };
+
+// W07 서버 저장 ACK (devices-health.md W07 Response).
+export type SyncBatchAck = { status: string; batchId: string; acceptedCount: number };
+
 export type Repositories = {
   auth: {
     login: (request: {
@@ -667,13 +810,20 @@ export type Repositories = {
       verificationToken: string;
       newPassword: string;
     }) => Promise<void>;
+    // U03 로그아웃: revokes the login the refresh token belongs to (204). Needs no access token.
+    logout: (refreshToken: string) => Promise<void>;
   };
   profile: {
     getMe: () => Promise<UserProfile>;
     updateBasic: (profile: BasicProfile) => Promise<void>;
-    setRunningLevel: (level: SelfReportedLevel) => Promise<void>;
-    setRunningBaseline: (baseline: RunningBaseline) => Promise<void>;
+    // null until the first U07 save (404 PROFILE_NOT_SET).
+    getRunningProfile: () => Promise<RunningProfile | null>;
+    saveRunningProfile: (
+      change: RunningProfileChange,
+    ) => Promise<RunningProfile>;
     getDetail: () => Promise<ProfileDetail>;
+    // 8.2 사진 바꾸기: F01 upload, then U05 profileImageId. Resolves to the new photo address.
+    changePhoto: (photo: PhotoFile) => Promise<string | null>;
   };
   settings: {
     get: () => Promise<AppSettings>;
@@ -700,6 +850,8 @@ export type Repositories = {
       baseDate: string,
     ) => Promise<RunStatistics>;
     getPaceTrend: (months: number) => Promise<PaceTrend>;
+    // S09: deletes my run and, on the server in the same call, my posts that share it.
+    remove: (recordId: string) => Promise<void>;
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;
@@ -735,6 +887,8 @@ export type Repositories = {
     listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
     // M03: I become the leader and the only member.
     create: (draft: CrewDraft) => Promise<{ id: string }>;
+    // M08 크루 나가기. The leader cannot leave this way (OWNER_CANNOT_LEAVE).
+    leave: (crewId: string) => Promise<void>;
     // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
     decideJoinRequest: (
       crewId: string,
@@ -749,6 +903,11 @@ export type Repositories = {
     join: (groupRunId: string) => Promise<void>;
     leave: (groupRunId: string) => Promise<void>;
     create: (draft: GroupRunDraft) => Promise<{ id: string }>;
+    // G04 그룹런 수정 (6.8 opened from 6.4 by the host): the crew stays.
+    update: (
+      groupRunId: string,
+      draft: Omit<GroupRunDraft, 'crewId'>,
+    ) => Promise<void>;
     cancel: (groupRunId: string, reason: GroupRunCancelReason) => Promise<void>;
     searchPlaces: (query: string) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
@@ -777,6 +936,9 @@ export type Repositories = {
     setLiked: (postId: string, liked: boolean) => Promise<void>;
     setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
     addComment: (postId: string, body: string) => Promise<PostComment>;
+    // CMT08 · CMT09 on one of my comments; updateComment answers with the saved text.
+    updateComment: (commentId: string, body: string) => Promise<string>;
+    removeComment: (commentId: string) => Promise<void>;
   };
   // 7.4 · 7.4b (U21–U23). userId null is me.
   runners: {
@@ -804,14 +966,109 @@ export type Repositories = {
   };
   music: {
     getState: () => Promise<MusicState>;
-    selectSource: (source: MusicSource) => Promise<MusicState>;
+    // null clears the pick (2.8: the picked row pressed again), back to 2.7a 미연결.
+    selectSource: (source: MusicSource | null) => Promise<MusicState>;
     // Opens login, permission or install for a service (2.8 오른쪽 버튼).
     resolveService: (service: MusicService) => Promise<MusicState>;
     reconnect: () => Promise<MusicState>;
+    // 2.7 이전 · 재생/일시정지 · 다음. Each resolves to the state read back after the command (MUS-004).
+    play: () => Promise<MusicState>;
+    pause: () => Promise<MusicState>;
+    next: () => Promise<MusicState>;
+    previous: () => Promise<MusicState>;
   };
   // The current time; mock data pins it to the prototype's 12:45 so relative times and day/night match.
   clock: {
     now: () => Date;
+  };
+  // S01·S02·S03~S07·S08(REPORT_PREPARED·ABORT_UNCONFIRMED_START). 실패는 DataError(code)로 던진다.
+  session: {
+    create: (request: {
+      controlDeviceId: string;
+      relayDeviceId: string;
+      goal: SessionGoalDraft;
+    }) => Promise<RunningSessionView>;
+    get: (sessionId: string) => Promise<RunningSessionView>;
+    // 워치의 준비 결과를 그대로 전달한다(ready=false 포함, sessions.md S08 REPORT_PREPARED).
+    reportPrepared: (
+      sessionId: string,
+      request: {
+        deviceId: string;
+        expectedVersion: number;
+        ready: boolean;
+        reasonCode: string | null;
+      },
+    ) => Promise<void>;
+    requestControl: (
+      sessionId: string,
+      action: ControlAction,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<CommandApproval>;
+    reportResult: (
+      sessionId: string,
+      action: ControlAction,
+      report: CommandReport,
+    ) => Promise<{
+      commandId: string;
+      result: ControlResultCode;
+      session: RunningSessionView;
+    }>;
+    cancel: (
+      sessionId: string,
+    ) => Promise<{ id: string; status: SessionStatus }>;
+    abortUnconfirmedStart: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<RunningSessionView>;
+    // W07. 워치 batch 본문 원문을 바꾸지 않고 보낸다(S15P31E105-311).
+    uploadBatch: (body: string) => Promise<SyncBatchAck>;
+  };
+  // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
+  watchSession: {
+    getLinkedDevices: () => Promise<LinkedDevices | null>;
+    // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
+    prepare: (
+      sessionId: string,
+      request: { stateVersion: number; deviceId: string; goal: SessionGoalDraft },
+    ) => Promise<{
+      stateVersion: number;
+      ready: boolean;
+      reasonCode: string | null;
+    }>;
+    // 서버가 승인한 명령을 전달만 한다. START는 START_AUTHORIZED, 그 외는 COMMAND_REQUEST(APPLY).
+    sendCommand: (
+      sessionId: string,
+      approval: CommandApproval,
+    ) => Promise<void>;
+    sendReceived: (
+      sessionId: string,
+      receipt: {
+        commandId: string;
+        persisted: boolean;
+        stateVersion: number | null;
+      },
+    ) => Promise<void>;
+    // STATE_RESULT(scope=SERVER).
+    sendServerState: (
+      sessionId: string,
+      session: RunningSessionView,
+    ) => Promise<void>;
+    // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
+    sendError: (
+      sessionId: string,
+      error: { code: string; retryable: boolean; failedType: string },
+    ) => Promise<void>;
+    // W07 COMMITTED를 폰에 기록하고 워치에 BATCH_COMMITTED를 보낸다. 기록과 맞지 않으면 실패한다.
+    commitBatch: (batchId: string, acceptedCount: number) => Promise<void>;
+    // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
+    failBatch: (batchId: string, code: string) => Promise<void>;
+    // 등록하면 수신함에 남은 이벤트부터 전달한다.
+    subscribe: (listener: (event: WatchSessionEvent) => void) => () => void;
+    // 러닝 중 포그라운드 서비스. 켜는 동안 활성 세션 ID를 기억해 앱 재실행 때 다시 붙는다.
+    setRunActive: (active: boolean, sessionId?: string) => Promise<void>;
+    getActiveSessionId: () => Promise<string | null>;
+    // 결과 대기 시간. 없으면 30초/120초.
+    timing?: { resultWaitMs: number; endResultWaitMs: number };
   };
   watch: {
     getConnection: () => Promise<WatchConnection>;

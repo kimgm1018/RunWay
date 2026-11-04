@@ -78,7 +78,7 @@ class WatchNavigationUiTest {
 
     @Test fun phoneDisconnectBeforeTheRunShowsTheNotice() {
         val control = launch(RunSnapshot(state = RunState.READY, phoneConnected = false))
-        compose.onNodeWithText("휴대폰과 연결이 끊겼어요").assertIsDisplayed()
+        compose.onNodeWithText("휴대폰 연결이 없어요").assertIsDisplayed()
         compose.onNodeWithText("다시 연결").performClick()
         compose.onNodeWithContentDescription("시작").assertIsDisplayed()
         assertEquals(listOf(RunIntent.RECONNECT_PHONE), control.sent)

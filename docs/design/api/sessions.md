@@ -31,6 +31,29 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 - MERGED(병합)·BLOCKED(사용 제한)는 `403 COURSE_INACCESSIBLE`, 존재하지 않는 코스는 `404 COURSE_NOT_FOUND`다. MERGED는 코스 조회·저장 목록의 mergedIntoCourseId로 대표 코스를 확인해 다시 선택한다. 서버가 요청의 코스 ID를 자동으로 바꾸지 않으며 대표 코스도 ACTIVE여야 한다.
 - 검사는 S01, S08 UPDATE_GOAL의 변경 후 코스, S03 REQUEST·G09의 새 시작 승인에 적용한다. 이미 반영된 동일 목표 변경의 결과 확인, 승인한 명령의 재응답·실행 결과 보고, 폰 인계·기록 저장·종료는 이후 코스 상태가 바뀌었다는 이유로 막지 않는다. 기존 기록과 저장한 코스의 상태 조회도 유지한다.
 
+## 목표 검증·초기 계획·동의 (S15P31E105-255 확정, 2026-10-29)
+
+S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
+
+- **목표 조합:** 거리·시간·페이스는 각각 양수이며 **최대 2개**까지 지정한다. 목표 거리는 **45km(45000m) 이하**이며 넘으면 `422 INVALID_GOAL`이다(2026-10-30 확정). 세 값을 모두 지정하면 `422 INVALID_GOAL`이다. 모두 생략한 무목표 자유러닝은 허용한다. 페이스는 소수 둘째 자리까지 허용하며 그 이상의 정밀도는 `400 VALIDATION_ERROR`다.
+- **비교 기록:** 자유러닝(courseId=null)에는 비교 모드가 없다. 비교 기록은 코스가 있을 때만 지정할 수 있고, 본인·미삭제·COMPLETED이며 `course_id`가 선택 코스와 같아야 한다. 아니면 `422 INVALID_COMPARISON_SESSION`이다. 검증과 참조 저장은 대상 세션 행을 잠근 상태에서 한다.
+- **초기 계획(단순 규칙):** 추천 페이스(초/km)는 ① 목표 페이스, ② 없으면 목표 시간 ÷ (목표 거리 km), ③ 둘 다 없으면 목표 시간 ÷ (코스 거리 km) 순으로 정한다. 계산 근거가 없으면 계획 없이 생성하며 `plan=null`이다. 소수 셋째 자리에서 반올림한다. 반올림한 추천 페이스가 0 이하이거나 저장 범위(NUMERIC(10,2))를 넘는 비현실적인 목표 조합은 `422 INVALID_GOAL`이다. 끝 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누어 저장하고 마지막 구간은 남은 거리만큼 짧게 둔다. 끝 거리가 없거나 0(거리 0인 코스)이면 구간 없이 저장한다. 목표 거리 없이 45km를 넘는 코스를 고르면 구간이 45개를 넘으므로 전체를 구간 1개로 저장한다. 구간 추천 페이스는 AI가 제공하는 1km 구간별 상대 난이도 비율로 배분한다(구간 페이스 = 추천 페이스 × 구간 비율 ÷ 구간 길이로 가중한 평균 비율). 평균보다 힘든 구간은 느리게, 쉬운 구간은 빠르게 배분하며 전체 소요 시간은 추천 페이스 기준과 같다(구간별 반올림 오차 제외). 비율이 없거나(AI 연동 전) 구간 수와 맞지 않거나 양수가 아니거나 계산한 구간 페이스가 저장 범위를 벗어나면 요청을 거절하지 않고 모든 구간에 추천 페이스를 쓴다(2026-10-30 확정, AI 비율 연동은 후속). `pace_plans.cue_bpm`·`route_progress`는 null이다. 목표가 바뀌면 기존 계획·구간을 지우고 새로 저장한다. AI 기반 계획은 후속 업무에서 이 규칙을 대체한다.
+- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정).
+
+`plan` 객체 필드(객체가 null이면 내부 필드를 보내지 않음):
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `planId` | integer (int64) | O | pace_plans.id |
+| `recommendedPaceSecPerKm` | number | O | 추천 페이스(초/km), 소수 둘째 자리 |
+| `segments` | array | O | 구간 계획. 없으면 빈 배열 |
+| `segments[].sequence` | integer | O | 구간 순서, 1부터 |
+| `segments[].startDistanceM` | number | O | 구간 시작거리(m) |
+| `segments[].endDistanceM` | number | O | 구간 종료거리(m) |
+| `segments[].recommendedPaceSecPerKm` | number | O | 구간 추천 페이스(초/km) |
+
+`coaching` 객체의 필드는 P07 업무에서 정한다. 그 전까지 S01·S02·S08 응답의 `coaching`은 항상 `null`이다. 만료된 미확인 코칭 명령은 이미 정의된 `pendingCommand.coachingGuide`로 확인한다.
+
 ## S01 러닝 세션 생성
 
 `POST /api/v1/running-sessions`
@@ -48,7 +71,7 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 
 ### 인증 및 권한
 
-본인 회원·등록된 워치와 폰의 소유권·필요한 수집 동의를 확인한다. 코스 사용 권한과 본인 비교 기록 조건을 검사한다.
+본인 회원·등록된 워치와 폰의 소유권을 확인한다(동의는 [목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29) 기준). 코스 사용 권한과 본인 비교 기록 조건을 검사한다.
 
 ### Path Parameters
 
@@ -60,7 +83,7 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 | --- | --- | :---: | --- |
 | `controlDeviceId` | integer (int64) | O | 본인 등록 워치 ID. 양의 정수 |
 | `relayDeviceId` | integer (int64) | O | 본인 등록 폰 ID. 양의 정수 |
-| `courseId` | integer (int64) / null | X | ACTIVE 상태의 선택 코스 ID. 자유러닝은 null 또는 생략 |
+| `courseId` | integer (int64) / null | X | ACTIVE 상태의 선택 코스 ID. 자유러닝은 null 또는 생략. [C01](courses.md#c01-코스-추천)의 AI 생성 후보는 선택 후 저장해야 `courseId`가 생기며, 저장으로 얻은 `courseId`를 여기에 전달한다 |
 | `comparisonSessionId` | integer (int64) / null | X | 비교할 본인 과거 운동 ID. 미선택은 null 또는 생략 |
 | `targetDistanceM` | integer / null | X | 목표 거리(m), 양수. 미설정은 null 또는 생략 |
 | `targetDurationSec` | integer / null | X | 목표 시간(초), 양수. 미설정은 null 또는 생략 |
@@ -136,10 +159,10 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `403 COURSE_INACCESSIBLE` | 새 운동에 사용할 코스가 MERGED(대표 코스로 병합) 또는 BLOCKED(사용 제한) 상태. MERGED는 대표 코스를 다시 선택하고 BLOCKED는 다른 코스 선택 |
 | `404 COURSE_NOT_FOUND` | 선택한 코스가 존재하지 않음 |
-| `422 INVALID_GOAL` | 목표 값이 0·음수이거나 목표 조합이 서로 모순됨. 무목표 자유러닝의 전체 생략은 허용 |
+| `422 INVALID_GOAL` | 목표 값이 0·음수이거나 목표 거리가 45km를 넘거나 목표 조합이 서로 모순됨(계산한 추천 페이스가 0 이하이거나 저장 범위를 넘는 경우 포함). 무목표 자유러닝의 전체 생략은 허용 |
 | `422 INVALID_COMPARISON_SESSION` | 비교 기록이 본인 소유·동일 코스 조건에 맞지 않음 |
 | `409 ACTIVE_SESSION_EXISTS` | 본인의 활성 세션이 있어 새로 생성할 수 없음. `details.sessionId`로 기존 세션을 조회해 복구 |
 | `503 SERVICE_UNAVAILABLE` | 저장·필수 처리 장애. 결과를 확인하고 같은 요청으로 제한 재시도 |
@@ -148,9 +171,9 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 
 ### 처리 규칙
 
-1. 본인 회원·등록된 워치와 폰·수집 동의를 확인한다. 코스·비교 기록의 권한, 목표 조합과 SQL 정밀도를 검사한다.
+1. 본인 회원·등록된 워치와 폰을 확인한다. 코스·비교 기록의 권한, 목표 조합과 SQL 정밀도를 검사한다. 기기·코스 행은 확인할 때 잠가(FOR SHARE) W03 연결 해제나 코스 상태 변경과 겹쳐도 해제된 기기·ACTIVE가 아닌 코스로 저장하지 않는다.
 2. 본인에게 `stateVersion≥1`인 READY/RUNNING/PAUSED 세션이 있으면 `409 ACTIVE_SESSION_EXISTS`로 거절한다. 기존 기록인 `stateVersion=0` 세션은 이 검사에서 제외한다.
-3. 코스·목표가 있으면 `pace_plans`에 초기 계획을 저장한다. 무목표 자유러닝은 사전 계획 없이 생성한다. 준비 계산이 실패하면 `503`을 반환하고 성공한 계획처럼 표시하지 않는다.
+3. 코스·목표가 있으면 `pace_plans`에 초기 계획을 저장한다. 무목표 자유러닝은 사전 계획 없이 생성한다. 계획 저장 등 준비 처리가 실패하면 `503`을 반환하고 성공한 계획처럼 표시하지 않는다. 목표 조합으로 계산한 추천 페이스가 범위를 벗어나는 경우는 장애가 아닌 입력 문제이므로 [목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29) 절의 `422 INVALID_GOAL`이다.
 4. 위 Response의 초기 상태로 세션을 생성하고 S02 형식으로 반환한다.
 
 ### 생성 응답 유실 복구
@@ -165,7 +188,7 @@ running_sessions와 courses를 참조한다. groupRunId는 running_sessions의 �
 }
 ```
 
-앱은 해당 ID로 S02를 조회해 현재 준비·운동 화면을 복원한다. 목표 수정은 조회 후 S08 UPDATE_GOAL로 별도 요청한다. 인증·본인 소유·필요한 동의를 확인한 뒤에만 ID를 반환하며, 다른 회원의 활성 세션을 노출하지 않는다. 세션 생성의 활성 여부 검사와 저장은 동일 회원 기준으로 직렬화해 동시 생성도 하나만 성공시킨다.
+앱은 해당 ID로 S02를 조회해 현재 준비·운동 화면을 복원한다. 목표 수정은 조회 후 S08 UPDATE_GOAL로 별도 요청한다. 인증·본인 소유를 확인한 뒤에만 ID를 반환하며, 다른 회원의 활성 세션을 노출하지 않는다. 세션 생성의 활성 여부 검사와 저장은 동일 회원 기준으로 직렬화해 동시 생성도 하나만 성공시킨다. 그룹 시작 등 세션을 만들거나 다시 활성으로 바꾸는 다른 경로도 같은 회원 잠금을 쓴다. 회원별 활성 세션 1개는 DB 부분 UNIQUE(`uq_running_sessions_active`)로도 보장하며, 잠금을 거치지 않은 경로가 이를 어기면 저장이 거절된다(`500 INTERNAL_ERROR`).
 
 ### 상태값
 
@@ -313,7 +336,7 @@ READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) /
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어 워치·버전을 결정한다. 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 그룹 시작 승인은 G09를 사용하고 개인 실행 결과는 해당 참가자의 폰이 보고한다. 세션 잠금 후 그룹 연결 여부를 재검사하며, 그룹에 연결된 세션의 새 START는 S03 REQUEST로 승인하지 않고 `409 INVALID_SESSION_STATE`로 거절한다. 그룹장은 본문 없는 G09로 출발을 요청하며 서버가 현재 참가 관계·제어 워치·버전을 결정한다. 이미 승인된 그룹 START의 RESULT는 기존대로 허용한다.
 
 ### Path Parameters
 
@@ -407,7 +430,7 @@ READY(준비) / RUNNING(운동 중) / PAUSED(일시정지) / COMPLETED(종료) /
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `403 COURSE_INACCESSIBLE` | 새 REQUEST의 코스가 MERGED 또는 BLOCKED. 대표 코스 또는 다른 ACTIVE 코스로 다시 준비 |
 | `404 COURSE_NOT_FOUND` | 새 REQUEST에서 사용하는 코스가 없음 |
@@ -450,7 +473,7 @@ READY → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 상
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -567,7 +590,7 @@ READY → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 상
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -600,7 +623,7 @@ RUNNING → PAUSED (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -717,7 +740,7 @@ RUNNING → PAUSED (실제 적용 성공 기준). 거절·미확인은 운동 �
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -750,7 +773,7 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 ### 인증 및 권한
 
-본인 세션·요청 기기 소유권·필요한 수집 동의를 확인한다. 실행 결과는 폰이 서버에 보고한다.
+본인 세션·요청 기기 소유권을 확인한다. 건강정보 동의 거부는 세션 제어를 막지 않는다([목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)). 실행 결과는 폰이 서버에 보고한다.
 
 ### Path Parameters
 
@@ -886,6 +909,7 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 | --- | --- | --- |
 | APPLIED | false/생략 | 409 UPLOAD_PENDING, PENDING 유지·분석 미시작 |
 | APPLIED | true | 실제 종료·버전1회 증가·분석 요청 |
+| APPLIED(appliedAt ≤ 실제 시작시각) | 무관 | 400 VALIDATION_ERROR, PENDING 유지·분석 미시작 |
 | REJECTED | false/생략 | 거절 결과 저장·운동 상태 유지·버전1회 증가 |
 | UNKNOWN | false/생략 | 미확인 결과 저장·상태/버전 유지, 같은 명령 확인 |
 
@@ -893,9 +917,9 @@ PAUSED → RUNNING (실제 적용 성공 기준). 거절·미확인은 운동 �
 
 | HTTP·코드 | 발생 조건 |
 | --- | --- |
-| `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
+| `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류. END/APPLIED의 `appliedAt`(실제 종료시각)이 실제 시작시각(`startedAt`)보다 늦지 않음(같은 시각 포함, 2026-11-02 확정) |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND / COMMAND_NOT_FOUND` | 대상 세션 또는 해당 API가 사용하는 명령이 없음 |
 | `409 STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT` | 기준 버전 불일치·미확인 명령·같은 요청 슬롯의 다른 내용 |
 | `409 INVALID_SESSION_STATE / CONTROL_DEVICE_CHANGED` | 새 요청의 허용 상태 불일치 또는 폰 인계 후 이전 워치의 결과 |
@@ -1017,7 +1041,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 
 ### 인증 및 권한
 
-본인 세션·작업별 기기 소유권·필요한 수집 동의를 확인한다. 그룹 목표 변경은 G04를 사용한다.
+본인 세션·작업별 기기 소유권을 확인한다. 잠금 전 확인과 세션 잠금 후 다시 읽은 그룹 연결이 다르면(그 사이 그룹에 연결·해제됨) 같은 값의 재요청이어도 `409 STALE_STATE`로 거절하며 앱은 S02로 재조회한다(동의는 [목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29) 기준). 그룹 목표 변경은 G04를 사용한다.
 
 ### Path Parameters
 
@@ -1033,7 +1057,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | --- | --- | :---: | --- |
 | `operation` | string (enum) | O | 수행할 작업. `UPDATE_GOAL`: 출발 전 러닝 목표·코스 수정. `REPORT_PREPARED`: 워치가 목표를 보관하고 러닝 기록을 시작할 준비에 성공했는지 서버에 전달하여 해당 버전의 준비 응답 확인. `TAKE_OVER_PHONE`: 워치로 시작한 러닝의 기록·제어를 해당 세션의 중계 폰으로 전환. `ABORT_UNCONFIRMED_START`: 시작 결과를 확인하지 못한 운동을 사용자 선택으로 중단 |
 | `expectedVersion` | integer (int64) | O | 이번 요청의 기준이 되는 목표·상태 버전. 1 이상. 목표 수정·폰 전환·시작 미확인 중단은 확인한 현재 `stateVersion`, 워치 준비 결과 전달은 워치가 준비한 목표의 버전을 보낸다. 서버가 현재 버전과 비교하는 값이며 클라이언트가 임의로 증가시키지 않는다 |
-| `deviceId` | integer (int64) | 조건부 | `REPORT_PREPARED`에서는 준비 결과를 응답한 등록 워치의 ID가 필수. `TAKE_OVER_PHONE`에서는 기록·제어를 이어받을 해당 세션의 중계 폰 ID(`relayDeviceId`, PHONE)가 필수. `ABORT_UNCONFIRMED_START`에서는 해당 세션의 중계 폰 ID가 필수. `UPDATE_GOAL`에서는 보내지 않는다 |
+| `deviceId` | integer (int64) | 조건부 | `REPORT_PREPARED`에서는 준비 결과를 응답한 등록 워치의 ID가 필수. `TAKE_OVER_PHONE`에서는 기록·제어를 이어받을 해당 세션의 중계 폰 ID(`relayDeviceId`, PHONE)가 필수. `ABORT_UNCONFIRMED_START`에서는 해당 세션의 중계 폰 ID가 필수이며, 그 폰이 연결 해제된 경우에만 본인의 현재 연결된 다른 PHONE ID를 허용한다. `UPDATE_GOAL`에서는 보내지 않는다 |
 | `ready` | boolean | 조건부 | `REPORT_PREPARED`에 필수. 워치가 러닝 기록을 시작할 준비에 성공했는지 여부 (true 성공, false 실패). 러닝 세션 전체의 준비 여부나 실제 기록 시작 여부를 뜻하지 않는다 |
 | `reasonCode` | string / null | 조건부 | `REPORT_PREPARED`에 키를 반드시 포함한다. 워치 준비 결과에 대한 사유 코드이며, 전달할 사유가 없으면 키를 생략하지 않고 `null`로 보낸다 |
 | `receivedWatchBatchesUploaded` | boolean | 조건부 | `TAKE_OVER_PHONE`에 `true` 필수. 인계 전 폰이 이미 수신·영속 저장한 워치 데이터 묶음(batch) 전체가 서버에 저장 완료(`COMMITTED`)되었음을 확인한 값. 워치에만 남아 있는 데이터까지 업로드되었다는 뜻은 아니며, 저장 완료를 확인하지 못하면 전환 요청을 보류한다 |
@@ -1112,7 +1136,8 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 }
 ```
 
-- 본인 세션·등록된 중계 폰·필요한 동의를 확인한다. READY, `startedAt=null`, 미확정 START(PENDING/UNKNOWN), 현재 버전 일치일 때만 허용한다. 이미 START/APPLIED가 확정됐다면 이 경로로 중단하지 않고 현재 상태를 재조회해 S06 또는 폰 인계로 종료한다.
+- 본인 세션·등록된 중계 폰을 확인한다(중계 폰이 해제된 경우는 아래 참고). READY, `startedAt=null`, 미확정 START(PENDING/UNKNOWN), 현재 버전 일치일 때만 허용한다. 이미 START/APPLIED가 확정됐다면 이 경로로 중단하지 않고 현재 상태를 재조회해 S06 또는 폰 인계로 종료한다.
+- **중계 폰이 해제된 경우(S15P31E105-255 확정, 2026-10-30):** 앱 재설치 등으로 세션의 중계 폰이 W03 해제되고 W01로 새 ID가 등록되면, 원래 폰으로는 중단할 수 없고 S07 취소는 미확정 START 때문에 `409 COMMAND_PENDING`, S01은 활성 세션 때문에 `409`가 되어 세션을 정리할 수 없다. 이를 막기 위해 세션의 `relayDeviceId` 기기가 더 이상 연결 중이 아닐 때에 한해 같은 회원의 현재 연결된 PHONE으로 요청해도 허용한다. 중계 폰이 연결 중이면 그 폰만 허용한다. 세션의 `relayDeviceId`는 바꾸지 않으며 재요청 판정도 같은 기준을 따른다. 그 밖의 경우는 `403 DEVICE_FORBIDDEN`이다. 이 예외는 시작 미확인 중단에만 적용하며 `TAKE_OVER_PHONE`에는 적용하지 않는다.
 - 그룹 소속이면 그룹→세션 순서로 잠그고 조건을 재검사한다. START/APPLIED 저장이 먼저 완료됐다면 중단을 `409 INVALID_SESSION_STATE`로 거절한다. 중단이 먼저 완료됐다면 세션을 INTERRUPTED로 닫고 늦은 START 결과를 `409 INVALID_SESSION_STATE`로 거절한다.
 - PENDING START는 `UNKNOWN(reasonCode=START_UNCONFIRMED_ABORTED)`으로 남기고 기존 UNKNOWN은 그대로 보존한다. 같은 트랜잭션에서 분석은 FAILED, 현재 BPM은 null로 바꾸며 상태 버전을 1 증가시킨다. `startedAt`과 `endedAt`은 null을 유지한다. 관리상 중단을 실제 기기 종료시각으로 기록하지 않는다.
 - 같은 등록 폰이 같은 중단을 재요청하면 버전 검사보다 이미 중단된 동일 세션인지 먼저 확인하고 현재 상태를 `200`으로 반환한다. 버전을 다시 증가시키지 않는다. 이 판정은 INTERRUPTED·시작/종료시각 null·보존된 미확정 START로 구분하며 별도 중단 장부를 추가하지 않는다.
@@ -1126,7 +1151,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 워치 단절 안내에서 사용자가 “폰으로 기록 계속”을 선택하면 `TAKE_OVER_PHONE`을 호출한다.
 
 - 워치로 실제 시작한 `RUNNING` / `PAUSED` 세션에만 허용한다. `READY`, `stateVersion=0`, 처음부터 폰 단독으로 시작한 세션에는 사용할 수 없다.
-- 본인 회원·위치/수집 동의·해당 세션의 등록된 중계 폰(`relayDeviceId`, PHONE)을 확인한다. 폰과 서버가 연결되어 있어야 한다.
+- 본인 회원·해당 세션의 등록된 중계 폰(`relayDeviceId`, PHONE)을 확인한다. 폰과 서버가 연결되어 있어야 한다.
 - 폰이 이미 받은 워치 데이터 전체의 서버 저장 완료(`COMMITTED`)를 확인한 뒤 `receivedWatchBatchesUploaded=true`로 요청한다. 워치에만 남아 있는 데이터까지 모두 저장됐다는 뜻은 아니다.
 
 #### 폰의 데이터 저장·요청 순서
@@ -1137,7 +1162,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 
 #### 서버의 전환·재요청 처리
 
-- 그룹 소속이면 그룹→세션 순서로 잠근다. 권한·기기·동의를 검사한 뒤 이미 같은 폰으로 인계된 요청은 종료 여부와 무관하게 현재 상태를 반환한다. 버전은 다시 증가시키지 않는다.
+- 그룹 소속이면 그룹→세션 순서로 잠근다. 권한·기기를 검사한 뒤 이미 같은 폰으로 인계된 요청은 종료 여부와 무관하게 현재 상태를 반환한다. 버전은 다시 증가시키지 않는다.
 - 새 인계는 현재 버전과 실제 시작 사실을 재검사하고, 위 응답 표의 폰 전환 결과를 함께 저장한다. 다른 요청과 경합해 버전이 달라졌으면 `STALE_STATE`를 반환하므로 재조회한다.
 - 그룹이 이미 종료됐다면 인계 후 종료·저장만 허용하고 기록 재개는 거절한다.
 
@@ -1153,11 +1178,11 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·등록 기기·수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN / DEVICE_FORBIDDEN` | 본인 세션·등록 기기 조건 위반 |
 | `404 SESSION_NOT_FOUND` | 수정·준비 확인·폰 인계 대상 세션이 없음 |
 | `403 COURSE_INACCESSIBLE` | UPDATE_GOAL의 변경 후 코스가 MERGED(대표 코스로 병합) 또는 BLOCKED(사용 제한) 상태. MERGED는 대표 코스를 다시 선택하고 BLOCKED는 다른 코스 선택 |
 | `404 COURSE_NOT_FOUND` | UPDATE_GOAL의 변경 후 코스가 존재하지 않음 |
-| `422 INVALID_GOAL` | 목표 값이 0·음수이거나 목표 조합이 서로 모순됨. 무목표 자유러닝의 전체 생략은 허용 |
+| `422 INVALID_GOAL` | 목표 값이 0·음수이거나 목표 거리가 45km를 넘거나 목표 조합이 서로 모순됨(계산한 추천 페이스가 0 이하이거나 저장 범위를 넘는 경우 포함). 무목표 자유러닝의 전체 생략은 허용 |
 | `422 INVALID_COMPARISON_SESSION` | 비교 기록이 본인 소유·동일 코스 조건에 맞지 않음 |
 | `409 STALE_STATE / COMMAND_PENDING / INVALID_SESSION_STATE` | 작업별 기준 버전·미완료 명령·허용 상태 불일치 |
 | `409 UPLOAD_PENDING` | 폰 전환 전 수신한 워치 batch의 저장을 확인하지 못함 |
@@ -1169,9 +1194,9 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 
 #### UPDATE_GOAL — 출발 전 목표 수정
 
-1. 본인·권한·동의를 확인하고, 요청을 반영한 최종 목표 전체를 현재 저장값과 비교한다. 같으면 현재 상태를 `200`으로 반환한다. 이후 코스가 `MERGED`·`BLOCKED`로 바뀌었어도 버전 증가·계획 재계산·코스 `ACTIVE` 검사를 다시 하지 않는다.
+1. 본인·권한을 확인하고, 요청을 반영한 최종 목표 전체를 현재 저장값과 비교한다. 같으면 현재 상태를 `200`으로 반환한다. 이후 코스가 `MERGED`·`BLOCKED`로 바뀌었어도 버전 증가·계획 재계산·코스 `ACTIVE` 검사를 다시 하지 않는다.
 2. 목표가 실제로 달라질 때만 `READY`, 미완료 명령 없음, `expectedVersion`과 현재 `stateVersion` 일치를 검사한다. 다른 값으로 변경하려는 오래된 버전의 요청은 `409 STALE_STATE`다. 변경 후 코스는 `ACTIVE`여야 한다.
-3. [S01](#s01-러닝-세션-생성)의 목표 필드·조합·권한·범위를 적용한다. 생략한 값은 유지하고 `null`은 해제한다. 그룹 목표는 G04로 수정하며 개인 API로 덮어쓰지 않는다.
+3. [S01](#s01-러닝-세션-생성)의 목표 필드·조합·권한·범위를 적용한다. 생략한 값은 유지하고 `null`은 해제한다. 그룹 목표는 G04로 수정하며 개인 API로 덮어쓰지 않는다. 그룹에 연결된 세션의 목표 변경 요청은 `409 INVALID_SESSION_STATE`다. 비교 기록 조건은 `comparisonSessionId`나 `courseId`가 바뀔 때만 다시 검사한다. 둘 다 그대로면 기존 비교 참조를 보존하므로([S09 삭제 후 조회·참조](#s09-러닝-세션-삭제)) 그 사이 비교 대상이 삭제됐어도 거리·시간·페이스만 바꾸는 요청을 `422`로 거절하지 않는다.
 4. 초기 계획을 계산한 뒤 세션 행을 잠그고 버전을 재검사한다. 목표·계획을 함께 저장하고 `stateVersion`을 1 증가시킨다. 무목표 자유러닝은 사전 계획 없이 실시간 코칭한다.
 
 새 코스 선택 검사는 `REPORT_PREPARED`와 `TAKE_OVER_PHONE`에는 적용하지 않는다.
@@ -1247,6 +1272,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | `403 NOT_OWNER` | 존재하고 삭제되지 않은 세션이 본인 소유가 아님 |
 | `404 SESSION_NOT_FOUND` | 세션이 없거나 이미 삭제 표시됨. 같은 삭제 재요청도 포함 |
 | `409 INVALID_STATE` | 아래 삭제 가능 조건을 만족하지 않음 |
+| `500 INTERNAL_ERROR` | 타인 게시물이 같은 세션을 참조하는 정합성 오류. 전체 롤백하며 재시도해도 결과가 같으므로 자동 재시도하지 않음 |
 | `503 SERVICE_UNAVAILABLE` | 기록 또는 연결 게시물 삭제 저장 실패. 전체 롤백하며 성공으로 표시하지 않음 |
 
 인증 → sessionId 형식 → 대상 존재·삭제 여부 → 소유권 순서로 확인한다. 잠금 후에도 삭제 여부·소유권·상태를 재검사한다. 타인에게 세션·게시물 상세를 반환하지 않는다.
@@ -1259,17 +1285,17 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | --- | --- |
 | CANCELLED | 삭제 허용. 실제 분석 작업이 없는 초기 PENDING을 분석 대기로 간주하지 않음 |
 | COMPLETED | 분석이 READY/FAILED/LEGACY일 때 허용. PENDING/PROCESSING이면 완료 또는 실패 확정 후 다시 요청 |
-| INTERRUPTED | 시작 미확인 중단이 확정되고 pendingCommand가 없으면 허용. 보존된 UNKNOWN 이력은 유지 |
+| INTERRUPTED | pendingCommand가 없으면 허용. INTERRUPTED는 시작 미확인 관리상 중단(S08 `ABORT_UNCONFIRMED_START`, G12 강제 종료)이 확정될 때만 생기므로 별도 원인 검사는 하지 않는다. 보존된 UNKNOWN 이력은 유지 |
 | READY | 삭제 거절. 먼저 S07로 취소하며, 시작 미확인이면 S08 명시 중단 사용 |
 | RUNNING / PAUSED | 삭제 거절. 실제 종료 절차를 먼저 완료 |
-| 그룹 연결 세션 | 위 개인 조건과 함께 그룹 종료 및 G14 분석 상태 READY/FAILED 필요. 진행·종료 처리·분석 중에는 거절 |
+| 그룹 연결 세션 | 위 개인 조건과 함께 그룹 종료 및 G14 분석 상태 READY/FAILED 필요. 진행·종료 처리·분석 중에는 거절. 그룹 분석 상태는 별도 저장하지 않으므로 그룹이 COMPLETED이고 실제 시작한 모든 참가자 세션의 분석이 READY/FAILED/LEGACY이면 READY/FAILED로 판단한다 |
 
 현재 제어기기에 미확정 명령이 남아 있으면 삭제하지 않는다. 관리상 중단 후 이력으로 남긴 이전 UNKNOWN을 현재 pendingCommand로 취급하지 않는다.
 
 **기록·게시물 일괄 삭제**
 
-1. 그룹 연결이면 그룹→세션 순서로 잠근다. 개인 세션이면 세션을 잠근다. 삭제와 시작·종료·분석 상태 확정은 같은 세션 잠금으로 순서를 정한다.
-2. 삭제 조건을 확인한 뒤 `session_id=대상 세션`이고 `author_id=본인`인 연결 게시물을 ID 순서로 잠근다. 같은 세션을 참조하는 타인 게시물이 있다면 자동 삭제하지 않고 정합성 오류로 전체 롤백한다.
+1. 그룹 연결이면 그룹→세션 순서로 잠근다. 개인 세션이면 세션을 잠근다. 잠금 전 확인과 세션 잠금 후 다시 읽은 그룹 연결이 다르면(그 사이 그룹에 연결·해제됨) 같은 값의 재요청이어도 `409 INVALID_STATE`로 거절한다. 삭제와 시작·종료·분석 상태 확정은 같은 세션 잠금으로 순서를 정한다.
+2. 삭제 조건을 확인한 뒤 `session_id=대상 세션`이고 `author_id=본인`인 연결 게시물을 ID 순서로 잠근다. 같은 세션을 참조하는 타인 게시물이 있다면 자동 삭제하지 않고 정합성 오류(`500 INTERNAL_ERROR`)로 전체 롤백한다.
 3. 세션과 아직 삭제되지 않은 본인 연결 게시물에 같은 삭제 시각을 저장하고 한 트랜잭션으로 확정한다. 이미 삭제된 게시물의 삭제 시각은 바꾸지 않는다. 연결 게시물이 없어도 세션은 삭제할 수 있다.
 4. 하나라도 실패하면 세션·게시물 변경을 모두 롤백한다. 별도 HTTP 요청을 이어 호출해 부분 삭제하지 않는다. 응답이 유실된 후 재삭제가 404라면, 본인 기록 조회에서도 삭제 여부를 확인한다.
 
@@ -1471,7 +1497,7 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
 - 새 REQUEST는 현재 제어기기와 stateVersion을 확인한 뒤 하나만 승인한다. 해당 실행기기의 PENDING/UNKNOWN이 있으면 409 COMMAND_PENDING이며 폰은 다음 조작을 대기시킨다. AI와 수동 조작도 한 줄로 직렬화하며 오래 대기한 코칭은 취소된 것으로 추측하지 않고 위 만료 명령 재전달·결과 확인 절차로 정리한다.
 - 현재 실행기기(워치 또는 폰)는 commandId별 결과를 로컬에 보관한다. 같은 명령 재수신에는 동작을 재실행하지 않고 그 결과를 반환한다. 다른 명령은 결과의 서버 저장 확인 뒤 처리한다. 기기는 버전을 독립 발급하지 않는다.
 - RESULT 저장·실제 상태/BPM·started_at/ended_at 갱신은 한 트랜잭션이다. 확정 결과(APPLIED/REJECTED/IGNORED)를 처음 저장하면 단일 stateVersion을 1 증가시킨다. 같은 확정 결과는 증가시키지 않는다. 거절도 요청 슬롯을 마감하므로 증가시킨다. UNKNOWN은 현재 상태·버전을 변경하지 않고 명령을 미확인으로 남긴다.
-- 같은 commandId의 result/appliedAt/reasonCode가 같으면 기존 응답, 다른 최종 결과는 409 COMMAND_CONFLICT다. UNKNOWN→확정은 가능하지만 확정→UNKNOWN 회귀는 기존 결과를 반환한다. S08로 관리상 중단한 세션의 늦은 START 결과는 예외로 거절하며 상태를 되돌리지 않는다. 서버는 적용 시각을 추정하지 않는다.
+- 같은 commandId의 result/appliedAt/reasonCode가 같으면 기존 응답, 다른 최종 결과는 409 COMMAND_CONFLICT다. 이미 저장된 같은 결과의 재전송은 응답 유실 복구이므로 폰 인계·기기 연결 해제 뒤에도 현재 제어기기·기기 연결 검사보다 먼저 기존 응답을 돌려준다(2026-11-02 확정). 아래 CONTROL_DEVICE_CHANGED는 저장되지 않은 이전 워치 결과에 적용한다. UNKNOWN→확정은 가능하지만 확정→UNKNOWN 회귀는 기존 결과를 반환한다. S08로 관리상 중단한 세션의 늦은 START 결과는 예외로 거절하며 상태를 되돌리지 않는다. 서버는 적용 시각을 추정하지 않는다.
 - UNKNOWN은 같은 명령의 실행기기 저장 결과를 조회해 확인한다. 확인되지 않으면 WATCH 모드에서는 실패를 표시하고 새 제어를 자동 실행하지 않는다. 이미 실제 시작이 확인된 RUNNING/PAUSED 세션은 사용자가 폰으로 인계하면 이전 워치 UNKNOWN을 유지한 채 현재 폰의 REQUEST/RESULT로 기록·종료할 수 있다. 시작 자체가 미확인인 READY 세션은 S08의 결과 재확인·관리상 중단 규칙을 따른다. 장기 복구와 구간별 누락 탐색은 지원하지 않는다.
 - 초기 목표·수동 BPM·운동 상태 변경은 모두 stateVersion 하나로 보호한다. 별도 BPM·준비·전달·명령 순번 컬럼은 없다. 센서 batch 중복 방지는 기존 W07을 유지한다.
 
@@ -1479,7 +1505,7 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
 | --- | --- | --- |
 | 400 | VALIDATION_ERROR | 필수값·타입·양수 ID·BPM·phase 오류 |
 | 401 | UNAUTHORIZED | 인증 실패 |
-| 403 | SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED | 본인·기기·동의 위반 |
+| 403 | SESSION_FORBIDDEN / DEVICE_FORBIDDEN / CONSENT_REQUIRED | 본인·기기 위반. CONSENT_REQUIRED는 건강정보가 필요한 P07 코칭에만 사용 |
 | 404 | SESSION_NOT_FOUND / COMMAND_NOT_FOUND | 존재하지 않는 본인 세션·명령 |
 | 409 | STALE_STATE / COMMAND_PENDING / COMMAND_CONFLICT / INVALID_SESSION_STATE / UPLOAD_PENDING / CONTROL_DEVICE_CHANGED | 버전·미확인 제어·내용·상태·저장 확인 불일치 |
 | 503 | SERVICE_UNAVAILABLE | 저장 불가. 같은 요청을 최초 포함 최대3회만 시도 |

@@ -25,7 +25,15 @@ import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.RegionExistsRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import jakarta.persistence.EntityManager;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -34,10 +42,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -54,8 +58,7 @@ public class CrewService {
         requireExistingUser(userId);
         String regionCode = blankToNull(request.regionCode());
         if (regionCode != null && !regionExistsRepository.existsByRegionCode(regionCode)) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CREW", "유효하지 않은 지역 코드입니다.");
+            throw new ApiException(ErrorCode.INVALID_CREW);
         }
 
         Crew crew =
@@ -79,12 +82,7 @@ public class CrewService {
         Crew crew =
                 crewRepository
                         .findById(crewId)
-                        .orElseThrow(
-                                () ->
-                                        new ApiException(
-                                                HttpStatus.NOT_FOUND,
-                                                "CREW_NOT_FOUND",
-                                                "크루를 찾을 수 없습니다."));
+                        .orElseThrow(() -> new ApiException(ErrorCode.CREW_NOT_FOUND));
         long memberCount =
                 crewMembershipRepository.countByCrewIdAndStatus(
                         crewId, CrewMembershipStatus.APPROVED);
@@ -185,10 +183,7 @@ public class CrewService {
             membership = existing.get();
             CrewMembershipStatus status = membership.getStatus();
             if (status == CrewMembershipStatus.PENDING || status == CrewMembershipStatus.APPROVED) {
-                throw new ApiException(
-                        HttpStatus.CONFLICT,
-                        "ALREADY_MEMBER_OR_PENDING",
-                        "이미 멤버이거나 가입 신청 대기 중입니다.");
+                throw new ApiException(ErrorCode.ALREADY_MEMBER_OR_PENDING);
             }
             membership.reapply();
         } else {
@@ -245,8 +240,7 @@ public class CrewService {
                     crewMembershipRepository.countByCrewIdAndStatus(
                             crewId, CrewMembershipStatus.APPROVED);
             if (approvedCount >= crew.getCapacity()) {
-                throw new ApiException(
-                        HttpStatus.CONFLICT, "CREW_CAPACITY_EXCEEDED", "크루 정원이 가득 찼습니다.");
+                throw new ApiException(ErrorCode.CREW_CAPACITY_EXCEEDED);
             }
             membership.approve();
         } else {
@@ -283,10 +277,7 @@ public class CrewService {
         Crew crew = requireActiveCrew(crewId);
         if (!crew.isOwnedBy(userId)) {
             if (successorUserId != null) {
-                throw new ApiException(
-                        HttpStatus.BAD_REQUEST,
-                        "VALIDATION_ERROR",
-                        "후임 지정은 크루장 탈퇴에만 사용할 수 있습니다.");
+                throw new ApiException(ErrorCode.VALIDATION_ERROR_CREW_LEAVE);
             }
             CrewMembership membership = requireApprovedMembership(crewId, userId);
             membership.leave();
@@ -297,22 +288,13 @@ public class CrewService {
                 crewMembershipRepository.countByCrewIdAndStatus(
                         crewId, CrewMembershipStatus.APPROVED);
         if (approvedCount <= 1) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "OWNER_CANNOT_LEAVE",
-                    "혼자인 크루장은 탈퇴할 수 없습니다. 크루 해산 API를 사용하세요.");
+            throw new ApiException(ErrorCode.OWNER_CANNOT_LEAVE_SOLE_OWNER_LEAVE);
         }
         if (successorUserId == null) {
-            throw new ApiException(
-                    HttpStatus.CONFLICT,
-                    "OWNER_CANNOT_LEAVE",
-                    "크루장은 후임(successorUserId)을 지정한 뒤 탈퇴해야 합니다.");
+            throw new ApiException(ErrorCode.OWNER_CANNOT_LEAVE);
         }
         if (successorUserId.equals(userId)) {
-            throw new ApiException(
-                    HttpStatus.UNPROCESSABLE_CONTENT,
-                    "INVALID_SUCCESSOR",
-                    "후임은 본인이 될 수 없습니다.");
+            throw new ApiException(ErrorCode.INVALID_SUCCESSOR);
         }
         CrewMembership successor = requireApprovedMembership(crewId, successorUserId);
         CrewMembership ownerMembership = requireApprovedMembership(crewId, userId);
@@ -349,7 +331,7 @@ public class CrewService {
         Crew crew = requireCrew(crewId);
         requireOwner(crew, ownerUserId);
         if (crew.isOwnedBy(targetUserId)) {
-            throw new ApiException(HttpStatus.CONFLICT, "CANNOT_REMOVE_OWNER", "크루장은 내보낼 수 없습니다.");
+            throw new ApiException(ErrorCode.CANNOT_REMOVE_OWNER);
         }
         CrewMembership membership = requireApprovedMembership(crewId, targetUserId);
         membership.leave();
@@ -368,7 +350,7 @@ public class CrewService {
     }
 
     private static ApiException memberNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "MEMBER_NOT_FOUND", "멤버를 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.MEMBER_NOT_FOUND);
     }
 
     private Crew requireActiveCrew(long crewId) {
@@ -385,7 +367,7 @@ public class CrewService {
 
     private static void requireOwner(Crew crew, long userId) {
         if (!crew.isOwnedBy(userId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "NOT_ADMIN", "크루 관리 권한이 없습니다.");
+            throw new ApiException(ErrorCode.NOT_ADMIN);
         }
     }
 
@@ -396,10 +378,7 @@ public class CrewService {
         try {
             return CrewMembershipStatus.valueOf(status.trim());
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_FILTER",
-                    "status는 PENDING, APPROVED, REJECTED, LEFT만 허용됩니다.");
+            throw new ApiException(ErrorCode.INVALID_FILTER_CREW_RESOLVE_JOIN_REQUEST_STATUS);
         }
     }
 
@@ -420,18 +399,15 @@ public class CrewService {
     }
 
     private static ApiException crewNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "CREW_NOT_FOUND", "크루를 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.CREW_NOT_FOUND);
     }
 
     private static ApiException notPending() {
-        return new ApiException(HttpStatus.CONFLICT, "NOT_PENDING", "대기 중인 가입 신청이 없습니다.");
+        return new ApiException(ErrorCode.NOT_PENDING);
     }
 
     private static ApiException invalidDecision() {
-        return new ApiException(
-                HttpStatus.UNPROCESSABLE_CONTENT,
-                "INVALID_DECISION",
-                "status는 APPROVED 또는 REJECTED만 허용됩니다.");
+        return new ApiException(ErrorCode.INVALID_DECISION);
     }
 
     private Map<Long, Long> approvedCounts(List<Long> crewIds) {
@@ -470,15 +446,12 @@ public class CrewService {
     }
 
     private static ApiException invalidMembershipFilter() {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "INVALID_FILTER",
-                "membershipStatus는 APPROVED 또는 PENDING만 허용됩니다.");
+        return new ApiException(ErrorCode.INVALID_FILTER_CREW_INVALID_MEMBERSHIP_FILTER);
     }
 
     private void requireExistingUser(long userId) {
         if (!userExistsRepository.existsById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 

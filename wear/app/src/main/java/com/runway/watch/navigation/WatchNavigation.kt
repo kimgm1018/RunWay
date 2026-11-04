@@ -1,5 +1,7 @@
 package com.runway.watch.navigation
 
+import com.runway.watch.readiness.Readiness
+import com.runway.watch.readiness.ReadinessRules
 import com.runway.watch.run.RunControl
 import com.runway.watch.run.RunIntent
 import com.runway.watch.run.RunMode
@@ -9,8 +11,8 @@ import com.runway.watch.run.compared
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-/** Watch screens 9.1 ~ 9.4 of the v15 wireframe. */
-enum class WatchRoute { STANDBY, CONNECTION_ISSUE, RUNNING, PAUSED, END_CONFIRM, RESULT }
+/** Watch screens 9.1 ~ 9.4 of the v15 wireframe. [NOT_READY] is 9.1b for consent, permission, registration and internet. */
+enum class WatchRoute { STANDBY, CONNECTION_ISSUE, NOT_READY, RUNNING, PAUSED, END_CONFIRM, RESULT }
 
 /** Swipe pages while running (9.2 / 9.5 · 9.6 / 9.7 · 9.8). */
 enum class RunPage { STATUS, PACE_COACHING, RECORD_COMPARE, GROUP_PACE, GROUP_POSITION }
@@ -32,9 +34,16 @@ object WatchNavigation {
         RunMode.GROUP -> listOf(RunPage.STATUS, RunPage.GROUP_PACE, RunPage.GROUP_POSITION)
     }
 
-    fun route(snapshot: RunSnapshot, nav: NavState): WatchRoute = when (snapshot.state) {
-        null, RunState.READY, RunState.CANCELLED ->
-            if (snapshot.phoneConnected) WatchRoute.STANDBY else WatchRoute.CONNECTION_ISSUE
+    /**
+     * Readiness only replaces the screens before a run. The phone link is checked first: consent and
+     * registration are fixed on the phone, and a registered watch is not a connected one.
+     */
+    fun route(snapshot: RunSnapshot, nav: NavState, readiness: Readiness = Readiness()): WatchRoute = when (snapshot.state) {
+        null, RunState.READY, RunState.CANCELLED -> when {
+            !snapshot.phoneConnected -> WatchRoute.CONNECTION_ISSUE
+            ReadinessRules.issue(readiness) != null -> WatchRoute.NOT_READY
+            else -> WatchRoute.STANDBY
+        }
         RunState.RUNNING -> WatchRoute.RUNNING
         RunState.PAUSED -> if (nav.endConfirmOpen) WatchRoute.END_CONFIRM else WatchRoute.PAUSED
         RunState.COMPLETED, RunState.INTERRUPTED -> WatchRoute.RESULT
@@ -46,9 +55,9 @@ object WatchNavigation {
         page = if (snapshot.state == RunState.RUNNING) nav.page.coerceIn(0, pages(snapshot).lastIndex) else 0,
     )
 
-    /** Back or a swipe to the right may close the app only outside a run (standby, connection issue, result). */
-    fun canExit(route: WatchRoute): Boolean =
-        route == WatchRoute.STANDBY || route == WatchRoute.CONNECTION_ISSUE || route == WatchRoute.RESULT
+    /** Back or a swipe to the right may close the app only outside a run (standby, connection or readiness issue, result). */
+    fun canExit(route: WatchRoute): Boolean = route == WatchRoute.STANDBY || route == WatchRoute.CONNECTION_ISSUE ||
+        route == WatchRoute.NOT_READY || route == WatchRoute.RESULT
 
     /** The bottom button is back. During a run it never closes the app or ends the run. */
     fun back(snapshot: RunSnapshot, nav: NavState): BackResult {

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from '@react-navigation/native';
 import Svg, {
   Circle,
   Defs,
@@ -9,7 +13,7 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon } from '../../components';
+import { AppText, glass, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
   type GpsQuality,
@@ -17,7 +21,13 @@ import {
   type MusicService,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { useRunActions, type RunConfig } from './RunSession';
+import { useSession } from '../../session/SessionProvider';
+import {
+  useRunActions,
+  useRunControlState,
+  type RunConfig,
+} from './RunSession';
+import type { ControlProblem } from './runControl';
 import {
   fontFamily,
   k1,
@@ -27,8 +37,8 @@ import {
   useTheme,
 } from '../../theme';
 
-// Round K1 badge brightening toward the bottom right (DESIGN.md 2-6): the music button with a
-// service connected and the 2.0F 자유 러닝 icon.
+// Round dark badge brightening toward the bottom right behind a white rim (runway-course-handoff 음악 원,
+// 자유 러닝 아바타): the music button and the 2.0F 자유 러닝 icon.
 export function K1Badge({
   diameter,
   children,
@@ -45,10 +55,19 @@ export function K1Badge({
     >
       <Svg style={StyleSheet.absoluteFill} width={diameter} height={diameter}>
         <Defs>
-          <RadialGradient id="badge" cx={1} cy={1} fx={1} fy={1} r={1.2}>
-            <Stop offset={0} stopColor={k1.mid} />
-            <Stop offset={0.45} stopColor={k1.deep} />
-            <Stop offset={1} stopColor={k1.night} />
+          <RadialGradient
+            id="badge"
+            cx={0.82}
+            cy={0.86}
+            fx={0.82}
+            fy={0.86}
+            r={1.19}
+          >
+            <Stop offset={0} stopColor="#8096AF" />
+            <Stop offset={0.26} stopColor="#46596E" />
+            <Stop offset={0.52} stopColor="#1C2A3A" />
+            <Stop offset={0.78} stopColor="#0C131F" />
+            <Stop offset={1} stopColor="#09101B" />
           </RadialGradient>
         </Defs>
         <Rect width={diameter} height={diameter} fill="url(#badge)" />
@@ -149,7 +168,7 @@ function RoundButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.round,
-        { backgroundColor: night ? colors.surfaceMuted : k1.field },
+        night ? { backgroundColor: colors.surfaceMuted } : styles.roundGlass,
         pressed && styles.pressed,
       ]}
     >
@@ -161,7 +180,8 @@ function RoundButton({
 const countdownSeconds = 3;
 
 // 2.0·2.0F 하단: settings, 러닝 시작 (3초 카운트다운 후 4.2), music.
-// Day screens use the black pill with a dot in a ring (DESIGN.md 2-6 러닝 시작); night uses the accent.
+// By day a glass circle, the black pill with a dot in a grey ring and the dark music badge
+// (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
   config,
@@ -173,11 +193,39 @@ export function RunStartBar({
   const navigation = useNavigation();
   const { colors } = useTheme();
   const source = useMusicSource();
-  const { start: startRun } = useRunActions();
+  const { start: startRun, recheck, abortStart, cancel } = useRunActions();
+  const { ensureRunLogin } = useSession();
+  const control = useRunControlState();
+  const focused = useIsFocused();
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
   const latest = useRef({ config, navigation, start: startRun });
   latest.current = { config, navigation, start: startRun };
   const [count, setCount] = useState<number | null>(null);
+  // 이 화면에서 시작을 요청했고 아직 확정되지 않았다. 워치가 실제로 시작해 서버가 확정해야 4.2로 넘어간다.
+  const [requested, setRequested] = useState(false);
+  // 시작이 확정되면(재확인 성공·늦은 결과·워치에서 시작 포함) 이 화면에 있을 때 4.2로 넘어간다.
+  const previousStatus = useRef(control?.status ?? null);
+  useEffect(() => {
+    const status = control?.status ?? null;
+    if (
+      focused &&
+      status === 'RUNNING' &&
+      previousStatus.current !== 'RUNNING'
+    ) {
+      setRequested(false);
+      navigateTo(navigation, 'RunProgress');
+    }
+    previousStatus.current = status;
+    if (control?.problem) {
+      setRequested(false);
+    }
+  }, [control, focused, navigation]);
+  const confirming =
+    requested || (control?.pending?.action === 'START' && !control.problem);
+  const notice =
+    control?.status !== 'RUNNING'
+      ? startNotice(control?.problem ?? null)
+      : null;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (count === null) {
@@ -185,11 +233,17 @@ export function RunStartBar({
     }
     if (count === 0) {
       setCount(null);
+      if (!ensureRunLogin()) {
+        return;
+      }
       const { config: chosen, navigation: nav, start } = latest.current;
-      if (chosen) {
+      if (chosen?.mode === 'GROUP') {
+        start(chosen);
+        navigateTo(nav, 'RunProgress');
+      } else if (chosen) {
+        setRequested(true);
         start(chosen);
       }
-      navigateTo(nav, 'RunProgress');
       return;
     }
     timer.current = setTimeout(() => setCount(count - 1), 1000);
@@ -198,9 +252,9 @@ export function RunStartBar({
         clearTimeout(timer.current);
       }
     };
-  }, [count]);
+  }, [count, ensureRunLogin]);
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, !night && styles.barDay]}>
       <RoundButton
         label="설정"
         night={night}
@@ -211,38 +265,46 @@ export function RunStartBar({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="러닝 시작"
-        accessibilityState={{ disabled: !config }}
-        disabled={!config}
-        onPress={() => setCount(countdownSeconds)}
+        accessibilityState={{ disabled: !config || confirming }}
+        disabled={!config || confirming}
+        onPress={() => {
+          if (ensureRunLogin()) {
+            setCount(countdownSeconds);
+          }
+        }}
         style={({ pressed }) => [
           styles.start,
-          { backgroundColor: night ? colors.accent : k1.night },
-          (pressed || !config) && styles.pressed,
+          { backgroundColor: night ? colors.accent : startInk },
+          (pressed || !config || confirming) && styles.pressed,
         ]}
       >
         <AppText
-          style={[
-            typography.button,
-            { color: night ? colors.onAccent : k1.ice },
-          ]}
+          style={
+            night
+              ? [typography.button, { color: colors.onAccent }]
+              : styles.startText
+          }
         >
-          러닝 시작
+          {confirming ? '시작 확인 중' : '러닝 시작'}
         </AppText>
         <View
           style={[
             styles.ring,
-            { borderColor: night ? colors.onAccent : k1.ice },
+            night
+              ? { borderColor: colors.onAccent }
+              : [styles.ringDay, { borderColor: startRing }],
           ]}
         >
           <View
             style={[
               styles.ringDot,
-              { backgroundColor: night ? colors.onAccent : k1.ice },
+              { backgroundColor: night ? colors.onAccent : startRing },
             ]}
           />
         </View>
       </Pressable>
-      {source === 'MELON' || source === 'SPOTIFY' ? (
+      {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
+      {!night || source === 'MELON' || source === 'SPOTIFY' ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="음악"
@@ -250,7 +312,11 @@ export function RunStartBar({
           style={({ pressed }) => pressed && styles.pressed}
         >
           <K1Badge diameter={52}>
-            <ServiceMark service={source} size={30} mono />
+            {source === 'MELON' || source === 'SPOTIFY' ? (
+              <ServiceMark service={source} size={30} mono />
+            ) : (
+              <Icon name="music" color={k1.ice} size={20} />
+            )}
           </K1Badge>
         </Pressable>
       ) : (
@@ -281,8 +347,92 @@ export function RunStartBar({
           </AppText>
         </Pressable>
       </Modal>
+      {notice ? (
+        <View style={styles.notice}>
+          <AppText variant="captionStrong" accessibilityLabel="시작 안내">
+            {notice.text}
+          </AppText>
+          <View style={styles.noticeActions}>
+            {notice.recheck ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다시 확인"
+                onPress={recheck}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  다시 확인
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.abort ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="이번 운동 중단"
+                onPress={abortStart}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  이번 운동 중단
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.restart && control?.status === 'READY' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="취소"
+                onPress={cancel}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  취소
+                </AppText>
+              </Pressable>
+            ) : null}
+            {notice.restart ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다시 시작"
+                disabled={!config}
+                onPress={() => setCount(countdownSeconds)}
+              >
+                <AppText variant="captionStrong" tone="accentText">
+                  다시 시작
+                </AppText>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
+}
+
+// 시작 확정 전 문제 안내. 실행 미확인은 성공·실패로 단정하지 않고 재확인·중단을 고르게 한다(sessions.md S03 시작 결과 미확인).
+function startNotice(problem: ControlProblem | null): {
+  text: string;
+  recheck?: boolean;
+  abort?: boolean;
+  restart?: boolean;
+} | null {
+  if (!problem) {
+    return null;
+  }
+  switch (problem.kind) {
+    case 'watchRequired':
+      return { text: '워치를 연결해 주세요' };
+    case 'watchNotReady':
+      return { text: '워치가 준비되지 않았어요', restart: true };
+    case 'rejected':
+      return { text: '워치가 시작하지 못했어요', restart: true };
+    case 'unconfirmed':
+      return {
+        text: '시작 여부를 확인할 수 없습니다',
+        recheck: true,
+        abort: true,
+      };
+    case 'saveUnconfirmed':
+      return null;
+    case 'error':
+      return { text: '러닝을 시작하지 못했어요', restart: true };
+  }
 }
 
 const gpsLabels: Record<GpsQuality, string> = {
@@ -291,23 +441,40 @@ const gpsLabels: Record<GpsQuality, string> = {
   none: 'GPS 없음',
 };
 
-// The floating card at the top of the map: 현재 위치 · 민락수변공원 입구 · GPS 양호.
-// A white card with a navy dot and a black GPS chip (DESIGN.md 2-6 지도 위). After sunset the card
-// is dark, so the dot turns white and the chip light.
+// The floating bar at the top of the map: 현재 위치 · 민락수변공원 입구 · GPS 양호. By day a light glass pill
+// with a navy dot in a white ring and a black GPS chip (runway-course-handoff LocationBar). After sunset the
+// card is dark, so the dot turns white and the chip light.
 export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
   const theme = useTheme();
   const { colors } = theme;
   const night = theme.name === 'dark';
+  const good = gps === 'good';
   return (
-    <View style={[styles.place, { backgroundColor: colors.surfaceRaised }]}>
-      <View style={[styles.placeHalo, night && styles.placeHaloNight]}>
+    <LightGlass
+      radius={night ? 24 : 31}
+      solid={night ? colors.surfaceRaised : undefined}
+      style={night ? styles.place : styles.placeDay}
+    >
+      <View
+        style={[
+          styles.placeHalo,
+          night ? styles.placeHaloNight : styles.placeHaloDay,
+        ]}
+      >
         <View style={[styles.placeDot, night && styles.placeDotNight]} />
       </View>
       <View style={styles.flex}>
-        <AppText variant="label" tone="textSecondary" style={styles.regular}>
+        <AppText
+          variant="label"
+          tone="textSecondary"
+          style={night ? styles.regular : styles.placeLabelDay}
+        >
           현재 위치
         </AppText>
-        <AppText style={styles.placeName} numberOfLines={1}>
+        <AppText
+          style={night ? styles.placeName : styles.placeNameDay}
+          numberOfLines={1}
+        >
           {name}
         </AppText>
       </View>
@@ -315,33 +482,53 @@ export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
         style={[
           styles.gps,
           {
-            backgroundColor:
-              gps === 'good' ? colors.accent : colors.dangerSurface,
+            backgroundColor: good
+              ? night
+                ? colors.accent
+                : startInk
+              : colors.dangerSurface,
           },
         ]}
       >
         <AppText
           variant="labelStrong"
-          style={gps === 'good' ? { color: colors.onAccent } : undefined}
-          tone={gps === 'good' ? undefined : 'danger'}
+          style={good ? { color: night ? colors.onAccent : k1.ice } : undefined}
+          tone={good ? undefined : 'danger'}
         >
           {gpsLabels[gps]}
         </AppText>
       </View>
-    </View>
+    </LightGlass>
   );
 }
+
+// The day 러닝 시작 pill and its ring (runway-course-handoff).
+const startInk = '#02050E';
+const startRing = '#A3A8AF';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
-  bar: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  bar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
+  barDay: { gap: 10 },
+  notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
+  noticeActions: { flexDirection: 'row', gap: spacing.lg },
   round: {
     width: 52,
     height: 52,
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  roundGlass: {
+    backgroundColor: glass.circle,
+    borderWidth: 1,
+    borderColor: glass.circleRim,
   },
   start: {
     flex: 1,
@@ -363,7 +550,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ringDot: { width: 4, height: 4, borderRadius: 2 },
+  ringDay: { opacity: 1 },
+  startText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.3,
+    color: k1.ice,
+  },
   badge: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -410,13 +607,40 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: k1.deep,
   },
+  placeDay: {
+    height: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 26,
+    paddingLeft: 16,
+    paddingRight: 14,
+  },
+  placeHaloDay: {
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.8)',
+  },
+  placeLabelDay: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#67696E',
+  },
+  placeNameDay: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: startInk,
+  },
   placeHaloNight: { backgroundColor: 'rgba(232,238,244,0.22)' },
   placeDotNight: { backgroundColor: k1.ice },
   regular: { fontFamily: fontFamily.regular },
   placeName: { ...typography.bodyStrong, fontFamily: fontFamily.medium },
   gps: {
+    height: 26,
+    justifyContent: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: 13,
   },
 });

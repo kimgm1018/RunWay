@@ -6,19 +6,18 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText } from '../../components';
-import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
+import { Backdrop } from '../../components';
+import { k1 } from '../../theme';
 
-// Album art stand-ins in K1 tones (DESIGN.md 2-6 음악 카드).
+// Album art stand-ins in K1 tones for 4.2's mini player.
 const artColors: [string, string][] = [
   [k1.mid, k1.deep],
   [k1.top, k1.mid],
   [k1.mid, k1.night],
 ];
 
-// Without a size the art fills its container as a square (2.7 재생목록 grid).
+// Without a size the art fills its container as a square.
 export function AlbumArt({ index, size }: { index: number; size?: number }) {
   const [from, to] = artColors[index % artColors.length];
   const id = `art${index % artColors.length}`;
@@ -42,114 +41,74 @@ export function AlbumArt({ index, size }: { index: number; size?: number }) {
   );
 }
 
-// K1 with the light part kept longer so the lists stay on light; only the footer sits on black.
-// `dark` is the share of the card at the bottom that turns dark: the footer's height, or 12% without one.
-// It takes the card's measured size: an Svg sized in percent falls back to 300×150 on Android.
-function CardFill({
-  width,
-  height,
-  dark,
-}: {
-  width: number;
-  height: number;
-  dark: number;
-}) {
-  const edge = 1 - dark;
+// 2.7 핸드오프 (S15P31E105-374): the dark field behind the music card, blue grey down to near black.
+const darkField: [number, string][] = [
+  [0, '#616A74'],
+  [220 / 844, '#626B75'],
+  [420 / 844, '#626B75'],
+  [500 / 844, '#5B6570'],
+  [560 / 844, '#4A5665'],
+  [620 / 844, '#313D4C'],
+  [680 / 844, '#121C29'],
+  [740 / 844, '#060B14'],
+  [760 / 844, '#02050E'],
+  [1, '#010307'],
+];
+
+// It takes the measured size: an Svg sized in percent falls back to 300×150 on Android.
+function DarkField({ width, height }: { width: number; height: number }) {
   return (
     <Svg style={StyleSheet.absoluteFill} width={width} height={height}>
       <Defs>
-        <LinearGradient id="musicCard" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={k1.top} />
-          <Stop offset={edge * 0.5} stopColor="#C3D1DD" />
-          <Stop offset={edge * 0.8} stopColor="#C2D0DC" />
-          <Stop offset={edge * 0.92} stopColor={k1.light} />
-          <Stop offset={edge} stopColor={k1.mid} />
-          <Stop offset={edge + dark * 0.4} stopColor={k1.deep} />
-          <Stop offset={edge + dark * 0.75} stopColor={k1.night} />
-          <Stop offset="1" stopColor={k1.black} />
+        <LinearGradient id="musicField" x1="0" y1="0" x2="0" y2="1">
+          {darkField.map(([offset, color]) => (
+            <Stop key={offset} offset={offset} stopColor={color} />
+          ))}
         </LinearGradient>
       </Defs>
-      <Rect width={width} height={height} fill="url(#musicCard)" />
+      <Rect width={width} height={height} fill="url(#musicField)" />
     </Svg>
   );
 }
 
-// 2.7·2.8 float over the run screen: tapping outside the card closes it.
-// 2.8 opens on top of 2.7: it covers the same card and keeps 2.7's dimming instead of adding its own.
-export function MusicSheet({
+// The room the floating tab bar takes in the mockups; the card centers in the space above it.
+const tabBarRoom = 96;
+
+// 2.7 and 2.8 open over the run screen as one card in the middle: 2.7 on the dark field, 2.8 on the K1
+// background. Tapping outside the card closes it.
+export function MusicOverlay({
+  dark,
   children,
-  footer,
-  stacked = false,
 }: {
+  dark: boolean;
   children: React.ReactNode;
-  footer?: React.ReactNode;
-  stacked?: boolean;
 }) {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const [box, setBox] = useState<{ width: number; height: number } | null>(
     null,
   );
-  const [footerHeight, setFooterHeight] = useState(0);
   const measure = (event: LayoutChangeEvent) =>
     setBox(event.nativeEvent.layout);
-  const measureFooter = (event: LayoutChangeEvent) =>
-    setFooterHeight(event.nativeEvent.layout.height);
   return (
-    <View style={styles.root}>
+    <View style={styles.root} onLayout={measure}>
+      {dark ? (
+        box ? (
+          <DarkField {...box} />
+        ) : null
+      ) : (
+        <View style={StyleSheet.absoluteFill}>
+          <Backdrop />
+        </View>
+      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="닫기"
         onPress={navigation.goBack}
-        style={[
-          StyleSheet.absoluteFill,
-          !stacked && { backgroundColor: colors.scrim },
-        ]}
+        style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView
-        edges={['top']}
-        style={styles.safe}
-        pointerEvents="box-none"
-      >
-        <View style={styles.card} onLayout={measure}>
-          {box ? (
-            <CardFill
-              width={box.width}
-              height={box.height}
-              dark={footer && footerHeight ? footerHeight / box.height : 0.12}
-            />
-          ) : null}
-          {children}
-          {footer ? (
-            <ThemeProvider tone="dark">
-              <View style={styles.footer} onLayout={measureFooter}>
-                {footer}
-              </View>
-            </ThemeProvider>
-          ) : null}
-        </View>
-      </SafeAreaView>
-    </View>
-  );
-}
-
-export function SectionTitle({
-  title,
-  note,
-}: {
-  title: string;
-  note?: string;
-}) {
-  return (
-    <View style={styles.sectionTitle}>
-      <AppText variant="bodyStrong" style={styles.medium}>
-        {title}
-      </AppText>
-      {note ? (
-        <AppText variant="label" tone="textSecondary">
-          {note}
-        </AppText>
-      ) : null}
+      <View style={styles.center} pointerEvents="box-none">
+        {children}
+      </View>
     </View>
   );
 }
@@ -157,20 +116,10 @@ export function SectionTitle({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   square: { width: '100%', aspectRatio: 1 },
-  safe: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.xl },
-  // Both cards share one height so 2.8 sits exactly over 2.7.
-  card: {
-    height: '78%',
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    overflow: 'hidden',
+  center: {
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingBottom: tabBarRoom,
+    justifyContent: 'center',
   },
-  footer: { padding: spacing.xl, paddingTop: spacing.md, alignItems: 'center' },
-  sectionTitle: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-  },
-  medium: { fontFamily: fontFamily.medium },
 });

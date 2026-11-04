@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
+import com.runway.watch.readiness.CheckState
 import com.runway.watch.run.FeedStatus
 import com.runway.watch.run.RunMetrics
 import com.runway.watch.run.RunMode
@@ -31,6 +32,11 @@ data class RunStatusView(
      * or "– –") so a glance mid-run is not crowded; TalkBack still names each state.
      */
     val phoneLost: Boolean,
+    /**
+     * The watch reports no internet. Saving cannot be confirmed meanwhile; the run is not said to
+     * continue offline or to be recovered later (online MVP).
+     */
+    val offline: Boolean,
     /** False for a free run: no ring, so no remaining distance or achievement is implied. */
     val hasGoal: Boolean,
     /** Null while location is not arriving, so the ring keeps only its track. */
@@ -41,7 +47,7 @@ data class RunStatusView(
 
 /** Derives 9.2 from the snapshot only. Values that did not arrive are never filled in. */
 object RunStatusDisplay {
-    fun from(snapshot: RunSnapshot): RunStatusView {
+    fun from(snapshot: RunSnapshot, online: CheckState = CheckState.UNKNOWN): RunStatusView {
         val m = snapshot.metrics
         val feeds = m.feeds
         return RunStatusView(
@@ -51,6 +57,7 @@ object RunStatusDisplay {
             heartRate = live(MetricFormat.heartRate(m.heartRate), feeds.heartRate, "심박수"),
             cadence = live(MetricFormat.cadence(m.cadenceSpm), feeds.cadence, "케이던스"),
             phoneLost = !snapshot.phoneConnected,
+            offline = online == CheckState.MISSING,
             hasGoal = m.goalProgress != null,
             ringProgress = m.goalProgress?.takeIf { feeds.location == FeedStatus.LIVE || feeds.location == FeedStatus.DELAYED },
             pending = snapshot.pendingCommand,
@@ -75,8 +82,11 @@ object RunStatusDisplay {
 
 /** 9.2: the edge ring is distance progress toward a goal; tapping the face asks to pause. */
 @Composable
-internal fun RunStatusPage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit) {
-    val view = RunStatusDisplay.from(snapshot)
+internal fun RunStatusPage(
+    snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit,
+    online: CheckState = CheckState.UNKNOWN,
+) {
+    val view = RunStatusDisplay.from(snapshot, online)
     RoundScreen(
         Modifier.clickable(enabled = !view.pending, onClickLabel = "일시정지", role = Role.Button, onClick = onPause),
         background = { if (view.hasGoal) ProgressRing(view.ringProgress) }, spacing = 1.dp, focused = visible,
@@ -102,13 +112,14 @@ internal fun RunStatusPage(snapshot: RunSnapshot, count: Int, index: Int, visibl
 
 /**
  * One line so the face never grows past the round screen: a pending request first (it lasts only
- * until confirmed), then the phone link. No GPS item, since a GPS dot that never changes would
+ * until confirmed), then the phone link, then the internet. No GPS item, since a GPS dot that never changes would
  * claim a fix the values may contradict.
  */
 @Composable
 private fun StatusHeader(view: RunStatusView) = when {
     view.pending -> Text("요청 확인 중", style = RunwayType.Caption, color = RunwayColors.Content, maxLines = 1)
     view.phoneLost -> StatusLine("폰 연결 끊김" to StatusTone.WARNING)
+    view.offline -> StatusLine("오프라인 · 저장 미확인" to StatusTone.WARNING)
     else -> StatusLine("폰" to StatusTone.NORMAL)
 }
 

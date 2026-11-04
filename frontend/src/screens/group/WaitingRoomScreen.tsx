@@ -15,6 +15,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSession } from '../../session/SessionProvider';
 import {
   AppText,
   Backdrop,
@@ -199,6 +200,7 @@ function ReadyCancel({ onPress }: { onPress: () => void }) {
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
 // members who pressed 준비 완료 start their own record 3 seconds later.
 export function WaitingRoomScreen() {
+  const { ensureRunLogin } = useSession();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
   const groupRunId = route.params?.groupRunId ?? 'gr-today';
@@ -227,8 +229,13 @@ export function WaitingRoomScreen() {
 
   // The leader's start reaches every member; ready ones count down 3·2·1 and start.
   useEffect(
-    () => groupRuns.watchStart(groupRunId, () => setCount(countdownSeconds)),
-    [groupRunId, groupRuns],
+    () =>
+      groupRuns.watchStart(groupRunId, () => {
+        if (ensureRunLogin()) {
+          setCount(countdownSeconds);
+        }
+      }),
+    [groupRunId, groupRuns, ensureRunLogin],
   );
   const latest = useRef({ run, room, start, navigation });
   latest.current = { run, room, start, navigation };
@@ -237,6 +244,10 @@ export function WaitingRoomScreen() {
       return;
     }
     if (count === 0) {
+      setCount(null);
+      if (!ensureRunLogin()) {
+        return;
+      }
       const {
         run: current,
         room: currentRoom,
@@ -256,7 +267,7 @@ export function WaitingRoomScreen() {
     }
     const timer = setTimeout(() => setCount(count - 1), 1000);
     return () => clearTimeout(timer);
-  }, [count]);
+  }, [count, ensureRunLogin]);
 
   if (!run || !room) {
     return (
@@ -289,8 +300,12 @@ export function WaitingRoomScreen() {
   const readyCount = room.participants.filter(
     member => member.readyStatus === 'READY',
   ).length;
-  const toggleReady = async () =>
+  const toggleReady = async () => {
+    if (!isReady && !ensureRunLogin()) {
+      return;
+    }
     setRoom(await groupRuns.setReady(groupRunId, !isReady));
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>

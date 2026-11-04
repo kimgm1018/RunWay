@@ -8,6 +8,9 @@
 - [상세 요구사항](design/requirements.md)
 - [데이터 모델 설명](design/db/erd.md) · [기준 스키마](design/db/schema.sql) · [ERD 이미지](design/db/erd.png)
 - [API 명세](design/api/README.md)
+- [러닝 준비도 1차 산식](design/readiness-formula.md) — 수면·회복·부하 점수와 최저 항목 상한, 서버 결측 처리
+- [AI 추론 서비스 내부 API](design/api/ai-service.md) — 백엔드↔AI 서버 계약(제안)
+- [AI 개인화 ERD 반영 요청](design/db/proposals/AI_PERSONALIZATION_ERD_REQUEST.md) · [제안 SQL](design/db/proposals/ai_personalization.sql) — 팀 합의 전, migration 번호는 팀이 정함
 - [기술 결정 기록](adr/README.md)
 - [일상 심박·IBI 기술 검증 결과](design/watch-passive-health-feasibility.md)
 - [워치·휴대폰·서버 연동 구조와 데이터 흐름](design/watch-mobile-server-integration.md) — Galaxy Watch+갤럭시 MVP, 명령 순서·목표 고정·백그라운드·재전송 설계

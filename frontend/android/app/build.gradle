@@ -74,6 +74,14 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// Naver Map Client ID (ADR-0018) from android/local.properties, else the environment. It ships in the APK and is
+// restricted to this package name in the NAVER Cloud console, so it is not a secret; the Client Secret never goes here.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) { localPropertiesFile.withInputStream { localProperties.load(it) } }
+def naverMapClientId = localProperties.getProperty('MOBILE_NAVER_MAP_CLIENT_ID') ?: System.getenv('MOBILE_NAVER_MAP_CLIENT_ID')
+if (!naverMapClientId?.trim()) { throw new GradleException('Set MOBILE_NAVER_MAP_CLIENT_ID in android/local.properties. See frontend/README.md.') }
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -86,6 +94,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        manifestPlaceholders["naverMapClientId"] = naverMapClientId.trim()
     }
     signingConfigs {
         debug {
@@ -115,6 +124,9 @@ dependencies {
     if (!samsungSdk.exists()) { throw new GradleException('Download Samsung Health Data SDK 1.1.0 and set -PsamsungHealthSdk=<aar path>. See frontend/README.md.') }
     implementation files(samsungSdk)
     implementation 'com.google.code.gson:gson:2.9.0'
+    implementation 'com.google.android.gms:play-services-wearable:18.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 

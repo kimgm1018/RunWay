@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
@@ -19,6 +25,7 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      <meta-data android:name="com.naver.maps.map.NCP_KEY_ID" android:value="${naverMapClientId}" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -30,6 +37,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- S15P31E105-374: Spotify sign-in (PKCE) returns here. -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="runway" android:host="spotify-callback" />
+        </intent-filter>
       </activity>
       <activity android:name=".HealthRationaleActivity" android:exported="true">
         <intent-filter><action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" /></intent-filter>
@@ -37,5 +51,16 @@
       <activity-alias android:name="ViewHealthPermissionUsageActivity" android:exported="true" android:targetActivity=".HealthRationaleActivity" android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
         <intent-filter><action android:name="android.intent.action.VIEW_PERMISSION_USAGE" /><category android:name="android.intent.category.HEALTH_PERMISSIONS" /></intent-filter>
       </activity-alias>
+      <service android:name=".watch.WatchListenerService" android:exported="true">
+        <intent-filter>
+          <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/health/" />
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/session/" />
+          <!-- S15P31E105-311: BATCH_DATA measurement batches from the watch. -->
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/data/" />
+        </intent-filter>
+      </service>
+      <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->
+      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

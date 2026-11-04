@@ -3,6 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, G, Path, Polyline, Rect, Text } from 'react-native-svg';
 import { distanceM, type LngLat } from '../../geo';
 import { k1, palette } from '../../theme';
+import { courseMapSize } from './courseMapArt';
+import { coursePaceColors, CourseMockMap } from './CourseMockMap';
 
 // Stand-in for the real map until the map SDK is chosen (S15P31E105-180). It draws a fixed street
 // pattern and projects GeoJSON [longitude, latitude] points onto it, so screens already pass the
@@ -10,6 +12,10 @@ import { k1, palette } from '../../theme';
 
 const viewWidth = 360;
 const viewHeight = 760;
+// Where a course sits on the 390×844 day map: the mockup's loop, above the 2.0 sheet.
+const courseRouteArea = { top: 160, bottom: 470 };
+// 4.2 by day: the run so far between the stat strip and the pace card (runway-running-handoff RunMap).
+const runRouteArea = { top: 330, bottom: 470 };
 
 const looks = {
   day: {
@@ -70,8 +76,6 @@ const minorRoads = [
 
 // Faster segments are a deeper mint, slower ones paler (2.0 범례 빠름 ↔ 느림).
 export const paceColors = ['#1F8F80', '#3FB6A5', '#7FD8CB', '#B8EDE5'];
-// The same scale on the K1 map: black, navy, steel blue.
-export const k1PaceColors = [k1.night, k1.deep, k1.mid];
 
 function paceColor(
   pace: number,
@@ -122,7 +126,11 @@ export function splitRoute(route: LngLat[], parts: number) {
   return result;
 }
 
-function projector(points: LngLat[], area: { top: number; bottom: number }) {
+function projector(
+  points: LngLat[],
+  area: { top: number; bottom: number },
+  frameWidth = viewWidth,
+) {
   const lngs = points.map(point => point[0]);
   const lats = points.map(point => point[1]);
   const [minLng, maxLng] = [Math.min(...lngs), Math.max(...lngs)];
@@ -130,7 +138,7 @@ function projector(points: LngLat[], area: { top: number; bottom: number }) {
   const midLat = (minLat + maxLat) / 2;
   const spanX = Math.max((maxLng - minLng) * Math.cos(toRadians(midLat)), 1e-4);
   const spanY = Math.max(maxLat - minLat, 1e-4);
-  const box = { left: 50, right: viewWidth - 50, ...area };
+  const box = { left: 50, right: frameWidth - 50, ...area };
   const scale = Math.min(
     (box.right - box.left) / spanX,
     (box.bottom - box.top) / spanY,
@@ -180,9 +188,57 @@ export function MockMap({
 }) {
   const k1Day = k1Style && !night;
   const k1Night = k1Style && night;
+  if (k1Day) {
+    // 2.0·2.0F·3.1·4.2 by day: the thin-line map of runway-course-handoff, in its 390×844 frame.
+    const running = trail && trail.length > 0;
+    const fit = projector(
+      [...(route ?? []), ...(trail ?? []), ...(position ? [position] : [])],
+      running
+        ? runRouteArea
+        : route
+        ? courseRouteArea
+        : { top: positionY, bottom: positionY },
+      courseMapSize.width,
+    );
+    // While running, the course is only a guide under the run; its pace colors belong to 2.0.
+    const pieces = route
+      ? !running && segmentPaces && segmentPaces.length > 0
+        ? splitRoute(route, segmentPaces.length)
+        : [route]
+      : [];
+    const fastestPace = segmentPaces ? Math.min(...segmentPaces) : 0;
+    const slowestPace = segmentPaces ? Math.max(...segmentPaces) : 0;
+    return (
+      <CourseMockMap
+        project={fit}
+        parts={pieces}
+        colors={pieces.map((_, index) =>
+          running
+            ? coursePaceColors[2]
+            : segmentPaces
+            ? paceColor(
+                segmentPaces[index],
+                fastestPace,
+                slowestPace,
+                coursePaceColors,
+              )
+            : coursePaceColors[1],
+        )}
+        paceLabels={
+          showPaceLabels && segmentPaces
+            ? segmentPaces.map((pace, index) =>
+                formatLabel ? formatLabel(index + 1, pace) : String(index + 1),
+              )
+            : null
+        }
+        position={position}
+        trail={running ? trail : undefined}
+      />
+    );
+  }
   const look =
     looks[night ? (k1Night ? 'k1Night' : 'night') : k1Day ? 'k1' : 'day'];
-  const scale = k1Day ? k1PaceColors : paceColors;
+  const scale = paceColors;
   const project = projector(
     [...(route ?? []), ...(trail ?? []), ...(position ? [position] : [])],
     route || (trail && trail.length > 1)

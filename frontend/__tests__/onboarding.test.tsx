@@ -4,7 +4,12 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
 import * as fixtures from '../src/data/mock/fixtures';
+import { setWatchHealthConsent } from '../src/health/watchHealth';
 
+jest.mock('../src/health/watchHealth', () => ({
+  setWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
+  refreshWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
+}));
 jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
@@ -100,7 +105,7 @@ test('login shows the failure count, then enters home with the right password', 
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
   expect(texts(screen)).toContain('5회 실패 시 10분간 제한돼요 (1/5)');
   await login(screen, fixtures.account.loginId, fixtures.account.password);
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -122,12 +127,12 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('만들어요');
 
   await type(screen, '아이디', 'runner01');
-  await settle(450);
+  await settle(550);
   expect(texts(screen)).toContain('이미 사용 중인 아이디예요');
   await type(screen, '아이디', 'ab');
   expect(texts(screen)).toContain('영문·숫자 4–16자로 입력해 주세요');
   await type(screen, '아이디', 'newrunner');
-  await settle(450);
+  await settle(550);
   expect(texts(screen)).toContain('사용할 수 있는 아이디예요');
 
   await type(screen, '비밀번호', 'runway123');
@@ -184,13 +189,16 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('6′00″/km');
   await press(screen, '저장');
 
+  // The consent chosen at sign-up is sent to the watch once the account exists.
+  expect(setWatchHealthConsent).toHaveBeenCalledTimes(1);
+  expect(setWatchHealthConsent).toHaveBeenCalledWith('DISAGREE');
   expect(texts(screen)).toContain('함께 쓰나요?');
   await press(screen, '네, 워치와 함께 쓸게요');
   await press(screen, '다음');
   expect(texts(screen)).toContain('82%');
   expect(texts(screen)).toContain('심박수');
   await slide(screen, '밀어서 시작하기');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -210,14 +218,91 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
   await login(screen, 'halfway1', 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  // The pace tab takes the pace alone (U07 PACE).
   await press(screen, '페이스');
-  await type(screen, '거리', '3');
+  expect(texts(screen)).not.toContain('자동 계산');
   await type(screen, '페이스 (분:초/km)', '7:30');
-  expect(texts(screen)).toContain('22:30');
   await press(screen, '저장');
   await press(screen, '아니요, 휴대폰만 쓸게요');
   await press(screen, '다음');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
+  await act(async () => screen.unmount());
+});
+
+async function resumeAtRunningProfile(loginId: string) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  await repositories.auth.signUp({
+    loginId,
+    password: 'runway123',
+    nickname: '러너',
+    birthDate: '1995-05-05',
+    gender: 'FEMALE',
+    phoneNumber: '01011112222',
+    healthDataAccess: 'DISAGREE',
+  });
+  const save = jest.spyOn(repositories.profile, 'saveRunningProfile');
+  const screen = await render({ repositories });
+  await press(screen, '로그인');
+  await login(screen, loginId, 'runway123');
+  expect(texts(screen)).toContain('평소 어떻게');
+  return { screen, save };
+}
+
+function field(screen: Screen, label: string) {
+  return last(screen, label, 'onChangeText').props.value;
+}
+
+test('picking a level fills its recommended values, which save as the same U07 request', async () => {
+  const { screen, save } = await resumeAtRunningProfile('preset01');
+  await press(screen, '초급, 5km 미만 주 1회 이하');
+  expect(field(screen, '거리')).toBe('3');
+  expect(field(screen, '완주 시간')).toBe('20:00');
+  // Values the level filled in follow a new level.
+  await press(screen, '상급, 하프 이상 주 4회+');
+  expect(field(screen, '거리')).toBe('10');
+  expect(field(screen, '완주 시간')).toBe('55:00');
+  expect(texts(screen)).toContain('5′30″/km');
+  expect(isDisabled(screen, '저장')).toBe(false);
+  await press(screen, '저장');
+  expect(save).toHaveBeenCalledWith({
+    selfReportedLevel: 'ADVANCED',
+    pace: {
+      inputType: 'DISTANCE_TIME',
+      baselineDistanceM: 10000,
+      baselineDurationSec: 3300,
+      usualPaceSecPerKm: 330,
+    },
+  });
+  await act(async () => screen.unmount());
+});
+
+test('a level resets typed values and digits alone get the colons', async () => {
+  const { screen, save } = await resumeAtRunningProfile('preset02');
+  await press(screen, '중급, 5–10km 주 2–3회');
+  await type(screen, '거리', '7');
+  await type(screen, '완주 시간', '4000');
+  expect(field(screen, '완주 시간')).toBe('40:00');
+  // Typed time is cleared when the tab changes.
+  await press(screen, '페이스');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('');
+  await press(screen, '완주 시간');
+  // Picking a level always brings back its recommendation.
+  await press(screen, '초급, 5km 미만 주 1회 이하');
+  expect(field(screen, '거리')).toBe('3');
+  expect(field(screen, '완주 시간')).toBe('20:00');
+  // The pace tab also takes digits only (number pad).
+  await press(screen, '페이스');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('6:40');
+  expect(
+    last(screen, '페이스 (분:초/km)', 'onChangeText').props.keyboardType,
+  ).toBe('number-pad');
+  await type(screen, '페이스 (분:초/km)', '600');
+  expect(field(screen, '페이스 (분:초/km)')).toBe('6:00');
+  await press(screen, '저장');
+  expect(save).toHaveBeenCalledWith({
+    selfReportedLevel: 'BEGINNER',
+    pace: { inputType: 'PACE', usualPaceSecPerKm: 360 },
+  });
   await act(async () => screen.unmount());
 });
 
@@ -249,7 +334,7 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
   await login(screen, fixtures.account.loginId, fixtures.account.password);
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
   await login(screen, fixtures.account.loginId, 'newpass123');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 
@@ -285,6 +370,6 @@ test('a disconnected watch shows the 1.8 state and can be skipped from settings'
   await slide(screen, '밀어서 다시 연결');
   expect(texts(screen)).toContain('연결 끊김');
   await press(screen, '나중에 연결하기');
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });

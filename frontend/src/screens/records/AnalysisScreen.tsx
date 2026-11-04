@@ -390,7 +390,7 @@ function Comparison({
   period: AnalysisPeriod;
   start: string;
   current: PeriodSummary;
-  previous: PeriodSummary | null;
+  previous: RunStatistics['previousPeriod'];
   isCurrent: boolean;
 }) {
   const before = shift(period, start, -1);
@@ -405,7 +405,6 @@ function Comparison({
   const earlier = previous ?? {
     runCount: 0,
     totalDistanceM: 0,
-    totalDurationSec: 0,
     averagePaceSecPerKm: null,
   };
   const countGap = current.runCount - earlier.runCount;

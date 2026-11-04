@@ -1,28 +1,44 @@
 package com.runway.backend.domain.course.service;
 
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
+import com.runway.backend.domain.course.dto.request.GradeSegment;
+import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
+import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
+import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
+import com.runway.backend.domain.course.recommend.CourseRecommendCommand;
+import com.runway.backend.domain.course.recommend.CourseRecommendFilters;
+import com.runway.backend.domain.course.recommend.CourseRecommendPort;
+import com.runway.backend.domain.course.recommend.CourseRecommendShape;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkUpsertRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkedCourseRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.CourseRow;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.global.geo.GeoJsonGeographyMapper;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.geo.GeoJsonPoint;
-import java.math.BigDecimal;
-import java.util.List;
+
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -31,10 +47,37 @@ public class CourseService {
     private static final int ALIAS_MAX_LENGTH = 50;
     private static final int DEFAULT_BOOKMARK_LIMIT = 20;
     private static final int MAX_BOOKMARK_LIMIT = 50;
+    private static final double MIN_DISTANCE_KM = 1.0d;
+    private static final double MAX_DISTANCE_KM = 15.0d;
+    private static final int MIN_SEED = 1;
+    private static final int MAX_SEED = 10_000_000;
+    /** 부산 서비스 박스(스텁·1차 검증용). */
+    private static final double BUSAN_MIN_LAT = 35.02d;
+
+    private static final double BUSAN_MAX_LAT = 35.40d;
+    private static final double BUSAN_MIN_LON = 128.75d;
+    private static final double BUSAN_MAX_LON = 129.30d;
+    /** point_to_point 출발–도착 직선거리 상한(m). */
+    private static final double MAX_P2P_STRAIGHT_M = 17_000d;
+
+    private static final double METERS_PER_DEG_LAT = 111_320d;
+    /** courses.distance NUMERIC(12,2) 상한. */
+    private static final BigDecimal MAX_COURSE_DISTANCE_M = new BigDecimal("9999999999.99");
+    /** courses.elevation_gain NUMERIC(10,2) 상한. */
+    private static final BigDecimal MAX_ELEVATION_GAIN_M = new BigDecimal("99999999.99");
+    private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
 
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseBookmarkRepository courseBookmarkRepository;
+    private final CourseRecommendPort courseRecommendPort;
     private final JsonMapper jsonMapper;
+
+    @Transactional(readOnly = true)
+    public RecommendCoursesResponse recommend(long userId, RecommendCoursesRequest request) {
+        requireExistingUser(userId);
+        CourseRecommendCommand command = validateRecommendCommand(request);
+        return courseRecommendPort.recommend(command);
+    }
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -64,6 +107,52 @@ public class CourseService {
                 estimatedDurationSec,
                 course.status(),
                 course.mergedIntoCourseId());
+    }
+
+    /**
+     * AI 생성 코스를 courses에 저장한다. 경로·거리·누적 상승과 100m 경사 목록(elevation_profile)을 함께 기록하며,
+     * 입력이 계약을 위반하면 아무것도 쓰지 않고 {@code VALIDATION_ERROR}(400) {@link ApiException}을 던진다.
+     *
+     * @return 생성된 코스 ID
+     */
+    @Transactional
+    public long saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+        if (command == null) {
+            throw GradeProfileValidator.invalid("body", "필수입니다.");
+        }
+        GeoJsonLineString route = command.route();
+        if (route == null) {
+            throw GradeProfileValidator.invalid("route", "필수입니다.");
+        }
+        // DB(NUMERIC(12,2)·(10,2))와 같은 반올림을 먼저 적용해, 검증한 값과 저장되는 값을 일치시킨다.
+        BigDecimal distanceM = toStoredScale(command.distanceM());
+        if (distanceM == null
+                || distanceM.signum() <= 0
+                || distanceM.compareTo(MAX_COURSE_DISTANCE_M) > 0) {
+            throw GradeProfileValidator.invalid(
+                    "distanceM", "0 초과 " + MAX_COURSE_DISTANCE_M + " 이하여야 합니다.");
+        }
+        BigDecimal elevationGainM = toStoredScale(command.elevationGainM());
+        // 음수는 반올림으로 0이 되기 전 원본 부호로 거절한다(예: -0.004).
+        if (elevationGainM != null
+                && (command.elevationGainM().signum() < 0
+                        || elevationGainM.compareTo(MAX_ELEVATION_GAIN_M) > 0)) {
+            throw GradeProfileValidator.invalid(
+                    "elevationGainM", "null 또는 0 이상 " + MAX_ELEVATION_GAIN_M + " 이하여야 합니다.");
+        }
+        // 검증한 값과 저장하는 값이 같도록 정규화된 목록을 저장한다.
+        List<GradeSegment> gradeProfile =
+                GradeProfileValidator.validate(command.gradeProfile(), distanceM);
+
+        List<Double> first = route.coordinates().get(0);
+        String startEwkt =
+                GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(first.get(0), first.get(1)));
+        return courseJdbcRepository.insertGeneratedCourse(
+                GeoJsonGeographyMapper.toEwkt(route),
+                startEwkt,
+                distanceM,
+                elevationGainM,
+                jsonMapper.writeValueAsString(gradeProfile));
     }
 
     @Transactional
@@ -126,7 +215,7 @@ public class CourseService {
 
     private void requireExistingUser(long userId) {
         if (!courseJdbcRepository.existsUserById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
@@ -139,9 +228,8 @@ public class CourseService {
     private static void validateAliasLength(String alias) {
         if (alias != null && alias.length() > ALIAS_MAX_LENGTH) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "별명은 최대 " + ALIAS_MAX_LENGTH + "자까지 가능합니다.");
+                    ErrorCode.VALIDATION_ERROR_COURSE_VALIDATE_ALIAS_LENGTH,
+                    String.valueOf(ALIAS_MAX_LENGTH));
         }
     }
 
@@ -151,9 +239,7 @@ public class CourseService {
         }
         if (limit < 1 || limit > MAX_BOOKMARK_LIMIT) {
             throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "limit은 1 이상 " + MAX_BOOKMARK_LIMIT + " 이하여야 합니다.");
+                    ErrorCode.VALIDATION_LIMIT_OUT_OF_RANGE, String.valueOf(MAX_BOOKMARK_LIMIT));
         }
         return limit;
     }
@@ -171,6 +257,122 @@ public class CourseService {
         } catch (NumberFormatException ex) {
             throw invalidCursor();
         }
+    }
+
+    private static CourseRecommendCommand validateRecommendCommand(RecommendCoursesRequest request) {
+        if (request == null) {
+            throw new ApiException(ErrorCode.SEARCH_CONDITIONS_REQUIRED);
+        }
+        double latitude = requireFinite(request.latitude(), "latitude");
+        double longitude = requireFinite(request.longitude(), "longitude");
+        if (latitude < -90 || latitude > 90) {
+            throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
+        }
+        if (longitude < -180 || longitude > 180) {
+            throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
+        }
+        if (latitude < BUSAN_MIN_LAT
+                || latitude > BUSAN_MAX_LAT
+                || longitude < BUSAN_MIN_LON
+                || longitude > BUSAN_MAX_LON) {
+            throw new ApiException(ErrorCode.SEARCH_OUT_OF_AREA);
+        }
+
+        double distanceKm = requireFinite(request.distanceKm(), "distanceKm");
+        if (distanceKm < MIN_DISTANCE_KM || distanceKm > MAX_DISTANCE_KM) {
+            throw new ApiException(ErrorCode.SEARCH_DISTANCE_KM_RANGE);
+        }
+
+        CourseRecommendShape shape = parseShape(request.shape());
+        Double endLat = request.endLatitude();
+        Double endLon = request.endLongitude();
+        if (shape == CourseRecommendShape.POINT_TO_POINT) {
+            if (endLat == null || endLon == null) {
+                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
+            }
+            double endLatitude = requireFinite(endLat, "endLatitude");
+            double endLongitude = requireFinite(endLon, "endLongitude");
+            if (endLatitude < -90 || endLatitude > 90) {
+                throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
+            }
+            if (endLongitude < -180 || endLongitude > 180) {
+                throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
+            }
+            if (straightDistanceM(latitude, longitude, endLatitude, endLongitude)
+                    > MAX_P2P_STRAIGHT_M) {
+                throw new ApiException(ErrorCode.SEARCH_OUT_OF_APP_RANGE);
+            }
+            endLat = endLatitude;
+            endLon = endLongitude;
+        } else if (endLat != null || endLon != null) {
+            // 편도가 아니면 도착 좌표 한쪽만 오면 형식 오류로 본다.
+            if (endLat == null || endLon == null) {
+                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
+            }
+            endLat = requireFinite(endLat, "endLatitude");
+            endLon = requireFinite(endLon, "endLongitude");
+        }
+
+        int seed = request.seed() == null ? MIN_SEED : request.seed();
+        if (seed < MIN_SEED || seed > MAX_SEED) {
+            throw new ApiException(ErrorCode.SEARCH_SEED_INVALID);
+        }
+
+        return new CourseRecommendCommand(
+                latitude,
+                longitude,
+                distanceKm,
+                shape,
+                endLat,
+                endLon,
+                normalizeFilters(request.filters()),
+                seed);
+    }
+
+    private static CourseRecommendShape parseShape(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return CourseRecommendShape.LOOP;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "loop" -> CourseRecommendShape.LOOP;
+            case "out_and_back" -> CourseRecommendShape.OUT_AND_BACK;
+            case "point_to_point" -> CourseRecommendShape.POINT_TO_POINT;
+            default -> throw new ApiException(ErrorCode.SEARCH_SHAPE_INVALID);
+        };
+    }
+
+    private static CourseRecommendFilters normalizeFilters(
+            RecommendCoursesRequest.RecommendCourseFilters raw) {
+        if (raw == null) {
+            return CourseRecommendFilters.allOff();
+        }
+        return new CourseRecommendFilters(
+                Boolean.TRUE.equals(raw.river()),
+                Boolean.TRUE.equals(raw.beach()),
+                Boolean.TRUE.equals(raw.park()),
+                Boolean.TRUE.equals(raw.trail()),
+                Boolean.TRUE.equals(raw.pedestrian()),
+                Boolean.TRUE.equals(raw.avoidMajorRoad()),
+                Boolean.TRUE.equals(raw.avoidSteps()),
+                Boolean.TRUE.equals(raw.avoidTunnel()),
+                Boolean.TRUE.equals(raw.flat()));
+    }
+
+    private static double straightDistanceM(
+            double lat1, double lon1, double lat2, double lon2) {
+        double meanLat = Math.toRadians((lat1 + lat2) / 2d);
+        double dLatM = (lat2 - lat1) * METERS_PER_DEG_LAT;
+        double dLonM = (lon2 - lon1) * METERS_PER_DEG_LAT * Math.cos(meanLat);
+        return Math.hypot(dLatM, dLonM);
+    }
+
+    private static double requireFinite(Double value, String field) {
+        if (value == null || value.isNaN() || value.isInfinite()) {
+            throw new ApiException(
+                    ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_FINITE, String.valueOf(field));
+        }
+        return value;
     }
 
     private static Integer estimateDurationSec(BigDecimal distanceM, Double targetPaceSecPerKm) {
@@ -208,12 +410,27 @@ public class CourseService {
         }
     }
 
+    /**
+     * courses의 NUMERIC(…,2) 컬럼과 같은 소수 2자리 반올림(HALF_UP). 크기 검사 전에 지수가 매우 큰 값의 반올림 비용을
+     * 피하도록 상한을 넘는 값은 그대로 돌려 호출부의 범위 검사에서 거절되게 한다.
+     */
+    private static BigDecimal toStoredScale(BigDecimal value) {
+        if (value == null || value.abs().compareTo(MAX_COURSE_DISTANCE_M) > 0) {
+            return value;
+        }
+        // 0.005 미만은 HALF_UP 결과가 0.00이다. 1E-100000000처럼 소수 자릿수가 거대한 값의 setScale 비용을 피한다.
+        // 음수 판정은 호출부가 원본 부호로 한다.
+        if (value.abs().compareTo(HALF_CENT) < 0) {
+            return BigDecimal.ZERO.setScale(2);
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private static ApiException courseNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "COURSE_NOT_FOUND", "코스를 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.COURSE_NOT_FOUND);
     }
 
     private static ApiException invalidCursor() {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "cursor 형식이 올바르지 않습니다.");
+        return new ApiException(ErrorCode.VALIDATION_ERROR_CURSOR_FORMAT);
     }
 }

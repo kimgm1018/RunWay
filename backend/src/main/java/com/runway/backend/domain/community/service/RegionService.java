@@ -4,21 +4,21 @@ import com.runway.backend.domain.community.dto.response.RegionItemResponse;
 import com.runway.backend.domain.community.dto.response.RegionListResponse;
 import com.runway.backend.domain.community.repository.RegionRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonPoint;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
 public class RegionService {
-
-    private static final String VALIDATION_ERROR = "VALIDATION_ERROR";
-    private static final String VALIDATION_MESSAGE = "요청 값이 유효하지 않습니다.";
 
     private final RegionRepository regionRepository;
 
@@ -56,11 +56,7 @@ public class RegionService {
     }
 
     private static ApiException validationError(List<Map<String, String>> fields) {
-        return new ApiException(
-                HttpStatus.BAD_REQUEST,
-                VALIDATION_ERROR,
-                VALIDATION_MESSAGE,
-                Map.of("fields", List.copyOf(fields)));
+        return new ApiException(ErrorCode.VALIDATION_ERROR, Map.of("fields", List.copyOf(fields)));
     }
 
     private static Map<String, String> field(String name, String reason) {

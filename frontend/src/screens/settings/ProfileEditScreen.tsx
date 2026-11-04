@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
@@ -20,9 +21,11 @@ import {
   useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
   type Gender,
+  type PhotoFile,
   type ProfileDetail,
   type Repositories,
   type SelfReportedLevel,
@@ -67,6 +70,22 @@ function baselineLine({ baseline }: ProfileDetail) {
   return parts.filter(Boolean).join(' · ');
 }
 
+const photoLimitBytes = 5 * 1024 * 1024;
+
+// F01 and U05 failures for the photo; the rest of the form is not sent after one.
+function describePhotoError(error: unknown) {
+  switch (errorCode(error)) {
+    case 'FILE_TOO_LARGE':
+      return '사진이 너무 커요. 5MB 이하의 사진을 골라 주세요';
+    case 'UNSUPPORTED_MEDIA_TYPE':
+    case 'INVALID_FILE':
+    case 'INVALID_IMAGE':
+      return '이 사진은 쓸 수 없어요. 다른 JPG나 PNG 사진을 골라 주세요';
+    default:
+      return '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요';
+  }
+}
+
 function Label({ children }: { children: string }) {
   return (
     <AppText variant="caption" tone="textSecondary" style={styles.label}>
@@ -96,6 +115,9 @@ function Form({
   const [day, setDay] = useState(birthDay);
   const [level, setLevel] = useState<SelfReportedLevel>(detail.runningLevel);
   const [busy, setBusy] = useState(false);
+  // A nickname U05 found taken (409) stays marked until it is changed, as on 1.5.
+  const [takenNickname, setTakenNickname] = useState<string | null>(null);
+  const nicknameTaken = takenNickname === nickname.trim();
   const days = Array.from(
     { length: daysInMonth(year, month) },
     (_, index) => index + 1,
@@ -106,25 +128,84 @@ function Form({
     setMonth(nextMonth);
     setDay(current => Math.min(current, daysInMonth(nextYear, nextMonth)));
   };
-  const valid = isValidNickname(nickname);
+  const valid = isValidNickname(nickname) && !nicknameTaken;
+  // A picked photo shows at once and goes to the server with 저장; once uploaded it is not sent again.
+  const [shownPhoto, setShownPhoto] = useState(photo);
+  const [pendingPhoto, setPendingPhoto] = useState<PhotoFile | null>(null);
+
+  const pickPhoto = async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'photo',
+      selectionLimit: 1,
+      maxWidth: 1080,
+      maxHeight: 1080,
+      quality: 0.8,
+    });
+    const asset = result.assets?.[0];
+    if (result.didCancel || !asset?.uri) {
+      return;
+    }
+    const type =
+      asset.type === 'image/jpeg' || asset.type === 'image/png'
+        ? asset.type
+        : null;
+    // F01 takes jpeg or png up to 5MB.
+    if (!type) {
+      toast('JPG나 PNG 사진만 쓸 수 있어요');
+      return;
+    }
+    if ((asset.fileSize ?? 0) > photoLimitBytes) {
+      toast('5MB 이하의 사진을 골라 주세요');
+      return;
+    }
+    setShownPhoto(asset.uri);
+    setPendingPhoto({
+      uri: asset.uri,
+      type,
+      name: asset.fileName ?? `profile.${type === 'image/png' ? 'png' : 'jpg'}`,
+    });
+  };
 
   const save = async () => {
     if (!valid) {
       return;
     }
     setBusy(true);
+    if (pendingPhoto) {
+      try {
+        await profile.changePhoto(pendingPhoto);
+        setPendingPhoto(null);
+      } catch (error) {
+        setBusy(false);
+        toast(describePhotoError(error));
+        return;
+      }
+    }
     try {
       await profile.updateBasic({
         nickname: nickname.trim(),
         gender,
         birthDate: toBirthDate(year, month, day),
       });
-      await profile.setRunningLevel(level);
+      // U07 with the level alone keeps the saved pace.
+      await profile.saveRunningProfile({ selfReportedLevel: level });
       toast('프로필을 저장했어요');
       navigation.goBack();
-    } catch {
-      toast('프로필을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
       setBusy(false);
+      switch (errorCode(error)) {
+        case 'NICKNAME_DUPLICATED':
+          setTakenNickname(nickname.trim());
+          break;
+        case 'INVALID_PROFILE':
+        case 'VALIDATION_ERROR':
+          toast(
+            '입력한 정보를 확인하지 못했어요. 닉네임·생년월일을 다시 확인해 주세요',
+          );
+          break;
+        default:
+          toast('프로필을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
     }
   };
 
@@ -172,15 +253,13 @@ function Form({
           <View>
             <ProfilePhoto
               nickname={nickname || detail.nickname}
-              photo={photo}
+              photo={shownPhoto}
               size={124}
             />
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="프로필 사진 바꾸기"
-              onPress={() =>
-                toast('프로필 사진은 사진 업로드가 준비되면 바꿀 수 있어요')
-              }
+              onPress={pickPhoto}
               style={styles.camera}
             >
               <Icon name="camera" color={k1.night} size={16} />
@@ -198,7 +277,13 @@ function Form({
           onChangeText={setNickname}
           maxLength={10}
           status={valid ? 'default' : 'error'}
-          helper={valid ? undefined : nicknameRule}
+          helper={
+            nicknameTaken
+              ? '이미 사용 중인 닉네임이에요'
+              : valid
+              ? undefined
+              : nicknameRule
+          }
         />
 
         <Label>성별</Label>

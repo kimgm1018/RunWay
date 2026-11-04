@@ -13,6 +13,9 @@ import org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfigur
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Bean;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthIndicator;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +38,17 @@ import org.springframework.web.bind.annotation.RestController;
 })
 public class SecurityTestApplication {
 
+    // 이 보안 전용 fixture에는 실제 DB·Redis가 없다. readiness 검증은 별도 통합 테스트에서 한다.
+    @Bean
+    HealthIndicator dbHealthIndicator() {
+        return () -> Health.unknown().build();
+    }
+
+    @Bean
+    HealthIndicator redisHealthIndicator() {
+        return () -> Health.unknown().build();
+    }
+
     @RestController
     static class Fixture {
         static final CyclicBarrier REQUESTS = new CyclicBarrier(2);
@@ -52,6 +66,11 @@ public class SecurityTestApplication {
         @GetMapping("/api/v1/auth/login-id/availability")
         String availability() {
             return "public-handler";
+        }
+
+        @GetMapping("/api/v1/images/{imageId}")
+        String publicImage() {
+            return "public-image";
         }
 
         @GetMapping("/__test/who")

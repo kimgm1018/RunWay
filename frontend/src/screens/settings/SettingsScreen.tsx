@@ -219,6 +219,12 @@ export function SettingsScreen() {
   useFocusEffect(useCallback(() => reload(), [reload]));
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
+  // True while U03 runs (5 seconds at most), so 로그아웃 is not sent twice.
+  const [leaving, setLeaving] = useState(false);
+  const logOut = () => {
+    setLeaving(true);
+    void session.logOut();
+  };
   const data = loaded.status === 'ready' ? loaded.data : null;
   useEffect(() => {
     if (data) {
@@ -249,7 +255,13 @@ export function SettingsScreen() {
       setWatch(await watchApi.disconnect());
       toast(`${current.deviceName} 연결을 해제했어요`, {
         actionLabel: '실행 취소',
-        onAction: async () => setWatch(await watchApi.reconnect()),
+        onAction: async () => {
+          try {
+            setWatch(await watchApi.reconnect());
+          } catch {
+            toast('다시 연결하지 못했어요. 연결 버튼으로 다시 시도해 주세요');
+          }
+        },
       });
     } catch {
       toast('연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요');
@@ -431,8 +443,11 @@ export function SettingsScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="로그아웃"
-                  onPress={session.signOut}
+                  accessibilityState={{ busy: leaving, disabled: leaving }}
+                  disabled={leaving}
+                  onPress={logOut}
                   hitSlop={8}
+                  style={leaving && styles.leaving}
                 >
                   <AppText variant="bodyStrong">로그아웃</AppText>
                 </Pressable>
@@ -460,6 +475,12 @@ export function SettingsScreen() {
                     variant="secondary"
                     size="medium"
                     onPress={() => navigation.navigate('HealthPoc')}
+                  />
+                  <Button
+                    title="지도 확인"
+                    variant="secondary"
+                    size="medium"
+                    onPress={() => navigation.navigate('MapPoc')}
                   />
                 </Card>
               ) : null}
@@ -521,5 +542,6 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingVertical: spacing.xxl,
   },
+  leaving: { opacity: 0.5 },
   bar: { width: 1, height: 14 },
 });

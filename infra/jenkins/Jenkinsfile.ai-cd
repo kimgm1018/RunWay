@@ -1,0 +1,127 @@
+// master Push 자동 배포용. 최초 검증은 DEPLOY를 끈 수동 실행으로 시작한다.
+pipeline {
+    agent { label 'ai' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
+    }
+    parameters {
+        choice(name: 'SOURCE_BRANCH', choices: ['SCM', 'dev', 'master'], description: '빌드할 코드. 실제 배포는 master만 허용')
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'master 실제 배포. 해제하면 테스트·이미지 빌드만 수행')
+        booleanParam(name: 'PREPARE_MODELS', defaultValue: false, description: '배포 없이도 모델 4개 다운로드·SHA 검증. 운영 서비스는 교체하지 않음')
+    }
+    stages {
+        stage('Select Mode') {
+            steps {
+                script {
+                    if (env.gitlabMergeRequestIid) {
+                        error('MR 검사는 runway-ci에서 실행합니다.')
+                    }
+                    def automatic = env.gitlabActionType == 'PUSH'
+                    if (automatic && env.gitlabBranch != 'master') {
+                        error('자동 AI 배포는 master Push만 허용합니다.')
+                    }
+                    def source = automatic ? 'master' : (params.SOURCE_BRANCH ?: 'SCM')
+                    if (!(source in ['SCM', 'dev', 'master'])) {
+                        error('SCM, dev 또는 master만 선택할 수 있습니다.')
+                    }
+                    if (params.DEPLOY && source != 'master') {
+                        error('실제 배포는 SOURCE_BRANCH에서 master를 선택해야 합니다.')
+                    }
+                    env.AI_CD_SOURCE = source
+                    env.AI_CD_DEPLOY = (automatic || params.DEPLOY) ? 'true' : 'false'
+                    if ((env.AI_CD_DEPLOY == 'true' || params.PREPARE_MODELS) && !env.AI_MODELS_ROOT?.startsWith('/')) {
+                        error('AI_MODELS_ROOT 호스트 절대 경로 설정이 필요합니다.')
+                    }
+                    if (env.AI_CD_DEPLOY == 'true' && !env.AI_DB_URL_FILE?.startsWith('/')) {
+                        error('AI_DB_URL_FILE 호스트 절대 경로 설정이 필요합니다.')
+                    }
+                    env.AI_CI_TAG = env.BUILD_TAG.toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(96)
+                    echo "AI 대상: ${source}, 실제 배포: ${env.AI_CD_DEPLOY}"
+                }
+            }
+        }
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                script {
+                    if (env.AI_CD_SOURCE == 'SCM') {
+                        checkout scm
+                    } else {
+                        checkout([
+                            $class: 'GitSCM',
+                            branches: [[name: "refs/remotes/origin/${env.AI_CD_SOURCE}"]],
+                            userRemoteConfigs: [[
+                                url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+                                credentialsId: 'runway-gitlab-repo',
+                                refspec: '+refs/heads/*:refs/remotes/origin/*'
+                            ]]
+                        ])
+                    }
+                    def sha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    if (!(sha ==~ /[0-9a-f]{40}/)) { error('AI 코드 커밋을 확인할 수 없습니다.') }
+                    env.AI_IMAGE = "runway-ai:${sha.take(12)}-${env.BUILD_NUMBER}"
+                }
+            }
+        }
+        stage('AI Test Image') {
+            steps { sh 'sh infra/jenkins/check-ai.sh --stage test-image' }
+        }
+        stage('AI Tests') {
+            steps {
+                script {
+                    try {
+                        sh 'sh infra/jenkins/check-ai.sh --stage test'
+                    } finally {
+                        def results = junit(allowEmptyResults: false, testResults: 'artifacts/ai/pytest.xml')
+                        if (results && results.failCount > 0) { error('AI 테스트 실패로 배포를 중단합니다.') }
+                    }
+                }
+            }
+        }
+        stage('AI Image Build') {
+            steps {
+                sh '''
+                    set -eu
+                    docker build --target runtime -f infra/ai/Dockerfile -t "$AI_IMAGE" .
+                    printf '%s\n' "$AI_IMAGE" > artifacts/ai/image.txt
+                '''
+            }
+        }
+        // 모델은 이미지 빌드와 분리한다. 토큰은 이 단계에만 전달하고 캐시 파일도 다시 검증한다.
+        stage('Prepare Models') {
+            when { expression { env.AI_CD_DEPLOY == 'true' || params.PREPARE_MODELS } }
+            steps {
+                withCredentials([string(credentialsId: 'runway-hf-read-token', variable: 'HF_TOKEN')]) {
+                    sh 'bash infra/jenkins/prepare-ai-models.sh'
+                }
+            }
+        }
+        stage('Database Read Access') {
+            when { expression { env.AI_CD_DEPLOY == 'true' } }
+            steps { sh 'bash infra/ai/grant-readonly.sh' }
+        }
+        stage('Deploy and Verify') {
+            when { expression { env.AI_CD_DEPLOY == 'true' } }
+            steps {
+                sh '''
+                    set -eu
+                    . artifacts/ai/models.sh
+                    bash infra/ai/deploy.sh "$AI_IMAGE" \
+                        /home/ubuntu/runway/infra/ai/compose.yaml "$AI_MODEL_FILE" "$HR_MODEL_SHA256"
+                '''
+            }
+        }
+    }
+    post {
+        always {
+            archiveArtifacts allowEmptyArchive: true, artifacts: 'artifacts/ai/pytest.xml,artifacts/ai/image.txt'
+            script {
+                if (env.AI_CI_TAG && fileExists('infra/jenkins/check-ai.sh')) { sh 'sh infra/jenkins/check-ai.sh --stage clean' }
+            }
+        }
+        success { echo "AI 작업 완료. 실제 배포: ${env.AI_CD_DEPLOY}, 이미지: ${env.AI_IMAGE}" }
+    }
+}

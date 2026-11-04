@@ -1,8 +1,10 @@
 import React from 'react';
+import { StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
   NavigationContainer,
+  useNavigation,
   type Theme as NavigationTheme,
 } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -15,12 +17,17 @@ import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { communityScreens } from '../screens/community';
 import { settingsScreens } from '../screens/settings';
-import { groupScreens, GroupRunDraftProvider } from '../screens/group';
+import {
+  groupScreens,
+  GroupRunDraftProvider,
+  GroupTabScreen,
+} from '../screens/group';
 import { recordScreens } from '../screens/records';
 import { runScreens } from '../screens/run';
-import { RunSessionProvider } from '../screens/run/RunSession';
+import { RunSessionProvider, useRunResume } from '../screens/run/RunSession';
 import { useSession } from '../session/SessionProvider';
 import { fontFamily, useTheme } from '../theme';
+import { navigateTo } from './navigateTo';
 import { PillTabBar } from './PillTabBar';
 import {
   authRoutes,
@@ -30,7 +37,6 @@ import {
   type RouteName,
 } from './routes';
 import type {
-  GroupStackParamList,
   MainTabParamList,
   RootStackParamList,
   RunStackParamList,
@@ -39,7 +45,6 @@ import type {
 const Root = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
-const GroupStack = createNativeStackNavigator<GroupStackParamList>();
 
 // Built once per route so React Navigation always receives the same component.
 const placeholders = Object.fromEntries(
@@ -105,6 +110,11 @@ function loadHealthPoc() {
   return require('../screens/HealthPocScreen').HealthPocScreen;
 }
 
+// The map check pulls in the Naver Map native module the same way.
+function loadMapPoc() {
+  return require('../screens/MapPocScreen').MapPocScreen;
+}
+
 function RunTab() {
   return (
     <RunStack.Navigator screenOptions={noHeader}>
@@ -115,34 +125,51 @@ function RunTab() {
   );
 }
 
-function GroupTab() {
-  return (
-    <GroupStack.Navigator screenOptions={noHeader}>
-      {groupTabRoutes.map(name => (
-        <GroupStack.Screen key={name} name={name} component={screens[name]} />
-      ))}
-    </GroupStack.Navigator>
-  );
-}
-
 function renderTabBar(props: React.ComponentProps<typeof PillTabBar>) {
   return <PillTabBar {...props} />;
 }
 
 function MainTabs() {
+  useResumeRun();
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
       <Tabs.Screen name="HomeTab" component={screens.Home} />
       <Tabs.Screen name="RunTab" component={RunTab} />
-      <Tabs.Screen name="GroupTab" component={GroupTab} />
+      <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
       <Tabs.Screen name="CommunityTab" component={screens.Community} />
     </Tabs.Navigator>
   );
 }
 
+// 앱을 다시 열었을 때 진행 중인 개인 러닝이 있으면 그 화면으로 돌아간다.
+function useResumeRun() {
+  const navigation = useNavigation();
+  const { target, consume } = useRunResume();
+  React.useEffect(() => {
+    if (target) {
+      consume();
+      navigateTo(navigation, target);
+    }
+  }, [consume, navigation, target]);
+}
+
 export function RootNavigator() {
-  const { signedIn } = useSession();
+  const { signedIn, restoring, loginRequired } = useSession();
+  const signedOutRoutes = loginRequired
+    ? ['Login' as const, ...authRoutes.filter(route => route !== 'Login')]
+    : authRoutes;
   const { name, colors } = useTheme();
+  if (restoring) {
+    // A blank background while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: colors.background },
+        ]}
+      />
+    );
+  }
   const base = name === 'dark' ? DarkTheme : DefaultTheme;
   const navigationTheme: NavigationTheme = {
     ...base,
@@ -197,12 +224,13 @@ export function RootNavigator() {
                           name="HealthPoc"
                           getComponent={loadHealthPoc}
                         />
+                        <Root.Screen name="MapPoc" getComponent={loadMapPoc} />
                       </>
                     ) : null}
                   </Root.Group>
                 ) : (
                   <Root.Group navigationKey="signed-out">
-                    {authRoutes.map(route => (
+                    {signedOutRoutes.map(route => (
                       <Root.Screen
                         key={route}
                         name={route}

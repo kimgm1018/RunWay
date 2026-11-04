@@ -6,12 +6,15 @@ import com.runway.backend.domain.community.entity.PostLike;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
 import com.runway.backend.domain.community.repository.PostLikeRepository;
 import com.runway.backend.global.exception.ApiException;
-import java.util.Map;
+import com.runway.backend.global.exception.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,7 +34,10 @@ public class PostLikeService {
 
         return postLikeRepository
                 .findByPostIdAndUserId(postId, userId)
-                .map(existing -> new ReactionUpsertResponse(existing.getPostId(), existing.getUserId()))
+                .map(
+                        existing ->
+                                new ReactionUpsertResponse(
+                                        existing.getPostId(), existing.getUserId()))
                 .orElseGet(() -> insertLike(postId, userId));
     }
 
@@ -49,9 +55,7 @@ public class PostLikeService {
             return new ReactionUpsertResponse(saved.getPostId(), saved.getUserId());
         } catch (DataIntegrityViolationException ex) {
             PostLike existing =
-                    postLikeRepository
-                            .findByPostIdAndUserId(postId, userId)
-                            .orElseThrow(() -> ex);
+                    postLikeRepository.findByPostIdAndUserId(postId, userId).orElseThrow(() -> ex);
             return new ReactionUpsertResponse(existing.getPostId(), existing.getUserId());
         }
     }
@@ -61,16 +65,13 @@ public class PostLikeService {
             return;
         }
         if (!LIKE.equals(reactionType.trim())) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "reactionType은 LIKE만 지원합니다.");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_COMMUNITY_REQUIRE_LIKE_TYPE);
         }
     }
 
     private void requireExistingUser(long userId) {
         if (!communityUserQueryRepository.existsById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 }

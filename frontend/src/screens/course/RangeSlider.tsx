@@ -16,6 +16,7 @@ export function RangeSlider({
   onChange,
   accessibilityLabel,
   formatValue,
+  ink,
 }: {
   value: number;
   min: number;
@@ -25,8 +26,26 @@ export function RangeSlider({
   onChange: (value: number) => void;
   accessibilityLabel: string;
   formatValue: (value: number) => string;
+  // runway-course-handoff 3.1: the slider in one dark ink on the light mist (a pale track, an ink fill and
+  // knob in a faint ink ring, ink tick labels).
+  ink?: string;
 }) {
   const { colors } = useTheme();
+  const look = ink
+    ? {
+        track: 'rgba(17,17,17,0.12)',
+        fill: ink,
+        ring: 'rgba(17,17,17,0.08)',
+        core: ink,
+        tick: 'rgba(17,17,17,0.55)',
+      }
+    : {
+        track: colors.border,
+        fill: colors.accent,
+        ring: colors.surfaceMuted,
+        core: colors.accent,
+        tick: undefined,
+      };
   const [width, setWidth] = useState(0);
   const usable = Math.max(width - knob, 1);
   const ratio = (value - min) / (max - min);
@@ -85,13 +104,20 @@ export function RangeSlider({
         onLayout={event => setWidth(event.nativeEvent.layout.width)}
         style={styles.touch}
       >
-        <View style={[styles.track, { backgroundColor: colors.border }]}>
+        <View
+          style={[
+            styles.track,
+            ink && styles.thin,
+            { backgroundColor: look.track },
+          ]}
+        >
           <View
             style={[
               styles.fill,
+              ink && styles.thin,
               {
                 width: knob / 2 + ratio * usable,
-                backgroundColor: colors.accent,
+                backgroundColor: look.fill,
               },
             ]}
           />
@@ -99,10 +125,14 @@ export function RangeSlider({
         <View
           style={[
             styles.knob,
-            { left: ratio * usable, backgroundColor: colors.surfaceMuted },
+            ink && styles.knobInk,
+            {
+              left: ratio * usable + (ink ? 1 : 0),
+              backgroundColor: look.ring,
+            },
           ]}
         >
-          <View style={[styles.knobCore, { backgroundColor: colors.accent }]} />
+          <View style={[styles.knobCore, { backgroundColor: look.core }]} />
         </View>
       </View>
       <View style={styles.ticks}>
@@ -113,6 +143,7 @@ export function RangeSlider({
             tone="textSecondary"
             style={[
               styles.tick,
+              look.tick ? [styles.tickInk, { color: look.tick }] : null,
               tick === max
                 ? styles.lastTick
                 : {
@@ -142,6 +173,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   knobCore: { width: 26, height: 26, borderRadius: 13 },
+  thin: { height: 3 },
+  // A 36 ring around the 26 knob.
+  knobInk: { width: 36, height: 36, borderRadius: 18 },
+  tickInk: { fontFamily: fontFamily.medium, fontSize: 11.5 },
   ticks: { height: 16, marginTop: spacing.xxs },
   tick: {
     position: 'absolute',

@@ -8,9 +8,9 @@ import type {
   PhoneCodeRequest,
   ProfileDetail,
   AppSettings,
-  UserProfile,
   RecordSort,
   Repositories,
+  RunningProfile,
   RunRecordSummary,
   RunSample,
   SavedCourse,
@@ -20,6 +20,11 @@ import { createCommunityMock } from './community';
 import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
+import { createMockSession } from './mockSession';
+import {
+  createMockWatchSession,
+  type MockWatchBehavior,
+} from './mockWatchSession';
 import {
   fromDraft,
   kstDay,
@@ -55,14 +60,44 @@ export type MockScenario =
   // 6.0b 가입한 크루 없음.
   | 'noCrews'
   // 4.5 휴대폰에 저장하지 못했어요.
-  | 'recordSaveFailed';
+  | 'recordSaveFailed'
+  // S15P31E105-256 워치 러닝 제어: 워치가 시작을 거절함·결과를 보내지 않음·같은 결과를 두 번 보냄.
+  | 'watchRejectsStart'
+  | 'watchNoResult'
+  | 'watchDuplicateResult'
+  // 워치가 준비하지 못함.
+  | 'watchNotReady'
+  // 서버가 RESULT를 저장했지만 첫 응답이 유실됨.
+  | 'sessionResultLost'
+  // 처음 세 번의 RESULT 보고가 저장되지 못함(재시도 소진).
+  | 'sessionResultDown';
 
 export type MockOptions = {
   scenario?: MockScenario;
   latencyMs?: number;
   // Real time between run samples; tests shorten it. Each sample is one second of running.
   tickMs?: number;
+  // 가짜 워치가 명령을 실행하고 결과를 보내기까지의 시간. 없으면 latencyMs.
+  watchLatencyMs?: number;
+  // 워치 결과 대기 시간(기본 30초/120초). 화면 테스트가 실제로 기다리지 않게 줄인다.
+  resultWaitMs?: number;
+  endResultWaitMs?: number;
 };
+
+function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
+  switch (scenario) {
+    case 'watchRejectsStart':
+      return 'rejectsStart';
+    case 'watchNoResult':
+      return 'noResult';
+    case 'watchDuplicateResult':
+      return 'duplicateResult';
+    case 'watchNotReady':
+      return 'notReady';
+    default:
+      return 'normal';
+  }
+}
 
 function respond<T>(
   value: T,
@@ -123,8 +158,8 @@ const recordOrder: Record<
 };
 
 // Picking a source swaps in that service's library; 음악 없음 clears the player.
-function withSource(state: MusicState, source: MusicSource): MusicState {
-  if (source === 'NONE') {
+function withSource(state: MusicState, source: MusicSource | null): MusicState {
+  if (source === null || source === 'NONE') {
     return { ...state, source, nowPlaying: null, library: null };
   }
   const library = fixtures.musicLibraries[source];
@@ -135,6 +170,26 @@ function withSource(state: MusicState, source: MusicSource): MusicState {
     library,
     nowPlaying: first ? { ...first, positionSec: 84, playing: true } : null,
   };
+}
+
+// 이전 · 다음 walk the liked songs, starting the new one from the top.
+function stepTrack(state: MusicState, delta: number): MusicState {
+  const list = state.library?.liked ?? [];
+  const at = list.findIndex(track => track.id === state.nowPlaying?.id);
+  if (!state.nowPlaying || at < 0) {
+    return state;
+  }
+  const track = list[(at + delta + list.length) % list.length];
+  return {
+    ...state,
+    nowPlaying: { ...track, positionSec: 0, playing: true },
+  };
+}
+
+function withPlaying(state: MusicState, playing: boolean): MusicState {
+  return state.nowPlaying
+    ? { ...state, nowPlaying: { ...state.nowPlaying, playing } }
+    : state;
 }
 
 function musicFor(scenario: MockScenario = 'default'): MusicState {
@@ -254,6 +309,15 @@ export function createMockRepositories(
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
   let profile: ProfileDetail = { ...fixtures.profileDetail };
+  // 8.2 사진 바꾸기 shows the picked photo from the phone itself.
+  let photo = fixtures.me.profileImageUrl;
+  // The mock serves one signed-in user: the fixture account has a running profile, a fresh sign-up does not.
+  let runningProfileSaved = true;
+  const runningProfile = (): RunningProfile => ({
+    selfReportedLevel: profile.runningLevel,
+    ...profile.baseline,
+    onboardingCompleted: true,
+  });
   let settings: AppSettings = {
     ...fixtures.appSettings,
     notifications: { ...fixtures.appSettings.notifications },
@@ -268,6 +332,7 @@ export function createMockRepositories(
   // 7.3 shares and 7.4b lists the runs this mock keeps, including ones saved while the app runs.
   const social = createCommunityMock({
     respond: value => respond(value, options),
+    fail: error => fail(error, options),
     records: () => records,
   });
   let music = musicFor(options.scenario);
@@ -288,6 +353,10 @@ export function createMockRepositories(
   const session = (loginId: string, account: Account): AuthSession => ({
     user: { id: nextUserId++, loginId },
     accessToken: `mock-token-${loginId}`,
+    refreshToken: `mock-refresh-${loginId}`,
+    refreshExpiresAt: new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString(),
     onboardingCompleted: account.onboardingCompleted,
   });
   const isRegistered = (phoneNumber: string) =>
@@ -407,6 +476,7 @@ export function createMockRepositories(
           onboardingCompleted: false,
         };
         accounts.set(request.loginId, account);
+        runningProfileSaved = false;
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {
@@ -424,6 +494,8 @@ export function createMockRepositories(
         verifiedPhones.delete(verificationToken);
         return respond(undefined, options);
       },
+      // U03: the mock keeps no refresh tokens, so every logout is a 204 like an unknown token on the server.
+      logout: () => respond(undefined, options),
     },
     profile: {
       getMe: () =>
@@ -431,8 +503,7 @@ export function createMockRepositories(
           {
             ...fixtures.me,
             nickname: profile.nickname,
-            runningLevel:
-              profile.runningLevel.toLowerCase() as UserProfile['runningLevel'],
+            profileImageUrl: photo,
           },
           options,
         ),
@@ -440,15 +511,44 @@ export function createMockRepositories(
         profile = { ...profile, ...basic };
         return respond(undefined, options);
       },
-      setRunningLevel: runningLevel => {
-        profile = { ...profile, runningLevel };
-        return respond(undefined, options);
-      },
-      setRunningBaseline: baseline => {
-        profile = { ...profile, baseline };
-        return respond(undefined, options);
+      getRunningProfile: () =>
+        respond(runningProfileSaved ? runningProfile() : null, options),
+      saveRunningProfile: ({ selfReportedLevel, pace }) => {
+        // U07: the first save needs the level and the pace together.
+        if (!runningProfileSaved && !selfReportedLevel) {
+          return fail(new DataError('INVALID_LEVEL', '수준 누락'), options);
+        }
+        if (!runningProfileSaved && !pace) {
+          return fail(
+            new DataError('INVALID_RUNNING_BASELINE', '페이스 누락'),
+            options,
+          );
+        }
+        profile = {
+          ...profile,
+          runningLevel: selfReportedLevel ?? profile.runningLevel,
+          baseline: pace
+            ? {
+                baselineDistanceM:
+                  pace.inputType === 'DISTANCE_TIME'
+                    ? pace.baselineDistanceM
+                    : null,
+                baselineDurationSec:
+                  pace.inputType === 'DISTANCE_TIME'
+                    ? pace.baselineDurationSec
+                    : null,
+                usualPaceSecPerKm: pace.usualPaceSecPerKm,
+              }
+            : profile.baseline,
+        };
+        runningProfileSaved = true;
+        return respond(runningProfile(), options);
       },
       getDetail: () => respond(profile, options),
+      changePhoto: picked => {
+        photo = picked.uri;
+        return respond(photo, options);
+      },
     },
     settings: {
       get: () => respond(settings, options),
@@ -519,6 +619,18 @@ export function createMockRepositories(
           paceTrendOf(records, months, kstDay(fixtures.now).slice(0, 7)),
           options,
         ),
+      // S09: the run goes, and so do my posts sharing it, as one call on the server.
+      remove: recordId => {
+        if (!records.some(run => run.id === recordId)) {
+          return fail(
+            new DataError('SESSION_NOT_FOUND', '기록 없음', null, 404),
+            options,
+          );
+        }
+        records = records.filter(run => run.id !== recordId);
+        social.removeRecordPosts(recordId);
+        return respond(undefined, options);
+      },
     },
     courses: {
       getSaved: () => respond(saved, options),
@@ -679,7 +791,44 @@ export function createMockRepositories(
         music = { ...music, linked: true };
         return respond(music, options);
       },
+      play: () => {
+        music = withPlaying(music, true);
+        return respond(music, options);
+      },
+      pause: () => {
+        music = withPlaying(music, false);
+        return respond(music, options);
+      },
+      next: () => {
+        music = stepTrack(music, 1);
+        return respond(music, options);
+      },
+      previous: () => {
+        music = stepTrack(music, -1);
+        return respond(music, options);
+      },
     },
+    session: createMockSession({
+      latencyMs: options.latencyMs ?? 300,
+      resultResponseLost: options.scenario === 'sessionResultLost',
+      resultDownTimes: options.scenario === 'sessionResultDown' ? 3 : 0,
+    }),
+    watchSession: createMockWatchSession({
+      latencyMs: options.watchLatencyMs ?? options.latencyMs ?? 300,
+      linked: () => watchConnected,
+      behavior: watchBehavior(options.scenario),
+      baseTime: new Date(
+        options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
+      ),
+      timing:
+        options.resultWaitMs === undefined &&
+        options.endResultWaitMs === undefined
+          ? undefined
+          : {
+              resultWaitMs: options.resultWaitMs ?? 30_000,
+              endResultWaitMs: options.endResultWaitMs ?? 120_000,
+            },
+    }),
     clock: {
       now: () =>
         new Date(

@@ -1,3 +1,4 @@
+import { DataError } from '../errors';
 import type {
   PostComment,
   PostDetail,
@@ -10,6 +11,7 @@ import type { PostFixture, RecordFixture } from './fixtures';
 import { kstDay, summaryOf, toSummary } from './records';
 
 type Respond = <T>(value: T) => Promise<T>;
+type Fail = (error: DataError) => Promise<never>;
 
 const me = fixtures.communityUsers.me;
 
@@ -28,9 +30,11 @@ function shareableOf(record: RecordFixture): PostRecord {
 // 7.x 커뮤니티 mock: posts, likes, bookmarks, comments and follows kept in memory.
 export function createCommunityMock({
   respond,
+  fail,
   records,
 }: {
   respond: Respond;
+  fail: Fail;
   // My runs as the records mock keeps them, newest first.
   records: () => RecordFixture[];
 }): {
@@ -38,6 +42,7 @@ export function createCommunityMock({
   runners: Repositories['runners'];
   myPostCount: () => number;
   setPrivate: (isPrivate: boolean) => void;
+  removeRecordPosts: (recordId: string) => void;
 } {
   const first = records().find(run => run.id === fixtures.myPost.recordId);
   // My own post (7.2b 게시물 메뉴) shares one of my runs, so it is built from the records mock.
@@ -76,6 +81,8 @@ export function createCommunityMock({
       post.id === postId ? { ...post, ...change } : post,
     );
   };
+  const postWith = (commentId: string) =>
+    posts.find(post => post.comments.some(item => item.id === commentId));
   const view = ({ comments, ...post }: PostFixture) => ({
     ...post,
     isMine: post.author.userId === me.userId,
@@ -153,7 +160,13 @@ export function createCommunityMock({
       ),
     get: postId => {
       const post = find(postId);
-      const detail: PostDetail = { ...view(post), comments: post.comments };
+      const detail: PostDetail = {
+        ...view(post),
+        comments: post.comments.map(comment => ({
+          ...comment,
+          isMine: comment.author.userId === me.userId,
+        })),
+      };
       return respond(detail);
     },
     getShareable: recordId => respond(shareableOf(record(recordId))),
@@ -189,7 +202,8 @@ export function createCommunityMock({
       if (post.liked !== liked) {
         update(postId, {
           liked,
-          likeCount: post.likeCount + (liked ? 1 : -1),
+          likeCount:
+            post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1),
         });
       }
       return respond(undefined);
@@ -202,6 +216,7 @@ export function createCommunityMock({
       const comment: PostComment = {
         id: `comment-mine-${nextId++}`,
         author: me,
+        isMine: true,
         body,
         createdAt: new Date().toISOString(),
         likeCount: 0,
@@ -209,6 +224,41 @@ export function createCommunityMock({
       };
       update(postId, { comments: [...find(postId).comments, comment] });
       return respond(comment);
+    },
+    // CMT08 · CMT09 answer the same errors as the server.
+    updateComment: (commentId, body) => {
+      const post = postWith(commentId);
+      const comment = post?.comments.find(item => item.id === commentId);
+      if (!post || !comment) {
+        return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
+      }
+      if (comment.author.userId !== me.userId) {
+        return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
+      }
+      const text = body.trim();
+      if (!text) {
+        return fail(new DataError('EMPTY_COMMENT', '빈 댓글'));
+      }
+      update(post.id, {
+        comments: post.comments.map(item =>
+          item.id === commentId ? { ...item, body: text } : item,
+        ),
+      });
+      return respond(text);
+    },
+    removeComment: commentId => {
+      const post = postWith(commentId);
+      const comment = post?.comments.find(item => item.id === commentId);
+      if (!post || !comment) {
+        return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
+      }
+      if (comment.author.userId !== me.userId) {
+        return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
+      }
+      update(post.id, {
+        comments: post.comments.filter(item => item.id !== commentId),
+      });
+      return respond(undefined);
     },
   };
 
@@ -244,6 +294,13 @@ export function createCommunityMock({
       if (profile) {
         profile.isPrivate = isPrivate;
       }
+    },
+    // S09 기록 삭제 takes my posts sharing that run with it.
+    removeRecordPosts: (recordId: string) => {
+      posts = posts.filter(
+        post =>
+          !(post.author.userId === me.userId && post.record.id === recordId),
+      );
     },
   };
 }

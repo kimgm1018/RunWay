@@ -88,7 +88,9 @@ export function usePostChanges(onChange: (post: Post) => void) {
   const { community } = useRepositories();
   const like = async (post: Post) => {
     const liked = !post.liked;
-    onChange({ ...post, liked, likeCount: post.likeCount + (liked ? 1 : -1) });
+    const likeCount =
+      post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1);
+    onChange({ ...post, liked, likeCount });
     try {
       await community.setLiked(post.id, liked);
     } catch {
@@ -115,8 +117,11 @@ export function recordLabel(record: PostRecord, courseShared: boolean) {
 }
 
 // 민락수변공원 · 코스 러닝
+// A server post has no place yet, so only the run type shows.
 export const placeLine = (record: PostRecord) =>
-  `${record.place} · ${record.courseRun ? '코스 러닝' : '자유 러닝'}`;
+  [record.place, record.courseRun ? '코스 러닝' : '자유 러닝']
+    .filter(Boolean)
+    .join(' · ');
 
 function Stat({
   value,
@@ -266,7 +271,9 @@ export function PostActions({
           solid={post.liked}
           size={22}
         />
-        <AppText style={styles.count}>{post.likeCount}</AppText>
+        {post.likeCount === null ? null : (
+          <AppText style={styles.count}>{post.likeCount}</AppText>
+        )}
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -276,7 +283,9 @@ export function PostActions({
         style={styles.action}
       >
         <Icon name="community" color={colors.text} size={22} />
-        <AppText style={styles.count}>{post.commentCount}</AppText>
+        {post.commentCount === null ? null : (
+          <AppText style={styles.count}>{post.commentCount}</AppText>
+        )}
       </Pressable>
       <Pressable
         accessibilityRole="button"
@@ -305,19 +314,36 @@ export function PostActions({
   );
 }
 
+const menuCopy = {
+  post: {
+    edit: '게시물 수정',
+    confirm: '게시물을 삭제할까요?',
+    note: '삭제한 게시물과 댓글은 되돌릴 수 없어요.',
+  },
+  comment: {
+    edit: '댓글 수정',
+    confirm: '댓글을 삭제할까요?',
+    note: '삭제한 댓글은 되돌릴 수 없어요.',
+  },
+};
+
 // 7.2b 게시물 메뉴 (수정 · 삭제) and 7.2c 삭제 확인 on my own posts. The sheet is the light one.
+// 7.2 opens the same sheet on my own comments (S15P31E105-389).
 export function PostMenu({
   visible,
   onClose,
   onEdit,
   onDelete,
+  subject = 'post',
 }: {
   visible: boolean;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
+  subject?: 'post' | 'comment';
 }) {
   const { colors } = useTheme();
+  const copy = menuCopy[subject];
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const close = () => {
@@ -337,10 +363,8 @@ export function PostMenu({
     <BottomSheet
       visible={visible}
       onClose={close}
-      title={confirming ? '게시물을 삭제할까요?' : undefined}
-      description={
-        confirming ? '삭제한 게시물과 댓글은 되돌릴 수 없어요.' : undefined
-      }
+      title={confirming ? copy.confirm : undefined}
+      description={confirming ? copy.note : undefined}
     >
       {confirming ? (
         <View style={styles.sheetButtons}>
@@ -351,7 +375,7 @@ export function PostMenu({
         <View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="게시물 수정"
+            accessibilityLabel={copy.edit}
             onPress={() => {
               close();
               onEdit();
@@ -359,7 +383,7 @@ export function PostMenu({
             style={[styles.menuRow, { borderColor: colors.border }]}
           >
             <Icon name="pencil" color={colors.text} size={20} />
-            <AppText variant="body">게시물 수정</AppText>
+            <AppText variant="body">{copy.edit}</AppText>
           </Pressable>
           <Pressable
             accessibilityRole="button"

@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-10-29 · ERD ver.3 · **28개 테이블 / 256개 컬럼 / 51개 FK**
+기준: 2026-11-03 · ERD ver.3 · **29개 테이블 / 270개 컬럼 / 52개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -27,10 +27,40 @@
 | --- | --- |
 | `users` | 회원·로그인 정보. 개인 활동의 기준 ID |
 | `user_profiles` | 회원의 러닝 수준·평소 페이스·기준 거리/시간. 이번 러닝 목표와 구분 |
+| `user_recommendation_preferences` | U11/U12 추천 기본값. 회원당 최대 1행, 명시적 저장 시 생성·전체 교체 |
 | `user_settings` | 코칭·알림 사용 여부, 위치 수집 모드, 계정의 기록 공개 범위 |
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
 | `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도 |
+
+#### user_recommendation_preferences — 추천 기본값 (설계 S15P31E105-386 / 구현 S15P31E105-245, 2026-11-03 확정)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 설정 행 자체의 자동 생성 식별자 |
+| user_id | BIGINT NOT NULL, UNIQUE, FK users.id | 사용자당 최대 1행. 물리 삭제 시 ON DELETE CASCADE |
+| shape | VARCHAR(16) NOT NULL DEFAULT 'loop', CHECK | loop / out_and_back / point_to_point |
+| river / beach / park / trail / pedestrian / flat | BOOLEAN NOT NULL DEFAULT false | 강변 / 해변·바다 / 공원·녹지 / 산책로·트레일 / 보행로 / 평지 위주 선호 |
+| avoid_major_road / avoid_steps / avoid_tunnel | BOOLEAN NOT NULL DEFAULT false | 큰길 / 계단 / 터널 회피 |
+
+- API의 filters 객체는 위 9개 컬럼에 일대일 대응한다. false는 모두 ‘고려하지 않음’이다.
+- 가입·조회에서는 행을 만들지 않는다. 미설정 조회는 loop와 모든 조건 false를 반환한다. ‘이 조건을 기본값으로 저장’ 선택 시에만 최초 생성하거나 전체 교체한다.
+- user_profiles와 독립적이다. 위치·거리·seed·추가 추천 횟수·버전 컬럼을 저장하지 않는다.
+- 최초 생성부터 사용자별 저장을 직렬화하고 마지막으로 커밋된 요청의 전체 값을 유지한다. 동일 값 재요청은 성공 처리하며 부분 반영하지 않는다.
+- 회원탈퇴 시 삭제한다. users의 WITHDRAWN 전환만으로 FK 삭제가 발생하지 않으므로 논리 탈퇴 서비스가 명시적으로 삭제해야 한다. 탈퇴와 저장의 직렬화·계정 상태 확인으로 재생성을 방지한다.
+- 조회·입력·오류·재요청 계약은 [U11·U12](../api/users.md#u11-추천-기본값-조회)를 따른다.
+- 기준 SQL만 반영한 상태다. 서비스용 Flyway 마이그레이션과 API 구현은 후속 구현 단계에서 추가한다. erd.png는 2026-11-04 기준 SQL의 29개 테이블·270개 컬럼·52개 FK를 반영했다. 온라인 ERD에는 이 테이블이 아직 반영되지 않았다.
+
+#### daily_health_metrics — 날짜별 건강 요약
+
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`뿐이다.
+
+| 컬럼 | 타입·NULL | 용도 |
+| --- | --- | --- |
+| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). W06은 삼성 헬스 공식 안정 시 심박이 아니라 RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)를 저장한다 |
+| rhr_revision | INTEGER NULL | `rhr_bpm` 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이면 NULL(S15P31E105-252, V9) |
+
+수면·운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
 
 ### 러닝·페이스 코칭
 
@@ -70,7 +100,7 @@
 | current_bpm | INTEGER/null, 60~220 | 실제 현재 BPM. READY/PAUSED에서는 값을 보존하되 소리를 재생하지 않음 |
 | analysis_status | running_sessions_analysis_status_enum NOT NULL, PENDING | 현재 결과 준비 상태만 표시. PENDING/PROCESSING/READY/FAILED/LEGACY |
 
-목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다.
+목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다.
 
 #### session_control_events — 제어 명령과 실행 결과
 
@@ -275,4 +305,4 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
 - 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREEE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
-- V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png·온라인 ERD의 닉네임 유일성 표시는 미갱신일 수 있으므로 정확한 제약은 schema.sql을 따른다.
+- V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png의 PK·FK·타입·NULL 표시는 기준 SQL을 반영하며 UNIQUE·CHECK·트리거의 정확한 정의와 온라인 ERD의 미갱신 제약은 schema.sql을 따른다.

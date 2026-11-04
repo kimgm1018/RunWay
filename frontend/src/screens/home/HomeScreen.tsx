@@ -1,61 +1,81 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Pressable,
-  ScrollView,
+  RefreshControl,
   StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import {
-  AppText,
-  Backdrop,
-  Button,
-  Icon,
-  IconButton,
-  Logo,
-  Segmented,
-} from '../../components';
-import {
-  useRepositories,
-  useResource,
-  type RecordSort,
-  type Repositories,
-} from '../../data';
-import {
-  formatDotDate,
-  formatDuration,
-  formatKm,
-  formatMonth,
-  formatPace,
-} from '../../format';
+import { AppText, Backdrop, Button, Icon, Logo } from '../../components';
+import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
-import { CardTitle, GlassCard, ListRow, PillLink } from './parts';
-import { HomeWidgets } from './widgets';
+import {
+  fontFamily,
+  homePalette,
+  k1Gradient,
+  size,
+  spacing,
+  useTheme,
+} from '../../theme';
+import { GlassCard, HomeRefreshProvider, RetryNotice } from './parts';
+import {
+  cardHeight,
+  ConditionCard,
+  conditionHeight,
+  gap,
+  gutter,
+  HomeGrid,
+} from './widgets';
 
-const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+// S15P31E105-382 (in -391): no greeting, so 오늘 컨디션 sits 4 under the header and the last cards keep
+// 14 clear of the floating tab bar.
+const headerGap = 4;
+const tabBarGap = 14;
+// Cards stop above the floating tab bar and its margins.
+const bottomSpace = size.tabBar + size.tabBarInset * 2;
 
-const sorts: { value: RecordSort; label: string }[] = [
-  { value: 'recent', label: '최신순' },
-  { value: 'distance', label: '거리순' },
-  { value: 'pace', label: '페이스순' },
-];
+// Each part loads on its own, so one that fails (the notifications, say) leaves the rest of 2.1 on screen.
+const loadMe = (repositories: Repositories) => repositories.profile.getMe();
+const loadToday = (repositories: Repositories) =>
+  repositories.home.getTodayCondition();
+const loadCourses = (repositories: Repositories) =>
+  repositories.courses.getSaved();
+const loadNotifications = (repositories: Repositories) =>
+  repositories.notifications.list();
 
-const loadHome = (repositories: Repositories) =>
-  Promise.all([
-    repositories.profile.getMe(),
-    repositories.home.getTodayCondition(),
-    repositories.home.getMonthlySummary(),
-    repositories.courses.getSaved(),
-    repositories.notifications.list(),
-  ]);
+// The 40 round header buttons of the 2.1 핸드오프: a misty white disc, no border, an orange dot for unread.
+function HeaderButton({
+  icon,
+  label,
+  dot = false,
+  onPress,
+}: {
+  icon: 'bell' | 'settings';
+  label: string;
+  dot?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={4}
+      onPress={onPress}
+      style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
+    >
+      <Icon name={icon} color={homePalette.header} size={20} />
+      {dot ? <View style={styles.unread} /> : null}
+    </Pressable>
+  );
+}
 
 function Avatar({
   nickname,
@@ -66,251 +86,171 @@ function Avatar({
   photo: string | null;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="내 프로필"
+      hitSlop={4}
       onPress={onPress}
-      style={[
-        styles.avatar,
-        {
-          borderColor: colors.borderStrong,
-          backgroundColor: colors.surfaceMuted,
-        },
-      ]}
+      style={styles.avatar}
     >
       {photo ? (
         <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} />
       ) : (
-        <AppText variant="bodyStrong">{nickname.slice(0, 1)}</AppText>
+        <AppText style={styles.initial}>{nickname.slice(0, 1)}</AppText>
       )}
     </Pressable>
   );
 }
 
-function RecordsCard() {
-  const navigation = useNavigation();
-  const [sort, setSort] = useState<RecordSort>('recent');
-  const records = useResource(
-    useCallback(
-      (repositories: Repositories) => repositories.records.getRecent(sort, 4),
-      [sort],
-    ),
-  );
-  return (
-    <GlassCard>
-      <CardTitle
-        title="과거 러닝 기록"
-        right={
-          <Segmented compact options={sorts} value={sort} onChange={setSort} />
-        }
-      />
-      {records.status === 'ready' ? (
-        <View>
-          {records.data.map(record => (
-            <ListRow
-              key={record.id}
-              title={record.title}
-              detail={`${formatDotDate(record.startedAt)} · ${formatKm(
-                record.distanceM,
-              )}km · ${formatDuration(record.durationSec)}`}
-              value={formatPace(record.averagePaceSecPerKm)}
-              shape={record.shape}
-              onPress={() =>
-                navigation.navigate('RecordDetail', { recordId: record.id })
-              }
-            />
-          ))}
-        </View>
-      ) : (
-        <ActivityIndicator />
-      )}
-      <PillLink
-        title="전체 기록 보기"
-        onPress={() => navigateTo(navigation, 'Records')}
-      />
-    </GlassCard>
-  );
-}
-
-// 2.1 홈: the widget board of 대표화면시안 on the K1 background, then the prototype's analysis, records and saved courses.
+// 2.1 홈 (S15P31E105-367·-391 핸드오프): 오늘 컨디션 with 러닝 시작, then two columns of cards.
 export function HomeScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const repositories = useRepositories();
-  const home = useResource(useCallback(loadHome, []));
+  const me = useResource(loadMe);
+  const today = useResource(loadToday);
+  const courses = useResource(loadCourses);
+  const notifications = useResource(loadNotifications);
+  // Back from 8.2 the avatar shows the saved nickname and photo, and back from 2.9 the bell
+  // loses its dot (leaving 2.9 marks all read). The first focus is the first load.
+  const refreshMe = me.refresh;
+  const refreshNotifications = notifications.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshMe();
+        void refreshNotifications();
+      }
+      focused.current = true;
+    }, [refreshMe, refreshNotifications]),
+  );
   const insets = useSafeAreaInsets();
-  const [me, today, summary, courses, notifications] =
-    home.status === 'ready' ? home.data : [];
-  const photo = me?.profileImageUrl ?? null;
-  const unread = notifications?.some(item => !item.read) ?? false;
-  const peak = summary ? Math.max(...summary.weekdayRatios) : 0;
+  const photo = me.data?.profileImageUrl ?? null;
+  // Notifications that did not load only leave the bell without its dot.
+  const unread = notifications.data?.some(item => !item.read) ?? false;
+  // Pull to refresh: the spinner stays until every section that reloads has settled.
+  const [pull, setPull] = useState(0);
+  const [pending, setPending] = useState(0);
+  const track = useCallback((load: Promise<void>) => {
+    setPending(count => count + 1);
+    load.finally(() => setPending(count => count - 1));
+  }, []);
+  const refresh = useMemo(() => ({ pull, track }), [pull, track]);
+  const onRefresh = () => {
+    [me, today, courses, notifications].forEach(resource =>
+      track(resource.refresh()),
+    );
+    setPull(count => count + 1);
+  };
+  // 2.1 fits one screen: the two rows of cards share the height left under the header and 오늘 컨디션,
+  // above the tab bar. They never go below the mockup's 216; a shorter phone scrolls instead.
+  const [viewport, setViewport] = useState(0);
+  const top = insets.top + size.header;
+  const room =
+    viewport -
+    top -
+    headerGap -
+    bottomSpace -
+    tabBarGap -
+    conditionHeight -
+    gap * 2;
+  const gridHeight = viewport ? Math.max(cardHeight, room / 2) : cardHeight;
+  const scrollY = useRef(new Animated.Value(0)).current;
+  // The header gets the K1 top colour once the cards start passing under it, so the two never overlap.
+  const headerFill = scrollY.interpolate({
+    inputRange: [0, spacing.xxxl],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.root, { backgroundColor: colors.background }]}
+      onLayout={event => setViewport(event.nativeEvent.layout.height)}
+    >
       <StatusBar barStyle={colors.statusBar} />
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop />
       </View>
-      <ScrollView
+      <Animated.ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + size.header },
+          { paddingTop: insets.top + size.header + headerGap },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true },
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={pending > 0}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={colors.surfaceRaised}
+            // Below the floating header, not under it.
+            progressViewOffset={insets.top + size.header}
+          />
+        }
       >
-        <AppText style={styles.greeting}>
-          {me ? `${me.nickname}님,\n` : ''}
-          <AppText tone="textTertiary" style={styles.greetingText}>
-            오늘 달리기 좋은 날이에요
-          </AppText>
-        </AppText>
-        {home.status === 'loading' ? (
-          <ActivityIndicator color={colors.accent} />
-        ) : home.status === 'error' ? (
-          <GlassCard>
-            <AppText tone="danger">홈 정보를 불러오지 못했어요</AppText>
-            <Button
-              title="다시 시도"
-              variant="secondary"
-              size="small"
-              onPress={home.reload}
+        <HomeRefreshProvider value={refresh}>
+          {today.status === 'loading' ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : today.status === 'error' ? (
+            <GlassCard>
+              <AppText tone="danger">오늘 컨디션을 불러오지 못했어요</AppText>
+              <Button
+                title="다시 시도"
+                variant="secondary"
+                size="small"
+                onPress={today.reload}
+              />
+            </GlassCard>
+          ) : (
+            <ConditionCard today={today.data} />
+          )}
+          <HomeGrid courses={courses.data} height={gridHeight} />
+          {courses.status === 'error' ? (
+            <RetryNotice
+              message="저장한 코스를 불러오지 못했어요"
+              onRetry={courses.reload}
             />
-          </GlassCard>
-        ) : null}
-        {today ? <HomeWidgets today={today} /> : null}
-        {summary ? (
-          <GlassCard>
-            <CardTitle title="러닝 분석" note={formatMonth(summary.month)} />
-            <View style={styles.stats}>
-              {[
-                {
-                  value: String(summary.runCount),
-                  unit: '회',
-                  label: '러닝',
-                },
-                {
-                  value: formatKm(summary.totalDistanceM, 1),
-                  unit: 'km',
-                  label: '누적 거리',
-                },
-                {
-                  value:
-                    summary.averagePaceSecPerKm === null
-                      ? '– –'
-                      : formatPace(summary.averagePaceSecPerKm),
-                  unit: '',
-                  label: '평균 페이스',
-                },
-              ].map(stat => (
-                <View key={stat.label} style={styles.stat}>
-                  <AppText variant="metricLarge">
-                    {stat.value}
-                    <AppText variant="caption" tone="textTertiary">
-                      {stat.unit}
-                    </AppText>
-                  </AppText>
-                  <AppText style={styles.tiny} tone="textTertiary">
-                    {stat.label}
-                  </AppText>
-                </View>
-              ))}
-            </View>
-            <View style={styles.bars} accessibilityLabel="요일별 러닝 거리">
-              {summary.weekdayRatios.map((ratio, index) => (
-                <View key={weekdays[index]} style={styles.barColumn}>
-                  <View style={styles.barTrack}>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          height: `${Math.max(ratio, 0.04) * 100}%`,
-                          backgroundColor:
-                            ratio === peak
-                              ? colors.accent
-                              : ratio > 0.05
-                              ? colors.accentSoft
-                              : colors.border,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <AppText style={styles.weekday} tone="textTertiary">
-                    {weekdays[index]}
-                  </AppText>
-                </View>
-              ))}
-            </View>
-            {summary.paceImprovementSec ? (
-              <AppText variant="caption" tone="textSecondary">
-                지난달보다 평균 페이스{' '}
-                <AppText variant="captionStrong" tone="accentText">
-                  {summary.paceImprovementSec > 0
-                    ? `${summary.paceImprovementSec}초 빨라졌어요`
-                    : `${-summary.paceImprovementSec}초 느려졌어요`}
-                </AppText>
-              </AppText>
-            ) : null}
-            <PillLink
-              title="분석 자세히 보기"
-              onPress={() => navigateTo(navigation, 'Analysis')}
-            />
-          </GlassCard>
-        ) : null}
-        {home.status === 'ready' ? <RecordsCard /> : null}
-        {courses ? (
-          <GlassCard>
-            <CardTitle title="저장한 코스" note={`${courses.length}개`} />
-            <View>
-              {courses.slice(0, 3).map(course => (
-                <ListRow
-                  key={course.id}
-                  title={course.myAlias ?? course.name}
-                  detail={`${formatKm(course.distanceM, 1)}km · ${
-                    course.expectedMinutes
-                  }분`}
-                  shape={course.shape}
-                  onPress={async () => {
-                    await repositories.courses.choose(course.id);
-                    navigateTo(navigation, 'CourseRun');
-                  }}
-                  trailing={
-                    <Icon name="bookmark" color={colors.accentText} size={16} />
-                  }
-                />
-              ))}
-            </View>
-            <PillLink
-              title="저장한 코스 전체 보기"
-              onPress={() => navigateTo(navigation, 'SavedCourses')}
-            />
-          </GlassCard>
-        ) : null}
-      </ScrollView>
+          ) : null}
+        </HomeRefreshProvider>
+      </Animated.ScrollView>
       {/* The header floats over the cards as they scroll up, as in the prototype. */}
       <SafeAreaView
         edges={['top']}
         style={styles.headerLayer}
         pointerEvents="box-none"
       >
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.headerFill,
+            { borderBottomColor: colors.border, opacity: headerFill },
+          ]}
+        />
         <View style={styles.header}>
           <View style={styles.logo}>
-            <Logo width={100} />
+            <Logo width={104} />
           </View>
-          <IconButton
+          <HeaderButton
             icon="bell"
-            accessibilityLabel="알림"
-            badge={unread}
+            label="알림"
+            dot={unread}
             onPress={() => navigateTo(navigation, 'Notifications')}
           />
-          <IconButton
+          <HeaderButton
             icon="settings"
-            accessibilityLabel="설정"
+            label="설정"
             onPress={() => navigateTo(navigation, 'Settings')}
           />
           <Avatar
-            nickname={me?.nickname ?? ''}
+            nickname={me.data?.nickname ?? ''}
             photo={photo}
             onPress={() => navigateTo(navigation, 'MyProfile')}
           />
@@ -323,48 +263,63 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
+  // Behind the status bar and the header row, the same colour as the top of the K1 background.
+  headerFill: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: k1Gradient.colors[0],
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   header: {
     height: size.header,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.screen,
+    gap: 8,
+    paddingHorizontal: 16,
   },
   logo: { flex: 1 },
+  pressed: { opacity: 0.7 },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: homePalette.headerButton,
+  },
+  unread: {
+    position: 'absolute',
+    top: 9,
+    right: 10,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: homePalette.unread,
+  },
   avatar: {
-    width: size.iconButton,
-    height: size.iconButton,
-    borderRadius: size.iconButton / 2,
-    borderWidth: 1.5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: homePalette.avatar,
   },
+  initial: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 20,
+    color: '#FFFFFF',
+  },
+  // Cards sit 8 from the edges, 14 above the tab bar.
   content: {
-    paddingHorizontal: spacing.screen,
-    paddingBottom: size.tabBar + size.tabBarInset * 2 + spacing.xxxl,
-    gap: spacing.xl,
+    paddingHorizontal: gutter,
+    paddingBottom: bottomSpace + tabBarGap,
+    gap,
   },
-  // 25 Medium with the second line dimmed, as on the widget home draft.
-  greetingText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 25,
-    lineHeight: 33,
-    letterSpacing: -0.7,
-  },
-  greeting: {
-    fontFamily: fontFamily.medium,
-    fontSize: 25,
-    lineHeight: 33,
-    letterSpacing: -0.7,
-    paddingTop: spacing.xl,
-  },
-  stats: { flexDirection: 'row', gap: spacing.xs },
-  stat: { flex: 1, gap: spacing.xs },
-  tiny: { fontSize: 10, lineHeight: 14 },
-  bars: { flexDirection: 'row', gap: spacing.sm },
-  barColumn: { flex: 1, alignItems: 'center', gap: spacing.xs },
-  barTrack: { width: '100%', height: 64, justifyContent: 'flex-end' },
-  bar: { width: '100%', borderRadius: radius.xs },
-  weekday: { fontSize: 9, lineHeight: 12 },
 });

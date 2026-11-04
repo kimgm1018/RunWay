@@ -1,0 +1,73 @@
+name: runway-monitoring
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.textfile.directory=/host/var/lib/runway-monitoring
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 128m
+    logging: &rotating-logs
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    command: ["--config.file=/etc/blackbox_exporter/config.yml"]
+    volumes:
+      - ./blackbox.yaml:/etc/blackbox_exporter/config.yml:ro
+    mem_limit: 128m
+    logging: *rotating-logs
+
+  prometheus:
+    image: prom/prometheus:v3.5.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    mem_limit: 512m
+    logging: *rotating-logs
+
+  grafana:
+    image: grafana/grafana:12.3.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SERVER_ROOT_URL: https://k15e105.p.ssafy.io/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+    networks:
+      - default
+      - monitoring-proxy
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - ./grafana/datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./grafana/provider.yaml:/etc/grafana/provisioning/dashboards/runway.yaml:ro
+      - ./grafana/dashboard.json:/etc/grafana/dashboards/runway.json:ro
+      - grafana_data:/var/lib/grafana
+    mem_limit: 512m
+    logging: *rotating-logs
+
+networks:
+  monitoring-proxy:
+    external: true
+    name: runway_monitoring_proxy
+
+volumes:
+  prometheus_data:
+  grafana_data:

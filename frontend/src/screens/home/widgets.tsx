@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -12,204 +12,77 @@ import { useNavigation } from '@react-navigation/native';
 import Svg, {
   Circle,
   Defs,
-  Line,
   LinearGradient,
-  Path,
+  Polyline,
   RadialGradient,
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Button, Icon } from '../../components';
+import { AppText, Icon, mistColors } from '../../components';
 import {
   useResource,
-  type CoursePlan,
-  type GroupRunSummary,
   type ReadinessState,
   type Repositories,
   type RunRecordDetail,
   type RunRecordSummary,
   type RunStatistics,
+  type SavedCourse,
   type TodayCondition,
 } from '../../data';
 import {
-  formatClockTime,
+  formatDotDate,
   formatKm,
-  formatLongDate,
   formatMonthDay,
   formatPace,
   formatSleep,
 } from '../../format';
+import { onRecordsChanged } from '../../data/recordsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
-import {
-  fontFamily,
-  k1,
-  spacing,
-  ThemeProvider,
-  useTheme,
-  widgetPalette,
-} from '../../theme';
+import { fontFamily, homePalette as palette } from '../../theme';
+import { RetryNotice, useHomeRefresh } from './parts';
 
-const { steel, graphite, core } = widgetPalette;
-const gap = 10;
+// 2.1 홈 (S15P31E105-367 핸드오프, 390×844 한 화면): the condition card, then two columns of cards,
+// 10 apart, 8 from the edges. A taller phone stretches the cards; their parts keep to the top or the bottom.
+// S15P31E105-391 repainted the cards in the 2.0M colours: light and dark cards cross in the grid. The
+// mockup's grain is left out (S15P31E105-385 담당자 결정).
+export const gutter = 8;
+export const gap = 10;
+export const cardHeight = 216;
+export const conditionHeight = 162;
+// The title row of the small cards: 14 down and as tall as the ↗ circle (26).
+const headTop = 14 + 26;
 
 // ── Data ────────────────────────────────────────────────────────────────
 
 type Board = {
-  plan: CoursePlan;
-  upcoming: GroupRunSummary | null;
+  recent: RunRecordSummary[];
   lastRun: RunRecordDetail | null;
   week: RunStatistics;
-  weekHeartRate: number | null;
-  streakWeeks: number;
 };
 
-const dayMs = 24 * 60 * 60 * 1000;
 const kstMs = 9 * 60 * 60 * 1000;
 
 // Dates are counted in KST like the rest of the app.
-const kstDate = (date: Date) =>
-  new Date(date.getTime() + kstMs).toISOString().slice(0, 10);
-
-// Monday 00:00 KST of the week that holds the time.
-function weekStart(time: number) {
-  const shifted = new Date(time + kstMs);
-  const fromMonday = (shifted.getUTCDay() + 6) % 7;
-  return (
-    Date.UTC(
-      shifted.getUTCFullYear(),
-      shifted.getUTCMonth(),
-      shifted.getUTCDate() - fromMonday,
-    ) - kstMs
-  );
-}
-
-// YYYY-MM of this month and the ones before it.
-function recentMonths(now: Date, count: number) {
-  const shifted = new Date(now.getTime() + kstMs);
-  return Array.from({ length: count }, (_, back) =>
-    new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() - back))
-      .toISOString()
-      .slice(0, 7),
-  );
-}
-
-// 연속 러닝: weeks in a row with a run, counted back from this week (or last week while this one is empty).
-function streakOf(runs: RunRecordSummary[], now: Date) {
-  const weeks = new Set(runs.map(run => weekStart(Date.parse(run.startedAt))));
-  let week = weekStart(now.getTime());
-  if (!weeks.has(week)) {
-    week -= 7 * dayMs;
-  }
-  let count = 0;
-  while (weeks.has(week)) {
-    count += 1;
-    week -= 7 * dayMs;
-  }
-  return count;
-}
-
-// Distance-weighted average of a split value over the runs; null when no split has it.
-function splitAverage(
-  runs: RunRecordDetail[],
-  pick: (split: RunRecordDetail['splits'][number]) => number | null,
-) {
-  let total = 0;
-  let meters = 0;
-  for (const split of runs.flatMap(run => run.splits)) {
-    const value = pick(split);
-    if (value !== null) {
-      const length = split.endDistanceM - split.startDistanceM;
-      total += value * length;
-      meters += length;
-    }
-  }
-  return meters ? Math.round(total / meters) : null;
-}
+const kstDate = (time: number) =>
+  new Date(time + kstMs).toISOString().slice(0, 10);
 
 const loadBoard = async (repositories: Repositories): Promise<Board> => {
   const now = repositories.clock.now();
-  const [plan, mine, recent, week, months] = await Promise.all([
-    repositories.courses.getTodayPlan(),
-    repositories.groupRuns.listMine(),
-    repositories.records.getRecent('recent', 1),
-    repositories.records.getStatistics('WEEK', kstDate(now)),
-    Promise.all(
-      recentMonths(now, 3).map(month =>
-        repositories.records.getMonth(month, 'ALL'),
-      ),
-    ),
+  const [recent, week] = await Promise.all([
+    repositories.records.getRecent('recent', 5),
+    repositories.records.getStatistics('WEEK', kstDate(now.getTime())),
   ]);
-  const runs = months.flatMap(month => month.records);
-  const thisWeek = runs.filter(
-    run => Date.parse(run.startedAt) >= weekStart(now.getTime()),
-  );
-  const [lastRun, weekRuns] = await Promise.all([
-    recent[0] ? repositories.records.getDetail(recent[0].id) : null,
-    Promise.all(thisWeek.map(run => repositories.records.getDetail(run.id))),
-  ]);
-  return {
-    plan,
-    upcoming: mine.upcoming,
-    lastRun,
-    week,
-    weekHeartRate: splitAverage(weekRuns, split => split.averageHeartRate),
-    streakWeeks: streakOf(runs, now),
-  };
+  const lastRun = recent[0]
+    ? await repositories.records.getDetail(recent[0].id)
+    : null;
+  return { recent, lastRun, week };
 };
-
-// ── Readiness fallbacks ─────────────────────────────────────────────────
-
-type Fallback = {
-  pill: string;
-  headline: string;
-  emphasis: string;
-  explain: string;
-  action?: { title: string; route: RouteName };
-};
-
-// 2.1 states ②–⑤: no confirmed score and nothing that looks like a health-based recommendation.
-function fallbackFor(today: TodayCondition): Fallback | null {
-  const states: Record<Exclude<ReadinessState, 'ready'>, Fallback> = {
-    collecting: {
-      pill: '평가 전',
-      headline: '준비도 수집 중',
-      emphasis: '점수 산출 전',
-      explain:
-        '건강 데이터가 모이면 준비도를 알려 드려요. 지금은 수준·목표 기준으로 추천해요.',
-    },
-    stale: {
-      pill: '평가 전',
-      headline: today.lastAssessedDate
-        ? `마지막 평가 ${formatMonthDay(today.lastAssessedDate)}`
-        : '오래된 데이터',
-      emphasis: '오늘 점수로 쓰지 않아요',
-      explain: '워치를 동기화하면 오늘 준비도를 다시 평가해요.',
-      action: { title: '워치 동기화', route: 'WatchConnect' },
-    },
-    permissionDenied: {
-      pill: '평가 전',
-      headline: '건강 데이터',
-      emphasis: '권한 없음',
-      explain:
-        '설정 > Health Connect에서 권한을 허용하면 준비도를 볼 수 있어요.',
-      action: { title: '설정 열기', route: 'Settings' },
-    },
-    watchDisconnected: {
-      pill: '평가 전',
-      headline: '워치',
-      emphasis: '미연결',
-      explain: '설정에서 워치를 연결하면 준비도를 볼 수 있어요.',
-      action: { title: '워치 연결', route: 'WatchConnect' },
-    },
-  };
-  return today.readinessState === 'ready' ? null : states[today.readinessState];
-}
 
 // ── Painting ────────────────────────────────────────────────────────────
 
 type GradientStop = [offset: number, color: string, opacity?: number];
-type Layer =
+export type Layer =
   | { kind: 'linear'; angle: number; stops: GradientStop[] }
   | {
       kind: 'radial';
@@ -220,6 +93,29 @@ type Layer =
       stops: GradientStop[];
     };
 
+// One CSS linear-gradient as a layer: its angle, colours and where each colour sits.
+const linear = (
+  angle: number,
+  colors: readonly string[],
+  stops: readonly number[],
+): Layer => ({
+  kind: 'linear',
+  angle,
+  stops: colors.map((color, index): GradientStop => [stops[index], color]),
+});
+
+// The 2.0M mist, white at the top to black at the foot (지난 러닝), and turned over (저장한 코스).
+const freeRun = linear(
+  180,
+  mistColors,
+  mistColors.map((_, index) => index / 20),
+);
+const courseRun = linear(
+  180,
+  [...mistColors].reverse(),
+  mistColors.map((_, index) => index / 20),
+);
+
 // The CSS angle (0 = up, clockwise) as the two ends of an objectBoundingBox line.
 function ends(angle: number) {
   const radians = (angle * Math.PI) / 180;
@@ -228,8 +124,8 @@ function ends(angle: number) {
   return { x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy };
 }
 
-// A widget's background, built from the mockup's CSS gradients stacked bottom to top.
-// It takes the card's measured size: an Svg sized in percent falls back to 300×150 on Android.
+// A card's background, built from the mockup's CSS gradients stacked bottom to top.
+// It takes the measured size: an Svg sized in percent falls back to 300×150 on Android.
 function Paint({
   id,
   layers,
@@ -289,1036 +185,952 @@ function Paint({
   );
 }
 
-// Dark center fading out to the palette's rim (DESIGN.md 2-2 비네트).
-const vignette = (
-  palette: typeof steel | typeof graphite,
-  rx = 0.75,
-  ry = 0.75,
-  cy = 0.5,
-): Layer[] => [
-  {
-    kind: 'radial',
-    cx: 0.5,
-    cy,
-    rx,
-    ry,
-    stops: [
-      [0, core],
-      [0.3, core],
-      [0.62, palette.mid],
-      [1, palette.rim],
-    ],
-  },
-];
-
-// A soft light spot standing in for the mockup's blurred color layers.
-const spot = (
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-  color: string,
-): Layer => ({
-  kind: 'radial',
-  cx,
-  cy,
-  rx,
-  ry,
-  stops: [
-    [0, color, 0.9],
-    [0.7, color, 0],
-    [1, color, 0],
-  ],
-});
-
-// ── Widget frame ────────────────────────────────────────────────────────
-
-function Widget({
+// A box that paints its gradient layers once it knows its size.
+function Painted({
   id,
   layers,
-  light = false,
   style,
-  onPress,
-  accessibilityLabel,
   children,
 }: {
   id: string;
-  layers?: Layer[];
-  // White widgets keep the light tone; the painted ones switch to the dark tone.
-  light?: boolean;
-  style?: StyleProp<ViewStyle>;
-  onPress?: () => void;
-  accessibilityLabel?: string;
-  children: React.ReactNode;
+  layers: Layer[];
+  style: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
 }) {
-  const { colors } = useTheme();
   const [size, setSize] = useState<{ width: number; height: number } | null>(
     null,
   );
   const measure = (event: LayoutChangeEvent) =>
     setSize(event.nativeEvent.layout);
-  const frame = [
-    styles.widget,
-    light && { backgroundColor: colors.surfaceRaised },
-    style,
-  ];
-  const inside = (
-    <>
-      {layers && size ? (
-        <Paint
-          id={id}
-          layers={layers}
-          width={size.width}
-          height={size.height}
-        />
-      ) : null}
-      {light ? children : <ThemeProvider tone="dark">{children}</ThemeProvider>}
-    </>
+  return (
+    <View style={style} onLayout={measure}>
+      {size ? <Paint id={id} layers={layers} {...size} /> : null}
+      {children}
+    </View>
   );
-  return onPress ? (
+}
+
+// ── Card parts ──────────────────────────────────────────────────────────
+
+// The title at the top left in the card's own tone, level with the ↗ circle and as
+// far in from the corner (14). The second line was dropped (담당자 결정).
+function CardLabel({ title, dark = false }: { title: string; dark?: boolean }) {
+  return (
+    <View style={styles.label}>
+      <AppText style={[styles.labelTitle, dark && styles.labelTitleDark]}>
+        {title}
+      </AppText>
+    </View>
+  );
+}
+
+// A whole card that opens its screen, marked by the small ↗ circle at the top right.
+// The mockup has no 보기 button on purpose: the card itself is the target, named by its title.
+function CardFrame({
+  title,
+  dark = false,
+  onPress,
+  style,
+  layers,
+  id,
+  children,
+}: {
+  title: string;
+  dark?: boolean;
+  onPress?: () => void;
+  style: StyleProp<ViewStyle>;
+  layers?: Layer[];
+  id?: string;
+  children: React.ReactNode;
+}) {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const measure = (event: LayoutChangeEvent) =>
+    setSize(event.nativeEvent.layout);
+  return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
       onPress={onPress}
-      onLayout={measure}
-      style={({ pressed }) => [frame, pressed && styles.pressed]}
+      onLayout={layers ? measure : undefined}
+      style={({ pressed }) => [style, pressed && styles.pressed]}
     >
-      {inside}
+      {layers && id && size ? (
+        <Paint id={id} layers={layers} {...size} />
+      ) : null}
+      {children}
+      {onPress ? (
+        <View
+          style={[styles.hint, dark && styles.hintDark]}
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Icon
+            name="arrowUpRight"
+            color={dark ? '#FFFFFF' : palette.ink}
+            size={12}
+            strokeWidth={2.4}
+          />
+        </View>
+      ) : null}
     </Pressable>
-  ) : (
-    <View style={frame} onLayout={measure}>
-      {inside}
+  );
+}
+
+// ── 오늘 컨디션 · 러닝 시작 ────────────────────────────────────────────────
+
+type ConditionAction = { title: string; route: RouteName };
+
+// What each readiness state says and where its button leads (핸드오프 ConditionCard 표).
+const conditionStates: Record<
+  ReadinessState,
+  { action: ConditionAction; note: string | null }
+> = {
+  ready: { action: { title: '러닝 시작', route: 'RunMode' }, note: null },
+  collecting: {
+    action: { title: '워치 동기화', route: 'WatchConnect' },
+    note: '데이터를 모으는 중이에요',
+  },
+  stale: {
+    action: { title: '워치 동기화', route: 'WatchConnect' },
+    note: '데이터가 오래됐어요',
+  },
+  permissionDenied: {
+    action: { title: '설정 열기', route: 'Settings' },
+    note: '건강 데이터 권한이 없어요',
+  },
+  watchDisconnected: {
+    action: { title: '워치 연결', route: 'WatchConnect' },
+    note: '연결된 워치가 없어요',
+  },
+};
+
+const discSize = 106;
+
+// The readiness disc: white mist in a white ring of four ticks, the score in dots at its centre.
+function ReadinessDisc({ score }: { score: number | null }) {
+  return (
+    <View style={styles.discBox}>
+      {[
+        styles.tickTop,
+        styles.tickBottom,
+        styles.tickLeft,
+        styles.tickRight,
+      ].map((tick, index) => (
+        <View key={index} style={[styles.tick, tick]} />
+      ))}
+      <View style={styles.disc}>
+        <Svg width={discSize} height={discSize} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <RadialGradient id="disc" cx="50%" cy="50%" r="50%">
+              {palette.conditionDisc.map((color, index) => (
+                <Stop
+                  key={color}
+                  offset={palette.conditionDiscStops[index]}
+                  stopColor={color}
+                />
+              ))}
+            </RadialGradient>
+          </Defs>
+          <Circle
+            cx={discSize / 2}
+            cy={discSize / 2}
+            r={discSize / 2}
+            fill="url(#disc)"
+          />
+        </Svg>
+        {/* The score alone in the middle (담당자 결정: 준비도 글자 없음); readers hear what it is. */}
+        <AppText
+          style={styles.score}
+          accessibilityLabel={`준비도 ${score ?? '없음'}`}
+        >
+          {score ?? '--'}
+        </AppText>
+      </View>
     </View>
   );
 }
 
-// ── Widgets ─────────────────────────────────────────────────────────────
-
-// 오늘 컨디션: the readiness glow in a white card, with sleep · resting heart rate · 7-day load under it.
-function ReadinessWidget({ today }: { today: TodayCondition }) {
-  const navigation = useNavigation();
-  const { colors } = useTheme();
-  const fallback = fallbackFor(today);
-  const [grade, ...reason] = today.readinessSummary?.split(' · ') ?? [];
-  const metrics = [
-    {
-      label: '수면',
-      value:
-        today.sleepMinutes === null ? '– –' : formatSleep(today.sleepMinutes),
-      note: today.sleepLabel,
-    },
-    {
-      label: '안정 심박',
-      value:
-        today.restingHeartRate === null
-          ? '– –'
-          : String(today.restingHeartRate),
-      note: today.restingHeartRateLabel,
-    },
-    {
-      label: '7일 부하',
-      value: today.weeklyLoad ?? '– –',
-      note: today.weeklyLoadLabel,
-    },
-  ];
+function ConditionRow({
+  icon,
+  value,
+}: {
+  icon: 'moon' | 'heart';
+  value: string;
+}) {
   return (
-    <Widget id="readiness" light style={styles.readiness}>
-      <View style={styles.readinessTop}>
-        <View style={styles.flex}>
-          <AppText style={styles.cardTitle}>
-            {fallback ? fallback.headline : `오늘 컨디션 ${today.condition}`}
-          </AppText>
-          <AppText variant="caption" tone="textSecondary">
-            {fallback ? fallback.explain : reason.join(' · ')}
-          </AppText>
-        </View>
-        <View style={[styles.chip, { backgroundColor: colors.surfaceMuted }]}>
-          <AppText variant="label" tone="textSecondary">
-            {today.syncedAt
-              ? `${formatClockTime(today.syncedAt)} 동기화`
-              : '동기화 전'}
-          </AppText>
-        </View>
-      </View>
-      <Orb
-        score={fallback ? null : today.readinessScore}
-        label={fallback ? fallback.emphasis : `준비도 ${grade}`}
-      />
-      {fallback ? (
-        fallback.action ? (
-          <Button
-            title={fallback.action.title}
-            variant="secondary"
-            size="small"
-            style={styles.center}
-            onPress={() => navigateTo(navigation, fallback.action!.route)}
-          />
-        ) : null
-      ) : (
-        <>
-          <View style={[styles.row3, { borderTopColor: colors.border }]}>
-            {metrics.map(metric => (
-              <View key={metric.label} style={styles.cell}>
-                <AppText style={styles.tiny} tone="textTertiary">
-                  {metric.label}
-                </AppText>
-                <AppText variant="metric">{metric.value}</AppText>
-                {metric.note ? (
-                  <AppText style={styles.tiny} tone="textSecondary">
-                    {metric.note}
-                  </AppText>
-                ) : null}
-              </View>
-            ))}
-          </View>
-          {today.aiAdvice ? (
-            <AppText variant="caption" tone="textSecondary">
-              <AppText variant="captionStrong">AI</AppText> {today.aiAdvice}
-            </AppText>
-          ) : null}
-        </>
-      )}
-    </Widget>
-  );
-}
-
-const orbSize = 220;
-
-// The readiness glow: steel light spreading out from the middle of the white card.
-function Orb({ score, label }: { score: number | null; label: string }) {
-  return (
-    <View style={styles.orb}>
-      <Svg width={orbSize} height={orbSize} style={StyleSheet.absoluteFill}>
-        <Defs>
-          <RadialGradient id="orb" cx="50%" cy="50%" r="50%">
-            <Stop offset={0} stopColor={steel.orb[0]} />
-            <Stop offset={0.38} stopColor={steel.orb[1]} />
-            <Stop offset={0.62} stopColor={steel.haze[0]} stopOpacity={0.55} />
-            <Stop offset={0.72} stopColor={steel.haze[0]} stopOpacity={0} />
-          </RadialGradient>
-        </Defs>
-        <Circle
-          cx={orbSize / 2}
-          cy={orbSize / 2}
-          r={orbSize / 2}
-          fill="url(#orb)"
+    <View style={styles.conditionRow}>
+      <View style={styles.conditionIcon}>
+        <Icon
+          name={icon}
+          color="rgba(255,255,255,0.85)"
+          size={15}
+          strokeWidth={2}
         />
-      </Svg>
-      <AppText tone="onAccent" style={styles.score}>
-        {score ?? '– –'}
-        {score !== null ? (
-          <AppText tone="onAccent" style={styles.scoreUnit}>
-            /100
-          </AppText>
-        ) : null}
-      </AppText>
-      <AppText variant="bodyMedium" tone="onAccent">
-        {label}
-      </AppText>
+      </View>
+      <AppText style={styles.conditionValue}>{value}</AppText>
     </View>
   );
 }
 
-// 러닝 시작 with the AI course of the day (graphite glass).
-function RunStartWidget({ plan }: { plan: CoursePlan | null }) {
+const conditionLayers = [
+  linear(115, palette.cardCondition, palette.cardConditionStops),
+];
+
+// 오늘 컨디션 with 러닝 시작 on one black-to-steel card. Without a usable score the button turns into what fixes it.
+// R02 has no grade yet, so the title names one only when the data has it (mock data).
+export function ConditionCard({ today }: { today: TodayCondition }) {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const ready = today.readinessState === 'ready';
+  const { action, note: stateNote } = conditionStates[today.readinessState];
+  // 2.P′ 오래된 데이터 says when the last score was made, when it is known.
+  const note =
+    today.readinessState === 'stale' && today.lastAssessedDate
+      ? `마지막 평가 ${formatMonthDay(today.lastAssessedDate)}`
+      : stateNote;
+  const grade = today.readinessSummary?.split(' · ')[0];
+  const sleep =
+    ready && today.sleepMinutes !== null
+      ? formatSleep(today.sleepMinutes)
+      : '– –';
+  const heart =
+    ready && today.restingHeartRate !== null
+      ? `${today.restingHeartRate} bpm`
+      : '– –';
   return (
-    <Widget
-      id="start"
-      layers={[
-        {
-          kind: 'linear',
-          angle: 150,
-          stops: [
-            [0, graphite.glass[0]],
-            [1, graphite.glass[1]],
-          ],
-        },
-        spot(0.22, 0.65, 0.4, 0.55, graphite.glassLight[0]),
-        spot(0.78, 0.35, 0.45, 0.55, graphite.glassLight[1]),
-      ]}
-      style={styles.start}
-      accessibilityLabel="러닝 시작"
-      onPress={() => navigateTo(navigation, 'RunMode')}
+    <Painted
+      id="condition"
+      layers={conditionLayers}
+      style={[styles.condition, { width: width - gutter * 2 }]}
     >
-      <AppText variant="caption" tone="textSecondary">
-        {plan ? `AI 추천 · ${plan.name}` : 'AI 추천'}
-      </AppText>
-      <AppText style={styles.startTitle}>러닝 시작</AppText>
-      {/* In the dark tone the accent is the light ice color. */}
-      <View style={[styles.play, { backgroundColor: colors.accent }]}>
-        <Icon name="play" color={colors.onAccent} size={20} />
-      </View>
-      <View style={styles.steps}>
-        {[10, 16, 10, 24].map((dot, index) => (
-          <React.Fragment key={index}>
-            {index ? (
-              <View
-                style={[
-                  styles.stepLine,
-                  { backgroundColor: colors.textSecondary },
-                ]}
-              />
-            ) : null}
-            <View
-              style={[
-                {
-                  width: dot,
-                  height: dot,
-                  borderRadius: dot / 2,
-                  backgroundColor:
-                    index === 1 ? colors.textSecondary : colors.text,
-                },
-              ]}
-            />
-          </React.Fragment>
-        ))}
-      </View>
-      {plan ? (
-        <AppText style={styles.startMeta}>
-          {formatKm(plan.distanceM, 1)}
-          <AppText variant="caption" tone="textSecondary">
-            {` km · ${formatPace(plan.targetPaceSecPerKm)}`}
+      <ReadinessDisc score={ready ? today.readinessScore : null} />
+      <View style={styles.conditionSide}>
+        <View>
+          <AppText style={styles.conditionTitle}>
+            {ready && grade ? `오늘 준비도 ${grade}` : '오늘 준비도'}
           </AppText>
-        </AppText>
-      ) : null}
-    </Widget>
-  );
-}
-
-// 안정 심박 on a steel vignette, with a dotted line and a marker for where it sits.
-function RestingHeartWidget({
-  today,
-  width,
-}: {
-  today: TodayCondition;
-  width: number;
-}) {
-  const shown = fallbackFor(today) === null && today.restingHeartRate !== null;
-  return (
-    <Widget
-      id="heart"
-      layers={vignette(steel)}
-      style={[styles.tall, { width }]}
-    >
-      <AppText variant="bodyMedium">안정 심박</AppText>
-      <AppText style={styles.big}>
-        {shown ? today.restingHeartRate : '– –'}
-        <AppText style={styles.bigUnit}> bpm</AppText>
-      </AppText>
-      <View style={styles.dotline}>
-        {Array.from({ length: 18 }, (_, index) => (
-          <View
-            key={index}
-            style={[styles.tickDot, { backgroundColor: steel.tick }]}
-          />
-        ))}
-        {shown ? <View style={styles.marker} /> : null}
+          {note ? <AppText style={styles.conditionNote}>{note}</AppText> : null}
+        </View>
+        <View style={styles.conditionRows}>
+          <ConditionRow icon="moon" value={sleep} />
+          <ConditionRow icon="heart" value={heart} />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={action.title}
+          onPress={() => navigateTo(navigation, action.route)}
+          style={({ pressed }) => [styles.cta, pressed && styles.pressed]}
+        >
+          <View style={styles.ctaDot}>
+            <Icon name="play" color="#FFFFFF" size={10} />
+          </View>
+          <AppText style={styles.ctaText}>{action.title}</AppText>
+        </Pressable>
       </View>
-      {shown && today.restingHeartRateLabel ? (
-        <AppText variant="caption" style={styles.foot}>
-          {today.restingHeartRateLabel}
-        </AppText>
-      ) : null}
-    </Widget>
+    </Painted>
   );
 }
 
-const ringSize = 140;
+// ── 지난 러닝 ──────────────────────────────────────────────────────────
 
-// 케이던스 of the last run, inside a ring of dots with a brighter arc at the top.
-function CadenceWidget({
-  cadence,
-  width,
-}: {
-  cadence: number | null;
-  width: number;
-}) {
-  const center = ringSize / 2;
-  const radius = 56;
-  return (
-    <Widget
-      id="cadence"
-      layers={vignette(graphite)}
-      style={[styles.tall, styles.centered, { width }]}
-    >
-      <AppText variant="bodyMedium">케이던스</AppText>
-      <Svg width={ringSize} height={ringSize} style={styles.ring}>
-        {Array.from({ length: 80 }, (_, index) => {
-          const angle = -Math.PI / 2 + (2 * Math.PI * index) / 80;
-          const strong = index >= 2 && index <= 16;
-          const x = center + radius * Math.cos(angle);
-          const y = center + radius * Math.sin(angle);
-          if (!strong) {
-            return (
-              <Circle
-                key={index}
-                cx={x}
-                cy={y}
-                r={0.9}
-                fill={graphite.tick}
-                opacity={0.6}
-              />
-            );
-          }
-          const length = 18 - Math.abs(index - 9) * 1.4;
-          return (
-            <Line
-              key={index}
-              x1={x}
-              y1={y}
-              x2={center + (radius - length) * Math.cos(angle)}
-              y2={center + (radius - length) * Math.sin(angle)}
-              stroke={steel.haze[0]}
-              strokeWidth={1.2}
-              opacity={0.4 + 0.6 * (1 - Math.abs(index - 9) / 8)}
-            />
-          );
-        })}
-      </Svg>
-      <AppText style={styles.cadence}>{cadence ?? '– –'}</AppText>
-      <AppText variant="label" tone="textSecondary" style={styles.spm}>
-        spm
-      </AppText>
-    </Widget>
-  );
-}
+const barWidth = 9;
+const barGap = 5;
+const barColumn = 52;
+const barStep = 3;
 
-const chartHeight = 110;
-
-// 지난 러닝: the pace of each split as a line, flagged at the fastest one (steel scene).
-function SegmentWidget({
-  run,
-  width,
-}: {
-  run: RunRecordDetail;
-  width: number;
-}) {
-  const navigation = useNavigation();
-  const { colors } = useTheme();
-  const splits = run.splits.filter(split => split.paceSecPerKm !== null);
-  if (splits.length < 2) {
-    return null;
-  }
-  const paces = splits.map(split => split.paceSecPerKm!);
+// Each 1 km split as a bar: the deep teal top grows with the speed, the white rest makes up the column.
+function SplitBars({ paces }: { paces: number[] }) {
   const fastest = Math.min(...paces);
   const slowest = Math.max(...paces);
-  const best = paces.indexOf(fastest);
-  // Faster splits sit higher, between 10% and 90% of the chart.
-  const points = paces.map((pace, index) => ({
-    x: (index / (paces.length - 1)) * width,
-    y:
-      chartHeight -
-      (0.1 +
-        (slowest === fastest
-          ? 0.5
-          : ((slowest - pace) / (slowest - fastest)) * 0.8)) *
-        chartHeight,
-  }));
-  const line = points
-    .map(
-      (point, index) =>
-        `${index ? 'L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`,
-    )
-    .join(' ');
-  const flag = points[best];
-  const km = Math.round(run.distanceM / 1000);
+  const width = paces.length * barWidth + (paces.length - 1) * barGap;
   return (
-    <Widget
-      id="segment"
-      layers={[
-        {
-          kind: 'linear',
-          angle: 180,
-          stops: [
-            [0, steel.sky[0]],
-            [0.45, steel.sky[1]],
-            [1, steel.sky[2]],
-          ],
-        },
-        spot(0.4, 0.55, 0.4, 0.35, steel.haze[0]),
-        spot(0.75, 0.4, 0.5, 0.4, steel.haze[1]),
-      ]}
-      style={styles.segment}
-      accessibilityLabel="지난 러닝 기록 보기"
-      onPress={() => navigation.navigate('RecordDetail', { recordId: run.id })}
-    >
-      <AppText variant="label" tone="textSecondary" style={styles.eyebrow}>
-        {`지난 러닝 · ${Math.ceil(splits[best].endDistanceM / 1000)} KM 구간`}
-      </AppText>
-      <AppText style={styles.segmentPace}>{formatPace(fastest)}</AppText>
-      <View style={[styles.arrow, { borderColor: colors.borderStrong }]}>
-        <Icon name="forward" color={colors.text} size={16} />
-      </View>
-      <Svg
-        width={width}
-        height={chartHeight + 26}
-        viewBox={`0 -26 ${width} ${chartHeight + 26}`}
-        style={styles.chart}
-      >
-        <Path
-          d={`${line} L${width} ${chartHeight} L0 ${chartHeight} Z`}
-          fill={colors.text}
-          fillOpacity={0.12}
-        />
-        <Path
-          d={line}
-          fill="none"
-          stroke={colors.text}
-          strokeWidth={1.4}
-          strokeLinejoin="round"
-        />
-        <Line
-          x1={flag.x}
-          y1={flag.y}
-          x2={flag.x}
-          y2={chartHeight}
-          stroke={colors.text}
-        />
-        <Circle cx={flag.x} cy={flag.y} r={4.5} fill={colors.text} />
-        <Path
-          d={`M${flag.x} ${flag.y - 5} V${flag.y - 22} l10 4 -10 4`}
-          stroke={colors.text}
-          strokeWidth={1.3}
-          fill={colors.text}
-        />
-      </Svg>
-      <View style={styles.axis}>
-        {Array.from({ length: km + 1 }, (_, index) => (
-          <AppText key={index} style={styles.axisLabel} tone="textSecondary">
-            {index === km ? `${index} km` : index}
-          </AppText>
-        ))}
-      </View>
-    </Widget>
-  );
-}
-
-// Fixed bar heights; the mockup draws them as decoration, not sleep data.
-const sleepBars = [4, 8, 6, 14, 10, 20, 12, 18];
-
-// 어젯밤 수면 on a white card.
-function SleepWidget({
-  today,
-  width,
-}: {
-  today: TodayCondition;
-  width: number;
-}) {
-  const { colors } = useTheme();
-  const minutes = fallbackFor(today) === null ? today.sleepMinutes : null;
-  return (
-    <Widget id="sleep" light style={[styles.small, { width }]}>
-      <View style={styles.titleRow}>
-        <View style={[styles.iconRing, { borderColor: colors.borderStrong }]}>
-          <Icon name="moon" color={colors.text} size={17} strokeWidth={1.4} />
-        </View>
-        <AppText variant="caption">{'어젯밤\n수면'}</AppText>
-      </View>
-      <View style={styles.bottom}>
-        <AppText style={styles.mid}>
-          {minutes === null ? '– –' : `${Math.floor(minutes / 60)}h`}
-          {minutes === null ? null : (
-            <AppText style={styles.midUnit} tone="textSecondary">
-              {String(minutes % 60).padStart(2, '0')}m
-            </AppText>
-          )}
-        </AppText>
-        <View style={styles.sleepBars}>
-          {sleepBars.map((height, index) => (
-            <View
-              key={index}
-              style={[
-                styles.sleepBar,
-                { height, backgroundColor: colors.text },
-              ]}
+    <Svg width={width} height={barColumn + barStep}>
+      <Defs>
+        <LinearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset={0} stopColor={palette.barAccent[0]} />
+          <Stop offset={1} stopColor={palette.barAccent[1]} />
+        </LinearGradient>
+      </Defs>
+      {paces.map((pace, index) => {
+        const speed =
+          slowest === fastest ? 0.5 : (slowest - pace) / (slowest - fastest);
+        const top = Math.round(14 + speed * 26);
+        const x = index * (barWidth + barGap);
+        return (
+          <React.Fragment key={index}>
+            <Rect
+              x={x}
+              y={0}
+              width={barWidth}
+              height={top}
+              rx={barWidth / 2}
+              fill="url(#bar)"
             />
-          ))}
-        </View>
-      </View>
-    </Widget>
-  );
-}
-
-// 연속 러닝 on a graphite tone card.
-function StreakWidget({ weeks, width }: { weeks: number; width: number }) {
-  const { colors } = useTheme();
-  return (
-    <Widget
-      id="streak"
-      layers={[
-        {
-          kind: 'linear',
-          angle: 150,
-          stops: [
-            [0, graphite.tone[0]],
-            [1, graphite.tone[1]],
-          ],
-        },
-      ]}
-      style={[styles.small, { width }]}
-    >
-      <View style={styles.titleRow}>
-        <View style={[styles.iconRing, { borderColor: colors.borderStrong }]}>
-          <Icon name="flame" color={colors.text} size={17} strokeWidth={1.4} />
-        </View>
-        <AppText variant="caption">{'연속\n러닝'}</AppText>
-      </View>
-      <View style={styles.bottom}>
-        <AppText style={styles.mid}>
-          {weeks}
-          <AppText style={styles.midUnit} tone="textSecondary">
-            주
-          </AppText>
-        </AppText>
-        <Svg width={64} height={24} viewBox="0 0 80 28">
-          <Path
-            d="M2 24 C 12 24, 14 6, 24 6 S 34 24, 42 24 S 52 4, 60 4 S 70 24, 78 24"
-            fill="none"
-            stroke={colors.text}
-            strokeWidth={1.5}
-          />
-          <Circle cx={24} cy={6} r={3} fill={colors.text} />
-          <Circle cx={60} cy={4} r={3} fill={colors.text} />
-        </Svg>
-      </View>
-    </Widget>
-  );
-}
-
-// Where the 7-day load sits on the 낮음 · 적정 · 높음 scale.
-const loadPosition: Record<string, number> = {
-  낮음: 0.15,
-  적정: 0.47,
-  높음: 0.85,
-};
-
-// 7일 부하 리포트: the load scale and this week's distance, runs and heart rate (wide steel vignette).
-function LoadWidget({
-  load,
-  week,
-  heartRate,
-}: {
-  load: string | null;
-  week: RunStatistics;
-  heartRate: number | null;
-}) {
-  const position = load === null ? undefined : loadPosition[load];
-  return (
-    <Widget
-      id="load"
-      layers={vignette(steel, 0.55, 0.75, 0.55)}
-      style={styles.load}
-    >
-      <AppText variant="bodyMedium">7일 부하 리포트</AppText>
-      <View style={styles.scale}>
-        <View style={styles.scaleLabels}>
-          {['낮음', '적정', '높음'].map(label => (
-            <AppText key={label} style={styles.axisLabel} tone="textSecondary">
-              {label}
-            </AppText>
-          ))}
-        </View>
-        <View style={styles.ticks}>
-          {Array.from({ length: 25 }, (_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.tick,
-                { backgroundColor: steel.tick },
-                (index === 0 || index === 24) && styles.tickEnd,
-              ]}
+            <Rect
+              x={x}
+              y={top + barStep}
+              width={barWidth}
+              height={barColumn - top}
+              rx={barWidth / 2}
+              fill={palette.barRest}
             />
-          ))}
-        </View>
-        {position === undefined ? null : (
-          <View style={[styles.scaleMark, { left: `${position * 100}%` }]} />
-        )}
-      </View>
-      <View style={styles.trio}>
-        {[
-          {
-            label: '이번 주',
-            value: formatKm(week.totalDistanceM, 1),
-            unit: 'km',
-          },
-          { label: '러닝', value: String(week.runCount), unit: '회' },
-          {
-            label: '평균 심박',
-            value: heartRate === null ? '– –' : String(heartRate),
-            unit: '',
-          },
-        ].map(item => (
-          <View key={item.label} style={styles.flex}>
-            <AppText style={styles.tiny} tone="textSecondary">
-              {`● ${item.label}`}
-            </AppText>
-            <AppText style={styles.trioValue}>
-              {item.value}
-              <AppText style={styles.trioUnit} tone="textSecondary">
-                {item.unit}
-              </AppText>
-            </AppText>
-          </View>
-        ))}
-      </View>
-    </Widget>
-  );
-}
-
-// 5×7 dot glyphs for the group run time.
-const glyphs: Record<string, string[]> = {
-  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
-  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-  '2': ['01110', '10001', '00001', '00110', '01000', '10000', '11111'],
-  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
-  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
-  '5': ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
-  '6': ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
-  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
-  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
-  '9': ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
-  ':': ['0', '1', '0', '0', '0', '1', '0'],
-};
-
-// The time drawn in dots like the mockup's dot matrix.
-function DotTime({ time }: { time: string }) {
-  const { colors } = useTheme();
-  const dot = 6;
-  const step = 8;
-  const letterGap = 6;
-  let x = 0;
-  const dots: React.ReactNode[] = [];
-  for (const char of time) {
-    const rows = glyphs[char] ?? glyphs[':'];
-    rows.forEach((row, y) =>
-      [...row].forEach((on, column) =>
-        dots.push(
-          <Circle
-            key={`${x}-${column}-${y}`}
-            cx={x + column * step + dot / 2}
-            cy={y * step + dot / 2}
-            r={dot / 2}
-            fill={colors.text}
-            opacity={on === '1' ? 1 : 0.08}
-          />,
-        ),
-      ),
-    );
-    x += rows[0].length * step + letterGap;
-  }
-  return (
-    <Svg width={x - letterGap} height={7 * step} accessibilityLabel={time}>
-      {dots}
+          </React.Fragment>
+        );
+      })}
     </Svg>
   );
 }
 
-// 다음 그룹런: the crew, the start time in dots, the place and how many joined (graphite).
-function GroupWidget({ run }: { run: GroupRunSummary }) {
+function LastRunCard({
+  run,
+  width,
+  height,
+}: {
+  run: RunRecordDetail | null;
+  width: number;
+  height: number;
+}) {
   const navigation = useNavigation();
-  const weekday = formatLongDate(run.scheduledAt).split(' ').pop();
+  const paces = (run?.splits ?? [])
+    .map(split => split.paceSecPerKm)
+    .filter((pace): pace is number => pace !== null)
+    .slice(0, 7);
   return (
-    <Widget
-      id="group"
-      layers={[
-        {
-          kind: 'linear',
-          angle: 160,
-          stops: [
-            [0, graphite.dots[0]],
-            [0.55, graphite.dots[1]],
-            [1, graphite.dots[2]],
-          ],
-        },
-      ]}
-      style={styles.group}
-      accessibilityLabel={`다음 그룹런 ${run.title}`}
-      onPress={() =>
-        navigation.navigate('GroupRunDetail', { groupRunId: run.id })
+    <CardFrame
+      title="지난 러닝"
+      id="lastRun"
+      layers={[freeRun]}
+      onPress={
+        run
+          ? () => navigation.navigate('RecordDetail', { recordId: run.id })
+          : undefined
       }
+      style={[styles.card, styles.shadowMist, { width, height }]}
     >
-      <AppText variant="bodyMedium">다음 그룹런</AppText>
-      <AppText variant="label" tone="textSecondary">
-        {`${run.crewName} · ${weekday}`}
+      <CardLabel title="지난 러닝" />
+      {/* The bars sit in the middle of the room between the title and the pace. */}
+      {paces.length > 1 ? (
+        <View
+          style={styles.bars}
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+        >
+          <SplitBars paces={paces} />
+        </View>
+      ) : null}
+      {/* The pace leads, the distance under it in a faint white (담당자 결정). */}
+      <AppText style={styles.lastValue}>
+        {run ? formatPace(run.averagePaceSecPerKm) : '– –'}
+        <AppText style={styles.lastUnit}> /km</AppText>
       </AppText>
-      <View style={styles.matrix}>
-        <DotTime time={formatClockTime(run.scheduledAt)} />
-      </View>
-      <AppText variant="label" tone="textSecondary" style={styles.centerText}>
-        {`${run.meetingPlaceName} 출발 · 참가 ${run.participantCount}명`}
+      <AppText style={styles.lastPace}>
+        {run ? `${formatKm(run.distanceM, 1)} km` : '아직 기록이 없어요'}
       </AppText>
-    </Widget>
+    </CardFrame>
   );
 }
 
-// ── Board ───────────────────────────────────────────────────────────────
+// ── 러닝 분석 ──────────────────────────────────────────────────────────
 
-// 2.1 홈 위젯 (대표화면시안/홈-다크-라이트.png): two columns of widgets on the K1 background.
-export function HomeWidgets({ today }: { today: TodayCondition }) {
+// The mockup's scatter of mist blue dots: decoration, not data (left, top, diameter, color), in the
+// 84×130 box of the two axes.
+const [mist100, mist300, mist400, mist500, steel500, steel600, teal700] =
+  palette.scatter;
+const scatter: [number, number, number, string][] = [
+  [22, 24, 9, mist300],
+  [36, 37, 12, mist100],
+  [28, 52, 8, mist500],
+  [46, 54, 10, mist400],
+  [18, 67, 7, steel500],
+  [40, 74, 9, mist400],
+  [54, 32, 6, steel600],
+  [32, 87, 6, steel600],
+  [10, 43, 5, teal700],
+];
+const analysisLayers = [
+  linear(180, palette.cardAnalysis, palette.cardAnalysisStops),
+];
+
+// This week's heart rate zones grouped as 이지 (1–2), 템포 (3) and 인터벌 (4–5); the server has no intensity mix.
+function intensityOf(zones: number[]) {
+  if (zones.length < 5) {
+    return null;
+  }
+  const percent = (value: number) => `${Math.round(value * 100)}%`;
+  return [
+    { name: '이지', value: percent(zones[0] + zones[1]) },
+    { name: '템포', value: percent(zones[2]) },
+    { name: '인터벌', value: percent(zones[3] + zones[4]) },
+  ];
+}
+
+function AnalysisCard({
+  week,
+  width,
+  height,
+}: {
+  week: RunStatistics | null;
+  width: number;
+  height: number;
+}) {
+  const navigation = useNavigation();
+  const mix = week ? intensityOf(week.heartRateZones) : null;
+  return (
+    <CardFrame
+      title="러닝 분석"
+      dark
+      id="analysis"
+      layers={analysisLayers}
+      onPress={() => navigateTo(navigation, 'Analysis')}
+      style={[styles.card, styles.shadowDark, { width, height }]}
+    >
+      <CardLabel title="러닝 분석" dark />
+      {/* The scatter and the legend as one group in the middle of the room under the label, the same
+          space left and right and above and below (담당자 결정). */}
+      <View style={styles.analysisBody} pointerEvents="box-none">
+        <View
+          style={styles.scatterBox}
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+        >
+          <View style={styles.scatterV} />
+          <View style={styles.scatterH} />
+          {scatter.map(([left, top, size, color]) => (
+            <View
+              key={`${left}-${top}`}
+              style={[
+                styles.dot,
+                {
+                  left,
+                  top,
+                  width: size,
+                  height: size,
+                  borderRadius: size / 2,
+                  backgroundColor: color,
+                },
+              ]}
+            />
+          ))}
+        </View>
+        <View style={styles.legend}>
+          {(
+            mix ?? [
+              { name: '이지', value: '– –' },
+              { name: '템포', value: '– –' },
+              { name: '인터벌', value: '– –' },
+            ]
+          ).map(item => (
+            <View key={item.name} style={styles.legendItem}>
+              <AppText style={styles.legendName}>{item.name}</AppText>
+              <AppText style={styles.legendValue}>{item.value}</AppText>
+            </View>
+          ))}
+        </View>
+      </View>
+    </CardFrame>
+  );
+}
+
+// ── 과거 러닝 기록 ─────────────────────────────────────────────────────
+
+const pastRecordsLayers = [
+  linear(180, palette.cardPastRecords, palette.cardPastRecordsStops),
+];
+
+const recordsPanel = [
+  linear(180, palette.recordsPanel, palette.recordsPanelStops),
+];
+
+function PastRecordsCard({
+  recent,
+  width,
+  height,
+}: {
+  recent: RunRecordSummary[];
+  width: number;
+  height: number;
+}) {
+  const navigation = useNavigation();
+  return (
+    <CardFrame
+      title="과거 러닝 기록"
+      id="records"
+      layers={pastRecordsLayers}
+      onPress={() => navigateTo(navigation, 'Records')}
+      style={[styles.card, styles.shadowLight, { width, height }]}
+    >
+      <CardLabel title="과거 러닝 기록" />
+      {/* The panel grows with the card. */}
+      <Painted id="recordsPanel" layers={recordsPanel} style={styles.panel}>
+        {recent.length ? (
+          recent.map(run => (
+            <View key={run.id} style={styles.panelRow}>
+              <AppText style={styles.panelText}>
+                {formatDotDate(run.startedAt)}
+              </AppText>
+              <AppText style={styles.panelText}>
+                {`${formatKm(run.distanceM, 1)}km`}
+              </AppText>
+            </View>
+          ))
+        ) : (
+          <AppText style={styles.panelText}>아직 기록이 없어요</AppText>
+        )}
+      </Painted>
+    </CardFrame>
+  );
+}
+
+// ── 저장한 코스 ────────────────────────────────────────────────────────
+
+const glowWidth = 112;
+const glowHeight = 150;
+const courseGlow: Layer[] = [
+  {
+    kind: 'radial',
+    cx: 0.5,
+    cy: 0.6,
+    rx: 0.7,
+    ry: 0.55,
+    stops: palette.courseEllipse.map(
+      (color, index): GradientStop => [
+        palette.courseEllipseStops[index],
+        color,
+      ],
+    ),
+  },
+];
+
+const lineWidth = 112;
+const lineHeight = 56;
+
+// The first course's route in the white line where the mockup drew an elevation curve; there is no elevation data.
+function CourseLine({ shape }: { shape: [number, number][] }) {
+  const xs = shape.map(([x]) => x);
+  const ys = shape.map(([, y]) => y);
+  const spanX = Math.max(...xs) - Math.min(...xs) || 1;
+  const spanY = Math.max(...ys) - Math.min(...ys) || 1;
+  const scale = Math.min((lineWidth - 28) / spanX, (lineHeight - 8) / spanY);
+  const offsetX = (lineWidth - spanX * scale) / 2 - Math.min(...xs) * scale;
+  const offsetY = (lineHeight - spanY * scale) / 2 - Math.min(...ys) * scale;
+  const points = shape
+    .map(
+      ([x, y]) =>
+        `${(offsetX + x * scale).toFixed(1)},${(offsetY + y * scale).toFixed(
+          1,
+        )}`,
+    )
+    .join(' ');
+  return (
+    <Svg width={lineWidth} height={lineHeight} style={styles.courseLine}>
+      <Polyline
+        points={points}
+        fill="none"
+        stroke="#FFFFFF"
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function SavedCoursesCard({
+  courses,
+  width,
+  height,
+}: {
+  courses: SavedCourse[] | null;
+  width: number;
+  height: number;
+}) {
+  const navigation = useNavigation();
+  const first = courses?.[0];
+  return (
+    <CardFrame
+      title="저장한 코스"
+      dark
+      id="savedCourses"
+      layers={[courseRun]}
+      onPress={() => navigateTo(navigation, 'SavedCourses')}
+      style={[styles.card, styles.shadowGraphite, { width, height }]}
+    >
+      <CardLabel title="저장한 코스" dark />
+      {/* The oval sits in the middle of the room under the title. */}
+      <Painted
+        id="courseGlow"
+        layers={courseGlow}
+        style={[
+          styles.glow,
+          {
+            left: (width - glowWidth) / 2,
+            top: headTop + (height - headTop - glowHeight) / 2,
+          },
+        ]}
+      >
+        {first ? (
+          <>
+            <View style={styles.distanceTag}>
+              <AppText style={styles.distanceText}>
+                {`${formatKm(first.distanceM, 1)}km`}
+              </AppText>
+            </View>
+            <CourseLine shape={first.shape} />
+          </>
+        ) : null}
+        <View style={styles.countRow}>
+          <View style={styles.countBadge}>
+            <AppText style={styles.countText}>
+              {courses ? `${courses.length}개` : '– –'}
+            </AppText>
+          </View>
+        </View>
+      </Painted>
+    </CardFrame>
+  );
+}
+
+// ── Grid ────────────────────────────────────────────────────────────────
+
+// The four cards under 오늘 컨디션. 러닝 분석·지난 러닝·과거 기록 share one load (H01·H02·H06);
+// saved courses come from 2.1's own load. height is each card's, 216 or taller.
+export function HomeGrid({
+  courses,
+  height = cardHeight,
+}: {
+  courses: SavedCourse[] | null;
+  height?: number;
+}) {
   const { width } = useWindowDimensions();
   const board = useResource(useCallback(loadBoard, []));
+  useHomeRefresh(board.refresh);
+  // A run deleted on 5.2 leaves 지난 러닝 · 과거 러닝 기록 (S15P31E105-394).
+  const refreshBoard = board.refresh;
+  useEffect(
+    () =>
+      onRecordsChanged(() => {
+        void refreshBoard();
+      }),
+    [refreshBoard],
+  );
   const data = board.status === 'ready' ? board.data : null;
-  const half = (width - spacing.screen * 2 - gap) / 2;
-  const full = width - spacing.screen * 2;
-  const cadence = data?.lastRun
-    ? splitAverage([data.lastRun], split => split.averageCadence)
-    : null;
+  const half = (width - gutter * 2 - gap) / 2;
   return (
-    <View style={styles.board}>
-      <ReadinessWidget today={today} />
-      <RunStartWidget plan={data?.plan ?? null} />
-      <View style={styles.pair}>
-        <RestingHeartWidget today={today} width={half} />
-        <CadenceWidget cadence={cadence} width={half} />
+    <View style={styles.grid}>
+      <View style={styles.row}>
+        <LastRunCard run={data?.lastRun ?? null} width={half} height={height} />
+        <AnalysisCard week={data?.week ?? null} width={half} height={height} />
       </View>
-      {data?.lastRun ? <SegmentWidget run={data.lastRun} width={full} /> : null}
-      <View style={styles.pair}>
-        <SleepWidget today={today} width={half} />
-        <StreakWidget weeks={data?.streakWeeks ?? 0} width={half} />
+      <View style={styles.row}>
+        <PastRecordsCard
+          recent={data?.recent ?? []}
+          width={half}
+          height={height}
+        />
+        <SavedCoursesCard courses={courses} width={half} height={height} />
       </View>
-      {data ? (
-        <LoadWidget
-          load={fallbackFor(today) ? null : today.weeklyLoad}
-          week={data.week}
-          heartRate={data.weekHeartRate}
+      {board.status === 'error' ? (
+        <RetryNotice
+          message="러닝 기록을 불러오지 못했어요"
+          onRetry={board.reload}
         />
       ) : null}
-      {data?.upcoming ? <GroupWidget run={data.upcoming} /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  center: { alignSelf: 'center' },
-  centerText: { textAlign: 'center' },
-  board: { gap },
-  pair: { flexDirection: 'row', gap },
-  // DESIGN.md 2-1: corner 30, inside 18, pressed boxes shrink to 96%.
-  widget: { borderRadius: 30, overflow: 'hidden', padding: 18 },
-  pressed: { transform: [{ scale: 0.96 }] },
-  tiny: { fontSize: 10.5, lineHeight: 14 },
-  readiness: { gap: spacing.md },
-  readinessTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
+  grid: { gap },
+  row: { flexDirection: 'row', gap },
+  card: { borderRadius: 26, overflow: 'hidden' },
+  shadowLight: { boxShadow: palette.shadowLight },
+  shadowDark: { boxShadow: palette.shadowDark },
+  shadowGraphite: { boxShadow: palette.shadowGraphite },
+  shadowMist: { boxShadow: palette.shadowMist },
+  pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
+  // Card label: 16 bold, 14 from the corner like the ↗ circle and as tall as it; no line beside it
+  // (담당자 결정), so it lines up with the 지난 러닝 figures under it.
+  label: {
+    position: 'absolute',
+    left: 14,
+    top: 14,
+    height: 26,
+    justifyContent: 'center',
   },
-  cardTitle: { fontFamily: fontFamily.medium, fontSize: 17, lineHeight: 24 },
-  chip: { paddingHorizontal: spacing.lg, paddingVertical: 5, borderRadius: 99 },
-  orb: {
-    width: orbSize,
-    height: orbSize,
-    alignSelf: 'center',
+  labelTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: palette.ink,
+  },
+  labelTitleDark: { color: '#FFFFFF' },
+  // The ↗ circle of a card that opens a screen.
+  hint: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.tapHintOnLight,
+  },
+  hintDark: { backgroundColor: palette.tapHintOnDark },
+  // 오늘 컨디션
+  condition: {
+    height: conditionHeight,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 28,
+    flexDirection: 'row',
+    gap: 14,
+    overflow: 'hidden',
+    boxShadow: palette.shadowDark,
+  },
+  discBox: { width: 134, height: 134 },
+  tick: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderRadius: 1,
+  },
+  tickTop: { left: 66, top: 0, width: 1.5, height: 9 },
+  tickBottom: { left: 66, bottom: 0, width: 1.5, height: 9 },
+  tickLeft: { top: 66, left: 0, height: 1.5, width: 9 },
+  tickRight: { top: 66, right: 0, height: 1.5, width: 9 },
+  disc: {
+    position: 'absolute',
+    left: 14,
+    top: 14,
+    width: discSize,
+    height: discSize,
     alignItems: 'center',
     justifyContent: 'center',
   },
   score: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 72,
-    lineHeight: 76,
-    letterSpacing: -2,
+    fontFamily: fontFamily.score,
+    fontSize: 38,
+    lineHeight: 42,
+    letterSpacing: 1,
+    color: '#1A1A1A',
+    // Doto leaves more room after a digit than before it; this centres the dots themselves.
+    transform: [{ translateX: 2 }],
   },
-  scoreUnit: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 22,
-    opacity: 0.75,
-    letterSpacing: 0,
-  },
-  row3: { flexDirection: 'row', borderTopWidth: 1, paddingTop: spacing.xl },
-  cell: { flex: 1, alignItems: 'center', gap: 2 },
-  start: { height: 150 },
-  startTitle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 22,
-    lineHeight: 30,
-    marginTop: spacing.xs,
-  },
-  play: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: 3,
-  },
-  steps: {
-    position: 'absolute',
-    left: 18,
-    bottom: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  stepLine: { width: 18, height: 1 },
-  startMeta: {
-    position: 'absolute',
-    right: 18,
-    bottom: 16,
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 26,
-    lineHeight: 32,
-  },
-  tall: { height: 174 },
-  centered: { alignItems: 'center' },
-  big: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 40,
-    lineHeight: 46,
-    marginTop: spacing.xl,
-    letterSpacing: -1.5,
-  },
-  bigUnit: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 12,
-    opacity: 0.7,
-    letterSpacing: 0,
-  },
-  dotline: {
-    position: 'absolute',
-    left: 4,
-    right: 4,
-    top: 112,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  tickDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.8 },
-  marker: {
-    position: 'absolute',
-    left: '66%',
-    top: -9,
-    width: 3,
-    height: 20,
-    borderRadius: 2,
-    backgroundColor: k1.ice,
-  },
-  foot: { position: 'absolute', left: 18, bottom: 16 },
-  ring: { position: 'absolute', top: 28 },
-  cadence: {
-    position: 'absolute',
-    top: 62,
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 30,
-    lineHeight: 38,
-    letterSpacing: -1,
-  },
-  spm: { position: 'absolute', top: 102 },
-  segment: { height: 220 },
-  eyebrow: { letterSpacing: 0.4 },
-  segmentPace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 42,
-    lineHeight: 48,
-    letterSpacing: -1,
-  },
-  arrow: {
-    position: 'absolute',
-    right: 14,
-    top: 14,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chart: { position: 'absolute', left: 0, bottom: 0 },
-  axis: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 10,
-    flexDirection: 'row',
+  conditionSide: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 4,
     justifyContent: 'space-between',
   },
-  axisLabel: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 10,
-    lineHeight: 13,
-  },
-  small: { height: 150 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  iconRing: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottom: {
-    position: 'absolute',
-    left: 18,
-    right: 16,
-    bottom: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  mid: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 34,
-    lineHeight: 38,
-    letterSpacing: -1,
-  },
-  midUnit: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 13,
-    letterSpacing: 0,
-  },
-  sleepBars: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 22,
-  },
-  sleepBar: { width: 3, borderRadius: 1 },
-  load: { height: 176 },
-  scale: { height: 44, marginTop: spacing.lg },
-  scaleLabels: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: -6,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  ticks: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 18,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  tick: { width: 2, height: 10, borderRadius: 1, opacity: 0.5 },
-  tickEnd: { height: 26, opacity: 1 },
-  scaleMark: {
-    position: 'absolute',
-    top: 6,
-    width: 3,
-    height: 26,
-    borderRadius: 2,
-    backgroundColor: k1.ice,
-  },
-  trio: { flexDirection: 'row', marginTop: spacing.md },
-  trioValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 20,
-    lineHeight: 26,
+  conditionTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 23,
     letterSpacing: -0.5,
+    color: '#FFFFFF',
   },
-  trioUnit: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 10,
+  conditionNote: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  // 수면 and 안정 심박 side by side (담당자 결정).
+  conditionRows: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  conditionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  conditionIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  conditionValue: {
+    fontFamily: fontFamily.mono,
+    fontSize: 13,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  cta: {
+    alignSelf: 'flex-end',
+    height: 36,
+    paddingLeft: 6,
+    paddingRight: 14,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#FFFFFF',
+  },
+  ctaDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 1,
+    backgroundColor: palette.button,
+  },
+  ctaText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: palette.ink,
+  },
+  // 지난 러닝: the pace and distance keep to the bottom left, 14 in; the bars sit centred in the room
+  // between the title and the pace.
+  bars: {
+    position: 'absolute',
+    top: headTop,
+    right: 14,
+    bottom: 14 + 15 + 2 + 38,
+    justifyContent: 'center',
+  },
+  // The figures sit on the black foot of the mist, so they are white.
+  lastValue: {
+    position: 'absolute',
+    left: 14,
+    bottom: 14 + 15 + 2,
+    fontFamily: fontFamily.medium,
+    fontSize: 32,
+    lineHeight: 38,
+    letterSpacing: -1,
+    color: '#FFFFFF',
+  },
+  lastUnit: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
     letterSpacing: 0,
+    color: 'rgba(255,255,255,0.7)',
   },
-  group: { height: 170 },
-  matrix: { alignItems: 'center', marginTop: spacing.lg },
+  lastPace: {
+    position: 'absolute',
+    left: 14,
+    bottom: 14,
+    fontFamily: fontFamily.mono,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  // 러닝 분석: the scatter and legend keep to the top.
+  // Everything under the title row, the group centred in it.
+  analysisBody: {
+    position: 'absolute',
+    top: headTop,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  scatterBox: { width: 84, height: 130 },
+  scatterV: {
+    position: 'absolute',
+    left: 30,
+    top: 0,
+    width: 1,
+    height: 130,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  scatterH: {
+    position: 'absolute',
+    left: 0,
+    top: 61,
+    width: 84,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  dot: { position: 'absolute' },
+  legend: { gap: 16 },
+  legendItem: {
+    paddingLeft: 7,
+    borderLeftWidth: 1.5,
+    borderLeftColor: 'rgba(255,255,255,0.85)',
+  },
+  legendName: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#FFFFFF',
+  },
+  legendValue: {
+    fontFamily: fontFamily.mono,
+    fontSize: 10,
+    lineHeight: 14,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  // 과거 러닝 기록
+  // 12 from the sides and the foot, and 12 under the title row.
+  panel: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    top: headTop + 12,
+    bottom: 12,
+    padding: 12,
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  panelRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  // 13 over 24 (담당자 결정; the mockup's 10 was hard to read on the phone).
+  panelText: {
+    fontFamily: fontFamily.mono,
+    fontSize: 13,
+    lineHeight: 24,
+    color: 'rgba(255,255,255,0.92)',
+  },
+  // 저장한 코스
+  glow: {
+    position: 'absolute',
+    width: glowWidth,
+    height: glowHeight,
+    // A tall oval, as border-radius 50% in the mockup, with a faint white rim.
+    borderRadius: '50%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  distanceTag: {
+    position: 'absolute',
+    right: 16,
+    top: 26,
+    height: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.75)',
+  },
+  distanceText: {
+    fontFamily: fontFamily.mono,
+    fontSize: 9.5,
+    lineHeight: 12,
+    color: palette.courseTag,
+  },
+  courseLine: { position: 'absolute', left: 0, top: 50 },
+  countRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 18,
+    alignItems: 'center',
+  },
+  countBadge: {
+    height: 20,
+    paddingHorizontal: 10,
+    borderRadius: 11,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(6,6,6,0.45)',
+  },
+  countText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 10.5,
+    lineHeight: 14,
+    color: '#FFFFFF',
+  },
 });

@@ -2,14 +2,12 @@ package com.runway.backend.global.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.runway.backend.global.exception.ApiErrorResponse;
+import com.runway.backend.global.exception.ErrorCode;
+
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.time.Clock;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -34,11 +32,58 @@ import org.springframework.security.oauth2.server.resource.web.DefaultBearerToke
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+
 import tools.jackson.databind.json.JsonMapper;
+
+import java.io.IOException;
+import java.time.Clock;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 public class SecurityConfig {
+
+    @Bean
+    @Order(0)
+    SecurityFilterChain managementSecurity(HttpSecurity http, Environment environment)
+            throws Exception {
+        http.securityMatcher(
+                        request ->
+                                managementPort(request, environment)
+                                        || request.getRequestURI().startsWith("/actuator"))
+                .sessionManagement(
+                        session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(csrf -> csrf.disable())
+                .requestCache(cache -> cache.disable())
+                .authorizeHttpRequests(
+                        auth ->
+                                auth.requestMatchers(
+                                                request ->
+                                                        managementPort(request, environment)
+                                                                && request.getLocalAddr()
+                                                                        .equals("127.0.0.1")
+                                                                && request.getRemoteAddr()
+                                                                        .equals("127.0.0.1")
+                                                                && request.getMethod().equals("GET")
+                                                                && request.getRequestURI()
+                                                                        .equals(
+                                                                                "/actuator/health/readiness"))
+                                        .permitAll()
+                                        .anyRequest()
+                                        .denyAll());
+        return http.build();
+    }
+
+    private static boolean managementPort(HttpServletRequest request, Environment environment) {
+        int port =
+                environment.getProperty(
+                        "local.management.port",
+                        Integer.class,
+                        environment.getProperty("management.server.port", Integer.class, 8082));
+        return request.getLocalPort() == port;
+    }
 
     @Bean
     SecuritySettings securitySettings(Environment environment) {
@@ -94,12 +139,7 @@ public class SecurityConfig {
                         errors ->
                                 errors.accessDeniedHandler(
                                         (request, response, exception) ->
-                                                writeError(
-                                                        response,
-                                                        mapper,
-                                                        403,
-                                                        "FORBIDDEN",
-                                                        "접근 권한이 없습니다.")));
+                                                writeError(response, mapper, ErrorCode.FORBIDDEN)));
         if (!settings.localDocs()) {
             var users =
                     new InMemoryUserDetailsManager(
@@ -118,11 +158,7 @@ public class SecurityConfig {
                                                         HttpHeaders.WWW_AUTHENTICATE,
                                                         "Basic realm=\"RunWay Docs\"");
                                                 writeError(
-                                                        response,
-                                                        mapper,
-                                                        401,
-                                                        "UNAUTHORIZED",
-                                                        "인증이 필요합니다.");
+                                                        response, mapper, ErrorCode.UNAUTHORIZED);
                                             }));
         }
         return http.build();
@@ -164,9 +200,7 @@ public class SecurityConfig {
                                                         writeError(
                                                                 response,
                                                                 mapper,
-                                                                403,
-                                                                "FORBIDDEN",
-                                                                "접근 권한이 없습니다.")))
+                                                                ErrorCode.FORBIDDEN)))
                 .oauth2ResourceServer(
                         resource -> {
                             // Authorization 헤더에서 Bearer 토큰을 추출한다.
@@ -201,6 +235,8 @@ public class SecurityConfig {
         return isPublicEndpoint(request.getMethod(), path);
     }
 
+    private static final String PUBLIC_IMAGE_PREFIX = "/api/v1/images/";
+
     public static boolean isPublicEndpoint(String method, String path) {
         return (List.of("GET", "HEAD").contains(method) && path.equals("/"))
                 || (method.equals("POST")
@@ -210,7 +246,17 @@ public class SecurityConfig {
                                         "/api/v1/auth/refresh",
                                         "/api/v1/auth/logout")
                                 .contains(path))
-                || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"));
+                || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"))
+                || (List.of("GET", "HEAD").contains(method) && isPublicImagePath(path));
+    }
+
+    /** F02: GET/HEAD `/api/v1/images/{imageId}` only. UUID 검증은 컨트롤러에서 400으로 처리한다. */
+    private static boolean isPublicImagePath(String path) {
+        if (!path.startsWith(PUBLIC_IMAGE_PREFIX)) {
+            return false;
+        }
+        String imageId = path.substring(PUBLIC_IMAGE_PREFIX.length());
+        return !imageId.isEmpty() && imageId.indexOf('/') < 0;
     }
 
     private static boolean isDocumentationRequest(HttpServletRequest request) {
@@ -235,18 +281,14 @@ public class SecurityConfig {
     private static void unauthorized(HttpServletResponse response, JsonMapper mapper)
             throws IOException {
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
-        writeError(response, mapper, 401, "UNAUTHORIZED", "인증이 필요합니다.");
+        writeError(response, mapper, ErrorCode.UNAUTHORIZED);
     }
 
     private static void writeError(
-            HttpServletResponse response,
-            JsonMapper mapper,
-            int status,
-            String code,
-            String message)
+            HttpServletResponse response, JsonMapper mapper, ErrorCode errorCode)
             throws IOException {
-        response.setStatus(status);
+        response.setStatus(errorCode.status().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        mapper.writeValue(response.getOutputStream(), ApiErrorResponse.of(code, message, Map.of()));
+        mapper.writeValue(response.getOutputStream(), ApiErrorResponse.of(errorCode, Map.of()));
     }
 }

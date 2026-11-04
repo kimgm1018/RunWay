@@ -74,6 +74,27 @@ CREATE TABLE "users" (
 	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
 );
 
+CREATE TABLE "user_recommendation_preferences" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "user_id" BIGINT NOT NULL,
+    "shape" VARCHAR(16) DEFAULT 'loop' NOT NULL,
+    "river" BOOLEAN DEFAULT false NOT NULL,
+    "beach" BOOLEAN DEFAULT false NOT NULL,
+    "park" BOOLEAN DEFAULT false NOT NULL,
+    "trail" BOOLEAN DEFAULT false NOT NULL,
+    "pedestrian" BOOLEAN DEFAULT false NOT NULL,
+    "flat" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_major_road" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_steps" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_tunnel" BOOLEAN DEFAULT false NOT NULL,
+    CONSTRAINT "PK_USER_RECOMMENDATION_PREFERENCES" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_user_recommendation_preferences_user_id" UNIQUE ("user_id"),
+    CONSTRAINT "ck_user_recommendation_preferences_shape"
+        CHECK ("shape" IN ('loop', 'out_and_back', 'point_to_point'))
+);
+
+COMMENT ON TABLE "user_recommendation_preferences" IS 'U11/U12 추천 기본값. 명시적 저장 시에만 생성·전체 교체. false는 고려하지 않음. 논리 탈퇴 시 서비스에서 삭제';
+
 CREATE TABLE "pace_plans" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
 	"session_id"	BIGINT		NOT NULL,
@@ -230,7 +251,8 @@ CREATE TABLE "daily_health_metrics" (
 	"daily_training_load"	NUMERIC(12,4)		NULL,
 	"max_heart_rate"	NUMERIC(7,2)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"rhr_revision"	INTEGER		NULL
 );
 
 COMMENT ON COLUMN "daily_health_metrics"."id" IS '일별 건강 ID';
@@ -250,6 +272,8 @@ COMMENT ON COLUMN "daily_health_metrics"."max_heart_rate" IS '준비도 계산�
 COMMENT ON COLUMN "daily_health_metrics"."created_at" IS '생성일시';
 
 COMMENT ON COLUMN "daily_health_metrics"."updated_at" IS '수정일시';
+
+COMMENT ON COLUMN "daily_health_metrics"."rhr_revision" IS 'rhr_bpm 워치 추정값의 revision. 같은 날짜는 더 큰 revision만 rhr_bpm을 갱신. 미저장 시 NULL';
 
 CREATE TABLE "posts" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -1037,6 +1061,9 @@ ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_values"
         AND "route_progress" <> 'NaN'::numeric
     );
 
+ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_revision"
+    CHECK ("rhr_revision" IS NULL OR "rhr_revision" >= 1);
+
 ALTER TABLE "user_follows" ADD CONSTRAINT "ck_user_follows_values"
     CHECK (
         "follower_id" <> "followee_id"
@@ -1154,3 +1181,13 @@ ALTER TABLE "users" ADD CONSTRAINT "uq_users_nickname" UNIQUE ("nickname");
 -- S15P31E105-251 (V5): 회원별·유형별 연결 중(unlinked_at IS NULL) 기기는 하나만 허용한다.
 CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
     WHERE unlinked_at IS NULL;
+
+-- S15P31E105-255 (V8): 회원별 활성 세션(READY/RUNNING/PAUSED, state_version>=1, 미삭제)은 하나만 허용한다.
+-- 기존 기록(state_version=0)은 제외한다. S01의 회원별 생성 잠금을 DB에서 한 번 더 보장한다.
+CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
+    WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
+
+-- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
+ALTER TABLE "user_recommendation_preferences"
+    ADD CONSTRAINT "FK_users_TO_user_recommendation_preferences"
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE;

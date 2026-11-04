@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import type { Repositories } from './types';
@@ -29,10 +30,16 @@ export function useRepositories() {
   return value;
 }
 
+type Reloads = {
+  reload: () => void;
+  // Loads again while the current data stays on screen; settles when the new load does.
+  refresh: () => Promise<void>;
+};
+
 export type Resource<T> =
-  | { status: 'loading'; data: null; reload: () => void }
-  | { status: 'ready'; data: T; reload: () => void }
-  | { status: 'error'; data: null; error: Error; reload: () => void };
+  | ({ status: 'loading'; data: null } & Reloads)
+  | ({ status: 'ready'; data: T } & Reloads)
+  | ({ status: 'error'; data: null; error: Error } & Reloads);
 
 // Loads one repository call for a screen; pass a stable `load` (wrap it in useCallback).
 export function useResource<T>(
@@ -41,6 +48,18 @@ export function useResource<T>(
   const repositories = useRepositories();
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt(value => value + 1), []);
+  // Set by refresh for the next load only, with the callers waiting for it.
+  const keep = useRef(false);
+  const waiting = useRef<(() => void)[]>([]);
+  const refresh = useCallback(
+    () =>
+      new Promise<void>(resolve => {
+        keep.current = true;
+        waiting.current.push(resolve);
+        setAttempt(value => value + 1);
+      }),
+    [],
+  );
   const [state, setState] = useState<
     | { status: 'loading' }
     | { status: 'ready'; data: T }
@@ -48,25 +67,39 @@ export function useResource<T>(
   >({ status: 'loading' });
   useEffect(() => {
     let active = true;
-    setState({ status: 'loading' });
+    if (!keep.current) {
+      setState({ status: 'loading' });
+    }
+    keep.current = false;
+    // Only the refreshes that asked for this load wait for it, not one that a later refresh replaced.
+    const waiters = waiting.current.splice(0);
+    const settle = () => waiters.forEach(resolve => resolve());
     load(repositories).then(
-      data => active && setState({ status: 'ready', data }),
-      error =>
-        active &&
-        setState({
-          status: 'error',
-          error: error instanceof Error ? error : new Error(String(error)),
-        }),
+      data => {
+        if (active) {
+          setState({ status: 'ready', data });
+        }
+        settle();
+      },
+      error => {
+        if (active) {
+          setState({
+            status: 'error',
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
+        }
+        settle();
+      },
     );
     return () => {
       active = false;
     };
   }, [attempt, load, repositories]);
   if (state.status === 'ready') {
-    return { ...state, reload } as Resource<T>;
+    return { ...state, reload, refresh } as Resource<T>;
   }
   if (state.status === 'error') {
-    return { ...state, data: null, reload } as Resource<T>;
+    return { ...state, data: null, reload, refresh } as Resource<T>;
   }
-  return { status: 'loading', data: null, reload } as Resource<T>;
+  return { status: 'loading', data: null, reload, refresh } as Resource<T>;
 }

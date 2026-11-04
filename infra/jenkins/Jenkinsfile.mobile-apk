@@ -60,7 +60,13 @@ pipeline {
         // 기존 앱의 디버그 서명을 사용한다. JS가 포함되어 Metro 없이 실행 가능하다.
         stage('Mobile APK Build') {
             steps {
-                sh 'sh infra/jenkins/build-mobile-apk.sh'
+                // 네이버 지도 Client ID는 APK 빌드 단계에만 전달한다.
+                withCredentials([string(
+                    credentialsId: 'runway-naver-map-client-id',
+                    variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
+                )]) {
+                    sh 'sh infra/jenkins/build-mobile-apk.sh'
+                }
             }
         }
         // 성공한 APK만 빌드별로 보관한다. 팀원은 Jenkins에서 내려받아 직접 설치한다.

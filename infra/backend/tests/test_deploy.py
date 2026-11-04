@@ -27,7 +27,7 @@ printf '%s :: %s\n' "${BACKEND_IMAGE:-none}" "$*" >> "$MOCK_DIR/calls"
 case "$1 $2" in
   'image inspect')
     if [[ ${MOCK_FAIL:-} == missing-image && ${!#} == runway-backend:test ]]; then exit 1; fi
-    if [[ ${!#} == runway-backend:test ]]; then echo sha256:new; else echo sha256:old; fi ;;
+    if [[ ${!#} == runway-backend:test ]]; then echo sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; else echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi ;;
   'image tag') exit 0 ;;
   'compose -f')
     shift 3
@@ -37,7 +37,7 @@ case "$1 $2" in
         [[ ${MOCK_FAIL:-} != missing-container ]] || exit 0
         if [[ -f $MOCK_DIR/active ]]; then cat "$MOCK_DIR/active"; else echo old; fi ;;
       up)
-        if [[ ${BACKEND_IMAGE:-} == sha256:old ]]; then
+        if [[ ${BACKEND_IMAGE:-} == sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]]; then
           echo old > "$MOCK_DIR/active"
           [[ ${MOCK_FAIL:-} != rollback-fails ]] || exit 1
         else
@@ -48,8 +48,15 @@ case "$1 $2" in
     esac ;;
   'inspect --format')
     case "$3" in
-      '{{.Image}}') if [[ ${!#} == new ]]; then echo sha256:new; else echo sha256:old; fi ;;
-      '{{.State.Running}}') [[ ${MOCK_FAIL:-} == stopped ]] && echo false || echo true ;;
+      '{{.Image}}') if [[ ${!#} == new ]]; then echo sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; else echo sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi ;;
+      '{{.State.Running}}') if [[ ${!#} == new && ( ${MOCK_FAIL:-} == check-fails || ${MOCK_FAIL:-} == rollback-fails ) ]]; then echo false; exit 0; fi; [[ ${MOCK_FAIL:-} == stopped ]] && echo false || echo true ;;
+      '{{.State.StartedAt}}')
+        if [[ ${MOCK_FAIL:-} == restarted-during-probe && -f $MOCK_DIR/start-seen ]]; then
+          echo '2026-11-02T00:00:02Z'
+        else
+          echo '2026-11-02T00:00:01Z'
+          touch "$MOCK_DIR/start-seen"
+        fi ;;
       '{{.State.Restarting}}') [[ ${MOCK_FAIL:-} == restarting ]] && echo true || echo false ;;
       *) exit 91 ;;
     esac ;;
@@ -61,7 +68,7 @@ case "$1 $2" in
     else
       printf '%s\n' 'HikariPool-1 - Start completed.' 'Started BackendApplication'
     fi ;;
-  'run --rm') [[ ${MOCK_FAIL:-} == http-500 ]] && printf 500 || printf 404 ;;
+  'run --rm') [[ ${MOCK_FAIL:-} != http-500 ]] ;;
   *) exit 92 ;;
 esac
 '''
@@ -87,6 +94,7 @@ class DeploymentTests(unittest.TestCase):
         self.env["PATH"] = str(self.bin) + os.pathsep + self.env["PATH"]
         # 실제 인증정보 대신 테스트용 임시 경로만 자식 프로세스에 전달한다.
         self.env["MOCK_DIR"] = self.posix(self.path)
+        self.env.pop("BACKEND_LEGACY_HEALTH_IMAGE_ID", None)
 
     @staticmethod
     def posix(path):
@@ -117,7 +125,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.path / "active").read_text().strip(), "new")
         self.assertEqual((self.path / "state/current-image").read_text().strip(), "runway-backend:test")
-        self.assertNotIn("sha256:old :: compose -f", self.calls())
+        self.assertNotIn("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa :: compose -f", self.calls())
 
     def test_failed_recreate_restores_previous_image_but_still_fails(self):
         result = self.deploy("deploy-fails")
@@ -129,7 +137,7 @@ class DeploymentTests(unittest.TestCase):
         result = self.deploy("check-fails")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual((self.path / "active").read_text().strip(), "old")
-        self.assertEqual((self.path / "state/current-image").read_text().strip(), "sha256:old")
+        self.assertEqual((self.path / "state/current-image").read_text().strip(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
     def test_failed_rollback_is_not_reported_as_success(self):
         result = self.deploy("rollback-fails")
@@ -145,23 +153,24 @@ class DeploymentTests(unittest.TestCase):
                 self.assertFalse((self.path / "active").exists())
 
     def test_wrong_image_is_rejected(self):
-        result = self.run_script("check.sh", ["old", "sha256:unexpected", "curl:test", "1"])
+        result = self.run_script("check.sh", ["old", "sha256:unexpected", "python:test", "1"])
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("run --rm", self.calls())
 
     def test_stopped_or_restarting_service_is_rejected(self):
         for failure in ("stopped", "restarting"):
             with self.subTest(failure=failure):
-                result = self.run_script("check.sh", ["old", "sha256:old", "curl:test", "1"], failure)
+                result = self.run_script("check.sh", ["old", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "python:test", "1"], failure)
                 self.assertNotEqual(result.returncode, 0)
 
     def test_http_404_without_db_startup_is_not_enough(self):
-        result = self.run_script("check.sh", ["old", "sha256:old", "curl:test", "1"], "no-db-log")
+        self.env["BACKEND_LEGACY_HEALTH_IMAGE_ID"] = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        result = self.run_script("check.sh", ["old", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "python:test", "1", "legacy"], "no-db-log")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("run --rm", self.calls())
 
     def test_http_500_is_rejected(self):
-        result = self.run_script("check.sh", ["old", "sha256:old", "curl:test", "1"], "http-500")
+        result = self.run_script("check.sh", ["old", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "python:test", "1"], "http-500")
         self.assertNotEqual(result.returncode, 0)
 
     def test_lock_refusal_prevents_any_docker_operation(self):
@@ -169,6 +178,44 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertFalse((self.path / "calls").exists())
         self.assertFalse((self.path / "active").exists())
+
+    def test_legacy_mode_requires_exact_explicit_image(self):
+        result = self.run_script("check.sh", ["old", "sha256:" + "a" * 64,
+            "python:test", "1", "legacy"])
+        self.assertEqual(result.returncode, 2)
+        self.env["BACKEND_LEGACY_HEALTH_IMAGE_ID"] = "sha256:" + "b" * 64
+        result = self.run_script("check.sh", ["old", "sha256:" + "a" * 64,
+            "python:test", "1", "legacy"])
+        self.assertEqual(result.returncode, 2)
+
+    def test_legacy_only_applies_to_previous_image_not_new_deployment(self):
+        self.env["BACKEND_LEGACY_HEALTH_IMAGE_ID"] = "sha256:" + "a" * 64
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        probes = [line for line in self.calls().splitlines() if "--network container:" in line]
+        # 검사 코드에 줄바꿈이 있어 호출 기록에서 검사 방식 인자도 확인한다.
+        self.assertIn(" legacy", self.calls())
+        self.assertIn(" readiness", self.calls())
+        self.assertTrue(any("container:old" in line for line in probes))
+        self.assertTrue(any("container:new" in line for line in probes))
+
+    def test_legacy_mode_is_retained_when_rolling_back(self):
+        self.env["BACKEND_LEGACY_HEALTH_IMAGE_ID"] = "sha256:" + "a" * 64
+        result = self.deploy("check-fails")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("이전 이미지 복구 확인 완료", result.stderr)
+        self.assertEqual((self.path / "active").read_text().strip(), "old")
+
+    def test_same_container_restart_during_probe_is_rejected(self):
+        result = self.run_script("check.sh", ["old", "sha256:" + "a" * 64,
+            "python:test", "1"], "restarted-during-probe")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("검사 완료", result.stdout)
+    def test_invalid_legacy_image_id_is_rejected_before_docker(self):
+        self.env["BACKEND_LEGACY_HEALTH_IMAGE_ID"] = "runway-backend:previous"
+        result = self.deploy()
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse((self.path / "calls").exists())
 
 
 if __name__ == "__main__":

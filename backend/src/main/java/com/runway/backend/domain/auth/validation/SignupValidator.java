@@ -2,8 +2,8 @@ package com.runway.backend.domain.auth.validation;
 
 import com.runway.backend.domain.auth.dto.SignupRequest;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -36,40 +36,43 @@ public class SignupValidator {
             request.phoneNumber()
         };
         for (Object value : values) {
-            if (!(value instanceof String)) throw invalid("VALIDATION_ERROR");
+            if (!(value instanceof String)) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         String loginId = (String) request.loginId();
         validateLoginId(loginId);
         String password = (String) request.password();
-        if (!PasswordPolicy.accepts(password)) throw invalid("INVALID_PASSWORD_POLICY");
+        if (!PasswordPolicy.accepts(password))
+            throw new ApiException(ErrorCode.INVALID_PASSWORD_POLICY);
         String nickname = (String) request.nickname();
-        if (!text(nickname, 2, 10, false)) throw invalid("INVALID_PROFILE");
+        if (!text(nickname, 2, 10, false)) throw new ApiException(ErrorCode.INVALID_PROFILE);
         LocalDate birth;
         try {
             String raw = (String) request.birthDate();
-            if (!raw.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) throw invalid("VALIDATION_ERROR");
+            if (!raw.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+                throw new ApiException(ErrorCode.VALIDATION_ERROR);
             birth = LocalDate.parse(raw);
         } catch (DateTimeParseException exception) {
-            throw invalid("VALIDATION_ERROR");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         if (birth.getYear() < 1 || birth.isAfter(LocalDate.now(clock.withZone(ZoneOffset.UTC))))
-            throw invalid("INVALID_PROFILE");
+            throw new ApiException(ErrorCode.INVALID_PROFILE);
         String gender = (String) request.gender();
         String phone = (String) request.phoneNumber();
         if (!Set.of("MALE", "FEMALE").contains(gender) || !phone.matches("010[0-9]{8}"))
-            throw invalid("INVALID_PROFILE");
-        if (request.consents() == null) throw invalid("VALIDATION_ERROR");
+            throw new ApiException(ErrorCode.INVALID_PROFILE);
+        if (request.consents() == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         List<Consent> consents = consents(request.consents());
         return new Input(loginId, password, nickname, birth, gender, phone, consents);
     }
 
     public static void validateLoginId(String loginId) {
         if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
-            throw invalid("VALIDATION_ERROR");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
     }
 
     private static List<Consent> consents(Object raw) {
-        if (!(raw instanceof List<?> list) || list.size() != 4) throw invalid("INVALID_CONSENT");
+        if (!(raw instanceof List<?> list) || list.size() != 4)
+            throw new ApiException(ErrorCode.INVALID_CONSENT);
         var seen = new HashSet<String>();
         var result = new ArrayList<Consent>();
         for (Object item : list) {
@@ -78,7 +81,8 @@ public class SignupValidator {
                     || !TYPES.contains(type)
                     || !seen.add(type)
                     || !(entry.get("granted") instanceof Boolean granted)
-                    || (!type.equals("HEALTH_DATA") && !granted)) throw invalid("INVALID_CONSENT");
+                    || (!type.equals("HEALTH_DATA") && !granted))
+                throw new ApiException(ErrorCode.INVALID_CONSENT);
             result.add(new Consent(type, granted));
         }
         return List.copyOf(result);
@@ -102,14 +106,6 @@ public class SignupValidator {
             offset += Character.charCount(point);
         }
         return count >= min;
-    }
-
-    public static ApiException invalid(String code) {
-        HttpStatus status =
-                Set.of("INVALID_PASSWORD_POLICY", "INVALID_CONSENT").contains(code)
-                        ? HttpStatus.UNPROCESSABLE_ENTITY
-                        : HttpStatus.BAD_REQUEST;
-        return new ApiException(status, code, "요청 값이 유효하지 않습니다.");
     }
 
     public record Consent(String type, boolean granted) {

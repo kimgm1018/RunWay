@@ -41,8 +41,8 @@ export const runScreens: Partial<Record<RouteName, React.ComponentType>> = {
   CourseRun: themed(CourseRunScreen, 'CourseRunScreen', dayNight),
   MusicCard: MusicCardScreen,
   MusicSource: MusicSourceScreen,
-  // 4.2 runs on the K1 dark map day and night (DESIGN.md 2-7).
-  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dark),
+  // 4.2: the light runway-running-handoff screen by day, the K1 dark map after sunset (S15P31E105-392).
+  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dayNight),
   // 4.3 sits on the K1 background like 1.x (DESIGN.md 2-7).
   RunPause: RunPauseScreen,
   // 4.5 sits on the K1 background; its buttons read the dark tone on the black part.

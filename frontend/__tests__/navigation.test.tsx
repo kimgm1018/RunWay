@@ -103,8 +103,9 @@ test('signed-out users move from start through login into the home tab', async (
   // The mock answers on a 0 ms timer.
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 20)));
   const home = texts(screen);
-  expect(home).toContain('민준');
-  expect(home).toContain('오늘 달리기 좋은 날이에요');
+  // The signed-in runner shows as the header avatar's initial (2.1 has no greeting, S15P31E105-382).
+  expect(home).toContain('민');
+  expect(home).toContain('오늘 준비도');
   expect(home).toContain('82');
   for (const tab of ['홈', '러닝', '그룹', '커뮤니티']) {
     expect(pressable(screen, tab).props.accessibilityRole).toBe('tab');
@@ -135,7 +136,7 @@ test('watch connection opened from settings returns home instead of signing in',
       .findAll(node => node.props.accessibilityLabel === '밀어서 시작하기')[0]
       .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
   });
-  expect(texts(screen)).toContain('오늘 달리기 좋은 날이에요');
+  expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
 

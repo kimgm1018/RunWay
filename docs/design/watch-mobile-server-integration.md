@@ -26,7 +26,7 @@ flowchart LR
 | 구간 | 사용 방식 |
 | --- | --- |
 | 워치↔폰 | 명령·현재 원본·온라인 요청 재시도는 MessageClient의 개별 메시지, 최신 상태 공유는 DataClient/DataItem. ChannelClient는 이번 MVP에서 제외 |
-| 폰→서버 | 원본 업로드 W07, 건강 저장소 조회 기록 W06, 시작·정지·재개·종료·BPM은 기존 REST API |
+| 폰→서버 | 원본 업로드 W07, 워치 일상 심박 하루 추정값 W06(건강 저장소 기록은 후속 `type`), 시작·정지·재개·종료·BPM은 기존 REST API |
 | 서버→폰 | SSE로 상태·코칭 전달. 온라인 응답 지연·수신 상태를 구분하고 오래된 결과는 적용하지 않음 |
 
 워치와 폰 앱은 같은 applicationId와 서명으로 배포한다. OS 페어링, W01 기기 등록, W05 동의 확인은 각각 별도의 절차다. 폰의 native 영역은 큐와 통신을 관리하고, RN 화면은 사용자 입력과 결과 표시를 담당한다.
@@ -217,11 +217,11 @@ payload는 메시지에 담는 실제 내용이다. 아래 표는 각 메시지�
 
 | type | payload 필드·의미 |
 | --- | --- |
-| SESSION_PREPARE | **폰이 워치에 운동 목표와 준비할 버전을 보낸다.**<br>`stateVersion`(int64≥1): 워치가 보관해야 할 현재 목표·설정 버전.<br>`goal`(object): 준비할 목표 묶음. `courseId`는 선택한 코스 ID, `comparisonSessionId`는 비교할 과거 운동 ID, `targetDistanceM`는 목표 거리(m), `targetDurationSec`는 목표 시간(초), `targetPaceSecPerKm`는 목표 페이스(초/km)다. 각 값은 해당 목표를 사용하지 않으면 null이다.<br>`initialBpm`(60~220 정수/null): 최초 준비 때 사용할 초기 박자 값. 초기값이 없으면 null이며, 이후 준비 메시지로 사용자가 변경한 현재 BPM을 덮어쓰지 않는다. |
+| SESSION_PREPARE | **폰이 워치에 운동 목표와 준비할 버전을 보낸다.**<br>`stateVersion`(int64≥1): 워치가 보관해야 할 현재 목표·설정 버전.<br>`deviceId`(int64≥1): 이 워치의 user_devices.id(세션의 controlDeviceId). 워치는 이 값을 BATCH_DATA의 생산 기기 `deviceId`로 쓰며, 없으면 SESSION_PREPARED `ready=false`·`reasonCode=DEVICE_ID_MISSING`으로 답한다(S15P31E105-311, 2026-11-03 확정).<br>`goal`(object): 준비할 목표 묶음. `courseId`는 선택한 코스 ID, `comparisonSessionId`는 비교할 과거 운동 ID, `targetDistanceM`는 목표 거리(m), `targetDurationSec`는 목표 시간(초), `targetPaceSecPerKm`는 목표 페이스(초/km)다. 각 값은 해당 목표를 사용하지 않으면 null이다.<br>`initialBpm`(60~220 정수/null): 최초 준비 때 사용할 초기 박자 값. 초기값이 없으면 null이며, 이후 준비 메시지로 사용자가 변경한 현재 BPM을 덮어쓰지 않는다. |
 | SESSION_PREPARED | **워치가 전달받은 목표를 보관하고 운동을 시작할 준비가 됐는지 답한다.**<br>`stateVersion`: 워치가 보관하고 확인한 목표 버전. 폰은 이 값으로 최신 목표를 준비했는지 확인한다.<br>`ready`(boolean): 해당 버전으로 시작할 준비가 됐으면 true, 준비하지 못했으면 false.<br>`reasonCode`(string/null): 준비하지 못한 이유를 구분하는 코드. 전달할 사유가 없으면 null이다. |
 | START_REQUEST | **워치에서 시작 버튼을 눌렀을 때 폰에 시작 승인을 요청한다.**<br>`expectedVersion`(int64≥1): 워치가 준비한 목표·설정의 버전. 폰은 이 버전으로 서버 S03 REQUEST를 호출한다. 이 메시지를 보냈다는 이유만으로 워치 측정을 시작하지 않는다. |
 | START_AUTHORIZED | **폰이 서버에서 승인받은 시작 명령을 워치에 전달한다.**<br>`commandId`: 서버가 발급한 시작 명령 번호.<br>`expectedVersion`: 서버가 시작을 승인한 기준 버전. 워치는 자신이 준비 완료한 버전과 일치할 때만 측정을 시작한다.<br>`targetBpm`: 이 시작 메시지에서는 null이다. 준비 단계의 BPM과 이후 BPM 제어를 구분한다.<br>`coachingId`: 이 메시지는 AI 코칭 적용 명령이 아니므로 null이다. |
-| COMMAND_REQUEST | **워치의 조작 요청을 폰으로 보내거나, 서버가 승인한 명령을 폰에서 워치로 보낸다.**<br>`phase`: 워치→폰 요청은 REQUEST, 폰→워치 승인 명령은 APPLY다. REQUEST를 받은 폰은 서버 승인을 먼저 받아야 한다.<br>`action`: PAUSE(일시정지), RESUME(재개), END(종료), SET_BPM(박자 변경) 중 실행할 동작.<br>`expectedVersion`: 요청·적용의 기준이 되는 운동 상태 버전.<br>`targetBpm`(정수/null): SET_BPM이면 변경할 박자 값(60~220), 그 외에는 null.<br>APPLY일 때는 `commandId`(서버가 발급한 명령 번호)와 `coachingId`(연결된 AI 코칭 ID, 없으면 null)를 함께 보낸다. 워치는 승인 명령을 확인한 뒤 실제 동작을 실행한다. |
+| COMMAND_REQUEST | **워치의 조작 요청을 폰으로 보내거나, 서버가 승인한 명령을 폰에서 워치로 보낸다.**<br>`phase`: 워치→폰 요청은 REQUEST, 폰→워치 승인 명령은 APPLY다. REQUEST를 받은 폰은 서버 승인을 먼저 받아야 한다.<br>`action`: PAUSE(일시정지), RESUME(재개), END(종료), SET_BPM(박자 변경), CANCEL(준비 취소) 중 실행할 동작. CANCEL은 워치→폰 REQUEST만 사용한다. 폰은 S07을 호출하고 결과를 STATE_RESULT(scope=SERVER)로 워치에 알린다. S07은 명령 번호가 없으므로 COMMAND_RESULT·COMMAND_RECEIVED를 쓰지 않는다. START가 미확정이면 409 COMMAND_PENDING을 ERROR(code=COMMAND_PENDING, retryable=false)로 알린다(S15P31E105-256, 2026-11-02 확정).<br>`expectedVersion`: 요청·적용의 기준이 되는 운동 상태 버전.<br>`targetBpm`(정수/null): SET_BPM이면 변경할 박자 값(60~220), 그 외에는 null.<br>APPLY일 때는 `commandId`(서버가 발급한 명령 번호)와 `coachingId`(연결된 AI 코칭 ID, 없으면 null)를 함께 보낸다. 워치는 승인 명령을 확인한 뒤 실제 동작을 실행한다. |
 | COMMAND_RESULT | **워치가 시작·일시정지·재개·종료·BPM 변경 명령의 실제 실행 결과를 폰에 보낸다.**<br>`commandId`: 결과를 보고할 명령 번호.<br>`result`: APPLIED는 실제 적용 완료, REJECTED는 적용 거절, UNKNOWN은 실제 적용 여부를 확인할 수 없다는 뜻이다.<br>`appliedAt`(UTC/null): APPLIED일 때 실제 적용시각을 보내며, 나머지 결과는 null이다.<br>`reasonCode`(string/null): 거절·미확인 등의 사유 코드. 전달할 사유가 없으면 null이다.<br>운동 종료 성공(END/APPLIED)을 보고할 때는 워치가 만든 마지막 batch까지 서버 저장 확인을 받아야 한다. 이때 `pendingBatchCount=0`(서버 저장 확인을 기다리는 워치 batch가 없음), `uploadComplete=true`(마지막 워치 batch까지 서버 저장 확인 완료)를 함께 보낸다. 폰은 자신이 만든 batch도 모두 저장됐는지 확인한 뒤 S06 RESULT를 보낸다. 종료 거절·결과 미확인(END/REJECTED·UNKNOWN)에서는 uploadComplete=false 또는 생략을 허용한다. |
 | COMMAND_RECEIVED | **폰이 워치의 명령 실행 결과를 어디까지 저장했는지 알린다.**<br>`commandId`: 수신·저장 여부를 알려 줄 명령 번호.<br>`persisted`(boolean): false는 폰 로컬 저장만 완료했고 서버 저장은 아직 확인하지 못했다는 뜻이다. true는 서버 저장까지 확인했다는 뜻이다.<br>`stateVersion`(int64/null): persisted=false이면 null, true이면 서버 저장 후의 최신 상태 버전.<br>폰은 로컬 저장 후 false로 수신을 알리고, 서버 저장까지 확인하면 true와 최신 버전을 다시 보낸다. 워치는 서버 저장 확인을 받은 뒤 다음 일반 제어 명령을 실행한다. |
 | SERVER_END | **그룹 운동 종료에 따라 서버가 승인한 개인 종료 명령을 폰이 워치에 전달한다.**<br>`commandId`: 참가자 개인의 END 명령 번호.<br>`expectedVersion`: 해당 종료 명령이 승인된 개인 운동 상태 버전.<br>`endedAt`(UTC): 그룹 운동의 종료 기준시각. 참가자 워치의 실제 종료시각과 구분하며 그룹 집계의 기준으로 사용한다.<br>`reason`(string): 그룹 운동을 종료하는 사유.<br>워치는 실제 종료 결과를 COMMAND_RESULT로 보고한다. 폰으로 기록을 넘긴 운동은 같은 서버 END 승인 명령을 S10으로 받아 폰에서 실행하고 S06 RESULT를 보고한다. 이 MessageClient 메시지는 워치로 전달할 때만 사용한다. |
@@ -232,7 +232,7 @@ payload는 메시지에 담는 실제 내용이다. 아래 표는 각 메시지�
 | BATCH_COMMITTED | **폰이 W07 응답을 확인한 뒤 해당 batch의 서버 저장 완료를 워치에 알린다.**<br>`batchId`(UUID 문자열): 서버에 저장된 batch의 id.<br>`status`: COMMITTED 고정값으로 서버 DB 저장 완료를 표시한다.<br>`acceptedCount`(정수≥1): 서버가 저장 확인한 해당 batch의 항목 수. W07 응답값을 전달한다.<br>워치는 이 응답을 확인한 batch의 서버 저장 대기를 해제한다. 분석 완료를 뜻하지 않으며, W07 응답에 없는 committedAt 필드를 추가로 요구하지 않는다. |
 | COACHING_GUIDE | **폰이 서버에서 승인받은 코칭 명령을 전달하거나 같은 미확정 명령의 결과를 다시 확인한다.**<br>`commandId`: 코칭 적용 명령 번호.<br>`coachingId`: 어떤 AI 추천을 적용하는지 식별하는 코칭 기록 ID. 명령 번호와 역할이 다르다.<br>`expectedVersion`: 이 코칭 명령을 승인한 운동 상태 버전.<br>`targetBpm`(60~220 정수): 워치에 적용할 박자 값.<br>`recommendedPaceSecPerKm`(양수): 권장 페이스(초/km). 예를 들어 360은 1km당 6분이다.<br>`expiresAt`(UTC): 코칭을 새로 적용할 수 있는 만료시각. 워치는 저장된 동일 commandId 결과를 먼저 재응답한다. 최초 처리일 때만 버전·만료를 검사하고 오래된 코칭은 적용하지 않고 IGNORED/GUIDE_STALE을 영속 저장·보고한다. 만료된 미확정 명령도 결과 확인용으로 전달하며, S02/S10의 pendingCommand.coachingGuide에서 원래 payload를 복구할 수 있다. |
 | COACHING_RESULT | **워치가 코칭을 실제로 적용했는지 폰에 보고한다.**<br>`commandId`: 결과를 보고할 코칭 적용 명령 번호.<br>`coachingId`: 해당 명령에 연결된 AI 코칭 기록 ID.<br>`result`: APPLIED는 적용 완료, IGNORED는 버전 불일치·만료 등으로 적용하지 않음, UNKNOWN은 실제 적용 여부를 확인할 수 없다는 뜻이다.<br>`appliedAt`(UTC/null): APPLIED일 때 실제 적용시각, 그 외에는 null.<br>`reasonCode`(string/null): 미적용·미확인 등의 사유 코드. 전달할 사유가 없으면 null이다. |
-| ERROR | **폰 또는 워치가 상대 메시지를 처리하지 못한 이유를 알린다.**<br>`code`(string): 오류 종류를 구분하는 코드.<br>`retryable`(boolean): 같은 메시지를 제한 재시도할 수 있으면 true, 원인 수정 없이 다시 보내면 안 되면 false. true여도 9.5절의 횟수·대기 제한을 지킨다.<br>`failedType`(string): 처리에 실패한 원래 메시지의 type.<br>공통 envelope의 `replyTo`에는 실패한 원래 메시지의 messageId를 넣어 어느 요청에 대한 오류인지 연결한다. |
+| ERROR | **폰 또는 워치가 상대 메시지를 처리하지 못한 이유를 알린다.**<br>`code`(string): 오류 종류를 구분하는 코드.<br>`retryable`(boolean): 같은 메시지를 제한 재시도할 수 있으면 true, 원인 수정 없이 다시 보내면 안 되면 false. true여도 9.5절의 횟수·대기 제한을 지킨다.<br>`failedType`(string): 처리에 실패한 원래 메시지의 type.<br>공통 envelope의 `replyTo`에는 실패한 원래 메시지의 messageId를 넣어 어느 요청에 대한 오류인지 연결한다.<br>W07이 같은 본문으로 다시 보내도 결과가 바뀌지 않는 이유(400/403/409/413/422)로 batch를 거절하면 폰은 `failedType=BATCH_DATA`·`retryable=false`·W07 오류 코드로 알리고, 워치는 해당 batch의 재전송을 멈추고 저장 미확인으로 표시한다(S15P31E105-311). |
 
 ### 9.4 상태·명령·버전 처리
 
@@ -355,3 +355,23 @@ PHONE_FALLBACK에서는 서버 스냅샷과 STATE_RESULT에 recordingMode를 포
 | IGNORED 결과 또는 서버 저장 ACK가 유실됨 | 같은 명령·결과로 제한 재시도, 서버 슬롯 해제·버전 증가는 1회. persisted=true 후 최신 버전으로 PAUSE/END/SET_BPM 재요청 |
 | 원래 전달과 만료 후 재전달이 동시에 워치에 도착 | commandId별 최초 처리·결과 저장을 원자적으로 수행해 하나의 결과만 확정하고 중복은 동일 결과 반환 |
 | 결과 확인 중 워치 단절·재시도 상한 도달 | 실행 여부를 추정하지 않고 미확인 표시. 실제 시작 확인된 세션은 기존 폰 인계·종료 지원 |
+
+### 9.9 일상 심박 하루 추정값과 건강 동의 공유 (S15P31E105-63)
+
+2026-10-30 사용자 확정으로 9.2의 운동 세션 메시지와 별도로 아래 경로를 추가한다. 운동 세션·W07과 무관하므로 envelope의 `sessionId`는 null이다. 9.1 envelope·크기·messageId 규칙과 9.5의 ACK 대기·재시도 상한을 그대로 따른다.
+
+| path | type | 방향 | 서버 연결 |
+| --- | --- | --- | --- |
+| `/runway/v1/health/daily-hr` | `DAILY_HR_SUMMARY` | 워치→폰 | 없음. 폰 로컬 저장 후 [S15P31E105-281](https://ssafy.atlassian.net/browse/S15P31E105-281)이 W06으로 업로드 |
+| `/runway/v1/health/daily-hr-received` | `DAILY_HR_RECEIVED` | 폰→워치 | 없음. 폰 영속 저장 확인 |
+
+| type | payload 필드·의미 |
+| --- | --- |
+| DAILY_HR_SUMMARY | **워치가 최근 24시간 일상 심박으로 만든 추정값 1개를 폰에 보낸다.**<br>`metricDate`(`YYYY-MM-DD`): 워치 시간대 기준 추정값을 계산한 날짜. 워치는 1시간마다 최근 24시간으로 다시 계산하며, 같은 날짜는 더 높은 revision으로 덮어쓴다.<br>`revision`(int≥1): 같은 날짜의 값·분 수가 바뀔 때마다 1씩 증가한다.<br>`estimatedRestingHrBpm`(number): 최근 24시간 1분 평균 HR 중 하위 10%의 평균(소수 1자리). 삼성 헬스 공식 안정 시 심박이 아니라 워치 일상 측정 추정치다.<br>`method`(string): 계산 방식. 현재 `ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`.<br>`validSampleCount`(int): 계산에 쓴 유효 분(1분 평균) 개수.<br>`computedAt`(UTC): 계산 시각. |
+| DAILY_HR_RECEIVED | **폰이 해당 날짜·revision을 영속 저장했음을 알린다.**<br>`metricDate`, `revision`: 받은 값. 폰은 날짜별로 가장 높은 revision만 유지하며 같거나 낮은 revision을 다시 받으면 저장을 바꾸지 않고 같은 응답을 돌려준다. |
+
+- 워치는 `DAILY_HR_RECEIVED`를 받기 전까지 해당 날짜·revision을 대기열에 유지한다. 9.5 상한을 넘으면 폐기하지 않고 다음 연결 또는 다음 계산 시점에 다시 보낸다.
+- 건강정보 동의 상태는 폰이 DataItem `/runway/v1/state/health-consent`(`healthDataAccess`: `AGREEE`/`DISAGREE`, `updatedAt` UTC)로 공유한다. ADR-0012의 최신 상태 공유 용도이며 명령으로 쓰지 않는다. 워치는 `updatedAt`이 더 오래된 값을 적용하지 않는다.
+- 동의가 `DISAGREE`이거나 DataItem이 없으면 워치는 일상 수집을 등록하지 않는다. 철회를 받으면 등록을 해제하고 워치의 1분 집계·요약을 삭제한다. 폰은 철회 후 업로드하지 않는다.
+- 분 단위 HR 원본은 폰·서버로 보내지 않는다.
+- 9.1과 다른 점: 기기가 서버 기기 ID를 모르므로 `senderDeviceId`는 null이다. `messageId`는 `watch:<n>`/`phone:<n>` 형식이다. 한 동기화 실행 안의 재시도는 같은 `messageId`를 쓰고 다음 실행은 새 ID를 쓸 수 있으며, 폰은 `metricDate`+`revision`으로 중복을 거른다.

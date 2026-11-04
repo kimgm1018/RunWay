@@ -10,18 +10,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.runway.backend.global.security.SecurityConfig;
 import com.runway.backend.global.security.SecurityTestSupport;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import java.util.HashMap;
-import java.util.Map;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +39,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @WebMvcTest(GlobalExceptionHandlerTest.FixtureController.class)
 @Import({
@@ -109,7 +118,7 @@ class GlobalExceptionHandlerTest {
         mvc.perform(get("/__test/missing").header("Authorization", SecurityTestSupport.bearer(1)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("세션을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.message").value("러닝 세션을 찾을 수 없습니다."))
                 .andExpect(jsonPath("$.details").isMap());
     }
 
@@ -245,13 +254,63 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void 일시적인_데이터접근_장애는_503이고_원인을_숨긴다() throws Exception {
+        for (String kind :
+                new String[] {
+                    "lock",
+                    "timeout",
+                    "connection",
+                    "transaction",
+                    "jdbc-lock-timeout",
+                    "jdbc-statement-timeout",
+                    "jdbc-serialization",
+                    "jdbc-deadlock"
+                }) {
+            mvc.perform(
+                            get("/__test/data-access")
+                                    .param("kind", kind)
+                                    .header("Authorization", SecurityTestSupport.bearer(1)))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                    .andExpect(jsonPath("$.message").value("일시적으로 처리할 수 없습니다."))
+                    .andExpect(
+                            content()
+                                    .string(
+                                            org.hamcrest.Matchers.not(
+                                                    org.hamcrest.Matchers.containsString(
+                                                            "running_sessions"))));
+        }
+    }
+
+    /** JdbcTemplate이 분류하지 못한 SQL 오류 중 재시도 대상이 아닌 SQLState는 500이다. */
+    @Test
+    void 분류되지_않은_일반_SQL_오류는_500이다() throws Exception {
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "jdbc-other")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
+    void 제약위반은_재시도_대상이_아니므로_500이다() throws Exception {
+        mvc.perform(
+                        get("/__test/data-access")
+                                .param("kind", "integrity")
+                                .header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
     void 없는_detail값은_빼고_상태와_코드를_유지한다() throws Exception {
         mvc.perform(
                         get("/__test/null-detail")
                                 .header("Authorization", SecurityTestSupport.bearer(1)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"))
-                .andExpect(jsonPath("$.message").value("세션을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.message").value("러닝 세션을 찾을 수 없습니다."))
                 .andExpect(jsonPath("$.details.keep").value("ok"))
                 .andExpect(jsonPath("$.details.hint").doesNotExist());
     }
@@ -300,8 +359,7 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/__test/missing")
         void missing() {
-            throw new ApiException(
-                    HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.", Map.of());
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, Map.of());
         }
 
         @GetMapping("/__test/boom")
@@ -338,18 +396,46 @@ class GlobalExceptionHandlerTest {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "database down");
         }
 
+        /**
+         * JdbcTemplate이 PostgreSQL 오류를 분류하지 못했을 때와 같은 예외. 현재 기본 변환기에서 실제로 이렇게 남는 것은 55P03이며, 나머지
+         * SQLState는 변환기 설정이 바뀌어도 503을 유지하는지 보는 방어 사례다.
+         */
+        private static UncategorizedSQLException uncategorized(String sqlState) {
+            return new UncategorizedSQLException(
+                    "PreparedStatementCallback",
+                    "SELECT id FROM running_sessions WHERE id = ? FOR UPDATE",
+                    new java.sql.SQLException("lock on running_sessions", sqlState));
+        }
+
+        @GetMapping("/__test/data-access")
+        void dataAccess(@RequestParam String kind) {
+            String detail = "lock on running_sessions";
+            throw switch (kind) {
+                case "lock" -> new CannotAcquireLockException(detail);
+                case "timeout" -> new QueryTimeoutException(detail);
+                case "connection" -> new DataAccessResourceFailureException(detail);
+                case "transaction" -> new CannotCreateTransactionException(detail);
+                case "jdbc-lock-timeout" -> uncategorized("55P03");
+                case "jdbc-statement-timeout" -> uncategorized("57014");
+                case "jdbc-serialization" -> uncategorized("40001");
+                case "jdbc-deadlock" -> uncategorized("40P01");
+                case "jdbc-other" -> uncategorized("P0001");
+                default -> new DataIntegrityViolationException(detail);
+            };
+        }
+
         @GetMapping("/__test/null-detail")
         void nullDetail() {
             Map<String, Object> details = new HashMap<>();
             details.put("hint", null);
             details.put("keep", "ok");
-            throw new ApiException(
-                    HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", "세션을 찾을 수 없습니다.", details);
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND, details);
         }
 
         @GetMapping("/__test/null-message")
-        void nullMessage() {
-            throw new ApiException(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", null);
+        org.springframework.http.ResponseEntity<ApiErrorResponse> nullMessage() {
+            return org.springframework.http.ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(new ApiErrorResponse(ErrorCode.SESSION_NOT_FOUND.code(), null, Map.of()));
         }
     }
 

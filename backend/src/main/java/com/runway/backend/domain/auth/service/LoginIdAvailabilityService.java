@@ -3,6 +3,8 @@ package com.runway.backend.domain.auth.service;
 import com.runway.backend.domain.auth.dto.LoginIdAvailabilityResponse;
 import com.runway.backend.domain.auth.repository.SignupRepository;
 import com.runway.backend.domain.auth.validation.SignupValidator;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
@@ -19,14 +21,15 @@ public class LoginIdAvailabilityService {
 
     public LoginIdAvailabilityResponse check(String clientIp, String[] values) {
         limiter.check(clientIp);
-        if (values == null || values.length != 1) throw SignupValidator.invalid("VALIDATION_ERROR");
+        if (values == null || values.length != 1)
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         String id = values[0];
         SignupValidator.validateLoginId(id);
         try {
             boolean exists = users.loginIdExists(id);
             return new LoginIdAvailabilityResponse(id, !exists, exists ? "DUPLICATED" : null);
         } catch (DataAccessException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 }

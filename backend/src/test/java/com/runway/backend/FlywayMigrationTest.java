@@ -76,8 +76,58 @@ class FlywayMigrationTest {
     }
 
     @Test
+    void v10AddsPreferencesToPopulatedV9AndPreservesExistingData() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("9")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('prefs_migrate','synthetic','prefmig','2000-01-01','MALE','00000000000','DISAGREE')
+                """);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM users WHERE login_id='prefs_migrate'"))
+                .isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM user_recommendation_preferences")).isZero();
+        execute(
+                """
+                INSERT INTO user_recommendation_preferences(user_id)
+                SELECT id FROM users WHERE login_id='prefs_migrate'
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM user_recommendation_preferences WHERE id>0"
+                                    + " AND shape='loop' AND flat=false"))
+                .isEqualTo(1);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        "INSERT INTO user_recommendation_preferences(user_id)"
+                                            + " SELECT id FROM users WHERE"
+                                            + " login_id='prefs_migrate'"))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(
+                        () -> execute("UPDATE user_recommendation_preferences SET shape='invalid'"))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(() -> execute("UPDATE user_recommendation_preferences SET flat=NULL"))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        "INSERT INTO user_recommendation_preferences(user_id)"
+                                            + " VALUES(-1)"))
+                .isInstanceOf(java.sql.SQLException.class);
+        execute("DELETE FROM users WHERE login_id='prefs_migrate'");
+        assertThat(number("SELECT count(*) FROM user_recommendation_preferences")).isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
     void firstMigrationAndReapplicationPreserveData() throws Exception {
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(10);
         execute(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
@@ -87,7 +137,7 @@ class FlywayMigrationTest {
         assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
         assertThat(number("SELECT count(*) FROM users WHERE login_id='migration_runner'"))
                 .isEqualTo(1);
-        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(7);
+        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(10);
         assertThat(
                         number(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='1' AND"
@@ -116,6 +166,16 @@ class FlywayMigrationTest {
         assertThat(
                         number(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='7' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='8' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='9' AND"
                                     + " success"))
                 .isEqualTo(1);
         assertThat(
@@ -224,7 +284,7 @@ class FlywayMigrationTest {
     @Test
     void v3ConvertsExistingBatchUuidWithoutLosingData() throws Exception {
         installV1WithBatch("ABCDEFAB-0000-4000-8000-000000000101");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
@@ -325,7 +385,7 @@ class FlywayMigrationTest {
                 INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm)
                 SELECT id,10,300,160 FROM running_sessions;
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
         assertThat(
                         number(
                                 "SELECT count(*) FROM coaching_decisions WHERE cue_bpm=160 AND"
@@ -390,6 +450,36 @@ class FlywayMigrationTest {
                 .isZero();
     }
 
+    @Test
+    void v9AddsRhrRevisionWithoutChangingExistingHealthMetrics() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("8")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('v8_health','synthetic','health','2000-01-01','MALE','00000000000','AGREEE');
+                INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,sleep_duration_min)
+                SELECT id,'2026-10-30',58.4,420 FROM users WHERE login_id='v8_health';
+                """);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM daily_health_metrics WHERE rhr_bpm=58.4 AND"
+                                    + " sleep_duration_min=420 AND rhr_revision IS NULL"))
+                .isEqualTo(1);
+        execute("UPDATE daily_health_metrics SET rhr_revision=1");
+        assertThatThrownBy(() -> execute("UPDATE daily_health_metrics SET rhr_revision=0"))
+                .isInstanceOf(java.sql.SQLException.class)
+                .extracting(e -> ((java.sql.SQLException) e).getSQLState())
+                .isEqualTo("23514");
+        assertThat(number("SELECT count(*) FROM daily_health_metrics WHERE rhr_revision=1"))
+                .isEqualTo(1);
+    }
+
     private void migrateThroughV3() {
         Flyway.configure()
                 .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
@@ -409,7 +499,7 @@ class FlywayMigrationTest {
                     + " users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)"
                     + " VALUES"
                     + " ('before_signup','hash','before','2000-01-01','MALE','01012345678','DISAGREE')");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(7);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='before_signup'"))
                 .isEqualTo(1);
         assertThat(

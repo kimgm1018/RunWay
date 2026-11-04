@@ -1,0 +1,10 @@
+{
+  "repository": "AnSeongYun/runway-hr-models",
+  "revision": "11a3d0cce3062c84aa7ffee1740a93d204462190",
+  "files": [
+    {"source": "gru/gru_final.pt", "name": "gru_final.pt", "sha256": "db59d414b8b88a6ac1140dd5bbce40475878d97a6436fb087141e25bdb3887fe"},
+    {"source": "ode_v21_stage1_base/selected_model.pt", "name": "ode_epoch_020.pt", "sha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061"},
+    {"source": "ode_v21_stage1_base/summary_stats.json", "name": "ode_summary_stats.json", "sha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066"},
+    {"source": "ode_v21_stage1_base/population_bundle_v2train_median.json", "name": "population_bundle_v2train_median.json", "sha256": "9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1"}
+  ]
+}

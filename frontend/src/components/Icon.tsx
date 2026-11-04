@@ -40,6 +40,13 @@ const icons = {
       <Circle cx="12" cy="12" r="3" />
     </>
   ),
+  // The eight-tooth gear of the 2.7 음악 카드 설정 button (runway-music-handoff), not Lucide.
+  cog: (
+    <>
+      <Path d="M10.08 4.85 L10.09 2.18 L13.91 2.18 L13.92 4.85 L15.70 5.59 L17.59 3.71 L20.29 6.41 L18.41 8.30 L19.15 10.08 L21.82 10.09 L21.82 13.91 L19.15 13.92 L18.41 15.70 L20.29 17.59 L17.59 20.29 L15.70 18.41 L13.92 19.15 L13.91 21.82 L10.09 21.82 L10.08 19.15 L8.30 18.41 L6.41 20.29 L3.71 17.59 L5.59 15.70 L4.85 13.92 L2.18 13.91 L2.18 10.09 L4.85 10.08 L5.59 8.30 L3.71 6.41 L6.41 3.71 L8.30 5.59 Z" />
+      <Circle cx="12" cy="12" r="3.4" />
+    </>
+  ),
   back: <Path d="m15 18-6-6 6-6" />,
   forward: <Path d="m9 18 6-6-6-6" />,
   // ↗ on the round button of 2.x cards (DESIGN.md 2-6 원 버튼).
@@ -300,6 +307,8 @@ const icons = {
       <Circle cx="12" cy="12" r="3" />
     </>
   ),
+  // 3.1b 오르막.
+  mountain: <Path d="M3 19l6.5-10 4 6 2.5-3.5L21 19z" />,
 } as const;
 
 export type IconName = keyof typeof icons;

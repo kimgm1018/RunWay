@@ -273,13 +273,13 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM information_schema.tables WHERE"
                                     + " table_schema='public' AND table_type='BASE TABLE' AND"
                                     + " table_name<>'spatial_ref_sys'"))
-                .isEqualTo(28);
+                .isEqualTo(29);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND column_name='id' AND"
                                     + " is_identity='YES' AND identity_generation='ALWAYS'"))
-                .isEqualTo(28);
+                .isEqualTo(29);
         assertThat(user).isPositive();
         assertThat(otherUser).isGreaterThan(user);
         rejects(
@@ -447,7 +447,8 @@ class SchemaIntegrityTest {
         "pace_plans,recommended_pace=0",
         "user_profiles,average_pace=0",
         "user_profiles,distance=0",
-        "user_profiles,duraction=0"
+        "user_profiles,duraction=0",
+        "daily_health_metrics,rhr_revision=0"
     })
     void invalidRangesAreRejected(String table, String assignment) throws Exception {
         if (!java.util.Set.of("running_sessions", "group_runs", "courses", "pace_plans")
@@ -712,7 +713,12 @@ class SchemaIntegrityTest {
 
     @Test
     void coachingResultCannotReferenceAnotherSessionsRecommendation() throws Exception {
-        long otherSession = insert("INSERT INTO running_sessions(user_id) VALUES (" + user + ")");
+        // 회원별 활성 세션은 하나라 다른 세션은 종료된 기록으로 둔다(uq_running_sessions_active).
+        long otherSession =
+                insert(
+                        "INSERT INTO running_sessions(user_id,status) VALUES ("
+                                + user
+                                + ",'COMPLETED')");
         long coaching =
                 insert(
                         "INSERT INTO"

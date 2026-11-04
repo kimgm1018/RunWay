@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# 체크포인트는 Hugging Face에서 받는다 (README 참고)
+models/*
+!models/.gitkeep
+!models/.gitignore
+!models/README.md
+!models/margin_gru.json

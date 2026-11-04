@@ -19,6 +19,9 @@
 		5BA7011299A44C57993004BF /* Barlow-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 6A89014CA9984F7A8927D433 /* Barlow-Medium.ttf */; };
 		474A964F0B4746779711F845 /* Barlow-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1C758EC639844801A29AB70B /* Barlow-Regular.ttf */; };
 		5412E1BF6EDF49ED9E2C5591 /* Barlow-SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D08CCE57E8214F50B08528D3 /* Barlow-SemiBold.ttf */; };
+		E1632E8C5CF8421FB0A728A1 /* Doto-Black.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 8BF184B4664A47F6BB3BBC84 /* Doto-Black.ttf */; };
+		8FADA50A111F4F8EBEF9DF85 /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 221AF38B200441A7B124804D /* IBMPlexMono-Medium.ttf */; };
+		54B57F1BC5174CD09A5968AB /* IBMPlexMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 93952228CBEE460AAFE2E076 /* IBMPlexMono-Regular.ttf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +43,9 @@
 		6A89014CA9984F7A8927D433 /* Barlow-Medium.ttf */ = {isa = PBXFileReference; name = "Barlow-Medium.ttf"; path = "../assets/fonts/Barlow-Medium.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 		1C758EC639844801A29AB70B /* Barlow-Regular.ttf */ = {isa = PBXFileReference; name = "Barlow-Regular.ttf"; path = "../assets/fonts/Barlow-Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 		D08CCE57E8214F50B08528D3 /* Barlow-SemiBold.ttf */ = {isa = PBXFileReference; name = "Barlow-SemiBold.ttf"; path = "../assets/fonts/Barlow-SemiBold.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		8BF184B4664A47F6BB3BBC84 /* Doto-Black.ttf */ = {isa = PBXFileReference; name = "Doto-Black.ttf"; path = "../assets/fonts/Doto-Black.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		221AF38B200441A7B124804D /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; name = "IBMPlexMono-Medium.ttf"; path = "../assets/fonts/IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		93952228CBEE460AAFE2E076 /* IBMPlexMono-Regular.ttf */ = {isa = PBXFileReference; name = "IBMPlexMono-Regular.ttf"; path = "../assets/fonts/IBMPlexMono-Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,6 +131,9 @@
 				6A89014CA9984F7A8927D433 /* Barlow-Medium.ttf */,
 				1C758EC639844801A29AB70B /* Barlow-Regular.ttf */,
 				D08CCE57E8214F50B08528D3 /* Barlow-SemiBold.ttf */,
+				8BF184B4664A47F6BB3BBC84 /* Doto-Black.ttf */,
+				221AF38B200441A7B124804D /* IBMPlexMono-Medium.ttf */,
+				93952228CBEE460AAFE2E076 /* IBMPlexMono-Regular.ttf */,
 			);
 			name = Resources;
 			sourceTree = "<group>";
@@ -200,6 +209,9 @@
 				5BA7011299A44C57993004BF /* Barlow-Medium.ttf in Resources */,
 				474A964F0B4746779711F845 /* Barlow-Regular.ttf in Resources */,
 				5412E1BF6EDF49ED9E2C5591 /* Barlow-SemiBold.ttf in Resources */,
+				E1632E8C5CF8421FB0A728A1 /* Doto-Black.ttf in Resources */,
+				8FADA50A111F4F8EBEF9DF85 /* IBMPlexMono-Medium.ttf in Resources */,
+				54B57F1BC5174CD09A5968AB /* IBMPlexMono-Regular.ttf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

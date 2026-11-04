@@ -7,13 +7,16 @@ import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.device.entity.UserDevice;
 import com.runway.backend.domain.device.repository.UserDeviceRepository;
 import com.runway.backend.global.exception.ApiException;
-import java.time.Instant;
-import java.util.List;
+import com.runway.backend.global.exception.ErrorCode;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -26,12 +29,11 @@ public class DeviceService {
     /**
      * W01. 회원·유형별로 연결 중인 기기는 하나다. 이미 있으면 그 기기를 200으로, 없으면 새로 등록해 201로 반환한다.
      *
-     * <p>같은 요청이 동시에 오면 둘 다 "없음"을 보고 INSERT하고, 늦은 쪽은 uq_user_devices_active 위반으로 실패한다.
-     * 이때 늦은 요청은 다시 조회해 먼저 저장된 기기를 200으로 돌려준다.
+     * <p>같은 요청이 동시에 오면 둘 다 "없음"을 보고 INSERT하고, 늦은 쪽은 uq_user_devices_active 위반으로 실패한다. 이때 늦은 요청은 다시
+     * 조회해 먼저 저장된 기기를 200으로 돌려준다.
      *
-     * <p>메서드에 @Transactional을 걸지 않는다. PostgreSQL은 실패한 트랜잭션 안에서 이후 쿼리를 모두 거부하므로,
-     * 저장소 호출마다 별도 트랜잭션으로 실행해야 실패 뒤 재조회가 가능하다. 재조회 전에 먼저 저장된 기기가 W03으로
-     * 해제되었으면 다시 등록을 시도하며, 최대 3회까지 시도한다.
+     * <p>메서드에 @Transactional을 걸지 않는다. PostgreSQL은 실패한 트랜잭션 안에서 이후 쿼리를 모두 거부하므로, 저장소 호출마다 별도 트랜잭션으로
+     * 실행해야 실패 뒤 재조회가 가능하다. 재조회 전에 먼저 저장된 기기가 W03으로 해제되었으면 다시 등록을 시도하며, 최대 3회까지 시도한다.
      */
     public Registration register(long userId, DeviceType deviceType) {
         for (int attempt = 1; ; attempt++) {
@@ -78,8 +80,7 @@ public class DeviceService {
             return;
         }
         if (!userDeviceRepository.existsByIdAndUserId(deviceId, userId)) {
-            throw new ApiException(
-                    HttpStatus.NOT_FOUND, "DEVICE_NOT_FOUND", "기기를 찾을 수 없습니다.");
+            throw new ApiException(ErrorCode.DEVICE_NOT_FOUND);
         }
     }
 
@@ -90,10 +91,7 @@ public class DeviceService {
         try {
             return DeviceType.valueOf(deviceType);
         } catch (IllegalArgumentException ex) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "deviceType은 PHONE 또는 WATCH만 허용됩니다.");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_DEVICE_PARSE_DEVICE_TYPE_FILTER);
         }
     }
 
@@ -105,15 +103,12 @@ public class DeviceService {
         if (includeUnlinked.equals("true")) {
             return true;
         }
-        throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "VALIDATION_ERROR",
-                "includeUnlinked는 true 또는 false만 허용됩니다.");
+        throw new ApiException(ErrorCode.VALIDATION_ERROR_DEVICE_PARSE_INCLUDE_UNLINKED);
     }
 
     private void requireExistingUser(long userId) {
         if (!userDeviceRepository.activeUserExists(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 

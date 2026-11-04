@@ -7,10 +7,10 @@ import com.runway.backend.domain.auth.repository.SignupRepository;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.IssuedRefreshToken;
 import com.runway.backend.domain.auth.validation.SignupValidator;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.sql.SQLException;
@@ -42,8 +42,10 @@ public class SignupService {
         var input = validator.validate(request);
         var attempt = new AtomicReference<IssuedRefreshToken>();
         try {
-            if (users.loginIdExists(input.loginId())) throw duplicate("LOGIN_ID_DUPLICATED");
-            if (users.nicknameExists(input.nickname())) throw duplicate("NICKNAME_DUPLICATED");
+            if (users.loginIdExists(input.loginId()))
+                throw new ApiException(ErrorCode.LOGIN_ID_DUPLICATED);
+            if (users.nicknameExists(input.nickname()))
+                throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);
             String hash = passwords.encode(input.password());
             // Invocation through a separate bean returns only after the DB commit completes.
             return issuance.create(input, hash, attempt);
@@ -53,10 +55,12 @@ public class SignupService {
                 log.warn("전달되지 않은 가입 권한의 폐기를 확인하지 못했습니다.");
             if (exception instanceof ApiException api) throw api;
             String constraint = uniqueConstraint(exception);
-            if ("uq_users_login_id".equals(constraint)) throw duplicate("LOGIN_ID_DUPLICATED");
-            if ("uq_users_nickname".equals(constraint)) throw duplicate("NICKNAME_DUPLICATED");
+            if ("uq_users_login_id".equals(constraint))
+                throw new ApiException(ErrorCode.LOGIN_ID_DUPLICATED);
+            if ("uq_users_nickname".equals(constraint))
+                throw new ApiException(ErrorCode.NICKNAME_DUPLICATED);
             // Driver exceptions can contain submitted values; never attach or log the cause.
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 
@@ -75,12 +79,5 @@ public class SignupService {
             }
         }
         return null;
-    }
-
-    private static ApiException duplicate(String code) {
-        return new ApiException(
-                HttpStatus.CONFLICT,
-                code,
-                code.equals("LOGIN_ID_DUPLICATED") ? "이미 사용 중인 아이디입니다." : "이미 사용 중인 닉네임입니다.");
     }
 }

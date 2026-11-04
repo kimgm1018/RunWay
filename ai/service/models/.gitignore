@@ -1,0 +1,9 @@
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+ode/*.pt
+ode/*.pth
+ode/*.ckpt
+ode/summary_stats.json
+*.tmp

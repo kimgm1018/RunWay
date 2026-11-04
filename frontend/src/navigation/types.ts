@@ -7,12 +7,13 @@ import type {
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
-export type GroupStackParamList = Record<GroupTabRouteName, undefined>;
+// The group tab is one pager screen; screen picks the page to show (GroupTabScreen).
+export type GroupTabParams = { screen?: GroupTabRouteName };
 
 export type MainTabParamList = {
   HomeTab: undefined;
   RunTab: NavigatorScreenParams<RunStackParamList> | undefined;
-  GroupTab: NavigatorScreenParams<GroupStackParamList> | undefined;
+  GroupTab: GroupTabParams | undefined;
   CommunityTab: undefined;
 };
 
@@ -47,7 +48,8 @@ export type RootStackParamList = Record<
   // 6.x open one group run; 6.8 makes one in a crew. Without an id they fall back to the next run.
   GroupRunDetail: { groupRunId: string } | undefined;
   WaitingRoom: { groupRunId: string } | undefined;
-  GroupRunCreate: { crewId: string } | undefined;
+  // groupRunId opens 6.8 to edit that run (G04).
+  GroupRunCreate: { crewId?: string; groupRunId?: string } | undefined;
   GroupRunCancel: { groupRunId: string } | undefined;
   GroupRunResult: { groupRunId: string } | undefined;
   // 5.1 opens on a month (YYYY-MM), this month by default.
@@ -56,6 +58,7 @@ export type RootStackParamList = Record<
   RecordDetail: { recordId: string } | undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   HealthPoc: undefined;
+  MapPoc: undefined;
   ComponentGallery: undefined;
 };
 

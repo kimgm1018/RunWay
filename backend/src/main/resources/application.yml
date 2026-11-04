@@ -5,6 +5,18 @@ spring:
     url: ${BACKEND_DB_URL:}
     username: ${BACKEND_DB_USERNAME:}
     password: ${BACKEND_DB_PASSWORD:}
+    # DB 장애·잠금 경합 시 무한 대기 대신 정해진 시간 안에 503으로 응답한다(S15P31E105-294).
+    # 값은 밀리초 정수다. 근거와 재정의 방법은 backend/README.md 환경변수 표를 따른다.
+    hikari:
+      connection-timeout: ${BACKEND_DB_CONNECTION_TIMEOUT_MS:5000}
+      # HikariCP는 validation-timeout이 connection-timeout보다 작아야 한다.
+      validation-timeout: 2000
+      data-source-properties:
+        # 연결 생성 시 서버 세션 설정으로 적용한다. 트랜잭션의 SET LOCAL lock_timeout이 이 값보다 우선한다.
+        options: "-c lock_timeout=${BACKEND_DB_LOCK_TIMEOUT_MS:5000} -c statement_timeout=${BACKEND_DB_STATEMENT_TIMEOUT_MS:10000}"
+        # DB 무응답·네트워크 단절 시 서버의 statement_timeout은 전달되지 않으므로 클라이언트 소켓 읽기 상한(초)을 둔다.
+        # statement_timeout보다 길게 두어 정상적인 쿼리 시간초과는 서버가 먼저 끊게 한다.
+        socketTimeout: ${BACKEND_DB_SOCKET_TIMEOUT_S:15}
   jpa:
     open-in-view: false
     hibernate:
@@ -48,3 +60,33 @@ runway:
 springdoc:
   swagger-ui:
     persist-authorization: false
+
+# 배포 검사는 컨테이너 내부에서만 접근한다. 업무 API 포트에는 노출하지 않는다.
+management:
+  server:
+    address: 127.0.0.1
+    port: 8082
+  endpoints:
+    access:
+      default: none
+    jmx:
+      exposure:
+        exclude: '*'
+    web:
+      discovery:
+        enabled: false
+      exposure:
+        include: health
+  endpoint:
+    health:
+      access: read-only
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,redis
+  health:
+    defaults:
+      enabled: false

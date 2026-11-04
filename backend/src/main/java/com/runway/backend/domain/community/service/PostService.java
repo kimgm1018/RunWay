@@ -16,17 +16,21 @@ import com.runway.backend.domain.community.repository.RunningSessionLookupReposi
 import com.runway.backend.domain.community.repository.RunningSessionLookupRepository.SessionShareInfo;
 import com.runway.backend.domain.community.repository.UserFollowLookupRepository;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import jakarta.persistence.EntityManager;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -45,12 +49,13 @@ public class PostService {
     @Transactional
     public PostCreateResponse create(long userId, CreatePostRequest request) {
         requireExistingUser(userId);
+        // S09와 동일하게 세션→게시물 순서로 잠근다. 잠금 아래서 미삭제·COMPLETED를 재확인한다.
         SessionShareInfo session =
                 runningSessionLookupRepository
-                        .findById(request.sessionId())
+                        .findByIdForUpdate(request.sessionId())
                         .orElseThrow(PostService::invalidPost);
         if (session.userId() != userId) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_NOT_OWNED", "본인 소유 자원이 아닙니다.");
+            throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
         }
         if (session.isDeleted() || !session.isCompleted()) {
             throw invalidPost();
@@ -152,7 +157,7 @@ public class PostService {
         requireExistingUser(userId);
         Post post = requireActivePost(postId);
         if (!post.isAuthoredBy(userId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 수정할 수 있습니다.");
+            throw new ApiException(ErrorCode.NOT_AUTHOR, "수정");
         }
         post.updateBody(blankToNull(request.body()));
         postRepository.flush();
@@ -165,7 +170,7 @@ public class PostService {
         requireExistingUser(userId);
         Post post = requireActivePost(postId);
         if (!post.isAuthoredBy(userId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 삭제할 수 있습니다.");
+            throw new ApiException(ErrorCode.NOT_AUTHOR, "삭제");
         }
         Instant deletedAt = Instant.now();
         post.softDelete(deletedAt);
@@ -192,8 +197,7 @@ public class PostService {
         if (userFollowLookupRepository.isApprovedFollower(viewerId, authorId)) {
             return;
         }
-        throw new ApiException(
-                HttpStatus.FORBIDDEN, "ACCOUNT_ACCESS_DENIED", "비공개 계정 게시물에 접근할 수 없습니다.");
+        throw new ApiException(ErrorCode.ACCOUNT_ACCESS_DENIED);
     }
 
     private static boolean canView(
@@ -216,23 +220,21 @@ public class PostService {
         if (SCOPE_ALL.equals(trimmed) || SCOPE_FOLLOWING.equals(trimmed)) {
             return trimmed;
         }
-        throw new ApiException(
-                HttpStatus.BAD_REQUEST, "INVALID_FILTER", "scope는 ALL 또는 FOLLOWING만 허용됩니다.");
+        throw new ApiException(ErrorCode.POST_SCOPE_INVALID);
     }
 
     private void requireExistingUser(long userId) {
         if (!communityUserQueryRepository.existsById(userId)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "인증이 필요합니다.");
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
     }
 
     private static ApiException postNotFound() {
-        return new ApiException(HttpStatus.NOT_FOUND, "POST_NOT_FOUND", "게시물을 찾을 수 없습니다.");
+        return new ApiException(ErrorCode.POST_NOT_FOUND);
     }
 
     private static ApiException invalidPost() {
-        return new ApiException(
-                HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_POST", "공유할 수 있는 완료 러닝 기록이 아닙니다.");
+        return new ApiException(ErrorCode.INVALID_POST);
     }
 
     private static String blankToNull(String value) {

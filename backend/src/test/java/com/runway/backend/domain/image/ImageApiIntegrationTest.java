@@ -1,9 +1,11 @@
 package com.runway.backend.domain.image;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -130,7 +132,7 @@ class ImageApiIntegrationTest {
     @Autowired private ImageStorage imageStorage;
 
     @Test
-    void png업로드_201_imageId와_볼륨저장_url은_null() throws Exception {
+    void png업로드_201_imageId와_볼륨저장_url은_F02경로() throws Exception {
         MockMultipartFile file =
                 new MockMultipartFile("file", "a.png", MediaType.IMAGE_PNG_VALUE, PNG);
         MvcResult result =
@@ -141,12 +143,50 @@ class ImageApiIntegrationTest {
                                         .header("Authorization", SecurityTestSupport.bearer(42)))
                         .andExpect(status().isCreated())
                         .andExpect(jsonPath("$.imageId").isNotEmpty())
-                        .andExpect(jsonPath("$.url").value(nullValue()))
                         .andReturn();
         String imageId = JsonPath.read(result.getResponse().getContentAsString(), "$.imageId");
+        String url = JsonPath.read(result.getResponse().getContentAsString(), "$.url");
+        assertThat(url).isEqualTo("/api/v1/images/" + imageId);
         String key = "images/profile/42/" + imageId + ".png";
+        String byId = "images/by-id/" + imageId + ".png";
         assertThat(imageStorage.exists(key)).isTrue();
+        assertThat(imageStorage.exists(byId)).isTrue();
         assertThat(Files.size(imageVolume.resolve(key))).isEqualTo(PNG.length);
+        assertThat(Files.size(imageVolume.resolve(byId))).isEqualTo(PNG.length);
+    }
+
+    @Test
+    void 이미지조회_공개GET_바이너리() throws Exception {
+        MockMultipartFile file =
+                new MockMultipartFile("file", "a.png", MediaType.IMAGE_PNG_VALUE, PNG);
+        MvcResult uploaded =
+                mockMvc.perform(
+                                multipart("/api/v1/images")
+                                        .file(file)
+                                        .param("purpose", "PROFILE")
+                                        .header("Authorization", SecurityTestSupport.bearer(42)))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+        String imageId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.imageId");
+
+        mockMvc.perform(get("/api/v1/images/" + imageId))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", MediaType.IMAGE_PNG_VALUE))
+                .andExpect(content().bytes(PNG));
+    }
+
+    @Test
+    void 이미지조회_없는id_404() throws Exception {
+        mockMvc.perform(get("/api/v1/images/550e8400-e29b-41d4-a716-446655440000"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
+    }
+
+    @Test
+    void 이미지조회_잘못된uuid_400() throws Exception {
+        mockMvc.perform(get("/api/v1/images/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test

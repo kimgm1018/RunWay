@@ -2,6 +2,11 @@ name: runway
 
 services:
   nginx:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: nginx:stable-alpine
     restart: unless-stopped
     ports:
@@ -14,8 +19,12 @@ services:
     networks:
       - service
       - jenkins
+      - monitoring-proxy
 
 networks:
+  monitoring-proxy:
+    external: true
+    name: runway_monitoring_proxy
   service:
     driver: bridge
   jenkins:

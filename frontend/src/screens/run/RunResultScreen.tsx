@@ -9,30 +9,30 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, G, Polyline, Text } from 'react-native-svg';
-import { AppText, Backdrop, Card, Icon, useToast } from '../../components';
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient,
+  Polyline,
+  Rect,
+  Stop,
+} from 'react-native-svg';
+import { AppText, Icon, Logo, mistColors, useToast } from '../../components';
 import { useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
-import {
-  fontFamily,
-  k1,
-  palette,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
+import { fontFamily, k1, palette, spacing, ThemeProvider } from '../../theme';
 import { useRunSession } from './RunSession';
 
 // A course counts as 완주 once almost all of it is run; GPS rarely lands on the exact finish.
 const finishShare = 0.98;
 // The drawing grows into whatever height the screen leaves above the numbers.
 const outlineInset = 16;
-const outlineMinHeight = 170;
+const outlineMinHeight = 90;
 
-// The run's path as a white line with a faint halo on the course card, without the map
-// (4.5 상단 그림, DESIGN.md 2-7 코스 카드).
+// The run's path as a bare 2.2 white line without the map: a white start dot and a white end ring with an
+// ink rim (runway-running-handoff 4.5 달린 경로).
 function RouteOutline({
   route,
   width,
@@ -68,119 +68,89 @@ function RouteOutline({
     })
     .join(' ');
   const start = project(route[0]);
+  const end = project(route[route.length - 1]);
   return (
     <Svg width={width} height={height} accessibilityLabel="달린 경로">
       <Polyline
         points={points}
         stroke={palette.white}
-        strokeOpacity={0.18}
-        strokeWidth={14}
+        strokeWidth={2.2}
         fill="none"
         strokeLinejoin="round"
         strokeLinecap="round"
       />
-      <Polyline
-        points={points}
-        stroke={palette.white}
-        strokeWidth={4}
-        fill="none"
-        strokeLinejoin="round"
-        strokeLinecap="round"
+      <Circle cx={start.x} cy={start.y} r={3.5} fill={palette.white} />
+      <Circle
+        cx={end.x}
+        cy={end.y}
+        r={5}
+        fill={palette.white}
+        stroke={k1.night}
+        strokeWidth={1.5}
       />
-      <G>
-        <Circle cx={start.x} cy={start.y} r={8} fill={k1.ice} />
-        <Text
-          x={start.x + 12}
-          y={start.y + 4}
-          fontSize={11}
-          fontWeight="700"
-          fill={k1.ice}
-        >
-          S·F
-        </Text>
-      </G>
     </Svg>
   );
 }
 
+// One figure, centered: the number, its unit and a label under it. On the dark top half it is white
+// (distance, time); on the light foot it is ink (heart rate, cadence).
 function Metric({
   label,
   value,
   unit,
+  ink = false,
 }: {
   label: string;
   value: string;
   unit?: string;
+  ink?: boolean;
 }) {
   return (
     <View style={styles.metric}>
-      <AppText style={styles.metricValue}>
+      <AppText style={[styles.metricValue, ink && styles.inkValue]}>
         {value}
         {unit ? (
-          <AppText variant="label" tone="textSecondary">
+          <AppText style={[styles.metricUnit, ink && styles.inkSoft]}>
             {` ${unit}`}
           </AppText>
         ) : null}
       </AppText>
-      <AppText variant="label" tone="textSecondary">
+      <AppText style={[styles.metricLabel, ink && styles.inkSoft]}>
         {label}
       </AppText>
     </View>
   );
 }
 
-// 시간 · 거리 · 평균 심박 · 평균 케이던스 in a 2 × 2 grid split by 14% lines (DESIGN.md 2-7 4.5 지표).
-function MetricGrid({ children }: { children: React.ReactNode[] }) {
-  const { colors } = useTheme();
-  const [a, b, c, d] = children;
-  const line = { borderColor: colors.border };
-  return (
-    <View>
-      <View style={[styles.metricRow, styles.rowLine, line]}>
-        <View style={[styles.cell, styles.cellLine, line]}>{a}</View>
-        <View style={styles.cell}>{b}</View>
-      </View>
-      <View style={styles.metricRow}>
-        <View style={[styles.cell, styles.cellLine, line]}>{c}</View>
-        <View style={styles.cell}>{d}</View>
-      </View>
-    </View>
-  );
-}
+const glassStops = [
+  { offset: 0, color: '#FFFFFF', opacity: 0.62 },
+  { offset: 0.55, color: '#FFFFFF', opacity: 0.28 },
+  { offset: 1, color: '#FFFFFF', opacity: 0.16 },
+];
+const navyStops = [
+  { offset: 0, color: '#1A2E39', opacity: 0.92 },
+  { offset: 0.6, color: '#02050E', opacity: 0.88 },
+  { offset: 1, color: '#02050E', opacity: 0.82 },
+];
 
+// The 4.5 buttons: a white liquid glass, turning navy with white text while pressed (runway-running-handoff
+// ActionButtons). A button that cannot be used yet is faded; a saved course stays navy.
 function ResultButton({
   title,
   onPress,
-  look,
   icon,
   disabled = false,
   selected,
 }: {
   title: string;
   onPress: () => void;
-  look: 'primary' | 'secondary' | 'outline';
   icon?: 'bookmark' | 'check';
   disabled?: boolean;
   selected?: boolean;
 }) {
-  const { colors } = useTheme();
-  // On the black lower part (DESIGN.md 2-7 보조 버튼): the main button is the light pill, the rest
-  // are outlined; a button that cannot be used sits on the chip fill with dim text.
-  const fill = disabled
-    ? { backgroundColor: colors.surfaceMuted, borderColor: 'transparent' }
-    : {
-        primary: { backgroundColor: colors.accent, borderColor: colors.accent },
-        secondary: {
-          backgroundColor: 'transparent',
-          borderColor: colors.borderStrong,
-        },
-        outline: { backgroundColor: 'transparent', borderColor: colors.text },
-      }[look];
-  const textColor = disabled
-    ? colors.textTertiary
-    : look === 'primary'
-    ? colors.onAccent
-    : colors.text;
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
+    null,
+  );
   return (
     <Pressable
       accessibilityRole="button"
@@ -188,20 +158,63 @@ function ResultButton({
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.button, fill, pressed && styles.dim]}
+      onLayout={event => setBox(event.nativeEvent.layout)}
+      style={[styles.button, disabled && styles.dim]}
     >
-      {icon ? <Icon name={icon} color={textColor} size={16} /> : null}
-      <AppText variant="button" style={{ color: textColor }}>
-        {title}
-      </AppText>
+      {({ pressed }) => {
+        const navy = pressed || Boolean(selected);
+        const text = navy ? '#FFFFFF' : k1.night;
+        return (
+          <>
+            {box ? (
+              <Svg
+                style={StyleSheet.absoluteFill}
+                width={box.width}
+                height={box.height}
+              >
+                <Defs>
+                  <LinearGradient
+                    id={navy ? 'resultNavy' : 'resultGlass'}
+                    x1="0.33"
+                    y1="0"
+                    x2="0.67"
+                    y2="1"
+                  >
+                    {(navy ? navyStops : glassStops).map(stop => (
+                      <Stop
+                        key={stop.offset}
+                        offset={stop.offset}
+                        stopColor={stop.color}
+                        stopOpacity={stop.opacity}
+                      />
+                    ))}
+                  </LinearGradient>
+                </Defs>
+                <Rect
+                  width={box.width}
+                  height={box.height}
+                  fill={`url(#${navy ? 'resultNavy' : 'resultGlass'})`}
+                />
+              </Svg>
+            ) : null}
+            {icon ? <Icon name={icon} color={text} size={16} /> : null}
+            <AppText style={[styles.buttonText, { color: text }]}>
+              {title}
+            </AppText>
+          </>
+        );
+      }}
     </Pressable>
   );
 }
 
-// 4.5 러닝 결과 (코스) and 4.5F 자유 러닝 결과.
+// 코스 러닝 그라데이션 (runway-running-handoff 공통): the 2.0M mist upside down, dark at the top.
+const resultGradient = [...mistColors].reverse();
+
+// 4.5 러닝 결과 (코스) and 4.5F 자유 러닝 결과 (runway-running-handoff): the whole screen reads as one share card on
+// the dark-to-light gradient, with the four glass buttons at the foot.
 export function RunResultScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { courses } = useRepositories();
   const toast = useToast();
   const { run, retrySave } = useRunSession();
@@ -209,6 +222,9 @@ export function RunResultScreen() {
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [area, setArea] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
     null,
   );
   const plan = run?.config.plan ?? null;
@@ -243,9 +259,7 @@ export function RunResultScreen() {
   );
 
   if (!run?.summary) {
-    return (
-      <View style={[styles.root, { backgroundColor: colors.background }]} />
-    );
+    return <View style={styles.root} />;
   }
   const { summary, config, trail, saveState, recordId } = run;
   const finished = plan
@@ -286,259 +300,264 @@ export function RunResultScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.root}>
+    <View
+      style={styles.root}
+      onLayout={event => setBox(event.nativeEvent.layout)}
+    >
+      <StatusBar barStyle="light-content" />
+      {box ? (
+        <Svg
+          style={StyleSheet.absoluteFill}
+          width={box.width}
+          height={box.height}
+        >
+          <Defs>
+            <LinearGradient id="resultBackdrop" x1="0" y1="0" x2="0" y2="1">
+              {resultGradient.map((color, index) => (
+                <Stop key={index} offset={index / 20} stopColor={color} />
+              ))}
+            </LinearGradient>
+          </Defs>
+          <Rect
+            width={box.width}
+            height={box.height}
+            fill="url(#resultBackdrop)"
+          />
+        </Svg>
+      ) : null}
+      <SafeAreaView edges={['top', 'bottom']} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content}>
-          {/* Status chip: dark pill, coral dot (DESIGN.md 2-7 상태 칩). */}
-          <View style={styles.chip}>
-            <View style={styles.dot} />
-            <AppText variant="captionStrong" style={styles.chipText}>
-              {plan
-                ? `${plan.name} ${formatKm(plan.distanceM, 1)}km · ${
-                    finished ? '완주' : '종료'
-                  }`
-                : '자유 러닝 · 종료'}
-            </AppText>
-          </View>
-          <Card variant="course" style={styles.outlineCard}>
-            <View
-              style={styles.outline}
-              onLayout={event => {
-                const { width, height } = event.nativeEvent.layout;
-                setArea({ width, height });
-              }}
-            >
-              {/* Drawn over the measured box so the drawing never makes the box grow. */}
-              {shape.length > 1 && area ? (
-                <View style={StyleSheet.absoluteFill}>
-                  <RouteOutline
-                    route={shape}
-                    width={area.width}
-                    height={area.height}
-                  />
-                </View>
-              ) : null}
+          <ThemeProvider tone="dark">
+            <View style={styles.logo}>
+              <Logo width={150} />
             </View>
-          </Card>
+          </ThemeProvider>
           <View style={styles.hero}>
-            <AppText variant="caption" tone="textSecondary">
-              평균 페이스
-            </AppText>
             <AppText style={styles.pace} accessibilityLabel="평균 페이스">
               {summary.averagePaceSecPerKm === null
                 ? '– –'
                 : formatPace(summary.averagePaceSecPerKm)}
             </AppText>
-            <AppText variant="caption" tone="textSecondary">
+            <AppText style={styles.paceLabel}>
               {config.goalPaceSecPerKm
-                ? `/km · 목표 ${formatPace(config.goalPaceSecPerKm)}`
-                : '/km'}
+                ? `평균 페이스 /km · 목표 ${formatPace(
+                    config.goalPaceSecPerKm,
+                  )}`
+                : '평균 페이스 /km'}
             </AppText>
           </View>
-          <Card variant="deep" style={styles.metrics}>
-            <MetricGrid>
-              <Metric
-                label="시간"
-                value={formatDuration(summary.durationSec)}
-              />
-              <Metric
-                label="거리"
-                value={formatKm(summary.distanceM)}
-                unit="km"
-              />
-              <Metric
-                label="평균 심박"
-                value={
-                  summary.averageHeartRate === null
-                    ? '– –'
-                    : String(summary.averageHeartRate)
-                }
-                unit="bpm"
-              />
-              <Metric
-                label="평균 케이던스"
-                value={
-                  summary.averageCadence === null
-                    ? '– –'
-                    : String(summary.averageCadence)
-                }
-                unit="spm"
-              />
-            </MetricGrid>
-          </Card>
-          {/* These rows sit just above the black part, so they read the dark tone. */}
-          <ThemeProvider tone="dark">
-            <View style={styles.notes}>
-              {plan && finished ? (
-                <AppText variant="bodyStrong" style={styles.center}>
-                  {`목표 ${formatDuration(plan.expectedDurationSec)} `}
-                  {/* Only 미달성 turns coral (DESIGN.md 2-7 미달성). */}
-                  {summary.durationSec <= plan.expectedDurationSec ? (
-                    '달성'
-                  ) : (
-                    <AppText variant="bodyStrong" tone="danger">
-                      미달성
-                    </AppText>
-                  )}
-                  {rivalDiff !== null && plan.rival ? (
-                    <AppText variant="body" tone="textSecondary">
-                      {` · ${Number(
-                        plan.rival.startedAt.slice(5, 7),
-                      )}.${plan.rival.startedAt.slice(
-                        8,
-                        10,
-                      )} 기록보다 ${Math.abs(rivalDiff)}초 ${
-                        rivalDiff >= 0 ? '빨랐어요' : '느렸어요'
-                      }`}
-                    </AppText>
-                  ) : null}
-                </AppText>
-              ) : null}
-              <View style={styles.saveRow}>
-                {saveState === 'failed' ? (
-                  <>
-                    <Icon name="alert" color={colors.danger} size={14} />
-                    <AppText variant="caption" tone="danger">
-                      기록을 저장하지 못했어요
-                    </AppText>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="다시 저장"
-                      onPress={retrySave}
-                      hitSlop={8}
-                    >
-                      <AppText variant="captionStrong" tone="accentText">
-                        다시 저장
-                      </AppText>
-                    </Pressable>
-                  </>
-                ) : (
-                  <>
-                    <Icon
-                      name={saveState === 'saved' ? 'check' : 'refresh'}
-                      color={
-                        saveState === 'saved'
-                          ? colors.accentText
-                          : colors.textTertiary
-                      }
-                      size={14}
-                    />
-                    <AppText variant="caption" tone="textTertiary">
-                      {saveState === 'saved'
-                        ? '기록 저장됨 · 동기화 완료'
-                        : '기록 저장 중…'}
-                    </AppText>
-                  </>
-                )}
+          <Metric label="거리" value={formatKm(summary.distanceM)} unit="km" />
+          <Metric label="시간" value={formatDuration(summary.durationSec)} />
+          <View
+            style={styles.outline}
+            onLayout={event => {
+              const { width, height } = event.nativeEvent.layout;
+              setArea({ width, height });
+            }}
+          >
+            {/* Drawn over the measured box so the drawing never makes the box grow. */}
+            {shape.length > 1 && area ? (
+              <View style={StyleSheet.absoluteFill}>
+                <RouteOutline
+                  route={shape}
+                  width={area.width}
+                  height={area.height}
+                />
               </View>
-            </View>
-          </ThemeProvider>
-        </ScrollView>
-        <ThemeProvider tone="dark">
-          <View style={styles.buttons}>
-            <View style={styles.buttonRow}>
-              <ResultButton
-                title="기록 보기"
-                look="secondary"
-                disabled={saveState !== 'saved'}
-                onPress={() =>
-                  recordId
-                    ? navigation.navigate('RecordDetail', { recordId })
-                    : undefined
-                }
-              />
-              <ResultButton
-                title="기록 공유"
-                look="primary"
-                disabled={saveState !== 'saved'}
-                onPress={() => navigateTo(navigation, 'PostWrite')}
-              />
-            </View>
-            <View style={styles.buttonRow}>
-              <ResultButton
-                title={savedCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-                look={savedCourseId ? 'outline' : 'secondary'}
-                icon={savedCourseId ? 'check' : 'bookmark'}
-                selected={savedCourseId !== null}
-                disabled={busy || (!plan && !recordId)}
-                onPress={toggleSaved}
-              />
-              <ResultButton
-                title="완료"
-                look="secondary"
-                onPress={() => navigateTo(navigation, 'Home')}
-              />
-            </View>
+            ) : null}
           </View>
-        </ThemeProvider>
+          <View style={styles.footMetrics}>
+            <Metric
+              ink
+              label="평균 심박"
+              value={
+                summary.averageHeartRate === null
+                  ? '– –'
+                  : String(summary.averageHeartRate)
+              }
+              unit="bpm"
+            />
+            <Metric
+              ink
+              label="평균 케이던스"
+              value={
+                summary.averageCadence === null
+                  ? '– –'
+                  : String(summary.averageCadence)
+              }
+              unit="spm"
+            />
+          </View>
+          {plan && finished ? (
+            <AppText style={styles.goalNote}>
+              {`목표 ${formatDuration(plan.expectedDurationSec)} `}
+              {summary.durationSec <= plan.expectedDurationSec ? (
+                '달성'
+              ) : (
+                <AppText style={styles.missed}>미달성</AppText>
+              )}
+              {rivalDiff !== null && plan.rival
+                ? ` · ${Number(
+                    plan.rival.startedAt.slice(5, 7),
+                  )}.${plan.rival.startedAt.slice(8, 10)} 기록보다 ${Math.abs(
+                    rivalDiff,
+                  )}초 ${rivalDiff >= 0 ? '빨랐어요' : '느렸어요'}`
+                : ''}
+            </AppText>
+          ) : null}
+          {/* Only a failed save is shown (README 알려진 문제); saving and saved stay quiet. */}
+          {saveState === 'failed' ? (
+            <View style={styles.saveRow}>
+              <Icon name="alert" color={k1.coralText} size={14} />
+              <AppText style={styles.saveFailed}>
+                기록을 저장하지 못했어요
+              </AppText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다시 저장"
+                onPress={retrySave}
+                hitSlop={8}
+              >
+                <AppText style={styles.retry}>다시 저장</AppText>
+              </Pressable>
+            </View>
+          ) : null}
+        </ScrollView>
+        <View style={styles.buttons}>
+          <View style={styles.buttonRow}>
+            <ResultButton
+              title="기록 보기"
+              disabled={saveState !== 'saved'}
+              onPress={() =>
+                recordId
+                  ? navigation.navigate('RecordDetail', { recordId })
+                  : undefined
+              }
+            />
+            <ResultButton
+              title="기록 공유"
+              disabled={saveState !== 'saved'}
+              onPress={() => navigateTo(navigation, 'PostWrite')}
+            />
+          </View>
+          <View style={styles.buttonRow}>
+            <ResultButton
+              title={savedCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
+              icon={savedCourseId ? 'check' : 'bookmark'}
+              selected={savedCourseId !== null}
+              disabled={busy || (!plan && !recordId)}
+              onPress={toggleSaved}
+            />
+            <ResultButton
+              title="완료"
+              onPress={() => navigateTo(navigation, 'Home')}
+            />
+          </View>
+        </View>
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: '#1A2E39' },
+  flex: { flex: 1 },
+  // Top 50, then 46 between the groups (runway-running-handoff 세로 간격); the route takes what is left.
   content: {
     flexGrow: 1,
-    paddingHorizontal: 14,
-    paddingTop: spacing.lg,
-    gap: spacing.xl,
-  },
-  chip: {
-    alignSelf: 'center',
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    backgroundColor: 'rgba(2,5,14,0.72)',
+    paddingTop: 46,
+    paddingBottom: 18,
+    paddingHorizontal: 14,
   },
-  chipText: { color: k1.ice },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: k1.coral },
-  outlineCard: { flex: 1, minHeight: outlineMinHeight, padding: 0 },
-  outline: { flex: 1 },
-  hero: { alignItems: 'center', gap: spacing.xxs },
-  // Big numbers stay Barlow Regular at the sheet's 84.
-  pace: { fontFamily: fontFamily.numberRegular, fontSize: 84, lineHeight: 92 },
-  metrics: { paddingVertical: 6, paddingHorizontal: 8 },
-  metricRow: { flexDirection: 'row' },
-  rowLine: { borderBottomWidth: 1 },
-  cell: { flex: 1 },
-  cellLine: { borderRightWidth: 1 },
-  metric: { alignItems: 'center', paddingVertical: spacing.lg, gap: 2 },
+  logo: { height: 22, justifyContent: 'center' },
+  hero: { alignItems: 'center', marginTop: 46 },
+  // Big numbers stay Barlow Regular, here at the mockup's 96.
+  pace: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 96,
+    lineHeight: 100,
+    letterSpacing: -2,
+    color: '#F9F9F9',
+  },
+  paceLabel: {
+    marginTop: 6,
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  metric: { alignItems: 'center', marginTop: 46 },
   metricValue: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 30,
-    lineHeight: 36,
+    lineHeight: 34,
+    letterSpacing: -0.3,
+    color: '#F9F9F9',
   },
-  center: { textAlign: 'center' },
-  notes: { gap: spacing.md },
+  metricUnit: { fontFamily: fontFamily.medium, fontSize: 14, color: '#F9F9F9' },
+  metricLabel: {
+    marginTop: 2,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  inkValue: { fontSize: 26, lineHeight: 30, color: k1.night },
+  inkSoft: { color: '#3A4A57' },
+  outline: {
+    alignSelf: 'stretch',
+    flex: 1,
+    minHeight: outlineMinHeight,
+    marginTop: 46,
+    marginHorizontal: 24,
+  },
+  footMetrics: { flexDirection: 'row', gap: 44 },
+  goalNote: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 20,
+    color: k1.night,
+  },
+  missed: { color: k1.coralText },
   saveRow: {
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
   },
-  buttons: {
-    paddingHorizontal: 14,
-    paddingVertical: spacing.xl,
-    gap: spacing.md,
+  saveFailed: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12.5,
+    color: k1.coralText,
   },
-  buttonRow: { flexDirection: 'row', gap: spacing.md },
+  retry: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12.5,
+    color: k1.night,
+    textDecorationLine: 'underline',
+  },
+  buttons: { paddingHorizontal: 14, paddingBottom: 14, gap: 8 },
+  buttonRow: { flexDirection: 'row', gap: 8 },
   button: {
     flex: 1,
     height: 50,
-    borderRadius: 999,
-    borderWidth: 1,
+    borderRadius: 25,
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: 6,
+    boxShadow:
+      'inset 0 1px 1px rgba(255,255,255,0.95), inset 0 -2px 6px rgba(255,255,255,0.35), 0 10px 26px rgba(30,45,60,0.14)',
   },
-  dim: { opacity: 0.6 },
+  buttonText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  dim: { opacity: 0.45 },
 });

@@ -68,40 +68,42 @@ async function render(scenario: MockScenario = 'default') {
   return screen!;
 }
 
-test('home shows the prototype values and re-sorts past runs', async () => {
+test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async () => {
   const screen = await render();
   const home = texts(screen);
+  // S15P31E105-382: the greeting is gone, 오늘 컨디션 sits right under the header.
+  expect(home).not.toContain('오늘 달리기 좋은 날이에요');
+  // The disc shows the score alone, the records panel has no 누적 line, and the small cards carry
+  // their title only (담당자 결정).
+  for (const gone of [
+    '누적 34km · 7회',
+    '4일 전 · 30분',
+    '이번 주 강도',
+    '10월 · 7회',
+    '5개 코스',
+  ]) {
+    expect(home).not.toContain(gone);
+  }
   for (const text of [
-    '오늘 달리기 좋은 날이에요',
-    '보통',
+    // 오늘 컨디션 with 러닝 시작: the score, its grade, sleep and resting heart rate.
     '82',
+    '오늘 준비도 양호',
     '7h 12m',
-    '58',
-    '적정',
-    '과부하 없음',
-    '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
-    '34.2',
-    '5′52″',
-    '8초 빨라졌어요',
-    '5개',
+    '58 bpm',
+    '러닝 시작',
+    // 지난 러닝: the newest of my runs (10.15), its pace over its distance.
+    '5′55″',
+    '5.0 km',
+    // 과거 러닝 기록: my five newest runs; group runs (10.11) stay out.
+    '10.15',
+    '10.03',
+    '저장한 코스',
   ]) {
     expect(home).toContain(text);
   }
-  // Newest four of my own runs; group runs (10.11) and older ones are left for 전체 기록 보기.
-  expect(home).toContain('10.15 · 5.02km · 29:41');
-  expect(home).toContain('10.05 · 4.10km · 24:30');
-  expect(home).not.toContain('10.11 ·');
-  expect(home).not.toContain('10.03 ·');
-  await press(screen, '거리순');
-  const sorted = screen.root
-    .findAll(
-      node =>
-        typeof node.props.accessibilityLabel === 'string' &&
-        node.props.accessibilityLabel.includes('km ·') &&
-        typeof node.props.onPress === 'function',
-    )
-    .map(node => node.props.accessibilityLabel);
-  expect(sorted[0]).toContain('광안리 해변 롱런');
+  expect(home).not.toContain('10.11');
+  await press(screen, '과거 러닝 기록');
+  expect(texts(screen)).toContain('내 기록');
   await act(async () => screen.unmount());
 });
 
@@ -130,19 +132,28 @@ test('the home has no background photo and keeps the profile photo as the avatar
   await act(async () => screen!.unmount());
 });
 
+// Each state without a usable score says why and turns 러닝 시작 into what fixes it (2.1 핸드오프 ConditionCard).
 test.each([
-  ['newUser', ['준비도 수집 중', '점수 산출 전'], null],
+  [
+    'newUser',
+    ['오늘 준비도', '데이터를 모으는 중이에요'],
+    ['워치 동기화', '심박수'],
+  ],
   [
     'staleHealth',
-    ['마지막 평가 10월 15일', '오늘 점수로 쓰지 않아요'],
+    ['오늘 준비도', '마지막 평가 10월 15일'],
     ['워치 동기화', '심박수'],
   ],
   [
     'healthDenied',
-    ['권한 없음', 'Health Connect'],
+    ['오늘 준비도', '건강 데이터 권한이 없어요'],
     ['설정 열기', '계정 공개 범위'],
   ],
-  ['watchDisconnected', ['미연결', '워치를 연결하면'], ['워치 연결', '심박수']],
+  [
+    'watchDisconnected',
+    ['오늘 준비도', '연결된 워치가 없어요'],
+    ['워치 연결', '심박수'],
+  ],
 ] as const)(
   'home readiness shows the %s state without a score',
   async (scenario, lines, action) => {
@@ -153,42 +164,56 @@ test.each([
     }
     expect(home).toContain('– –');
     expect(home).not.toContain('7h 12m');
-    if (action) {
-      const [button, destination] = action;
-      expect(home).not.toContain(destination);
-      await press(screen, button);
-      expect(texts(screen)).toContain(destination);
-    }
+    expect(home).not.toContain('오늘 준비도 양호');
+    const [button, destination] = action;
+    expect(home).not.toContain(destination);
+    await press(screen, button);
+    expect(texts(screen)).toContain(destination);
     await act(async () => screen.unmount());
   },
 );
 
-test('notifications group by day, mark all read and open the related screen', async () => {
+test('notifications split into 오늘 and 이번 주, count as read once left, and open the related screen', async () => {
   const screen = await render();
   await press(screen, '알림');
-  const list = texts(screen);
+  let list = texts(screen);
   for (const text of [
     '오늘',
     '이번 주',
+    '그룹런 곧 시작',
     '3분 전',
     '12분 전',
     '1시간 전',
-    '2일 전',
-    '3일 전',
   ]) {
     expect(list).toContain(text);
   }
+  // The 2.9 핸드오프 has no 모두 읽음; the unread dots stay while the list is open.
+  expect(() => labelled(screen, '모두 읽음')).toThrow();
   expect(() =>
-    labelled(screen, '읽지 않음, ‘민락 야경 러너스’ 가입이 승인됐어요'),
+    labelled(
+      screen,
+      '읽지 않음, 크루 가입 승인, ‘민락 야경 러너스’ 가입이 승인됐어요',
+    ),
   ).not.toThrow();
-  await press(screen, '모두 읽음');
+  await press(screen, '이번 주');
+  list = texts(screen);
+  expect(list).toContain('2일 전');
+  expect(list).toContain('3일 전');
+  expect(list).not.toContain('3분 전');
+
+  // Leaving marks everything read.
+  await press(screen, '뒤로');
+  await press(screen, '알림');
   expect(() =>
-    labelled(screen, '읽지 않음, ‘민락 야경 러너스’ 가입이 승인됐어요'),
+    labelled(
+      screen,
+      '읽지 않음, 크루 가입 승인, ‘민락 야경 러너스’ 가입이 승인됐어요',
+    ),
   ).toThrow();
-  expect(labelled(screen, '모두 읽음').props.accessibilityState).toEqual({
-    disabled: true,
-  });
-  await press(screen, '‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요');
+  await press(
+    screen,
+    '그룹런 곧 시작, ‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
+  );
   await settle();
   expect(texts(screen)).toContain('예상 공동 페이스');
   await act(async () => screen.unmount());
@@ -198,9 +223,7 @@ test('an empty inbox shows the 2.9b empty state', async () => {
   const screen = await render('noNotifications');
   await press(screen, '알림');
   expect(texts(screen)).toContain('아직 받은 알림이 없어요');
-  expect(labelled(screen, '모두 읽음').props.accessibilityState).toEqual({
-    disabled: true,
-  });
+  expect(() => labelled(screen, '모두 읽음')).toThrow();
   await act(async () => screen.unmount());
 });
 
@@ -209,7 +232,7 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(screen, '러닝 시작');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '코스 러닝');
-  expect(texts(screen)).toContain('어디서, 얼마나 달릴까요?');
+  expect(texts(screen)).toContain('환경 · 여러 개 선택');
   await act(async () => screen.unmount());
 
   const free = await render();
@@ -228,13 +251,16 @@ test('run mode leads to course recommendations and a free run with a countdown',
   for (let second = 0; second < 3; second += 1) {
     await settle(1050);
   }
+  // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
+  await settle(200);
   expect(texts(free)).toContain('내 페이스');
   await act(async () => free.unmount());
 });
 
 test('course run shows the pace plan by day and the night layout after sunset', async () => {
   const day = await render();
-  await press(day, '광안대교 루프, 5.0km · 30분');
+  await press(day, '저장한 코스');
+  await press(day, '광안대교 루프, 5.0km 30분');
   const plan = texts(day);
   for (const text of [
     '오늘의 러닝 전략',
@@ -249,7 +275,8 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   await act(async () => day.unmount());
 
   const night = await render('night');
-  await press(night, '광안대교 루프, 5.0km · 30분');
+  await press(night, '저장한 코스');
+  await press(night, '광안대교 루프, 5.0km 30분');
   const dark = texts(night);
   expect(dark).toContain('코스 러닝');
   expect(dark).toContain('광안대교 루프 · 5.0km');
@@ -266,39 +293,56 @@ async function openMusic(scenario: MockScenario) {
   return screen;
 }
 
-test('the music card lists Melon and switching to Spotify changes the list', async () => {
+test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick', async () => {
   const screen = await openMusic('default');
   const card = texts(screen);
-  for (const text of [
-    '바다 쪽으로 달리기',
-    '1:24',
-    '3:41',
-    '좋아요한 곡',
-    '128곡',
-    '최근 들은 곡',
-    'TOP100',
-    '오늘 12:00 기준',
-    '멜론 열기',
-  ]) {
+  for (const text of ['바다 쪽으로 달리기', '1:24', '3:41', '멜론 열기']) {
     expect(card).toContain(text);
   }
+  // The handoff's ⚙ took the place of the 재생 중 badge.
+  expect(card).not.toContain('재생 중');
+  // The 2.7 핸드오프 card has no lists and no shuffle or repeat.
+  expect(card).not.toContain('좋아요한 곡');
+  expect(() => labelled(screen, '셔플')).toThrow();
   await press(screen, '일시정지');
   expect(() => labelled(screen, '재생')).not.toThrow();
-  await press(screen, '음원 선택');
-  expect(texts(screen)).toContain('로그인 필요');
+  // 다음 곡 goes through the music repository and shows the song it reports.
+  await press(screen, '다음 곡');
+  expect(texts(screen)).not.toContain('바다 쪽으로 달리기');
+  await press(screen, '이전 곡');
+  expect(texts(screen)).toContain('바다 쪽으로 달리기');
+
+  await press(screen, '음악 연결 설정');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
     disabled: true,
   });
   await press(screen, 'Spotify 로그인');
   await press(screen, 'Spotify');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
-    selected: true,
+    checked: true,
   });
-  await press(screen, '뒤로');
+  expect(labelled(screen, '멜론').props.accessibilityState).toMatchObject({
+    checked: false,
+  });
+  // Closing without ✓ keeps 멜론.
+  await press(screen, '닫기');
+  expect(texts(screen)).toContain('멜론 열기');
+
+  await press(screen, '음악 연결 설정');
+  await press(screen, 'Spotify');
+  await press(screen, '설정 완료');
   const spotify = texts(screen);
   expect(spotify).toContain('Spotify Premium');
-  expect(spotify).toContain('6개');
   expect(spotify).toContain('Spotify 열기');
+
+  // The picked row pressed again clears the pick, back to 2.7a.
+  await press(screen, '음악 연결 설정');
+  await press(screen, 'Spotify');
+  expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
+    checked: false,
+  });
+  await press(screen, '설정 완료');
+  expect(texts(screen)).toContain('음악 서비스를 연결해 주세요');
   await act(async () => screen.unmount());
 });
 
@@ -311,16 +355,15 @@ test('the music card shows the not-connected and disconnected states', async () 
 
   const dropped = await openMusic('musicDisconnected');
   expect(texts(dropped)).toContain('연결이 끊겼어요');
-  expect(texts(dropped)).toContain('좋아요한 곡');
   await press(dropped, '다시 연결');
   expect(texts(dropped)).not.toContain('연결이 끊겼어요');
   expect(texts(dropped)).toContain('바다 쪽으로 달리기');
   await act(async () => dropped.unmount());
 
   const setup = await openMusic('musicNeedsSetup');
-  await press(setup, '음원 선택');
+  await press(setup, '음악 연결 설정');
   const sources = texts(setup);
-  for (const text of ['권한 필요', '앱 설치 필요', '허용', '설치']) {
+  for (const text of ['허용', '설치']) {
     expect(sources).toContain(text);
   }
   await act(async () => setup.unmount());

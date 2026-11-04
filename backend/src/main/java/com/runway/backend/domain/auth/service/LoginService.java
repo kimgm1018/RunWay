@@ -5,6 +5,7 @@ import com.runway.backend.domain.auth.repository.AuthUserRepository;
 import com.runway.backend.domain.auth.repository.LoginAttemptStore;
 import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,21 +48,27 @@ public class LoginService {
             var found = users.findByLoginId(loginId);
             if (found.isEmpty() || !found.get().active()) {
                 passwords.verifyDummy(password);
-                throw AuthErrors.credentialFailure(attempts.recordFailure(loginId));
+                throw new ApiException(
+                        attempts.recordFailure(loginId) == 5
+                                ? ErrorCode.LOGIN_LOCKED
+                                : ErrorCode.INVALID_CREDENTIALS);
             }
             var account = found.get();
             if (!passwords.matches(password, account.passwordHash()))
-                throw AuthErrors.credentialFailure(attempts.recordFailure(loginId));
+                throw new ApiException(
+                        attempts.recordFailure(loginId) == 5
+                                ? ErrorCode.LOGIN_LOCKED
+                                : ErrorCode.INVALID_CREDENTIALS);
             var refresh = tokens.create(account.id(), clock.instant());
             try {
                 return issuance.issue(account, refresh);
             } catch (RuntimeException exception) {
                 if (!store.revokeUndelivered(refresh)) log.warn("전달되지 않은 로그인 권한의 폐기를 확인하지 못했습니다.");
                 if (exception instanceof ApiException api) throw api;
-                throw AuthErrors.unavailable();
+                throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
             }
         } catch (DataAccessException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
     }
 }

@@ -1,8 +1,12 @@
 package com.runway.backend.domain.course;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -404,6 +408,130 @@ class CourseApiIntegrationTest {
     }
 
     @Test
+    void C01_AI입력으로_더미_추천과_nextSeed를_반환한다() throws Exception {
+        // DB에 ACTIVE 코스가 있어도 추천은 스텁 경로만 사용한다.
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0,
+                                          "shape": "loop",
+                                          "filters": {"beach": true, "avoidMajorRoad": true},
+                                          "seed": 1
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.courses", hasSize(3)))
+                .andExpect(jsonPath("$.nextSeed").value(25))
+                .andExpect(jsonPath("$.courses[0].index").value(0))
+                .andExpect(jsonPath("$.courses[0].distanceM").value(5000.0))
+                .andExpect(jsonPath("$.courses[0].route.type").value("LineString"))
+                .andExpect(jsonPath("$.courses[0].route.coordinates").isArray())
+                .andExpect(jsonPath("$.courses[0].id").doesNotExist())
+                .andExpect(jsonPath("$.courses[0].estimatedDurationSec").doesNotExist());
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0,
+                                          "seed": 25
+                                        }
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextSeed").value(49));
+    }
+
+    @Test
+    void C01_거리_shape_도착_seed_지역_위반은_422() throws Exception {
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 20.0
+                                        }
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0,
+                                          "shape": "triangle"
+                                        }
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0,
+                                          "shape": "point_to_point"
+                                        }
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 37.5,
+                                          "longitude": 127.0,
+                                          "distanceKm": 5.0
+                                        }
+                                        """))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0
+                                        }
+                                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
     void X_User_Id단독으로는_인증할수없다() throws Exception {
         mockMvc.perform(
                         get("/api/v1/courses/{courseId}", activeCourseId)
@@ -428,6 +556,21 @@ class CourseApiIntegrationTest {
         mockMvc.perform(get("/api/v1/users/me/bookmarked-courses").header("X-User-Id", userId))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+        mockMvc.perform(
+                        post("/api/v1/courses/recommendations")
+                                .header("X-User-Id", userId)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {
+                                          "latitude": 35.1532,
+                                          "longitude": 129.1186,
+                                          "distanceKm": 5.0
+                                        }
+                                        """))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
     }
 
     private long insertUser(String loginId, String nickname, String phone) {
@@ -445,6 +588,15 @@ class CourseApiIntegrationTest {
 
     private long insertCourse(
             String description, String status, Long mergedIntoCourseId, BigDecimal distanceM) {
+        return insertCourse(description, status, mergedIntoCourseId, distanceM, START_EWKT);
+    }
+
+    private long insertCourse(
+            String description,
+            String status,
+            Long mergedIntoCourseId,
+            BigDecimal distanceM,
+            String startEwkt) {
         return jdbc.queryForObject(
                 """
                 INSERT INTO courses(description, route, start_position, distance, status, region_code, merged_into_course_id)
@@ -454,7 +606,7 @@ class CourseApiIntegrationTest {
                 Long.class,
                 description,
                 ROUTE_EWKT,
-                START_EWKT,
+                startEwkt,
                 distanceM,
                 status,
                 mergedIntoCourseId);

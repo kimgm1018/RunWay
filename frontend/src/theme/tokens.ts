@@ -15,53 +15,94 @@ export const k1 = {
   field: '#EDF1F5',
 } as const;
 
-// 2.1 홈 widget palettes (DESIGN.md 1-2): steel blue for the main and healthy states, graphite for the rest.
-// Each widget picks one; no other screen uses them.
-export const widgetPalette = {
-  steel: {
-    rim: '#3E6B80',
-    mid: '#0F2530',
-    sky: ['#2B5A72', '#4C7487', '#6A8794'],
-    haze: ['#C9D3D6', '#8AA3AE'],
-    glassLight: ['#6F8A96', '#5F8AA0'],
-    glass: ['#4E5F66', '#2D4752'],
-    tone: ['#56717C', '#33464E'],
-    dots: ['#4A6470', '#26363E', '#141C20'],
-    orb: ['#6F97A6', '#A8C2CB'],
-    tick: '#9CC0CF',
-  },
-  graphite: {
-    rim: '#6A7179',
-    mid: '#1E242B',
-    sky: ['#3C434A', '#6A7179', '#8D949A'],
-    haze: ['#C2C7CB', '#9AA1A7'],
-    glassLight: ['#8B939A', '#8B949C'],
-    glass: ['#4A5056', '#2C3237'],
-    tone: ['#6A7179', '#3C434A'],
-    dots: ['#5A6168', '#2E343A', '#15181B'],
-    orb: ['#7D858C', '#B7BDC2'],
-    tick: '#B8BEC3',
-  },
-  // The dark middle of every vignette.
-  core: '#020405',
+// 2.1 홈 cards (DESIGN.md 1-2, S15P31E105-367 핸드오프 tokens.css): sky blue accents on black, off-white,
+// greige and graphite cards. No other screen uses them.
+// 2.1 홈 (S15P31E105-391 핸드오프 tokens.css): the cards take the 2.0M mist and deep teal colours.
+export const homePalette = {
+  // 주 버튼 포인트: the play dot of 러닝 시작.
+  button: '#02050E',
+  ink: '#111111',
+  header: '#0B1418',
+  sub: '#56646C',
+  muted: '#8A8A8A',
+  unit: '#6A6A6A',
+  unread: '#E2553F',
+  headerButton: 'rgba(255,255,255,0.55)',
+  avatar: '#2A3238',
+  // --card-condition at 115°: black through deep teal to steel blue.
+  cardCondition: ['#060606', '#091019', '#182E3D', '#3A5A6C', '#5D8194'],
+  cardConditionStops: [0, 0.28, 0.55, 0.8, 1],
+  // --card-analysis: dark all the way, deep teal at the foot.
+  cardAnalysis: [
+    '#1A2E39',
+    '#0D171F',
+    '#060606',
+    '#091019',
+    '#182E3D',
+    '#3A5A6C',
+  ],
+  cardAnalysisStops: [0, 0.12, 0.3, 0.55, 0.8, 1],
+  // --card-past-records: white into pale blue grey, and its black-to-steel panel.
+  cardPastRecords: ['#F9F9F9', '#F3F5F6', '#E2EAEE', '#C4D4DC'],
+  cardPastRecordsStops: [0, 0.28, 0.6, 1],
+  recordsPanel: ['#060606', '#091019', '#182E3D', '#3A5A6C', '#5D8194'],
+  recordsPanelStops: [0, 0.24, 0.5, 0.76, 1],
+  conditionDisc: ['#FFFFFF', '#F3F5F6', '#E2EAEE', '#C4D4DC'],
+  conditionDiscStops: [0, 0.42, 0.7, 1],
+  // 지난 러닝 bars: a deep teal-to-steel top over a white 60% rest.
+  barAccent: ['#182E3D', '#5D8194'],
+  barRest: 'rgba(255,255,255,0.6)',
+  courseEllipse: ['#182E3D', '#3A5A6C', '#7DA0B2', '#C4D4DC'],
+  courseEllipseStops: [0, 0.3, 0.62, 1],
+  // 러닝 분석 dots in the mist blues.
+  scatter: [
+    '#F3F5F6',
+    '#C4D4DC',
+    '#A4BDC9',
+    '#8DACBA',
+    '#7DA0B2',
+    '#5D8194',
+    '#3A5A6C',
+  ],
+  courseTag: '#182E3D',
+  // The ↗ circle of a card that opens a screen.
+  tapHintOnLight: 'rgba(17,17,17,0.06)',
+  tapHintOnDark: 'rgba(255,255,255,0.12)',
+  shadowLight: '0 12px 30px rgba(0,0,0,0.12)',
+  shadowDark:
+    'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.2)',
+  shadowGraphite: '0 12px 30px rgba(0,0,0,0.2)',
+  shadowMist:
+    'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.18)',
 } as const;
 
-// The K1 background, top to bottom (DESIGN.md 1-1).
+// The K1 background, top to bottom (DESIGN.md 1-1): white to 35%, then one even darkening
+// through the K1 blue-greys to the darkest navy, sampled every 5% so the steps do not show.
 export const k1Gradient = {
   colors: [
-    '#C1CEDB',
-    '#C1CEDB',
-    '#C1CFDC',
-    '#C4D1DE',
-    '#C3D1DD',
-    '#C2D0DC',
-    '#B3C4D3',
-    '#8096AF',
-    '#253649',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#FFFFFF',
+    '#F6F8FA',
+    '#ECF0F4',
+    '#E1E8EE',
+    '#D4DEE7',
+    '#C7D4DF',
+    '#B1C1D1',
+    '#96A9BE',
+    '#7A90A8',
+    '#566A80',
+    '#36485D',
+    '#1D2C3D',
+    '#0B1522',
     '#02050E',
-    '#000000',
   ],
-  locations: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1],
+  locations: Array.from({ length: 21 }, (_, index) => index / 20),
 } as const;
 
 // Prototype v15 colors. Screens still reading these move to the K1 theme one by one (S15P31E105-206).
@@ -108,6 +149,10 @@ export const fontFamily = {
   numberMedium: 'Barlow-Medium',
   numberSemiBold: 'Barlow-SemiBold',
   numberBold: 'Barlow-Bold',
+  // 2.1 홈: the readiness score in dots and the figures in records.
+  score: 'Doto-Black',
+  mono: 'IBMPlexMono-Regular',
+  monoMedium: 'IBMPlexMono-Medium',
 } as const;
 
 // Android picks a weight by file, so each variant names its family instead of setting fontWeight.

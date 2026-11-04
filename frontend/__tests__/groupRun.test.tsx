@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
@@ -52,6 +52,41 @@ async function type(screen: Screen, label: string, text: string) {
   });
   await settle();
   await settle();
+}
+
+// The group tab pager (a plain View in tests, see jest.setup.js).
+function pager(screen: Screen) {
+  return screen.root.find(
+    node =>
+      node.type === View && typeof node.props.onPageSelected === 'function',
+  );
+}
+
+// A sideways swipe as the native pager reports it: the drag passes halfway, then the page settles.
+async function swipeTo(screen: Screen, page: number) {
+  const props = pager(screen).props;
+  await act(async () => {
+    // Between page 0 and 1 the offset is how far page 1 has come in.
+    props.onPageScroll({
+      nativeEvent: { position: 0, offset: page === 1 ? 0.7 : 0.3 },
+    });
+  });
+  await act(async () => {
+    props.onPageSelected({ nativeEvent: { position: page } });
+  });
+  await settle();
+}
+
+function selectedTab(screen: Screen) {
+  const tabs = screen.root.findAll(
+    node =>
+      ['내 크루', '크루 모집'].includes(node.props.accessibilityLabel) &&
+      node.props.accessibilityRole === 'tab' &&
+      node.props.accessibilityState?.selected === true &&
+      typeof node.props.onPress === 'function',
+  );
+  expect(tabs).toHaveLength(1);
+  return tabs[0].props.accessibilityLabel;
 }
 
 // Opens 6.0 on the group tab. Run samples come every 20ms.
@@ -133,6 +168,65 @@ test('6.1 lists open crews before full ones, searches by name or area and widens
   page = texts(screen);
   expect(page).toContain('해운대 선셋 런');
   expect(page).not.toContain('모집 중 · 18/30명');
+  await act(async () => screen.unmount());
+});
+
+test('6.0·6.1 sit side by side in one pager: swipes and tab taps switch pages and the tab follows', async () => {
+  const screen = await openGroup();
+  expect(selectedTab(screen)).toBe('내 크루');
+  // Both pages are rendered, so the next one is already there under the finger.
+  let page = texts(screen);
+  expect(page).toContain('광안리 새벽 크루');
+  expect(page).toContain('모집 중 · 18/30명');
+
+  // Halfway through a swipe the tab already shows the page coming in.
+  await act(async () => {
+    pager(screen).props.onPageScroll({
+      nativeEvent: { position: 0, offset: 0.6 },
+    });
+  });
+  expect(selectedTab(screen)).toBe('크루 모집');
+  await act(async () => {
+    pager(screen).props.onPageScroll({
+      nativeEvent: { position: 0, offset: 0.2 },
+    });
+  });
+  expect(selectedTab(screen)).toBe('내 크루');
+
+  await swipeTo(screen, 1);
+  expect(selectedTab(screen)).toBe('크루 모집');
+  await swipeTo(screen, 0);
+  expect(selectedTab(screen)).toBe('내 크루');
+
+  // Tabs move the pager too, and the pager stays the only group screen.
+  await press(screen, '크루 모집');
+  expect(selectedTab(screen)).toBe('크루 모집');
+  await press(screen, '내 크루');
+  expect(selectedTab(screen)).toBe('내 크루');
+  expect(
+    screen.root.findAll(
+      node =>
+        node.type === View && typeof node.props.onPageSelected === 'function',
+    ),
+  ).toHaveLength(1);
+  await act(async () => screen.unmount());
+});
+
+test('links to 크루 모집 or 내 크루 open that page of the group tab, again after swiping away', async () => {
+  const screen = await openGroup('noCrews');
+  await press(screen, '크루 모집 보러 가기');
+  expect(selectedTab(screen)).toBe('크루 모집');
+  await swipeTo(screen, 0);
+  expect(selectedTab(screen)).toBe('내 크루');
+  await press(screen, '크루 모집 보러 가기');
+  expect(selectedTab(screen)).toBe('크루 모집');
+
+  await press(screen, '광안리 새벽 크루, 모집 중 18/30명');
+  await press(screen, '가입 신청');
+  await press(screen, '내 크루로');
+  await settle(100);
+  expect(selectedTab(screen)).toBe('내 크루');
+  expect(texts(screen)).toContain('크루장이 승인하면 그룹런이 보여요');
   await act(async () => screen.unmount());
 });
 

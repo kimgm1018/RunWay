@@ -1,0 +1,10 @@
+# Python 3.12. 추론은 CPU만 쓴다.
+# CPU 전용 서버·컨테이너는 torch CPU 빌드를 먼저 설치하면 이미지가 작아진다:
+#   pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.14.1
+torch==2.14.1
+numpy==2.5.2
+pandas==3.1.0
+psycopg[binary,pool]==3.3.6

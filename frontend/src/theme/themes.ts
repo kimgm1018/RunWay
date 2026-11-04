@@ -1,4 +1,4 @@
-import { k1 } from './tokens';
+import { k1, k1Gradient } from './tokens';
 
 // The app has one screen look (K1). A tone picks the colors for where a view sits on it:
 // 'light' for the light upper part and white cards, 'dark' for the black lower part, dark cards and maps.
@@ -56,7 +56,8 @@ const tabColors = {
 export const lightTheme: Theme = {
   name: 'light',
   colors: {
-    background: k1.top,
+    // The top of the K1 background, under it and wherever it is not drawn.
+    background: k1Gradient.colors[0],
     surface: 'rgba(255,255,255,0.86)',
     surfaceRaised: '#FFFFFF',
     surfaceMuted: 'rgba(2,5,14,0.07)',

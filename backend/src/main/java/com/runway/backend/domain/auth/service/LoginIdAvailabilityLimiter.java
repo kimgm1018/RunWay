@@ -1,12 +1,12 @@
 package com.runway.backend.domain.auth.service;
 
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -34,14 +34,10 @@ public class LoginIdAvailabilityLimiter {
         try {
             allowed = redis.execute(script, List.of(key(ip)), UUID.randomUUID().toString());
         } catch (RuntimeException exception) {
-            throw AuthErrors.unavailable();
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
         }
-        if (Long.valueOf(0).equals(allowed))
-            throw new ApiException(
-                    HttpStatus.TOO_MANY_REQUESTS,
-                    "TOO_MANY_REQUESTS",
-                    "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
-        if (!Long.valueOf(1).equals(allowed)) throw AuthErrors.unavailable();
+        if (Long.valueOf(0).equals(allowed)) throw new ApiException(ErrorCode.TOO_MANY_REQUESTS);
+        if (!Long.valueOf(1).equals(allowed)) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
     }
 
     public static String key(String ip) {

@@ -1,5 +1,8 @@
 package com.runway.backend.domain.auth.controller;
 
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
+
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -35,9 +38,7 @@ public class ClientIpResolver {
         var headers = java.util.Collections.list(request.getHeaders("X-Forwarded-For"));
         String forwarded = String.join(",", headers);
         if (forwarded.isBlank()) return peer;
-        if (forwarded.length() > 4096)
-            throw com.runway.backend.domain.auth.validation.SignupValidator.invalid(
-                    "VALIDATION_ERROR");
+        if (forwarded.length() > 4096) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         String[] hops = forwarded.split(",", -1);
         for (int i = hops.length - 1; i >= 0 && trusted(peer); i--) peer = literal(hops[i].trim());
         return peer;
@@ -58,8 +59,7 @@ public class ClientIpResolver {
                 throw new UnknownHostException();
             return InetAddress.getByName(address).getHostAddress();
         } catch (UnknownHostException exception) {
-            throw com.runway.backend.domain.auth.validation.SignupValidator.invalid(
-                    "VALIDATION_ERROR");
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
     }
 }

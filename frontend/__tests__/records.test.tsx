@@ -62,14 +62,11 @@ async function press(screen: Screen, label: string) {
   await settle();
 }
 
-async function render() {
+async function render(repositories = createMockRepositories({ latencyMs: 0 })) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({ latencyMs: 0 })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
   await settle();
@@ -79,7 +76,7 @@ async function render() {
 
 test('5.1 shows the month by week, filters group runs and steps back a month', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   let page = texts(screen);
   for (const text of [
     '내 기록',
@@ -123,7 +120,7 @@ test('5.1 shows the month by week, filters group runs and steps back a month', a
 
 test('5.2 opens from 5.1 with the goal result, AI advice and split graphs', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
   const page = texts(screen);
   for (const text of [
@@ -156,7 +153,7 @@ test('5.2 opens from 5.1 with the goal result, AI advice and split graphs', asyn
 
 test('5.2 hides graphs a run did not measure and saves a free run as my course', async () => {
   const screen = await render();
-  await press(screen, '전체 기록 보기');
+  await press(screen, '과거 러닝 기록');
   await press(screen, '남천 해변 언덕길, 10.08 목 · 33:02, 5.20km');
   let page = texts(screen);
   expect(page).toContain('목표 31:12 미달성 · 1분 50초 늦음');
@@ -175,9 +172,63 @@ test('5.2 hides graphs a run did not measure and saves a free run as my course',
   await act(async () => screen.unmount());
 });
 
+test('5.2 deletes my run after the S09 notice, with the post that shares it', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const screen = await render(repositories);
+  await press(screen, '과거 러닝 기록');
+  const row = '민락수변공원 출발, 10.15 목 · 29:41, 5.02km';
+  await press(screen, row);
+  await press(screen, '기록 메뉴');
+  await press(screen, '기록 삭제');
+  let page = texts(screen);
+  expect(page).toContain('이 운동 기록을 삭제할까요?');
+  expect(page).toContain('이 기록을 공유한 게시물도 함께 삭제됩니다.');
+
+  await press(screen, '삭제');
+  page = texts(screen);
+  expect(page).toContain('기록을 삭제했어요');
+  // Back on 5.1, which read the month again without the run.
+  expect(hasLabel(screen, row)).toBe(false);
+  expect(page).toContain('6회 러닝');
+  await expect(
+    repositories.records.getDetail('run-1015'),
+  ).rejects.toMatchObject({ code: 'RECORD_NOT_FOUND' });
+  // The mock throws right away for a post that is gone.
+  await expect(
+    Promise.resolve().then(() =>
+      repositories.community.get('post-minjun-1015'),
+    ),
+  ).rejects.toThrow('게시물 없음');
+  await act(async () => screen.unmount());
+});
+
+test('5.2 stays with a toast when S09 fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.records.remove = jest
+    .fn()
+    .mockRejectedValue(
+      Object.assign(new Error('분석 중'), {
+        code: 'INVALID_STATE',
+        status: 409,
+      }),
+    );
+  const screen = await render(repositories);
+  await press(screen, '과거 러닝 기록');
+  await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
+  await press(screen, '기록 메뉴');
+  await press(screen, '기록 삭제');
+  await press(screen, '삭제');
+  const page = texts(screen);
+  expect(page).toContain(
+    '기록을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+  expect(page).toContain('10.15 목 러닝');
+  await act(async () => screen.unmount());
+});
+
 test('5.3 shows the month, switches to week and year, and links to 5.1', async () => {
   const screen = await render();
-  await press(screen, '분석 자세히 보기');
+  await press(screen, '러닝 분석');
   let page = texts(screen);
   for (const text of [
     '러닝 분석',

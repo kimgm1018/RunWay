@@ -112,6 +112,53 @@ test('7.2 shows the comments, adds one and replies by handle', async () => {
   await act(async () => screen.unmount());
 });
 
+test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
+  const screen = await openCommunity();
+  await press(screen, '댓글 3개 모두 보기');
+  const menus = () =>
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === '댓글 메뉴' &&
+        typeof node.props.onPress === 'function',
+    ).length;
+  expect(menus()).toBe(0);
+  await type(screen, '댓글 입력', '진동으로 와요!');
+  await press(screen, '게시');
+  expect(menus()).toBe(1);
+
+  await press(screen, '댓글 메뉴');
+  await press(screen, '댓글 수정');
+  let page = texts(screen);
+  expect(page).toContain('댓글 수정 중');
+  expect(labelled(screen, '댓글 입력', 'onChangeText').props.value).toBe(
+    '진동으로 와요!',
+  );
+  // An emptied comment is not saved.
+  await type(screen, '댓글 입력', '  ');
+  await press(screen, '댓글 수정 저장');
+  page = texts(screen);
+  expect(page).toContain('댓글 내용을 입력해 주세요');
+  expect(page).toContain('진동으로 와요!');
+  await type(screen, '댓글 입력', '진동 알림으로 와요');
+  await press(screen, '댓글 수정 저장');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('진동 알림으로 와요');
+  expect(page).toContain('댓글을 수정했어요');
+  expect(page).not.toContain('댓글 수정 중');
+
+  await press(screen, '댓글 메뉴');
+  await press(screen, '삭제');
+  expect(texts(screen)).toContain('댓글을 삭제할까요?');
+  await press(screen, '삭제');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('댓글을 삭제했어요');
+  expect(page).not.toContain('진동 알림으로 와요');
+  expect(menus()).toBe(0);
+  await act(async () => screen.unmount());
+});
+
 test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async () => {
   const screen = await openCommunity();
   await press(screen, 'minjun.run의 게시물');
