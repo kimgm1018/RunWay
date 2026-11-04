@@ -14,12 +14,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
   BottomSheet,
-  Card,
   EmptyState,
   Icon,
   IconButton,
+  LightGlass,
   useToast,
 } from '../../components';
 import {
@@ -38,7 +37,38 @@ import {
   useTheme,
 } from '../../theme';
 import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
+import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
 import { formatSchedule, useGroupRunDraft } from './parts';
+
+// 6.4c-CancelButton: the raised white bottom pill of the 6 그룹 screens, its circle in --warn with a ×.
+function CancelButton({
+  disabled,
+  onPress,
+}: {
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="그룹런 취소하기"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => pressed && styles.ctaPressed}
+    >
+      <Raised tone="white" style={styles.cta}>
+        {/* Disabled dims the label only, so the pill stays solid over the background. */}
+        <View style={[styles.ctaContent, disabled && styles.disabled]}>
+          <AppText style={styles.ctaText}>그룹런 취소하기</AppText>
+          <View style={styles.ctaIcon}>
+            <Icon name="close" color={groupLook.onDark} size={14} />
+          </View>
+        </View>
+      </Raised>
+    </Pressable>
+  );
+}
 
 // 6.4c 그룹런 취소 (only for the run's creator) with 6.4d 취소 확인; it ends on 6.4e, the cancelled 6.4.
 export function GroupRunCancelScreen() {
@@ -79,11 +109,9 @@ export function GroupRunCancelScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <StatusBar barStyle="dark-content" />
+      <GroupBackground id="groupRunCancelBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <IconButton
@@ -107,21 +135,19 @@ export function GroupRunCancelScreen() {
         <ActivityIndicator style={styles.loading} />
       ) : (
         <View style={styles.content}>
-          <Card variant="solid" style={styles.card}>
-            <AppText variant="caption" tone="textSecondary">
-              {run.crewName}
-            </AppText>
+          {/* 6.4c-RunSummary: no card. */}
+          <View style={styles.summary}>
+            <AppText style={styles.crew}>{run.crewName}</AppText>
             <AppText style={styles.title}>{run.title}</AppText>
-            <AppText variant="caption" tone="textSecondary">
+            <AppText style={styles.sub}>
               {`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
             </AppText>
-          </Card>
-          <Card variant="solid" style={styles.card}>
+          </View>
+          {/* 6.4c-CancelReason: a line-labelled section; the picked chip is navy, the rest light glass. */}
+          <View style={styles.reasons}>
             <View style={styles.rowBetween}>
-              <AppText variant="bodyMedium">취소 이유</AppText>
-              <AppText variant="label" tone="textSecondary">
-                하나만 골라요
-              </AppText>
+              <SectionLabel tone="light">취소 이유</SectionLabel>
+              <AppText style={styles.note}>하나만 골라요</AppText>
             </View>
             <View style={styles.chips}>
               {cancelReasons.map(item => {
@@ -133,35 +159,28 @@ export function GroupRunCancelScreen() {
                     accessibilityLabel={item.label}
                     accessibilityState={{ selected }}
                     onPress={() => setReason(item.value)}
-                    style={[
-                      styles.chip,
-                      selected
-                        ? {
-                            backgroundColor: colors.accent,
-                            borderColor: colors.accent,
-                          }
-                        : { borderColor: colors.border },
-                    ]}
+                    style={({ pressed }) => pressed && styles.chipPressed}
                   >
-                    <AppText
-                      variant={selected ? 'captionStrong' : 'caption'}
-                      style={{
-                        color: selected
-                          ? colors.onAccent
-                          : colors.textSecondary,
-                      }}
-                    >
-                      {item.label}
-                    </AppText>
+                    {selected ? (
+                      <Raised tone="navy" style={styles.chip}>
+                        <AppText style={styles.chipTextOn}>
+                          {item.label}
+                        </AppText>
+                      </Raised>
+                    ) : (
+                      <LightGlass radius={19} style={styles.chip}>
+                        <AppText style={styles.chipText}>{item.label}</AppText>
+                      </LightGlass>
+                    )}
                   </Pressable>
                 );
               })}
             </View>
-          </Card>
-          {/* See-through background-color box with a coral 60% rim (DESIGN.md 2-10 취소). */}
-          <View style={[styles.warning, { backgroundColor: colors.glass }]}>
+          </View>
+          {/* 6.4c-CancelNotice: the coral bell and the line, no box. */}
+          <View style={styles.warning}>
             <Icon name="bell" color={k1.coral} size={16} />
-            <AppText variant="caption" style={styles.flex}>
+            <AppText style={[styles.warningText, styles.flex]}>
               {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
             </AppText>
           </View>
@@ -169,9 +188,7 @@ export function GroupRunCancelScreen() {
       )}
       <ThemeProvider tone="dark">
         <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <FooterButton
-            title="그룹런 취소하기"
-            dangerOutline
+          <CancelButton
             disabled={!reason}
             onPress={() => setConfirming(true)}
           />
@@ -240,32 +257,97 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  headerTitle: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
-  content: { padding: 14, gap: spacing.lg },
-  card: { gap: spacing.sm },
-  title: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
+  headerTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 26,
+    color: groupLook.onLight,
+  },
+  content: { paddingHorizontal: 16, paddingTop: spacing.md, gap: 28 },
+  summary: { gap: spacing.xs },
+  crew: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 24,
+    lineHeight: 32,
+    letterSpacing: -0.5,
+    color: groupLook.onLight,
+  },
+  sub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub,
+  },
+  reasons: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+  },
+  note: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
   },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
     height: 38,
-    paddingHorizontal: spacing.xl,
-    borderRadius: 999,
-    borderWidth: 1,
+    paddingHorizontal: 14,
+    borderRadius: 19,
     justifyContent: 'center',
   },
-  warning: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    padding: spacing.xl,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(226,135,111,0.6)',
+  chipPressed: { transform: [{ scale: 0.97 }] },
+  chipText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub2,
   },
+  chipTextOn: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onDark,
+  },
+  warning: { flexDirection: 'row', gap: spacing.md },
+  warningText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: groupLook.onLightSub2,
+  },
+  cta: {
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,1), inset 0 -2px 4px rgba(93,129,148,0.18), 0 12px 28px rgba(0,0,0,0.38)',
+  },
+  ctaContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  ctaText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: groupLook.navy,
+  },
+  ctaIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: groupLook.warn,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaPressed: { transform: [{ scale: 0.98 }] },
+  disabled: { opacity: 0.45 },
   footer: {
     position: 'absolute',
     left: 0,

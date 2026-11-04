@@ -49,6 +49,13 @@ const icons = {
   ),
   back: <Path d="m15 18-6-6 6-6" />,
   forward: <Path d="m9 18 6-6-6-6" />,
+  // → in the navy circle of the 6 그룹 bottom buttons (runway-group-handoff).
+  arrowRight: (
+    <>
+      <Path d="M5 12h14" />
+      <Path d="m12 5 7 7-7 7" />
+    </>
+  ),
   // ↗ on the round button of 2.x cards (DESIGN.md 2-6 원 버튼).
   arrowUpRight: (
     <>

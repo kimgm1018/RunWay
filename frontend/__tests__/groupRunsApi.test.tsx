@@ -304,7 +304,9 @@ afterEach(() => {
 test('6.0 pins my run that starts soon and 6.5 marks me ready with G16', async () => {
   const screen = await openGroup();
   const page = texts(screen);
-  expect(page).toContain('월요일, 함께 5km');
+  // 곧 출발 shows the crew name; the run's title is in its label.
+  expect(page).toContain('광안리 새벽 크루');
+  expect(() => labelled(screen, /^월요일, 함께 5km, /)).not.toThrow();
   expect(page).toContain('일요일, 함께 40분');
 
   await press(screen, '대기방 입장');

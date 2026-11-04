@@ -16,14 +16,7 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../session/SessionProvider';
-import {
-  AppText,
-  Backdrop,
-  Card,
-  EmptyState,
-  Icon,
-  IconButton,
-} from '../../components';
+import { AppText, EmptyState, Icon, IconButton } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -37,16 +30,21 @@ import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import {
   fontFamily,
-  k1,
   size,
   spacing,
   ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
-import { GlowButton } from '../course/TodayRunScreen';
 import { ServiceMark, useMusicSource } from '../run/parts';
 import { useRunActions, type RunConfig } from '../run/RunSession';
+import {
+  GroupBackground,
+  GroupCta,
+  groupLook,
+  Raised,
+  SectionLabel,
+} from './look';
 import { BottomFade, Initial } from './parts';
 
 const countdownSeconds = 3;
@@ -119,12 +117,11 @@ function useCountdown(target: string | null, now: Date) {
 function PaceCard({ room }: { room: WaitingRoom }) {
   const [slow, fast] = [room.comfortRange[1], room.comfortRange[0]];
   const share = (slow - room.goalPaceSecPerKm) / Math.max(slow - fast, 1);
-  // The vignette card: 공동 페이스 in large Barlow and the comfort range with a white handle
-  // (DESIGN.md 2-10 대기방).
+  // 6.5-SharedPace: 공동 페이스 in large Barlow and the comfort range with a navy handle, no card.
   return (
-    <Card variant="vignette" style={styles.card}>
+    <View style={styles.card}>
       <PaceCardContent room={room} share={share} slow={slow} fast={fast} />
-    </Card>
+    </View>
   );
 }
 
@@ -139,62 +136,34 @@ function PaceCardContent({
   slow: number;
   fast: number;
 }) {
-  const { colors } = useTheme();
   return (
     <>
       <View style={styles.rowBetween}>
-        <AppText variant="bodyMedium">공동 페이스</AppText>
-        <AppText variant="label" tone="textSecondary">
-          AI 제안 · 참가자 기록 기준
-        </AppText>
+        <SectionLabel tone="light">공동 페이스</SectionLabel>
+        <AppText style={styles.noteStrong}>AI 제안 · 참가자 기록 기준</AppText>
       </View>
       <AppText style={styles.pace}>
         {formatPace(room.goalPaceSecPerKm)}
-        <AppText variant="caption" tone="textSecondary">
+        <AppText style={styles.paceUnit}>
           {`  /km · 예상 ${formatDuration(room.expectedDurationSec)}`}
         </AppText>
       </AppText>
-      <View style={[styles.range, { backgroundColor: colors.border }]}>
-        <View
-          style={[styles.rangeFill, { backgroundColor: colors.accentSoft }]}
-        />
-        <View
-          style={[
-            styles.rangeMarker,
-            { left: `${share * 100}%`, backgroundColor: colors.accent },
-          ]}
-        />
+      <View style={styles.range}>
+        <View style={styles.rangeFill} />
+        <View style={[styles.rangeMarker, { left: `${share * 100}%` }]} />
       </View>
       <View style={styles.rowBetween}>
-        <AppText variant="label" tone="textSecondary">
-          {formatPace(fast)}
-        </AppText>
-        <AppText variant="labelStrong">참가자 편한 범위</AppText>
-        <AppText variant="label" tone="textSecondary">
-          {formatPace(slow)}
-        </AppText>
+        <AppText style={styles.rangeEnd}>{formatPace(fast)}</AppText>
+        <AppText style={styles.rangeLabel}>참가자 편한 범위</AppText>
+        <AppText style={styles.rangeEnd}>{formatPace(slow)}</AppText>
       </View>
     </>
   );
 }
 
-// After 준비 완료 the button turns into an outlined 준비 취소 on the black part.
+// After 준비 완료 the button turns into a dark glass 준비 취소 on the navy foot.
 function ReadyCancel({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="준비 취소"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.ready,
-        { borderColor: colors.borderStrong },
-        pressed && styles.pressed,
-      ]}
-    >
-      <AppText variant="button">준비 취소</AppText>
-    </Pressable>
-  );
+  return <GroupCta title="준비 취소" primary={false} onPress={onPress} />;
 }
 
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
@@ -308,11 +277,9 @@ export function WaitingRoomScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <StatusBar barStyle="dark-content" />
+      <GroupBackground id="waitingRoomBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <IconButton
@@ -333,71 +300,58 @@ export function WaitingRoomScreen() {
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
-        <Card variant="solid" style={styles.card}>
+        {/* 6.5-MemberList: a line-labelled list without dividers. */}
+        <View style={styles.card}>
           <View style={styles.rowBetween}>
-            <AppText variant="bodyMedium">
+            <SectionLabel tone="light">
               {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participants.length}명`}
-            </AppText>
-            <AppText variant="label" tone="textSecondary">
+            </SectionLabel>
+            <AppText style={styles.noteText}>
               {`${readyCount}명 준비 완료`}
             </AppText>
           </View>
-          {room.participants.map((member, index) => (
-            <View key={member.userId}>
-              {index > 0 ? (
-                <View
-                  style={[styles.divider, { backgroundColor: colors.border }]}
-                />
-              ) : null}
-              <View style={styles.member}>
+          <View>
+            {room.participants.map((member, index) => (
+              <View key={member.userId} style={styles.member}>
                 <Initial name={member.nickname} index={index} size={36} />
                 <View style={styles.flex}>
                   <View style={styles.nameLine}>
-                    <AppText variant="bodyMedium">{member.nickname}</AppText>
+                    <AppText style={styles.memberName}>
+                      {member.nickname}
+                    </AppText>
                     {member.isHost ? (
                       <Icon
                         name="crown"
-                        color={colors.textSecondary}
+                        color={groupLook.onLightSub}
                         size={13}
                       />
                     ) : null}
                     {member.isMe ? (
-                      <View
-                        style={[
-                          styles.meBadge,
-                          { backgroundColor: colors.accent },
-                        ]}
-                      >
-                        <AppText
-                          variant="labelStrong"
-                          style={{ color: colors.onAccent }}
-                        >
-                          나
-                        </AppText>
-                      </View>
+                      <Raised tone="navy" style={styles.meBadge}>
+                        <AppText style={styles.meText}>나</AppText>
+                      </Raised>
                     ) : null}
                   </View>
                   {member.isMe && member.readinessScore !== null ? (
-                    <AppText variant="label" tone="textSecondary">
+                    <AppText style={styles.readiness}>
                       {`준비도 ${member.readinessScore}`}
                     </AppText>
                   ) : null}
                 </View>
                 <AppText
-                  variant={
-                    member.readyStatus === 'READY' ? 'captionStrong' : 'caption'
-                  }
-                  tone={
-                    member.readyStatus === 'READY' ? 'text' : 'textSecondary'
+                  style={
+                    member.readyStatus === 'READY'
+                      ? styles.statusReady
+                      : styles.statusWaiting
                   }
                 >
                   {member.readyStatus === 'READY' ? '준비 완료' : '대기 중'}
                 </AppText>
               </View>
-            </View>
-          ))}
-        </Card>
-        <AppText variant="caption" tone="textSecondary" style={styles.note}>
+            ))}
+          </View>
+        </View>
+        <AppText style={[styles.noteText, styles.note]}>
           그룹장이 출발하면 준비 완료한 멤버의 기록이 3초 뒤 함께 시작돼요
         </AppText>
       </ScrollView>
@@ -408,25 +362,23 @@ export function WaitingRoomScreen() {
             {isReady ? (
               <ReadyCancel onPress={toggleReady} />
             ) : (
-              <GlowButton
-                title="준비 완료"
-                icon="check"
-                onPress={toggleReady}
-              />
+              <GroupCta title="준비 완료" icon="check" onPress={toggleReady} />
             )}
           </View>
-          {/* The music button is a white circle on the black part (DESIGN.md 2-10 대기방). */}
+          {/* 6.5-ReadyBar: the music button is a raised navy circle beside it. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="음악"
             onPress={() => navigateTo(navigation, 'MusicCard')}
-            style={({ pressed }) => [styles.music, pressed && styles.pressed]}
+            style={({ pressed }) => pressed && styles.pressed}
           >
-            {source && source !== 'NONE' ? (
-              <ServiceMark service={source} size={30} />
-            ) : (
-              <Icon name="music" color={k1.night} size={20} />
-            )}
+            <Raised tone="navy" style={styles.music}>
+              {source && source !== 'NONE' ? (
+                <ServiceMark service={source} size={30} />
+              ) : (
+                <Icon name="music" color={groupLook.onDark} size={20} />
+              )}
+            </Raised>
           </Pressable>
         </SafeAreaView>
       </ThemeProvider>
@@ -456,22 +408,59 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
-  timeLeft: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 26,
+    color: groupLook.onLight,
+  },
+  timeLeft: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 16,
+    color: groupLook.onLight,
+  },
   content: {
-    padding: 14,
-    gap: spacing.lg,
+    paddingHorizontal: 16,
+    paddingTop: spacing.md,
+    gap: 32,
     paddingBottom: spacing.xxxl * 4,
   },
   card: { gap: spacing.lg },
+  noteStrong: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  noteText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   // Big numbers stay Barlow Regular at the sheet's 60.
-  pace: { fontFamily: fontFamily.numberRegular, fontSize: 60, lineHeight: 66 },
-  range: { height: 8, borderRadius: 4, justifyContent: 'center' },
+  pace: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 60,
+    lineHeight: 66,
+    color: groupLook.onLight,
+  },
+  paceUnit: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    color: groupLook.onLightSub,
+  },
+  range: {
+    height: 8,
+    borderRadius: 4,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2,5,14,0.08)',
+  },
   rangeFill: {
     position: 'absolute',
     left: '25%',
@@ -479,23 +468,72 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRadius: 4,
+    backgroundColor: '#7DA0B2',
   },
   rangeMarker: {
     position: 'absolute',
-    width: 4,
+    width: 3,
     height: 22,
-    borderRadius: 2,
-    marginLeft: -2,
+    borderRadius: 1.5,
+    marginLeft: -1.5,
+    backgroundColor: groupLook.onLight,
   },
-  divider: { height: StyleSheet.hairlineWidth },
+  rangeEnd: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub2,
+  },
+  rangeLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLight,
+  },
+  // 6.5-MemberList rows.
   member: {
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.md,
+    gap: 12,
   },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  meBadge: { paddingHorizontal: spacing.sm, borderRadius: 999 },
+  memberName: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onLight,
+  },
+  meBadge: {
+    height: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    justifyContent: 'center',
+  },
+  meText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 11,
+    lineHeight: 14,
+    color: groupLook.onDark,
+  },
+  readiness: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  statusReady: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLight,
+  },
+  statusWaiting: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub,
+  },
   note: { textAlign: 'center' },
   footer: {
     position: 'absolute',
@@ -509,22 +547,14 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
-  ready: {
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   music: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: k1.ice,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: { opacity: 0.8 },
+  pressed: { transform: [{ scale: 0.97 }] },
   overlay: {
     flex: 1,
     alignItems: 'center',

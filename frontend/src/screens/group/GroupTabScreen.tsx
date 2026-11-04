@@ -14,19 +14,21 @@ import {
 } from '@react-navigation/native';
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Backdrop } from '../../components';
+import { AppText, Icon, MistFill } from '../../components';
 import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
-import { spacing, useTheme } from '../../theme';
+import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
 import { MyCrewsPage } from './GroupScreen';
+import { groupLook, insetTrackDark, Raised } from './look';
 
 // 내 크루 is the left page, 크루 모집 the right one.
 const pages: readonly GroupTabRouteName[] = ['MyCrews', 'CrewRecruit'];
 const pageOf = (name: GroupTabRouteName | undefined) =>
   name === 'CrewRecruit' ? 1 : 0;
 
-// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager.
+// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager: the handoff's segmented switch, the picked tab a
+// raised white pill on a pressed-in track.
 export function GroupTabs({
   active,
   onSelect,
@@ -34,9 +36,13 @@ export function GroupTabs({
   active: number;
   onSelect: (page: number) => void;
 }) {
-  const { colors } = useTheme();
   const tab = (page: number, label: string) => {
     const selected = page === active;
+    const text = (
+      <AppText style={[styles.tabText, selected && styles.tabTextOn]}>
+        {label}
+      </AppText>
+    );
     return (
       <Pressable
         accessibilityRole="tab"
@@ -45,29 +51,18 @@ export function GroupTabs({
         onPress={() => !selected && onSelect(page)}
         style={styles.tab}
       >
-        <View style={styles.tabLabel}>
-          <AppText
-            variant="heading"
-            tone={selected ? 'text' : 'textTertiary'}
-            style={styles.tabText}
-          >
-            {label}
-          </AppText>
-          {selected ? (
-            <View style={[styles.tabDot, { backgroundColor: colors.accent }]} />
-          ) : null}
-        </View>
-        <View
-          style={[
-            styles.tabLine,
-            { backgroundColor: selected ? colors.accent : 'transparent' },
-          ]}
-        />
+        {selected ? (
+          <Raised tone="white" style={styles.tabOn}>
+            {text}
+          </Raised>
+        ) : (
+          text
+        )}
       </Pressable>
     );
   };
   return (
-    <View style={[styles.tabs, { borderColor: colors.border }]}>
+    <View style={styles.tabs}>
       {tab(0, '내 크루')}
       {tab(1, '크루 모집')}
     </View>
@@ -77,7 +72,6 @@ export function GroupTabs({
 // 6.0 · 6.1 그룹 탭: both pages sit side by side so a sideways swipe drags the next one in under the
 // finger. navigateTo(…, 'MyCrews' | 'CrewRecruit') opens the tab on that page.
 export function GroupTabScreen() {
-  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainTabParamList, 'GroupTab'>>();
@@ -108,6 +102,13 @@ export function GroupTabScreen() {
     pager.current?.setPage(target);
     setPage(target);
   }, []);
+  // Search: a round button beside the tabs (담당자 요청) that opens the field at the top of the page shown,
+  // 내 크루 or 크루 모집; each page keeps its own.
+  const [searching, setSearching] = useState([false, false]);
+  const setSearchingOn = (target: number, open: boolean) =>
+    setSearching(current =>
+      current.map((value, index) => (index === target ? open : value)),
+    );
 
   // Android back on 크루 모집 returns to 내 크루 first, as it did when 6.1 was pushed over 6.0.
   useFocusEffect(
@@ -127,50 +128,113 @@ export function GroupTabScreen() {
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <View style={{ paddingTop: insets.top }}>
-        <GroupTabs active={page} onSelect={select} />
-      </View>
-      <PagerView
-        ref={pager}
-        style={styles.root}
-        initialPage={page}
-        keyboardDismissMode="on-drag"
-        // The tab follows the page that covers most of the screen while dragging.
-        onPageScroll={event => {
-          const { position, offset } = event.nativeEvent;
-          const shown = offset > 0.5 ? position + 1 : position;
-          setPage(current =>
-            current === shown || !pages[shown] ? current : shown,
-          );
-        }}
-        onPageSelected={event => setPage(event.nativeEvent.position)}
-      >
-        <View key="mine" style={styles.root} collapsable={false}>
-          <MyCrewsPage />
+    // 6.0 · 6.1 sit on --bg-analysis-dark, so both pages take the dark theme (white text).
+    <ThemeProvider tone="dark">
+      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+        <StatusBar barStyle="light-content" />
+        <MistFill
+          id="groupTabBackground"
+          colors={[...groupLook.darkBackground]}
+          offsets={[...groupLook.darkBackgroundStops]}
+        />
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <View style={styles.root}>
+            <GroupTabs active={page} onSelect={select} />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              page === 1 ? '크루 검색 열기' : '내 크루 검색 열기'
+            }
+            accessibilityState={{ expanded: searching[page] }}
+            onPress={() => setSearchingOn(page, true)}
+            style={({ pressed }) => [
+              styles.search,
+              pressed && styles.searchPressed,
+            ]}
+          >
+            <Icon name="search" color={groupLook.onDark} size={18} />
+          </Pressable>
         </View>
-        <View key="recruit" style={styles.root} collapsable={false}>
-          <CrewRecruitPage />
-        </View>
-      </PagerView>
-    </View>
+        <PagerView
+          ref={pager}
+          style={styles.root}
+          initialPage={page}
+          keyboardDismissMode="on-drag"
+          // The tab follows the page that covers most of the screen while dragging.
+          onPageScroll={event => {
+            const { position, offset } = event.nativeEvent;
+            const shown = offset > 0.5 ? position + 1 : position;
+            setPage(current =>
+              current === shown || !pages[shown] ? current : shown,
+            );
+          }}
+          onPageSelected={event => setPage(event.nativeEvent.position)}
+        >
+          <View key="mine" style={styles.root} collapsable={false}>
+            <MyCrewsPage
+              searching={searching[0]}
+              onCloseSearch={() => setSearchingOn(0, false)}
+            />
+          </View>
+          <View key="recruit" style={styles.root} collapsable={false}>
+            <CrewRecruitPage
+              searching={searching[1]}
+              onCloseSearch={() => setSearchingOn(1, false)}
+            />
+          </View>
+        </PagerView>
+      </View>
+    </ThemeProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  // The tabs and the round search button beside them, 16 from the screen edges.
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    marginBottom: spacing.md,
+  },
+  // 6.0-TabSwitcher: 44 high, 4 inside.
   tabs: {
     flexDirection: 'row',
-    marginHorizontal: spacing.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    height: 44,
+    marginTop: 3,
+    padding: 4,
+    gap: 4,
+    borderRadius: 22,
+    backgroundColor: groupLook.darkButton,
+    boxShadow: insetTrackDark,
   },
-  tab: { flex: 1, alignItems: 'center', paddingTop: spacing.xl },
-  tabLabel: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  tabText: { paddingBottom: spacing.lg },
-  tabDot: { width: 5, height: 5, borderRadius: 3, marginBottom: spacing.lg },
-  tabLine: { height: 2, width: 52, borderRadius: 1 },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  tabOn: {
+    alignSelf: 'stretch',
+    flex: 1,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 20,
+    letterSpacing: -0.3,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  tabTextOn: { color: groupLook.navy },
+  // As tall as the tabs, flat like the round buttons on the crew cards.
+  search: {
+    width: 44,
+    height: 44,
+    marginTop: 3,
+    borderRadius: 22,
+    backgroundColor: groupLook.darkButton,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchPressed: { transform: [{ scale: 0.95 }] },
 });
