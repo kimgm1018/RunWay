@@ -4,130 +4,111 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Card, EmptyState, Icon } from '../../components';
+import { AppText, EmptyState, Icon } from '../../components';
 import { useResource, type CrewListItem, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import {
-  k1,
-  palette,
-  radius,
-  size,
-  spacing,
-  ThemeProvider,
-  typography,
-  useTheme,
-} from '../../theme';
+import { fontFamily, size, spacing } from '../../theme';
+import { crewCard, groupLook, Raised, SearchField } from './look';
 
-// Member dots stand in for faces on the 6.1 cards; there are no profile photos.
-const dotTones = [k1.top, k1.mid, k1.deep, k1.light];
-
-function MemberDots({ count }: { count: number }) {
-  return (
-    <View style={styles.dots}>
-      {dotTones.slice(0, Math.min(count, dotTones.length)).map(tone => (
-        <View key={tone} style={[styles.dot, { backgroundColor: tone }]} />
-      ))}
-    </View>
-  );
-}
-
-// 6.1 card: 모집 중 or 정원 마감 with the count, the intro, members and the area.
-// A full crew stays listed but faded, after the open ones (M01).
+// 6.1 row on the crew card 6.0 uses too (look.tsx crewCard): 모집 중 or 정원 마감, then the name with the
+// count. The area and the intro (both on 6.2), the member dots and '멤버 N' (the count again) are left
+// out to keep the row short (담당자 요청, S15P31E105-414). A full crew stays listed after the open ones
+// (M01), as readable as they are; 정원 마감 tells it apart.
 function CrewCard({ crew }: { crew: CrewListItem }) {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const full = crew.memberCount >= crew.capacity;
   const count = `${crew.memberCount}/${crew.capacity}명`;
   return (
-    <Card
-      variant="deep"
+    <Pressable
+      accessibilityRole="button"
       accessibilityLabel={`${crew.name}, ${
         full ? '정원 마감' : '모집 중'
       } ${count}`}
       onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-      style={[styles.card, full && styles.full]}
+      style={({ pressed }) => [
+        crewCard.card,
+        styles.crew,
+        pressed && styles.rowPressed,
+      ]}
     >
-      <View style={[styles.status, full && styles.statusFull]}>
-        <AppText
-          variant="captionStrong"
-          style={{ color: full ? colors.textSecondary : palette.ink }}
-        >
-          {`${full ? '정원 마감' : '모집 중'} · ${count}`}
+      <View style={styles.flex}>
+        {/* 모집 중 alone on top, the count right after the name (담당자 요청). Plain regular text, no
+            pill. */}
+        <AppText style={[crewCard.small, styles.statusText]}>
+          {full ? '정원 마감' : '모집 중'}
         </AppText>
-      </View>
-      <View style={styles.titleBlock}>
-        <AppText variant="title" numberOfLines={1}>
-          {crew.name}
-        </AppText>
-        {crew.description ? (
-          <AppText variant="body" tone="textSecondary" numberOfLines={1}>
-            {crew.description}
+        <View style={[crewCard.lineGap, styles.nameLine]}>
+          <AppText style={[crewCard.name, styles.crewName]} numberOfLines={1}>
+            {crew.name}
           </AppText>
-        ) : null}
-      </View>
-      <View style={styles.rowBetween}>
-        <View style={styles.members}>
-          <MemberDots count={crew.memberCount} />
-          <AppText variant="body" tone="textSecondary">
-            {`멤버 ${crew.memberCount}`}
-          </AppText>
-        </View>
-        <View style={styles.area}>
-          <Icon name="mapPin" color={colors.text} size={16} />
-          <AppText variant="bodyStrong">{crew.area}</AppText>
+          <AppText style={styles.countText}>{count}</AppText>
         </View>
       </View>
-    </Card>
+      {/* A round arrow, not a pill, so the card reads as one to open (담당자 요청). The whole card
+          opens 6.2, so the arrow is only a sign and not a second button for screen readers. */}
+      <View
+        style={crewCard.round}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        <Icon name="arrowRight" color={groupLook.onDark} size={16} />
+      </View>
+    </Pressable>
   );
 }
 
-// 원하는 크루가 없나요? A dark see-through box, so it reads on both the light and the black part.
+// 원하는 크루가 없나요? (6.1-CreateCrewPrompt): two lines and a small raised white button, no box.
 function CreateBox() {
   const navigation = useNavigation();
   return (
-    <ThemeProvider tone="dark">
-      <View style={styles.createBox}>
-        <View style={styles.flex}>
-          <AppText variant="heading">원하는 크루가 없나요?</AppText>
-          <AppText variant="caption" tone="textSecondary">
-            직접 만들고 함께 달릴 멤버를 모아 보세요
-          </AppText>
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="크루 만들기"
-          onPress={() => navigateTo(navigation, 'CrewCreate')}
-          style={({ pressed }) => [
-            styles.createButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <AppText variant="bodyStrong" style={{ color: palette.ink }}>
-            크루 만들기
-          </AppText>
-        </Pressable>
+    <View style={styles.createBox}>
+      <View style={styles.flex}>
+        <AppText style={styles.createTitle}>원하는 크루가 없나요?</AppText>
+        <AppText style={styles.createSub} numberOfLines={1}>
+          직접 만들고 함께 달릴 멤버를 모아 보세요
+        </AppText>
       </View>
-    </ThemeProvider>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="크루 만들기"
+        onPress={() => navigateTo(navigation, 'CrewCreate')}
+        style={({ pressed }) => pressed && styles.pressed}
+      >
+        <Raised tone="white" style={styles.createButton}>
+          <AppText style={styles.createButtonText}>크루 만들기</AppText>
+        </Raised>
+      </Pressable>
+    </View>
   );
 }
 
-// 6.1 크루 모집: search by name or area, 내 근처 (3km) on by default.
+// 6.1 크루 모집: search by name or area over every crew. The 내 근처 switch is gone: M01 has no location
+// filter, so it changed nothing on the server (담당자 결정, S15P31E105-414).
 // One page of the group tab pager (GroupTabScreen).
-export function CrewRecruitPage() {
-  const { colors } = useTheme();
+export function CrewRecruitPage({
+  searching,
+  onCloseSearch,
+}: {
+  // Opened by the round search button beside the tabs (GroupTabScreen).
+  searching: boolean;
+  onCloseSearch: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
-  const [nearby, setNearby] = useState(true);
+  // Closing the search clears it.
+  const closeSearch = () => {
+    onCloseSearch();
+    setQuery('');
+  };
   const found = useResource(
     useCallback(
       (repositories: Repositories) =>
-        repositories.crews.search({ query, nearby }),
-      [query, nearby],
+        repositories.crews.search({ query, nearby: false }),
+      [query],
     ),
   );
   // While the next search loads, the last list stays so typing does not flash a spinner.
@@ -148,55 +129,21 @@ export function CrewRecruitPage() {
           styles.content,
           {
             paddingBottom:
-              insets.bottom + size.tabBar + size.tabBarInset * 2 + spacing.xl,
+              insets.bottom +
+              size.tabBar +
+              size.tabBarInset * 2 +
+              spacing.xxxl * 2,
           },
         ]}
       >
-        <View
-          style={[
-            styles.search,
-            {
-              backgroundColor: colors.inputBackground,
-              borderColor: colors.inputBorder,
-            },
-          ]}
-        >
-          <Icon name="search" color={colors.textTertiary} size={18} />
-          <TextInput
-            accessibilityLabel="크루 검색"
-            placeholder="크루 이름이나 지역으로 검색"
-            placeholderTextColor={colors.textTertiary}
-            selectionColor={colors.accent}
+        {searching ? (
+          <SearchField
+            label="크루 검색"
             value={query}
             onChangeText={setQuery}
-            returnKeyType="search"
-            style={[styles.searchInput, { color: colors.text }]}
+            onClose={closeSearch}
           />
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="내 근처"
-          accessibilityState={{ selected: nearby }}
-          onPress={() => setNearby(value => !value)}
-          style={[
-            styles.chip,
-            nearby
-              ? { backgroundColor: colors.accent, borderColor: colors.accent }
-              : { borderColor: colors.borderStrong },
-          ]}
-        >
-          <Icon
-            name="mapPin"
-            color={nearby ? colors.onAccent : colors.text}
-            size={16}
-          />
-          <AppText
-            variant="bodyStrong"
-            style={{ color: nearby ? colors.onAccent : colors.text }}
-          >
-            내 근처
-          </AppText>
-        </Pressable>
+        ) : null}
         {found.status === 'error' ? (
           <EmptyState
             icon="alert"
@@ -207,13 +154,15 @@ export function CrewRecruitPage() {
         ) : !list ? (
           <ActivityIndicator style={styles.loading} />
         ) : list.length === 0 ? (
-          <AppText variant="body" tone="textSecondary" style={styles.none}>
-            {nearby
-              ? '내 근처에서 찾지 못했어요. 내 근처를 끄고 다시 찾아보세요.'
-              : '찾는 크루가 없어요.'}
+          <AppText style={[styles.sub, styles.none]}>
+            찾는 크루가 없어요.
           </AppText>
         ) : (
-          list.map(crew => <CrewCard key={crew.id} crew={crew} />)
+          <View style={styles.list}>
+            {list.map(crew => (
+              <CrewCard key={crew.id} crew={crew} />
+            ))}
+          </View>
         )}
         <CreateBox />
       </ScrollView>
@@ -224,90 +173,72 @@ export function CrewRecruitPage() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
-  content: { padding: spacing.screen, gap: spacing.xl },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: spacing.md,
+    gap: spacing.xl,
+  },
   loading: { marginTop: spacing.xxxl },
   none: { textAlign: 'center', paddingVertical: spacing.xxxl },
-  search: {
+  sub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onDarkSub,
+  },
+  list: { gap: 12, marginTop: spacing.md },
+  // 6.1-CrewCard on a faint glass card so each crew reads as something to tap (담당자 요청): a little
+  // lighter than the background, with the dark glass edge light and a soft shadow.
+  crew: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  rowPressed: { transform: [{ scale: 0.985 }] },
+  // Regular weight, not bold (담당자 요청).
+  countText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onDarkSub,
+  },
+  statusText: { color: groupLook.onDark },
+  nameLine: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    height: size.input,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    alignItems: 'baseline',
+    gap: 8,
   },
-  // No lineHeight: on Android it clips the top of the placeholder in a single-line input.
-  searchInput: {
-    flex: 1,
-    height: size.input,
-    fontFamily: typography.input.fontFamily,
-    fontSize: typography.input.fontSize,
-    paddingVertical: 0,
-    textAlignVertical: 'center',
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: spacing.sm,
-    height: size.buttonSmall,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-  },
-  card: { gap: spacing.lg },
-  full: { opacity: 0.55 },
-  status: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
-    backgroundColor: k1.ice,
-  },
-  statusFull: { backgroundColor: 'rgba(255,255,255,0.12)' },
-  titleBlock: { gap: spacing.xxs },
-  rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  members: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  // Each dot tucks 8 under the next; the row gives the last one's 8 back so 멤버 keeps its gap.
-  dots: { flexDirection: 'row', marginRight: spacing.md },
-  dot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: k1.deep,
-    marginRight: -spacing.md,
-  },
-  area: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    height: 32,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
+  crewName: { flexShrink: 1 },
   createBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    padding: spacing.xxl,
-    borderRadius: radius.card,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: 'rgba(255,255,255,0.3)',
-    backgroundColor: 'rgba(2,5,14,0.45)',
+    gap: 10,
+    minHeight: 50,
+    marginTop: spacing.xxxl,
+  },
+  createTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16.5,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: groupLook.onDark,
+  },
+  // A little more room under 원하는 크루가 없나요? (담당자 요청).
+  createSub: {
+    marginTop: 6,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onDarkSub,
   },
   createButton: {
-    height: size.buttonSmall,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: radius.pill,
+    width: 100,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: k1.ice,
   },
-  pressed: { opacity: 0.8 },
+  createButtonText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.navy,
+  },
+  pressed: { transform: [{ scale: 0.97 }] },
 });

@@ -215,7 +215,8 @@ test('notifications split into 오늘 and 이번 주, count as read once left, a
     '그룹런 곧 시작, ‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
   );
   await settle();
-  expect(texts(screen)).toContain('예상 공동 페이스');
+  // 6.4 opens on the run (its pace shows as a pill there).
+  expect(texts(screen)).toContain('페이스 6′00″');
   await act(async () => screen.unmount());
 });
 

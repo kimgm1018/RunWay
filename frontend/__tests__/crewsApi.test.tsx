@@ -338,7 +338,6 @@ test('6.0 lists my crews from M10', async () => {
 test('6.1 → 6.2 sends a join request, and a full crew shows the full sheet', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
-  expect(texts(screen)).toContain('부산 수영구');
 
   await press(screen, '수영강 아침 크루, 모집 중 5/20명');
   await press(screen, '가입 신청');
@@ -358,6 +357,8 @@ test('6.2 lets a member leave with M08', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
   await press(screen, '광안리 새벽 크루, 모집 중 3/30명');
+  // The area from the regions lookup shows on 6.2 (6.0 and 6.1 list names only).
+  expect(texts(screen)).toContain('부산 수영구');
   expect(texts(screen)).toContain('민준 (나)');
 
   await press(screen, '크루 나가기');

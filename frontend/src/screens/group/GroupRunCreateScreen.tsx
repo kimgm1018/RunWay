@@ -15,13 +15,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
   BottomSheet,
   Button,
-  Card,
   Icon,
   IconButton,
-  Segmented,
+  LightGlass,
   useToast,
 } from '../../components';
 import {
@@ -34,15 +32,16 @@ import {
 } from '../../data';
 import { formatDotDateWeekday, formatKm } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
-import {
-  fontFamily,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
-import { GlowButton } from '../course/TodayRunScreen';
+import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { RouteThumb } from '../home/parts';
+import {
+  GroupBackground,
+  GroupCta,
+  groupLook,
+  insetTrackLight,
+  Raised,
+  SectionLabel,
+} from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
 
 type Mode = 'COURSE' | 'FREE';
@@ -89,28 +88,64 @@ const loadOptions = (repositories: Repositories) =>
     repositories.groupRuns.searchPlaces(''),
   ]);
 
-// The 6.8 boxes: white cards, and the vignette for 공동 페이스 (DESIGN.md 2-10 만들기).
+// A 6.8 group: a line-labelled title instead of a card (runway-group-handoff).
 function Section({
   title,
   right,
-  vignette = false,
   children,
 }: {
   title: string;
   right?: React.ReactNode;
-  vignette?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Card variant={vignette ? 'vignette' : 'solid'} style={styles.card}>
+    <View style={styles.card}>
       <View style={styles.rowBetween}>
-        <AppText variant="bodyMedium" style={styles.sectionTitle}>
-          {title}
-        </AppText>
+        <SectionLabel tone="light">{title}</SectionLabel>
         {right}
       </View>
       {children}
-    </Card>
+    </View>
+  );
+}
+
+// 코스 러닝 · 자유 러닝: a pressed-in track with the picked one a raised navy pill (6.8-CourseCard).
+function ModeSwitch({
+  value,
+  onChange,
+}: {
+  value: Mode;
+  onChange: (mode: Mode) => void;
+}) {
+  return (
+    <View accessibilityRole="radiogroup" style={styles.modes}>
+      {modes.map(option => {
+        const selected = option.value === value;
+        const text = (
+          <AppText style={selected ? styles.modeTextOn : styles.modeText}>
+            {option.label}
+          </AppText>
+        );
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option.value)}
+            style={styles.mode}
+          >
+            {selected ? (
+              <Raised tone="navy" style={styles.modeOn}>
+                {text}
+              </Raised>
+            ) : (
+              text
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -127,30 +162,25 @@ function ChangeRow({
   onChange: () => void;
   label: string;
 }) {
-  const { colors } = useTheme();
   return (
     <View style={styles.changeRow}>
-      <View style={[styles.tile, { backgroundColor: colors.surfaceMuted }]}>
-        {icon}
-      </View>
+      <View style={styles.tile}>{icon}</View>
       <View style={styles.flex}>
-        <AppText variant="bodyMedium" numberOfLines={1}>
+        <AppText style={styles.rowTitle} numberOfLines={1}>
           {title}
         </AppText>
-        <AppText variant="caption" tone="textSecondary" numberOfLines={1}>
+        <AppText style={styles.rowDetail} numberOfLines={1}>
           {detail}
         </AppText>
       </View>
-      {/* 변경 is an underlined text button (DESIGN.md 2-10 만들기). */}
+      {/* 변경 is a bold text button (6.8-CourseCard). */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
         onPress={onChange}
         hitSlop={8}
       >
-        <AppText variant="captionStrong" style={styles.underline}>
-          변경
-        </AppText>
+        <AppText style={styles.change}>변경</AppText>
       </Pressable>
     </View>
   );
@@ -167,21 +197,18 @@ function PickChip({
   onPress: () => void;
   accessibilityLabel: string;
 }) {
-  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      // A pill field with the icon on the right (DESIGN.md 2-10 날짜·시간).
-      style={({ pressed }) => [
-        styles.pick,
-        { borderColor: colors.borderStrong },
-        pressed && styles.pressed,
-      ]}
+      // A light glass pill with the icon on the right (6.8-DateTimeCard).
+      style={({ pressed }) => [styles.flex, pressed && styles.pressed]}
     >
-      <AppText style={styles.pickLabel}>{label}</AppText>
-      <Icon name={icon} color={colors.textSecondary} size={16} />
+      <LightGlass radius={24} style={styles.pick}>
+        <AppText style={styles.pickLabel}>{label}</AppText>
+        <Icon name={icon} color={groupLook.onLightSub} size={14} />
+      </LightGlass>
     </Pressable>
   );
 }
@@ -192,7 +219,6 @@ export function GroupRunCreateScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunCreate'>>();
   const editingId = route.params?.groupRunId;
-  const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const toast = useToast();
   const { draft, setPlace, changed } = useGroupRunDraft();
@@ -367,11 +393,9 @@ export function GroupRunCreateScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <StatusBar barStyle="dark-content" />
+      <GroupBackground id="groupRunCreateBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <IconButton
@@ -385,19 +409,12 @@ export function GroupRunCreateScreen() {
         </View>
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
-        <AppText variant="caption" tone="textSecondary" style={styles.crew}>
+        <AppText style={styles.crew}>
           {(edited ? edited.crewName : crew?.name) ?? ''}
         </AppText>
         <Section
           title="코스"
-          right={
-            <Segmented
-              compact
-              options={modes}
-              value={mode}
-              onChange={setMode}
-            />
-          }
+          right={<ModeSwitch value={mode} onChange={setMode} />}
         >
           {mode === 'COURSE' ? (
             course ? (
@@ -420,24 +437,21 @@ export function GroupRunCreateScreen() {
                     accessibilityLabel={`${value}분`}
                     accessibilityState={{ selected }}
                     onPress={() => setMinutes(value)}
-                    style={[
-                      styles.chip,
-                      selected
-                        ? {
-                            backgroundColor: colors.accent,
-                            borderColor: colors.accent,
-                          }
-                        : { borderColor: colors.borderStrong },
-                    ]}
+                    style={({ pressed }) => pressed && styles.pressed}
                   >
-                    <AppText
-                      variant="captionStrong"
-                      style={{
-                        color: selected ? colors.onAccent : colors.text,
-                      }}
-                    >
-                      {`${value}분`}
-                    </AppText>
+                    {selected ? (
+                      <Raised tone="navy" style={styles.chip}>
+                        <AppText style={styles.chipTextOn}>
+                          {`${value}분`}
+                        </AppText>
+                      </Raised>
+                    ) : (
+                      <LightGlass radius={18} style={styles.chip}>
+                        <AppText
+                          style={styles.chipText}
+                        >{`${value}분`}</AppText>
+                      </LightGlass>
+                    )}
                   </Pressable>
                 );
               })}
@@ -446,15 +460,11 @@ export function GroupRunCreateScreen() {
         </Section>
         <Section
           title="만나는 곳"
-          right={
-            <AppText variant="label" tone="textSecondary">
-              상세 위치
-            </AppText>
-          }
+          right={<AppText style={styles.note}>상세 위치</AppText>}
         >
           {draft.place ? (
             <ChangeRow
-              icon={<Icon name="mapPin" color={colors.text} size={18} />}
+              icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
               title={draft.place.name}
               detail={draft.place.address}
               label="만나는 곳 변경"
@@ -482,30 +492,27 @@ export function GroupRunCreateScreen() {
         </Section>
         <Section
           title="공동 페이스"
-          vignette
           right={
-            <AppText variant="label" tone="textSecondary">
-              예상값 · 직접 입력하지 않아요
-            </AppText>
+            <AppText style={styles.note}>예상값 · 직접 입력하지 않아요</AppText>
           }
         >
           <View style={styles.auto}>
             <AppText style={styles.autoTitle}>자동 산출</AppText>
-            <AppText variant="caption" tone="textSecondary" style={styles.flex}>
+            <AppText style={[styles.rowDetail, styles.flex]}>
               지금 참가자 기록으로 낸 예상값이에요 · 출발 직전 다시 계산해요
             </AppText>
           </View>
         </Section>
       </ScrollView>
-      {/* The glow pill with a white round + on the black lower part, as on 3.1. */}
+      {/* 6.8-CreateCTA: the raised white pill with a navy circle + on the navy foot. */}
       <ThemeProvider tone="dark">
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <BottomFade />
-          <GlowButton
+          <GroupCta
             title={editingId ? '저장' : '그룹런 만들기'}
             icon={editingId ? 'check' : 'plus'}
-            loading={saving}
             disabled={
+              saving ||
               (editingId ? !edited : !crew) ||
               !draft.place ||
               !day ||
@@ -591,52 +598,133 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 26,
+    color: groupLook.onLight,
+  },
   content: {
-    padding: 14,
+    paddingHorizontal: 16,
     paddingTop: 0,
-    gap: spacing.md,
+    gap: 28,
     paddingBottom: spacing.xxxl * 4,
   },
-  crew: { marginLeft: spacing.sm, marginBottom: spacing.xs },
+  crew: {
+    marginLeft: spacing.xs,
+    marginBottom: -spacing.md,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
   card: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  sectionTitle: { fontSize: 15 },
+  note: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  modes: {
+    flexDirection: 'row',
+    height: 32,
+    padding: 3,
+    gap: 2,
+    borderRadius: 16,
+    backgroundColor: 'rgba(2,5,14,0.05)',
+    boxShadow: insetTrackLight,
+  },
+  mode: { justifyContent: 'center' },
+  modeOn: {
+    flex: 1,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    justifyContent: 'center',
+  },
+  modeText: {
+    paddingHorizontal: 12,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
+  modeTextOn: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onDark,
+  },
   changeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   tile: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    backgroundColor: 'rgba(2,5,14,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  underline: { textDecorationLine: 'underline' },
+  rowTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onLight,
+  },
+  rowDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupLook.onLightSub,
+  },
+  change: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLight,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
     height: 36,
     paddingHorizontal: spacing.xxl,
-    borderRadius: 999,
-    borderWidth: 1,
+    borderRadius: 18,
     justifyContent: 'center',
   },
+  chipText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub2,
+  },
+  chipTextOn: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onDark,
+  },
   pick: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 48,
     paddingHorizontal: spacing.xl,
-    borderRadius: 24,
-    borderWidth: 1,
   },
-  pickLabel: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
-  pressed: { opacity: 0.8 },
+  pickLabel: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 16,
+    color: groupLook.onLight,
+  },
+  pressed: { transform: [{ scale: 0.97 }] },
   auto: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  autoTitle: { fontFamily: fontFamily.medium, fontSize: 20, lineHeight: 28 },
+  autoTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 28,
+    color: groupLook.onLight,
+  },
   footer: {
     position: 'absolute',
     left: 0,

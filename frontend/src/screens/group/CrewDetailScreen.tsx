@@ -17,9 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
   BottomSheet,
-  Card,
   EmptyState,
   Icon,
   IconButton,
@@ -48,7 +46,14 @@ import {
   useTheme,
 } from '../../theme';
 import { FooterButton } from './GroupRunDetailScreen';
-import { BottomFade, useGroupRunDraft } from './parts';
+import {
+  DarkBackground,
+  GroupCta,
+  groupLook,
+  Raised,
+  SectionLabel,
+} from './look';
+import { useGroupRunDraft } from './parts';
 
 // The rows 구성원 shows before 모두 보기.
 const previewCount = 4;
@@ -82,7 +87,7 @@ function ManageBody({
   return (
     <>
       <View style={styles.rowBetween}>
-        <AppText variant="heading">크루 관리</AppText>
+        <SectionLabel>크루 관리</SectionLabel>
         <View style={[styles.ownerOnly, { borderColor: colors.borderStrong }]}>
           <AppText variant="captionStrong" tone="textSecondary">
             크루장만 보여요
@@ -159,16 +164,16 @@ function ManageBody({
 }
 
 // 6.2m 크루 관리, only for the leader: 정원 제한 and 정원 with a bar of how full the crew is.
-// The body reads the theme inside the dark card, so its lines and text turn light.
+// A section on the dark screen, no card (runway-group-handoff).
 function ManageCard(props: React.ComponentProps<typeof ManageBody>) {
   return (
-    <Card variant="deep" style={styles.section}>
+    <View style={styles.section}>
       <ManageBody {...props} />
-    </Card>
+    </View>
   );
 }
 
-// 지역 · 인원 boxes under the title.
+// 지역 · 인원 under the title: two columns, each with a line on its left (6.2-InfoStats).
 function Fact({
   label,
   value,
@@ -179,54 +184,38 @@ function Fact({
   unit?: string;
 }) {
   return (
-    <Card variant="deep" style={[styles.flex, styles.fact]}>
-      <AppText variant="caption" tone="textSecondary">
-        {label}
-      </AppText>
+    <View style={[styles.flex, styles.fact]}>
+      <AppText style={styles.factLabel}>{label}</AppText>
       <View style={styles.factLine}>
         <AppText style={styles.factValue}>{value}</AppText>
-        {unit ? (
-          <AppText variant="caption" tone="textSecondary">
-            {unit}
-          </AppText>
-        ) : null}
+        {unit ? <AppText style={styles.factUnit}>{unit}</AppText> : null}
       </View>
-    </Card>
+    </View>
   );
 }
 
-function MemberRow({ member, first }: { member: CrewMember; first: boolean }) {
-  const { colors } = useTheme();
+// A member line without dividers (6.2-MembersCard).
+function MemberRow({ member }: { member: CrewMember }) {
   return (
-    <View
-      style={[
-        styles.memberRow,
-        !first && {
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-        },
-      ]}
-    >
-      <View style={[styles.initial, { backgroundColor: colors.surfaceMuted }]}>
-        <AppText variant="bodyStrong">{member.nickname.slice(0, 1)}</AppText>
+    <View style={styles.memberRow}>
+      <View style={styles.initial}>
+        <AppText style={styles.initialText}>
+          {member.nickname.slice(0, 1)}
+        </AppText>
       </View>
-      <AppText variant="bodyStrong">
+      <AppText style={styles.memberName}>
         {member.isMe ? `${member.nickname} (나)` : member.nickname}
       </AppText>
       {member.isOwner ? (
-        <View
-          style={[styles.ownerTag, { backgroundColor: colors.surfaceMuted }]}
-        >
-          <AppText variant="captionStrong">크루장</AppText>
-        </View>
+        <Raised tone="darkGlass" style={styles.ownerTag}>
+          <AppText style={styles.ownerTagText}>크루장</AppText>
+        </Raised>
       ) : null}
       <View style={styles.flex} />
       {member.recentPaceSecPerKm ? (
         <AppText style={styles.pace}>
           {formatPace(member.recentPaceSecPerKm)}
-          <AppText variant="caption" tone="textSecondary">
-            /km
-          </AppText>
+          <AppText style={styles.paceUnit}>/km</AppText>
         </AppText>
       ) : null}
     </View>
@@ -288,7 +277,7 @@ function RequestsLink({
         accessibilityRole="button"
         accessibilityLabel={`가입 신청 ${count}건`}
         onPress={() => navigation.navigate('CrewJoinRequests', { crewId })}
-        style={({ pressed }) => [styles.requests, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.requests, pressed && styles.rowPressed]}
       >
         <View style={styles.flex}>
           <AppText variant="heading">{`가입 신청 ${count}건`}</AppText>
@@ -317,7 +306,6 @@ export function CrewDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'CrewDetail'>>();
   const crewId = route.params?.crewId ?? 'crew-gwangalli';
-  const { colors } = useTheme();
   const { crews } = useRepositories();
   const toast = useToast();
   const { changed } = useGroupRunDraft();
@@ -425,6 +413,7 @@ export function CrewDetailScreen() {
     : crew.amOwner
     ? {
         title: '저장',
+        icon: 'check' as const,
         primary: true,
         disabled: invalid || draftCapacity === crew.capacity,
         onPress: () => save(crew),
@@ -432,6 +421,7 @@ export function CrewDetailScreen() {
     : crew.myMembership === 'MEMBER'
     ? {
         title: '가입한 크루예요 · 내 크루에서 보기',
+        icon: 'arrowRight' as const,
         primary: true,
         onPress: toMyCrews,
       }
@@ -447,214 +437,204 @@ export function CrewDetailScreen() {
         primary: false,
         onPress: () => setSheet('full'),
       }
-    : { title: '가입 신청', primary: true, onPress: () => requestJoin(crew) };
+    : {
+        title: '가입 신청',
+        icon: 'plus' as const,
+        primary: true,
+        onPress: () => requestJoin(crew),
+      };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <SafeAreaView edges={['top']}>
-        <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
-        </View>
-      </SafeAreaView>
-      {detail.status === 'error' ? (
-        <EmptyState
-          icon="alert"
-          title="크루를 불러오지 못했어요"
-          actionLabel="다시 시도"
-          onAction={() => setVersion(value => value + 1)}
-        />
-      ) : !crew || crew.id !== crewId ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : (
-        <ScrollView contentContainerStyle={styles.content}>
-          <View
-            style={[
-              styles.status,
-              {
-                backgroundColor: full ? colors.surfaceMuted : colors.accent,
-              },
-            ]}
-          >
-            <AppText
-              variant="captionStrong"
-              style={{ color: full ? colors.text : colors.onAccent }}
-            >
-              {full
-                ? `정원 마감 ${crew.memberCount}/${crew.capacity}`
-                : `모집 중 ${crew.memberCount}/${crew.capacity} · ${
-                    joinPolicyLabels[crew.joinPolicy]
-                  }`}
-            </AppText>
-          </View>
-          <AppText style={styles.title} accessibilityRole="header">
-            {crew.name}
-          </AppText>
-          <View style={styles.facts}>
-            <Fact label="지역" value={crew.area} />
-            <Fact
-              label="인원"
-              value={String(crew.memberCount)}
-              unit={`/ ${crew.capacity}명`}
+    // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
+    <ThemeProvider tone="dark">
+      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+        <StatusBar barStyle="light-content" />
+        <DarkBackground id="crewDetailBackground" />
+        <SafeAreaView edges={['top']}>
+          <View style={styles.header}>
+            <IconButton
+              icon="back"
+              accessibilityLabel="뒤로"
+              onPress={() => navigation.goBack()}
             />
           </View>
-          {crew.amOwner ? (
-            <>
-              <RequestsLink
-                crewId={crew.id}
-                count={crew.pendingRequestCount ?? 0}
-                policy={crew.joinPolicy}
-              />
-              <ManageCard
-                memberCount={crew.memberCount}
-                limited={limited}
-                capacityText={capacityText}
-                invalid={invalid}
-                onLimited={setLimited}
-                onCapacity={setCapacityText}
-              />
-            </>
-          ) : null}
-          {crew.description ? (
-            <Card variant="deep" style={styles.section}>
-              <AppText variant="heading">소개</AppText>
-              <AppText variant="body">{crew.description}</AppText>
-            </Card>
-          ) : null}
-          <Card variant="deep" style={styles.section}>
-            <View style={styles.rowBetween}>
-              <AppText variant="heading">구성원</AppText>
-              <AppText variant="body" tone="textSecondary">
-                {`${crew.memberCount}명`}
+        </SafeAreaView>
+        {detail.status === 'error' ? (
+          <EmptyState
+            icon="alert"
+            title="크루를 불러오지 못했어요"
+            actionLabel="다시 시도"
+            onAction={() => setVersion(value => value + 1)}
+          />
+        ) : !crew || crew.id !== crewId ? (
+          <ActivityIndicator style={styles.loading} />
+        ) : (
+          <ScrollView contentContainerStyle={styles.content}>
+            <Raised tone={full ? 'darkGlass' : 'white'} style={styles.status}>
+              <AppText style={full ? styles.statusTextFull : styles.statusText}>
+                {full
+                  ? `정원 마감 ${crew.memberCount}/${crew.capacity}`
+                  : `모집 중 ${crew.memberCount}/${crew.capacity} · ${
+                      joinPolicyLabels[crew.joinPolicy]
+                    }`}
               </AppText>
+            </Raised>
+            <AppText style={styles.title} accessibilityRole="header">
+              {crew.name}
+            </AppText>
+            <View style={styles.facts}>
+              <Fact label="지역" value={crew.area} />
+              <Fact
+                label="인원"
+                value={String(crew.memberCount)}
+                unit={`/ ${crew.capacity}명`}
+              />
             </View>
-            <View>
-              {shown.map((member, index) => (
-                <MemberRow
-                  key={member.userId}
-                  member={member}
-                  first={index === 0}
+            {crew.amOwner ? (
+              <>
+                <RequestsLink
+                  crewId={crew.id}
+                  count={crew.pendingRequestCount ?? 0}
+                  policy={crew.joinPolicy}
                 />
-              ))}
+                <ManageCard
+                  memberCount={crew.memberCount}
+                  limited={limited}
+                  capacityText={capacityText}
+                  invalid={invalid}
+                  onLimited={setLimited}
+                  onCapacity={setCapacityText}
+                />
+              </>
+            ) : null}
+            {crew.description ? (
+              <View style={styles.section}>
+                <SectionLabel>소개</SectionLabel>
+                <AppText style={styles.intro}>{crew.description}</AppText>
+              </View>
+            ) : null}
+            <View style={styles.section}>
+              <View style={styles.rowBetween}>
+                <SectionLabel>구성원</SectionLabel>
+                <AppText style={styles.memberCount}>
+                  {`${crew.memberCount}명`}
+                </AppText>
+              </View>
+              <View>
+                {shown.map(member => (
+                  <MemberRow key={member.userId} member={member} />
+                ))}
+              </View>
+              {crew.members.length > previewCount ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    allMembers
+                      ? '구성원 접기'
+                      : `구성원 ${crew.memberCount}명 모두 보기`
+                  }
+                  onPress={() => setAllMembers(value => !value)}
+                  style={styles.more}
+                >
+                  <AppText style={[styles.moreText, styles.underline]}>
+                    {allMembers
+                      ? '접기'
+                      : `구성원 ${crew.memberCount}명 모두 보기`}
+                  </AppText>
+                </Pressable>
+              ) : null}
             </View>
-            {crew.members.length > previewCount ? (
+            {crew.myMembership === 'MEMBER' ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={
-                  allMembers
-                    ? '구성원 접기'
-                    : `구성원 ${crew.memberCount}명 모두 보기`
-                }
-                onPress={() => setAllMembers(value => !value)}
-                style={styles.more}
+                accessibilityLabel="크루 나가기"
+                disabled={busy}
+                onPress={() => setSheet(crew.amOwner ? 'ownerLeave' : 'leave')}
+                style={styles.leave}
               >
-                <AppText variant="bodyStrong" style={styles.underline}>
-                  {allMembers
-                    ? '접기'
-                    : `구성원 ${crew.memberCount}명 모두 보기`}
+                <AppText variant="body" tone="danger" style={styles.underline}>
+                  크루 나가기
                 </AppText>
               </Pressable>
             ) : null}
-          </Card>
-          {crew.myMembership === 'MEMBER' ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="크루 나가기"
-              disabled={busy}
-              onPress={() => setSheet(crew.amOwner ? 'ownerLeave' : 'leave')}
-              style={styles.leave}
-            >
-              <AppText variant="body" tone="danger" style={styles.underline}>
-                크루 나가기
-              </AppText>
-            </Pressable>
-          ) : null}
-        </ScrollView>
-      )}
-      {footer ? (
-        <ThemeProvider tone="dark">
+          </ScrollView>
+        )}
+        {footer ? (
           <SafeAreaView edges={['bottom']} style={styles.footer}>
-            <BottomFade />
-            <FooterButton
+            <GroupCta
               title={footer.title}
+              icon={'icon' in footer ? footer.icon : undefined}
               primary={footer.primary}
               disabled={busy || ('disabled' in footer && footer.disabled)}
               onPress={footer.onPress}
             />
           </SafeAreaView>
+        ) : null}
+        <ThemeProvider tone="dark">
+          <BottomSheet visible={sheet !== null} onClose={() => setSheet(null)}>
+            {crew && sheet === 'full' ? (
+              <SheetBody
+                icon="group"
+                title="정원이 가득 찼어요"
+                count={` (${crew.memberCount} / ${crew.capacity}명)`}
+                body={`‘${crew.name}’는 지금 가입 신청을 받을 수 없어요. 자리가 나면 다시 신청할 수 있어요.`}
+              >
+                <FooterButton title="닫기" onPress={() => setSheet(null)} />
+                <FooterButton
+                  title="다른 크루 둘러보기"
+                  primary
+                  onPress={() => {
+                    setSheet(null);
+                    navigateTo(navigation, 'CrewRecruit');
+                  }}
+                />
+              </SheetBody>
+            ) : crew && sheet === 'sent' ? (
+              <SheetBody
+                icon="check"
+                title="가입 신청을 보냈어요"
+                body="크루장이 승인하면 내 크루에서 그룹런을 볼 수 있어요. 승인 전에는 ‘승인 대기’로 보여요."
+              >
+                <FooterButton title="내 크루로" primary onPress={toMyCrews} />
+              </SheetBody>
+            ) : crew && sheet === 'joined' ? (
+              <SheetBody
+                icon="check"
+                title="크루에 가입했어요"
+                body={`‘${crew.name}’는 바로 가입 크루예요. 이제 내 크루에서 그룹런을 볼 수 있어요.`}
+              >
+                <FooterButton title="내 크루로" primary onPress={toMyCrews} />
+              </SheetBody>
+            ) : crew && sheet === 'leave' ? (
+              <SheetBody
+                icon="alert"
+                title="크루에서 나갈까요?"
+                body={`‘${crew.name}’의 그룹런과 구성원 목록에서 빠져요. 다시 함께하려면 가입 신청을 새로 보내야 해요.`}
+              >
+                <FooterButton title="취소" onPress={() => setSheet(null)} />
+                <FooterButton
+                  title="나가기"
+                  primary
+                  onPress={() => leave(crew)}
+                />
+              </SheetBody>
+            ) : crew && sheet === 'ownerLeave' ? (
+              <SheetBody
+                icon="alert"
+                title="크루장은 바로 나갈 수 없어요"
+                body="크루장을 다른 구성원에게 넘긴 뒤에 나갈 수 있어요. 크루장 넘기기는 준비 중이에요."
+              >
+                <FooterButton
+                  title="닫기"
+                  primary
+                  onPress={() => setSheet(null)}
+                />
+              </SheetBody>
+            ) : null}
+          </BottomSheet>
         </ThemeProvider>
-      ) : null}
-      <ThemeProvider tone="dark">
-        <BottomSheet visible={sheet !== null} onClose={() => setSheet(null)}>
-          {crew && sheet === 'full' ? (
-            <SheetBody
-              icon="group"
-              title="정원이 가득 찼어요"
-              count={` (${crew.memberCount} / ${crew.capacity}명)`}
-              body={`‘${crew.name}’는 지금 가입 신청을 받을 수 없어요. 자리가 나면 다시 신청할 수 있어요.`}
-            >
-              <FooterButton title="닫기" onPress={() => setSheet(null)} />
-              <FooterButton
-                title="다른 크루 둘러보기"
-                primary
-                onPress={() => {
-                  setSheet(null);
-                  navigateTo(navigation, 'CrewRecruit');
-                }}
-              />
-            </SheetBody>
-          ) : crew && sheet === 'sent' ? (
-            <SheetBody
-              icon="check"
-              title="가입 신청을 보냈어요"
-              body="크루장이 승인하면 내 크루에서 그룹런을 볼 수 있어요. 승인 전에는 ‘승인 대기’로 보여요."
-            >
-              <FooterButton title="내 크루로" primary onPress={toMyCrews} />
-            </SheetBody>
-          ) : crew && sheet === 'joined' ? (
-            <SheetBody
-              icon="check"
-              title="크루에 가입했어요"
-              body={`‘${crew.name}’는 바로 가입 크루예요. 이제 내 크루에서 그룹런을 볼 수 있어요.`}
-            >
-              <FooterButton title="내 크루로" primary onPress={toMyCrews} />
-            </SheetBody>
-          ) : crew && sheet === 'leave' ? (
-            <SheetBody
-              icon="alert"
-              title="크루에서 나갈까요?"
-              body={`‘${crew.name}’의 그룹런과 구성원 목록에서 빠져요. 다시 함께하려면 가입 신청을 새로 보내야 해요.`}
-            >
-              <FooterButton title="취소" onPress={() => setSheet(null)} />
-              <FooterButton
-                title="나가기"
-                primary
-                onPress={() => leave(crew)}
-              />
-            </SheetBody>
-          ) : crew && sheet === 'ownerLeave' ? (
-            <SheetBody
-              icon="alert"
-              title="크루장은 바로 나갈 수 없어요"
-              body="크루장을 다른 구성원에게 넘긴 뒤에 나갈 수 있어요. 크루장 넘기기는 준비 중이에요."
-            >
-              <FooterButton
-                title="닫기"
-                primary
-                onPress={() => setSheet(null)}
-              />
-            </SheetBody>
-          ) : null}
-        </BottomSheet>
-      </ThemeProvider>
-    </View>
+      </View>
+    </ThemeProvider>
   );
 }
 
@@ -670,28 +650,67 @@ const styles = StyleSheet.create({
   },
   // Room under the last card for the floating button.
   content: { padding: spacing.screen, paddingBottom: 120, gap: spacing.lg },
+  // 6.2-CrewHero: the status chip and the name.
   status: {
     alignSelf: 'flex-start',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
+    height: 26,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    justifyContent: 'center',
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 28, lineHeight: 38 },
-  facts: { flexDirection: 'row', gap: spacing.lg },
-  fact: { gap: spacing.xs },
+  statusText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.navy,
+  },
+  statusTextFull: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 30,
+    lineHeight: 38,
+    letterSpacing: -0.6,
+    color: groupLook.onDark,
+  },
+  // 6.2-InfoStats: two columns, a white line on the left of each.
+  facts: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs },
+  fact: {
+    borderLeftWidth: 1.5,
+    borderLeftColor: groupLook.onDark,
+    paddingLeft: 10,
+    gap: 2,
+  },
+  factLabel: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: groupLook.onDarkSub,
+  },
   factLine: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
-  factValue: { fontFamily: fontFamily.regular, fontSize: 22, lineHeight: 30 },
+  factValue: {
+    fontFamily: fontFamily.regular,
+    fontSize: 26,
+    lineHeight: 34,
+    color: groupLook.onDark,
+  },
+  factUnit: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onDarkSub,
+  },
   requests: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xl,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    borderRadius: radius.card,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    backgroundColor: k1.night,
+    paddingVertical: spacing.md,
   },
+  rowPressed: { transform: [{ scale: 0.985 }] },
   // DESIGN.md 2-1: a pressed box shrinks to 96%.
   pressed: { transform: [{ scale: 0.96 }] },
   round: {
@@ -702,32 +721,81 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  section: { gap: spacing.md },
+  section: { gap: spacing.md, marginTop: spacing.xl },
+  intro: {
+    fontFamily: fontFamily.regular,
+    fontSize: 15,
+    lineHeight: 22,
+    color: 'rgba(255,255,255,0.85)',
+  },
+  memberCount: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onDarkSub,
+  },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 6.2-MembersCard rows: 34 initial, name, 크루장 chip, recent pace on the right.
   memberRow: {
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingVertical: spacing.lg,
+    gap: 10,
   },
   initial: {
     width: 34,
     height: 34,
     borderRadius: 17,
+    backgroundColor: groupLook.darkFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ownerTag: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xxs,
-    borderRadius: radius.pill,
+  initialText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: groupLook.onDark,
   },
-  pace: { fontFamily: fontFamily.medium, fontSize: 16, lineHeight: 22 },
+  memberName: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onDark,
+  },
+  ownerTag: {
+    height: 22,
+    paddingHorizontal: 9,
+    borderRadius: 11,
+    justifyContent: 'center',
+  },
+  ownerTagText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onDark,
+  },
+  pace: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 18,
+    lineHeight: 24,
+    color: groupLook.onDark,
+  },
+  paceUnit: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 13,
+    color: groupLook.onDarkMuted,
+  },
   more: { alignSelf: 'flex-start', paddingVertical: spacing.xs },
+  moreText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onDark,
+  },
   leave: { alignSelf: 'center', paddingVertical: spacing.md },
   underline: { textDecorationLine: 'underline' },
   footer: {
@@ -746,9 +814,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   manageRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  // Groups inside 크루 관리 are set apart by space only (runway-group-handoff: no dividers).
   lined: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: spacing.xl,
+    paddingTop: spacing.md,
     gap: spacing.md,
   },
   capacityField: {

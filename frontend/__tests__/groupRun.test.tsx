@@ -116,23 +116,29 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   for (const text of [
     '내 크루',
     '크루 모집',
-    '15분 뒤 출발',
-    '월요일 점심, 함께 5km',
     '광안리 새벽 크루',
-    '광안리 · 멤버 18',
     '토요일 아침, 함께 5km',
-    '10.24 토 07:00',
-    '성윤님이 만듦',
-    '코스 러닝 · 민락수변공원 출발 5.0km',
+    '10.24 토 07:00 · 광안리해수욕장 입구 · 편의점 앞',
     '수요일 회복 조깅',
-    '자유 러닝 · 40분',
-    '내가 만듦',
+    '10.28 수 06:30 · 민락수변공원 주차장 입구',
     '민락 야경 러너스',
     '승인 대기',
-    '남천 · 크루장이 승인하면 그룹런이 보여요',
+    '크루장이 승인하면 그룹런이 보여요',
   ]) {
     expect(page).toContain(text);
   }
+  // The run pinned in '곧 출발' is not listed again, and the list leaves the course to 6.4.
+  // 곧 출발 shows the crew, time and place; the run's title is only in its label.
+  expect(page).toContain('13:00 · 광안리해수욕장 입구');
+  expect(() =>
+    labelled(screen, '월요일 점심, 함께 5km, 15분 뒤 출발'),
+  ).not.toThrow();
+  expect(page).not.toContain('월요일 점심, 함께 5km');
+  expect(page).toContain('성윤님이 만듦');
+  expect(page).toContain('내가 만듦');
+  expect(page).not.toContain('코스 러닝 · 민락수변공원 출발 5.0km');
+  // Crew heads show the name only; area and members are on 6.2.
+  expect(page).not.toContain('광안리 · 멤버 18');
   // The second crew starts folded.
   expect(page).not.toContain('월요일 야경 7km');
   await press(screen, '민락 야경 러너스 펴기');
@@ -141,6 +147,18 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   page = texts(screen);
   expect(page).toContain('참가 10명');
   expect(() => labelled(screen, '월요일 야경 7km 참가 취소')).not.toThrow();
+
+  // The round search button beside the tabs narrows my crews by name or area.
+  await press(screen, '내 크루 검색 열기');
+  await type(screen, '내 크루 검색', '민락');
+  page = texts(screen);
+  expect(page).toContain('민락 야경 러너스');
+  expect(page).not.toContain('남천 회복 조깅 크루장이');
+  expect(() => labelled(screen, '대기방 입장')).toThrow();
+  await type(screen, '내 크루 검색', '없는 크루');
+  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  await press(screen, '검색 닫기');
+  expect(texts(screen)).toContain('크루장이 승인하면 그룹런이 보여요');
   await act(async () => screen.unmount());
 
   const empty = await openGroup('noCrews');
@@ -148,26 +166,34 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   expect(page).toContain('혼자 달리던 길, 같이 달려 볼까요');
   expect(page).toContain('내 근처 크루 8곳이 모집 중');
   await press(empty, '크루 모집 보러 가기');
-  expect(texts(empty)).toContain('모집 중 · 18/30명');
+  expect(texts(empty)).toContain('광안리 새벽 크루 18/30명');
   await act(async () => empty.unmount());
 });
 
-test('6.1 lists open crews before full ones, searches by name or area and widens past 내 근처', async () => {
+test('6.1 lists every crew, open ones before full ones, and searches by name or area', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
   let page = texts(screen);
-  expect(page).toContain('모집 중 · 18/30명');
+  expect(page).toContain('광안리 새벽 크루 18/30명');
+  expect(page).toContain('해운대 선셋 런');
   expect(page.indexOf('남천 회복 조깅')).toBeLessThan(
-    page.indexOf('정원 마감 · 200/200명'),
+    page.indexOf('정원 마감 수영강 하프 크루 200/200명'),
   );
-  expect(page).not.toContain('해운대 선셋 런');
+  // 내 근처 is gone: the server has no location filter.
+  expect(() => labelled(screen, '내 근처')).toThrow();
 
+  // Search is a round button that opens into the field.
+  expect(() => labelled(screen, '크루 검색')).toThrow();
+  await press(screen, '크루 검색 열기');
   await type(screen, '크루 검색', '해운대');
-  expect(texts(screen)).toContain('내 근처에서 찾지 못했어요');
-  await press(screen, '내 근처');
   page = texts(screen);
   expect(page).toContain('해운대 선셋 런');
-  expect(page).not.toContain('모집 중 · 18/30명');
+  expect(page).not.toContain('광안리 새벽 크루 18/30명');
+  await type(screen, '크루 검색', '없는 크루');
+  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  // Closing the search clears it.
+  await press(screen, '검색 닫기');
+  expect(texts(screen)).toContain('광안리 새벽 크루 18/30명');
   await act(async () => screen.unmount());
 });
 
@@ -177,7 +203,7 @@ test('6.0·6.1 sit side by side in one pager: swipes and tab taps switch pages a
   // Both pages are rendered, so the next one is already there under the finger.
   let page = texts(screen);
   expect(page).toContain('광안리 새벽 크루');
-  expect(page).toContain('모집 중 · 18/30명');
+  expect(page).toContain('광안리 새벽 크루 18/30명');
 
   // Halfway through a swipe the tab already shows the page coming in.
   await act(async () => {
@@ -318,13 +344,14 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   await press(screen, '토요일 아침, 함께 5km, 10.24 토 07:00');
   let page = texts(screen);
   for (const text of [
-    '참가 6명',
+    '6명 참가',
     'D-5',
-    '날짜·시간',
-    '광안리해수욕장 입구 · 편의점 앞\n부산 수영구 광안해변로 219',
+    '광안리 새벽 크루',
+    '10.24 토 07:00',
+    '광안리해수욕장 입구 · 편의점 앞',
+    '부산 수영구 광안해변로 219',
     '민락수변공원 출발 5.0km',
-    '예상 공동 페이스',
-    '30:00',
+    '페이스 6′00″',
     '크루 멤버 18명 중',
     '내 페이스와 잘 맞아요',
     '최근 5km 평균 5′56″ · 준비도 82',
@@ -335,7 +362,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   }
   expect(page).not.toContain('내가 만든 그룹런');
   await press(screen, '참가 취소');
-  expect(texts(screen)).toContain('참가 5명');
+  expect(texts(screen)).toContain('5명 참가');
   await press(screen, '뒤로');
 
   await press(screen, '수요일 회복 조깅, 10.28 수 06:30');

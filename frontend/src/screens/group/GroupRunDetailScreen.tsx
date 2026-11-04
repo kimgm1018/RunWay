@@ -17,11 +17,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   AppText,
-  Backdrop,
-  Card,
   EmptyState,
   Icon,
   IconButton,
+  LightGlass,
+  MistFill,
   useToast,
 } from '../../components';
 import {
@@ -35,8 +35,6 @@ import {
 import {
   formatClockTime,
   formatDotDateWeekday,
-  formatDuration,
-  formatKm,
   formatPace,
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -50,13 +48,13 @@ import {
   useTheme,
 } from '../../theme';
 import { MockMap } from '../run/MockMap';
+import { GroupCta, groupLook } from './look';
 import {
   BottomFade,
   canEnterRoom,
   dDay,
   formatSchedule,
   goalLine,
-  InfoLine,
   Initial,
   roomOpensMs,
   useGroupRunDraft,
@@ -70,6 +68,22 @@ export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
   { value: 'OTHER', label: '기타' },
 ];
 
+// 6.4 is laid out like the product cards the 담당자 chose (S15P31E105-414): the map full-bleed at the
+// top, melting into its own colour as the photo does on those cards, with a big title, a round pill
+// beside it, a grey description, see-through tag pills and a pill button. The page keeps our --bg-common
+// (담당자 요청): the map melts into its white top, the text is navy there and white on its navy foot,
+// where the white pill button sits.
+const tone = '#FFFFFF';
+// --bg-common's stops with the white part reaching 55% of the screen, past the foot of the map, so the
+// map's white fade meets white instead of a hard edge.
+const commonStops = groupLook.commonBackgroundStops.map(offset =>
+  offset <= 0.35
+    ? (offset * 0.55) / 0.35
+    : 0.55 + ((offset - 0.35) * 0.45) / 0.65,
+);
+const muted = groupLook.onLightSub;
+const glass = 'rgba(2,5,14,0.07)';
+
 // The next group run, for links that open 6.4 without an id.
 async function loadDetail(repositories: Repositories, groupRunId?: string) {
   const id =
@@ -78,34 +92,7 @@ async function loadDetail(repositories: Repositories, groupRunId?: string) {
   return repositories.groupRuns.get(id);
 }
 
-function Stat({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-}) {
-  const { colors } = useTheme();
-  // A see-through tile of the background color, label on top and the value at the bottom.
-  return (
-    <View style={[styles.stat, { backgroundColor: colors.glass }]}>
-      <AppText variant="label" tone="textSecondary">
-        {label}
-      </AppText>
-      <AppText style={styles.statValue}>
-        {value}
-        {unit ? (
-          <AppText variant="label" tone="textSecondary">
-            {` ${unit}`}
-          </AppText>
-        ) : null}
-      </AppText>
-    </View>
-  );
-}
-
+// 내 페이스와 잘 맞아요 (6.4-PaceMatch): a bold line and a grey line.
 function FitLine({ run }: { run: GroupRunDetail }) {
   if (!run.myFit) {
     return null;
@@ -118,46 +105,42 @@ function FitLine({ run }: { run: GroupRunDetail }) {
       ? '내 페이스보다 느긋해요'
       : '내 페이스보다 빨라요';
   return (
-    <Card style={[styles.card, styles.fit]}>
-      <AppText variant="captionStrong">{verdict}</AppText>
-      <AppText variant="caption" tone="textSecondary">
+    <View style={[styles.card, styles.fit]}>
+      <AppText style={styles.blockTitle}>{verdict}</AppText>
+      <AppText style={styles.muted}>
         {`최근 5km 평균 ${formatPace(run.myFit.recentPaceSecPerKm)} · 준비도 ${
           run.myFit.readinessScore
         }`}
       </AppText>
-    </Card>
+    </View>
   );
 }
 
-// Chips floating at the bottom of the map (DESIGN.md 2-10 상세 위 지도): 참가 n명 is a white chip,
-// D-n and the reason a black 55% chip, 취소됨 coral text on coral 14%.
-function MapChip({
+// A see-through pill: the one beside the title (D-n, or 취소됨 in coral) and the tags under the
+// description.
+function Pill({
   label,
-  tone,
+  danger = false,
+  large = false,
 }: {
   label: string;
-  tone: 'light' | 'dark' | 'danger';
+  danger?: boolean;
+  large?: boolean;
 }) {
   return (
     <View
       style={[
-        styles.chip,
-        tone === 'light'
-          ? styles.chipLight
-          : tone === 'danger'
-          ? styles.chipDanger
-          : styles.chipDark,
+        styles.pill,
+        large && styles.pillLarge,
+        danger && styles.pillDanger,
       ]}
     >
       <AppText
-        variant="labelStrong"
-        style={
-          tone === 'light'
-            ? styles.chipLightText
-            : tone === 'danger'
-            ? styles.chipDangerText
-            : styles.chipDarkText
-        }
+        style={[
+          styles.pillText,
+          large && styles.pillTextLarge,
+          danger && styles.pillDangerText,
+        ]}
       >
         {label}
       </AppText>
@@ -165,50 +148,34 @@ function MapChip({
   );
 }
 
-// The top 400: the K1 dark map with a white course loop, darkening under the status bar and
-// melting into the K1 background at the bottom, with the chips and crew name on it.
-function MapHead({
+// The map full-bleed behind the top of the page, fading into the page's tone from its middle down.
+function MapBackdrop({
   run,
   cancelled,
-  chips,
 }: {
   run: GroupRunDetail;
   cancelled: boolean;
-  chips: React.ReactNode;
 }) {
   return (
-    <View style={styles.map}>
+    <View style={styles.map} pointerEvents="none">
       <MockMap
         k1Style
-        night
         muted={cancelled}
         route={run.route ?? undefined}
         position={run.route ? undefined : run.meetingPosition}
-        routeArea={{ top: 250, bottom: 420 }}
-        positionY={330}
+        routeArea={{ top: 110, bottom: 300 }}
+        positionY={210}
       />
-      <Svg
-        style={StyleSheet.absoluteFill}
-        width="100%"
-        height="100%"
-        pointerEvents="none"
-      >
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
         <Defs>
           <LinearGradient id="detailFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={k1.night} stopOpacity={0.6} />
-            <Stop offset="0.2" stopColor={k1.night} stopOpacity={0} />
-            <Stop offset="0.7" stopColor="#C3D1DD" stopOpacity={0} />
-            <Stop offset="1" stopColor="#C3D1DD" stopOpacity={1} />
+            <Stop offset="0.38" stopColor={tone} stopOpacity={0} />
+            <Stop offset="0.72" stopColor={tone} stopOpacity={0.78} />
+            <Stop offset="1" stopColor={tone} stopOpacity={1} />
           </LinearGradient>
         </Defs>
         <Rect width="100%" height="100%" fill="url(#detailFade)" />
       </Svg>
-      <View style={styles.mapLabels}>
-        <View style={styles.tags}>{chips}</View>
-        <AppText variant="captionStrong" tone="textSecondary">
-          {run.crewName}
-        </AppText>
-      </View>
     </View>
   );
 }
@@ -218,7 +185,6 @@ export function GroupRunDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunDetail'>>();
   const groupRunId = route.params?.groupRunId;
-  const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const { changed } = useGroupRunDraft();
   const toast = useToast();
@@ -242,9 +208,7 @@ export function GroupRunDetailScreen() {
 
   if (!run) {
     return (
-      <SafeAreaView
-        style={[styles.root, { backgroundColor: colors.background }]}
-      >
+      <SafeAreaView style={[styles.root, styles.loadingRoot]}>
         <View style={styles.headerRow}>
           <IconButton
             icon="back"
@@ -272,9 +236,6 @@ export function GroupRunDetailScreen() {
   const reason = cancelReasons.find(
     item => item.value === run.cancellation?.reason,
   );
-  const expectedSec = run.targetDistanceM
-    ? Math.round((run.targetDistanceM / 1000) * run.goalPaceSecPerKm)
-    : run.targetDurationSec;
 
   const toggleJoin = async () => {
     setBusy(true);
@@ -299,146 +260,96 @@ export function GroupRunDetailScreen() {
     }
   };
 
-  const chips = cancelled ? (
-    <>
-      <MapChip label="취소됨" tone="danger" />
-      {reason ? <MapChip label={`사유 · ${reason.label}`} tone="dark" /> : null}
-    </>
-  ) : (
-    <>
-      <MapChip label={`참가 ${run.participantCount}명`} tone="light" />
-      <MapChip label={dDay(run.scheduledAt, now)} tone="dark" />
-    </>
-  );
-
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <MistFill
+        id="groupRunDetailBackground"
+        colors={[...groupLook.commonBackground]}
+        offsets={commonStops}
+      />
+      <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.scroll}>
-        <ThemeProvider tone="dark">
-          <MapHead run={run} cancelled={cancelled} chips={chips} />
-        </ThemeProvider>
+        <MapBackdrop run={run} cancelled={cancelled} />
         <View style={styles.body}>
-          <AppText
-            style={[
-              styles.title,
-              cancelled && [styles.struck, { color: colors.textTertiary }],
-            ]}
-          >
-            {run.title}
-          </AppText>
-          <Card style={styles.card}>
-            <InfoLine
-              icon="clock"
-              label="날짜·시간"
-              value={formatSchedule(run.scheduledAt)}
-            />
-            <View
-              style={[styles.divider, { backgroundColor: colors.border }]}
-            />
-            <InfoLine
-              icon="mapPin"
-              label="만나는 곳"
-              value={
-                cancelled
-                  ? run.meetingPlaceName
-                  : `${run.meetingPlaceName}\n${run.meetingAddress}`
-              }
-            />
+          {/* Title with its round pill on the right, as on the reference cards. */}
+          <View style={styles.titleRow}>
+            <AppText style={[styles.title, cancelled && styles.struck]}>
+              {run.title}
+            </AppText>
+            {cancelled ? (
+              <Pill label="취소됨" danger large />
+            ) : (
+              <Pill label={dDay(run.scheduledAt, now)} large />
+            )}
+          </View>
+          {/* The facts as pills, sorted onto faint cards by kind (담당자 요청): when and where, then the
+              course. Only what a runner needs: the duplicates and the computed time are gone. */}
+          <View style={[styles.card, styles.firstCard]}>
+            <View style={styles.tags}>
+              <Pill label={run.crewName} />
+              <Pill label={formatSchedule(run.scheduledAt)} />
+              <Pill label={run.meetingPlaceName} />
+            </View>
             {!cancelled ? (
-              <>
-                <View
-                  style={[styles.divider, { backgroundColor: colors.border }]}
-                />
-                <InfoLine
-                  icon="route"
-                  label="코스"
-                  value={goalLine(run, false)}
-                />
-              </>
+              <AppText style={styles.muted}>{run.meetingAddress}</AppText>
             ) : null}
-          </Card>
+          </View>
+          {cancelled ? (
+            reason ? (
+              <View style={[styles.card, styles.tags]}>
+                <Pill label={`사유 · ${reason.label}`} />
+              </View>
+            ) : null
+          ) : (
+            <View style={[styles.card, styles.tags]}>
+              <Pill label={goalLine(run, false)} />
+              <Pill label={`페이스 ${formatPace(run.goalPaceSecPerKm)}`} />
+            </View>
+          )}
           {cancelled ? (
             <>
               {run.cancellation?.message ? (
-                <Card style={styles.card}>
+                <LightGlass radius={18} style={styles.message}>
                   <View style={styles.messageHead}>
                     <Initial name={run.cancellation.byNickname} />
-                    <AppText variant="bodyStrong" style={styles.flex}>
+                    <AppText style={[styles.messageName, styles.flex]}>
                       {`${run.cancellation.byNickname} · ${run.cancellation.byRole}`}
                     </AppText>
                   </View>
-                  <AppText variant="body">{run.cancellation.message}</AppText>
-                </Card>
+                  <AppText style={styles.messageText}>
+                    {run.cancellation.message}
+                  </AppText>
+                </LightGlass>
               ) : null}
               <View style={styles.notice}>
-                <Icon name="bell" color={colors.textSecondary} size={14} />
-                <AppText variant="caption" tone="textSecondary">
+                <Icon name="bell" color={muted} size={14} />
+                <AppText style={styles.muted}>
                   {`크루 멤버 ${run.crewMemberCount}명에게 취소 알림을 보냈어요`}
                 </AppText>
               </View>
             </>
           ) : (
             <>
-              <View style={styles.stats}>
-                <Stat
-                  label="거리"
-                  value={
-                    run.targetDistanceM
-                      ? formatKm(run.targetDistanceM, 1)
-                      : '– –'
-                  }
-                  unit={run.targetDistanceM ? 'km' : undefined}
-                />
-                <Stat
-                  label="예상 공동 페이스"
-                  value={formatPace(run.goalPaceSecPerKm)}
-                />
-                <Stat
-                  label="예상 시간"
-                  value={expectedSec ? formatDuration(expectedSec) : '– –'}
-                />
-              </View>
-              <Card style={styles.card}>
-                <View style={styles.rowBetween}>
-                  <AppText variant="bodyStrong">참가자</AppText>
-                  <AppText variant="label" tone="textSecondary">
-                    {`크루 멤버 ${run.crewMemberCount}명 중`}
-                  </AppText>
-                </View>
+              <View style={styles.card}>
                 <View style={styles.avatars}>
                   {run.participants.slice(0, 5).map((member, index) => (
                     <Initial
                       key={member.userId}
                       name={member.nickname}
                       index={index}
-                      style={[
-                        styles.overlap,
-                        { borderColor: colors.surfaceRaised },
-                      ]}
+                      style={styles.overlap}
                     />
                   ))}
-                  <AppText
-                    variant="caption"
-                    tone="textSecondary"
-                    style={styles.count}
-                  >
-                    {`${run.participantCount}명 참가`}
+                  <AppText style={[styles.muted, styles.count]}>
+                    {`${run.participantCount}명 참가 · 크루 멤버 ${run.crewMemberCount}명 중`}
                   </AppText>
                 </View>
-              </Card>
+              </View>
               <FitLine run={run} />
               {run.isHost ? (
-                <Card style={[styles.card, styles.hostRow]}>
+                <View style={[styles.card, styles.hostRow]}>
                   <Initial name="나" index={0} size={28} />
-                  <AppText
-                    variant="caption"
-                    tone="textSecondary"
-                    style={styles.flex}
-                  >
+                  <AppText style={[styles.muted, styles.flex]}>
                     내가 만든 그룹런
                   </AppText>
                   <Pressable
@@ -451,7 +362,7 @@ export function GroupRunDetailScreen() {
                     }
                     hitSlop={8}
                   >
-                    <AppText variant="captionStrong">수정</AppText>
+                    <AppText style={styles.hostLink}>수정</AppText>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
@@ -463,59 +374,66 @@ export function GroupRunDetailScreen() {
                     }
                     hitSlop={8}
                   >
-                    <AppText variant="captionStrong" tone="danger">
+                    <AppText style={[styles.hostLink, styles.hostCancel]}>
                       그룹런 취소
                     </AppText>
                   </Pressable>
-                </Card>
+                </View>
               ) : null}
             </>
           )}
         </View>
       </ScrollView>
-      <ThemeProvider tone="dark">
-        <SafeAreaView
-          edges={['top']}
-          style={styles.header}
-          pointerEvents="box-none"
-        >
-          <View style={styles.headerRow}>
+      <SafeAreaView
+        edges={['top']}
+        style={styles.header}
+        pointerEvents="box-none"
+      >
+        <View style={styles.headerRow}>
+          <IconButton
+            icon="back"
+            accessibilityLabel="뒤로"
+            onPress={() => navigation.goBack()}
+          />
+          <View style={styles.flex} />
+          {!cancelled ? (
             <IconButton
-              icon="back"
-              accessibilityLabel="뒤로"
-              onPress={() => navigation.goBack()}
+              icon="share"
+              accessibilityLabel="공유"
+              onPress={() => navigateTo(navigation, 'PostWrite')}
             />
-            <View style={styles.flex} />
-            {!cancelled ? (
-              <IconButton
-                icon="share"
-                accessibilityLabel="공유"
-                onPress={() => navigateTo(navigation, 'PostWrite')}
-              />
-            ) : null}
-          </View>
-        </SafeAreaView>
-        {/* The buttons sit on the black lower part of the K1 background. */}
+          ) : null}
+        </View>
+      </SafeAreaView>
+      {/* The white pill button of the reference cards, on the navy foot of --bg-common. */}
+      <ThemeProvider tone="dark">
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <BottomFade />
           {cancelled ? (
             <View style={styles.buttonRow}>
-              <FooterButton
-                title="다시 만들기"
-                onPress={() =>
-                  navigation.navigate('GroupRunCreate', { crewId: run.crewId })
-                }
-              />
-              <FooterButton
-                title="내 크루로"
-                primary
-                onPress={() => navigateTo(navigation, 'MyCrews')}
-              />
+              <View style={styles.flex}>
+                <GroupCta
+                  title="다시 만들기"
+                  primary={false}
+                  onPress={() =>
+                    navigation.navigate('GroupRunCreate', {
+                      crewId: run.crewId,
+                    })
+                  }
+                />
+              </View>
+              <View style={styles.flex}>
+                <GroupCta
+                  title="내 크루로"
+                  icon="arrowRight"
+                  onPress={() => navigateTo(navigation, 'MyCrews')}
+                />
+              </View>
             </View>
           ) : enterable ? (
-            <FooterButton
+            <GroupCta
               title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
-              primary
+              icon="arrowRight"
               onPress={() =>
                 navigation.navigate('WaitingRoom', { groupRunId: run.id })
               }
@@ -523,11 +441,7 @@ export function GroupRunDetailScreen() {
           ) : (
             <>
               {run.joined ? (
-                <AppText
-                  variant="caption"
-                  tone="textSecondary"
-                  style={styles.opens}
-                >
+                <AppText style={[styles.muted, styles.onDarkSub, styles.opens]}>
                   {`대기방은 ${formatDotDateWeekday(
                     new Date(Date.parse(run.scheduledAt) - roomOpensMs),
                   )} ${formatClockTime(
@@ -537,15 +451,16 @@ export function GroupRunDetailScreen() {
               ) : null}
               {run.isHost ? (
                 // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
-                <FooterButton
+                <GroupCta
                   title="대기방 입장 · 그룹장"
-                  primary
+                  icon="arrowRight"
                   disabled
                   onPress={() => undefined}
                 />
               ) : (
-                <FooterButton
+                <GroupCta
                   title={run.joined ? '참가 취소' : '참가하기'}
+                  icon={run.joined ? undefined : 'plus'}
                   primary={!run.joined}
                   disabled={busy}
                   onPress={toggleJoin}
@@ -626,16 +541,15 @@ export function FooterButton({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  loadingRoot: { backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
   scroll: { paddingBottom: 170 },
-  map: { height: 400, overflow: 'hidden' },
-  mapLabels: {
-    position: 'absolute',
-    left: spacing.screen,
-    right: spacing.screen,
-    bottom: 64,
-    gap: spacing.md,
+  // The map behind the top 470 of the page; the text starts over its faded part.
+  map: {
+    height: 470,
+    overflow: 'hidden',
+    backgroundColor: groupLook.mapBackground,
   },
   header: { position: 'absolute', top: 0, left: 0, right: 0 },
   headerRow: {
@@ -645,71 +559,105 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.screen,
   },
   body: {
-    paddingHorizontal: 14,
-    gap: spacing.md,
-    marginTop: -56,
+    marginTop: -150,
+    paddingHorizontal: 20,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   title: {
-    fontFamily: fontFamily.medium,
-    fontSize: 26,
-    lineHeight: 34,
-    letterSpacing: -0.5,
-    paddingHorizontal: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  tags: { flexDirection: 'row', gap: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-  },
-  chipLight: { backgroundColor: k1.ice },
-  chipLightText: { color: k1.night },
-  chipDark: { backgroundColor: 'rgba(2,5,14,0.55)' },
-  chipDarkText: { color: k1.ice },
-  chipDanger: { backgroundColor: 'rgba(226,135,111,0.14)' },
-  chipDangerText: { color: k1.coral },
-  struck: { textDecorationLine: 'line-through' },
-  card: { gap: spacing.lg },
-  divider: { height: StyleSheet.hairlineWidth },
-  stats: { flexDirection: 'row', gap: spacing.md },
-  stat: {
     flex: 1,
-    height: 92,
-    borderRadius: 22,
-    padding: spacing.xl,
-    justifyContent: 'space-between',
+    fontFamily: fontFamily.bold,
+    fontSize: 28,
+    lineHeight: 35,
+    letterSpacing: -0.6,
+    color: groupLook.onLight,
   },
-  statValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 21,
-    lineHeight: 26,
+  struck: {
+    textDecorationLine: 'line-through',
+    color: groupLook.onLightSub,
   },
-  rowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // A flat card a shade darker than the page: no glass edge or shadow (담당자 요청).
+  card: {
+    marginTop: 12,
+    padding: 16,
+    gap: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(2,5,14,0.045)',
+  },
+  firstCard: { marginTop: 20 },
+  pill: {
+    height: 30,
+    paddingHorizontal: 13,
+    borderRadius: 15,
+    backgroundColor: glass,
+    justifyContent: 'center',
+  },
+  pillLarge: { height: 34, paddingHorizontal: 14, borderRadius: 17 },
+  pillDanger: { backgroundColor: 'rgba(226,135,111,0.16)' },
+  pillText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLight,
+  },
+  pillTextLarge: { fontSize: 15, lineHeight: 20 },
+  pillDangerText: { color: k1.coral },
+  muted: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: muted,
+  },
+  fit: { gap: 4 },
+  blockTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onLight,
   },
   avatars: { flexDirection: 'row', alignItems: 'center' },
-  overlap: { marginRight: -spacing.md, borderWidth: 2 },
+  overlap: { marginRight: -6, borderWidth: 2, borderColor: '#E1E8EE' },
   count: { marginLeft: spacing.xxl },
-  fit: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  hostRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+  hostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+  },
+  hostLink: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupLook.onLight,
+  },
+  onDarkSub: { color: groupLook.onDarkSub },
+  hostCancel: { color: k1.coral },
+  message: { marginTop: 12, padding: spacing.xl, gap: spacing.md },
   messageHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  messageName: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLight,
+  },
+  messageText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: groupLook.onLight,
+  },
   notice: {
+    marginTop: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.xs,
   },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 14,
-    paddingTop: spacing.md,
+    paddingHorizontal: 16,
+    paddingTop: 28,
     paddingBottom: spacing.xl,
     gap: spacing.md,
   },
