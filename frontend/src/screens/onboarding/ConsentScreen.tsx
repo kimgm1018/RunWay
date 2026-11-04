@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, BottomSheet, Button, Screen } from '../../components';
+import { AppText, Screen } from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing, useTheme } from '../../theme';
 import {
@@ -12,36 +12,8 @@ import {
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
-
-type ConsentKey = 'terms' | 'personal' | 'location' | 'health';
-
-// The four W04 consent types. Health data is optional: refusing it only hides readiness.
-const consents: {
-  key: ConsentKey;
-  required: boolean;
-  title: string;
-  detail?: string;
-}[] = [
-  { key: 'terms', required: true, title: '서비스 이용약관' },
-  {
-    key: 'personal',
-    required: true,
-    title: '개인정보 수집·이용',
-    detail: '아이디·닉네임·성별·생년월일·전화번호 · 계정 관리',
-  },
-  {
-    key: 'location',
-    required: true,
-    title: '위치 정보 수집·이용',
-    detail: '현재 위치·러닝 경로 · 코스 추천, 기록',
-  },
-  {
-    key: 'health',
-    required: false,
-    title: '건강 데이터 이용',
-    detail: '수면·심박·활동량 · 준비도, 페이스 전략',
-  },
-];
+import { ConsentTermsModal } from './ConsentTermsModal';
+import { consentDocuments as consents, type ConsentKey } from './consentTerms';
 
 // 1.4 개인정보·데이터 이용 동의. 전체 동의 is the first row of one light card (DESIGN.md 2-5).
 export function ConsentScreen() {
@@ -149,22 +121,12 @@ export function ConsentScreen() {
           );
         })}
       </View>
-      <BottomSheet
-        visible={viewing !== null}
-        onClose={() => setViewing(null)}
-        title={viewing?.title}
-        description={viewing?.detail}
-      >
-        <AppText variant="caption" tone="textTertiary">
-          약관 전문은 정책이 확정되면 이곳에 연결해요.
-        </AppText>
-        <Button
-          title="확인"
-          variant="secondary"
-          size="medium"
-          onPress={() => setViewing(null)}
+      {viewing ? (
+        <ConsentTermsModal
+          document={viewing}
+          onClose={() => setViewing(null)}
         />
-      </BottomSheet>
+      ) : null}
     </Screen>
   );
 }
