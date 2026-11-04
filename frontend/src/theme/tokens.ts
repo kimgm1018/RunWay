@@ -105,6 +105,36 @@ export const k1Gradient = {
   locations: Array.from({ length: 21 }, (_, index) => index / 20),
 } as const;
 
+// The mist screen background (S15P31E105-427): a soft grey-white at the top fading to steel blue-grey at
+// the bottom, taken every 5% from the 변경할배경_미스트톤 image. It replaces k1Gradient wherever Backdrop
+// drew the blue-tone background; k1Gradient's white top stays the light theme's plain background.
+export const mistGradient = {
+  colors: [
+    '#F8FAFB',
+    '#F5F7F9',
+    '#F0F5F5',
+    '#EEF2F5',
+    '#E9EFF2',
+    '#E6EDEF',
+    '#E2E9EE',
+    '#DEE6EA',
+    '#D8E2E8',
+    '#D2DFE4',
+    '#CDDBE1',
+    '#C9D8DF',
+    '#C3D2DB',
+    '#BCCCD4',
+    '#B3C4CD',
+    '#ABBEC7',
+    '#A3B6BF',
+    '#9CAEB9',
+    '#93A8B3',
+    '#8BA0AB',
+    '#8399A5',
+  ],
+  locations: Array.from({ length: 21 }, (_, index) => index / 20),
+} as const;
+
 // Prototype v15 colors. Screens still reading these move to the K1 theme one by one (S15P31E105-206).
 export const palette = {
   ink: '#191C27',

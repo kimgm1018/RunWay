@@ -489,30 +489,31 @@ export function RecordDetailScreen() {
             />
           </View>
         </SafeAreaView>
-        {/* The three buttons sit on the black lower part (DESIGN.md 2-8 5.2 버튼, 1.4 : 1 : 1). */}
-        <SafeAreaView edges={['bottom']} style={styles.buttons}>
-          <View style={styles.wide}>
-            <DetailButton
-              title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-              selected={myCourseId !== null}
-              // A run without location has no path to save as a course.
-              disabled={busy || (!record.route && !myCourseId)}
-              onPress={toggleSaved}
-            />
-          </View>
-          <View style={styles.narrow}>
-            <DetailButton
-              title="기록 공유"
-              onPress={() =>
-                navigation.navigate('PostWrite', { recordId: record.id })
-              }
-            />
-          </View>
-          <View style={styles.narrow}>
-            <DetailButton title="닫기" primary onPress={close} />
-          </View>
-        </SafeAreaView>
       </ThemeProvider>
+      {/* The three buttons (DESIGN.md 2-8 5.2 버튼, 1.4 : 1 : 1) sit on the light lower part of the mist
+          background, so they take the light tone. */}
+      <SafeAreaView edges={['bottom']} style={styles.buttons}>
+        <View style={styles.wide}>
+          <DetailButton
+            title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
+            selected={myCourseId !== null}
+            // A run without location has no path to save as a course.
+            disabled={busy || (!record.route && !myCourseId)}
+            onPress={toggleSaved}
+          />
+        </View>
+        <View style={styles.narrow}>
+          <DetailButton
+            title="기록 공유"
+            onPress={() =>
+              navigation.navigate('PostWrite', { recordId: record.id })
+            }
+          />
+        </View>
+        <View style={styles.narrow}>
+          <DetailButton title="닫기" primary onPress={close} />
+        </View>
+      </SafeAreaView>
       <RecordMenu
         visible={menu}
         onClose={() => setMenu(false)}

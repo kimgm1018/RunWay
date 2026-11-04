@@ -201,7 +201,13 @@ export function GoButton({
 }
 
 // Page dots under the 1.x main button: a light pill with the current page dark.
-export function PageDots({ count, current }: { count: number; current: number }) {
+export function PageDots({
+  count,
+  current,
+}: {
+  count: number;
+  current: number;
+}) {
   const { colors } = useTheme();
   return (
     <View
@@ -222,13 +228,10 @@ export function PageDots({ count, current }: { count: number; current: number })
   );
 }
 
-// The black lower part of a 1.x screen: the main button and links, centered, in the dark tone.
+// The lower part of a 1.x screen: the main button and links, centered. The mist background stays light
+// down to the bottom (S15P31E105-427), so they use the light tone: dark text and a dark filled button.
 export function OnboardingFooter({ children }: { children: React.ReactNode }) {
-  return (
-    <ThemeProvider tone="dark">
-      <View style={styles.footer}>{children}</View>
-    </ThemeProvider>
-  );
+  return <View style={styles.footer}>{children}</View>;
 }
 
 // Coral line with an alert dot under a field (1.2r, 1.2s).

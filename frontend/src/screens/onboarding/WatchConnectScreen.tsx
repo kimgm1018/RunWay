@@ -356,58 +356,56 @@ export function WatchConnectScreen() {
           </View>
         ) : null}
       </View>
-      {/* The cards and the slider reach the black lower part of K1, so they use the dark tone. */}
-      <ThemeProvider tone="dark">
-        {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
-        <View style={styles.cardsArea}>
-          {error ? (
-            <View style={styles.errorBox}>
-              <AppText variant="caption" tone="danger">
-                워치 상태를 확인하지 못했어요.
-              </AppText>
-              <Button
-                title="다시 시도"
-                variant="secondary"
-                size="small"
-                onPress={failed ? reconnect : loaded.reload}
-              />
-            </View>
-          ) : connection ? (
-            <View style={styles.permissions}>
-              {permissionRows.map(row => (
-                <View key={row[0].key} style={styles.permissionRow}>
-                  {row.map(item => (
-                    <PermissionCard
-                      key={item.key}
-                      title={item.title}
-                      icon={item.icon}
-                      state={connection.permissions[item.key]}
-                    />
-                  ))}
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </View>
-        {connected && !busy ? (
-          <SlideToConfirm action="시작하기" icon="watch" onConfirm={finish} />
-        ) : !busy && (connection || error) ? (
-          <View style={styles.retry}>
-            {connection ? (
-              <SlideToConfirm
-                action="다시 연결"
-                icon="refresh"
-                onConfirm={reconnect}
-              />
-            ) : null}
-            <TextLink
-              title="나중에 연결하기"
-              onPress={finish}
-              style={styles.later}
+      {/* The cards and the slider reach the lower part of the mist background, which stays light. */}
+      {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
+      <View style={styles.cardsArea}>
+        {error ? (
+          <View style={styles.errorBox}>
+            <AppText variant="caption" tone="danger">
+              워치 상태를 확인하지 못했어요.
+            </AppText>
+            <Button
+              title="다시 시도"
+              variant="secondary"
+              size="small"
+              onPress={failed ? reconnect : loaded.reload}
             />
           </View>
+        ) : connection ? (
+          <View style={styles.permissions}>
+            {permissionRows.map(row => (
+              <View key={row[0].key} style={styles.permissionRow}>
+                {row.map(item => (
+                  <PermissionCard
+                    key={item.key}
+                    title={item.title}
+                    icon={item.icon}
+                    state={connection.permissions[item.key]}
+                  />
+                ))}
+              </View>
+            ))}
+          </View>
         ) : null}
-      </ThemeProvider>
+      </View>
+      {connected && !busy ? (
+        <SlideToConfirm action="시작하기" icon="watch" onConfirm={finish} />
+      ) : !busy && (connection || error) ? (
+        <View style={styles.retry}>
+          {connection ? (
+            <SlideToConfirm
+              action="다시 연결"
+              icon="refresh"
+              onConfirm={reconnect}
+            />
+          ) : null}
+          <TextLink
+            title="나중에 연결하기"
+            onPress={finish}
+            style={styles.later}
+          />
+        </View>
+      ) : null}
     </Screen>
   );
 }

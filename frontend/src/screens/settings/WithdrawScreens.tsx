@@ -35,7 +35,6 @@ import {
   palette,
   radius,
   spacing,
-  ThemeProvider,
   useTheme,
 } from '../../theme';
 import { GlowButton } from '../course/TodayRunScreen';
@@ -88,11 +87,9 @@ function Frame({
         </AppText>
         {children}
       </ScrollView>
-      <ThemeProvider tone="dark">
-        <SafeAreaView edges={['bottom']} style={styles.footer}>
-          {footer}
-        </SafeAreaView>
-      </ThemeProvider>
+      <SafeAreaView edges={['bottom']} style={styles.footer}>
+        {footer}
+      </SafeAreaView>
     </View>
   );
 }

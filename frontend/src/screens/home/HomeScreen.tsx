@@ -20,7 +20,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import {
   fontFamily,
   homePalette,
-  k1Gradient,
+  mistGradient,
   size,
   spacing,
   useTheme,
@@ -263,14 +263,14 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
-  // Behind the status bar and the header row, the same colour as the top of the K1 background.
+  // Behind the status bar and the header row, the same colour as the top of the mist background.
   headerFill: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: k1Gradient.colors[0],
+    backgroundColor: mistGradient.colors[0],
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   header: {

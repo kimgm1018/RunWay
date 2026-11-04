@@ -34,14 +34,7 @@ import {
 import { formatClockTime } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import {
-  fontFamily,
-  k1,
-  radius,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
+import { fontFamily, k1, radius, spacing, useTheme } from '../../theme';
 
 const visibilityOptions: { value: 'PUBLIC' | 'PRIVATE'; label: string }[] = [
   { value: 'PUBLIC', label: '공개 계정' },
@@ -437,54 +430,52 @@ export function SettingsScreen() {
               </Row>
             </Card>
 
-            {/* 로그아웃 · 회원탈퇴 sit on the black lower part. */}
-            <ThemeProvider tone="dark">
-              <View style={styles.links}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="로그아웃"
-                  accessibilityState={{ busy: leaving, disabled: leaving }}
-                  disabled={leaving}
-                  onPress={logOut}
-                  hitSlop={8}
-                  style={leaving && styles.leaving}
-                >
-                  <AppText variant="bodyStrong">로그아웃</AppText>
-                </Pressable>
-                <View style={[styles.bar, { backgroundColor: k1.mid }]} />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="회원탈퇴"
-                  onPress={() => navigateTo(navigation, 'Withdraw')}
-                  hitSlop={8}
-                >
-                  <AppText variant="bodyStrong">회원탈퇴</AppText>
-                </Pressable>
-              </View>
-              {appConfig.developerMenu ? (
-                <Card variant="deep" style={styles.card}>
-                  <AppText variant="bodyStrong">개발용</AppText>
-                  <Button
-                    title="공통 컴포넌트 미리보기"
-                    variant="secondary"
-                    size="medium"
-                    onPress={() => navigation.navigate('ComponentGallery')}
-                  />
-                  <Button
-                    title="건강 데이터 PoC"
-                    variant="secondary"
-                    size="medium"
-                    onPress={() => navigation.navigate('HealthPoc')}
-                  />
-                  <Button
-                    title="지도 확인"
-                    variant="secondary"
-                    size="medium"
-                    onPress={() => navigation.navigate('MapPoc')}
-                  />
-                </Card>
-              ) : null}
-            </ThemeProvider>
+            {/* 로그아웃 · 회원탈퇴 at the end of the list, in the light tone on the mist background. */}
+            <View style={styles.links}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="로그아웃"
+                accessibilityState={{ busy: leaving, disabled: leaving }}
+                disabled={leaving}
+                onPress={logOut}
+                hitSlop={8}
+                style={leaving && styles.leaving}
+              >
+                <AppText variant="bodyStrong">로그아웃</AppText>
+              </Pressable>
+              <View style={[styles.bar, { backgroundColor: k1.mid }]} />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="회원탈퇴"
+                onPress={() => navigateTo(navigation, 'Withdraw')}
+                hitSlop={8}
+              >
+                <AppText variant="bodyStrong">회원탈퇴</AppText>
+              </Pressable>
+            </View>
+            {appConfig.developerMenu ? (
+              <Card variant="deep" style={styles.card}>
+                <AppText variant="bodyStrong">개발용</AppText>
+                <Button
+                  title="공통 컴포넌트 미리보기"
+                  variant="secondary"
+                  size="medium"
+                  onPress={() => navigation.navigate('ComponentGallery')}
+                />
+                <Button
+                  title="건강 데이터 PoC"
+                  variant="secondary"
+                  size="medium"
+                  onPress={() => navigation.navigate('HealthPoc')}
+                />
+                <Button
+                  title="지도 확인"
+                  variant="secondary"
+                  size="medium"
+                  onPress={() => navigation.navigate('MapPoc')}
+                />
+              </Card>
+            ) : null}
           </>
         )}
       </ScrollView>
