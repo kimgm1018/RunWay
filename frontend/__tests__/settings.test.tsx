@@ -137,6 +137,6 @@ test('8.4 to 8.6 withdraws after the agreement and the password, then signs out'
   await press(screen, '처음으로');
   await settle(50);
   page = texts(screen);
-  expect(page).toContain('RUN YOUR WAY');
+  expect(page).toContain('시작하기');
   await act(async () => screen.unmount());
 });

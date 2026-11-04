@@ -79,11 +79,11 @@ test('every prototype link points at a registered screen', () => {
 
 test('signed-out users move from start through login into the home tab', async () => {
   const screen = await render();
-  expect(texts(screen)).toContain('RUN YOUR WAY');
+  expect(texts(screen)).toContain('시작하기');
   expect(
     screen.root.findAll(node => node.props.accessibilityRole === 'tablist'),
   ).toHaveLength(0);
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   expect(texts(screen)).toContain('비밀번호를 잊으셨나요?');
   await act(async () => {
     for (const [label, text] of [
@@ -163,7 +163,7 @@ test('settings signs out', async () => {
   await press(screen, '설정');
   expect(texts(screen)).not.toContain('화면 모드');
   await press(screen, '로그아웃');
-  expect(texts(screen)).toContain('RUN YOUR WAY');
+  expect(texts(screen)).toContain('시작하기');
   await act(async () => screen.unmount());
 });
 

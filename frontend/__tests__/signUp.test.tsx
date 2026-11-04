@@ -133,6 +133,7 @@ async function launch() {
 // 1.3 with a free ID and a verified phone, then 1.4 with the three required consents.
 async function reachBasicProfile(screen: Screen) {
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
   await type(screen, '아이디', 'newrunner');
   await settle(550);
   await type(screen, '비밀번호', 'runway123');
@@ -168,6 +169,7 @@ test('1.3 shows the server answer for the ID', async () => {
   serve([]);
   const screen = await launch();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
 
   await type(screen, '아이디', 'runner01');
   await settle(550);
@@ -186,6 +188,7 @@ test('1.3 reads a server format rejection as a format error', async () => {
   );
   const screen = await launch();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
 
   await type(screen, '아이디', 'newrunner');
   await settle(550);
@@ -222,7 +225,7 @@ test('signing up creates the account, holds the tokens and goes on to 1.6', asyn
   expect(tokenStore.current()?.accessToken).toBe('access-2');
   await act(async () => screen.unmount());
   const relaunch = await launch();
-  expect(texts(relaunch)).toContain('RUN YOUR WAY');
+  expect(texts(relaunch)).toContain('시작하기');
   await act(async () => relaunch.unmount());
 });
 

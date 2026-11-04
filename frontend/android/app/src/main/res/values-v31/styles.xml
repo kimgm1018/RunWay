@@ -1,0 +1,12 @@
+<resources>
+
+    <!-- Android 12+ draws its own launch splash: the 1.1 시작 colour with the white loop instead of the
+         launcher icon (S15P31E105-425). The JS splash then shows the full 1.1 picture. -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="android:windowBackground">@color/start_background</item>
+        <item name="android:windowSplashScreenBackground">@color/start_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+    </style>
+
+</resources>

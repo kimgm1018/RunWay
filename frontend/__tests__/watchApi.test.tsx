@@ -175,7 +175,7 @@ async function launch(signedIn = false) {
 // An account still in setup logs in, saves 1.6 and reaches 1.6w with 네 picked.
 async function openWatchChoice() {
   const screen = await launch();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await type(screen, '아이디', 'minjun01');
   await type(screen, '비밀번호', 'runway123');
   await press(screen, '로그인');
