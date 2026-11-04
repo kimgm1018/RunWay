@@ -53,7 +53,7 @@ pipeline {
         stage('Mobile Tests') {
             steps {
                 dir('frontend') {
-                    sh 'pnpm test --runInBand'
+                    sh 'pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'
                 }
             }
         }

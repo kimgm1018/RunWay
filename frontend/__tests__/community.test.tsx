@@ -35,7 +35,10 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  // Advance app time explicitly so worker/render delays cannot expire a toast.
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 async function press(screen: Screen, label: string) {
@@ -53,6 +56,28 @@ async function type(screen: Screen, label: string, text: string) {
   await settle();
 }
 
+let mounted: Screen | null = null;
+
+beforeEach(() => {
+  // Keep React scheduling real; app timers advance only through settle().
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
+});
+
+afterEach(async () => {
+  const screen = mounted;
+  mounted = null;
+  try {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  }
+});
+
 async function openCommunity() {
   let screen: Screen;
   await act(async () => {
@@ -63,6 +88,7 @@ async function openCommunity() {
       />,
     );
   });
+  mounted = screen!;
   await settle();
   await press(screen!, '커뮤니티');
   await settle();
@@ -93,7 +119,6 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(1);
   await press(screen, '좋아요');
   expect(liked()).toBe(2);
-  await act(async () => screen.unmount());
 });
 
 test('7.2 shows the comments, adds one and replies by handle', async () => {
@@ -109,7 +134,6 @@ test('7.2 shows the comments, adds one and replies by handle', async () => {
   await type(screen, '댓글 입력', '진동으로 와요!');
   await press(screen, '게시');
   expect(texts(screen)).toContain('진동으로 와요!');
-  await act(async () => screen.unmount());
 });
 
 test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
@@ -156,7 +180,6 @@ test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
   expect(page).toContain('댓글을 삭제했어요');
   expect(page).not.toContain('진동 알림으로 와요');
   expect(menus()).toBe(0);
-  await act(async () => screen.unmount());
 });
 
 test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async () => {
@@ -184,7 +207,6 @@ test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async ()
   page = texts(screen);
   expect(page).toContain('게시물을 삭제했어요');
   expect(page).not.toContain('남천 언덕길은 다음 주에!');
-  await act(async () => screen.unmount());
 });
 
 test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {
@@ -217,5 +239,9 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   page = texts(screen);
   expect(page).toContain('러닝 기록을 공유했어요');
   expect(page).toContain('새벽 공기 최고');
-  await act(async () => screen.unmount());
+
+  // The notification expires; the shared record remains in the feed.
+  await settle(3000);
+  expect(texts(screen)).not.toContain('러닝 기록을 공유했어요');
+  expect(texts(screen)).toContain('새벽 공기 최고');
 });

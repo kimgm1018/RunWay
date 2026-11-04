@@ -98,7 +98,7 @@
 | 워치 도구 | Jenkins 접속 Java 21·Gradle Java 25, Gradle 9.6.0·AGP 9.4.1·SDK 37. 메모리 4GiB·CPU 1개 상한 |
 | AI 도구 | Java 21·Docker CLI 에이전트에서 Python 3.12·CPU PyTorch 검사 컨테이너 실행. 에이전트 512MiB·CPU 1개, 검사 컨테이너 1GiB·CPU 1개 상한 |
 | GitLab 연결 | `runway-gitlab`, 저장소 Credentials ID `runway-gitlab-repo` |
-| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사하며 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사 |
+| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사하며 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사. 모바일 테스트 파일만 바뀐 MR은 타입·린트·전체 Jest를 유지하고 APK만 생략 |
 | 모바일 APK | `runway-mobile-apk`, `infra/jenkins/Jenkinsfile.mobile-apk`. master Push 후 ARM64 디버그 APK 생성·보관, 산출물은 최근 5개 빌드 기준으로 제한. 정식 출시 서명·스토어 배포 제외 |
 | 워치 APK | `runway-watch-apk`, `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
 | 백엔드 CD | `runway-backend-cd`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.backend-cd`. master Push 배포 |
@@ -111,9 +111,13 @@
 | 영역 | 검사·보관 기준 |
 | --- | --- |
 | 백엔드 | 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답 검사. 상태 API는 루프백 8082에만 제공 |
-| 모바일 | MR·master 모두 팀 테스트용 ARM64 APK 빌드. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
+| 모바일 | 앱·의존성·설정 변경 MR, 공통 CI 변경·수동 검사와 master에서 ARM64 APK 빌드. `frontend/`의 `__tests__/` 아래 `.test.*`·`.spec.*` JS/TS 파일만 바뀐 MR은 APK 생략. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
 | 워치 | 검사·빌드 시간과 JUnit·Lint·Gradle profile 보고서 보관 |
 | AI | MR CI는 모델 없는 API·배포 회귀 테스트를 수행하고 실제 모델 테스트 생략 여부를 JUnit에 기록. 실제 모델 로드·예측은 별도로 검증 |
+
+모바일 CI의 Jest 변환 캐시는 `/home/jenkins/agent/.cache/jest`에 둔다. 기존 `mobile_agent_work` 영속 볼륨에 포함되며,
+체크아웃 작업 폴더 삭제 후에도 유지된다. 캐시를 사용해도 타입·린트·전체 Jest는 매번 실행한다.
+알 수 없는 프론트엔드 경로·fixture·Jest 설정 변경은 APK도 빌드하며, master APK 작업은 항상 APK를 생성한다.
 
 AI 배포는 `.env` 자동 로딩을 사용하지 않는다. Jenkins가 전달한 값과 검증된 모델 설정만 사용하며,
 HF 토큰은 다운로드 단계에만 주입한다. DB Secret은 컨테이너 시작 시 파일에서 읽고 복구 기록에 저장하지 않는다.

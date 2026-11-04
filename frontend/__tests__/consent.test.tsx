@@ -13,6 +13,8 @@ jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
 );
+// The first React Native render may load lazy host components on a cold CI worker.
+jest.setTimeout(30000);
 
 const Stack = createNativeStackNavigator();
 function Profile() {

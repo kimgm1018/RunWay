@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.runway.backend.domain.session.dto.request.SessionControlRequest;
 import com.runway.backend.domain.session.entity.ControlAction;
+import com.runway.backend.domain.session.service.PostRunAnalysisDispatcher;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.global.exception.ApiException;
 import java.time.Instant;
@@ -21,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
@@ -37,6 +39,11 @@ class RunningSessionControlConcurrencyIntegrationTest extends RunningSessionInte
 
     @Autowired private RunningSessionControlService service;
     @Autowired private EndedEventRecorder recorder;
+
+    // END 확정의 버전 증가만 검증한다. 후속 분석의 별도 버전 증가는
+    // PostRunAnalysisIntegrationTest와 RunningSessionFinishIntegrationTest가 실제 실행기로 검증한다.
+    @MockitoBean(enforceOverride = true)
+    private PostRunAnalysisDispatcher analysisDispatcher;
 
     @BeforeEach
     void clearEvents() {

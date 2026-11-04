@@ -38,6 +38,17 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+// Flush each timer-driven render before checking the next screen (S15P31E105-372).
+async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!texts(screen).includes(text)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+    }
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -388,6 +399,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
 test('6.8 makes a run with a place picked on 6.9', async () => {
   const screen = await openGroup();
   await press(screen, '광안리 새벽 크루 그룹런 만들기');
+  await waitForText(screen, '민락수변공원 출발');
   let page = texts(screen);
   for (const text of [
     '그룹런 만들기',
@@ -436,11 +448,11 @@ test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finis
   await press(screen, '준비 완료');
   expect(texts(screen)).toContain('3명 준비 완료');
   // The leader starts, then 3·2·1.
-  await settle(100);
+  await waitForText(screen, '그룹장이 출발했어요');
   expect(texts(screen)).toContain('그룹장이 출발했어요');
-  for (let second = 0; second < 4; second += 1) {
-    await settle(1000);
-  }
+  await waitForText(screen, '내 페이스');
+  // The guide-pace alert arrives with a later tracking sample.
+  await waitForText(screen, '지금 안내 6′15″ · 출발 목표 6′00″');
   page = texts(screen);
   expect(page).toContain('내 페이스');
   expect(page).toContain('민락수변공원 출발 5.0km · 그룹런 4명');

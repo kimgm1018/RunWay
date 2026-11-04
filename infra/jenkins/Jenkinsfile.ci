@@ -2,7 +2,7 @@
 //
 // 무엇을 검사하는가:
 // - backend/만 변경 → 백엔드 에이전트에서 테스트·빌드하고 JAR 보관.
-// - frontend/만 변경 → 모바일 에이전트에서 타입·린트·테스트·ARM64 APK 빌드 검사.
+// - frontend/만 변경 → 타입·린트·전체 테스트. 테스트 파일만 변경한 MR은 APK 생략.
 // - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
 // - AI 서비스·GRU 실행 소스·AI 인프라 변경 → AI 에이전트에서 API 테스트·이미지 빌드 검사.
 // - 모바일 debug 서명 파일 변경 → 같은 서명을 쓰는 모바일·워치 모두 검사.
@@ -14,6 +14,15 @@
 // 각 검사는 MR 코드와 대상 브랜치를 합친 코드로 수행한다.
 // 하나라도 실패하면 통합 CI도 실패하며, GitLab에는 통합 결과와 영역별 결과를 전달한다.
 // 여기서 만든 APK는 빌드 검증용이며, 팀 배포용 APK 보관은 master 작업에서 수행한다.
+
+// 알려진 테스트 파일만 APK에서 제외한다. 설정·fixture·알 수 없는 경로는 빌드한다.
+// 수동 실행과 공통 CI 변경은 파일 목록과 관계없이 APK도 검사한다.
+def mobileNeedsApk(List files, boolean forceBuild) {
+    return forceBuild || files.any {
+        it.startsWith('frontend/') &&
+            !(it ==~ /^frontend\/(?:[^\/]+\/)*__tests__\/[^\/]+\.(?:test|spec)\.[jt]sx?$/)
+    }
+}
 
 // 이 작업의 폴더를 비우고 검사할 코드를 받는다. 도구·패키지 캐시는 밖에 유지한다.
 def checkoutCode(String revision) {
@@ -86,6 +95,7 @@ pipeline {
                         // 수동 실행은 네 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
                         def checkBackend = true
                         def checkMobile = true
+                        def checkMobileApk = true
                         def checkWatch = true
                         def checkAI = true
                         // 1. MR 코드와 대상 브랜치를 확인하고 합친 상태를 준비한다.
@@ -131,6 +141,7 @@ pipeline {
                                             checkBackend = common || files.any { it.startsWith('backend/') }
                                             // 프론트엔드 코드 또는 공통 설정이 바뀌었으면 모바일 CI 실행 대상으로 선택한다.
                                             checkMobile = common || files.any { it.startsWith('frontend/') }
+                                            checkMobileApk = mobileNeedsApk(files, common)
                                             // 워치 코드 또는 폰·워치 공통 테스트 서명 변경 시 워치도 검사한다.
                                             checkWatch = common || files.any {
                                                 it.startsWith('wear/') || it == 'frontend/android/app/debug.keystore'
@@ -143,6 +154,7 @@ pipeline {
                                             }
                                         }
                                         echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}, ai=${checkAI}"
+                                        echo "모바일 APK 검사: ${checkMobileApk}"
                                         echo "검사 버전: ${env.CI_SOURCE_SHA} + ${env.CI_TARGET_SHA}"
                                     }
                                 }
@@ -213,23 +225,31 @@ pipeline {
                                             }
                                         }
                                         stage('Mobile Tests') {
-                                            dir('frontend') { sh 'pnpm test --runInBand' }
+                                            // 캐시는 checkoutCode의 deleteDir 밖인 기존 영속 볼륨에 둔다.
+                                            // --onlyChanged 없이 전체 테스트를 매번 실행하며 변환 결과만 재사용한다.
+                                            dir('frontend') {
+                                                sh 'pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'
+                                            }
                                         }
-                                        try {
-                                            stage('Mobile APK Build') {
-                                                // 네이버 지도 Client ID는 APK 빌드 단계에만 전달한다.
-                                                withCredentials([string(
-                                                    credentialsId: 'runway-naver-map-client-id',
-                                                    variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
-                                                )]) {
-                                                    sh 'sh infra/jenkins/build-mobile-apk.sh'
+                                        if (checkMobileApk) {
+                                            try {
+                                                stage('Mobile APK Build') {
+                                                    // 네이버 지도 Client ID는 APK 빌드 단계에만 전달한다.
+                                                    withCredentials([string(
+                                                        credentialsId: 'runway-naver-map-client-id',
+                                                        variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
+                                                    )]) {
+                                                        sh 'sh infra/jenkins/build-mobile-apk.sh'
+                                                    }
+                                                }
+                                            } finally {
+                                                stage('Mobile Reports') {
+                                                    archiveArtifacts allowEmptyArchive: true,
+                                                        artifacts: 'frontend/android/build/reports/profile/**'
                                                 }
                                             }
-                                        } finally {
-                                            stage('Mobile Reports') {
-                                                archiveArtifacts allowEmptyArchive: true,
-                                                    artifacts: 'frontend/android/build/reports/profile/**'
-                                            }
+                                        } else {
+                                            echo '테스트 파일만 변경: 타입·린트·전체 Jest 통과 후 APK 빌드는 생략합니다.'
                                         }
                                     }
                                 }
