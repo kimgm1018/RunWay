@@ -34,8 +34,52 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
   return matches[matches.length - 1];
 }
 
+let controlledTime = false;
+let mounted: Screen | null = null;
+
+// Pending watch states must remain observable until the test advances app time.
+function controlTime() {
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
+  controlledTime = true;
+}
+
+afterEach(async () => {
+  const screen = mounted;
+  mounted = null;
+  try {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+  } finally {
+    if (controlledTime) {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      controlledTime = false;
+    }
+  }
+});
+
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  if (controlledTime) {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(ms);
+    });
+  } else {
+    await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  }
+}
+
+// Flush each timer-driven render before checking the next screen (S15P31E105-372).
+async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!texts(screen).includes(text)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+    }
+    await settle(50);
+  }
 }
 
 async function press(screen: Screen, label: string) {
@@ -52,9 +96,10 @@ async function hold(screen: Screen, label: string) {
   await settle();
 }
 
-// 자유 러닝 화면에서 러닝 시작을 누르고 3·2·1 카운트다운이 끝날 때까지 기다린다.
+// Wait for the state each test observes; pending-start tests must stop before confirmation.
 async function countDown(
   options: MockOptions,
+  expectedText = '경과 시간',
   repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, ...options }),
 ) {
   let screen: Screen;
@@ -66,41 +111,39 @@ async function countDown(
       />,
     );
   });
+  mounted = screen!;
   await settle();
   await settle();
   await press(screen!, '러닝');
   await press(screen!, '자유 러닝');
   await press(screen!, '러닝 시작');
-  for (let second = 0; second < 3; second += 1) {
-    await settle(1000);
-  }
-  await settle(100);
+  await waitForText(screen!, expectedText);
   return screen!;
 }
 
 test('러닝 시작 waits for the watch: 시작 확인 중 then the progress screen', async () => {
-  const screen = await countDown({ watchLatencyMs: 1500 });
+  controlTime();
+  const screen = await countDown({ watchLatencyMs: 1500 }, '시작 확인 중');
   expect(texts(screen)).toContain('시작 확인 중');
   expect(texts(screen)).not.toContain('경과 시간');
 
-  await settle(3500);
+  await waitForText(screen, '경과 시간');
   expect(texts(screen)).toContain('경과 시간');
   expect(texts(screen)).not.toContain('시작 확인 중');
-  await act(async () => screen.unmount());
 });
 
 test('a rejected start stays on the start screen with 다시 시작', async () => {
-  const screen = await countDown({ scenario: 'watchRejectsStart' });
-  await settle(200);
+  const screen = await countDown({ scenario: 'watchRejectsStart' }, '워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('다시 시작');
   expect(texts(screen)).not.toContain('경과 시간');
-  await act(async () => screen.unmount());
 });
 
 test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다시 확인 and 이번 운동 중단', async () => {
-  const screen = await countDown({ scenario: 'watchNoResult', resultWaitMs: 500 });
-  await settle(800);
+  const screen = await countDown(
+    { scenario: 'watchNoResult', resultWaitMs: 500 },
+    '시작 여부를 확인할 수 없습니다',
+  );
   const shown = texts(screen);
   expect(shown).toContain('시작 여부를 확인할 수 없습니다');
   expect(shown).toContain('다시 확인');
@@ -110,80 +153,76 @@ test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다�
   await press(screen, '이번 운동 중단');
   await settle(100);
   expect(texts(screen)).not.toContain('시작 여부를 확인할 수 없습니다');
-  await act(async () => screen.unmount());
 });
 
 test('no watch shows 워치를 연결해 주세요', async () => {
-  const screen = await countDown({ scenario: 'watchDisconnected' });
-  await settle(100);
+  const screen = await countDown({ scenario: 'watchDisconnected' }, '워치를 연결해 주세요');
   expect(texts(screen)).toContain('워치를 연결해 주세요');
   expect(texts(screen)).not.toContain('경과 시간');
-  await act(async () => screen.unmount());
 });
 
 test('pause shows 일시정지 확인 중 until the watch confirms', async () => {
+  controlTime();
   const screen = await countDown({ watchLatencyMs: 300 });
-  await settle(1000);
   expect(texts(screen)).toContain('경과 시간');
 
   await press(screen, '일시정지');
   expect(texts(screen)).toContain('일시정지 확인 중');
   expect(texts(screen)).not.toContain('종료는 1초 길게 눌러야 동작해요');
 
-  await settle(800);
+  await waitForText(screen, '종료는 1초 길게 눌러야 동작해요');
   expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
-  await act(async () => screen.unmount());
 });
 
 test('종료 shows 종료 처리 중 then the result', async () => {
+  controlTime();
   const screen = await countDown({ watchLatencyMs: 300 });
-  await settle(1000);
   await press(screen, '일시정지');
-  await settle(800);
+  await waitForText(screen, '종료는 1초 길게 눌러야 동작해요');
 
   await hold(screen, '종료');
   expect(texts(screen)).toContain('종료 처리 중');
   expect(texts(screen)).not.toContain('평균 페이스 /km');
 
-  await settle(1000);
+  await waitForText(screen, '평균 페이스 /km');
   expect(texts(screen)).toContain('평균 페이스 /km');
-  await act(async () => screen.unmount());
 });
 
 // --- 최종 리뷰 수정(F-5·F-6) ---
 
 test('다시 확인 after an unconfirmed start moves to the progress screen', async () => {
-  const screen = await countDown({ scenario: 'watchNoResult', resultWaitMs: 500 });
-  await settle(800);
+  const screen = await countDown(
+    { scenario: 'watchNoResult', resultWaitMs: 500 },
+    '시작 여부를 확인할 수 없습니다',
+  );
   expect(texts(screen)).toContain('시작 여부를 확인할 수 없습니다');
 
   await press(screen, '다시 확인');
-  await settle(300);
+  await waitForText(screen, '경과 시간');
   expect(texts(screen)).toContain('경과 시간');
-  await act(async () => screen.unmount());
 });
 
 test('an unconfirmed pause shows 다시 확인 and recheck opens the pause screen', async () => {
-  const screen = await countDown({ scenario: 'watchNoResult', resultWaitMs: 500 });
-  await settle(800);
+  const screen = await countDown(
+    { scenario: 'watchNoResult', resultWaitMs: 500 },
+    '시작 여부를 확인할 수 없습니다',
+  );
   await press(screen, '다시 확인');
-  await settle(300);
+  await waitForText(screen, '경과 시간');
 
   await press(screen, '일시정지');
-  await settle(800);
+  await waitForText(screen, '일시정지 여부를 확인할 수 없습니다');
   expect(texts(screen)).toContain('일시정지 여부를 확인할 수 없습니다');
   expect(texts(screen)).not.toContain('종료는 1초 길게 눌러야 동작해요');
 
   await press(screen, '다시 확인');
-  await settle(300);
+  await waitForText(screen, '종료는 1초 길게 눌러야 동작해요');
   expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
-  await act(async () => screen.unmount());
 });
 
 test('종료 pressed on the watch moves the progress screen to the result', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 50 });
-  const screen = await countDown({}, repositories);
-  await settle(500);
+  const screen = await countDown({}, '경과 시간', repositories);
   expect(texts(screen)).toContain('경과 시간');
 
   await act(async () => {
@@ -194,9 +233,8 @@ test('종료 pressed on the watch moves the progress screen to the result', asyn
       expectedVersion: 2,
     });
   });
-  await settle(800);
+  await waitForText(screen, '평균 페이스 /km');
   expect(texts(screen)).toContain('평균 페이스 /km');
-  await act(async () => screen.unmount());
 });
 
 // --- 앱 재실행 복구 ---
@@ -259,7 +297,7 @@ test('on launch during a running session the app opens the progress screen', asy
   await act(async () => {
     screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
   });
-  await settle(500);
+  await waitForText(screen!, '경과 시간');
 
   expect(texts(screen!)).toContain('경과 시간');
   await act(async () => screen!.unmount());
@@ -273,7 +311,7 @@ test('after reattaching, pause on the progress screen goes to the server', async
   await act(async () => {
     screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
   });
-  await settle(500);
+  await waitForText(screen!, '경과 시간');
   await press(screen!, '일시정지');
   await settle(500);
 

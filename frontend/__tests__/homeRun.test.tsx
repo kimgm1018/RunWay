@@ -38,6 +38,17 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+// Flush each timer-driven render before checking the next screen (S15P31E105-372).
+async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!texts(screen).includes(text)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+    }
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -248,12 +259,8 @@ test('run mode leads to course recommendations and a free run with a countdown',
   expect(texts(free)).toContain('예상 완주 시간 30:00');
   await press(free, '러닝 시작');
   expect(texts(free)).toContain('3');
-  // Each count renders before the next second starts, so wait a second at a time.
-  for (let second = 0; second < 3; second += 1) {
-    await settle(1050);
-  }
-  // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
-  await settle(200);
+  // Countdown, watch execution and server confirmation must all finish.
+  await waitForText(free, '내 페이스');
   expect(texts(free)).toContain('내 페이스');
   await act(async () => free.unmount());
 });
@@ -262,6 +269,7 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   const day = await render();
   await press(day, '저장한 코스');
   await press(day, '광안대교 루프, 5.0km 30분');
+  await waitForText(day, '오늘의 러닝 전략');
   const plan = texts(day);
   for (const text of [
     '오늘의 러닝 전략',
@@ -278,6 +286,7 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   const night = await render('night');
   await press(night, '저장한 코스');
   await press(night, '광안대교 루프, 5.0km 30분');
+  await waitForText(night, '광안대교 루프 · 5.0km');
   const dark = texts(night);
   expect(dark).toContain('코스 러닝');
   expect(dark).toContain('광안대교 루프 · 5.0km');

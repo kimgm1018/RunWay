@@ -49,7 +49,10 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  // Advance app time explicitly so worker/render delays cannot expire a toast.
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 async function press(screen: Screen, label: string) {
@@ -145,6 +148,10 @@ async function openCommunity() {
 }
 
 beforeEach(async () => {
+  // Keep React scheduling real; app timers advance only through settle().
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
@@ -157,8 +164,13 @@ beforeEach(async () => {
 afterEach(async () => {
   const screen = mounted;
   mounted = null;
-  if (screen) {
-    await act(async () => screen.unmount());
+  try {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
   }
 });
 
@@ -260,6 +272,11 @@ test('7.2 edits and deletes my comment through CMT08 · CMT09 and keeps it when 
   expect(JSON.parse(patch[patch.length - 1][1].body)).toEqual({
     body: '다음 주에 같이 달려요',
   });
+
+  // Verify the toast's lifetime explicitly without losing the saved comment.
+  await settle(3000);
+  expect(texts(screen)).not.toContain('댓글을 수정했어요');
+  expect(texts(screen)).toContain('다음 주에 같이 달려요');
 
   const remove = async () => {
     await press(screen, '댓글 메뉴');

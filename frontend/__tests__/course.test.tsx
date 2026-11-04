@@ -38,6 +38,17 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+// Flush each timer-driven render before checking the next screen (S15P31E105-372).
+async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!texts(screen).includes(text)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+    }
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -156,7 +167,7 @@ test('recommended courses turn over to their detail and lead to the course run',
       )[0]
       .props.onPress();
   });
-  await settle();
+  await waitForText(screen, '오늘의 러닝 전략');
   // The name already ends in its distance, so the bar shows it once.
   expect(texts(screen)).toContain('민락수변공원 출발 5.0km');
   expect(texts(screen)).not.toContain('민락수변공원 출발 5.0km 5.0km');
@@ -200,6 +211,7 @@ test('saved courses show nicknames, undo an unsave and open the course run', asy
   await press(screen, '되돌리기');
   expect(texts(screen)).toContain('이기대 갈맷길');
   await press(screen, '민락수변 왕복, 5.4km 33분');
+  await waitForText(screen, '민락수변 왕복 5.4km');
   expect(texts(screen)).toContain('민락수변 왕복 5.4km');
   await act(async () => screen.unmount());
 });
