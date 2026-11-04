@@ -74,6 +74,27 @@ CREATE TABLE "users" (
 	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
 );
 
+CREATE TABLE "user_recommendation_preferences" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "user_id" BIGINT NOT NULL,
+    "shape" VARCHAR(16) DEFAULT 'loop' NOT NULL,
+    "river" BOOLEAN DEFAULT false NOT NULL,
+    "beach" BOOLEAN DEFAULT false NOT NULL,
+    "park" BOOLEAN DEFAULT false NOT NULL,
+    "trail" BOOLEAN DEFAULT false NOT NULL,
+    "pedestrian" BOOLEAN DEFAULT false NOT NULL,
+    "flat" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_major_road" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_steps" BOOLEAN DEFAULT false NOT NULL,
+    "avoid_tunnel" BOOLEAN DEFAULT false NOT NULL,
+    CONSTRAINT "PK_USER_RECOMMENDATION_PREFERENCES" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_user_recommendation_preferences_user_id" UNIQUE ("user_id"),
+    CONSTRAINT "ck_user_recommendation_preferences_shape"
+        CHECK ("shape" IN ('loop', 'out_and_back', 'point_to_point'))
+);
+
+COMMENT ON TABLE "user_recommendation_preferences" IS 'U11/U12 추천 기본값. 명시적 저장 시에만 생성·전체 교체. false는 고려하지 않음. 논리 탈퇴 시 서비스에서 삭제';
+
 CREATE TABLE "pace_plans" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
 	"session_id"	BIGINT		NOT NULL,
@@ -1165,3 +1186,8 @@ CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
 -- 기존 기록(state_version=0)은 제외한다. S01의 회원별 생성 잠금을 DB에서 한 번 더 보장한다.
 CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
     WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
+
+-- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
+ALTER TABLE "user_recommendation_preferences"
+    ADD CONSTRAINT "FK_users_TO_user_recommendation_preferences"
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE;

@@ -163,9 +163,9 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | U07 | [러닝 프로필 저장·부분 수정](./users.md#u07-러닝-프로필-저장부분-수정) | PATCH | `/users/me/running-profile` | [users.md](./users.md) |
 | U08 | [평소 러닝 정보 조회 (U06 통합)](./users.md#u08-평소-러닝-정보-조회) | — | — | [users.md](./users.md) |
 | U09 | [평소 러닝 정보 설정 (U07 통합)](./users.md#u09-평소-러닝-정보-설정) | — | — | [users.md](./users.md) |
-| U10 | [러닝 환경 유형 조회](./users.md#u10-러닝-환경-유형-조회) | GET | `/environments` | [users.md](./users.md) |
-| U11 | [선호 환경 조회](./users.md#u11-선호-환경-조회) | GET | `/users/me/preferences` | [users.md](./users.md) |
-| U12 | [선호 환경 설정](./users.md#u12-선호-환경-설정) | PUT | `/users/me/preferences` | [users.md](./users.md) |
+| U10 | [러닝 환경 유형 조회 (제외)](./users.md#u10-러닝-환경-유형-조회) | — | — | [users.md](./users.md) |
+| U11 | [추천 기본값 조회](./users.md#u11-추천-기본값-조회) | GET | `/users/me/preferences` | [users.md](./users.md) |
+| U12 | [추천 기본값 저장](./users.md#u12-추천-기본값-저장) | PUT | `/users/me/preferences` | [users.md](./users.md) |
 | U13 | [개인 공개 설정 조회](./users.md#u13-개인-공개-설정-조회) | GET | `/users/me/privacy-settings` | [users.md](./users.md) |
 | U14 | [개인 공개 설정 변경](./users.md#u14-개인-공개-설정-변경) | PATCH | `/users/me/privacy-settings` | [users.md](./users.md) |
 | U15 | [회원가입](./users.md#u15-회원가입) | POST | `/auth/signup` | [users.md](./users.md) |
