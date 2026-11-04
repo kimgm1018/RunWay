@@ -2,7 +2,10 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Alert } from 'react-native';
 import { appConfig } from '../../config';
+import { DataProvider } from '../../data/DataProvider';
 import { apiRequest } from '../../data/api/http';
+import { DataError } from '../../data/errors';
+import { createMockRepositories } from '../../data/mock/createMockRepositories';
 import { tokenStore } from '../../data/api/tokenStore';
 import {
   refreshWatchHealthConsent,
@@ -24,13 +27,24 @@ function Probe() {
   return null;
 }
 
+// The mock repositories with U03 replaced, so a test can see or fail the logout.
+const logout = jest.fn();
+
 async function mount(initialSignedIn?: boolean) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
   let screen!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     screen = TestRenderer.create(
-      <SessionProvider initialSignedIn={initialSignedIn}>
-        <Probe />
-      </SessionProvider>,
+      <DataProvider
+        repositories={{
+          ...repositories,
+          auth: { ...repositories.auth, logout },
+        }}
+      >
+        <SessionProvider initialSignedIn={initialSignedIn}>
+          <Probe />
+        </SessionProvider>
+      </DataProvider>,
     );
   });
   return screen;
@@ -40,6 +54,35 @@ beforeEach(async () => {
   await tokenStore.clear();
   jest.mocked(refreshWatchHealthConsent).mockClear();
   jest.mocked(setWatchHealthConsent).mockClear();
+  logout.mockReset().mockResolvedValue(undefined);
+});
+
+test('logOut revokes the refresh token on the server, then signs out', async () => {
+  await tokenStore.save(tokens);
+  const screen = await mount();
+
+  await act(async () => session.logOut());
+
+  expect(logout).toHaveBeenCalledWith('refresh-1');
+  expect(session.signedIn).toBe(false);
+  await expect(tokenStore.load()).resolves.toBeNull();
+  await act(async () => screen.unmount());
+});
+
+test('logOut signs out even when U03 fails, and the next launch sends it again', async () => {
+  await tokenStore.save(tokens);
+  logout.mockRejectedValueOnce(new DataError('NETWORK_ERROR', '연결 없음'));
+  const screen = await mount();
+
+  await act(async () => session.logOut());
+
+  expect(session.signedIn).toBe(false);
+  await act(async () => screen.unmount());
+
+  logout.mockClear();
+  const relaunch = await mount();
+  expect(logout).toHaveBeenCalledWith('refresh-1');
+  await act(async () => relaunch.unmount());
 });
 
 test('signOut tells the watch the consent is withdrawn', async () => {

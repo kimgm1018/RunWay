@@ -810,6 +810,8 @@ export type Repositories = {
       verificationToken: string;
       newPassword: string;
     }) => Promise<void>;
+    // U03 로그아웃: revokes the login the refresh token belongs to (204). Needs no access token.
+    logout: (refreshToken: string) => Promise<void>;
   };
   profile: {
     getMe: () => Promise<UserProfile>;
