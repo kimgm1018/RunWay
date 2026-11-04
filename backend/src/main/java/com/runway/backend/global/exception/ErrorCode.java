@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 
 /** 공개 오류 정의. 상수 이름과 응답 code는 다를 수 있으며 기존 메시지 변형도 보존한다. */
 public enum ErrorCode {
+    INVALID_SHAPE(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SHAPE", "지원하지 않는 코스 형태입니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "다시 로그인해 주세요."),
     NOT_AUTHOR(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 {0}할 수 있습니다."),
     SESSION_INVALID_STATE(HttpStatus.CONFLICT, "INVALID_STATE", "현재 상태에서는 {0}할 수 없습니다."),
