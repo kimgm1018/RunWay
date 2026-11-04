@@ -698,7 +698,7 @@ Path Parameters, Query Parameters, Request Body 없음. 인증된 사용자 본�
 
 ### 오류 및 저장 계약
 
-- 회원 JWT가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 접근 권한이 없으면 `403 FORBIDDEN`이다. 공통 오류 본문은 [공통 규약](README.md#공통-규약)을 따른다.
+- 회원 JWT가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 접근 권한이 없거나 유효한 토큰의 계정이 존재하지 않거나 ACTIVE 상태가 아니면 `403 FORBIDDEN`이다(2026-11-04 확정). 공통 오류 본문은 [공통 규약](README.md#공통-규약)을 따른다.
 - 미설정은 오류나 빈 배열이 아니라 위 기본값 객체로 응답한다. 저장소 조회 실패를 미설정으로 취급하지 않는다.
 - 사용자별 기본값은 user_recommendation_preferences에 저장한다. 자동 생성 BIGINT id가 PK이고, user_id는 NOT NULL·UNIQUE이며 users.id를 참조하는 FK로 사용자당 최대 1행을 보장한다. id와 user_id는 내부 저장 필드이며 API 응답에 추가하지 않는다. shape와 9개 boolean 컬럼은 위 필드에 일대일 대응한다. [ERD](../db/erd.md)와 [기준 SQL](../db/schema.sql)을 따른다.
 - 일시적 저장소 장애는 공통 기준의 `503 SERVICE_UNAVAILABLE`로 응답한다. 그 밖의 장애 분류는 [공통 오류 규약](README.md#공통-규약)을 따르며 실패를 기본값 응답으로 숨기지 않는다.
@@ -777,7 +777,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 ### 오류 및 저장 계약
 
 - JSON 구문·필수 필드 누락·null·잘못된 자료형은 `400 VALIDATION_ERROR`로 거절한다.
-- 회원 JWT가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 접근 권한이 없으면 `403 FORBIDDEN`이다.
+- 회원 JWT가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 접근 권한이 없거나 유효한 토큰의 계정이 존재하지 않거나 ACTIVE 상태가 아니면 `403 FORBIDDEN`이다(2026-11-04 확정).
 - 허용되지 않은 문자열 shape는 `422 INVALID_SHAPE`로 거절한다. 최상위 또는 filters 안에 정의되지 않은 필드가 있으면 `400 VALIDATION_ERROR`로 거절한다. 기존 environmentTypes와 위치·거리·seed도 이 API의 허용 필드가 아니다. 이 엄격한 필드 검증은 U12에만 적용하며 공통 설정을 변경하지 않는다.
 - 일시적 저장소 장애는 공통 기준의 `503 SERVICE_UNAVAILABLE`를 따른다. 그 밖의 장애는 공통 분류를 유지한다. 오류 응답은 저장 미완료를 보장하지 않으므로 재조회로 결과를 확인한다.
 - 최초 명시적 저장 시 user_recommendation_preferences 행을 만들고 이후 요청은 전체 교체한다. user_profiles 유무와 무관하며 가입 시 자동 생성하지 않는다.
