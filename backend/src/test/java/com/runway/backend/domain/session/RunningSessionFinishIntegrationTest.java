@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.domain.session.service.PostRunAnalysisDispatcher;
+import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,10 +25,17 @@ class RunningSessionFinishIntegrationTest extends RunningSessionIntegrationSuppo
     private static final String ENDED = "2026-10-28T01:30:00Z";
 
     @Autowired private EndedEventRecorder recorder;
+    @Autowired private PostRunAnalysisDispatcher analysisDispatcher;
 
     @BeforeEach
-    void clearEvents() {
+    void clearEvents() throws InterruptedException {
+        assertThat(analysisDispatcher.awaitIdle(Duration.ofSeconds(10))).isTrue();
         recorder.clear();
+    }
+
+    /** 종료 확정 후 비동기 분석이 끝날 때까지 기다린다(S15P31E105-312). */
+    private void awaitPostRunAnalysis() throws InterruptedException {
+        assertThat(analysisDispatcher.awaitIdle(Duration.ofSeconds(10))).isTrue();
     }
 
     private long approveEnd(long sessionId, long version) throws Exception {
@@ -86,6 +95,7 @@ class RunningSessionFinishIntegrationTest extends RunningSessionIntegrationSuppo
         long sessionId = runningSession();
         long commandId = approveEnd(sessionId, 4);
 
+        // 종료 응답은 같은 트랜잭션 스냅샷이라 PENDING·version=5. 분석은 AFTER_COMMIT 비동기.
         mockMvc.perform(postControl(userId, sessionId, "finish", applied(commandId, "true")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("COMPLETED"))
@@ -93,12 +103,14 @@ class RunningSessionFinishIntegrationTest extends RunningSessionIntegrationSuppo
                 .andExpect(jsonPath("$.endedAt").value(ENDED))
                 .andExpect(jsonPath("$.analysis.status").value("PENDING"));
 
+        awaitPostRunAnalysis();
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT analysis_status::text FROM running_sessions WHERE id=?",
                                 String.class,
                                 sessionId))
-                .isEqualTo("PENDING");
+                .isEqualTo("READY");
+        assertThat(stateVersion(sessionId)).isEqualTo(6);
         assertThat(recorder.events()).hasSize(1);
         assertThat(recorder.events().get(0).sessionId()).isEqualTo(sessionId);
         assertThat(recorder.events().get(0).endedAt()).isEqualTo(Instant.parse(ENDED));
@@ -136,10 +148,12 @@ class RunningSessionFinishIntegrationTest extends RunningSessionIntegrationSuppo
         long commandId = approveEnd(sessionId, 4);
         mockMvc.perform(postControl(userId, sessionId, "finish", applied(commandId, "true")))
                 .andExpect(status().isOk());
+        awaitPostRunAnalysis();
 
+        // 분석으로 version=6이 된 뒤 재전송해도 이벤트는 1회, 버전은 더 오르지 않는다.
         mockMvc.perform(postControl(userId, sessionId, "finish", applied(commandId, "true")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stateVersion").value(5));
+                .andExpect(jsonPath("$.stateVersion").value(6));
 
         assertThat(recorder.events()).hasSize(1);
     }
