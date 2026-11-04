@@ -9,15 +9,17 @@ import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemRespons
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
 import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
-import com.runway.backend.domain.course.dto.response.RecommendedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
+import com.runway.backend.domain.course.recommend.CourseRecommendCommand;
+import com.runway.backend.domain.course.recommend.CourseRecommendFilters;
+import com.runway.backend.domain.course.recommend.CourseRecommendPort;
+import com.runway.backend.domain.course.recommend.CourseRecommendShape;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkUpsertRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkedCourseRow;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.CourseRow;
-import com.runway.backend.domain.course.repository.CourseJdbcRepository.RecommendCourseRow;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonGeographyMapper;
@@ -35,10 +37,8 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -47,50 +47,36 @@ public class CourseService {
     private static final int ALIAS_MAX_LENGTH = 50;
     private static final int DEFAULT_BOOKMARK_LIMIT = 20;
     private static final int MAX_BOOKMARK_LIMIT = 50;
-    private static final int DEFAULT_RECOMMEND_LIMIT = 20;
-    private static final int MAX_RECOMMEND_LIMIT = 50;
-    private static final double DEFAULT_RADIUS_M = 3_000d;
-    private static final double DISTANCE_TOLERANCE_RATIO = 0.10d;
+    private static final double MIN_DISTANCE_KM = 1.0d;
+    private static final double MAX_DISTANCE_KM = 15.0d;
+    private static final int MIN_SEED = 1;
+    private static final int MAX_SEED = 10_000_000;
+    /** 부산 서비스 박스(스텁·1차 검증용). */
+    private static final double BUSAN_MIN_LAT = 35.02d;
+
+    private static final double BUSAN_MAX_LAT = 35.40d;
+    private static final double BUSAN_MIN_LON = 128.75d;
+    private static final double BUSAN_MAX_LON = 129.30d;
+    /** point_to_point 출발–도착 직선거리 상한(m). */
+    private static final double MAX_P2P_STRAIGHT_M = 17_000d;
+
+    private static final double METERS_PER_DEG_LAT = 111_320d;
     /** courses.distance NUMERIC(12,2) 상한. */
     private static final BigDecimal MAX_COURSE_DISTANCE_M = new BigDecimal("9999999999.99");
     /** courses.elevation_gain NUMERIC(10,2) 상한. */
     private static final BigDecimal MAX_ELEVATION_GAIN_M = new BigDecimal("99999999.99");
     private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
-    private static final Set<String> ALLOWED_ENVIRONMENT_TYPES =
-            Set.of("PARK", "RIVERSIDE", "URBAN", "BEACH", "TRACK");
 
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseBookmarkRepository courseBookmarkRepository;
+    private final CourseRecommendPort courseRecommendPort;
     private final JsonMapper jsonMapper;
 
     @Transactional(readOnly = true)
     public RecommendCoursesResponse recommend(long userId, RecommendCoursesRequest request) {
         requireExistingUser(userId);
-        ValidatedRecommendSearch search = validateRecommendSearch(request);
-
-        List<RecommendCourseRow> rows =
-                courseJdbcRepository.findRecommendations(
-                        search.startEwkt(),
-                        search.radiusM(),
-                        search.minDistanceM(),
-                        search.maxDistanceM(),
-                        search.environmentTypes(),
-                        search.limit());
-
-        List<RecommendedCourseItemResponse> courses = new ArrayList<>(rows.size());
-        for (RecommendCourseRow row : rows) {
-            int estimatedDurationSec =
-                    estimateDurationSecRequired(row.distanceM(), search.paceSecPerKm());
-            courses.add(
-                    new RecommendedCourseItemResponse(
-                            row.id(),
-                            row.regionCode(),
-                            row.status(),
-                            row.distanceM(),
-                            row.environmentTags(),
-                            estimatedDurationSec));
-        }
-        return new RecommendCoursesResponse(courses);
+        CourseRecommendCommand command = validateRecommendCommand(request);
+        return courseRecommendPort.recommend(command);
     }
 
     @Transactional(readOnly = true)
@@ -273,8 +259,7 @@ public class CourseService {
         }
     }
 
-    private static ValidatedRecommendSearch validateRecommendSearch(
-            RecommendCoursesRequest request) {
+    private static CourseRecommendCommand validateRecommendCommand(RecommendCoursesRequest request) {
         if (request == null) {
             throw new ApiException(ErrorCode.SEARCH_CONDITIONS_REQUIRED);
         }
@@ -286,96 +271,100 @@ public class CourseService {
         if (longitude < -180 || longitude > 180) {
             throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
         }
+        if (latitude < BUSAN_MIN_LAT
+                || latitude > BUSAN_MAX_LAT
+                || longitude < BUSAN_MIN_LON
+                || longitude > BUSAN_MAX_LON) {
+            throw new ApiException(ErrorCode.SEARCH_OUT_OF_AREA);
+        }
 
-        double targetDistanceM = requirePositive(request.targetDistanceM(), "targetDistanceM");
-        double paceSecPerKm = resolvePaceSecPerKm(request, targetDistanceM);
+        double distanceKm = requireFinite(request.distanceKm(), "distanceKm");
+        if (distanceKm < MIN_DISTANCE_KM || distanceKm > MAX_DISTANCE_KM) {
+            throw new ApiException(ErrorCode.SEARCH_DISTANCE_KM_RANGE);
+        }
 
-        double radiusM =
-                request.radiusM() == null
-                        ? DEFAULT_RADIUS_M
-                        : requirePositive(request.radiusM(), "radiusM");
-        int limit = resolveRecommendLimit(request.limit());
-        List<String> environmentTypes = normalizeEnvironmentTypes(request.environmentTypes());
+        CourseRecommendShape shape = parseShape(request.shape());
+        Double endLat = request.endLatitude();
+        Double endLon = request.endLongitude();
+        if (shape == CourseRecommendShape.POINT_TO_POINT) {
+            if (endLat == null || endLon == null) {
+                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
+            }
+            double endLatitude = requireFinite(endLat, "endLatitude");
+            double endLongitude = requireFinite(endLon, "endLongitude");
+            if (endLatitude < -90 || endLatitude > 90) {
+                throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
+            }
+            if (endLongitude < -180 || endLongitude > 180) {
+                throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
+            }
+            if (straightDistanceM(latitude, longitude, endLatitude, endLongitude)
+                    > MAX_P2P_STRAIGHT_M) {
+                throw new ApiException(ErrorCode.SEARCH_OUT_OF_APP_RANGE);
+            }
+            endLat = endLatitude;
+            endLon = endLongitude;
+        } else if (endLat != null || endLon != null) {
+            // 편도가 아니면 도착 좌표 한쪽만 오면 형식 오류로 본다.
+            if (endLat == null || endLon == null) {
+                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
+            }
+            endLat = requireFinite(endLat, "endLatitude");
+            endLon = requireFinite(endLon, "endLongitude");
+        }
 
-        BigDecimal target = BigDecimal.valueOf(targetDistanceM);
-        BigDecimal minDistanceM =
-                target.multiply(BigDecimal.valueOf(1.0d - DISTANCE_TOLERANCE_RATIO))
-                        .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal maxDistanceM =
-                target.multiply(BigDecimal.valueOf(1.0d + DISTANCE_TOLERANCE_RATIO))
-                        .setScale(2, RoundingMode.HALF_UP);
+        int seed = request.seed() == null ? MIN_SEED : request.seed();
+        if (seed < MIN_SEED || seed > MAX_SEED) {
+            throw new ApiException(ErrorCode.SEARCH_SEED_INVALID);
+        }
 
-        String startEwkt = GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(longitude, latitude));
-        return new ValidatedRecommendSearch(
-                startEwkt,
-                radiusM,
-                minDistanceM,
-                maxDistanceM,
-                environmentTypes,
-                limit,
-                paceSecPerKm);
+        return new CourseRecommendCommand(
+                latitude,
+                longitude,
+                distanceKm,
+                shape,
+                endLat,
+                endLon,
+                normalizeFilters(request.filters()),
+                seed);
     }
 
-    private static double resolvePaceSecPerKm(
-            RecommendCoursesRequest request, double targetDistanceM) {
-        String rawType = request.goalInputType();
-        if (rawType == null || rawType.isBlank()) {
-            throw new ApiException(ErrorCode.SEARCH_GOAL_TYPE_INVALID);
+    private static CourseRecommendShape parseShape(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return CourseRecommendShape.LOOP;
         }
-        String goalInputType = rawType.trim().toUpperCase(Locale.ROOT);
-        return switch (goalInputType) {
-            case "TIME" -> {
-                if (request.targetPaceSecPerKm() != null) {
-                    throw new ApiException(ErrorCode.SEARCH_TIME_PACE_CONFLICT);
-                }
-                double durationSec =
-                        requirePositive(request.targetDurationSec(), "targetDurationSec");
-                double pace = durationSec * 1000.0d / targetDistanceM;
-                if (!(pace > 0) || Double.isInfinite(pace)) {
-                    throw new ApiException(ErrorCode.SEARCH_CALCULATED_PACE_INVALID);
-                }
-                yield pace;
-            }
-            case "PACE" -> {
-                if (request.targetDurationSec() != null) {
-                    throw new ApiException(ErrorCode.SEARCH_PACE_DURATION_CONFLICT);
-                }
-                yield requirePositive(request.targetPaceSecPerKm(), "targetPaceSecPerKm");
-            }
-            default -> throw new ApiException(ErrorCode.SEARCH_GOAL_TYPE_INVALID);
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "loop" -> CourseRecommendShape.LOOP;
+            case "out_and_back" -> CourseRecommendShape.OUT_AND_BACK;
+            case "point_to_point" -> CourseRecommendShape.POINT_TO_POINT;
+            default -> throw new ApiException(ErrorCode.SEARCH_SHAPE_INVALID);
         };
     }
 
-    private static List<String> normalizeEnvironmentTypes(List<String> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return List.of();
+    private static CourseRecommendFilters normalizeFilters(
+            RecommendCoursesRequest.RecommendCourseFilters raw) {
+        if (raw == null) {
+            return CourseRecommendFilters.allOff();
         }
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String value : raw) {
-            if (value == null || value.isBlank()) {
-                throw new ApiException(ErrorCode.SEARCH_ENVIRONMENT_EMPTY);
-            }
-            String code = value.trim().toUpperCase(Locale.ROOT);
-            if (!ALLOWED_ENVIRONMENT_TYPES.contains(code)) {
-                throw new ApiException(
-                        ErrorCode.INVALID_SEARCH_COURSE_NORMALIZE_ENVIRONMENT_TYPES,
-                        String.valueOf(value));
-            }
-            normalized.add(code);
-        }
-        return List.copyOf(normalized);
+        return new CourseRecommendFilters(
+                Boolean.TRUE.equals(raw.river()),
+                Boolean.TRUE.equals(raw.beach()),
+                Boolean.TRUE.equals(raw.park()),
+                Boolean.TRUE.equals(raw.trail()),
+                Boolean.TRUE.equals(raw.pedestrian()),
+                Boolean.TRUE.equals(raw.avoidMajorRoad()),
+                Boolean.TRUE.equals(raw.avoidSteps()),
+                Boolean.TRUE.equals(raw.avoidTunnel()),
+                Boolean.TRUE.equals(raw.flat()));
     }
 
-    private static int resolveRecommendLimit(Integer limit) {
-        if (limit == null) {
-            return DEFAULT_RECOMMEND_LIMIT;
-        }
-        if (limit < 1 || limit > MAX_RECOMMEND_LIMIT) {
-            throw new ApiException(
-                    ErrorCode.INVALID_SEARCH_COURSE_RESOLVE_RECOMMEND_LIMIT,
-                    String.valueOf(MAX_RECOMMEND_LIMIT));
-        }
-        return limit;
+    private static double straightDistanceM(
+            double lat1, double lon1, double lat2, double lon2) {
+        double meanLat = Math.toRadians((lat1 + lat2) / 2d);
+        double dLatM = (lat2 - lat1) * METERS_PER_DEG_LAT;
+        double dLonM = (lon2 - lon1) * METERS_PER_DEG_LAT * Math.cos(meanLat);
+        return Math.hypot(dLatM, dLonM);
     }
 
     private static double requireFinite(Double value, String field) {
@@ -386,15 +375,6 @@ public class CourseService {
         return value;
     }
 
-    private static double requirePositive(Double value, String field) {
-        double finite = requireFinite(value, field);
-        if (!(finite > 0)) {
-            throw new ApiException(
-                    ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_POSITIVE, String.valueOf(field));
-        }
-        return finite;
-    }
-
     private static Integer estimateDurationSec(BigDecimal distanceM, Double targetPaceSecPerKm) {
         if (targetPaceSecPerKm == null || targetPaceSecPerKm <= 0 || distanceM == null) {
             return null;
@@ -402,23 +382,6 @@ public class CourseService {
         double seconds = distanceM.doubleValue() / 1000.0 * targetPaceSecPerKm;
         return (int) Math.round(seconds);
     }
-
-    private static int estimateDurationSecRequired(BigDecimal distanceM, double paceSecPerKm) {
-        Integer estimated = estimateDurationSec(distanceM, paceSecPerKm);
-        if (estimated == null || estimated <= 0) {
-            throw new ApiException(ErrorCode.INVALID_SEARCH);
-        }
-        return estimated;
-    }
-
-    private record ValidatedRecommendSearch(
-            String startEwkt,
-            double radiusM,
-            BigDecimal minDistanceM,
-            BigDecimal maxDistanceM,
-            List<String> environmentTypes,
-            int limit,
-            double paceSecPerKm) {}
 
     private GeoJsonLineString parseLineString(String geoJson) {
         try {

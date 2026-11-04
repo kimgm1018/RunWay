@@ -1,12 +1,8 @@
 package com.runway.backend.domain.course.dto.response;
 
+import com.runway.backend.global.geo.GeoJsonLineString;
 import java.math.BigDecimal;
-import java.util.List;
 
+/** 선택 저장 전 추천 후보. DB course id 없음. */
 public record RecommendedCourseItemResponse(
-        long id,
-        String regionCode,
-        String status,
-        BigDecimal distanceM,
-        List<String> environmentTags,
-        int estimatedDurationSec) {}
+        int index, BigDecimal distanceM, GeoJsonLineString route) {}

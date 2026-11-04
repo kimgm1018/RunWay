@@ -85,6 +85,36 @@ class ErrorCodeTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_FINITE.message("field{0}$\\"))
                 .isEqualTo("field{0}$\\이(가) 올바르지 않습니다.");
+        assertContract(
+                ErrorCode.SEARCH_DISTANCE_KM_RANGE,
+                422,
+                "INVALID_SEARCH",
+                "distanceKm는 1.0 이상 15.0 이하여야 합니다.");
+        assertContract(
+                ErrorCode.SEARCH_SHAPE_INVALID,
+                422,
+                "INVALID_SEARCH",
+                "shape는 loop, out_and_back, point_to_point 중 하나여야 합니다.");
+        assertContract(
+                ErrorCode.SEARCH_DESTINATION_REQUIRED,
+                422,
+                "INVALID_SEARCH",
+                "point_to_point에는 endLatitude와 endLongitude가 필요합니다.");
+        assertContract(
+                ErrorCode.SEARCH_SEED_INVALID,
+                422,
+                "INVALID_SEARCH",
+                "seed는 1 이상 10000000 이하여야 합니다.");
+        assertContract(
+                ErrorCode.SEARCH_OUT_OF_AREA,
+                422,
+                "INVALID_SEARCH",
+                "출발 위치가 서비스 지역(부산) 밖입니다.");
+        assertContract(
+                ErrorCode.SEARCH_OUT_OF_APP_RANGE,
+                422,
+                "INVALID_SEARCH",
+                "출발-도착 직선거리가 서비스 상한을 초과했습니다.");
     }
 
     private static void assertContract(

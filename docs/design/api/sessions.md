@@ -83,7 +83,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | --- | --- | :---: | --- |
 | `controlDeviceId` | integer (int64) | O | 본인 등록 워치 ID. 양의 정수 |
 | `relayDeviceId` | integer (int64) | O | 본인 등록 폰 ID. 양의 정수 |
-| `courseId` | integer (int64) / null | X | ACTIVE 상태의 선택 코스 ID. 자유러닝은 null 또는 생략 |
+| `courseId` | integer (int64) / null | X | ACTIVE 상태의 선택 코스 ID. 자유러닝은 null 또는 생략. [C01](courses.md#c01-코스-추천)의 AI 생성 후보는 선택 후 저장해야 `courseId`가 생기며, 저장으로 얻은 `courseId`를 여기에 전달한다 |
 | `comparisonSessionId` | integer (int64) / null | X | 비교할 본인 과거 운동 ID. 미선택은 null 또는 생략 |
 | `targetDistanceM` | integer / null | X | 목표 거리(m), 양수. 미설정은 null 또는 생략 |
 | `targetDurationSec` | integer / null | X | 목표 시간(초), 양수. 미설정은 null 또는 생략 |
