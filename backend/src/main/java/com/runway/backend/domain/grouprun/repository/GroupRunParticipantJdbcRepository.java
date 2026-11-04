@@ -94,6 +94,20 @@ public class GroupRunParticipantJdbcRepository {
                 userId);
     }
 
+    public int updateSessionAndReady(
+            long groupRunId, long userId, Long sessionId, boolean ready) {
+        return jdbcTemplate.update(
+                """
+                UPDATE group_run_participants
+                SET session_id = ?, ready = ?
+                WHERE group_run_id = ? AND user_id = ?
+                """,
+                sessionId,
+                ready,
+                groupRunId,
+                userId);
+    }
+
     public int countByGroupRunId(long groupRunId) {
         Integer count =
                 jdbcTemplate.queryForObject(

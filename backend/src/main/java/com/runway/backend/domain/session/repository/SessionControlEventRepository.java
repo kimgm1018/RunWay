@@ -19,6 +19,10 @@ public interface SessionControlEventRepository extends JpaRepository<SessionCont
     Optional<SessionControlEvent> findBySessionIdAndExpectedVersion(
             Long sessionId, Long expectedVersion);
 
+    /** G09 재요청 복원용. 그룹 연결 세션의 START는 G09가 만든 첫 명령뿐이다. */
+    Optional<SessionControlEvent> findFirstBySessionIdAndActionOrderByIdAsc(
+            Long sessionId, ControlAction action);
+
     Optional<SessionControlEvent> findByIdAndSessionId(Long id, Long sessionId);
 
     boolean existsBySessionIdAndActionAndResultIn(

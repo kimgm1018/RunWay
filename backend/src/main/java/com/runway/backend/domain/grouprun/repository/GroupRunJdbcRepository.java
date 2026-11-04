@@ -121,6 +121,41 @@ public class GroupRunJdbcRepository {
                 groupRunId);
     }
 
+    /** G13. SCHEDULED 그룹만 CANCELLED로 바꾸고 사유를 저장한다. 호출 전에 그룹 행을 잠근다. */
+    public int markCancelled(long groupRunId, String cancelReason) {
+        return jdbcTemplate.update(
+                """
+                UPDATE group_runs
+                SET status = 'CANCELLED'::group_runs_status_enum, cancel_reason = ?
+                WHERE id = ? AND status = 'SCHEDULED'::group_runs_status_enum
+                """,
+                cancelReason,
+                groupRunId);
+    }
+
+    /** G09. SCHEDULED 그룹만 RUNNING으로 바꾼다. 호출 전에 그룹 행을 잠근다. */
+    public int markRunning(long groupRunId) {
+        return jdbcTemplate.update(
+                """
+                UPDATE group_runs
+                SET status = 'RUNNING'::group_runs_status_enum
+                WHERE id = ? AND status = 'SCHEDULED'::group_runs_status_enum
+                """,
+                groupRunId);
+    }
+
+    /** G12. RUNNING 그룹만 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 호출 전에 그룹 행을 잠근다. */
+    public int markCompleted(long groupRunId, Instant endedAt) {
+        return jdbcTemplate.update(
+                """
+                UPDATE group_runs
+                SET status = 'COMPLETED'::group_runs_status_enum, ended_at = ?
+                WHERE id = ? AND status = 'RUNNING'::group_runs_status_enum
+                """,
+                Timestamp.from(endedAt),
+                groupRunId);
+    }
+
     public List<GroupRunRow> search(
             long userId,
             Long crewId,

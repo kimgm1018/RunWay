@@ -94,6 +94,26 @@ public class SessionReferenceRepository {
                 .findFirst();
     }
 
+    /**
+     * 회원에게 연결된 해당 유형 기기 ID를 FOR SHARE로 잠가 읽는다. 그룹 준비 세션 생성 등 기기 ID를 요청으로 받지 않는 경로용이다.
+     */
+    public Optional<Long> lockLinkedDeviceId(long userId, String deviceType) {
+        return jdbc
+                .query(
+                        """
+                        SELECT id FROM user_devices
+                        WHERE user_id = ?
+                          AND device_type = ?::user_devices_device_type_enum
+                          AND unlinked_at IS NULL
+                        FOR SHARE
+                        """,
+                        (rs, n) -> rs.getLong("id"),
+                        userId,
+                        deviceType)
+                .stream()
+                .findFirst();
+    }
+
     /** W03 연결 해제와 순서를 정하기 위해 기기 행을 FOR SHARE로 잠근다. 해제가 먼저 확정되면 해제된 상태를 읽는다. */
     public Optional<DeviceRef> lockDevice(long deviceId) {
         return queryDevice(deviceId, " FOR SHARE");
@@ -190,6 +210,41 @@ public class SessionReferenceRepository {
                         groupRunId));
     }
 
+    /**
+     * G14 결과 조회용 읽기 전용 조회. 모든 참가자를 가입 순서로 돌려주고, 연결 세션이 없으면 세션 관련 값은 null이다. 삭제 표시된 세션도 참가 관계·집계
+     * 원본을 보존하므로 제외하지 않는다. START 결과는 세션의 첫 START 명령(G09가 만든 명령) 기준이다.
+     */
+    public List<GroupResultRow> findGroupResultRows(long groupRunId) {
+        return jdbc.query(
+                """
+                SELECT p.user_id, p.session_id,
+                       s.status::text AS session_status,
+                       s.started_at,
+                       s.analysis_status::text AS analysis_status,
+                       s.total_distance, s.moving_duration, s.average_pace, s.goal_achieved,
+                       (SELECT e.result::text FROM session_control_events e
+                        WHERE e.session_id = s.id AND e.action = 'START'::session_control_events_action_enum
+                        ORDER BY e.id LIMIT 1) AS start_result
+                FROM group_run_participants p
+                LEFT JOIN running_sessions s ON s.id = p.session_id
+                WHERE p.group_run_id = ?
+                ORDER BY p.joined_at, p.id
+                """,
+                (rs, n) ->
+                        new GroupResultRow(
+                                rs.getLong("user_id"),
+                                (Long) rs.getObject("session_id"),
+                                rs.getString("session_status"),
+                                toInstant(rs, "started_at"),
+                                rs.getString("analysis_status"),
+                                rs.getBigDecimal("total_distance"),
+                                (Integer) rs.getObject("moving_duration"),
+                                rs.getBigDecimal("average_pace"),
+                                (Boolean) rs.getObject("goal_achieved"),
+                                rs.getString("start_result")),
+                groupRunId);
+    }
+
     public Optional<CoachingGuideRow> findCoachingGuide(long sessionId, long coachingId) {
         return jdbc
                 .query(
@@ -253,6 +308,18 @@ public class SessionReferenceRepository {
             return "COMPLETED".equals(status);
         }
     }
+
+    public record GroupResultRow(
+            long userId,
+            Long sessionId,
+            String sessionStatus,
+            Instant startedAt,
+            String analysisStatus,
+            BigDecimal totalDistance,
+            Integer movingDuration,
+            BigDecimal averagePace,
+            Boolean goalAchieved,
+            String startResult) {}
 
     public record CoachingGuideRow(BigDecimal recommendedPace, Instant expiresAt) {}
 

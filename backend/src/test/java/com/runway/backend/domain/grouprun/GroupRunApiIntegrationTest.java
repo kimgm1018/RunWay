@@ -57,15 +57,25 @@ class GroupRunApiIntegrationTest {
 
     @BeforeEach
     void seed() {
+        jdbc.update("DELETE FROM pace_plan_segments");
+        jdbc.update("DELETE FROM pace_plans");
+        jdbc.update("DELETE FROM session_control_events");
         jdbc.update("DELETE FROM group_run_participants");
         jdbc.update("DELETE FROM group_runs");
         jdbc.update("DELETE FROM crew_memberships");
         jdbc.update("DELETE FROM crews");
+        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
+        jdbc.update("DELETE FROM running_sessions");
+        jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM users");
 
         hostId = insertUser("gr_api_host", "호스트", "01022220001");
         memberId = insertUser("gr_api_member", "멤버", "01022220002");
         outsiderId = insertUser("gr_api_out", "외부인", "01022220003");
+        insertDevice(hostId, "WATCH");
+        insertDevice(hostId, "PHONE");
+        insertDevice(memberId, "WATCH");
+        insertDevice(memberId, "PHONE");
         crewId = insertCrew(hostId, "API 크루");
         approveMember(crewId, hostId);
         approveMember(crewId, memberId);
@@ -311,12 +321,15 @@ class GroupRunApiIntegrationTest {
                                                 SecurityTestSupport.bearer(memberId)))
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.items", hasSize(2)))
-                        .andExpect(jsonPath("$.items[0].sessionId").value(nullValue()))
+                        .andExpect(jsonPath("$.items[0].sessionId").isNumber())
                         .andExpect(jsonPath("$.items[0].nickname").isNotEmpty())
+                        .andExpect(jsonPath("$.items[1].sessionId").value(nullValue()))
                         .andReturn();
         String body = listed.getResponse().getContentAsString();
         assertThat(body).contains("\"readyStatus\":\"READY\"");
         assertThat(body).contains("\"readyStatus\":\"WAITING\"");
+        assertThat(participantSessionId(groupRunId, hostId)).isNotNull();
+        assertThat(participantSessionId(groupRunId, memberId)).isNull();
         assertThat(body).contains("\"isHost\":true");
     }
 
@@ -417,6 +430,39 @@ class GroupRunApiIntegrationTest {
                                 .header("Authorization", SecurityTestSupport.bearer(memberId)))
                 .andExpect(status().isOk());
 
+        assertThat(participantSessionId(groupRunId, memberId)).isNull();
+
+        MvcResult readyOn =
+                mockMvc.perform(
+                                post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(memberId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"ready":true}
+                                                """))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.readyStatus").value("READY"))
+                        .andExpect(jsonPath("$.readyCount").value(1))
+                        .andExpect(jsonPath("$.participantCount").value(2))
+                        .andExpect(jsonPath("$.sessionId").isNumber())
+                        .andReturn();
+
+        long sessionId =
+                mapper.readTree(readyOn.getResponse().getContentAsString()).get("sessionId").asLong();
+        assertThat(participantSessionId(groupRunId, memberId)).isEqualTo(sessionId);
+        String sessionSnapshot =
+                jdbc.queryForObject(
+                        """
+                        SELECT status::text || ':' || goal_distance || ':' || goal_duration
+                        FROM running_sessions WHERE id=?
+                        """,
+                        String.class,
+                        sessionId);
+        assertThat(sessionSnapshot).isEqualTo("READY:5000:1800");
+
         mockMvc.perform(
                         post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
                                 .header("Authorization", SecurityTestSupport.bearer(memberId))
@@ -426,9 +472,7 @@ class GroupRunApiIntegrationTest {
                                         {"ready":true}
                                         """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.readyStatus").value("READY"))
-                .andExpect(jsonPath("$.readyCount").value(1))
-                .andExpect(jsonPath("$.participantCount").value(2));
+                .andExpect(jsonPath("$.sessionId").value((int) sessionId));
 
         mockMvc.perform(
                         post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
@@ -440,18 +484,50 @@ class GroupRunApiIntegrationTest {
                                         """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.readyStatus").value("WAITING"))
-                .andExpect(jsonPath("$.readyCount").value(0));
+                .andExpect(jsonPath("$.readyCount").value(0))
+                .andExpect(jsonPath("$.sessionId").value(nullValue()));
 
+        assertThat(participantSessionId(groupRunId, memberId)).isNull();
         assertThat(
                         jdbc.queryForObject(
-                                """
-                                SELECT ready FROM group_run_participants
-                                WHERE group_run_id=? AND user_id=?
-                                """,
+                                "SELECT ready FROM group_run_participants WHERE group_run_id=? AND user_id=?",
                                 Boolean.class,
                                 groupRunId,
                                 memberId))
                 .isFalse();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status::text FROM running_sessions WHERE id=?",
+                                String.class,
+                                sessionId))
+                .isEqualTo("CANCELLED");
+    }
+
+    @Test
+    void readyTrue_withoutDevices_rejected() throws Exception {
+        long noDeviceUser = insertUser("gr_api_nodev", "무기기", "01022220009");
+        approveMember(crewId, noDeviceUser);
+        long groupRunId = createGroupRun(hostId);
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/join", groupRunId)
+                                .header(
+                                        "Authorization",
+                                        SecurityTestSupport.bearer(noDeviceUser)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        post("/api/v1/group-runs/{id}/participants/me/ready", groupRunId)
+                                .header(
+                                        "Authorization",
+                                        SecurityTestSupport.bearer(noDeviceUser))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"ready":true}
+                                        """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("DEVICE_NOT_FOUND"));
+        assertThat(participantSessionId(groupRunId, noDeviceUser)).isNull();
     }
 
     @Test
@@ -542,5 +618,28 @@ class GroupRunApiIntegrationTest {
                 """,
                 crewId,
                 userId);
+    }
+
+    private long insertDevice(long userId, String type) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO user_devices(user_id, device_type, linked_at)
+                VALUES (?, ?::user_devices_device_type_enum, now())
+                RETURNING id
+                """,
+                Long.class,
+                userId,
+                type);
+    }
+
+    private Long participantSessionId(long groupRunId, long userId) {
+        return jdbc.query(
+                        """
+                        SELECT session_id FROM group_run_participants
+                        WHERE group_run_id=? AND user_id=?
+                        """,
+                        rs -> rs.next() ? rs.getObject(1, Long.class) : null,
+                        groupRunId,
+                        userId);
     }
 }

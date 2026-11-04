@@ -225,6 +225,22 @@ public enum ErrorCode {
             HttpStatus.CONFLICT, "INVALID_GROUP_STATE", "모집 중인 그룹런에만 참가할 수 있습니다."),
     EDIT_NOT_ALLOWED(HttpStatus.CONFLICT, "EDIT_NOT_ALLOWED", "출발 전 그룹런만 수정할 수 있습니다."),
     NOT_HOST(HttpStatus.FORBIDDEN, "NOT_HOST", "그룹장만 수정할 수 있습니다."),
+    NOT_HOST_GROUPRUN_START(HttpStatus.FORBIDDEN, "NOT_HOST", "그룹장만 그룹런을 시작할 수 있습니다."),
+    NOT_HOST_GROUPRUN_CANCEL(HttpStatus.FORBIDDEN, "NOT_HOST", "그룹장만 그룹런을 취소할 수 있습니다."),
+    INVALID_GROUP_STATE_GROUPRUN_START(
+            HttpStatus.CONFLICT,
+            "INVALID_GROUP_STATE",
+            "출발 전 대기방이며 시작할 준비 세션이 있는 그룹런만 시작할 수 있습니다."),
+    NOT_HOST_GROUPRUN_FORCE_FINISH(
+            HttpStatus.FORBIDDEN, "NOT_HOST", "그룹장만 그룹런을 강제 종료할 수 있습니다."),
+    INVALID_GROUP_STATE_GROUPRUN_FORCE_FINISH(
+            HttpStatus.CONFLICT, "INVALID_GROUP_STATE", "진행 중인 그룹런만 강제 종료할 수 있습니다."),
+    INVALID_GROUP_STATE_GROUPRUN_CANCEL(
+            HttpStatus.CONFLICT, "INVALID_GROUP_STATE", "출발 전 그룹런만 취소할 수 있습니다."),
+    VALIDATION_ERROR_GROUPRUN_CANCEL_REASON(
+            HttpStatus.BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "cancelReason은 WEATHER, PERSONAL, LACK_OF_PARTICIPANTS, LOCATION_ISSUE, OTHER 중 하나여야 합니다."),
     ASSESSMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "ASSESSMENT_NOT_FOUND", "준비도 결과가 없습니다."),
     RECORD_NOT_FOUND(HttpStatus.NOT_FOUND, "RECORD_NOT_FOUND", "러닝 기록을 찾을 수 없습니다."),
     RECORD_NOT_OWNER(HttpStatus.FORBIDDEN, "NOT_OWNER", "본인 러닝 기록만 조회할 수 있습니다."),
