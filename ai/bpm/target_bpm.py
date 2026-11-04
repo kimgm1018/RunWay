@@ -5,7 +5,7 @@
 
 서비스 흐름:
   - 러닝 시작과 목표 페이스가 바뀔 때마다 target_bpm으로 BPM을 계산한다.
-  - 지난 기록은 select_records로 골라 넣는다(BPM을 따라간 구간만, 최근 5회, 러닝·속도 칸별 평균).
+  - 지난 기록은 select_records로 골라 넣는다(BPM을 따라간 구간만, 최근 20회, 러닝·속도 칸별 평균).
   - 보정에 쓸 기록이 없는 처음 사용자만, 이번 러닝의 첫 1분으로 한 번 다시 계산한다(first_minute_bpm).
 
 사용 예:
@@ -22,7 +22,7 @@ from stride_model import StridePrior, personal_offset, predict_cadence
 
 BPM_MIN, BPM_MAX = 60, 220
 FOLLOW_SPM = 5          # 큐를 켠 구간은 |케이던스 − BPM| ≤ 5일 때만 보정에 쓴다 (BPM-005)
-RECENT_RUNS = 5         # 최근 러닝 5회만 쓴다 (BPM-004, 잠정)
+RECENT_RUNS = 20        # 최근 러닝 20회만 쓴다 (BPM-006에서 5~60회 비교, 잠정)
 SPEED_BIN = 0.25        # 러닝·속도 칸(m/s)별 평균 하나로 묶는다
 MIN_CHANGE_SPM = 3      # 첫 1분 보정은 지금 BPM과 이만큼 이상 차이 날 때만 바꾼다 (잠정)
 
