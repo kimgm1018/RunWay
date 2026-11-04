@@ -1301,8 +1301,8 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | 인증 | 회원 |
 | 관련 요구사항 | BPM-002 / SYS-003 |
 | 관련 화면 | 8.1 설정 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | 화면 설계 v10 대조로 추가. 응답 형식은 ERD 확정 후 갱신 |
+| 미정 사항 | 없음 — 아래 247번 확정 계약 적용 |
+| 비고 | 2026-11-04 S15P31E105-247 사용자 승인 계약 |
 
 ### 설명
 
@@ -1310,7 +1310,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
+- 로그인 사용자 본인만 조회·변경한다. 사용자 ID는 검증된 JWT에서 식별하며 X-User-Id로 대체하지 않는다.
 
 ### Path Parameters
 
@@ -1326,7 +1326,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
@@ -1347,48 +1347,47 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | `voiceCoachingEnabled` | boolean | O | 적용된 음성 코칭 설정. |
 | `bpmGuideEnabled` | boolean | O | 적용된 BPM 안내 설정. |
 | `locationRecordingMode` | string | O | ALWAYS/RUNNING_ONLY/OFF 중 적용된 값. |
-| `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching 알림 분류는 미정. |
+| `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching은 지원하지 않음. |
 
 
-`notifications.groupRun`은 user_settings.group_notifications_enabled, `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 확인 필요다.
+`notifications.groupRun`은 user_settings.group_notifications_enabled, `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 요청·응답에서 지원하지 않는다.
 
 **사용 흐름과 응답 판단**
 
-설정 화면이 저장된 유효 설정을 표시한다. PATCH는 보낸 값뿐 아니라 적용 후 전체 설정을 반환하는 보완안이다.
+설정 화면이 저장된 유효 설정을 표시한다. PATCH는 보낸 값뿐 아니라 적용 후 전체 설정을 반환한다.
 
-위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
+반환 필드는 위 다섯 설정으로 한정한다. OS 권한·개인정보 동의·계정 공개 범위는 이 API에서 변경하지 않는다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
+**상태: 2026-11-04 S15P31E105-247 확정.** 인증 실패는 기존 공통 계약을 따른다.
 
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
 
-**추가 오류 후보 — HTTP·코드·판정 정책 확인 필요**
+**행 누락·저장소 오류**
 
-| 후보 | 발생 가능 상황 |
+| HTTP·코드 | 발생 조건 |
 |---|---|
-| `404 SETTINGS_NOT_SET` | 앱 설정 행 부재. 임의 기본값 생성 정책 확인 |
+| `503 SERVICE_UNAVAILABLE` | 사용자 또는 설정 행 누락, 일시적인 저장소 접근·잠금 실패. GET/PATCH에서 자동 생성하지 않음 |
 
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
 
 ### 처리 규칙
 
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
+- 본인의 설정만 대상으로 한다. 그룹 참가 권한·러닝 세션 상태는 이 API에서 변경하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
 
 - 해당 없음.
 
-### 미정 사항
+### 확정 사항과 연계 범위
 
-- [ ] 응답 필드는 ERD 확정 후 갱신
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+- 응답 필드는 기존 user_settings의 다섯 설정에 대응한다.
+- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 음성/BPM/그룹런·커뮤니티 알림=false, 위치 OFF다. 예시 값은 기본값이 아니다.
 
 
 ## U20 앱 설정 변경
@@ -1401,8 +1400,8 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | 인증 | 회원 |
 | 관련 요구사항 | BPM-002 / SYS-003 |
 | 관련 화면 | 8.1 설정 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | 화면 설계 v10 대조로 추가. 응답 형식은 ERD 확정 후 갱신 |
+| 미정 사항 | 없음 — 아래 247번 확정 계약 적용 |
+| 비고 | 2026-11-04 S15P31E105-247 사용자 승인 계약 |
 
 ### 설명
 
@@ -1410,7 +1409,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
+- 로그인 사용자 본인만 조회·변경한다. 사용자 ID는 검증된 JWT에서 식별하며 X-User-Id로 대체하지 않는다.
 
 ### Path Parameters
 
@@ -1427,7 +1426,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | `voiceCoachingEnabled` | boolean | X | 코칭 음성 알림(페이스·심박 이탈 시 음성 안내) |
 | `bpmGuideEnabled` | boolean | X | BPM 리듬 가이드(목표 케이던스 비트) |
 | `locationRecordingMode` | string | X | ALWAYS(항상)/RUNNING_ONLY(러닝 중에만)/OFF(끔) |
-| `notifications` | object | X | `{groupRun, coaching, community}` boolean |
+| `notifications` | object | X | `{groupRun, community}` boolean; 내부 필드도 생략 가능 |
 
 ```json
 {
@@ -1440,7 +1439,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
@@ -1463,43 +1462,45 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | `voiceCoachingEnabled` | boolean | O | 적용된 음성 코칭 설정. |
 | `bpmGuideEnabled` | boolean | O | 적용된 BPM 안내 설정. |
 | `locationRecordingMode` | string | O | ALWAYS/RUNNING_ONLY/OFF 중 적용된 값. |
-| `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching 알림 분류는 미정. |
+| `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching은 지원하지 않음. |
 
 **사용 흐름과 응답 판단**
 
-설정 화면이 저장된 유효 설정을 표시한다. PATCH는 보낸 값뿐 아니라 적용 후 전체 설정을 반환하는 보완안이다.
+설정 화면이 저장된 유효 설정을 표시한다. PATCH는 보낸 값뿐 아니라 적용 후 전체 설정을 반환한다.
 
-위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
+반환 필드는 위 다섯 설정으로 한정한다. OS 권한·개인정보 동의·계정 공개 범위는 이 API에서 변경하지 않는다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
+**상태: 2026-11-04 S15P31E105-247 확정.** 인증 실패는 기존 공통 계약을 따른다.
 
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
 | `422 INVALID_SETTING` | 입력 값 | boolean 설정 타입이나 위치 모드(ALWAYS/RUNNING_ONLY/OFF)가 잘못됨. 지원하지 않는 설정 키 포함 |
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| `400 VALIDATION_ERROR` | 입력 형식 | 본문 없음, JSON 구문 오류, 최상위 비객체, 중복 키 또는 후행 JSON. 설정 필드 타입·값 오류는 422로 구분 |
 
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
+- **중복·경합:** 동일 값 재전송을 허용한다. 생략한 필드는 현재 DB 값을 유지하며 서로 다른 필드의 동시 변경은 모두 보존한다. 같은 필드는 DB에서 나중에 직렬화된 쓰기 값이 최종값이다. 응답은 해당 쓰기가 적용된 시점의 전체 설정이며 이후 요청이 바꿀 수 있다. 응답 유실 시 GET으로 현재값을 확인한다. 버전 필드·409 충돌 응답은 추가하지 않는다.
 
 ### 처리 규칙
 
-- 위치 기록 OFF는 OS 권한과 별개인 앱 내 설정이다. OFF일 때 러닝 시작 처리 정책을 확정해야 한다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
+- 최상위·중첩 필드 생략은 유지한다. 명시적 null, 잘못된 설정 타입·값, 미지원 키(coaching 포함)는 422 INVALID_SETTING이다. 빈 객체 또는 빈 notifications는 변경 없이 현재 설정을 반환한다. 본문 없음·최상위 비객체·잘못된 JSON·중복 키·후행 JSON은 400 VALIDATION_ERROR다. 이 엄격한 파싱은 U20에만 적용한다.
+- 사용자·설정 행 누락과 일시적인 저장소·잠금 장애는 503 SERVICE_UNAVAILABLE이며 자동 생성하지 않는다.
+- 위치 기록 OFF는 OS 권한과 별개인 앱 내 설정이다. OFF에서 코스 러닝·그룹런 시작은 보류하고 사용자에게 RUNNING_ONLY 등으로 직접 변경하도록 안내한다. 자동으로 ON으로 바꾸지 않으며 OS 권한은 별도로 필요하다. 실제 S01/S03·그룹런 시작 검증은 해당 담당 영역과 연계한다.
+- 본인의 설정만 대상으로 한다. 그룹 참가 권한·러닝 세션 상태는 이 API에서 변경하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
 
 - 해당 없음.
 
-### 미정 사항
+### 확정 사항과 연계 범위
 
-- [ ] 위치 기록 OFF 상태에서 코스 러닝·그룹런 허용 여부
-- [ ] 응답 필드는 ERD 확정 후 갱신
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+- OFF에서 코스 러닝·그룹런 시작 보류 정책 확정. 해당 시작 API 구현·연계 검증은 별도 추적한다.
+- 응답 필드는 기존 user_settings의 다섯 설정에 대응한다.
+- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 음성/BPM/그룹런·커뮤니티 알림=false, 위치 OFF다. 예시 값은 기본값이 아니다.
 
 
 ## U21 러너 프로필 조회
