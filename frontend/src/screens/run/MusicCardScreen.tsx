@@ -198,18 +198,17 @@ function Artwork({
   );
 }
 
-// The glass pill at the top right. It also opens 2.8, which the mockup has no other way into.
-function Badge({ label, onPress }: { label: string; onPress: () => void }) {
+// The glass ⚙ at the top right opens 2.8 음원 선택 in every state (runway-music-handoff).
+function SettingsButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="음원 선택"
-      hitSlop={8}
+      accessibilityLabel="음악 연결 설정"
+      hitSlop={6}
       onPress={onPress}
-      style={styles.badge}
+      style={styles.settings}
     >
-      <View style={styles.badgeDot} />
-      <AppText style={styles.badgeText}>{label}</AppText>
+      <Icon name="cog" color="#FFFFFF" size={21} strokeWidth={1.8} />
     </Pressable>
   );
 }
@@ -395,7 +394,6 @@ export function MusicCardScreen() {
     }
     setBusy(false);
   };
-  const playing = state?.nowPlaying?.playing ?? false;
   const artwork = service ? state?.nowPlaying?.artworkUrl : null;
   const [loadedArt, setLoadedArt] = useState<string | null>(null);
   return (
@@ -417,12 +415,7 @@ export function MusicCardScreen() {
             {...box}
           />
         ) : null}
-        {state && service && state.linked ? (
-          <Badge
-            label={playing ? '재생 중' : '일시정지'}
-            onPress={openSource}
-          />
-        ) : null}
+        <SettingsButton onPress={openSource} />
         <View style={styles.body}>
           {!state ? (
             failed ? (
@@ -505,32 +498,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: '#FFFFFF',
   },
-  badge: {
+  // No border (핸드오프); the card's own blur stands in for the mockup's backdrop blur.
+  settings: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: 14,
+    right: 14,
     zIndex: 1,
-    height: 28,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    flexDirection: 'row',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
-    gap: 6,
-  },
-  badgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
-  },
-  badgeText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: '#FFFFFF',
+    justifyContent: 'center',
   },
   dots: {
     flexDirection: 'row',

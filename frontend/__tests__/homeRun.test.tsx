@@ -296,15 +296,11 @@ async function openMusic(scenario: MockScenario) {
 test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick', async () => {
   const screen = await openMusic('default');
   const card = texts(screen);
-  for (const text of [
-    '재생 중',
-    '바다 쪽으로 달리기',
-    '1:24',
-    '3:41',
-    '멜론 열기',
-  ]) {
+  for (const text of ['바다 쪽으로 달리기', '1:24', '3:41', '멜론 열기']) {
     expect(card).toContain(text);
   }
+  // The handoff's ⚙ took the place of the 재생 중 badge.
+  expect(card).not.toContain('재생 중');
   // The 2.7 핸드오프 card has no lists and no shuffle or repeat.
   expect(card).not.toContain('좋아요한 곡');
   expect(() => labelled(screen, '셔플')).toThrow();
@@ -316,7 +312,7 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   await press(screen, '이전 곡');
   expect(texts(screen)).toContain('바다 쪽으로 달리기');
 
-  await press(screen, '음원 선택');
+  await press(screen, '음악 연결 설정');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
     disabled: true,
   });
@@ -328,18 +324,24 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   expect(labelled(screen, '멜론').props.accessibilityState).toMatchObject({
     checked: false,
   });
+  // Closing without ✓ keeps 멜론.
   await press(screen, '닫기');
+  expect(texts(screen)).toContain('멜론 열기');
+
+  await press(screen, '음악 연결 설정');
+  await press(screen, 'Spotify');
+  await press(screen, '설정 완료');
   const spotify = texts(screen);
   expect(spotify).toContain('Spotify Premium');
   expect(spotify).toContain('Spotify 열기');
 
   // The picked row pressed again clears the pick, back to 2.7a.
-  await press(screen, '음원 선택');
+  await press(screen, '음악 연결 설정');
   await press(screen, 'Spotify');
   expect(labelled(screen, 'Spotify').props.accessibilityState).toMatchObject({
     checked: false,
   });
-  await press(screen, '닫기');
+  await press(screen, '설정 완료');
   expect(texts(screen)).toContain('음악 서비스를 연결해 주세요');
   await act(async () => screen.unmount());
 });
@@ -359,7 +361,7 @@ test('the music card shows the not-connected and disconnected states', async () 
   await act(async () => dropped.unmount());
 
   const setup = await openMusic('musicNeedsSetup');
-  await press(setup, '음원 선택');
+  await press(setup, '음악 연결 설정');
   const sources = texts(setup);
   for (const text of ['허용', '설치']) {
     expect(sources).toContain(text);

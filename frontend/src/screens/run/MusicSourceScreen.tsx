@@ -6,7 +6,7 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Icon, useToast, type IconName } from '../../components';
 import {
@@ -67,12 +67,41 @@ function Toggle({ on }: { on: boolean }) {
   );
 }
 
+// The ✓ under the card: 설정 완료 saves the pick and goes back to 2.7 (runway-music-handoff).
+function ConfirmButton({
+  busy,
+  onPress,
+}: {
+  busy: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="설정 완료"
+      accessibilityState={{ busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [styles.confirm, pressed && styles.pressed]}
+    >
+      <Icon name="check" color="#FFFFFF" size={22} strokeWidth={2.6} />
+    </Pressable>
+  );
+}
+
 // 2.8 음원 선택 and 2.8b 설치·권한 필요, as a small card in the middle. One pick at a time; pressing the
-// picked row again clears it (back to 2.7a 미연결). The mockup has no close button: tap outside or go back.
+// picked row again clears it (back to 2.7a 미연결). The pick is saved only by ✓; tapping outside or going
+// back leaves the source as it was.
 export function MusicSourceScreen() {
   const { music } = useRepositories();
   const toast = useToast();
+  const navigation = useNavigation();
   const [state, setState] = useState<MusicState | null>(null);
+  // The row turned on here, not saved yet; undefined until the state first loads.
+  const [picked, setPicked] = useState<MusicSource | null | undefined>(
+    undefined,
+  );
+  const [saving, setSaving] = useState(false);
   const [box, setBox] = useState<{ width: number; height: number } | null>(
     null,
   );
@@ -82,7 +111,14 @@ export function MusicSourceScreen() {
     useCallback(() => {
       let active = true;
       music.getState().then(
-        next => active && setState(next),
+        next => {
+          if (active) {
+            setState(next);
+            setPicked(current =>
+              current === undefined ? next.source : current,
+            );
+          }
+        },
         () => active && toast('음원 정보를 불러오지 못했어요'),
       );
       return () => {
@@ -91,13 +127,21 @@ export function MusicSourceScreen() {
     }, [music, toast]),
   );
   const say = (message: string | null) => message && toast(message);
-  const choose = async (source: MusicSource) => {
+  const choose = (source: MusicSource) =>
+    setPicked(current => (current === source ? null : source));
+  const confirm = async () => {
+    if (!state || picked === undefined) {
+      return;
+    }
+    setSaving(true);
     try {
-      setState(
-        await music.selectSource(state?.source === source ? null : source),
-      );
+      if (picked !== state.source) {
+        await music.selectSource(picked);
+      }
+      navigation.goBack();
     } catch (error) {
       say(spotifyFailureMessage(error, '음원을 바꾸지 못했어요'));
+      setSaving(false);
     }
   };
   // Spotify 로그인 opens Spotify's sign-in page and comes back here.
@@ -128,7 +172,7 @@ export function MusicSourceScreen() {
                   ? 'CONNECTED'
                   : state.services[row.source];
               const ready = status === 'CONNECTED';
-              const on = state.source === row.source;
+              const on = picked === row.source;
               return (
                 <Pressable
                   key={row.source}
@@ -170,6 +214,7 @@ export function MusicSourceScreen() {
           </View>
         )}
       </View>
+      {state ? <ConfirmButton busy={saving} onPress={confirm} /> : null}
     </MusicOverlay>
   );
 }
@@ -247,5 +292,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
     color: '#02050E',
+  },
+  confirm: {
+    alignSelf: 'center',
+    marginTop: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#02050E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 10px 24px rgba(2,5,14,0.22)',
+  },
+  pressed: {
+    transform: [{ scale: 0.94 }],
+    boxShadow: '0 4px 12px rgba(2,5,14,0.22)',
   },
 });
