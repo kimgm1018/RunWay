@@ -1,5 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  PermissionsAndroid,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -10,7 +12,9 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText, Icon, LightGlass, TextField } from '../../components';
+import { RunMap, type RunMapRef } from '../../components/RunMap';
 import { useRepositories, type MeetingPlace } from '../../data';
+import { distanceM, type LngLat } from '../../geo';
 import {
   fontFamily,
   size,
@@ -18,13 +22,37 @@ import {
   ThemeProvider,
   typography,
 } from '../../theme';
-import { MockMap } from '../run/MockMap';
 import { FooterButton } from './GroupRunDetailScreen';
 import { groupLook, Raised } from './look';
 import { Tag, useGroupRunDraft } from './parts';
 
 const formatDistance = (meters: number) =>
-  meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${meters}m`;
+  meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
+
+// A point picked on the map has no place name or address yet (no reverse geocoding), so it shows its
+// coordinates; its distance is known only once my location is.
+function mapPlace(
+  position: LngLat,
+  name: string,
+  me: LngLat | null,
+): MeetingPlace {
+  return {
+    name,
+    address: `${position[1].toFixed(5)}, ${position[0].toFixed(5)}`,
+    position,
+    distanceM: me ? distanceM(me, position) : Number.NaN,
+  };
+}
+
+async function locationAllowed() {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}
 
 // 이 위치로 정하기 (6.9-PlaceSheet): a raised navy pill with a white circle ✓ at its end.
 function ConfirmButton({
@@ -55,8 +83,9 @@ function ConfirmButton({
   );
 }
 
-// 6.9 만남 장소 선택 and 6.9b 장소 확정. Until the map SDK (S15P31E105-180) the place is picked
-// from search results instead of by dragging the map. runway-group-handoff: the light map with a navy pin,
+// 6.9 만남 장소 선택 and 6.9b 장소 확정. The place is picked from the search results and nearby chips,
+// by a tap on the Naver map, or at my location (S15P31E105-415); the map keeps it under the pin.
+// runway-group-handoff: the light map with a navy pin,
 // and light glass for the search, the buttons and the sheet. The sheet shows the picked place's own
 // address and distance.
 export function MeetingPlaceScreen() {
@@ -69,6 +98,12 @@ export function MeetingPlaceScreen() {
   const [confirming, setConfirming] = useState(false);
   const [placeName, setPlaceName] = useState('');
   const [note, setNote] = useState(draft.place?.note ?? '');
+  const map = useRef<RunMapRef>(null);
+  const [me, setMe] = useState<LngLat | null>(null);
+  // The GPS dot appears only after the location permission is granted.
+  const [showMe, setShowMe] = useState(false);
+  // True while the camera flies to my location; where it stops is the picked place.
+  const locating = useRef(false);
 
   const search = useCallback(
     (text: string) => {
@@ -87,19 +122,53 @@ export function MeetingPlaceScreen() {
     search('');
   };
 
+  // 내 위치로: with the location permission the map follows me once; without it the nearest place.
+  const goToMe = async () => {
+    if (!(await locationAllowed())) {
+      if (results[0]) {
+        choose(results[0]);
+      }
+      return;
+    }
+    locating.current = true;
+    setShowMe(true);
+    map.current?.setLocationTrackingMode('Follow');
+  };
+
   return (
     // The map is light whatever the screen mode, so the screen takes the light theme.
     <ThemeProvider tone="light">
       <View style={[styles.root, styles.ground]}>
         <StatusBar barStyle="dark-content" />
-        {/* 6.9-MapView: the light thin-line map, the picked point where the pin stands. */}
-        <MockMap k1Style position={picked?.position} positionY={377} />
+        {/* 6.9-MapView: the light map, the picked point under the pin (377 of 844). */}
+        <RunMap
+          ref={map}
+          dark={false}
+          position={picked?.position}
+          showLocation={showMe}
+          area={{ top: 0.447, bottom: 0.447 }}
+          onTapMap={point => {
+            setConfirming(false);
+            setPicked(mapPlace(point, '지도에서 고른 위치', me));
+          }}
+          onCameraIdle={center => {
+            if (!locating.current) {
+              return;
+            }
+            locating.current = false;
+            map.current?.setLocationTrackingMode('NoFollow');
+            setMe(center);
+            setConfirming(false);
+            setPicked(mapPlace(center, '내 위치', center));
+          }}
+          style={StyleSheet.absoluteFill}
+        />
         <View style={styles.pinLayer} pointerEvents="none">
           <View style={styles.pin}>
             {!confirming ? (
               <LightGlass radius={13} style={styles.tip}>
                 <AppText style={styles.tipText}>
-                  장소를 검색하거나 아래에서 고르세요
+                  지도를 누르거나 장소를 검색하세요
                 </AppText>
               </LightGlass>
             ) : null}
@@ -181,7 +250,7 @@ export function MeetingPlaceScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="내 위치로"
-                onPress={() => results[0] && choose(results[0])}
+                onPress={goToMe}
                 style={({ pressed }) => pressed && styles.pressed}
               >
                 <LightGlass radius={22} style={styles.locateButton}>
@@ -284,9 +353,11 @@ export function MeetingPlaceScreen() {
                         </AppText>
                         <AppText style={styles.sub}>{picked.address}</AppText>
                       </View>
-                      <AppText style={styles.distance}>
-                        {formatDistance(picked.distanceM)}
-                      </AppText>
+                      {Number.isFinite(picked.distanceM) ? (
+                        <AppText style={styles.distance}>
+                          {formatDistance(picked.distanceM)}
+                        </AppText>
+                      ) : null}
                     </View>
                   ) : null}
                   <ConfirmButton
@@ -320,7 +391,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
   },
-  // MockMap draws the picked point at y=377 of its 844-high frame.
+  // The map keeps the picked point at 44.7% down (377 of 844).
   pin: {
     position: 'absolute',
     top: '44.7%',

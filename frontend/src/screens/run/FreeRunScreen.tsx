@@ -8,7 +8,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, spacing, typography, useTheme } from '../../theme';
 import { parseClock, parseDistanceKm } from '../onboarding/validation';
 import { MapScreenFrame } from './MapScreenFrame';
-import { MockMap } from './MockMap';
+import { RunMap } from '../../components/RunMap';
 import { K1Badge, PlaceCard, RunStartBar } from './parts';
 
 const loadPlace = (repositories: Repositories) =>
@@ -99,10 +99,11 @@ export function FreeRunScreen() {
   return (
     <MapScreenFrame
       map={
-        <MockMap
-          k1Style
-          night={night}
+        <RunMap
+          dark={night}
           position={place.status === 'ready' ? place.data.position : undefined}
+          area={{ top: 0.36, bottom: 0.36 }}
+          style={StyleSheet.absoluteFill}
         />
       }
       top={

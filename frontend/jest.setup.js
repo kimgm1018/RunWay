@@ -37,6 +37,53 @@ jest.mock('react-native-image-picker', () => ({
 // react-native-get-random-values polyfills crypto.getRandomValues through a native module; Node already has it.
 jest.mock('react-native-get-random-values', () => ({}));
 
+// @mj-studio/react-native-naver-map is a native map; tests get plain views (RunMap's markers keep their
+// children, so labels on the map can be found) and a ref whose camera calls do nothing. A test taps the map
+// with fireEvent(map, 'tapMap', { latitude, longitude }).
+jest.mock('@mj-studio/react-native-naver-map', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const overlay = name => {
+    const Overlay = props =>
+      React.createElement(View, { testID: name }, props.children);
+    Overlay.displayName = name;
+    return Overlay;
+  };
+  const NaverMapView = React.forwardRef((props, ref) => {
+    React.useImperativeHandle(ref, () => ({
+      animateCameraTo: jest.fn(),
+      animateCameraBy: jest.fn(),
+      animateRegionTo: jest.fn(),
+      animateCameraWithTwoCoords: jest.fn(),
+      cancelAnimation: jest.fn(),
+      setLocationTrackingMode: jest.fn(),
+      screenToCoordinate: jest.fn(async () => ({
+        isValid: false,
+        latitude: 0,
+        longitude: 0,
+      })),
+      coordinateToScreen: jest.fn(async () => ({
+        isValid: false,
+        screenX: 0,
+        screenY: 0,
+      })),
+    }));
+    return React.createElement(
+      View,
+      { testID: 'naver-map', style: props.style, onTapMap: props.onTapMap },
+      props.children,
+    );
+  });
+  return {
+    NaverMapView,
+    NaverMapMarkerOverlay: overlay('naver-map-marker'),
+    NaverMapPathOverlay: overlay('naver-map-path'),
+    NaverMapMultiPathOverlay: overlay('naver-map-multipath'),
+    NaverMapPolylineOverlay: overlay('naver-map-polyline'),
+    NaverMapCircleOverlay: overlay('naver-map-circle'),
+  };
+});
+
 // react-native-pager-view is a native pager; tests render every page and report page changes the way the
 // native view does, so a test drives a swipe through onPageScroll and onPageSelected.
 jest.mock('react-native-pager-view', () => {
