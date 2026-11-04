@@ -13,8 +13,8 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, radius, spacing, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
-import { coursePaceColors } from './CourseMockMap';
-import { MockMap } from './MockMap';
+import { coursePaceColors } from '../../components/mapRoute';
+import { RunMap } from '../../components/RunMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 
@@ -155,13 +155,16 @@ export function CourseRunScreen() {
   return (
     <MapScreenFrame
       map={
-        <MockMap
-          k1Style
-          night={night}
+        <RunMap
+          dark={night}
           route={plan?.route}
           segmentPaces={plan?.segmentPacesSecPerKm}
-          showPaceLabels
-          formatLabel={(_, pace) => formatPace(pace)}
+          // The km paces are labelled by day; after sunset the course is a plain white line.
+          paceLabels={
+            night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
+          }
+          area={{ top: 0.19, bottom: 0.56 }}
+          style={StyleSheet.absoluteFill}
         />
       }
       top={top}

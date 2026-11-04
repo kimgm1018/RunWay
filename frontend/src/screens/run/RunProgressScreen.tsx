@@ -44,7 +44,7 @@ import {
   ThemeProvider,
   useTheme,
 } from '../../theme';
-import { MockMap } from './MockMap';
+import { RunMap } from '../../components/RunMap';
 import { AlbumArt } from './musicParts';
 import { K1Badge } from './parts';
 import { useRunControlState, useRunSession } from './RunSession';
@@ -570,10 +570,17 @@ export function RunProgressScreen() {
     return (
       <View style={styles.root}>
         <StatusBar barStyle="dark-content" />
-        <MockMap
-          k1Style
+        <RunMap
+          dark={false}
           route={plan?.route}
           trail={trail.length > 0 ? trail : undefined}
+          // The run so far between the stat strip and the pace card; the course before the first metres.
+          area={
+            trail.length > 0
+              ? { top: 0.39, bottom: 0.56 }
+              : { top: 0.19, bottom: 0.56 }
+          }
+          style={StyleSheet.absoluteFill}
         />
         <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
           <View style={styles.dayTop}>
@@ -719,12 +726,12 @@ export function RunProgressScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colors.statusBar} />
       {/* After sunset the whole screen is the K1 dark map (DESIGN.md 2-7). */}
-      <MockMap
-        k1Style
-        night
+      <RunMap
+        dark
         route={plan?.route}
         trail={trail.length > 0 ? trail : undefined}
-        routeArea={{ top: 275, bottom: 420 }}
+        area={{ top: 0.36, bottom: 0.55 }}
+        style={StyleSheet.absoluteFill}
       />
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         <View style={styles.top}>

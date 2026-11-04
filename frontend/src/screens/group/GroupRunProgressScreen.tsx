@@ -8,14 +8,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, {
-  Circle,
-  Defs,
-  LinearGradient,
-  Rect,
-  Stop,
-  Text as SvgText,
-} from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
@@ -27,8 +20,7 @@ import { walkAlong, routeLengthM, type LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1, spacing, ThemeProvider } from '../../theme';
-import { courseMapSize } from '../run/courseMapArt';
-import { coursePaceColors, CourseMockMap } from '../run/CourseMockMap';
+import { RunMap } from '../../components/RunMap';
 import { MiniPlayer, PaceBar } from '../run/RunProgressScreen';
 import { useRunSession } from '../run/RunSession';
 import { groupLook, Raised } from './look';
@@ -42,40 +34,10 @@ const tabs: { value: Tab; label: string }[] = [
 // The other members on the light map (6.6r-MapView): steel blue dots with their names.
 const memberDot = '#5D8194';
 
-// Where the run sits on the 390×844 light map: the course before the first metres, then the run so far,
-// both above the info under the scrim (as MockMap places them on 4.2 by day).
-const courseArea = { top: 160, bottom: 470 };
-const runArea = { top: 330, bottom: 470 };
-
-const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-
-// Fits points into an area of the light map, the way MockMap does for its day map.
-function projector(points: LngLat[], area: { top: number; bottom: number }) {
-  const lngs = points.map(point => point[0]);
-  const lats = points.map(point => point[1]);
-  const [minLng, maxLng] = [Math.min(...lngs), Math.max(...lngs)];
-  const [minLat, maxLat] = [Math.min(...lats), Math.max(...lats)];
-  const midLat = (minLat + maxLat) / 2;
-  const spanX = Math.max((maxLng - minLng) * Math.cos(toRadians(midLat)), 1e-4);
-  const spanY = Math.max(maxLat - minLat, 1e-4);
-  const box = { left: 50, right: courseMapSize.width - 50, ...area };
-  const scale = Math.min(
-    (box.right - box.left) / spanX,
-    (box.bottom - box.top) / spanY,
-  );
-  const offsetX = (box.left + box.right) / 2;
-  const offsetY = (box.top + box.bottom) / 2;
-  const midLng = (minLng + maxLng) / 2;
-  return ([lng, lat]: LngLat) => ({
-    x: offsetX + (lng - midLng) * Math.cos(toRadians(midLat)) * scale,
-    y: offsetY - (lat - midLat) * scale,
-  });
-}
-
 type Marker = { position: LngLat; label: string };
 
-// 6.6 · 6.6r map (runway-group-handoff): the light thin-line map of 2.0, the run so far as the black hollow
-// line, the other members as dots with their names, and the #f3f5f6 scrim under the info.
+// 6.6 · 6.6r map (runway-group-handoff): the light map of 2.0, the run so far as the black hollow line, the
+// other members as dots with their names, above the #f3f5f6 scrim under the info (as on 4.2 by day).
 function GroupMap({
   route,
   trail,
@@ -86,69 +48,21 @@ function GroupMap({
   markers?: Marker[];
 }) {
   const running = !!trail && trail.length > 0;
-  const points = [...(route ?? []), ...(trail ?? [])];
-  const project =
-    points.length > 0
-      ? projector(points, running ? runArea : courseArea)
-      : () => ({ x: courseMapSize.width / 2, y: 400 });
-  const { width, height } = courseMapSize;
   return (
-    <>
-      <CourseMockMap
-        project={project}
-        parts={route ? [route] : []}
-        colors={[coursePaceColors[2]]}
-        paceLabels={null}
-        trail={running ? trail : undefined}
-      />
-      {markers && markers.length > 0 ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Svg
-            width="100%"
-            height="100%"
-            viewBox={`0 0 ${width} ${height}`}
-            preserveAspectRatio="xMidYMid slice"
-          >
-            {markers.map(marker => {
-              const at = project(marker.position);
-              return (
-                <React.Fragment key={marker.label}>
-                  <Circle
-                    cx={at.x}
-                    cy={at.y}
-                    r={6}
-                    fill={memberDot}
-                    stroke="#FFFFFF"
-                    strokeWidth={2}
-                  />
-                  {/* A light halo first, then the name, so it reads over the streets. */}
-                  <SvgText
-                    x={at.x + 13}
-                    y={at.y + 4}
-                    fontSize={11}
-                    fontWeight="700"
-                    fill="#F3F5F6"
-                    stroke="#F3F5F6"
-                    strokeWidth={3}
-                  >
-                    {marker.label}
-                  </SvgText>
-                  <SvgText
-                    x={at.x + 13}
-                    y={at.y + 4}
-                    fontSize={11}
-                    fontWeight="700"
-                    fill={groupLook.onLight}
-                  >
-                    {marker.label}
-                  </SvgText>
-                </React.Fragment>
-              );
-            })}
-          </Svg>
-        </View>
-      ) : null}
-    </>
+    <RunMap
+      dark={false}
+      route={route}
+      trail={running ? trail : undefined}
+      members={markers?.map(marker => ({ ...marker, color: memberDot }))}
+      // While running the camera keeps me and the members in view, close enough to tell them apart.
+      fitTo={
+        running && markers?.length
+          ? [trail[trail.length - 1], ...markers.map(marker => marker.position)]
+          : undefined
+      }
+      area={running ? { top: 0.39, bottom: 0.56 } : { top: 0.19, bottom: 0.56 }}
+      style={StyleSheet.absoluteFill}
+    />
   );
 }
 

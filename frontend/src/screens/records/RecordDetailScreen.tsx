@@ -50,7 +50,7 @@ import {
   useTheme,
 } from '../../theme';
 import { FooterButton } from '../group/GroupRunDetailScreen';
-import { MockMap } from '../run/MockMap';
+import { RunMap } from '../../components/RunMap';
 import { SplitChart, type SplitMetric } from './SplitChart';
 
 const mapHeight = 400;
@@ -203,12 +203,14 @@ function MapHead({ record }: { record: RunRecordDetail }) {
   return (
     <View style={styles.map}>
       {record.route ? (
-        <MockMap
-          k1Style
-          night
+        <RunMap
+          dark
           route={record.route}
           // Between the header and the distance: about 95–245dp down the 430 map.
-          routeArea={{ top: 288, bottom: 410 }}
+          area={{ top: 0.22, bottom: 0.57 }}
+          // The map sits in the scroll view, so a drag scrolls the screen instead of the map.
+          interactive={false}
+          style={StyleSheet.absoluteFill}
         />
       ) : (
         <View style={[styles.noRoute, { backgroundColor: colors.background }]}>

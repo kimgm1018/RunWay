@@ -38,7 +38,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, spacing } from '../../theme';
 import { parseClock } from '../onboarding/validation';
 import { ErrorNotice } from '../onboarding/parts';
-import { MockMap } from '../run/MockMap';
+import { RunMap } from '../../components/RunMap';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
 import { RangeSlider } from './RangeSlider';
@@ -328,7 +328,13 @@ export function TodayRunScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
-      <MockMap k1Style position={place?.position} positionY={142} />
+      <RunMap
+        dark={false}
+        position={place?.position}
+        // The place sits above the sheet, under the tabs (142 of 844).
+        area={{ top: 0.17, bottom: 0.17 }}
+        style={StyleSheet.absoluteFill}
+      />
       <SafeAreaView edges={['top']} style={styles.flex}>
         <CourseTabs current="TodayRun" />
         <View style={styles.mapGap}>

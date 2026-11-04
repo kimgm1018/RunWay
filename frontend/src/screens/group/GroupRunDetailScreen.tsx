@@ -47,7 +47,7 @@ import {
   ThemeProvider,
   useTheme,
 } from '../../theme';
-import { MockMap } from '../run/MockMap';
+import { RunMap } from '../../components/RunMap';
 import { GroupCta, groupLook } from './look';
 import {
   BottomFade,
@@ -158,13 +158,17 @@ function MapBackdrop({
 }) {
   return (
     <View style={styles.map} pointerEvents="none">
-      <MockMap
-        k1Style
+      <RunMap
+        dark={false}
         muted={cancelled}
         route={run.route ?? undefined}
         position={run.route ? undefined : run.meetingPosition}
-        routeArea={{ top: 110, bottom: 300 }}
-        positionY={210}
+        // Above the fade: 110–300 of the 470 map, a lone meeting place at 210.
+        area={
+          run.route ? { top: 0.23, bottom: 0.64 } : { top: 0.45, bottom: 0.45 }
+        }
+        interactive={false}
+        style={StyleSheet.absoluteFill}
       />
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
         <Defs>
