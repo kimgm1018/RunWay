@@ -2,6 +2,11 @@ name: runway-ci
 
 services:
   jenkins:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: jenkins/jenkins:2.580.1-jdk21
     environment:
       JENKINS_OPTS: "--prefix=/jenkins"
@@ -12,6 +17,11 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
   backend-builder:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: runway-backend-agent:java21
     init: true
     restart: unless-stopped
@@ -26,6 +36,11 @@ services:
       - /home/ubuntu/runway/infra/backend:/home/ubuntu/runway/infra/backend:ro
 
   mobile-builder:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: runway-mobile-agent:android
     profiles: ["mobile"]
     init: true
@@ -60,6 +75,11 @@ services:
       - mobile_gradle_cache:/home/jenkins/.gradle
 
   watch-builder:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: runway-watch-agent:android
     profiles: ["watch"]
     init: true
@@ -87,6 +107,11 @@ services:
       - watch_gradle_cache:/home/jenkins/.gradle
 
   ai-builder:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: runway-ai-agent:docker
     profiles: ["ai"]
     init: true

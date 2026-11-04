@@ -1,0 +1,181 @@
+{
+  "uid": "runway-ec2",
+  "title": "RunWay EC2",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "CPU 사용률",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{job=\"ec2\",mode=\"idle\"}[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "가용 메모리",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_memory_MemAvailable_bytes{job=\"ec2\"}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "루트 디스크 여유",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{job=\"ec2\",mountpoint=\"/\"}"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "runway-prometheus",
+        "type": "prometheus"
+      },
+      "description": "1 = HTTPS 404 및 NOT_FOUND 응답 확인. 0 = 검사 실패.",
+      "targets": [
+        {
+          "expr": "probe_success{job=\"backend-https\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "백엔드 HTTPS 응답",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "y": 24,
+        "h": 8,
+        "w": 24,
+        "x": 0
+      },
+      "id": 4
+    },
+    {
+      "id": 5,
+      "title": "백엔드 HTTPS 응답 시간",
+      "description": "성공한 HTTPS 검사 전체 소요 시간. 개별 API 처리 시간과는 구분한다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1000 * (probe_duration_seconds{job=\"backend-https\"} and (probe_success{job=\"backend-https\"} == 1))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "DB·Redis 상태",
+      "description": "1 정상 · 0 비정상 또는 시작 중 · -1 상태 확인 불가. 90초 이상 오래된 값은 숨깁니다.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": -1,
+          "max": 1,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "runway_service_healthy{job=\"ec2\"} and on(instance) (time() - runway_service_health_collected_timestamp_seconds{job=\"ec2\"} < 90)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    }
+  ]
+}
