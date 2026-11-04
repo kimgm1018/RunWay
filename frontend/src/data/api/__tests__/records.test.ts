@@ -394,3 +394,28 @@ test('2.1 러닝 분석 sums the weekday bars and turns the pace delta into an i
     paceImprovementSec: 12,
   });
 });
+
+test('S09 deletes the run by its session ID and forgets it', async () => {
+  serve(url =>
+    url.pathname.endsWith('/running-sessions/201')
+      ? respond(200, { id: 201, deletedAt: '2026-10-29T09:00:00Z' })
+      : undefined,
+  );
+  const { records } = createRecordsApi();
+  await expect(records.remove('201')).resolves.toBeUndefined();
+  const [address, init] = fetchMock.mock.calls[0];
+  expect(address).toBe(`${appConfig.apiBaseUrl}/running-sessions/201`);
+  expect(init.method).toBe('DELETE');
+  expect(init.body).toBeUndefined();
+});
+
+test('S09 errors such as a run still being analysed are passed on', async () => {
+  serve(() =>
+    respond(409, { code: 'INVALID_STATE', message: '', details: {} }),
+  );
+  const { records } = createRecordsApi();
+  await expect(records.remove('201')).rejects.toMatchObject({
+    code: 'INVALID_STATE',
+    status: 409,
+  });
+});
