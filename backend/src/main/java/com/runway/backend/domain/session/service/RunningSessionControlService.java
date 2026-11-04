@@ -5,11 +5,14 @@ import com.runway.backend.domain.session.dto.request.SessionControlRequest;
 import com.runway.backend.domain.session.dto.response.CancelledSessionResponse;
 import com.runway.backend.domain.session.dto.response.ControlApprovalResponse;
 import com.runway.backend.domain.session.dto.response.ControlResultResponse;
+import com.runway.backend.domain.session.dto.response.GroupStartCommand;
 import com.runway.backend.domain.session.entity.ControlAction;
 import com.runway.backend.domain.session.entity.ControlResult;
 import com.runway.backend.domain.session.entity.RunningSession;
 import com.runway.backend.domain.session.entity.RunningSessionStatus;
 import com.runway.backend.domain.session.entity.SessionControlEvent;
+import com.runway.backend.domain.session.entity.SessionGoal;
+import com.runway.backend.domain.session.repository.RunningSessionRepository;
 import com.runway.backend.domain.session.repository.SessionControlEventRepository;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
@@ -22,6 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * S03~S06 공통 제어(REQUEST → 현재 실행기기 적용 → RESULT)와 S07 준비 취소.
@@ -36,6 +43,7 @@ public class RunningSessionControlService {
     private final SessionAccess access;
     private final SessionControlEventRepository controlEventRepository;
     private final ApplicationEventPublisher events;
+    private final RunningSessionRepository sessionRepository;
 
     /** REQUEST면 {@link ControlApprovalResponse}, RESULT면 {@link ControlResultResponse}를 반환한다. */
     @Transactional
@@ -77,6 +85,161 @@ public class RunningSessionControlService {
             session.cancel(now());
         }
         return new CancelledSessionResponse(session.getId(), session.getStatus().name());
+    }
+
+    /**
+     * G09 그룹 시작 승인의 개인 세션 처리. 호출자가 그룹 행을 먼저 잠그고 세션을 ID 오름차순으로 호출한다. 개인 S03과 달리 그룹 연결 세션을 거절하지 않으며 요청
+     * 기기·버전은 서버가 잠근 세션에서 읽는다.
+     *
+     * <p>이미 CANCELLED·INTERRUPTED·COMPLETED인 세션은 시작 대상이 아니므로 빈 값을 돌려준다. RUNNING·PAUSED, 구버전(stateVersion=0),
+     * 그룹 목표와 다른 READY 세션은 409 INVALID_SESSION_STATE다. 어느 하나라도 예외를 던지면 호출자 트랜잭션 전체가 롤백된다.
+     */
+    @Transactional
+    public Optional<GroupStartCommand> approveGroupStart(
+            long participantUserId, long sessionId, SessionGoal groupGoal) {
+        LockedSession locked =
+                access.lockOwnedSession(
+                        participantUserId, sessionId, SessionAccess.LockPurpose.UPDATE);
+        RunningSession session = locked.session();
+        RunningSessionStatus status = session.getStatus();
+        if (status == RunningSessionStatus.RUNNING || status == RunningSessionStatus.PAUSED) {
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        if (status != RunningSessionStatus.READY) {
+            return Optional.empty();
+        }
+        if (session.getStateVersion() < 1 || !sameGroupGoal(session, groupGoal)) {
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        Long controlDeviceId = session.getControlDeviceId();
+        if (controlDeviceId == null) {
+            throw new ApiException(ErrorCode.DEVICE_FORBIDDEN);
+        }
+        // 제어기기는 본인의 연결된 WATCH여야 한다(폰 대체 제어는 START를 승인하지 않는다).
+        access.requireOwnedDevice(participantUserId, controlDeviceId, DeviceType.WATCH);
+        access.requireUsableCourse(session.getCourseId());
+        if (access.pendingCommand(session) != null) {
+            throw new ApiException(ErrorCode.COMMAND_PENDING);
+        }
+        long expectedVersion = session.getStateVersion();
+        if (controlEventRepository
+                .findBySessionIdAndExpectedVersion(session.getId(), expectedVersion)
+                .isPresent()) {
+            throw new ApiException(ErrorCode.COMMAND_CONFLICT);
+        }
+        SessionControlEvent approved =
+                controlEventRepository.saveAndFlush(
+                        SessionControlEvent.request(
+                                session.getId(),
+                                controlDeviceId,
+                                ControlAction.START,
+                                expectedVersion,
+                                now()));
+        return Optional.of(GroupStartCommand.of(approved, session));
+    }
+
+    /**
+     * G09 재요청 복원. 세션별 첫 START 명령과 현재 결과를 세션 ID 순서로 돌려준다. 새 명령을 만들지 않고 현재 세션 상태·버전·기기는 다시 검사하지 않는다. START가 없는
+     * 세션은 결과에서 빠진다.
+     */
+    @Transactional(readOnly = true)
+    public List<GroupStartCommand> findGroupStartCommands(Collection<Long> sessionIds) {
+        return sessionIds.stream()
+                .sorted()
+                .map(
+                        sessionId ->
+                                controlEventRepository
+                                        .findFirstBySessionIdAndActionOrderByIdAsc(
+                                                sessionId, ControlAction.START)
+                                        .flatMap(
+                                                event ->
+                                                        sessionRepository
+                                                                .findById(sessionId)
+                                                                .map(
+                                                                        session ->
+                                                                                GroupStartCommand.of(
+                                                                                        event,
+                                                                                        session))))
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    /** G12가 참가 세션 하나에 적용한 결과. */
+    public enum GroupFinishOutcome {
+        /** 미확정 START를 관리상 중단했다(INTERRUPTED·분석 FAILED, 버전 +1). */
+        START_ABORTED,
+        /** 현재 제어기기에 END PENDING을 새로 승인했다. */
+        END_REQUESTED,
+        /** 현재 제어기기의 미확정 END가 이미 있어 재사용했다. */
+        END_REUSED,
+        /** 다른 개인 제어가 미확정이거나 제어기기가 없어 END를 만들지 않았다. 해당 결과 확인 뒤 앱이 S06으로 종료한다. */
+        END_DEFERRED,
+        /** 이미 끝났거나 시작 승인 전이라 건드리지 않았다. */
+        UNTOUCHED
+    }
+
+    /**
+     * G12 강제 종료의 개인 세션 처리. 호출자가 그룹 행을 먼저 잠그고 세션을 ID 오름차순으로 호출한다. 폰 기기를 요구하지 않는 서버 측 관리 처리다.
+     *
+     * <ul>
+     *   <li>시작 전(READY, 시작시각 없음) 세션의 START가 PENDING/UNKNOWN이면 중단한다. 기존 UNKNOWN 사유는 보존한다.
+     *   <li>RUNNING/PAUSED(시작시각 있음)이면 현재 제어기기의 END를 PENDING으로 승인한다. 미확정 END는 재사용하고, 다른 미확정 개인 제어가 있으면
+     *       END를 만들지 않고 보류한다(그룹 종료 자체는 막지 않는다).
+     *   <li>그 밖의 상태는 바꾸지 않는다.
+     * </ul>
+     */
+    @Transactional
+    public GroupFinishOutcome forceFinishGroupParticipant(long sessionId) {
+        RunningSession session = sessionRepository.findByIdForUpdate(sessionId).orElse(null);
+        if (session == null || session.isDeleted() || session.getStateVersion() < 1) {
+            return GroupFinishOutcome.UNTOUCHED;
+        }
+        RunningSessionStatus status = session.getStatus();
+        if (status == RunningSessionStatus.READY && session.getStartedAt() == null) {
+            Optional<SessionControlEvent> start =
+                    controlEventRepository
+                            .findFirstBySessionIdAndActionOrderByIdAsc(
+                                    session.getId(), ControlAction.START)
+                            .filter(SessionControlEvent::isUnconfirmed);
+            if (start.isEmpty()) {
+                return GroupFinishOutcome.UNTOUCHED;
+            }
+            start.get().markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
+            session.abortUnconfirmedStart(now());
+            controlEventRepository.flush();
+            return GroupFinishOutcome.START_ABORTED;
+        }
+        boolean started =
+                session.getStartedAt() != null
+                        && (status == RunningSessionStatus.RUNNING
+                                || status == RunningSessionStatus.PAUSED);
+        if (!started) {
+            return GroupFinishOutcome.UNTOUCHED;
+        }
+        SessionControlEvent pending = access.pendingCommand(session);
+        if (pending != null) {
+            return pending.getAction() == ControlAction.END
+                    ? GroupFinishOutcome.END_REUSED
+                    : GroupFinishOutcome.END_DEFERRED;
+        }
+        Long controlDeviceId = session.getControlDeviceId();
+        long expectedVersion = session.getStateVersion();
+        if (controlDeviceId == null
+                || controlEventRepository
+                        .findBySessionIdAndExpectedVersion(session.getId(), expectedVersion)
+                        .isPresent()) {
+            return GroupFinishOutcome.END_DEFERRED;
+        }
+        controlEventRepository.saveAndFlush(
+                SessionControlEvent.request(
+                        session.getId(), controlDeviceId, ControlAction.END, expectedVersion, now()));
+        return GroupFinishOutcome.END_REQUESTED;
+    }
+
+    private static boolean sameGroupGoal(RunningSession session, SessionGoal groupGoal) {
+        return Objects.equals(session.getCourseId(), groupGoal.courseId())
+                && Objects.equals(session.getGoalDistance(), groupGoal.distanceM())
+                && Objects.equals(session.getGoalDuration(), groupGoal.durationSec());
     }
 
     /**

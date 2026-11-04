@@ -1,21 +1,31 @@
 package com.runway.backend.domain.grouprun.controller;
 
+import com.runway.backend.domain.grouprun.dto.request.CancelGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.CreateGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
+import com.runway.backend.domain.grouprun.dto.response.CancelGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.CreateGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
+import com.runway.backend.domain.grouprun.dto.response.ForceFinishGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunListResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunLiveResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunResultsResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunParticipantsResponse;
 import com.runway.backend.domain.grouprun.dto.response.JoinGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.PatchGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.ReadyGroupRunResponse;
+import com.runway.backend.domain.grouprun.dto.response.StartGroupRunResponse;
 import com.runway.backend.domain.grouprun.service.GroupRunService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.security.AuthenticatedUser;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -106,6 +116,55 @@ public class GroupRunController {
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long groupRunId) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return groupRunService.listParticipants(userId, groupRunId);
+    }
+
+    /** G09. 본문이 없는 호스트 전용 시작 승인. */
+    @PostMapping("/{groupRunId}/start")
+    public StartGroupRunResponse start(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long groupRunId,
+            HttpServletRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        if (request.getContentLengthLong() > 0
+                || request.getHeader(HttpHeaders.TRANSFER_ENCODING) != null) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        return groupRunService.start(userId, groupRunId);
+    }
+
+    @PostMapping("/{groupRunId}/cancel")
+    public CancelGroupRunResponse cancel(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long groupRunId,
+            @Valid @RequestBody CancelGroupRunRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return groupRunService.cancel(userId, groupRunId, request);
+    }
+
+    /** G12. 본문은 빈 객체이며 내용은 사용하지 않는다. */
+    @PostMapping("/{groupRunId}/force-finish")
+    public ForceFinishGroupRunResponse forceFinish(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long groupRunId,
+            @RequestBody(required = false) Map<String, Object> ignored) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return groupRunService.forceFinish(userId, groupRunId);
+    }
+
+    /** G14. 읽기 전용 결과 조회. */
+    @GetMapping("/{groupRunId}/results")
+    public GroupRunResultsResponse results(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long groupRunId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return groupRunService.getResults(userId, groupRunId);
+    }
+
+    /** G10 스텁. 순위·격차 없이 그룹 상태와 참가자 ID만 반환한다. */
+    @GetMapping("/{groupRunId}/live")
+    public GroupRunLiveResponse live(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long groupRunId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return groupRunService.getLive(userId, groupRunId);
     }
 
     @PostMapping("/{groupRunId}/participants/me/ready")

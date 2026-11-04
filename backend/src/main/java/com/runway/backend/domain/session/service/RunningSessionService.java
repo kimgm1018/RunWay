@@ -83,10 +83,34 @@ public class RunningSessionService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public RunningSessionResponse create(
             long userId, CreateRunningSessionRequest request, Instant serverReceiveAt) {
+        RunningSession session =
+                createReadySession(
+                        userId, request.controlDeviceId(), request.relayDeviceId(), request.goal());
+        return access.response(session, serverReceiveAt);
+    }
+
+    /**
+     * 그룹런 준비(G16)용 READY 세션 생성. 호출 전에 그룹 행을 잠근다. 본인 연결 워치·폰을 쓰고, 활성 세션이 있으면
+     * ACTIVE_SESSION_EXISTS다. 반환 ID를 참가 관계 session_id에 저장하는 것은 호출자 책임이다.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public long createReadyForGroupParticipant(long userId, SessionGoal goal) {
+        long watchId =
+                referenceRepository
+                        .lockLinkedDeviceId(userId, DeviceType.WATCH.name())
+                        .orElseThrow(() -> new ApiException(ErrorCode.DEVICE_NOT_FOUND));
+        long phoneId =
+                referenceRepository
+                        .lockLinkedDeviceId(userId, DeviceType.PHONE.name())
+                        .orElseThrow(() -> new ApiException(ErrorCode.DEVICE_NOT_FOUND));
+        return createReadySession(userId, watchId, phoneId, goal).getId();
+    }
+
+    private RunningSession createReadySession(
+            long userId, long controlDeviceId, long relayDeviceId, SessionGoal goal) {
         access.requireActiveUser(userId);
-        access.requireOwnedDevice(userId, request.controlDeviceId(), DeviceType.WATCH);
-        access.requireOwnedDevice(userId, request.relayDeviceId(), DeviceType.PHONE);
-        SessionGoal goal = request.goal();
+        access.requireOwnedDevice(userId, controlDeviceId, DeviceType.WATCH);
+        access.requireOwnedDevice(userId, relayDeviceId, DeviceType.PHONE);
         validateTargets(goal);
         CourseInfo course = access.requireUsableCourse(goal.courseId());
 
@@ -108,14 +132,9 @@ public class RunningSessionService {
         Instant now = now();
         RunningSession session =
                 sessionRepository.saveAndFlush(
-                        RunningSession.ready(
-                                userId,
-                                request.controlDeviceId(),
-                                request.relayDeviceId(),
-                                goal,
-                                now));
+                        RunningSession.ready(userId, controlDeviceId, relayDeviceId, goal, now));
         draft.ifPresent(plan -> savePlan(session.getId(), plan, now));
-        return access.response(session, serverReceiveAt);
+        return session;
     }
 
     /** S02. 상태·계획·명령을 한 스냅샷에서 읽기 위해 REPEATABLE READ로 조회한다. */
