@@ -2,6 +2,11 @@ name: runway-backend
 
 services:
   backend:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: ${BACKEND_IMAGE:?BACKEND_IMAGE must be set}
     restart: unless-stopped
     environment:

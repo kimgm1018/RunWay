@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect RunWay Docker health metrics
+After=docker.service
+
+[Service]
+Type=oneshot
+StateDirectory=runway-monitoring
+ExecStart=/bin/bash /usr/local/libexec/runway/collect-service-health.sh
+TimeoutStartSec=15

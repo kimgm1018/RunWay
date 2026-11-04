@@ -2,6 +2,11 @@ name: runway-db
 
 services:
   db:
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     image: postgis/postgis:17-3.6
     restart: unless-stopped
     environment:

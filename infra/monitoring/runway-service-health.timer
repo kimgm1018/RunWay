@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh RunWay service health metrics every 30 seconds
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
