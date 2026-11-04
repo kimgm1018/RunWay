@@ -600,37 +600,32 @@ export function AnalysisScreen() {
               previous={statistics.previousPeriod}
               isCurrent={isCurrent}
             />
-            {/* It ends the scroll on the black lower part: an outlined pill (DESIGN.md 2-8 5.3 버튼). */}
-            <ThemeProvider tone="dark">
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
+            {/* It ends the scroll: an outlined pill (DESIGN.md 2-8 5.3 버튼), in the light tone on the mist background. */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={
+                period === 'MONTH' && isCurrent
+                  ? '이번 달 기록 보기'
+                  : '기록 보기'
+              }
+              onPress={() =>
+                navigation.navigate('Records', {
+                  month: (period === 'YEAR' && isCurrent ? today : start).slice(
+                    0,
+                    7,
+                  ),
+                })
+              }
+              style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+            >
+              <LinkLabel
+                title={
                   period === 'MONTH' && isCurrent
                     ? '이번 달 기록 보기'
                     : '기록 보기'
                 }
-                onPress={() =>
-                  navigation.navigate('Records', {
-                    month: (period === 'YEAR' && isCurrent
-                      ? today
-                      : start
-                    ).slice(0, 7),
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.link,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <LinkLabel
-                  title={
-                    period === 'MONTH' && isCurrent
-                      ? '이번 달 기록 보기'
-                      : '기록 보기'
-                  }
-                />
-              </Pressable>
-            </ThemeProvider>
+              />
+            </Pressable>
           </>
         )}
       </ScrollView>

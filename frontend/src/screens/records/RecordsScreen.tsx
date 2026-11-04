@@ -44,7 +44,15 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, k1, palette, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  k1,
+  mistGradient,
+  palette,
+  size,
+  spacing,
+  useTheme,
+} from '../../theme';
 import { MonthStepper, kstMonth, shiftMonth, weekGroups } from './parts';
 
 const filters: { value: RecordFilter; label: string }[] = [
@@ -354,13 +362,14 @@ export function RecordsScreen() {
         )}
       </Animated.ScrollView>
       <View style={[styles.header, { paddingTop: insets.top }]}>
-        {/* As soon as the list moves under it, the header gets a solid background. */}
+        {/* As soon as the list moves under it, the header gets a solid background: the top of the mist
+            background, so it does not show as a white band. */}
         <Animated.View
           pointerEvents="none"
           style={[
             styles.headerFill,
             {
-              backgroundColor: colors.background,
+              backgroundColor: mistGradient.colors[0],
               opacity: scrollY.interpolate({
                 inputRange: [0, spacing.xxxl],
                 outputRange: [0, 1],
