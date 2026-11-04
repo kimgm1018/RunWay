@@ -94,6 +94,30 @@ public enum ErrorCode {
     SEARCH_LATITUDE_INVALID(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", "latitude는 -90~90이어야 합니다."),
     SEARCH_CONDITIONS_REQUIRED(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", "추천 조건이 필요합니다."),
+    SEARCH_DISTANCE_KM_RANGE(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "distanceKm는 1.0 이상 15.0 이하여야 합니다."),
+    SEARCH_SHAPE_INVALID(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "shape는 loop, out_and_back, point_to_point 중 하나여야 합니다."),
+    SEARCH_DESTINATION_REQUIRED(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "point_to_point에는 endLatitude와 endLongitude가 필요합니다."),
+    SEARCH_SEED_INVALID(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "seed는 1 이상 10000000 이하여야 합니다."),
+    SEARCH_OUT_OF_AREA(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "출발 위치가 서비스 지역(부산) 밖입니다."),
+    SEARCH_OUT_OF_APP_RANGE(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "출발-도착 직선거리가 서비스 상한을 초과했습니다."),
     VALIDATION_ERROR_COURSE_VALIDATE_ALIAS_LENGTH(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "별명은 최대 {0}자까지 가능합니다."),
     INVALID_FILTER_CREW_INVALID_MEMBERSHIP_FILTER(

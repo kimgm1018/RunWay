@@ -128,7 +128,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 ### 러닝 목표와 세션 상태
 
 - 평소 러닝 정보는 개인화 추천용 기준값이며 특정 세션의 목표가 아니다.
-- 이번 러닝 목표는 코스 추천 조건에서 입력하고 러닝 세션 생성 시 전달한다.
+- 이번 러닝 목표(거리·시간·페이스)는 러닝 세션 생성(S01) 시 입력·전달한다. 코스 추천(C01)은 목표 거리(`distanceKm`)와 경로 조건만 받으며 페이스·목표 시간은 추천 입력에 쓰지 않는다.
 - 목표는 출발 전 S08로 수정 가능하며 실제 운동 시작 시 고정. 러닝 중 AI가 갱신하는 것은 **안내 페이스·코칭**이다.
 - 개인런·그룹런 모두 코스 지정과 자유러닝 허용(`courseId = null`).
 - 개인 세션은 S06으로 종료한다. 실제 시작 참가자 전원 개인 종료 시 그룹은 자동 종료하며, G12는 그룹장만 실행하는 예외 상황의 그룹 전체 강제 종료다.
@@ -138,8 +138,8 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 
 ### 공용 코스 상태와 사용자 저장 목록
 
-- 코스 추천 조건 필터에는 `ACTIVE` 상태의 공용 코스만 사용한다. 공용 이름 검색은 없으며 저장 별명은 사용자 북마크에만 둔다.
-- `MERGED`, `BLOCKED` 코스는 추천에서 제외한다. 저장한 코스가 `MERGED`이면 대표 코스를 함께 안내한다.
+- 코스 추천(C01)은 AI가 새 경로 후보를 생성하며 DB 공용 코스를 조회·필터하지 않는다. 공용 이름 검색은 없으며 저장 별명은 사용자 북마크에만 둔다.
+- 저장된 공용 코스는 `ACTIVE`만 새 운동(S01 등)에 사용한다. `MERGED`, `BLOCKED` 코스는 새 운동에 사용할 수 없고, 저장한 코스가 `MERGED`이면 대표 코스를 함께 안내한다.
 - 러닝 경로가 공용 코스로 자동 등록되어도 코스 원본을 직접 수정하거나 삭제할 수 없다.
 - 코스 저장 해제는 사용자의 북마크 관계만 삭제하며 공용 코스 원본과 상태를 변경하지 않는다.
 
@@ -187,7 +187,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | W06 | [Samsung Health 데이터 동기화](./devices-health.md#w06-samsung-health-데이터-동기화) | POST | `/health-records/sync` | [devices-health.md](./devices-health.md) |
 | W07 | [워치 운동 배치 동기화](./devices-health.md#w07-워치-운동-배치-동기화) | POST | `/sync/batches` | [devices-health.md](./devices-health.md) |
 | R02 | [최신 준비도 조회](./readiness.md#r02-최신-준비도-조회) | GET | `/readiness-assessments/latest` | [readiness.md](./readiness.md) |
-| C01 | [코스 추천](./courses.md#c01-코스-추천) | POST | `/courses/recommendations` | [courses.md](./courses.md) |
+| C01 | [코스 추천(AI 경로 후보 생성)](./courses.md#c01-코스-추천) | POST | `/courses/recommendations` | [courses.md](./courses.md) |
 | C03 | [코스 상세 조회](./courses.md#c03-코스-상세-조회) | GET | `/courses/{courseId}` | [courses.md](./courses.md) |
 | C07 | [코스 저장](./courses.md#c07-코스-저장) | PUT | `/courses/{courseId}/bookmark` | [courses.md](./courses.md) |
 | C08 | [코스 저장 해제](./courses.md#c08-코스-저장-해제) | DELETE | `/courses/{courseId}/bookmark` | [courses.md](./courses.md) |
@@ -262,7 +262,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | 신규 | M10 | 내 크루 목록(승인 대기 포함). M11 크루 자주 만난 장소는 사용자 결정으로 제외 |
 | 신규 | CMT12·CMT13·F01 | 커뮤니티 지역 목록, 통합 검색, 이미지 업로드 |
 | 파라미터 보완 | W01·W04 | 푸시 토큰, 이용약관·개인정보 동의 유형 |
-| 파라미터 보완 | C01·C07·C09 | 준비도 자동 반영, 개인 저장 별명, 조건·난이도 필터 |
+| 파라미터 보완 | C01·C07·C09 | C01 경로 생성 조건(`filters`·`shape`), 개인 저장 별명, 저장 코스 목록 조건·난이도 필터 |
 | 파라미터 보완 | S01 | 자유 러닝 목표 생략 허용, 경쟁 모드 비교 기록 |
 | 파라미터 보완 | H01 | 개인/그룹런 탭, 정렬 |
 | 파라미터 보완 | G01·G02·G13 | 만남 장소 상세·응답 마감·반복, 내 근처·내 참가·레벨 필터, 취소 사유·남길 말 |
@@ -321,7 +321,7 @@ P07은 세션 BPM 조절, G12는 그룹장 전용 전체 강제 종료로 변경
 
 | ID | 반영 내용 |
 |---|---|
-| C02 | 별도 공용 이름 검색 제외. C01 추천 조건 필터로 통합 |
+| C02 | 별도 공용 이름 검색 제외. 별도 검색 API 없이 제외(C01은 AI 경로 후보 생성이며 공용 코스 검색이 아님) |
 | C04 | 수동 등록 API 제거. 러닝 경로 확정 후 자동 코스 반영 |
 | C07·C09 | 공용 코스 이름 없이 본인 저장 관계의 별명 설정·변경·조회 |
 | M11 | 크루 자주 만난 장소 기능 제거 후, 동일 ID를 크루 해산(DELETE `/crews/{crewId}`)으로 재사용 |
