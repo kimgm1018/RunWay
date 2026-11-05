@@ -1,5 +1,7 @@
 import {
   daysInMonth,
+  birthDateError,
+  parseBirthDate,
   editClock,
   formatClockDigits,
   formatClock,
@@ -97,3 +99,28 @@ test('editing a time keeps the value and cursor on the digits', () => {
   // Beyond the length limit nothing changes.
   expect(editClock('12:34', '12:345', 4)).toEqual({ text: '12:34', cursor: 5 });
 });
+
+test.each([
+  ['1950', '1', '1', '1950-01-01'],
+  ['2010', '12', '31', '2010-12-31'],
+  ['2000', '02', '29', '2000-02-29'],
+  ['1991', '02', '29', null],
+  ['2000', '02', '30', null],
+  ['2001', '04', '31', null],
+  ['1949', '12', '31', null],
+  ['2011', '01', '01', null],
+  ['2000', '00', '01', null],
+  ['2000', '13', '01', null],
+  ['2000', '01', '00', null],
+  ['200', '01', '01', null],
+  ['2000', '', '01', null],
+  ['2000', '01', '', null],
+  ['abcd', '01', '01', null],
+])(
+  'birth date %s-%s-%s parses without normalizing invalid dates',
+  (year, month, day, expected) => {
+    const parts = { year, month, day };
+    expect(parseBirthDate(parts)).toBe(expected);
+    expect(birthDateError(parts) === null).toBe(expected !== null);
+  },
+);

@@ -19,10 +19,13 @@ import {
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 import {
+  birthDateError,
   daysInMonth,
+  digitsOnly,
   isValidNickname,
   nicknameRule,
-  toBirthDate,
+  parseBirthDate,
+  type BirthDateParts,
 } from './validation';
 
 // 1.5 lists 2010 down to 1950.
@@ -54,9 +57,9 @@ function describeSignUpError(error: unknown) {
   }
 }
 
-function splitDate(date: string | undefined) {
-  const [year, month, day] = (date ?? '').split('-').map(Number);
-  return year ? { year, month, day } : { year: null, month: null, day: null };
+function splitDate(date: string | undefined): BirthDateParts {
+  const [year = '', month = '', day = ''] = (date ?? '').split('-');
+  return { year, month, day };
 }
 
 // 1.5 초기 설정 1/2 — 기본 프로필. Finishing this step creates the account (U15).
@@ -65,15 +68,26 @@ export function ProfileBasicScreen() {
   const repositories = useRepositories();
   const { holdTokens } = useSession();
   const { draft, update } = useSignUpDraft();
-  const initial = splitDate(draft.profile?.birthDate);
+  const initial = draft.birthDateParts ?? splitDate(draft.profile?.birthDate);
   const [nickname, setNickname] = useState(draft.profile?.nickname ?? '');
   const [touched, setTouched] = useState(false);
   const [gender, setGender] = useState<Gender | null>(
     draft.profile?.gender ?? null,
   );
-  const [year, setYear] = useState<number | null>(initial.year);
-  const [month, setMonth] = useState<number | null>(initial.month);
-  const [day, setDay] = useState<number | null>(initial.day);
+  const [birthParts, setBirthParts] = useState(initial);
+  const [directInput, setDirectInput] = useState(false);
+  const [birthTouched, setBirthTouched] = useState(false);
+  const year = birthParts.year ? Number(birthParts.year) : null;
+  const month = birthParts.month ? Number(birthParts.month) : null;
+  const day = birthParts.day ? Number(birthParts.day) : null;
+  const birthDate = parseBirthDate(birthParts);
+  const dateError = birthDateError(birthParts);
+  const changeBirthParts = (changes: Partial<BirthDateParts>) => {
+    const next = { ...birthParts, ...changes };
+    setBirthParts(next);
+    update({ birthDateParts: next });
+    setBirthTouched(true);
+  };
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   // The nickname U15 rejected as taken; editing it clears the field error.
@@ -81,23 +95,27 @@ export function ProfileBasicScreen() {
   const nicknameTaken =
     takenNickname !== null && takenNickname === nickname.trim();
 
-  const dayCount = year && month ? daysInMonth(year, month) : 31;
+  const dayCount =
+    year && month && month >= 1 && month <= 12 ? daysInMonth(year, month) : 31;
   const days = Array.from({ length: dayCount }, (_, index) => index + 1);
-  // Moving to a shorter month pulls the day back to its last date.
-  const changeMonthOrYear = (
-    nextYear: number | null,
-    nextMonth: number | null,
-  ) => {
-    setYear(nextYear);
-    setMonth(nextMonth);
-    if (day && nextYear && nextMonth) {
-      setDay(Math.min(day, daysInMonth(nextYear, nextMonth)));
+  // Preserve the existing picker behavior; typed dates are never clamped.
+  const changeSelectedPart = (changes: Partial<BirthDateParts>) => {
+    const next = { ...birthParts, ...changes };
+    const nextYear = Number(next.year);
+    const nextMonth = Number(next.month);
+    if (
+      nextYear &&
+      nextMonth >= 1 &&
+      nextMonth <= 12 &&
+      Number(next.day) > daysInMonth(nextYear, nextMonth)
+    ) {
+      next.day = pad(daysInMonth(nextYear, nextMonth));
     }
+    changeBirthParts(next);
   };
 
   const nicknameValid = isValidNickname(nickname);
-  const ready =
-    nicknameValid && !nicknameTaken && gender && year && month && day;
+  const ready = nicknameValid && !nicknameTaken && gender && birthDate;
 
   const submit = async () => {
     if (!ready) {
@@ -106,7 +124,7 @@ export function ProfileBasicScreen() {
     const profile = {
       nickname: nickname.trim(),
       gender,
-      birthDate: toBirthDate(year, month, day),
+      birthDate,
     };
     setSaving(true);
     setFailure(null);
@@ -222,35 +240,92 @@ export function ProfileBasicScreen() {
         <AppText variant="label" tone="textTertiary" style={styles.label}>
           생년월일
         </AppText>
-        <View style={styles.row}>
-          <SelectField
-            label="연도"
-            placeholder="연도"
-            value={year}
-            options={years}
-            format={value => `${value}년`}
-            onChange={value => changeMonthOrYear(value, month)}
-            style={styles.year}
-          />
-          <SelectField
-            label="월"
-            placeholder="월"
-            value={month}
-            options={months}
-            format={value => `${pad(value)}월`}
-            onChange={value => changeMonthOrYear(year, value)}
-            style={styles.flex}
-          />
-          <SelectField
-            label="일"
-            placeholder="일"
-            value={day}
-            options={days}
-            format={value => `${pad(value)}일`}
-            onChange={setDay}
-            style={styles.flex}
-          />
+        <View accessibilityRole="radiogroup" style={styles.row}>
+          {[false, true].map(direct => (
+            <SelectionCard
+              key={String(direct)}
+              selected={directInput === direct}
+              onPress={() => setDirectInput(direct)}
+              accessibilityLabel={
+                direct ? '생년월일 직접 입력' : '생년월일 목록 선택'
+              }
+              style={styles.flex}
+            >
+              <AppText>{direct ? '직접 입력' : '목록 선택'}</AppText>
+            </SelectionCard>
+          ))}
         </View>
+        {directInput ? (
+          <View style={styles.row}>
+            {(['year', 'month', 'day'] as const).map((part, index) => (
+              <View
+                key={part}
+                style={part === 'year' ? styles.year : styles.flex}
+              >
+                <TextField
+                  label={['연도', '월', '일'][index]}
+                  accessibilityLabel={`생년월일 ${
+                    ['연도', '월', '일'][index]
+                  } 입력`}
+                  accessibilityHint="연도 4자리와 월·일을 숫자로 입력해 주세요"
+                  placeholder={['YYYY', 'MM', 'DD'][index]}
+                  keyboardType="number-pad"
+                  value={birthParts[part]}
+                  onChangeText={value =>
+                    changeBirthParts({
+                      [part]: digitsOnly(value).slice(
+                        0,
+                        part === 'year' ? 4 : 2,
+                      ),
+                    })
+                  }
+                  onBlur={() => setBirthTouched(true)}
+                  status={birthTouched && dateError ? 'error' : 'default'}
+                />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.row}>
+            <SelectField
+              label="연도"
+              placeholder="연도"
+              value={year}
+              options={years}
+              format={value => `${value}년`}
+              onChange={value => changeSelectedPart({ year: String(value) })}
+              style={styles.year}
+            />
+            <SelectField
+              label="월"
+              placeholder="월"
+              value={month}
+              options={months}
+              format={value => `${pad(value)}월`}
+              onChange={value => changeSelectedPart({ month: pad(value) })}
+              style={styles.flex}
+            />
+            <SelectField
+              label="일"
+              placeholder="일"
+              value={day}
+              options={days}
+              format={value => `${pad(value)}일`}
+              onChange={value => changeBirthParts({ day: pad(value) })}
+              style={styles.flex}
+            />
+          </View>
+        )}
+        <AppText
+          variant="caption"
+          tone={birthTouched && dateError ? 'danger' : 'textSecondary'}
+          accessibilityLiveRegion="polite"
+          style={styles.note}
+        >
+          {birthTouched && dateError
+            ? dateError
+            : '1950~2010년 · 연도 4자리, 월·일 순서로 입력해 주세요'}
+        </AppText>
         <AppText variant="caption" tone="textSecondary" style={styles.note}>
           성별·생년월일은 심박 구간과 권장 페이스 계산에 쓰여요
         </AppText>

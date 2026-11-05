@@ -63,6 +63,37 @@ export function toBirthDate(year: number, month: number, day: number) {
   )}`;
 }
 
+// Keep the signup screen's existing 1950–2010 range.
+export type BirthDateParts = { year: string; month: string; day: string };
+
+export function birthDateError({ year, month, day }: BirthDateParts) {
+  if (
+    !/^\d{4}$/.test(year) ||
+    !/^\d{1,2}$/.test(month) ||
+    !/^\d{1,2}$/.test(day)
+  ) {
+    return '연도 4자리와 월·일을 모두 입력해 주세요';
+  }
+  if (Number(year) < 1950 || Number(year) > 2010) {
+    return '연도는 1950~2010년 사이로 입력해 주세요';
+  }
+  if (
+    Number(month) < 1 ||
+    Number(month) > 12 ||
+    Number(day) < 1 ||
+    Number(day) > daysInMonth(Number(year), Number(month))
+  ) {
+    return '존재하는 날짜를 입력해 주세요';
+  }
+  return null;
+}
+
+export function parseBirthDate(parts: BirthDateParts) {
+  return birthDateError(parts) === null
+    ? toBirthDate(Number(parts.year), Number(parts.month), Number(parts.day))
+    : null;
+}
+
 // "30:00" or "1:05:30" → seconds; "6:00" pace → seconds per km.
 export function parseClock(value: string) {
   const parts = value.trim().split(':');
