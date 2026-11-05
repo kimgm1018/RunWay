@@ -81,7 +81,13 @@
       "totalDistance": null,
       "movingDuration": null,
       "averagePace": null,
-      "goalAchieved": null
+      "goalAchieved": null,
+      "runType": "GROUP",
+      "group": {
+        "groupRunId": 55,
+        "crewName": "아침크루",
+        "finisherCount": 3
+      }
     }
   ]
 }
@@ -91,7 +97,7 @@
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `items` | array | X | 본인 러닝 기록 요약 목록. 세부 객체 계약 미정 |
+| `items` | array | X | 본인 러닝 기록 요약 목록. |
 | `page` | string / object (확인 필요) | X | 페이지 메타데이터는 저장 엔티티가 아니다. cursor/limit 등 공통 페이지 형식 확정 필요. |
 
 중첩 객체의 저장 필드 대응(추가 표시·집계 값은 기존 후보를 유지하며 별도 확인):
@@ -105,6 +111,11 @@
 | `items[].movingDuration` | integer / null | O | `running_sessions.moving_duration` (INTEGER). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].averagePace` | number / null | O | `running_sessions.average_pace` (NUMERIC(10,2)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].goalAchieved` | boolean / null | O | `running_sessions.goal_achieved` (BOOLEAN). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `items[].runType` | string | O | `SOLO` 또는 `GROUP`. 세션이 `group_run_participants`에 연결되면 GROUP. 파생·미저장(S15P31E105-472). |
+| `items[].group` | object / null | O | SOLO이거나 그룹 연결이 없으면 null. |
+| `items[].group.groupRunId` | integer (int64) | 조건부 | 연결 `group_runs.id`. FE 6.7 결과 진입용. |
+| `items[].group.crewName` | string | 조건부 | 그룹런 소속 크루 이름. |
+| `items[].group.finisherCount` | integer | 조건부 | 해당 그룹런에서 `goal_achieved = true`인 참가자 수. |
 
 
 **사용 흐름과 응답 판단**
@@ -131,7 +142,7 @@
 - 기록별 공개 설정은 없다. 게시물의 노출은 작성자의 계정 공개 여부·승인된 팔로워 관계로 결정한다.
 
 - 3.2 경쟁 모드의 '이 코스의 내 기록'은 `courseId`로 조회한다.
-- 그룹런 기록은 그룹런 이름·크루·인원을 함께 내려 6.7 결과로 이동할 수 있게 한다.
+- 그룹런 기록은 `runType=GROUP`과 `group`(crewName·finisherCount·groupRunId)를 함께 내려 6.7 결과로 이동할 수 있게 한다(S15P31E105-472). `finisherCount`는 목표 달성(`goal_achieved=true`) 인원이다.
 - 완료된 본인 러닝 기록 목록만 조회.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.

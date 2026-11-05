@@ -9,6 +9,9 @@ public record GroupRunResultsResponse(
         Integer targetDurationSec,
         Analysis analysis,
         boolean hasUnconfirmedStarts,
+        Double distanceM,
+        Integer averagePaceSecPerKm,
+        Double maxGapM,
         List<Participant> participants) {
 
     public record Analysis(String status) {}

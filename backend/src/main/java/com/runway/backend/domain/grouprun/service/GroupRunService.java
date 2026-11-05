@@ -29,11 +29,15 @@ import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
+import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
 import com.runway.backend.domain.grouprun.live.ParticipantLive;
 import com.runway.backend.domain.grouprun.live.ParticipantSample;
+import com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
@@ -57,13 +61,18 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -74,6 +83,7 @@ public class GroupRunService {
 
     private final GroupRunJdbcRepository groupRunJdbcRepository;
     private final GroupRunParticipantJdbcRepository participantJdbcRepository;
+    private final GroupRunFitJdbcRepository fitJdbcRepository;
     private final CrewRepository crewRepository;
     private final CrewMembershipRepository crewMembershipRepository;
     private final CourseJdbcRepository courseJdbcRepository;
@@ -186,8 +196,39 @@ public class GroupRunService {
     public GroupRunDetailResponse getDetail(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireApprovedActiveCrewMember(row.crewId(), userId);
-        int participantCount = participantJdbcRepository.countByGroupRunId(groupRunId);
-        return toDetail(row, participantCount);
+        List<GroupRunParticipantRow> participants =
+                participantJdbcRepository.findByGroupRunId(groupRunId);
+        int participantCount = participants.size();
+
+        // 참가자와 요청자의 최근 완료 세션 페이스를 한 번에 읽는다(요청자는 참가 전일 수 있다).
+        Set<Long> fitUserIds = new LinkedHashSet<>();
+        participants.forEach(p -> fitUserIds.add(p.userId()));
+        fitUserIds.add(userId);
+        Map<Long, List<BigDecimal>> recentPaces =
+                fitJdbcRepository.findRecentCompletedPaces(fitUserIds);
+
+        List<Integer> participantPaces =
+                participants.stream()
+                        .map(p -> GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(p.userId())))
+                        .filter(Objects::nonNull)
+                        .toList();
+        GroupRunDetailResponse.ComfortRange comfortRange =
+                GroupRunFitCalculator.comfortRange(participantPaces, resolveGroupGuidePace(row));
+
+        GroupRunDetailResponse.MyFit myFit = null;
+        Integer myPace = GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(userId));
+        if (myPace != null) {
+            myFit =
+                    new GroupRunDetailResponse.MyFit(
+                            myPace,
+                            toScore(fitJdbcRepository.findLatestReadinessScores(List.of(userId))
+                                    .get(userId)));
+        }
+        return toDetail(row, participantCount, comfortRange, myFit);
+    }
+
+    private static Integer toScore(BigDecimal score) {
+        return score == null ? null : score.setScale(0, RoundingMode.HALF_UP).intValue();
     }
 
     @Transactional
@@ -341,6 +382,10 @@ public class GroupRunService {
         Map<Long, String> nicknames =
                 userExistsRepository.findNicknamesByIds(
                         participants.stream().map(GroupRunParticipantRow::userId).toList());
+        // readyStatus(대기방 준비 버튼)와 별개로 각 참가자의 최신 준비도를 붙인다. 미산출·미동의는 null.
+        Map<Long, BigDecimal> readiness =
+                fitJdbcRepository.findLatestReadinessScores(
+                        participants.stream().map(GroupRunParticipantRow::userId).toList());
         List<GroupRunParticipantsResponse.Item> items =
                 participants.stream()
                         .map(
@@ -351,7 +396,8 @@ public class GroupRunService {
                                                 p.joinedAt(),
                                                 nicknames.getOrDefault(p.userId(), ""),
                                                 p.userId() == row.hostId(),
-                                                ReadyStatus.fromReady(p.ready()).name()))
+                                                ReadyStatus.fromReady(p.ready()).name(),
+                                                toScore(readiness.get(p.userId()))))
                         .toList();
         return new GroupRunParticipantsResponse(items);
     }
@@ -399,7 +445,8 @@ public class GroupRunService {
 
     /**
      * G13. 시작 전 호스트 취소. 그룹 행을 잠근 뒤 SCHEDULED만 CANCELLED로 바꾸고 연결된 READY 세션을 세션 ID 순서로 취소한다. 이미 취소된 그룹은 200으로
-     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증하고 저장하지 않는다.
+     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증한다. 취소 알림 경로가 아직 없어
+     * 저장·전달하지 않고 요청 처리 후 버린다(향후 알림 본문 전송 전용).
      */
     @Transactional
     public CancelGroupRunResponse cancel(
@@ -577,12 +624,27 @@ public class GroupRunService {
         } else {
             analysisStatus = "PROCESSING";
         }
+        // 집계 대상: 시작 확인(startedAt) + 실제 거리 있음. 참가자 목록은 시작·거리가 없으면 거리 null이므로 그 값으로 거른다.
+        List<Double> eligibleDistances = new ArrayList<>();
+        List<Double> eligiblePaces = new ArrayList<>();
+        for (GroupRunResultsResponse.Participant p : participants) {
+            if (p.actualDistanceM() != null) {
+                eligibleDistances.add(p.actualDistanceM());
+                eligiblePaces.add(p.averagePaceSecPerKm());
+            }
+        }
+        GroupResultAggregates.Result aggregates =
+                GroupResultAggregates.of(
+                        "READY".equals(analysisStatus), eligibleDistances, eligiblePaces);
         return new GroupRunResultsResponse(
                 groupRunId,
                 row.goalDistance(),
                 row.goalDuration(),
                 new GroupRunResultsResponse.Analysis(analysisStatus),
                 hasUnconfirmedStarts,
+                aggregates.distanceM(),
+                aggregates.averagePaceSecPerKm(),
+                aggregates.maxGapM(),
                 participants);
     }
 
@@ -595,14 +657,31 @@ public class GroupRunService {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireParticipant(groupRunId, userId);
         Integer guidePace = resolveGroupGuidePace(row);
-        List<GroupRunLiveResponse.Participant> participants =
-                GroupRunStatus.RUNNING.name().equals(row.status())
-                        ? computeLiveParticipants(row)
-                        : participantJdbcRepository.findByGroupRunId(groupRunId).stream()
-                                .map(p -> unrankedParticipant(p.userId()))
-                                .toList();
+        List<GroupRunLiveResponse.Participant> participants;
+        GroupRunLiveResponse.LoadAlert loadAlert = null;
+        if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            participants = computeLiveParticipants(row);
+            loadAlert =
+                    GroupRunLoadAlertCalculator.evaluate(
+                            guidePace,
+                            participants.stream()
+                                    .filter(p -> !p.stale())
+                                    .map(GroupRunLiveResponse.Participant::paceSecPerKm)
+                                    .toList());
+        } else {
+            participants =
+                    participantJdbcRepository.findByGroupRunId(groupRunId).stream()
+                            .map(p -> unrankedParticipant(p.userId()))
+                            .toList();
+        }
         return new GroupRunLiveResponse(
-                groupRunId, row.status(), guidePace, row.courseId(), row.updatedAt(), participants);
+                groupRunId,
+                row.status(),
+                guidePace,
+                row.courseId(),
+                row.updatedAt(),
+                loadAlert,
+                participants);
     }
 
     /**
@@ -628,8 +707,16 @@ public class GroupRunService {
                 now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
         // MVP: GPS 궤적은 읽지 않고 빈 목록을 넘긴다. 자유 그룹도 누적 거리만으로 순위를 매긴다(선두 궤적 투영은 확장).
         // 미래 시각 표본은 ceiling 이하만 고르므로 이후 정상 표본을 가리지 않는다.
+        List<SessionReferenceRepository.GroupLiveRow> liveRows =
+                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling);
+        Map<Long, Integer> paceByUser = new HashMap<>();
+        for (SessionReferenceRepository.GroupLiveRow r : liveRows) {
+            paceByUser.put(
+                    r.userId(),
+                    GroupRunLoadAlertCalculator.toPaceSecPerKm(r.averagePaceSecPerKm()));
+        }
         List<ParticipantSample> samples =
-                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling).stream()
+                liveRows.stream()
                         .map(
                                 r ->
                                         new ParticipantSample(
@@ -653,12 +740,16 @@ public class GroupRunService {
         }
         return GroupRunLiveRanking.compute(now, row.courseId() != null, courseDistanceM, samples)
                 .stream()
-                .map(GroupRunService::toLiveParticipant)
+                .map(live -> toLiveParticipant(live, paceByUser.get(live.userId())))
                 .toList();
     }
 
-    /** 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. */
-    private static GroupRunLiveResponse.Participant toLiveParticipant(ParticipantLive live) {
+    /**
+     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 연결 세션 평균
+     * 페이스이며 stale이면 null이다.
+     */
+    private static GroupRunLiveResponse.Participant toLiveParticipant(
+            ParticipantLive live, Integer sessionAveragePace) {
         return new GroupRunLiveResponse.Participant(
                 live.userId(),
                 live.rank(),
@@ -667,13 +758,14 @@ public class GroupRunService {
                 live.gapToAheadM(),
                 live.gapToBehindM(),
                 live.progressM(),
+                live.stale() ? null : sessionAveragePace,
                 live.measuredAt(),
                 live.stale());
     }
 
     private static GroupRunLiveResponse.Participant unrankedParticipant(long userId) {
         return new GroupRunLiveResponse.Participant(
-                userId, null, null, null, null, null, null, null, true);
+                userId, null, null, null, null, null, null, null, null, true);
     }
 
     private void requireParticipant(long groupRunId, long userId) {
@@ -754,7 +846,11 @@ public class GroupRunService {
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
     }
 
-    private GroupRunDetailResponse toDetail(GroupRunRow row, int participantCount) {
+    private GroupRunDetailResponse toDetail(
+            GroupRunRow row,
+            int participantCount,
+            GroupRunDetailResponse.ComfortRange comfortRange,
+            GroupRunDetailResponse.MyFit myFit) {
         return new GroupRunDetailResponse(
                 row.id(),
                 row.title(),
@@ -771,7 +867,20 @@ public class GroupRunService {
                 row.meetingName(),
                 row.meetingAddress(),
                 GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
-                resolveGroupGuidePace(row));
+                resolveGroupGuidePace(row),
+                toCancellation(row),
+                comfortRange,
+                myFit);
+    }
+
+    /** CANCELLED 그룹만 취소 정보를 만든다. 남긴 말은 저장하지 않으므로 null, 취소자는 host_id 기준 HOST다. */
+    private GroupRunDetailResponse.Cancellation toCancellation(GroupRunRow row) {
+        if (!GroupRunStatus.CANCELLED.name().equals(row.status()) || row.cancelReason() == null) {
+            return null;
+        }
+        String hostNickname = userExistsRepository.findNickname(row.hostId()).orElse(null);
+        return new GroupRunDetailResponse.Cancellation(
+                row.cancelReason(), null, hostNickname, "HOST");
     }
 
     private GeoJsonPoint parseMeetingPosition(String geoJson) {
