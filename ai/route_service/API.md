@@ -64,6 +64,15 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 재추천: 첫 요청은 `seed: 1`. "다시 추천"은 다른 입력을 그대로 두고 `seed`만 직전 응답의 `next_seed`(= seed + 24)로
 바꾼다. 출발 위치·거리·모양·조건 중 하나라도 바뀌면 `seed`를 1로 되돌린다.
 
+재추천에서 이미 보여 준 코스 빼기(S15P31E105-383, 요청·응답 형식은 그대로):
+- `seed`가 25 이상이면 Route가 같은 조건의 직전 응답 최대 2개(`seed - 24`, `seed - 48`, 1 이상만)의 코스 3개씩을 찾아,
+  그 코스와 사실상 같은 후보(겹침 60 % 이상)를 빼고 이번 묶음의 나머지 후보로 채운다. 덜 채워지면 기존
+  "서로 다른 코스를 N개만 찾았어요" 안내가 붙는다. 다 빠지면 빈 응답 대신 빼지 않은 결과를 준다.
+- `seed` 1~24(첫 요청)는 예전과 똑같다. 같은 입력 + 같은 `seed`는 여전히 언제나 같은 결과다.
+- 이전 응답은 Route 프로세스 안의 짧은 cache(10분, 256칸, 칸당 수 KB)에서 찾고, 없으면(재시작·10분 경과) 같은 규칙으로
+  다시 계산한다. 그래서 결과는 같고 그 요청만 느려진다(이전 묶음 1~2번 더 계산).
+- 리롤 상한(첫 추천 + 재추천 2회)은 앱/BE가 지킨다. 3회째 이상(`seed` 73 이상)도 오류 없이 직전 2개만 빼고 답한다.
+
 ## 3. 성공 응답 (HTTP 200)
 
 ```json
@@ -171,6 +180,8 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 | `ROUTE_WARMUP` | 1 | 0이면 예열 없이 로드만 끝나면 ready |
 | `RUNWAY_USABILITY_GATE` | enforce | `shadow`는 비상용(안전 기준 탈락 코스를 지우지 않고 기록만) |
 | `RUNWAY_USABILITY_LOG_DIR` | `<코드 폴더>/reports/_usability_gate_log` | 안전 기준 검토 로그(JSONL, 요청 좌표 포함). 이미지는 `/tmp/...` |
+| `ROUTE_REROLL_EXCLUDE` | 1 | 0이면 재추천에서 이전 코스를 빼지 않는다(seed만 바꾸는 예전 재추천, 2절) |
+| `ROUTE_REROLL_CACHE_SIZE` | 256 | 재추천용 코스 결과 cache 칸 수(TTL 10분). 0이면 cache 없이 매번 다시 계산(결과 같음, 느려짐) |
 | `NUMBA_CACHE_DIR` | | 이미지는 `/opt/route/numba_cache`(빌드 때 생성) |
 
 엔진 되돌리기 스위치(`RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_PAIR_FAST`,

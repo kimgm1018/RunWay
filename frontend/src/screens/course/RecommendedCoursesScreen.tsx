@@ -23,7 +23,7 @@ import { useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, palette } from '../../theme';
-import { useCourseSearch } from './CourseSearch';
+import { MAX_REROLLS, useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
 import { useRequestTicket } from './requestTicket';
 import { RouteLine } from './RouteLine';
@@ -404,8 +404,10 @@ export function RecommendedCoursesScreen() {
   const navigation = useNavigation();
   const { courses } = useRepositories();
   const toast = useToast();
-  const { search, results, notices, nextSeed, setSearch, setResults } =
+  const { search, results, notices, nextSeed, rerolls, setSearch, setResults } =
     useCourseSearch();
+  // 다른 코스 stops after MAX_REROLLS answers for one search; Route looks back that many answers.
+  const canAskMore = nextSeed !== null && rerolls < MAX_REROLLS;
   const [loadingMore, setLoadingMore] = useState(false);
   // Set at once on a tap, so a second tap in the same frame does not start another C01.
   const askingMore = useRef(false);
@@ -460,7 +462,7 @@ export function RecommendedCoursesScreen() {
 
   // 다른 코스: the same conditions with the nextSeed of the last answer.
   const showMore = async () => {
-    if (!search || nextSeed === null || askingMore.current) {
+    if (!search || nextSeed === null || !canAskMore || askingMore.current) {
       return;
     }
     const next = { ...search, seed: nextSeed };
@@ -478,7 +480,10 @@ export function RecommendedCoursesScreen() {
       }
       setTurned([]);
       setIndex(0);
-      setSearch(next, found);
+      setSearch(next, found, true);
+      if (rerolls + 1 >= MAX_REROLLS) {
+        toast(`다른 코스는 ${MAX_REROLLS}번까지 볼 수 있어요`);
+      }
     } catch (error) {
       if (moreTicket.isCurrent(ticket)) {
         toast(recommendFailureNotice(error).title);
@@ -539,7 +544,7 @@ export function RecommendedCoursesScreen() {
             {`${index + 1} / ${results.length}`}
           </AppText>
         ) : null}
-        {results && nextSeed !== null ? (
+        {results && canAskMore ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="다른 코스 추천받기"

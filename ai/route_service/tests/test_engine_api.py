@@ -104,3 +104,46 @@ def test_same_input_same_result_and_debug_has_same_routes(plain, with_debug):
 def test_out_of_area_is_422(plain):
     r = plain.post(URL, json={"lat": 37.5665, "lon": 126.978, "distance_km": 5.0})
     assert r.status_code == 422 and r.json()["code"] == "OUT_OF_AREA"
+
+
+# ------------------------------------------------------------------ 재추천 제외 (S15P31E105-383)
+def _ov(route, shown):
+    """(이전 코스 하나와 공유 길이 / 짧은 쪽 최댓값, 이 코스 길이 중 이전 코스들 edge에 있던 비율) - edge key 기준."""
+    a = dict((k, x) for k, x in route["edges"])
+    pair = max((sum(a[k] for k in a.keys() & {k for k, _ in s["edges"]}) /
+                min(sum(a.values()), sum(dict(s["edges"]).values())) for s in shown), default=0.0)
+    keys = {k for s in shown for k, _ in s["edges"]}
+    union = sum(x for k, x in route["edges"] if k in keys) / sum(x for _, x in route["edges"])
+    return pair, union
+
+
+@pytest.mark.parametrize("body", [LOOP, OAB], ids=["loop", "oab"])
+def test_reroll_excludes_shown_routes_and_hit_equals_miss(with_debug, body):
+    from app import reroll
+    engine = with_debug.app.state.engine
+    chain = [with_debug.post(URL, json={**body, "seed": s}).json() for s in (1, 25, 49)]
+    shown = list(chain[0]["routes"])
+    for j in chain[1:]:
+        assert j["ok"] is True and j["debug"]["reroll"]["cache"]["misses"] == 0
+        for route in j["routes"]:
+            pair, union = _ov(route, shown)
+            # edge key("u-v")는 평행 edge를 하나로 보므로 엔진(edge id) 판단과 아주 조금 다를 수 있다
+            assert pair < 0.6 + 0.02 and union < 0.6 + 0.02, (pair, union)
+        shown += j["routes"]
+    engine.reroll = reroll.ShownCache()           # 재시작·만료와 같은 상태: 이전 묶음을 다시 계산
+    miss = with_debug.post(URL, json={**body, "seed": 49}).json()
+    assert miss["debug"]["reroll"]["cache"]["recomputed_runs"] == 2
+    strip = lambda j: {k: v for k, v in j.items() if k not in ("generation", "debug")}  # noqa: E731
+    assert strip(miss) == strip(chain[2])
+
+
+def test_first_request_unchanged_by_reroll_switch(plain):
+    """seed 1~24는 재추천 제외와 상관없이 예전 결과(같은 앱에서 스위치만 끈 것과 같음)."""
+    engine = plain.app.state.engine
+    on = plain.post(URL, json={**LOOP, "seed": 7}).json()
+    saved, engine.reroll = engine.reroll, None
+    try:
+        off = plain.post(URL, json={**LOOP, "seed": 7}).json()
+    finally:
+        engine.reroll = saved
+    assert on == off

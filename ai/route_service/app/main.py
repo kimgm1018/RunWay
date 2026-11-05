@@ -36,6 +36,7 @@ from runway_routing.features import ELEVATION_KEYS
 from runway_routing.scorer import Preferences
 from runway_routing.snap import to_utm
 
+from . import reroll
 from .ai_logging import log_ai_error
 from .config import Settings, load_settings
 from .errors import SHAPE_FAIL, fail
@@ -78,6 +79,8 @@ class Engine:
         self.pipeline = None
         self.phase, self.error = "loading", None
         self.load_s = self.warmup_s = None
+        # 재추천 제외용 코스 결과 cache(S15P31E105-383, app/reroll.py). ROUTE_REROLL_EXCLUDE=0이면 None = 예전 동작
+        self.reroll = reroll.ShownCache(settings.reroll_cache_size) if settings.reroll_exclude else None
 
     def start(self) -> None:
         try:
@@ -93,7 +96,7 @@ class Engine:
             self.phase = "warming"
             t0 = time.perf_counter()
             try:
-                res = recommend_core(self, warmup_request(), gate_log=False, lock_wait_s=None)
+                res = recommend_core(self, warmup_request(), gate_log=False, lock_wait_s=None, remember=False)
                 if getattr(res, "status_code", 200) >= 500:
                     raise RuntimeError(f"warm-up HTTP {res.status_code}")
             except Exception as exc:
@@ -166,9 +169,10 @@ def _expired(deadline_ms: int | None) -> bool:
 
 
 def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
-                   lock_wait_s: float | None = LOCK_WAIT_S, deadline_ms: int | None = None):
+                   lock_wait_s: float | None = LOCK_WAIT_S, deadline_ms: int | None = None, remember: bool = True):
     """데모 /api/recommend와 같은 판단 순서. 반환: 성공 dict 또는 JSONResponse(오류).
-    lock_wait_s=None은 끝까지 기다린다(시작 시 예열만 쓴다)."""
+    lock_wait_s=None은 끝까지 기다린다(시작 시 예열만 쓴다). remember=False면 재추천 cache에 넣지 않는다(예열).
+    재추천(seed >= 25): 이전 1~2개 응답의 TOP3와 0.6 이상 겹치는 후보를 뺀다(app/reroll.py). seed 1~24는 예전과 같다."""
     p, settings = engine.pipeline, engine.settings
     dbg = settings.debug
 
@@ -192,10 +196,20 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
         return _fail("TIMEOUT")
     if not p.lock.acquire(timeout=-1 if lock_wait_s is None else lock_wait_s):
         return _fail("BUSY")
+    cache = engine.reroll
+    depth = reroll.depth(req.seed, ATTEMPTS) if cache is not None else 0
+    rr = None
     try:
         if _expired(deadline_ms):   # 슬롯을 기다리는 동안 지났으면 계산하지 않는다
             return _fail("TIMEOUT")
-        out = p.run(req.lat, req.lon, target_m, seed=req.seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
+        if depth:
+            cond = reroll.condition_key(req, target_m)
+            shown, rr = _lookback(p, cache, cond, req, target_m, prefs, shape_kw, depth)
+            out = _run_excluding(p, req, req.seed, target_m, prefs, shape_kw, shown)
+        else:   # 첫 요청(seed 1~24) 또는 ROUTE_REROLL_EXCLUDE=0: 예전과 같은 호출
+            out = p.run(req.lat, req.lon, target_m, seed=req.seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
+        if cache is not None and remember:   # 실제로 응답한 요청만 넣는다
+            cache.put((reroll.condition_key(req, target_m), req.seed, depth), reroll.pack(_served(out, loop)))
         if loop:
             cg = p.graph(req.lat, req.lon, target_m) if out["canonical"] is not None else None
         else:
@@ -219,6 +233,8 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
                  "running_suitability": out.get("running_suitability"), "preferences": prefs.__dict__}
     else:
         debug = _shape_debug(req, out, prefs)
+    if rr is not None:   # 재추천에만 붙는다(첫 요청 debug는 예전과 같음)
+        debug["reroll"] = {"depth": depth, **(out.get("reroll") or {}), "cache": rr}
     if "OUTSIDE_CANONICAL_EXTRACT" in codes:
         return _fail("OUT_OF_AREA", debug=debug)
     snap_m = out["canonical"]["start"]["snap_node_dist_m"] if loop else (info.get("start") or {}).get("snap_node_dist_m", 0)
@@ -235,7 +251,7 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
             return _fail(code, debug=debug)
     if "FORBIDDEN_EDGE_USED" in codes:  # 안전망(테스트에서 나온 적 없음)
         return _fail("SAFETY_CHECK", debug=debug)
-    ranked = (out["preference"] if out["preference"] is not None else out["baseline"])[:TOP_K]
+    ranked = _served(out, loop)   # 위 검사를 통과했으므로 = 순위표의 앞 TOP_K개
     if not ranked:
         if "USABILITY_GATE_ALL_FAILED" in codes:
             return _fail("USABILITY_GATE_ALL_FAILED", debug=debug)
@@ -288,6 +304,59 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
         res["return_trip"] = {"straight_m": round(info["return_straight_m"]),
                               "runnable_m": round(info["return_runnable_m"])}
     return res
+
+
+def _served(out: dict, loop: bool) -> list:
+    """이 out으로 응답하면 사용자가 보는 TOP3(오류 응답이면 빈 목록). recommend_core의 오류 판단과 같아야 한다.
+    재추천 cache에 넣는 값과 miss 때 다시 계산하는 값이 둘 다 이 함수에서 나오므로 hit/miss 결과가 같다."""
+    codes = {i["code"] for i in out["issues"]}
+    if "OUTSIDE_CANONICAL_EXTRACT" in codes:
+        return []
+    info = out.get("shape") or {}
+    snap_m = out["canonical"]["start"]["snap_node_dist_m"] if loop else (info.get("start") or {}).get("snap_node_dist_m", 0)
+    if (snap_m > MAX_SNAP_M or "DESTINATION_TOO_FAR" in codes or codes & SHAPE_FAIL.keys()
+            or "FORBIDDEN_EDGE_USED" in codes):
+        return []
+    return (out["preference"] if out["preference"] is not None else out["baseline"])[:TOP_K]
+
+
+def _run_excluding(p, req: RecommendRequest, seed: int, target_m: int, prefs: Preferences, shape_kw: dict, shown: list):
+    """이전 TOP3(shown)를 빼고 계산한다. 빼고 나서 코스가 하나도 안 남으면(빈 응답 대신) 빼지 않은 결과를 돌려준다.
+    뺄 코스가 없으면(이전 응답이 오류였거나 depth 0) 첫 요청과 같은 호출이다."""
+    if not shown:
+        return p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
+    out = p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, shown=shown, **shape_kw)
+    rr = out.get("reroll")
+    if rr and rr["excluded"] and not (out["preference"] if out["preference"] is not None else out["baseline"]):
+        out = p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
+        out["reroll"] = {**rr, "fallback_all_excluded": True}
+    return out
+
+
+def _lookback(p, cache, cond: tuple, req: RecommendRequest, target_m: int, prefs: Preferences, shape_kw: dict,
+              depth: int):
+    """seed s 요청이 뺄 이전 TOP3 edge 배열들 = (s-24, depth-1)과 (s-48, depth-2) 응답의 TOP3. cache miss면 같은 규칙으로
+    다시 계산한다(그 묶음의 이전 묶음도 재귀로, 이 요청 안에서는 memo). 다시 계산한 값은 cache에 넣지 않는다."""
+    memo, st = {}, {"hits": 0, "misses": 0, "recomputed_runs": 0}
+
+    def prior(seed: int, d: int) -> list:
+        return [a for j in range(1, d + 1) for a in batch(seed - j * ATTEMPTS, d - j)]
+
+    def batch(seed: int, d: int) -> tuple:
+        if (seed, d) in memo:
+            return memo[seed, d]
+        v = cache.get((cond, seed, d))
+        if v is None:
+            st["misses"] += 1
+            v = reroll.pack(_served(_run_excluding(p, req, seed, target_m, prefs, shape_kw, prior(seed, d)),
+                                    req.shape == "loop"))
+            st["recomputed_runs"] += 1
+        else:
+            st["hits"] += 1
+        memo[seed, d] = v
+        return v
+
+    return prior(req.seed, depth), st
 
 
 def _notices(out: dict, filters: dict, routes: list) -> list:

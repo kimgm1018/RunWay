@@ -6,6 +6,8 @@
   RUNWAY_USABILITY_GATE         enforce(기본) / shadow(비상용: 기록만)
   RUNWAY_FAST_GRAPH=0           canonical graph builder로 되돌린다(결과 동일, cold 느려짐)
   RUNWAY_USABILITY_LOG_DIR      Gate 검토 로그(JSONL) 폴더. 기본: <코드 root>/reports/_usability_gate_log
+  ROUTE_REROLL_EXCLUDE=0        재추천에서 이전 코스 제외를 끈다(기본 1; 끄면 seed만 바꾸는 예전 재추천, S15P31E105-383)
+  ROUTE_REROLL_CACHE_SIZE       재추천 제외용 코스 결과 cache 칸 수(기본 256, TTL 10분, 0이면 cache 없이 매번 다시 계산)
 엔진이 읽는 값(참고): RUNWAY_DATA_DIR, RUNWAY_GRAPH_CACHE_SIZE, RUNWAY_MASK_CACHE_SIZE, RUNWAY_NETWORK_STORE,
   RUNWAY_SOURCE_SNAPSHOT, RUNWAY_SP_ENGINE, RUNWAY_SP_KERNEL, RUNWAY_ARRAY_LOOP, RUNWAY_ARRAY_SHAPES, RUNWAY_ARRAY_PAIR_FAST,
   RUNWAY_ENV_PREPARED, RUNWAY_ADAPTER_LEAN_ROUTING, RUNWAY_P2P_SUBSTRATE, NUMBA_CACHE_DIR.
@@ -35,6 +37,8 @@ class Settings:
     gate_mode: str              # Usability Gate: enforce / shadow
     fast_graph: bool            # fast graph builder
     usability_log_dir: Path     # Gate 검토 로그 폴더(쓰기 가능해야 함; 실패해도 응답은 막지 않음)
+    reroll_exclude: bool = True     # 재추천에서 이전 1~2개 응답의 코스 제외
+    reroll_cache_size: int = 256    # 그 비교용 코스 결과 cache 칸 수
 
 
 def load_settings() -> Settings:
@@ -46,4 +50,6 @@ def load_settings() -> Settings:
         gate_mode=gate,
         fast_graph=os.getenv("RUNWAY_FAST_GRAPH", "1") != "0",
         usability_log_dir=Path(log_dir) if log_dir else SERVICE_DIR / "reports" / "_usability_gate_log",
+        reroll_exclude=_flag("ROUTE_REROLL_EXCLUDE", True),
+        reroll_cache_size=int(os.getenv("ROUTE_REROLL_CACHE_SIZE", "256")),
     )

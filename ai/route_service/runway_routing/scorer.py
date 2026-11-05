@@ -123,12 +123,16 @@ def overlap_ratio(a_eids, b_eids, length) -> float:
     return float(shared / min(la, lb)) if min(la, lb) > 0 else 1.0
 
 
-def rank(valid: list, key: str, length) -> list:
-    """Score order, then the PoC greedy dedupe (shared length / shorter route >= 0.6 is a duplicate)."""
+def rank(valid: list, key: str, length, skip=frozenset()) -> list:
+    """Score order, then the PoC greedy dedupe (shared length / shorter route >= 0.6 is a duplicate).
+    skip: candidate_id들을 순위표에서 뺀다(재추천에서 이전에 보여 준 코스와 겹치는 후보, S15P31E105-383). 빠진 후보는
+    아래 후보를 중복으로 지우지도 않는다. 비어 있으면 예전과 완전히 같다."""
     # 결정성: 동점은 candidate_id로 깬다(sorted는 stable). 같은 요청이면 언제나 같은 TOP3가 나와야 golden이 성립한다.
     # dedupe는 앞(점수 높은 쪽)부터 탐욕적으로 하므로 순서가 결과를 바꾼다. 정렬 key를 바꾸면 추천이 달라진다.
     kept = []
     for r in sorted(valid, key=lambda r: (-r[key]["score"], r["candidate_id"])):
+        if r["candidate_id"] in skip:
+            continue
         ov = max((overlap_ratio(r["eids"], k["eids"], length) for k in kept), default=0.0)
         if ov < DEDUPE_OVERLAP:
             kept.append({**r, "max_overlap_with_better": round(ov, 3)})
