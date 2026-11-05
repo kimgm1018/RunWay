@@ -12,6 +12,15 @@ container=$(docker ps --filter label=com.docker.compose.project=runway-db \
 psql_admin() {
     docker exec -i "$container" psql -X -qAt -v ON_ERROR_STOP=1 -U runway_admin -d runway
 }
+# AI09 속도 보정 v_ref(S15P31E105-402): running_sessions는 V1부터 있으므로 V10을 기다리지 않고 먼저 준다.
+result=$(psql_admin <<'SQL'
+GRANT SELECT ON public.running_sessions TO runway_ai;
+SELECT has_table_privilege('runway_ai', 'public.running_sessions', 'SELECT')
+  AND NOT has_table_privilege('runway_ai', 'public.running_sessions', 'INSERT,UPDATE,DELETE,TRUNCATE');
+SQL
+)
+[[ $result == t ]] || { echo 'running_sessions 읽기 권한 확인 실패' >&2; exit 1; }
+echo 'running_sessions 읽기 권한 확인 완료'
 echo 'V10 적용·AI 개인화 테이블 준비를 확인합니다.'
 while (( SECONDS < deadline )); do
     ready=$(psql_admin <<'SQL'

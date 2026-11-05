@@ -3,23 +3,23 @@
 관련 업무: S15P31E105-337
 작성 기준일: 2026-11-03
 대상: 백엔드·DB 담당
-상태: V10 반영 범위 합의(MR !142 리뷰). migration 번호와 배포 일정은 팀이 정합니다.
+상태: 반영 범위 합의(MR !142 리뷰). `user_hr_personalization` migration은 아직 없습니다. dev의 V10은 `V10__user_recommendation_preferences.sql`이므로 번호(V11 이상)와 배포 일정은 팀이 정합니다.
 
 ## 요청 요약
 
 AI 서비스는 개인화 계산 결과를 저장하지 않습니다. 백엔드가 AI06 응답을 받아 필요한 결과를 새 버전으로 저장해 주세요. AI 서비스는 `users.birth_date`와 `daily_health_metrics.rhr_bpm`을 읽지 않습니다. AI04와 AI09 개인 계획은 일반화 심박 기준과 `user_hr_personalization`에 저장된 학습 기준을 사용합니다.
 
-## V10 범위와 건강정보 동의 규칙
+## 개인화 migration 범위와 건강정보 동의 규칙
 
-MR !142 리뷰 합의에 따라 V10에는 `user_hr_personalization`만 반영합니다. `user_gru_personalization`, 코스 난이도 테이블, `coaching_decisions` 컬럼 제안은 V10에 포함하지 않으며 필요 시 별도 진행합니다. 백엔드는 호출 직전 건강정보 동의 API(S15P31E105-250)에서 상태가 '동의'인 사용자만 AI 요청에 `userId`를 넣고, 철회·미동의 사용자는 생략합니다.
+MR !142 리뷰 합의에 따라 개인화 migration에는 `user_hr_personalization`만 반영합니다. `user_gru_personalization`, 코스 난이도 테이블, `coaching_decisions` 컬럼 제안은 이 migration에 포함하지 않으며 필요 시 별도 진행합니다. 백엔드는 호출 직전 건강정보 동의 API(S15P31E105-250)에서 상태가 '동의'인 사용자만 AI 요청에 `userId`를 넣고, 철회·미동의 사용자는 생략합니다.
 
-`docs/design/db/proposals/ai_personalization.sql`의 이름과 컬럼을 그대로 반영해 주세요. 팀 dev에 V9가 있으므로 migration은 V10 이상이며, 번호는 팀이 정합니다. 현재 `schema.sql`과 Flyway 원본에는 변경을 요청하지 않습니다.
+`docs/design/db/proposals/ai_personalization.sql`의 이름과 컬럼을 그대로 반영해 주세요. 팀 dev에 V10(`V10__user_recommendation_preferences.sql`)까지 있으므로 migration은 V11 이상이며, 번호는 팀이 정합니다. 현재 `schema.sql`과 Flyway 원본에는 변경을 요청하지 않습니다.
 
 ## AI가 읽는 테이블과 컬럼
 
 아래 표에는 AI SQL에서 직접 조회하거나 행을 찾는 데 쓰는 컬럼을 모두 적었습니다. 개인화 표의 쓰기 주체는 AI06 계산 결과를 저장하는 백엔드입니다.
 
-`user_gru_personalization` 행은 V10 반영 대상이 아니며 필요 시 별도 진행합니다. 현재 `GRU_PERSONALIZATION_ENABLED=false`가 기본이며, 꺼져 있을 때 AI06은 GRU 출력층 계산을 건너뛴다.
+`user_gru_personalization` 행은 개인화 migration 반영 대상이 아니며 필요 시 별도 진행합니다. 현재 `GRU_PERSONALIZATION_ENABLED=false`가 기본이며, 꺼져 있을 때 AI06은 GRU 출력층 계산을 건너뛴다.
 
 | 테이블 | 컬럼 | 타입 | NULL | 설명 | 누가 쓰나 | AI가 언제 읽나 |
 | --- | --- | --- | :---: | --- | --- | --- |
@@ -58,11 +58,23 @@ MR !142 리뷰 합의에 따라 V10에는 `user_hr_personalization`만 반영합
 | `courses` | `elevation_profile` | JSONB | 예 | 고도 프로파일 | 백엔드 | AI가 저장된 경사 구간이 없을 때 경사를 계산할 때 |
 | `courses` | `status` | `courses_status_enum` | 아니요 | 코스 상태 | 백엔드 | AI가 ACTIVE 코스만 사용할 때 |
 | `courses` | `updated_at` | TIMESTAMPTZ | 아니요 | 코스 갱신 시각 | DB 기본값·백엔드 | 계획 입력 버전을 만들 때 |
+| `running_sessions` | `user_id`, `status`, `deleted_at`, `ended_at`, `id` | 기존 컬럼 | — | 회원·완료 여부·삭제·종료 시각 | 백엔드 | AI09 속도 보정 v_ref용 러닝을 고를 때(완료·미삭제·계획 시각 이전 종료, 최근 20회). S15P31E105-402 |
+| `running_sessions` | `total_distance`, `moving_duration`, `elapsed_duration` | 기존 컬럼 | 예 | 러닝 거리(m)·이동 시간(초)·경과 시간(초) | 백엔드 | v_ref = `total_distance / moving_duration` 중앙값. 0·NULL·0.5~8.0 m/s 밖·2시간 초과는 제외 |
+
+### `running_sessions` 읽기 권한 (S15P31E105-402)
+
+AI09 속도 보정은 새 컬럼 없이 기존 `running_sessions`를 읽기만 한다. AI CD(`Jenkinsfile.ai-cd`)가 실행하는 `infra/ai/grant-readonly.sh`가 개인화 테이블 대기 루프에 들어가기 전에 아래 권한을 바로 주고, SELECT 가능·INSERT/UPDATE/DELETE/TRUNCATE 불가를 확인한다. `running_sessions`는 V1부터 있으므로 기다리지 않는다. 백엔드·DB 변경은 필요 없습니다.
+
+```sql
+GRANT SELECT ON public.running_sessions TO runway_ai;
+```
+
+권한이 없는 환경(예: 이 스크립트를 실행하기 전)에서는 AI09가 조회 실패를 계획 오류로 만들지 않고 Train 기본 v_ref(3.4704 m/s)와 경고 `SPEED_REF_LOOKUP_UNAVAILABLE`로 계속 응답한다. 조회는 `userId`가 있는 동의 사용자만, 바인딩 파라미터로 한다.
 
 ## 저장 규칙 제안
 
 - AI06은 기존 ODE `personalization`과 학습 심박 필드(`hrDangerBpm`, `hrSustainBpm`, `hrThresholdRunCount`)를 반환합니다. 백엔드는 세 기준 필드를 `user_hr_personalization`의 새 컬럼에 받은 그대로 저장해 주세요. `hrDangerBpm`은 +3 전 개인 P98 원값입니다(위험 기준 = 섞은 P98 + 3은 AI04가 계산).
-- GRU 개인화(`gruPersonalization`)는 MVP에서 기본 OFF입니다. `null`과 `GRU_PERSONALIZATION_DISABLED`가 오면 저장하지 않습니다. `user_gru_personalization`과 C11·C12는 V10 범위 밖이며 필요 시 별도 진행합니다.
+- GRU 개인화(`gruPersonalization`)는 MVP에서 기본 OFF입니다. `null`과 `GRU_PERSONALIZATION_DISABLED`가 오면 저장하지 않습니다. `user_gru_personalization`과 C11·C12는 개인화 migration 범위 밖이며 필요 시 별도 진행합니다.
 - 개인화 버전은 테이블별·회원별로 독립 증가시킵니다. 새 계산 결과를 저장할 때 이전 행을 덮어쓰지 말고, 트랜잭션 안에서 다음 버전을 배정해 행을 추가해 주세요. `(user_id, personalization_version)` 유일 제약으로 중복 저장을 막습니다.
 - 최신 행 조회 인덱스는 따로 만들지 않습니다. AI는 두 테이블 모두 `WHERE user_id = ? ORDER BY personalization_version DESC LIMIT 1`로 읽고, 이 조회는 위 유일 제약의 인덱스를 PostgreSQL이 역방향으로 읽어 처리합니다. `(user_id, personalization_version DESC)` 인덱스를 따로 두면 중복이고, 이전 초안의 `(user_id, created_at DESC)` 인덱스는 조회 순서와 달라 쓰이지 않아 뺐습니다.
 - `gruPersonalization`이 `null`이면 GRU 행을 만들지 않습니다. 나중에 기능을 켠 경우에도 `GRU_PERSONALIZATION_NO_SUPPORT_WINDOWS` 경고를 저장 여부 판단에 확인해 주세요.

@@ -17,11 +17,13 @@ $ServiceDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ModelDir = Join-Path $ServiceDir 'models'
 $OdeDir = Join-Path $ModelDir 'ode'
 $Repo = if ([string]::IsNullOrWhiteSpace($env:RUNWAY_MODEL_HF_REPO)) { 'AnSeongYun/runway-hr-models' } else { $env:RUNWAY_MODEL_HF_REPO.Trim() }
-$Revision = if ([string]::IsNullOrWhiteSpace($env:RUNWAY_MODEL_HF_REVISION)) { '11a3d0cce3062c84aa7ffee1740a93d204462190' } else { $env:RUNWAY_MODEL_HF_REVISION.Trim() }
+$Revision = if ([string]::IsNullOrWhiteSpace($env:RUNWAY_MODEL_HF_REVISION)) { 'e44028f7a5cebbed1070094f8e2a081a03c1f523' } else { $env:RUNWAY_MODEL_HF_REVISION.Trim() }
 $GruSha = if ([string]::IsNullOrWhiteSpace($env:GRU_MODEL_SHA256)) { 'db59d414b8b88a6ac1140dd5bbce40475878d97a6436fb087141e25bdb3887fe' } else { $env:GRU_MODEL_SHA256 }
-$CheckpointSha = if ([string]::IsNullOrWhiteSpace($env:ODEV21_CHECKPOINT_SHA256)) { 'ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061' } else { $env:ODEV21_CHECKPOINT_SHA256 }
+$CheckpointSha = if ([string]::IsNullOrWhiteSpace($env:ODEV21_CHECKPOINT_SHA256)) { '737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b' } else { $env:ODEV21_CHECKPOINT_SHA256 }
 $StatsSha = if ([string]::IsNullOrWhiteSpace($env:ODEV21_SUMMARY_STATS_SHA256)) { '9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066' } else { $env:ODEV21_SUMMARY_STATS_SHA256 }
-$PopulationSha = if ([string]::IsNullOrWhiteSpace($env:ODEV21_POPULATION_BUNDLE_SHA256)) { '9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1' } else { $env:ODEV21_POPULATION_BUNDLE_SHA256 }
+$PopulationSha = if ([string]::IsNullOrWhiteSpace($env:ODEV21_POPULATION_BUNDLE_SHA256)) { 'bb15684840fbf39a35827c26d8d8c67e4d3b10ffaa3ff1b5d8b36c7ab606dcb6' } else { $env:ODEV21_POPULATION_BUNDLE_SHA256 }
+# ODE checkpoint·통계·평균 묶음이 있는 HF 폴더. 새 checkpoint는 revision·SHA와 함께 이 값을 바꿔 고른다.
+$OdeHfDir = if ([string]::IsNullOrWhiteSpace($env:ODEV21_HF_DIR)) { 'ode_v21_speedcal_b_lam1' } else { $env:ODEV21_HF_DIR.Trim() }
 
 function Get-ModelUrl([string]$Path) {
     return "https://huggingface.co/$Repo/resolve/$Revision/$Path"
@@ -109,11 +111,11 @@ if ($SourceMode -eq 'local') {
     Copy-Verified $env:ODEV21_POPULATION_BUNDLE_SOURCE `
         (Join-Path $OdeDir 'population_bundle_v2train_median.json') $PopulationSha
 } else {
-    Download-Verified (Get-ModelUrl 'ode_v21_stage1_base/selected_model.pt') `
+    Download-Verified (Get-ModelUrl "$OdeHfDir/selected_model.pt") `
         (Join-Path $OdeDir 'ode_epoch_020.pt') $CheckpointSha $true
-    Download-Verified (Get-ModelUrl 'ode_v21_stage1_base/summary_stats.json') `
+    Download-Verified (Get-ModelUrl "$OdeHfDir/summary_stats.json") `
         (Join-Path $OdeDir 'ode_summary_stats.json') $StatsSha $true
-    Download-Verified (Get-ModelUrl 'ode_v21_stage1_base/population_bundle_v2train_median.json') `
+    Download-Verified (Get-ModelUrl "$OdeHfDir/population_bundle_v2train_median.json") `
         (Join-Path $OdeDir 'population_bundle_v2train_median.json') $PopulationSha $true
 }
 

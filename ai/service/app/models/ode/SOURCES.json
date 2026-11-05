@@ -3,35 +3,55 @@
   "createdAt": "2026-11-01",
   "huggingFaceModelAssets": {
     "repository": "AnSeongYun/runway-hr-models",
-    "revision": "11a3d0cce3062c84aa7ffee1740a93d204462190",
+    "revision": "e44028f7a5cebbed1070094f8e2a081a03c1f523",
     "files": [
       {
-        "path": "ode_v21_stage1_base/selected_model.pt",
+        "path": "ode_v21_speedcal_b_lam1/selected_model.pt",
         "installedName": "ode_epoch_020.pt",
-        "sha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061"
+        "sha256": "737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b"
       },
       {
-        "path": "ode_v21_stage1_base/summary_stats.json",
+        "path": "ode_v21_speedcal_b_lam1/summary_stats.json",
         "installedName": "ode_summary_stats.json",
         "sha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066"
       },
       {
-        "path": "ode_v21_stage1_base/population_bundle_v2train_median.json",
+        "path": "ode_v21_speedcal_b_lam1/population_bundle_v2train_median.json",
         "installedName": "population_bundle_v2train_median.json",
-        "sha256": "9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1"
+        "sha256": "bb15684840fbf39a35827c26d8d8c67e4d3b10ffaa3ff1b5d8b36c7ab606dcb6"
       }
     ]
   },
   "selectedOde": {
     "variant": "ode_v21_base_epoch20_legacy27",
-    "epoch": 20,
-    "checkpointPath": "<SERVER_WORKSPACE>/ode_v21_20261101/runs/full_base_20261101T101637/checkpoints/model_epoch_020.pt",
-    "checkpointSha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061",
-    "summaryStatsPath": "<SERVER_WORKSPACE>/ode_v21_20261101/runs/full_base_20261101T101637/summary_stats.json",
+    "description": "S15P31E105-402/406: base epoch 20에서 속도 반응 손실(lambda=1)로 V2 Train 전체 미세조정. 구조·형식은 base와 같다(state['model'] strict).",
+    "baseCheckpointSha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061",
+    "fineTune": {
+      "lambdaSpeed": 1.0,
+      "split": "FitRec Final Split V2 Train only",
+      "steps": 1240,
+      "epochs": 4,
+      "seed": 1729,
+      "wandbRun": "oab7aalt"
+    },
+    "checkpointPath": "<SERVER_WORKSPACE>/ode/speed_calib_20261103/ft/final_lam1_all_20261104T063240Z/selected_model.pt",
+    "checkpointSha256": "737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b",
+    "summaryStatsPath": "<SERVER_WORKSPACE>/ode/speed_calib_20261103/ft/final_lam1_all_20261104T063240Z/summary_stats.json",
     "summaryStatsSha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066",
+    "populationBundlePath": "<SERVER_WORKSPACE>/ode/ode_v21_20261101/service_402_20261104/rebuilt_lam1/population_bundle_v2train_median.json",
+    "populationBundleSha256": "bb15684840fbf39a35827c26d8d8c67e4d3b10ffaa3ff1b5d8b36c7ab606dcb6",
+    "populationBundleMethod": "population_bundle_20261102/build_bundle.py와 같은 방식, P4만 새 checkpoint의 Train p4 표 중앙값",
     "summaryFeatureCount": 27,
     "hr0Head": false,
     "preRunHr0Fallback": "median of support-session start HR; 85 bpm when support is absent"
+  },
+  "previousOde": {
+    "description": "되돌리기용 이전 운영 ODE(v2.1 base epoch 20)",
+    "revision": "11a3d0cce3062c84aa7ffee1740a93d204462190",
+    "hfDir": "ode_v21_stage1_base",
+    "checkpointSha256": "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061",
+    "summaryStatsSha256": "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066",
+    "populationBundleSha256": "9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1"
   },
   "modelFilesIncluded": false,
   "vendoredCode": [
