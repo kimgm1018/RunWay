@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -23,6 +21,7 @@ import { DarkSegmented } from './CrewJoinRequestsScreen';
 import { DarkBackground, GroupCta, groupLook, SectionLabel } from './look';
 import { useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
+import { KeyboardLift } from '../../components/KeyboardLift';
 
 // M03: 1–200 members; a new crew starts at 20.
 const minCapacity = 1;
@@ -237,10 +236,7 @@ export function CrewCreateScreen() {
             </AppText>
           </View>
         </SafeAreaView>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <KeyboardLift style={styles.flex}>
           <ScrollView
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.content}
@@ -333,7 +329,7 @@ export function CrewCreateScreen() {
               />
             </View>
           </ScrollView>
-        </KeyboardAvoidingView>
+        </KeyboardLift>
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <GroupCta
             title="크루 만들기"

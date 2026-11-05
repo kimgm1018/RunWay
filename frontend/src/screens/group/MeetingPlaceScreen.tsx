@@ -11,7 +11,13 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, Icon, LightGlass, TextField } from '../../components';
+import {
+  AppText,
+  Icon,
+  KeyboardLift,
+  LightGlass,
+  TextField,
+} from '../../components';
 import { RunMap, type RunMapRef } from '../../components/RunMap';
 import { useRepositories, type MeetingPlace } from '../../data';
 import { distanceM, type LngLat } from '../../geo';
@@ -248,118 +254,124 @@ export function MeetingPlaceScreen() {
             </View>
           ) : null}
         </SafeAreaView>
-        {/* 6.9-PlaceSheet: a light glass sheet with corners of 32. */}
-        <View style={styles.sheet}>
-          <LightGlass radius={32} style={styles.sheetGlass}>
-            <SafeAreaView edges={['bottom']}>
-              <View style={styles.handle} />
-              {confirming && picked ? (
-                <View style={styles.sheetBody}>
-                  <View style={styles.confirmed}>
-                    <Tag label="✓ 위치 확정" tone="accent" />
-                    <AppText
-                      style={[styles.sub, styles.flex]}
-                      numberOfLines={1}
-                    >
-                      {picked.address}
-                    </AppText>
-                  </View>
-                  <TextField
-                    label="장소 이름"
-                    value={placeName}
-                    onChangeText={setPlaceName}
-                  />
-                  <TextField
-                    label="찾아오는 법 · 선택"
-                    placeholder="예: 편의점 앞 계단, 민트색 모자"
-                    value={note}
-                    onChangeText={setNote}
-                  />
-                  <View style={styles.buttons}>
-                    <FooterButton
-                      title="다시 고르기"
-                      onPress={() => setConfirming(false)}
+        {/* 6.9-PlaceSheet: a light glass sheet with corners of 32. The keyboard lifts it (S15P31E105-473). */}
+        <KeyboardLift style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <View style={styles.sheet}>
+            <LightGlass radius={32} style={styles.sheetGlass}>
+              <SafeAreaView edges={['bottom']}>
+                <View style={styles.handle} />
+                {confirming && picked ? (
+                  <View style={styles.sheetBody}>
+                    <View style={styles.confirmed}>
+                      <Tag label="✓ 위치 확정" tone="accent" />
+                      <AppText
+                        style={[styles.sub, styles.flex]}
+                        numberOfLines={1}
+                      >
+                        {picked.address}
+                      </AppText>
+                    </View>
+                    <TextField
+                      label="장소 이름"
+                      value={placeName}
+                      onChangeText={setPlaceName}
                     />
-                    <FooterButton
-                      title="확정"
-                      primary
-                      disabled={!placeName.trim()}
+                    <TextField
+                      label="찾아오는 법 · 선택"
+                      placeholder="예: 편의점 앞 계단, 민트색 모자"
+                      value={note}
+                      onChangeText={setNote}
+                    />
+                    <View style={styles.buttons}>
+                      <FooterButton
+                        title="다시 고르기"
+                        onPress={() => setConfirming(false)}
+                      />
+                      <FooterButton
+                        title="확정"
+                        primary
+                        disabled={!placeName.trim()}
+                        onPress={() => {
+                          setPlace({
+                            ...picked,
+                            name: placeName.trim(),
+                            note: note.trim() || null,
+                          });
+                          navigation.goBack();
+                        }}
+                      />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.sheetBody}>
+                    {!query ? (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.nearby}
+                      >
+                        {results.map(place => {
+                          const selected = place.name === picked?.name;
+                          return (
+                            <Pressable
+                              key={place.name}
+                              accessibilityRole="radio"
+                              accessibilityLabel={place.name}
+                              accessibilityState={{ selected }}
+                              onPress={() => setPicked(place)}
+                              style={({ pressed }) => pressed && styles.pressed}
+                            >
+                              <Raised
+                                tone={selected ? 'navy' : 'white'}
+                                style={styles.nearbyChip}
+                              >
+                                <AppText
+                                  style={[
+                                    styles.chipText,
+                                    selected && styles.chipTextOn,
+                                  ]}
+                                >
+                                  {place.name}
+                                </AppText>
+                              </Raised>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    ) : null}
+                    {picked ? (
+                      <View style={styles.pickedRow}>
+                        <Icon
+                          name="mapPin"
+                          color={groupLook.onLight}
+                          size={18}
+                        />
+                        <View style={styles.flex}>
+                          <AppText style={styles.placeName}>
+                            {picked.name}
+                          </AppText>
+                          <AppText style={styles.sub}>{picked.address}</AppText>
+                        </View>
+                        {Number.isFinite(picked.distanceM) ? (
+                          <AppText style={styles.distance}>
+                            {formatDistance(picked.distanceM)}
+                          </AppText>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    <ConfirmButton
+                      disabled={!picked}
                       onPress={() => {
-                        setPlace({
-                          ...picked,
-                          name: placeName.trim(),
-                          note: note.trim() || null,
-                        });
-                        navigation.goBack();
+                        setPlaceName(picked?.name ?? '');
+                        setConfirming(true);
                       }}
                     />
                   </View>
-                </View>
-              ) : (
-                <View style={styles.sheetBody}>
-                  {!query ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.nearby}
-                    >
-                      {results.map(place => {
-                        const selected = place.name === picked?.name;
-                        return (
-                          <Pressable
-                            key={place.name}
-                            accessibilityRole="radio"
-                            accessibilityLabel={place.name}
-                            accessibilityState={{ selected }}
-                            onPress={() => setPicked(place)}
-                            style={({ pressed }) => pressed && styles.pressed}
-                          >
-                            <Raised
-                              tone={selected ? 'navy' : 'white'}
-                              style={styles.nearbyChip}
-                            >
-                              <AppText
-                                style={[
-                                  styles.chipText,
-                                  selected && styles.chipTextOn,
-                                ]}
-                              >
-                                {place.name}
-                              </AppText>
-                            </Raised>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  ) : null}
-                  {picked ? (
-                    <View style={styles.pickedRow}>
-                      <Icon name="mapPin" color={groupLook.onLight} size={18} />
-                      <View style={styles.flex}>
-                        <AppText style={styles.placeName}>
-                          {picked.name}
-                        </AppText>
-                        <AppText style={styles.sub}>{picked.address}</AppText>
-                      </View>
-                      {Number.isFinite(picked.distanceM) ? (
-                        <AppText style={styles.distance}>
-                          {formatDistance(picked.distanceM)}
-                        </AppText>
-                      ) : null}
-                    </View>
-                  ) : null}
-                  <ConfirmButton
-                    disabled={!picked}
-                    onPress={() => {
-                      setPlaceName(picked?.name ?? '');
-                      setConfirming(true);
-                    }}
-                  />
-                </View>
-              )}
-            </SafeAreaView>
-          </LightGlass>
-        </View>
+                )}
+              </SafeAreaView>
+            </LightGlass>
+          </View>
+        </KeyboardLift>
       </View>
     </ThemeProvider>
   );

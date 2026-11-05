@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -30,6 +28,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, typography } from '../../theme';
 import { communityLook, CourseToggle } from './look';
 import { Avatar, RunPhoto } from './parts';
+import { KeyboardLift } from '../../components/KeyboardLift';
 
 const bodyLimit = 500;
 
@@ -98,10 +97,7 @@ function Composer({
           </Pressable>
         </View>
       </SafeAreaView>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardLift style={styles.flex}>
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
@@ -148,7 +144,7 @@ function Composer({
             />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardLift>
     </>
   );
 }

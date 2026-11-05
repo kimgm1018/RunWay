@@ -1,7 +1,7 @@
 import React from 'react';
 import { StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LightGlass } from '../../components';
+import { KeyboardLift, LightGlass } from '../../components';
 import { k1, size, spacing, useTheme } from '../../theme';
 
 // Layout shared by 2.0 and 2.0F: a full-screen map, a bar pinned to the top and a sheet that sits just
@@ -28,25 +28,28 @@ export function MapScreenFrame({
       >
         {top}
       </SafeAreaView>
-      {night ? (
-        // After sunset the sheet matches the dark map, so a faint rim keeps it apart.
-        <View
-          style={[
-            styles.sheet,
-            styles.sheetNight,
-            {
-              backgroundColor: colors.surfaceRaised,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          {bottom}
-        </View>
-      ) : (
-        <LightGlass radius={34} style={[styles.sheet, styles.sheetDay]}>
-          {bottom}
-        </LightGlass>
-      )}
+      {/* The sheet's box ends above the tab bar, so the keyboard lifts the sheet by what it covers (S15P31E105-473). */}
+      <KeyboardLift style={styles.lift} pointerEvents="box-none">
+        {night ? (
+          // After sunset the sheet matches the dark map, so a faint rim keeps it apart.
+          <View
+            style={[
+              styles.sheet,
+              styles.sheetNight,
+              {
+                backgroundColor: colors.surfaceRaised,
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            {bottom}
+          </View>
+        ) : (
+          <LightGlass radius={34} style={[styles.sheet, styles.sheetDay]}>
+            {bottom}
+          </LightGlass>
+        )}
+      </KeyboardLift>
     </View>
   );
 }
@@ -60,11 +63,18 @@ const styles = StyleSheet.create({
   },
   // The 358-wide bars sit 16 from the edges, the legend 8 under them.
   topDay: { paddingHorizontal: 16, paddingTop: 8, gap: 8 },
+  lift: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: size.tabBar + size.tabBarInset * 2,
+  },
   sheet: {
     position: 'absolute',
     left: spacing.md,
     right: spacing.md,
-    bottom: size.tabBar + size.tabBarInset * 2,
+    bottom: 0,
     padding: 18,
   },
   sheetNight: {

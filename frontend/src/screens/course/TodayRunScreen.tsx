@@ -25,6 +25,7 @@ import {
   MistFill,
   type IconName,
 } from '../../components';
+import { KeyboardLift } from '../../components/KeyboardLift';
 import {
   useRepositories,
   useResource,
@@ -351,62 +352,65 @@ export function TodayRunScreen() {
         </View>
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            {options.status === 'error' ? (
-              // Without the origins 코스 추천 받기 stays off, so the screen says why and offers a retry.
-              <View style={styles.optionsError}>
-                <ErrorNotice
-                  title="기준 위치를 불러오지 못했어요"
-                  detail="기준 위치가 있어야 코스를 추천받을 수 있어요."
-                />
-                <Button
-                  title="다시 시도"
-                  variant="secondary"
-                  size="small"
-                  onPress={options.reload}
+          {/* The keyboard lifts 코스 추천 받기 and shrinks the card list above it (S15P31E105-473). */}
+          <KeyboardLift style={styles.flex}>
+            <ScrollView
+              contentContainerStyle={styles.content}
+              keyboardShouldPersistTaps="handled"
+            >
+              {options.status === 'error' ? (
+                // Without the origins 코스 추천 받기 stays off, so the screen says why and offers a retry.
+                <View style={styles.optionsError}>
+                  <ErrorNotice
+                    title="기준 위치를 불러오지 못했어요"
+                    detail="기준 위치가 있어야 코스를 추천받을 수 있어요."
+                  />
+                  <Button
+                    title="다시 시도"
+                    variant="secondary"
+                    size="small"
+                    onPress={options.reload}
+                  />
+                </View>
+              ) : null}
+              <View style={styles.card}>
+                <MistFill id="todayRunCard" />
+                <PanelContent
+                  place={place}
+                  placeFailed={options.status === 'error'}
+                  onPickOrigin={() => setPicking(true)}
+                  distanceKm={distanceKm}
+                  setDistanceKm={setDistanceKm}
+                  goal={goal}
+                  switchGoal={switchGoal}
+                  goalText={goalText}
+                  setGoalText={setGoalText}
+                  seconds={seconds}
+                  derived={derived}
+                  picked={picked}
+                  setPicked={setPicked}
+                  readiness={
+                    // Readiness counts only when today's score exists (2.1 평가 가능).
+                    readinessApplied && today?.readinessScore !== null
+                      ? `준비도 ${today?.readinessScore}`
+                      : null
+                  }
                 />
               </View>
-            ) : null}
-            <View style={styles.card}>
-              <MistFill id="todayRunCard" />
-              <PanelContent
-                place={place}
-                placeFailed={options.status === 'error'}
-                onPickOrigin={() => setPicking(true)}
-                distanceKm={distanceKm}
-                setDistanceKm={setDistanceKm}
-                goal={goal}
-                switchGoal={switchGoal}
-                goalText={goalText}
-                setGoalText={setGoalText}
-                seconds={seconds}
-                derived={derived}
-                picked={picked}
-                setPicked={setPicked}
-                readiness={
-                  // Readiness counts only when today's score exists (2.1 평가 가능).
-                  readinessApplied && today?.readinessScore !== null
-                    ? `준비도 ${today?.readinessScore}`
-                    : null
-                }
+              {notice ? (
+                <ErrorNotice title={notice.title} detail={notice.detail} />
+              ) : null}
+            </ScrollView>
+            <SafeAreaView edges={['bottom']} style={styles.footer}>
+              <GlowButton
+                title="코스 추천 받기"
+                tone="teal"
+                loading={loading}
+                disabled={!place || !seconds}
+                onPress={recommend}
               />
-            </View>
-            {notice ? (
-              <ErrorNotice title={notice.title} detail={notice.detail} />
-            ) : null}
-          </ScrollView>
-          <SafeAreaView edges={['bottom']} style={styles.footer}>
-            <GlowButton
-              title="코스 추천 받기"
-              tone="teal"
-              loading={loading}
-              disabled={!place || !seconds}
-              onPress={recommend}
-            />
-          </SafeAreaView>
+            </SafeAreaView>
+          </KeyboardLift>
         </View>
       </SafeAreaView>
       <BottomSheet

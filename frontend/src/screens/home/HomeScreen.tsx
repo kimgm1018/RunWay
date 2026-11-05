@@ -278,11 +278,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   logo: { flex: 1 },
-
+  // 44 like the GlassIconButtons beside it (S15P31E105-473).
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     overflow: 'hidden',
