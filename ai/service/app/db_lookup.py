@@ -78,6 +78,43 @@ GRU_PERSONALIZATION_SQL = (
     "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1"
 )
 
+# AI04 목표 BPM 개인 기록(S15P31E105-438). runway_ai는 아래 칸만 읽을 수 있다(infra/ai/grant-readonly.sh).
+BPM_SESSION_SQL = """SELECT user_id, current_bpm
+FROM running_sessions
+WHERE id = %(session_id)s"""
+
+BPM_RUNS_SQL = """SELECT id
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
+
+# 60초 칸별 평균·표준편차. 걷기·정지와 이상값은 먼저 뺀다(ai/bpm/convert_personal.py와 같은 기준).
+BPM_WINDOWS_SQL = """SELECT running_session_id AS session_id,
+       FLOOR(elapsed_duration / 60) AS bucket,
+       COUNT(*) AS n,
+       AVG(speed) AS speed_mps,
+       STDDEV_SAMP(speed) AS speed_sd,
+       AVG(cadence) AS cadence_spm,
+       STDDEV_SAMP(cadence) AS cadence_sd,
+       MIN(measured_at) AS start_at,
+       MAX(measured_at) AS end_at
+FROM running_metric_samples
+WHERE running_session_id = ANY(%(session_ids)s)
+  AND speed >= 1.5
+  AND cadence BETWEEN 120 AND 230
+GROUP BY running_session_id, FLOOR(elapsed_duration / 60)"""
+
+BPM_EVENTS_SQL = """SELECT session_id, target_bpm, applied_at
+FROM session_control_events
+WHERE session_id = ANY(%(session_ids)s)
+  AND result = 'APPLIED'
+  AND action IN ('SET_BPM', 'COACHING')
+ORDER BY session_id, applied_at"""
+
 # 개인화 테이블이 팀 DB에 아직 없을 때(ERD 전)의 SQLSTATE: 42P01 undefined_table, 42703 undefined_column.
 MISSING_RELATION_SQLSTATES = frozenset({"42P01", "42703"})
 
@@ -171,6 +208,9 @@ class PsycopgDatabase:
 
     def fetch_all(self, sql: str, params: dict) -> list[dict]:
         return list(self._run(sql, params, many=True) or [])
+
+    def fetch_all_with_timeout(self, sql: str, params: dict, timeout_ms: int) -> list[dict]:
+        return list(self._run(sql, params, many=True, timeout_ms=timeout_ms) or [])
 
     def close(self) -> None:
         try:

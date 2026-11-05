@@ -30,6 +30,22 @@ SQL
 )
 [[ $result == t ]] || { echo 'user_profiles 읽기 권한 확인 실패' >&2; exit 1; }
 echo 'user_profiles 읽기 권한 확인 완료'
+# AI04 목표 BPM 개인 기록(S15P31E105-438): 측정값은 속도·케이던스·시간 칸만, BPM 변경 기록은 BPM·적용 칸만 준다.
+# 심박 등 다른 건강 칸은 열지 않는다. 두 테이블 모두 V1·V3부터 있으므로 V10을 기다리지 않는다.
+result=$(psql_admin <<'SQL'
+GRANT SELECT (running_session_id, measured_at, elapsed_duration, speed, cadence)
+  ON public.running_metric_samples TO runway_ai;
+GRANT SELECT (session_id, action, target_bpm, result, applied_at)
+  ON public.session_control_events TO runway_ai;
+SELECT has_column_privilege('runway_ai', 'public.running_metric_samples', 'cadence', 'SELECT')
+  AND has_column_privilege('runway_ai', 'public.session_control_events', 'applied_at', 'SELECT')
+  AND NOT has_column_privilege('runway_ai', 'public.running_metric_samples', 'heart_rate', 'SELECT')
+  AND NOT has_table_privilege('runway_ai', 'public.running_metric_samples', 'INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_table_privilege('runway_ai', 'public.session_control_events', 'INSERT,UPDATE,DELETE,TRUNCATE');
+SQL
+)
+[[ $result == t ]] || { echo 'BPM 기록 읽기 권한 확인 실패' >&2; exit 1; }
+echo 'BPM 기록 읽기 권한 확인 완료'
 # 대기 한도는 V10 대기에만 쓴다(앞의 선부여 시간은 포함하지 않는다).
 deadline=$((SECONDS + wait_seconds))
 echo 'V10 적용·AI 개인화 테이블 준비를 확인합니다.'
