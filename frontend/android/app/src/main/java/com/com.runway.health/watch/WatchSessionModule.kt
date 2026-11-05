@@ -149,6 +149,46 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
     }
   }
 
+  /**
+   * Phone takeover (S15P31E105-464): closes new watch batch intake for the session and resolves with the batches already
+   * stored and still waiting for W07 (same JSON shape as [pendingBatches]). Those are the ones to confirm before S08.
+   */
+  @ReactMethod fun blockBatches(sessionId: String, promise: Promise) {
+    scope.launch {
+      try {
+        val array = JSONArray()
+        batches.block(sessionId).forEach { array.put(org.json.JSONObject(batchJsEvent(it))) }
+        promise.resolve(array.toString())
+      } catch (_: Exception) {
+        promise.reject("WATCH_STORAGE", "워치 기록을 잠그지 못했습니다.")
+      }
+    }
+  }
+
+  /** Opens intake again: the takeover was not sent, was refused with WATCH kept, or the run is over. */
+  @ReactMethod fun unblockBatches(sessionId: String, promise: Promise) {
+    scope.launch {
+      try {
+        batches.unblock(sessionId)
+        promise.resolve(null)
+      } catch (_: Exception) {
+        promise.reject("WATCH_STORAGE", "워치 기록 수신을 다시 열지 못했습니다.")
+      }
+    }
+  }
+
+  /** Whether a watch node is reachable now (MessageClient transport only, not the watch app's own state). */
+  @ReactMethod fun isWatchConnected(promise: Promise) {
+    scope.launch {
+      try {
+        val nodes = Tasks.await(Wearable.getNodeClient(app).connectedNodes, 10, TimeUnit.SECONDS)
+        promise.resolve(nodes.isNotEmpty())
+      } catch (_: Exception) {
+        promise.resolve(false)
+      }
+    }
+  }
+
   /** W07 answered COMMITTED: store the ACK, then send BATCH_COMMITTED to the watch. Rejects an ACK that does not match. */
   @ReactMethod fun commitBatch(batchId: String, acceptedCount: Double, promise: Promise) {
     scope.launch {
@@ -213,11 +253,14 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
     }
   }
 
-  /** Starts or stops the run foreground service (D-11). Started only from the foreground app. */
-  @ReactMethod fun setRunActive(active: Boolean, sessionId: String?, promise: Promise) {
+  /**
+   * Starts or stops the run foreground service (D-11). Started only from the foreground app. [location] adds the
+   * location type while the phone records the run itself after a takeover (S15P31E105-464).
+   */
+  @ReactMethod fun setRunActive(active: Boolean, sessionId: String?, location: Boolean, promise: Promise) {
     try {
       inbox.setActiveSessionId(if (active) sessionId ?: inbox.activeSessionId() else null)
-      val intent = Intent(app, RunForegroundService::class.java)
+      val intent = Intent(app, RunForegroundService::class.java).putExtra(RunForegroundService.EXTRA_LOCATION, location)
       if (active) {
         app.startForegroundService(intent)
       } else {
@@ -243,6 +286,7 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
 }
 
 class WatchSessionPackage : ReactPackage {
-  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> = listOf(WatchSessionModule(reactContext))
+  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
+    listOf(WatchSessionModule(reactContext), RunLocationModule(reactContext))
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }

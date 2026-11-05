@@ -20,7 +20,7 @@ import { AppText, Backdrop, Icon } from '../../components';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { fontFamily, useTheme } from '../../theme';
 import { useRunControlState, useRunSession } from './RunSession';
-import { controlNotice } from './controlNotice';
+import { controlNotice, takeoverNotice } from './controlNotice';
 
 const holdMs = 1000;
 const buttonSize = 88;
@@ -133,12 +133,14 @@ export function ResumeButton({ onPress }: { onPress: () => void }) {
 export function RunPauseScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const { run, finish, resume, recheck } = useRunSession();
+  const { run, finish, resume, recheck, takeOver } = useRunSession();
   const control = useRunControlState();
   const problem = control?.problem ?? null;
   const ending = problem === null && control?.pending?.action === 'END';
   const resuming = problem === null && control?.pending?.action === 'RESUME';
   const notice = controlNotice(problem, ['RESUME', 'END']);
+  // 워치 단절·종료 저장 미확인이 계속될 때 폰으로 기록 계속(S08 TAKE_OVER_PHONE, S15P31E105-464).
+  const takeover = takeoverNotice(control);
   // 개인 러닝은 재개를 요청하고 실제로 재개가 확정되면 4.2로 돌아간다. 그룹 러닝은 기존처럼 돌아가서 재개한다.
   const personal = control !== null && run?.config.mode !== 'GROUP';
   const onResume = useCallback(() => {
@@ -262,6 +264,24 @@ export function RunPauseScreen() {
                 >
                   <AppText variant="captionStrong" tone="accentText">
                     다시 확인
+                  </AppText>
+                </Pressable>
+              ) : null}
+            </>
+          ) : null}
+          {takeover ? (
+            <>
+              <AppText variant="captionStrong" accessibilityLabel="폰 기록 안내">
+                {takeover.text}
+              </AppText>
+              {takeover.offer ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="폰으로 기록 계속"
+                  onPress={takeOver}
+                >
+                  <AppText variant="captionStrong" tone="accentText">
+                    폰으로 기록 계속
                   </AppText>
                 </Pressable>
               ) : null}

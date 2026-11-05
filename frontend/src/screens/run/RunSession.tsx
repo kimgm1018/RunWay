@@ -67,6 +67,8 @@ type RunActions = {
   cancel: () => void;
   recheck: () => void;
   abortStart: () => void;
+  // 워치 단절·측정 끊김 때 기록·제어를 폰으로 넘긴다(S08 TAKE_OVER_PHONE, S15P31E105-464).
+  takeOver: () => void;
 };
 
 const firstSample: RunSample = {
@@ -135,7 +137,13 @@ export function RunSessionProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { run: tracker, clock, session, watchSession } = useRepositories();
+  const {
+    run: tracker,
+    clock,
+    session,
+    watchSession,
+    phoneLocation,
+  } = useRepositories();
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
@@ -324,12 +332,16 @@ export function RunSessionProvider({
   const newControl = useCallback(() => {
     stopListening.current?.();
     controlRef.current?.dispose();
-    const next = createRunControl({ session, watch: watchSession });
+    const next = createRunControl({
+      session,
+      watch: watchSession,
+      location: phoneLocation,
+    });
     controlRef.current = next;
     stopListening.current = next.subscribe(setControl);
     setControl(next.getState());
     return next;
-  }, [session, watchSession]);
+  }, [phoneLocation, session, watchSession]);
 
   // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
   // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
@@ -462,6 +474,9 @@ export function RunSessionProvider({
       },
       abortStart: () => {
         controlRef.current?.abortUnconfirmedStart();
+      },
+      takeOver: () => {
+        controlRef.current?.takeOver();
       },
     };
   }, [local, newControl, save]);

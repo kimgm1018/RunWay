@@ -90,6 +90,8 @@ data class RunSnapshot(
     val serverLinkLost: Boolean = false,
     /** The app restarted mid-run and the watch exercise was gone: the watch no longer records (S15P31E105-445). */
     val measurementLost: Boolean = false,
+    /** The run was handed to the phone (PHONE_FALLBACK): the watch no longer records or controls it (S15P31E105-464). */
+    val phoneRecording: Boolean = false,
 )
 
 /** Where a rhythm BPM change stands. Only APPLIED means the beat really changed. */

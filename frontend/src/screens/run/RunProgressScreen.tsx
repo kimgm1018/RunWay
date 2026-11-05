@@ -49,7 +49,7 @@ import { AlbumArt } from './musicParts';
 import { K1Badge } from './parts';
 import { comparisonLine } from './recordComparison';
 import { useRunControlState, useRunSession } from './RunSession';
-import { controlNotice } from './controlNotice';
+import { controlNotice, takeoverNotice } from './controlNotice';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 // The pace bar spans 20 seconds either side of the goal, with ±10 seconds highlighted.
@@ -456,7 +456,7 @@ export function RunProgressScreen() {
     }
     setMusicBusy(false);
   };
-  const { run, start, pause, resume, recheck } = useRunSession();
+  const { run, start, pause, resume, recheck, takeOver } = useRunSession();
   const [player, setPlayer] = useState<MusicState | null>(null);
   const status = useRef(run?.status);
   status.current = run?.status;
@@ -498,6 +498,8 @@ export function RunProgressScreen() {
       ? '재개 확인 중'
       : null;
   const notice = controlNotice(problem, ['PAUSE', 'RESUME']);
+  // 워치 단절·측정 끊김 안내와 폰으로 기록 계속(S08 TAKE_OVER_PHONE, S15P31E105-464).
+  const takeover = takeoverNotice(control);
 
   // Coming back from 4.3 (재개 or the back key) carries on the run.
   useFocusEffect(
@@ -670,6 +672,24 @@ export function RunProgressScreen() {
                   >
                     <AppText style={[styles.dayNote, styles.underline]}>
                       다시 확인
+                    </AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            {takeover ? (
+              <View style={styles.notice}>
+                <AppText style={styles.dayNote} accessibilityLabel="폰 기록 안내">
+                  {takeover.text}
+                </AppText>
+                {takeover.offer ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="폰으로 기록 계속"
+                    onPress={takeOver}
+                  >
+                    <AppText style={[styles.dayNote, styles.underline]}>
+                      폰으로 기록 계속
                     </AppText>
                   </Pressable>
                 ) : null}
@@ -848,6 +868,24 @@ export function RunProgressScreen() {
                 >
                   <AppText variant="captionStrong" tone="accentText">
                     다시 확인
+                  </AppText>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          {takeover ? (
+            <View style={styles.notice}>
+              <AppText variant="captionStrong" accessibilityLabel="폰 기록 안내">
+                {takeover.text}
+              </AppText>
+              {takeover.offer ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="폰으로 기록 계속"
+                  onPress={takeOver}
+                >
+                  <AppText variant="captionStrong" tone="accentText">
+                    폰으로 기록 계속
                   </AppText>
                 </Pressable>
               ) : null}

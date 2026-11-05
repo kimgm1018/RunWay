@@ -308,6 +308,39 @@ export function createMockSession(options: Options = {}): Repositories['session'
         return view(stored);
       }),
 
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). 같은 폰으로 이미 인계됐으면 현재 상태를 버전 증가 없이 돌려준다.
+    takeOverPhone: (sessionId, { deviceId, expectedVersion }) =>
+      later(() => {
+        const stored = find(sessionId);
+        if (deviceId !== stored.view.relayDeviceId) {
+          throw new DataError('DEVICE_FORBIDDEN', '본인 등록 기기가 아닙니다.');
+        }
+        if (
+          stored.view.recordingMode === 'PHONE_FALLBACK' &&
+          stored.view.controlDeviceId === deviceId
+        ) {
+          return view(stored);
+        }
+        if (
+          (stored.view.state !== 'RUNNING' && stored.view.state !== 'PAUSED') ||
+          stored.view.startedAt === null
+        ) {
+          throw new DataError('INVALID_SESSION_STATE', '현재 세션 상태에서 처리할 수 없습니다.');
+        }
+        if (expectedVersion !== stored.view.stateVersion) {
+          throw new DataError('STALE_STATE', '세션 상태가 변경되었습니다.');
+        }
+        // 이전 워치의 미확정 명령은 실제 적용 여부를 추측하지 않고 UNKNOWN으로 남긴다.
+        stored.commands
+          .filter(command => command.deviceId === stored.view.controlDeviceId && command.result === 'PENDING')
+          .forEach(command => Object.assign(command, { result: 'UNKNOWN', reasonCode: 'WATCH_DISCONNECTED' }));
+        stored.view.controlDeviceId = deviceId;
+        stored.view.recordingMode = 'PHONE_FALLBACK';
+        stored.view.currentBpm = null;
+        bump(stored);
+        return view(stored);
+      }),
+
     // W07 목업: 받은 batch를 그대로 저장 확인한다. 본문의 id·items 개수만 읽는다.
     uploadBatch: body =>
       later(() => {

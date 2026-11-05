@@ -64,7 +64,8 @@ class WatchListenerService : WearableListenerService() {
         is BatchArrival.Stored -> arrival.batch
         is BatchArrival.Known -> arrival.batch
         // 같은 ID에 다른 내용이면 저장하지 않고, 64개 상한이면 받지 않는다. 워치는 ACK가 없으므로 저장 미확인으로 남긴다.
-        BatchArrival.Conflict, BatchArrival.Full -> return
+        // 폰 인계 중·인계 후(S15P31E105-464)에는 새 batch를 받지도 수신 확인하지도 않는다.
+        BatchArrival.Conflict, BatchArrival.Full, BatchArrival.Blocked -> return
       }
       val messages = Wearable.getMessageClient(this)
       when (batch.status) {

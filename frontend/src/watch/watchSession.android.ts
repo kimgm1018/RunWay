@@ -16,12 +16,16 @@ type NativeWatchSession = {
   send(path: string, type: string, sessionId: string, payloadJson: string): Promise<string>;
   drainInbox(): Promise<string>;
   ackInbox(messageIds: string[]): Promise<void>;
-  setRunActive(active: boolean, sessionId: string | null): Promise<void>;
+  setRunActive(active: boolean, sessionId: string | null, location: boolean): Promise<void>;
   getActiveSessionId(): Promise<string | null>;
   // S15P31E105-311 워치 batch. pendingBatches는 아직 W07 저장 확인이 없는 batch 이벤트의 JSON 배열.
   pendingBatches(): Promise<string>;
   commitBatch(batchId: string, acceptedCount: number): Promise<boolean>;
   failBatch(batchId: string, code: string): Promise<boolean>;
+  // S15P31E105-464 폰 인계: 새 batch 수신을 멈추고 저장 확인이 없는 이 세션의 batch(JSON 배열)를 돌려준다.
+  blockBatches(sessionId: string): Promise<string>;
+  unblockBatches(sessionId: string): Promise<void>;
+  isWatchConnected(): Promise<boolean>;
 };
 
 type Subscription = { remove: () => void };
@@ -357,6 +361,16 @@ export function createNativeWatchSession(
     failBatch: async (batchId, code) => {
       await native.failBatch(batchId, code);
     },
+    blockBatches: async sessionId => {
+      const raw = JSON.parse(await native.blockBatches(sessionId)) as NativeBatch[];
+      return raw
+        .map(toBatchEvent)
+        .filter((event): event is Extract<WatchSessionEvent, { type: 'BATCH_DATA' }> =>
+          event?.type === 'BATCH_DATA',
+        );
+    },
+    unblockBatches: sessionId => native.unblockBatches(sessionId),
+    isWatchConnected: () => native.isWatchConnected().catch(() => false),
 
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
@@ -400,13 +414,17 @@ export function createNativeWatchSession(
     },
 
     // Android 13+는 알림 권한이 있어야 "러닝 중" 알림이 보인다. 거절해도 서비스는 동작한다.
-    setRunActive: async (active, sessionId) => {
+    setRunActive: async (active, sessionId, run) => {
       if (active && Number(Platform.Version) >= 33) {
         await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as never).catch(
           () => undefined,
         );
       }
-      await native.setRunActive(active, active ? sessionId ?? null : null);
+      await native.setRunActive(
+        active,
+        active ? sessionId ?? null : null,
+        active && run?.location === true,
+      );
     },
     getActiveSessionId: () => native.getActiveSessionId().catch(() => null),
   };

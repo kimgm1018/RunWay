@@ -239,8 +239,10 @@ private fun PausedScreen(snapshot: RunSnapshot, onEnd: () -> Unit, onResume: () 
             MetricValue(MetricFormat.pace(m.paceSecondsPerKm), 13, emphasized = false)
         }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.STOP, it, 16) }
-            RoundButton("재개", onResume, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
+            // 폰으로 넘긴 운동은 폰에서만 재개·종료한다(S15P31E105-464).
+            val controllable = !snapshot.pendingCommand && !snapshot.phoneRecording
+            RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = controllable, caption = true) { Icon(WatchIcon.STOP, it, 16) }
+            RoundButton("재개", onResume, enabled = controllable, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
         }
         ControlNotice(snapshot.notice)
     }
@@ -258,7 +260,7 @@ private fun EndConfirmScreen(snapshot: RunSnapshot, onCancel: () -> Unit, onEnd:
         }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             RoundButton("취소", onCancel, kind = ButtonKind.SECONDARY) { Icon(WatchIcon.CLOSE, it, 18) }
-            RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand) { Icon(WatchIcon.CHECK, it, 20) }
+            RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand && !snapshot.phoneRecording) { Icon(WatchIcon.CHECK, it, 20) }
         }
         ControlNotice(snapshot.notice)
     }

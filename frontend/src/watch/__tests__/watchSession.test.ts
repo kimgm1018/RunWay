@@ -182,7 +182,7 @@ test('setRunActive starts and stops the run service and remembers the session', 
   await watch.setRunActive(true, '201');
   await watch.setRunActive(false);
 
-  expect(native.setRunActive.mock.calls).toEqual([[true, '201'], [false, null]]);
+  expect(native.setRunActive.mock.calls).toEqual([[true, '201', false], [false, null, false]]);
 });
 
 test('the run notification asks for POST_NOTIFICATIONS on Android 13+ before starting', async () => {
@@ -194,7 +194,7 @@ test('the run notification asks for POST_NOTIFICATIONS on Android 13+ before sta
     await watch.setRunActive(true, '201');
 
     expect(request).toHaveBeenCalledWith('android.permission.POST_NOTIFICATIONS');
-    expect(native.setRunActive).toHaveBeenCalledWith(true, '201');
+    expect(native.setRunActive).toHaveBeenCalledWith(true, '201', false);
   } finally {
     request.mockRestore();
     if (version) {
@@ -443,4 +443,27 @@ test('sendServerState passes the S02 record comparison to the watch as it is (S1
 
   const payload = JSON.parse(native.send.mock.calls[0][3]);
   expect(payload.comparison).toEqual(comparison);
+});
+
+// 폰 인계(S15P31E105-464): 수신 차단은 저장 확인이 없는 batch 이벤트를 돌려주고, 위치 유형은 켤 때만 전달한다.
+test('blockBatches returns the frozen batches; setRunActive passes the location type', async () => {
+  const extra = native as unknown as Record<string, jest.Mock>;
+  extra.blockBatches = jest.fn().mockResolvedValue(
+    JSON.stringify([
+      { type: 'BATCH_DATA', sessionId: '201', batchId: 'b-1', deviceId: '101', itemCount: 2, body: '{"id":"b-1"}' },
+    ]),
+  );
+  extra.unblockBatches = jest.fn().mockResolvedValue(undefined);
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  expect(await watch.blockBatches!('201')).toEqual([
+    { type: 'BATCH_DATA', sessionId: '201', batchId: 'b-1', deviceId: '101', itemCount: 2, body: '{"id":"b-1"}' },
+  ]);
+  await watch.unblockBatches!('201');
+  expect(extra.unblockBatches).toHaveBeenCalledWith('201');
+
+  native.setRunActive.mockClear();
+  await watch.setRunActive(true, '201', { location: true });
+  await watch.setRunActive(false, undefined, { location: true });
+  expect(native.setRunActive.mock.calls).toEqual([[true, '201', true], [false, null, false]]);
 });

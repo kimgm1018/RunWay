@@ -53,7 +53,8 @@ object PaceCoachingDisplay {
         val base = current?.beatsPerMinute ?: guide?.target?.beatsPerMinute
         val requesting = snapshot.bpmChange?.status == BpmChangeStatus.REQUESTING
         // 서버 승인 전에는 박자를 바꾸지 않으므로, 앞선 요청·명령이 확인될 때까지 다음 조절을 막는다.
-        val free = base != null && snapshot.state in adjustable && !snapshot.pendingCommand && !requesting
+        val free = base != null && snapshot.state in adjustable && !snapshot.pendingCommand && !requesting &&
+            !snapshot.phoneRecording
         return PaceCoachingView(
             guidePace = MetricFormat.pace(guide?.paceSecondsPerKm).let { it.copy(description = "안내 ${it.description}") },
             targetRhythm = MetricFormat.rhythm(guide?.target).let { it.copy(description = "목표 ${it.description}") },

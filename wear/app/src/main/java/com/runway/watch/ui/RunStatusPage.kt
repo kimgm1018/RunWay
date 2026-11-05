@@ -47,6 +47,8 @@ data class RunStatusView(
     val serverLost: Boolean = false,
     /** The watch stopped recording after an app restart; the phone carries the run on (S15P31E105-445). */
     val measurementLost: Boolean = false,
+    /** The run was handed to the phone: the face says so and tapping does not ask to pause (S15P31E105-464). */
+    val phoneRecording: Boolean = false,
     /** Rhythm chip text, always labelled "리듬 BPM" so it is never read as heart rate (D-10). */
     val rhythmLabel: String = "",
 )
@@ -55,6 +57,8 @@ data class RunStatusView(
 object RunStatusDisplay {
     /** One status line on the round face, so shorter than the control-page notice (S15P31E105-445). */
     const val MEASUREMENT_LOST = "측정 끊김 · 폰에서 이어가기"
+    /** The run was handed to the phone (S15P31E105-464). */
+    const val PHONE_RECORDING = "폰에서 기록 중이에요"
 
     fun from(snapshot: RunSnapshot, online: CheckState = CheckState.UNKNOWN): RunStatusView {
         val m = snapshot.metrics
@@ -72,6 +76,7 @@ object RunStatusDisplay {
             pending = snapshot.pendingCommand,
             serverLost = snapshot.serverLinkLost,
             measurementLost = snapshot.measurementLost,
+            phoneRecording = snapshot.phoneRecording,
             rhythmLabel = PaceCoachingDisplay.rhythmLabel(m.rhythm),
         )
     }
@@ -100,7 +105,7 @@ internal fun RunStatusPage(
 ) {
     val view = RunStatusDisplay.from(snapshot, online)
     RoundScreen(
-        Modifier.clickable(enabled = !view.pending, onClickLabel = "일시정지", role = Role.Button, onClick = onPause),
+        Modifier.clickable(enabled = !view.pending && !view.phoneRecording, onClickLabel = "일시정지", role = Role.Button, onClick = onPause),
         background = { if (view.hasGoal) ProgressRing(view.ringProgress) }, spacing = 1.dp, focused = visible,
     ) {
         StatusHeader(view)
@@ -133,6 +138,7 @@ internal fun RunStatusPage(
 @Composable
 private fun StatusHeader(view: RunStatusView) = when {
     view.pending -> Text("요청 확인 중", style = RunwayType.Caption, color = RunwayColors.Content, maxLines = 1)
+    view.phoneRecording -> StatusLine(RunStatusDisplay.PHONE_RECORDING to StatusTone.NORMAL)
     view.measurementLost -> StatusLine(RunStatusDisplay.MEASUREMENT_LOST to StatusTone.WARNING)
     view.phoneLost -> StatusLine("폰 연결 끊김" to StatusTone.WARNING)
     view.serverLost -> StatusLine(PaceCoachingDisplay.SERVER_LOST to StatusTone.WARNING)
