@@ -28,6 +28,7 @@ import com.runway.backend.domain.grouprun.dto.response.StartGroupRunResponse;
 import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
+import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
@@ -593,8 +594,7 @@ public class GroupRunService {
     public GroupRunLiveResponse getLive(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireParticipant(groupRunId, userId);
-        Integer guidePace =
-                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
+        Integer guidePace = resolveGroupGuidePace(row);
         List<GroupRunLiveResponse.Participant> participants =
                 GroupRunStatus.RUNNING.name().equals(row.status())
                         ? computeLiveParticipants(row)
@@ -603,6 +603,23 @@ public class GroupRunService {
                                 .toList();
         return new GroupRunLiveResponse(
                 groupRunId, row.status(), guidePace, row.courseId(), row.updatedAt(), participants);
+    }
+
+    /**
+     * 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자
+     * 프로필 평균 페이스 중앙값.
+     */
+    private Integer resolveGroupGuidePace(GroupRunRow row) {
+        if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            Integer running =
+                    GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
+                            participantJdbcRepository.findRunningParticipantGuidePaces(row.id()));
+            if (running != null) {
+                return running;
+            }
+        }
+        return GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
+                participantJdbcRepository.findParticipantProfilePaces(row.id()));
     }
 
     private List<GroupRunLiveResponse.Participant> computeLiveParticipants(GroupRunRow row) {
@@ -753,7 +770,8 @@ public class GroupRunService {
                 row.goalDuration(),
                 row.meetingName(),
                 row.meetingAddress(),
-                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()));
+                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
+                resolveGroupGuidePace(row));
     }
 
     private GeoJsonPoint parseMeetingPosition(String geoJson) {
