@@ -334,6 +334,7 @@ export function createMockRepositories(
     respond: value => respond(value, options),
     fail: error => fail(error, options),
     records: () => records,
+    myPhoto: () => photo,
   });
   let music = musicFor(options.scenario);
   const loginFailures = new Map<

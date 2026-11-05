@@ -233,6 +233,8 @@ export type RunnerProfile = {
   userId: string;
   handle: string;
   nickname: string;
+  // U21 profileImageUrl: the runner's photo address, or null without one (7.4 · 7.4b draw it big).
+  profileImageUrl: string | null;
   level: SelfReportedLevel;
   isMe: boolean;
   followerCount: number;

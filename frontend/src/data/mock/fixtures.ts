@@ -79,6 +79,9 @@ const mockProfilePhoto = require('../../../assets/images/mock-profile.jpg');
 const assetUri = (asset: number) =>
   Image.resolveAssetSource(asset)?.uri ?? null;
 
+// seoyun.run's 7.4 photo, given by the 담당자 as mock data only.
+const mockSeoyunPhoto = require('../../../assets/images/mock-runner-seoyun.webp');
+
 // Sample values shown in prototype v15 2.1 홈.
 export const me: UserProfile = {
   id: 'user-minjun',
@@ -1418,6 +1421,11 @@ export const runnerProfiles: Record<
     isPrivate: true,
     followStatus: 'NONE',
   },
+};
+
+// 7.4 러너 프로필 photos (U21 profileImageUrl); runners left out have none.
+export const runnerPhotos: Record<string, string | null> = {
+  [communityUsers.seoyun.userId]: assetUri(mockSeoyunPhoto),
 };
 
 // 7.4b 팔로우 요청 N건.
