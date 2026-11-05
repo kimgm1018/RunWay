@@ -17,13 +17,17 @@ const val COMMAND_RECEIVED_PATH = "/runway/v1/session/command-received"
 const val STATE_QUERY_PATH = "/runway/v1/session/state-query"
 const val STATE_RESULT_PATH = "/runway/v1/session/state-result"
 const val ERROR_PATH = "/runway/v1/error"
+// S15P31E105-257: server coaching to the watch and its real result back (9.2).
+const val COACHING_GUIDE_PATH = "/runway/v1/coaching/guide"
+const val COACHING_RESULT_PATH = "/runway/v1/coaching/result"
 
 private const val MAX_SESSION_BYTES = 32 * 1024
 private const val SESSION_PROTOCOL_VERSION = 1
 private const val MAX_INBOX = 64
 
 /** Types the phone accepts from the watch. */
-private val INCOMING_TYPES = setOf("SESSION_PREPARED", "START_REQUEST", "COMMAND_REQUEST", "COMMAND_RESULT", "STATE_QUERY", "ERROR")
+private val INCOMING_TYPES =
+  setOf("SESSION_PREPARED", "START_REQUEST", "COMMAND_REQUEST", "COMMAND_RESULT", "COACHING_RESULT", "STATE_QUERY", "ERROR")
 
 /** Server ids stay text so int64 values are never rounded on the way to JS. */
 private val ID_FIELDS = setOf("commandId", "coachingId")
@@ -101,6 +105,17 @@ fun toJsEvent(message: SessionEnvelope): String {
     .put("payload", payload)
     .toString()
 }
+
+/** Paths JS may send on: the session paths, ERROR and COACHING_GUIDE (9.2). */
+fun isSendablePath(path: String): Boolean =
+  path.startsWith(SESSION_PATH_PREFIX) || path == ERROR_PATH || path == COACHING_GUIDE_PATH
+
+/** Watch paths stored in the session inbox: the session paths and COACHING_RESULT. */
+fun isSessionInboxPath(path: String): Boolean =
+  path.startsWith(SESSION_PATH_PREFIX) || path == COACHING_RESULT_PATH
+
+/** Results the phone acknowledges with COMMAND_RECEIVED(persisted=false) first; COACHING_RESULT included (9.4). */
+fun needsLocalReceipt(type: String): Boolean = type == "COMMAND_RESULT" || type == "COACHING_RESULT"
 
 /** COMMAND_RECEIVED(persisted=false): stored on the phone, not yet saved on the server (9.3). */
 fun localReceipt(result: SessionEnvelope, messageId: String, senderDeviceId: String?): ByteArray {

@@ -17,7 +17,7 @@ class WatchListenerService : WearableListenerService() {
       onBatch(event)
       return
     }
-    if (event.path.startsWith(SESSION_PATH_PREFIX)) {
+    if (isSessionInboxPath(event.path)) {
       onSessionMessage(event)
       return
     }
@@ -36,14 +36,14 @@ class WatchListenerService : WearableListenerService() {
 
   /**
    * Run-session message (S15P31E105-256): store first so a stopped JS still gets it, reply COMMAND_RECEIVED(persisted=false)
-   * to a COMMAND_RESULT, then hand it to JS if attached. JS reports to the server and sends persisted=true.
+   * to a COMMAND_RESULT or COACHING_RESULT (S15P31E105-257), then hand it to JS if attached. JS reports to the server and sends persisted=true.
    */
   private fun onSessionMessage(event: MessageEvent) {
     try {
       val message = sessionInbox.add(event.data) ?: return
       // JS first: a failed receipt below must not keep the result from reaching the server report.
       WatchSessionModule.emitter?.invoke(toJsEvent(message))
-      if (message.type == "COMMAND_RESULT") {
+      if (needsLocalReceipt(message.type)) {
         val receipt = localReceipt(message, sessionInbox.nextMessageId(), null)
         Tasks.await(Wearable.getMessageClient(this).sendMessage(event.sourceNodeId, COMMAND_RECEIVED_PATH, receipt), 10, TimeUnit.SECONDS)
       }

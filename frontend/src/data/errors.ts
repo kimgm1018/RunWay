@@ -53,6 +53,8 @@ export const dataErrorCodes = [
   'CONTROL_DEVICE_CHANGED',
   'UPLOAD_PENDING',
   'COURSE_INACCESSIBLE',
+  // P07 폰으로 기록 전환(PHONE_FALLBACK) 뒤의 BPM 요청 (pace-coaching.md, S15P31E105-257).
+  'COACHING_UNAVAILABLE',
   // W07 워치 운동 배치 동기화: 같은 ID의 다른 내용, 본문 규칙 위반 (S15P31E105-311).
   'BATCH_HASH_CONFLICT',
   'INVALID_BATCH',

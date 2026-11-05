@@ -69,6 +69,8 @@ abstract class SyncBatchIntegrationSupport {
         jdbc.update("DELETE FROM running_route_points");
         jdbc.update("DELETE FROM sync_batches");
         jdbc.update("DELETE FROM session_control_events");
+        // W07 저장 뒤 코칭 발행(257)이 남긴 추천. 세션 FK가 있으므로 세션보다 먼저 지운다.
+        jdbc.update("DELETE FROM coaching_decisions");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM daily_health_metrics");

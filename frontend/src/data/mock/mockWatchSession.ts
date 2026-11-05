@@ -126,6 +126,8 @@ export function createMockWatchSession(options: Options): MockWatchSession {
       });
       return Promise.resolve();
     },
+    sendBpmCommand: () => Promise.resolve(),
+    sendCoachingGuide: () => Promise.resolve(),
     sendReceived: () => Promise.resolve(),
     sendServerState: () => Promise.resolve(),
     sendError: () => Promise.resolve(),

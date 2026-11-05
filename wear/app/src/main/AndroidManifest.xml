@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
     <!-- Readiness: follow the watch's default network before a run (S15P31E105-265). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- S15P31E105-257: rhythm BPM cue vibrates on every beat while running. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="false"
@@ -71,6 +73,11 @@
                 <data
                     android:host="*"
                     android:pathPrefix="/runway/v1/data/"
+                    android:scheme="wear" />
+                <!-- S15P31E105-257: COACHING_GUIDE approved by the server and relayed by the phone. -->
+                <data
+                    android:host="*"
+                    android:pathPrefix="/runway/v1/coaching/"
                     android:scheme="wear" />
                 <data
                     android:host="*"

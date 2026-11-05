@@ -1,6 +1,7 @@
 package com.runway.backend.domain.session.controller;
 
 import com.runway.backend.domain.session.dto.request.CreateRunningSessionRequest;
+import com.runway.backend.domain.session.dto.request.SessionBpmRequest;
 import com.runway.backend.domain.session.dto.request.SessionControlRequest;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequest;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequestSchema;
@@ -13,6 +14,7 @@ import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import com.runway.backend.domain.session.entity.ControlAction;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.domain.session.service.RunningSessionService;
+import com.runway.backend.domain.session.service.SessionBpmService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,6 +48,7 @@ public class RunningSessionController {
 
     private final RunningSessionService runningSessionService;
     private final RunningSessionControlService runningSessionControlService;
+    private final SessionBpmService sessionBpmService;
 
     @ApiResponse(
             responseCode = "201",
@@ -232,6 +236,37 @@ public class RunningSessionController {
             @PathVariable @Positive long sessionId) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return runningSessionControlService.cancel(userId, sessionId);
+    }
+
+    /** P07. REQUEST는 수동 SET_BPM 승인, RESULT는 SET_BPM·COACHING의 실제 결과 저장이다. */
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            schema =
+                                    @Schema(
+                                            oneOf = {
+                                                ControlApprovalResponse.class,
+                                                ControlResultResponse.class
+                                            })))
+    @PutMapping(value = "/{sessionId}/bpm", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Object bpm(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            required = true,
+                            content =
+                                    @Content(
+                                            schema =
+                                                    @Schema(
+                                                            implementation =
+                                                                    SessionBpmRequest.class)))
+                    @RequestBody
+                    String body) {
+        Instant receivedAt = Instant.now();
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        SessionBpmRequest request = SessionBpmRequest.fromJson(body);
+        return sessionBpmService.control(userId, sessionId, request, receivedAt);
     }
 
     private Object control(

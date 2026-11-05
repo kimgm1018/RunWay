@@ -18,8 +18,10 @@ class WatchDataLayerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         // Run-session messages (S15P31E105-256) go to the shared controller's queue; batch ACKs are applied at once.
-        // Batch receipts and save ACKs (S15P31E105-311) go to the same place.
-        if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) || event.path == SessionPaths.ERROR) {
+        // Batch receipts and save ACKs (S15P31E105-311) and coaching guides (S15P31E105-257) go to the same place.
+        if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) ||
+            event.path.startsWith(SessionPaths.COACHING_PREFIX) || event.path == SessionPaths.ERROR
+        ) {
             runBlocking { RunSessions.get(this@WatchDataLayerService).receive(event.data) }
             return
         }

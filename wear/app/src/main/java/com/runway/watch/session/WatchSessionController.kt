@@ -2,6 +2,8 @@ package com.runway.watch.session
 
 import com.runway.watch.batch.NoUploads
 import com.runway.watch.batch.RunUploads
+import com.runway.watch.cue.RhythmPlayer
+import com.runway.watch.cue.SilentRhythm
 import com.runway.watch.run.RunState
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,6 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /** What the user pressed on the watch. Only a request is sent; nothing runs until the server approves. */
 enum class WatchRequest { START, PAUSE, RESUME, END, CANCEL }
@@ -27,13 +30,36 @@ sealed interface WatchProblem {
     data object PhoneUnreachable : WatchProblem
 }
 
-/** [confirmed] changes only when the server saved (COMMAND_RECEIVED persisted=true or STATE_RESULT scope=SERVER). */
+/** Where the runner's last rhythm BPM change stands (S15P31E105-257). */
+enum class BpmRequestStatus { REQUESTING, APPLIED, REJECTED, UNKNOWN }
+
+data class BpmRequest(val targetBpm: Int, val status: BpmRequestStatus)
+
+/** The last coaching guide the watch actually applied. [previousBpm] is the BPM before it (for the cue sentence). */
+data class AppliedCoaching(
+    val commandId: String,
+    val coachingId: String,
+    val targetBpm: Int,
+    val paceSecPerKm: Int,
+    val previousBpm: Int?,
+)
+
+/**
+ * [confirmed] changes only when the server saved (COMMAND_RECEIVED persisted=true or STATE_RESULT scope=SERVER).
+ * [currentBpm] is the rhythm BPM of the last server-approved command the watch applied, or the server's value
+ * (STATE_RESULT currentBpm / SESSION_PREPARE initialBpm). [serverLinkLost] is true when no server state arrived for
+ * [WatchSessionController.LINK_TIMEOUT_MS] during a run (D-8).
+ */
 data class WatchSessionState(
     val sessionId: String? = null,
     val confirmed: RunState? = null,
     val stateVersion: Long = 0,
     val pending: PendingCommand? = null,
     val problem: WatchProblem? = null,
+    val currentBpm: Int? = null,
+    val bpmRequest: BpmRequest? = null,
+    val coaching: AppliedCoaching? = null,
+    val serverLinkLost: Boolean = false,
 )
 
 private val NEXT_STATE = mapOf(
@@ -47,11 +73,22 @@ private val ALLOWED_FROM = mapOf(
     "PAUSE" to setOf(RunState.RUNNING),
     "RESUME" to setOf(RunState.PAUSED),
     "END" to setOf(RunState.RUNNING, RunState.PAUSED),
+    // pace-coaching.md: READY/PAUSED keep the value only, RUNNING plays it; ended runs refuse a BPM change.
+    "SET_BPM" to setOf(RunState.READY, RunState.RUNNING, RunState.PAUSED),
 )
+
+private const val SET_BPM = "SET_BPM"
+private const val COACHING = "COACHING"
+private const val GUIDE_STALE = "GUIDE_STALE"
+private const val INVALID_GUIDE = "INVALID_GUIDE"
+private const val INVALID_TARGET_BPM = "INVALID_TARGET_BPM"
+private const val APPLY_INTERRUPTED = "APPLY_INTERRUPTED"
+private const val CUE_FAILED = "CUE_PLAYBACK_FAILED"
 
 /**
  * Runs approved commands once per commandId (S15P31E105-256 [D], watch-mobile-server-integration.md 9.4).
  * Results are stored before they are sent, so a resend after a restart is answered from the store.
+ * S15P31E105-257 adds SET_BPM, COACHING_GUIDE, the server clock estimate and the server-link timer.
  */
 class WatchSessionController(
     private val store: SessionStore,
@@ -63,6 +100,10 @@ class WatchSessionController(
     private val callTimeoutMs: Long = 15_000,
     private val uploads: RunUploads = NoUploads,
     private val keepAlive: RunKeepAlive = NoKeepAlive,
+    private val player: RhythmPlayer = SilentRhythm,
+    private val clock: ServerClock = ServerClock(),
+    /** Monotonic milliseconds for the link and query timers; never the wall clock. */
+    private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(
@@ -71,6 +112,13 @@ class WatchSessionController(
     )
     val state: StateFlow<WatchSessionState> = _state
 
+    /** The exercise really runs on the watch (applied START/RESUME, or the server says RUNNING). Drives the beat. */
+    private var exerciseRunning = false
+    private var lastServerStateMs: Long? = null
+    private var lastQueryMs: Long? = null
+    /** When the current REQUESTED pending (no commandId yet) was sent; released after [REQUEST_TIMEOUT_MS]. */
+    private var requestedAtMs: Long? = null
+
     suspend fun onMessage(message: SessionEnvelope) = mutex.withLock {
         when (message.type) {
             "SESSION_PREPARE" -> onPrepare(message)
@@ -78,10 +126,17 @@ class WatchSessionController(
             "COMMAND_REQUEST" -> onCommand(message, message.payload.optString("action"))
             "COMMAND_RECEIVED" -> onReceived(message)
             "STATE_RESULT" -> onServerState(message)
-            "ERROR" -> _state.value = _state.value.copy(
-                pending = null,
-                problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN")),
-            )
+            "COACHING_GUIDE" -> onCoachingGuide(message)
+            "ERROR" -> {
+                val current = _state.value
+                // The phone or server refused the request, so the requested BPM was not approved.
+                val bpm = current.bpmRequest?.takeIf { current.pending?.action == SET_BPM && it.status == BpmRequestStatus.REQUESTING }
+                _state.value = current.copy(
+                    pending = null,
+                    problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN")),
+                    bpmRequest = bpm?.copy(status = BpmRequestStatus.REJECTED) ?: current.bpmRequest,
+                )
+            }
         }
     }
 
@@ -98,11 +153,97 @@ class WatchSessionController(
         }
         val path = if (request == WatchRequest.START) SessionPaths.START_REQUEST else SessionPaths.COMMAND
         _state.value = current.copy(pending = PendingCommand(request.name, null, PendingStage.REQUESTED), problem = null)
+        requestedAtMs = elapsedMs()
         if (!sendWithRetry(path, bytes)) {
             _state.value = _state.value.copy(pending = null, problem = WatchProblem.PhoneUnreachable)
             return@withLock false
         }
         true
+    }
+
+    /**
+     * Asks the phone to change the rhythm BPM (SET_BPM REQUEST). Nothing changes on the watch until the server-approved
+     * APPLY arrives ("워치 버튼은 서버 승인 전 센서·박자를 변경하지 않는다"). False while any command — including a coaching
+     * result — waits for its result or its server save, outside READY/RUNNING/PAUSED, or for a BPM outside 60–220.
+     */
+    suspend fun requestBpm(targetBpm: Int): Boolean = mutex.withLock {
+        val current = _state.value
+        val sessionId = current.sessionId ?: return@withLock false
+        if (targetBpm !in BPM_RANGE || current.pending != null) return@withLock false
+        if (current.confirmed !in ALLOWED_FROM.getValue(SET_BPM)) return@withLock false
+        val bytes = SessionMessages.commandRequest(store.nextMessageId(), sessionId, SET_BPM, current.stateVersion, targetBpm)
+        _state.value = current.copy(
+            pending = PendingCommand(SET_BPM, null, PendingStage.REQUESTED),
+            problem = null,
+            bpmRequest = BpmRequest(targetBpm, BpmRequestStatus.REQUESTING),
+        )
+        requestedAtMs = elapsedMs()
+        if (!sendWithRetry(SessionPaths.COMMAND, bytes)) {
+            _state.value = _state.value.copy(pending = null, problem = WatchProblem.PhoneUnreachable, bpmRequest = current.bpmRequest)
+            return@withLock false
+        }
+        true
+    }
+
+    /**
+     * Periodic check (RunSessions calls it every few seconds). While a run is active it marks the server link lost after
+     * [LINK_TIMEOUT_MS] without a server STATE_RESULT, and sends STATE_QUERY(SERVER) for the clock estimate every
+     * [QUERY_INTERVAL_MS], or every [QUERY_RETRY_MS] while there is no usable estimate (D-8).
+     */
+    suspend fun tick() = mutex.withLock {
+        releaseStaleRequest()
+        val current = _state.value
+        val sessionId = current.sessionId
+        if (sessionId == null || !runActive(current)) {
+            lastServerStateMs = null
+            if (current.serverLinkLost) _state.value = current.copy(serverLinkLost = false)
+            return@withLock
+        }
+        val nowMs = elapsedMs()
+        val since = lastServerStateMs ?: nowMs.also { lastServerStateMs = it }
+        if (nowMs - since >= LINK_TIMEOUT_MS && !current.serverLinkLost) _state.value = current.copy(serverLinkLost = true)
+        val last = lastQueryMs
+        val due = last == null || nowMs - last >= QUERY_INTERVAL_MS ||
+            (clock.current(now()) == null && nowMs - last >= QUERY_RETRY_MS)
+        if (due) sendStateQuery(sessionId)
+    }
+
+    /**
+     * A watch request the phone never answered (no COMMAND_REQUEST, ERROR or newer server state) would otherwise lock every
+     * button, because same-version server snapshots keep the pending request. After [REQUEST_TIMEOUT_MS] it is released as
+     * unconfirmed: the phone may still have sent it, so it is never shown as refused, and the server rejects a duplicate.
+     */
+    private fun releaseStaleRequest() {
+        val current = _state.value
+        val pending = current.pending
+        val since = requestedAtMs
+        if (pending == null || pending.stage != PendingStage.REQUESTED || pending.commandId != null) {
+            requestedAtMs = null
+            return
+        }
+        if (since == null) {
+            requestedAtMs = elapsedMs()
+            return
+        }
+        if (elapsedMs() - since < REQUEST_TIMEOUT_MS) return
+        requestedAtMs = null
+        val bpm = current.bpmRequest?.takeIf { pending.action == SET_BPM && it.status == BpmRequestStatus.REQUESTING }
+        _state.value = current.copy(
+            pending = null,
+            problem = WatchProblem.Unconfirmed(pending.action),
+            bpmRequest = bpm?.copy(status = BpmRequestStatus.UNKNOWN) ?: current.bpmRequest,
+        )
+    }
+
+    private fun runActive(state: WatchSessionState) =
+        exerciseRunning || state.confirmed == RunState.RUNNING || state.confirmed == RunState.PAUSED
+
+    private suspend fun sendStateQuery(sessionId: String) {
+        val sentAt = now().truncatedTo(ChronoUnit.MILLIS)
+        clock.querySent(sentAt)
+        lastQueryMs = elapsedMs()
+        // One attempt: the next tick asks again, and a late reply is still matched by its clientSendAt.
+        sender.send(SessionPaths.STATE_QUERY, SessionMessages.stateQuery(store.nextMessageId(), sessionId, sentAt))
     }
 
     private suspend fun onPrepare(message: SessionEnvelope) {
@@ -114,57 +255,61 @@ class WatchSessionController(
         val reason = if (ready) null else "DEVICE_ID_MISSING"
         store.savePrepared(Prepared(message.sessionId, version, ready = ready, deviceId = deviceId))
         val current = _state.value
+        // initialBpm is only the first value; a later prepare never overwrites the BPM the runner changed (9.3).
+        val initialBpm = message.bpm("initialBpm")
         _state.value = if (current.sessionId == message.sessionId && current.confirmed != null) {
-            current.copy(stateVersion = maxOf(current.stateVersion, version))
+            current.copy(stateVersion = maxOf(current.stateVersion, version), currentBpm = current.currentBpm ?: initialBpm)
         } else {
-            WatchSessionState(sessionId = message.sessionId, confirmed = RunState.READY, stateVersion = version)
+            WatchSessionState(sessionId = message.sessionId, confirmed = RunState.READY, stateVersion = version, currentBpm = initialBpm)
         }
         sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason))
     }
 
     private suspend fun onCommand(message: SessionEnvelope, action: String) {
         val commandId = message.commandId() ?: return
-        if (action !in NEXT_STATE) return
+        if (action !in NEXT_STATE && action != SET_BPM) return
         val stored = store.outcome(commandId)
         if (stored != null) {
+            if (stored.action == COACHING) return
             // 같은 명령은 다시 실행하지 않는다. 실행 도중 끊겼다면 실제 적용 여부를 모르므로 UNKNOWN으로 남긴다.
-            val outcome = if (stored.result == OutcomeResult.EXECUTING) {
-                stored.copy(result = OutcomeResult.UNKNOWN, reasonCode = "EXERCISE_CALL_FAILED").also(store::saveOutcome)
-            } else {
-                stored
-            }
-            sendResult(message, outcome)
+            sendResult(message, replayable(stored))
             return
         }
+        val bpm = if (action == SET_BPM) message.bpm("targetBpm") else null
         val expected = message.payload.optLong("expectedVersion", -1)
-        val reason = rejectionReason(message.sessionId, action, expected)
+        val reason = if (action == SET_BPM && bpm == null) INVALID_TARGET_BPM else rejectionReason(message.sessionId, action, expected)
         if (reason != null) {
-            val rejected = CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, reason, false, null)
+            val rejected = CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, reason, false, null, targetBpm = bpm)
             store.saveOutcome(rejected)
+            noteBpm(rejected)
             sendResult(message, rejected)
             return
         }
 
         // 측정을 시작하기 전에 프로세스를 유지시켜 화면을 벗어나도 기록이 끊기지 않게 한다(S15P31E105-311).
         if (action == "START") keepAlive.start()
-        store.saveOutcome(CommandOutcome(message.sessionId, commandId, action, OutcomeResult.EXECUTING, null, null, false, null))
+        store.saveOutcome(CommandOutcome(message.sessionId, commandId, action, OutcomeResult.EXECUTING, null, null, false, null, targetBpm = bpm))
         _state.value = _state.value.copy(pending = PendingCommand(action, commandId, PendingStage.EXECUTING), problem = null)
+        fun outcome(result: OutcomeResult, appliedAt: Instant?, code: String?) =
+            CommandOutcome(message.sessionId, commandId, action, result, appliedAt, code, false, null, targetBpm = bpm)
         val outcome = try {
             withTimeout(callTimeoutMs) {
                 when (action) {
                     "START" -> gateway.start()
                     "PAUSE" -> gateway.pause()
                     "RESUME" -> gateway.resume()
+                    SET_BPM -> applyBpm(bpm!!)
                     else -> gateway.end()
                 }
             }
-            CommandOutcome(message.sessionId, commandId, action, OutcomeResult.APPLIED, now(), null, false, null)
+            // 실제 적용 시각은 서버 기준으로 보정한다(9.4). 추정이 없으면 워치 시각 그대로.
+            outcome(OutcomeResult.APPLIED, clock.toServerTime(now()), null)
         } catch (e: TimeoutCancellationException) {
-            CommandOutcome(message.sessionId, commandId, action, OutcomeResult.UNKNOWN, null, "EXERCISE_CALL_TIMEOUT", false, null)
+            outcome(OutcomeResult.UNKNOWN, null, "EXERCISE_CALL_TIMEOUT")
         } catch (e: ExerciseRejected) {
-            CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, e.reasonCode, false, null)
+            outcome(OutcomeResult.REJECTED, null, e.reasonCode)
         } catch (e: Exception) {
-            CommandOutcome(message.sessionId, commandId, action, OutcomeResult.UNKNOWN, null, "EXERCISE_CALL_FAILED", false, null)
+            outcome(OutcomeResult.UNKNOWN, null, if (action == SET_BPM) CUE_FAILED else "EXERCISE_CALL_FAILED")
         }
         store.saveOutcome(outcome)
         if (outcome.result == OutcomeResult.APPLIED) {
@@ -173,8 +318,27 @@ class WatchSessionController(
                 // 종료 직후 남은 측정값을 마지막 batch로 보내고 서버 저장 확인을 기다린 뒤 결과를 보고한다(9.3 COMMAND_RESULT).
                 "END" -> uploads.finish(message.sessionId)
             }
+            // 박자는 실제 운동이 진행 중일 때만 재생한다. 일시정지·종료에서 멈추고, 재개하면 최신 BPM으로 다시 재생한다(D-4).
+            when (action) {
+                "START", "RESUME" -> {
+                    exerciseRunning = true
+                    if (lastServerStateMs == null) lastServerStateMs = elapsedMs()
+                    syncPlayback()
+                }
+            }
         }
+        // 일시정지·종료는 거절되지 않았다면 미확인이어도 박자를 멈춘다. 박자는 보조 수단이므로 멈추는 쪽이 안전하고,
+        // 실제로 계속 달리는 중이면 이후 더 높은 버전의 서버 상태나 재개 적용이 다시 재생한다.
+        if ((action == "PAUSE" || action == "END") && outcome.result != OutcomeResult.REJECTED) {
+            exerciseRunning = false
+            syncPlayback()
+        }
+        noteBpm(outcome)
         sendResult(message, outcome)
+        if (outcome.result == OutcomeResult.APPLIED && (action == "START" || action == "RESUME")) {
+            // 시작·재개 때 서버 시각을 다시 추정해 코칭 만료 판단에 쓴다(D-8).
+            sendStateQuery(message.sessionId)
+        }
         // 종료가 적용되면 마지막 batch까지 보낸 뒤 유지를 푼다. 시작이 거절·미확인이면 측정이 없으므로 바로 푼다.
         if ((action == "END" && outcome.result == OutcomeResult.APPLIED) ||
             (action == "START" && outcome.result == OutcomeResult.REJECTED)
@@ -196,6 +360,115 @@ class WatchSessionController(
         if (expected < current.stateVersion) return "VERSION_MISMATCH"
         if (current.confirmed !in ALLOWED_FROM.getValue(action)) return "INVALID_STATE"
         return null
+    }
+
+    /** A stored result to send again. One left EXECUTING by a crash is closed as UNKNOWN and never run again. */
+    private fun replayable(stored: CommandOutcome): CommandOutcome {
+        if (stored.result != OutcomeResult.EXECUTING) return stored
+        val code = if (stored.action == SET_BPM || stored.action == COACHING) APPLY_INTERRUPTED else "EXERCISE_CALL_FAILED"
+        return stored.copy(result = OutcomeResult.UNKNOWN, reasonCode = code).also(store::saveOutcome)
+    }
+
+    /** Applies an approved BPM: always kept, played only while the exercise runs. The same BPM keeps the beat. */
+    private fun applyBpm(bpm: Int) {
+        if (exerciseRunning) player.play(bpm)
+        _state.value = _state.value.copy(currentBpm = bpm)
+    }
+
+    private fun syncPlayback() {
+        val bpm = _state.value.currentBpm
+        try {
+            if (exerciseRunning && bpm != null) player.play(bpm) else player.stop()
+        } catch (_: Exception) {
+            // The cue is an aid; its failure never changes the run state.
+        }
+    }
+
+    private fun noteBpm(outcome: CommandOutcome) {
+        if (outcome.action != SET_BPM) return
+        val bpm = outcome.targetBpm ?: return
+        val status = when (outcome.result) {
+            OutcomeResult.APPLIED -> BpmRequestStatus.APPLIED
+            OutcomeResult.REJECTED, OutcomeResult.IGNORED -> BpmRequestStatus.REJECTED
+            OutcomeResult.UNKNOWN, OutcomeResult.EXECUTING -> BpmRequestStatus.UNKNOWN
+        }
+        _state.value = _state.value.copy(bpmRequest = BpmRequest(bpm, status))
+    }
+
+    /**
+     * COACHING_GUIDE (9.3/9.4, pace-coaching.md): a stored result for the same commandId is sent again unchanged, even
+     * an APPLIED one after expiry. Only the first handling decides, and the decision is saved before anything runs:
+     * applied only when RUNNING, expectedVersion is the confirmed version, the coachingId was never applied, and the
+     * server time (estimate + error bound) is before expiresAt. Otherwise IGNORED / GUIDE_STALE.
+     */
+    private suspend fun onCoachingGuide(message: SessionEnvelope) {
+        val commandId = message.commandId() ?: return
+        val coachingId = message.coachingId() ?: return
+        store.outcome(commandId)?.let { stored ->
+            if (stored.action == COACHING && stored.coachingId != null) sendCoachingResult(message, replayable(stored))
+            return
+        }
+        val target = message.bpm("targetBpm")
+        val pace = (message.payload.opt("recommendedPaceSecPerKm") as? Number)?.toDouble()
+            ?.takeIf { it.isFinite() && it > 0 }?.let { Math.round(it).toInt() }
+        val expiresAt = message.instant("expiresAt")
+        val current = _state.value
+        val reason = when {
+            target == null || pace == null || expiresAt == null -> INVALID_GUIDE
+            current.sessionId != message.sessionId -> GUIDE_STALE
+            current.confirmed != RunState.RUNNING || !exerciseRunning -> GUIDE_STALE
+            message.payload.optLong("expectedVersion", -1) != current.stateVersion -> GUIDE_STALE
+            store.coachingUsed(coachingId) -> GUIDE_STALE
+            // 서버 시각 추정이 없거나 불확실하면 자동 적용하지 않는다(9.7).
+            clock.latestServerTime(now())?.isBefore(expiresAt) != true -> GUIDE_STALE
+            else -> null
+        }
+        fun outcome(result: OutcomeResult, appliedAt: Instant?, code: String?) =
+            CommandOutcome(message.sessionId, commandId, COACHING, result, appliedAt, code, false, null, coachingId, target)
+        if (reason != null) {
+            val ignored = outcome(OutcomeResult.IGNORED, null, reason)
+            sendCoachingResult(message, store.saveOutcomeIfAbsent(ignored)?.let(::replayable) ?: ignored)
+            return
+        }
+        // 결정과 저장을 한 번에 한다: 같은 commandId가 겹쳐 와도 결과는 하나만 확정된다.
+        store.saveOutcomeIfAbsent(outcome(OutcomeResult.EXECUTING, null, null))?.let { existing ->
+            sendCoachingResult(message, replayable(existing))
+            return
+        }
+        store.markCoachingUsed(coachingId)
+        val previous = current.currentBpm
+        _state.value = current.copy(pending = PendingCommand(COACHING, commandId, PendingStage.EXECUTING))
+        val result = try {
+            applyBpm(target!!)
+            outcome(OutcomeResult.APPLIED, clock.toServerTime(now()), null)
+        } catch (e: Exception) {
+            outcome(OutcomeResult.UNKNOWN, null, CUE_FAILED)
+        }
+        store.saveOutcome(result)
+        if (result.result == OutcomeResult.APPLIED) {
+            _state.value = _state.value.copy(coaching = AppliedCoaching(commandId, coachingId, target!!, pace!!, previous), bpmRequest = null)
+        }
+        sendCoachingResult(message, result)
+    }
+
+    private suspend fun sendCoachingResult(message: SessionEnvelope, outcome: CommandOutcome) {
+        val wire = if (outcome.result == OutcomeResult.EXECUTING) "UNKNOWN" else outcome.result.name
+        val bytes = SessionMessages.coachingResult(
+            store.nextMessageId(), message.messageId, outcome.sessionId, outcome.commandId, outcome.coachingId!!,
+            wire, outcome.appliedAt, outcome.reasonCode,
+        )
+        val delivered = sendWithRetry(SessionPaths.COACHING_RESULT, bytes)
+        val current = _state.value
+        if (current.sessionId != outcome.sessionId) return
+        // 코칭 결과가 서버에 저장되기 전에는 다음 사용자 명령을 보내지 않는다(9.4).
+        _state.value = if (outcome.persisted) {
+            if (current.pending?.commandId == outcome.commandId) current.copy(pending = null) else current
+        } else {
+            current.copy(
+                pending = PendingCommand(COACHING, outcome.commandId, PendingStage.AWAITING_SAVE),
+                problem = if (!delivered || outcome.result == OutcomeResult.UNKNOWN) WatchProblem.Unconfirmed(COACHING) else current.problem,
+            )
+        }
     }
 
     private suspend fun sendResult(message: SessionEnvelope, outcome: CommandOutcome) {
@@ -230,16 +503,37 @@ class WatchSessionController(
         val outcome = store.outcome(commandId) ?: return
         val current = _state.value
         _state.value = current.copy(
-            confirmed = if (outcome.result == OutcomeResult.APPLIED) NEXT_STATE[outcome.action] else current.confirmed,
+            // SET_BPM·COACHING은 운동 상태를 바꾸지 않는다.
+            confirmed = if (outcome.result == OutcomeResult.APPLIED) NEXT_STATE[outcome.action] ?: current.confirmed else current.confirmed,
             stateVersion = version ?: current.stateVersion,
             pending = if (current.pending?.commandId == commandId) null else current.pending,
             problem = if (outcome.result == OutcomeResult.UNKNOWN) WatchProblem.Unconfirmed(outcome.action) else current.problem,
         )
     }
 
+    /**
+     * STATE_RESULT(scope=SERVER): a reply to our STATE_QUERY (clientSendAt set, used for the clock estimate) or the
+     * phone's push on each server snapshot (D-8). Any of them proves the server link. A snapshot older than the
+     * confirmed stateVersion is discarded; one at the same version does not clear a command still in flight.
+     */
     private suspend fun onServerState(message: SessionEnvelope) {
         if (message.payload.optString("scope") != "SERVER") return
+        val receivedAt = now()
+        val sentAt = message.instant("clientSendAt")
+        val serverIn = message.instant("serverReceiveAt")
+        val serverOut = message.instant("serverSendAt")
+        if (sentAt != null && serverIn != null && serverOut != null) clock.onReply(sentAt, serverIn, serverOut, receivedAt)
         val state = try { RunState.valueOf(message.payload.optString("state")) } catch (_: Exception) { return }
+        val current = _state.value
+        val sameSession = current.sessionId == message.sessionId
+        val version = message.payload.optLong("stateVersion", -1)
+        if (sameSession && current.confirmed != null && version in 0 until current.stateVersion) {
+            // 낮은 버전의 스냅샷은 버리지만, 서버와 연결돼 있다는 증거로는 쓴다.
+            if (runActive(current)) lastServerStateMs = elapsedMs()
+            if (current.serverLinkLost) _state.value = current.copy(serverLinkLost = false)
+            return
+        }
+        val newer = !sameSession || current.confirmed == null || version > current.stateVersion || current.pending == null
         // 앱이 다시 시작된 뒤에도 서버가 운동 중이라고 하면 이 세션의 측정값을 계속 batch로 만든다.
         if (state == RunState.RUNNING || state == RunState.PAUSED) {
             keepAlive.start()
@@ -247,13 +541,22 @@ class WatchSessionController(
         } else if (state != RunState.READY) {
             keepAlive.stop()
         }
-        _state.value = _state.value.copy(
+        _state.value = current.copy(
             sessionId = message.sessionId,
             confirmed = state,
-            stateVersion = message.payload.optLong("stateVersion", _state.value.stateVersion),
-            pending = null,
-            problem = null,
+            stateVersion = if (version >= 0) version else current.stateVersion,
+            pending = if (newer) null else current.pending,
+            problem = if (newer) null else current.problem,
+            currentBpm = if (newer) message.bpm("currentBpm") else current.currentBpm,
+            bpmRequest = if (sameSession) current.bpmRequest else null,
+            coaching = if (sameSession) current.coaching else null,
+            serverLinkLost = false,
         )
+        if (newer) {
+            exerciseRunning = state == RunState.RUNNING
+            syncPlayback()
+        }
+        lastServerStateMs = if (state == RunState.RUNNING || state == RunState.PAUSED) elapsedMs() else null
     }
 
     private suspend fun sendWithRetry(path: String, bytes: ByteArray): Boolean {
@@ -263,5 +566,19 @@ class WatchSessionController(
             if (sender.send(path, bytes)) return true
         }
         return false
+    }
+
+    companion object {
+        /** No server STATE_RESULT for this long during a run shows 서버 연결 끊김 (D-8: pushes come at least every 15 s). */
+        const val LINK_TIMEOUT_MS = 45_000L
+        /** Clock re-estimate period while running (D-8). */
+        const val QUERY_INTERVAL_MS = 60_000L
+        /** Retry period while there is no usable clock estimate. */
+        const val QUERY_RETRY_MS = 10_000L
+        /**
+         * A watch request with no phone answer for this long is released as unconfirmed. Longer than the phone's worst
+         * case for one request: three server calls of up to 15 s each plus the 1 s·2 s retry gaps.
+         */
+        const val REQUEST_TIMEOUT_MS = 60_000L
     }
 }

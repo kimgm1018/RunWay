@@ -114,6 +114,65 @@ class WatchSessionMessagesTest {
   }
 
   @Test
+  fun `decodes COACHING_RESULT and keeps commandId and coachingId as int64 text`() {
+    val message = decodeSessionMessage(
+      envelope(
+        "COACHING_RESULT",
+        """{"commandId":9007199254740993,"coachingId":9007199254740995,"result":"IGNORED","appliedAt":null,"reasonCode":"GUIDE_STALE"}""",
+      ),
+    )
+
+    assertNotNull(message)
+    val payload = JSONObject(toJsEvent(message!!)).getJSONObject("payload")
+    assertEquals("9007199254740993", payload.getString("commandId"))
+    assertEquals("9007199254740995", payload.getString("coachingId"))
+    assertEquals("GUIDE_STALE", payload.getString("reasonCode"))
+  }
+
+  @Test
+  fun `decodes COMMAND_REQUEST SET_BPM with targetBpm`() {
+    val message = decodeSessionMessage(
+      envelope("COMMAND_REQUEST", """{"phase":"REQUEST","action":"SET_BPM","expectedVersion":3,"targetBpm":172}"""),
+    )
+
+    assertEquals("SET_BPM", message!!.payload.getString("action"))
+    assertEquals(172, message.payload.getInt("targetBpm"))
+  }
+
+  @Test
+  fun `JS may send on session paths, ERROR and COACHING_GUIDE only`() {
+    assertTrue(isSendablePath(COMMAND_PATH))
+    assertTrue(isSendablePath(ERROR_PATH))
+    assertTrue(isSendablePath(COACHING_GUIDE_PATH))
+    assertFalse(isSendablePath(COACHING_RESULT_PATH))
+    assertFalse(isSendablePath("/runway/v1/coaching/other"))
+    assertFalse(isSendablePath("/runway/v1/data/batch"))
+  }
+
+  @Test
+  fun `the session inbox takes session paths and COACHING_RESULT`() {
+    assertTrue(isSessionInboxPath(COMMAND_RESULT_PATH))
+    assertTrue(isSessionInboxPath(COACHING_RESULT_PATH))
+    assertFalse(isSessionInboxPath(COACHING_GUIDE_PATH))
+    assertFalse(isSessionInboxPath("/runway/v1/data/batch"))
+  }
+
+  @Test
+  fun `COACHING_RESULT gets the same local receipt as COMMAND_RESULT`() {
+    assertTrue(needsLocalReceipt("COMMAND_RESULT"))
+    assertTrue(needsLocalReceipt("COACHING_RESULT"))
+    assertFalse(needsLocalReceipt("STATE_QUERY"))
+    val message = decodeSessionMessage(
+      envelope("COACHING_RESULT", """{"commandId":9007199254740993,"coachingId":701,"result":"APPLIED","appliedAt":"2026-10-28T01:00:01Z","reasonCode":null}"""),
+    )!!
+    val reply = JSONObject(String(localReceipt(message, "102:41", null), Charsets.UTF_8))
+
+    assertEquals("COMMAND_RECEIVED", reply.getString("type"))
+    assertEquals(9007199254740993L, reply.getJSONObject("payload").getLong("commandId"))
+    assertFalse(reply.getJSONObject("payload").getBoolean("persisted"))
+  }
+
+  @Test
   fun `COMMAND_RECEIVED reply carries persisted false and null version`() {
     val message = decodeSessionMessage(
       envelope("COMMAND_RESULT", """{"commandId":501,"result":"APPLIED","appliedAt":"2026-10-28T01:00:01Z","reasonCode":null}"""),

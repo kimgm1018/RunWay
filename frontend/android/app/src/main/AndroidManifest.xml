@@ -58,6 +58,8 @@
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/session/" />
           <!-- S15P31E105-311: BATCH_DATA measurement batches from the watch. -->
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/data/" />
+          <!-- S15P31E105-257: COACHING_RESULT from the watch. -->
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/coaching/" />
         </intent-filter>
       </service>
       <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->

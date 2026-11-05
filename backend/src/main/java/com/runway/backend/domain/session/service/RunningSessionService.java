@@ -2,6 +2,7 @@ package com.runway.backend.domain.session.service;
 
 import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.session.dto.request.CreateRunningSessionRequest;
+import com.runway.backend.domain.session.stream.SessionStreamChanged;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequest;
 import com.runway.backend.domain.session.dto.response.DeletedSessionResponse;
 import com.runway.backend.domain.session.dto.response.PreparedResponse;
@@ -29,6 +30,7 @@ import com.runway.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,6 +74,7 @@ public class RunningSessionService {
     private final SessionReferenceRepository referenceRepository;
     private final SegmentDifficultyProvider segmentDifficultyProvider;
     private final SessionAccess access;
+    private final ApplicationEventPublisher events;
 
     /**
      * S01. 응답 유실 후 재요청은 새 세션을 만들지 않고 409 ACTIVE_SESSION_EXISTS로 본인 활성 세션 ID를 알려준다.
@@ -172,6 +175,7 @@ public class RunningSessionService {
                     throw new IllegalArgumentException("REPORT_PREPARED는 reportPrepared로 처리한다.");
         }
         sessionRepository.flush();
+        events.publishEvent(SessionStreamChanged.state(session.getId()));
         return access.response(session, serverReceiveAt);
     }
 
@@ -227,6 +231,8 @@ public class RunningSessionService {
         session.markDeleted(deletedAt);
         sessionRepository.flush();
         referenceRepository.markPostsDeleted(sessionId, userId, deletedAt);
+        // 커밋 뒤 전송 단계가 삭제를 확인하고 열린 S10 스트림을 닫는다.
+        events.publishEvent(SessionStreamChanged.state(sessionId));
         return new DeletedSessionResponse(sessionId, deletedAt);
     }
 

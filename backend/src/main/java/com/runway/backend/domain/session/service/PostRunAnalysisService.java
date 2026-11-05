@@ -15,6 +15,9 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import com.runway.backend.domain.session.stream.SessionStreamChanged;
+
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,12 +56,15 @@ public class PostRunAnalysisService {
     private final SessionControlEventRepository controlEventRepository;
     private final SessionAnalysisRepository analysisRepository;
     private final TransactionTemplate tx;
+    private final ApplicationEventPublisher events;
 
     public PostRunAnalysisService(
             RunningSessionRepository sessionRepository,
             SessionControlEventRepository controlEventRepository,
             SessionAnalysisRepository analysisRepository,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ApplicationEventPublisher events) {
+        this.events = events;
         this.sessionRepository = sessionRepository;
         this.controlEventRepository = controlEventRepository;
         this.analysisRepository = analysisRepository;
@@ -106,6 +112,7 @@ public class PostRunAnalysisService {
             return false;
         }
         session.startAnalysis(now());
+        events.publishEvent(SessionStreamChanged.analysis(sessionId));
         return true;
     }
 
@@ -139,6 +146,7 @@ public class PostRunAnalysisService {
 
         analysisRepository.replaceSplits(sessionId, result.splits());
         session.completeAnalysis(result.stats(), now());
+        events.publishEvent(SessionStreamChanged.analysis(sessionId));
         // 커밋 전에 flush해 제약 위반을 이 트랜잭션의 실패(→ FAILED)로 다룬다.
         sessionRepository.flush();
     }
@@ -150,7 +158,12 @@ public class PostRunAnalysisService {
                             sessionRepository
                                     .findByIdForUpdate(sessionId)
                                     .filter(s -> s.getAnalysisStatus() == AnalysisStatus.PROCESSING)
-                                    .ifPresent(s -> s.failAnalysis(now())));
+                                    .ifPresent(
+                                            s -> {
+                                                s.failAnalysis(now());
+                                                events.publishEvent(
+                                                        SessionStreamChanged.analysis(sessionId));
+                                            }));
         } catch (RuntimeException e) {
             // PROCESSING으로 남으면 다음 기동의 failInterruptedAnalyses가 FAILED로 바꾼다.
             log.error(

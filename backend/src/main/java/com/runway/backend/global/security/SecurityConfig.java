@@ -186,7 +186,10 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(
                         auth ->
-                                auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                                // ASYNC는 이미 인증을 통과한 요청의 비동기 재디스패치다(S10 SSE). 상태 비저장 체인에서는 재디스패치 때
+                                // 인증 정보가 다시 만들어지지 않으므로 허용한다.
+                                auth.dispatcherTypeMatchers(
+                                                DispatcherType.ERROR, DispatcherType.ASYNC)
                                         .permitAll()
                                         .anyRequest()
                                         .authenticated())
