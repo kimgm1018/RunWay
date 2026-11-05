@@ -417,3 +417,52 @@ test('the mock lets a member leave but not the leader', async () => {
     code: 'OWNER_CANNOT_LEAVE',
   });
 });
+
+test('M09는 본문 없이 해당 멤버에게 DELETE 요청을 보낸다', async () => {
+  serve((path, init) =>
+    path === '/crews/41/members/9' && init.method === 'DELETE'
+      ? respond(200, { status: 'LEFT', leftAt: '2026-11-06T00:00:00Z' })
+      : undefined,
+  );
+  await api().crews.removeMember('41', '9');
+  expect(sent('DELETE')).toEqual([
+    { path: '/crews/41/members/9', body: undefined },
+  ]);
+});
+
+test.each([
+  [403, 'NOT_ADMIN'],
+  [409, 'CANNOT_REMOVE_OWNER'],
+  [404, 'MEMBER_NOT_FOUND'],
+] as const)('M09 %s 오류 코드를 화면에 전달한다', async (status, code) => {
+  serve(() => respond(status, { code, message: '', details: {} }));
+  await expect(api().crews.removeMember('41', '9')).rejects.toMatchObject({
+    code,
+    status,
+  });
+});
+
+test('목업도 크루장만 내보낼 수 있고 재조회 후 구성원과 인원이 유지된다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  const ownerCrew = await crews.get('crew-minrak-night');
+  const target = ownerCrew.members.find(
+    member => !member.isOwner && !member.isMe,
+  )!;
+  await crews.removeMember(ownerCrew.id, target.userId);
+  const after = await crews.get(ownerCrew.id);
+  expect(after.memberCount).toBe(ownerCrew.memberCount - 1);
+  expect(after.members).toHaveLength(ownerCrew.members.length - 1);
+  expect(after.members.some(member => member.userId === target.userId)).toBe(
+    false,
+  );
+  await expect(
+    crews.removeMember(ownerCrew.id, target.userId),
+  ).rejects.toMatchObject({ code: 'MEMBER_NOT_FOUND' });
+  await expect(
+    crews.removeMember(ownerCrew.id, after.members[0].userId),
+  ).rejects.toMatchObject({ code: 'CANNOT_REMOVE_OWNER' });
+  const regularCrew = await crews.get('crew-gwangalli');
+  await expect(
+    crews.removeMember(regularCrew.id, regularCrew.members[1].userId),
+  ).rejects.toMatchObject({ code: 'NOT_ADMIN' });
+});

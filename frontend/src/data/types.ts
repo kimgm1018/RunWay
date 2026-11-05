@@ -1003,6 +1003,8 @@ export type Repositories = {
     create: (draft: CrewDraft) => Promise<{ id: string }>;
     // M08 크루 나가기. The leader cannot leave this way (OWNER_CANNOT_LEAVE).
     leave: (crewId: string) => Promise<void>;
+    // M09: 크루장만 다른 일반 멤버를 내보낼 수 있다.
+    removeMember: (crewId: string, userId: string) => Promise<void>;
     // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
     decideJoinRequest: (
       crewId: string,

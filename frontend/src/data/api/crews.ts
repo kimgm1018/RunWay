@@ -9,7 +9,7 @@ import type {
 import { apiRequest } from './http';
 import type { Regions } from './regions';
 
-// M01–M08·M10 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
+// M01–M10 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
 // edit and 바로 가입 have no API, so they are kept on this phone for the session only.
 
 type MembershipStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'LEFT';
@@ -201,6 +201,15 @@ export function createCrewsApi({
         return mock.leave(crewId);
       }
       await apiRequest(`/crews/${crewId}/members/me`, { method: 'DELETE' });
+    },
+    removeMember: async (crewId, userId) => {
+      if (!isServerId(crewId)) return mock.removeMember(crewId, userId);
+      await apiRequest(
+        `/crews/${crewId}/members/${encodeURIComponent(userId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
     },
     decideJoinRequest: async (crewId, userId, approve) => {
       if (!isServerId(crewId)) {
