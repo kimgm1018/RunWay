@@ -1,0 +1,6 @@
+**/__pycache__
+**/*.pyc
+tests/
+tools/route_regression/
+reports/
+.pytest_cache/

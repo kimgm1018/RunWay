@@ -1,0 +1,38 @@
+# RunWay Route service runtime (ai/route_service): app/, runway_routing/, analysis/, tools/route_regression/, tools/data/.
+# Python 3.12 (verified 3.12.10). Use its own venv (other AI workstreams do not have these packages):
+#     python -m venv .venv-route  &&  .venv-route/Scripts/python -m pip install -r requirements.txt -c constraints.txt
+# constraints.txt pins every indirect dependency too (the verified Windows / Linux set); the Dockerfile uses both.
+# Tests: pip install pytest==9.2.0 httpx==0.28.1 (not needed at runtime).
+#
+# Every version is pinned to the one the golden regression was verified with. Recommendations are byte-identical only
+# under these versions; after changing any of them run tools/route_regression/run_regression.py.
+# Pins the code itself checks (another version silently switches to the slower verified fallback, same results):
+#   networkx==3.7   runway_routing/shortest_path.py ports networkx 3.7 bidirectional_dijkstra (VERIFIED_NETWORKX)
+#   osmnx==2.1.1    runway_routing/graph.py build_fast reproduces osmnx 2.1.1 internals (VERIFIED_OSMNX)
+# Pin that decides the input graph itself:
+#   osmium==4.3.2   analysis/runway_busan_graph.py reads the extract PBF with pyosmium (way / node order feeds graph order)
+networkx==3.7
+osmnx==2.1.1
+osmium==4.3.2
+# numeric / geometry (snap, env distances, features, D-exact inputs)
+numpy==2.5.4
+# Exact Dijkstra compiled engine; Python rollback: RUNWAY_SP_ENGINE=python.
+# First compilation is done at import, before accepting requests.
+numba==0.68.0
+llvmlite==0.50.0
+pandas==3.0.6
+geopandas==1.2.0
+pyogrio==0.13.0
+shapely==2.2.0
+pyproj==3.8.0
+scipy==1.18.1
+rasterio==1.5.2
+# API server
+fastapi==0.159.1
+uvicorn==0.54.0
+pydantic==2.14.1
+# imported at module level by analysis/runway_walk_filter.py and runway_route_generator.py (map export helpers);
+# not on the request path. runway_walk_filter.py is byte-frozen (its sha256 is recorded in every Gate log line).
+folium==0.20.0
+# used by osmnx (pinned here so the verified version is installed)
+requests==2.34.2
