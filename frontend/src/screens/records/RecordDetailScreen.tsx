@@ -4,7 +4,6 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
@@ -13,10 +12,7 @@ import {
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
   EmptyState,
@@ -36,12 +32,13 @@ import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, spacing } from '../../theme';
 import {
   glassCard,
+  PillTabs,
   recordsLook,
-  RecordsBackdrop,
+  RecordsShell,
   RoundGlassButton,
-  ScreenTitle,
 } from './look';
-import { RecordView } from './RecordView';
+import type { SplitMetric } from './SplitChart';
+import { metricOptions, metrics, RecordView } from './RecordView';
 
 const danger = '#D44A4A';
 
@@ -214,6 +211,8 @@ export function RecordDetailScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [menu, setMenu] = useState(false);
+  // 5.2's 페이스 · 심박 · 케이던스 tabs sit in the frame's top tabs (runway-records 2차).
+  const [metric, setMetric] = useState<SplitMetric>('pace');
   const detail = useResource(
     useCallback(
       async (repositories: Repositories) => {
@@ -284,99 +283,90 @@ export function RecordDetailScreen() {
     }
   };
 
+  const options = record ? metricOptions(record) : metrics.slice(0, 1);
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      <RecordsBackdrop />
-      <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
-        <View style={styles.head}>
-          <ScreenTitle
-            title="기록 상세"
-            onBack={close}
-            right={
-              record ? (
-                <RoundGlassButton
-                  icon="moreVertical"
-                  label="기록 메뉴"
-                  onPress={() => setMenu(true)}
-                />
-              ) : undefined
-            }
+    <RecordsShell
+      title="기록 상세"
+      onBack={close}
+      right={
+        record ? (
+          <RoundGlassButton
+            icon="moreVertical"
+            label="기록 메뉴"
+            onPress={() => setMenu(true)}
           />
-        </View>
-        {!record ? (
-          detail.status === 'error' ? (
-            <EmptyState
-              icon="alert"
-              title="기록을 불러오지 못했어요"
-              actionLabel="다시 시도"
-              onAction={detail.reload}
+        ) : undefined
+      }
+      tabs={<PillTabs options={options} value={metric} onChange={setMetric} />}
+      footer={
+        record ? (
+          <View style={styles.actions}>
+            <ActionButton
+              title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
+              icon="bookmark"
+              selected={myCourseId !== null}
+              // A run without location has no path to save as a course.
+              disabled={busy || (!record.route && !myCourseId)}
+              onPress={toggleSaved}
             />
-          ) : (
-            <ActivityIndicator style={styles.loading} />
-          )
+            <ActionButton
+              primary
+              title="기록 공유"
+              icon="share"
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
+            />
+          </View>
+        ) : undefined
+      }
+      after={
+        <RecordMenu
+          visible={menu}
+          // The title row is 52 high from 10 under the safe area; the card starts just under the ⋮ button.
+          top={insets.top + 10 + 52}
+          onClose={() => setMenu(false)}
+          onDelete={deleteRecord}
+        />
+      }
+    >
+      {!record ? (
+        detail.status === 'error' ? (
+          <EmptyState
+            icon="alert"
+            title="기록을 불러오지 못했어요"
+            actionLabel="다시 시도"
+            onAction={detail.reload}
+          />
         ) : (
-          <>
-            <ScrollView
-              style={styles.flex}
-              contentContainerStyle={styles.scroll}
-              showsVerticalScrollIndicator={false}
-            >
-              <RecordView record={record} chartHeight={400} />
-            </ScrollView>
-            <View style={styles.actions}>
-              <ActionButton
-                title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-                icon="bookmark"
-                selected={myCourseId !== null}
-                // A run without location has no path to save as a course.
-                disabled={busy || (!record.route && !myCourseId)}
-                onPress={toggleSaved}
-              />
-              <ActionButton
-                primary
-                title="기록 공유"
-                icon="share"
-                onPress={() =>
-                  navigation.navigate('PostWrite', { recordId: record.id })
-                }
-              />
-            </View>
-          </>
-        )}
-      </SafeAreaView>
-      <RecordMenu
-        visible={menu}
-        // The title row is 52 high from 10 under the safe area; the card starts just under the ⋮ button.
-        top={insets.top + 10 + 52}
-        onClose={() => setMenu(false)}
-        onDelete={deleteRecord}
-      />
-    </View>
+          <ActivityIndicator style={styles.loading} />
+        )
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.card}
+          showsVerticalScrollIndicator={false}
+        >
+          <RecordView
+            layout="detail"
+            record={record}
+            chartHeight={260}
+            metric={metric}
+          />
+        </ScrollView>
+      )}
+    </RecordsShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#D7E1E7' },
-  flex: { flex: 1 },
-  head: { paddingHorizontal: recordsLook.side, paddingTop: 10 },
   loading: { marginTop: spacing.xxxl },
-  scroll: {
-    paddingHorizontal: recordsLook.side,
-    paddingTop: 12,
-    paddingBottom: 20,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: recordsLook.side,
-    paddingTop: 4,
-    paddingBottom: 18,
-  },
+  // Where the tab bar sits on 5.1 and 5.3, as high as it (담당자 결정).
+  actions: { flex: 1, flexDirection: 'row', gap: 8 },
+  card: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 },
   action: {
     flex: 1,
-    height: 58,
-    borderRadius: 18,
+    height: 64,
+    borderRadius: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

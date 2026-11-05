@@ -1,13 +1,22 @@
 import React from 'react';
-import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import {
+  Animated,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  View,
+  type ViewStyle,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon, type IconName } from '../../components';
-import { fontFamily } from '../../theme';
-import { OnboardingBackdrop } from '../onboarding/look';
+import { fontFamily, size } from '../../theme';
+import { StartBackdrop } from '../onboarding/StartScreen';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
-// runway-records (S15P31E105-465): the look 5.1 · 5.2 · 5.3 share. The layout is the handoff's 390×844 frame:
-// title at 46 (30 / 800), 24 from the sides, sections 24 apart, and the same mist as the 1.x screens.
+// runway-records (S15P31E105-465, 2차 -485): the look 5.1 · 5.2 · 5.3 share. The layout is the handoff's 390×844
+// frame: title at 46 (30 / 800), 24 from the sides, on the 1.1 background with its runner. Tabs and buttons are
+// light glass with navy text; the content cards are a grey frost with white text (onCard).
 export const recordsLook = {
   ink: '#02050E',
   sub: '#56646C',
@@ -18,10 +27,19 @@ export const recordsLook = {
   glassShadow:
     '0 10px 30px rgba(9,17,26,0.08), inset 0 1px 0 rgba(255,255,255,0.7)',
   side: 24,
+  // Text on the frost cards (runway-records 2차).
+  onCard: '#FFFFFF',
+  onCardLabel: 'rgba(255,255,255,0.88)',
+  onCardSub: 'rgba(255,255,255,0.75)',
+  onCardMuted: 'rgba(255,255,255,0.72)',
+  onCardLine: 'rgba(255,255,255,0.25)',
 } as const;
 
-// The mist (#E9EEF1 → #B4C8D3) is the 1.x background itself.
-export const RecordsBackdrop = OnboardingBackdrop;
+// The 1.1 background with its runner (담당자 결정: 시안대로 사진, 1.1과 같은 배경). The mockup sees the runner
+// through blurred glass; without a backdrop blur the photo itself is blurred, so the white text stays readable.
+export function RecordsBackdrop() {
+  return <StartBackdrop blur={14} />;
+}
 
 export const glassCard: ViewStyle = {
   borderWidth: 1,
@@ -29,6 +47,90 @@ export const glassCard: ViewStyle = {
   backgroundColor: recordsLook.glass,
   boxShadow: recordsLook.glassShadow,
 };
+
+// The content cards (runway-records 2차): a grey frost over the runner, 26 round, white text inside.
+export const frostCard: ViewStyle = {
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.22)',
+  backgroundColor: 'rgba(132,144,151,0.34)',
+  borderRadius: 26,
+  boxShadow: '0 30px 70px rgba(0,0,0,0.22)',
+};
+
+// The one frame of 5.1 · 5.2 · 5.3 (담당자 결정: 상단 탭 · 가운데 카드 · 하단 탭 위치와 크기 동일). The title row, the
+// top tabs (16 from the sides; 5.1's dates 62 high, the thin tabs of 5.2 · 5.3 44, 담당자 결정), the frost card from 12 under the tabs to 12 over the bottom bar, and the
+// bottom bar's place (64 high, 16 in) for 5.2's buttons. The card's content scrolls inside it when it is long.
+export const recordsFrame = {
+  side: 16,
+  tabsHeight: 62,
+  thinTabsHeight: 44,
+  gap: 12,
+} as const;
+
+export function RecordsShell({
+  title,
+  onBack,
+  right,
+  tabs,
+  children,
+  footer,
+  after,
+  cardStyle,
+}: {
+  title: string;
+  onBack: () => void;
+  right?: React.ReactNode;
+  tabs: React.ReactNode;
+  children: React.ReactNode;
+  // 5.2's buttons, where the tab bar sits on 5.1 and 5.3.
+  footer?: React.ReactNode;
+  // Pickers, menus and their scrims, over everything.
+  after?: React.ReactNode;
+  // 5.3 turns its card over (a rotation from the screen).
+  cardStyle?: React.ComponentProps<typeof Animated.View>['style'];
+}) {
+  const insets = useSafeAreaInsets();
+  const barBottom = Math.max(insets.bottom, size.tabBarInset);
+  return (
+    <View style={styles.shell}>
+      <StatusBar barStyle="dark-content" />
+      <RecordsBackdrop />
+      <View style={[styles.shellHead, { paddingTop: insets.top + 10 }]}>
+        <ScreenTitle title={title} onBack={onBack} right={right} />
+      </View>
+      <View style={styles.shellTabs}>{tabs}</View>
+      <Animated.View
+        style={[
+          frostCard,
+          styles.shellCard,
+          { marginBottom: barBottom + size.tabBar + recordsFrame.gap },
+          cardStyle,
+        ]}
+      >
+        {children}
+      </Animated.View>
+      {footer ? (
+        <View style={[styles.shellFooter, { bottom: barBottom }]}>
+          {footer}
+        </View>
+      ) : null}
+      {after}
+    </View>
+  );
+}
+
+// The top of the picker panels, just under the tabs (5.1's dates, or the thin tabs).
+export function usePickerTop(thin = false) {
+  const insets = useSafeAreaInsets();
+  return (
+    insets.top +
+    10 +
+    52 +
+    8 +
+    (thin ? recordsFrame.thinTabsHeight : recordsFrame.tabsHeight) +
+    8
+  );
+}
 
 // 내 기록 · 기록 상세 · 러닝 분석: the 30 / 800 title, with a round glass button on the right when there is one.
 // onBack puts a round glass 뒤로 at the top left, before the title (담당자 결정: 하위 화면엔 뒤로).
@@ -73,23 +175,27 @@ export function RoundGlassButton({
   );
 }
 
-// The handoff's tabs: a 40-high track of equal tabs, the chosen one navy. glass gives the track the card glass
-// (5.3); otherwise it is a faint white well (5.1 · 5.2).
+// The handoff's tabs: a 40-high track of equal tabs. glass (5.3 기간) is a glass track with the chosen tab navy;
+// the default (5.2) is a glass track with the chosen tab white; onCard (5.1, inside the frost card) is a faint
+// white well with white text.
 export function PillTabs<T extends string>({
   options,
   value,
   onChange,
   glass = false,
+  onCard = false,
 }: {
   options: { value: T; label: string; accessibilityLabel?: string }[];
   value: T;
   onChange: (value: T) => void;
   glass?: boolean;
+  onCard?: boolean;
 }) {
+  const navy = glass;
   return (
     <View
       accessibilityRole="tablist"
-      style={[styles.tabs, glass ? glassCard : styles.tabsWell]}
+      style={[styles.tabs, onCard ? styles.tabsOnCard : glassCard]}
     >
       {options.map(option => {
         const selected = option.value === value;
@@ -100,11 +206,18 @@ export function PillTabs<T extends string>({
             accessibilityLabel={option.accessibilityLabel ?? option.label}
             accessibilityState={{ selected }}
             onPress={() => onChange(option.value)}
-            style={[styles.tab, selected && styles.tabOn]}
+            style={[
+              styles.tab,
+              selected && (navy ? styles.tabOn : styles.tabOnWhite),
+            ]}
           >
             <AppText
               numberOfLines={1}
-              style={[styles.tabText, selected && styles.tabTextOn]}
+              style={[
+                styles.tabText,
+                onCard && !selected && styles.tabTextOnCard,
+                selected && (navy ? styles.tabTextOn : styles.tabTextOnWhite),
+              ]}
             >
               {option.label}
             </AppText>
@@ -115,13 +228,9 @@ export function PillTabs<T extends string>({
   );
 }
 
-// A 12 / 700 label after a thin navy bar (평균 페이스, 누적 거리, …).
+// The 13.5 label over a figure on a frost card (평균 페이스, 누적 거리, …).
 export function BarLabel({ label }: { label: string }) {
-  return (
-    <View style={styles.barLabel}>
-      <AppText style={styles.barLabelText}>{label}</AppText>
-    </View>
-  );
+  return <AppText style={styles.barLabelText}>{label}</AppText>;
 }
 
 type PickerCell = {
@@ -413,6 +522,24 @@ export function YearPicker({
 }
 
 const styles = StyleSheet.create({
+  shell: { flex: 1, backgroundColor: '#D7E1E7' },
+  shellHead: { paddingHorizontal: recordsLook.side },
+  shellTabs: {
+    marginTop: 8,
+    marginHorizontal: recordsFrame.side,
+  },
+  shellCard: {
+    flex: 1,
+    marginTop: recordsFrame.gap,
+    marginHorizontal: recordsFrame.side,
+    overflow: 'hidden',
+  },
+  shellFooter: {
+    position: 'absolute',
+    left: recordsFrame.side,
+    right: recordsFrame.side,
+    height: size.tabBar,
+  },
   titleRow: {
     height: 52,
     flexDirection: 'row',
@@ -429,19 +556,16 @@ const styles = StyleSheet.create({
   },
 
   tabs: {
-    height: 40,
+    height: recordsFrame.thinTabsHeight,
     flexDirection: 'row',
-    gap: 2,
-    padding: 3,
+    gap: 3,
+    padding: 4,
     borderRadius: 16,
   },
-  tabsWell: {
-    backgroundColor: 'rgba(255,255,255,0.42)',
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)',
-  },
+  tabsOnCard: { backgroundColor: 'rgba(255,255,255,0.14)' },
   tab: {
     flex: 1,
-    height: 32,
+    height: 36,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -459,17 +583,19 @@ const styles = StyleSheet.create({
     color: recordsLook.sub,
   },
   tabTextOn: { fontFamily: fontFamily.bold, color: '#FFFFFF' },
-  barLabel: {
-    paddingLeft: 8,
-    borderLeftWidth: 1.5,
-    borderLeftColor: recordsLook.ink,
+  tabOnWhite: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    boxShadow:
+      '0 4px 12px rgba(9,17,26,0.08), inset 0 1px 0 rgba(255,255,255,0.9)',
   },
+  tabTextOnWhite: { fontFamily: fontFamily.bold, color: recordsLook.ink },
+  tabTextOnCard: { color: recordsLook.onCardSub },
   barLabelText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 17,
-    letterSpacing: -0.3,
-    color: recordsLook.ink,
+    fontFamily: fontFamily.medium,
+    fontSize: 13.5,
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    color: recordsLook.onCardLabel,
   },
   picker: {
     ...glassCard,

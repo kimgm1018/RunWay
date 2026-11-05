@@ -104,7 +104,7 @@ test('5.1 opens on the newest run in its week and moves by day, week and month',
     expect(page).toContain(text);
   }
   expect(stateOf(screen, '10월 15일')?.selected).toBe(true);
-  expect(hasLabel(screen, '5′41″ 최고')).toBe(true);
+  expect(hasLabel(screen, '최고 5′41″')).toBe(true);
 
   await press(screen, '10월 14일');
   expect(texts(screen)).toContain('이 날은 러닝 기록이 없어요');
@@ -150,11 +150,11 @@ test('5.2 opens from 5.1 with the figures, split graphs and the two buttons', as
   // The handoff drops the map, AI advice and 닫기 (담당자 결정).
   expect(page).not.toContain('AI 조언');
   expect(hasLabel(screen, '닫기')).toBe(false);
-  expect(hasLabel(screen, '5′41″ 최고')).toBe(true);
+  expect(hasLabel(screen, '최고 5′41″')).toBe(true);
   await press(screen, '심박');
-  expect(hasLabel(screen, '171 최고')).toBe(true);
+  expect(hasLabel(screen, '최고 171')).toBe(true);
   await press(screen, '케이던스');
-  expect(hasLabel(screen, '178 최고')).toBe(true);
+  expect(hasLabel(screen, '최고 178')).toBe(true);
   await act(async () => screen.unmount());
 });
 
@@ -232,54 +232,48 @@ test('5.2 stays with a toast when S09 fails', async () => {
   await act(async () => screen.unmount());
 });
 
-test('5.3 shows the month chart and summary, picks a day, and switches periods', async () => {
+test('5.3 shows the month figures, turns its card over, and switches periods', async () => {
   const screen = await render();
   await press(screen, '러닝 분석');
   let page = texts(screen);
   for (const text of [
     '러닝 분석',
     '10월 ▾',
+    // runway-records 2차 앞면 (담당자 결정: 평균 페이스 > 누적 거리 > 총 시간), no RUNWAY, no title, no 요약.
+    '러닝 분석 | 10월',
+    '평균 페이스',
+    '5′52″/km',
+    '최고: 5′23″/km',
     '누적 거리',
-    '일별 거리',
-    '10.15 · 34.2km',
-    '9월 26.8km',
-    '4.9',
-    '요약',
-    '10.1 – 10.15',
-    '5′52″',
-    '8초 빠름',
-    '34.2',
-    '+7.4km',
-    '+2회',
-    '10월 누적',
+    '34.2km',
+    '9월보다 +7.4km',
+    '총 시간',
+    '러닝 7회',
   ]) {
     expect(page).toContain(text);
   }
+  for (const text of ['RUNWAY', '요약', '10월 러닝', '일별 거리']) {
+    expect(page).not.toContain(text);
+  }
 
-  // 총 시간 reads 3h 21m.
-  expect(hasLabel(screen, '총 시간 3h 21m, 10월 누적')).toBe(true);
-
-  // A bar picks its day; the summary counts up to it.
-  await press(screen, '10.8 5.2km');
-  page = texts(screen);
-  expect(page).toContain('10.1 – 10.8');
-  expect(page).toContain('10.8 · 18.8km');
-  await press(screen, '선택 해제');
-  expect(texts(screen)).not.toContain('10.1 – 10.8');
-
+  // ↻ turns the card over to the month's records, and back; the turn takes 400ms.
   await press(screen, '목록으로 보기');
-  expect(texts(screen)).toContain('광안대교 루프 함께 달리기');
+  await settle(600);
+  page = texts(screen);
+  expect(page).toContain('러닝 기록 | 10월');
+  expect(page).toContain('10월 기록');
+  expect(page).toContain('광안대교 루프 함께 달리기');
   await press(screen, '요약으로 보기');
+  await settle(600);
 
   await press(screen, '주');
   page = texts(screen);
   expect(page).toContain('이 기간에는 기록이 없어요');
-  expect(page).toContain('이번 주 누적');
+  expect(page).toContain('러닝 분석 | 이번 주');
   // Today (10.19) is in October's 4th week.
   expect(page).toContain('4주차 ▾');
   await swipe(screen, 120);
   page = texts(screen);
-  expect(page).toContain('10.12 – 10.15');
   expect(page).toContain('3주차 ▾');
   // The week tab again opens the week picker.
   await press(screen, '주');
@@ -288,7 +282,6 @@ test('5.3 shows the month chart and summary, picks a day, and switches periods',
   await press(screen, '10월 2주차');
   page = texts(screen);
   expect(page).toContain('2주차 ▾');
-  expect(page).toContain('10.05 – 10.11');
   // Weeks are calendar rows of 7 days: 9.28–10.4 is both October's 1주차 and September's 5주차.
   await press(screen, '주');
   expect(texts(screen)).toContain('9.28–10.4');
@@ -304,21 +297,19 @@ test('5.3 shows the month chart and summary, picks a day, and switches periods',
 
   await press(screen, '년');
   page = texts(screen);
-  expect(page).toContain('월별 거리');
   expect(page).toContain('2026년 ▾');
-  expect(page).toContain('2026년 누적');
+  expect(page).toContain('러닝 분석 | 2026년');
   // The year tab again opens the year picker.
   await press(screen, '년');
   expect(texts(screen)).toContain('기록이 있는 해');
   await press(screen, '2025년');
   page = texts(screen);
   expect(page).toContain('2025년 ▾');
-  expect(page).toContain('2025년 누적');
+  expect(page).toContain('러닝 분석 | 2025년');
 
   await press(screen, '전체');
   page = texts(screen);
-  expect(page).toContain('연도별 거리');
-  expect(page).toContain('전체 누적');
+  expect(page).toContain('러닝 분석 | 전체');
 
   // The month tab again opens the month picker.
   await press(screen, '월');
@@ -327,7 +318,7 @@ test('5.3 shows the month chart and summary, picks a day, and switches periods',
   await press(screen, '2026년 9월');
   page = texts(screen);
   expect(page).toContain('9월 ▾');
-  expect(page).toContain('9월 누적');
+  expect(page).toContain('러닝 분석 | 9월');
   await act(async () => screen.unmount());
 });
 
