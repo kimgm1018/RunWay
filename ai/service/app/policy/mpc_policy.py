@@ -154,6 +154,7 @@ class MpcPolicy:
         if inp.speed_now_mps is None or inp.speed_now_mps < self.cfg.walk_speed_mps:
             return self._base_output(status="NOT_RUNNING", action="NOT_RUNNING", chosen=None, pace=None,
                                      reason=None, reason_text=None, gate=None, verdicts=(), publish=False)
+        # 20초 이상은 서비스가 먼저 INPUT_INSUFFICIENT로 막는다. HR_STALE는 정책을 직접 부를 때만 쓰는 방어용이다.
         stale = inp.input_age_sec > self.cfg.hr_stale_sec
         ref = inp.hr_thresholds or blend_hr_thresholds(self.cfg)
         prog = progress(ctx, inp.pace_now_sec_per_km, self.cfg)

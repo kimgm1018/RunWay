@@ -91,7 +91,7 @@
     if (state.stream) state.stream.close();
     state.snapshot = {stage: 'L1A', label: '실시간 세션 대기', course: null};
     root.RunwayDemoRender.reset(state.snapshot);
-    root.RunwayDemoRender.setHeader('예측기 연결 대기', 'mpc-v0.4.0');
+    root.RunwayDemoRender.setHeader('예측기 연결 대기', 'mpc-v0.4.1');
     root.RunwayDemoRender.setConnection('세션 대기 중');
     state.stream = root.RunwayDemoStream.connect({token: token, session: session,
       onEvent: handleEvent,
@@ -160,7 +160,7 @@
     state.traces = [];
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
     for (var i = 0; i <= state.playbackIndex; i += 1) processTrace(rows[i], false, replayOptions());
-    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.0');
+    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.1');
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
     root.RunwayDemoRender.setConnection('정적 재생 · ' + (recording.label || '녹화 기록'));
     updateProgress();
@@ -217,13 +217,13 @@
     state.playbackIndex = -1;
     if (!recording) {
       root.RunwayDemoRender.reset({stage: 'L3', label: '재생 기록 없음', course: null});
-      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.0');
+      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.1');
       setBanner('insufficient', '재생 기록을 recordings/에 추가해 주세요.');
       updateProgress();
       return;
     }
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
-    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.0');
+    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.1');
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
     root.RunwayDemoRender.setConnection('정적 재생 · ' + (recording.label || '녹화 기록'));
     setBanner(null);
@@ -233,7 +233,7 @@
   async function startReplayMode() {
     show(byId('replay-controls'), true);
     show(byId('auth-panel'), false);
-      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.0');
+      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.1');
     try {
       var recordings = await loadRecordings();
       var select = byId('recording-select');

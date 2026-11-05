@@ -20,8 +20,10 @@ def test_paused_skips_model_and_policy():
 
 def test_stale_input_is_insufficient():
     assert go(after=20.0).status == "INPUT_INSUFFICIENT" and go(after=20.0).error.status == 422
-    assert go(after=19.9).status == "HR_STALE"          # 15~20초: 판단은 하되 가속만 막는다(가짜 정책도 같은 경계)
-    assert go(after=15.0).status == "OK"
+    # 팀 명세(pace-coaching.md "코칭 입력·20초 유효성"): 20초 미만은 정상 판단, 20초 이상은 추천하지 않는다.
+    # 15~20초 구간도 HR_STALE가 아니다(S15P31E105-413).
+    for after in (15.0, 17.0, 19.9):
+        assert go(after=after).status == "OK"
 
 
 def test_guide_pace_maps_to_coaching_columns():
