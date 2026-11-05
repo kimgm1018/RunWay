@@ -3,6 +3,7 @@ package com.runway.backend.domain.grouprun;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -101,6 +102,34 @@ class GroupRunStartCancelIntegrationTest {
                                 "SELECT count(*) FROM session_control_events",
                                 Integer.class))
                 .isZero();
+    }
+
+    @Test
+    void detail_cancelled_exposesCancellation_withNullMessage_andHostIdentity() throws Exception {
+        long groupRunId = createGroupRun();
+        joinAndReady(groupRunId, memberId);
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"WEATHER\",\"cancelMessage\":\"비가 와요\"}")
+                .andExpect(status().isOk());
+
+        // 남긴 말은 알림 전용이라 저장·노출하지 않는다. 멤버도 취소된 그룹 상세를 계속 열 수 있다.
+        detail(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.cancellation.reason").value("WEATHER"))
+                .andExpect(jsonPath("$.cancellation.message").value(nullValue()))
+                .andExpect(jsonPath("$.cancellation.byNickname").value("호스트"))
+                .andExpect(jsonPath("$.cancellation.byRole").value("HOST"));
+    }
+
+    @Test
+    void detail_notCancelled_cancellationIsNull() throws Exception {
+        long groupRunId = createGroupRun();
+
+        detail(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.cancellation").value(nullValue()));
     }
 
     @Test
@@ -413,6 +442,13 @@ class GroupRunStartCancelIntegrationTest {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private org.springframework.test.web.servlet.ResultActions detail(long groupRunId, long userId)
+            throws Exception {
+        return mockMvc.perform(
+                get("/api/v1/group-runs/{id}", groupRunId)
+                        .header("Authorization", SecurityTestSupport.bearer(userId)));
+    }
 
     private org.springframework.test.web.servlet.ResultActions cancel(
             long groupRunId, long userId, String json) throws Exception {

@@ -399,7 +399,8 @@ public class GroupRunService {
 
     /**
      * G13. 시작 전 호스트 취소. 그룹 행을 잠근 뒤 SCHEDULED만 CANCELLED로 바꾸고 연결된 READY 세션을 세션 ID 순서로 취소한다. 이미 취소된 그룹은 200으로
-     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증하고 저장하지 않는다.
+     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증한다. 취소 알림 경로가 아직 없어
+     * 저장·전달하지 않고 요청 처리 후 버린다(향후 알림 본문 전송 전용).
      */
     @Transactional
     public CancelGroupRunResponse cancel(
@@ -771,7 +772,18 @@ public class GroupRunService {
                 row.meetingName(),
                 row.meetingAddress(),
                 GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
-                resolveGroupGuidePace(row));
+                resolveGroupGuidePace(row),
+                toCancellation(row));
+    }
+
+    /** CANCELLED 그룹만 취소 정보를 만든다. 남긴 말은 저장하지 않으므로 null, 취소자는 host_id 기준 HOST다. */
+    private GroupRunDetailResponse.Cancellation toCancellation(GroupRunRow row) {
+        if (!GroupRunStatus.CANCELLED.name().equals(row.status()) || row.cancelReason() == null) {
+            return null;
+        }
+        String hostNickname = userExistsRepository.findNickname(row.hostId()).orElse(null);
+        return new GroupRunDetailResponse.Cancellation(
+                row.cancelReason(), null, hostNickname, "HOST");
     }
 
     private GeoJsonPoint parseMeetingPosition(String geoJson) {

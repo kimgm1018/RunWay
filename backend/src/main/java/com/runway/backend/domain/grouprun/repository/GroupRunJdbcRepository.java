@@ -72,7 +72,7 @@ public class GroupRunJdbcRepository {
                                meeting_name, meeting_address,
                                ST_AsGeoJSON(meeting_position::geometry) AS meeting_geojson,
                                goal_distance, goal_duration, status::text AS status,
-                               created_at, updated_at
+                               cancel_reason, created_at, updated_at
                         FROM group_runs
                         WHERE id = ?
                         """,
@@ -174,7 +174,7 @@ public class GroupRunJdbcRepository {
                                gr.scheduled_at, gr.meeting_name, gr.meeting_address,
                                ST_AsGeoJSON(gr.meeting_position::geometry) AS meeting_geojson,
                                gr.goal_distance, gr.goal_duration, gr.status::text AS status,
-                               gr.created_at, gr.updated_at
+                               gr.cancel_reason, gr.created_at, gr.updated_at
                         FROM group_runs gr
                         INNER JOIN crew_memberships cm
                           ON cm.crew_id = gr.crew_id
@@ -251,6 +251,7 @@ public class GroupRunJdbcRepository {
                 rs.getObject("goal_distance", Integer.class),
                 rs.getObject("goal_duration", Integer.class),
                 rs.getString("status"),
+                rs.getString("cancel_reason"),
                 toInstant(rs.getTimestamp("created_at")),
                 toInstant(rs.getTimestamp("updated_at")));
     }

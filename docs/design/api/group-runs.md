@@ -384,10 +384,15 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, S15P31E105-419). `SCHEDULED`: 참가자 `user_profiles.average_pace`의 중앙값(유효값 없는 참가자 제외). 유효 참가자 0명이면 null. 방장 목표 환산값을 추천값으로 쓰지 않는다. DB 신규 컬럼 없음. |
 | `meetingPlaceName` | string / null | O | group_runs.meeting_name. 미지정은 null. |
 | `meetingAddress` | string / null | O | group_runs.meeting_address. 미지정은 null. |
+| `cancellation` | object / null | O | **CANCELLED일 때만** 채운다. 그 외 status는 null. S15P31E105-469. |
+| `cancellation.reason` | string | 조건부 | `group_runs.cancel_reason`. CANCELLED이면 필수. |
+| `cancellation.message` | string / null | 조건부 | **항상 null(조회)**. 요청 `cancelMessage`는 DB에 저장하지 않으며 알림 일회 전송용이다. |
+| `cancellation.byNickname` | string | 조건부 | `host_id` 회원의 닉네임. 호스트만 취소 가능. |
+| `cancellation.byRole` | string | 조건부 | 항상 `"HOST"`. |
 
 **사용 흐름과 응답 판단**
 
-모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다.
+모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다. 취소된 그룹은 `cancellation`으로 사유·호스트를 보여 주고, 남긴 말 카드는 `message`가 null이면 숨긴다.
 
 위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
 
@@ -1380,8 +1385,8 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `cancelReason` | string | O | WEATHER/PERSONAL/LACK_OF_PARTICIPANTS/LOCATION_ISSUE/OTHER |
-| `cancelMessage` | string | X | 멤버에게 남길 말(최대 100자) |
+| `cancelReason` | string | O | WEATHER/PERSONAL/LACK_OF_PARTICIPANTS/LOCATION_ISSUE/OTHER. `group_runs.cancel_reason`에 저장. |
+| `cancelMessage` | string | X | 멤버 알림용 남길 말(최대 100자). **길이만 검증·저장하지 않음**. 알림 경로가 연결되면 본문에 일회 전달하고, 없으면 discard. 이후 저장이 필요하면 스키마 추가. |
 
 ```json
 {
@@ -1433,9 +1438,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 - 취소 상태 반영 시 예약된 시작 임박 알림을 무효화한다. 발송 직전에도 상태를 검사하여 취소된 그룹런의 시작 알림을 보내지 않는다.
 
-- 취소하면 크루 멤버 전원(참가 여부와 무관)에게 알림을 보낸다. 취소한 그룹런은 되돌릴 수 없다.
-- 취소된 그룹런은 내 크루 목록에서 빠지고, 상세 조회(G03)는 취소 사유·남긴 말과 함께 계속 열 수 있다.
-- 그룹런 시작 전 호스트 취소.
+- 취소하면 크루 멤버 전원(참가 여부와 무관)에게 알림을 보낸다. 취소한 그룹런은 되돌릴 수 없다. `cancelMessage`가 있으면 알림 본문에만 실을 수 있고 DB·G03에는 남지 않는다.
+- 취소된 그룹런은 내 크루 목록에서 빠지고, 상세 조회(G03)는 `cancellation`(사유·호스트 닉네임·역할 HOST, message는 null)과 함께 계속 열 수 있다.
+- 그룹런 시작 전 호스트 취소. 취소자 컬럼은 두지 않고 `host_id`로 파생한다.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
