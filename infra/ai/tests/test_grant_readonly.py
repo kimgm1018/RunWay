@@ -1,4 +1,4 @@
-"""V10 전 권한 부여 차단, running_sessions 선부여, 최소 권한 범위를 모의 Docker로 확인한다."""
+"""V10 전 권한 부여 차단, running_sessions·user_profiles 선부여, 최소 권한 범위를 모의 Docker로 확인한다."""
 import os
 from pathlib import Path
 import subprocess
@@ -21,6 +21,7 @@ if [[ $1 == ps ]]; then echo db; exit; fi
 query=$(cat)
 printf '%s\n' "$query" >> "$MOCK_DIR/sql"
 if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
+elif [[ $query == *user_profiles* ]]; then echo "${USER_PROFILES_RESULT:-t}"
 elif [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
 '''
 
@@ -47,20 +48,28 @@ class ReadonlyGrantTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         sql = (self.root / "sql").read_text()
         self.assertNotIn("user_hr_personalization TO runway_ai", sql)
-        # running_sessions는 V1부터 있으므로 V10 대기와 관계없이 먼저 부여한다.
+        # running_sessions(402)·user_profiles(403)는 V1부터 있으므로 V10 대기와 관계없이 먼저 부여한다.
         self.assertIn("GRANT SELECT ON public.running_sessions TO runway_ai", sql)
+        self.assertIn("GRANT SELECT ON public.user_profiles TO runway_ai", sql)
 
     def test_running_sessions_is_granted_before_waiting_and_checked_read_only(self):
         result = self.run_grant()
         self.assertEqual(result.returncode, 0, result.stderr)
         sql = (self.root / "sql").read_text()
-        self.assertLess(sql.index("public.running_sessions TO runway_ai"), sql.index("to_regclass"))
-        self.assertIn("has_table_privilege('runway_ai', 'public.running_sessions', 'SELECT')", sql)
-        self.assertIn("NOT has_table_privilege('runway_ai', 'public.running_sessions', 'INSERT,UPDATE,DELETE,TRUNCATE')",
-                      sql)
+        for table in ("running_sessions", "user_profiles"):
+            self.assertLess(sql.index(f"public.{table} TO runway_ai"), sql.index("to_regclass"))
+            self.assertIn(f"has_table_privilege('runway_ai', 'public.{table}', 'SELECT')", sql)
+            self.assertIn(f"NOT has_table_privilege('runway_ai', 'public.{table}', 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                          sql)
 
     def test_running_sessions_privilege_failure_stops_deployment(self):
         self.env["RUNNING_SESSIONS_RESULT"] = "f"
+        result = self.run_grant()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("to_regclass", (self.root / "sql").read_text())
+
+    def test_user_profiles_privilege_failure_stops_deployment(self):
+        self.env["USER_PROFILES_RESULT"] = "f"
         result = self.run_grant()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("to_regclass", (self.root / "sql").read_text())
