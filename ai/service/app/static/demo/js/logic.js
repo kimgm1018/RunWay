@@ -97,14 +97,29 @@
     return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText};
   }
 
+  // 서버 데모 버퍼(app/demo/buffer.py WINDOW_SEC)와 같은 값. 두 값이 같은지는 테스트로 확인한다
+  var TRACE_WINDOW_SEC = 600;
+
   function mergeTraces(list, incoming) {
     var map = new Map();
     (list || []).forEach(function (trace) { if (trace && trace.traceId) map.set(trace.traceId, trace); });
     (Array.isArray(incoming) ? incoming : [incoming]).forEach(function (trace) {
       if (trace && trace.traceId) map.set(trace.traceId, trace);
     });
-    return Array.from(map.values()).sort(function (a, b) {
+    var sorted = Array.from(map.values()).sort(function (a, b) {
       return Date.parse(a.inputAsOf || 0) - Date.parse(b.inputAsOf || 0);
+    });
+    // 서버와 같은 규칙: 가장 늦은 inputAsOf에서 10분보다 오래된 판단 기록은 버린다
+    var latest = -Infinity;
+    sorted.forEach(function (trace) {
+      var ms = Date.parse(trace.inputAsOf || '');
+      if (Number.isFinite(ms) && ms > latest) latest = ms;
+    });
+    if (!Number.isFinite(latest)) return sorted;
+    var cutoff = latest - TRACE_WINDOW_SEC * 1000;
+    return sorted.filter(function (trace) {
+      var ms = Date.parse(trace.inputAsOf || '');
+      return !Number.isFinite(ms) || ms >= cutoff;
     });
   }
 
@@ -127,7 +142,8 @@
     zoomDeltas: zoomDeltas,
     formatPace: formatPace,
     guideCard: guideCard,
-    mergeTraces: mergeTraces
+    mergeTraces: mergeTraces,
+    TRACE_WINDOW_SEC: TRACE_WINDOW_SEC
   };
 
   root.RunwayDemoLogic = RunwayDemoLogic;
