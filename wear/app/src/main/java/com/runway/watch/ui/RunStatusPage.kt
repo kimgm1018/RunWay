@@ -45,12 +45,17 @@ data class RunStatusView(
     val pending: Boolean,
     /** No server state for 45 s during the run (S15P31E105-257, D-8). */
     val serverLost: Boolean = false,
+    /** The watch stopped recording after an app restart; the phone carries the run on (S15P31E105-445). */
+    val measurementLost: Boolean = false,
     /** Rhythm chip text, always labelled "리듬 BPM" so it is never read as heart rate (D-10). */
     val rhythmLabel: String = "",
 )
 
 /** Derives 9.2 from the snapshot only. Values that did not arrive are never filled in. */
 object RunStatusDisplay {
+    /** One status line on the round face, so shorter than the control-page notice (S15P31E105-445). */
+    const val MEASUREMENT_LOST = "측정 끊김 · 폰에서 이어가기"
+
     fun from(snapshot: RunSnapshot, online: CheckState = CheckState.UNKNOWN): RunStatusView {
         val m = snapshot.metrics
         val feeds = m.feeds
@@ -66,6 +71,7 @@ object RunStatusDisplay {
             ringProgress = m.goalProgress?.takeIf { feeds.location == FeedStatus.LIVE || feeds.location == FeedStatus.DELAYED },
             pending = snapshot.pendingCommand,
             serverLost = snapshot.serverLinkLost,
+            measurementLost = snapshot.measurementLost,
             rhythmLabel = PaceCoachingDisplay.rhythmLabel(m.rhythm),
         )
     }
@@ -127,6 +133,7 @@ internal fun RunStatusPage(
 @Composable
 private fun StatusHeader(view: RunStatusView) = when {
     view.pending -> Text("요청 확인 중", style = RunwayType.Caption, color = RunwayColors.Content, maxLines = 1)
+    view.measurementLost -> StatusLine(RunStatusDisplay.MEASUREMENT_LOST to StatusTone.WARNING)
     view.phoneLost -> StatusLine("폰 연결 끊김" to StatusTone.WARNING)
     view.serverLost -> StatusLine(PaceCoachingDisplay.SERVER_LOST to StatusTone.WARNING)
     view.offline -> StatusLine("오프라인 · 저장 미확인" to StatusTone.WARNING)

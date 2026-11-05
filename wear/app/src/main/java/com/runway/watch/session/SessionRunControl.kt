@@ -78,6 +78,7 @@ class SessionRunControl(
                 CoachingGuide(it.paceSecPerKm, RhythmBpm(it.targetBpm), Coaching.cue(it.targetBpm, it.previousBpm))
             },
             serverLinkLost = session.serverLinkLost,
+            measurementLost = session.measurementLost,
         )
 
         /** The run intent a pending request action stands for; null for actions without one (BPM change, coaching). */
@@ -117,7 +118,10 @@ class SessionRunControl(
             else -> null
         }
 
-        fun notice(session: WatchSessionState): String? = when (val problem = session.problem) {
+        /** Shown while the watch cannot record the run after a restart; the phone's take-over is the way on (S15P31E105-445). */
+        const val MEASUREMENT_LOST_NOTICE = "워치 측정이 끊겼어요. 휴대폰에서 이어가세요"
+
+        fun notice(session: WatchSessionState): String? = if (session.measurementLost) MEASUREMENT_LOST_NOTICE else when (val problem = session.problem) {
             is WatchProblem.Unconfirmed -> "${verb[problem.action] ?: "명령"} 여부를 확인할 수 없어요"
             is WatchProblem.Rejected -> "워치가 ${verb[problem.action] ?: "명령"}하지 못했어요"
             is WatchProblem.Refused -> "휴대폰에서 처리하지 못했어요"

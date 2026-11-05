@@ -88,6 +88,8 @@ data class RunSnapshot(
     val coaching: CoachingGuide? = null,
     /** No server state reached the watch for 45 s during the run (D-8). Cleared when one arrives. */
     val serverLinkLost: Boolean = false,
+    /** The app restarted mid-run and the watch exercise was gone: the watch no longer records (S15P31E105-445). */
+    val measurementLost: Boolean = false,
 )
 
 /** Where a rhythm BPM change stands. Only APPLIED means the beat really changed. */

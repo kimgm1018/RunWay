@@ -48,7 +48,9 @@ data class AppliedCoaching(
  * [confirmed] changes only when the server saved (COMMAND_RECEIVED persisted=true or STATE_RESULT scope=SERVER).
  * [currentBpm] is the rhythm BPM of the last server-approved command the watch applied, or the server's value
  * (STATE_RESULT currentBpm / SESSION_PREPARE initialBpm). [serverLinkLost] is true when no server state arrived for
- * [WatchSessionController.LINK_TIMEOUT_MS] during a run (D-8).
+ * [WatchSessionController.LINK_TIMEOUT_MS] during a run (D-8). [measurementLost] is true when the app restarted
+ * mid-run and the watch exercise was no longer there: the watch cannot record this run any more and points the runner
+ * to the phone (S15P31E105-445).
  */
 data class WatchSessionState(
     val sessionId: String? = null,
@@ -60,6 +62,7 @@ data class WatchSessionState(
     val bpmRequest: BpmRequest? = null,
     val coaching: AppliedCoaching? = null,
     val serverLinkLost: Boolean = false,
+    val measurementLost: Boolean = false,
 )
 
 private val NEXT_STATE = mapOf(
@@ -84,6 +87,7 @@ private const val INVALID_GUIDE = "INVALID_GUIDE"
 private const val INVALID_TARGET_BPM = "INVALID_TARGET_BPM"
 private const val APPLY_INTERRUPTED = "APPLY_INTERRUPTED"
 private const val CUE_FAILED = "CUE_PLAYBACK_FAILED"
+private const val EXERCISE_LOST = "EXERCISE_LOST"
 
 /**
  * Runs approved commands once per commandId (S15P31E105-256 [D], watch-mobile-server-integration.md 9.4).
@@ -118,6 +122,15 @@ class WatchSessionController(
     private var lastQueryMs: Long? = null
     /** When the current REQUESTED pending (no commandId yet) was sent; released after [REQUEST_TIMEOUT_MS]. */
     private var requestedAtMs: Long? = null
+    /** The session whose exercise this process listens to (started here, or found again after a restart). */
+    private var attachedSession: String? = null
+    /**
+     * The session stored before this process started, the process start, and whether a server state arrived since:
+     * until then a restarted watch asks for that session's state itself.
+     */
+    private val restoredSession = _state.value.sessionId
+    private val startedAtMs = elapsedMs()
+    private var serverStateSeen = false
 
     suspend fun onMessage(message: SessionEnvelope) = mutex.withLock {
         when (message.type) {
@@ -194,6 +207,16 @@ class WatchSessionController(
         releaseStaleRequest()
         val current = _state.value
         val sessionId = current.sessionId
+        // S15P31E105-445: 재시작한 워치는 폰의 상태 전달을 기다리지 않고 저장된 세션의 서버 상태를 직접 묻는다.
+        // 폰은 자기가 진행 중인 세션에만 답하므로, 끝난 세션이면 답이 없고 [RECOVER_WINDOW_MS] 뒤 묻기를 멈춘다.
+        if (sessionId != null && sessionId == restoredSession && !serverStateSeen && !runActive(current)) {
+            val nowMs = elapsedMs()
+            val last = lastQueryMs
+            if (nowMs - startedAtMs < RECOVER_WINDOW_MS && (last == null || nowMs - last >= QUERY_RETRY_MS)) {
+                sendStateQuery(sessionId)
+            }
+            return@withLock
+        }
         if (sessionId == null || !runActive(current)) {
             lastServerStateMs = null
             if (current.serverLinkLost) _state.value = current.copy(serverLinkLost = false)
@@ -292,14 +315,17 @@ class WatchSessionController(
         _state.value = _state.value.copy(pending = PendingCommand(action, commandId, PendingStage.EXECUTING), problem = null)
         fun outcome(result: OutcomeResult, appliedAt: Instant?, code: String?) =
             CommandOutcome(message.sessionId, commandId, action, result, appliedAt, code, false, null, targetBpm = bpm)
+        // 측정이 끊긴 운동은 워치에 멈추거나 끝낼 운동이 없다. 일시정지·종료는 서버 상태만 바꾸고, 종료는 남은 batch를
+        // 보낸 뒤 결과를 보고한다. 폰에서 일시정지 후 종료하는 길이 막히지 않게 한다(S15P31E105-445).
+        val lost = _state.value.measurementLost
         val outcome = try {
             withTimeout(callTimeoutMs) {
                 when (action) {
                     "START" -> gateway.start()
-                    "PAUSE" -> gateway.pause()
+                    "PAUSE" -> if (!lost) gateway.pause()
                     "RESUME" -> gateway.resume()
                     SET_BPM -> applyBpm(bpm!!)
-                    else -> gateway.end()
+                    else -> if (!lost) gateway.end()
                 }
             }
             // 실제 적용 시각은 서버 기준으로 보정한다(9.4). 추정이 없으면 워치 시각 그대로.
@@ -314,7 +340,11 @@ class WatchSessionController(
         store.saveOutcome(outcome)
         if (outcome.result == OutcomeResult.APPLIED) {
             when (action) {
-                "START" -> store.prepared()?.deviceId?.let { uploads.begin(message.sessionId, it) }
+                "START" -> {
+                    attachedSession = message.sessionId
+                    _state.value = _state.value.copy(measurementLost = false)
+                    store.prepared()?.deviceId?.let { uploads.begin(message.sessionId, it) }
+                }
                 // 종료 직후 남은 측정값을 마지막 batch로 보내고 서버 저장 확인을 기다린 뒤 결과를 보고한다(9.3 COMMAND_RESULT).
                 "END" -> uploads.finish(message.sessionId)
             }
@@ -359,6 +389,8 @@ class WatchSessionController(
         if (current.sessionId != sessionId) return "NOT_PREPARED"
         if (expected < current.stateVersion) return "VERSION_MISMATCH"
         if (current.confirmed !in ALLOWED_FROM.getValue(action)) return "INVALID_STATE"
+        // 재시작 후 워치 운동이 사라졌으면 측정을 다시 시작할 수 없다. 재개를 성공으로 보이지 않게 거절한다(S15P31E105-445).
+        if (current.measurementLost && action == "RESUME") return EXERCISE_LOST
         return null
     }
 
@@ -518,6 +550,7 @@ class WatchSessionController(
      */
     private suspend fun onServerState(message: SessionEnvelope) {
         if (message.payload.optString("scope") != "SERVER") return
+        serverStateSeen = true
         val receivedAt = now()
         val sentAt = message.instant("clientSendAt")
         val serverIn = message.instant("serverReceiveAt")
@@ -534,8 +567,12 @@ class WatchSessionController(
             return
         }
         val newer = !sameSession || current.confirmed == null || version > current.stateVersion || current.pending == null
+        val active = state == RunState.RUNNING || state == RunState.PAUSED
+        // 폰으로 기록을 넘긴 뒤에는 워치 측정을 다시 붙이지 않는다(S08).
+        val watchRecords = active && message.payload.optString("recordingMode") != "PHONE_FALLBACK"
+        val lost = sameSession && current.measurementLost && watchRecords
         // 앱이 다시 시작된 뒤에도 서버가 운동 중이라고 하면 이 세션의 측정값을 계속 batch로 만든다.
-        if (state == RunState.RUNNING || state == RunState.PAUSED) {
+        if (active) {
             keepAlive.start()
             store.prepared()?.takeIf { it.sessionId == message.sessionId }?.deviceId?.let { uploads.begin(message.sessionId, it) }
         } else if (state != RunState.READY) {
@@ -551,12 +588,33 @@ class WatchSessionController(
             bpmRequest = if (sameSession) current.bpmRequest else null,
             coaching = if (sameSession) current.coaching else null,
             serverLinkLost = false,
+            measurementLost = lost,
         )
         if (newer) {
-            exerciseRunning = state == RunState.RUNNING
+            exerciseRunning = state == RunState.RUNNING && !lost
             syncPlayback()
         }
-        lastServerStateMs = if (state == RunState.RUNNING || state == RunState.PAUSED) elapsedMs() else null
+        lastServerStateMs = if (active) elapsedMs() else null
+        if (watchRecords && attachedSession != message.sessionId) reattach(message.sessionId)
+    }
+
+    /**
+     * S15P31E105-445: the process restarted mid-run, so nothing listens to the exercise any more and no batch is made.
+     * Listen again to the exercise Health Services kept. When it is gone, a new one is never started (distance and
+     * time would restart from zero inside the same run): the beat and coaching stop and the runner is pointed to the
+     * phone. A failed check is tried again on the next server state.
+     */
+    private suspend fun reattach(sessionId: String) {
+        val attached = try {
+            withTimeout(callTimeoutMs) { gateway.reattach() }
+        } catch (_: Exception) {
+            return
+        }
+        attachedSession = sessionId
+        if (attached) return
+        exerciseRunning = false
+        syncPlayback()
+        _state.value = _state.value.copy(measurementLost = true)
     }
 
     private suspend fun sendWithRetry(path: String, bytes: ByteArray): Boolean {
@@ -575,6 +633,8 @@ class WatchSessionController(
         const val QUERY_INTERVAL_MS = 60_000L
         /** Retry period while there is no usable clock estimate. */
         const val QUERY_RETRY_MS = 10_000L
+        /** How long after a process start the watch keeps asking for the server state of its stored session. */
+        const val RECOVER_WINDOW_MS = 120_000L
         /**
          * A watch request with no phone answer for this long is released as unconfirmed. Longer than the phone's worst
          * case for one request: three server calls of up to 15 s each plus the 1 s·2 s retry gaps.

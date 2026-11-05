@@ -98,4 +98,11 @@ class RunStatusDisplayTest {
         assertEquals("심박수 152", v.heartRate.text.description)
         assertFalse(view().serverLost)
     }
+
+    // S15P31E105-445: the running face says the watch stopped recording, not only the control pages.
+    @Test fun aRunTheWatchNoLongerRecordsSaysSoOnTheRunningFace() {
+        val v = RunStatusDisplay.from(RunSnapshot(RunState.RUNNING, metrics = measured, measurementLost = true))
+        assertTrue(v.measurementLost)
+        assertFalse(view().measurementLost)
+    }
 }
