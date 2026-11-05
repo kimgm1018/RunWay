@@ -201,8 +201,8 @@ python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로
 
 `ai/route_service`의 Dockerfile을 사용하며, 고정 HF revision의 `route_data_v2/`를 받아 DATA_MANIFEST.md의 크기·SHA를 검증한 후 named build context로 전달한다. 기존 `runway-hf-read-token` Credential은 다운로드 단계에만 주입하고, 데이터 묶음은 Git·Jenkins 산출물에 포함하지 않는다.
 
-`infra/jenkins/Jenkinsfile.route`를 AI 에이전트의 수동 Pipeline 작업에서 실행한다. 첫 실행은 DEPLOY를 끄고 빌드·엔진 예열을 확인한다. EC2에는 먼저 `sudo install -d -o 10001 -g 10001 -m 750 /home/ubuntu/runway/data/route-bundles`를 실행한다. 빌드 검증 후 DEPLOY를 켜면 준비 상태와 샘플 코스 생성을 확인하며, 실패 시 이전 이미지로 복구한다. 최초 배포 실패 시에는 실패한 새 컨테이너를 정리한다.
+`infra/jenkins/Jenkinsfile.route`를 AI 에이전트에서 실행한다. 운영 작업의 SCM은 `*/master`, 웹훅은 master Push만 허용한다. master Push는 자동 배포하며 수동 실행은 DEPLOY 선택을 따른다. 실제 배포는 체크아웃한 코드가 master인지도 검사한다. 첫 실행은 DEPLOY를 끄고 빌드·엔진 예열을 확인한다. EC2에는 먼저 `sudo install -d -o 10001 -g 10001 -m 750 /home/ubuntu/runway/data/route-bundles`를 실행한다. 빌드 검증 후 DEPLOY를 켜면 준비 상태와 샘플 코스 생성을 확인하며, 실패 시 이전 이미지로 복구한다. 최초 배포 실패 시에는 실패한 새 컨테이너를 정리한다.
 
-Route는 CPU 1개·메모리 1.5GiB·worker 1개, 읽기 전용 파일시스템과 제한된 /tmp를 사용한다. Numba 캐시는 현재 Dockerfile에서 예열한 `/opt/route/numba_cache`를 따른다. 외부 포트 없이 `runway-route_default` 내부망에서만 접근한다. Route를 먼저 기동하고 백엔드 Compose의 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`과 내부 네트워크 연결을 반영한다.
+Route는 CPU 1개·메모리 1.5GiB·worker 1개, 읽기 전용 파일시스템과 제한된 /tmp를 사용한다. Numba 캐시는 기동 시 이미지의 예열 데이터를 쓰기 가능한 `/tmp/numba_cache`로 복사해 사용한다. 외부 포트 없이 `runway-route_default` 내부망에서만 접근한다. Route를 먼저 기동하고 백엔드 Compose의 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`과 내부 네트워크 연결을 반영한다.
 
 준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다. 요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.

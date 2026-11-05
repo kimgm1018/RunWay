@@ -1,4 +1,4 @@
-// 최초에는 수동 빌드 검증 후 DEPLOY를 켜서 432번 Route 검증 배포를 수행한다.
+// master Push는 자동 배포하고, 수동 실행은 DEPLOY 선택을 따른다.
 pipeline {
     agent { label 'ai' }
     options {
@@ -9,7 +9,7 @@ pipeline {
     }
     parameters {
         booleanParam(name: 'DEPLOY', defaultValue: false,
-            description: 'Route 컨테이너 교체 및 준비·샘플 코스 생성 검사')
+            description: '수동 master 배포. 해제하면 빌드만 수행하며 master Push는 자동 배포')
     }
     environment {
         ROUTE_DATA_ROOT = '/home/ubuntu/runway/data/route-bundles'
@@ -17,9 +17,28 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                deleteDir()
-                checkout scm
                 script {
+                    if (env.gitlabMergeRequestIid) {
+                        error('MR 검사는 runway-ci에서 실행합니다.')
+                    }
+                    def automatic = env.gitlabActionType == 'PUSH'
+                    if (env.gitlabActionType && !automatic) {
+                        error('Route 자동 배포는 Push 이벤트만 허용합니다.')
+                    }
+                    if (automatic && env.gitlabBranch != 'master') {
+                        error('Route 자동 배포는 master Push만 허용합니다.')
+                    }
+                    env.ROUTE_CD_DEPLOY = (automatic || params.DEPLOY) ? 'true' : 'false'
+                    deleteDir()
+                    def checked = checkout scm
+                    if (env.ROUTE_CD_DEPLOY == 'true') {
+                        if (!(checked.GIT_BRANCH in ['master', 'origin/master', 'refs/remotes/origin/master'])) {
+                            error('실제 배포는 SCM에서 master를 선택해야 합니다.')
+                        }
+                        def masterSha = sh(script: 'git rev-parse refs/remotes/origin/master', returnStdout: true).trim()
+                        def headSha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                        if (masterSha != headSha) { error('master 커밋이 아니므로 배포를 중단합니다.') }
+                    }
                     env.ROUTE_BUILD_TAG = env.BUILD_TAG.toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(96)
                     def sha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     if (!(sha ==~ /[0-9a-f]{40}/)) { error('커밋 번호 확인 실패') }
@@ -44,13 +63,13 @@ pipeline {
             }
         }
         stage('Deploy and Verify') {
-            when { expression { params.DEPLOY } }
+            when { expression { env.ROUTE_CD_DEPLOY == 'true' } }
             steps {
                 sh 'bash infra/route/deploy.sh "$ROUTE_IMAGE" infra/route/compose.yaml'
             }
         }
     }
     post {
-        success { echo "Route 이미지: ${env.ROUTE_IMAGE}, 실제 배포: ${params.DEPLOY}" }
+        success { echo "Route 이미지: ${env.ROUTE_IMAGE}, 실제 배포: ${env.ROUTE_CD_DEPLOY}" }
     }
 }
