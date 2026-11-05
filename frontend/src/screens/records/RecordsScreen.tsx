@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   View,
@@ -13,462 +13,490 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, {
-  Defs,
-  Polyline,
-  RadialGradient,
-  Rect,
-  Stop,
-} from 'react-native-svg';
-import {
-  AppText,
-  Backdrop,
-  Card,
-  EmptyState,
-  IconButton,
-} from '../../components';
+import { AppText, EmptyState } from '../../components';
 import {
   useRepositories,
   useResource,
-  type RecordFilter,
   type Repositories,
   type RunRecordSummary,
 } from '../../data';
 import { onRecordsChanged } from '../../data/recordsChanged';
 import {
+  formatClockTime,
   formatDotDateWeekday,
   formatDuration,
-  formatHours,
   formatKm,
-  formatPace,
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import type { RootStackParamList } from '../../navigation/types';
+import type { HomeStackParamList } from '../../navigation/types';
+import { fontFamily, size } from '../../theme';
 import {
-  fontFamily,
-  k1,
-  mistGradient,
-  palette,
-  size,
-  spacing,
-  useTheme,
-} from '../../theme';
-import { MonthStepper, kstMonth, shiftMonth, weekGroups } from './parts';
+  glassCard,
+  MonthPicker,
+  recordsLook,
+  RecordsBackdrop,
+  RoundGlassButton,
+  ScreenTitle,
+} from './look';
+import { addDays, kstDay, kstMonth, mondayOf } from './parts';
+import { RecordView } from './RecordView';
 
-const filters: { value: RecordFilter; label: string }[] = [
-  { value: 'ALL', label: '전체' },
-  { value: 'SOLO', label: '개인' },
-  { value: 'GROUP', label: '그룹런' },
-];
+const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
 
-// A 14% line inside the summary card, read in the card's dark tone.
-function Rule() {
-  const { colors } = useTheme();
-  return <View style={[styles.rule, { backgroundColor: colors.border }]} />;
+// A swipe this far across the week strip moves a week.
+const swipeDistance = 48;
+
+// The newest day with a run in a month (ALL), or null.
+async function newestDayIn(repositories: Repositories, month: string) {
+  const { records } = await repositories.records.getMonth(month, 'ALL');
+  return records[0] ? kstDay(records[0].startedAt) : null;
 }
 
-function Stat({
-  label,
-  value,
-  unit,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-}) {
-  return (
-    <View style={styles.stat}>
-      <AppText style={styles.statValue}>
-        {value}
-        {unit ? (
-          <AppText variant="label" tone="textSecondary">
-            {` ${unit}`}
-          </AppText>
-        ) : null}
-      </AppText>
-      <AppText variant="labelStrong" tone="textSecondary">
-        {label}
-      </AppText>
-    </View>
+// The week's runs, newest first: one or two months of H01.
+async function weekRuns(repositories: Repositories, monday: string) {
+  const months = [...new Set([kstMonth(monday), kstMonth(addDays(monday, 6))])];
+  const lists = await Promise.all(
+    months.map(month => repositories.records.getMonth(month, 'ALL')),
   );
-}
-
-// The run's outline in white on the course-card colors (DESIGN.md 2-8 기록 목록).
-const thumbSize = 52;
-
-function Thumb({ shape }: { shape: [number, number][] }) {
-  const points = shape
-    .map(([x, y]) => `${10 + x * 32},${10 + y * 32}`)
-    .join(' ');
-  return (
-    <View style={styles.thumb}>
-      <Svg width={thumbSize} height={thumbSize}>
-        <Defs>
-          <RadialGradient id="thumb" cx={0.5} cy={0.45} r={0.75}>
-            <Stop offset={0.4} stopColor={k1.night} />
-            <Stop offset={0.8} stopColor={k1.deep} />
-            <Stop offset={1} stopColor={k1.mid} />
-          </RadialGradient>
-        </Defs>
-        <Rect width={thumbSize} height={thumbSize} fill="url(#thumb)" />
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={palette.white}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    </View>
+  // Each run once, even if two months' answers both carry it.
+  const runs = new Map(
+    lists.flatMap(list => list.records).map(record => [record.id, record]),
   );
+  return [...runs.values()]
+    .filter(record => {
+      const day = kstDay(record.startedAt);
+      return day >= monday && day <= addDays(monday, 6);
+    })
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-// Also lists runs on 7.4 · 7.4b.
-export function RecordRow({
-  record,
+function rowLabel(record: RunRecordSummary) {
+  return `${record.title}, ${formatDotDateWeekday(
+    record.startedAt,
+  )} · ${formatDuration(record.durationSec)}, ${formatKm(record.distanceM)}km`;
+}
+
+// One day of the strip: weekday, date and a dot under a day with a run. The chosen day is a white tile.
+function Day({
+  day,
+  weekday,
+  hasRun,
+  selected,
+  disabled,
   onPress,
 }: {
-  record: RunRecordSummary;
+  day: string;
+  weekday: string;
+  hasRun: boolean;
+  selected: boolean;
+  disabled: boolean;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
-  const missed = record.goalAchieved === false;
-  const detail = record.group
-    ? `${formatDotDateWeekday(record.startedAt)} · ${record.group.crewName} · ${
-        record.group.finisherCount
-      }명 완주`
-    : `${formatDotDateWeekday(record.startedAt)} · ${formatDuration(
-        record.durationSec,
-      )}`;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${record.title}, ${detail}, ${formatKm(
-        record.distanceM,
-      )}km`}
+      accessibilityLabel={`${Number(day.slice(5, 7))}월 ${Number(
+        day.slice(8),
+      )}일`}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={[styles.day, selected && styles.dayOn]}
     >
-      <Thumb shape={record.shape} />
-      <View style={styles.rowText}>
-        <View style={styles.titleLine}>
-          <AppText style={[styles.flex, styles.rowTitle]}>
-            {record.title}
-          </AppText>
-          {record.runType === 'GROUP' ? (
-            <View
-              style={[styles.badge, { backgroundColor: colors.surfaceMuted }]}
-            >
-              <AppText variant="labelStrong">그룹런</AppText>
-            </View>
-          ) : null}
-        </View>
-        <AppText variant="caption" tone="textSecondary">
-          {detail}
-        </AppText>
-      </View>
-      <View style={styles.rowValue}>
-        <AppText style={styles.distance}>
-          {formatKm(record.distanceM)}
-          <AppText variant="label" tone="textSecondary">
-            km
-          </AppText>
-        </AppText>
-        {/* A pace slower than the goal turns coral (DESIGN.md 2-8). */}
-        <AppText
-          style={[
-            styles.rowPace,
-            { color: missed ? colors.danger : colors.textSecondary },
-          ]}
-        >
-          {formatPace(record.averagePaceSecPerKm)}
-        </AppText>
-      </View>
+      <AppText
+        style={[
+          styles.weekday,
+          selected && styles.weekdayOn,
+          disabled && styles.future,
+        ]}
+      >
+        {weekday}
+      </AppText>
+      <AppText
+        style={[
+          styles.date,
+          selected && styles.dateOn,
+          disabled && styles.future,
+        ]}
+      >
+        {String(Number(day.slice(8)))}
+      </AppText>
+      <View style={[styles.dot, hasRun && styles.dotOn]} />
     </Pressable>
   );
 }
 
-// 5.1 전체 기록: the month's totals on a vignette card, then its runs by week on dark glass cards.
+// 5.1 내 기록 (runway-records): a week of days, then the chosen day's run on a glass card. A swipe across the
+// week moves a week, and the calendar button opens the month picker. The card opens 5.2 (6.7 for a group
+// run).
 export function RecordsScreen() {
   const navigation = useNavigation();
-  const route = useRoute<RouteProp<RootStackParamList, 'Records'>>();
-  const { colors } = useTheme();
+  const route = useRoute<RouteProp<HomeStackParamList, 'Records'>>();
   const insets = useSafeAreaInsets();
   const { clock } = useRepositories();
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const thisMonth = kstMonth(clock.now());
-  const [month, setMonth] = useState(route.params?.month ?? thisMonth);
-  const [filter, setFilter] = useState<RecordFilter>('ALL');
-  const data = useResource(
+  const today = kstDay(clock.now());
+  const [day, setDay] = useState<string | null>(route.params?.day ?? null);
+  const [runIndex, setRunIndex] = useState(0);
+  const [picking, setPicking] = useState(false);
+  const [pickerYear, setPickerYear] = useState(Number(today.slice(0, 4)));
+
+  // Opened without a day: the newest day with a run (this month or the last), or today.
+  const start = useResource(
     useCallback(
-      (repositories: Repositories) =>
-        repositories.records.getMonth(month, filter),
-      [month, filter],
+      async (repositories: Repositories) =>
+        (await newestDayIn(repositories, kstMonth(today))) ??
+        (await repositories.records.getRecent('recent', 1)).map(record =>
+          kstDay(record.startedAt),
+        )[0] ??
+        today,
+      [today],
     ),
   );
-  const records = data.status === 'ready' ? data.data : null;
-  // A run deleted on 5.2 leaves the month list (S15P31E105-394).
-  const refreshMonth = data.refresh;
+  const shown = day ?? (start.status === 'ready' ? start.data : null);
+  const monday = shown ? mondayOf(shown) : null;
+
+  const week = useResource(
+    useCallback(
+      async (repositories: Repositories) =>
+        monday ? weekRuns(repositories, monday) : [],
+      [monday],
+    ),
+  );
+  const runs =
+    week.status === 'ready' && shown
+      ? week.data.filter(record => kstDay(record.startedAt) === shown)
+      : [];
+  const run = runs[Math.min(runIndex, runs.length - 1)] ?? null;
+  const detail = useResource(
+    useCallback(
+      async (repositories: Repositories) =>
+        run ? repositories.records.getDetail(run.id) : null,
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [run?.id],
+    ),
+  );
+  // A run deleted on 5.2 leaves the week (S15P31E105-394).
+  const refreshWeek = week.refresh;
   useEffect(
     () =>
       onRecordsChanged(() => {
-        void refreshMonth();
+        void refreshWeek();
       }),
-    [refreshMonth],
+    [refreshWeek],
+  );
+
+  const marks = useResource(
+    useCallback(
+      async (repositories: Repositories) => {
+        const stats = await repositories.records.getStatistics(
+          'YEAR',
+          `${pickerYear}-01-01`,
+        );
+        return new Set(
+          stats.breakdown.flatMap((distance, index) =>
+            distance > 0
+              ? [`${pickerYear}-${String(index + 1).padStart(2, '0')}`]
+              : [],
+          ),
+        );
+      },
+      [pickerYear],
+    ),
+  );
+  const choose = (next: string) => {
+    setDay(next);
+    setRunIndex(0);
+  };
+  const repositories = useRepositories();
+  const pick = async (month: string) => {
+    setPicking(false);
+    const newest = await newestDayIn(repositories, month).catch(() => null);
+    choose(newest ?? (month === kstMonth(today) ? today : `${month}-01`));
+  };
+
+  const touchX = useRef<number | null>(null);
+  const swipe = (dx: number) => {
+    if (!shown || !monday) {
+      return;
+    }
+    const step = dx < 0 ? 7 : -7;
+    const nextMonday = addDays(monday, step);
+    if (nextMonday > mondayOf(today)) {
+      return;
+    }
+    const next = addDays(shown, step);
+    choose(next > today ? today : next);
+  };
+
+  const open = () => {
+    if (!run) {
+      return;
+    }
+    if (run.runType === 'GROUP') {
+      navigateTo(navigation, 'GroupRunResult');
+    } else {
+      navigation.navigate('RecordDetail', { recordId: run.id });
+    }
+  };
+
+  const days = monday
+    ? weekdays.map((weekday, index) => ({
+        weekday,
+        day: addDays(monday, index),
+      }))
+    : [];
+  const runDays = new Set(
+    week.status === 'ready'
+      ? week.data.map(record => kstDay(record.startedAt))
+      : [],
   );
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <Animated.ScrollView
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      <RecordsBackdrop />
+      <ScrollView
         contentContainerStyle={[
-          styles.content,
+          styles.scroll,
           {
-            paddingTop: insets.top + size.header + spacing.xl,
-            paddingBottom: insets.bottom + spacing.xxxl,
+            paddingTop: insets.top + 10,
+            paddingBottom:
+              insets.bottom + size.tabBar + size.tabBarInset * 2 + 12,
           },
         ]}
-        scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true },
-        )}
+        showsVerticalScrollIndicator={false}
       >
-        <Card variant="vignette" style={styles.summary}>
-          <View style={styles.monthRow}>
-            <MonthStepper
-              label={`${month.slice(0, 4)}년 ${Number(month.slice(5))}월`}
-              onPrevious={() => setMonth(shiftMonth(month, -1))}
-              onNext={
-                month < thisMonth
-                  ? () => setMonth(shiftMonth(month, 1))
-                  : undefined
-              }
-            />
-            {records ? (
-              <AppText variant="caption" tone="textSecondary">
-                {`${records.summary.runCount}회 러닝`}
-              </AppText>
-            ) : null}
-          </View>
-          <Rule />
-          <View style={styles.stats}>
-            <Stat
-              label="총 거리"
-              value={
-                records ? formatKm(records.summary.totalDistanceM, 1) : '– –'
-              }
-              unit="km"
-            />
-            <Stat
-              label="총 시간"
-              value={
-                records ? formatHours(records.summary.totalDurationSec) : '– –'
-              }
-            />
-            <Stat
-              label="평균 페이스"
-              value={
-                records?.summary.averagePaceSecPerKm
-                  ? formatPace(records.summary.averagePaceSecPerKm)
-                  : '– –'
-              }
-            />
-          </View>
-        </Card>
-        <View style={styles.filters}>
-          {filters.map(option => {
-            const selected = option.value === filter;
-            return (
-              <Pressable
-                key={option.value}
-                accessibilityRole="radio"
-                accessibilityLabel={option.label}
-                accessibilityState={{ selected }}
-                onPress={() => setFilter(option.value)}
-                style={[
-                  styles.chip,
-                  selected
-                    ? {
-                        backgroundColor: colors.accent,
-                        borderColor: colors.accent,
-                      }
-                    : { borderColor: colors.borderStrong },
-                ]}
-              >
-                <AppText
-                  variant="captionStrong"
-                  style={{ color: selected ? colors.onAccent : colors.text }}
-                >
-                  {option.label}
-                </AppText>
-              </Pressable>
-            );
-          })}
-        </View>
-        {data.status === 'loading' ? (
-          <ActivityIndicator style={styles.loading} />
-        ) : data.status === 'error' ? (
-          <EmptyState
-            icon="alert"
-            title="기록을 불러오지 못했어요"
-            actionLabel="다시 시도"
-            onAction={data.reload}
-          />
-        ) : records && records.records.length === 0 ? (
-          <EmptyState
-            title={
-              filter === 'GROUP'
-                ? '이 달에는 그룹런 기록이 없어요'
-                : '이 달에는 기록이 없어요'
+        <View style={styles.head}>
+          <ScreenTitle
+            title="내 기록"
+            right={
+              <RoundGlassButton
+                icon="calendar"
+                label="월 선택"
+                onPress={() => {
+                  setPickerYear(Number((shown ?? today).slice(0, 4)));
+                  setPicking(shownNow => !shownNow);
+                }}
+              />
             }
-            description="러닝을 마치면 여기에 쌓여요."
           />
-        ) : (
-          weekGroups(records?.records ?? [], clock.now()).map(group => (
-            <View key={group.label} style={styles.group}>
-              {/* The background stays put while the list scrolls, so the label rides on a light
-                  see-through pill to stay readable over the black lower part. */}
-              <View
-                style={[styles.groupLabel, { backgroundColor: colors.glass }]}
-              >
-                <AppText variant="captionStrong" tone="textSecondary">
-                  {group.label}
-                </AppText>
-              </View>
-              <Card variant="deep" style={styles.card}>
-                {group.records.map((record, index) => (
-                  <View key={record.id}>
-                    {index > 0 ? <Rule /> : null}
-                    <RecordRow
-                      record={record}
-                      onPress={() =>
-                        record.runType === 'GROUP'
-                          ? navigateTo(navigation, 'GroupRunResult')
-                          : navigation.navigate('RecordDetail', {
-                              recordId: record.id,
-                            })
-                      }
-                    />
-                  </View>
-                ))}
-              </Card>
+        </View>
+        <View
+          style={[styles.week, glassCard]}
+          onTouchStart={event => {
+            touchX.current = event.nativeEvent.pageX;
+          }}
+          onTouchEnd={event => {
+            const from = touchX.current;
+            touchX.current = null;
+            if (from !== null) {
+              const dx = event.nativeEvent.pageX - from;
+              if (Math.abs(dx) > swipeDistance) {
+                swipe(dx);
+              }
+            }
+          }}
+        >
+          {days.map(({ weekday, day: date }) => (
+            <Day
+              key={date}
+              day={date}
+              weekday={weekday}
+              hasRun={runDays.has(date)}
+              selected={date === shown}
+              disabled={date > today}
+              onPress={() => choose(date)}
+            />
+          ))}
+        </View>
+        <View style={[styles.card, glassCard]}>
+          {start.status === 'error' || week.status === 'error' ? (
+            <EmptyState
+              icon="alert"
+              title="기록을 불러오지 못했어요"
+              actionLabel="다시 시도"
+              onAction={() => {
+                start.reload();
+                week.reload();
+              }}
+            />
+          ) : !shown || week.status !== 'ready' ? (
+            <ActivityIndicator style={styles.loading} />
+          ) : !run ? (
+            <View style={styles.empty}>
+              <AppText style={styles.emptyTitle}>
+                이 날은 러닝 기록이 없어요
+              </AppText>
+              <AppText style={styles.emptyText}>
+                점이 있는 날을 눌러 보세요
+              </AppText>
             </View>
-          ))
-        )}
-      </Animated.ScrollView>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        {/* As soon as the list moves under it, the header gets a solid background: the top of the mist
-            background, so it does not show as a white band. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.headerFill,
-            {
-              backgroundColor: mistGradient.colors[0],
-              opacity: scrollY.interpolate({
-                inputRange: [0, spacing.xxxl],
-                outputRange: [0, 1],
-                extrapolate: 'clamp',
-              }),
-            },
-          ]}
-        />
-        <IconButton
-          icon="back"
-          accessibilityLabel="뒤로"
-          onPress={() => navigation.goBack()}
-        />
-        <AppText style={styles.title} accessibilityRole="header">
-          내 기록
-        </AppText>
-      </View>
+          ) : (
+            <>
+              {runs.length > 1 ? (
+                // Two runs on one day: pick which one the card shows.
+                <View style={styles.runs}>
+                  {runs.map((item, index) => (
+                    <Pressable
+                      key={item.id}
+                      accessibilityRole="tab"
+                      accessibilityLabel={`${formatClockTime(
+                        item.startedAt,
+                      )} 러닝`}
+                      accessibilityState={{ selected: item.id === run.id }}
+                      onPress={() => setRunIndex(index)}
+                      style={[
+                        styles.runChip,
+                        item.id === run.id && styles.runChipOn,
+                      ]}
+                    >
+                      <AppText
+                        style={[
+                          styles.runChipText,
+                          item.id === run.id && styles.runChipTextOn,
+                        ]}
+                      >
+                        {`${formatClockTime(item.startedAt)} · ${formatKm(
+                          item.distanceM,
+                        )}km`}
+                      </AppText>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              {detail.status === 'ready' && detail.data ? (
+                <RecordView
+                  key={detail.data.id}
+                  record={detail.data}
+                  chartHeight={300}
+                  onOpen={open}
+                  openLabel={rowLabel(run)}
+                />
+              ) : detail.status === 'error' ? (
+                <EmptyState
+                  icon="alert"
+                  title="기록을 불러오지 못했어요"
+                  actionLabel="다시 시도"
+                  onAction={detail.reload}
+                />
+              ) : (
+                <ActivityIndicator style={styles.loading} />
+              )}
+            </>
+          )}
+        </View>
+      </ScrollView>
+      {picking ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="월 선택 닫기"
+            onPress={() => setPicking(false)}
+            style={styles.scrim}
+          />
+          <MonthPicker
+            year={pickerYear}
+            selected={kstMonth(shown ?? today)}
+            latest={kstMonth(today)}
+            marked={marks.status === 'ready' ? marks.data : new Set()}
+            onYear={setPickerYear}
+            onPick={month => {
+              pick(month).catch(() => undefined);
+            }}
+            style={{ ...styles.picker, top: insets.top + 70 }}
+          />
+        </>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  flex: { flex: 1 },
-  content: { paddingHorizontal: 14, gap: spacing.lg },
-  header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: undefined,
+  root: { flex: 1, backgroundColor: '#D7E1E7' },
+  scroll: { gap: 12 },
+  head: { paddingHorizontal: recordsLook.side },
+  week: {
+    marginHorizontal: 12,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingHorizontal: spacing.screen,
-    paddingBottom: spacing.md,
+    gap: 4,
+    padding: 8,
+    borderRadius: 22,
   },
-  headerFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  title: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
-  summary: { gap: spacing.lg },
-  monthRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rule: { height: 1 },
-  stats: { flexDirection: 'row' },
-  stat: { flex: 1, gap: 2 },
-  // Big numbers stay Barlow Regular at the sheet's 30.
-  statValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 30,
-    lineHeight: 36,
-  },
-  filters: { flexDirection: 'row', gap: spacing.md },
-  chip: {
-    height: 38,
-    paddingHorizontal: spacing.xxl,
-    borderRadius: 999,
-    borderWidth: 1,
+  day: {
+    flex: 1,
+    height: 58,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 3,
   },
-  loading: { marginTop: spacing.xxxl },
-  group: { gap: spacing.md },
-  groupLabel: {
-    alignSelf: 'flex-start',
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xxs,
-    borderRadius: 999,
+  dayOn: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    boxShadow:
+      '0 4px 12px rgba(9,17,26,0.08), inset 0 1px 0 rgba(255,255,255,0.9)',
   },
-  card: { paddingVertical: 6, gap: 0 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.lg,
+  weekday: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
+    lineHeight: 14,
+    color: recordsLook.muted,
   },
-  pressed: { opacity: 0.7 },
-  thumb: {
-    width: thumbSize,
-    height: thumbSize,
-    borderRadius: 15,
-    overflow: 'hidden',
+  weekdayOn: { color: recordsLook.ink },
+  date: {
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
+    lineHeight: 20,
+    color: recordsLook.sub,
   },
-  rowText: { flex: 1, gap: spacing.xxs },
-  titleLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  rowTitle: { fontFamily: fontFamily.medium, fontSize: 15, lineHeight: 21 },
-  badge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xxs,
-    borderRadius: 999,
+  dateOn: { fontFamily: fontFamily.bold, color: recordsLook.ink },
+  future: { opacity: 0.45 },
+  dot: { width: 4, height: 4, borderRadius: 2 },
+  dotOn: { backgroundColor: recordsLook.ink },
+  card: {
+    marginHorizontal: 12,
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 22,
+    minHeight: 480,
   },
-  rowValue: { alignItems: 'flex-end', gap: 2 },
-  distance: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 26,
-    lineHeight: 30,
+  loading: { marginTop: 120 },
+  empty: { marginTop: 150, alignItems: 'center', gap: 6 },
+  emptyTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: recordsLook.ink,
   },
-  rowPace: { fontFamily: fontFamily.numberMedium, fontSize: 13 },
+  emptyText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: recordsLook.sub,
+  },
+  runs: { flexDirection: 'row', gap: 6, marginBottom: 14 },
+  runChip: {
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.42)',
+  },
+  runChipOn: { backgroundColor: recordsLook.ink },
+  runChipText: {
+    fontFamily: fontFamily.monoMedium,
+    fontSize: 11,
+    lineHeight: 14,
+    color: recordsLook.sub,
+  },
+  runChipTextOn: { color: '#FFFFFF' },
+  scrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(9,17,26,0.18)',
+  },
+  picker: { position: 'absolute', left: 24, right: 24 },
 });

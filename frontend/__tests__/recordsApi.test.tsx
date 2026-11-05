@@ -241,58 +241,50 @@ test('2.1 shows my recent runs from the server', async () => {
   await act(async () => screen.unmount());
 });
 
-test('5.1 lists the month from the server and 5.2 opens a run with its splits', async () => {
+test('5.1 shows the newest day from the server and 5.2 opens a run with its splits', async () => {
   serve();
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
+  // Sunday 11.01 has two runs; the card shows one at a time.
+  await press(screen, '07:10 러닝');
   let page = texts(screen);
   for (const text of [
-    '2026년 11월',
-    '2회 러닝',
-    '11.0',
-    '5′59″',
-    '11.01 일 · 30:00',
-    '저녁 러닝 그룹런 11.01 일 · 36:00',
-  ]) {
-    expect(page).toContain(text);
-  }
-
-  await press(screen, '아침 러닝, 11.01 일 · 30:00, 5.02km');
-  page = texts(screen);
-  for (const text of [
-    '11.01 일 러닝',
+    '내 기록',
+    '5′58″',
     '5.02',
     '29:55',
-    '5′58″/km',
     '목표 30:00 달성 · 5초 단축',
     '페이스',
     '심박',
   ]) {
     expect(page).toContain(text);
   }
-  // No route or AI advice comes from the server yet.
+
+  await press(screen, '아침 러닝, 11.01 일 · 30:00, 5.02km');
+  page = texts(screen);
+  for (const text of ['기록 상세', '5.02', '29:55', '5′58″']) {
+    expect(page).toContain(text);
+  }
   expect(page).not.toContain('AI 조언');
   await act(async () => screen.unmount());
 });
 
-test('5.3 shows the server statistics, pace trend and last month', async () => {
+test('5.3 sums the server runs and compares them with H06 last month', async () => {
   serve();
   const screen = await launch();
   await press(screen, '러닝 분석');
   const page = texts(screen);
   for (const text of [
-    '2026년 11월',
-    '11.0',
+    '11월 ▾',
+    '11.1 · 11.0km',
+    '10월 4.0km',
+    '11.1 – 11.1',
     '5′59″',
-    '평균 페이스 추이',
-    '지난달과 비교',
-    '10월',
-    '1회',
-    '+1회',
-    '4.0km',
+    '12초 빠름',
+    '11.0',
     '+7.0km',
-    '6′11″',
-    '12초 단축',
+    '+1회',
+    '11월 누적',
   ]) {
     expect(page).toContain(text);
   }
@@ -303,7 +295,7 @@ test('without any runs 5.1 and 5.3 show their empty states', async () => {
   serve(false);
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
-  expect(texts(screen)).toContain('이 달에는 기록이 없어요');
+  expect(texts(screen)).toContain('이 날은 러닝 기록이 없어요');
   await act(async () => screen.unmount());
 
   const analysis = await launch();

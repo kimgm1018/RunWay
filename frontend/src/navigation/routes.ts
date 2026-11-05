@@ -33,6 +33,8 @@ export const authRoutes = [
 ] as const;
 
 export const runTabRoutes = ['RunMode', 'FreeRun', 'CourseRun'] as const;
+// 5.1 · 5.3 sit in the home tab, under its tab bar (runway-records, S15P31E105-465).
+export const homeTabRoutes = ['Records', 'Analysis'] as const;
 export const groupTabRoutes = ['MyCrews', 'CrewRecruit'] as const;
 
 // Screens pushed over the tabs. The prototype hides the tab bar on all of them.
@@ -46,9 +48,7 @@ export const mainRoutes = [
   'RunProgress',
   'RunPause',
   'RunResult',
-  'Records',
   'RecordDetail',
-  'Analysis',
   'GroupRunDetail',
   'WaitingRoom',
   'GroupRunProgress',
@@ -76,12 +76,14 @@ export const mainRoutes = [
 
 export type AuthRouteName = (typeof authRoutes)[number];
 export type RunTabRouteName = (typeof runTabRoutes)[number];
+export type HomeTabRouteName = (typeof homeTabRoutes)[number];
 export type GroupTabRouteName = (typeof groupTabRoutes)[number];
 export type MainRouteName = (typeof mainRoutes)[number];
 export type RouteName =
   | AuthRouteName
   | MainRouteName
   | RunTabRouteName
+  | HomeTabRouteName
   | GroupTabRouteName
   | 'Home'
   | 'Community';
@@ -271,12 +273,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '5.3',
     title: '러닝 분석',
     task: RECORD,
+    tab: 'HomeTab',
     links: ['Records'],
   },
   Records: {
     code: '5.1',
     title: '전체 기록',
     task: RECORD,
+    tab: 'HomeTab',
     links: ['RecordDetail', 'GroupRunResult'],
   },
   RecordDetail: {
