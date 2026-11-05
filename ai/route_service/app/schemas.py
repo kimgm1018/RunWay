@@ -9,6 +9,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+SEED_MAX = 10_000_000   # seed 허용 상한. next_seed는 이를 넘으면 1부터 다시 센다(app/main.py next_seed)
+
 
 class Filters(BaseModel):
     """켜면 그 조건을 반영(강도 5), 끄면 고려하지 않는다(반대 뜻 아님). 난이도는 flat 하나뿐이다. 모르는 key는 400."""
@@ -33,7 +35,7 @@ class RecommendRequest(BaseModel):
     lon: float = Field(ge=-180, le=180)
     distance_km: float
     filters: Filters = Field(default_factory=Filters)
-    seed: int = Field(1, ge=1, le=10_000_000)
+    seed: int = Field(1, ge=1, le=SEED_MAX)
     shape: Literal["loop", "out_and_back", "point_to_point"] = "loop"
     end_lat: Optional[float] = Field(None, ge=-90, le=90)     # point_to_point일 때만 필수
     end_lon: Optional[float] = Field(None, ge=-180, le=180)

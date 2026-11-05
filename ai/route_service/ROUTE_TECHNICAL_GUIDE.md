@@ -48,7 +48,7 @@
 - **생성 tolerance:** canonical LOOP는 각 attempt에서 오차가 `ITER_STOP` 3 % 이내가 될 때까지 최대 6번 원 크기를 조정한다. P2P도 `iter_stop` 0.03, `max_iter` 6이다. 최종 유효성은 ±10 %다.
 
 ### 2.3 Snap
-- **시작점:** 가장 가까운 RUNNABLE node를 고른다. main component(가장 긴 연결망)가 아니면 가장 가까운 main node로 옮긴다(`shift_to_main_m`). 250 m를 넘게 떨어지면 app이 `NO_ROAD_NEARBY`로 거절한다 (`snap.start`, `app/main.MAX_SNAP_M`).
+- **시작점:** 가장 가까운 RUNNABLE node를 고른다. main component(가장 긴 연결망)가 아니면 가장 가까운 main node로 옮긴다(`shift_to_main_m`). 요청 위치에서 **실제 출발 node(옮긴 뒤)**까지 250 m를 넘으면 app이 `NO_ROAD_NEARBY`로 거절하고, Gate의 출발 거리 규칙도 같은 값을 쓴다 (`snap.start`, `snap.start_distance_m`, `app/main.MAX_SNAP_M`; 441 전에는 옮기기 전 거리).
 - **P2P 도착점:** main component node 중 250 m(PE1) 이내를 가까운 순서로 본다.
   - PE4: 금지 edge(trunk/motorway(+link), EXCLUDED/UNCERTAIN, 도로 터널)에 붙은 node는 건너뛴다.
   - PE5: 사용자 점 → node 직선이 차단 도로나 강·물·해안을 건너면 건너뛴다(도착 node가 다리 위면 예외 처리, `end_node_on_bridge`).
@@ -354,12 +354,14 @@ edge 하나의 배수:
 | 부산 OSM extract | 요청 graph, 분류, P2P substrate | **runtime 입력** |
 | 전국 OSM PBF (Geofabrik south-korea-261020) | 부산 extract의 원본, 전국 grid index와 GPX 분석용 전국 network의 원본 | runtime 입력 아님(데이터 생성 원본) |
 | DEM (Copernicus GLO-30 clip) | 고도 feature, "평지" 점수 | **runtime 입력** |
-| environment layer (Overpass, 6 class) | 강·해변·공원 비율, 선호 점수, PE5 차단 | **runtime 입력** |
+| environment layer (6 class; v2는 Geofabrik PBF, v1은 Overpass) | 강·해변·공원 비율, 선호 점수, PE5 차단 | **runtime 입력** |
 | env edge cache | 환경 거리 사전 계산(속도만, 결과 동일) | **runtime 입력**(없으면 직접 계산) |
 | GPX 231개 (팀 공유 ZIP) | 가중치 **검증·연구 자료**(23절). 추천 요청 처리에 쓰지 않음 | **아님.** `raw_redistribution` 금지, `analysis_permission` UNKNOWN: 팀 내부 분석만. 원본·형상 공개·데모 금지 |
 | 전국 1 km grid index | 전국 확장 준비(21절) | **아님(생성·검증 완료 / 미연결)** |
 
-**analysis/ 의존.** 엔진이 실행 중 import하는 모듈은 다섯 개다(`ai/route_service/analysis/`). 381에서 서비스로 옮기며 쓰지 않는 조사·리포트 명령은 지웠다. `runway_walk_filter.py`는 파일 sha256이 Gate 로그에 기록되므로 그대로 둔다.
+**analysis/ 의존.** 엔진이 실행 중 import하는 모듈은 다섯 개다(`ai/route_service/analysis/`).
+- 381에서 `osm_walk_inspect.py`의 자체 조사 명령을 지웠고, 441에서 `runway_route_generator.py`의 옛 PoC 명령(`load_graph`, `generate`, `run`, `compare`, `main`과 CSV·GeoJSON·지도 리포트)을 지웠다. 그 명령은 bundle에 없는 3 km 조사 graph를 읽었다.
+- `runway_walk_filter.py`에는 조사·지도·검증 CLI(`apply`, export, verification sample, compare, cases)가 **남아 있다.** 현재 bundle만으로는 실행되지 않는 보존된 과거 도구다. 파일 sha256이 Gate 기록에 들어가므로(`gate_version.classify_file_sha256`) 한 바이트도 바꾸지 않는다. 같은 이유로 이 파일이 import하는 `folium`도 requirements에 남는다.
 
 | 모듈 | 쓰는 것 |
 |---|---|
@@ -378,12 +380,13 @@ edge 하나의 배수:
 
 **DEM:** node 고도를 쌍선형 보간으로 표본하고, 고도 feature(상승·하강, 평균·최대 경사, 가파른 구간 비율, profile)를 계산한다. "평지" 선호의 점수 항이 avg_grade_pct를 쓴다. DEM이 없거나 경로가 DEM 밖이면 그 feature만 없다.
 
-**데이터 재생성:** `tools/data/`(`fetch_env_layer.py`, `fetch_dem.py`, `build_env_cache.py`. 순서와 명령은 그 폴더 README). 부산 extract는 `analysis/runway_busan_graph.py extract`.
+**데이터 재생성:** 부산 extract는 `analysis/runway_busan_graph.py extract`, env edge cache는 `tools/data/build_env_cache.py`. bundle v2의 env layer·DEM은 저장소 밖 스크립트(`RunWay_data/route_busan_full_data_2026-11-04/scripts/`)로 만들었다. 순서·명령·주의는 [tools/data/README.md](tools/data/README.md). v1 데모 지역만 만들던 `fetch_env_layer.py`·`fetch_dem.py`는 441에서 삭제했다(git 기록에 남음).
 
 **env edge cache:**
 - 존재 이유: 요청 graph마다 수십만 edge의 환경 거리(STRtree nearest)를 계산하면 cold가 크게 느려진다. 그래서 extract 전체를 미리 계산해 둔다.
 - **source hash가 중요한 이유:** cache의 숫자는 `data.edge_distances` 코드가 만든 값이다. 코드와 숫자가 어긋나면 환경 feature가 조용히 틀린다.
-- invalid 조건: cache version, extract sha, env layer 이름/sha, `edge_distances` 소스 + ENV_CLASSES + version hash 중 하나라도 다를 때. 이때 같은 값을 직접 계산한다(결과 같음, 느림). `/api/status`의 `env_cache.valid`로 확인한다.
+- invalid 조건: cache version, extract sha(EXTRACT.json에 적힌 값과 **실제 PBF 파일의 sha256** 둘 다), env layer 이름/sha, `edge_distances` 소스 + ENV_CLASSES + version hash, 기록된 배열 파일 크기·sha256, 배열 dtype·모양 중 하나라도 다르거나, provenance·npz가 깨져 읽지 못할 때(441). 이때 같은 값을 직접 계산한다(결과 같음, 느림).
+- 확인: `RoutePipeline.status()["env_cache"]`(`valid`, 아니면 `reason`), `python -B tools/data/build_env_cache.py info`, 회귀 capture의 `status_start.json`. 서비스 HTTP에는 이것을 보여 주는 경로가 없다(`/internal/v1/ready`에는 env_cache가 없음. 예전 데모의 `/api/status`는 서비스에 없다).
 
 ## 16. Cache
 
@@ -404,8 +407,14 @@ edge 하나의 배수:
 
 **쉽게:** 결과는 한 글자도 바꾸지 않고, 같은 계산을 반복하지 않거나 더 싼 방법으로 같은 답을 내도록 바꿨다.
 
-### 17.1 현재 production 지연 (2026-10-29 측정, `bench.py`, cold 4회 / warm 4회 p50, 초)
+### 17.1 2026-10-29 시점 지연 (옛 측정 환경, `bench.py`, cold 4회 / warm 4회 p50, 초)
 cold = graph cache를 비운 첫 요청, warm = 같은 요청 반복. 같은 프로세스 안에서 측정했으며 EcoQoS를 해제했다.
+
+> **이 절(17.1~17.3)은 2026-10-29 코드의 기록이다. 지금 경로와 다르다.** 그 뒤 최단 경로는 Numba D-exact(`shortest_path.py`의
+> `RUNWAY_SP_ENGINE=numba` 기본), LOOP·OAB·P2P 생성 disk는 배열 graph(`array_graph.py`, `RUNWAY_ARRAY_LOOP`/`RUNWAY_ARRAY_SHAPES`),
+> 요청 graph는 쓰이지 않는 CSR/components/KD-tree를 만들지 않는 lean 경로(`graph.py` `RUNWAY_ADAPTER_LEAN_ROUTING` 기본 1), OAB
+> 반환점 길이는 트리 길이 재사용(`candidates.py`)으로 바뀌었다. 아래 "Python D-exact", "networkx generation disk",
+> "미사용 CSR", "OAB 재합산"은 그 시점의 병목 설명이다. 최신 측정은 `ROUTE_DEVELOPMENT_HISTORY.md`와 각 최적화 보고서를 본다.
 
 | 요청 | cold p50 (max) | warm p50 | cold의 graph 준비 (G+rg / cg env·DEM / 적합도 level) | cold 최단 경로 | 판정 |
 |---|---:|---:|---|---:|---|
@@ -431,9 +440,9 @@ cold = graph cache를 비운 첫 요청, warm = 같은 요청 반복. 같은 프
 | D. Python D-exact (`shortest_path.py` + `graph.RouteCSR`) | networkx가 edge마다 Python callback과 dict 조회 | flat list CSR + networkx 3.7 알고리즘 정확 이식 | 같은 heap counter, 이웃 순서, 연산 순서. leg 단위 parity + golden | 최단 경로 −46~−66 %, LOOP 15 warm 7.21 → 4.00 s, LOOP 10 warm 3.37 → 2.08 s | 여전히 순수 Python. LOOP 15 warm의 80 % |
 | E. P2P substrate (`substrate.py`) | P2P cold마다 8.5 km networkx graph 2개(약 11만 node) 생성 | 시작 시 extract 전체 배열(약 30 MB) + 요청마다 exact numpy mask | 집합 bit 단위 동일, PE5 선 순서 재현, golden + random 30 동일 | P2P 5 cold 8.9 → 1.7 s, P2P 10 cold 17.8 → 6.9 s, graph 준비 13.45 → 3.92 s, 130요청 후 private 메모리 −348 MB | generation disk는 여전히 networkx |
 
-현재(17.1)는 A–E가 모두 들어간 상태다. 이전 수치의 출처: `PERF_REPORT_2026-10-28.md`(A–C), `DEXACT_REPORT_2026-10-28.md`(D), `P2P_PATCH_AND_KR_GRID_REPORT_2026-10-28.md`(E).
+17.1 측정 당시는 A–E가 모두 들어간 상태였다. 이전 수치의 출처: `PERF_REPORT_2026-10-28.md`(A–C), `DEXACT_REPORT_2026-10-28.md`(D), `P2P_PATCH_AND_KR_GRID_REPORT_2026-10-28.md`(E).
 
-### 17.3 남은 병목 (17.1 실측 순위, cold 기준)
+### 17.3 2026-10-29 시점의 병목 (17.1 실측 순위, cold 기준; 1·2·3·6은 이후 배열 graph·Numba·lean·트리 길이 재사용으로 줄었다)
 1. **generation disk graph 생성(G + rg, fast builder, networkx 객체):** LOOP 15 3.2 s, P2P 10 2.4 s, LOOP 10 2.3 s.
 2. **최단 경로(Python D-exact):** LOOP 15 2.6 s(warm에서는 2.75/3.42 s로 1위), P2P 10 1.7 s.
 3. **요청 graph(cg) 구성(adapter, env 조회, DEM):** 0.7–1.1 s. 이 안에 쓰이지 않는 CSR/KD-tree 생성이 포함된다(추정, 분리 측정 안 함).
@@ -443,40 +452,43 @@ cold = graph cache를 비운 첫 요청, warm = 같은 요청 반복. 같은 프
 
 ## 18. Rollback
 
-| 환경변수 | 읽는 곳 | 끄는 것 | 결과 | 성능 |
+**전체 목록(11개)과 읽는 시점·잘못된 값 처리는 [README.md](README.md) 7절이 정본이다.** 아래는 대표 4개의 성능 메모다.
+
+| 환경변수 | 읽는 곳 | 끄는 것 | 결과 | 성능(옛 측정) |
 |---|---|---|---|---|
 | `RUNWAY_P2P_SUBSTRATE=0` | `RoutePipeline.__init__` | substrate → networkx app-max disk | 동일 | P2P cold 10 km 약 7 → 18 s |
 | `RUNWAY_SP_KERNEL=nx` | `shortest_path` import | D-exact → networkx | 동일 | 최단 경로 약 2배 느림 |
 | `RUNWAY_FAST_GRAPH=0` | `app/config.py` → `fast=False` | fast builder → canonical builder | 동일 | cold graph 3–4배 느림 |
 | `RUNWAY_USABILITY_GATE=shadow` | `app/config.py` → `mode` | Gate FAIL 제거 | **달라질 수 있음** (FAIL 경로가 남음) | 거의 없음 |
 
-모두 프로세스 시작 시 한 번 읽으므로, 바꾸면 재시작해야 한다. 주의: `RoutePipeline` 생성자 기본값은 `mode="shadow"`이며, app은 기본 `"enforce"`를 넘긴다.
+모두 프로세스 시작 시 한 번 읽으므로, 바꾸면 재시작해야 한다. on/off 스위치는 `"0"`/`"1"`만 받는다(441, 그 밖의 값은 `ValueError`). 주의: `RoutePipeline` 생성자 기본값은 `mode="shadow"`이며, app은 기본 `"enforce"`를 넘긴다.
 
 ## 19. Golden regression
 
 - **무엇:** 고정 시나리오(`tools/route_regression/scenarios.json`: LOOP/OAB/P2P, 선호, 경계 사례 43개 + debug)의 HTTP 응답, `out` dict, Gate 로그를 저장해 두고, 코드 변경 후 같은 입력의 결과를 바이트 단위로 비교한다(시간 key 제외).
 - **4 모드:** main / `RUNWAY_FAST_GRAPH=0` / `RUNWAY_USABILITY_GATE=shadow` / env cache 무효. 추가로 random P2P 30개(`scenarios_p2p_random.json`).
 - **도구(저장소 안):** `tools/route_regression/`
-  - 한 번에: `python -B tools/route_regression/run_regression.py --tag <name>`
+  - 한 번에: `python -B tools/route_regression/run_regression.py --tag <name> --app demo --demo-dir <demo 사본> --baseline <baseline_v2> --strict` (빠짐없는 명령은 [회귀 README](tools/route_regression/README.md))
   - 저수준: `capture.py --mode <m> --out <dir>`, `compare.py <baseline> <run> [--known known_differences.json]`
-  - 기준(baseline): `tools/route_regression/baseline/{main,fastoff,shadow,noenvcache,random}`(약 30 MB). 2026-10-28 P2P substrate patch 직전 production으로 캡처한 것이며, 덮어쓰지 않는다.
+  - **기준(baseline)은 데이터 묶음별로 다르다.** bundle v2(현재): `baseline_v2/`(2026-11-05, 435) — 모든 모드 `--strict` 0이 합격. bundle v1(옛 데이터): `baseline/`(2026-10-28, P2P substrate patch 직전) — 아래 허용 차이 1건. 둘 다 git 밖이며 덮어쓰지 않는다.
   - rollback 확인: `--env RUNWAY_P2P_SUBSTRATE=0 --strict`, `--env RUNWAY_SP_KERNEL=nx`
-- **허용 차이(known difference) 1건:** shadow 모드 `GS-26 out.json $[0].canonical.graph.from_cache` False → True.
+- **v1 baseline에만 있는 허용 차이(known difference) 1건:** shadow 모드 `GS-26 out.json $[0].canonical.graph.from_cache` False → True.
   - 기능 차이가 아니라 cache side effect다. P2P app-max networkx graph를 더 이상 만들지 않으므로, GS-09가 만든 센텀 graph가 LRU에서 밀려나지 않고 GS-26이 재사용한다.
   - `--known`은 모드, 시나리오, 경로, 값이 정확히 같고 다른 차이가 없을 때만 허용한다.
-- **합격 기준:** functional mismatch 0, known difference 정확히 1.
+- **합격 기준:** v2는 `--strict`로 모든 모드 fails 0. v1은 functional mismatch 0, known difference 정확히 1.
+- 비교기는 시나리오 누락·필수 산출물 누락·`out` key 순서 차이도 실패로 본다(441).
 
 ## 20. 현재 제한사항
 
 V1 이후 개선 방향(교차로 feature, LOOP 15 km cold, 전국 grid 연결, NetworkX 의존 축소, 실제 활동 GPS 재검증)은 `ROUTE_DEVELOPMENT_HISTORY.md`의 "향후 고도화 후보"에 정리했다.
 
 1. **지역:** 부산 extract만 지원한다. 밖이면 OUT_OF_AREA.
-2. **지연:** LOOP 15 km cold, P2P 10 km cold는 여전히 느린 편이다(17절). 원인은 요청마다 만드는 generation disk networkx graph와 Python 최단 경로다.
+2. **지연:** LOOP 15 km cold, P2P 10 km cold는 상대적으로 느린 편이다. 17절은 2026-10-29 기록이며(그때 원인: networkx generation disk graph와 Python 최단 경로), 지금은 배열 graph·Numba로 바뀌었다. 최신 수치는 개발 기록과 최적화 보고서를 본다.
 3. **graph 객체:** 생성 disk, LOOP/OAB, features, Gate가 networkx/pandas 객체를 읽는다. substrate는 P2P snap/d_min만 대체한다.
 4. **단일 처리:** 요청은 lock으로 직렬 처리되며 thread-safe가 아니다. 동시성은 프로세스 수로 늘려야 한다(메모리 약 2.2–2.7 GB/프로세스).
 5. **feature:** 횡단보도·신호 개수 등 node tag feature가 없다(None).
 6. **로컬 서버(Windows):** EcoQoS를 해제하지 않아, 창이 뒤에 있으면 체감이 느릴 수 있다(regression capture는 해제).
-7. **실행되지만 쓰이지 않는 계산:** `CanonicalRoutingGraph._build_routing`의 CSR/component/KD-tree 등(감사 보고서 SUSPICIOUS). 성능 변경이라 남겨 두었다.
+7. **롤백용으로만 남은 계산:** `CanonicalRoutingGraph._build_routing`의 CSR/component/KD-tree 등은 읽는 곳이 없어 lean 경로(기본)에서는 만들지 않는다. `RUNWAY_ADAPTER_LEAN_ROUTING=0` 롤백 때만 만든다. 제거는 정책 결정이다.
 
 ## 21. 전국 확장 구조
 

@@ -16,6 +16,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from runway_routing.env_flags import flag as env_flag
+
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -48,7 +50,7 @@ def load_settings() -> Settings:
         debug=_flag("ROUTE_DEBUG", False),
         warmup=_flag("ROUTE_WARMUP", True),
         gate_mode=gate,
-        fast_graph=os.getenv("RUNWAY_FAST_GRAPH", "1") != "0",
+        fast_graph=env_flag("RUNWAY_FAST_GRAPH"),     # 0/1만 허용(runway_routing/env_flags.py)
         usability_log_dir=Path(log_dir) if log_dir else SERVICE_DIR / "reports" / "_usability_gate_log",
         reroll_exclude=_flag("ROUTE_REROLL_EXCLUDE", True),
         reroll_cache_size=int(os.getenv("ROUTE_REROLL_CACHE_SIZE", "256")),

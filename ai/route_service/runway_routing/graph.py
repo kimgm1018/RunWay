@@ -44,6 +44,7 @@ from shapely.geometry import Point, box
 from shapely.ops import transform
 
 from . import network_store, source_snapshot
+from .env_flags import flag as env_flag
 from .data import ENV_CLASSES, REGIONS, RUNNABLE, UTM_CRS, _Segments, api, edge_distances, edge_flags
 
 busan, rrg = api.busan, api.rrg
@@ -79,8 +80,9 @@ SELF_TEST = ("haeundae", 5000)
 #   RUNWAY_ENV_PREPARED=0          attach_env: inner polygon을 요청마다 만들고 within(segs, inner)
 #   RUNWAY_ADAPTER_LEAN_ROUTING=0  _build_routing: 읽는 곳이 없는 CSR/components/KD-tree도 만든다
 #   RUNWAY_NETWORK_STORE=0         extract를 압축 도로망 view 대신 S1 snapshot(또는 PBF) dict로 들고 있는다(network_store.py)
-ENV_PREPARED = os.environ.get("RUNWAY_ENV_PREPARED", "1") != "0"
-LEAN_ROUTING = os.environ.get("RUNWAY_ADAPTER_LEAN_ROUTING", "1") != "0"
+# 값은 env_flags.flag 규칙: 없으면 1, "0"/"1" 외의 값은 ValueError(import 실패)
+ENV_PREPARED = env_flag("RUNWAY_ENV_PREPARED")
+LEAN_ROUTING = env_flag("RUNWAY_ADAPTER_LEAN_ROUTING")
 
 
 def _s(v):
@@ -551,8 +553,15 @@ class GraphStore:
         self._graphs[key] = cg
         while len(self._graphs) > GRAPH_CACHE_SIZE:
             self._graphs.popitem(last=False)
-        cg.rs_node_dist = traffic_node_distance(cg, d.rs_cfg)
-        cg.rs_levels = edge_levels(cg, cg.rs_node_dist, d.rs_cfg)
+        try:
+            cg.rs_node_dist = traffic_node_distance(cg, d.rs_cfg)
+            cg.rs_levels = edge_levels(cg, cg.rs_node_dist, d.rs_cfg)
+        except BaseException:
+            # 441 R15: 미완성 graph(rs 속성 없음)를 캐시에 남기지 않는다. 성공 경로의 LRU 순서·메모리 정점은 그대로다
+            # (캐시 게시를 계산 뒤로 미루면 계산 동안 graph가 하나 더 살아 있어 정점 메모리가 늘어난다).
+            if self._graphs.get(key) is cg:
+                del self._graphs[key]
+            raise
         return cg
 
 

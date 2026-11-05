@@ -3,10 +3,17 @@
 #
 # The data bundle is NOT in git. Pass it as a named build context (folder with DATA_MANIFEST.md, data/, reports/):
 #   docker build -t runway-route --build-context route_data=<path>/route_data_bundle_v2 ai/route_service
-# The build checks every bundle file against DATA_MANIFEST.md, builds the network store + source snapshot,
-# then starts the engine once (load + warm-up request) so the Numba cache is in the image.
-# Run (read-only root fs; the Gate review log needs a writable /tmp):
+# The build checks the bundle against DATA_MANIFEST.md (every listed file, and no unlisted file), builds the network
+# store + source snapshot, then starts the engine once AS THE RUNTIME USER (uid 10001, code and data read-only:
+# load + warm-up request) so the compiled Numba cache is in the image (/opt/route/numba_cache, a read-only seed).
+# Run (read-only root fs; /tmp must be writable: Gate review log + the Numba cache):
 #   docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-route
+#
+# Numba cache (S15P31E105-441 R2): Numba 0.68 uses a cache directory only if it can write a temporary file there. With
+# no writable candidate (NUMBA_CACHE_DIR, the source __pycache__, the user cache dir) importing the cached kernels
+# raises "cannot cache function ...: no locator available" and the app does not start. So the start command copies the
+# read-only seed to NUMBA_CACHE_DIR=/tmp/numba_cache (a few MB) and Numba reads / writes there. Same kernels, same
+# results. On a CPU unlike the build machine Numba recompiles into /tmp (slower first start only).
 FROM python:3.12.10-slim
 
 # osmium이 사용하는 XML 파서 런타임 라이브러리를 설치한다.
@@ -20,7 +27,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     NUMBA_NUM_THREADS=1 \
-    NUMBA_CACHE_DIR=/opt/route/numba_cache \
+    NUMBA_CACHE_DIR=/tmp/numba_cache \
     RUNWAY_DATA_DIR=/data \
     RUNWAY_GRAPH_CACHE_SIZE=2 \
     RUNWAY_USABILITY_LOG_DIR=/tmp/runway_usability_gate_log \
@@ -43,16 +50,27 @@ COPY app ./app
 # derived data: compact network store + source snapshot (keys = extract + parser/store code + library versions)
 RUN python -B -m runway_routing.network_store build \
  && python -B -m runway_routing.source_snapshot build
-# start the engine once: load + warm-up request, writes the Numba cache; fails the build if the engine is not ready
-RUN python -B -c "from app.config import load_settings; from app.main import Engine, _default_pipeline_factory; \
+
+# from here on code and data are read-only; only the Numba seed directory belongs to the runtime user
+RUN useradd --system --uid 10001 --no-create-home runway \
+ && mkdir -p /opt/route/numba_cache && chown runway:runway /opt/route/numba_cache \
+ && chmod -R a-w /data /app
+# start the engine once as the runtime user: load + warm-up request, writes the Numba cache seed;
+# fails the build if the engine is not ready
+USER runway
+RUN NUMBA_CACHE_DIR=/opt/route/numba_cache python -B -c "from app.config import load_settings; \
+from app.main import Engine, _default_pipeline_factory; \
 e = Engine(load_settings(), _default_pipeline_factory); e.start(); \
 assert e.phase == 'ready', e.error; print('engine ready', e.load_s, e.warmup_s)"
-
-RUN useradd --system --uid 10001 runway \
- && chmod -R a-w /data /opt/route/numba_cache /app
+USER root
+RUN chmod -R a-w /opt/route/numba_cache
 USER runway
 
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=3 \
   CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/internal/v1/ready', timeout=4).status == 200 else 1)"
-CMD ["python", "-B", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Copy the read-only Numba seed into the writable cache dir (u+w: cp keeps the seed's read-only modes), then start
+# (exec: uvicorn is PID 1 and gets the signals). NUMBA_CACHE_DIR is set here on purpose, not taken from the environment:
+# a deployment that passes NUMBA_CACHE_DIR=/opt/route/numba_cache (the read-only seed) would otherwise copy the seed
+# onto itself and fail to start. /tmp must be writable (tmpfs); the seed is about 0.3 MB.
+CMD ["sh", "-c", "export NUMBA_CACHE_DIR=/tmp/numba_cache && mkdir -p \"$NUMBA_CACHE_DIR\" && cp -R /opt/route/numba_cache/. \"$NUMBA_CACHE_DIR\"/ && chmod -R u+w \"$NUMBA_CACHE_DIR\" && exec python -B -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

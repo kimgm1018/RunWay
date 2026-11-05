@@ -1,6 +1,10 @@
 # runway_routing/config: 이 값을 바꾸면 Route의 무엇이 바뀌는가
 
-이 폴더의 모든 key는 production이 실제로 읽는다(`_comment`, `_basis`, `version` 같은 설명 key는 예외). 2026-10-29 cleanup에서 읽히지 않던 key를 지웠다(맨 아래 표). 남은 값은 하나도 바꾸지 않았다.
+이 폴더의 key는 production 코드가 읽는다(`_comment`, `_basis`, `version` 같은 설명 key는 예외). 2026-10-29 cleanup에서 읽히지 않던 key를 지웠다(맨 아래 표). 남은 값은 하나도 바꾸지 않았다.
+**단, 코드가 읽어도 현재 HTTP 서비스에서는 효과가 없는 값이 있다(S15P31E105-441 확인, 동결·해시 대상이라 지우지 않음):**
+- `scoring_config.json` `difficulty_terms`의 `moderate`, `hilly`: scorer는 지원하지만 API는 `filters.flat`(→ `flat`) 또는 없음(→ `any`)만 만든다(`app/main._prefs`). `RoutePipeline.run(prefs=...)`를 직접 부를 때만 쓰인다. 지우는 것은 엔진 인터페이스 축소라 정책 결정이다.
+- `ug-v2.json` `app_target_km_range`, `target_step_km`: 호출되지 않는 `usability_gate.p2p_precheck`만 읽는다. 실제 P2P 최대 거리는 `shape_config.json` `app_km.max`, 0.5 km 올림은 `candidates.distance_rule`이 정한다. ug 파일·`usability_gate.py`는 동결이라 그대로 둔다(`accepted_length_window_of_target`는 Gate 평가에서도 읽으므로 사용 중).
+- `shape_config.json` `attempts`: HTTP 서비스는 `app/main.ATTEMPTS`(24)를 넘기고 `pipeline`이 그 값으로 덮으므로, config만 바꿔서는 HTTP의 시도 수가 바뀌지 않는다. 직접 엔진 호출의 기본값으로만 쓰인다.
 
 | 파일 / key | 읽는 곳 | 바꾸면 바뀌는 것 |
 |---|---|---|
@@ -10,7 +14,7 @@
 | `running_suitability_config.json` `ranking.weight` (0.25) | `pipeline`, `scorer.add_suitability` / `score_shape` | 적합도가 최종 순위에 미치는 크기 |
 | `shape_config.json` `tolerance` (0.10) | `features.shape_pool`, `candidates.distance_rule`, P2P app-max disk, app 17 km precheck | OAB/P2P 유효 거리 창 [0.9T, 1.1T], P2P 최소 목표 km. **LOOP의 ±10 %는 `features.TOLERANCE`와 analysis canonical이 정한다** |
 | `shape_config.json` `app_km.max` (15) | `candidates.distance_rule`, `substrate` / `snap.p2p_endpoints`(app-max disk 반경 8.5 km), app precheck | P2P 앱 범위(OUT_OF_APP_RANGE)와 P2P snap disk 크기 |
-| `shape_config.json` `attempts`, `circuity0`, `iter_stop`, `max_iter`, `reuse_penalty`, `p2p_waypoints` | `candidates.p2p_candidates` (attempts는 OAB도) | OAB/P2P 후보 생성. **LOOP는 analysis canonical 상수를 쓴다** |
+| `shape_config.json` `attempts`, `circuity0`, `iter_stop`, `max_iter`, `reuse_penalty`, `p2p_waypoints` | `candidates.p2p_candidates` (attempts는 OAB도) | OAB/P2P 후보 생성. **LOOP는 analysis canonical 상수를 쓴다.** `attempts`는 직접 엔진 호출 기본값일 뿐 HTTP는 24(위 설명) |
 | `shape_config.json` `oab_window`, `oab_sectors`, `oab_turnaround_min_degree` | `candidates.oab_candidates` | 왕복 반환점 후보 |
 | `shape_config.json` `snap_max_m` (250) | `app/main._p2p_out_of_range_m`만 | P2P 17.0 km 사전 거절선 = (1 + tolerance) × app max + 2 × snap_max_m. **이름과 달리 실제 snap 반경이 아니다.** 도착지 snap은 ug-v2 PE1(250 m)을 쓴다 |
 | `ug-v1.json`, `ug-v2.json` | `gate.Gate` → `usability_gate.py` | Gate 판정(PASS/REVIEW/FAIL)과 P2P 도착 snap 규칙(PE1/PE4/PE5). **동결·사전 등록.** 파일 sha256이 gate_version과 Gate 로그에 기록되므로, 바꾸면 새 Gate 버전이다 |

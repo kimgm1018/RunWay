@@ -88,6 +88,13 @@ def start(rg, lat: float, lon: float) -> dict:
     return info
 
 
+def start_distance_m(start: dict) -> float:
+    """요청 위치에서 **실제 출발 node**까지 거리(m). 가장 가까운 길이 주 연결망 밖이라 출발이 주 연결망 node로 옮겨졌으면
+    옮긴 node까지의 거리(shift_to_main_m), 아니면 가장 가까운 node까지의 거리(snap_node_dist_m).
+    441 R8: 250 m 출발 제한(app MAX_SNAP_M, Gate ug-v1 max_start_snap_m)은 이 값에 적용한다(전에는 옮기기 전 거리)."""
+    return start.get("shift_to_main_m") or start["snap_node_dist_m"]
+
+
 # ------------------------------------------------------------------ P2P destination
 def to_utm(lon: float, lat: float) -> tuple:
     return TO_UTM.transform(lon, lat)

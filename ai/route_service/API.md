@@ -6,7 +6,7 @@ BE 쪽 계약 정본: `docs/design/api/ai-service.md` "Route 코스 생성 내�
 
 - 기본 주소: 컨테이너 `8000` 포트 (예: `http://route:8000`). HR 추론 `ai/service`와 다른 origin.
 - 형식: JSON, UTF-8. 이 서비스는 snake_case를 쓴다.
-- 같은 입력 + 같은 `seed` = 언제나 같은 결과.
+- 같은 입력 + 같은 `seed` = 언제나 같은 추천 결과(코스·순서·문구). 처리 시간 같은 측정값과 내부 cache 표시는 매번 다를 수 있다.
 - 회원 JWT·userId·HR·페이스·건강정보는 받지 않는다. DB에 접근하지 않고 코스를 저장하지 않는다.
 
 ## 1. 엔드포인트
@@ -30,6 +30,16 @@ BE 쪽 계약 정본: `docs/design/api/ai-service.md` "Route 코스 생성 내�
 
 응답 예: `{"ready": true, "phase": "ready", "load_s": 7.1, "warmup_s": 2.3}`. 컨테이너 healthcheck는 이 경로를 본다.
 ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 있으므로 생성 응답의 오류도 처리한다.
+
+- 이 표는 **프로세스(app import)가 뜬 뒤**의 상태다. 잘못된 환경변수 값 일부와 Numba 컴파일·cache 폴더 문제는 import
+  단계에서 실패해 live조차 응답하지 않는다(README 7절 표).
+- `failed`가 되는 경우: 엔진 로드 예외, 부산 PBF가 없거나 여러 개(S15P31E105-441 이전에는 `loading`에 머물렀다), 예열 요청이
+  200(코스 1개 이상)으로 끝나지 않음.
+- **예열 성공 기준(441):** 예열 요청(광안리 중심 순환 5 km, 조건 없음, seed 1)은 정상 데이터·엔진이면 늘 코스가 나오는 고정
+  요청이다. 그래서 **200이어야 ready**다. 4xx(예: 잘못된 데이터 묶음 → `OUT_OF_AREA`, Gate·생성 고장 → `NO_ROUTE`,
+  `USABILITY_GATE_ALL_FAILED`)도 데이터·엔진 문제로 보고 `failed`로 둔다(전에는 4xx면 ready). 예열은 모든 지역·모양을
+  검증하지는 않는다. `ROUTE_WARMUP=0`이면 예열 없이 로드만으로 ready.
+- `/health/live`, `/internal/v1/ready`는 계산 thread pool을 쓰지 않는다(async). 추천 요청이 몰려도 바로 답한다.
 
 ## 2. 요청 `POST /internal/v1/routes/recommendations`
 
@@ -62,7 +72,9 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 ```
 
 재추천: 첫 요청은 `seed: 1`. "다시 추천"은 다른 입력을 그대로 두고 `seed`만 직전 응답의 `next_seed`(= seed + 24)로
-바꾼다. 출발 위치·거리·모양·조건 중 하나라도 바뀌면 `seed`를 1로 되돌린다.
+바꾼다. 출발 위치·거리·모양·조건 중 하나라도 바뀌면 `seed`를 1로 되돌린다. `next_seed`는 언제나 1~10,000,000 안이다:
+seed + 24가 10,000,000을 넘으면 1부터 다시 센다(예: seed 10,000,000 → `next_seed` 24). 그대로 다음 요청에 넣어도 400이 되지
+않는다(S15P31E105-441).
 
 재추천에서 이미 보여 준 코스 빼기(S15P31E105-383, 요청·응답 형식은 그대로):
 - `seed`가 25 이상이면 Route가 같은 조건의 직전 응답 최대 2개(`seed - 24`, `seed - 48`, 1 이상만)의 코스 3개씩을 찾아,
@@ -86,7 +98,7 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 
 | 필드 | 설명 |
 |---|---|
-| `routes` | 코스 1~3개, `rank` 오름차순. Gate(enforce)를 통과한 후보만. 0개면 422 `NO_ROUTE` |
+| `routes` | 코스 1~3개, `rank` 오름차순. Gate(enforce)를 통과한 후보만. 0개면 422: 후보가 있었지만 Gate에서 모두 탈락하면 `USABILITY_GATE_ALL_FAILED`, 그 밖에는 `NO_ROUTE` |
 | `routes[].rank` | 1부터 연속 |
 | `routes[].coords` | `[[lat, lon], ...]` WGS84 경로 좌표(2점 이상, 진행 방향 순서) |
 | `routes[].distance_m` | 코스 거리(m), 목표의 ±10 % 안 |
@@ -94,12 +106,13 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 | `routes[].score` | 규칙 기반 총점 = `score_terms[].contribution`의 합(소수 넷째 자리 반올림 차이 가능) |
 | `routes[].score_terms[]` | 항목별 점수. key는 정확히 `term`, `label`, `group`, `feature_value`, `weight`, `contribution` (테스트로 고정). `term`은 열린 문자열 집합 |
 | `notices` | 응답 전체 안내 문장(스냅 거리, 후보 부족, 선호 정보 부족 등) |
-| `next_seed` | 요청 seed + 24 |
+| `next_seed` | 요청 seed + 24 (10,000,000을 넘으면 1부터 다시 셈, 2절) |
 
 점수는 같은 요청 안의 후보 설명용이다. 요청 사이 비교·저장·재정렬에 쓰지 않는다. 순위는 `rank`를 따른다.
 
 **고도·경사 값은 보내지 않는다.** 코스 경사는 백엔드가 계산한다(ADR-0019 개정, S15P31E105-369). 엔진은 고도 자료를
-"평지 위주(`flat`)" 선호를 반영할 때만 쓴다. `flat`을 켜면 `reasons`/`caveats`에 "평지 위주예요", "오르막이 있어요
+**점수에는** "평지 위주(`flat`)" 선호를 반영할 때만 쓴다. 설명 문장에는 `flat`이 꺼져 있어도 쓰일 수 있다(예: 평지에 가까운
+코스면 "평지 위주예요" 같은 문장). `flat`을 켜면 `reasons`/`caveats`에 "평지 위주예요", "오르막이 있어요
 (누적 상승 N m)" 같은 문장이 나온다.
 
 `flat`을 켜면 `score_terms`에 `difficulty_flat` 항목이 있고, 그 `feature_value`는 코스의 평균 경사(%)다. 이 값은
@@ -130,8 +143,8 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 | 422 | `DISTANCE_RANGE` | `distance_km`가 1~15 밖 | null |
 | 422 | `DESTINATION_REQUIRED` | 편도인데 도착 위치 없음 | null |
 | 422 | `OUT_OF_APP_RANGE` | 편도 출발–도착 직선 17 km 초과 등 (계산 없이 거절) | null |
-| 422 | `OUT_OF_AREA` | 출발 위치가 부산 extract 밖 | null |
-| 422 | `NO_ROAD_NEARBY` | 가까운 달릴 수 있는 길이 250 m 넘게 떨어짐 / 주변에 길이 없음 | null |
+| 422 | `OUT_OF_AREA` | 코스를 만드는 데 필요한 작업 영역(출발점 중심 원, 편도는 중점 원도)을 부산 extract가 다 덮지 못함. 출발점이 extract 안이어도 경계 가까이면 나올 수 있다 | null |
+| 422 | `NO_ROAD_NEARBY` | 실제 출발 지점(주변과 이어진 달릴 수 있는 길)이 250 m 넘게 떨어짐 / 주변에 길이 없음 / 길은 있지만 달릴 수 있는 길·교차로가 없음 (아래 주 1, 2) | null |
 | 422 | `DESTINATION_TOO_FAR` | 편도 목표 거리가 너무 짧음 | `{"min_target_km", "alternatives_from_km"}` |
 | 422 | `END_SNAP_PE1`, `END_SNAP_PE2`, `END_SNAP_PE4`, `END_SNAP_PE5` | 도착 위치 근처에 안전하게 달릴 길이 없음 | null |
 | 422 | `USABILITY_GATE_ALL_FAILED` | 안전 기준을 통과한 코스 없음 | null |
@@ -140,14 +153,29 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 | 503 | `BUSY` | 다른 요청 처리 중이라 1초 안에 실행 슬롯을 못 잡음 | null |
 | 503 | `TIMEOUT` | `X-Request-Deadline`이 계산 시작 전에 지남 | null |
 | 503 | `UNAVAILABLE` | 엔진 시작(로드·예열) 실패 | null |
-| 500 | `INTERNAL` | 처리 중 예외 (서버 로그 `runway.ai`에 `ai_error code=INTERNAL ...`) | null |
+| 500 | `INTERNAL` | 처리 중 예외: 계산·응답 조립·JSON 변환(비정상 숫자) 어디서든 (서버 로그 `runway.ai`에 `ai_error code=INTERNAL ...`) | null |
 | 500 | `SAFETY_CHECK` | 안전 확인 실패(안전망, 발생한 적 없음) | null |
 | 500 | `SNAP_NODE_NOT_IN_GENERATION_GRAPH` | 편도 내부 처리 문제 | null |
 
+주 1 (250 m 기준, 441에서 바뀜): 250 m는 요청 위치에서 **실제 출발 node**까지의 거리다. 가장 가까운 길이 주변과 이어지지
+않는 고립 구간이면 출발점은 이어진 주 연결망의 node로 옮겨지는데, 이제 그 옮긴 node까지의 거리로 판단한다(전에는 옮기기
+전 고립 길까지의 거리여서, 고립 길 20 m·실제 출발 500 m도 통과했다). Gate의 출발 거리 규칙(ug-v1 `max_start_snap_m` 250 m)에도
+같은 값을 넘긴다. 250 m 안에서 옮겨진 경우에는 지금처럼 `notices`에 "…m 떨어진 연결된 길에서 출발해요"가 나온다.
+
+주 2 (길이 없는 영역): osmnx가 작업 영역 안에서 길을 하나도 찾지 못하거나, 길은 있지만 달릴 수 있는(RUNNABLE) 길이나 waypoint
+후보 교차로가 하나도 없으면 422 `NO_ROAD_NEARBY`다(441부터; 전에는 뒤의 경우가 500 `INTERNAL`). 서버 로그에는
+`ai_error code=NO_USABLE_ROAD`(WARNING)로 남는다.
+
+Gate 검토 로그(서버 JSONL, 응답에는 없음): 요청마다 한 줄. `gate_version`(설정·classify·PBF 해시) 다음에
+`gate_files_sha256`(ug-v1.json, ug-v2.json, usability_gate.py 파일 해시)가 있다(S15P31E105-441에서 추가, 데모 로그에는 없던 key).
+
 ## 5. 동시성·시간·재시도
 
-- 엔진은 thread-safe가 아니라 한 번에 한 요청만 계산한다(worker 1개). 실행 슬롯을 **최대 1초** 기다리고 못 잡으면
-  503 `BUSY`. 대기열을 두지 않는다.
+- 엔진은 thread-safe가 아니라 한 번에 한 요청만 계산한다(worker 1개). 엔진 안에서 실행 슬롯을 **최대 1초** 기다리고 못
+  잡으면 503 `BUSY`. 엔진 안에 대기열을 두지 않는다.
+- 이 1초는 **엔진 lock 대기만**이다. 추천 endpoint는 서버 thread pool(Starlette 기본 40칸)에서 돈다. 요청이 아주 많이 몰리면
+  endpoint에 들어가기 전에 thread pool에서 기다릴 수 있고, 그 시간은 1초에 들어가지 않는다. 서비스는 입구에서 동시 요청 수를
+  제한하지 않는다(BE가 호출 시간 상한을 둔다). 상태 확인 경로(live/ready)는 thread pool을 쓰지 않아 이 대기와 무관하다.
 - 응답 시간(측정값): 처음 요청한 지역 1~5초, 같은 지역 반복 0.3~1.2초. 1 vCPU에서는 더 길 수 있다.
 - BE 계약 제안: BE→Route 전체 호출 15초, Route 처리 상한 12초(대기 1초 포함). 지금 구현은 **시작 전 deadline 확인**까지
   만 한다. 시작한 계산은 끝까지 가며 늦은 결과는 BE가 버린다. 계산 중단·자원 회수는 MVP 범위 밖이다.
