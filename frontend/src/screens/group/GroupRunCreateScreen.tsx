@@ -18,7 +18,6 @@ import {
   BottomSheet,
   Button,
   Icon,
-  IconButton,
   LightGlass,
   useToast,
 } from '../../components';
@@ -43,6 +42,7 @@ import {
   SectionLabel,
 } from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 type Mode = 'COURSE' | 'FREE';
 
@@ -398,11 +398,7 @@ export function GroupRunCreateScreen() {
       <GroupBackground id="groupRunCreateBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText style={styles.title} accessibilityRole="header">
             {editingId ? '그룹런 수정' : '그룹런 만들기'}
           </AppText>

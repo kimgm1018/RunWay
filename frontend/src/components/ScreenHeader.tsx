@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { fontFamily, size, spacing } from '../theme';
 import { AppText } from './AppText';
-import { IconButton } from './IconButton';
+import { BackButton } from './BackButton';
 import { Logo } from './Logo';
 
 export function ScreenHeader({
@@ -22,7 +22,7 @@ export function ScreenHeader({
   const back = (
     <View style={styles.side}>
       {onBack ? (
-        <IconButton icon="back" accessibilityLabel={backLabel} onPress={onBack} />
+        <BackButton accessibilityLabel={backLabel} onPress={onBack} />
       ) : null}
     </View>
   );

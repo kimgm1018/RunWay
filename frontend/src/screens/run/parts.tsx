@@ -13,7 +13,7 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, glass, Icon, LightGlass } from '../../components';
+import { AppText, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
   type GpsQuality,
@@ -36,6 +36,7 @@ import {
   typography,
   useTheme,
 } from '../../theme';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // Round dark badge brightening toward the bottom right behind a white rim (runway-course-handoff 음악 원,
 // 자유 러닝 아바타): the music button and the 2.0F 자유 러닝 icon.
@@ -149,34 +150,6 @@ export function useMusicSource() {
   return source;
 }
 
-function RoundButton({
-  label,
-  night,
-  onPress,
-  children,
-}: {
-  label: string;
-  night: boolean;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.round,
-        night ? { backgroundColor: colors.surfaceMuted } : styles.roundGlass,
-        pressed && styles.pressed,
-      ]}
-    >
-      {children}
-    </Pressable>
-  );
-}
-
 const countdownSeconds = 3;
 
 // 2.0·2.0F 하단: settings, 러닝 시작 (3초 카운트다운 후 4.2), music.
@@ -256,13 +229,13 @@ export function RunStartBar({
   }, [count, ensureRunLogin]);
   return (
     <View style={[styles.bar, !night && styles.barDay]}>
-      <RoundButton
-        label="설정"
-        night={night}
+      <GlassIconButton
+        icon="settings"
+        tone={night ? 'dark' : 'light'}
+        diameter={52}
+        accessibilityLabel="설정"
         onPress={() => navigateTo(navigation, 'Settings')}
-      >
-        <Icon name="settings" color={colors.text} size={20} />
-      </RoundButton>
+      />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="러닝 시작"
@@ -321,13 +294,13 @@ export function RunStartBar({
           </K1Badge>
         </Pressable>
       ) : (
-        <RoundButton
-          label="음악"
-          night={night}
+        <GlassIconButton
+          icon="music"
+          tone={night ? 'dark' : 'light'}
+          diameter={52}
+          accessibilityLabel="음악"
           onPress={() => navigateTo(navigation, 'MusicCard')}
-        >
-          <Icon name="music" color={colors.text} size={20} />
-        </RoundButton>
+        />
       )}
       <Modal
         visible={count !== null}
@@ -519,18 +492,7 @@ const styles = StyleSheet.create({
   barDay: { gap: 10 },
   notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
   noticeActions: { flexDirection: 'row', gap: spacing.lg },
-  round: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundGlass: {
-    backgroundColor: glass.circle,
-    borderWidth: 1,
-    borderColor: glass.circleRim,
-  },
+
   start: {
     flex: 1,
     height: 54,

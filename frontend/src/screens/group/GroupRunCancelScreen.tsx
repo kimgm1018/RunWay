@@ -17,7 +17,6 @@ import {
   BottomSheet,
   EmptyState,
   Icon,
-  IconButton,
   LightGlass,
   useToast,
 } from '../../components';
@@ -39,6 +38,7 @@ import {
 import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
 import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
 import { formatSchedule, useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 // 6.4c-CancelButton: the raised white bottom pill of the 6 그룹 screens, its circle in --warn with a ×.
 function CancelButton({
@@ -114,11 +114,7 @@ export function GroupRunCancelScreen() {
       <GroupBackground id="groupRunCancelBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText style={styles.headerTitle} accessibilityRole="header">
             그룹런 취소
           </AppText>

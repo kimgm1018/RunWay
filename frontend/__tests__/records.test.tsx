@@ -330,3 +330,20 @@ test('5.3 shows the month chart and summary, picks a day, and switches periods',
   expect(page).toContain('9월 누적');
   await act(async () => screen.unmount());
 });
+
+test('5.1, 5.2 and 5.3 go back with the 뒤로 at their top left', async () => {
+  const screen = await render();
+  await press(screen, '과거 러닝 기록');
+  await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
+  expect(texts(screen)).toContain('기록 상세');
+  await press(screen, '뒤로');
+  expect(stateOf(screen, '10월 15일')?.selected).toBe(true);
+  await press(screen, '뒤로');
+  expect(texts(screen)).toContain('오늘 준비도');
+
+  await press(screen, '러닝 분석');
+  expect(texts(screen)).toContain('누적 거리');
+  await press(screen, '뒤로');
+  expect(hasLabel(screen, '월')).toBe(false);
+  await act(async () => screen.unmount());
+});

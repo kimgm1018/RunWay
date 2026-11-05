@@ -16,7 +16,7 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../session/SessionProvider';
-import { AppText, EmptyState, Icon, IconButton } from '../../components';
+import { AppText, EmptyState, Icon } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -46,6 +46,7 @@ import {
   SectionLabel,
 } from './look';
 import { BottomFade, Initial } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 const countdownSeconds = 3;
 
@@ -244,11 +245,7 @@ export function WaitingRoomScreen() {
         style={[styles.root, { backgroundColor: colors.background }]}
       >
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
         </View>
         {data.status === 'error' ? (
           <EmptyState
@@ -282,11 +279,7 @@ export function WaitingRoomScreen() {
       <GroupBackground id="waitingRoomBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText
             accessibilityRole="header"
             style={[styles.flex, styles.title]}

@@ -22,6 +22,7 @@ import { AppText, Backdrop, Icon, MistFill, useToast } from '../../components';
 import { useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
+import { BackGlassButton } from '../records/look';
 import { fontFamily, k1, palette } from '../../theme';
 import { MAX_REROLLS, useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
@@ -533,31 +534,42 @@ export function RecommendedCoursesScreen() {
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop />
       </View>
-      {/* The page count sits in the bar, not on the card (README 알려진 문제). The mockup has no back
-          button or 조건 변경: the system back returns to 3.1 with the conditions. */}
+      {/* The page count sits in the bar, not on the card (README 알려진 문제). 뒤로 at the top left returns to
+          3.1 with the conditions (담당자 결정), so 다른 코스 moves to the right before the count. */}
       <View style={styles.header}>
+        <View style={styles.backButton}>
+          <BackGlassButton
+            onPress={() =>
+              navigation.canGoBack()
+                ? navigation.goBack()
+                : navigateTo(navigation, 'TodayRun')
+            }
+          />
+        </View>
         <AppText accessibilityRole="header" style={styles.title}>
           추천 코스
         </AppText>
-        {results && !turned.includes(results[index]?.id) ? (
-          <AppText style={styles.count}>
-            {`${index + 1} / ${results.length}`}
-          </AppText>
-        ) : null}
-        {results && canAskMore ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="다른 코스 추천받기"
-            accessibilityState={{ busy: loadingMore }}
-            disabled={loadingMore}
-            onPress={showMore}
-            style={({ pressed }) => [styles.more, pressed && styles.pressed]}
-          >
-            <AppText style={styles.moreText}>
-              {loadingMore ? '찾는 중…' : '다른 코스'}
+        <View style={styles.headerRight}>
+          {results && canAskMore ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="다른 코스 추천받기"
+              accessibilityState={{ busy: loadingMore }}
+              disabled={loadingMore}
+              onPress={showMore}
+              style={({ pressed }) => [styles.more, pressed && styles.pressed]}
+            >
+              <AppText style={styles.moreText}>
+                {loadingMore ? '찾는 중…' : '다른 코스'}
+              </AppText>
+            </Pressable>
+          ) : null}
+          {results && !turned.includes(results[index]?.id) ? (
+            <AppText style={styles.count}>
+              {`${index + 1} / ${results.length}`}
             </AppText>
-          </Pressable>
-        ) : null}
+          ) : null}
+        </View>
       </View>
       {/* Route's notes about the whole answer, as plain text. */}
       {results && notices.length > 0 ? (
@@ -693,18 +705,22 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     color: '#02050E',
   },
-  count: {
+  backButton: { position: 'absolute', left: 16, bottom: 0 },
+  headerRight: {
     position: 'absolute',
-    right: 24,
-    bottom: 10,
+    right: 16,
+    bottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  count: {
+    paddingRight: 8,
     fontFamily: fontFamily.numberRegular,
     fontSize: 14,
     color: '#67696E',
   },
   more: {
-    position: 'absolute',
-    left: 16,
-    bottom: 4,
     paddingHorizontal: 8,
     paddingVertical: 6,
   },

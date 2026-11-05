@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, Icon, IconButton, useToast } from '../../components';
+import { AppText, Icon, useToast } from '../../components';
 import {
   useRepositories,
   type CrewJoinPolicy,
@@ -22,6 +22,7 @@ import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
 import { DarkSegmented } from './CrewJoinRequestsScreen';
 import { DarkBackground, GroupCta, groupLook, SectionLabel } from './look';
 import { useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 // M03: 1–200 members; a new crew starts at 20.
 const minCapacity = 1;
@@ -230,11 +231,7 @@ export function CrewCreateScreen() {
         <DarkBackground id="crewCreateBackground" />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <IconButton
-              icon="back"
-              accessibilityLabel="뒤로"
-              onPress={() => navigation.goBack()}
-            />
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               크루 만들기
             </AppText>

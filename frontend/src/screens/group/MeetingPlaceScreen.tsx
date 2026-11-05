@@ -25,6 +25,8 @@ import {
 import { FooterButton } from './GroupRunDetailScreen';
 import { groupLook, Raised } from './look';
 import { Tag, useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 const formatDistance = (meters: number) =>
   meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
@@ -186,16 +188,7 @@ export function MeetingPlaceScreen() {
           pointerEvents="box-none"
         >
           <View style={styles.searchRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="뒤로"
-              onPress={() => navigation.goBack()}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <LightGlass radius={21} style={styles.mapButton}>
-                <Icon name="back" color={groupLook.onLight} size={20} />
-              </LightGlass>
-            </Pressable>
+            <BackButton onPress={() => navigation.goBack()} />
             {/* 6.9-SearchBar: a light glass pill. */}
             <LightGlass radius={24} style={styles.search}>
               <Icon name="search" color={groupLook.onLightSub} size={16} />
@@ -247,16 +240,11 @@ export function MeetingPlaceScreen() {
           ) : null}
           {!confirming && !query ? (
             <View style={styles.locate}>
-              <Pressable
-                accessibilityRole="button"
+              <GlassIconButton
+                icon="locate"
                 accessibilityLabel="내 위치로"
                 onPress={goToMe}
-                style={({ pressed }) => pressed && styles.pressed}
-              >
-                <LightGlass radius={22} style={styles.locateButton}>
-                  <Icon name="locate" color={groupLook.onLight} size={20} />
-                </LightGlass>
-              </Pressable>
+              />
             </View>
           ) : null}
         </SafeAreaView>
@@ -424,12 +412,7 @@ const styles = StyleSheet.create({
     paddingLeft: 17,
     paddingRight: 15,
   },
-  mapButton: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   search: {
     flex: 1,
     height: 47,
@@ -478,12 +461,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.screen,
     marginTop: 260,
   },
-  locateButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   // The glass's own bottom corners sit below the screen edge.
   sheetGlass: { marginBottom: -32, paddingBottom: 32 },

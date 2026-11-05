@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
 import { AppText, Icon, type IconName } from '../../components';
 import { fontFamily } from '../../theme';
 import { OnboardingBackdrop } from '../onboarding/look';
+import { BackButton } from '../../components/BackButton';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // runway-records (S15P31E105-465): the look 5.1 · 5.2 · 5.3 share. The layout is the handoff's 390×844 frame:
 // title at 46 (30 / 800), 24 from the sides, sections 24 apart, and the same mist as the 1.x screens.
@@ -29,21 +31,32 @@ export const glassCard: ViewStyle = {
 };
 
 // 내 기록 · 기록 상세 · 러닝 분석: the 30 / 800 title, with a round glass button on the right when there is one.
+// onBack puts a round glass 뒤로 at the top left, before the title (담당자 결정: 하위 화면엔 뒤로).
 export function ScreenTitle({
   title,
   right,
+  onBack,
 }: {
   title: string;
   right?: React.ReactNode;
+  onBack?: () => void;
 }) {
   return (
     <View style={styles.titleRow}>
-      <AppText accessibilityRole="header" style={styles.title}>
-        {title}
-      </AppText>
+      <View style={styles.titleLeft}>
+        {onBack ? <BackGlassButton onPress={onBack} /> : null}
+        <AppText accessibilityRole="header" style={styles.title}>
+          {title}
+        </AppText>
+      </View>
       {right}
     </View>
   );
+}
+
+// The round glass 뒤로 the 5.x and 3.1 screens share at their top left.
+export function BackGlassButton({ onPress }: { onPress: () => void }) {
+  return <BackButton onPress={onPress} />;
 }
 
 export function RoundGlassButton({
@@ -56,19 +69,7 @@ export function RoundGlassButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => [
-        styles.round,
-        glassCard,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Icon name={icon} color={recordsLook.ink} size={20} strokeWidth={1.9} />
-    </Pressable>
+    <GlassIconButton icon={icon} accessibilityLabel={label} onPress={onPress} />
   );
 }
 
@@ -418,6 +419,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  titleLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 30,
@@ -425,14 +427,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
     color: recordsLook.ink,
   },
-  round: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { opacity: 0.6 },
+
   tabs: {
     height: 40,
     flexDirection: 'row',

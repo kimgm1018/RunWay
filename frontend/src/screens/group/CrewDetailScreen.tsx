@@ -20,7 +20,6 @@ import {
   BottomSheet,
   EmptyState,
   Icon,
-  IconButton,
   type IconName,
   Toggle,
   useToast,
@@ -54,6 +53,7 @@ import {
   SectionLabel,
 } from './look';
 import { useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 // The rows 구성원 shows before 모두 보기.
 const previewCount = 4;
@@ -452,11 +452,7 @@ export function CrewDetailScreen() {
         <DarkBackground id="crewDetailBackground" />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <IconButton
-              icon="back"
-              accessibilityLabel="뒤로"
-              onPress={() => navigation.goBack()}
-            />
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
           </View>
         </SafeAreaView>
         {detail.status === 'error' ? (

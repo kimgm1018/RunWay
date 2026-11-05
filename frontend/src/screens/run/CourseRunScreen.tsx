@@ -17,6 +17,7 @@ import { coursePaceColors } from '../../components/mapRoute';
 import { RunMap } from '../../components/RunMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
+import { BackButton } from '../../components/BackButton';
 
 const loadCourse = (repositories: Repositories) =>
   Promise.all([
@@ -87,15 +88,7 @@ export function CourseRunScreen() {
   ) : (
     <>
       <LightGlass radius={31} style={styles.topBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="뒤로"
-          onPress={navigation.goBack}
-          hitSlop={8}
-          style={styles.back}
-        >
-          <Icon name="back" color={ink} size={20} strokeWidth={2} />
-        </Pressable>
+        <BackButton onPress={navigation.goBack} />
         <View style={styles.flex}>
           <AppText style={styles.kicker}>오늘의 러닝 전략</AppText>
           <AppText style={styles.topTitle} numberOfLines={1}>
@@ -187,12 +180,7 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     paddingRight: 18,
   },
-  back: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   kicker: {
     fontFamily: fontFamily.regular,
     fontSize: 12,

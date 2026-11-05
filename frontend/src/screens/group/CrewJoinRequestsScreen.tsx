@@ -13,7 +13,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, IconButton, useToast } from '../../components';
+import { AppText, EmptyState, useToast } from '../../components';
 import {
   errorCode,
   useRepositories,
@@ -40,6 +40,7 @@ import {
   Raised,
   SectionLabel,
 } from './look';
+import { BackButton } from '../../components/BackButton';
 
 const levelLabels: Record<SelfReportedLevel, string> = {
   BEGINNER: '초급',
@@ -272,11 +273,7 @@ export function CrewJoinRequestsScreen() {
         <DarkBackground id="crewJoinRequestsBackground" />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <IconButton
-              icon="back"
-              accessibilityLabel="뒤로"
-              onPress={() => navigation.goBack()}
-            />
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               가입 신청
             </AppText>

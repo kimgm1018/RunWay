@@ -292,6 +292,7 @@ export function RecordDetailScreen() {
         <View style={styles.head}>
           <ScreenTitle
             title="기록 상세"
+            onBack={close}
             right={
               record ? (
                 <RoundGlassButton

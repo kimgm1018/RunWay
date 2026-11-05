@@ -269,6 +269,11 @@ export function RecordsScreen() {
         <View style={styles.head}>
           <ScreenTitle
             title="내 기록"
+            onBack={() =>
+              navigation.canGoBack()
+                ? navigation.goBack()
+                : navigateTo(navigation, 'Home')
+            }
             right={
               <RoundGlassButton
                 icon="calendar"

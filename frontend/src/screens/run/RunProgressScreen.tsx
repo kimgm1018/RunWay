@@ -49,6 +49,7 @@ import { AlbumArt } from './musicParts';
 import { K1Badge } from './parts';
 import { useRunControlState, useRunSession } from './RunSession';
 import { controlNotice } from './controlNotice';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // The pace bar spans 20 seconds either side of the goal, with ±10 seconds highlighted.
 const barSpanSec = 20;
@@ -654,16 +655,12 @@ export function RunProgressScreen() {
                 </View>
               </LightGlass>
             ) : null}
-            <Pressable
-              accessibilityRole="button"
+            <GlassIconButton
+              icon="locate"
               accessibilityLabel="내 위치로 이동"
               onPress={() => undefined}
               style={styles.locateDay}
-            >
-              <LightGlass radius={20} style={styles.locateGlass}>
-                <Icon name="locate" color={ink} size={18} />
-              </LightGlass>
-            </Pressable>
+            />
           </View>
           <View style={styles.dayBottom}>
             {waiting ? (
@@ -986,12 +983,7 @@ const styles = StyleSheet.create({
     color: '#67696E',
   },
   locateDay: { alignSelf: 'flex-end' },
-  locateGlass: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   dayBottom: {
     alignItems: 'center',
     paddingHorizontal: 14,
