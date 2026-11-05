@@ -19,6 +19,7 @@ Two apps (S15P31E105-381):
 | `scenarios_p2p_random.json` | 30 random P2P requests (seed 20261028) |
 | `known_differences.json` | the one approved internal difference (below) |
 | `baseline/{main,fastoff,shadow,noenvcache,random}` | stored golden outputs (~30 MB, **not in git**: coordinates, provenance review pending). Captured 2026-10-28 on Windows with the demo app. Pass its location with `--baseline`; do not overwrite it |
+| `baseline_v2/{main,fastoff,shadow,noenvcache,random}` | golden outputs for **data bundle v2** (Busan-wide env layer + DEM, S15P31E105-435), captured 2026-11-05 on Windows with the demo app, two captures strict-identical. Also **not in git**. Use it whenever `RUNWAY_DATA_DIR` points at bundle v2; the 2026-10-28 `baseline` stays valid only for bundle v1. A Linux copy (`baseline_linux_v2`, GS-27 left out as in the first Linux baseline) is kept with the 435 report. Against v2 the shadow-mode GS-26 known difference does not appear (captured with the substrate code), so every mode is 0 even with `--strict` |
 | `runs/` | your captures (git-ignored) |
 
 ## Modes

@@ -97,7 +97,11 @@ ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 �
 **추천 점수를 설명하는 용도로만** 쓴다. 저장·화면 표시·HR 입력에 쓰는 코스 경사(100 m 단위 elevationProfile)는
 백엔드가 직접 계산한 값이 기준이다. 두 계산은 같은 DEM 파일을 써야 한다:
 `reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif`
-(sha256 `2d5bb838208812fd095b67d853b96f7943756507a8f51b96225a4fc5dcf67d49`, `route_data_bundle_v1/DATA_MANIFEST.md`).
+(sha256 `45faaa5e36c710a235658e1172183279007ac3b3fdcc29a14246222fdabb3a1f`, 8,266,122 bytes, `route_data_bundle_v2/DATA_MANIFEST.md`).
+이 파일은 부산 전체(경도 128.73~129.35, 위도 34.85~35.42)를 덮는 Copernicus GLO-30 4타일 mosaic이다(S15P31E105-435).
+이름은 v1과 같으므로 파일은 이름이 아니라 sha256으로 확인한다. v1 clip(sha256 `2d5bb838…7d49`)은 경도 129.00 동쪽만 덮었다.
+받는 곳: 비공개 Hugging Face `AnSeongYun/runway-hr-models`, revision `4952478476ce2d76579e1b6ba16363214e6a6914`,
+경로 `route_data_v2/reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif`.
 
 ### 개발용 debug 응답 (`ROUTE_DEBUG=1`)
 

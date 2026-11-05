@@ -341,9 +341,9 @@ edge 하나의 배수:
 |---|---|---|---|---|---|---|
 | 부산 OSM extract | Geofabrik south-korea-261020.osm.pbf (ODbL, 2026-10-20) → bbox [128.73, 34.85, 129.35, 35.42], highway way 73,064개, node 524,108개 | PBF + `EXTRACT.json`(sha) | `data/osm/busan/` | analysis `BusanSource` (graph.FastGraphRouteGenerator 생성 시) | 모든 graph | 시작 시 전체 |
 | 도로 분류 | `analysis/runway_walk_filter.classify`(명시 tag만, 추론 없음) | 코드 | analysis | Sidecar, substrate, Gate | RUNNABLE/EXCLUDED/UNCERTAIN | 시작 시 way별 |
-| env layer | OSM via Overpass (2026-10-22): green 739, park 350, river 86, water 55, coast 41, beach 3 | GeoJSON + meta | `reports/_route_canonical_work/env_layers_wide.geojson` | data.load_env | 환경 near flag, PE5 차단 강·물·해안 | 시작 시 |
+| env layer | OSM, 도로 extract와 같은 Geofabrik 스냅샷(2026-10-20), 부산 전체 bbox [128.73, 34.85, 129.35, 35.42] (bundle v2, S15P31E105-435): green 2,638, park 1,158, river 850, water 565, coast 159, beach 14. v1은 Overpass(2026-10-22) 데모 지역 bbox만 | GeoJSON + meta | `reports/_route_canonical_work/env_layers_wide.geojson` | data.load_env | 환경 near flag, PE5 차단 강·물·해안 | 시작 시 |
 | env edge cache | 위 layer와 extract로 사전 계산(약 57만 segment × 6 class, 0.1 m) | npz + provenance.json | `reports/_route_canonical_work/env_edge_cache/` | data.EnvFeatureCache | 요청 graph의 env 거리 조회 | 시작 시(검증 통과 때만) |
-| DEM | Copernicus GLO-30 | GeoTIFF clip | `reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif` | data.Dem | node 고도 → 고도 feature, 난이도 | 시작 시 |
+| DEM | Copernicus GLO-30 4타일(N34/N35 × E128/E129) mosaic, 부산 전체 bbox, 2052 × 2232 px (bundle v2; v1은 N35E129 한 타일 clip) | GeoTIFF | `reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif` | data.Dem | node 고도 → 고도 feature, 난이도 | 시작 시 |
 | config | 팀 결정 | JSON | `runway_routing/config/` | data, gate | 가중치, 규칙 | 시작 시 |
 | 전국 1 km grid | 전국 PBF(같은 Geofabrik 파일) | npy 19개 + metadata (1.88 GB) | `RunWay_data/route_index_kr_1km_2026-10-28/index/` | **없음** | 미래 전국 확장 | **production 미연결** |
 

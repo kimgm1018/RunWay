@@ -97,7 +97,11 @@ POST /internal/v1/routes/recommendations: 현재 위치 · 목표 거리 · shap
 | `Dockerfile`, `requirements.txt`, `constraints.txt` | 이미지와 고정 버전 |
 
 데이터 파일과 그로부터 만든 network store / source snapshot / Numba cache는 git에 넣지 않는다. 데이터 묶음은
-`route_data_bundle_v1/`(DATA_MANIFEST.md에 경로·크기·sha256)이고 출처·재배포 검토가 끝나지 않았다.
+`route_data_bundle_v2/`(DATA_MANIFEST.md에 경로·크기·sha256)이고 출처·재배포 검토가 끝나지 않았다.
+v2(S15P31E105-435)부터 강·바다·공원 환경층과 DEM이 도로망과 같은 부산 전체 범위(경도 128.73~129.35, 위도 34.85~35.42)를
+덮는다. v1은 데모 지역(경도 128.99~129.23, 위도 35.10~35.23)만 덮었다. 파일 이름·경로는 v1과 같아서 코드 변경은 없다.
+v2 묶음은 비공개 Hugging Face 저장소 `AnSeongYun/runway-hr-models`의 `route_data_v2/` 폴더에 있다(revision `4952478476ce2d76579e1b6ba16363214e6a6914`).
+받은 폴더를 그대로 `RUNWAY_DATA_DIR`나 아래 build context로 쓰고, 먼저 `tools/data/verify_bundle.py <폴더>`로 sha256을 확인한다.
 
 ## 5. 로컬 실행
 
@@ -126,7 +130,7 @@ Docker 빌드 때 데이터 묶음을 이름 붙은 build context로 넘긴다. 
 엔진을 한 번 시작해(로드 + 예열) Numba cache를 이미지에 넣는다.
 
 ```bash
-docker build -t runway-route --build-context route_data=/path/to/route_data_bundle_v1 ai/route_service
+docker build -t runway-route --build-context route_data=/path/to/route_data_bundle_v2 ai/route_service
 docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-route
 ```
 
