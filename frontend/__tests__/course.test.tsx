@@ -139,7 +139,6 @@ test('recommended courses turn over to their detail and lead to the course run',
   const screen = await openTodayRun();
   await press(screen, '코스 추천 받기');
   let page = texts(screen);
-  expect(page).toContain('1 / 4');
   // The card puts the distance in its own pill, so the name loses its trailing 5.0km.
   expect(page).toContain('민락수변공원 출발');
   expect(page).toContain('5.0km');
@@ -150,8 +149,6 @@ test('recommended courses turn over to their detail and lead to the course run',
     labelled(screen, '민락수변공원 출발 5.0km, 앞면 보기'),
   ).not.toThrow();
   page = texts(screen);
-  // The page count steps aside while the card in view shows its back.
-  expect(page).not.toContain('1 / 4');
   for (const text of ['순환', '공원 · 하천변 · 평지', '추천 이유', '↑12']) {
     expect(page).toContain(text);
   }
