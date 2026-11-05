@@ -28,6 +28,7 @@ import { formatDuration } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
 import { MusicOverlay } from './musicParts';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 const serviceNames = { MELON: '멜론', SPOTIFY: 'Spotify' };
 
@@ -201,15 +202,13 @@ function Artwork({
 // The glass ⚙ at the top right opens 2.8 음원 선택 in every state (runway-music-handoff).
 function SettingsButton({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <GlassIconButton
+      icon="cog"
+      tone="dark"
       accessibilityLabel="음악 연결 설정"
-      hitSlop={6}
       onPress={onPress}
       style={styles.settings}
-    >
-      <Icon name="cog" color="#FFFFFF" size={21} strokeWidth={1.8} />
-    </Pressable>
+    />
   );
 }
 
@@ -499,18 +498,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   // No border (핸드오프); the card's own blur stands in for the mockup's backdrop blur.
-  settings: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    zIndex: 1,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  settings: { position: 'absolute', top: 14, right: 14, zIndex: 1 },
   dots: {
     flexDirection: 'row',
     justifyContent: 'center',

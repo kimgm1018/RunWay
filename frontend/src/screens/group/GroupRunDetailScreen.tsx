@@ -59,6 +59,7 @@ import {
   roomOpensMs,
   useGroupRunDraft,
 } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
   { value: 'WEATHER', label: '날씨' },
@@ -214,11 +215,7 @@ export function GroupRunDetailScreen() {
     return (
       <SafeAreaView style={[styles.root, styles.loadingRoot]}>
         <View style={styles.headerRow}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
         </View>
         {detail.status === 'error' ? (
           <EmptyState
@@ -394,11 +391,7 @@ export function GroupRunDetailScreen() {
         pointerEvents="box-none"
       >
         <View style={styles.headerRow}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <View style={styles.flex} />
           {!cancelled ? (
             <IconButton

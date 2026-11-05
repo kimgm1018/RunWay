@@ -17,6 +17,7 @@ import {
   useTheme,
 } from '../../theme';
 import { OnboardingBackdrop, onboardingLook, ProgressBar } from './look';
+import { BackButton } from '../../components/BackButton';
 
 export { Logo, Segmented } from '../../components';
 export {
@@ -38,20 +39,7 @@ export function OnboardingHeader({
   return (
     <View style={styles.header}>
       {onBack ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="뒤로"
-          onPress={onBack}
-          hitSlop={8}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-        >
-          <Icon
-            name="back"
-            color={onboardingLook.ink}
-            size={18}
-            strokeWidth={2.2}
-          />
-        </Pressable>
+        <BackButton onPress={onBack} />
       ) : (
         <View style={styles.backSpace} />
       )}
@@ -464,18 +452,8 @@ const styles = StyleSheet.create({
     paddingLeft: 19,
     paddingRight: 28,
   },
-  back: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: onboardingLook.glassRim,
-    backgroundColor: 'rgba(255,255,255,0.45)',
-    boxShadow: '0 6px 18px rgba(9,17,26,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backSpace: { width: 38, height: 38 },
+
+  backSpace: { width: 44, height: 44 },
   // 28 under the runner, as the handoff's title sits at 310 below the 86 + 196 runner.
   stepTitle: { gap: 8, paddingTop: 28, paddingBottom: 11 },
   titleText: {

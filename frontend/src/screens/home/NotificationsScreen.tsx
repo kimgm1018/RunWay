@@ -14,6 +14,7 @@ import { formatRelative, isSameDay } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily, k1 } from '../../theme';
+import { BackButton } from '../../components/BackButton';
 
 // Each kind's title and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
 const kinds: Record<NotificationKind, { title: string; route: RouteName }> = {
@@ -173,15 +174,7 @@ export function NotificationsScreen() {
     <Screen
       header={
         <View style={styles.header}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="뒤로"
-            hitSlop={6}
-            onPress={navigation.goBack}
-            style={styles.back}
-          >
-            <Icon name="back" color="#02050E" size={18} />
-          </Pressable>
+          <BackButton onPress={navigation.goBack} style={styles.back} />
           <View style={styles.logo} pointerEvents="none">
             <Logo width={34} symbol />
           </View>
@@ -261,19 +254,9 @@ const ink = '#0A1631';
 
 const styles = StyleSheet.create({
   header: { height: 56 },
-  back: {
-    position: 'absolute',
-    left: 17,
-    top: 9,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: '#C6CBD2',
-    backgroundColor: '#E0E7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // 44 round glass 뒤로, centred on the 56 header.
+  back: { position: 'absolute', left: 16, top: 6 },
+
   logo: {
     position: 'absolute',
     top: 0,

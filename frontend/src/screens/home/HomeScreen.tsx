@@ -14,7 +14,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { AppText, Backdrop, Button, Icon, Logo } from '../../components';
+import { AppText, Backdrop, Button, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import {
@@ -34,6 +34,7 @@ import {
   gutter,
   HomeGrid,
 } from './widgets';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // S15P31E105-382 (in -391): no greeting, so 오늘 컨디션 sits 4 under the header and the last cards keep
 // 14 clear of the floating tab bar.
@@ -64,16 +65,12 @@ function HeaderButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <GlassIconButton
+      icon={icon}
       accessibilityLabel={label}
-      hitSlop={4}
       onPress={onPress}
-      style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-    >
-      <Icon name={icon} color={homePalette.header} size={20} />
-      {dot ? <View style={styles.unread} /> : null}
-    </Pressable>
+      dot={dot}
+    />
   );
 }
 
@@ -281,24 +278,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   logo: { flex: 1 },
-  pressed: { opacity: 0.7 },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: homePalette.headerButton,
-  },
-  unread: {
-    position: 'absolute',
-    top: 9,
-    right: 10,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: homePalette.unread,
-  },
+
   avatar: {
     width: 40,
     height: 40,

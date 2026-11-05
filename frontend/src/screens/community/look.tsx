@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Icon, type IconName } from '../../components';
+import { AppText } from '../../components';
 import { fontFamily } from '../../theme';
 import { groupLook } from '../group/look';
 
@@ -50,31 +50,6 @@ export const communityLook = {
   // White text on the run photos.
   onDark: groupLook.onDark,
 } as const;
-
-// A bare navy icon button in a 40 square (뒤로 · 설정 · 더보기).
-export function IconAction({
-  icon,
-  label,
-  onPress,
-  size = 24,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  size?: number;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      hitSlop={4}
-      style={({ pressed }) => [styles.icon, pressed && styles.pressed]}
-    >
-      <Icon name={icon} color={communityLook.ink} size={size} />
-    </Pressable>
-  );
-}
 
 // A section title in place of a card: a 1.5px navy line on its left.
 export function LineLabel({ children }: { children: React.ReactNode }) {
@@ -277,12 +252,7 @@ const styles = StyleSheet.create({
     color: communityLook.ink,
   },
   sheetButtonDanger: { color: '#C4644B' },
-  icon: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   label: {
     borderLeftWidth: 1.5,
     borderLeftColor: communityLook.ink,

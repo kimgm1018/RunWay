@@ -28,7 +28,7 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, typography } from '../../theme';
-import { communityLook, IconAction, LineLabel } from './look';
+import { communityLook, LineLabel } from './look';
 import {
   Avatar,
   placeLine,
@@ -39,6 +39,8 @@ import {
   usePostChanges,
 } from './parts';
 import { commentFailure, CommentRow } from './comments';
+import { BackButton } from '../../components/BackButton';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 const loadPost = (repositories: Repositories, postId: string) =>
   repositories.community.get(postId);
@@ -182,18 +184,14 @@ export function PostDetailScreen() {
       <>
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <IconAction
-              icon="back"
-              label="뒤로"
-              onPress={() => navigation.goBack()}
-            />
+            <BackButton onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               게시물
             </AppText>
             {post?.isMine ? (
-              <IconAction
+              <GlassIconButton
                 icon="more"
-                label="게시물 메뉴 열기"
+                accessibilityLabel="게시물 메뉴 열기"
                 onPress={() => setMenu(true)}
               />
             ) : null}

@@ -22,7 +22,6 @@ import {
   BottomSheet,
   Button,
   Icon,
-  LightGlass,
   MistFill,
   type IconName,
 } from '../../components';
@@ -43,6 +42,7 @@ import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
 import { RangeSlider } from './RangeSlider';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 type GoalInput = 'TIME' | 'PACE';
 
@@ -341,17 +341,13 @@ export function TodayRunScreen() {
       <SafeAreaView edges={['top']} style={styles.flex}>
         <CourseTabs current="TodayRun" />
         <View style={styles.mapGap}>
-          <Pressable
-            accessibilityRole="button"
+          <GlassIconButton
+            icon="locate"
             accessibilityLabel="현재 위치로"
             disabled={!here}
             onPress={() => here && setOrigin(here)}
             style={styles.locate}
-          >
-            <LightGlass radius={22} style={styles.locateGlass}>
-              <Icon name="locate" color="#111111" size={20} />
-            </LightGlass>
-          </Pressable>
+          />
         </View>
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -616,12 +612,7 @@ const styles = StyleSheet.create({
   // The map shows between the tabs and the sheet, with 현재 위치 at its bottom right.
   mapGap: { height: 148, justifyContent: 'flex-end', paddingBottom: 14 },
   locate: { alignSelf: 'flex-end', marginRight: 16 },
-  locateGlass: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   // The sheet rising from the bottom: round at the top only, near-white, a shadow cast upward.
   sheet: {
     flex: 1,

@@ -16,7 +16,6 @@ import {
   Card,
   EmptyState,
   Icon,
-  IconButton,
   TextField,
   useToast,
 } from '../../components';
@@ -39,6 +38,7 @@ import {
 } from '../../theme';
 import { GlowButton } from '../course/TodayRunScreen';
 import { FooterButton } from '../group/GroupRunDetailScreen';
+import { BackButton } from '../../components/BackButton';
 
 // 회원탈퇴 1/2 · 2/2 over the K1 background, with 취소 · 탈퇴하기 on the black lower part.
 function Frame({
@@ -64,11 +64,7 @@ function Frame({
       </View>
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText style={styles.headerTitle} accessibilityRole="header">
             회원탈퇴
           </AppText>

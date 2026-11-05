@@ -29,7 +29,6 @@ import {
   EmptyState,
   Icon,
   MistFill,
-  type IconName,
   useToast,
 } from '../../components';
 import {
@@ -52,6 +51,8 @@ import { fontFamily, size, ThemeProvider } from '../../theme';
 import { CourseGlyph } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
 import { mediaFor, Scrim } from './parts';
+import { BackButton } from '../../components/BackButton';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into a dark screen, the
 // name sits over its foot, then one wide white button, a row of three numbers, a glass card and the runs
@@ -302,29 +303,6 @@ function HeroBackdrop({
   );
 }
 
-// 뒤로 · 설정 over the picture: a small dark see-through circle.
-function RoundButton({
-  icon,
-  label,
-  onPress,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      hitSlop={6}
-      style={({ pressed }) => [styles.round, pressed && styles.pressed]}
-    >
-      <Icon name={icon} color={look.white} size={18} strokeWidth={2.2} />
-    </Pressable>
-  );
-}
-
 // One of the three numbers under the button.
 function Count({
   value,
@@ -496,16 +474,13 @@ function Profile({
             {inTab ? (
               <View />
             ) : (
-              <RoundButton
-                icon="back"
-                label="뒤로"
-                onPress={() => navigation.goBack()}
-              />
+              <BackButton tone="dark" onPress={() => navigation.goBack()} />
             )}
             {profile.isMe ? (
-              <RoundButton
+              <GlassIconButton
                 icon="settings"
-                label="설정"
+                tone="dark"
+                accessibilityLabel="설정"
                 onPress={() => navigateTo(navigation, 'Settings')}
               />
             ) : null}
@@ -704,7 +679,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: look.background },
   flex: { flex: 1 },
   loading: { marginTop: 120 },
-  pressed: { opacity: 0.6 },
   busy: { opacity: 0.45 },
   // A rounded-down measure must not leave a light line at the right or the foot.
   fillBleed: { right: -1, bottom: -1 },
@@ -736,14 +710,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  round: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: look.roundButton,
-  },
+
   name: { alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
   handle: {
     fontFamily: fontFamily.bold,

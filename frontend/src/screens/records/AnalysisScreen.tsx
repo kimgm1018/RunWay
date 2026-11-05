@@ -845,7 +845,14 @@ export function AnalysisScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <ScreenTitle title="러닝 분석" />
+        <ScreenTitle
+          title="러닝 분석"
+          onBack={() =>
+            navigation.canGoBack()
+              ? navigation.goBack()
+              : navigateTo(navigation, 'Home')
+          }
+        />
         <PillTabs glass options={tabs} value={mode} onChange={changeMode} />
         {data.status === 'error' ? (
           <EmptyState

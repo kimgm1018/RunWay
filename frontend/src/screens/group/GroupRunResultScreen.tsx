@@ -24,6 +24,7 @@ import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { RouteLine } from '../course/RouteLine';
 import { useRunSession } from '../run/RunSession';
 import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
+import { BackButton } from '../../components/BackButton';
 
 const stateOrder = { FINISHED: 0, RUNNING: 1, STOPPED: 2 };
 
@@ -71,15 +72,7 @@ function Hero({
         </View>
       ) : null}
       <View style={styles.heroTop}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="뒤로"
-          onPress={onBack}
-          hitSlop={6}
-          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-        >
-          <Icon name="back" color={groupLook.onDark} size={18} />
-        </Pressable>
+        <BackButton tone="dark" onPress={onBack} />
         <Raised tone="darkGlass" style={styles.titleChip}>
           <AppText style={styles.titleText} numberOfLines={1}>
             {title}
@@ -302,15 +295,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  back: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(249,249,249,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { transform: [{ scale: 0.97 }] },
+
   titleChip: {
     maxWidth: '64%',
     height: 28,

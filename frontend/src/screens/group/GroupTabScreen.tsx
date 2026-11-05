@@ -14,13 +14,14 @@ import {
 } from '@react-navigation/native';
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Icon, MistFill } from '../../components';
+import { AppText, MistFill } from '../../components';
 import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
 import { MyCrewsPage } from './GroupScreen';
 import { groupLook, insetTrackDark, Raised } from './look';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // 내 크루 is the left page, 크루 모집 the right one.
 const pages: readonly GroupTabRouteName[] = ['MyCrews', 'CrewRecruit'];
@@ -141,20 +142,16 @@ export function GroupTabScreen() {
           <View style={styles.root}>
             <GroupTabs active={page} onSelect={select} />
           </View>
-          <Pressable
-            accessibilityRole="button"
+          <GlassIconButton
+            icon="search"
+            tone="dark"
             accessibilityLabel={
               page === 1 ? '크루 검색 열기' : '내 크루 검색 열기'
             }
             accessibilityState={{ expanded: searching[page] }}
             onPress={() => setSearchingOn(page, true)}
-            style={({ pressed }) => [
-              styles.search,
-              pressed && styles.searchPressed,
-            ]}
-          >
-            <Icon name="search" color={groupLook.onDark} size={18} />
-          </Pressable>
+            style={styles.search}
+          />
         </View>
         <PagerView
           ref={pager}
@@ -227,14 +224,5 @@ const styles = StyleSheet.create({
   },
   tabTextOn: { color: groupLook.navy },
   // As tall as the tabs, flat like the round buttons on the crew cards.
-  search: {
-    width: 44,
-    height: 44,
-    marginTop: 3,
-    borderRadius: 22,
-    backgroundColor: groupLook.darkButton,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchPressed: { transform: [{ scale: 0.95 }] },
+  search: { marginTop: 3 },
 });
