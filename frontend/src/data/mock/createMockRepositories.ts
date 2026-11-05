@@ -647,35 +647,46 @@ export function createMockRepositories(
       getSaved: () => respond(saved, options),
       getTodayPlan: () => respond(planFor(chosen, saved), options),
       getOrigins: () => respond(fixtures.origins, options),
-      recommend: () => {
+      recommend: search => {
         if (options.scenario === 'courseError') {
           return fail(new DataError('UNKNOWN', '추천 실패'), options);
         }
+        // The next page asks with the next seed (S15P31E105-474). The mock has one set, so a later page
+        // is the same courses under ids of their own (…-p2), turned round by a course so it reads as new.
+        const seed = search.seed ?? 1;
+        const set = fixtures.recommendedCourses;
+        const shift = (seed - 1) % Math.max(set.length, 1);
+        const page = [...set.slice(shift), ...set.slice(0, shift)].map(
+          course => ({
+            ...course,
+            id: seed === 1 ? course.id : `${course.id}-p${seed}`,
+          }),
+        );
         return respond(
           {
             courses:
               options.scenario === 'noCourses'
                 ? []
-                : fixtures.recommendedCourses.map(course => ({
+                : page.map(course => ({
                     ...course,
                     saved: saved.some(item => item.id === course.id),
                   })),
             notices: [],
-            // The mock has one fixed set, so there is no 다른 코스.
-            nextSeed: null,
+            nextSeed: seed + 1,
           },
           options,
         );
       },
       save: courseId => {
+        // A later page's course (…-p2) is a fixture under another id.
         const course = fixtures.recommendedCourses.find(
-          item => item.id === courseId,
+          item => item.id === courseId.replace(/-p\d+$/, ''),
         );
         if (course && !saved.some(item => item.id === courseId)) {
           saved = [
             ...saved,
             {
-              id: course.id,
+              id: courseId,
               name: course.name,
               myAlias: null,
               distanceM: course.distanceM,

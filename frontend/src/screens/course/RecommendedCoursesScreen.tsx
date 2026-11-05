@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   useWindowDimensions,
@@ -174,27 +175,20 @@ function CourseCard({
   course,
   width,
   height,
-  page,
   goalPace,
   onChoose,
   onToggleSave,
-  onTurned,
 }: {
   course: RecommendedCourse;
   width: number;
   height: number;
-  // This card's place among the recommendations, for the dots on it.
-  page: { index: number; count: number };
   // The pace asked for on 3.1, shown as 목표 6′00″/km.
   goalPace: number | null;
   onChoose: () => void;
   onToggleSave: () => void;
-  // Tells the screen which face is up, so the page count can step aside for the back.
-  onTurned: (back: boolean) => void;
 }) {
   const [back, setBack] = useState(false);
   const turn = useRef(new Animated.Value(0)).current;
-  useEffect(() => onTurned(back), [back, onTurned]);
   useEffect(() => {
     Animated.timing(turn, {
       toValue: back ? 1 : 0,
@@ -250,20 +244,6 @@ function CourseCard({
             />
           </Pressable>
           <View style={styles.front}>
-            <View
-              style={styles.cardDots}
-              importantForAccessibility="no-hide-descendants"
-            >
-              {Array.from({ length: page.count }, (_, position) => (
-                <View
-                  key={position}
-                  style={[
-                    styles.cardDot,
-                    position === page.index && styles.cardDotOn,
-                  ]}
-                />
-              ))}
-            </View>
             <View style={styles.nameRow}>
               <AppText
                 style={styles.name}
@@ -399,15 +379,24 @@ function BackFace({
 const backInk = '#0D171F';
 
 // 3.1b 추천 코스: swipe through the recommendations, turn a card over for its detail, then start.
-// runway-course-handoff: the title in the middle of the top bar with the page count, cards 20 from the
-// left with the next one showing 12 at the right, on the light-to-dark backdrop.
+// runway-course-handoff: the title in the middle of the top bar, cards 20 from the left with the next one
+// showing 12 at the right, on the light-to-dark backdrop. No page count and no dots: the row grows as it is
+// swiped (S15P31E105-474, 담당자 결정), and the next card peeking in already says there is more.
 export function RecommendedCoursesScreen() {
   const navigation = useNavigation();
   const { courses } = useRepositories();
   const toast = useToast();
-  const { search, results, notices, nextSeed, rerolls, setSearch, setResults } =
-    useCourseSearch();
-  // 다른 코스 stops after MAX_REROLLS answers for one search; Route looks back that many answers.
+  const {
+    search,
+    results,
+    notices,
+    nextSeed,
+    rerolls,
+    round,
+    setSearch,
+    setResults,
+  } = useCourseSearch();
+  // Pages stop after MAX_REROLLS more answers for one search; Route looks back that many answers.
   const canAskMore = nextSeed !== null && rerolls < MAX_REROLLS;
   const [loadingMore, setLoadingMore] = useState(false);
   // Set at once on a tap, so a second tap in the same frame does not start another C01.
@@ -416,21 +405,14 @@ export function RecommendedCoursesScreen() {
   const moreTicket = useRequestTicket(search);
   const window = useWindowDimensions();
   const [failed, setFailed] = useState(false);
-  const [index, setIndex] = useState(0);
-  // Courses turned to their back; the page count hides while the one in view is turned.
-  const [turned, setTurned] = useState<string[]>([]);
-  // Unchanged lists come back as they are, so a card reporting the same face does not re-render the screen.
-  const markTurned = useCallback(
-    (id: string, back: boolean) =>
-      setTurned(current =>
-        back === current.includes(id)
-          ? current
-          : back
-          ? [...current, id]
-          : current.filter(item => item !== id),
-      ),
-    [],
-  );
+  // The card in view, kept with the search it belongs to: a new search from 3.1 starts at the first card,
+  // so the end of the old row does not ask the new one for its next page.
+  const [place, setPlace] = useState({ round, index: 0 });
+  const index = place.round === round ? place.index : 0;
+  const row = useRef<ScrollView>(null);
+  useEffect(() => {
+    row.current?.scrollTo({ x: 0, animated: false });
+  }, [round]);
   const scrollX = useRef(new Animated.Value(0)).current;
   // 350 wide on a 390 screen: 20 to the left, 8 between, the next card 12 in view. The height fills
   // what is left under the top bar, 16 below it and 24 above the bottom.
@@ -461,7 +443,8 @@ export function RecommendedCoursesScreen() {
     );
   }, [courses, results, search, setSearch]);
 
-  // 다른 코스: the same conditions with the nextSeed of the last answer.
+  // The next page (S15P31E105-474, 담당자 결정): reaching the last card asks with the same conditions and the
+  // nextSeed of the last answer, and the new courses join the end of the row, so swiping just goes on.
   const showMore = async () => {
     if (!search || nextSeed === null || !canAskMore || askingMore.current) {
       return;
@@ -475,16 +458,7 @@ export function RecommendedCoursesScreen() {
       if (!moreTicket.isCurrent(ticket)) {
         return;
       }
-      if (found.courses.length === 0) {
-        toast('다른 코스를 찾지 못했어요. 조건을 바꿔 보세요');
-        return;
-      }
-      setTurned([]);
-      setIndex(0);
       setSearch(next, found, true);
-      if (rerolls + 1 >= MAX_REROLLS) {
-        toast(`다른 코스는 ${MAX_REROLLS}번까지 볼 수 있어요`);
-      }
     } catch (error) {
       if (moreTicket.isCurrent(ticket)) {
         toast(recommendFailureNotice(error).title);
@@ -494,6 +468,26 @@ export function RecommendedCoursesScreen() {
       setLoadingMore(false);
     }
   };
+
+  const settleOn = (x: number) => {
+    if (!results) {
+      return;
+    }
+    setPlace({
+      round,
+      index: Math.min(results.length - 1, Math.max(0, Math.round(x / step))),
+    });
+  };
+
+  // The last card in view asks for the next page.
+  const atEnd = results !== null && index >= results.length - 1;
+  useEffect(() => {
+    if (atEnd && canAskMore) {
+      showMore();
+    }
+    // showMore reads the latest search; the page is asked only when the end or the seed changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atEnd, canAskMore, nextSeed]);
 
   // A route C01 just made has no course id until 371 saves it.
   const notYet = () => toast('새로 만든 코스의 저장과 시작은 준비 중이에요');
@@ -534,8 +528,8 @@ export function RecommendedCoursesScreen() {
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop />
       </View>
-      {/* The page count sits in the bar, not on the card (README 알려진 문제). 뒤로 at the top left returns to
-          3.1 with the conditions (담당자 결정), so 다른 코스 moves to the right before the count. */}
+      {/* 뒤로 at the top left returns to 3.1 with the conditions (담당자 결정). There is no page count: the
+          courses come three at a time and more join as the row is swiped (S15P31E105-474). */}
       <View style={styles.header}>
         <View style={styles.backButton}>
           <BackGlassButton
@@ -549,27 +543,6 @@ export function RecommendedCoursesScreen() {
         <AppText accessibilityRole="header" style={styles.title}>
           추천 코스
         </AppText>
-        <View style={styles.headerRight}>
-          {results && canAskMore ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="다른 코스 추천받기"
-              accessibilityState={{ busy: loadingMore }}
-              disabled={loadingMore}
-              onPress={showMore}
-              style={({ pressed }) => [styles.more, pressed && styles.pressed]}
-            >
-              <AppText style={styles.moreText}>
-                {loadingMore ? '찾는 중…' : '다른 코스'}
-              </AppText>
-            </Pressable>
-          ) : null}
-          {results && !turned.includes(results[index]?.id) ? (
-            <AppText style={styles.count}>
-              {`${index + 1} / ${results.length}`}
-            </AppText>
-          ) : null}
-        </View>
       </View>
       {/* Route's notes about the whole answer, as plain text. */}
       {results && notices.length > 0 ? (
@@ -590,6 +563,7 @@ export function RecommendedCoursesScreen() {
             onLayout={event => setArea(event.nativeEvent.layout.height)}
           >
             <Animated.ScrollView
+              ref={row}
               horizontal
               showsHorizontalScrollIndicator={false}
               snapToInterval={step}
@@ -605,23 +579,18 @@ export function RecommendedCoursesScreen() {
                 {
                   useNativeDriver: true,
                   listener: event =>
-                    setIndex(
-                      Math.min(
-                        results.length - 1,
-                        Math.max(
-                          0,
-                          Math.round(
-                            (
-                              event as {
-                                nativeEvent: { contentOffset: { x: number } };
-                              }
-                            ).nativeEvent.contentOffset.x / step,
-                          ),
-                        ),
-                      ),
+                    settleOn(
+                      (
+                        event as {
+                          nativeEvent: { contentOffset: { x: number } };
+                        }
+                      ).nativeEvent.contentOffset.x,
                     ),
                 },
               )}
+              onMomentumScrollEnd={event =>
+                settleOn(event.nativeEvent.contentOffset.x)
+              }
             >
               {results.map((course, position) => {
                 const range = [
@@ -666,15 +635,31 @@ export function RecommendedCoursesScreen() {
                       course={course}
                       width={cardWidth}
                       height={cardHeight}
-                      page={{ index: position, count: results.length }}
                       goalPace={goalPace}
                       onChoose={() => choose(course)}
                       onToggleSave={() => toggleSave(course)}
-                      onTurned={back => markTurned(course.id, back)}
                     />
                   </Animated.View>
                 );
               })}
+              {loadingMore ? (
+                // While the next page is asked, the row ends in a card that says so.
+                <View
+                  accessibilityLabel="다른 코스를 찾는 중"
+                  style={[
+                    styles.loadingCard,
+                    {
+                      width: cardWidth * sideScale,
+                      height: cardHeight * sideScale,
+                    },
+                  ]}
+                >
+                  <ActivityIndicator color="#02050E" />
+                  <AppText style={styles.loadingText}>
+                    다른 코스를 찾는 중
+                  </AppText>
+                </View>
+              ) : null}
             </Animated.ScrollView>
           </View>
         </>
@@ -706,29 +691,6 @@ const styles = StyleSheet.create({
     color: '#02050E',
   },
   backButton: { position: 'absolute', left: 16, bottom: 0 },
-  headerRight: {
-    position: 'absolute',
-    right: 16,
-    bottom: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  count: {
-    paddingRight: 8,
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 14,
-    color: '#67696E',
-  },
-  more: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  moreText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    color: '#02050E',
-  },
   notice: {
     marginHorizontal: 24,
     marginTop: 4,
@@ -776,26 +738,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveOn: { backgroundColor: 'rgba(255,255,255,0.8)' },
-  // From the foot up: the button, then 16 · pills · 16 · facts · 14 · kind · 2 · name · 16 · dots.
+  // From the foot up: the button, then 16 · pills · 16 · facts · 14 · kind · 2 · name.
   front: {
     position: 'absolute',
     left: 22,
     right: 18,
     bottom: 14 + 58 + 16,
   },
-  cardDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 5,
-    marginBottom: 16,
-  },
-  cardDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.4)',
-  },
-  cardDotOn: { backgroundColor: '#FFFFFF' },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -938,4 +887,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   track: { alignItems: 'center' },
+  loadingCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    color: '#67696E',
+  },
 });

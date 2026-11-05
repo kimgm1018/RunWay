@@ -5,7 +5,7 @@ import type {
   RecommendedCourse,
 } from '../../data';
 
-// 다른 코스 is offered at most this many times per search (첫 추천 + 2번, S15P31E105-383).
+// The next page of courses is asked at most this many times per search (첫 추천 + 2번, S15P31E105-383).
 export const MAX_REROLLS = 2;
 
 // 3.1 sets the conditions and the results; 3.1b reads them. 조건 변경 goes back with the inputs kept.
@@ -15,12 +15,15 @@ type CourseSearchValue = {
   // About the whole answer (Route notices), and the seed for 다른 코스; null when there is no more.
   notices: string[];
   nextSeed: number | null;
-  // 다른 코스 answers shown for this search; a new search from 3.1 starts again at 0.
+  // Next pages shown for this search; a new search from 3.1 starts again at 0.
   rerolls: number;
+  // Counts the searches, so 3.1b can go back to the first card when a new one replaces the row.
+  round: number;
+  // more appends the answer after the courses already shown (S15P31E105-474) instead of replacing them.
   setSearch: (
     search: CourseSearch,
     found: CourseRecommendations,
-    reroll?: boolean,
+    more?: boolean,
   ) => void;
   setResults: (results: RecommendedCourse[]) => void;
 };
@@ -37,6 +40,7 @@ export function CourseSearchProvider({
   const [notices, setNotices] = useState<string[]>([]);
   const [nextSeed, setNextSeed] = useState<number | null>(null);
   const [rerolls, setRerolls] = useState(0);
+  const [round, setRound] = useState(0);
   const value = useMemo(
     () => ({
       search,
@@ -44,20 +48,34 @@ export function CourseSearchProvider({
       notices,
       nextSeed,
       rerolls,
+      round,
       setSearch: (
         next: CourseSearch,
         found: CourseRecommendations,
-        reroll = false,
+        more = false,
       ) => {
         setSearchState(next);
-        setResults(found.courses);
+        // A course already on screen is not added twice.
+        setResults(shown =>
+          more && shown
+            ? [
+                ...shown,
+                ...found.courses.filter(
+                  course => !shown.some(item => item.id === course.id),
+                ),
+              ]
+            : found.courses,
+        );
         setNotices(found.notices);
         setNextSeed(found.nextSeed);
-        setRerolls(count => (reroll ? count + 1 : 0));
+        setRerolls(count => (more ? count + 1 : 0));
+        if (!more) {
+          setRound(count => count + 1);
+        }
       },
       setResults,
     }),
-    [search, results, notices, nextSeed, rerolls],
+    [search, results, notices, nextSeed, rerolls, round],
   );
   return (
     <CourseSearchContext.Provider value={value}>

@@ -201,6 +201,24 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+// Swipes the 3.1b row to its last card, which asks for the next page (S15P31E105-474).
+function swipeToLast(screen: Screen) {
+  const rows = screen.root.findAll(
+    node =>
+      node.props.horizontal === true &&
+      typeof node.props.onMomentumScrollEnd === 'function',
+  );
+  rows[rows.length - 1].props.onMomentumScrollEnd({
+    nativeEvent: { contentOffset: { x: 100000 } },
+  });
+}
+
+async function swipe(screen: Screen) {
+  await act(async () => swipeToLast(screen));
+  await settle();
+  await settle();
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -317,7 +335,7 @@ test('3.1b shows the generated routes, asks again with nextSeed and holds save a
   expect(first).toMatchObject({ shape: 'loop', seed: 1 });
   expect(first).not.toHaveProperty('targetDistanceM');
   let page = texts(screen);
-  expect(page).toContain('1 / 2');
+  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
   expect(page).toContain('이 주변은 공원 정보가 일부만 있어요');
   expect(hasButton(screen, '5.0km 코스, 코스 정보 보기')).toBe(true);
   // A candidate index is not a course id: no C03 and no C09 lookup for the cards.
@@ -332,12 +350,15 @@ test('3.1b shows the generated routes, asks again with nextSeed and holds save a
     );
   expect(afterRecommend).toEqual(['POST /courses/recommendations']);
 
-  // 다른 코스 keeps the conditions and sends the nextSeed of the last answer.
-  await press(screen, '다른 코스 추천받기');
+  // Swiping to the last card asks for the next page with the same conditions and the nextSeed of the last
+  // answer; the new courses join the end of the row, after the ones already shown.
+  await swipe(screen);
   const bodies = recommendationBodies();
   expect(bodies).toHaveLength(2);
   expect(bodies[1]).toEqual({ ...first, seed: 25 });
-  expect(texts(screen)).toContain('강변을 많이 지나는 코스예요 25-0');
+  page = texts(screen);
+  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
+  expect(page).toContain('강변을 많이 지나는 코스예요 25-0');
 
   // Saving or running a route C01 just made waits for S15P31E105-371.
   await press(screen, '내 코스에 저장');
@@ -362,44 +383,46 @@ test('a second tap before the answer does not send C01 again', async () => {
   await settle();
   expect(recommendationBodies().map(body => body.seed)).toEqual([1]);
 
+  // Two swipes to the end before the next page answers send it once.
   await act(async () => {
-    const more = labelled(screen, '다른 코스 추천받기');
-    more.props.onPress();
-    more.props.onPress();
+    swipeToLast(screen);
+    swipeToLast(screen);
   });
   await settle();
   await settle();
   expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25]);
 });
 
-test('3.1b has no 다른 코스 once nextSeed is past the seed range', async () => {
+test('3.1b asks for no next page once nextSeed is past the seed range', async () => {
   recommendations = () =>
     respond(200, { ...generated(9_999_990), nextSeed: 10_000_014 });
   const screen = await openTodayRun();
   await press(screen, '코스 추천 받기');
 
-  expect(texts(screen)).toContain('1 / 2');
-  expect(hasButton(screen, '다른 코스 추천받기')).toBe(false);
+  await swipe(screen);
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1]);
 });
 
-test('3.1b offers 다른 코스 twice per search and again after a new search', async () => {
+test('3.1b adds the next page twice per search and again after a new search', async () => {
   const screen = await openTodayRun();
   await press(screen, '코스 추천 받기');
 
-  // S15P31E105-383: 첫 추천 + 다른 코스 2번. Route looks back that many answers to leave out courses shown before.
-  await press(screen, '다른 코스 추천받기');
-  expect(hasButton(screen, '다른 코스 추천받기')).toBe(true);
-  await press(screen, '다른 코스 추천받기');
+  // S15P31E105-383: 첫 추천 + 2 more pages. Route looks back that many answers to leave out courses shown before.
+  await swipe(screen);
+  await swipe(screen);
   expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49]);
-  expect(texts(screen)).toContain('강변을 많이 지나는 코스예요 49-0');
-  expect(texts(screen)).toContain('다른 코스는 2번까지 볼 수 있어요');
-  expect(hasButton(screen, '다른 코스 추천받기')).toBe(false);
+  const page = texts(screen);
+  for (const seed of [1, 25, 49]) {
+    expect(page).toContain(`강변을 많이 지나는 코스예요 ${seed}-0`);
+  }
+  // The end of the third page asks for nothing more.
+  await swipe(screen);
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49]);
 
-  // A new search from 3.1 (still mounted under 3.1b) starts the count again with the first seed.
+  // A new search from 3.1 (still mounted under 3.1b) starts again with the first seed and one page.
   await press(screen, '코스 추천 받기');
   expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49, 1]);
-  expect(hasButton(screen, '다른 코스 추천받기')).toBe(true);
-  await press(screen, '다른 코스 추천받기');
+  await swipe(screen);
   expect(recommendationBodies().at(-1)).toMatchObject({ seed: 25 });
 });
 
