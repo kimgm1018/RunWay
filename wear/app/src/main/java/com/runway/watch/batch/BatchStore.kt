@@ -3,6 +3,7 @@ package com.runway.watch.batch
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
+import java.time.Instant
 
 /**
  * A finished batch waiting for the server save ACK. [body] (W07 body), [id] and [messageId] never change after
@@ -20,17 +21,30 @@ data class OutboxBatch(
     val failed: Boolean = false,
 )
 
+/**
+ * Per metric ([Reading.metrics]), the latest measuredAt of [sessionId] already put in a batch (S15P31E105-445).
+ * After an app restart Health Services may hand over readings again; ones at or before these times are not batched twice.
+ */
+data class BatchMarks(val sessionId: String, val latest: Map<String, Instant>)
+
 /** Watch-side outbox of batches not yet COMMITTED. Survives app restarts. */
 interface BatchStore {
     fun all(): List<OutboxBatch>
     /** Adds or replaces all [batches], or none of them. */
     fun put(batches: List<OutboxBatch>)
     fun remove(id: String)
+    /** The marks of the run batched last, or null. Survives app restarts like the batches. */
+    fun marks(): BatchMarks?
+    fun saveMarks(marks: BatchMarks)
 }
 
 class InMemoryBatchStore : BatchStore {
     private val batches = linkedMapOf<String, OutboxBatch>()
+    private var marks: BatchMarks? = null
     var failNextPut = false
+
+    @Synchronized override fun marks() = marks
+    @Synchronized override fun saveMarks(marks: BatchMarks) { this.marks = marks }
 
     @Synchronized override fun all() = batches.values.toList()
     @Synchronized override fun put(batches: List<OutboxBatch>) {
@@ -75,6 +89,28 @@ class FileBatchStore(context: Context) : BatchStore {
 
     override fun remove(id: String): Unit = synchronized(LOCK) { File(dir, "$id.json").delete() }
 
+    // Not a .json file, so all() never reads it as a batch.
+    override fun marks(): BatchMarks? = synchronized(LOCK) {
+        try {
+            val o = JSONObject(File(dir, MARKS_FILE).readText(Charsets.UTF_8))
+            val latest = o.getJSONObject("latest")
+            BatchMarks(o.getString("sessionId"), latest.keys().asSequence().associateWith { Instant.parse(latest.getString(it)) })
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override fun saveMarks(marks: BatchMarks) = synchronized(LOCK) {
+        val latest = JSONObject().apply { marks.latest.forEach { (metric, at) -> put(metric, at.toString()) } }
+        val temp = File(dir, "$MARKS_FILE.tmp")
+        temp.writeText(JSONObject().put("sessionId", marks.sessionId).put("latest", latest).toString(), Charsets.UTF_8)
+        val target = File(dir, MARKS_FILE)
+        if (!temp.renameTo(target)) {
+            target.delete()
+            check(temp.renameTo(target)) { "rename failed" }
+        }
+    }
+
     private fun encode(b: OutboxBatch) = JSONObject()
         .put("id", b.id)
         .put("sessionId", b.sessionId)
@@ -105,5 +141,6 @@ class FileBatchStore(context: Context) : BatchStore {
 
     private companion object {
         val LOCK = Any()
+        const val MARKS_FILE = "marks.state"
     }
 }

@@ -206,4 +206,43 @@ class BatchUploaderTest {
         assertEquals(0, store.all().size)
         assertFalse(u.state.value.unconfirmed)
     }
+
+    // S15P31E105-445: Health Services may hand over readings again after the app process restarted mid-run.
+    @Test
+    fun `after a restart readings already in a batch are not batched again, newer ones are`() = runBlocking {
+        val before = uploader()
+        before.begin("201", "101")
+        before.offer(listOf(hr(1), hr(2), Reading(at.plusSeconds(2), 2, totalDistanceM = 10.0)))
+        nowMs = 5_000
+        before.tick()
+        assertEquals(1, store.all().size)
+        // 버퍼에만 있던 원본은 재시작으로 사라졌으므로 다시 받으면 넣는다.
+        before.offer(listOf(hr(3)))
+
+        val after = uploader()
+        after.begin("201", "101")
+        after.offer(listOf(hr(1), hr(2), hr(3), hr(4), Reading(at.plusSeconds(2), 2, totalDistanceM = 10.0)))
+        nowMs = 10_000
+        after.tick()
+        assertEquals(2, store.all().size)
+        val second = store.all()[1]
+        val items = JSONObject(second.body).getJSONArray("items")
+        assertEquals(listOf(at.plusSeconds(3).toString(), at.plusSeconds(4).toString()), (0 until items.length()).map { items.getJSONObject(it).getString("measuredAt") })
+    }
+
+    @Test
+    fun `marks of another run do not hold back a new run`() = runBlocking {
+        val first = uploader()
+        first.begin("201", "101")
+        first.offer(listOf(hr(5)))
+        nowMs = 5_000
+        first.tick()
+
+        val next = uploader()
+        next.begin("202", "101")
+        next.offer(listOf(hr(1)))
+        nowMs = 10_000
+        next.tick()
+        assertEquals(1, store.all().count { it.sessionId == "202" })
+    }
 }

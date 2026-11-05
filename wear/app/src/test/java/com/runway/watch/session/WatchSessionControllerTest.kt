@@ -22,6 +22,12 @@ class WatchSessionControllerTest {
         override suspend fun pause() = call("pause")
         override suspend fun resume() = call("resume")
         override suspend fun end() = call("end")
+        /** Whether Health Services still has this app's exercise after a restart; null throws. */
+        var exerciseLeft: Boolean? = true
+        override suspend fun reattach(): Boolean {
+            calls += "reattach"
+            return exerciseLeft ?: throw IllegalStateException("health services unavailable")
+        }
         private suspend fun call(name: String) {
             calls += name
             if (hangMs > 0) delay(hangMs)
@@ -304,5 +310,201 @@ class WatchSessionControllerTest {
         assertEquals(listOf("start"), calls)
         c.onMessage(apply("END", 504, 2))
         assertEquals(listOf("start", "stop"), calls)
+    }
+
+    // S15P31E105-445: the app process restarts mid-run (debug reinstall, OS kill) and the phone's server push wakes it.
+    private fun serverState(state: String, version: Long, mode: String = "WATCH") =
+        message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"$mode","state":"$state","stateVersion":$version,"currentBpm":null}""")
+
+    private class KeepAliveCalls : RunKeepAlive {
+        val calls = mutableListOf<String>()
+        override fun start() { calls += "start" }
+        override fun stop() { calls += "stop" }
+    }
+
+    /** A controller in a new process: the store survived, nothing else did. */
+    private fun restarted(uploads: FakeUploads = FakeUploads(), keepAlive: RunKeepAlive = NoKeepAlive) = WatchSessionController(
+        store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads, keepAlive = keepAlive,
+    )
+
+    @Test
+    fun `after a restart a running server state listens to the kept exercise again and resumes the batches`() = runBlocking {
+        controller().running()
+        gateway.calls.clear()
+        val uploads = FakeUploads()
+        val keepAlive = KeepAliveCalls()
+        val c = restarted(uploads, keepAlive)
+
+        c.onMessage(serverState("RUNNING", 2))
+        assertEquals(listOf("reattach"), gateway.calls)
+        assertEquals(listOf("begin:201:101"), uploads.calls)
+        assertEquals(listOf("start"), keepAlive.calls)
+        assertEquals(RunState.RUNNING, c.state.value.confirmed)
+        assertFalse(c.state.value.measurementLost)
+
+        // 이후 서버 상태마다 다시 붙이지 않고, 명령은 그대로 실행한다.
+        c.onMessage(serverState("RUNNING", 2))
+        c.onMessage(apply("PAUSE", 502, 2))
+        assertEquals(listOf("reattach", "pause"), gateway.calls)
+        assertEquals("APPLIED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("result"))
+    }
+
+    @Test
+    fun `after a restart a paused run listens again but does not resume the measurement`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.onMessage(apply("PAUSE", 502, 2))
+        c.onMessage(saved(502, 3))
+        gateway.calls.clear()
+
+        val again = restarted()
+        again.onMessage(serverState("PAUSED", 3))
+        assertEquals(listOf("reattach"), gateway.calls)
+        assertEquals(RunState.PAUSED, again.state.value.confirmed)
+        again.onMessage(apply("RESUME", 503, 3))
+        assertEquals(listOf("reattach", "resume"), gateway.calls)
+    }
+
+    @Test
+    fun `a run whose exercise is gone after a restart is never restarted and is pointed to the phone`() = runBlocking {
+        controller().running()
+        gateway.calls.clear()
+        gateway.exerciseLeft = false
+        val c = restarted()
+
+        c.onMessage(serverState("PAUSED", 3))
+        assertTrue(c.state.value.measurementLost)
+        assertEquals(SessionRunControl.MEASUREMENT_LOST_NOTICE, SessionRunControl.notice(c.state.value))
+        assertTrue(SessionRunControl.toSnapshot(c.state.value).measurementLost)
+        // 새 서버 상태가 와도 안내는 남는다.
+        c.onMessage(serverState("PAUSED", 3))
+        assertTrue(c.state.value.measurementLost)
+
+        // 재개는 실행하지 않고 거절해 성공으로 보이지 않는다.
+        c.onMessage(apply("RESUME", 503, 3))
+        val resume = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals("REJECTED", resume.getString("result"))
+        assertEquals("EXERCISE_LOST", resume.getString("reasonCode"))
+
+        // 종료는 끝낼 운동 없이 남은 기록을 보내고 결과를 보고한다.
+        c.onMessage(apply("END", 504, 3))
+        assertEquals("APPLIED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("result"))
+        assertEquals(listOf("reattach"), gateway.calls)
+    }
+
+    @Test
+    fun `a run whose exercise is gone can still be paused and ended so the record is saved`() = runBlocking {
+        controller().running()
+        gateway.calls.clear()
+        gateway.exerciseLeft = false
+        val c = restarted()
+        c.onMessage(serverState("RUNNING", 2))
+        assertTrue(c.state.value.measurementLost)
+
+        // 멈출 운동이 없으니 서버 상태만 일시정지로 바꾸고, 폰의 일시정지 → 종료 길을 막지 않는다.
+        c.onMessage(apply("PAUSE", 502, 2))
+        assertEquals("APPLIED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("result"))
+        c.onMessage(saved(502, 3))
+        c.onMessage(apply("END", 504, 3))
+        assertEquals("APPLIED", sender.last("COMMAND_RESULT").getJSONObject("payload").getString("result"))
+        assertEquals(listOf("reattach"), gateway.calls)
+    }
+
+    @Test
+    fun `the lost notice ends with the run or when the phone records it`() = runBlocking {
+        controller().running()
+        gateway.exerciseLeft = false
+        val c = restarted()
+        c.onMessage(serverState("RUNNING", 2))
+        assertTrue(c.state.value.measurementLost)
+
+        c.onMessage(serverState("RUNNING", 3, mode = "PHONE_FALLBACK"))
+        assertFalse(c.state.value.measurementLost)
+        c.onMessage(serverState("COMPLETED", 4, mode = "PHONE_FALLBACK"))
+        assertFalse(c.state.value.measurementLost)
+    }
+
+    @Test
+    fun `after a restart a run already handed to the phone is not attached on the watch`() = runBlocking {
+        controller().running()
+        gateway.calls.clear()
+        val c = restarted()
+        c.onMessage(serverState("RUNNING", 3, mode = "PHONE_FALLBACK"))
+        assertTrue(gateway.calls.isEmpty())
+        assertFalse(c.state.value.measurementLost)
+    }
+
+    @Test
+    fun `a failed exercise check is tried again on the next server state`() = runBlocking {
+        controller().running()
+        gateway.calls.clear()
+        gateway.exerciseLeft = null
+        val c = restarted()
+        c.onMessage(serverState("RUNNING", 2))
+        assertFalse(c.state.value.measurementLost)
+
+        gateway.exerciseLeft = true
+        c.onMessage(serverState("RUNNING", 2))
+        c.onMessage(serverState("RUNNING", 2))
+        assertEquals(listOf("reattach", "reattach"), gateway.calls)
+    }
+
+    @Test
+    fun `a restarted watch asks for its stored session's server state until one arrives, for two minutes at most`() = runBlocking {
+        controller().running()
+        var elapsed = 0L
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, elapsedMs = { elapsed })
+        sender.sent.clear()
+
+        c.tick()
+        val query = sender.last("STATE_QUERY")
+        assertEquals(201L, query.getLong("sessionId"))
+        assertEquals("SERVER", query.getJSONObject("payload").getString("scope"))
+        elapsed = 5_000
+        c.tick()
+        assertEquals(1, sender.count("STATE_QUERY"))
+        elapsed = 10_000
+        c.tick()
+        assertEquals(2, sender.count("STATE_QUERY"))
+
+        // 서버 상태가 오면 운동을 다시 붙인다.
+        c.onMessage(serverState("RUNNING", 2))
+        assertEquals(listOf("start", "reattach"), gateway.calls)
+    }
+
+    @Test
+    fun `a restarted watch stops asking once the server state arrived`() = runBlocking {
+        val c0 = controller()
+        c0.onMessage(prepare())
+        var elapsed = 0L
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, elapsedMs = { elapsed })
+        sender.sent.clear()
+        c.tick()
+        c.onMessage(serverState("READY", 1))
+        elapsed = 30_000
+        c.tick()
+        assertEquals(1, sender.count("STATE_QUERY"))
+        assertTrue(gateway.calls.isEmpty())
+    }
+
+    @Test
+    fun `a restarted watch whose session the phone no longer runs stops asking after two minutes`() = runBlocking {
+        controller().running()
+        var elapsed = 0L
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, elapsedMs = { elapsed })
+        sender.sent.clear()
+        while (elapsed < 200_000) {
+            c.tick()
+            elapsed += 5_000
+        }
+        assertEquals(12, sender.count("STATE_QUERY"))
+    }
+
+    @Test
+    fun `a run started in this process is not checked again on its server states`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.onMessage(serverState("RUNNING", 2))
+        assertEquals(listOf("start"), gateway.calls)
     }
 }

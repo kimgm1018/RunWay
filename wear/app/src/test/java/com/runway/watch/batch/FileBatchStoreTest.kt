@@ -59,4 +59,13 @@ class FileBatchStoreTest {
         assertEquals(2, sent.size)
         assertEquals(sent[0], sent[1])
     }
+
+    @Test
+    fun `batch marks survive a reload and are not read as a batch`() {
+        val marks = BatchMarks("201", mapOf("heartRate" to Instant.parse("2026-10-28T01:00:02Z")))
+        FileBatchStore(RuntimeEnvironment.getApplication()).saveMarks(marks)
+        val reloaded = FileBatchStore(RuntimeEnvironment.getApplication())
+        assertEquals(marks, reloaded.marks())
+        assertTrue(reloaded.all().isEmpty())
+    }
 }

@@ -68,6 +68,11 @@ class BatchUploader(
     private val backoff = mutableMapOf<String, Long>()
     // Last send (or BATCH_RECEIVED) time per batch, on [clock]. Not stored: after a restart every open batch is due.
     private val sentAt = mutableMapOf<String, Long>()
+    /**
+     * Marks stored before this process took the run over (S15P31E105-445). Fixed for the process: readings of a metric
+     * at or before its mark were batched before the restart and are dropped if Health Services hands them over again.
+     */
+    private var floor: Map<String, java.time.Instant> = emptyMap()
 
     private val _state = MutableStateFlow(UploadState())
     val state: StateFlow<UploadState> = _state
@@ -75,7 +80,7 @@ class BatchUploader(
     /** Readings from the exercise listener. Ignored outside a run or once collection stopped. */
     suspend fun offer(readings: List<Reading>) = mutex.withLock {
         if (!accepting || unconfirmed) return@withLock
-        val valid = readings.filter { it.hasValue }
+        val valid = readings.filter { r -> r.metrics.any { floor[it]?.isBefore(r.measuredAt) ?: true } }
         if (valid.isEmpty()) return@withLock
         if (buffer.isEmpty()) bufferSinceMs = clock()
         buffer += valid
@@ -88,6 +93,8 @@ class BatchUploader(
             buffer.clear()
             bufferSinceMs = null
             unconfirmed = store.all().any { it.failed }
+            // 같은 운동을 재시작 후 이어 받으면 재시작 전에 batch로 만든 원본을 다시 넣지 않는다(S15P31E105-445).
+            floor = store.marks()?.takeIf { it.sessionId == sessionId }?.latest.orEmpty()
         }
         this.sessionId = sessionId
         this.deviceId = deviceId
@@ -209,10 +216,23 @@ class BatchUploader(
             val id = newId()
             OutboxBatch(id, sessionId, nextMessageId(), BatchFormat.body(id, deviceId, sessionId, part), part.size)
         }
+        // 기준 시각을 batch보다 먼저 저장한다. 그 사이에 종료되면 원본이 빠질 수는 있어도 두 batch에 들어가지는 않는다.
+        store.saveMarks(nextMarks(sessionId))
         store.put(batches)
         buffer.clear()
         bufferSinceMs = null
         publish()
+    }
+
+    /** The stored marks of [sessionId] moved up to the readings now in the buffer. */
+    private fun nextMarks(sessionId: String): BatchMarks {
+        val latest = store.marks()?.takeIf { it.sessionId == sessionId }?.latest.orEmpty().toMutableMap()
+        for (reading in buffer) {
+            for (metric in reading.metrics) {
+                if (latest[metric]?.isBefore(reading.measuredAt) != false) latest[metric] = reading.measuredAt
+            }
+        }
+        return BatchMarks(sessionId, latest)
     }
 
     private fun publish() {

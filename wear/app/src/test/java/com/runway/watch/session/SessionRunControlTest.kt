@@ -36,6 +36,7 @@ class SessionRunControlTest {
         override suspend fun pause() = Unit
         override suspend fun resume() = Unit
         override suspend fun end() = Unit
+        override suspend fun reattach() = true
     }
 
     private val sender = Recorder()

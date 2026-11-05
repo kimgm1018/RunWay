@@ -103,6 +103,15 @@ class HealthServicesExerciseGateway(
         client.resumeExerciseAsync().await()
     }
 
+    // Same restricted-constant exception as start().
+    @SuppressLint("RestrictedApi")
+    override suspend fun reattach(): Boolean {
+        val status = client.getCurrentExerciseInfoAsync().await().exerciseTrackedStatus
+        if (status != ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) return false
+        keepListening()
+        return true
+    }
+
     override suspend fun end() {
         client.endExerciseAsync().await()
         listener?.let { client.clearUpdateCallbackAsync(it) }

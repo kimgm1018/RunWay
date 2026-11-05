@@ -23,6 +23,7 @@ class BpmCoachingControllerTest {
         override suspend fun pause() = Unit
         override suspend fun resume() = Unit
         override suspend fun end() = Unit
+        override suspend fun reattach() = true
     }
 
     private class FakeSender : SessionSender {
@@ -53,6 +54,7 @@ class BpmCoachingControllerTest {
         override suspend fun pause(): Unit = throw IllegalStateException("pause failed")
         override suspend fun resume() = Unit
         override suspend fun end(): Unit = throw IllegalStateException("end failed")
+        override suspend fun reattach() = true
     }
 
     private fun controller(gateway: ExerciseGateway = Gateway) = WatchSessionController(
