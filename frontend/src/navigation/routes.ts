@@ -68,6 +68,7 @@ export const mainRoutes = [
   'MyProfile',
   'ProfileEdit',
   'Settings',
+  'LocationSetting',
   'WatchConnect',
   'Withdraw',
   'WithdrawPassword',
@@ -432,7 +433,13 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '8.1',
     title: '설정',
     task: SETTINGS,
-    links: ['MyProfile', 'WatchConnect', 'Withdraw', 'signOut'],
+    links: ['LocationSetting', 'WatchConnect', 'Withdraw', 'signOut'],
+  },
+  LocationSetting: {
+    code: '8.1b',
+    title: '위치 기록',
+    task: SETTINGS,
+    links: ['Settings'],
   },
   Withdraw: {
     code: '8.4',

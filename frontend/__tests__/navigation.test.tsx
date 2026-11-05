@@ -120,11 +120,11 @@ test('watch connection opened from settings returns home instead of signing in',
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  // 8.3: once disconnected, 연결 opens 1.7, which reconnects the watch.
-  await press(screen, '연결 해제');
+  // 8.3: the watch tile lets go of the watch; once let go, it opens 1.7, which reconnects it.
+  await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('연결 해제됨');
-  await press(screen, '연결');
+  await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   // 1.7 ends in buttons now (S15P31E105-447): 다시 연결, then 시작하기.
   await press(screen, '다시 연결');
@@ -177,7 +177,7 @@ test('settings signs out', async () => {
 test('developer menu opens the component gallery with sheet and toast', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
-  await press(screen, '공통 컴포넌트 미리보기');
+  await press(screen, '공통 컴포넌트');
   const gallery = texts(screen);
   for (const text of [
     '러닝 시작',

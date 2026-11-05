@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { RouteName } from '../../navigation/routes';
+import { LocationSettingScreen } from './LocationSettingScreen';
 import { ProfileEditScreen } from './ProfileEditScreen';
 import { SettingsScreen } from './SettingsScreen';
 import {
@@ -8,10 +9,11 @@ import {
   WithdrawScreen,
 } from './WithdrawScreens';
 
-// 8.x 설정 · 계정. 8.2 is dark like 7.4b; the rest sit on the K1 background.
+// 8.x 설정 · 계정 (runway-settings): all on the mist, 8.1b 위치 기록 split from 8.1.
 export const settingsScreens: Partial<Record<RouteName, React.ComponentType>> =
   {
     Settings: SettingsScreen,
+    LocationSetting: LocationSettingScreen,
     ProfileEdit: ProfileEditScreen,
     Withdraw: WithdrawScreen,
     WithdrawPassword: WithdrawPasswordScreen,
