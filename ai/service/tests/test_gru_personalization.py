@@ -248,7 +248,7 @@ def valid_row(model, *, head=None, **overrides):
     return row
 
 
-def app_client(model, lookup=None, *, ode=None, hr_threshold_lookup=None):
+def app_client(model, lookup=None, *, ode=None, hr_threshold_lookup=None, bpm_lookup=None):
     return TestClient(create_app(
         lambda: model,
         lambda: FakePolicy(),
@@ -258,7 +258,17 @@ def app_client(model, lookup=None, *, ode=None, hr_threshold_lookup=None):
         personal_plan_user_lookup=object(),
         gru_personalization_lookup=lookup,
         hr_threshold_lookup=hr_threshold_lookup,
+        bpm_lookup=bpm_lookup,
     ))
+
+
+class NoBpmRecords:
+    """AI04 목표 BPM 기록 조회(S15P31E105-438)가 "기록 없음"을 돌려준다. 가짜 AI_DB_URL은 시작 때 연결이 실패해
+    BPM_RECORDS_UNAVAILABLE 경고가 붙는 것이 맞으므로, GRU만 보는 테스트는 이 조회기로 경고 없는 상태를 만든다."""
+
+    def get_for_session(self, _session_id):
+        from app.bpm_lookup import BpmLookupResult
+        return BpmLookupResult()
 
 
 def test_support_quality_matches_ode_and_omits_unusable_sessions():
@@ -525,7 +535,7 @@ def test_ai03_and_ai04_personalization_failures_return_normal_result_with_warnin
 def test_user_id_absent_preserves_response_and_skips_lookup(real_gru, monkeypatch):
     monkeypatch.setenv("AI_DB_URL", "postgresql://fake")
     lookup = StaticLookup(GruPersonalizationResult(warning=NOT_FOUND_WARNING))
-    with app_client(real_gru, lookup) as client:
+    with app_client(real_gru, lookup, bpm_lookup=NoBpmRecords()) as client:
         ai03 = client.post("/v1/hr/predict", json=prediction_body())
         ai04 = client.post("/v1/pace/decide", json=decide_body())
     assert ai03.status_code == 200 and "X-RunWay-Warnings" not in ai03.headers
@@ -551,7 +561,7 @@ def test_ai03_and_ai04_apply_valid_user_head(real_gru, monkeypatch):
         def get_for_user(self, _user_id):
             return HrThresholdLookupResult()
 
-    with app_client(real_gru, lookup, hr_threshold_lookup=NoThresholdRow()) as client:
+    with app_client(real_gru, lookup, hr_threshold_lookup=NoThresholdRow(), bpm_lookup=NoBpmRecords()) as client:
         ai03 = client.post("/v1/hr/predict", json=prediction_body(73))
         ai04_body = decide_body()
         ai04_body["userId"] = 73
