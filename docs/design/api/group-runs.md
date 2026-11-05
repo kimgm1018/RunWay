@@ -359,7 +359,10 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
   "targetDurationSec": 1800,
   "meetingPlaceName": null,
   "meetingAddress": null,
-  "goalPaceSecPerKm": 360
+  "goalPaceSecPerKm": 360,
+  "groupGuidePaceSecPerKm": 350,
+  "comfortRange": { "fastSecPerKm": 330, "slowSecPerKm": 370 },
+  "myFit": { "recentPaceSecPerKm": 356, "readinessScore": 82 }
 }
 ```
 
@@ -384,10 +387,16 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, S15P31E105-419). `SCHEDULED`: 참가자 `user_profiles.average_pace`의 중앙값(유효값 없는 참가자 제외). 유효 참가자 0명이면 null. 방장 목표 환산값을 추천값으로 쓰지 않는다. DB 신규 컬럼 없음. |
 | `meetingPlaceName` | string / null | O | group_runs.meeting_name. 미지정은 null. |
 | `meetingAddress` | string / null | O | group_runs.meeting_address. 미지정은 null. |
+| `comfortRange` | object / null | O | **참가자 편한 페이스 범위**(파생값, 미저장, S15P31E105-470). 대기방 `WaitingRoom.comfortRange`의 출처이며 별도 대기방 API 없이 G03으로 받는다. 계산은 아래 "페이스 적합도·편한 범위 계산" 참고. 근거가 없으면 null. |
+| `comfortRange.fastSecPerKm` | integer | 조건부 | 빠른 쪽 경계(sec/km, 더 작은 값). `comfortRange`가 있을 때만 존재. |
+| `comfortRange.slowSecPerKm` | integer | 조건부 | 느린 쪽 경계(sec/km, `fastSecPerKm` 이상). |
+| `myFit` | object / null | O | **요청자 본인**의 "내 페이스와 잘 맞아요" 근거(파생값, S15P31E105-470). 다른 참가자 값은 담지 않는다. 최근 완료 기록 페이스가 없으면 null. |
+| `myFit.recentPaceSecPerKm` | integer | 조건부 | 본인 `COMPLETED` 세션 `average_pace` 최신 최대 5개 산술평균(반올림). 프로필 usualPace 미사용. |
+| `myFit.readinessScore` | integer / null | 조건부 | 본인 최신 준비도(R02와 같은 기준, 반올림 정수). 미산출·건강정보 미동의면 null. |
 
 **사용 흐름과 응답 판단**
 
-모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다.
+모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다. `myFit`·`comfortRange`는 최근 기록·준비도 파생값이다.
 
 위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
 
@@ -409,6 +418,16 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 ### 처리 규칙
 
 - 대기방 `groupGuidePaceSecPerKm`은 조회 시점의 참가자 `user_profiles.average_pace` 중앙값으로 **파생 계산**한다(목표 환산값 아님, 유효 0명이면 null). GET은 쓰기·알림·SSE 등 부수효과를 만들지 않는다.
+
+#### 페이스 적합도·편한 범위 계산 (S15P31E105-470)
+
+`myFit`·`comfortRange`와 G07 `readinessScore`는 DB 신규 컬럼·마이그레이션 없이 기존 `running_sessions`와 `daily_readiness`에서 조회 시점에 **파생 계산**한다. 온보딩 프로필(`user_profiles.average_pace`, 사용자 평소 페이스)은 이 값들의 근거로 쓰지 않는다(`comfortRange`의 폴백이 쓰는 `groupGuidePaceSecPerKm`만 기존 규칙대로 프로필 중앙값이다). GET은 쓰기·알림 같은 부수효과를 만들지 않는다.
+
+- **최근 페이스(사용자별)**: 해당 사용자의 `running_sessions` 중 `status = COMPLETED`, 미삭제(`deleted_at IS NULL`), `average_pace`가 양수인 세션을 `ended_at`(없으면 `started_at`) 최신순으로 최대 5건 가져와 `average_pace`의 산술평균을 정수(sec/km)로 반올림한다(0.5는 올림). 조건에 맞는 세션이 없으면 null. 개인 러닝과 그룹런 세션을 구분하지 않는다.
+- **`myFit`**: 요청자의 최근 페이스가 null이면 `myFit`은 null이다. 아니면 `{ recentPaceSecPerKm: 요청자 최근 페이스, readinessScore: 요청자 최신 준비도 또는 null }`. 요청자가 아직 참가하지 않았어도 계산한다.
+- **최신 준비도(사용자별)**: R02와 같이 `daily_readiness`에서 `readiness_date`가 가장 늦은 1건(날짜 필터 없음)의 `readiness_score`를 정수로 반올림한다. R02와 같은 조건으로 활성 회원이고 건강정보 동의(`health_data_access = AGREEE`)가 있어야 하며, 결과가 없거나 동의가 없으면 null이다. 조회 시점에 동의를 철회한 회원의 값은 노출하지 않는다.
+- **`comfortRange`**: 해당 그룹런 참가자(요청자의 참가 여부와 무관) 각각의 최근 페이스를 구해 null을 제외한다. 값이 2개 이상이면 `[최솟값, 최댓값]`(정수 sec/km, `fastSecPerKm` = 최솟값, `slowSecPerKm` = 최댓값). 2개 미만이면 `groupGuidePaceSecPerKm`이 있을 때 `groupGuidePaceSecPerKm ± 20`초(빠른 쪽은 1 미만으로 내리지 않음)이고, 추천 페이스도 없으면 null이다.
+- **FE 대응**: `GroupRunDetail.myFit` ← G03 `myFit`(readinessScore가 null일 수 있어 FE 타입은 `number | null`로 맞춰야 한다), `WaitingRoom.comfortRange` ← G03 `[comfortRange.fastSecPerKm, comfortRange.slowSecPerKm]`, `GroupRunParticipant.readinessScore` ← G07 `items[].readinessScore`.
 
 - 코스 없는 그룹런은 선두 추종 자유러닝.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
@@ -856,7 +875,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `items[].readinessScore` | number / null | O | 대기방 준비도 점수. 동의·참가자 공개범위 및 최신 날짜 선택 계약 확인 필요. 미측정은 null. |
+| `items[].readinessScore` | integer / null | O | 해당 참가자의 **최신 준비도**(S15P31E105-470, 반올림 정수). `readyStatus`(대기방 준비 버튼)와 **별개**. 최신 1건 선택·동의 조건은 G03 "페이스 적합도·편한 범위 계산"의 최신 준비도 규칙과 같다. 미산출·건강정보 미동의면 null. |
 
 ### 오류 응답
 

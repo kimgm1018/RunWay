@@ -29,11 +29,13 @@ import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
 import com.runway.backend.domain.grouprun.live.ParticipantLive;
 import com.runway.backend.domain.grouprun.live.ParticipantSample;
+import com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
@@ -57,13 +59,17 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -74,6 +80,7 @@ public class GroupRunService {
 
     private final GroupRunJdbcRepository groupRunJdbcRepository;
     private final GroupRunParticipantJdbcRepository participantJdbcRepository;
+    private final GroupRunFitJdbcRepository fitJdbcRepository;
     private final CrewRepository crewRepository;
     private final CrewMembershipRepository crewMembershipRepository;
     private final CourseJdbcRepository courseJdbcRepository;
@@ -186,8 +193,39 @@ public class GroupRunService {
     public GroupRunDetailResponse getDetail(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireApprovedActiveCrewMember(row.crewId(), userId);
-        int participantCount = participantJdbcRepository.countByGroupRunId(groupRunId);
-        return toDetail(row, participantCount);
+        List<GroupRunParticipantRow> participants =
+                participantJdbcRepository.findByGroupRunId(groupRunId);
+        int participantCount = participants.size();
+
+        // 참가자와 요청자의 최근 완료 세션 페이스를 한 번에 읽는다(요청자는 참가 전일 수 있다).
+        Set<Long> fitUserIds = new LinkedHashSet<>();
+        participants.forEach(p -> fitUserIds.add(p.userId()));
+        fitUserIds.add(userId);
+        Map<Long, List<BigDecimal>> recentPaces =
+                fitJdbcRepository.findRecentCompletedPaces(fitUserIds);
+
+        List<Integer> participantPaces =
+                participants.stream()
+                        .map(p -> GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(p.userId())))
+                        .filter(Objects::nonNull)
+                        .toList();
+        GroupRunDetailResponse.ComfortRange comfortRange =
+                GroupRunFitCalculator.comfortRange(participantPaces, resolveGroupGuidePace(row));
+
+        GroupRunDetailResponse.MyFit myFit = null;
+        Integer myPace = GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(userId));
+        if (myPace != null) {
+            myFit =
+                    new GroupRunDetailResponse.MyFit(
+                            myPace,
+                            toScore(fitJdbcRepository.findLatestReadinessScores(List.of(userId))
+                                    .get(userId)));
+        }
+        return toDetail(row, participantCount, comfortRange, myFit);
+    }
+
+    private static Integer toScore(BigDecimal score) {
+        return score == null ? null : score.setScale(0, RoundingMode.HALF_UP).intValue();
     }
 
     @Transactional
@@ -341,6 +379,10 @@ public class GroupRunService {
         Map<Long, String> nicknames =
                 userExistsRepository.findNicknamesByIds(
                         participants.stream().map(GroupRunParticipantRow::userId).toList());
+        // readyStatus(대기방 준비 버튼)와 별개로 각 참가자의 최신 준비도를 붙인다. 미산출·미동의는 null.
+        Map<Long, BigDecimal> readiness =
+                fitJdbcRepository.findLatestReadinessScores(
+                        participants.stream().map(GroupRunParticipantRow::userId).toList());
         List<GroupRunParticipantsResponse.Item> items =
                 participants.stream()
                         .map(
@@ -351,7 +393,8 @@ public class GroupRunService {
                                                 p.joinedAt(),
                                                 nicknames.getOrDefault(p.userId(), ""),
                                                 p.userId() == row.hostId(),
-                                                ReadyStatus.fromReady(p.ready()).name()))
+                                                ReadyStatus.fromReady(p.ready()).name(),
+                                                toScore(readiness.get(p.userId()))))
                         .toList();
         return new GroupRunParticipantsResponse(items);
     }
@@ -754,7 +797,11 @@ public class GroupRunService {
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
     }
 
-    private GroupRunDetailResponse toDetail(GroupRunRow row, int participantCount) {
+    private GroupRunDetailResponse toDetail(
+            GroupRunRow row,
+            int participantCount,
+            GroupRunDetailResponse.ComfortRange comfortRange,
+            GroupRunDetailResponse.MyFit myFit) {
         return new GroupRunDetailResponse(
                 row.id(),
                 row.title(),
@@ -771,7 +818,9 @@ public class GroupRunService {
                 row.meetingName(),
                 row.meetingAddress(),
                 GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
-                resolveGroupGuidePace(row));
+                resolveGroupGuidePace(row),
+                comfortRange,
+                myFit);
     }
 
     private GeoJsonPoint parseMeetingPosition(String geoJson) {
