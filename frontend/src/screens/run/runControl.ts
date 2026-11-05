@@ -35,6 +35,8 @@ export type RunControlState = {
   endedAt: string | null;
   pending: { action: ControlAction | 'CANCEL'; commandId: string | null } | null;
   problem: ControlProblem | null;
+  // 이 제어가 만든 세션이 아니라 이미 있던 본인 세션(앱 재실행·재로그인, S01 409)에 다시 붙었다.
+  joined: boolean;
 };
 
 export type RunControl = {
@@ -88,6 +90,7 @@ const initialState: RunControlState = {
   endedAt: null,
   pending: null,
   problem: null,
+  joined: false,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -696,7 +699,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
           goal,
         }),
       );
-      applyView(created);
+      applyView(created, { joined: false });
       lastGoal = goal;
     } catch (error) {
       const activeId =
@@ -716,7 +719,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
 
   async function attachTo(sessionId: string) {
     const view = await call(() => session.get(sessionId));
-    applyView(view);
+    applyView(view, { joined: true });
     flushEarlyCoaching();
     // 재실행 후에도 러닝 중에는 서비스가 다시 떠 있어야 화면이 꺼져도 워치 메시지를 중계한다(AC-C4).
     const ended = state.status !== null && TERMINAL.includes(state.status);

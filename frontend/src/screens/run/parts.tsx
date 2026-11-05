@@ -216,7 +216,8 @@ export function RunStartBar({
       navigateTo(navigation, 'RunProgress');
     }
     previousStatus.current = status;
-    if (control?.problem) {
+    // 문제 표시, 또는 시작하려다 이미 진행·일시정지 중인 본인 세션에 붙어 그 화면으로 돌아간 경우(S01 409).
+    if (control?.problem || (status !== null && status !== 'READY')) {
       setRequested(false);
     }
   }, [control, focused, navigation]);

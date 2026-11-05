@@ -19,6 +19,7 @@ import {
   type RunControl,
   type RunControlState,
 } from './runControl';
+import { useSession } from '../../session/SessionProvider';
 
 export type RunConfig = {
   mode: 'FREE' | 'COURSE' | 'GROUP';
@@ -80,14 +81,32 @@ const RunActionsContext = createContext<RunActions | null>(null);
 const RunStateContext = createContext<RunState | null>(null);
 // 개인 러닝의 서버·워치 확정 상태(요청 중·거절·미확인). 그룹 모드와 시작 전에는 null.
 const RunControlContext = createContext<RunControlState | null>(null);
-// 앱 재실행으로 진행 중인 개인 러닝에 다시 붙었을 때 열 화면. 한 번 열면 비운다.
-type ResumeTarget = 'RunProgress' | 'RunPause';
+// 앱 재실행·재로그인으로 진행 중인 개인 러닝에 다시 붙었을 때 열 화면. 한 번 열면 비운다.
+// 아직 시작하지 않은 준비 세션(READY)은 시작 화면에서 같은 세션으로 이어 시작한다.
+type ResumeTarget = 'RunProgress' | 'RunPause' | 'FreeRun';
 const RunResumeContext = createContext<{
   target: ResumeTarget | null;
   consume: () => void;
 }>({ target: null, consume: () => undefined });
 
 const TERMINAL = ['COMPLETED', 'CANCELLED', 'INTERRUPTED'];
+
+// 이 앱이 시작하지 않은(다시 붙은) 운동은 코스·목표를 알 수 없으므로 화면 기록은 자유 러닝으로 이어간다.
+const joinedConfig: RunConfig = {
+  mode: 'FREE',
+  plan: null,
+  goalDistanceM: null,
+  goalPaceSecPerKm: null,
+};
+
+const resumeTargetOf = (status: string | null): ResumeTarget | null =>
+  status === 'RUNNING'
+    ? 'RunProgress'
+    : status === 'PAUSED'
+    ? 'RunPause'
+    : status === 'READY'
+    ? 'FreeRun'
+    : null;
 
 function goalOf(config: RunConfig): SessionGoalDraft {
   return {
@@ -112,6 +131,7 @@ export function RunSessionProvider({
   children: React.ReactNode;
 }) {
   const { run: tracker, clock, session, watchSession } = useRepositories();
+  const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
   const readings = useRef({
@@ -246,6 +266,8 @@ export function RunSessionProvider({
   const stopListening = useRef<(() => void) | null>(null);
   const pendingConfig = useRef<RunConfig | null>(null);
   const [resumeTarget, setResumeTarget] = useState<ResumeTarget | null>(null);
+  // 다시 붙은 세션 중 복원 여부를 이미 판단한 세션 ID. 같은 세션을 두 번 복원하지 않는다.
+  const judged = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -260,17 +282,31 @@ export function RunSessionProvider({
     if (!control) {
       return;
     }
+    // 새 러닝을 시작하려다 이미 진행 중인 본인 세션에 붙었다(S01 409 → S02). 새 러닝 대신 그 운동 화면을 연다.
+    // 처음 붙었을 때 READY였다면 지금 시작하는 운동이므로 고른 설정 그대로 이어 시작한다.
+    if (control.joined && control.sessionId && judged.current !== control.sessionId) {
+      judged.current = control.sessionId;
+      if (control.status === 'RUNNING' || control.status === 'PAUSED') {
+        pendingConfig.current = joinedConfig;
+        setResumeTarget(resumeTargetOf(control.status));
+      }
+    }
     const current = latest.current;
+    const config = pendingConfig.current;
     if (control.status === 'RUNNING') {
       if (!current || current.status === 'finished') {
-        if (pendingConfig.current) {
-          local.start(pendingConfig.current, control.startedAt);
+        if (config) {
+          local.start(config, control.startedAt);
         }
       } else if (current.status === 'paused') {
         local.resume();
       }
     } else if (control.status === 'PAUSED') {
       if (current?.status === 'running') {
+        local.pause();
+      } else if ((!current || current.status === 'finished') && config) {
+        // 일시정지 중인 운동에 다시 붙었다. 화면 기록을 세션 시작 시각으로 만들고 바로 멈춘다.
+        local.start(config, control.startedAt);
         local.pause();
       }
     } else if (control.status === 'COMPLETED') {
@@ -290,9 +326,41 @@ export function RunSessionProvider({
     return next;
   }, [session, watchSession]);
 
-  // 앱 재실행: 러닝 서비스가 기억한 활성 세션에 다시 붙어 수신함에 남은 워치 결과를 서버에 보고한다.
-  // 화면 기록은 설정을 알 수 없으므로 자유 러닝으로 이어간다.
+  // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
+  // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
+  const reset = useCallback(() => {
+    stopListening.current?.();
+    stopListening.current = null;
+    controlRef.current?.dispose();
+    controlRef.current = null;
+    stopTracking.current?.();
+    stopTracking.current = null;
+    pendingConfig.current = null;
+    judged.current = null;
+    setControl(null);
+    setRun(null);
+    setResumeTarget(null);
+  }, []);
+
+  const drop = useCallback((target: RunControl) => {
+    if (controlRef.current !== target) {
+      return;
+    }
+    stopListening.current?.();
+    stopListening.current = null;
+    target.dispose();
+    controlRef.current = null;
+    setControl(null);
+  }, []);
+
+  // 앱 재실행·재로그인: 러닝 서비스가 기억한 활성 세션을 S02로 확인해 본인의 READY/RUNNING/PAUSED 세션이면 그 화면으로
+  // 돌아가고, 수신함에 남은 워치 결과를 서버에 보고한다. 화면 기록은 설정을 알 수 없으므로 자유 러닝으로 이어간다.
+  // 다른 계정(403)·삭제(404)·종료된 세션과 조회 실패는 복원하지 않는다. 이때는 새 러닝 시작의 S01 409로 다시 붙는다.
   useEffect(() => {
+    if (!signedIn) {
+      reset();
+      return;
+    }
     let active = true;
     watchSession
       .getActiveSessionId()
@@ -300,27 +368,33 @@ export function RunSessionProvider({
         if (!active || !sessionId || controlRef.current) {
           return;
         }
-        pendingConfig.current = {
-          mode: 'FREE',
-          plan: null,
-          goalDistanceM: null,
-          goalPaceSecPerKm: null,
-        };
+        pendingConfig.current = joinedConfig;
         const attached = newControl();
         return attached.attach(sessionId).then(() => {
-          const status = attached.getState().status;
-          if (active && controlRef.current === attached) {
-            setResumeTarget(
-              status === 'RUNNING' ? 'RunProgress' : status === 'PAUSED' ? 'RunPause' : null,
-            );
+          if (!active || controlRef.current !== attached) {
+            return;
           }
+          const state = attached.getState();
+          const target =
+            state.sessionId === sessionId ? resumeTargetOf(state.status) : null;
+          if (!target) {
+            drop(attached);
+            pendingConfig.current = null;
+            // 서버에 없는 세션은 러닝 서비스가 더 기억하지 않게 한다. 종료 세션은 attach가 이미 정리한다.
+            if (state.problem?.kind === 'error' && state.problem.code === 'SESSION_NOT_FOUND') {
+              watchSession.setRunActive(false).catch(() => undefined);
+            }
+            return;
+          }
+          judged.current = sessionId;
+          setResumeTarget(target);
         });
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [newControl, watchSession]);
+  }, [drop, newControl, reset, signedIn, watchSession]);
 
   const actions = useMemo<RunActions>(() => {
     const personal = () =>
