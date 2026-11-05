@@ -100,12 +100,39 @@ private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel:
             MetricValue(MetricFormat.pace(snapshot.metrics.guidePaceSecondsPerKm), 12, emphasized = false)
             MetricValue(MetricFormat.rhythm(snapshot.metrics.rhythm), 12, emphasized = false)
         }
-        RoundButton(if (snapshot.pendingCommand) "시작 확인 중" else "시작", onStart, Modifier.padding(top = 4.dp),
-            enabled = !snapshot.pendingCommand, size = 60, caption = snapshot.pendingCommand) { Icon(WatchIcon.PLAY, it, 22) }
+        val view = StandbyDisplay.from(snapshot)
+        RoundButton(view.startLabel, onStart, Modifier.padding(top = 4.dp),
+            enabled = view.startEnabled, size = 60, caption = view.startCaption) { Icon(WatchIcon.PLAY, it, 22) }
         ControlNotice(snapshot.notice.takeUnless { snapshot.pendingCommand })
+        view.cancelLabel?.let { PillButton(it, onCancel, enabled = view.cancelEnabled) }
+    }
+}
+
+/** What the personal standby buttons show; [cancelLabel] is null when there is no cancel button. */
+data class StandbyView(
+    val startLabel: String,
+    val startEnabled: Boolean,
+    val startCaption: Boolean,
+    val cancelLabel: String?,
+    val cancelEnabled: Boolean,
+)
+
+/**
+ * Standby buttons by the request in flight (S15P31E105-436): only a pending start reads 시작 확인 중, a pending
+ * cancel keeps the cancel button as 취소 확인 중, and while anything is pending neither button can be pressed.
+ * A refusal or error ends the pending state, so the buttons come back and the notice line explains it.
+ */
+object StandbyDisplay {
+    fun from(snapshot: RunSnapshot): StandbyView {
         // 준비된 개인 러닝은 시작 전에 취소할 수 있다(S07, 휴대폰이 서버에 요청).
-        if (snapshot.state == RunState.READY && !snapshot.pendingCommand) {
-            PillButton("취소", onCancel)
+        val cancellable = snapshot.state == RunState.READY
+        if (!snapshot.pendingCommand) {
+            return StandbyView("시작", true, false, "취소".takeIf { cancellable }, true)
+        }
+        return when (snapshot.pendingIntent) {
+            RunIntent.CANCEL -> StandbyView("시작", false, false, "취소 확인 중", false)
+            RunIntent.START -> StandbyView("시작 확인 중", false, true, null, false)
+            else -> StandbyView("확인 중", false, true, null, false)
         }
     }
 }

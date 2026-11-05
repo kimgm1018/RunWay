@@ -72,8 +72,18 @@ class WatchNavigationUiTest {
     }
 
     @Test fun pendingStartStaysOnStandbyAndBlocksRepeatTaps() {
-        launch(RunSnapshot(state = RunState.READY, pendingCommand = true))
+        launch(RunSnapshot(state = RunState.READY, pendingCommand = true, pendingIntent = RunIntent.START))
         compose.onNodeWithContentDescription("시작 확인 중").assertIsNotEnabled()
+        compose.onNodeWithText("취소").assertDoesNotExist()
+    }
+
+    @Test fun pendingCancelShowsCancelCheckAndBlocksBothButtons() {
+        val control = launch(RunSnapshot(state = RunState.READY, pendingCommand = true, pendingIntent = RunIntent.CANCEL))
+        compose.onNodeWithText("취소 확인 중").assertIsDisplayed()
+        compose.onNodeWithContentDescription("시작 확인 중").assertDoesNotExist()
+        compose.onNodeWithContentDescription("시작").assertIsNotEnabled()
+        compose.onNodeWithText("취소 확인 중").performClick()
+        assertEquals(emptyList<RunIntent>(), control.sent)
     }
 
     @Test fun phoneDisconnectBeforeTheRunShowsTheNotice() {

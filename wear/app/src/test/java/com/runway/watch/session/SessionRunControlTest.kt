@@ -59,6 +59,7 @@ class SessionRunControlTest {
 
         control.send(RunIntent.START)
         assertTrue(control.snapshot.value.pendingCommand)
+        assertEquals(RunIntent.START, control.snapshot.value.pendingIntent)
         assertEquals("시작 확인 중", control.snapshot.value.notice)
         assertEquals(RunState.READY, control.snapshot.value.state)
 
@@ -75,6 +76,30 @@ class SessionRunControlTest {
         control.send(RunIntent.CANCEL)
 
         assertEquals(listOf("SESSION_PREPARED", "COMMAND_REQUEST:CANCEL"), sender.types)
+    }
+
+    @Test
+    fun `a cancel in flight is reported as a cancel, not a start`() = runBlocking {
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}"""))
+        control.send(RunIntent.CANCEL)
+
+        assertTrue(control.snapshot.value.pendingCommand)
+        assertEquals(RunIntent.CANCEL, control.snapshot.value.pendingIntent)
+        assertEquals("취소 확인 중", control.snapshot.value.notice)
+        assertEquals(RunState.READY, control.snapshot.value.state)
+
+        controller.onMessage(message("ERROR", """{"code":"COMMAND_PENDING","retryable":false,"failedType":"COMMAND_REQUEST"}"""))
+        assertFalse(control.snapshot.value.pendingCommand)
+        assertNull(control.snapshot.value.pendingIntent)
+        assertEquals("휴대폰에서 처리하지 못했어요", control.snapshot.value.notice)
+        assertEquals(RunState.READY, control.snapshot.value.state)
+
+        control.send(RunIntent.CANCEL)
+        assertEquals(RunIntent.CANCEL, control.snapshot.value.pendingIntent)
+        controller.onMessage(message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"WATCH","state":"CANCELLED","stateVersion":2,"currentBpm":null}"""))
+        assertEquals(RunState.CANCELLED, control.snapshot.value.state)
+        assertFalse(control.snapshot.value.pendingCommand)
+        assertNull(control.snapshot.value.pendingIntent)
     }
 
     @Test

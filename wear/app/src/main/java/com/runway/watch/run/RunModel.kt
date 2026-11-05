@@ -71,6 +71,8 @@ data class RunSnapshot(
     val phoneConnected: Boolean = true,
     /** A command was accepted but its real application is not confirmed yet. */
     val pendingCommand: Boolean = false,
+    /** Which request [pendingCommand] is waiting for, so screens can tell e.g. start from cancel; null when unknown. */
+    val pendingIntent: RunIntent? = null,
     val title: String? = null,
     val metrics: RunMetrics = RunMetrics(),
     val comparison: RecordComparison = RecordComparison.NotSelected,
