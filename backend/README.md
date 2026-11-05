@@ -290,6 +290,45 @@ Argon2id의 합의된 비용(64MiB·반복 3회·병렬도 1)은 유지한다. �
 
 비용을 다시 측정할 필요가 있을 때만 자원 조건을 정한 환경에서 `./gradlew passwordPerformanceTest`(PowerShell: `.\gradlew.bat passwordPerformanceTest`)를 명시적으로 실행한다. 이 태스크는 일반 `build`에 연결하지 않는다. 기존 단일 30회 p95 1초 이하·8개 동시 40건 p95 2초 미만 조건은 유지하며 결과는 `build/reports/tests/passwordPerformanceTest/index.html`에 생성한다. 로컬 비용 측정을 실제 배포 부하 검증으로 대신하지 않는다.
 
+## 9. 코스 DEM 고도와 경사 계산
+
+[ADR-0019](../docs/adr/0019-course-generation-backend.md)에 따라 경사는 백엔드에서 계산한다.
+`CourseGradeService`는 GeoJSON LineString과 코스 거리(m)를 받아 `GradeSegment` 목록을 반환하는
+내부 계산 서비스다. 20m 재표본 → 중앙값 5칸 → 평균 3칸 → 100m 경사를 계산하고,
+45km 초과 시 폭을 넓혀 최대 450개로 맞춘 뒤 기존 `GradeProfileValidator`를 통과시킨다.
+
+운영 DEM을 준비한 호출부는 다음처럼 생성/주입한다. `demPath`는 서버 로컬 파일,
+`expectedSha256`은 신뢰하는 manifest의 SHA-256이다. 외부 DEM API를 호출하지 않는다.
+
+```java
+var source = GeoTiffElevationSource.load(demPath, expectedSha256);
+var calculator = new CourseGradeService(source);
+var grades = calculator.calculate(route, distanceM);
+```
+
+- 읽기 라이브러리는 순수 Java `mil.nga:tiff:3.0.0`(MIT)이다. 단일 밴드·EPSG:4326·북쪽이 위인
+  GeoTIFF clip을 지원하며 strip/tile, DEFLATE, float predictor와 PixelIsArea/Point를 테스트한다.
+  회전·투영 좌표계·해시 불일치·깨진 파일은 `SERVICE_UNAVAILABLE`로 거절한다.
+- 범위 밖·NoData·비유한 고도는 거리 기준으로 보간하고, 양 끝의 결측은 가장 가까운 유효 고도를
+  사용한다. 유효 고도 2개 미만 또는 유효 경사 부재는 오류이며 평지 0%로 대체하지 않는다.
+  ±100% 밖 경사는 인접 유효 경사로 보간한다. 경사는 소수 4자리로 반올림한다.
+- 다리·터널을 경로 좌표만으로 식별할 수는 없다. 해당 정보가 있는 호출부는
+  `calculate(route, distanceM, List<UnmeasuredSection>)`에 미확인 거리 구간을 전달한다.
+  겹치거나 맞닿는 구간은 합치고 양 끝 고도 사이를 보간한다.
+- 계산 소스는 불변 배열이며 동시 조회 시 TIFF reader를 공유하지 않는다. 경로 조회는 요청당
+  최대 1,000,000개 DEM 표본으로 작업량을 보호하고 초과 시 `SERVICE_UNAVAILABLE`로 거절한다.
+  이는 공개 API의 거리 상한을 정하는 정책이 아니다. 순수 고도→경사 계산은 전체 20m 격자를
+  할당하지 않아 스키마의 최대 거리도 계산할 수 있다.
+- DEM 원본·manifest·볼륨 배포·Spring 기동 시 파일 연결과 준비 상태 처리는 후속 업무다.
+  이 변경만으로 운영 DEM이 준비되거나 코스 저장·외부 API가 활성화되지는 않는다.
+  고도 데이터는 Copernicus DEM 라이선스와 출처 표기 기준을 따른다.
+
+테스트는 실제 DEM 없이 `src/test/resources/course-grade/dem/`의 작은 합성 파일을 사용한다.
+`generate_dem_fixtures.py`에 독립 재생성 명령이 있으며 실제 좌표·건강 데이터는 포함하지 않는다.
+`python-grade.json`은 실제 AI `course_grade.py`에서 생성한 24개 사례로, 동일 고도 입력의 경사
+차이를 0.0001%p 이하로 비교한다. `generate_fixture.py`의 명령으로 재생성하며 원본 코드의
+SHA-256과 사용한 numpy/pydantic 버전을 기록한다.
+
 ## 관련 기준
 
 - [백엔드 작업 지침](AGENTS.md)
