@@ -340,6 +340,7 @@ C01은 Route 서버를 HTTP로 호출해 후보를 받고, 후보마다 위 계�
 | `BACKEND_ROUTE_BASE_URL` | Route 전용 내부 origin(예: `http://route:8000`). 경로·쿼리·사용자 정보가 있거나 호스트 이름에 밑줄(`_`)이 있으면 기동 실패(Compose 서비스 이름은 하이픈 사용). 비우면 C01이 `ROUTE_UNAVAILABLE` |
 | `BACKEND_COURSE_DEM_PATH` | 서버 로컬 DEM 파일 경로. 비우면 C01이 `GRADE_NOT_READY`(stub 모드는 합성 고도). 파일 없음·검증 실패는 기동 로그로 구분하며, 파일을 넣은 뒤에는 재기동해야 반영된다 |
 | `BACKEND_COURSE_DEM_SHA256` | 선택. 기본값은 아래 공유 DEM의 SHA-256. 해시가 다르면 기동은 하고 `GRADE_NOT_READY` |
+| `BACKEND_AI_HR_BASE_URL` | AI06 심박 개인화(`POST /v1/hr/personalize`) 전용 내부 origin(예: `http://ai:8000`). 경로·쿼리·사용자 정보가 있으면 기동 실패. 비우면 기동은 하고 러닝 종료 후 개인화 호출이 실패해 저장하지 않는다 |
 
 시간 상한은 Route 연결 1초·전체 호출 15초, C01 전체 20초이며 자동 재시도·스텁 전환은 하지 않는다. Route에는 `X-Request-Deadline`(마감 − 6초, epoch ms)을 보내 늦게 끝날 계산을 시작하지 않게 한다. Route 서비스 API는 `ai/route_service/API.md`(381)이다.
 Route 응답 본문은 256KB까지만 읽는다. 로그에는 상태·지연·후보 수·사유만 남기고 좌표·문구 원문은 남기지 않는다.

@@ -3,7 +3,7 @@
 관련 업무: S15P31E105-337
 작성 기준일: 2026-11-03
 대상: 백엔드·DB 담당
-상태: 반영 범위 합의(MR !142 리뷰). `user_hr_personalization` migration은 아직 없습니다. dev의 V10은 `V10__user_recommendation_preferences.sql`이므로 번호(V11 이상)와 배포 일정은 팀이 정합니다.
+상태: 반영 범위 합의(MR !142 리뷰). S15P31E105-410에서 `user_hr_personalization`만 Flyway V12·schema.sql·erd.md에 반영 중. GRU·코스 난이도·coaching 컬럼은 제외.
 
 ## 요청 요약
 
