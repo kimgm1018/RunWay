@@ -9,6 +9,11 @@
 #   docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-route
 FROM python:3.12.10-slim
 
+# osmium이 사용하는 XML 파서 런타임 라이브러리를 설치한다.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libexpat1 \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     OMP_NUM_THREADS=1 \
