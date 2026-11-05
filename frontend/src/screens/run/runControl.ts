@@ -23,8 +23,9 @@ export type ControlProblem =
   | { kind: 'rejected'; action: ControlAction; reasonCode: string | null }
   // 실행 미확인. 시작이면 "시작 여부를 확인할 수 없습니다".
   | { kind: 'unconfirmed'; action: ControlAction }
-  // 종료 2분 초과 또는 마지막 기록 저장 미확인(UPLOAD_PENDING).
-  | { kind: 'saveUnconfirmed' }
+  // 종료 저장 미확인. NO_RESULT는 2분 안에 워치 종료 결과가 오지 않음, UPLOAD_PENDING은 워치가 종료했지만
+  // 마지막 기록 저장 확인이 없음(409). 워치가 저장을 확인하고 같은 결과를 다시 보내면 자동으로 확정된다(S15P31E105-446).
+  | { kind: 'saveUnconfirmed'; reason: 'NO_RESULT' | 'UPLOAD_PENDING' }
   | { kind: 'error'; code: DataErrorCode };
 
 export type RunControlState = {
@@ -347,7 +348,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       reported.delete(event.commandId);
       const code = errorCode(error);
       if (code === 'UPLOAD_PENDING') {
-        setState({ problem: { kind: 'saveUnconfirmed' } });
+        setState({ problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' } });
         return;
       }
       // 저장 여부를 모른다(응답 없음·서버 장애). 워치는 실행했을 수 있으므로 실패로 단정하지 않고 재확인을 기다린다.
@@ -376,7 +377,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       setState({
         problem:
           approval.action === 'END'
-            ? { kind: 'saveUnconfirmed' }
+            ? { kind: 'saveUnconfirmed', reason: 'NO_RESULT' }
             : { kind: 'unconfirmed', action: approval.action },
       });
       return;

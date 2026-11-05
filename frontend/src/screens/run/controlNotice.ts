@@ -26,10 +26,14 @@ export function controlNotice(
       return actions.includes(problem.action)
         ? { text: `워치가 ${verb[problem.action]}하지 못했어요`, recheck: false }
         : null;
+    // 두 경우 모두 '다시 확인'은 같은 END를 워치에 다시 보내 보관한 결과와 남은 기록 저장을 다시 확인한다.
     case 'saveUnconfirmed':
-      return actions.includes('END')
-        ? { text: '종료 저장을 확인하지 못했어요', recheck: true }
-        : null;
+      if (!actions.includes('END')) {
+        return null;
+      }
+      return problem.reason === 'UPLOAD_PENDING'
+        ? { text: '마지막 기록 저장을 확인하지 못했어요', recheck: true }
+        : { text: '워치의 종료 결과를 받지 못했어요', recheck: true };
     case 'error':
       return { text: '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요', recheck: false };
     default:

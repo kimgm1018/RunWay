@@ -259,6 +259,7 @@ class WatchSessionControllerTest {
         override suspend fun begin(sessionId: String, deviceId: String) { calls += "begin:$sessionId:$deviceId" }
         override suspend fun finish(sessionId: String): Int { calls += "finish:$sessionId"; return pending }
         override suspend fun pendingCount(sessionId: String) = pending
+        override suspend fun retryFailed(sessionId: String) { calls += "retryFailed:$sessionId" }
     }
 
     @Test
@@ -296,6 +297,130 @@ class WatchSessionControllerTest {
         assertEquals(0, again.getInt("pendingBatchCount"))
         assertTrue(again.getBoolean("uploadComplete"))
         assertEquals(listOf("start", "end"), gateway.calls)
+    }
+
+    // S15P31E105-446: 마지막 batch 저장 확인이 종료 대기(90초)보다 늦으면 폰은 409 UPLOAD_PENDING을 받는다.
+    // 그 뒤 batch가 저장되면 워치가 같은 END 결과를 pendingBatchCount=0으로 다시 보고해 세션이 PAUSED에 남지 않게 한다.
+    @Test
+    fun `an applied end reported with unsaved batches is reported again once they are saved`() = runBlocking {
+        val uploads = FakeUploads()
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads)
+        c.running()
+        uploads.pending = 2
+        c.onMessage(message("COMMAND_REQUEST", """{"phase":"APPLY","action":"END","expectedVersion":2,"targetBpm":null,"commandId":504,"coachingId":null}""", messageId = "phone:9"))
+        // START 결과 + END 결과(pendingBatchCount=2).
+        assertEquals(2, sender.count("COMMAND_RESULT"))
+        assertEquals(2, sender.last("COMMAND_RESULT").getJSONObject("payload").getInt("pendingBatchCount"))
+
+        // 아직 남아 있으면 다시 보내지 않는다.
+        c.tick()
+        assertEquals(2, sender.count("COMMAND_RESULT"))
+
+        uploads.pending = 0
+        c.tick()
+        assertEquals(3, sender.count("COMMAND_RESULT"))
+        val again = sender.last("COMMAND_RESULT")
+        assertEquals("phone:9", again.getString("replyTo"))
+        val payload = again.getJSONObject("payload")
+        assertEquals(504L, payload.getLong("commandId"))
+        assertEquals("APPLIED", payload.getString("result"))
+        assertEquals(0, payload.getInt("pendingBatchCount"))
+        assertTrue(payload.getBoolean("uploadComplete"))
+        assertEquals(listOf("start", "end"), gateway.calls)
+
+        // 한 번만 다시 보낸다. 서버 저장이 확인되면 종료가 확정된다.
+        c.tick()
+        assertEquals(3, sender.count("COMMAND_RESULT"))
+        c.onMessage(saved(504, 3))
+        assertEquals(RunState.COMPLETED, c.state.value.confirmed)
+        assertNull(c.state.value.pending)
+    }
+
+    // S15P31E105-446: 자동 재보고가 폰에 전달되지 않으면 10초 간격으로 다시 보낸다. 전달되면 멈춘다.
+    @Test
+    fun `a saved end re-report that did not reach the phone is sent again until it does`() = runBlocking {
+        val uploads = FakeUploads()
+        var elapsed = 0L
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads, elapsedMs = { elapsed })
+        c.running()
+        uploads.pending = 2
+        c.onMessage(apply("END", 504, 2))
+        uploads.pending = 0
+        sender.accept = false
+        c.tick()
+        val tried = sender.count("COMMAND_RESULT")
+
+        // 간격 전에는 다시 보내지 않는다.
+        elapsed = WatchSessionController.REPORT_RETRY_MS - 1
+        c.tick()
+        assertEquals(tried, sender.count("COMMAND_RESULT"))
+
+        sender.accept = true
+        elapsed = WatchSessionController.REPORT_RETRY_MS
+        c.tick()
+        assertEquals(tried + 1, sender.count("COMMAND_RESULT"))
+        val payload = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals(504L, payload.getLong("commandId"))
+        assertEquals(0, payload.getInt("pendingBatchCount"))
+
+        // 전달된 뒤에는 다시 보내지 않는다.
+        elapsed += WatchSessionController.REPORT_RETRY_MS * 3
+        c.tick()
+        assertEquals(tried + 1, sender.count("COMMAND_RESULT"))
+        assertEquals(listOf("start", "end"), gateway.calls)
+    }
+
+    @Test
+    fun `an undelivered end re-report stops when another run is prepared`() = runBlocking {
+        val uploads = FakeUploads()
+        var elapsed = 0L
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads, elapsedMs = { elapsed })
+        c.running()
+        uploads.pending = 2
+        c.onMessage(apply("END", 504, 2))
+        uploads.pending = 0
+        sender.accept = false
+        c.tick()
+        val tried = sender.count("COMMAND_RESULT")
+
+        sender.accept = true
+        c.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":null}""", sessionId = "202"))
+        elapsed = WatchSessionController.REPORT_RETRY_MS
+        c.tick()
+        assertEquals(tried, sender.count("COMMAND_RESULT"))
+    }
+
+    @Test
+    fun `an end already saved by the server is not reported again`() = runBlocking {
+        val uploads = FakeUploads()
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads)
+        c.running()
+        c.onMessage(apply("END", 504, 2))
+        c.onMessage(saved(504, 3))
+        val results = sender.count("COMMAND_RESULT")
+
+        c.tick()
+        assertEquals(results, sender.count("COMMAND_RESULT"))
+    }
+
+    // S15P31E105-446: 재시도 상한으로 저장 미확인이 된 batch가 남으면 '다시 확인'(같은 END 재전송)이 영구히 실패했다.
+    // 다시 받은 END는 운동을 다시 끝내지 않고, 남은 batch를 한 번 더(상한 3회) 보내게 한다.
+    @Test
+    fun `a resent end that is not saved yet retries the unsaved batches once more`() = runBlocking {
+        val uploads = FakeUploads()
+        val c = WatchSessionController(store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000, uploads = uploads)
+        c.running()
+        uploads.pending = 1
+        c.onMessage(apply("END", 504, 2))
+        c.onMessage(apply("END", 504, 2))
+
+        assertEquals(listOf("begin:201:101", "finish:201", "retryFailed:201"), uploads.calls)
+        assertEquals(listOf("start", "end"), gateway.calls)
+
+        // 저장이 확인된 END를 다시 받으면 batch를 건드리지 않는다.
+        c.onMessage(saved(504, 3))
+        c.onMessage(apply("END", 504, 2))
+        assertEquals(listOf("begin:201:101", "finish:201", "retryFailed:201"), uploads.calls)
     }
 
     @Test
