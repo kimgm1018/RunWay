@@ -28,6 +28,7 @@ from app.schemas import CamelModel
 from app.planner import prerun_planner
 from app.population_bundle import EMPTY_MODE_POLICY_VERSION, PopulationBundle
 from app.speed_calibration import SpeedCalibration, load_speed_calibration, resolve_speed_ref, transform_speeds
+from app import runner_baseline
 from app.planner.prerun_planner import PaceCandidate, PreRunSimulationRequest
 
 _CENT = Decimal("0.01")
@@ -969,6 +970,8 @@ def build_personal_plan(
     free_run_grade_policy: str = "reject",
     population_bundle: PopulationBundle | None = None,
     population_mode: str = "off",
+    runner_profile_lookup=None,
+    runner_blend_k: dict[str, float] | None = None,
 ) -> PersonalPlanResponse:
     """Build from an ODE bundle or a provenance-bearing train-cohort mean plan."""
     if course_lookup is None:
@@ -1038,6 +1041,26 @@ def build_personal_plan(
             population_mode=population_mode, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
         population_kind = population_mode
 
+    # S15P31E105-403: 목표 없는 요청은 온보딩 러닝 프로필 기준을 쓴다(app/runner_baseline.py). ODE는 목표 없이
+    # 한 번만 풀고, 그 구간 pace에 공통 배율을 곱해 섞은 완주시간에 맞춘다(목표 경로와 같은 finalize 재사용).
+    baseline_plan = None
+    if can_personalize or population_kind is not None or population_lookup is not None:
+        baseline_plan, baseline_warnings = runner_baseline.prepare_baseline_plan(
+            goal, user_id=body.user_id, profile_lookup=runner_profile_lookup,
+            cutoff=datetime.now(timezone.utc), blend_k=runner_blend_k)
+        course_warnings = course_warnings + baseline_warnings
+
+    def finalize_with_baseline(paces, preserve):
+        """(segments, 목표 pace, 경고). 기준이 없으면 예전 그대로."""
+        if baseline_plan is None:
+            return (finalize_personal_segments(goal.distance_m, goal.target_pace_sec_per_km, paces,
+                                               preserve_goal_duration=preserve), goal.target_pace_sec_per_km, [])
+        ode_finish = sum(float(end - start) * float(pace) / 1000.0
+                         for (start, end), pace in zip(split_distance_1km(goal.distance_m), paces))
+        pace, extra = runner_baseline.plan_target_pace(baseline_plan, ode_finish, float(goal.distance_m))
+        return (finalize_personal_segments(goal.distance_m, pace, paces, preserve_goal_duration=True), pace,
+                list(baseline_plan.warnings) + extra)
+
     if can_personalize or population_kind is not None:
         selection = optimizer.select(course=course, goal=goal,
                                      personalization=personalization, ode_runtime=ode_runtime)
@@ -1047,10 +1070,9 @@ def build_personal_plan(
             raise _not_ready("PACE_SELECTION_RESULT_NOT_EXPERIMENTAL_OR_PERSONALIZED")
         if selection.model_version != ode_runtime.info.model_version:
             raise _not_ready("PACE_SELECTION_MODEL_VERSION_MISMATCH")
-        segments = finalize_personal_segments(
-            goal.distance_m, goal.target_pace_sec_per_km, selection.segment_paces_sec_per_km,
-            preserve_goal_duration=selection.preserve_goal_duration,
-        )
+        segments, baseline_pace, baseline_plan_warnings = finalize_with_baseline(
+            selection.segment_paces_sec_per_km, selection.preserve_goal_duration)
+        course_warnings = course_warnings + baseline_plan_warnings
         if goal.target_finish_sec is not None:
             finished = finish_sec_from_segments(segments)
             if abs(finished - goal.target_finish_sec) > 1:
@@ -1060,8 +1082,15 @@ def build_personal_plan(
                                   personalization=personalization, ode_runtime=ode_runtime)
                   if hasattr(optimizer, "replay") else None)
         mean_plan_pace = sum(segment.length_m * segment.pace_sec_per_km for segment in segments) / float(goal.distance_m)
+        selection_warnings = list(selection.warnings)
+        if baseline_plan is not None and replay:
+            # 배율 조정 뒤 계획의 HR band 경고는 목표 경로처럼 최종 계획 재생 기준으로 다시 정한다(막지 않음).
+            band_warning = "HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN"
+            selection_warnings = [w for w in selection_warnings if w != band_warning]
+            if replay.get("hr_reference_band_satisfied") is False:
+                selection_warnings.append(band_warning)
         population_fields = {}
-        plan_warnings = course_warnings + list(selection.warnings)
+        plan_warnings = course_warnings + selection_warnings
         if population_kind is not None:
             # 평균 기준 계획: 같은 ODE 계획 경로, 묶음은 V2 Train 사람별 중앙값. 정확도 우위를 주장하지 않는다.
             population_fields = dict(
@@ -1074,7 +1103,7 @@ def build_personal_plan(
             plan_warnings = course_warnings + [
                 "AVERAGE_BASED_RECOMMENDATION", "PERSONALIZED=false", f"POPULATION_MODE={population_kind}",
                 f"TRAIN_SUBJECTS={population_bundle.train_subject_count}",
-                f"TRAIN_RUNS={population_bundle.train_run_count}"] + list(selection.warnings)
+                f"TRAIN_RUNS={population_bundle.train_run_count}"] + selection_warnings
         response = dict(
             plan_status="EXPERIMENTAL" if population_kind is None else "AVERAGE_BASED",
             user_id=body.user_id,
@@ -1142,10 +1171,9 @@ def build_personal_plan(
     splits = split_distance_1km(goal.distance_m)
     if len(population.segment_paces_sec_per_km) != len(splits):
         raise _not_ready("POPULATION_MEAN_SPLIT_SHAPE_MISMATCH")
-    segments = finalize_personal_segments(
-        goal.distance_m, goal.target_pace_sec_per_km, population.segment_paces_sec_per_km,
-        preserve_goal_duration=goal.target_pace_sec_per_km is not None,
-    )
+    segments, _, baseline_plan_warnings = finalize_with_baseline(
+        population.segment_paces_sec_per_km, goal.target_pace_sec_per_km is not None)
+    course_warnings = course_warnings + baseline_plan_warnings
     finish = finish_sec_from_segments(segments)
     if goal.target_finish_sec is not None and abs(finish - goal.target_finish_sec) > 1:
         raise ApiError(422, "POPULATION_PLAN_GOAL_NOT_PRESERVED",

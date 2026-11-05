@@ -40,6 +40,7 @@ from app.planner import prerun_planner as planner_v1
 from app.personal_plan import OdeBalancedPaceOptimizer, PersonalPlanRequest, build_personal_plan
 from app.population_bundle import load_population_bundle, load_population_mode
 from app.db_lookup import DbCourseLookup, DbUserPersonalizationLookup, default_db_factory
+from app.runner_baseline import DbRunnerProfileLookup, load_blend_k
 from app.gru_personalization import (CachedDbGruPersonalizationLookup, GRU_PERSONALIZATION_SCHEMA_VERSION,
                                     UNAVAILABLE_WARNING, compute_gru_personalization,
                                     lookup_user_personalization)
@@ -139,7 +140,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                personal_plan_population_lookup=None,
                gru_personalization_lookup=None,
                db_factory: Callable[[str], object] = default_db_factory,
-               hr_threshold_lookup=None) -> FastAPI:
+               hr_threshold_lookup=None,
+               runner_profile_lookup=None) -> FastAPI:
     try:
         free_run_grade_policy = load_free_run_grade_policy()   # 잘못된 값이면 시작 시 실패
     except Exception as exc:
@@ -151,8 +153,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     except Exception as exc:
         log_ai_error("POPULATION_MODE_LOAD_FAILED", "startup", exc)
         raise
+    # S15P31E105-403 혼합 강도 k(env). 잘못된 값이면 시작 시 실패한다.
+    try:
+        runner_blend_k = load_blend_k()
+    except Exception as exc:
+        log_ai_error("RUNNER_BASELINE_K_LOAD_FAILED", "startup", exc)
+        raise
     population_bundle = None
-    bundle_path = os.getenv("ODEV21_POPULATION_BUNDLE_PATH", "").strip()
+    bundle_path =os.getenv("ODEV21_POPULATION_BUNDLE_PATH", "").strip()
     if population_mode != "off" and bundle_path:
         try:
             population_bundle = load_population_bundle(bundle_path, os.getenv("ODEV21_POPULATION_BUNDLE_SHA256", ""))
@@ -164,7 +172,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     needs_personal_plan_db = (personal_plan_course_lookup is None and personal_plan_user_lookup is None)
     needs_gru_personalization_db = gru_personalization_lookup is None
     needs_hr_threshold_db = hr_threshold_lookup is None
-    if db_url and (needs_personal_plan_db or needs_gru_personalization_db or needs_hr_threshold_db):
+    needs_runner_profile_db = runner_profile_lookup is None
+    if db_url and (needs_personal_plan_db or needs_gru_personalization_db or needs_hr_threshold_db
+                   or needs_runner_profile_db):
         # 읽기 전용 팀 DB 조회. URL·비밀번호는 로그에 남기지 않는다.
         try:
             ai_db = db_factory(db_url)
@@ -182,6 +192,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 )
             if needs_hr_threshold_db:
                 hr_threshold_lookup = CachedDbHrThresholdLookup(ai_db)
+            if needs_runner_profile_db:
+                # S15P31E105-403: AI09 신규 사용자 첫 계획 기준(user_profiles, 읽기 전용).
+                runner_profile_lookup = DbRunnerProfileLookup(ai_db)
         except Exception as exc:
             log_ai_error("AI_DB_UNAVAILABLE", "startup", exc, level=logging.WARNING)
             ai_db = None
@@ -259,6 +272,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     app.state.personal_plan_population_lookup = personal_plan_population_lookup
     app.state.gru_personalization_lookup = gru_personalization_lookup
     app.state.hr_threshold_lookup = hr_threshold_lookup
+    app.state.runner_profile_lookup = runner_profile_lookup
+    app.state.runner_blend_k = runner_blend_k
     app.state.hr_threshold_lookup_configured = hr_threshold_lookup_configured
     # requested = 설정 스위치만, enabled = 스위치와 AI_DB_URL이 모두 있음(조회기를 넘길 수 있음).
     app.state.gru_personalization_requested = gru_personalization_requested
@@ -424,6 +439,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 free_run_grade_policy=request.app.state.free_run_grade_policy,
                 population_bundle=request.app.state.population_bundle,
                 population_mode=request.app.state.population_mode,
+                runner_profile_lookup=request.app.state.runner_profile_lookup,
+                runner_blend_k=request.app.state.runner_blend_k,
             )
 
         return await _run_heavy(request, "/v1/pace/personal-plan", build_plan)
