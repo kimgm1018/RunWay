@@ -11,7 +11,7 @@
 
 Every shape runs the same steps; only generation (and P2P's snapping) differs:
     data      data.py        external files (extract, env layer, env cache, DEM, configs), loaded once at start-up
-    graph     graph.py       working disk around the start -> request graph (LRU cache, 4 graphs)
+    graph     graph.py       working disk around the start -> request graph (LRU cache, 4 graphs; RUNWAY_GRAPH_CACHE_SIZE)
     snap      snap.py        user point(s) -> graph nodes
     generate  candidates.py  LOOP: canonical generator + weak preference bias / OUT_AND_BACK / POINT_TO_POINT
     features  features.py    route features + validity (+-10 % distance, shape rules) + Running Suitability components
@@ -36,11 +36,13 @@ import networkx as nx
 import pandas as pd
 
 from . import candidates, features, scorer, snap
+from . import graph as graph_mod
 from .data import RunwayData, api
 from .gate import Gate
-from .graph import FastGraphRouteGenerator, GraphStore, disk
+from .graph import GraphStore, disk
 from .scorer import Preferences
 from .substrate import Substrate
+from .array_graph import ArrayLoopGenerator, ArraySource
 
 LOOP = features.LOOP
 
@@ -52,14 +54,16 @@ def _issue(code: str, message: str, blocking: bool, **extra) -> dict:
 class RoutePipeline:
     """추천 backend 하나. 시작 시 extract, env layer, DEM, config, Gate, P2P substrate를 한 번 읽고 들고 있는다.
 
-    보유 상태: gen(canonical generator + fast graph builder, (G, rg) LRU 4), graphs(요청 graph LRU 4),
-    data(정적 데이터), gate(Gate 설정·버전), substrate(P2P app-max mask, LRU 4. rollback 시 None), lock.
+    보유 상태: gen(canonical generator + fast graph builder, (G, rg) LRU), graphs(요청 graph LRU),
+    data(정적 데이터), gate(Gate 설정·버전), substrate(P2P app-max mask LRU. rollback 시 None), lock.
+    LRU 칸 수: gen·graphs = RUNWAY_GRAPH_CACHE_SIZE, mask = RUNWAY_MASK_CACHE_SIZE(둘 다 기본 4, import 시 읽음).
     cache는 결과를 바꾸지 않는다(어느 cache를 비워도 같은 요청은 같은 out). thread-safe가 아니므로 호출자는
     요청 전체 동안 lock을 잡는다. mode("enforce" / "shadow")와 fast는 생성자 인자다(app이 환경변수로 정한다).
     주의: 생성자 기본값은 mode="shadow"다. 서비스(app)는 기본 "enforce"를 넘긴다. 직접 만들 때는 mode를 명시한다."""
 
     def __init__(self, env_layer: str = "wide", mode: str = "shadow", fast: bool = True, self_test: bool = True):
-        self.gen = FastGraphRouteGenerator(fast=fast, self_test=self_test)   # loads the extract; fast-graph self-test
+        # extract + verified legacy fast-graph self-test. (G, rg) LRU 칸 수 = 요청 graph LRU와 같은 GRAPH_CACHE_SIZE
+        self.gen = ArrayLoopGenerator(fast=fast, self_test=self_test, graph_cache_size=graph_mod.GRAPH_CACHE_SIZE)
         api.busan.ox.settings.log_console = False
         self.data = RunwayData(env_layer)
         self.graphs = GraphStore(self.gen, self.data)
@@ -72,13 +76,22 @@ class RoutePipeline:
         self.ug2 = self.gate.cfg["v2"]
         # P2P's two app-max disks as array masks (same sets and results as the networkx graphs, ~10x cheaper);
         # RUNWAY_P2P_SUBSTRATE=0 rolls back to snap.p2p_endpoints on networkx graphs.
-        # rollback 환경변수 4개(모두 프로세스 시작 시 한 번 읽음, 바꾸면 서버 재시작):
+        # rollback 환경변수(프로세스 시작 시 읽음, 바꾸면 서버 재시작):
+        #   RUNWAY_ARRAY_LOOP=0     LOOP 배열 view -> 기존 G/H 생성, 추천 결과는 유지
+        #   RUNWAY_SP_ENGINE=python  Numba kernel -> 기존 Python D-exact
         #   RUNWAY_P2P_SUBSTRATE=0  여기서 읽음. P2P app-max disk를 networkx로            -> 결과 동일, P2P cold 느려짐
         #   RUNWAY_SP_KERNEL=nx     shortest_path import 시 읽음. 최단 경로를 networkx로    -> 결과 동일, 생성 느려짐
         #   RUNWAY_FAST_GRAPH=0     app_runway가 읽어 fast=False로 전달. canonical builder -> 결과 동일, cold 느려짐
         #   RUNWAY_USABILITY_GATE=shadow  app_runway가 읽어 mode로 전달. Gate가 기록만 함  -> FAIL 경로가 남을 수 있음
         # 앞의 셋은 같은 결과를 내도록 검증된 느린 경로이고, shadow만 추천 결과가 달라질 수 있는 비상용 스위치다.
         self.substrate = Substrate(self.gen, self.ug2) if os.environ.get("RUNWAY_P2P_SUBSTRATE", "1") != "0" else None
+        #   RUNWAY_ARRAY_SHAPES=0   여기서 읽음. OUT_AND_BACK / P2P 생성 disk를 networkx G/H로   -> 결과 동일, cold 느려짐
+        flag = os.environ.get("RUNWAY_ARRAY_SHAPES", "1")
+        if flag not in ("0", "1"):
+            raise ValueError("RUNWAY_ARRAY_SHAPES must be 0 or 1")
+        self.array_shapes = flag == "1"
+        if self.gen.array_enabled:
+            self.gen.array_source = ArraySource(self.substrate if self.substrate is not None else Substrate(self.gen, self.ug2))
         self.lock = threading.Lock()
 
     def status(self) -> dict:
@@ -105,13 +118,23 @@ class RoutePipeline:
         (app이 NO_ROAD_NEARBY로 바꾼다). side effect: graph·mask LRU가 채워진다(결과에는 영향 없음)."""
         prefs = prefs if isinstance(prefs, Preferences) else Preferences.from_dict(prefs)
         if shape in candidates.LOOP_SHAPES:
-            return self._loop(lat, lon, target_m, seed, candidates.POC_DEFAULT_ATTEMPTS if attempts is None else attempts,
-                              prefs)
+            active = self.gen.array_active
+            self.gen.array_active = True
+            try:
+                return self._loop(lat, lon, target_m, seed, candidates.POC_DEFAULT_ATTEMPTS if attempts is None else attempts,
+                                  prefs)
+            finally:
+                self.gen.array_active = active
         if shape not in candidates.NEW_SHAPES:
             raise ValueError(f"unknown shape {shape!r}")
         if shape == "point_to_point" and (end_lat is None or end_lon is None):
             raise ValueError("point_to_point needs end_lat / end_lon")
-        out = self._shape(shape, lat, lon, target_m, end_lat, end_lon, seed, attempts, prefs)
+        active = self.gen.array_active
+        self.gen.array_active = self.array_shapes   # OAB/P2P 생성 disk도 배열 graph(H21 R1); 끄면 기존 NetworkX
+        try:
+            out = self._shape(shape, lat, lon, target_m, end_lat, end_lon, seed, attempts, prefs)
+        finally:
+            self.gen.array_active = active
         info = out["shape"]
         if "graph_centre" not in info or "start_node" not in info:
             out["usability"] = self.gate.skipped("no route generated")
@@ -225,8 +248,16 @@ class RoutePipeline:
                 ex, ey = snap.to_utm(end_lon, end_lat)
                 info["straight_m"] = float(math.hypot(ex - sx, ey - sy))
                 clon, clat = snap.TO_LL.transform((sx + ex) / 2, (sy + ey) / 2)
-                endpoints = snap.p2p_endpoints if self.substrate is None else self.substrate.p2p_endpoints
-                d = endpoints(self.gen, clat, clon, lat, lon, end_lat, end_lon, info, self.shape_cfg, self.ug2, self.data.env)
+                if self.substrate is None:   # rollback 경로(app-max disk를 networkx로)는 배열 graph를 쓰지 않는다
+                    active, self.gen.array_active = self.gen.array_active, False
+                    try:
+                        d = snap.p2p_endpoints(self.gen, clat, clon, lat, lon, end_lat, end_lon, info, self.shape_cfg,
+                                               self.ug2, self.data.env)
+                    finally:
+                        self.gen.array_active = active
+                else:
+                    d = self.substrate.p2p_endpoints(self.gen, clat, clon, lat, lon, end_lat, end_lon, info,
+                                                     self.shape_cfg, self.ug2, self.data.env)
                 if d is None:
                     return out | {"issues": out["issues"] + info.pop("_issues")}
                 rule = candidates.distance_rule(d, target_m, cfg)
@@ -259,7 +290,8 @@ class RoutePipeline:
             info["start"] = {"node": s, "snap_node_dist_m": st["snap_node_dist_m"], "shift_to_main_m": st["shift_to_main_m"]}
         else:
             try:
-                d_gen = nx.shortest_path_length(rg.H, s, t, weight="length")
+                d_gen = (candidates.path_length(rg, s, t) if candidates._array_rg(rg)
+                         else nx.shortest_path_length(rg.H, s, t, weight="length"))
             except nx.NetworkXNoPath:   # PE2 on the generation disk
                 out["issues"].append(_issue("END_SNAP_PE2", "도착지가 출발지와 이어진 길에 있지 않아요.", True))
                 return out

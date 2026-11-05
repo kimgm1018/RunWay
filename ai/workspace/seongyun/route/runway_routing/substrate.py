@@ -45,12 +45,14 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 from shapely.geometry import Point
 
+from . import network_store
 from . import snap as SNAP
 from .data import RUNNABLE, api, classify
-from .graph import Sidecar
+from .graph import Sidecar, cache_size_env
 
 busan = api.busan
-MASK_CACHE_SIZE = 4   # disk masks kept for repeated P2P requests (a few MB each; results do not depend on it)
+# disk masks kept for repeated P2P requests (a few MB each; results do not depend on it). RUNWAY_MASK_CACHE_SIZE, 기본 4
+MASK_CACHE_SIZE = cache_size_env("RUNWAY_MASK_CACHE_SIZE")
 
 
 class Substrate:
@@ -66,26 +68,34 @@ class Substrate:
         sc = gen.sidecar if gen.sidecar is not None else Sidecar(src)   # RUNWAY_FAST_GRAPH=0 has no sidecar
         self.gen, self.src, self.sc = gen, src, sc
         self.ids = src.node_ids
-        ll = np.array([src.lonlat[int(n)] for n in self.ids])
-        self.lon, self.lat = ll[:, 0].copy(), ll[:, 1].copy()
-        self.xy = src.xy
-        pos = src.pos
-        sw, sa, sb = [], [], []
-        for i, refs in enumerate(sc.refs):
-            nodes = [g[0] for g in groupby(refs)]
-            for a, b in pairwise(nodes):
-                sw.append(i)
-                sa.append(pos[a])
-                sb.append(pos[b])
-        self.seg_w = np.array(sw, np.int32)
-        self.seg_a = np.array(sa, np.int64)
-        self.seg_b = np.array(sb, np.int64)
-        d = distance.great_circle(self.lat[self.seg_a], self.lon[self.seg_a], self.lat[self.seg_b], self.lon[self.seg_b])
-        d[np.isnan(d)] = 0
-        self.seg_len = d
+        self._pos_lookup = network_store._Lookup(self.ids)
+        net = getattr(src, "net", None)
+        if net is not None:   # 압축 도로망: 저장된 좌표·선분(network_store.segments = 아래 loop와 같은 식)
+            ll = net["lonlat"]
+            self.lon, self.lat = ll[:, 0].copy(), ll[:, 1].copy()
+            self.xy = src.xy
+            self.seg_w, self.seg_a, self.seg_b, self.seg_len = net["seg_w"], net["seg_a"], net["seg_b"], net["seg_len"]
+        else:
+            ll = np.array([src.lonlat[int(n)] for n in self.ids])
+            self.lon, self.lat = ll[:, 0].copy(), ll[:, 1].copy()
+            self.xy = src.xy
+            pos = src.pos
+            sw, sa, sb = [], [], []
+            for i, refs in enumerate(sc.refs):
+                nodes = [g[0] for g in groupby(refs)]
+                for a, b in pairwise(nodes):
+                    sw.append(i)
+                    sa.append(pos[a])
+                    sb.append(pos[b])
+            self.seg_w = np.array(sw, np.int32)
+            self.seg_a = np.array(sa, np.int64)
+            self.seg_b = np.array(sb, np.int64)
+            d = distance.great_circle(self.lat[self.seg_a], self.lon[self.seg_a], self.lat[self.seg_b], self.lon[self.seg_b])
+            d[np.isnan(d)] = 0
+            self.seg_len = d
         W = len(sc.way_ids)
         self.way_of_ref = np.repeat(np.arange(W), np.diff(sc.ptr))
-        st = [sc.cls[w][0] for w in sc.way_ids]
+        st = sc.way_status
         self.runnable = np.array([s == RUNNABLE for s in st])
         r4 = ug2["end_point_rules"]["PE4"]["forbidden_incident_edges"]
         r5 = ug2["end_point_rules"]["PE5"]["blocking_edges"]
@@ -95,12 +105,22 @@ class Substrate:
             d_ = {**a, "runway_status": s}
             pe4.append(bool(SNAP._hw(d_) & h4) or SNAP._s(s) in s4 or SNAP._road_tunnel(d_))
             pe5.append(bool(SNAP._hw(d_) & h5) or SNAP._s(s) in s5)
-        for w in sc.way_ids:                      # usability_gate.end_node_on_bridge reads the raw way tags + classify
-            tags = src.ways[w][1]
-            bridge.append(tags.get("bridge") not in (None, "", "no") and classify(tags)[0] == RUNNABLE)
+        if net is not None:
+            # usability_gate.end_node_on_bridge reads the raw way tags + classify. bridge와 classify가 읽는 RULE_TAGS는 모두
+            # useful tag라 attrs 값이 원본 tag 값과 같고(str), classify(원본) == classify(attrs) == way_status다.
+            for a, s in zip(sc.attrs, st):
+                bridge.append(a.get("bridge") not in (None, "", "no") and s == RUNNABLE)
+        else:
+            for w in sc.way_ids:                      # usability_gate.end_node_on_bridge reads the raw way tags + classify
+                tags = src.ways[w][1]
+                bridge.append(tags.get("bridge") not in (None, "", "no") and classify(tags)[0] == RUNNABLE)
         self.pe4, self.pe5, self.bridge = np.array(pe4), np.array(pe5), np.array(bridge)
         self._masks: OrderedDict = OrderedDict()
         self.build_s = round(time.perf_counter() - t0, 2)
+
+    def pos_of(self, node_ids) -> np.ndarray:
+        """Substrate positions (int64) of OSM node ids, all present (src.pos[n] for each, without the dict)."""
+        return self._pos_lookup.many(np.asarray(node_ids, dtype=np.int64))
 
     def disk(self, lat: float, lon: float, radius: float) -> "DiskMask":
         """DiskMask of the generator's disk key (round(lat, 6), round(lon, 6), round(radius)); small LRU."""
@@ -253,10 +273,11 @@ class DiskMask:
         used = set()
         for i in np.flatnonzero(self.sel):
             used.update(sc.refs[i])
-        pos = S.src.pos
         alive = np.zeros(len(S.ids), bool)
         alive[self.g_nodes] = True
-        return {n: r for r, n in enumerate(n for n in used if alive[pos[n]])}
+        order = list(used)                       # set 순회 순서 그대로; 위치 조회만 배열로
+        keep = alive[S.pos_of(order)].tolist()
+        return {n: r for r, n in enumerate(n for n, k in zip(order, keep) if k)}
 
     def _pe5_edges_in_G_order(self, lon, lat) -> tuple:
         """snap.pe5_blockers(G) + near(): every blocking directed edge of G (both directions, multi-edge keys) whose

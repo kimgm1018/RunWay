@@ -46,8 +46,12 @@ def _edge_index(rg) -> tuple:
     and stored ON the graph: it lives exactly as long as rg (generator LRU / a cached request graph), nothing global."""
     idx = getattr(rg, "_snap_edge_index", None)
     if idx is None:
-        lines = [LineString([(rg.H.nodes[a]["x"], rg.H.nodes[a]["y"]), (rg.H.nodes[b]["x"], rg.H.nodes[b]["y"])])
-                 for a, b in rg.H.edges]
+        endpoints = getattr(rg, "_array_snap_endpoints", None)
+        if endpoints is not None:
+            lines = list(shapely.linestrings(np.stack(endpoints, axis=1)))
+        else:
+            lines = [LineString([(rg.H.nodes[a]["x"], rg.H.nodes[a]["y"]), (rg.H.nodes[b]["x"], rg.H.nodes[b]["y"])])
+                     for a, b in rg.H.edges]
         idx = rg._snap_edge_index = (lines, shapely.STRtree(lines))
     return idx
 
@@ -109,12 +113,34 @@ def pe4_forbidden_nodes(G, ug2: dict) -> set:
     if cached is not None and cached[0] is rule:
         return cached[1]
     hws, sts = set(rule["highways"]), set(rule["status"])
+    if getattr(G, "_is_array_graph", False):
+        # 배열 G(H21 R1): 같은 판정을 way 단위로 한 번 하고(way의 모든 간선이 같은 tag·status), G의 선분 양 끝 node를 모은다.
+        S = G.source.S
+        flags = _way_pe4_flags(S, rule)
+        m = flags[S.seg_w[G.seg]]
+        bad = set(S.ids[G.a[m]].tolist()) | set(S.ids[G.b[m]].tolist())
+        G._runway_pe4_nodes = (rule, bad)
+        return bad
     bad = set()
     for u, v, d in G.edges(data=True):
         if _hw(d) & hws or _s(d.get("runway_status")) in sts or _road_tunnel(d):
             bad.update((u, v))
     G._runway_pe4_nodes = (rule, bad)
     return bad
+
+
+def _way_pe4_flags(S, rule) -> np.ndarray:
+    """Per way of the substrate: pe4_forbidden_nodes' edge test on the way's G edge data (useful tags + status; the other
+    edge keys oneway / reversed / length / runway_reason are not read). Once per (substrate, rule object)."""
+    cached = getattr(S, "_runway_pe4_ways", None)
+    if cached is not None and cached[0] is rule:
+        return cached[1]
+    hws, sts = set(rule["highways"]), set(rule["status"])
+    sc = S.sc
+    flags = np.array([bool(_hw(d) & hws or _s(d.get("runway_status")) in sts or _road_tunnel(d))
+                      for d in ({**sc.attrs[i], "runway_status": sc.cls[w][0]} for i, w in enumerate(sc.way_ids))], bool)
+    S._runway_pe4_ways = (rule, flags)
+    return flags
 
 def pe5_blockers(G, ug2: dict) -> list:
     """Blocking road segments (trunk / motorway (+link) or EXCLUDED) of G as WGS84 lines. Once per graph object

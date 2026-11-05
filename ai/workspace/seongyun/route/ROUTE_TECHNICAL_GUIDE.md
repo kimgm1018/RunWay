@@ -585,3 +585,4 @@ V1 이후 개선 방향(교차로 feature, LOOP 15 km cold, 전국 grid 연결, 
 | **1 km UTM-K spatial grid (전국 index, 미연결)** | 전국 확장 시 disk 후보 축소 | 행정구역 partition, 500 m / 2 km grid | 행정구역은 polygon 틈 때문에 누락이 생겨 결국 전체 scan이 된다. 500 m는 더 느리고, 2 km는 이점이 없다(개발 기록 8절) |
 | **HMM map matching (분석 전용)** | GPX → OSM edge | 최근접 snap | 연속성을 고려해 평행 도로 오매칭을 줄인다. production runtime에는 없다 |
 | **Cliff's δ + bootstrap CI (분석 전용)** | GPX feature 비교 | 평균 차이, t-test | 분포 가정이 없고 0이 많은 비율 데이터(계단 등)에 강하다. family 단위 재표집으로 변형 중복을 다룬다 |
+

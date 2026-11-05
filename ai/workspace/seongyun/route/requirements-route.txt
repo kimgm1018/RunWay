@@ -15,6 +15,10 @@ osmnx==2.1.1
 osmium==4.3.2
 # numeric / geometry (snap, env distances, features, D-exact inputs)
 numpy==2.5.4
+# Exact Dijkstra compiled engine; Python rollback: RUNWAY_SP_ENGINE=python.
+# First compilation is done at import, before accepting requests.
+numba==0.68.0
+llvmlite==0.50.0
 pandas==3.0.6
 geopandas==1.2.0
 pyogrio==0.13.0

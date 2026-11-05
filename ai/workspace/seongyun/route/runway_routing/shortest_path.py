@@ -17,6 +17,9 @@ Same inputs -> the same path, ties included (verified leg by leg against network
 
 BACKEND: "py" (this kernel, default) or "nx" (networkx itself). RUNWAY_SP_KERNEL=nx is the rollback switch; any
 networkx other than VERIFIED_NETWORKX also falls back to "nx", because the port reproduces that version's code.
+ENGINE (only with BACKEND "py"): "numba" (default, the same algorithm compiled) or "python" (bidirectional below,
+rollback with RUNWAY_SP_ENGINE=python). Asking for "numba" without a working
+numba fails at import (no silent fallback); it is compiled / loaded from cache and warmed up at import, not on a request.
 
 왜 "더 빠른 최단 경로"가 아니라 NetworkX 3.7을 그대로 옮겼나: 길이가 같은 경로가 여러 개면 어느 것을 고르느냐가
 heap의 push 순서와 이웃 순회 순서로 정해진다. 다른 알고리즘(A*, scipy 등)이나 다른 순서는 동점 경로를 다르게 골라
@@ -39,6 +42,20 @@ def _backend() -> str:
 
 
 BACKEND = _backend()
+
+
+def _engine() -> str:
+    want = os.environ.get("RUNWAY_SP_ENGINE", "numba")
+    if want not in ("python", "numba"):
+        raise ValueError(f"RUNWAY_SP_ENGINE must be python or numba, not {want!r}")
+    return want
+
+
+ENGINE = _engine()
+if BACKEND == "py" and ENGINE == "numba":
+    from . import shortest_path_numba as _numba   # compiles (or loads the cache) here, at start-up
+    _numba.warm_up()
+    bidirectional_numba = _numba.bidirectional
 
 
 def bidirectional(csr, s: int, t: int, M: list, used: list, pen: float) -> list | None:

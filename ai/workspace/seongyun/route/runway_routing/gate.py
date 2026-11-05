@@ -59,9 +59,26 @@ def _sha(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
+class _MemoGet:
+    """table.get with a per-context memo: the compact store's views (ways / lonlat) look the id up and build the value on
+    every call; the Gate asks for the same way / node many times per request, and the context lives as long as the request
+    graph (warm requests reuse it). Values are the view's (equal to BusanSource.ways / lonlat); callers only read them."""
+
+    def __init__(self, table):
+        self._table, self._memo = table, {}
+
+    def get(self, k, default=None):
+        x = self._memo.get(k, self)
+        if x is self:
+            x = self._memo[k] = self._table.get(k)
+        return default if x is None else x
+
+
 def build_context(source, edge_triples):
     """usability_gate.GateContext from the extract tables (BusanSource.ways / lonlat) and (osm_u, osm_v, osmid) triples."""
-    return UG.build_context(source.ways, source.lonlat, edge_triples, classify)
+    ways = source.ways if isinstance(source.ways, dict) else _MemoGet(source.ways)
+    lonlat = source.lonlat if isinstance(source.lonlat, dict) else _MemoGet(source.lonlat)
+    return UG.build_context(ways, lonlat, edge_triples, classify)
 
 
 def gate_context(cg, source):
