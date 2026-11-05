@@ -18,4 +18,5 @@ public record GroupRunDetailResponse(
         Integer targetDurationSec,
         String meetingPlaceName,
         String meetingAddress,
-        Integer goalPaceSecPerKm) {}
+        Integer goalPaceSecPerKm,
+        Integer groupGuidePaceSecPerKm) {}

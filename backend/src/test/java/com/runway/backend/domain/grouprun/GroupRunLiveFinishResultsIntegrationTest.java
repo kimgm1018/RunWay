@@ -71,6 +71,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
     void seed() {
         jdbc.update("DELETE FROM pace_plan_segments");
         jdbc.update("DELETE FROM pace_plans");
+        jdbc.update("DELETE FROM coaching_decisions");
         jdbc.update("DELETE FROM session_control_events");
         jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM group_run_participants");
@@ -79,6 +80,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
         jdbc.update("DELETE FROM crews");
         jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
         jdbc.update("DELETE FROM running_sessions");
+        jdbc.update("DELETE FROM user_profiles");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM users");
 
@@ -448,6 +450,66 @@ class GroupRunLiveFinishResultsIntegrationTest {
     // ---------------------------------------------------------------- G10
 
     @Test
+    void live_scheduled_withProfiles_returnsMedianGuidePace() throws Exception {
+        insertProfile(hostId, 300);
+        insertProfile(memberId, 400);
+        long groupRunId = createGroupRun();
+        readyHost(groupRunId);
+        joinAndReady(groupRunId, memberId);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(350));
+    }
+
+    @Test
+    void live_running_usesSessionPaces_andExcludesCompletedParticipant() throws Exception {
+        insertProfile(hostId, 500);
+        insertProfile(memberId, 500);
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        setSessionAveragePace(hostSession, 320);
+        setSessionAveragePace(memberSession, 380);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(350));
+
+        markCompleted(memberSession);
+
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(320));
+    }
+
+    @Test
+    void live_running_prefersCoachingPaceOverSessionAverage() throws Exception {
+        insertProfile(hostId, 500);
+        insertProfile(memberId, 500);
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        setSessionAveragePace(hostSession, 400);
+        setSessionAveragePace(memberSession, 400);
+        insertCoachingDecision(hostSession, 300);
+        insertCoachingDecision(memberSession, 360);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(330));
+    }
+
+    @Test
     void live_scheduled_returnsNullRanks_andStale_withGuidePace() throws Exception {
         long groupRunId = createGroupRun();
         readyHost(groupRunId);
@@ -458,8 +520,8 @@ class GroupRunLiveFinishResultsIntegrationTest {
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.groupRunId").value(groupRunId))
                         .andExpect(jsonPath("$.status").value("SCHEDULED"))
-                        // 5000m / 1800s -> 360 sec/km
-                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(360))
+                        // 추천 페이스는 참가자 프로필 중앙값(테스트에는 프로필 없음 -> null). 목표 환산(360)으로 채우지 않는다.
+                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(nullValue()))
                         .andExpect(jsonPath("$.participants", hasSize(2)))
                         .andExpect(jsonPath("$.participants[0].userId").value(hostId))
                         .andExpect(jsonPath("$.participants[1].userId").value(memberId))
@@ -495,7 +557,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.groupRunId").value(groupRunId))
                         .andExpect(jsonPath("$.status").value("RUNNING"))
-                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(360))
+                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(nullValue()))
                         .andExpect(jsonPath("$.courseId").value(nullValue()))
                         .andExpect(jsonPath("$.updatedAt").isString())
                         .andExpect(jsonPath("$.participants", hasSize(2)))
@@ -773,6 +835,33 @@ class GroupRunLiveFinishResultsIntegrationTest {
                 sessionId,
                 Timestamp.from(measuredAt),
                 totalDistanceM);
+    }
+
+    private void insertProfile(long userId, int averagePaceSecPerKm) {
+        jdbc.update(
+                """
+                INSERT INTO user_profiles(user_id, running_level, average_pace, distance, duraction)
+                VALUES (?, 'INTERMEDIATE'::user_profiles_running_level_enum, ?, 5000, 1800)
+                """,
+                userId,
+                averagePaceSecPerKm);
+    }
+
+    private void setSessionAveragePace(long sessionId, int averagePaceSecPerKm) {
+        jdbc.update(
+                "UPDATE running_sessions SET average_pace = ? WHERE id = ?",
+                averagePaceSecPerKm,
+                sessionId);
+    }
+
+    private void insertCoachingDecision(long sessionId, int recommendedPaceSecPerKm) {
+        jdbc.update(
+                """
+                INSERT INTO coaching_decisions(session_id, elapsed_duration, recommended_pace)
+                VALUES (?, 60, ?)
+                """,
+                sessionId,
+                recommendedPaceSecPerKm);
     }
 
     private static List<String> propertyNames(JsonNode node) {
