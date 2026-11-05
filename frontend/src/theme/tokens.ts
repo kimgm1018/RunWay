@@ -254,9 +254,9 @@ export const size = {
   input: 52,
   iconButton: 40,
   header: 56,
-  // Tab screens keep tabBar + tabBarInset × 2 = 116 free at the bottom (DESIGN.md 2-3).
-  tabBar: 76,
-  tabBarInset: 20,
+  // Tab screens keep tabBar + tabBarInset × 2 = 96 free at the bottom (runway-tabbar: a 64-high bar, 16 in).
+  tabBar: 64,
+  tabBarInset: 16,
   tabCircle: 40,
 } as const;
 

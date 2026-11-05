@@ -2,7 +2,12 @@
 // (1.2r, 2.1La, 4.5F, 6.2f …) are not routes but states of the screen they belong to.
 export type SessionAction = 'signIn' | 'signOut';
 
-export type TabName = 'HomeTab' | 'RunTab' | 'GroupTab' | 'CommunityTab';
+export type TabName =
+  | 'HomeTab'
+  | 'RunTab'
+  | 'GroupTab'
+  | 'CommunityTab'
+  | 'ProfileTab';
 
 type RouteInfo = {
   code: string;

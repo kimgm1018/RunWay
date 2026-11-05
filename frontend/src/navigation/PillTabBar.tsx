@@ -1,39 +1,117 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Icon, type IconName } from '../components';
-import { k1, radius, size, typography, useTheme } from '../theme';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { AppText } from '../components';
+import { fontFamily, size } from '../theme';
 import type { MainTabParamList } from './types';
 
-const tabs: Record<keyof MainTabParamList, { label: string; icon: IconName }> =
-  {
-    HomeTab: { label: '홈', icon: 'home' },
-    RunTab: { label: '러닝', icon: 'run' },
-    GroupTab: { label: '그룹', icon: 'group' },
-    CommunityTab: { label: '커뮤니티', icon: 'community' },
-  };
+type TabKey = keyof MainTabParamList;
 
-// Screens whose map fills the screen get the black pill instead (DESIGN.md 2-6 하단 탭바).
-const mapScreens = ['FreeRun', 'CourseRun'];
-
-const darkColors = {
-  tabBar: k1.night,
-  tabBarBorder: 'rgba(232,238,244,0.08)',
-  tabActive: k1.ice,
-  tabIconActive: k1.night,
-  tabInactive: 'rgba(232,238,244,0.55)',
+const tabs: Record<TabKey, { label: string }> = {
+  HomeTab: { label: '홈' },
+  RunTab: { label: '러닝' },
+  GroupTab: { label: '그룹' },
+  CommunityTab: { label: '커뮤니티' },
+  ProfileTab: { label: '프로필' },
 };
 
-// 2.1 홈 하단: a floating light pill with four tabs (DESIGN.md 2-3). The selected tab fills only its icon circle.
-// The 2.P arc drag is not built; 2.P was out of scope for S15P31E105-146.
+// runway-tabbar (S15P31E105-428): the light bar over most screens, the navy one over full-screen maps.
+const light = {
+  bar: '#FFFFFF',
+  barBorder: 'rgba(2,5,14,0.05)',
+  barShadow: '0 12px 32px rgba(9,17,26,0.12), 0 2px 6px rgba(9,17,26,0.05)',
+  inactive: '#56646C',
+  active: '#FFFFFF',
+  // The chosen tab is a black textured tile.
+  tile: '#0F1011',
+  tileShadow:
+    '0 6px 14px rgba(2,5,14,0.28), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06)',
+  texture: true,
+};
+const dark = {
+  bar: '#091019',
+  barBorder: 'rgba(255,255,255,0.08)',
+  barShadow:
+    '0 12px 30px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
+  inactive: '#8B99A3',
+  active: '#091019',
+  // The chosen tab is a white tile.
+  tile: '#FFFFFF',
+  tileShadow: '0 6px 14px rgba(0,0,0,0.28), inset 0 -1px 0 rgba(9,16,25,0.08)',
+  texture: false,
+};
+
+const texture = require('../../assets/images/tab-active-texture.png');
+
+// Screens whose map fills the screen get the navy bar instead (DESIGN.md 2-6 하단 탭바).
+const mapScreens = ['FreeRun', 'CourseRun'];
+
+// The handoff's 21px line icons; the chosen one is drawn a little heavier.
+function TabIcon({
+  tab,
+  color,
+  focused,
+}: {
+  tab: TabKey;
+  color: string;
+  focused: boolean;
+}) {
+  const stroke = {
+    fill: 'none',
+    stroke: color,
+    strokeWidth: focused ? 2 : 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  return (
+    <Svg width={21} height={21} viewBox="0 0 24 24">
+      {tab === 'HomeTab' ? (
+        <>
+          <Path {...stroke} d="M15 21v-7a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v7" />
+          <Path
+            {...stroke}
+            d="M3 10a2 2 0 0 1 .7-1.5l7-6a2 2 0 0 1 2.6 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+          />
+        </>
+      ) : tab === 'RunTab' ? (
+        <>
+          <Path
+            {...stroke}
+            d="M4 16v-2.4C4 11.5 3 10.5 3 8c0-2.7 1.5-6 4.5-6C9.4 2 10 3.8 10 5.5c0 3.1-2 5.7-2 8.7V16a2 2 0 1 1-4 0z"
+          />
+          <Path
+            {...stroke}
+            d="M20 20v-2.4c0-2.1 1-3.1 1-5.6 0-2.7-1.5-6-4.5-6C14.6 6 14 7.8 14 9.5c0 3.1 2 5.7 2 8.7V20a2 2 0 1 0 4 0z"
+          />
+        </>
+      ) : tab === 'GroupTab' ? (
+        <>
+          <Path {...stroke} d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <Circle {...stroke} cx={9} cy={7} r={4} />
+          <Path {...stroke} d="M22 21v-2a4 4 0 0 0-3-3.9" />
+          <Path {...stroke} d="M16 3.1a4 4 0 0 1 0 7.8" />
+        </>
+      ) : tab === 'CommunityTab' ? (
+        <Path {...stroke} d="M7.9 20A9 9 0 1 0 4 16.1L2 22z" />
+      ) : (
+        <>
+          <Circle {...stroke} cx={12} cy={8} r={4.2} />
+          <Path {...stroke} d="M4.5 21c.8-4 3.8-6.3 7.5-6.3s6.7 2.3 7.5 6.3" />
+        </>
+      )}
+    </Svg>
+  );
+}
+
+// 하단 탭 바 (runway-tabbar): a floating 64-high bar of five tabs, 16 in from the sides; the chosen tab fills a
+// 52-high tile (black texture on the light bar, white on the navy one).
 export function PillTabBar({ state, navigation }: BottomTabBarProps) {
-  const theme = useTheme();
   const insets = useSafeAreaInsets();
   const shown = getFocusedRouteNameFromRoute(state.routes[state.index]);
-  const colors =
-    shown && mapScreens.includes(shown) ? darkColors : theme.colors;
+  const look = shown && mapScreens.includes(shown) ? dark : light;
   return (
     <View
       pointerEvents="box-none"
@@ -46,17 +124,22 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
         accessibilityRole="tablist"
         style={[
           styles.bar,
-          { backgroundColor: colors.tabBar, borderColor: colors.tabBarBorder },
+          {
+            backgroundColor: look.bar,
+            borderColor: look.barBorder,
+            boxShadow: look.barShadow,
+          },
         ]}
       >
         {state.routes.map((route, index) => {
           const focused = state.index === index;
-          const tab = tabs[route.name as keyof MainTabParamList];
+          const key = route.name as TabKey;
+          const color = focused ? look.active : look.inactive;
           return (
             <Pressable
               key={route.key}
               accessibilityRole="tab"
-              accessibilityLabel={tab.label}
+              accessibilityLabel={tabs[key].label}
               accessibilityState={{ selected: focused }}
               onPress={() => {
                 const event = navigation.emit({
@@ -68,31 +151,30 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
                   navigation.navigate(route.name, route.params);
                 }
               }}
-              style={styles.tab}
+              style={({ pressed }) => [
+                styles.tab,
+                focused && {
+                  backgroundColor: look.tile,
+                  boxShadow: look.tileShadow,
+                },
+                pressed && styles.pressed,
+              ]}
             >
-              <View style={styles.circle}>
-                {/* A fresh view for the fill: Android keeps square corners when a view gains a background later. */}
-                {focused ? (
-                  <View
-                    style={[
-                      styles.circleFill,
-                      { backgroundColor: colors.tabActive },
-                    ]}
+              {focused && look.texture ? (
+                <View style={styles.textureClip}>
+                  <Image
+                    source={texture}
+                    resizeMode="cover"
+                    style={styles.texture}
                   />
-                ) : null}
-                <Icon
-                  name={tab.icon}
-                  color={focused ? colors.tabIconActive : colors.tabInactive}
-                  size={20}
-                />
-              </View>
+                </View>
+              ) : null}
+              <TabIcon tab={key} color={color} focused={focused} />
               <AppText
-                style={[
-                  focused ? typography.labelStrong : typography.label,
-                  { color: focused ? colors.tabActive : colors.tabInactive },
-                ]}
+                numberOfLines={1}
+                style={[styles.label, focused && styles.labelOn, { color }]}
               >
-                {tab.label}
+                {tabs[key].label}
               </AppText>
             </Pressable>
           );
@@ -111,33 +193,38 @@ const styles = StyleSheet.create({
   bar: {
     height: size.tabBar,
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
-    borderRadius: radius.pill,
+    paddingHorizontal: 3,
+    borderRadius: 24,
     borderWidth: 1,
-    shadowColor: k1.night,
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
   },
   tab: {
-    width: 66,
-    alignItems: 'center',
-    gap: 3,
-  },
-  circle: {
-    width: size.tabCircle,
-    height: size.tabCircle,
+    flex: 1,
+    height: 52,
+    marginHorizontal: 2,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
   },
-  circleFill: {
+  // The handoff's press feedback (scale .96).
+  pressed: { transform: [{ scale: 0.96 }] },
+  // The texture is clipped in its own view, so the tile's shadow is not.
+  textureClip: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    borderRadius: size.tabCircle / 2,
+    borderRadius: 18,
+    overflow: 'hidden',
   },
+  texture: { width: '100%', height: '100%' },
+  label: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11.5,
+    lineHeight: 14,
+    letterSpacing: -0.1,
+  },
+  labelOn: { fontFamily: fontFamily.bold },
 });

@@ -107,7 +107,7 @@ test('signed-out users move from start through login into the home tab', async (
   expect(home).toContain('민');
   expect(home).toContain('오늘 준비도');
   expect(home).toContain('82');
-  for (const tab of ['홈', '러닝', '그룹', '커뮤니티']) {
+  for (const tab of ['홈', '러닝', '그룹', '커뮤니티', '프로필']) {
     expect(pressable(screen, tab).props.accessibilityRole).toBe('tab');
   }
   expect(() => pressable(screen, '뒤로')).toThrow();
@@ -148,6 +148,18 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await press(screen, '커뮤니티');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('seoyun.run');
+  // 7.4b is the fifth tab (S15P31E105-428), opened without a 뒤로 of its own.
+  const backs = () =>
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === '뒤로' &&
+        typeof node.props.onPress === 'function',
+    ).length;
+  const before = backs();
+  await press(screen, '프로필');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  expect(texts(screen)).toContain('팔로워');
+  expect(backs()).toBe(before);
   await act(async () => screen.unmount());
 });
 
