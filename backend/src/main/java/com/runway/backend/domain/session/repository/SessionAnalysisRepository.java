@@ -2,7 +2,10 @@ package com.runway.backend.domain.session.repository;
 
 import com.runway.backend.domain.session.entity.AnalysisSample;
 import com.runway.backend.domain.session.entity.AnalysisSplit;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -38,6 +41,68 @@ public class SessionAnalysisRepository {
                                 rs.getBigDecimal("cadence")),
                 sessionId);
     }
+
+    /**
+     * 기록 비교(S15P31E105-422)용 누적거리 샘플. 누적거리가 없는 샘플은 곡선에 쓰지 않으므로 읽지 않는다. 정렬은 {@link #findSamples}와 같다.
+     */
+    public List<AnalysisSample> findDistanceSamples(long sessionId) {
+        return jdbc.query(
+                """
+                SELECT measured_at, total_distance
+                FROM running_metric_samples
+                WHERE running_session_id = ? AND total_distance IS NOT NULL
+                ORDER BY measured_at, elapsed_duration, id
+                """,
+                (rs, n) ->
+                        new AnalysisSample(
+                                rs.getTimestamp("measured_at").toInstant(),
+                                rs.getBigDecimal("total_distance"),
+                                null,
+                                null),
+                sessionId);
+    }
+
+    /** 샘플이 추가됐는지 알기 위한 표식(개수·최대 ID). 늦게 도착한 batch가 있으면 값이 바뀐다. */
+    public SampleMark sampleMark(long sessionId) {
+        return jdbc.queryForObject(
+                """
+                SELECT COUNT(*) AS cnt, COALESCE(MAX(id), 0) AS max_id
+                FROM running_metric_samples
+                WHERE running_session_id = ?
+                """,
+                (rs, n) -> new SampleMark(rs.getLong("cnt"), rs.getLong("max_id")),
+                sessionId);
+    }
+
+    /**
+     * 기록 비교 대상의 현재 상태. 잠그지 않는다(S02 읽기 트랜잭션에서 읽는 표시용 값이며 참조 저장은 S01/S08 검증이 잠근다). 본인 세션이 아니면 빈 값이다.
+     */
+    public Optional<ComparisonTarget> findComparisonTarget(long userId, long sessionId) {
+        return jdbc
+                .query(
+                        """
+                        SELECT status::text AS status, deleted_at IS NOT NULL AS deleted, started_at, ended_at
+                        FROM running_sessions WHERE id = ? AND user_id = ?
+                        """,
+                        (rs, n) ->
+                                new ComparisonTarget(
+                                        rs.getString("status"),
+                                        rs.getBoolean("deleted"),
+                                        instant(rs.getTimestamp("started_at")),
+                                        instant(rs.getTimestamp("ended_at"))),
+                        sessionId,
+                        userId)
+                .stream()
+                .findFirst();
+    }
+
+    private static Instant instant(Timestamp value) {
+        return value == null ? null : value.toInstant();
+    }
+
+    public record SampleMark(long count, long maxId) {}
+
+    public record ComparisonTarget(String status, boolean deleted, Instant startedAt, Instant endedAt) {}
 
     /** 기존 구간을 모두 지우고 새로 저장한다. 결과는 원본에서 한 번 계산해 덮어쓰며 가산하지 않는다. */
     public void replaceSplits(long sessionId, List<AnalysisSplit> splits) {

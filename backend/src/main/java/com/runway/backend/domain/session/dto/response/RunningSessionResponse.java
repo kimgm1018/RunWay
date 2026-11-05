@@ -18,6 +18,7 @@ public record RunningSessionResponse(
         Plan plan,
         Analysis analysis,
         CoachingGuide coaching,
+        RecordComparison comparison,
         Command pendingCommand,
         Command lastCommand,
         Instant serverReceiveAt,
@@ -57,6 +58,17 @@ public record RunningSessionResponse(
             Instant appliedAt,
             String reasonCode,
             CoachingGuide coachingGuide) {}
+
+    /**
+     * 과거 기록 대비 동일 거리 도달 시간 비교(sessions.md "기록 비교"). 비교 기록을 고르지 않은 세션은 객체 자체가 null이다. 거리·시간은
+     * AVAILABLE에만 값이 있다.
+     */
+    public record RecordComparison(
+            String status,
+            Instant targetStartedAt,
+            Integer distanceM,
+            Integer currentElapsedSec,
+            Integer pastElapsedSec) {}
 
     public record CoachingGuide(
             long commandId,

@@ -457,3 +457,28 @@ test('a late SET_BPM result that arrives while another operation runs is reporte
   });
   control.dispose();
 });
+
+// S15P31E105-422: 기록 비교는 batch 저장마다 같은 버전의 S10 스냅샷으로 온다. 앱은 그대로 보관하고 같은 값을 워치에 넘긴다.
+test('S10 record comparison updates the run state at the same version and reaches the watch unchanged', async () => {
+  const { control, watch, snapshot } = setup();
+  await control.attach('201');
+  expect(control.getState().comparison).toBeNull();
+
+  const comparison = {
+    status: 'AVAILABLE' as const,
+    targetStartedAt: '2026-10-20T01:00:00Z',
+    distanceM: 1000,
+    currentElapsedSec: 280,
+    pastElapsedSec: 300,
+  };
+  snapshot(view({ comparison }));
+  await wait();
+
+  expect(control.getState().comparison).toEqual(comparison);
+  expect(watch.sendServerState).toHaveBeenLastCalledWith('201', expect.objectContaining({ comparison }), null);
+
+  // 더 오래된 버전의 스냅샷은 비교 값을 되돌리지 않는다.
+  snapshot(view({ stateVersion: 2, comparison: { ...comparison, status: 'WAITING', distanceM: null } }));
+  await wait();
+  expect(control.getState().comparison).toEqual(comparison);
+});

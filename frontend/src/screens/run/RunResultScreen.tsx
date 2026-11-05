@@ -23,7 +23,8 @@ import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, palette, spacing, ThemeProvider } from '../../theme';
-import { useRunSession } from './RunSession';
+import { comparisonResult, useFinalComparison } from './recordComparison';
+import { useRunControlState, useRunSession } from './RunSession';
 
 // A course counts as 완주 once almost all of it is run; GPS rarely lands on the exact finish.
 const finishShare = 0.98;
@@ -218,6 +219,11 @@ export function RunResultScreen() {
   const { courses } = useRepositories();
   const toast = useToast();
   const { run, retrySave } = useRunSession();
+  const control = useRunControlState();
+  const finalComparison = useFinalComparison(
+    control?.sessionId ?? null,
+    control?.comparison ?? null,
+  );
   // The saved course this result is bookmarked as: the planned course, or one made from a free run.
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -266,10 +272,8 @@ export function RunResultScreen() {
     ? summary.distanceM >= plan.distanceM * finishShare
     : false;
   const shape = plan ? plan.route : trail;
-  const rivalDiff =
-    plan?.rival && finished
-      ? plan.rival.durationSec - summary.durationSec
-      : null;
+  // 4.5 비교 결과: 서버가 계산한 같은 지점 도달 시간 차이(S15P31E105-422).
+  const rivalResult = comparisonResult(finalComparison);
 
   const toggleSaved = async () => {
     setBusy(true);
@@ -396,13 +400,7 @@ export function RunResultScreen() {
               ) : (
                 <AppText style={styles.missed}>미달성</AppText>
               )}
-              {rivalDiff !== null && plan.rival
-                ? ` · ${Number(
-                    plan.rival.startedAt.slice(5, 7),
-                  )}.${plan.rival.startedAt.slice(8, 10)} 기록보다 ${Math.abs(
-                    rivalDiff,
-                  )}초 ${rivalDiff >= 0 ? '빨랐어요' : '느렸어요'}`
-                : ''}
+              {rivalResult ? ` · ${rivalResult}` : ''}
             </AppText>
           ) : null}
           {/* Only a failed save is shown (README 알려진 문제); saving and saved stay quiet. */}

@@ -4,6 +4,7 @@ import com.runway.watch.run.AnalysisStatus
 import com.runway.watch.run.BpmChange
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
+import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.CoachingGuide
 import com.runway.watch.run.RhythmBpm
 import com.runway.watch.run.RunIntent
@@ -181,5 +182,64 @@ class SessionRunControlTest {
         assertEquals(BpmChange(RhythmBpm(171), BpmChangeStatus.REQUESTING), control.snapshot.value.bpmChange)
         assertEquals("BPM 변경 확인 중", control.snapshot.value.notice)
         assertEquals(RhythmBpm(170), control.snapshot.value.metrics.rhythm)
+    }
+
+    private suspend fun runningWith(comparison: String, version: Long = 2) {
+        controller.onMessage(
+            message(
+                "STATE_RESULT",
+                """{"scope":"SERVER","recordingMode":"WATCH","state":"RUNNING","stateVersion":$version,"currentBpm":null,"comparison":$comparison}""",
+            ),
+        )
+    }
+
+    private suspend fun startedRun() {
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{"comparisonSessionId":77},"initialBpm":null}"""))
+        control.send(RunIntent.START)
+        controller.onMessage(message("START_AUTHORIZED", """{"commandId":501,"expectedVersion":1,"targetBpm":null,"coachingId":null}"""))
+        controller.onMessage(message("COMMAND_RECEIVED", """{"commandId":501,"persisted":true,"stateVersion":2}"""))
+    }
+
+    @Test
+    fun `the server record comparison reaches the comparison page as it is (S15P31E105-422)`() = runBlocking {
+        startedRun()
+        // 한국시간 10월 21일 08:00에 시작한 기록. 1000m에 지금 280초, 지난번 300초.
+        runningWith("""{"status":"AVAILABLE","targetStartedAt":"2026-10-20T23:00:00Z","distanceM":1000,"currentElapsedSec":280,"pastElapsedSec":300}""")
+
+        assertEquals(RecordComparison.Result(1000.0, 280_000, 300_000, targetLabel = "10.21"), control.snapshot.value.comparison)
+    }
+
+    @Test
+    fun `each server comparison status maps to the existing watch states`() = runBlocking {
+        startedRun()
+        runningWith("""{"status":"WAITING","targetStartedAt":"2026-10-20T23:00:00Z","distanceM":null,"currentElapsedSec":null,"pastElapsedSec":null}""")
+        assertEquals(RecordComparison.Waiting, control.snapshot.value.comparison)
+        runningWith("""{"status":"NO_RECORD","targetStartedAt":"2026-10-20T23:00:00Z","distanceM":null,"currentElapsedSec":null,"pastElapsedSec":null}""")
+        assertEquals(RecordComparison.NoRecord, control.snapshot.value.comparison)
+        runningWith("""{"status":"UNAVAILABLE","targetStartedAt":null,"distanceM":null,"currentElapsedSec":null,"pastElapsedSec":null}""")
+        assertEquals(RecordComparison.Unavailable, control.snapshot.value.comparison)
+        // 값이 빠진 결과나 모르는 상태는 만든 숫자 대신 대기로 보인다.
+        runningWith("""{"status":"AVAILABLE","targetStartedAt":"2026-10-20T23:00:00Z","distanceM":1000,"currentElapsedSec":null,"pastElapsedSec":300}""")
+        assertEquals(RecordComparison.Waiting, control.snapshot.value.comparison)
+        runningWith("""{"status":"LATER","targetStartedAt":null}""")
+        assertEquals(RecordComparison.Waiting, control.snapshot.value.comparison)
+        runningWith("null")
+        assertEquals(RecordComparison.NotSelected, control.snapshot.value.comparison)
+    }
+
+    @Test
+    fun `an older server snapshot does not roll the comparison back`() = runBlocking {
+        startedRun()
+        runningWith("""{"status":"AVAILABLE","targetStartedAt":"2026-10-20T23:00:00Z","distanceM":1000,"currentElapsedSec":280,"pastElapsedSec":300}""")
+        runningWith("""{"status":"WAITING","targetStartedAt":"2026-10-20T23:00:00Z"}""", version = 1)
+
+        assertEquals(RecordComparison.Result(1000.0, 280_000, 300_000, targetLabel = "10.21"), control.snapshot.value.comparison)
+    }
+
+    @Test
+    fun `a run without a chosen record has no comparison`() = runBlocking {
+        startedRun()
+        controller.onMessage(message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"WATCH","state":"RUNNING","stateVersion":2,"currentBpm":null}"""))
+        assertEquals(RecordComparison.NotSelected, control.snapshot.value.comparison)
     }
 }

@@ -36,6 +36,7 @@ public final class RunningSessionMapper {
                 plan(snapshot.plan(), snapshot.segments()),
                 new RunningSessionResponse.Analysis(session.getAnalysisStatus().name()),
                 coaching(snapshot, serverSendAt),
+                snapshot.comparison(),
                 command(snapshot.pendingCommand(), snapshot.coachingGuide()),
                 command(snapshot.lastCommand(), lastCommandGuide(snapshot)),
                 serverReceiveAt,

@@ -1,6 +1,7 @@
 import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import type {
   CoachingGuide,
+  RecordComparison,
   Repositories,
   RunningSessionView,
   SessionCommand,
@@ -102,6 +103,20 @@ function guideJson(guide: CoachingGuide) {
     `"recommendedPaceSecPerKm":${JSON.stringify(guide.recommendedPaceSecPerKm)},` +
     `"expiresAt":${JSON.stringify(guide.expiresAt)}}`
   );
+}
+
+// STATE_RESULT comparison = S02 기록 비교 객체(sessions.md "기록 비교"). 알려진 필드만 옮긴다.
+function comparisonJson(comparison: RecordComparison | null) {
+  if (comparison === null) {
+    return 'null';
+  }
+  return JSON.stringify({
+    status: comparison.status,
+    targetStartedAt: comparison.targetStartedAt,
+    distanceM: comparison.distanceM,
+    currentElapsedSec: comparison.currentElapsedSec,
+    pastElapsedSec: comparison.pastElapsedSec,
+  });
 }
 
 // STATE_RESULT의 pendingCommand·lastCommand는 S02 명령 객체 모양이다(9.3).
@@ -359,7 +374,9 @@ export function createNativeWatchSession(
           `"lastCommand":${commandJson(session.lastCommand)},"pendingBatchCount":0,` +
           `"clientSendAt":${JSON.stringify(clientSendAt)},` +
           `"serverReceiveAt":${JSON.stringify(session.serverReceiveAt ?? null)},` +
-          `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)}}`,
+          `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)},` +
+          // S02 기록 비교를 그대로 옮긴다(S15P31E105-422). 워치는 다시 계산하지 않는다.
+          `"comparison":${comparisonJson(session.comparison ?? null)}}`,
       ),
 
     subscribe: listener => {

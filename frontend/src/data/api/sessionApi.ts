@@ -4,6 +4,7 @@ import type {
   CommandApproval,
   ControlAction,
   ControlResultCode,
+  RecordComparison,
   Repositories,
   RunningSessionView,
   SessionCommand,
@@ -60,6 +61,8 @@ export type ServerSession = {
   // S15P31E105-257. 이전 응답에는 없을 수 있어 선택으로 둔다.
   currentBpm?: number | null;
   coaching?: ServerGuide | null;
+  // S15P31E105-422. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  comparison?: RecordComparison | null;
   serverReceiveAt?: string | null;
   serverSendAt?: string | null;
 };
@@ -112,6 +115,7 @@ export function sessionView(value: ServerSession): RunningSessionView {
     analysisStatus: value.analysis.status,
     currentBpm: value.currentBpm ?? null,
     coaching: guide(value.coaching),
+    comparison: value.comparison ?? null,
     serverReceiveAt: value.serverReceiveAt ?? null,
     serverSendAt: value.serverSendAt ?? null,
   };

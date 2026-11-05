@@ -4,6 +4,7 @@ import com.runway.watch.batch.NoUploads
 import com.runway.watch.batch.RunUploads
 import com.runway.watch.cue.RhythmPlayer
 import com.runway.watch.cue.SilentRhythm
+import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.RunState
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +64,8 @@ data class WatchSessionState(
     val coaching: AppliedCoaching? = null,
     val serverLinkLost: Boolean = false,
     val measurementLost: Boolean = false,
+    /** The server's record comparison from the last STATE_RESULT(scope=SERVER) (S15P31E105-422). */
+    val comparison: RecordComparison = RecordComparison.NotSelected,
 )
 
 private val NEXT_STATE = mapOf(
@@ -647,6 +650,8 @@ class WatchSessionController(
             coaching = if (sameSession) current.coaching else null,
             serverLinkLost = false,
             measurementLost = lost,
+            // 기록 비교는 batch 저장마다 같은 버전으로 온다. 버전이 낮은 스냅샷은 위에서 이미 버렸다.
+            comparison = message.comparison(),
         )
         if (newer) {
             exerciseRunning = state == RunState.RUNNING && !lost

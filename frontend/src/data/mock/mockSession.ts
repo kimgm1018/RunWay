@@ -108,7 +108,7 @@ export function createMockSession(options: Options = {}): Repositories['session'
   };
 
   return {
-    create: ({ controlDeviceId, relayDeviceId }) =>
+    create: ({ controlDeviceId, relayDeviceId, goal }) =>
       later(() => {
         for (const [id, stored] of sessions) {
           if (ACTIVE.includes(stored.view.state)) {
@@ -129,6 +129,16 @@ export function createMockSession(options: Options = {}): Repositories['session'
             endedAt: null,
             recordingMode: 'WATCH',
             analysisStatus: 'PENDING',
+            // 목업은 측정값으로 비교를 계산하지 않는다. 비교 기록을 고르면 서버처럼 결과를 기다리는 상태만 보인다(S15P31E105-422).
+            comparison: goal.comparisonSessionId
+              ? {
+                  status: 'WAITING',
+                  targetStartedAt: null,
+                  distanceM: null,
+                  currentElapsedSec: null,
+                  pastElapsedSec: null,
+                }
+              : null,
           },
           commands: [],
         };
