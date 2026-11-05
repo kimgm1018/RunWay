@@ -66,6 +66,7 @@ class SessionRunControl(
             state = session.confirmed,
             phoneConnected = session.problem != WatchProblem.PhoneUnreachable,
             pendingCommand = session.pending != null && session.problem == null,
+            pendingIntent = session.pending?.takeIf { session.problem == null }?.let { intentOf(it.action) },
             metrics = RunMetrics(
                 guidePaceSecondsPerKm = session.coaching?.paceSecPerKm,
                 rhythm = session.currentBpm?.let(::RhythmBpm),
@@ -78,6 +79,16 @@ class SessionRunControl(
             },
             serverLinkLost = session.serverLinkLost,
         )
+
+        /** The run intent a pending request action stands for; null for actions without one (BPM change, coaching). */
+        private fun intentOf(action: String): RunIntent? = when (action) {
+            WatchRequest.START.name -> RunIntent.START
+            WatchRequest.PAUSE.name -> RunIntent.PAUSE
+            WatchRequest.RESUME.name -> RunIntent.RESUME
+            WatchRequest.END.name -> RunIntent.END
+            WatchRequest.CANCEL.name -> RunIntent.CANCEL
+            else -> null
+        }
 
         /**
          * The BPM one −/+ press asks for: the current BPM (or the guide's when none is set yet) ± one step, within
