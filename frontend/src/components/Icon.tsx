@@ -316,6 +316,8 @@ const icons = {
   ),
   // 3.1b 오르막.
   mountain: <Path d="M3 19l6.5-10 4 6 2.5-3.5L21 19z" />,
+  // 7.1 게시물 메뉴 (runway-community-handoff): two bars.
+  menu: <Path d="M4 9h16M4 15h16" />,
 } as const;
 
 export type IconName = keyof typeof icons;

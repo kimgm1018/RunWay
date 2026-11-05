@@ -32,11 +32,14 @@ export function createCommunityMock({
   respond,
   fail,
   records,
+  myPhoto,
 }: {
   respond: Respond;
   fail: Fail;
   // My runs as the records mock keeps them, newest first.
   records: () => RecordFixture[];
+  // My photo as 8.2 last set it; the other runners' come from fixtures.runnerPhotos.
+  myPhoto: () => string | null;
 }): {
   community: Repositories['community'];
   runners: Repositories['runners'];
@@ -132,6 +135,7 @@ export function createCommunityMock({
       userId,
       handle: user?.handle ?? userId,
       nickname: user?.nickname ?? userId,
+      profileImageUrl: isMe ? myPhoto() : fixtures.runnerPhotos[userId] ?? null,
       level: profile.level,
       isMe,
       followerCount: profile.followerCount,

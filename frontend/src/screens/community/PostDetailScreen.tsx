@@ -17,15 +17,8 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
-  AppText,
-  Backdrop,
-  EmptyState,
-  Icon,
-  useToast,
-} from '../../components';
-import {
-  DataError,
   useRepositories,
   useResource,
   type PostComment,
@@ -34,118 +27,18 @@ import {
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import {
-  fontFamily,
-  k1,
-  spacing,
-  ThemeProvider,
-  typography,
-  useTheme,
-} from '../../theme';
+import { fontFamily, typography } from '../../theme';
+import { communityLook, IconAction, LineLabel } from './look';
 import {
   Avatar,
   placeLine,
   PostActions,
   PostMenu,
   postedAt,
-  RecordCard,
+  RunPhoto,
   usePostChanges,
 } from './parts';
-
-// What a failed 댓글 수정·삭제 says; the list stays as it was (CMT08 · CMT09).
-function commentFailure(error: unknown, action: '수정' | '삭제') {
-  const code = error instanceof DataError ? error.code : null;
-  if (code === 'EMPTY_COMMENT') {
-    return '댓글 내용을 입력해 주세요';
-  }
-  if (code === 'NOT_AUTHOR') {
-    return `내가 쓴 댓글만 ${action}할 수 있어요`;
-  }
-  if (code === 'COMMENT_NOT_FOUND') {
-    return '이미 삭제된 댓글이에요';
-  }
-  return `댓글을 ${action}하지 못했어요. 잠시 후 다시 시도해 주세요`;
-}
-
-function CommentRow({
-  comment,
-  onReply,
-  onMenu,
-}: {
-  comment: PostComment;
-  onReply: () => void;
-  // My own comments open the 댓글 수정·삭제 sheet.
-  onMenu: (() => void) | null;
-}) {
-  const { colors } = useTheme();
-  const { clock } = useRepositories();
-  // Comment likes have no API yet, so they stay on this screen.
-  const [liked, setLiked] = useState(comment.liked);
-  const likes =
-    comment.likeCount + (liked === comment.liked ? 0 : liked ? 1 : -1);
-  const meta = [
-    postedAt(comment.createdAt, clock.now()),
-    likes > 0 ? `좋아요 ${likes}개` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <View style={styles.comment}>
-      <Avatar
-        nickname={comment.author.nickname}
-        userId={comment.author.userId}
-        size={32}
-      />
-      <View style={styles.flex}>
-        <AppText variant="body">
-          <AppText variant="bodyStrong">{comment.author.handle} </AppText>
-          {comment.body}
-        </AppText>
-        <View style={styles.commentMeta}>
-          <AppText variant="label" tone="textSecondary">
-            {meta}
-          </AppText>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${comment.author.handle}에게 답글 달기`}
-            onPress={onReply}
-            hitSlop={6}
-          >
-            <AppText variant="label" tone="textSecondary">
-              · 답글 달기
-            </AppText>
-          </Pressable>
-        </View>
-      </View>
-      <View style={styles.commentButtons}>
-        {onMenu ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="댓글 메뉴"
-            onPress={onMenu}
-            hitSlop={8}
-          >
-            <Icon name="moreVertical" color={colors.textSecondary} size={14} />
-          </Pressable>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={liked ? '댓글 좋아요 취소' : '댓글 좋아요'}
-          accessibilityState={{ selected: liked }}
-          onPress={() => setLiked(value => !value)}
-          hitSlop={8}
-        >
-          <Icon
-            name="heart"
-            color={liked ? k1.coral : colors.textSecondary}
-            solid={liked}
-            size={14}
-          />
-        </Pressable>
-      </View>
-    </View>
-  );
-}
+import { commentFailure, CommentRow } from './comments';
 
 const loadPost = (repositories: Repositories, postId: string) =>
   repositories.community.get(postId);
@@ -155,7 +48,6 @@ export function PostDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'PostDetail'>>();
   const postId = route.params?.postId ?? 'post-seoyun-1019';
-  const { colors } = useTheme();
   const toast = useToast();
   const { community, clock } = useRepositories();
   const me = useResource(
@@ -281,59 +173,59 @@ export function PostDetailScreen() {
           userId: current.author.userId,
         });
 
+  const sendable = Boolean(editing) || Boolean(draft.trim());
+  const commentCount = post ? post.commentCount ?? post.comments.length : 0;
+
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop tail />
-      </View>
-      <SafeAreaView edges={['top']}>
-        <View style={[styles.header, { borderColor: colors.border }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-            hitSlop={8}
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      <>
+        <SafeAreaView edges={['top']}>
+          <View style={styles.header}>
+            <IconAction
+              icon="back"
+              label="뒤로"
+              onPress={() => navigation.goBack()}
+            />
+            <AppText style={styles.headerTitle} accessibilityRole="header">
+              게시물
+            </AppText>
+            {post?.isMine ? (
+              <IconAction
+                icon="more"
+                label="게시물 메뉴 열기"
+                onPress={() => setMenu(true)}
+              />
+            ) : null}
+          </View>
+        </SafeAreaView>
+        {detail.status === 'error' && !post ? (
+          <EmptyState
+            icon="alert"
+            title="게시물을 불러오지 못했어요"
+            actionLabel="다시 시도"
+            onAction={reload}
+          />
+        ) : !post ? (
+          <ActivityIndicator style={styles.loading} color={communityLook.ink} />
+        ) : (
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <Icon name="back" color={colors.text} size={22} />
-          </Pressable>
-          <AppText style={styles.headerTitle} accessibilityRole="header">
-            게시물
-          </AppText>
-          {post?.isMine ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="게시물 메뉴 열기"
-              onPress={() => setMenu(true)}
-              hitSlop={8}
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.scroll}
             >
-              <Icon name="more" color={colors.text} size={22} />
-            </Pressable>
-          ) : null}
-        </View>
-      </SafeAreaView>
-      {detail.status === 'error' && !post ? (
-        <EmptyState
-          icon="alert"
-          title="게시물을 불러오지 못했어요"
-          actionLabel="다시 시도"
-          onAction={reload}
-        />
-      ) : !post ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView keyboardShouldPersistTaps="handled">
-            <View style={styles.body}>
               <View style={styles.authorRow}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${post.author.handle} 프로필`}
                   onPress={() => openAuthor(post)}
-                  style={styles.author}
+                  style={({ pressed }) => [
+                    styles.author,
+                    pressed && styles.rowPressed,
+                  ]}
                 >
                   <Avatar
                     nickname={post.author.nickname}
@@ -341,13 +233,21 @@ export function PostDetailScreen() {
                     mine={post.isMine}
                   />
                   <View style={styles.flex}>
-                    <AppText style={styles.handle}>
+                    <AppText style={styles.handle} numberOfLines={1}>
                       {post.author.handle}
                     </AppText>
-                    <AppText variant="caption" tone="textSecondary">
-                      {placeLine(post.record)}
-                    </AppText>
+                    {placeLine(post.record) ? (
+                      <AppText style={styles.place} numberOfLines={1}>
+                        {placeLine(post.record)}
+                      </AppText>
+                    ) : null}
                   </View>
+                  <Icon
+                    name="forward"
+                    color={communityLook.meta}
+                    size={14}
+                    strokeWidth={2.4}
+                  />
                 </Pressable>
                 {post.isMine ? (
                   <Pressable
@@ -355,70 +255,76 @@ export function PostDetailScreen() {
                     accessibilityLabel="게시물 메뉴"
                     onPress={() => setMenu(true)}
                     hitSlop={8}
-                    style={[styles.menu, { borderColor: colors.border }]}
+                    style={({ pressed }) => [
+                      styles.rowMenu,
+                      pressed && styles.pressed,
+                    ]}
                   >
-                    <Icon name="moreVertical" color={colors.text} size={18} />
+                    <Icon
+                      name="moreVertical"
+                      color={communityLook.ink}
+                      size={18}
+                    />
                   </Pressable>
                 ) : null}
               </View>
-              <RecordCard
-                record={post.record}
-                courseShared={post.courseShared}
-              />
+              <View style={styles.photo}>
+                <RunPhoto
+                  record={post.record}
+                  courseShared={post.courseShared}
+                  seed={post.id}
+                />
+              </View>
               <PostActions
                 post={post}
                 onLike={() => like(post)}
                 onComment={() => undefined}
                 onBookmark={() => bookmark(post)}
               />
-              {post.body ? (
-                <AppText style={styles.postText}>
-                  <AppText style={[styles.postText, styles.bold]}>
-                    {post.author.handle}{' '}
+              <View style={styles.caption}>
+                {post.body ? (
+                  <AppText style={styles.postText}>
+                    <AppText style={[styles.postText, styles.strong]}>
+                      {post.author.handle}{' '}
+                    </AppText>
+                    {post.body}
                   </AppText>
-                  {post.body}
+                ) : null}
+                <AppText style={styles.time}>
+                  {postedAt(post.createdAt, clock.now())}
                 </AppText>
-              ) : null}
-              <AppText variant="caption" tone="textTertiary">
-                {postedAt(post.createdAt, clock.now())}
-              </AppText>
-            </View>
-            <View style={[styles.comments, { borderColor: colors.border }]}>
-              {post.comments.length === 0 ? (
-                <AppText variant="caption" tone="textSecondary">
-                  아직 댓글이 없어요. 첫 댓글을 남겨 보세요.
-                </AppText>
-              ) : (
-                post.comments.map(comment => (
-                  <CommentRow
-                    key={comment.id}
-                    comment={comment}
-                    onReply={() => setDraft(`@${comment.author.handle} `)}
-                    onMenu={
-                      comment.isMine ? () => setCommentMenu(comment) : null
-                    }
-                  />
-                ))
-              )}
-            </View>
-          </ScrollView>
-          {/* The comment bar sits on the black lower part. */}
-          <ThemeProvider tone="dark">
-            <SafeAreaView edges={['bottom']} style={styles.inputArea}>
+              </View>
+              <View style={styles.comments}>
+                <LineLabel>{`댓글 ${commentCount}`}</LineLabel>
+                {post.comments.length === 0 ? (
+                  <AppText style={styles.empty}>
+                    아직 댓글이 없어요. 첫 댓글을 남겨 보세요.
+                  </AppText>
+                ) : (
+                  post.comments.map(comment => (
+                    <CommentRow
+                      key={comment.id}
+                      comment={comment}
+                      onReply={() => setDraft(`@${comment.author.handle} `)}
+                      onMenu={
+                        comment.isMine ? () => setCommentMenu(comment) : null
+                      }
+                    />
+                  ))
+                )}
+              </View>
+            </ScrollView>
+            <SafeAreaView edges={['bottom']}>
               {editing ? (
                 <View style={styles.editing}>
-                  <AppText variant="label" style={styles.editingText}>
-                    댓글 수정 중
-                  </AppText>
+                  <AppText style={styles.editingText}>댓글 수정 중</AppText>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="수정 취소"
                     onPress={stopEditing}
                     hitSlop={8}
                   >
-                    <AppText variant="label" style={styles.editingText}>
-                      취소
-                    </AppText>
+                    <AppText style={styles.editingText}>취소</AppText>
                   </Pressable>
                 </View>
               ) : null}
@@ -438,8 +344,8 @@ export function PostDetailScreen() {
                         ? '댓글 수정'
                         : `${post.author.handle}님에게 댓글 달기…`
                     }
-                    placeholderTextColor="rgba(232,238,244,0.5)"
-                    selectionColor={k1.ice}
+                    placeholderTextColor={communityLook.meta}
+                    selectionColor={communityLook.ink}
                     value={draft}
                     onChangeText={setDraft}
                     style={styles.inputText}
@@ -449,25 +355,25 @@ export function PostDetailScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={editing ? '댓글 수정 저장' : '게시'}
-                  accessibilityState={{
-                    disabled: (!editing && !draft.trim()) || sending,
-                  }}
-                  disabled={(!editing && !draft.trim()) || sending}
+                  accessibilityState={{ disabled: !sendable || sending }}
+                  disabled={!sendable || sending}
                   onPress={send}
-                  hitSlop={8}
+                  hitSlop={6}
+                  style={({ pressed }) => pressed && styles.sendPressed}
                 >
-                  <AppText
-                    variant="bodyStrong"
-                    style={draft.trim() ? styles.send : styles.sendOff}
-                  >
-                    {editing ? '저장' : '게시'}
-                  </AppText>
+                  <View style={styles.send}>
+                    <AppText
+                      style={[styles.sendText, !sendable && styles.sendOff]}
+                    >
+                      {editing ? '저장' : '게시'}
+                    </AppText>
+                  </View>
                 </Pressable>
               </View>
             </SafeAreaView>
-          </ThemeProvider>
-        </KeyboardAvoidingView>
-      )}
+          </KeyboardAvoidingView>
+        )}
+      </>
       <PostMenu
         visible={menu}
         onClose={() => setMenu(false)}
@@ -498,93 +404,139 @@ export function PostDetailScreen() {
   );
 }
 
+// runway-community-handoff 7.2 on white (담당자 요청): no cards or pills; groups part by space and line labels.
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: communityLook.background },
   flex: { flex: 1 },
-  loading: { marginTop: spacing.xxxl },
+  pressed: { opacity: 0.6 },
+  loading: { marginTop: 48 },
   header: {
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingHorizontal: spacing.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+    paddingHorizontal: 16,
   },
   headerTitle: {
     flex: 1,
     fontFamily: fontFamily.bold,
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.5,
+    color: communityLook.ink,
   },
-  body: { padding: spacing.screen, gap: spacing.md },
-  authorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  author: {
-    flex: 1,
+  scroll: { paddingHorizontal: 16, paddingBottom: 24 },
+  // 작성자 줄: the whole row opens the profile; it lights up faintly when pressed.
+  authorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
+    gap: 4,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
-  handle: { fontFamily: fontFamily.bold, fontSize: 16, lineHeight: 22 },
-  menu: {
-    width: 28,
-    height: 40,
-    borderRadius: 14,
-    borderWidth: 1,
+  author: {
+    flex: 1,
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: -6,
+    paddingHorizontal: 6,
+    borderRadius: 16,
+  },
+  rowPressed: {
+    backgroundColor: communityLook.pressedRow,
+    transform: [{ scale: 0.985 }],
+  },
+  handle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.3,
+    color: communityLook.ink,
+  },
+  place: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    letterSpacing: -0.2,
+    color: communityLook.sub,
+  },
+  rowMenu: {
+    width: 30,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  postText: { fontFamily: fontFamily.regular, fontSize: 15, lineHeight: 23 },
-  bold: { fontFamily: fontFamily.bold },
-  comments: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    padding: spacing.screen,
-    gap: spacing.xl,
-    paddingBottom: spacing.xxxl,
+  // The photo runs edge to edge past the screen's 16 sides.
+  photo: { marginHorizontal: -16, marginTop: 4 },
+  caption: { paddingTop: 16 },
+  postText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 15.5,
+    lineHeight: 22,
+    letterSpacing: -0.3,
+    color: communityLook.ink,
   },
-  comment: { flexDirection: 'row', gap: spacing.lg },
-  commentMeta: { flexDirection: 'row', gap: spacing.xs, marginTop: 2 },
-  commentButtons: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    paddingTop: spacing.xs,
+  strong: { fontFamily: fontFamily.bold, color: communityLook.ink },
+  time: {
+    marginTop: 7,
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: communityLook.meta,
   },
-  inputArea: {
-    backgroundColor: k1.black,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(232,238,244,0.12)',
+  comments: { marginTop: 22, gap: 8 },
+  empty: {
+    marginTop: 4,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: communityLook.sub,
   },
   // 댓글 수정 중 · 취소 over the bar while a comment is edited.
   editing: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.screen,
-    paddingTop: spacing.md,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  editingText: { color: 'rgba(232,238,244,0.62)' },
+  editingText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: communityLook.sub,
+  },
+  // 댓글 입력 60: my avatar, a flat mist field and 게시 as a bold word.
   inputBar: {
+    height: 60,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingHorizontal: spacing.screen,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    gap: 10,
+    paddingHorizontal: 16,
   },
   input: {
     flex: 1,
     height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(232,238,244,0.18)',
-    paddingHorizontal: spacing.xxl,
+    borderRadius: 12,
+    paddingHorizontal: 14,
     justifyContent: 'center',
+    backgroundColor: communityLook.field,
   },
-  send: { color: k1.ice },
-  sendOff: { color: 'rgba(232,238,244,0.4)' },
   inputText: {
     height: 44,
     padding: 0,
-    color: k1.ice,
+    color: communityLook.ink,
     fontFamily: typography.input.fontFamily,
-    fontSize: 14,
+    fontSize: 15,
   },
+  send: { height: 44, paddingHorizontal: 4, justifyContent: 'center' },
+  sendPressed: { transform: [{ scale: 0.96 }] },
+  sendText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 19,
+    color: communityLook.ink,
+  },
+  sendOff: { opacity: 0.4 },
 });

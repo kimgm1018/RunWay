@@ -69,7 +69,7 @@ async function openSettings() {
   return screen!;
 }
 
-test('8.1 saves a switch at once and the account visibility shows on 7.4b', async () => {
+test('8.1 saves a switch at once and 7.4b no longer shows the account visibility', async () => {
   const screen = await openSettings();
   const page = texts(screen);
   expect(page).toContain('Galaxy Watch7');
@@ -79,7 +79,7 @@ test('8.1 saves a switch at once and the account visibility shows on 7.4b', asyn
   await press(screen, '코칭 음성 알림');
   expect(voice().props.accessibilityState.checked).toBe(false);
 
-  // The settings screen stays mounted under 7.4b, so count the 비공개 계정 labels.
+  // The settings screen stays mounted under 7.4b, so count the 비공개 계정 labels: only 8.1's.
   const privateLabels = () =>
     screen.root
       .findAllByType(Text)
@@ -88,7 +88,7 @@ test('8.1 saves a switch at once and the account visibility shows on 7.4b', asyn
   expect(privateLabels()).toBe(1);
   await press(screen, '내 프로필 보기');
   await settle(50);
-  expect(privateLabels()).toBe(2);
+  expect(privateLabels()).toBe(1);
   await act(async () => screen.unmount());
 });
 

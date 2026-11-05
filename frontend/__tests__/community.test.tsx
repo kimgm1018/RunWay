@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories } from '../src/data';
@@ -78,14 +78,13 @@ afterEach(async () => {
   }
 });
 
-async function openCommunity() {
+async function openCommunity(
+  repositories = createMockRepositories({ latencyMs: 0 }),
+) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({ latencyMs: 0 })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
   mounted = screen!;
@@ -121,7 +120,8 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(2);
 });
 
-test('7.2 shows the comments, adds one and replies by handle', async () => {
+// 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
+test('the 댓글 sheet shows the comments, adds one and replies by handle', async () => {
   const screen = await openCommunity();
   await press(screen, '댓글 3개 모두 보기');
   let page = texts(screen);
@@ -134,9 +134,12 @@ test('7.2 shows the comments, adds one and replies by handle', async () => {
   await type(screen, '댓글 입력', '진동으로 와요!');
   await press(screen, '게시');
   expect(texts(screen)).toContain('진동으로 와요!');
+  // The feed line under the post counts the new comment once the sheet closes.
+  await press(screen, '댓글 닫기');
+  expect(texts(screen)).toContain('댓글 4개 모두 보기');
 });
 
-test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
+test('the 댓글 sheet edits and deletes only my own comment (S15P31E105-389)', async () => {
   const screen = await openCommunity();
   await press(screen, '댓글 3개 모두 보기');
   const menus = () =>
@@ -184,8 +187,8 @@ test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
 
 test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async () => {
   const screen = await openCommunity();
-  await press(screen, 'minjun.run의 게시물');
-  await press(screen, '게시물 메뉴 열기');
+  // The feed photo opens nothing; my post's menu is the ≡ beside my name.
+  await press(screen, '게시물 메뉴');
   expect(texts(screen)).toContain('게시물 수정');
   await press(screen, '게시물 수정');
   await settle(50);
@@ -199,7 +202,7 @@ test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async ()
   // Without the course the card shows only the distance.
   expect(page).toContain('5.0km 러닝 · 완주');
 
-  await press(screen, '게시물 메뉴 열기');
+  await press(screen, '게시물 메뉴');
   await press(screen, '삭제');
   expect(texts(screen)).toContain('게시물을 삭제할까요?');
   await press(screen, '삭제');
@@ -207,6 +210,38 @@ test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async ()
   page = texts(screen);
   expect(page).toContain('게시물을 삭제했어요');
   expect(page).not.toContain('남천 언덕길은 다음 주에!');
+});
+
+// U21 profileImageUrl: my photo lies behind 7.4b; a runner without one (sungyoon.k) gets the big letter instead.
+test('7.4b draws my profile photo behind the page and 7.4 falls back to the letter', async () => {
+  // Asset photos have no address under Jest, so 8.2 sets one first.
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const changed = repositories.profile.changePhoto({
+    uri: 'file:///photos/minjun.jpg',
+    type: 'image/jpeg',
+    name: 'minjun.jpg',
+  });
+  // The mock answers on a timer, which these tests advance by hand.
+  await jest.advanceTimersByTimeAsync(10);
+  await changed;
+  const screen = await openCommunity(repositories);
+  // 2.1's avatar shows the same photo, so count the blurred copy only 7.4 · 7.4b draw.
+  const blurredPhotos = () =>
+    screen.root
+      .findAllByType(Image)
+      .filter(
+        node =>
+          node.props.source?.uri === 'file:///photos/minjun.jpg' &&
+          node.props.blurRadius > 0,
+      ).length;
+  await press(screen, 'minjun.run 프로필');
+  await settle(50);
+  expect(blurredPhotos()).toBe(1);
+  await press(screen, '뒤로');
+  await press(screen, 'sungyoon.k 프로필');
+  await settle(50);
+  expect(blurredPhotos()).toBe(0);
+  expect(texts(screen)).toContain('성');
 });
 
 test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {
@@ -227,7 +262,8 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   await settle(50);
   page = texts(screen);
   expect(page).toContain('최근 기록');
-  expect(page).toContain('공개 계정');
+  // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
+  expect(page).not.toContain('공개 계정');
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
   await settle(50);
   await press(screen, '기록 공유');
