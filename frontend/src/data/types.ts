@@ -54,9 +54,14 @@ export type RunRecordSummary = {
   averagePaceSecPerKm: number;
   // Shape of the run for the small thumbnail, as [x, y] points in a 0–1 box.
   shape: [number, number][];
-  // H01 runType: group runs show their crew and how many finished (5.1 그룹런 표시).
+  // H01 runType: group runs show their crew and how many met the goal (5.1 그룹런 표시).
+  // group is null for solo runs and for runs without a group run link; groupRunId opens 6.7 (G14).
   runType: 'SOLO' | 'GROUP';
-  group: { crewName: string; finisherCount: number } | null;
+  group: {
+    crewName: string;
+    finisherCount: number;
+    groupRunId: string;
+  } | null;
   // H01 goalAchieved: false shows the run in coral (5.1); null when the run had no goal.
   goalAchieved: boolean | null;
 };

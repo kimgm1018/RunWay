@@ -773,6 +773,7 @@ export function createMockRepositories(
                     crew => crew.id === groupRun.crewId,
                   )!.name,
                   finisherCount: fixtures.groupResults.length + 1,
+                  groupRunId: groupRun.id,
                 }
               : null,
           ),

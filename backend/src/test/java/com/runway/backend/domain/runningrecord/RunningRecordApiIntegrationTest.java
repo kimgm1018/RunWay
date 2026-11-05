@@ -1,6 +1,8 @@
 package com.runway.backend.domain.runningrecord;
 
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,6 +14,7 @@ import com.runway.backend.support.SharedPostgres;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +57,8 @@ class RunningRecordApiIntegrationTest {
     private long runningSession;
     private long deletedSession;
     private long otherCompleted;
+    private long groupRunId;
+    private long thirdId;
     private long detailSession;
     private long splitsSession;
     private long emptySplitsSession;
@@ -76,6 +81,7 @@ class RunningRecordApiIntegrationTest {
         ownerId = insertUser(LOGIN_PREFIX + "owner", "기록소유자", "01040001001");
         otherId = insertUser(LOGIN_PREFIX + "other", "타인", "01040001002");
         emptyUserId = insertUser(LOGIN_PREFIX + "empty", "빈유저", "01040001003");
+        thirdId = insertUser(LOGIN_PREFIX + "third", "세번째", "01040001004");
         courseId = insertCourse("rr_api_ course");
 
         completedA =
@@ -111,7 +117,7 @@ class RunningRecordApiIntegrationTest {
                         new BigDecimal("300.00"),
                         true,
                         null);
-        linkGroupParticipant(ownerId, completedGroup);
+        groupRunId = linkGroupParticipant(ownerId, completedGroup);
 
         runningSession =
                 insertSession(
@@ -146,6 +152,20 @@ class RunningRecordApiIntegrationTest {
                         new BigDecimal("300.00"),
                         true,
                         null);
+        // Same group run: another finisher (goal achieved) and a participant who missed the goal.
+        addGroupParticipant(groupRunId, otherId, otherCompleted);
+        long missedGoal =
+                insertSession(
+                        thirdId,
+                        "COMPLETED",
+                        null,
+                        "2026-03-05T11:00:00Z",
+                        new BigDecimal("2000.00"),
+                        900,
+                        new BigDecimal("450.00"),
+                        false,
+                        null);
+        addGroupParticipant(groupRunId, thirdId, missedGoal);
 
         detailSession =
                 insertFullDetailSession(
@@ -212,6 +232,56 @@ class RunningRecordApiIntegrationTest {
         mockMvc.perform(get("/api/v1/running-records"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void H01_runType과_그룹메타() throws Exception {
+        // GROUP: crewName, finisherCount (goal_achieved=true participants: owner + other = 2), groupRunId.
+        mockMvc.perform(
+                        get("/api/v1/running-records")
+                                .param("runType", "GROUP")
+                                .header("Authorization", SecurityTestSupport.bearer(ownerId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].id").value(completedGroup))
+                .andExpect(jsonPath("$.items[0].runType").value("GROUP"))
+                .andExpect(jsonPath("$.items[0].group.groupRunId").value(groupRunId))
+                .andExpect(jsonPath("$.items[0].group.crewName").value("rr_api_crew"))
+                .andExpect(jsonPath("$.items[0].group.finisherCount").value(2));
+
+        // SOLO rows and the unfiltered list: group is null for unlinked sessions.
+        mockMvc.perform(
+                        get("/api/v1/running-records")
+                                .param("runType", "SOLO")
+                                .header("Authorization", SecurityTestSupport.bearer(ownerId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(5)))
+                .andExpect(jsonPath("$.items[*].runType", everyItem(is("SOLO"))))
+                .andExpect(jsonPath("$.items[*].group", everyItem(nullValue())));
+
+        MvcResult all =
+                mockMvc.perform(
+                                get("/api/v1/running-records")
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(ownerId)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.items", hasSize(6)))
+                        .andReturn();
+        String body = all.getResponse().getContentAsString();
+        List<String> runTypes = JsonPath.read(body, "$.items[*].runType");
+        org.junit.jupiter.api.Assertions.assertEquals(
+                1, runTypes.stream().filter("GROUP"::equals).count());
+
+        // Another participant sees the same group run with the same counts.
+        mockMvc.perform(
+                        get("/api/v1/running-records")
+                                .param("runType", "GROUP")
+                                .header("Authorization", SecurityTestSupport.bearer(thirdId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].group.groupRunId").value(groupRunId))
+                .andExpect(jsonPath("$.items[0].group.finisherCount").value(2));
     }
 
     @Test
@@ -595,7 +665,18 @@ class RunningRecordApiIntegrationTest {
                 averageCadence);
     }
 
-    private void linkGroupParticipant(long userId, long sessionId) {
+    private void addGroupParticipant(long groupRunId, long userId, long sessionId) {
+        jdbc.update(
+                """
+                INSERT INTO group_run_participants(group_run_id, user_id, session_id)
+                VALUES (?, ?, ?)
+                """,
+                groupRunId,
+                userId,
+                sessionId);
+    }
+
+    private long linkGroupParticipant(long userId, long sessionId) {
         long crewId =
                 jdbc.queryForObject(
                         """
@@ -615,13 +696,7 @@ class RunningRecordApiIntegrationTest {
                         Long.class,
                         crewId,
                         userId);
-        jdbc.update(
-                """
-                INSERT INTO group_run_participants(group_run_id, user_id, session_id)
-                VALUES (?, ?, ?)
-                """,
-                groupRunId,
-                userId,
-                sessionId);
+        addGroupParticipant(groupRunId, userId, sessionId);
+        return groupRunId;
     }
 }

@@ -10,4 +10,6 @@ public record RunningRecordListItemResponse(
         BigDecimal totalDistance,
         Integer movingDuration,
         BigDecimal averagePace,
-        Boolean goalAchieved) {}
+        Boolean goalAchieved,
+        String runType,
+        RunningRecordGroupResponse group) {}

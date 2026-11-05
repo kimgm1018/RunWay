@@ -71,14 +71,32 @@ public class RunningRecordJdbcRepository {
         StringBuilder sql =
                 new StringBuilder(
                         """
-                        SELECT id,
-                               course_id,
-                               started_at,
-                               total_distance,
-                               moving_duration,
-                               average_pace,
-                               goal_achieved
+                        SELECT rs.id,
+                               rs.course_id,
+                               rs.started_at,
+                               rs.total_distance,
+                               rs.moving_duration,
+                               rs.average_pace,
+                               rs.goal_achieved,
+                               gl.group_run_id,
+                               gl.crew_name,
+                               gl.finisher_count
                         FROM running_sessions rs
+                        LEFT JOIN LATERAL (
+                            SELECT grp.group_run_id AS group_run_id,
+                                   c.name AS crew_name,
+                                   (SELECT COUNT(*)
+                                      FROM group_run_participants fp
+                                      JOIN running_sessions fs ON fs.id = fp.session_id
+                                     WHERE fp.group_run_id = grp.group_run_id
+                                       AND fs.goal_achieved = TRUE) AS finisher_count
+                              FROM group_run_participants grp
+                              JOIN group_runs gr ON gr.id = grp.group_run_id
+                              JOIN crews c ON c.id = gr.crew_id
+                             WHERE grp.session_id = rs.id
+                             ORDER BY grp.id
+                             LIMIT 1
+                        ) gl ON TRUE
                         WHERE rs.user_id = ?
                           AND rs.status = 'COMPLETED'::running_sessions_status_enum
                           AND rs.deleted_at IS NULL
@@ -430,7 +448,10 @@ public class RunningRecordJdbcRepository {
                 rs.getBigDecimal("total_distance"),
                 getNullableInteger(rs, "moving_duration"),
                 rs.getBigDecimal("average_pace"),
-                getNullableBoolean(rs, "goal_achieved"));
+                getNullableBoolean(rs, "goal_achieved"),
+                getNullableLong(rs, "group_run_id"),
+                rs.getString("crew_name"),
+                getNullableInteger(rs, "finisher_count"));
     }
 
     private static Long getNullableLong(ResultSet rs, String column) throws SQLException {
@@ -508,7 +529,10 @@ public class RunningRecordJdbcRepository {
             BigDecimal totalDistance,
             Integer movingDuration,
             BigDecimal averagePace,
-            Boolean goalAchieved) {}
+            Boolean goalAchieved,
+            Long groupRunId,
+            String crewName,
+            Integer finisherCount) {}
 
     public record SplitRow(
             BigDecimal startDistance,

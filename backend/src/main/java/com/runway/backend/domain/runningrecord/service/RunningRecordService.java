@@ -1,6 +1,7 @@
 package com.runway.backend.domain.runningrecord.service;
 
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordDetailResponse;
+import com.runway.backend.domain.runningrecord.dto.response.RunningRecordGroupResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordHeartRateZoneResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordListItemResponse;
 import com.runway.backend.domain.runningrecord.dto.response.RunningRecordListResponse;
@@ -109,22 +110,32 @@ public class RunningRecordService {
         List<ListItemRow> pageRows = hasMore ? rows.subList(0, pageSize) : rows;
 
         List<RunningRecordListItemResponse> items =
-                pageRows.stream()
-                        .map(
-                                row ->
-                                        new RunningRecordListItemResponse(
-                                                row.id(),
-                                                row.courseId(),
-                                                row.startedAt(),
-                                                row.totalDistance(),
-                                                row.movingDuration(),
-                                                row.averagePace(),
-                                                row.goalAchieved()))
-                        .toList();
+                pageRows.stream().map(RunningRecordService::toListItem).toList();
 
         String nextPage =
                 hasMore ? encodeCursor(sortType, pageRows.get(pageRows.size() - 1)) : null;
         return new RunningRecordListResponse(items, nextPage);
+    }
+
+    /** 그룹런 연결(group_run_participants.session_id)이 있으면 GROUP, 없으면 SOLO. */
+    private static RunningRecordListItemResponse toListItem(ListItemRow row) {
+        RunningRecordGroupResponse group =
+                row.groupRunId() == null || row.crewName() == null
+                        ? null
+                        : new RunningRecordGroupResponse(
+                                row.groupRunId(),
+                                row.crewName(),
+                                row.finisherCount() == null ? 0 : row.finisherCount());
+        return new RunningRecordListItemResponse(
+                row.id(),
+                row.courseId(),
+                row.startedAt(),
+                row.totalDistance(),
+                row.movingDuration(),
+                row.averagePace(),
+                row.goalAchieved(),
+                group == null ? "SOLO" : "GROUP",
+                group);
     }
 
     @Transactional(readOnly = true)
