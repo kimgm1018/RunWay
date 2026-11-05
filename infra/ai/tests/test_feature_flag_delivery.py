@@ -10,7 +10,7 @@ SERVICE_TESTS = Path(__file__).resolve().parents[3] / "ai" / "service" / "tests"
 sys.path.insert(0, str(SERVICE_TESTS))
 
 from app.main import create_app
-from demo_fakes import FakeModel5, FakePolicy, decide_body
+from demo_fakes import FakeModel5, FakePolicy, decide_body, fixed_clock
 
 COMPOSE = Path(__file__).resolve().parents[1] / "compose.yaml"
 FLAGS = ("ODE_PREVIEW_ENABLED", "DECIDE_FORECAST_ENABLED")
@@ -61,7 +61,9 @@ def _set_service_flags(monkeypatch, shell_values: dict[str, str]) -> None:
 
 
 def _client() -> TestClient:
-    return TestClient(create_app(lambda: FakeModel5(), lambda: FakePolicy(), ode_loader=lambda: None))
+    # decide_body의 inputAsOf는 고정값이라 그 3초 뒤 시계를 넣어, 실제 시각과 무관하게 20초 신선도 검사를 통과시킨다.
+    return TestClient(create_app(lambda: FakeModel5(), lambda: FakePolicy(), clock=fixed_clock(3.0),
+                                 ode_loader=lambda: None))
 
 
 def test_compose_feature_flags_default_off_at_api_consumers(monkeypatch):

@@ -147,7 +147,9 @@ def test_decide_503_without_policy():
 
 def test_requested_forecast_returns_model_not_ready_when_ode_is_unavailable(monkeypatch):
     monkeypatch.setenv("DECIDE_FORECAST_ENABLED", "true")
-    with TestClient(create_app(lambda: FakeModel5(), lambda: FakePolicy(), ode_loader=lambda: None)) as c:
+    # 고정 입력시각(demo_fakes.T0) 3초 뒤 시계를 넣어, 실제 시각과 무관하게 20초 신선도 검사를 통과시킨다.
+    with TestClient(create_app(lambda: FakeModel5(), lambda: FakePolicy(), clock=fixed_clock(3.0),
+                               ode_loader=lambda: None)) as c:
         request = decide_body()
         request["includeForecast"] = True
         response = c.post("/v1/pace/decide", json=request)
