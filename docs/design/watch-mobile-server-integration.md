@@ -367,11 +367,14 @@ PHONE_FALLBACK에서는 서버 스냅샷과 STATE_RESULT에 recordingMode를 포
 
 | type | payload 필드·의미 |
 | --- | --- |
-| DAILY_HR_SUMMARY | **워치가 최근 24시간 일상 심박으로 만든 추정값 1개를 폰에 보낸다.**<br>`metricDate`(`YYYY-MM-DD`): 워치 시간대 기준 추정값을 계산한 날짜. 워치는 1시간마다 최근 24시간으로 다시 계산하며, 같은 날짜는 더 높은 revision으로 덮어쓴다.<br>`revision`(int≥1): 같은 날짜의 값·분 수가 바뀔 때마다 1씩 증가한다.<br>`estimatedRestingHrBpm`(number): 최근 24시간 1분 평균 HR 중 하위 10%의 평균(소수 1자리). 삼성 헬스 공식 안정 시 심박이 아니라 워치 일상 측정 추정치다.<br>`method`(string): 계산 방식. 현재 `ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`.<br>`validSampleCount`(int): 계산에 쓴 유효 분(1분 평균) 개수.<br>`computedAt`(UTC): 계산 시각. |
-| DAILY_HR_RECEIVED | **폰이 해당 날짜·revision을 영속 저장했음을 알린다.**<br>`metricDate`, `revision`: 받은 값. 폰은 날짜별로 가장 높은 revision만 유지하며 같거나 낮은 revision을 다시 받으면 저장을 바꾸지 않고 같은 응답을 돌려준다. |
+| DAILY_HR_SUMMARY | **워치가 최근 24시간 일상 심박으로 만든 추정값 1개를 폰에 보낸다.**<br>`metricDate`(`YYYY-MM-DD`): 워치 시간대 기준 추정값을 계산한 날짜. 워치는 1시간마다 최근 24시간으로 다시 계산하며, 같은 날짜는 더 높은 revision으로 덮어쓴다.<br>`revision`(int≥1): 같은 날짜의 값·분 수가 바뀔 때마다 1씩 증가한다.<br>`estimatedRestingHrBpm`(number): 최근 24시간 1분 평균 HR 중 하위 10%의 평균(소수 1자리). 삼성 헬스 공식 안정 시 심박이 아니라 워치 일상 측정 추정치다.<br>`method`(string): 계산 방식. 현재 `ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`.<br>`validSampleCount`(int): 계산에 쓴 유효 분(1분 평균) 개수.<br>`computedAt`(UTC): 계산 시각.<br>`collectionId`(string): 폰이 발급한 현재 일상 심박 수집 전환번호. 계정 ID·인증 토큰이 아닌 임의 UUID이며 폰의 현재 번호와 일치할 때만 저장한다. |
+| DAILY_HR_RECEIVED | **폰이 해당 날짜·revision을 영속 저장했음을 알린다.**<br>`metricDate`, `revision`, `collectionId`: 받은 값. 현재 수집 전환번호와 일치하는 ACK만 적용한다. 폰은 날짜별로 가장 높은 revision만 유지하며 같거나 낮은 revision을 다시 받으면 저장을 바꾸지 않고 같은 응답을 돌려준다. |
 
 - 워치는 `DAILY_HR_RECEIVED`를 받기 전까지 해당 날짜·revision을 대기열에 유지한다. 9.5 상한을 넘으면 폐기하지 않고 다음 연결 또는 다음 계산 시점에 다시 보낸다.
-- 건강정보 동의 상태는 폰이 DataItem `/runway/v1/state/health-consent`(`healthDataAccess`: `AGREEE`/`DISAGREE`, `updatedAt` UTC)로 공유한다. ADR-0012의 최신 상태 공유 용도이며 명령으로 쓰지 않는다. 워치는 `updatedAt`이 더 오래된 값을 적용하지 않는다.
+- 건강정보 동의 상태는 폰이 DataItem `/runway/v1/state/health-consent`(`healthDataAccess`: `AGREEE`/`DISAGREE`, `updatedAt` UTC, `collectionId`: 임의 UUID, `collectionStartedAt`: 해당 수집 전환번호가 시작된 UTC 시각)로 공유한다. ADR-0012의 최신 상태 공유 용도이며 명령으로 쓰지 않는다. 폰은 같은 밀리초의 변경·재시작·시계 역행에서도 게시할 `updatedAt`을 이전 게시 시각보다 크게 저장한다. 워치는 `updatedAt`이 같거나 더 오래된 값을 적용하지 않는다.
 - 동의가 `DISAGREE`이거나 DataItem이 없으면 워치는 일상 수집을 등록하지 않는다. 철회를 받으면 등록을 해제하고 워치의 1분 집계·요약을 삭제한다. 폰은 철회 후 업로드하지 않는다.
+- S15P31E105-315 사용자 확정 정책: 세션 만료는 건강 동의 철회로 취급하지 않으며 기록과 수집 전환번호를 유지한다. 같은 계정으로 재로그인하면 미업로드 기록을 이어서 보낸다. 다른 계정으로 로그인하거나 명시적으로 로그아웃·동의를 철회하면 이전 일상 심박 기록을 삭제하고 새 전환번호를 사용한다. 계정별 기록 보관함은 만들지 않는다.
+- 폰은 로그인 응답의 사용자 ID를 로컬 저장소의 계정과 비교한다. 계정 변경·소유자를 확인할 수 없는 기존 기록의 초기 연결에서는 기록 삭제와 새 번호 저장을 한 번에 수행한다. 실제 사용자 ID·Access/Refresh Token은 이 메시지나 DataItem에 넣지 않는다. 기존 저장 로그인에 사용자 ID가 없으면 한 번 다시 로그인한다.
+- 워치는 변경된 `collectionId`를 받으면 이전 1분 집계·추정값·활동 전환·드롭 집계를 원자적으로 삭제한다. 같은 번호의 동의 갱신은 기록을 보존한다. `collectionStartedAt` 이전 센서 시각과 이전 번호로 처리 중이던 입력은 저장하지 않는다. 폰도 현재 번호와 다르거나 번호가 없는 추정값을 저장·ACK하지 않는다. 삭제 뒤 늦게 온 SUMMARY·ACK는 새 계정의 같은 날짜·revision에 적용하지 않는다. 이전 앱이 만든 번호 없는 기록은 새 번호로 임의 배정하지 않으며, 폰·워치 앱을 함께 업데이트해야 재개할 수 있다.
 - 분 단위 HR 원본은 폰·서버로 보내지 않는다.
 - 9.1과 다른 점: 기기가 서버 기기 ID를 모르므로 `senderDeviceId`는 null이다. `messageId`는 `watch:<n>`/`phone:<n>` 형식이다. 한 동기화 실행 안의 재시도는 같은 `messageId`를 쓰고 다음 실행은 새 ID를 쓸 수 있으며, 폰은 `metricDate`+`revision`으로 중복을 거른다.

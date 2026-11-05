@@ -1,6 +1,7 @@
 import type { HealthDataAccess } from '../data/types';
 
 export type WatchDailyHr = {
+  collectionId?: string;
   metricDate: string;
   revision: number;
   estimatedRestingHrBpm: number;
@@ -28,9 +29,11 @@ export async function readWatchDailyHr(): Promise<WatchDailyHr[]> {
 export async function markWatchDailyHrUploaded(
   _date: string,
   _revision: number,
+  _collectionId?: string,
 ): Promise<void> {}
 
 export async function markWatchDailyHrRejected(
   _date: string,
   _revision: number,
+  _collectionId?: string,
 ): Promise<void> {}

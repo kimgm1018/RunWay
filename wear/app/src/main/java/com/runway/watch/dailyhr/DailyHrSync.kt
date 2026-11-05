@@ -29,13 +29,14 @@ private const val WINDOW_MS = 24 * 3_600_000L
  * saves it under the local date of [now]; a later run on the same date overwrites it (new revision if changed).
  * Returns the saved summary, or null when fewer than [MIN_MINUTES] minutes remain.
  */
-fun computeCurrent(store: DailyHrStore, zone: ZoneId, now: Instant): DailyHrSummary? {
+fun computeCurrent(store: DailyHrStore, zone: ZoneId, now: Instant): DailyHrSummary? = synchronized(store) {
+    if (!canStore(store.consent())) return@synchronized null
     val nowMs = now.toEpochMilli()
     val exercise = exerciseIntervals(store.transitions(), untilMs = nowMs)
     val means = store.minuteMeansBetween(nowMs - WINDOW_MS, nowMs)
         .filterNot { (minuteStart, _) -> overlapsExercise(minuteStart, exercise) }
         .map { it.second }
-    return estimateWindow(means)?.let { store.saveEstimate(localDate(nowMs, zone), it, means.size, now) }
+    estimateWindow(means)?.let { store.saveEstimate(localDate(nowMs, zone), it, means.size, now) }
 }
 
 /** Sends one encoded message; true when at least one connected node accepted it. */
@@ -77,19 +78,19 @@ class MessageClientSender(context: Context) : SummarySender {
 suspend fun deliverPending(
     store: DailyHrStore,
     sender: SummarySender,
-    awaitAck: suspend (LocalDate, Int, Long) -> Boolean,
+    awaitAck: suspend (LocalDate, Int, String?, Long) -> Boolean,
     sleep: suspend (Long) -> Unit = { delay(it) },
     jitter: () -> Long = { Random.nextLong(0, MAX_JITTER_MS + 1) },
 ) {
     for (summary in store.pending()) {
-        if (!canStore(store.consent())) return
+        if (!canSend(store, summary)) return
         val bytes = DailyHrMessages.encodeSummary(store.nextMessageId(), summary)
         var acked = false
         for (attempt in 0 until MAX_ATTEMPTS) {
             if (attempt > 0) sleep(RETRY_DELAYS_MS[attempt - 1] + jitter())
-            if (!canStore(store.consent())) return
+            if (!canSend(store, summary)) return
             // A send with no reachable node still uses up an attempt; there is nothing to wait for.
-            if (sender.send(bytes) && awaitAck(summary.metricDate, summary.revision, ACK_TIMEOUT_MS)) {
+            if (sender.send(bytes) && awaitAck(summary.metricDate, summary.revision, summary.collectionId, ACK_TIMEOUT_MS)) {
                 acked = true
                 break
             }
@@ -98,11 +99,23 @@ suspend fun deliverPending(
     }
 }
 
+private fun canSend(store: DailyHrStore, summary: DailyHrSummary): Boolean = synchronized(store) {
+    val consent = store.consent()
+    canStore(consent) && summary.collectionId != null && summary.collectionId == consent?.collectionId
+}
+
 /** Polls the store, which the listener service updates on DAILY_HR_RECEIVED, until the revision is no longer pending. */
-suspend fun awaitAckInStore(store: DailyHrStore, date: LocalDate, revision: Int, timeoutMs: Long): Boolean {
+suspend fun awaitAckInStore(
+    store: DailyHrStore, date: LocalDate, revision: Int, timeoutMs: Long,
+    collectionId: String? = store.consent()?.collectionId,
+): Boolean {
     var waited = 0L
     while (true) {
-        if (store.pending().none { it.metricDate == date && it.revision == revision }) return true
+        val acknowledged = synchronized(store) {
+            if (store.consent()?.collectionId != collectionId) return false
+            store.pending().none { it.metricDate == date && it.revision == revision && it.collectionId == collectionId }
+        }
+        if (acknowledged) return true
         if (waited >= timeoutMs) return false
         delay(ACK_POLL_MS)
         waited += ACK_POLL_MS
@@ -121,7 +134,10 @@ suspend fun refreshConsentFromDataLayer(context: Context, store: DailyHrStore) {
         try {
             items.forEach { item ->
                 val map = DataMapItem.fromDataItem(item).dataMap
-                val incoming = HealthConsent.fromDataMap(map.getString("healthDataAccess"), map.getString("updatedAt"))
+                val incoming = HealthConsent.fromDataMap(
+                    map.getString("healthDataAccess"), map.getString("updatedAt"),
+                    map.getString("collectionId"), map.getString("collectionStartedAt"),
+                )
                     ?: return@forEach
                 val current = store.consent()
                 val next = newerConsent(current, incoming)

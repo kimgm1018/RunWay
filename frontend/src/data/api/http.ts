@@ -18,12 +18,76 @@ const defaultTimeoutMs = 15_000;
 
 const unauthorizedListeners = new Set<() => void>();
 
-// Called when the server rejects the access token; SessionProvider signs out. Returns the unsubscribe function.
+// Called after authentication recovery fails; SessionProvider opens login without withdrawing consent.
 export function onUnauthorized(listener: () => void) {
   unauthorizedListeners.add(listener);
   return () => {
     unauthorizedListeners.delete(listener);
   };
+}
+
+const sessionError = () =>
+  new DataError('UNAUTHORIZED', '다시 로그인해 주세요.', null, 401);
+
+function expire(session: number) {
+  if (tokenStore.session() !== session || !tokenStore.current()) return;
+  void tokenStore.clear().catch(() => {});
+  unauthorizedListeners.forEach(listener => listener());
+}
+
+let refreshing: { session: number; promise: Promise<void> } | null = null;
+
+function refresh(session: number): Promise<void> {
+  if (refreshing?.session === session) return refreshing.promise;
+  const old = tokenStore.current();
+  if (!old || tokenStore.session() !== session)
+    return Promise.reject(sessionError());
+  const entry = {
+    session,
+    promise: (async () => {
+      try {
+        // U02 is never itself refreshed or retried, even on 503 or a lost response.
+        const next = await apiRequest<{
+          accessToken: string;
+          refreshToken: string;
+          expiresInSec: number;
+          refreshExpiresAt: string;
+        }>('/auth/refresh', {
+          method: 'POST',
+          auth: false,
+          body: { refreshToken: old.refreshToken },
+        });
+        if (
+          !next ||
+          typeof next.accessToken !== 'string' ||
+          !next.accessToken.trim() ||
+          typeof next.refreshToken !== 'string' ||
+          !next.refreshToken.trim() ||
+          !Number.isInteger(next.expiresInSec) ||
+          next.expiresInSec < 1 ||
+          next.expiresInSec > 600 ||
+          typeof next.refreshExpiresAt !== 'string' ||
+          !Number.isFinite(Date.parse(next.refreshExpiresAt))
+        ) {
+          throw sessionError();
+        }
+        const stored = await tokenStore.rotate(session, {
+          ...old,
+          accessToken: next.accessToken,
+          refreshToken: next.refreshToken,
+          refreshExpiresAt: next.refreshExpiresAt,
+        });
+        if (!stored) throw sessionError();
+      } catch {
+        expire(session);
+        throw sessionError();
+      }
+    })().finally(() => {
+      if (refreshing === entry) refreshing = null;
+    }),
+  };
+  refreshing = entry;
+  return entry.promise;
 }
 
 function queryString(query: RequestOptions['query']) {
@@ -93,6 +157,15 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
+  return request<T>(path, options, tokenStore.session(), false);
+}
+
+async function request<T>(
+  path: string,
+  options: RequestOptions,
+  session: number,
+  replayed: boolean,
+): Promise<T> {
   const {
     method = 'GET',
     body,
@@ -101,6 +174,7 @@ export async function apiRequest<T>(
     auth = true,
     timeoutMs = defaultTimeoutMs,
   } = options;
+  if (auth && tokenStore.session() !== session) throw sessionError();
   const form = body instanceof FormData;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if ((body !== undefined && !form) || jsonText !== undefined) {
@@ -139,11 +213,22 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
-    const error = await toDataError(response);
-    if (accessToken && error.code === 'UNAUTHORIZED') {
-      unauthorizedListeners.forEach(listener => listener());
+    if (auth && accessToken && response.status === 401) {
+      if (tokenStore.session() !== session) throw sessionError();
+      if (replayed) {
+        expire(session);
+        throw sessionError();
+      }
+      // A delayed 401 for the previous access token reuses the completed rotation.
+      if (
+        refreshing?.session === session ||
+        tokenStore.current()?.accessToken === accessToken
+      ) {
+        await refresh(session);
+      }
+      return request<T>(path, options, session, true);
     }
-    throw error;
+    throw await toDataError(response);
   }
   const text = await response.text();
   return (text ? JSON.parse(text) : undefined) as T;

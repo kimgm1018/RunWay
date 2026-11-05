@@ -50,12 +50,12 @@ class DailyHrSyncWork(context: Context, params: WorkerParameters) : CoroutineWor
         val now = Instant.now()
         computeCurrent(store, zone, now)
         if (!canStore(store.consent())) {
-            // Withdrawn while computing: rows may have been written after clearAll, so reconcile clears again.
+            // Consent may change between computation and delivery.
             enqueueRegistration(applicationContext)
             return Result.success()
         }
-        deliverPending(store, MessageClientSender(applicationContext), { date, revision, timeoutMs ->
-            awaitAckInStore(store, date, revision, timeoutMs)
+        deliverPending(store, MessageClientSender(applicationContext), { date, revision, collectionId, timeoutMs ->
+            awaitAckInStore(store, date, revision, timeoutMs, collectionId)
         })
         store.prune(now)
         return Result.success()

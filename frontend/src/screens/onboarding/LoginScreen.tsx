@@ -72,6 +72,7 @@ export function LoginScreen() {
       const session = await auth.login({ loginId: loginId.trim(), password });
       setLoading(false);
       const tokens = {
+        userId: session.user.id,
         accessToken: session.accessToken,
         refreshToken: session.refreshToken,
         refreshExpiresAt: session.refreshExpiresAt,

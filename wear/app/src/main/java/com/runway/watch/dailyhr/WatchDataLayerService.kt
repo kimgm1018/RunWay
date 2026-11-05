@@ -24,8 +24,8 @@ class WatchDataLayerService : WearableListenerService() {
             return
         }
         if (event.path != DailyHrMessages.RECEIVED_PATH) return
-        val (date, revision) = DailyHrMessages.decodeReceived(event.data) ?: return
-        store.markAcked(date, revision)
+        val (date, revision, collectionId) = DailyHrMessages.decodeReceived(event.data) ?: return
+        store.markAcked(date, revision, collectionId)
     }
 
     // play-services-wearable 18.0.0 marks the public DataEvent/DataMap accessors @VisibleForTesting; lint false positive.
@@ -37,7 +37,11 @@ class WatchDataLayerService : WearableListenerService() {
                 DataEvent.TYPE_CHANGED -> applyConsent(readConsent(event) ?: continue)
                 // A missing consent item means DISAGREE; deletion has no updatedAt, so it always applies.
                 DataEvent.TYPE_DELETED -> {
-                    store.saveConsent(HealthConsent(false, Instant.now()))
+                    synchronized(store) {
+                        val updatedAt = store.consent()?.updatedAt?.plusMillis(1)
+                            ?.let { maxOf(it, Instant.now()) } ?: Instant.now()
+                        store.saveConsent(HealthConsent(false, updatedAt))
+                    }
                     enqueueRegistration(this)
                 }
             }
@@ -47,7 +51,10 @@ class WatchDataLayerService : WearableListenerService() {
     @SuppressLint("VisibleForTests")
     private fun readConsent(event: DataEvent): HealthConsent? = try {
         val map = DataMapItem.fromDataItem(event.dataItem).dataMap
-        HealthConsent.fromDataMap(map.getString("healthDataAccess"), map.getString("updatedAt"))
+        HealthConsent.fromDataMap(
+            map.getString("healthDataAccess"), map.getString("updatedAt"),
+            map.getString("collectionId"), map.getString("collectionStartedAt"),
+        )
     } catch (_: Exception) {
         null
     }
