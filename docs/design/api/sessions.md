@@ -63,6 +63,29 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `recommendedPaceSecPerKm` | number | O | 권장 페이스(초/km) |
 | `expiresAt` | string (date-time, UTC) | O | 새로 적용할 수 있는 만료시각 |
 
+## 기록 비교 (S15P31E105-422 확정, 2026-11-05)
+
+REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계산해 S02·S10의 `comparison`으로 전달한다(P05는 공개 API가 아니다). 클라이언트 조회가 계산 조건이 아니며 결과를 저장하지 않는다. 비교 대상 선택·검증은 S01/S08 `comparisonSessionId` 규칙을 따른다.
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `status` | string (enum) | O | WAITING(아직 비교할 현재 거리 없음) / AVAILABLE(결과 있음) / NO_RECORD(비교 기록에 거리 측정값이 없어 비교 불가) / UNAVAILABLE(비교 기록이 삭제됐거나 본인 완료 기록이 아님) |
+| `targetStartedAt` | string (date-time, UTC) / null | O | 비교 기록의 실제 시작시각(화면 라벨용). UNAVAILABLE이면 null |
+| `distanceM` | integer / null | O | 비교 지점 거리(m, 소수점 버림). 두 운동시간은 버리기 전 거리로 계산한다. AVAILABLE에만 값 |
+| `currentElapsedSec` | integer / null | O | 이번 러닝이 비교 지점에 도달한 운동시간(초, 반올림). AVAILABLE에만 값 |
+| `pastElapsedSec` | integer / null | O | 비교 기록이 비교 지점에 처음 도달한 운동시간(초, 반올림). AVAILABLE에만 값 |
+
+`pastElapsedSec - currentElapsedSec`가 양수면 이번 러닝이 앞서고 음수면 뒤처진다.
+
+계산 규칙:
+
+- 운동시간은 [종료 후 분석](#준비코칭종료-후-분석-상태)과 같이 실제 시작부터의 경과시간에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 계산 시점(종료 세션은 종료시각)까지 일시정지로 본다.
+- 이번 러닝의 비교 지점은 누적거리(`total_distance`)가 있는 마지막 샘플의 거리이고, 그 샘플 측정시각까지의 운동시간을 쓴다.
+- 비교 기록은 누적거리가 있는 샘플을 측정시각 순으로 이어 (누적거리, 운동시간) 곡선을 만들고, 거리는 감소하지 않게 하며 총거리를 넘지 않게 자른다. 비교 지점에 처음 도달한 운동시간을 앞뒤 샘플 사이 선형 보간으로 구한다.
+- 이번 러닝 거리가 비교 기록 총거리를 넘으면 비교 지점을 비교 기록 총거리로 고정하고 이번 러닝이 그 거리에 도달한 운동시간을 같은 방식으로 보간한다.
+- 시작 전이거나 이번 러닝에 누적거리 샘플이 없거나 0이면 WAITING이다. 비교 기록이 S09로 삭제되면 진행 중 비교는 UNAVAILABLE로 바뀌고 러닝·목표는 그대로 유지한다.
+- 측정 원본 값은 로그에 남기지 않는다.
+
 ## S01 러닝 세션 생성
 
 `POST /api/v1/running-sessions`
@@ -124,6 +147,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `analysis` | object | O | 분석 준비 상태 객체 |
 | `analysis.status` | string (enum) | O | PENDING(대기) / PROCESSING(분석 중) / READY(준비 완료) / FAILED(실패) / LEGACY(기존 기록) |
 | `coaching` | object / null | O | 현재 유효한 최신 코칭. 없으면 null. 코칭·만료 규칙은 [P07](pace-coaching.md) 참조 |
+| `comparison` | object / null | O | 과거 기록 대비 동일 거리 도달 시간 비교(REC-005). `goal.comparisonSessionId`가 null이면 null. 필드·계산 규칙은 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 참조 |
 | `pendingCommand` | object / null | O | 현재 제어기기의 PENDING 또는 UNKNOWN 명령. 만료된 미확인 코칭도 결과 확인 전까지 포함. 없으면 null |
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
@@ -153,6 +177,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
     "status": "PENDING"
   },
   "coaching": null,
+  "comparison": null,
   "pendingCommand": null,
   "lastCommand": null,
   "serverReceiveAt": "2026-10-28T01:00:00Z",
@@ -256,6 +281,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `analysis` | object | O | 분석 준비 상태 객체 |
 | `analysis.status` | string (enum) | O | PENDING(대기) / PROCESSING(분석 중) / READY(준비 완료) / FAILED(실패) / LEGACY(기존 기록) |
 | `coaching` | object / null | O | 현재 유효한 최신 코칭. 없으면 null. 코칭·만료 규칙은 [P07](pace-coaching.md) 참조 |
+| `comparison` | object / null | O | 과거 기록 대비 동일 거리 도달 시간 비교(REC-005). `goal.comparisonSessionId`가 null이면 null. 필드·계산 규칙은 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 참조 |
 | `pendingCommand` | object / null | O | 현재 제어기기의 PENDING 또는 UNKNOWN 명령. 만료된 미확인 코칭도 결과 확인 전까지 포함. 없으면 null |
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
@@ -299,6 +325,7 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
     "status": "PENDING"
   },
   "coaching": null,
+  "comparison": null,
   "pendingCommand": null,
   "lastCommand": null,
   "serverReceiveAt": "2026-10-28T01:00:00Z",
@@ -1401,6 +1428,7 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 
 - JWT·본인 세션을 확인한 뒤 세션별 SSE 연결을 연다. 각 전송 전에 세션 삭제·회원 탈퇴를 다시 확인하고, 연결 시 토큰의 만료시각에 스트림을 닫는다.
 - 연결 직후 S02 전체 상태를 보내며, 이후 상태·BPM·코칭·분석 상태가 바뀔 때도 전체 상태를 보낸다. 이 시점의 전체 상태를 **스냅샷**이라고 한다.
+- 비교 기록이 설정된 세션은 W07 batch 저장이 커밋될 때마다 SESSION_STATE 스냅샷을 보내 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 결과를 갱신한다. 이 전송은 `stateVersion`을 바꾸지 않는다.
 - 클라이언트는 오래된 `stateVersion`을 버린다. 같은 버전의 코칭은 더 큰 `coachingId`만 처리한다. 새 코칭 생성 자체는 세션 버전을 바꾸지 않는다.
 
 **연결 유지와 재접속**

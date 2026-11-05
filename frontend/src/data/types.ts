@@ -296,8 +296,6 @@ export type CoursePlan = {
   targetPaceSecPerKm: number;
   expectedDurationSec: number;
   caution: string | null;
-  // 경쟁 모드: the earlier run on this course to race against (4.2 기록 차이, 4.5 비교 결과).
-  rival: { startedAt: string; durationSec: number } | null;
 };
 
 // One reading during a run, once a second (4.2 러닝 진행).
@@ -750,6 +748,16 @@ export type CoachingGuide = {
   expiresAt: string;
 };
 
+// S02 comparison 객체(sessions.md "기록 비교", S15P31E105-422). 서버가 계산한 같은 거리 도달 운동시간이며 앱·워치는 다시 계산하지 않는다.
+// 거리·시간은 AVAILABLE에만 값이 있다. pastElapsedSec - currentElapsedSec가 양수면 앞선다.
+export type RecordComparison = {
+  status: 'WAITING' | 'AVAILABLE' | 'NO_RECORD' | 'UNAVAILABLE';
+  targetStartedAt: string | null;
+  distanceM: number | null;
+  currentElapsedSec: number | null;
+  pastElapsedSec: number | null;
+};
+
 export type SessionGoalDraft = {
   courseId: string | null;
   comparisonSessionId: string | null;
@@ -773,6 +781,8 @@ export type RunningSessionView = {
   // S02의 확정 BPM·현재 유효 코칭·서버 시각(S15P31E105-257). 목업 세션은 채우지 않는다.
   currentBpm?: number | null;
   coaching?: CoachingGuide | null;
+  // 비교 기록을 고르지 않았거나 목업 세션이면 null(S15P31E105-422).
+  comparison?: RecordComparison | null;
   serverReceiveAt?: string | null;
   serverSendAt?: string | null;
 };
@@ -943,6 +953,8 @@ export type Repositories = {
     getPaceTrend: (months: number) => Promise<PaceTrend>;
     // S09: deletes my run and, on the server in the same call, my posts that share it.
     remove: (recordId: string) => Promise<void>;
+    // 2.0 경쟁 모드 '이 코스의 내 기록'(H01 courseId): my completed runs on this course, newest first (S15P31E105-422).
+    getCourseRuns: (courseId: string) => Promise<RunRecordSummary[]>;
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;

@@ -28,8 +28,8 @@ data class RunMetrics(
 
 /**
  * REC-005 comparison with one of the runner's own past runs, kept apart from the goal in [RunMetrics].
- * The watch only shows what it is given: choosing the record, computing the gap and how the result
- * reaches the watch are outside this model, and the delivery contract is not agreed yet.
+ * The watch only shows what it is given: the phone chooses the record and the server computes the gap,
+ * which arrives in STATE_RESULT(scope=SERVER).comparison (S15P31E105-422, SessionEnvelope.comparison).
  */
 sealed interface RecordComparison {
     /** No past run was chosen for this run; the comparison page is left out. */

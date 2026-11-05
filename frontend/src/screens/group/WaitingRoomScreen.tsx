@@ -69,7 +69,6 @@ export function groupRunConfig(
             (run.targetDistanceM / 1000) * goalPaceSecPerKm,
           ),
           caution: null,
-          rival: null,
         }
       : null;
   return {

@@ -79,6 +79,7 @@ class SessionRunControl(
             },
             serverLinkLost = session.serverLinkLost,
             measurementLost = session.measurementLost,
+            comparison = session.comparison,
         )
 
         /** The run intent a pending request action stands for; null for actions without one (BPM change, coaching). */

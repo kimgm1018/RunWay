@@ -47,6 +47,7 @@ import {
 import { RunMap } from '../../components/RunMap';
 import { AlbumArt } from './musicParts';
 import { K1Badge } from './parts';
+import { comparisonLine } from './recordComparison';
 import { useRunControlState, useRunSession } from './RunSession';
 import { controlNotice } from './controlNotice';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -551,19 +552,13 @@ export function RunProgressScreen() {
   const plan = config.plan;
   const total = plan?.distanceM ?? config.goalDistanceM;
   const remaining = total ? Math.max(total - sample.distanceM, 0) : null;
-  // 경쟁 모드: compare with the earlier run at the same point of the course.
-  const rivalGap =
-    plan?.rival && sample.distanceM > 0
-      ? Math.round(
-          (plan.rival.durationSec * sample.distanceM) / plan.distanceM -
-            sample.elapsedSec,
-        )
-      : null;
+  // 경쟁 모드: the server's same-distance comparison with the chosen earlier run (S15P31E105-422).
+  const rival = comparisonLine(control?.comparison);
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
   const modeLabel = plan
     ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km${
-        plan.rival ? ' · 경쟁 모드' : ''
+        rival ? ' · 경쟁 모드' : ''
       }`
     : '자유 러닝';
 
@@ -586,16 +581,10 @@ export function RunProgressScreen() {
         <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
           <View style={styles.dayTop}>
             <ModeChip label={modeLabel} />
-            {rivalGap !== null && plan?.rival ? (
+            {rival ? (
               <LightGlass radius={14} style={styles.rivalGlass}>
                 <AppText style={styles.rivalText}>
-                  {`${Number(
-                    plan.rival.startedAt.slice(5, 7),
-                  )}.${plan.rival.startedAt.slice(8, 10)} 기록보다 ${
-                    rivalGap >= 0
-                      ? `${rivalGap}초 앞서는 중`
-                      : `${-rivalGap}초 뒤처지는 중`
-                  }`}
+                  {`${rival.label} ${rival.text}`}
                 </AppText>
               </LightGlass>
             ) : null}
@@ -738,26 +727,20 @@ export function RunProgressScreen() {
             <AppText variant="labelStrong">
               {plan
                 ? `${plan.name} ${formatKm(plan.distanceM, 1)}km${
-                    plan.rival ? ' · 경쟁 모드' : ''
+                    rival ? ' · 경쟁 모드' : ''
                   }`
                 : '자유 러닝'}
             </AppText>
           </View>
-          {rivalGap !== null && plan?.rival ? (
+          {rival ? (
             <View style={styles.titleRow}>
               <AppText variant="caption" tone="textSecondary">
-                {`${Number(
-                  plan.rival.startedAt.slice(5, 7),
-                )}.${plan.rival.startedAt.slice(8, 10)} 기록보다`}
+                {rival.label}
               </AppText>
               <View
                 style={[styles.rival, { backgroundColor: colors.surfaceMuted }]}
               >
-                <AppText variant="captionStrong">
-                  {rivalGap >= 0
-                    ? `${rivalGap}초 앞서는 중`
-                    : `${-rivalGap}초 뒤처지는 중`}
-                </AppText>
+                <AppText variant="captionStrong">{rival.text}</AppText>
               </View>
             </View>
           ) : null}

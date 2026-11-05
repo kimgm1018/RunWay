@@ -52,6 +52,7 @@ class SessionAccess {
     private final PacePlanSegmentRepository segmentRepository;
     private final SessionControlEventRepository controlEventRepository;
     private final SessionReferenceRepository referenceRepository;
+    private final RecordComparisonService comparisonService;
 
     /**
      * 그룹 연결 세션은 그룹 행을 먼저 잠근다. 잠금 전 확인과 잠금 후 재확인 사이에 삭제·소유 정보가 바뀌었을 수 있으므로 잠근 행으로 다시 판정한다. 그 사이 그룹
@@ -177,9 +178,17 @@ class SessionAccess {
                         .findFirstBySessionIdOrderByIdDesc(session.getId())
                         .orElse(null);
         Instant groupEndedAt = referenceRepository.findGroupEndedAt(session.getId()).orElse(null);
+        Instant now = Instant.now();
         SessionSnapshot snapshot =
                 new SessionSnapshot(
-                        session, plan, segments, pending, coachingGuide, last, groupEndedAt);
+                        session,
+                        plan,
+                        segments,
+                        pending,
+                        coachingGuide,
+                        last,
+                        groupEndedAt,
+                        comparisonService.compare(session, now));
         return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, Instant.now());
     }
 }

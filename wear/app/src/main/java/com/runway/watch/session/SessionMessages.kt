@@ -1,7 +1,9 @@
 package com.runway.watch.session
 
+import com.runway.watch.run.RecordComparison
 import org.json.JSONObject
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Watch side of the run-session messages (watch-mobile-server-integration.md 9.1–9.6, S15P31E105-256).
@@ -67,7 +69,45 @@ data class SessionEnvelope(
     fun batchId(): String? = payload.optString("batchId").takeIf { it.isNotEmpty() && it.length <= 64 }
 
     fun deviceId(): String? = payload.idText("deviceId")?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true }
+
+    /**
+     * STATE_RESULT(scope=SERVER).comparison: the server's S02 record comparison (S15P31E105-422, sessions.md "기록 비교").
+     * Absent or null means no past run was chosen. The watch only shows it; nothing is computed here. An AVAILABLE
+     * result with missing or negative values, or an unknown status, is shown as waiting rather than as a made-up gap.
+     */
+    fun comparison(): RecordComparison {
+        val c = payload.optJSONObject("comparison") ?: return RecordComparison.NotSelected
+        return when (c.optString("status")) {
+            "WAITING" -> RecordComparison.Waiting
+            "NO_RECORD" -> RecordComparison.NoRecord
+            "UNAVAILABLE" -> RecordComparison.Unavailable
+            "AVAILABLE" -> {
+                val distance = c.wholeNumber("distanceM")
+                val now = c.wholeNumber("currentElapsedSec")
+                val past = c.wholeNumber("pastElapsedSec")
+                if (distance == null || now == null || past == null) RecordComparison.Waiting
+                else RecordComparison.Result(
+                    distanceMeters = distance.toDouble(),
+                    currentElapsedMs = now * 1000,
+                    pastElapsedMs = past * 1000,
+                    targetLabel = c.optString("targetStartedAt").takeIf { it.isNotEmpty() && !c.isNull("targetStartedAt") }
+                        ?.let(::parseInstant)?.let(::dayLabel),
+                )
+            }
+            else -> RecordComparison.Waiting
+        }
+    }
 }
+
+private val KOREA = ZoneId.of("Asia/Seoul")
+
+/** The past run's day in Korea as "M.dd" (10.13), like the phone's 4.2 label. */
+internal fun dayLabel(at: Instant): String = at.atZone(KOREA).let { "${it.monthValue}.%02d".format(it.dayOfMonth) }
+
+/** A non-negative whole number field; null when absent, null, fractional or negative. */
+private fun JSONObject.wholeNumber(name: String): Long? =
+    if (!has(name) || isNull(name)) null
+    else (opt(name) as? Number)?.takeIf { it.toDouble() == it.toLong().toDouble() }?.toLong()?.takeIf { it >= 0 }
 
 /** UTC "…Z" or an ISO-8601 time with an offset; null when unreadable. */
 internal fun parseInstant(text: String): Instant? = try {

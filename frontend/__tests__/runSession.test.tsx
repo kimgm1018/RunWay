@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
+import { formatDotDate, formatDuration } from '../src/format';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -150,12 +151,11 @@ async function startRun(
   return screen!;
 }
 
-test('a course run shows live numbers, the rival gap and turn guidance', async () => {
+test('a course run shows live numbers and turn guidance, and no made-up rival gap', async () => {
   const screen = await startRun('course');
   const shown = texts(screen);
   for (const text of [
-    '광안대교 루프 5.0km · 경쟁 모드',
-    '10.13 기록보다',
+    '광안대교 루프 5.0km',
     '거리',
     '경과 시간',
     '남은 거리',
@@ -165,7 +165,9 @@ test('a course run shows live numbers, the rival gap and turn guidance', async (
   ]) {
     expect(shown).toContain(text);
   }
-  expect(shown).toMatch(/\d+초 (앞서는|뒤처지는) 중/);
+  // 비교 기록을 고르지 않은 러닝은 경쟁 모드·기록 차이를 보이지 않는다(S15P31E105-422, 평균 근사 제거).
+  expect(shown).not.toContain('광안대교 루프 5.0km · 경쟁 모드');
+  expect(shown).not.toMatch(/(앞서는|뒤처지는) 중/);
   expect(shown).toMatch(/목표보다 \d+초 (빠름|느림)|목표 페이스/);
   expect(shown).toMatch(/앞 .+(직진|왼쪽|오른쪽)/);
   expect(textOf(screen, '내 페이스')).toMatch(/^\d′\d\d″$/);
@@ -253,4 +255,55 @@ test('a free run result can be saved as my course, and a failed save offers 다�
   await press(failed, '다시 저장');
   expect(texts(failed)).toContain('기록을 저장하지 못했어요');
   await act(async () => failed.unmount());
+});
+
+// S15P31E105-422: 코스 러닝 준비에서 이 코스의 내 기록 하나를 고르면 S01 comparisonSessionId로 보내고, 고르지 않으면 null이다.
+async function courseStartGoal(pick: boolean) {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  const [first] = await repositories.records.getCourseRuns('any');
+  const create = jest.spyOn(repositories.session, 'create');
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  const open = async (label: string, what: string) => {
+    await settleUntil(screen!, () => shows(screen!, label), what);
+    await press(screen!, label);
+  };
+  await open('저장한 코스', '홈');
+  await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
+  const chip = `${formatDotDate(first.startedAt)} ${formatDuration(first.durationSec)} 기록과 비교`;
+  await settleUntil(screen!, () => shows(screen!, chip), '비교 기록 선택');
+  expect(texts(screen!)).toContain('이 코스의 내 기록과 비교');
+  if (pick) {
+    await press(screen!, chip);
+    expect(labelled(screen!, chip).props.accessibilityState).toEqual({ selected: true });
+  }
+  await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
+  await press(screen!, '러닝 시작');
+  await settleUntil(screen!, () => create.mock.calls.length > 0, 'S01 요청');
+  const goal = create.mock.calls[0][0].goal;
+  await settleUntil(screen!, () => shows(screen!, '일시정지'), '4.2 러닝 진행');
+  await settle(200);
+  const progress = texts(screen!);
+  await act(async () => screen!.unmount());
+  return { goal, first, progress };
+}
+
+test('a picked earlier run on the course is sent as comparisonSessionId and 4.2 shows the server comparison state', async () => {
+  const { goal, first, progress } = await courseStartGoal(true);
+  expect(goal.comparisonSessionId).toBe(first.id);
+  expect(goal.courseId).not.toBeNull();
+  // 목업 세션은 서버처럼 WAITING을 돌려준다. 진행 화면은 평균 근사 대신 그 상태를 보인다.
+  expect(progress).toContain('광안대교 루프 5.0km · 경쟁 모드');
+  expect(progress).toContain('지난 기록과 비교 준비 중');
+  expect(progress).not.toMatch(/(앞서는|뒤처지는) 중/);
+});
+
+test('without a pick the course run is created without a comparison', async () => {
+  const { goal, progress } = await courseStartGoal(false);
+  expect(goal.comparisonSessionId).toBeNull();
+  expect(progress).not.toContain('경쟁 모드');
 });

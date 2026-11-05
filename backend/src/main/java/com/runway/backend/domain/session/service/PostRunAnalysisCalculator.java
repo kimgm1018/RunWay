@@ -149,7 +149,7 @@ public final class PostRunAnalysisCalculator {
     }
 
     /** 시작부터 t까지의 운동시간(초). 일시정지 구간은 제외한다. */
-    private static double movingSecondsAt(
+    static double movingSecondsAt(
             Instant t, Instant startedAt, Instant endedAt, List<PauseInterval> pauses) {
         Instant at = t.isBefore(startedAt) ? startedAt : t.isAfter(endedAt) ? endedAt : t;
         long totalMs = ChronoUnit.MILLIS.between(startedAt, at);
@@ -164,7 +164,7 @@ public final class PostRunAnalysisCalculator {
         return (totalMs - pausedMs) / 1000.0;
     }
 
-    private static BigDecimal lastDistance(List<AnalysisSample> samples) {
+    static BigDecimal lastDistance(List<AnalysisSample> samples) {
         BigDecimal last = null;
         for (AnalysisSample sample : samples) {
             if (sample.totalDistance() != null) {
@@ -178,7 +178,7 @@ public final class PostRunAnalysisCalculator {
      * (누적거리 m, 운동시간 초) 점 목록. 원점에서 시작해 거리가 늘어난 샘플만 담는다. 거리는 감소하지 않게 하고 총거리를 넘지 않게 자른다. 시간은 감소하지
      * 않는다.
      */
-    private static List<double[]> distanceTrack(
+    static List<double[]> distanceTrack(
             List<AnalysisSample> samples,
             BigDecimal totalDistance,
             Instant startedAt,
@@ -208,7 +208,7 @@ public final class PostRunAnalysisCalculator {
     }
 
     /** 누적거리가 처음 distance에 도달한 운동시간(초). 도달하지 않았으면 null. */
-    private static Double timeAtDistance(List<double[]> track, double distance) {
+    static Double timeAtDistance(List<double[]> track, double distance) {
         if (distance <= 0) {
             return 0.0;
         }

@@ -442,7 +442,6 @@ export const todayPlan: CoursePlan = {
   targetPaceSecPerKm: 360,
   expectedDurationSec: 1800,
   caution: '2km 오르막 주의',
-  rival: { startedAt: '2026-10-13T06:40:00+09:00', durationSec: 1788 },
 };
 
 // 4.5F 자유 러닝: the path drawn for a free run, since it has no planned course.

@@ -6,6 +6,7 @@ import type {
   CommandApproval,
   ControlAction,
   LinkedDevices,
+  RecordComparison,
   Repositories,
   RunningSessionView,
   SessionGoalDraft,
@@ -38,6 +39,8 @@ export type RunControlState = {
   problem: ControlProblem | null;
   // 이 제어가 만든 세션이 아니라 이미 있던 본인 세션(앱 재실행·재로그인, S01 409)에 다시 붙었다.
   joined: boolean;
+  // S02/S10 기록 비교(S15P31E105-422). 비교 기록을 고르지 않았으면 null.
+  comparison: RecordComparison | null;
 };
 
 export type RunControl = {
@@ -92,6 +95,7 @@ const initialState: RunControlState = {
   pending: null,
   problem: null,
   joined: false,
+  comparison: null,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -185,6 +189,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       stateVersion: view.stateVersion,
       startedAt: view.startedAt,
       endedAt: view.endedAt,
+      comparison: view.comparison ?? null,
       ...extra,
     });
   };
@@ -586,6 +591,10 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       return;
     }
     const sessionId = view.sessionId;
+    // 기록 비교는 batch 저장마다 같은 버전으로 온다(sessions.md S10). 더 오래된 버전으로는 되돌리지 않는다.
+    if (view.stateVersion >= state.stateVersion) {
+      setState({ comparison: view.comparison ?? null });
+    }
     watch.sendServerState(sessionId, view, null).catch(noop);
     if (view.recordingMode === 'PHONE_FALLBACK') {
       return;

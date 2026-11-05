@@ -1,9 +1,11 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon, LightGlass } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
+import type { RunRecordSummary } from '../../data/types';
 import {
+  formatDotDate,
   formatDuration,
   formatKm,
   formatPace,
@@ -60,6 +62,94 @@ function PaceLegend() {
   );
 }
 
+// 경쟁 모드 (S15P31E105-422): pick one of my earlier runs on this course, or none. The server checks the pick
+// and compares the time to reach the same distance during the run; nothing shows when the course has no run yet.
+function ComparisonPicker({
+  courseId,
+  night,
+  value,
+  onChange,
+}: {
+  courseId: string;
+  night: boolean;
+  value: string | null;
+  onChange: (sessionId: string | null) => void;
+}) {
+  const { colors } = useTheme();
+  const { records } = useRepositories();
+  const [runs, setRuns] = useState<RunRecordSummary[]>([]);
+  useEffect(() => {
+    let alive = true;
+    setRuns([]);
+    onChange(null);
+    records
+      .getCourseRuns(courseId)
+      .then(found => alive && setRuns(found.slice(0, 3)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [courseId, records, onChange]);
+  if (runs.length === 0) {
+    return null;
+  }
+  const chip = (
+    key: string,
+    label: string,
+    a11y: string,
+    selected: boolean,
+    sessionId: string | null,
+  ) => (
+    <Pressable
+      key={key}
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
+      accessibilityState={{ selected }}
+      onPress={() => onChange(sessionId)}
+      hitSlop={4}
+      style={[
+        styles.chip,
+        {
+          backgroundColor: selected
+            ? night
+              ? colors.text
+              : ink
+            : night
+            ? colors.surfaceMuted
+            : 'rgba(2,5,14,0.06)',
+        },
+      ]}
+    >
+      <AppText
+        style={[
+          styles.chipText,
+          { color: selected ? (night ? colors.background : '#FFFFFF') : night ? colors.text : ink },
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </AppText>
+    </Pressable>
+  );
+  return (
+    <View style={styles.picker}>
+      <AppText style={styles.kickerSheet}>이 코스의 내 기록과 비교</AppText>
+      <View style={styles.chips}>
+        {chip('none', '비교 안 함', '기록 비교 안 함', value === null, null)}
+        {runs.map(run =>
+          chip(
+            run.id,
+            `${formatDotDate(run.startedAt)} · ${formatDuration(run.durationSec)}`,
+            `${formatDotDate(run.startedAt)} ${formatDuration(run.durationSec)} 기록과 비교`,
+            value === run.id,
+            run.id,
+          ),
+        )}
+      </View>
+    </View>
+  );
+}
+
 // 2.0 코스 러닝 (낮) and 2.0N (밤): the chosen course with a pace per km, ready to start. By day the
 // runway-course-handoff screen: a glass strategy bar, the legend, the hollow pace-colored course and a
 // glass strategy sheet.
@@ -70,6 +160,7 @@ export function CourseRunScreen() {
   const night = isNight(clock.now());
   const resource = useResource(useCallback(loadCourse, []));
   const [plan, place] = resource.status === 'ready' ? resource.data : [];
+  const [comparisonSessionId, setComparison] = useState<string | null>(null);
   // A course run aims at the course distance and the plan's pace.
   const courseConfig: RunConfig | null = plan
     ? {
@@ -77,8 +168,17 @@ export function CourseRunScreen() {
         plan,
         goalDistanceM: plan.distanceM,
         goalPaceSecPerKm: plan.targetPaceSecPerKm,
+        comparisonSessionId,
       }
     : null;
+  const picker = plan ? (
+    <ComparisonPicker
+      courseId={plan.courseId}
+      night={night}
+      value={comparisonSessionId}
+      onChange={setComparison}
+    />
+  ) : null;
 
   const title = plan
     ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
@@ -123,6 +223,7 @@ export function CourseRunScreen() {
         </View>
         <ChangeLink />
       </View>
+      {picker}
       <RunStartBar night config={courseConfig} />
     </>
   ) : (
@@ -141,6 +242,7 @@ export function CourseRunScreen() {
           ) : null}
         </AppText>
       </View>
+      {picker}
       <RunStartBar night={false} config={courseConfig} />
     </>
   );
@@ -218,6 +320,15 @@ const styles = StyleSheet.create({
   legendStart: { marginRight: 2 },
   legendEnd: { marginLeft: 2 },
   legendBar: { width: 14, height: 5, borderRadius: 3 },
+  picker: { gap: 6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  chipText: { fontFamily: fontFamily.bold, fontSize: 12.5, lineHeight: 16 },
   kickerSheet: {
     fontFamily: fontFamily.regular,
     fontSize: 12,

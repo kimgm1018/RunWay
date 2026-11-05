@@ -607,6 +607,16 @@ export function createMockRepositories(
         ),
       getMonth: (month, filter) =>
         respond(monthOf(records, month, filter), options),
+      // 목업 기록에는 코스가 없으므로 최근 개인 기록 몇 개를 이 코스의 기록으로 보여 준다.
+      getCourseRuns: () =>
+        respond(
+          records
+            .filter(run => run.runType === 'SOLO')
+            .map(toSummary)
+            .sort(recordOrder.recent)
+            .slice(0, 3),
+          options,
+        ),
       getDetail: recordId => {
         const record = records.find(run => run.id === recordId);
         return record

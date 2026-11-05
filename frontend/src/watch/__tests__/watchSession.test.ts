@@ -412,5 +412,35 @@ test('sendServerState carries BPM, commands with the coaching guide, server time
     clientSendAt: '2026-10-28T01:00:59.900Z',
     serverReceiveAt: '2026-10-28T01:01:00Z',
     serverSendAt: '2026-10-28T01:01:00.010Z',
+    comparison: null,
   });
+});
+
+test('sendServerState passes the S02 record comparison to the watch as it is (S15P31E105-422)', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const comparison = {
+    status: 'AVAILABLE' as const,
+    targetStartedAt: '2026-10-20T01:00:00Z',
+    distanceM: 1000,
+    currentElapsedSec: 280,
+    pastElapsedSec: 300,
+  };
+
+  await watch.sendServerState('201', {
+    sessionId: '201',
+    controlDeviceId: '101',
+    relayDeviceId: '102',
+    state: 'RUNNING',
+    stateVersion: 3,
+    startedAt: '2026-10-28T01:00:01Z',
+    endedAt: null,
+    recordingMode: 'WATCH',
+    pendingCommand: null,
+    lastCommand: null,
+    analysisStatus: 'PENDING',
+    comparison,
+  });
+
+  const payload = JSON.parse(native.send.mock.calls[0][3]);
+  expect(payload.comparison).toEqual(comparison);
 });

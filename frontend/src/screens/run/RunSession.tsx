@@ -29,6 +29,9 @@ export type RunConfig = {
   // Goals are fixed once the run starts (4.3: 목표는 일시정지 중에도 바뀌지 않음).
   goalDistanceM: number | null;
   goalPaceSecPerKm: number | null;
+  // 2.0 경쟁 모드: my earlier run on this course to compare with (S01 comparisonSessionId, S15P31E105-422).
+  // Only a course run can compare; the server checks it is mine, completed and on the same course.
+  comparisonSessionId?: string | null;
 };
 
 export type RunSummary = {
@@ -111,7 +114,9 @@ const resumeTargetOf = (status: string | null): ResumeTarget | null =>
 function goalOf(config: RunConfig): SessionGoalDraft {
   return {
     courseId: config.plan?.courseId ?? null,
-    comparisonSessionId: null,
+    comparisonSessionId: config.plan?.courseId
+      ? config.comparisonSessionId ?? null
+      : null,
     targetDistanceM: config.goalDistanceM,
     targetDurationSec: null,
     targetPaceSecPerKm: config.goalPaceSecPerKm,
