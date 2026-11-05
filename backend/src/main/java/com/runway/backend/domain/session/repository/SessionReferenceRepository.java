@@ -245,6 +245,42 @@ public class SessionReferenceRepository {
                 groupRunId);
     }
 
+    /**
+     * G10 실시간 순위용 읽기 전용 조회. 모든 참가자를 가입 순서로 돌려주고, 세션별로 누적 거리가 있는 가장 최근 <b>허용 시각
+     * 이하</b> 측정 표본(W07) 하나만 읽는다. {@code measuredAtCeiling}보다 미래인 표본은 고르지 않아 이후 정상 표본이 가려지지
+     * 않게 한다. 연결 세션이 없거나 삭제 표시된 세션, 유효 표본이 없는 세션의 값은 null이다. 쓰기·잠금을 하지 않는다.
+     *
+     * @param measuredAtCeiling 보통 {@code now + MEASURED_AT_FUTURE_SKEW}
+     */
+    public List<GroupLiveRow> findGroupLiveRows(long groupRunId, Instant measuredAtCeiling) {
+        return jdbc.query(
+                """
+                SELECT p.user_id, s.status::text AS session_status, s.started_at,
+                       m.total_distance, m.measured_at
+                FROM group_run_participants p
+                LEFT JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
+                LEFT JOIN LATERAL (
+                    SELECT rms.total_distance, rms.measured_at
+                    FROM running_metric_samples rms
+                    WHERE rms.running_session_id = s.id
+                      AND rms.total_distance IS NOT NULL
+                      AND rms.measured_at <= ?
+                    ORDER BY rms.measured_at DESC, rms.id DESC
+                    LIMIT 1) m ON TRUE
+                WHERE p.group_run_id = ?
+                ORDER BY p.joined_at, p.id
+                """,
+                (rs, n) ->
+                        new GroupLiveRow(
+                                rs.getLong("user_id"),
+                                rs.getString("session_status"),
+                                toInstant(rs, "started_at"),
+                                rs.getBigDecimal("total_distance"),
+                                toInstant(rs, "measured_at")),
+                Timestamp.from(measuredAtCeiling),
+                groupRunId);
+    }
+
     public Optional<CoachingGuideRow> findCoachingGuide(long sessionId, long coachingId) {
         return jdbc
                 .query(
@@ -320,6 +356,13 @@ public class SessionReferenceRepository {
             BigDecimal averagePace,
             Boolean goalAchieved,
             String startResult) {}
+
+    public record GroupLiveRow(
+            long userId,
+            String sessionStatus,
+            Instant startedAt,
+            BigDecimal totalDistance,
+            Instant measuredAt) {}
 
     public record CoachingGuideRow(BigDecimal recommendedPace, Instant expiresAt) {}
 
