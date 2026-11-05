@@ -20,7 +20,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 서버 더미 코칭 발행과 S02 coaching 노출 — 작업 계획 AC-9·AC-10. 모든 값은 합성 데이터다. */
+/**
+ * 서버 코칭 발행과 S02 coaching 노출 — 257 작업 계획 AC-9·AC-10. 421부터 추천은 AI04 대역({@code FakePaceDecider}: 기준 페이스 유지·BPM
+ * 160)이 만든다. 모든 값은 합성 데이터다.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @Testcontainers
@@ -45,7 +48,6 @@ class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
     @Test
     void 시작_2분_뒤_코칭과_COACHING_명령을_한_건_만든다() {
         long sessionId = dueSession();
-        jdbc.update("UPDATE running_sessions SET current_bpm=170 WHERE id=?", sessionId);
 
         SessionControlEvent command = service.issueIfDue(sessionId).orElseThrow();
 
@@ -57,15 +59,17 @@ class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
                         FROM coaching_decisions WHERE session_id=?
                         """,
                         sessionId);
-        assertThat(decision.get("recommended_pace").toString()).isEqualTo("360.00");
-        assertThat(((Number) decision.get("cue_bpm")).intValue()).isEqualTo(170);
+        // 계획·목표·적용 코칭이 없으면 최근 60초 실측 평균(2.5m/s = 400초/km)이 기준 페이스다.
+        assertThat(decision.get("recommended_pace").toString()).isEqualTo("400.00");
+        assertThat(((Number) decision.get("cue_bpm")).intValue()).isEqualTo(160);
         assertThat(((Number) decision.get("based_on_state_version")).longValue()).isEqualTo(2);
         assertThat(((Number) decision.get("elapsed_duration")).intValue()).isBetween(179, 200);
-        assertThat(((Number) decision.get("valid_sec")).doubleValue()).isEqualTo(20.0);
+        // 만료 = min(생성 + 20초, 입력 기준시각 + 20초). 마지막 표본이 막 측정됐으므로 20초에 가깝다.
+        assertThat(((Number) decision.get("valid_sec")).doubleValue()).isBetween(15.0, 20.0);
         assertThat(command.getAction().name()).isEqualTo("COACHING");
         assertThat(command.getDeviceId()).isEqualTo(watchId);
         assertThat(command.getExpectedVersion()).isEqualTo(2);
-        assertThat(command.getTargetBpm()).isEqualTo(170);
+        assertThat(command.getTargetBpm()).isEqualTo(160);
         assertThat(command.getResult().name()).isEqualTo("PENDING");
         // 코칭 생성 자체는 버전을 바꾸지 않는다.
         assertThat(stateVersion(sessionId)).isEqualTo(2);
@@ -75,7 +79,7 @@ class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
     }
 
     @Test
-    void 계획_페이스가_있으면_계획_페이스와_기본_BPM_160을_쓴다() {
+    void 계획_페이스가_있으면_계획_페이스를_기준_페이스로_보낸다() {
         long sessionId = dueSession();
         jdbc.update(
                 "INSERT INTO pace_plans(session_id,recommended_pace,created_at) VALUES (?,330.50,now())",
@@ -215,7 +219,7 @@ class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
                 .andExpect(jsonPath("$.coaching.coachingId").value(command.getCoachingId()))
                 .andExpect(jsonPath("$.coaching.expectedVersion").value(2))
                 .andExpect(jsonPath("$.coaching.targetBpm").value(160))
-                .andExpect(jsonPath("$.coaching.recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.coaching.recommendedPaceSecPerKm").value(400.0))
                 .andExpect(jsonPath("$.coaching.expiresAt").exists())
                 .andExpect(jsonPath("$.pendingCommand.coachingGuide.commandId").value(command.getId()));
     }

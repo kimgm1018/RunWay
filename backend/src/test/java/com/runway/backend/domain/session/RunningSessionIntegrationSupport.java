@@ -6,10 +6,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
+import com.runway.backend.domain.coaching.decide.FakePaceDecider;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>하위 테스트 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다. 서버는 JVM 종료 시
  * Testcontainers가 정리한다. 클래스마다 내렸다 올리면 캐시된 컨텍스트가 닫힌 포트를 가리킨다.
  */
+@Import(FakePaceDecider.Config.class)
 abstract class RunningSessionIntegrationSupport {
 
     static final SharedPostgres.Database DATABASE =
@@ -37,6 +40,7 @@ abstract class RunningSessionIntegrationSupport {
 
     @Autowired protected MockMvc mockMvc;
     @Autowired protected JdbcTemplate jdbc;
+    @Autowired protected FakePaceDecider paceDecider;
 
     protected long userId;
     protected long otherUserId;
@@ -48,7 +52,9 @@ abstract class RunningSessionIntegrationSupport {
 
     @BeforeEach
     void resetData() {
+        paceDecider.reset();
         jdbc.update("DELETE FROM posts");
+        jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM session_control_events");
         jdbc.update("DELETE FROM coaching_decisions");
         jdbc.update("DELETE FROM pace_plan_segments");
@@ -278,6 +284,26 @@ abstract class RunningSessionIntegrationSupport {
                 "UPDATE running_sessions SET started_at = now() - make_interval(secs => ?) WHERE id=?",
                 (double) seconds,
                 sessionId);
+        insertFreshSamples(sessionId, seconds);
+    }
+
+    /**
+     * AI04 입력용 합성 측정 표본. 최근 25초 동안 5초마다 심박 150·속도 2.5m/s(기준 페이스 400초/km)를 넣는다. 마지막 표본은 지금 측정됐다.
+     */
+    protected void insertFreshSamples(long sessionId, long elapsedSec) {
+        for (int i = 5; i >= 0; i--) {
+            long elapsed = Math.max(0, elapsedSec - i * 5L);
+            jdbc.update(
+                    """
+                    INSERT INTO running_metric_samples(running_session_id,measured_at,elapsed_duration,heart_rate,
+                                                       speed,total_distance,is_hr_measured)
+                    VALUES (?, now() - make_interval(secs => ?), ?, 150, 2.5, ?, true)
+                    """,
+                    sessionId,
+                    (double) (i * 5),
+                    elapsed,
+                    elapsed * 2.5);
+        }
     }
 
     /** 합성 코칭 추천과 COACHING 명령. 만료는 생성 후 20초. */

@@ -1,11 +1,14 @@
 package com.runway.backend.domain.session.repository;
 
+import com.runway.backend.domain.coaching.decide.CoachingSource;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -67,12 +70,117 @@ public class SessionCoachingRepository {
         }
     }
 
-    /** 새 추천을 저장하고 ID를 돌려준다. 기준 버전과 만료시각을 함께 채운다(ck_coaching_context). */
+    /**
+     * AI04 history용 최근 측정 표본(경과초 오름차순). 최신 경과초에서 {@code windowSec} 이내만 읽는다. 심박은 실제 측정
+     * (is_hr_measured)일 때만 돌려준다.
+     */
+    public List<CoachingSource.Sample> recentSamples(long sessionId, int windowSec) {
+        return jdbc.query(
+                """
+                SELECT elapsed_duration, measured_at,
+                       CASE WHEN is_hr_measured THEN heart_rate END AS heart_rate,
+                       speed, grade, total_distance, route_progress
+                FROM running_metric_samples
+                WHERE running_session_id = ?
+                  AND elapsed_duration > (SELECT max(elapsed_duration) FROM running_metric_samples
+                                          WHERE running_session_id = ?) - ?
+                ORDER BY elapsed_duration, measured_at, id
+                """,
+                (rs, n) ->
+                        new CoachingSource.Sample(
+                                rs.getInt("elapsed_duration"),
+                                rs.getTimestamp("measured_at").toInstant(),
+                                doubleOrNull(rs.getBigDecimal("heart_rate")),
+                                doubleOrNull(rs.getBigDecimal("speed")),
+                                doubleOrNull(rs.getBigDecimal("grade")),
+                                doubleOrNull(rs.getBigDecimal("total_distance")),
+                                doubleOrNull(rs.getBigDecimal("route_progress"))),
+                sessionId,
+                sessionId,
+                windowSec);
+    }
+
+    /** 워치에 적용(APPLIED)된 마지막 코칭과 그 추천 페이스. */
+    public Optional<CoachingSource.AppliedCoaching> lastAppliedCoaching(long sessionId) {
+        return jdbc
+                .query(
+                        """
+                        SELECT e.coaching_id, e.applied_at, d.recommended_pace
+                        FROM session_control_events e
+                        JOIN coaching_decisions d ON d.id = e.coaching_id
+                        WHERE e.session_id = ? AND e.action = 'COACHING' AND e.result = 'APPLIED'
+                        ORDER BY e.applied_at DESC, e.id DESC LIMIT 1
+                        """,
+                        (rs, n) ->
+                                new CoachingSource.AppliedCoaching(
+                                        rs.getLong("coaching_id"),
+                                        rs.getTimestamp("applied_at").toInstant(),
+                                        rs.getBigDecimal("recommended_pace")),
+                        sessionId)
+                .stream()
+                .findFirst();
+    }
+
+    /**
+     * 러닝을 시작한 뒤 사용자가 직접 바꾼 BPM(SET_BPM)이 워치에 적용된 적이 있는지. 출발 전에 고른 BPM은 시작 BPM일 뿐이므로 세지 않는다(후속
+     * 리뷰 F-2, 2026-11-05 사용자 확정).
+     */
+    public boolean hasAppliedManualBpm(long sessionId) {
+        return Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        """
+                        SELECT EXISTS (SELECT 1 FROM session_control_events e
+                                       JOIN running_sessions s ON s.id = e.session_id
+                                       WHERE e.session_id = ? AND e.action = 'SET_BPM' AND e.result = 'APPLIED'
+                                         AND s.started_at IS NOT NULL AND e.applied_at >= s.started_at)
+                        """,
+                        Boolean.class,
+                        sessionId));
+    }
+
+    /** 마지막으로 적용된 재개 시각. */
+    public Optional<Instant> lastAppliedResume(long sessionId) {
+        Timestamp value =
+                jdbc.queryForObject(
+                        """
+                        SELECT max(applied_at) FROM session_control_events
+                        WHERE session_id = ? AND result = 'APPLIED' AND action = 'RESUME'
+                        """,
+                        Timestamp.class,
+                        sessionId);
+        return Optional.ofNullable(value).map(Timestamp::toInstant);
+    }
+
+    /** 코스 거리와 100m 경사 목록 JSON(courses.md elevationProfile). 경사가 없으면 profileJson은 null. */
+    public Optional<CourseGrade> courseGrade(long courseId) {
+        return jdbc
+                .query(
+                        "SELECT distance, elevation_profile::text AS profile FROM courses WHERE id = ?",
+                        (rs, n) ->
+                                new CourseGrade(rs.getBigDecimal("distance"), rs.getString("profile")),
+                        courseId)
+                .stream()
+                .findFirst();
+    }
+
+    public record CourseGrade(BigDecimal distanceM, String profileJson) {}
+
+    private static Double doubleOrNull(BigDecimal value) {
+        return value == null ? null : value.doubleValue();
+    }
+
+    /**
+     * AI04 추천을 예측 심박·코스 진행거리와 함께 저장하고 ID를 돌려준다. 기준 버전과 만료시각을 함께 채운다(ck_coaching_context).
+     */
     public long insertDecision(
             long sessionId,
             int elapsedDurationSec,
             BigDecimal recommendedPace,
             int cueBpm,
+            BigDecimal predictedHr30,
+            BigDecimal predictedHr60,
+            BigDecimal predictedHr120,
+            BigDecimal routeProgress,
             long basedOnStateVersion,
             Instant createdAt,
             Instant expiresAt) {
@@ -80,14 +188,19 @@ public class SessionCoachingRepository {
                 jdbc.queryForObject(
                         """
                         INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm,
-                                                       based_on_state_version,expires_at,created_at)
-                        VALUES (?,?,?,?,?,?,?) RETURNING id
+                                                       predicted_hr_30_bpm,predicted_hr_60_bpm,predicted_hr_120_bpm,
+                                                       route_progress,based_on_state_version,expires_at,created_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id
                         """,
                         Long.class,
                         sessionId,
                         elapsedDurationSec,
                         recommendedPace,
                         cueBpm,
+                        predictedHr30,
+                        predictedHr60,
+                        predictedHr120,
+                        routeProgress,
                         basedOnStateVersion,
                         Timestamp.from(expiresAt),
                         Timestamp.from(createdAt));
