@@ -113,3 +113,50 @@ jest.mock('lottie-react-native', () => {
   );
   return { __esModule: true, default: LottieView };
 });
+
+// react-native loads most of its modules lazily: index.js getters (View, Text, ScrollView, ...) and the paper
+// renderer behind findNodeHandle are required on first use. Without this, every test file's first render
+// requires and Babel-transforms about 1 MB of React Native inside that test's time limit, which under a full
+// parallel run exceeded 15–20 s (S15P31E105-477). Loading them here charges that cost to the file's setup,
+// which has no time limit. A component missing from this list still works; its first use is only slower.
+{
+  const ReactNative = require('react-native');
+  for (const name of [
+    'ActivityIndicator',
+    'Alert',
+    'Animated',
+    'AppState',
+    'BackHandler',
+    'Dimensions',
+    'Easing',
+    'FlatList',
+    'I18nManager',
+    'Image',
+    'Keyboard',
+    'KeyboardAvoidingView',
+    'Linking',
+    'Modal',
+    'NativeModules',
+    'PanResponder',
+    'Platform',
+    'Pressable',
+    'RefreshControl',
+    'ScrollView',
+    'StatusBar',
+    'StyleSheet',
+    'Text',
+    'TextInput',
+    'UIManager',
+    'View',
+    'processColor',
+    'useAnimatedValue',
+    'useWindowDimensions',
+  ]) {
+    void ReactNative[name];
+  }
+  // Animated components and Easing.bezier are lazy too, and findNodeHandle loads the 740 KB paper renderer.
+  void ReactNative.Animated.View;
+  void ReactNative.Animated.ScrollView;
+  ReactNative.Easing.bezier(0, 0, 1, 1);
+  ReactNative.findNodeHandle(null);
+}
