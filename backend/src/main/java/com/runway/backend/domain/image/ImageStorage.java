@@ -12,5 +12,7 @@ public interface ImageStorage {
 
     Optional<StoredImage> findByImageId(UUID imageId);
 
+    Optional<StoredImage> findByKey(String imageKey);
+
     record StoredImage(String imageKey, String contentType, InputStream content, long contentLength) {}
 }
