@@ -4,13 +4,15 @@
 
 | 항목 | 내용 |
 | --- | --- |
-| 관련 업무 | S15P31E105-337 |
-| 구현 | `ai/service/` |
+| 관련 업무 | S15P31E105-337, Route 계약 초안 S15P31E105-370 |
+| 구현 | AI01~09: `ai/service/`. Route는 별도 서비스이며 운영 HTTP 구현 전 |
 | 상태 | 제안, 팀 확인 전 |
 | 기준 dev | `a93cc17`, 2026-11-03 |
 | 범위 | Spring 백엔드 → AI 서버 내부 계약. 클라이언트 공개 API 아님 |
 
 내부 Spring 백엔드 전용 API다. GitLab API/ERD 계약이 정본이다. 브라우저와 모바일 앱은 AI 서버를 직접 호출하지 않는다.
+
+코스 생성은 아래 [Route 내부 HTTP 계약 초안](#route-코스-생성-내부-http-계약-초안)을 따른다. Route는 [ADR-0019](../../adr/0019-course-generation-backend.md)에 따라 HR 추론 서비스와 **별도 Python 컨테이너**이며, AI01의 모델 상태·AI05/AI09의 경사 fallback·건강정보 동의에 따른 userId 전달 규칙을 Route에 적용하지 않는다. 기존 AI01~09 계약은 유지한다.
 
 ## 공통 규약
 
@@ -487,6 +489,173 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 | AI 조회 | `user_hr_personalization` | AI09는 `userId`가 있을 때만 `user_id` 기준 최신 행의 `personalization_version`, `schema_version`, `model_version`, `support_run_count`, `summary_u_json`, `history8_json`, `p4_json`, `hr0_sub_bpm`, `hr_ref_bpm`, `hr_danger_bpm`, `hr_sustain_bpm`, `hr_threshold_run_count`, `created_at`을 조회한다. ERD V10 반영 대상이며, 현재 `schema.sql` 스냅샷에는 테이블 정의가 없음 |
 
 `schema.sql` 기준 컬럼은 `pace_plans.recommended_pace NUMERIC(10,2)`, `pace_plans.session_id BIGINT NOT NULL`, `pace_plan_segments.segment_sequence INTEGER`, `start_distance NUMERIC(12,2)`, `end_distance NUMERIC(12,2)`, `recommended_pace NUMERIC(10,2)`다. ERD V10에는 `user_hr_personalization`만 반영하고, `user_gru_personalization` 등 나머지 제안은 필요할 때 검토한다.
+
+## Route 코스 생성 내부 HTTP 계약 초안
+
+**상태: S15P31E105-370 제안, 2026-11-04. Route 담당(AI) 확인 전·운영 미구현.** 공개 계약은 [C01 생성 후속 초안](courses.md#코스-생성-후속-필요-사항)이며 클라이언트는 백엔드만 호출한다. 아래 URL·메타데이터·오류·시간 상한은 담당자와 확인한 뒤 실연동한다.
+
+### Route 서비스 경계와 URL
+
+| 항목 | 제안 |
+| --- | --- |
+| Origin | 배포에서 정하는 Route 전용 내부 주소. HR 추론 `ai/service` 주소와 분리. 호스트·포트·환경변수 신설은 배포 업무에서 확정 |
+| 생성 | `POST /internal/v1/routes/recommendations`, JSON. 이 경로는 **신규 운영용 초안**이며 현재 데모 경로가 아님 |
+| readiness | `GET /internal/v1/ready`, 준비 시 `200 {"ready":true}`, 미준비 시 `503 {"ready":false}` 제안. 모델명이 아닌 그래프·환경 데이터·필요 DEM 및 Gate 사용 가능 여부 기준. 외부 공개 없음 |
+| 호출·데이터 | 백엔드만 내부 네트워크로 호출. 회원 JWT·userId·HR·페이스·건강정보를 보내지 않음. 저장소·사용자 DB 접근과 코스 저장은 하지 않음 |
+| 공간 출력 | 경로는 WGS84 `[lat,lon]` 좌표열로만 반환. DEM 고도 목록·100m 경사·GeoJSON Z는 반환하지 않음. 후보 순위·거리와 설명 메타데이터(요약·추천 이유·주의 문구·점수·항목별 점수, 응답 전체 안내)는 아래 성공 응답으로 반환한다. 설명 문구·점수 제공은 AI 팀 회신으로 확인(2026-11-05) |
+| 책임 | Route는 생성·점수·Gate·후보 내 dedupe와 요약·추천 이유·주의 문구 생성. 백엔드는 공개 입력 검증·좌표 변환·DEM 조회·경사 계산·선택 저장. 백엔드는 설명 문구를 별도로 생성(LLM 포함)하거나 다시 쓰지 않는다. Route는 `flat` 선호 점수 계산에 DEM을 내부 사용 가능 |
+
+readiness 통과 직후에도 요청 시점에는 실패할 수 있으므로 생성 응답의 `NOT_READY`도 처리한다. 인증·내부 네트워크 통제 구현은 별도 배포 범위이며, 단순히 `/internal` 경로라는 이유로 보호됐다고 보지 않는다. 원본 GPS·본문·인증 헤더·에러 debug를 로그에 남기지 않고 상태·지연·후보 개수 등 비민감 지표만 기록한다.
+
+### Route 요청과 정규화
+
+Route 요청은 기존 데모 모델과의 변환을 줄이기 위해 **이 서비스에 한해 snake_case**를 제안한다. 위 AI01~09의 camelCase 공통 규약은 변경하지 않는다. BE는 검증·정규화한 값만 보내며 Route도 경계에서 타입·유한수·범위·커버리지를 검증한다. 잘못된 내부 입력을 공개 사용자 검증 오류로 전가하지 않는다.
+
+| C01 / 백엔드 | Route 요청 | 규칙 |
+| --- | --- | --- |
+| `latitude` / `longitude` | `lat` / `lon` | 필수 유한 number, 위도 -90~90·경도 -180~180. 생성 작업 영역이 extract에 들어오는지 별도 확인 |
+| `distanceKm` | `distance_km` | 필수 number, 1~15. Route는 기존처럼 목표 m로 환산. `target_m`을 중복 입력하지 않음 |
+| `shape` | `shape` | 필수 정규화 문자열 `loop/out_and_back/point_to_point` |
+| `endLatitude` / `endLongitude` | `end_lat` / `end_lon` | 편도에서만 두 필드를 필수 전달. 나머지 shape에서는 생략. 출발→도착 방향 보존 |
+| `seed` | `seed` | 필수 integer, 1~10,000,000. BE에서 기본 1 적용. 내부 generator의 다른 기본 seed를 사용하지 않음 |
+| `filters` | `filters` | 아래 9개 키 모두 boolean으로 명시. BE가 null·누락을 false로 정규화. 추가 키 거절 제안 |
+
+```json
+{
+  "lat": 35.1796,
+  "lon": 129.0756,
+  "distance_km": 5.0,
+  "shape": "loop",
+  "seed": 1,
+  "filters": {
+    "river": true,
+    "beach": false,
+    "park": true,
+    "trail": false,
+    "pedestrian": false,
+    "avoid_major_road": true,
+    "avoid_steps": false,
+    "avoid_tunnel": false,
+    "flat": false
+  }
+}
+```
+
+### Route 선호와 저장 태그 매핑
+
+| C01 filters 키 | Route filters 키 | 현재 Route 선호 변환 | 저장 enum과의 관계 |
+| --- | --- | --- | --- |
+| `river` | `river` | true면 강변 가중치 5 | `RIVERSIDE` 의미 대응, 실제 경로 증거 필요 |
+| `beach` | `beach` | true면 해변 가중치 5 | `BEACH` 의미 대응, 실제 경로 증거 필요 |
+| `park` | `park` | true면 공원 가중치 5 | `PARK` 의미 대응, 실제 경로 증거 필요 |
+| `trail` | `trail` | true면 트레일 가중치 5 | 대응 enum 없음 |
+| `pedestrian` | `pedestrian` | true면 보행 친화 가중치 5 | 대응 enum 없음. `URBAN`으로 치환하지 않음 |
+| `avoidMajorRoad` | `avoid_major_road` | true면 회피 가중치 5 | 대응 enum 없음 |
+| `avoidSteps` | `avoid_steps` | true면 회피 가중치 5 | 대응 enum 없음 |
+| `avoidTunnel` | `avoid_tunnel` | true면 회피 가중치 5 | 대응 enum 없음 |
+| `flat` | `flat` | true면 `difficulty=flat`, false면 `difficulty=any` | 대응 enum 없음. 저장 경사는 백엔드가 별도 계산 |
+
+false는 반대 환경 선호가 아니라 해당 조건 미사용이다. 가중치 5는 현행 `route_demo/app_runway.py::_prefs` 참고값이며 계약을 고정 점수나 조건 충족 보장으로 해석하지 않는다. 저장 enum 정본은 `PARK/RIVERSIDE/URBAN/BEACH/TRACK`이다. 입력 선호·설명 문구로 태그를 자동 저장하거나 `URBAN/TRACK`을 추정하지 않는다. 실제 경로 기반 태깅 자료·임계값은 후속 합의이며 이 초안은 feature 벡터·환경 비율을 반환하도록 요구하지 않는다.
+
+### Route 성공 응답과 좌표 변환
+
+`200`의 최소 허용 필드는 아래와 같다. 후보 수는 1~3개이며 Gate `enforce` 통과 후보만 반환한다. 0개는 `NO_ROUTE` 오류다. 총점과 항목별 점수는 아래 필드로 반환하며, OSM edge/node ID·`candidate_id`·feature 벡터·`details`·raw DEM(`elevation_profile_m`)·디버그는 반환하지 않는 안이다.
+
+| 내부 필드 | 타입·조건 | 백엔드 공개 응답 조합 |
+| --- | --- | --- |
+| `routes` | array, 1~3개, 순위 오름차순 | `courses`로 변환. 같은 좌표열을 복제해 3개를 채우지 않음 |
+| `routes[].rank` | integer, 1부터 연속 | 공개 `index=rank-1`. 영속 ID로 사용하지 않음 |
+| `routes[].coords` | number[][], 2D `[lat,lon]` 2점 이상 | 각 `[lat,lon]`을 `[lon,lat]`으로 한 번 교환해 GeoJSON `LineString` 생성. 점·방향 보존 |
+| `routes[].distance_m` | 양의 유한 number | `distanceM`, 소수 둘째 자리 반올림. 목표 대비 ±10% 이내 확인. 경로 좌표와의 길이 일치 오차는 공개 초안의 미확정 사항 참조 |
+| `routes[].summary` | string, 비어 있지 않음 | 공개 `summary`. 한 줄 요약(예: "강변을 많이 지나는 코스예요.") |
+| `routes[].reasons` | string[], 빈 배열 허용 | 공개 `reasons`. 추천 이유 목록(예: "강변 구간이 40%예요"). 현행 데모는 최대 4개 |
+| `routes[].caveats` | string[], 빈 배열 허용 | 공개 `caveats`. 주의 문구(예: "계단이 1곳 있어요") |
+| `routes[].score` | 유한 number | 공개 `score`. 규칙 기반 총점이며 `score_terms[].contribution`의 합 |
+| `routes[].score_terms` | object[], 빈 배열 허용 | 공개 `scoreTerms`. 각 항목 `term`(string)·`label`(string)·`group`(string)·`feature_value`(유한 number)·`weight`(유한 number)·`contribution`(유한 number)을 camelCase로 바꿔 전달. 평지 선호 점수 `difficulty_flat` 포함 |
+| `notices` | string[], 빈 배열 허용 | 공개 `notices`. 응답 전체 안내(예: "이 주변은 공원 정보가 일부만 있어요"). 스냅·후보 부족·선호 정보 부족 안내 포함 |
+| `next_seed` | integer, 요청 seed+24 | `nextSeed`. 상한 초과 시 더 보기 중단, 요청 입력 상한은 유지 |
+
+예: 내부 `coords=[[35.1796,129.0756],[35.1803,129.0786]]`는 공개 `coordinates=[[129.0756,35.1796],[129.0786,35.1803]]`로 변환한다. 단순 배열 뒤집기로 경로 진행 방향을 바꾸지 않는다.
+
+백엔드는 null·NaN/Infinity·축 범위·2D·점 수·후보 수/순위·중복 후보·거리 허용 범위·next_seed·필수 문자열/배열 타입을 검사한다. `loop/out_and_back`의 폐곡선, 스냅된 시작·편도 도착이 요청점에서 최대 250m 이내인지도 확인한다. 4개 후보·좌표축 뒤바뀜·잘못된 거리 등 한 항목이라도 틀리면 전체를 `ROUTE_INVALID_RESPONSE`로 처리하고 잘못된 일부를 버려 성공시키지 않는다. 크기 상한은 아래 표를 따르며, 넘으면 `ROUTE_INVALID_RESPONSE`로 처리한다. 무제한 버퍼링은 허용하지 않는다.
+
+#### Route 응답 크기 상한
+
+2026-11-05 AI 팀 제안 값이다. 실측 최대는 요약 35자, 좌표 576점, 응답 41KB였다.
+
+| 항목 | 상한 |
+| --- | --- |
+| 응답 본문 | 256KB. 백엔드는 이 크기를 넘게 읽지 않음 |
+| 후보별 `coords` | 3,000점 |
+| `summary` | 100자 |
+| `reasons`·`caveats`(후보별), `notices`(응답 전체) | 각 6개. 문구 1개당 100자(백엔드 제안, AI 팀 확인 필요) |
+| `score_terms` | 20개(백엔드 제안, AI 팀 확인 필요. 현행 최대 13개 수준) |
+
+**설명 문구 생성 주체는 Route다.** AI 팀 회신(2026-11-05)에 따라 현행 `runway_routing/explain.py`가 만드는 `summary`·`reasons`·`caveats`와 `scorer.py`의 `score`·`terms`(데모 응답 `score_terms`), 응답 전체 `notices`를 그대로 받는다. 2026-11-04에 정한 "백엔드 LLM 추천 이유 생성" 안은 폐기한다. 백엔드는 문구를 일반 텍스트로만 전달하고 번역·재작성·HTML 해석을 하지 않는다. `score_terms[].term`은 열린 문자열 집합이다(현행 예: `distance_fit`, `river`, `avoid_major_road`, `difficulty_flat`, `repeated_edge_penalty`, `running_suitability`). 백엔드는 알 수 없는 `term`을 오류로 보지 않으며, 항목 타입·유한수만 검사한다. 점수는 같은 요청 안의 후보 설명용이며 선호·모드에 따라 가중치가 달라지므로 요청 간 비교·저장·백엔드 재정렬에 쓰지 않는다. 순위는 `rank`를 따른다. 편도·왕복의 `shape_notes`, `turnaround`, `start/end` 스냅 정보는 이번 초안 반환 필드가 아니며 필요하면 별도 합의한다.
+
+모든 후보가 검증되면 백엔드가 DEM 조회와 공개 계약의 100m `elevationProfile`을 Route 설명·점수와 조합한다. 생성 호출·DEM 처리를 DB 쓰기 트랜잭션이나 잠금 안에서 수행하지 않는다. C01 자체에는 DB 쓰기가 없으며, 선택 저장은 별도 검증·짧은 저장 트랜잭션의 책임이다. 후보 응답의 고도·경사·환경 태그를 클라이언트가 조작해 저장하는 경로를 만들지 않는다.
+
+### Route 오류 매핑
+
+운영용 오류는 non-2xx와 `{code,message,details}`를 제안한다. readiness만 위 probe 전용 형식이다. 허용 목록에 없는 내부 code·HTTP 조합, 파싱 실패, **HTTP 200인데 오류 본문**은 `ROUTE_INVALID_RESPONSE`로 취급한다. 내부 요청의 400/422는 BE 어댑터 결함 또는 계약 불일치이므로 공개 400으로 그대로 전달하지 않는다.
+
+| 내부 HTTP·code / 장애 | 공개 HTTP·code | 공개 `details.reason` |
+| --- | --- | --- |
+| 422 `OUT_OF_AREA`, `OUT_OF_APP_RANGE` | 422 `INVALID_SEARCH` | 같은 reason |
+| 422 `NO_ROAD_NEARBY` | 422 `INVALID_SEARCH` | `NO_ROAD_NEARBY` |
+| 422 `DESTINATION_TOO_FAR` | 422 `INVALID_SEARCH` | `DESTINATION_TOO_FAR` |
+| 422 `END_SNAP_PE1/PE2/PE4/PE5` | 422 `INVALID_SEARCH` | `NO_ROAD_NEARBY` (도착점 안내 message) |
+| 422 `NO_ROUTE`, `USABILITY_GATE_ALL_FAILED` | 422 `INVALID_SEARCH` | `NO_ROUTE` |
+| 503 `NOT_READY` | 503 `SERVICE_UNAVAILABLE` | `ROUTE_NOT_READY` |
+| 503 `BUSY` | 503 `SERVICE_UNAVAILABLE` | `ROUTE_BUSY` |
+| 503 `TIMEOUT` 또는 BE의 전체 HTTP deadline 초과 | 503 `SERVICE_UNAVAILABLE` | `ROUTE_TIMEOUT` |
+| 500 `INTERNAL`, `SAFETY_CHECK`, `SNAP_NODE_NOT_IN_GENERATION_GRAPH`; 503 `UNAVAILABLE`; 연결 실패 | 503 `SERVICE_UNAVAILABLE` | `ROUTE_UNAVAILABLE` |
+| 내부 400/그 밖의 422, 잘못된/알 수 없는 응답 | 503 `SERVICE_UNAVAILABLE` | `ROUTE_INVALID_RESPONSE` |
+
+`DESTINATION_TOO_FAR` 내부 `details`에는 `min_target_km`, `alternatives_from_km`(허용할 경우 유한 양수)을 제안하지만, 공개 v1 초안은 reason만 노출한다. 최소 거리 안내를 공개 필드로 늘리는 것은 FE 확인 후 별도 확정한다. 백엔드는 상류의 자유 형식 message/debug/details를 그대로 반사하지 않는다. 500·503·502/504 등 proxy 오류의 미등록 조합도 상류 계약 오류로 처리하고 원본 본문을 노출하지 않는다.
+
+위 표는 Route 호출 오류의 매핑이다. Route 성공 후 DEM 미준비는 공개 `503 SERVICE_UNAVAILABLE/GRADE_NOT_READY`, 처리 중 확인된 DEM I/O·의존 데이터 접근 실패는 `503 SERVICE_UNAVAILABLE/GRADE_UNAVAILABLE`로 구분한다. **백엔드 C01 전체 20초 예산이 먼저 소진되면 단계에 관계없이 `503 SERVICE_UNAVAILABLE/GENERATION_TIMEOUT`**이며 고정 message는 `코스 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.`다. 반면 Route HTTP 15초가 먼저 소진되면 위 `ROUTE_TIMEOUT`을 사용한다. 상세·시간 순서 예시는 [공개 실패 초안](courses.md#실패와-시간-예산-초안)을 따른다. 이 두 백엔드 경사/전체 예산 실패를 정상 Route 응답 오류로 분류하지 않는다.
+
+### Route 시간 예산·동시성과 재시도
+
+[공개 시간 예산](courses.md#실패와-시간-예산-초안)의 12/15/20/25/30초 제안과 함께 적용한다. Route는 대기를 포함한 요청 처리 전체 12초를 넘기지 않는 안이다. 리눅스 실측 최악 처리 시간은 4.5초다(2026-11-05 AI 팀). 단일 프로세스에서 현재 pipeline은 thread-safe하지 않으므로 동일 인스턴스 병렬 실행을 허용하지 않으며, 계산 중간 취소는 어렵다. 그래서 아래처럼 늦게 끝날 계산을 처음부터 시작하지 않는다.
+
+| 규칙 | 내용 |
+| --- | --- |
+| 대기열 | 실행 1건 + 대기 1건까지만 받는다. 그 이상은 즉시 `503 BUSY`(AI 팀 제안) |
+| 시작 조건 | Route가 요청을 받은 시각부터 12초 예산을 센다. 대기 후 계산을 시작하는 시점에 남은 예산이 **6초**(실측 최악 4.5초 + 여유) 미만이면 시작하지 않고 `503 TIMEOUT`. AI 팀은 "deadline이 지났으면 TIMEOUT"을 제안했고, 시작 후 BE 15초 이후에 끝나는 낭비 계산을 막기 위해 백엔드가 남은 예산 기준을 보완 제안했다(AI 팀 확인 필요) |
+| 실행 중 | 시작한 계산은 끝까지 실행한다. BE가 15초에 포기한 뒤 끝난 결과는 버린다. 시작 조건으로 이런 경우를 줄인다 |
+
+작업 슬롯이 1개이므로 처리량은 약 4.5초당 1건이다. MVP 기준으로 두고, worker 수·메모리 상한은 배포/최적화 담당(S15P31E105-380·381)과 동시 요청 실측 후 정한다.
+
+BE→Route는 연결 최대 1초를 포함한 **전체 호출 15초**, C01은 DEM·직렬화 포함 전체 20초 제안이다. 단순 socket read timeout만 설정해 전체 deadline을 대신하지 않는다. 실행 중인 동기 CPU 작업이 즉시 취소된다고 가정하지 않으며, 위 대기열·시작 조건으로 남는 계산을 제한한다. 현행 데모 lock만으로는 대기열 상한과 시작 조건이 없으므로 운영 Route에서 구현·검증해야 한다.
+
+C01 전체 deadline에서는 부분 후보를 반환하지 않는다. 백엔드는 남은 Route/DEM 작업 취소·점유 자원 회수를 처리하고 늦은 결과를 폐기하며, 정상 응답 직렬화 전에도 남은 예산을 확인해야 한다. 이미 실행 중인 작업이 즉시 멈춘다고 가정하지 않고 이 경로를 별도 검증한다. 실패 후 자동 재호출·후보 저장·백그라운드 저장은 하지 않는다.
+
+BE 자동 재시도는 **0회**다. `NOT_READY/BUSY/TIMEOUT/500/연결 실패` 모두 같은 공개 요청에서 재호출하지 않는다. readiness 재확인으로 본 요청을 무한 대기시키지 않는다. Route/DEM 미준비 시 스텁·평지·다른 생성기로 자동 fallback하지 않는다. 사용자가 다시 요청할 수 있으나 기존 실행이 남을 수 있어 admission 제한이 필요하다. 생성 주체 전환은 ADR-0019의 합의·검증 후 어댑터를 교체하는 별도 작업이다.
+
+### Route 현행 데모와의 차이·담당 확인
+
+근거는 기준 dev `b992b9e`의 `ai/workspace/seongyun/route/route_demo/app_runway.py` 및 `ROUTE_TECHNICAL_GUIDE.md` 2·14·17·20절이다. `analysis/runway_route_api.py`는 과거 후보 생성 진입점이며 현재 TOP3 HTTP 데모 계약으로 혼동하지 않는다.
+
+| 구분 | 현재 데모 | 이번 운영용 제안 |
+| --- | --- | --- |
+| URL·probe | `/api/recommend`, `/api/status` | 별도 origin의 `/internal/v1/routes/recommendations`, `/internal/v1/ready` |
+| 입력 | snake_case, 자체 기본값·Pydantic 모델 | 위 표로 명시적으로 정규화·검증된 내부 요청 |
+| 성공·고도 | `ok`, routes·reasons·scores/features/edges·`elevation_profile_m`·debug 등 | 위 routes·summary/reasons/caveats·score/score_terms·notices·next_seed. 고도/경사·식별자·features/details/edges·debug 제외 |
+| 오류 | 다수 HTTP 200 `{ok:false,error:...}`, 일부 500/503 | non-2xx 오류 표, 원본 debug 미노출 |
+| 실행 제한 | pipeline lock으로 직렬화. 대기·전체 deadline을 보장하지 않음 | 실행 1건·대기 1건, 남은 예산 6초 미만이면 시작 전 TIMEOUT, 12초 처리 상한 검증 필요 |
+| 경사 | DEM 프로파일을 응답할 수 있음 | 백엔드가 고도 조회·100m 경사 계산. Route는 평지 선호 계산만 내부 사용 |
+
+Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 회신으로 설명·점수 메타데이터 범위를 확인했다. C01 응답에 후보별 `summary`(한 줄 요약)·`reasons`(추천 이유)·`caveats`(주의 문구)·`score`/`score_terms`(총점과 평지 점수를 포함한 항목별 점수), 응답 전체 `notices`를 추가하며, 추천 이유는 Route가 이미 생성해 제공할 수 있다. 같은 날 추가 회신으로 다음을 협의했다.
+
+- 크기 상한: 위 [응답 크기 상한](#route-응답-크기-상한) 표. 문구 1개당 길이와 `score_terms` 개수는 백엔드 제안이라 확인 필요.
+- 시간: 실측 최악 4.5초, 실행 1건·대기 1건과 시작 전 TIMEOUT 방식. 남은 예산 6초 기준은 백엔드 보완 제안이라 확인 필요.
+- 왕복 반환점(`turnaround`): 화면 표시가 필요해지면 그때 추가.
+- 서비스 지역: 백엔드 부산 사각형 검증 대신 Route `OUT_OF_AREA` 기준.
+- 전국 확장: MVP는 부산으로 가고, 지역별 데이터 선택·결과 확인은 이후 [S15P31E105-433](https://ssafy.atlassian.net/browse/S15P31E105-433)에서 진행.
+
+남은 확인 항목은 URL/본문, shape별 오류 매핑, Gate enforce·snap·거리 기준, 위 두 가지 보완 제안이다. “경로만 반환”은 공간 데이터가 coords뿐이라는 안이다. 실제 확인자·일자·합의/수정 내용을 남기기 전 Jira 370의 담당 확인 완료 조건은 충족하지 않는다. 이 문서 리뷰용 AI 에이전트 검토를 Route 담당자의 확인으로 대신하지 않는다.
 
 ## DB 대응 요약
 
