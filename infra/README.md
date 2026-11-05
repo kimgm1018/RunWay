@@ -62,7 +62,7 @@
   Jenkins Secret text `runway-hf-read-token`을 등록한다. 모델은 버전별 읽기 전용 폴더에 두며 이미지·Git에 넣지 않는다.
 - AI DB 계정은 EC2에서 `sudo python3 <prepare_db.py 경로> --container <DB 컨테이너> --secret-file <Secret 경로>`로 준비한다.
   `AI_DB_URL_FILE`로 파일 경로만 전달한다. 계정은 CONNECT·USAGE·courses SELECT만 먼저 받고,
-  배포 시 `grant-readonly.sh`가 먼저 running_sessions SELECT(AI09 속도 보정 v_ref, 기다리지 않음)를 주고, V10 완료 후 user_hr_personalization SELECT를 추가한다. user_gru_personalization과 미래 테이블 전체 권한은 제외한다.
+  배포 시 `grant-readonly.sh`가 먼저 running_sessions SELECT(AI09 속도 보정 v_ref·목표 심박 이력, 기다리지 않음)를 주고, V10 완료 후 user_hr_personalization SELECT를 추가한다. user_gru_personalization과 미래 테이블 전체 권한은 제외한다.
   변수·기능 기본값은 [예시](ai/.env.example), API·모델 계약은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
 
 ## 적용 순서

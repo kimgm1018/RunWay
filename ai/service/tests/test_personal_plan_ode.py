@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from app.target_calibration import DEFAULT_GLOBAL_RATIO
 from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.policy.config import load_policy_config
@@ -234,7 +235,8 @@ def test_goal_free_plan_uses_learned_sustain_threshold_and_source(danger, sustai
 
     # 목표가 없을 때 나이·RHR 기준 대신 모집단과 개인 P85를 섞은 지속값을 강도 목표로 쓴다.
     # 위험 기준 +3(v6_8 (b))은 지속 기준에는 더하지 않으므로 계획 목표는 바뀌지 않는다.
-    assert selection.hr_reference_bpm == pytest.approx(expected)
+    # S15P31E105-377: 지난 러닝 평균 심박이 없으면(n=0) 목표 = 일반화 비율 0.9422 × 섞은 P85.
+    assert selection.hr_reference_bpm == pytest.approx(DEFAULT_GLOBAL_RATIO * expected)
     assert selection.hr_reference_source == source
 
 
@@ -385,6 +387,12 @@ _BEFORE_BUDGET = {
 }
 
 
+def _target_calibration_off(monkeypatch):
+    # _BEFORE_BUDGET은 목표 심박 보정(S15P31E105-377) 전 값이다. 비율 1.0·k=inf면 예전과 bit 단위로 같아야 한다.
+    monkeypatch.setenv("PERSONAL_PLAN_TARGET_HR_GLOBAL_RATIO", "1.0")
+    monkeypatch.setenv("PERSONAL_PLAN_TARGET_HR_K", "inf")
+
+
 def _grades(distance, kind):
     return ((0, distance, 0),) if kind == 1 else ((0, distance // 2, 3), (distance // 2, distance, -2))
 
@@ -396,6 +404,7 @@ def test_short_courses_are_unchanged_by_the_search_budget(distance, kind, monkey
     monkeypatch.setenv("PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN", "false")
     # _BEFORE_BUDGET은 속도 보정층 도입 전 값이다. s=1.0이면 예전과 bit 단위로 같아야 한다.
     monkeypatch.setenv("PERSONAL_PLAN_SPEED_CALIB_SCALE", "1.0")
+    _target_calibration_off(monkeypatch)
     selection = OdeBalancedPaceOptimizer().select(
         course=_course(distance, grades=_grades(distance, kind)), goal=None,
         personalization=_bundle(), ode_runtime=RecordingOdeRuntime(),
@@ -499,6 +508,7 @@ def test_first_segment_cap_leaves_plans_without_a_fast_first_km_unchanged(distan
     # 후처리 방식: 첫 km가 이미 나머지 평균보다 느리거나 같으면 계획은 그대로다.
     monkeypatch.delenv("PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN", raising=False)
     monkeypatch.setenv("PERSONAL_PLAN_SPEED_CALIB_SCALE", "1.0")  # 보정층 도입 전 값과 비교
+    _target_calibration_off(monkeypatch)
     selection = OdeBalancedPaceOptimizer().select(
         course=_course(distance, grades=_grades(distance, kind)), goal=None,
         personalization=_bundle(), ode_runtime=RecordingOdeRuntime())

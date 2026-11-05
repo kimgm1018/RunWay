@@ -24,6 +24,7 @@ from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.policy.config import load_policy_config
 from app.policy.hr_reference import blend_hr_thresholds
+from app import target_calibration
 from app.schemas import CamelModel
 from app.planner import prerun_planner
 from app.population_bundle import EMPTY_MODE_POLICY_VERSION, PopulationBundle
@@ -131,6 +132,9 @@ class UserPersonalizationSnapshot:
     hr_danger_bpm: float | None = None
     hr_sustain_bpm: float | None = None
     hr_threshold_run_count: int | None = None
+    # AI09 목표 심박 보정(S15P31E105-377, app/target_calibration.py): 지난 러닝 평균 심박 최근 20회 중앙값과 회수.
+    target_hr_history_median_bpm: float | None = None
+    target_hr_history_run_count: int = 0
     warnings: tuple[str, ...] = ()
     # 평균 묶음으로 계획할 때만: median_bundle 또는 empty(G0). 개인 묶음이면 None.
     population_mode: str | None = None
@@ -565,6 +569,8 @@ class OdeBalancedPaceOptimizer:
             personal_sustain_bpm=personalization.hr_sustain_bpm,
             run_count=personalization.hr_threshold_run_count,
         )
+        # S15P31E105-377: 계획 목표(sustain_bpm)만 보정 비율 × P85로 바꾼다. 위험 기준은 그대로다.
+        ref = target_calibration.calibrate_reference(ref, personalization)
         lower, upper = _TRAIN_SPEED_QUANTILES_MPS[0], _TRAIN_SPEED_QUANTILES_MPS[-1]
         grid = np.unique(np.round(np.concatenate((
             np.arange(lower, upper, _SPEED_SEARCH_GRID_STEP_MPS, dtype=np.float64),
@@ -889,6 +895,7 @@ class OdeBalancedPaceOptimizer:
         if final_deviation > self.policy_config.band_bpm:
             warning_set.append("HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN")
         warning_set.append(f"PACE_SEARCH_SUPPORT={support_source}")
+        warning_set.extend(target_calibration.calibration_warnings(personalization))
         boundary_hit = any(
             min(abs(speed - float(grid[0])), abs(speed - float(grid[-1]))) <= 1e-6
             for speed in best[5]
@@ -1040,6 +1047,13 @@ def build_personal_plan(
             hr_threshold_run_count=user_thresholds[2],
             population_mode=population_mode, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
         population_kind = population_mode
+
+    # S15P31E105-377: 목표 심박 개인 비율용 지난 러닝 평균 심박(running_sessions). 실패는 경고만 남긴다.
+    if can_personalize or population_kind is not None:
+        personalization, history_warning = target_calibration.attach_target_hr_history(
+            personalization, personalization_lookup, body.user_id, cutoff=datetime.now(timezone.utc))
+        if history_warning:
+            course_warnings.append(history_warning)
 
     # S15P31E105-403: 목표 없는 요청은 온보딩 러닝 프로필 기준을 쓴다(app/runner_baseline.py). ODE는 목표 없이
     # 한 번만 풀고, 그 구간 pace에 공통 배율을 곱해 섞은 완주시간에 맞춘다(목표 경로와 같은 finalize 재사용).

@@ -24,6 +24,7 @@ from app.personal_plan import CoursePlanSnapshot, UserPersonalizationSnapshot
 from app.planner import prerun_planner
 from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_RECENT_RUNS, SPEED_REF_VALID_RANGE_MPS,
                                    speed_ref_from_runs)
+from app.target_calibration import HISTORY_UNAVAILABLE_WARNING, history_from_rows, history_query_params
 
 log = logging.getLogger("runway.ai")
 
@@ -61,6 +62,21 @@ WHERE user_id = %(user_id)s
 ORDER BY ended_at DESC, id DESC
 LIMIT %(limit)s"""
 SPEED_REF_UNAVAILABLE_WARNING = "SPEED_REF_LOOKUP_UNAVAILABLE"
+
+# AI09 목표 심박 개인 비율(S15P31E105-377): 같은 완료 러닝의 평균 심박. 조건은 app/target_calibration.py
+# (HISTORY_ELAPSED_RANGE_SEC, HISTORY_MIN_DISTANCE_M, HISTORY_HR_RANGE_BPM)와 같다. 권한은 402 running_sessions SELECT.
+TARGET_HR_HISTORY_SQL = """SELECT average_heart_rate, elapsed_duration, total_distance
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+  AND ended_at <= %(cutoff)s
+  AND average_heart_rate BETWEEN %(min_hr)s AND %(max_hr)s
+  AND elapsed_duration BETWEEN %(min_elapsed_sec)s AND %(max_elapsed_sec)s
+  AND total_distance >= %(min_distance_m)s
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
 
 HR_THRESHOLD_COLUMNS = ("user_id", "personalization_version", "hr_danger_bpm", "hr_sustain_bpm",
                         "hr_threshold_run_count")
@@ -353,9 +369,19 @@ class DbUserPersonalizationLookup:
         value, count = speed_ref_from_runs(rows or [])
         return value, count, None
 
+    def get_target_hr_history(self, user_id: int, *, cutoff: datetime) -> tuple[float | None, int, str | None]:
+        """(평균 심박 중앙값, 러닝 수, 경고). 조회 실패는 계획을 막지 않고 n=0(일반화 비율)으로 둔다."""
+        try:
+            rows = self.db.fetch_all(TARGET_HR_HISTORY_SQL, history_query_params(user_id, cutoff))
+        except DatabaseUnavailable:
+            return None, 0, HISTORY_UNAVAILABLE_WARNING
+        median, count = history_from_rows(rows or [])
+        return median, count, None
+
 
 __all__ = ["MISSING_RELATION_SQLSTATES", "COURSE_SQL", "HR_THRESHOLD_COLUMNS", "HR_THRESHOLD_SQL",
            "PERSONALIZATION_SQL", "PERSONALIZATION_TABLE", "SPEED_REF_SQL", "SPEED_REF_UNAVAILABLE_WARNING",
+           "TARGET_HR_HISTORY_SQL",
            "GRU_PERSONALIZATION_COLUMNS", "GRU_PERSONALIZATION_SQL", "GRU_PERSONALIZATION_TABLE",
            "Database", "DatabaseUnavailable", "DbCourseLookup", "DbUserPersonalizationLookup",
            "PsycopgDatabase", "RouteElevationSource", "StoredCourseGradeSource", "default_db_factory"]

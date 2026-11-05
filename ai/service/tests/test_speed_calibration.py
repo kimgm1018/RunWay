@@ -109,6 +109,9 @@ def test_enabled_planner_feeds_transformed_speeds_but_returns_paces_from_origina
 
 
 def test_steeper_speed_response_makes_the_plan_slower_on_the_linear_fixture(monkeypatch):
+    # 목표 심박 = P85(377 보정 끔)일 때의 속도 반응 성질이다. 목표가 낮으면 탐색 속도가 v_ref 아래로 내려가 방향이 바뀐다.
+    monkeypatch.setenv("PERSONAL_PLAN_TARGET_HR_GLOBAL_RATIO", "1.0")
+    monkeypatch.setenv("PERSONAL_PLAN_TARGET_HR_K", "inf")
     base, _ = _select(monkeypatch, "1.0")
     calibrated, _ = _select(monkeypatch, "1.45", bundle=_with_speed_ref(_bundle(), 3.0, 5))
     assert sum(calibrated.segment_paces_sec_per_km) > sum(base.segment_paces_sec_per_km)

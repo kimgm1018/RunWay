@@ -4,6 +4,7 @@ import json
 from fastapi.testclient import TestClient
 import pytest
 
+from app.target_calibration import DEFAULT_GLOBAL_RATIO
 from app.main import create_app
 from app.personal_plan import (
     CoursePlanSnapshot,
@@ -151,7 +152,8 @@ def test_personal_plan_without_user_id_uses_average_bundle_without_personal_look
     assert "USER_ID_NOT_PROVIDED" in body["warnings"]
     assert "AVERAGE_BASED_RECOMMENDATION" in body["warnings"]
     assert "PERSONALIZED=false" in body["warnings"]
-    assert body["hrReferenceBpm"] == 163.0
+    # S15P31E105-377: 이력 없는 사용자는 일반화 비율 × 모집단 P85.
+    assert body["hrReferenceBpm"] == pytest.approx(DEFAULT_GLOBAL_RATIO * 163.0)
     assert lookup.calls == []
 
 
