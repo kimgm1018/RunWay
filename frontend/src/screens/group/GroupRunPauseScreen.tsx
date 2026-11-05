@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, View } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, BottomSheet } from '../../components';
+import { AppText, BottomSheet, useToast } from '../../components';
 import { useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
@@ -19,6 +19,8 @@ export function GroupRunPauseScreen() {
   const { groupRuns } = useRepositories();
   const { run, finish } = useRunSession();
   const [isHost, setIsHost] = useState(false);
+  const toast = useToast();
+  const finishing = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const groupRunId = run?.config.groupRunId;
 
@@ -136,11 +138,19 @@ export function GroupRunPauseScreen() {
               title="전체 종료"
               danger
               onPress={async () => {
-                setConfirming(false);
-                if (groupRunId) {
+                if (finishing.current || !groupRunId) return;
+                finishing.current = true;
+                try {
                   await groupRuns.forceFinish(groupRunId);
+                  setConfirming(false);
+                  toResult();
+                } catch {
+                  toast(
+                    '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
+                  );
+                } finally {
+                  finishing.current = false;
                 }
-                toResult();
               }}
             />
           </View>

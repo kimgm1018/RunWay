@@ -461,8 +461,8 @@ export type GroupRunDetail = GroupRunSummary & {
   goalPaceSecPerKm: number;
   crewMemberCount: number;
   participants: GroupRunParticipant[];
-  // 내 페이스와 잘 맞아요: my recent 5km pace and today's readiness.
-  myFit: { recentPaceSecPerKm: number; readinessScore: number } | null;
+  // 최근 러닝 평균 페이스와 오늘 준비도.
+  myFit: { recentPaceSecPerKm: number; readinessScore: number | null } | null;
   // 6.4e 취소 완료.
   cancellation: {
     reason: GroupRunCancelReason;
@@ -476,8 +476,10 @@ export type GroupRunDetail = GroupRunSummary & {
 export type WaitingRoom = {
   groupRunId: string;
   goalPaceSecPerKm: number;
-  // 참가자 편한 범위.
-  comfortRange: [number, number];
+  // 추천값은 방장 목표와 분리한다. 서버가 제공하지 않으면 null이다.
+  recommendedPaceSecPerKm: number | null;
+  // 서버가 제공한 참가자 페이스 범위. 미산출이면 null이다.
+  comfortRange: [number, number] | null;
   expectedDurationSec: number;
   appliedCount: number;
   participants: GroupRunParticipant[];
@@ -489,35 +491,40 @@ export type GroupRunLive = {
     userId: string;
     nickname: string;
     isMe: boolean;
-    gapM: number;
-    paceSecPerKm: number;
+    gapM: number | null;
+    paceSecPerKm: number | null;
+    rank?: number | null;
+    stale?: boolean;
+    gapToAheadM?: number | null;
+    gapToBehindM?: number | null;
   }[];
-  // 선두–후미 간격.
-  spreadM: number;
-  inRange: boolean;
-  // 지금 안내 페이스; it differs from the start goal after a load alert.
-  guidePaceSecPerKm: number;
-  // 6.6b 멤버 부담 알림: how many members are strained and the pace the group slows to.
+  spreadM: number | null;
+  inRange: boolean | null;
+  guidePaceSecPerKm: number | null;
   loadAlert: { memberCount: number; nextPaceSecPerKm: number } | null;
+  status?: GroupRunStatus;
+  // 서버 현황은 GPS 좌표를 제공하지 않는다. 목업만 지도 위 예상 위치를 그린다.
+  locationsAvailable?: boolean;
 };
 
-// 6.7 그룹런 결과 (G14).
+// 서버에 없는 집계·미측정 값은 null로 유지한다.
 export type GroupRunResult = {
   groupRunId: string;
   title: string;
   status: GroupRunStatus;
   targetDistanceM: number | null;
-  // 함께 달린 거리 · 그룹 평균 · 최대 간격.
-  distanceM: number;
-  averagePaceSecPerKm: number;
-  maxGapM: number;
+  distanceM: number | null;
+  averagePaceSecPerKm: number | null;
+  maxGapM: number | null;
+  analysisStatus?: string;
+  hasUnconfirmedStarts?: boolean;
   participants: {
     userId: string;
     nickname: string;
     isMe: boolean;
-    state: 'FINISHED' | 'STOPPED' | 'RUNNING';
-    durationSec: number;
-    distanceM: number;
+    state: 'FINISHED' | 'STOPPED' | 'RUNNING' | 'NOT_STARTED' | 'UNCONFIRMED';
+    durationSec: number | null;
+    distanceM: number | null;
     goalAchieved: boolean | null;
   }[];
 };
@@ -881,7 +888,11 @@ export type WatchSessionEvent =
     };
 
 // W07 서버 저장 ACK (devices-health.md W07 Response).
-export type SyncBatchAck = { status: string; batchId: string; acceptedCount: number };
+export type SyncBatchAck = {
+  status: string;
+  batchId: string;
+  acceptedCount: number;
+};
 
 export type Repositories = {
   auth: {
@@ -1003,15 +1014,24 @@ export type Repositories = {
     searchPlaces: (query: string) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
     setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
-    // Calls onStart when the group leader starts; ready members' records start with it.
+    // G09는 명령 승인만 수행한다. 실제 기기 실행·결과 보고는 폰·워치 연동에서 처리한다.
+    start: (groupRunId: string) => Promise<void>;
+    // 서버 개인 세션의 실제 startedAt이 확인된 경우에만 호출한다.
     watchStart: (
       groupRunId: string,
       onStart: (startedAt: string) => void,
+      onError?: (error: unknown) => void,
+      onParticipants?: (
+        participants: GroupRunParticipant[],
+        recommendedPaceSecPerKm?: number | null,
+        comfortRange?: WaitingRoom['comfortRange'],
+      ) => void,
     ) => () => void;
-    // Calls onUpdate every second with where the other members are (G10).
+    // G10을 주기적으로 조회한다. 구독 해제 후 도착한 응답은 전달하지 않는다.
     watchLive: (
       groupRunId: string,
       onUpdate: (live: GroupRunLive) => void,
+      onError?: (error: unknown) => void,
     ) => () => void;
     forceFinish: (groupRunId: string) => Promise<void>;
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
@@ -1140,7 +1160,11 @@ export type Repositories = {
     // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
     prepare: (
       sessionId: string,
-      request: { stateVersion: number; deviceId: string; goal: SessionGoalDraft },
+      request: {
+        stateVersion: number;
+        deviceId: string;
+        goal: SessionGoalDraft;
+      },
     ) => Promise<{
       stateVersion: number;
       ready: boolean;
@@ -1162,7 +1186,10 @@ export type Repositories = {
     // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
     sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
     // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.
-    sendCoachingGuide: (sessionId: string, guide: CoachingGuide) => Promise<void>;
+    sendCoachingGuide: (
+      sessionId: string,
+      guide: CoachingGuide,
+    ) => Promise<void>;
     // STATE_RESULT(scope=SERVER). clientSendAt은 워치 STATE_QUERY의 값, 서버 스냅샷 전달이면 null.
     sendServerState: (
       sessionId: string,

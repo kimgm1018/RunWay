@@ -11,21 +11,23 @@ import {
 import {
   CommonActions,
   useNavigation,
+  useFocusEffect,
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../session/SessionProvider';
-import { AppText, EmptyState, Icon } from '../../components';
+import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
   useRepositories,
   useResource,
+  DataError,
   type CoursePlan,
   type GroupRunDetail,
   type Repositories,
   type WaitingRoom,
 } from '../../data';
-import { formatDuration, formatPace } from '../../format';
+import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import {
@@ -116,49 +118,44 @@ function useCountdown(target: string | null, now: Date) {
 }
 
 function PaceCard({ room }: { room: WaitingRoom }) {
-  const [slow, fast] = [room.comfortRange[1], room.comfortRange[0]];
-  const share = (slow - room.goalPaceSecPerKm) / Math.max(slow - fast, 1);
-  // 6.5-SharedPace: 공동 페이스 in large Barlow and the comfort range with a navy handle, no card.
+  const pace = room.recommendedPaceSecPerKm;
+  const range = room.comfortRange;
+  const share =
+    range && pace !== null
+      ? Math.max(
+          0,
+          Math.min(1, (range[1] - pace) / Math.max(range[1] - range[0], 1)),
+        )
+      : null;
   return (
     <View style={styles.card}>
-      <PaceCardContent room={room} share={share} slow={slow} fast={fast} />
-    </View>
-  );
-}
-
-function PaceCardContent({
-  room,
-  share,
-  slow,
-  fast,
-}: {
-  room: WaitingRoom;
-  share: number;
-  slow: number;
-  fast: number;
-}) {
-  return (
-    <>
       <View style={styles.rowBetween}>
-        <SectionLabel tone="light">공동 페이스</SectionLabel>
-        <AppText style={styles.noteStrong}>AI 제안 · 참가자 기록 기준</AppText>
+        <SectionLabel tone="light">추천 공동 페이스</SectionLabel>
+        <AppText style={styles.noteStrong}>참가자 기록 기준</AppText>
       </View>
-      <AppText style={styles.pace}>
-        {formatPace(room.goalPaceSecPerKm)}
-        <AppText style={styles.paceUnit}>
-          {`  /km · 예상 ${formatDuration(room.expectedDurationSec)}`}
+      {pace === null ? (
+        <AppText style={styles.noteText}>추천 정보 부족</AppText>
+      ) : (
+        <AppText style={styles.pace}>
+          {formatPace(pace)}
+          <AppText style={styles.paceUnit}> /km</AppText>
         </AppText>
-      </AppText>
-      <View style={styles.range}>
-        <View style={styles.rangeFill} />
-        <View style={[styles.rangeMarker, { left: `${share * 100}%` }]} />
-      </View>
-      <View style={styles.rowBetween}>
-        <AppText style={styles.rangeEnd}>{formatPace(fast)}</AppText>
-        <AppText style={styles.rangeLabel}>참가자 편한 범위</AppText>
-        <AppText style={styles.rangeEnd}>{formatPace(slow)}</AppText>
-      </View>
-    </>
+      )}
+      {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
+      {range && share !== null ? (
+        <>
+          <View style={styles.range}>
+            <View style={styles.rangeFill} />
+            <View style={[styles.rangeMarker, { left: `${share * 100}%` }]} />
+          </View>
+          <View style={styles.rowBetween}>
+            <AppText style={styles.rangeEnd}>{formatPace(range[0])}</AppText>
+            <AppText style={styles.rangeLabel}>참가자 편한 범위</AppText>
+            <AppText style={styles.rangeEnd}>{formatPace(range[1])}</AppText>
+          </View>
+        </>
+      ) : null}
+    </View>
   );
 }
 
@@ -185,6 +182,12 @@ export function WaitingRoomScreen() {
     ),
   );
   const [room, setRoom] = useState<WaitingRoom | null>(null);
+  const toast = useToast();
+  const [starting, setStarting] = useState(false);
+  const [startRequested, setStartRequested] = useState(false);
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const readyBusy = useRef(false);
+  const startBusy = useRef(false);
   const [count, setCount] = useState<number | null>(null);
   const run = data.status === 'ready' ? data.data[0] : null;
   const [now] = useState(() => clock.now());
@@ -197,15 +200,58 @@ export function WaitingRoomScreen() {
     }
   }, [loadedRoom]);
 
-  // The leader's start reaches every member; ready ones count down 3·2·1 and start.
-  useEffect(
-    () =>
-      groupRuns.watchStart(groupRunId, () => {
-        if (ensureRunLogin()) {
-          setCount(countdownSeconds);
-        }
-      }),
-    [groupRunId, groupRuns, ensureRunLogin],
+  const observeError = useCallback(
+    (error: unknown) =>
+      setWatchError(
+        error instanceof DataError && error.status === 409
+          ? '그룹런이 취소되었거나 종료되었어요. 상세에서 상태를 확인해 주세요.'
+          : '대기방 상태를 확인하지 못했어요. 연결되면 다시 조회해요.',
+      ),
+    [],
+  );
+  const updateParticipants = useCallback(
+    (
+      participants: WaitingRoom['participants'],
+      recommendedPaceSecPerKm?: number | null,
+      comfortRange?: WaitingRoom['comfortRange'],
+    ) => {
+      setWatchError(null);
+      setRoom(current =>
+        current
+          ? {
+              ...current,
+              participants,
+              appliedCount: participants.length,
+              comfortRange:
+                comfortRange === undefined
+                  ? current.comfortRange
+                  : comfortRange,
+              recommendedPaceSecPerKm:
+                recommendedPaceSecPerKm === undefined
+                  ? current.recommendedPaceSecPerKm
+                  : recommendedPaceSecPerKm,
+            }
+          : current,
+      );
+    },
+    [],
+  );
+  useFocusEffect(
+    useCallback(
+      () =>
+        groupRuns.watchStart(
+          groupRunId,
+          () => {
+            if (ensureRunLogin()) {
+              // 실서버는 기기 시작이 이미 확인됐다. 목업에만 기존 카운트다운을 유지한다.
+              setCount(/^\d+$/.test(groupRunId) ? 0 : countdownSeconds);
+            }
+          },
+          observeError,
+          updateParticipants,
+        ),
+      [groupRunId, groupRuns, ensureRunLogin, observeError, updateParticipants],
+    ),
   );
   const latest = useRef({ run, room, start, navigation });
   latest.current = { run, room, start, navigation };
@@ -214,6 +260,7 @@ export function WaitingRoomScreen() {
       return;
     }
     if (count === 0) {
+      if (!run || !room) return;
       setCount(null);
       if (!ensureRunLogin()) {
         return;
@@ -237,7 +284,7 @@ export function WaitingRoomScreen() {
     }
     const timer = setTimeout(() => setCount(count - 1), 1000);
     return () => clearTimeout(timer);
-  }, [count, ensureRunLogin]);
+  }, [count, ensureRunLogin, run, room]);
 
   if (!run || !room) {
     return (
@@ -267,10 +314,34 @@ export function WaitingRoomScreen() {
     member => member.readyStatus === 'READY',
   ).length;
   const toggleReady = async () => {
-    if (!isReady && !ensureRunLogin()) {
+    if (readyBusy.current || startRequested || (!isReady && !ensureRunLogin()))
       return;
+    readyBusy.current = true;
+    try {
+      setRoom(await groupRuns.setReady(groupRunId, !isReady));
+    } catch {
+      toast(
+        '준비 상태를 변경하지 못했어요. 대기방 상태를 확인한 뒤 다시 시도해 주세요',
+      );
+    } finally {
+      readyBusy.current = false;
     }
-    setRoom(await groupRuns.setReady(groupRunId, !isReady));
+  };
+  const requestStart = async () => {
+    if (startBusy.current || startRequested || !ensureRunLogin()) return;
+    startBusy.current = true;
+    setStarting(true);
+    try {
+      await groupRuns.start(groupRunId);
+      setStartRequested(true);
+    } catch {
+      toast(
+        '시작 응답을 확인하지 못했어요. 실제 출발 상태를 확인한 뒤 다시 시도해 주세요',
+      );
+    } finally {
+      startBusy.current = false;
+      setStarting(false);
+    }
   };
 
   return (
@@ -293,6 +364,21 @@ export function WaitingRoomScreen() {
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
+        {watchError ? (
+          <AppText accessibilityLiveRegion="polite">{watchError}</AppText>
+        ) : null}
+        {startRequested ? (
+          <AppText accessibilityLiveRegion="polite">
+            출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
+          </AppText>
+        ) : null}
+        {run.isHost && !startRequested ? (
+          <GroupCta
+            title={starting ? '출발 요청 중…' : '그룹런 시작'}
+            icon="check"
+            onPress={requestStart}
+          />
+        ) : null}
         {/* 6.5-MemberList: a line-labelled list without dividers. */}
         <View style={styles.card}>
           <View style={styles.rowBetween}>
@@ -345,7 +431,7 @@ export function WaitingRoomScreen() {
           </View>
         </View>
         <AppText style={[styles.noteText, styles.note]}>
-          그룹장이 출발하면 준비 완료한 멤버의 기록이 3초 뒤 함께 시작돼요
+          그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
         </AppText>
       </ScrollView>
       <ThemeProvider tone="dark">

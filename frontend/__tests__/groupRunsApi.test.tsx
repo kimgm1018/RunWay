@@ -404,3 +404,44 @@ test('6.8 makes a free run with G01 and opens its 6.4', async () => {
   expect(texts(screen)).toContain((posted[0] as { title: string }).title);
   await act(async () => screen.unmount());
 });
+
+test('459 host start submits G09 once and waits for device confirmation', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, /^월요일, 함께 5km, /);
+    await press(screen, '대기방 입장');
+    const existing = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((address, init) =>
+      String(address).endsWith('/group-runs/61/start')
+        ? Promise.resolve(
+            respond(200, {
+              participants: [
+                { sessionId: 900, result: 'PENDING', startedAt: null },
+              ],
+            }),
+          )
+        : existing(address, init),
+    );
+    await press(screen, '그룹런 시작');
+    expect(calls('POST')).toContain('/group-runs/61/start');
+    expect(texts(screen)).toContain(
+      '출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.',
+    );
+    expect(texts(screen)).toContain('출발 준비');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test('419 waiting room displays insufficient data instead of a fabricated recommendation', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, /^월요일, 함께 5km, /);
+    await press(screen, '대기방 입장');
+    expect(texts(screen)).toContain('추천 공동 페이스');
+    expect(texts(screen)).toContain('추천 정보 부족');
+    expect(texts(screen)).not.toContain('참가자 편한 범위');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});

@@ -142,7 +142,7 @@ function LoadAlert({
 }: {
   alert: NonNullable<GroupRunLive['loadAlert']>;
 }) {
-  // A light glass banner with a coral rim; the coming pace is the bold part.
+  // 서버가 계산한 감속 권고이며, 페이스를 자동 변경하지 않는다.
   return (
     <LightGlass radius={20} style={styles.alert}>
       <View accessibilityLiveRegion="assertive" style={styles.alertRow}>
@@ -151,14 +151,14 @@ function LoadAlert({
         </View>
         <View style={styles.flex}>
           <AppText style={styles.alertTitle}>
-            {`멤버 ${alert.memberCount}명 부담 ↑`}
+            {`멤버 ${alert.memberCount}명 페이스 조정 권고`}
           </AppText>
           <AppText style={styles.sub}>
-            {'1분 뒤 그룹 페이스를 '}
+            {'그룹 페이스를 '}
             <AppText style={styles.subStrong}>
               {formatPace(alert.nextPaceSecPerKm)}
             </AppText>
-            로 늦춰요
+            로 늦추는 것을 권장해요
           </AppText>
         </View>
       </View>
@@ -173,7 +173,12 @@ function PositionList({
   live: GroupRunLive;
   myPace: number | null;
 }) {
-  const rows = [...live.members].sort((a, b) => b.gapM - a.gapM);
+  const rows = [...live.members].sort(
+    (a, b) =>
+      (a.rank ?? Number.MAX_SAFE_INTEGER) -
+        (b.rank ?? Number.MAX_SAFE_INTEGER) ||
+      (b.gapM ?? -Infinity) - (a.gapM ?? -Infinity),
+  );
   // On the scrim without a card or dividers: 선두·후미 labels, names, distance from me and pace (6.6r).
   return (
     <View style={styles.list}>
@@ -193,15 +198,22 @@ function PositionRows({
     <>
       <View style={styles.listHead}>
         <AppText style={[styles.headText, styles.flex]}>
-          앞에서부터 · 순위 아님
+          순위 · 최신 현황
         </AppText>
         <AppText style={[styles.headText, styles.gap]}>나와의 거리</AppText>
         <AppText style={[styles.headText, styles.listPace]}>페이스</AppText>
       </View>
       {rows.map((member, index) => {
-        const role =
-          index === 0 ? '선두' : index === rows.length - 1 ? '후미' : '';
-        const pace = member.isMe ? myPace : member.paceSecPerKm;
+        const role = member.stale
+          ? '미확인'
+          : member.rank != null
+          ? `${member.rank}위`
+          : index === 0
+          ? '선두'
+          : index === rows.length - 1
+          ? '후미'
+          : '';
+        const pace = member.paceSecPerKm ?? (member.isMe ? myPace : null);
         return (
           <View key={member.userId} style={styles.listRow}>
             <AppText style={styles.role}>{role}</AppText>
@@ -216,6 +228,8 @@ function PositionRows({
             <AppText style={[styles.gapText, styles.gap]}>
               {member.isMe
                 ? '–'
+                : member.gapM === null
+                ? '—'
                 : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(member.gapM)}m`}
             </AppText>
             <AppText style={[styles.number, styles.listPace]}>
@@ -241,6 +255,7 @@ export function GroupRunProgressScreen({
   const { ensureRunLogin } = useSession();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [live, setLive] = useState<GroupRunLive | null>(null);
+  const [liveError, setLiveError] = useState(false);
   const [player, setPlayer] = useState<MusicState | null>(null);
   const groupRunId = run?.config.groupRunId ?? 'gr-today';
 
@@ -259,9 +274,22 @@ export function GroupRunProgressScreen({
       });
     }
   }, [groupRunId, run, start, ensureRunLogin]);
-  useEffect(
-    () => groupRuns.watchLive(groupRunId, setLive),
-    [groupRunId, groupRuns],
+  useFocusEffect(
+    useCallback(
+      () =>
+        groupRuns.watchLive(
+          groupRunId,
+          value => {
+            setLiveError(false);
+            setLive(value);
+          },
+          () => {
+            setLiveError(true);
+            setLive(null);
+          },
+        ),
+      [groupRunId, groupRuns],
+    ),
   );
   useEffect(() => {
     let active = true;
@@ -304,13 +332,15 @@ export function GroupRunProgressScreen({
   const guide = live?.guidePaceSecPerKm ?? goal;
   const lap = route ? routeLengthM(route) : 0;
   const markers =
-    route && live
+    route && live && live.locationsAvailable !== false && lap > 0
       ? live.members
-          .filter(member => !member.isMe)
+          .filter(
+            member => !member.isMe && member.gapM !== null && !member.stale,
+          )
           .map(member => {
             const along = walkAlong(
               route,
-              (((sample.distanceM + member.gapM) % lap) + lap) % lap,
+              (((sample.distanceM + member.gapM!) % lap) + lap) % lap,
             );
             return {
               position: along[along.length - 1],
@@ -345,15 +375,38 @@ export function GroupRunProgressScreen({
               </AppText>
             </LightGlass>
             <ModeTabs value={tab} onChange={setTab} />
+            {liveError ? (
+              <AppText accessibilityLiveRegion="polite">
+                최신 현황을 확인하지 못했어요. 연결 상태를 확인해 주세요.
+              </AppText>
+            ) : null}
+            {live?.status === 'COMPLETED' || live?.status === 'CANCELLED' ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="그룹런 결과 보기"
+                onPress={() =>
+                  navigation.navigate('GroupRunResult', { groupRunId })
+                }
+              >
+                <AppText>그룹런이 종료되었어요 · 결과 보기</AppText>
+              </Pressable>
+            ) : null}
             {live ? (
               <LightGlass radius={14} style={styles.range}>
                 <AppText
-                  style={[styles.rangeText, !live.inRange && styles.outOfRange]}
+                  style={[
+                    styles.rangeText,
+                    live.inRange === false && styles.outOfRange,
+                  ]}
                 >
-                  {live.inRange
+                  {live.inRange === null
+                    ? '현재 선두–후미 간격 '
+                    : live.inRange
                     ? '그룹 범위 안이에요 · 선두–후미 '
                     : '그룹 범위를 벗어났어요 · 선두–후미 '}
-                  <AppText style={styles.spread}>{`${live.spreadM}m`}</AppText>
+                  <AppText style={styles.spread}>
+                    {live.spreadM === null ? '미확인' : `${live.spreadM}m`}
+                  </AppText>
                 </AppText>
               </LightGlass>
             ) : null}

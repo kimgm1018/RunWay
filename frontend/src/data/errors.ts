@@ -31,6 +31,10 @@ export const dataErrorCodes = [
   'OWNER_CANNOT_LEAVE',
   // G03–G06 그룹런.
   'GROUP_NOT_FOUND',
+  'INVALID_GROUP_STATE',
+  'NOT_PARTICIPANT',
+  'NOT_HOST',
+  'RUN_ALREADY_STARTED',
   'FULL_OR_ALREADY_JOINED',
   'EDIT_NOT_ALLOWED',
   // CMT08 · CMT09 댓글 수정·삭제 (docs/design/api/community.md).

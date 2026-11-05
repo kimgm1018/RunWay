@@ -114,6 +114,7 @@ export function createGroupRunMock({
     return {
       groupRunId: run.id,
       goalPaceSecPerKm: run.goalPaceSecPerKm,
+      recommendedPaceSecPerKm: run.goalPaceSecPerKm,
       comfortRange: [run.goalPaceSecPerKm - 20, run.goalPaceSecPerKm + 20],
       expectedDurationSec: run.targetDistanceM
         ? Math.round((run.targetDistanceM / 1000) * run.goalPaceSecPerKm)
@@ -283,6 +284,15 @@ export function createGroupRunMock({
       scheduleStart(groupRunId);
       return respond(waitingRoom(find(groupRunId)));
     },
+    start: async groupRunId => {
+      find(groupRunId).status = 'RUNNING';
+      if (startTimer) {
+        clearTimeout(startTimer);
+        startTimer = null;
+      }
+      starters.get(groupRunId)?.(new Date().toISOString());
+      return respond(undefined);
+    },
     watchStart: (groupRunId, onStart) => {
       starters.set(groupRunId, onStart);
       return () => {
@@ -372,14 +382,14 @@ export function createGroupRunMock({
       ];
       const finished = rows.filter(row => row.goalAchieved);
       const paces = finished.map(
-        row => row.durationSec / (row.distanceM / 1000),
+        row => row.durationSec! / (row.distanceM! / 1000),
       );
       return respond({
         groupRunId,
         title: run.title,
         status: 'COMPLETED',
         targetDistanceM: target,
-        distanceM: target ?? Math.max(...rows.map(row => row.distanceM)),
+        distanceM: target ?? Math.max(...rows.map(row => row.distanceM ?? 0)),
         averagePaceSecPerKm: Math.round(
           paces.reduce((sum, pace) => sum + pace, 0) /
             Math.max(paces.length, 1),

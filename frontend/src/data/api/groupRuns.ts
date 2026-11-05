@@ -2,6 +2,8 @@ import { DataError } from '../errors';
 import type {
   GroupRunDetail,
   GroupRunDraft,
+  GroupRunLive,
+  GroupRunResult,
   GroupRunParticipant,
   GroupRunSummary,
   MyCrew,
@@ -10,8 +12,7 @@ import type {
 } from '../types';
 import { apiRequest } from './http';
 
-// G01–G07·G16 그룹런 (docs/design/api/group-runs.md). Starting, the live view, cancelling and results have no API
-// yet (S15P31E105-261), so a server run stops at the waiting room; the meeting place search stays on mock data.
+// 그룹런 서버 API. 장소 검색은 기존 목업을 유지하며, 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
 
 type Point = { type: 'Point'; coordinates: [number, number] };
 
@@ -33,13 +34,19 @@ type DetailResponse = {
   meetingPlaceName: string;
   meetingAddress: string | null;
   goalPaceSecPerKm: number | null;
+  groupGuidePaceSecPerKm?: number | null;
+  comfortRange?: { fastSecPerKm: number; slowSecPerKm: number } | null;
+  myFit?: GroupRunDetail['myFit'];
+  cancellation?: GroupRunDetail['cancellation'];
 };
 
 type ParticipantItem = {
   userId: number;
+  sessionId?: number | null;
   nickname: string | null;
   isHost: boolean;
   readyStatus: 'READY' | 'WAITING';
+  readinessScore?: number | null;
 };
 
 type CourseResponse = {
@@ -52,17 +59,72 @@ const pageLimit = 50;
 const kstOffsetMs = 9 * 3600 * 1000;
 // The 6.0 pin: a run I joined that starts within a day, or is under way.
 const upcomingWindowMs = 24 * 3600 * 1000;
-// The comfortable spread around the shared pace on 6.5 (participant 편한 범위), as in the mock.
-const comfortSpreadSec = 20;
 const defaultPaceSecPerKm = 360;
 const unknownNickname = '알 수 없음';
 
 const isServerId = (id: string) => /^\d+$/.test(id);
 
-const notYet = () =>
-  Promise.reject(
-    new DataError('UNKNOWN', '그룹런 시작 이후 기능은 준비 중이에요'),
-  );
+type LiveResponse = {
+  status: GroupRunSummary['status'];
+  groupGuidePaceSecPerKm: number | null;
+  loadAlert?: GroupRunLive['loadAlert'];
+  participants: {
+    userId: number;
+    rank: number | null;
+    paceSecPerKm?: number | null;
+    progressM: number | null;
+    stale: boolean;
+    gapToAheadM: number | null;
+    gapToBehindM: number | null;
+  }[];
+};
+type ResultsResponse = {
+  distanceM?: number | null;
+  averagePaceSecPerKm?: number | null;
+  targetDistanceM: number | null;
+  analysis: { status: string };
+  hasUnconfirmedStarts: boolean;
+  participants: {
+    userId: number;
+    state: string | null;
+    startResult: string | null;
+    actualDistanceM: number | null;
+    movingDurationSec: number | null;
+    averagePaceSecPerKm: number | null;
+    goalAchieved: boolean | null;
+  }[];
+};
+
+// 이전 조회가 끝난 뒤 예약해 느린 응답·503에서도 요청이 겹치지 않게 한다.
+function poll<T>(
+  read: () => Promise<T>,
+  deliver: (value: T) => boolean | void,
+  onError?: (error: unknown) => void,
+) {
+  let active = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const update = async () => {
+    let delay = 3000;
+    try {
+      const value = await read();
+      if (active && deliver(value) === false) active = false;
+    } catch (error) {
+      if (active) onError?.(error);
+      if (
+        error instanceof DataError &&
+        [401, 403, 404, 409].includes(error.status ?? 0)
+      )
+        active = false;
+      delay = 10000;
+    }
+    if (active) timer = setTimeout(update, delay);
+  };
+  void update();
+  return () => {
+    active = false;
+    if (timer) clearTimeout(timer);
+  };
+}
 
 // G01 needs a title and 6.8 has none, so it reads like the prototype's: ‘토요일, 함께 5km’. A free run's
 // minutes live only here, as the server keeps no goal without a distance.
@@ -133,10 +195,10 @@ export function createGroupRunsApi({
         isHost: item.isHost,
         isMe: String(item.userId) === me,
         readyStatus: item.readyStatus,
-        // Other members' readiness is not shared, and mine has no server source yet.
-        readinessScore: null,
+        // 준비도는 기존 화면에서 본인 값만 표시한다.
+        readinessScore: item.readinessScore ?? null,
       }));
-    return { run, participants, me };
+    return { run, participants, me, items };
   }
 
   async function summaryOf(
@@ -180,7 +242,10 @@ export function createGroupRunsApi({
     return {
       groupRunId,
       goalPaceSecPerKm: pace,
-      comfortRange: [pace - comfortSpreadSec, pace + comfortSpreadSec],
+      recommendedPaceSecPerKm: run.groupGuidePaceSecPerKm ?? null,
+      comfortRange: run.comfortRange
+        ? [run.comfortRange.fastSecPerKm, run.comfortRange.slowSecPerKm]
+        : null,
       expectedDurationSec: distanceM
         ? Math.round((distanceM / 1000) * pace)
         : run.targetDurationSec ?? 0,
@@ -279,10 +344,8 @@ export function createGroupRunsApi({
         goalPaceSecPerKm: pace,
         crewMemberCount: crew.memberCount,
         participants: loaded.participants,
-        // My recent pace and readiness for 내 페이스와 잘 맞아요 have no server source yet.
-        myFit: null,
-        // G13 취소 has no API, so a server run is never shown as cancelled with a reason.
-        cancellation: null,
+        myFit: loaded.run.myFit ?? null,
+        cancellation: loaded.run.cancellation ?? null,
       };
       return detail;
     },
@@ -339,17 +402,177 @@ export function createGroupRunsApi({
       });
       return waitingRoom(groupRunId);
     },
-    cancel: (groupRunId, reason) =>
-      isServerId(groupRunId) ? notYet() : mock.cancel(groupRunId, reason),
-    // No G09 start yet: a server run waits in the room until the start API lands.
-    watchStart: (groupRunId, onStart) =>
-      isServerId(groupRunId) ? () => {} : mock.watchStart(groupRunId, onStart),
-    watchLive: (groupRunId, onUpdate) =>
-      isServerId(groupRunId) ? () => {} : mock.watchLive(groupRunId, onUpdate),
-    forceFinish: groupRunId =>
-      isServerId(groupRunId) ? notYet() : mock.forceFinish(groupRunId),
-    getResult: groupRunId =>
-      isServerId(groupRunId) ? notYet() : mock.getResult(groupRunId),
+    start: async groupRunId => {
+      if (!isServerId(groupRunId)) return mock.start(groupRunId);
+      // G09는 본문을 허용하지 않는다. 응답의 PENDING을 실제 출발로 간주하지 않는다.
+      await apiRequest(`/group-runs/${groupRunId}/start`, { method: 'POST' });
+    },
+    cancel: async (groupRunId, reason) => {
+      if (!isServerId(groupRunId)) return mock.cancel(groupRunId, reason);
+      await apiRequest(`/group-runs/${groupRunId}/cancel`, {
+        method: 'POST',
+        body: { cancelReason: reason },
+      });
+    },
+    watchStart: (groupRunId, onStart, onError, onParticipants) => {
+      if (!isServerId(groupRunId))
+        return mock.watchStart(groupRunId, onStart, onError, onParticipants);
+      return poll(
+        async () => {
+          const loaded = await load(groupRunId);
+          const own = loaded.items.find(
+            item => String(item.userId) === loaded.me,
+          );
+          if (
+            loaded.run.status === 'CANCELLED' ||
+            loaded.run.status === 'COMPLETED'
+          ) {
+            throw new DataError(
+              'INVALID_GROUP_STATE',
+              '그룹런이 취소되었거나 종료되었어요.',
+              null,
+              409,
+            );
+          }
+          const session =
+            loaded.run.status === 'RUNNING' &&
+            own?.readyStatus === 'READY' &&
+            own.sessionId != null
+              ? await apiRequest<{ state: string; startedAt: string | null }>(
+                  `/running-sessions/${own.sessionId}`,
+                )
+              : null;
+          return { loaded, session };
+        },
+        ({ loaded, session }) => {
+          onParticipants?.(
+            loaded.participants,
+            loaded.run.groupGuidePaceSecPerKm ?? null,
+            loaded.run.comfortRange
+              ? [
+                  loaded.run.comfortRange.fastSecPerKm,
+                  loaded.run.comfortRange.slowSecPerKm,
+                ]
+              : null,
+          );
+          if (
+            session?.startedAt &&
+            ['RUNNING', 'PAUSED'].includes(session.state)
+          ) {
+            onStart(session.startedAt);
+            return false;
+          }
+        },
+        onError,
+      );
+    },
+    watchLive: (groupRunId, onUpdate, onError) => {
+      if (!isServerId(groupRunId))
+        return mock.watchLive(groupRunId, onUpdate, onError);
+      return poll(
+        async () => {
+          const [value, loaded] = await Promise.all([
+            apiRequest<LiveResponse>(`/group-runs/${groupRunId}/live`),
+            load(groupRunId),
+          ]);
+          const own = value.participants.find(
+            item => String(item.userId) === loaded.me,
+          );
+          const usable = (item: LiveResponse['participants'][number]) =>
+            !item.stale &&
+            item.rank != null &&
+            item.progressM != null &&
+            Number.isFinite(item.progressM);
+          const positions = value.participants
+            .filter(usable)
+            .map(item => item.progressM!);
+          const live: GroupRunLive = {
+            members: value.participants.map(item => ({
+              userId: String(item.userId),
+              nickname:
+                loaded.participants.find(
+                  member => member.userId === String(item.userId),
+                )?.nickname ?? unknownNickname,
+              isMe: String(item.userId) === loaded.me,
+              gapM:
+                own && usable(own) && usable(item)
+                  ? Math.round(item.progressM! - own.progressM!)
+                  : null,
+              paceSecPerKm: item.stale ? null : item.paceSecPerKm ?? null,
+              rank: item.rank,
+              stale: item.stale,
+              gapToAheadM: item.gapToAheadM,
+              gapToBehindM: item.gapToBehindM,
+            })),
+            spreadM:
+              positions.length >= 2 &&
+              positions.length === value.participants.length
+                ? Math.round(Math.max(...positions) - Math.min(...positions))
+                : null,
+            inRange: null,
+            guidePaceSecPerKm: value.groupGuidePaceSecPerKm,
+            loadAlert: value.loadAlert ?? null,
+            status: value.status,
+            locationsAvailable: false,
+          };
+          return live;
+        },
+        value => {
+          onUpdate(value);
+          return !['COMPLETED', 'CANCELLED'].includes(value.status!);
+        },
+        onError,
+      );
+    },
+    forceFinish: async groupRunId => {
+      if (!isServerId(groupRunId)) return mock.forceFinish(groupRunId);
+      await apiRequest(`/group-runs/${groupRunId}/force-finish`, {
+        method: 'POST',
+        body: {},
+      });
+    },
+    getResult: async groupRunId => {
+      if (!isServerId(groupRunId)) return mock.getResult(groupRunId);
+      const [result, loaded] = await Promise.all([
+        apiRequest<ResultsResponse>(`/group-runs/${groupRunId}/results`),
+        load(groupRunId),
+      ]);
+      const rows: GroupRunResult['participants'] = result.participants.map(
+        item => ({
+          userId: String(item.userId),
+          nickname:
+            loaded.participants.find(
+              member => member.userId === String(item.userId),
+            )?.nickname ?? unknownNickname,
+          isMe: String(item.userId) === loaded.me,
+          state: ['RUNNING', 'PAUSED'].includes(item.state ?? '')
+            ? 'RUNNING'
+            : item.state === 'COMPLETED'
+            ? 'FINISHED'
+            : ['INTERRUPTED', 'CANCELLED'].includes(item.state ?? '')
+            ? 'STOPPED'
+            : ['PENDING', 'UNKNOWN'].includes(item.startResult ?? '')
+            ? 'UNCONFIRMED'
+            : 'NOT_STARTED',
+          durationSec: item.movingDurationSec,
+          distanceM: item.actualDistanceM,
+          goalAchieved: item.goalAchieved,
+        }),
+      );
+      return {
+        groupRunId,
+        title: loaded.run.title,
+        status: loaded.run.status,
+        targetDistanceM: result.targetDistanceM,
+        // 서버 집계를 그대로 사용하며, 미제공 값은 임의로 계산하지 않는다.
+        distanceM: result.distanceM ?? null,
+        averagePaceSecPerKm: result.averagePaceSecPerKm ?? null,
+        maxGapM: null,
+        analysisStatus: result.analysis.status,
+        hasUnconfirmedStarts: result.hasUnconfirmedStarts,
+        participants: rows,
+      };
+    },
   };
   return groupRuns;
 }
