@@ -151,6 +151,7 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 | `RUNWAY_SP_ENGINE=python` | Numba D-exact → Python D-exact | 같음(느려짐), Numba import·컴파일 없음 |
 | `RUNWAY_ARRAY_LOOP=0` | LOOP 배열 graph → 기존 NetworkX G/H 준비 | 같음(첫 요청 느려짐), Numba 탐색은 유지 |
 | `RUNWAY_ARRAY_SHAPES=0` | OAB/P2P 생성 disk 배열 graph → networkx | 같음(cold 느려짐) |
+| `RUNWAY_ARRAY_PAIR_FAST=0` | LOOP 배열 graph 생성의 배열/Numba 처리(full_status·component·key) → 기존 Python 반복문 | 같음(LOOP cold 느려짐) |
 | `RUNWAY_FAST_GRAPH=0` | fast graph builder → canonical builder | 같음(느려짐) |
 | `RUNWAY_USABILITY_GATE=shadow` | Gate FAIL 제거 | **달라질 수 있음**(비상용) |
 | `RUNWAY_SOURCE_SNAPSHOT=0` | 검증된 extract snapshot 읽기 → 매번 PBF 파싱 | 같음(기동 약 3초 느려짐) |

@@ -14,8 +14,14 @@ from shapely.ops import transform
 
 from . import graph as legacy
 from . import shortest_path
-from .array_components import component_layout
+from .array_components import component_layout, component_layout_fast
 from .data import UTM_CRS
+
+# S15P31E105-437: 작업판 생성의 Python 반복문을 배열/Numba로(결과 같음). "0"이면 기존 반복문(rollback, 재시작 필요).
+_FAST_FLAG = os.environ.get("RUNWAY_ARRAY_PAIR_FAST", "1")
+if _FAST_FLAG not in ("0", "1"):
+    raise ValueError("RUNWAY_ARRAY_PAIR_FAST must be 0 or 1")
+FAST = _FAST_FLAG == "1"
 
 
 class _Selection:
@@ -36,6 +42,17 @@ class _Selection:
             raise ValueError("Found no graph nodes within the requested polygon.")
         self.seg = np.flatnonzero(self.sel[S.seg_w] & self.keep[S.seg_a] & self.keep[S.seg_b])
         self.g_nodes = np.unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
+
+    def g_nodes_in_set_order(self):
+        """build_array_pair의 g_nodes(= S.pos_of(list(_g_node_rank())))를 dict 없이 만든다.
+        선택된 way의 node id를 way 순서·way 안 순서 그대로 한 번에(flat 배열 slice) 꺼내 같은 순서로 set에 넣는다.
+        set(list)는 원소를 하나씩 넣으므로(presize 없음) way마다 update한 set과 순회 순서가 같다."""
+        S = self.S
+        used = set(S.ids[S.sc.ref_pos[self.sel[S.way_of_ref]]].tolist())
+        alive = np.zeros(len(S.ids), bool)
+        alive[self.g_nodes] = True
+        pos = S.pos_of(list(used))
+        return pos[alive[pos]]
 
     def _g_node_rank(self):
         used = set()
@@ -64,6 +81,13 @@ class ArraySource:
             rows.append({k: legacy._s(raw.get(k)) for k in legacy.EDGE_TAGS})
         self.way_table = pd.DataFrame(rows, columns=legacy.EDGE_TAGS)
         self.way_table["osmid"] = self.way_table["osmid"].astype("int64")
+        # full_status 배열 경로용: way별 status 번호와 번호 -> 원래 문자열(처음 나온 way의 객체)
+        codes, self.status_objs = {}, []
+        for st in sc.way_status:
+            if st not in codes:
+                codes[st] = len(self.status_objs)
+                self.status_objs.append(st)
+        self.status_code = np.fromiter((codes[st] for st in sc.way_status), np.int64, len(sc.way_status))
 
 
 class _HTemplates:
@@ -155,7 +179,7 @@ class _Adjacency(Mapping):
 
 
 class ArrayH:
-    def __init__(self, source, csr, xy, selected_segments):
+    def __init__(self, source, csr, xy, selected_segments, ends=None):
         self.source, self.csr, self.selected = source, csr, selected_segments
         self.xy = xy
         self.nodes = _Nodes(csr.ids, csr.index, xy[:, 0], xy[:, 1], projected=True)
@@ -163,9 +187,13 @@ class ArrayH:
         self._adj = self.adj = _Adjacency(self)
         self.edges = _HEdges(self)
         self._data_cache = {}
-        pairs = [(csr.index[a], csr.index[b]) for a, b in csr.keys]
-        self.eu = np.array([min(a, b) for a, b in pairs], dtype=np.int64)
-        self.ev = np.array([max(a, b) for a, b in pairs], dtype=np.int64)
+        self._templates = {}   # way index -> h_templates[way] (압축 도로망 view를 간선마다 다시 만들지 않는다; 복사해서만 쓴다)
+        if ends is not None:   # build_array_pair가 배열로 계산한 (eu, ev): 아래 식과 같은 값
+            self.eu, self.ev = ends
+        else:
+            pairs = [(csr.index[a], csr.index[b]) for a, b in csr.keys]
+            self.eu = np.array([min(a, b) for a, b in pairs], dtype=np.int64)
+            self.ev = np.array([max(a, b) for a, b in pairs], dtype=np.int64)
         self.degrees = np.diff(csr.ptr).astype(np.int64)
         loops = self.eu[self.eu == self.ev]
         np.add.at(self.degrees, loops, 1)
@@ -174,7 +202,11 @@ class ArrayH:
         data = self._data_cache.get(eid)
         if data is None:
             S = self.source.S
-            data = dict(self.source.h_templates[int(S.seg_w[self.selected[eid]])])
+            way = int(S.seg_w[self.selected[eid]])
+            tmpl = self._templates.get(way)
+            if tmpl is None:
+                tmpl = self._templates[way] = self.source.h_templates[way]
+            data = dict(tmpl)
             data["length"] = float(self.csr.length[eid])
             self._data_cache[eid] = data
         return data
@@ -325,8 +357,7 @@ def build_array_pair(source, lat, lon, radius, region):
     reverse = np.r_[np.zeros(len(seg), bool), np.ones(len(seg), bool)]
     insertion = np.lexsort((sg, reverse, np.r_[sw, sw]))
     a, b, sg, reverse = a[insertion], b[insertion], sg[insertion], reverse[insertion]
-    rank = mask._g_node_rank()
-    g_nodes = S.pos_of(list(rank))
+    g_nodes = mask.g_nodes_in_set_order() if FAST else S.pos_of(list(mask._g_node_rank()))
     g_rank = np.full(n, -1, np.int64)
     g_rank[g_nodes] = np.arange(len(g_nodes))
     _, pair_first, inverse = np.unique(a * n + b, return_index=True, return_inverse=True)
@@ -338,6 +369,9 @@ def build_array_pair(source, lat, lon, radius, region):
     projected = np.full(n, -1, np.int64)
     projected[nodes[np.argsort(first)]] = np.arange(len(nodes))
     order = np.lexsort((event, pair_first[inverse], projected[a]))
+    # full_status는 다른 결과와 독립이다. 배열 경로는 임시 배열이 커서, 작업판(H·CSR·component)이 쌓이기 전에 먼저 만든다
+    # (메모리 최대치를 기존 이하로 유지; 값·순서는 그대로).
+    full_status = _full_status(source, a[order], b[order], sg[order]) if FAST else None
     run = order[S.runnable[S.seg_w[sg[order]]]]
     if not len(run):
         # Canonical route_graph_fast fails when its empty waypoint array indexes
@@ -367,26 +401,79 @@ def build_array_pair(source, lat, lon, radius, region):
     eid[edge_order] = np.arange(len(uniq))
     csr = ArrayCSR()
     csr.ids = S.ids[hn].tolist()
-    csr.index = {node: i for i, node in enumerate(csr.ids)}
-    csr.ptr = np.r_[0, np.cumsum(np.bincount(h_rank[aa], minlength=len(hn)))].tolist()
-    csr.nbr, csr.ned = h_rank[bb].tolist(), eid[pair].tolist()
-    csr.length = lengths[best][edge_order].tolist()
-    csr.keys = [(min(int(S.ids[ha[i]]), int(S.ids[hb[i]])), max(int(S.ids[ha[i]]), int(S.ids[hb[i]]))) for i in edge_order]
-    csr.eid = {key: i for i, key in enumerate(csr.keys)}
+    ptr = np.r_[0, np.cumsum(np.bincount(h_rank[aa], minlength=len(hn)))]
+    nbr, ned, length = h_rank[bb], eid[pair], lengths[best][edge_order]
+    csr.ptr = ptr.tolist()
+    csr.nbr, csr.ned = nbr.tolist(), ned.tolist()
+    csr.length = length.tolist()
     xy = S.xy[hn].copy()
-    H = ArrayH(source, csr, xy, rs[best][edge_order])
-    comp, comp_km = component_layout(csr)
-    full_status = {}
-    for i in order:
-        u, v = int(S.ids[a[i]]), int(S.ids[b[i]])
-        full_status.setdefault(legacy.rrg._key(u, v), set()).add(S.sc.way_status[int(S.seg_w[sg[i]])])
+    if not FAST:
+        csr.index = {node: i for i, node in enumerate(csr.ids)}
+        csr.keys = [(min(int(S.ids[ha[i]]), int(S.ids[hb[i]])), max(int(S.ids[ha[i]]), int(S.ids[hb[i]]))) for i in edge_order]
+        csr.eid = {key: i for i, key in enumerate(csr.keys)}
+        H = ArrayH(source, csr, xy, rs[best][edge_order])
+        comp, comp_km = component_layout(csr)
+        full_status = {}
+        for i in order:
+            u, v = int(S.ids[a[i]]), int(S.ids[b[i]])
+            full_status.setdefault(legacy.rrg._key(u, v), set()).add(S.sc.way_status[int(S.seg_w[sg[i]])])
+    else:
+        # 같은 dict·list를 반복문 없이: 삽입 순서(= 원래 반복 순서)와 값(Python int / float / 같은 status 문자열)이 같다.
+        csr.index = dict(zip(csr.ids, range(len(csr.ids))))
+        ia, ib = S.ids[ha[edge_order]], S.ids[hb[edge_order]]
+        csr.keys = list(zip(np.minimum(ia, ib).tolist(), np.maximum(ia, ib).tolist()))
+        csr.eid = dict(zip(csr.keys, range(len(csr.keys))))
+        ra_, rb_ = h_rank[ha[edge_order]], h_rank[hb[edge_order]]     # csr.index[key 양 끝] = h_rank
+        H = ArrayH(source, csr, xy, rs[best][edge_order], ends=(np.minimum(ra_, rb_), np.maximum(ra_, rb_)))
+        # 여기부터는 G·CSR·H에 복사가 끝난 생성용 배열이 필요 없다. component 계산 전에 놓아 메모리 최대치를 낮춘다(값 무관).
+        del a, b, sg, reverse, insertion, g_rank, pair_first, inverse, event, g_order, flat, nodes, first, projected
+        del order, run, ra, rb, key, uniq, by_shortest, keep, hi, aa, bb, pair, horder, ia, ib, ra_, rb_
+        comp, comp_km, comp_idx = component_layout_fast(
+            csr, np.asarray(ptr, np.int64), np.asarray(nbr, np.int64), np.asarray(ned, np.int64),
+            np.asarray(length, np.float64))
     boundary = gpd.GeoSeries([mask.disk_ll], crs="EPSG:4326").to_crs(legacy.busan.UTM).iloc[0]
     rg = legacy.rrg.RouteGraph(region, H, legacy.busan.UTM, full_status, np.array(csr.ids), xy, comp, comp_km, boundary)
-    pool = np.array([i for i, node in enumerate(csr.ids) if comp[node] == 0 and H.degree(node) >= 3])
+    if not FAST:
+        pool = np.array([i for i, node in enumerate(csr.ids) if comp[node] == 0 and H.degree(node) >= 3])
+    else:
+        pool = np.flatnonzero((comp_idx == 0) & (H.degrees >= 3))
+        if not len(pool):
+            pool = np.array([])   # 원래 np.array([])는 float라 아래 index에서 같은 IndexError가 난다
     rg.wp_nodes, rg.wp_xy = rg.nodes[pool], xy[pool]
     rg._route_csr = csr
     rg._array_snap_endpoints = (xy[H.eu], xy[H.ev])
     return G, rg
+
+
+def _full_status(source, oa, ob, osg):
+    """{(작은 id, 큰 id): {status, ...}}: 원래 반복(order 순서로 setdefault(...).add(status))과 같은 dict.
+    key 삽입 순서 = 그 무방향 pair가 처음 나온 순서, set에는 status를 처음 나온 순서로 넣는다(같은 원소 재삽입은 무변화)."""
+    S = source.S
+    n = len(S.ids)
+    if not len(oa):
+        return {}
+    pk = np.minimum(oa, ob) * n + np.maximum(oa, ob)
+    _, first, inv = np.unique(pk, return_index=True, return_inverse=True)
+    by_first = np.argsort(first, kind="stable")
+    grank = np.empty(len(first), np.int64)
+    grank[by_first] = np.arange(len(first))
+    g = grank[inv.ravel()]                       # 처음 나온 순서로 매긴 pair 번호
+    st = source.status_code[S.seg_w[osg]]
+    K = len(source.status_objs)
+    _, pfirst = np.unique(g * K + st, return_index=True)
+    pfirst.sort()                                # (pair, status) 첫 등장 위치 순서 = 원래 add 순서
+    pg, ps = g[pfirst], st[pfirst]
+    by = np.lexsort((pfirst, pg))                # pair 번호 순, 그 안에서 첫 등장 순
+    pg, ps = pg[by], ps[by]
+    fidx = first[by_first]
+    ia, ib = S.ids[oa[fidx]], S.ids[ob[fidx]]
+    keys = zip(np.minimum(ia, ib).tolist(), np.maximum(ia, ib).tolist())
+    objs = source.status_objs
+    bounds = np.r_[0, np.flatnonzero(pg[1:] != pg[:-1]) + 1, len(pg)]
+    sets = [{objs[c]} for c in ps[bounds[:-1]].tolist()]
+    for r in np.flatnonzero(np.diff(bounds) > 1).tolist():
+        sets[r] = set(objs[c] for c in ps[bounds[r]:bounds[r + 1]].tolist())
+    return dict(zip(keys, sets))
 
 
 class ArrayLoopGenerator(legacy.FastGraphRouteGenerator):

@@ -173,6 +173,6 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 | `RUNWAY_USABILITY_LOG_DIR` | `<코드 폴더>/reports/_usability_gate_log` | 안전 기준 검토 로그(JSONL, 요청 좌표 포함). 이미지는 `/tmp/...` |
 | `NUMBA_CACHE_DIR` | | 이미지는 `/opt/route/numba_cache`(빌드 때 생성) |
 
-엔진 되돌리기 스위치(`RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_SHAPES`,
+엔진 되돌리기 스위치(`RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_PAIR_FAST`,
 `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`,
 `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_FAST_GRAPH`)는 결과를 바꾸지 않고 느린 검증 경로로 돌아가는 비상용이다(README 7절).
