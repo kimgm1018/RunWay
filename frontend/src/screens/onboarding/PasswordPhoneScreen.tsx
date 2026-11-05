@@ -11,6 +11,8 @@ import {
   InlineError,
   OnboardingFooter,
   OnboardingHeader,
+  onboardingScreen,
+  RunnerArt,
   StepBadge,
   StepTitle,
   TextLink,
@@ -90,7 +92,13 @@ export function PasswordPhoneScreen() {
 
   return (
     <Screen
-      header={<OnboardingHeader onBack={navigation.goBack} />}
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: verified ? 3 : sent ? 2 : 1, total: 3 }}
+        />
+      }
       footer={
         <OnboardingFooter>
           <GoButton
@@ -101,7 +109,8 @@ export function PasswordPhoneScreen() {
         </OnboardingFooter>
       }
     >
-      <StepTitle title="전화번호로 찾기" small />
+      <RunnerArt />
+      <StepTitle title="전화번호로 찾기" />
       <View style={styles.step}>
         <StepLabel
           index={1}
@@ -110,6 +119,7 @@ export function PasswordPhoneScreen() {
         />
         <TextField
           labelInside
+          icon="handset"
           label="전화번호"
           value={formatPhoneNumber(phone.phoneNumber)}
           onChangeText={phone.setPhoneNumber}
@@ -127,7 +137,9 @@ export function PasswordPhoneScreen() {
               />
             ) : (
               <FieldChip
-                title={phone.phase === 'requesting' ? '보내는 중' : '인증번호 받기'}
+                title={
+                  phone.phase === 'requesting' ? '보내는 중' : '인증번호 받기'
+                }
                 tone="accent"
                 disabled={!phone.phoneValid || phone.phase === 'requesting'}
                 onPress={phone.request}
@@ -164,6 +176,7 @@ export function PasswordPhoneScreen() {
           <>
             <TextField
               labelInside
+              icon="message"
               label="인증번호"
               value={phone.code}
               onChangeText={phone.setCode}
@@ -207,6 +220,7 @@ export function PasswordPhoneScreen() {
           <>
             <TextField
               labelInside
+              icon="padlock"
               label="새 비밀번호"
               value={password}
               onChangeText={setPassword}
@@ -216,6 +230,7 @@ export function PasswordPhoneScreen() {
             />
             <TextField
               labelInside
+              icon="shieldCheck"
               label="비밀번호 확인"
               accessibilityLabel="새 비밀번호 확인"
               value={confirm}

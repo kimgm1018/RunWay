@@ -124,18 +124,11 @@ test('watch connection opened from settings returns home instead of signing in',
   expect(texts(screen)).toContain('연결 해제됨');
   await press(screen, '연결');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  await act(async () => {
-    screen.root
-      .findAll(node => node.props.accessibilityLabel === '밀어서 다시 연결')[0]
-      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
-  });
+  // 1.7 ends in buttons now (S15P31E105-447): 다시 연결, then 시작하기.
+  await press(screen, '다시 연결');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('82%');
-  await act(async () => {
-    screen.root
-      .findAll(node => node.props.accessibilityLabel === '밀어서 시작하기')[0]
-      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
-  });
+  await press(screen, '시작하기');
   expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });

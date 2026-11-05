@@ -318,6 +318,51 @@ const icons = {
   mountain: <Path d="M3 19l6.5-10 4 6 2.5-3.5L21 19z" />,
   // 7.1 게시물 메뉴 (runway-community-handoff): two bars.
   menu: <Path d="M4 9h16M4 15h16" />,
+  // runway-onboarding-handoff field icons (1.2~1.7).
+  person: (
+    <>
+      <Circle cx="12" cy="8" r="3.6" />
+      <Path d="M5 20c.8-3.8 3.6-5.6 7-5.6s6.2 1.8 7 5.6" />
+    </>
+  ),
+  padlock: (
+    <>
+      <Rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+      <Path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+      <Path d="M12 14.5v2.2" />
+    </>
+  ),
+  shieldCheck: (
+    <>
+      <Path d="M12 3.5l7 2.6v5.4c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6.1z" />
+      <Path d="M9 12l2.2 2.2L15.2 10" />
+    </>
+  ),
+  handset: (
+    <>
+      <Rect x="7" y="3" width="10" height="18" rx="2.5" />
+      <Path d="M10.5 18h3" />
+    </>
+  ),
+  message: <Path d="M4.5 6.5h15v9h-8l-4 3v-3h-3z" />,
+  key: (
+    <>
+      <Circle cx="8" cy="12" r="3.5" />
+      <Path d="M11.5 12H20M17 12v3M20 12v2.5" />
+    </>
+  ),
+  tag: (
+    <>
+      <Path d="M4 6.5v5.2l8.3 8.3 7.2-7.2L11.2 4.5H6A2 2 0 0 0 4 6.5z" />
+      <Circle cx="8.3" cy="8.8" r="1.3" />
+    </>
+  ),
+  smartwatch: (
+    <>
+      <Rect x="6.5" y="6.5" width="11" height="11" rx="3" />
+      <Path d="M9 6.5l.6-3h4.8l.6 3M9 17.5l.6 3h4.8l.6-3M12 9.5V12l1.6 1.2" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof icons;

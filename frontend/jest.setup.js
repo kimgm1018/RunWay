@@ -103,3 +103,13 @@ jest.mock('react-native-pager-view', () => {
   }
   return { __esModule: true, default: PagerView };
 });
+
+// lottie-react-native plays its animation natively; tests only need the view in the tree.
+jest.mock('lottie-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const LottieView = React.forwardRef((props, ref) =>
+    React.createElement(View, { ...props, ref }),
+  );
+  return { __esModule: true, default: LottieView };
+});

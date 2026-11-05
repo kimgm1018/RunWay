@@ -7,81 +7,87 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import {
-  AppText,
-  BottomSheet,
-  Icon,
-  IconButton,
-  Logo,
-  type IconName,
-} from '../../components';
+import { AppText, BottomSheet, Icon, type IconName } from '../../components';
 import {
   fontFamily,
   radius,
   size,
   spacing,
-  ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
+import { OnboardingBackdrop, onboardingLook, ProgressBar } from './look';
 
 export { Logo, Segmented } from '../../components';
+export {
+  OnboardingBackdrop,
+  onboardingLook,
+  RunnerArt,
+  signUpSteps,
+} from './look';
 
-// The 1.x header (DESIGN.md 2-5): back button, the loop symbol in the middle, and 1 / 2 on the right for 1.5·1.6.
+// The 1.x header (runway-onboarding-handoff): a glass round back button and, on the sign-up steps, a thin
+// progress bar beside it.
 export function OnboardingHeader({
   onBack,
-  step,
+  progress,
 }: {
   onBack?: () => void;
-  step?: { current: number; total: number };
+  progress?: { current: number; total: number };
 }) {
   return (
     <View style={styles.header}>
-      <View style={styles.symbol} pointerEvents="none">
-        <Logo width={34} symbol />
-      </View>
       {onBack ? (
-        <IconButton icon="back" accessibilityLabel="뒤로" onPress={onBack} />
-      ) : null}
-      {step ? (
-        <AppText variant="label" tone="textSecondary" style={styles.stepText}>
-          {step.current} / {step.total}
-        </AppText>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="뒤로"
+          onPress={onBack}
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Icon
+            name="back"
+            color={onboardingLook.ink}
+            size={18}
+            strokeWidth={2.2}
+          />
+        </Pressable>
+      ) : (
+        <View style={styles.backSpace} />
+      )}
+      {progress ? (
+        <ProgressBar current={progress.current} total={progress.total} />
       ) : null}
     </View>
   );
 }
 
-// Centered light title. `muted` is the dimmed tail, such as 1.2p's 잊으셨나요?
+// Shared by every 1.2~1.7 screen: the handoff background and its 24 sides, 12 between cards.
+export const onboardingScreen = {
+  background: <OnboardingBackdrop />,
+  contentStyle: { paddingHorizontal: 24, paddingTop: 0, gap: 12 },
+} as const;
+
+// Left-aligned bold ink title. `muted` is the rest of the sentence, such as 1.2p's 잊으셨나요?; it is the same
+// ink now (the handoff has one colour), kept apart so the line breaks stay where they were.
 // The caller ends `title` with the line break or space that comes before it.
 export function StepTitle({
   title,
   muted,
   description,
-  small = false,
 }: {
   title: string;
   muted?: string;
   description?: string;
-  // 1.2q's 전화번호로 찾기 is a step smaller.
-  small?: boolean;
 }) {
-  // AppText sets its own size, so the nested muted part repeats the title style.
-  const titleStyle = [styles.titleText, small && styles.titleSmall];
   return (
     <View style={styles.stepTitle}>
-      <AppText accessibilityRole="header" style={titleStyle}>
+      <AppText accessibilityRole="header" style={styles.titleText}>
         {title}
-        {muted ? (
-          <AppText tone="textTertiary" style={titleStyle}>
-            {muted}
-          </AppText>
-        ) : null}
+        {muted ? <AppText style={styles.titleText}>{muted}</AppText> : null}
       </AppText>
       {description ? (
-        <AppText variant="caption" tone="textSecondary" style={styles.center}>
-          {description}
-        </AppText>
+        <AppText style={styles.description}>{description}</AppText>
       ) : null}
     </View>
   );
@@ -99,7 +105,6 @@ export function FieldChip({
   tone?: 'accent' | 'muted';
   disabled?: boolean;
 }) {
-  const { colors } = useTheme();
   const accent = tone === 'accent' && !disabled;
   return (
     <Pressable
@@ -111,21 +116,16 @@ export function FieldChip({
       onPress={onPress}
       style={({ pressed }) => [
         styles.chip,
-        {
-          backgroundColor: accent ? colors.accent : colors.surfaceMuted,
-          opacity: pressed ? 0.7 : 1,
-        },
+        accent ? styles.chipAccent : styles.chipMuted,
+        pressed && styles.chipPressed,
       ]}
     >
       <AppText
-        variant="label"
-        style={{
-          color: accent
-            ? colors.onAccent
-            : disabled && onPress
-            ? colors.textDisabled
-            : colors.text,
-        }}
+        style={[
+          styles.chipText,
+          accent && styles.chipTextAccent,
+          disabled && !!onPress && styles.chipTextOff,
+        ]}
       >
         {title}
       </AppText>
@@ -163,8 +163,7 @@ export function TextLink({
   );
 }
 
-// The 1.x main button (DESIGN.md 2-5): a short pill with a ring and dot at its right end.
-// It sits on the black lower part, so it is used inside a dark tone and turns into a light pill there.
+// The 1.x main button (runway-onboarding-handoff): a full-width ink pill, 58 high, white bold label.
 export function GoButton({
   title,
   onPress,
@@ -174,8 +173,6 @@ export function GoButton({
   onPress: () => void;
   disabled?: boolean;
 }) {
-  const { colors } = useTheme();
-  const ink = disabled ? colors.textTertiary : colors.onAccent;
   return (
     <Pressable
       accessibilityRole="button"
@@ -185,51 +182,17 @@ export function GoButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.go,
-        { backgroundColor: disabled ? colors.surfaceMuted : colors.accent },
+        disabled && styles.goDisabled,
         pressed && styles.goPressed,
       ]}
     >
-      <AppText style={[typography.buttonSmall, styles.goLabel, { color: ink }]}>
-        {title}
-      </AppText>
-      <View style={styles.goRing}>
-        <View style={[styles.goRingLine, { borderColor: ink }]} />
-        <View style={[styles.goDot, { backgroundColor: ink }]} />
-      </View>
+      <AppText style={styles.goLabel}>{title}</AppText>
     </Pressable>
   );
 }
 
-// Page dots under the 1.x main button: a light pill with the current page dark.
-export function PageDots({
-  count,
-  current,
-}: {
-  count: number;
-  current: number;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View
-      importantForAccessibility="no-hide-descendants"
-      style={[styles.dots, { backgroundColor: colors.accent }]}
-    >
-      {Array.from({ length: count }, (_, index) => (
-        <View
-          key={index}
-          style={[
-            styles.dot,
-            { backgroundColor: colors.onAccent },
-            index !== current && styles.dotOff,
-          ]}
-        />
-      ))}
-    </View>
-  );
-}
-
-// The lower part of a 1.x screen: the main button and links, centered. The mist background stays light
-// down to the bottom (S15P31E105-427), so they use the light tone: dark text and a dark filled button.
+// The lower part of a 1.x screen: the main button and the links under it, the same place on every step
+// (S15P31E105-387): 24 from the sides and 42 from the bottom of the frame.
 export function OnboardingFooter({ children }: { children: React.ReactNode }) {
   return <View style={styles.footer}>{children}</View>;
 }
@@ -352,8 +315,8 @@ export function StepBadge({
   );
 }
 
-// A choice drawn as a light card that turns ink when selected (1.5 성별, 1.6 수준, 1.6w 워치 사용 여부).
-// The inside of a selected card is in the dark tone, so its text and icons turn light by themselves.
+// A choice drawn as a glass card that turns solid white with an ink rim when picked (1.4 동의 rows, 1.5 성별,
+// 1.6 수준, 1.6w 워치 사용 여부).
 export function SelectionCard({
   selected,
   onPress,
@@ -367,7 +330,6 @@ export function SelectionCard({
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="radio"
@@ -376,19 +338,12 @@ export function SelectionCard({
       onPress={onPress}
       style={({ pressed }) => [
         styles.selection,
-        {
-          backgroundColor: selected ? colors.accent : colors.inputBackground,
-          borderColor: selected ? colors.accent : colors.inputEdge,
-        },
+        selected && styles.selectionPicked,
         pressed && styles.selectionPressed,
         style,
       ]}
     >
-      {selected ? (
-        <ThemeProvider tone="dark">{children}</ThemeProvider>
-      ) : (
-        children
-      )}
+      {children}
     </Pressable>
   );
 }
@@ -402,6 +357,7 @@ export function SelectField<T extends number>({
   format,
   onChange,
   style,
+  glass = false,
 }: {
   label: string;
   placeholder: string;
@@ -410,6 +366,8 @@ export function SelectField<T extends number>({
   format: (value: T) => string;
   onChange: (value: T) => void;
   style?: StyleProp<ViewStyle>;
+  // 1.5b's glass card (runway-onboarding-handoff); 8.2 keeps the pill.
+  glass?: boolean;
 }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
@@ -423,10 +381,12 @@ export function SelectField<T extends number>({
         onPress={() => setOpen(true)}
         style={[
           styles.select,
-          {
-            backgroundColor: colors.inputBackground,
-            borderColor: colors.inputEdge,
-          },
+          glass
+            ? styles.selectGlass
+            : {
+                backgroundColor: colors.inputBackground,
+                borderColor: colors.inputEdge,
+              },
           style,
         ]}
       >
@@ -486,31 +446,9 @@ export function SelectField<T extends number>({
   );
 }
 
-// Round glass icon used on 1.2p (lock, larger) and 1.6w (watch, phone).
-export function IconBadge({
-  icon,
-  diameter = 44,
-}: {
-  icon: IconName;
-  diameter?: number;
-}) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        styles.iconBadge,
-        {
-          width: diameter,
-          height: diameter,
-          borderRadius: diameter / 2,
-          backgroundColor: colors.glass,
-          borderColor: colors.borderStrong,
-        },
-      ]}
-    >
-      <Icon name={icon} color={colors.text} size={20} />
-    </View>
-  );
+// The ink line icon at the start of a card (1.6w 워치 · 휴대폰). The handoff has no circle behind it.
+export function IconBadge({ icon }: { icon: IconName; diameter?: number }) {
+  return <Icon name={icon} color={onboardingLook.ink} size={20} />;
 }
 
 const optionHeight = 48;
@@ -519,77 +457,81 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
   header: {
-    height: size.header,
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.screen,
+    gap: 15,
+    paddingLeft: 19,
+    paddingRight: 28,
   },
-  symbol: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepText: { marginLeft: 'auto', letterSpacing: 1.5 },
-  stepTitle: { gap: spacing.lg, paddingTop: spacing.xxl },
-  titleText: {
-    fontFamily: fontFamily.regular,
-    fontSize: 28,
-    lineHeight: 36,
-    letterSpacing: -0.8,
-    textAlign: 'center',
-  },
-  titleSmall: { fontSize: 24, lineHeight: 32 },
-  center: { textAlign: 'center' },
-  chip: {
-    height: 28,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footer: { flex: 1, alignItems: 'center', gap: spacing.xl },
-  go: {
-    height: 54,
-    minWidth: 206,
-    borderRadius: 27,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 26,
-    paddingRight: 10,
-  },
-  goPressed: { transform: [{ scale: 0.96 }] },
-  goLabel: { letterSpacing: 0.5, marginRight: 22 },
-  goRing: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goRingLine: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    borderRadius: 17,
+  back: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    opacity: 0.6,
+    borderColor: onboardingLook.glassRim,
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    boxShadow: '0 6px 18px rgba(9,17,26,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  goDot: { width: 4, height: 4, borderRadius: 2 },
-  dots: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 12,
+  backSpace: { width: 38, height: 38 },
+  // 28 under the runner, as the handoff's title sits at 310 below the 86 + 196 runner.
+  stepTitle: { gap: 8, paddingTop: 28, paddingBottom: 11 },
+  titleText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 25,
+    lineHeight: 33,
+    letterSpacing: -0.6,
+    color: onboardingLook.ink,
   },
-  dot: { width: 4, height: 4, borderRadius: 2 },
-  dotOff: { opacity: 0.3 },
+  description: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 20,
+    color: onboardingLook.sub,
+  },
+  chip: {
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipAccent: { backgroundColor: onboardingLook.ink },
+  chipMuted: { backgroundColor: 'rgba(2,5,14,0.08)' },
+  chipPressed: { opacity: 0.7 },
+  chipText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: onboardingLook.ink,
+  },
+  chipTextAccent: { color: '#FFFFFF' },
+  chipTextOff: { color: onboardingLook.muted },
+  footer: {
+    flex: 1,
+    alignItems: 'stretch',
+    gap: 14,
+    paddingHorizontal: 8,
+    paddingBottom: 18,
+  },
+  go: {
+    height: 58,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: onboardingLook.ink,
+  },
+  goDisabled: { backgroundColor: 'rgba(2,5,14,0.28)' },
+  goPressed: { transform: [{ scale: 0.98 }] },
+  goLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16.5,
+    lineHeight: 22,
+    letterSpacing: 0.3,
+    color: '#FFFFFF',
+  },
   inlineError: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -630,11 +572,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   selection: {
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
-    padding: spacing.xl,
+    borderColor: onboardingLook.glassRim,
+    backgroundColor: onboardingLook.glass,
+    boxShadow: onboardingLook.glassShadow,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
   },
-  selectionPressed: { transform: [{ scale: 0.96 }] },
+  selectionPicked: {
+    backgroundColor: onboardingLook.picked,
+    borderColor: onboardingLook.ink,
+    borderWidth: 1.5,
+  },
+  selectionPressed: { transform: [{ scale: 0.98 }] },
   select: {
     height: size.input,
     borderRadius: radius.pill,
@@ -645,16 +596,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
+  selectGlass: {
+    height: 58,
+    borderRadius: 18,
+    borderColor: onboardingLook.glassRim,
+    backgroundColor: onboardingLook.glass,
+    boxShadow: onboardingLook.glassShadow,
+    paddingHorizontal: 18,
+  },
   options: { maxHeight: 320 },
   option: {
     height: optionHeight,
     justifyContent: 'center',
     paddingHorizontal: spacing.xxl,
     borderRadius: radius.md,
-  },
-  iconBadge: {
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
