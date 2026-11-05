@@ -156,6 +156,14 @@ function serve() {
         crew.members = crew.members.filter(member => member.userId !== meId);
         return respond(200, { status: 'LEFT', leftAt: '2026-11-02T01:00:00Z' });
       }
+      match = path.match(/^\/crews\/(\d+)\/members\/(\d+)$/);
+      if (match && init.method === 'DELETE') {
+        const crew = find(match[1]);
+        crew.members = crew.members.filter(
+          member => member.userId !== Number(match![2]),
+        );
+        return respond(200, { status: 'LEFT', leftAt: '2026-11-06T00:00:00Z' });
+      }
       match = path.match(/^\/crews\/(\d+)\/join-requests$/);
       if (match && init.method === 'POST') {
         const crew = find(match[1]);
@@ -415,3 +423,96 @@ test('6.3 creates a crew in the picked place’s region', async () => {
   expect(texts(screen)).toContain('광안리 주말 러너스');
   await act(async () => screen.unmount());
 });
+
+test('일반 멤버에게는 내보내기가 보이지 않는다', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 3/30명');
+    expect(texts(screen)).not.toContain('내보내기');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test('크루장 확인 후 한 번만 내보내고 목록과 인원을 갱신한다', async () => {
+  const screen = await openGroup();
+  let release: (() => void) | undefined;
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+    expect(
+      screen.root.findAll(
+        node => node.props.accessibilityLabel === '민준 내보내기',
+      ),
+    ).toHaveLength(0);
+    await press(screen, '도윤 내보내기');
+    expect(texts(screen)).toContain('이 멤버를 크루에서 내보낼까요?');
+    expect(sent('DELETE')).toEqual([]);
+    await press(screen, '취소');
+    expect(sent('DELETE')).toEqual([]);
+    await press(screen, '도윤 내보내기');
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (address, init) => {
+      if (init.method === 'DELETE')
+        await new Promise<void>(resolve => {
+          release = resolve;
+        });
+      return original(address, init);
+    });
+    const confirm = labelled(screen, '내보내기');
+    await act(async () => {
+      confirm.props.onPress();
+      confirm.props.onPress();
+    });
+    expect(sent('DELETE')).toEqual(['/crews/42/members/12']);
+    await act(async () => {
+      release!();
+    });
+    await settle();
+    expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(1);
+    expect(texts(screen)).toContain('모집 중 1/30 · 승인제');
+    expect(
+      screen.root.findAll(
+        node => node.props.accessibilityLabel === '도윤 내보내기',
+      ),
+    ).toHaveLength(0);
+  } finally {
+    release?.();
+    await act(async () => screen.unmount());
+  }
+});
+
+test.each([
+  [403, 'NOT_ADMIN', '크루장만 멤버를 내보낼 수 있어요'],
+  [409, 'CANNOT_REMOVE_OWNER', '크루장은 내보낼 수 없어요'],
+  [404, 'MEMBER_NOT_FOUND', '이미 크루에서 나간 멤버예요'],
+  [0, 'NETWORK_ERROR', '멤버를 내보내지 못했어요'],
+] as const)(
+  '내보내기 실패(%s)는 안내하고 구성원 목록을 유지한다',
+  async (status, code, message) => {
+    const screen = await openGroup();
+    try {
+      await press(screen, '크루 모집');
+      await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+      await press(screen, '도윤 내보내기');
+      const original = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation((address, init) => {
+        if (init.method === 'DELETE') {
+          if (status === 0) throw new TypeError('Network request failed');
+          return Promise.resolve(
+            respond(status, { code, message: '', details: {} }),
+          );
+        }
+        return original(address, init);
+      });
+      await press(screen, '내보내기');
+      expect(texts(screen)).toContain(message);
+      expect(texts(screen)).toContain('모집 중 2/30 · 승인제');
+      expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(2);
+      expect(labelled(screen, '도윤 내보내기')).toBeTruthy();
+    } finally {
+      await act(async () => screen.unmount());
+    }
+  },
+);

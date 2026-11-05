@@ -79,6 +79,13 @@ export function createCrewMock({
   const requests = new Map(Object.entries(fixtures.crewJoinRequests));
   // Members who joined while the app runs, shown by name in 6.2 구성원.
   const joined = new Map<string, Person[]>();
+  // 구성원을 한 번 생성해 보관한다. 내보낸 가상 멤버가 재조회 때 다시 생기지 않게 한다.
+  const rosters = new Map<string, CrewMember[]>();
+  const rosterOf = (crew: CrewState) => {
+    if (!rosters.has(crew.id))
+      rosters.set(crew.id, membersOf(crew, joined.get(crew.id) ?? []));
+    return rosters.get(crew.id)!;
+  };
   const update = (crewId: string, change: Partial<CrewState>) => {
     directory = directory.map(item =>
       item.id === crewId ? { ...item, ...change } : item,
@@ -86,6 +93,16 @@ export function createCrewMock({
   };
   const addMember = (crewId: string, person: Person) => {
     const crew = find(crewId);
+    const roster = rosterOf(crew);
+    rosters.set(crewId, [
+      ...roster,
+      {
+        ...person,
+        isOwner: roster.length === 0,
+        isMe: person.userId === me,
+        recentPaceSecPerKm: 330 + ((roster.length * 37) % 90),
+      },
+    ]);
     update(crewId, { memberCount: crew.memberCount + 1 });
     joined.set(crewId, [...(joined.get(crewId) ?? []), person]);
   };
@@ -120,8 +137,8 @@ export function createCrewMock({
     },
     get: crewId => {
       const crew = find(crewId);
-      const members = membersOf(crew, joined.get(crewId) ?? []);
-      const amOwner = members[0].userId === me;
+      const members = rosterOf(crew);
+      const amOwner = members[0]?.userId === me;
       return respond({
         ...toListItem(crew),
         joinPolicy: crew.joinPolicy,
@@ -179,11 +196,15 @@ export function createCrewMock({
     },
     leave: crewId => {
       const crew = find(crewId);
-      if (membersOf(crew, joined.get(crewId) ?? [])[0].userId === me) {
+      if (rosterOf(crew)[0]?.userId === me) {
         return fail(
           new DataError('OWNER_CANNOT_LEAVE', '크루장은 바로 나갈 수 없어요'),
         );
       }
+      rosters.set(
+        crewId,
+        rosterOf(crew).filter(person => person.userId !== me),
+      );
       update(crewId, {
         myMembership: null,
         memberCount: Math.max(0, crew.memberCount - 1),
@@ -192,6 +213,33 @@ export function createCrewMock({
         crewId,
         (joined.get(crewId) ?? []).filter(person => person.userId !== me),
       );
+      return respond(undefined);
+    },
+    removeMember: (crewId, userId) => {
+      const crew = find(crewId);
+      const members = rosterOf(crew);
+      if (!members.some(member => member.isMe && member.isOwner))
+        return fail(
+          new DataError('NOT_ADMIN', '크루장만 멤버를 내보낼 수 있어요'),
+        );
+      const target = members.find(member => member.userId === userId);
+      if (!target)
+        return fail(
+          new DataError('MEMBER_NOT_FOUND', '크루 멤버를 찾지 못했어요'),
+        );
+      if (target.isOwner)
+        return fail(
+          new DataError('CANNOT_REMOVE_OWNER', '크루장은 내보낼 수 없어요'),
+        );
+      rosters.set(
+        crewId,
+        members.filter(member => member.userId !== userId),
+      );
+      joined.set(
+        crewId,
+        (joined.get(crewId) ?? []).filter(member => member.userId !== userId),
+      );
+      update(crewId, { memberCount: Math.max(0, crew.memberCount - 1) });
       return respond(undefined);
     },
     decideJoinRequest: (crewId, userId, approve) => {
@@ -221,9 +269,7 @@ export function createCrewMock({
     // 8.4: the crews I lead.
     owned: () =>
       directory
-        .filter(
-          crew => membersOf(crew, joined.get(crew.id) ?? [])[0].userId === me,
-        )
+        .filter(crew => rosterOf(crew)[0]?.userId === me)
         .map(crew => crew.name),
     mine: () =>
       directory.flatMap(crew =>

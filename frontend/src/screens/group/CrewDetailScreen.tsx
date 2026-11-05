@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -195,7 +195,15 @@ function Fact({
 }
 
 // A member line without dividers (6.2-MembersCard).
-function MemberRow({ member }: { member: CrewMember }) {
+function MemberRow({
+  member,
+  onRemove,
+  disabled,
+}: {
+  member: CrewMember;
+  onRemove?: () => void;
+  disabled: boolean;
+}) {
   return (
     <View style={styles.memberRow}>
       <View style={styles.initial}>
@@ -217,6 +225,20 @@ function MemberRow({ member }: { member: CrewMember }) {
           {formatPace(member.recentPaceSecPerKm)}
           <AppText style={styles.paceUnit}>/km</AppText>
         </AppText>
+      ) : null}
+      {onRemove ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${member.nickname} 내보내기`}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={onRemove}
+          style={styles.removeMember}
+        >
+          <AppText variant="captionStrong" tone="danger">
+            내보내기
+          </AppText>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -333,9 +355,59 @@ export function CrewDetailScreen() {
   }, [loaded]);
   const [allMembers, setAllMembers] = useState(false);
   const [sheet, setSheet] = useState<
-    'full' | 'sent' | 'joined' | 'leave' | 'ownerLeave' | null
+    'full' | 'sent' | 'joined' | 'leave' | 'ownerLeave' | 'remove' | null
   >(null);
   const [busy, setBusy] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<CrewMember | null>(null);
+  const removing = useRef(false);
+  const removeMember = async () => {
+    if (
+      busy ||
+      removing.current ||
+      !crew?.amOwner ||
+      !removeTarget ||
+      removeTarget.isMe ||
+      removeTarget.isOwner
+    )
+      return;
+    const target = removeTarget;
+    removing.current = true;
+    setBusy(true);
+    try {
+      await crews.removeMember(crew.id, target.userId);
+      // 요청이 성공한 뒤에만 목록과 인원을 변경한다. 실패 시 기존 목록을 유지한다.
+      setCrew(current =>
+        current
+          ? {
+              ...current,
+              members: current.members.filter(
+                member => member.userId !== target.userId,
+              ),
+              memberCount: Math.max(0, current.memberCount - 1),
+            }
+          : current,
+      );
+      changed();
+      setSheet(null);
+      setRemoveTarget(null);
+      toast(`${target.nickname}님을 크루에서 내보냈어요`);
+    } catch (error) {
+      const messages = {
+        NOT_ADMIN: '크루장만 멤버를 내보낼 수 있어요',
+        CANNOT_REMOVE_OWNER: '크루장은 내보낼 수 없어요',
+        MEMBER_NOT_FOUND: '이미 크루에서 나간 멤버예요',
+      };
+      const code = errorCode(error);
+      toast(
+        code in messages
+          ? messages[code as keyof typeof messages]
+          : '멤버를 내보내지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+    } finally {
+      removing.current = false;
+      setBusy(false);
+    }
+  };
 
   const requestJoin = async (current: CrewDetail) => {
     setBusy(true);
@@ -518,7 +590,19 @@ export function CrewDetailScreen() {
               </View>
               <View>
                 {shown.map(member => (
-                  <MemberRow key={member.userId} member={member} />
+                  <MemberRow
+                    key={member.userId}
+                    member={member}
+                    disabled={busy}
+                    onRemove={
+                      crew.amOwner && !member.isOwner && !member.isMe
+                        ? () => {
+                            setRemoveTarget(member);
+                            setSheet('remove');
+                          }
+                        : undefined
+                    }
+                  />
                 ))}
               </View>
               {crew.members.length > previewCount ? (
@@ -567,8 +651,31 @@ export function CrewDetailScreen() {
           </SafeAreaView>
         ) : null}
         <ThemeProvider tone="dark">
-          <BottomSheet visible={sheet !== null} onClose={() => setSheet(null)}>
-            {crew && sheet === 'full' ? (
+          <BottomSheet
+            visible={sheet !== null}
+            onClose={() => {
+              if (!busy) setSheet(null);
+            }}
+          >
+            {crew && sheet === 'remove' && removeTarget ? (
+              <SheetBody
+                icon="alert"
+                title="이 멤버를 크루에서 내보낼까요?"
+                body={`${removeTarget.nickname}님을 크루에서 내보냅니다.`}
+              >
+                <FooterButton
+                  title="취소"
+                  disabled={busy}
+                  onPress={() => setSheet(null)}
+                />
+                <FooterButton
+                  title="내보내기"
+                  danger
+                  disabled={busy}
+                  onPress={removeMember}
+                />
+              </SheetBody>
+            ) : crew && sheet === 'full' ? (
               <SheetBody
                 icon="group"
                 title="정원이 가득 찼어요"
@@ -736,6 +843,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   // 6.2-MembersCard rows: 34 initial, name, 크루장 chip, recent pace on the right.
+  removeMember: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
   memberRow: {
     height: 50,
     flexDirection: 'row',
