@@ -151,6 +151,8 @@ sealed interface BatchArrival {
   /** Same id, different session/device/body: never stored over the first one. */
   data object Conflict : BatchArrival
   data object Full : BatchArrival
+  /** A new batch for a session whose intake is closed for the phone takeover (S08 TAKE_OVER_PHONE): not stored, not acked. */
+  data object Blocked : BatchArrival
 }
 
 /**
@@ -171,6 +173,7 @@ class WatchBatchStore(private val dir: File) {
         (existing.body == null || existing.body == incoming.body) && existing.itemCount == incoming.itemCount
       return if (same) BatchArrival.Known(existing) else BatchArrival.Conflict
     }
+    if (incoming.sessionId in readBlocked()) return BatchArrival.Blocked
     if (all().count { it.deviceId == incoming.deviceId && it.status == BatchStatus.RECEIVED } >= MAX_OPEN_BATCHES) {
       return BatchArrival.Full
     }
@@ -180,6 +183,24 @@ class WatchBatchStore(private val dir: File) {
   }
 
   fun get(batchId: String): RelayBatch? = synchronized(LOCK) { read(batchId) }
+
+  /**
+   * Phone takeover step 1 (sessions.md 폰의 데이터 저장·요청 순서, S15P31E105-464): closes new batch intake for [sessionId]
+   * and returns, under the same lock, every batch of that session already stored and still waiting for W07. A batch
+   * arriving after this point is neither stored nor acked. The closed state survives a restart.
+   */
+  fun block(sessionId: String): List<RelayBatch> = synchronized(LOCK) {
+    writeBlocked(readBlocked() + sessionId)
+    all().filter { it.sessionId == sessionId && it.status == BatchStatus.RECEIVED }
+  }
+
+  /** Opens intake again: only when the takeover was not requested or was refused with WATCH kept, or the run ended. */
+  fun unblock(sessionId: String) = synchronized(LOCK) {
+    val blocked = readBlocked()
+    if (sessionId in blocked) writeBlocked(blocked - sessionId)
+  }
+
+  fun isBlocked(sessionId: String): Boolean = synchronized(LOCK) { sessionId in readBlocked() }
 
   /** Batches still waiting for W07, oldest first. */
   fun open(): List<RelayBatch> = synchronized(LOCK) { all().filter { it.status == BatchStatus.RECEIVED } }
@@ -209,6 +230,23 @@ class WatchBatchStore(private val dir: File) {
       .mapNotNull { f -> decode(f)?.takeIf { it.status == BatchStatus.COMMITTED }?.let { f } }
       .sortedBy { it.lastModified() }
     committed.dropLast(MAX_KEPT_COMMITTED).forEach { it.delete() }
+  }
+
+  private fun readBlocked(): Set<String> = try {
+    val file = File(dir, BLOCKED_FILE)
+    if (!file.exists()) emptySet() else file.readText(Charsets.UTF_8).split(',').filter { it.isNotBlank() }.toSet()
+  } catch (_: Exception) {
+    emptySet()
+  }
+
+  private fun writeBlocked(sessions: Set<String>) {
+    val target = File(dir, BLOCKED_FILE)
+    val temp = File(dir, "$BLOCKED_FILE.tmp")
+    temp.writeText(sessions.joinToString(","), Charsets.UTF_8)
+    if (!temp.renameTo(target)) {
+      target.delete()
+      check(temp.renameTo(target)) { "batch store write failed" }
+    }
   }
 
   private fun read(batchId: String): RelayBatch? = decode(File(dir, "${batchId.lowercase()}.json"))
@@ -254,6 +292,7 @@ class WatchBatchStore(private val dir: File) {
   private companion object {
     val LOCK = Any()
     const val MAX_KEPT_COMMITTED = 256
+    const val BLOCKED_FILE = "blocked_sessions"
   }
 }
 

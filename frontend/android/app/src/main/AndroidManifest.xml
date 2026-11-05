@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -63,6 +64,6 @@
         </intent-filter>
       </service>
       <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->
-      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice|location" />
     </application>
 </manifest>

@@ -260,6 +260,7 @@ class WatchSessionControllerTest {
         override suspend fun finish(sessionId: String): Int { calls += "finish:$sessionId"; return pending }
         override suspend fun pendingCount(sessionId: String) = pending
         override suspend fun retryFailed(sessionId: String) { calls += "retryFailed:$sessionId" }
+        override suspend fun stop(sessionId: String) { calls += "stop:$sessionId" }
     }
 
     @Test
@@ -555,8 +556,108 @@ class WatchSessionControllerTest {
         gateway.calls.clear()
         val c = restarted()
         c.onMessage(serverState("RUNNING", 3, mode = "PHONE_FALLBACK"))
-        assertTrue(gateway.calls.isEmpty())
+        // 다시 붙이지 않고, 남아 있을 수 있는 워치 운동만 끝낸다(S15P31E105-464).
+        assertEquals(listOf("end"), gateway.calls)
         assertFalse(c.state.value.measurementLost)
+        assertTrue(c.state.value.phoneRecording)
+    }
+
+    // S15P31E105-464 (sessions.md 전환 후 워치 처리): 폰으로 넘긴 운동은 워치가 측정·박자·batch를 멈추고 다시 시작하지 않는다.
+    private class FakePlayer : com.runway.watch.cue.RhythmPlayer {
+        val calls = mutableListOf<String>()
+        override fun play(bpm: Int) { calls += "play:$bpm" }
+        override fun stop() { calls += "stop" }
+    }
+
+    private fun bpmState(state: String, version: Long, mode: String, bpm: Int?) =
+        message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"$mode","state":"$state","stateVersion":$version,"currentBpm":${bpm ?: "null"}}""")
+
+    @Test
+    fun `a run handed to the phone stops the beat, the batches and the watch exercise`() = runBlocking {
+        val uploads = FakeUploads()
+        val keepAlive = KeepAliveCalls()
+        val player = FakePlayer()
+        val c = WatchSessionController(
+            store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000,
+            uploads = uploads, keepAlive = keepAlive, player = player,
+        )
+        c.running()
+        c.onMessage(bpmState("RUNNING", 2, "WATCH", 170))
+        assertEquals("play:170", player.calls.last())
+        uploads.calls.clear()
+        keepAlive.calls.clear()
+
+        c.onMessage(bpmState("RUNNING", 3, "PHONE_FALLBACK", 170))
+        assertEquals("stop", player.calls.last())
+        assertEquals(listOf("stop:201"), uploads.calls)
+        assertEquals(listOf("start", "end"), gateway.calls)
+        assertEquals(listOf("stop"), keepAlive.calls)
+        assertTrue(c.state.value.phoneRecording)
+        assertEquals(SessionRunControl.PHONE_RECORDING_NOTICE, SessionRunControl.notice(c.state.value))
+        assertTrue(SessionRunControl.toSnapshot(c.state.value).phoneRecording)
+    }
+
+    @Test
+    fun `a reconnect or later snapshot of a run handed to the phone never restarts anything`() = runBlocking {
+        val uploads = FakeUploads()
+        val keepAlive = KeepAliveCalls()
+        val player = FakePlayer()
+        val c = WatchSessionController(
+            store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000,
+            uploads = uploads, keepAlive = keepAlive, player = player,
+        )
+        c.running()
+        c.onMessage(bpmState("RUNNING", 3, "PHONE_FALLBACK", null))
+        val plays = player.calls.count { it.startsWith("play") }
+        uploads.calls.clear()
+        keepAlive.calls.clear()
+        gateway.calls.clear()
+
+        // 재연결 뒤 같은 버전·더 높은 버전 스냅샷, 그리고 recordingMode가 빠진 스냅샷에도 폰 제어를 유지한다.
+        c.onMessage(bpmState("RUNNING", 3, "PHONE_FALLBACK", null))
+        c.onMessage(bpmState("PAUSED", 4, "PHONE_FALLBACK", null))
+        c.onMessage(bpmState("RUNNING", 5, "PHONE_FALLBACK", 170))
+        c.onMessage(bpmState("RUNNING", 6, "WATCH", 170))
+        assertEquals(plays, player.calls.count { it.startsWith("play") })
+        assertTrue(uploads.calls.isEmpty())
+        assertTrue(keepAlive.calls.isEmpty())
+        assertTrue(gateway.calls.isEmpty())
+        assertTrue(c.state.value.phoneRecording)
+
+        // 워치 버튼은 요청을 보내지 않고, 명령이 와도 실행하지 않는다.
+        val requests = sender.count("COMMAND_REQUEST")
+        assertFalse(c.request(WatchRequest.PAUSE))
+        assertFalse(c.requestBpm(175))
+        assertEquals(requests, sender.count("COMMAND_REQUEST"))
+        c.onMessage(apply("RESUME", 503, 6))
+        val resume = sender.last("COMMAND_RESULT").getJSONObject("payload")
+        assertEquals("REJECTED", resume.getString("result"))
+        assertEquals("CONTROL_DEVICE_CHANGED", resume.getString("reasonCode"))
+        assertTrue(gateway.calls.isEmpty())
+
+        // 폰이 끝낸 뒤의 종료 상태는 지금처럼 결과로 보인다.
+        c.onMessage(bpmState("COMPLETED", 7, "PHONE_FALLBACK", null))
+        assertEquals(RunState.COMPLETED, c.state.value.confirmed)
+        assertEquals(listOf("stop"), keepAlive.calls)
+        assertTrue(gateway.calls.isEmpty())
+    }
+
+    @Test
+    fun `a watch run keeps its beat and batches on later watch snapshots`() = runBlocking {
+        val uploads = FakeUploads()
+        val player = FakePlayer()
+        val c = WatchSessionController(
+            store, gateway, sender, now = { now }, sleep = {}, jitter = { 0 }, callTimeoutMs = 1_000,
+            uploads = uploads, player = player,
+        )
+        c.running()
+        c.onMessage(bpmState("RUNNING", 2, "WATCH", 170))
+        c.onMessage(bpmState("RUNNING", 3, "WATCH", 170))
+        assertEquals("play:170", player.calls.last())
+        assertTrue(uploads.calls.none { it.startsWith("stop") })
+        assertEquals(listOf("start"), gateway.calls)
+        assertFalse(c.state.value.phoneRecording)
+        assertNull(SessionRunControl.notice(c.state.value))
     }
 
     @Test

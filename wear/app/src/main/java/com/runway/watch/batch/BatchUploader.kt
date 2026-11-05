@@ -32,6 +32,12 @@ interface RunUploads {
      * a final phone error (400/401/403/409 content or permission errors) are not sent again.
      */
     suspend fun retryFailed(sessionId: String)
+    /**
+     * The run was handed to the phone (PHONE_FALLBACK, S08): stop making new batches for [sessionId]. Readings not yet
+     * in a batch are dropped, because the server refuses new watch batches after the take-over (W07 409
+     * CONTROL_DEVICE_CHANGED). Batches already stored are kept and sent as before.
+     */
+    suspend fun stop(sessionId: String) = Unit
 }
 
 object NoUploads : RunUploads {
@@ -125,6 +131,14 @@ class BatchUploader(
             if (open.none { !it.failed } || clock() >= deadline) return open.size
             sleep(tickMs)
         }
+    }
+
+    override suspend fun stop(sessionId: String) = mutex.withLock {
+        if (this.sessionId != sessionId) return@withLock
+        accepting = false
+        buffer.clear()
+        bufferSinceMs = null
+        publish()
     }
 
     override suspend fun pendingCount(sessionId: String): Int = mutex.withLock {

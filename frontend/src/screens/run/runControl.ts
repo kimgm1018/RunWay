@@ -1,11 +1,13 @@
 import { DataError, errorCode, type DataErrorCode } from '../../data/errors';
 import { createBatchRelay } from '../../watch/batchRelay';
+import { createPhoneRecorder, type PhoneRecorder } from '../../watch/phoneRecorder';
 import type {
   BpmApproval,
   CoachingGuide,
   CommandApproval,
   ControlAction,
   LinkedDevices,
+  PhoneLocation,
   RecordComparison,
   Repositories,
   RunningSessionView,
@@ -27,6 +29,12 @@ export type ControlProblem =
   // 종료 저장 미확인. NO_RESULT는 2분 안에 워치 종료 결과가 오지 않음, UPLOAD_PENDING은 워치가 종료했지만
   // 마지막 기록 저장 확인이 없음(409). 워치가 저장을 확인하고 같은 결과를 다시 보내면 자동으로 확정된다(S15P31E105-446).
   | { kind: 'saveUnconfirmed'; reason: 'NO_RESULT' | 'UPLOAD_PENDING' }
+  // 폰 인계(S08 TAKE_OVER_PHONE, S15P31E105-464). held: 폰이 받은 워치 기록의 저장을 확인하지 못해 인계를 요청하지 않았다.
+  // unconfirmed: 인계 응답과 S02 재조회를 모두 받지 못해 인계 여부를 모른다(워치 batch 수신은 계속 막는다).
+  // failed: 서버가 인계를 거절했고 워치 기록이 유지된다.
+  | { kind: 'takeoverHeld' }
+  | { kind: 'takeoverUnconfirmed' }
+  | { kind: 'takeoverFailed'; code: DataErrorCode }
   | { kind: 'error'; code: DataErrorCode };
 
 export type RunControlState = {
@@ -35,13 +43,43 @@ export type RunControlState = {
   stateVersion: number;
   startedAt: string | null;
   endedAt: string | null;
-  pending: { action: ControlAction | 'CANCEL'; commandId: string | null } | null;
+  pending: { action: ControlAction | 'CANCEL' | 'TAKE_OVER'; commandId: string | null } | null;
   problem: ControlProblem | null;
   // 이 제어가 만든 세션이 아니라 이미 있던 본인 세션(앱 재실행·재로그인, S01 409)에 다시 붙었다.
   joined: boolean;
   // S02/S10 기록 비교(S15P31E105-422). 비교 기록을 고르지 않았으면 null.
   comparison: RecordComparison | null;
+  // WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 서버 값 그대로.
+  recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
+  // 워치 기록 중 워치 연결이 끊겼거나 워치 기록(batch)이 한동안 오지 않았다. 폰 인계를 안내한다.
+  watchLost: boolean;
+  // 폰 기록 중 폰 GPS를 받는지. 권한·GPS가 없으면 'off'이고 기록은 시간만 이어간다.
+  phoneGps: 'on' | 'off' | null;
 };
+
+// 폰 인계를 안내할지: 워치로 실제 시작한 RUNNING/PAUSED 세션에서 워치 단절·측정 끊김이 보이거나, 워치가 제어 결과를
+// 돌려주지 않을 때(종료 저장 미확인 포함) 고를 수 있게 한다(sessions.md 폰으로 기록 제어 인계 호출 조건).
+export function canTakeOver(state: RunControlState | null): boolean {
+  if (
+    !state ||
+    state.recordingMode !== 'WATCH' ||
+    !state.startedAt ||
+    (state.status !== 'RUNNING' && state.status !== 'PAUSED') ||
+    // 요청이 진행 중이면 기다린다. 미확인으로 멈춘 요청(문제 표시 중)은 진행 중이 아니다.
+    (state.pending !== null && state.problem === null)
+  ) {
+    return false;
+  }
+  const problem = state.problem;
+  return (
+    state.watchLost ||
+    problem?.kind === 'saveUnconfirmed' ||
+    problem?.kind === 'takeoverHeld' ||
+    problem?.kind === 'takeoverUnconfirmed' ||
+    problem?.kind === 'takeoverFailed' ||
+    (problem?.kind === 'unconfirmed' && problem.action !== 'START')
+  );
+}
 
 export type RunControl = {
   getState: () => RunControlState;
@@ -60,12 +98,20 @@ export type RunControl = {
   recheck: () => Promise<void>;
   // S08 ABORT_UNCONFIRMED_START.
   abortUnconfirmedStart: () => Promise<void>;
+  // S08 TAKE_OVER_PHONE: 워치 batch 수신을 멈추고 받은 batch 저장을 확인한 뒤 기록·제어를 폰으로 넘긴다.
+  takeOver: () => Promise<void>;
   dispose: () => void;
 };
 
 type Deps = {
   session: Repositories['session'];
   watch: Repositories['watchSession'];
+  // 폰 인계 뒤 폰 GPS. 없으면 폰 기록은 시간만 이어간다.
+  location?: PhoneLocation;
+  // 폰 batch ID(UUID v4).
+  newId?: () => string;
+  // 폰이 실행한 명령의 실제 적용 시각(epoch ms).
+  now?: () => number;
   timers?: {
     resultWaitMs?: number;
     endResultWaitMs?: number;
@@ -73,6 +119,12 @@ type Deps = {
     // COACHING_GUIDE를 보낸 뒤 COACHING_RESULT를 기다리는 시간(9.5 초기 ACK 10초, 최초 포함 3회).
     guideAckMs?: number;
     guideTries?: number;
+    // 워치 단절 확인 주기와, 운동 중 워치 batch가 오지 않으면 측정 끊김으로 보는 시간.
+    watchCheckMs?: number;
+    watchQuietMs?: number;
+    // 폰 기록(인계 후) batch 주기·종료 마무리 상한.
+    phoneFlushMs?: number;
+    phoneFinishWaitMs?: number;
   };
 };
 
@@ -96,6 +148,9 @@ const initialState: RunControlState = {
   problem: null,
   joined: false,
   comparison: null,
+  recordingMode: null,
+  watchLost: false,
+  phoneGps: null,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -108,13 +163,44 @@ const emptyGoal: SessionGoalDraft = {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-export function createRunControl({ session, watch, timers }: Deps): RunControl {
+const noLocation: PhoneLocation = {
+  start: async () => false,
+  stop: async () => undefined,
+  subscribe: () => () => undefined,
+  requestPermission: async () => false,
+};
+
+type RandomSource = { getRandomValues: (array: Uint8Array) => Uint8Array };
+
+// 폰 batch ID(UUID v4). react-native-get-random-values가 앱 시작 때 crypto.getRandomValues를 채운다.
+/* eslint-disable no-bitwise */
+const randomId = () => {
+  const bytes = (globalThis as unknown as { crypto: RandomSource }).crypto.getRandomValues(
+    new Uint8Array(16),
+  );
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+/* eslint-enable no-bitwise */
+
+export function createRunControl({
+  session,
+  watch,
+  location = noLocation,
+  newId = randomId,
+  now = () => Date.now(),
+  timers,
+}: Deps): RunControl {
   const resultWaitMs = timers?.resultWaitMs ?? watch.timing?.resultWaitMs ?? 30_000;
   const endResultWaitMs = timers?.endResultWaitMs ?? watch.timing?.endResultWaitMs ?? 120_000;
   // 최초 포함 최대 3회, 추가 1초·2초 + jitter (watch-mobile-server-integration.md 9.5).
   const retryDelaysMs = timers?.retryDelaysMs ?? [0, 1000, 2000];
   const guideAckMs = timers?.guideAckMs ?? 10_000;
   const guideTries = timers?.guideTries ?? 3;
+  const watchCheckMs = timers?.watchCheckMs ?? 10_000;
+  const watchQuietMs = timers?.watchQuietMs ?? 30_000;
 
   let state = initialState;
   let devices: LinkedDevices | null = null;
@@ -146,6 +232,14 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
   const earlyCoaching = new Map<string, CoachingResultEvent>();
   let stopEvents: (() => void) | null = null;
   let eventsFor: string | null = null;
+  // ── 폰 인계 후 폰 기록(S15P31E105-464).
+  let recorder: PhoneRecorder | null = null;
+  let recorderFor: string | null = null;
+  // 폰이 실행한 제어 명령(commandId → 실제 적용 시각·종료 저장 확인). 같은 명령을 다시 실행하지 않는다.
+  const phoneDone = new Map<string, { appliedAt: string; uploadComplete: boolean }>();
+  // ── 워치 단절 감시. 마지막으로 워치 batch를 받은(또는 감시를 시작한) 시각.
+  let lastWatchDataAt = Date.now();
+  let watchTimer: ReturnType<typeof setInterval> | null = null;
 
   const clearGuide = () => {
     if (guideWait?.timer) {
@@ -173,10 +267,90 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
     }
   };
 
+  const phoneMode = () => state.recordingMode === 'PHONE_FALLBACK';
+  const active = () => state.status === 'RUNNING' || state.status === 'PAUSED';
+
+  // 폰 기록 모드인 진행 중 세션 동안 폰 GPS 기록을 서버 상태(실행 중인 폰 명령이 없을 때)에 맞춘다.
+  const syncPhone = () => {
+    const want = !disposed && state.sessionId && phoneMode() && active() ? state.sessionId : null;
+    if (recorder && recorderFor !== want) {
+      recorder.dispose();
+      recorder = null;
+      recorderFor = null;
+    }
+    if (!want) {
+      return;
+    }
+    if (!recorder) {
+      const next = createPhoneRecorder({
+        sessionId: want,
+        // 인계 후 제어기기는 이 세션의 중계 폰이다. 폰 GPS는 폰 자신의 deviceId로 batch를 만든다.
+        deviceId: controlDeviceId ?? relayDeviceId ?? '',
+        location,
+        upload: session.uploadBatch,
+        newId,
+        flushMs: timers?.phoneFlushMs,
+        finishWaitMs: timers?.phoneFinishWaitMs,
+      });
+      recorder = next;
+      recorderFor = want;
+      // 화면이 꺼져도 폰 GPS를 받도록 러닝 서비스에 위치 유형을 켠다.
+      watch.setRunActive(true, want, { location: true }).catch(noop);
+      next.start().then(on => {
+        if (recorder === next) {
+          setState({ phoneGps: on ? 'on' : 'off' });
+        }
+      }, noop);
+    }
+    // 승인받은 폰 명령을 실행·보고하는 동안에는 그 실행 결과가 서버 상태보다 앞선다.
+    if (inflight || recorder.finished()) {
+      return;
+    }
+    if (state.status === 'RUNNING') {
+      recorder.resume();
+    } else {
+      recorder.pause();
+    }
+  };
+
+  // 워치 기록 중 진행 세션에서 워치 연결과 batch 도착을 주기적으로 확인한다.
+  const checkWatch = async () => {
+    if (disposed || phoneMode() || !active() || !state.startedAt) {
+      return;
+    }
+    const connected = watch.isWatchConnected
+      ? await watch.isWatchConnected().catch(() => true)
+      : true;
+    const quiet = state.status === 'RUNNING' && Date.now() - lastWatchDataAt > watchQuietMs;
+    const lost = !connected || quiet;
+    if (lost !== state.watchLost && !disposed && !phoneMode()) {
+      setState({ watchLost: lost });
+    }
+  };
+
+  const syncWatchCheck = () => {
+    const want = !disposed && !!state.sessionId && state.recordingMode === 'WATCH' && active();
+    if (want && watchTimer === null) {
+      lastWatchDataAt = Date.now();
+      watchTimer = setInterval(() => {
+        checkWatch().catch(noop);
+      }, watchCheckMs);
+      (watchTimer as unknown as { unref?: () => void }).unref?.();
+    } else if (!want && watchTimer !== null) {
+      clearInterval(watchTimer);
+      watchTimer = null;
+    }
+  };
+
   const setState = (change: Partial<RunControlState>) => {
     state = { ...state, ...change };
+    if (state.recordingMode !== 'WATCH' && state.watchLost) {
+      state = { ...state, watchLost: false };
+    }
     listeners.forEach(listener => listener(state));
     syncEvents();
+    syncPhone();
+    syncWatchCheck();
   };
 
   // 서버 상태를 한 번에 반영한다. extra로 진행 표시를 함께 바꿔 "운동 중인데 시작 확인 중" 같은 중간 상태를 내보내지 않는다.
@@ -190,6 +364,7 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       startedAt: view.startedAt,
       endedAt: view.endedAt,
       comparison: view.comparison ?? null,
+      recordingMode: view.recordingMode,
       ...extra,
     });
   };
@@ -286,6 +461,10 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
   const settleActive = async () => {
     if (state.status && TERMINAL.includes(state.status)) {
       await watch.setRunActive(false).catch(() => undefined);
+      // 끝난 운동은 인계 때 막아 둔 워치 batch 수신을 다시 연다(늦게 온 batch는 서버가 거절한다).
+      if (state.sessionId) {
+        await watch.unblockBatches?.(state.sessionId).catch(noop);
+      }
     }
   };
 
@@ -328,13 +507,16 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
             : {}),
         }),
       );
-      await watch
-        .sendReceived(sessionId, {
-          commandId: event.commandId,
-          persisted: true,
-          stateVersion: saved.session.stateVersion,
-        })
-        .catch(() => undefined);
+      // 폰이 실행한 명령(인계 후)은 워치에 저장 확인을 보내지 않는다.
+      if (!phoneMode()) {
+        await watch
+          .sendReceived(sessionId, {
+            commandId: event.commandId,
+            persisted: true,
+            stateVersion: saved.session.stateVersion,
+          })
+          .catch(() => undefined);
+      }
       if (saved.result === 'UNKNOWN') {
         reported.delete(event.commandId);
         applyView(saved.session, { problem: { kind: 'unconfirmed', action } });
@@ -388,6 +570,42 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       return;
     }
     await report(approval.action, event);
+  }
+
+  // 인계 후 폰 제어(sessions.md 인계 후 폰 제어): 승인받은 명령을 폰이 직접 실행하고 실제 결과를 RESULT로 보고한다.
+  // 같은 commandId는 다시 실행하지 않는다. 종료는 GPS·타이머를 멈추고 폰 batch 전체의 저장을 확인한 뒤 보고한다.
+  async function executePhone(approval: CommandApproval) {
+    inflight = approval;
+    const sessionId = state.sessionId as string;
+    syncPhone();
+    const current = recorder;
+    let done = phoneDone.get(approval.commandId);
+    if (!done) {
+      if (approval.action === 'PAUSE') {
+        current?.pause();
+      } else if (approval.action === 'RESUME') {
+        current?.resume();
+      }
+      const appliedAt = new Date(now()).toISOString();
+      done = {
+        appliedAt,
+        uploadComplete: approval.action === 'END' ? (await current?.finish()) ?? true : false,
+      };
+      phoneDone.set(approval.commandId, done);
+    } else if (approval.action === 'END' && !done.uploadComplete) {
+      // 다시 확인: 남은 폰 batch 저장만 다시 확인한다. 종료 시각은 처음 멈춘 시각 그대로 보고한다.
+      done.uploadComplete = (await current?.finish()) ?? true;
+    }
+    await report(approval.action, {
+      type: 'COMMAND_RESULT',
+      sessionId,
+      commandId: approval.commandId,
+      result: 'APPLIED',
+      appliedAt: done.appliedAt,
+      reasonCode: null,
+      uploadComplete: approval.action === 'END' ? done.uploadComplete : null,
+      pendingBatchCount: approval.action === 'END' ? 0 : null,
+    });
   }
 
   // P07 RESULT(SET_BPM). 실행기기는 제어 워치다.
@@ -649,6 +867,11 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       return;
     }
     setState({ pending: { action, commandId: approval.commandId } });
+    if (phoneMode() && (approval.result === 'PENDING' || approval.result === 'UNKNOWN')) {
+      // UNKNOWN(응답 유실 뒤 재요청)도 폰이 실행하지 않았다면 지금 실행하고, 실행했다면 보관한 결과로 보고한다.
+      await executePhone(approval);
+      return;
+    }
     if (approval.result === 'PENDING') {
       await deliver(approval);
       return;
@@ -734,8 +957,13 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
     // 재실행 후에도 러닝 중에는 서비스가 다시 떠 있어야 화면이 꺼져도 워치 메시지를 중계한다(AC-C4).
     const ended = state.status !== null && TERMINAL.includes(state.status);
     await watch
-      .setRunActive(!ended, ended ? undefined : sessionId)
+      .setRunActive(!ended, ended ? undefined : sessionId, {
+        location: !ended && view.recordingMode === 'PHONE_FALLBACK',
+      })
       .catch(() => undefined);
+    if (ended) {
+      await watch.unblockBatches?.(sessionId).catch(noop);
+    }
     const pending = view.pendingCommand;
     if (pending?.action === 'SET_BPM' && typeof pending.targetBpm === 'number') {
       bpmInflight = {
@@ -799,6 +1027,85 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
     }
   }
 
+  // S08 TAKE_OVER_PHONE(sessions.md 폰의 데이터 저장·요청 순서). 1) 워치 batch 수신을 멈추고 받은 batch를 고정한다.
+  // 2) 고정한 batch 전체의 COMMITTED를 확인하고, 미확인이 있으면 인계를 보류한다. 3) 인계를 요청한다. 응답이 없으면
+  // S02로 기록 모드를 확인할 때까지 수신을 계속 막는다. WATCH 유지가 확인된 거절에서만 수신을 다시 연다.
+  async function takeOverFlow() {
+    const sessionId = state.sessionId;
+    const takeOverPhone = session.takeOverPhone;
+    const block = watch.blockBatches;
+    const phoneId = relayDeviceId ?? devices?.phoneDeviceId ?? null;
+    if (
+      !sessionId ||
+      !takeOverPhone ||
+      !block ||
+      state.recordingMode !== 'WATCH' ||
+      !active() ||
+      !state.startedAt
+    ) {
+      return;
+    }
+    if (!phoneId) {
+      setState({ problem: { kind: 'takeoverFailed', code: 'DEVICE_FORBIDDEN' } });
+      return;
+    }
+    const reopen = () => watch.unblockBatches?.(sessionId).catch(noop);
+    setState({ pending: { action: 'TAKE_OVER', commandId: null }, problem: null });
+    // 경로 기록용 위치 권한을 먼저 묻는다. 거절해도 인계는 이어가며 시간만 기록한다.
+    await location.requestPermission().catch(() => false);
+    let frozen: Extract<WatchSessionEvent, { type: 'BATCH_DATA' }>[];
+    try {
+      frozen = await block(sessionId);
+    } catch {
+      await reopen();
+      setState({ pending: null, problem: { kind: 'takeoverFailed', code: 'UNKNOWN' } });
+      return;
+    }
+    const outcomes = await Promise.all(frozen.map(batch => batches.settle(batch)));
+    // 서버가 다시 보내도 소용없다고 거절한 batch(FAILED)는 저장 대기가 아니다. 응답 없는 batch만 인계를 막는다.
+    if (outcomes.some(outcome => outcome === 'UNCONFIRMED')) {
+      await reopen();
+      setState({ pending: null, problem: { kind: 'takeoverHeld' } });
+      return;
+    }
+    let view: RunningSessionView;
+    try {
+      view = await call(() =>
+        takeOverPhone(sessionId, { deviceId: phoneId, expectedVersion: state.stateVersion }),
+      );
+    } catch (error) {
+      const code = errorCode(error);
+      // 인계 성공을 추정하지 않는다. 현재 기록 모드를 S02로 확인한다.
+      const current = await call(() => session.get(sessionId)).catch(() => null);
+      if (!current) {
+        setState({ pending: null, problem: { kind: 'takeoverUnconfirmed' } });
+        return;
+      }
+      if (current.recordingMode !== 'PHONE_FALLBACK') {
+        await reopen();
+        applyView(current, {
+          pending: null,
+          problem:
+            code === 'UPLOAD_PENDING' ? { kind: 'takeoverHeld' } : { kind: 'takeoverFailed', code },
+        });
+        return;
+      }
+      view = current;
+    }
+    if (view.recordingMode !== 'PHONE_FALLBACK') {
+      await reopen();
+      applyView(view, { pending: null, problem: { kind: 'takeoverFailed', code: 'UNKNOWN' } });
+      return;
+    }
+    // 이전 워치 명령(PENDING/UNKNOWN)은 서버가 UNKNOWN(WATCH_DISCONNECTED)으로 남긴다. 폰은 다시 실행하지 않는다.
+    inflight = null;
+    bpmInflight = null;
+    clearGuide();
+    applyView(view, { pending: null, problem: null, watchLost: false });
+    // 워치가 연결돼 있으면 폰 기록 전환을 알려 측정·박자를 멈추게 한다.
+    watch.sendServerState(sessionId, view, null).catch(noop);
+  }
+
   const currentStatus = (): SessionStatus | null => state.status;
 
   const sameGoal = (a: SessionGoalDraft, b: SessionGoalDraft) =>
@@ -851,8 +1158,30 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       return;
     }
     if (event.type === 'BATCH_DATA') {
+      if (event.sessionId === state.sessionId) {
+        lastWatchDataAt = Date.now();
+        if (state.watchLost) {
+          checkWatch().catch(noop);
+        }
+      }
       batches.handle(event);
       return;
+    }
+    // 폰으로 기록을 넘긴 세션에서는 이전 워치의 결과·요청을 실행하거나 보고하지 않는다(서버도 CONTROL_DEVICE_CHANGED).
+    if (phoneMode() && event.sessionId === state.sessionId) {
+      if (event.type === 'COMMAND_REQUEST' || event.type === 'START_REQUEST') {
+        watch
+          .sendError(event.sessionId, {
+            code: 'CONTROL_DEVICE_CHANGED',
+            retryable: false,
+            failedType: event.type,
+          })
+          .catch(noop);
+        return;
+      }
+      if (event.type === 'COMMAND_RESULT' || event.type === 'COACHING_RESULT') {
+        return;
+      }
     }
     if (event.type === 'COMMAND_RESULT') {
       const waiter = waiters.get(event.commandId);
@@ -955,8 +1284,13 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
           return;
         }
         setState({ problem: null });
+        if (phoneMode()) {
+          await executePhone(inflight);
+          return;
+        }
         await deliver(inflight);
       }),
+    takeOver: () => run(takeOverFlow),
     abortUnconfirmedStart: () =>
       run(async () => {
         if (!state.sessionId) {
@@ -975,6 +1309,13 @@ export function createRunControl({ session, watch, timers }: Deps): RunControl {
       }),
     dispose: () => {
       disposed = true;
+      recorder?.dispose();
+      recorder = null;
+      recorderFor = null;
+      if (watchTimer !== null) {
+        clearInterval(watchTimer);
+        watchTimer = null;
+      }
       stopEvents?.();
       stopEvents = null;
       eventsFor = null;

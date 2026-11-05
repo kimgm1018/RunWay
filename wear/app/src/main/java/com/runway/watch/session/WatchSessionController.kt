@@ -51,7 +51,9 @@ data class AppliedCoaching(
  * (STATE_RESULT currentBpm / SESSION_PREPARE initialBpm). [serverLinkLost] is true when no server state arrived for
  * [WatchSessionController.LINK_TIMEOUT_MS] during a run (D-8). [measurementLost] is true when the app restarted
  * mid-run and the watch exercise was no longer there: the watch cannot record this run any more and points the runner
- * to the phone (S15P31E105-445).
+ * to the phone (S15P31E105-445). [phoneRecording] is true once the server says the run was handed to the phone
+ * (recordingMode=PHONE_FALLBACK, S08): the watch stopped measuring, the beat and its batches for that session and runs
+ * no command for it any more (S15P31E105-464).
  */
 data class WatchSessionState(
     val sessionId: String? = null,
@@ -64,6 +66,7 @@ data class WatchSessionState(
     val coaching: AppliedCoaching? = null,
     val serverLinkLost: Boolean = false,
     val measurementLost: Boolean = false,
+    val phoneRecording: Boolean = false,
     /** The server's record comparison from the last STATE_RESULT(scope=SERVER) (S15P31E105-422). */
     val comparison: RecordComparison = RecordComparison.NotSelected,
 )
@@ -91,6 +94,8 @@ private const val INVALID_TARGET_BPM = "INVALID_TARGET_BPM"
 private const val APPLY_INTERRUPTED = "APPLY_INTERRUPTED"
 private const val CUE_FAILED = "CUE_PLAYBACK_FAILED"
 private const val EXERCISE_LOST = "EXERCISE_LOST"
+private const val CONTROL_DEVICE_CHANGED = "CONTROL_DEVICE_CHANGED"
+private const val PHONE_FALLBACK = "PHONE_FALLBACK"
 
 /**
  * Runs approved commands once per commandId (S15P31E105-256 [D], watch-mobile-server-integration.md 9.4).
@@ -143,6 +148,8 @@ class WatchSessionController(
      * another run is prepared. Kept in memory only: after a restart the phone's 다시 확인 (the same END again) asks for it.
      */
     private var unsavedEnd: UnsavedEnd? = null
+    /** The session this process already stopped for the phone take-over; later snapshots do not stop it again. */
+    private var handedSession: String? = null
 
     private data class UnsavedEnd(
         val sessionId: String,
@@ -177,7 +184,8 @@ class WatchSessionController(
     suspend fun request(request: WatchRequest): Boolean = mutex.withLock {
         val current = _state.value
         val sessionId = current.sessionId ?: return@withLock false
-        if (current.pending != null) return@withLock false
+        // 폰으로 넘긴 운동은 폰이 제어한다. 워치 버튼은 요청을 보내지 않는다(S15P31E105-464).
+        if (current.pending != null || current.phoneRecording) return@withLock false
         val bytes = if (request == WatchRequest.START) {
             val prepared = store.prepared()?.takeIf { it.sessionId == sessionId && it.ready } ?: return@withLock false
             SessionMessages.startRequest(store.nextMessageId(), sessionId, prepared.stateVersion)
@@ -202,7 +210,7 @@ class WatchSessionController(
     suspend fun requestBpm(targetBpm: Int): Boolean = mutex.withLock {
         val current = _state.value
         val sessionId = current.sessionId ?: return@withLock false
-        if (targetBpm !in BPM_RANGE || current.pending != null) return@withLock false
+        if (targetBpm !in BPM_RANGE || current.pending != null || current.phoneRecording) return@withLock false
         if (current.confirmed !in ALLOWED_FROM.getValue(SET_BPM)) return@withLock false
         val bytes = SessionMessages.commandRequest(store.nextMessageId(), sessionId, SET_BPM, current.stateVersion, targetBpm)
         _state.value = current.copy(
@@ -437,6 +445,8 @@ class WatchSessionController(
             return null
         }
         if (current.sessionId != sessionId) return "NOT_PREPARED"
+        // 폰으로 넘긴 운동의 명령은 워치에서 실행하지 않는다(S15P31E105-464, sessions.md 전환 후 워치 처리).
+        if (current.phoneRecording) return CONTROL_DEVICE_CHANGED
         if (expected < current.stateVersion) return "VERSION_MISMATCH"
         if (current.confirmed !in ALLOWED_FROM.getValue(action)) return "INVALID_STATE"
         // 재시작 후 워치 운동이 사라졌으면 측정을 다시 시작할 수 없다. 재개를 성공으로 보이지 않게 거절한다(S15P31E105-445).
@@ -629,14 +639,16 @@ class WatchSessionController(
         }
         val newer = !sameSession || current.confirmed == null || version > current.stateVersion || current.pending == null
         val active = state == RunState.RUNNING || state == RunState.PAUSED
-        // 폰으로 기록을 넘긴 뒤에는 워치 측정을 다시 붙이지 않는다(S08).
-        val watchRecords = active && message.payload.optString("recordingMode") != "PHONE_FALLBACK"
+        // 폰으로 기록을 넘긴 운동은 끝까지 폰이 제어한다(S08). 한 번 넘어간 세션은 이후 스냅샷과 상관없이 유지한다.
+        val phone = message.payload.optString("recordingMode") == PHONE_FALLBACK || (sameSession && current.phoneRecording)
+        val watchRecords = active && !phone
         val lost = sameSession && current.measurementLost && watchRecords
         // 앱이 다시 시작된 뒤에도 서버가 운동 중이라고 하면 이 세션의 측정값을 계속 batch로 만든다.
-        if (active) {
+        if (phone && handedSession != message.sessionId) handOver(message.sessionId)
+        if (watchRecords) {
             keepAlive.start()
             store.prepared()?.takeIf { it.sessionId == message.sessionId }?.deviceId?.let { uploads.begin(message.sessionId, it) }
-        } else if (state != RunState.READY) {
+        } else if (!active && state != RunState.READY) {
             keepAlive.stop()
         }
         _state.value = current.copy(
@@ -650,15 +662,37 @@ class WatchSessionController(
             coaching = if (sameSession) current.coaching else null,
             serverLinkLost = false,
             measurementLost = lost,
+            phoneRecording = phone,
             // 기록 비교는 batch 저장마다 같은 버전으로 온다. 버전이 낮은 스냅샷은 위에서 이미 버렸다.
             comparison = message.comparison(),
         )
-        if (newer) {
-            exerciseRunning = state == RunState.RUNNING && !lost
+        if (newer || phone) {
+            exerciseRunning = state == RunState.RUNNING && !lost && !phone
             syncPlayback()
         }
         lastServerStateMs = if (active) elapsedMs() else null
         if (watchRecords && attachedSession != message.sessionId) reattach(message.sessionId)
+    }
+
+    /**
+     * S15P31E105-464 (sessions.md 전환 후 워치 처리): the run was handed to the phone. The beat stops, no new batch is
+     * made (stored ones are still sent), the watch exercise is ended so it stops measuring, and the process is no longer
+     * kept alive for it. Done once per session in this process; a reconnect or a later snapshot never restarts anything,
+     * and nothing is run again on the watch's own. Ending the exercise may fail (none left after a restart); that is fine.
+     */
+    private suspend fun handOver(sessionId: String) {
+        handedSession = sessionId
+        exerciseRunning = false
+        syncPlayback()
+        uploads.stop(sessionId)
+        log("PHONE_FALLBACK $sessionId stopping watch measurement")
+        try {
+            withTimeout(callTimeoutMs) { gateway.end() }
+        } catch (_: Exception) {
+            // 끝낼 운동이 없거나 확인할 수 없어도 워치는 더 측정하지 않는다.
+        }
+        if (attachedSession == sessionId) attachedSession = null
+        keepAlive.stop()
     }
 
     /**

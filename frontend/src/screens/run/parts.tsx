@@ -402,7 +402,11 @@ function startNotice(problem: ControlProblem | null): {
         recheck: true,
         abort: true,
       };
+    // 종료 저장 미확인과 폰 인계는 실제 시작 뒤(RUNNING/PAUSED)에만 있어 시작 화면에는 나오지 않는다.
     case 'saveUnconfirmed':
+    case 'takeoverHeld':
+    case 'takeoverUnconfirmed':
+    case 'takeoverFailed':
       return null;
     case 'error':
       return { text: '러닝을 시작하지 못했어요', restart: true };

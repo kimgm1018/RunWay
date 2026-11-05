@@ -26,6 +26,7 @@ import { createApiSessionRepository } from './sessionApi';
 import { createSessionEvents } from './sessionEvents';
 import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
+import { createPhoneLocation } from '../../watch/phoneLocation';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -84,6 +85,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       ...createNativeWatchSession(),
       getLinkedDevices: createLinkedDevices(serverRequest),
     },
+    // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464).
+    phoneLocation: createPhoneLocation(),
     crews,
     groupRuns: createGroupRunsApi({
       mock: mock.groupRuns,

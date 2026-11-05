@@ -897,6 +897,23 @@ export type WatchSessionEvent =
       body: string;
     };
 
+// 폰 GPS 한 점. time은 측정 시각(epoch ms), 좌표는 WGS84.
+export type PhoneFix = {
+  latitude: number;
+  longitude: number;
+  accuracyM: number | null;
+  altitudeM: number | null;
+  time: number;
+};
+
+export type PhoneLocation = {
+  start: () => Promise<boolean>;
+  stop: () => Promise<void>;
+  subscribe: (listener: (fix: PhoneFix) => void) => () => void;
+  // 위치 권한을 묻는다. 거절해도 인계는 이어가며 경로만 남지 않는다.
+  requestPermission: () => Promise<boolean>;
+};
+
 // W07 서버 저장 ACK (devices-health.md W07 Response).
 export type SyncBatchAck = {
   status: string;
@@ -1145,6 +1162,12 @@ export type Repositories = {
       sessionId: string,
       request: { deviceId: string; expectedVersion: number },
     ) => Promise<RunningSessionView>;
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). deviceId는 세션의 중계 폰(relayDeviceId). receivedWatchBatchesUploaded=true는
+    // 저장소가 넣는다(폰이 받은 워치 batch 전체의 COMMITTED를 확인한 뒤에만 호출한다). 서버 연동 저장소만 구현한다.
+    takeOverPhone?: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<RunningSessionView>;
     // P07 SET_BPM REQUEST·SET_BPM/COACHING RESULT와 S10 구독(S15P31E105-257). 서버 연동 저장소만 구현한다.
     requestBpm?: (
       sessionId: string,
@@ -1168,6 +1191,8 @@ export type Repositories = {
     // W07. 워치 batch 본문 원문을 바꾸지 않고 보낸다(S15P31E105-311).
     uploadBatch: (body: string) => Promise<SyncBatchAck>;
   };
+  // 폰 인계 뒤 폰 GPS(S15P31E105-464). start는 권한·GPS가 없으면 false로 답하고 기록은 시간만 이어간다.
+  phoneLocation?: PhoneLocation;
   // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
   watchSession: {
     getLinkedDevices: () => Promise<LinkedDevices | null>;
@@ -1217,12 +1242,23 @@ export type Repositories = {
     ) => Promise<void>;
     // W07 COMMITTED를 폰에 기록하고 워치에 BATCH_COMMITTED를 보낸다. 기록과 맞지 않으면 실패한다.
     commitBatch: (batchId: string, acceptedCount: number) => Promise<void>;
+    // 폰 인계(S15P31E105-464) 1단계: 이 세션의 새 워치 batch 수신·수신 확인을 멈추고, 이미 저장했지만 W07 저장 확인이
+    // 없는 batch를 돌려준다. 인계를 요청하지 않았거나 WATCH 유지가 확인됐거나 운동이 끝났을 때만 unblockBatches로 연다.
+    blockBatches?: (sessionId: string) => Promise<Extract<WatchSessionEvent, { type: 'BATCH_DATA' }>[]>;
+    unblockBatches?: (sessionId: string) => Promise<void>;
+    // 워치와의 연결(MessageClient 노드) 여부. 워치 앱 상태까지 뜻하지는 않는다.
+    isWatchConnected?: () => Promise<boolean>;
     // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
     failBatch: (batchId: string, code: string) => Promise<void>;
     // 등록하면 수신함에 남은 이벤트부터 전달한다.
     subscribe: (listener: (event: WatchSessionEvent) => void) => () => void;
     // 러닝 중 포그라운드 서비스. 켜는 동안 활성 세션 ID를 기억해 앱 재실행 때 다시 붙는다.
-    setRunActive: (active: boolean, sessionId?: string) => Promise<void>;
+    // location은 폰 인계 뒤 폰 GPS를 화면이 꺼져도 받도록 위치 유형을 함께 켠다(S15P31E105-464).
+    setRunActive: (
+      active: boolean,
+      sessionId?: string,
+      options?: { location: boolean },
+    ) => Promise<void>;
     getActiveSessionId: () => Promise<string | null>;
     // 결과 대기 시간. 없으면 30초/120초.
     timing?: { resultWaitMs: number; endResultWaitMs: number };

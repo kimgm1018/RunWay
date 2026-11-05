@@ -253,6 +253,17 @@ export function createApiSessionRepository(
       };
     },
 
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). 호출 쪽이 폰이 받은 워치 batch 전체의 COMMITTED를 확인한 뒤에만 부른다.
+    takeOverPhone: async (sessionId, { deviceId, expectedVersion }) =>
+      sessionView(
+        await request<ServerSession>('PATCH', `${BASE}/${sessionId}`, {
+          operation: 'TAKE_OVER_PHONE',
+          deviceId: id(deviceId),
+          expectedVersion,
+          receivedWatchBatchesUploaded: true,
+        }),
+      ),
+
     abortUnconfirmedStart: async (sessionId, { deviceId, expectedVersion }) =>
       sessionView(
         await request<ServerSession>('PATCH', `${BASE}/${sessionId}`, {
