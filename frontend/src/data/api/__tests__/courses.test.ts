@@ -197,101 +197,179 @@ const search: CourseSearch = {
   environmentTypes: ['PARK', 'BEACH'],
 };
 
-test('C01 sends the search and each card is filled from C03', async () => {
-  serve((url, init) => {
-    if (url.pathname.endsWith('/courses/recommendations')) {
-      return respond(200, {
-        courses: [
-          {
-            id: 7,
-            regionCode: '26500',
-            status: 'ACTIVE',
-            distanceM: 5000,
-            environmentTags: ['PARK', 'BEACH'],
-            estimatedDurationSec: 1800,
-          },
-          {
-            id: 11,
-            regionCode: null,
-            status: 'ACTIVE',
-            distanceM: 4800,
-            environmentTags: [],
-            estimatedDurationSec: 1728,
-          },
-        ],
-      });
-    }
-    if (url.pathname.endsWith('/courses/11')) {
-      return respond(
-        200,
-        detail(11, {
-          distanceM: 4800,
-          elevationGainM: null,
-          elevationProfile: null,
-          description: '바다를 따라 달려요',
-        }),
-      );
-    }
-    return common(url, init);
-  });
+// C01 answer (courses.md 코스 생성 후속): generated routes with Route's words and 100m grades.
+const generatedAnswer = {
+  courses: [
+    {
+      index: 0,
+      distanceM: 5020,
+      route: { type: 'LineString', coordinates: loop },
+      elevationProfile: [
+        { startDistanceM: 0, endDistanceM: 100, gradePercent: 10 },
+        { startDistanceM: 100, endDistanceM: 200, gradePercent: 5 },
+        { startDistanceM: 200, endDistanceM: 300, gradePercent: -15 },
+      ],
+      summary: '강변을 많이 지나는 코스예요.',
+      reasons: ['강변 구간이 40%예요'],
+      caveats: ['계단이 1곳 있어요'],
+      score: 1.42,
+      scoreTerms: [],
+    },
+    {
+      index: 1,
+      distanceM: 4800,
+      route: { type: 'LineString', coordinates: oneWay },
+      elevationProfile: [],
+      summary: '<b>평지</b> 위주예요',
+      reasons: [],
+      caveats: [],
+      score: 0.8,
+      scoreTerms: [],
+    },
+  ],
+  notices: ['이 주변은 공원 정보가 일부만 있어요'],
+  nextSeed: 25,
+};
+
+test('C01 sends km, loop, preference flags and seed and shows the routes as they came', async () => {
+  serve((url, init) =>
+    url.pathname.endsWith('/courses/recommendations')
+      ? respond(200, generatedAnswer)
+      : common(url, init),
+  );
   const { courses } = api();
 
-  const found = await courses.recommend(search);
+  const found = await courses.recommend({
+    ...search,
+    environmentTypes: ['PARK', 'RIVERSIDE', 'URBAN', 'TRACK'],
+  });
 
   const post = calls().find(call => call.method === 'POST')!;
   expect(post.url.toString()).toBe(
     `${appConfig.apiBaseUrl}/courses/recommendations`,
   );
-  // TIME leaves the pace out; the origin goes as latitude and longitude.
+  // 도심·트랙 have no Route preference and are left out; no pace, goal, limit or old fields.
   expect(post.body).toEqual({
     latitude: 35.153,
     longitude: 129.118,
-    targetDistanceM: 5000,
-    goalInputType: 'TIME',
-    targetDurationSec: 1800,
-    environmentTypes: ['PARK', 'BEACH'],
-    limit: 10,
+    distanceKm: 5,
+    shape: 'loop',
+    filters: { park: true, river: true },
+    seed: 1,
   });
-  expect(found[0]).toMatchObject({
-    id: '7',
-    name: '부산 수영구 코스',
-    distanceM: 5000,
-    estimatedDurationSec: 1800,
+  // Cards come from the answer itself: no C03 per card and no C09 lookup.
+  expect(calls().filter(call => call.method === 'GET')).toEqual([]);
+  expect(found.nextSeed).toBe(25);
+  expect(found.notices).toEqual(['이 주변은 공원 정보가 일부만 있어요']);
+  expect(found.courses[0]).toMatchObject({
+    name: '5.0km 코스',
+    distanceM: 5020,
+    // 30:00 for 5km is 6′00″/km.
+    estimatedDurationSec: 1807,
     shapeKind: '순환',
-    environmentLabels: ['공원', '해변'],
-    elevationGainM: 12,
-    elevationProfile: [0, 0, 33, 33, 100, 100, 33, 33, 0, 0],
-    reason: '목표 5.0km에 가까운 코스 중 출발점이 가까운 순서예요.',
-    route: loop,
-    // Course 7 is in my C09 list.
-    saved: true,
-  });
-  expect(found[1]).toMatchObject({
-    id: '11',
-    name: '4.8km 코스',
-    shapeKind: '편도',
     environmentLabels: [],
+    // Heights 0 → 10 → 15 → 0: 15m of climb.
+    elevationGainM: 15,
+    elevationProfile: [0, 0, 67, 67, 67, 100, 100, 100, 0, 0],
+    reason:
+      '강변을 많이 지나는 코스예요.\n· 강변 구간이 40%예요\n주의: 계단이 1곳 있어요',
+    route: loop,
+    saved: false,
+    generated: true,
+  });
+  // An index is not a course id: the card id is not numeric, so C03/C07 never use it.
+  expect(found.courses[0].id).not.toMatch(/^\d+$/);
+  expect(found.courses[0].id).not.toBe(found.courses[1].id);
+  expect(found.courses[1]).toMatchObject({
+    shapeKind: '편도',
     elevationGainM: null,
     elevationProfile: [],
-    reason: '바다를 따라 달려요',
-    saved: false,
+    // Plain text, not markup.
+    reason: '<b>평지</b> 위주예요',
   });
 });
 
-test('C01 with a pace goal sends the pace instead of the time', async () => {
+test('C01 sends the seed asked for and stops 다른 코스 past the seed range', async () => {
   serve((url, init) =>
     url.pathname.endsWith('/courses/recommendations')
-      ? respond(200, { courses: [] })
+      ? respond(200, { courses: [], notices: [], nextSeed: 10_000_001 })
       : common(url, init),
   );
   const { courses } = api();
 
-  const found = await courses.recommend({ ...search, goalInputType: 'PACE' });
+  const found = await courses.recommend({ ...search, seed: 9_999_977 });
 
-  expect(found).toEqual([]);
+  expect(found).toEqual({ courses: [], notices: [], nextSeed: null });
   const post = calls().find(call => call.method === 'POST')!;
-  expect(post.body.targetPaceSecPerKm).toBe(360);
-  expect(post.body).not.toHaveProperty('targetDurationSec');
+  expect(post.body.seed).toBe(9_999_977);
+});
+
+test('C01 waits past the usual 15s for routes the backend takes up to 20s to make', async () => {
+  jest.useFakeTimers();
+  try {
+    // The answer comes after 20s unless the request is aborted first.
+    fetchMock.mockImplementation(
+      (_address: string, init: { signal: AbortSignal }) =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve(respond(200, generatedAnswer)),
+            20_000,
+          );
+          init.signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new Error('aborted'));
+          });
+        }),
+    );
+    const { courses } = api();
+
+    const pending = courses.recommend({ ...search, targetDurationSec: 1800 });
+    await jest.advanceTimersByTimeAsync(20_000);
+
+    await expect(pending).resolves.toMatchObject({ nextSeed: 25 });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('C01 gives up after 30s', async () => {
+  jest.useFakeTimers();
+  try {
+    fetchMock.mockImplementation(
+      (_address: string, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () =>
+            reject(new Error('aborted')),
+          );
+        }),
+    );
+    const { courses } = api();
+
+    const outcome = courses.recommend(search).catch(error => error);
+    await jest.advanceTimersByTimeAsync(30_000);
+
+    expect(await outcome).toMatchObject({ code: 'NETWORK_ERROR' });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('C01 failures keep details.reason for the screen', async () => {
+  serve(url =>
+    url.pathname.endsWith('/courses/recommendations')
+      ? respond(422, {
+          code: 'INVALID_SEARCH',
+          message: '출발 위치가 서비스 지역(부산) 밖입니다.',
+          details: { reason: 'OUT_OF_AREA' },
+        })
+      : undefined,
+  );
+  const { courses } = api();
+
+  await expect(courses.recommend(search)).rejects.toMatchObject({
+    status: 422,
+    details: { reason: 'OUT_OF_AREA' },
+  });
 });
 
 test('C07 and C08 save and unsave server courses', async () => {

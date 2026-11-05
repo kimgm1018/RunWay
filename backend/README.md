@@ -323,9 +323,44 @@ var grades = calculator.calculate(route, distanceM);
   최대 1,000,000개 DEM 표본으로 작업량을 보호하고 초과 시 `SERVICE_UNAVAILABLE`로 거절한다.
   이는 공개 API의 거리 상한을 정하는 정책이 아니다. 순수 고도→경사 계산은 전체 20m 격자를
   할당하지 않아 스키마의 최대 거리도 계산할 수 있다.
-- DEM 원본·manifest·볼륨 배포·Spring 기동 시 파일 연결과 준비 상태 처리는 후속 업무다.
-  이 변경만으로 운영 DEM이 준비되거나 코스 저장·외부 API가 활성화되지는 않는다.
+- 기동 시 파일 연결과 준비 상태 처리는 아래 "C01 코스 생성 설정"(S15P31E105-423)을 따른다.
+  DEM 원본 배포(볼륨·manifest·준비 스크립트)는 인프라 후속 업무다.
   고도 데이터는 Copernicus DEM 라이선스와 출처 표기 기준을 따른다.
+
+### C01 코스 생성 설정 (S15P31E105-423)
+
+C01은 Route 서버를 HTTP로 호출해 후보를 받고, 후보마다 위 계산으로 100m 경사를 붙인다.
+계약은 [courses.md C01·코스 생성 후속](../docs/design/api/courses.md#코스-생성-후속-필요-사항)과
+[ai-service.md Route 내부 계약](../docs/design/api/ai-service.md#route-코스-생성-내부-http-계약-초안)이다.
+설정이 비어 있어도 서버는 기동하며, C01만 `503 SERVICE_UNAVAILABLE`과 `details.reason`으로 실패한다.
+
+| 환경변수 | 설명 |
+| --- | --- |
+| `BACKEND_ROUTE_MODE` | `http`(기본) 또는 `stub`. stub은 개발자가 Route 없이 화면을 확인할 때만 쓰는 가짜 경로이며 응답 `notices`에 개발용임을 표시한다. 서버에는 쓰지 않는다. 다른 값은 기동 실패 |
+| `BACKEND_ROUTE_BASE_URL` | Route 전용 내부 origin(예: `http://route:8000`). 경로·쿼리·사용자 정보가 있거나 호스트 이름에 밑줄(`_`)이 있으면 기동 실패(Compose 서비스 이름은 하이픈 사용). 비우면 C01이 `ROUTE_UNAVAILABLE` |
+| `BACKEND_COURSE_DEM_PATH` | 서버 로컬 DEM 파일 경로. 비우면 C01이 `GRADE_NOT_READY`(stub 모드는 합성 고도). 파일 없음·검증 실패는 기동 로그로 구분하며, 파일을 넣은 뒤에는 재기동해야 반영된다 |
+| `BACKEND_COURSE_DEM_SHA256` | 선택. 기본값은 아래 공유 DEM의 SHA-256. 해시가 다르면 기동은 하고 `GRADE_NOT_READY` |
+
+시간 상한은 Route 연결 1초·전체 호출 15초, C01 전체 20초이며 자동 재시도·스텁 전환은 하지 않는다. Route에는 `X-Request-Deadline`(마감 − 6초, epoch ms)을 보내 늦게 끝날 계산을 시작하지 않게 한다. Route 서비스 API는 `ai/route_service/API.md`(381)이다.
+Route 응답 본문은 256KB까지만 읽는다. 로그에는 상태·지연·후보 수·사유만 남기고 좌표·문구 원문은 남기지 않는다.
+
+**공유 DEM(2026-11-05 AI 팀 공유, Route 엔진과 같은 파일)**
+
+| 항목 | 값 |
+| --- | --- |
+| 위치 | HF 비공개 저장소 `AnSeongYun/runway-hr-models`, revision `4952478476ce2d76579e1b6ba16363214e6a6914`, `route_data_v2/reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif` (접근 권한 필요) |
+| SHA-256·크기 | `45faaa5e36c710a235658e1172183279007ac3b3fdcc29a14246222fdabb3a1f`, 8,266,122 bytes |
+| 범위·형식 | 부산 전역(경도 128.73~129.35, 위도 34.85~35.42). GeoTIFF 1밴드 float32(m), EPSG:4326, 1초(약 30m), 2232×2052, deflate, nodata 없음(바다 0m) |
+| 원본 | Copernicus DEM GLO-30 4타일 병합 |
+| 출처 표기 | "Copernicus DEM GLO-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA." |
+
+바다를 nodata가 아닌 0m로 두므로, 해안·교량 구간의 0m 표본은 결측으로 보간되지 않고 실제 0m로 계산된다.
+출처 표기의 앱 노출 위치는 FE와 후속으로 정한다.
+
+공유 DEM을 받은 경우 실제 파일 검증은 `BACKEND_COURSE_DEM_PATH`를 지정하고
+`.\gradlew.bat test --tests "*SharedBusanDemTest"`로 실행한다. 변수가 없으면 이 테스트는 건너뛰며,
+기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다. 운영 배포는 인프라가 HR 모델처럼 HF에서 받아
+DEM 볼륨에 넣는다(AI 팀 요청 예정).
 
 테스트는 실제 DEM 없이 `src/test/resources/course-grade/dem/`의 작은 합성 파일을 사용한다.
 `generate_dem_fixtures.py`에 독립 재생성 명령이 있으며 실제 좌표·건강 데이터는 포함하지 않는다.

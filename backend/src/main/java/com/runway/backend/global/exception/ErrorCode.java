@@ -119,6 +119,49 @@ public enum ErrorCode {
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",
             "출발-도착 직선거리가 서비스 상한을 초과했습니다."),
+    // C01 Route 실연동(S15P31E105-423). 사유는 details.reason으로 구분한다(courses.md 실패와 시간 예산).
+    SEARCH_NO_ROAD_NEARBY(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "출발 위치 주변에서 달릴 수 있는 길을 찾지 못했습니다."),
+    SEARCH_DESTINATION_NO_ROAD_NEARBY(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "도착 위치 주변에서 달릴 수 있는 길을 찾지 못했습니다."),
+    SEARCH_DESTINATION_TOO_FAR(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_SEARCH",
+            "목표 거리로 도착 위치까지 가는 코스를 만들 수 없습니다."),
+    SEARCH_NO_ROUTE(
+            HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SEARCH", "조건에 맞는 코스를 찾지 못했습니다."),
+    COURSE_ROUTE_NOT_READY(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "코스 추천 서비스를 준비하고 있습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_ROUTE_BUSY(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "코스 추천 요청이 많습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_ROUTE_TIMEOUT(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "코스 추천 응답이 늦어지고 있습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_ROUTE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "코스 추천 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_GRADE_NOT_READY(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "경사 정보를 준비하고 있습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_GRADE_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "경사 정보를 계산할 수 없습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_GENERATION_TIMEOUT(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "SERVICE_UNAVAILABLE",
+            "코스 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."),
     VALIDATION_ERROR_COURSE_VALIDATE_ALIAS_LENGTH(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "별명은 최대 {0}자까지 가능합니다."),
     INVALID_FILTER_CREW_INVALID_MEMBERSHIP_FILTER(

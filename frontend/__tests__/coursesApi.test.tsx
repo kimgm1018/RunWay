@@ -49,6 +49,27 @@ const courseDetail = (id: number) => ({
   mergedIntoCourseId: null,
 });
 
+// C01 makes routes for the search (courses.md 코스 생성 후속): two loops with Route's words and 100m grades.
+const generated = (seed: number) => ({
+  courses: [0, 1].map(index => ({
+    index,
+    distanceM: 5000,
+    route: { type: 'LineString', coordinates: loop },
+    elevationProfile: [
+      { startDistanceM: 0, endDistanceM: 100, gradePercent: 2 },
+      { startDistanceM: 100, endDistanceM: 200, gradePercent: -1 },
+    ],
+    summary: `강변을 많이 지나는 코스예요 ${seed}-${index}`,
+    reasons: ['강변 구간이 40%예요'],
+    caveats: [],
+    score: 1.2,
+    scoreTerms: [],
+  })),
+  notices: ['이 주변은 공원 정보가 일부만 있어요'],
+  nextSeed: seed + 24,
+});
+let recommendations: (body: { seed?: number }) => ReturnType<typeof respond>;
+
 // My bookmarks live here so PUT and DELETE change what C09 answers.
 let bookmarked: number[];
 let failUnsave: boolean;
@@ -93,18 +114,9 @@ function serve() {
         });
       }
       if (path === '/courses/recommendations') {
-        return respond(200, {
-          courses: [
-            {
-              id: 21,
-              regionCode: '26500',
-              status: 'ACTIVE',
-              distanceM: 5000,
-              environmentTags: ['PARK'],
-              estimatedDurationSec: 1800,
-            },
-          ],
-        });
+        return recommendations(
+          JSON.parse((init as { body?: string }).body ?? '{}'),
+        );
       }
       const bookmark = path.match(/^\/courses\/(\d+)\/bookmark$/);
       if (bookmark) {
@@ -231,6 +243,7 @@ async function openTodayRun() {
 beforeEach(async () => {
   bookmarked = [7, 9];
   failUnsave = false;
+  recommendations = body => respond(200, generated(body.seed ?? 1));
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
@@ -283,20 +296,113 @@ test('3.1c puts the course back when the server keeps it', async () => {
   );
 });
 
-test('3.1b shows the server recommendation and saves it with C07', async () => {
+const recommendationBodies = () =>
+  fetchMock.mock.calls
+    .filter(
+      ([address, init]) =>
+        init.method === 'POST' && address.endsWith('/courses/recommendations'),
+    )
+    .map(([, init]) => JSON.parse(init.body));
+
+test('3.1b shows the generated routes, asks again with nextSeed and holds save and start', async () => {
   const screen = await openTodayRun();
+  const before = fetchMock.mock.calls.length;
   await press(screen, '코스 추천 받기');
+
+  // The C01 body is the backend contract: km, loop, preference flags and the first seed.
+  const [first] = recommendationBodies();
+  expect(Object.keys(first).sort()).toEqual(
+    ['distanceKm', 'filters', 'latitude', 'longitude', 'seed', 'shape'].sort(),
+  );
+  expect(first).toMatchObject({ shape: 'loop', seed: 1 });
+  expect(first).not.toHaveProperty('targetDistanceM');
   let page = texts(screen);
-  expect(page).toContain('1 / 1');
-  expect(hasButton(screen, '부산 수영구 코스, 코스 정보 보기')).toBe(true);
+  expect(page).toContain('1 / 2');
+  expect(page).toContain('이 주변은 공원 정보가 일부만 있어요');
+  expect(hasButton(screen, '5.0km 코스, 코스 정보 보기')).toBe(true);
+  // A candidate index is not a course id: no C03 and no C09 lookup for the cards.
+  const afterRecommend = fetchMock.mock.calls
+    .slice(before)
+    .map(
+      ([address, init]) =>
+        `${init.method} ${new URL(address).pathname.replace(
+          /^.*\/api\/v1/,
+          '',
+        )}`,
+    );
+  expect(afterRecommend).toEqual(['POST /courses/recommendations']);
 
+  // 다른 코스 keeps the conditions and sends the nextSeed of the last answer.
+  await press(screen, '다른 코스 추천받기');
+  const bodies = recommendationBodies();
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toEqual({ ...first, seed: 25 });
+  expect(texts(screen)).toContain('강변을 많이 지나는 코스예요 25-0');
+
+  // Saving or running a route C01 just made waits for S15P31E105-371.
   await press(screen, '내 코스에 저장');
-  expect(sent('PUT')).toEqual(['/courses/21/bookmark']);
-  expect(() => labelled(screen, '저장 해제')).not.toThrow();
-
-  // 이 코스로 달리기 plans 2.0 on the server course.
+  expect(sent('PUT')).toEqual([]);
+  expect(texts(screen)).toContain(
+    '새로 만든 코스의 저장과 시작은 준비 중이에요',
+  );
   await press(screen, '이 코스로 달리기');
   page = texts(screen);
-  expect(page).toContain('부산 수영구 코스');
-  expect(page).toContain('오늘의 러닝 전략');
+  expect(page).not.toContain('오늘의 러닝 전략');
+});
+
+test('a second tap before the answer does not send C01 again', async () => {
+  const screen = await openTodayRun();
+
+  await act(async () => {
+    const button = labelled(screen, '코스 추천 받기');
+    button.props.onPress();
+    button.props.onPress();
+  });
+  await settle();
+  await settle();
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1]);
+
+  await act(async () => {
+    const more = labelled(screen, '다른 코스 추천받기');
+    more.props.onPress();
+    more.props.onPress();
+  });
+  await settle();
+  await settle();
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25]);
+});
+
+test('3.1b has no 다른 코스 once nextSeed is past the seed range', async () => {
+  recommendations = () =>
+    respond(200, { ...generated(9_999_990), nextSeed: 10_000_014 });
+  const screen = await openTodayRun();
+  await press(screen, '코스 추천 받기');
+
+  expect(texts(screen)).toContain('1 / 2');
+  expect(hasButton(screen, '다른 코스 추천받기')).toBe(false);
+});
+
+test('3.1 offers distances only up to the 15km C01 makes', async () => {
+  const screen = await openTodayRun();
+
+  const slider = screen.root.find(
+    node =>
+      node.props.accessibilityLabel === '목표 거리' &&
+      node.props.max !== undefined,
+  );
+  expect(slider.props.max).toBe(15);
+});
+
+test('3.1 says why C01 failed from details.reason and keeps the conditions', async () => {
+  recommendations = () =>
+    respond(503, {
+      code: 'SERVICE_UNAVAILABLE',
+      message: '코스 추천 요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+      details: { reason: 'ROUTE_BUSY' },
+    });
+  const screen = await openTodayRun();
+  await press(screen, '코스 추천 받기');
+
+  expect(texts(screen)).toContain('지금 코스 추천 요청이 많아요.');
+  expect(hasButton(screen, '코스 추천 받기')).toBe(true);
 });

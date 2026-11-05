@@ -1,5 +1,6 @@
 import type {
   CoursePlan,
+  CourseRecommendations,
   EnvironmentType,
   RecommendedCourse,
   Repositories,
@@ -35,29 +36,42 @@ type BookmarkItem = {
   distanceM: number;
 };
 
-type RecommendationItem = {
-  id: number;
-  regionCode: string | null;
+// C01 (courses.md 코스 생성 후속): routes made for this search, not stored courses. index is not a course id.
+type GradeSegment = {
+  startDistanceM: number;
+  endDistanceM: number;
+  gradePercent: number;
+};
+
+type GeneratedItem = {
+  index: number;
   distanceM: number;
-  environmentTags: EnvironmentType[];
-  estimatedDurationSec: number;
+  route: LineString;
+  elevationProfile: GradeSegment[];
+  summary: string;
+  reasons: string[];
+  caveats: string[];
+};
+
+type RecommendationResponse = {
+  courses: GeneratedItem[];
+  notices: string[];
+  nextSeed: number;
 };
 
 const pageLimit = 50;
-// C01 also needs a C03 per card for the route, so the list stays short.
-const recommendLimit = 10;
+// C01 seed range; a nextSeed past it means there is no more to ask for.
+const maxSeed = 10_000_000;
+// The 3.1 environments C01 can ask for. 도심 and 트랙 have no Route preference, so they are left out.
+const filterOf: Partial<Record<EnvironmentType, string>> = {
+  PARK: 'park',
+  RIVERSIDE: 'river',
+  BEACH: 'beach',
+};
 // The pace for expected times when no running profile is saved, as in the mock (6′00″).
 const defaultPaceSecPerKm = 360;
 // Start and finish this close (m) make a loop.
 const loopGapM = 100;
-
-const environmentLabels: Record<EnvironmentType, string> = {
-  PARK: '공원',
-  RIVERSIDE: '강변',
-  URBAN: '도심',
-  BEACH: '해변',
-  TRACK: '트랙',
-};
 
 // Only server courses have numeric ids; mock ones (a free run saved as a course) stay on the mock.
 const isServerId = (courseId: string) => /^\d+$/.test(courseId);
@@ -110,6 +124,27 @@ function profileOf(raw: unknown): number[] {
     const height = heights[Math.round((index / 9) * (heights.length - 1))];
     return high > low ? Math.round(((height - low) / (high - low)) * 100) : 0;
   });
+}
+
+// C01 gives 100m grades; adding up rise × length gives the heights along the course, from 0 at the start.
+function heightsOf(grades: GradeSegment[]): number[] {
+  const heights = [0];
+  for (const { startDistanceM, endDistanceM, gradePercent } of grades) {
+    heights.push(
+      heights[heights.length - 1] +
+        (gradePercent / 100) * (endDistanceM - startDistanceM),
+    );
+  }
+  return heights;
+}
+
+// Total climb: only the rises count.
+function climbOf(heights: number[]): number {
+  let climb = 0;
+  for (let index = 1; index < heights.length; index++) {
+    climb += Math.max(0, heights[index] - heights[index - 1]);
+  }
+  return climb;
 }
 
 const kmLabel = (distanceM: number) => `${(distanceM / 1000).toFixed(1)}km`;
@@ -186,66 +221,74 @@ export function createCoursesApi({
     );
   };
 
+  // C01 makes new routes; each card is shown from the answer itself (no C03, no saved flag) because the
+  // routes are not stored yet. Choosing one to save and run is S15P31E105-371.
   const recommend: Repositories['courses']['recommend'] = async search => {
     const [longitude, latitude] = search.origin.position;
-    const [{ courses }, saved] = await Promise.all([
-      apiRequest<{ courses: RecommendationItem[] }>(
-        '/courses/recommendations',
-        {
-          method: 'POST',
-          body: {
-            latitude,
-            longitude,
-            targetDistanceM: search.targetDistanceM,
-            goalInputType: search.goalInputType,
-            targetDurationSec:
-              search.goalInputType === 'TIME'
-                ? search.targetDurationSec
-                : undefined,
-            targetPaceSecPerKm:
-              search.goalInputType === 'PACE'
-                ? search.targetPaceSecPerKm
-                : undefined,
-            environmentTypes: search.environmentTypes,
-            limit: recommendLimit,
-          },
-        },
+    const seed = search.seed ?? 1;
+    const filters = Object.fromEntries(
+      search.environmentTypes.flatMap(type =>
+        filterOf[type] ? [[filterOf[type], true]] : [],
       ),
-      bookmarks(),
-    ]);
-    const savedIds = new Set(saved.map(item => item.id));
-    return Promise.all(
-      courses.map(async (item): Promise<RecommendedCourse> => {
-        const [course, name] = await Promise.all([
-          detail(item.id),
-          nameOf(item.id, item.regionCode, item.distanceM),
-        ]);
-        const route = course.route.coordinates;
-        return {
-          id: String(item.id),
-          name,
-          distanceM: item.distanceM,
-          estimatedDurationSec: item.estimatedDurationSec,
-          shapeKind: shapeKindOf(route),
-          environmentLabels: item.environmentTags.map(
-            tag => environmentLabels[tag],
-          ),
-          elevationGainM:
-            course.elevationGainM === null
-              ? null
-              : Math.round(course.elevationGainM),
-          elevationProfile: profileOf(course.elevationProfile),
-          // C01 gives no reason; this is the rule it picks courses by.
-          reason:
-            course.description ??
-            `목표 ${kmLabel(
-              search.targetDistanceM,
-            )}에 가까운 코스 중 출발점이 가까운 순서예요.`,
-          route,
-          saved: savedIds.has(item.id),
-        };
-      }),
     );
+    const answer = await apiRequest<RecommendationResponse>(
+      '/courses/recommendations',
+      {
+        method: 'POST',
+        // The backend may take up to 20s to make the routes; the phone waits 30s (courses.md 시간 예산).
+        timeoutMs: 30_000,
+        body: {
+          latitude,
+          longitude,
+          distanceKm: search.targetDistanceM / 1000,
+          shape: 'loop',
+          filters,
+          seed,
+        },
+      },
+    );
+    // The goal pace from 3.1, or my usual pace, for the expected time on each card.
+    const paceSecPerKm =
+      search.goalInputType === 'PACE' && search.targetPaceSecPerKm
+        ? search.targetPaceSecPerKm
+        : search.targetDurationSec
+        ? search.targetDurationSec / (search.targetDistanceM / 1000)
+        : await pace();
+    const courses = answer.courses.map((item): RecommendedCourse => {
+      const route = item.route.coordinates;
+      const heights = heightsOf(item.elevationProfile);
+      return {
+        id: `generated:${seed}:${item.index}`,
+        name: `${kmLabel(item.distanceM)} 코스`,
+        distanceM: item.distanceM,
+        estimatedDurationSec: Math.round(
+          (item.distanceM / 1000) * paceSecPerKm,
+        ),
+        shapeKind: shapeKindOf(route),
+        // The preferences are weights, not what the route really passes, so no tags are claimed.
+        environmentLabels: [],
+        elevationGainM:
+          item.elevationProfile.length > 0
+            ? Math.round(climbOf(heights))
+            : null,
+        elevationProfile: profileOf(heights),
+        // Route's own words, shown as plain text.
+        reason: [
+          item.summary,
+          ...item.reasons.map(text => `· ${text}`),
+          ...item.caveats.map(text => `주의: ${text}`),
+        ].join('\n'),
+        route,
+        saved: false,
+        generated: true,
+      };
+    });
+    const result: CourseRecommendations = {
+      courses,
+      notices: answer.notices,
+      nextSeed: answer.nextSeed <= maxSeed ? answer.nextSeed : null,
+    };
+    return result;
   };
 
   // 2.0 keeps the mock's pace plan; a server course brings its own name, distance and route.

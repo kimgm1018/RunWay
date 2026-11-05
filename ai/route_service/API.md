@@ -151,12 +151,14 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 | 항목 | 측정 최대 | 제안 상한 |
 |---|---:|---:|
 | `summary` 길이 | 35자 | 100자 |
-| `reasons` / `caveats` / `notices` 개수 | 4 / 3 / 2개 | 각 6개 |
+| `reasons` / `caveats` / `notices` 개수 | 4 / 3 / 2개 | 각 20개(BE 적용, 아래 참고) |
 | 경로당 `coords` 점 수 | 576 | 3,000 |
 | 응답 전체 크기(운영 응답) | 40,505 B (약 41 KB) | 256 KB |
 
 측정 범위: Golden 시나리오 88개(main 43 + random P2P 30 + 나머지 모드)의 성공 응답. 15 km 코스·다른 지역에서는 더 클 수 있어
 상한은 측정 최대의 몇 배로 잡았다. 서비스는 아직 상한을 강제하지 않는다.
+
+문구 개수: 처음 제안은 각 6개였다. 서비스는 문구 개수를 자르지 않으며 코드상 최악값은 `caveats` 12개(`explain.py`, 환경 필터 5종 등), `notices` 9개(`app/main.py` `_notices`), `reasons` 4개다. 6개면 정상 후보 전체가 BE에서 503 `ROUTE_INVALID_RESPONSE`가 되므로 BE는 각 20개를 적용한다(`docs/design/api/ai-service.md` "Route 응답 크기 상한", S15P31E105-423). 문구 종류를 늘려 20개를 넘을 수 있으면 BE와 먼저 맞춘다.
 
 ## 7. 운영 설정 (환경변수)
 

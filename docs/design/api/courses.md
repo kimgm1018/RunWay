@@ -40,12 +40,12 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | 인증 | 회원 |
 | 관련 요구사항 | CRS-001, CRS-002, CRS-003, CRS-005, CRS-007~008 / SYS-002 |
 | 관련 화면 | 3.1 오늘의 러닝, 3.1b 추천 코스 목록 (화면 설계 v10) |
-| 미정 사항 | AI Route 실연동·오류 세분화는 [370 후속 초안](#코스-생성-후속-필요-사항)에서 제안. 선택 코스 저장 API·팀 확인은 후속 |
-| 비고 | **기존 "1차 MVP DB `ACTIVE` 필터" 방식은 C01에서 대체(superseded)됨.** 현재 구현은 Route 실연동 전 스텁 경로를 반환한다 |
+| 미정 사항 | Route 내부 계약은 AI 확인 전 초안이며 [370 후속 초안](#코스-생성-후속-필요-사항)대로 구현(S15P31E105-423). 선택 코스 저장 API는 후속(371) |
+| 비고 | **기존 "1차 MVP DB `ACTIVE` 필터" 방식은 C01에서 대체(superseded)됨.** 현재 구현은 Route HTTP 호출과 DEM 경사 계산이다(S15P31E105-423). 스텁은 개발자가 명시한 개발용 모드에서만 쓴다 |
 
 ### 설명
 
-출발 위치·목표 거리·형태·선호 조건을 받아 **새 러닝 경로 후보**(기본 3개)를 생성해 반환한다. 서버는 이 입력을 AI Route 생성기에 전달하는 계약만 가진다(Route 실연동 전에는 스텁이 같은 입력·seed에 대해 동일한 더미 경로를 반환한다). 후보는 이 호출에서 **저장하지 않는다.** 사용자가 후보 중 하나를 고르면 그 경로만 `courses`에 저장하고(후속 저장 API), 저장으로 얻은 `courseId`를 [S01 러닝 세션 생성](sessions.md#s01-러닝-세션-생성)에 사용한다.
+출발 위치·목표 거리·형태·선호 조건을 받아 **새 러닝 경로 후보**(최대 3개)를 생성해 반환한다. 서버는 검증·정규화한 입력을 AI Route 생성기에 전달하고, 후보마다 DEM으로 100m 경사를 계산해 붙인다. 개발용 스텁 모드(`BACKEND_ROUTE_MODE=stub`)에서만 같은 입력·seed에 대해 동일한 더미 경로를 반환하며 `notices`에 개발용임을 표시한다. 후보는 이 호출에서 **저장하지 않는다.** 사용자가 후보 중 하나를 고르면 그 경로만 `courses`에 저장하고(후속 저장 API), 저장으로 얻은 `courseId`를 [S01 러닝 세션 생성](sessions.md#s01-러닝-세션-생성)에 사용한다.
 
 > **대체 안내:** 이전 1차 MVP의 `targetDistanceM`·`goalInputType`·`environmentTypes`·`radiusM`·`limit` 기반 DB `ACTIVE` 코스 검색 계약은 C01에서 폐기한다. 저장된 공용 코스의 조회·저장은 [C03](#c03-코스-상세-조회)·[C07](#c07-코스-저장)·[C09](#c09-저장-코스-목록)가 담당한다.
 
@@ -67,8 +67,8 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `latitude` | number | O | 출발 위도(WGS84). 서비스 지역(부산) 범위 밖이면 `422 INVALID_SEARCH`(OUT_OF_AREA) |
-| `longitude` | number | O | 출발 경도(WGS84). 서비스 지역(부산) 범위 밖이면 `422 INVALID_SEARCH`(OUT_OF_AREA) |
+| `latitude` | number | O | 출발 위도(WGS84). 서비스 지역 밖이면 Route 판정으로 `422 INVALID_SEARCH`(`details.reason=OUT_OF_AREA`) |
+| `longitude` | number | O | 출발 경도(WGS84). 서비스 지역 밖이면 Route 판정으로 `422 INVALID_SEARCH`(`details.reason=OUT_OF_AREA`) |
 | `distanceKm` | number | O | 목표 거리(km). 1.0 이상 15.0 이하 |
 | `shape` | string | X | `loop`(기본) / `out_and_back` / `point_to_point`. 대소문자 무시, 생략·빈 값은 `loop` |
 | `endLatitude` | number | 조건부 | `point_to_point`에서 필수인 도착 위도 |
@@ -76,7 +76,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `filters` | object | X | 선호·회피 조건. 생략하면 모두 `false` |
 | `seed` | integer | X | 생성 시드. 기본 1, 1 이상 10,000,000 이하. 같은 입력·같은 seed면 같은 결과 |
 
-**서비스 지역(부산) 판정:** 출발 좌표가 위도 35.02~35.40, 경도 128.75~129.30 사각형 안에 있어야 한다(현재 구현 기준 근사 박스). Route 데이터 범위가 이 사각형보다 넓으므로, Route 실연동 시 백엔드의 사각형 사전 검증을 제거하고 Route의 `OUT_OF_AREA` 판정을 그대로 사용한다(2026-11-05 AI 팀 협의, 구현은 S15P31E105-423). 위경도 형식·범위 검증은 백엔드가 유지한다. MVP 서비스 지역은 부산이며, 전국 확장은 [S15P31E105-433](https://ssafy.atlassian.net/browse/S15P31E105-433)에서 다룬다.
+**서비스 지역(부산) 판정:** 백엔드의 부산 사각형 사전 검증은 제거했고 Route의 `OUT_OF_AREA` 판정을 그대로 사용한다(2026-11-05 AI 팀 협의, S15P31E105-423 구현). 위경도 형식·범위 검증은 백엔드가 유지한다. MVP 서비스 지역은 부산이며, 전국 확장은 [S15P31E105-433](https://ssafy.atlassian.net/browse/S15P31E105-433)에서 다룬다.
 
 **`point_to_point` 규칙:** 도착 좌표 둘 다 필수. 출발-도착 직선거리가 **17km**를 넘으면 `422 INVALID_SEARCH`(OUT_OF_APP_RANGE). `loop`·`out_and_back`에서 `endLatitude`/`endLongitude` 중 한쪽만 보내면 `422 INVALID_SEARCH`이며, 둘 다 보내면 무시된다. 도착 좌표 자체의 위경도 범위(-90~90, -180~180)는 모든 경우 검증한다.
 
@@ -175,15 +175,17 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
       }
     }
   ],
+  "notices": ["이 주변은 공원 정보가 일부만 있어요"],
   "nextSeed": 25
 }
 ```
 
-> 위 `coordinates`는 형태 예시를 위해 점 수를 줄인 값이다. 실제 응답은 경로를 따라가는 다수의 점을 포함한다.
+> 위 `coordinates`는 형태 예시를 위해 점 수를 줄인 값이다. 후보별 `elevationProfile`·`summary`·`reasons`·`caveats`·`score`·`scoreTerms`는 예시에서 생략했으며 [후보 응답 초안](#후보-응답-초안)의 단일 후보 예시를 따른다. 실제 응답은 경로를 따라가는 다수의 점을 포함한다.
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `courses` | array | O | 생성된 경로 후보 목록(현재 스텁은 3개). 후보는 저장되지 않는다 |
+| `courses` | array | O | 생성된 경로 후보 목록(1~3개). 후보는 저장되지 않는다 |
+| `notices` | string[] | O | 응답 전체 안내(Route 원문). 없으면 빈 배열 |
 | `nextSeed` | integer | O | "다른 경로 더 보기"에 쓰는 다음 시드. 요청 `seed + 24` |
 
 `courses[]` 필드:
@@ -193,6 +195,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `courses[].index` | integer | O | 이번 응답 내 후보 순번(0부터). **코스 ID가 아니다** |
 | `courses[].distanceM` | number | O | 경로 거리(m). `courses.distance` 저장 시 사용하는 값. 요청 `distanceKm`과 정확히 같다고 보장하지 않는다(Route 실연동 시 실제 길이 기준, 미정) |
 | `courses[].route` | object | O | GeoJSON `LineString`. 좌표는 `[경도, 위도]` 순서(GeoJSON·PostGIS 기준) |
+| `courses[].elevationProfile`·`summary`·`reasons`·`caveats`·`score`·`scoreTerms` | — | O | [후보 응답 초안](#후보-응답-초안) 표대로 구현(S15P31E105-423) |
 
 **응답에 없는 필드:** `courses[].id`(저장 전이므로 없음), `status`, `regionCode`, `environmentTags`, `estimatedDurationSec`. 예상 시간은 이 API의 책임이 아니며 목표 페이스를 아는 [S01](sessions.md#s01-러닝-세션-생성) 목표 설정·코스 상세([C03](#c03-코스-상세-조회))의 `targetPaceSecPerKm` 계산 쪽에서 다룬다. 좌표 순서 주의: AI 내부 `coords`는 `[lat,lon]`이고 공개 API는 GeoJSON `[lon,lat]`이다.
 
@@ -204,7 +207,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조, 토큰 사용자가 존재하지 않음 |
 | `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·자료형 불일치(예: 숫자 필드에 문자열) |
 
-`422 INVALID_SEARCH`의 세부 조건. 현재 구현은 **응답 `code`를 모두 `INVALID_SEARCH`로 통일**하고 `message`로 구분한다. 괄호의 식별자는 내부 구분용 이름이며 응답 필드로 확정되지 않았다(세분화 코드/`details` 노출 여부는 미정).
+`422 INVALID_SEARCH`의 세부 조건. 응답 `code`는 모두 `INVALID_SEARCH`이고 `message`로 구분한다. 아래 백엔드 입력 검증 사유는 `details`를 붙이지 않는다. Route 판정 사유(`OUT_OF_AREA` 등)만 `details.reason`으로 전달한다(S15P31E105-423).
 
 | 내부 식별자 | 조건 | 메시지(현재 구현) |
 |---|---|---|
@@ -212,20 +215,20 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | (형식) | `latitude`/`longitude`/`distanceKm`/`endLatitude`/`endLongitude`가 null·NaN·무한대 | `{필드}이(가) 올바르지 않습니다.` |
 | (범위) | `latitude`가 -90~90 밖 | latitude는 -90~90이어야 합니다. |
 | (범위) | `longitude`가 -180~180 밖 | longitude는 -180~180이어야 합니다. |
-| `OUT_OF_AREA` | 출발 좌표가 서비스 지역(부산) 밖 | 출발 위치가 서비스 지역(부산) 밖입니다. |
+| `OUT_OF_AREA` | Route가 출발 좌표를 서비스 지역 밖으로 판정(`details.reason=OUT_OF_AREA`) | 출발 위치가 서비스 지역(부산) 밖입니다. |
 | `DISTANCE_RANGE` | `distanceKm`가 1.0 미만 또는 15.0 초과 | distanceKm는 1.0 이상 15.0 이하여야 합니다. |
 | (shape) | `shape`가 허용 값이 아님 | shape는 loop, out_and_back, point_to_point 중 하나여야 합니다. |
 | `DESTINATION_REQUIRED` | `point_to_point`인데 도착 좌표 누락, 또는 다른 shape에서 도착 좌표를 한쪽만 전달 | point_to_point에는 endLatitude와 endLongitude가 필요합니다. |
 | `OUT_OF_APP_RANGE` | `point_to_point` 출발-도착 직선거리 17km 초과 | 출발-도착 직선거리가 서비스 상한을 초과했습니다. |
 | (seed) | `seed`가 1 미만 또는 10,000,000 초과 | seed는 1 이상 10000000 이하여야 합니다. |
 
-- Route 실연동 후 추가 후보(문서 미확정, [S15P31E105-370](https://ssafy.atlassian.net/browse/S15P31E105-370)에서 확정): `NO_ROAD_NEARBY`(출발점 주변 도로 없음), `DESTINATION_TOO_FAR`(도착점이 Route 처리 범위 밖), `NOT_READY`(Route 데이터/서비스 준비 중), 외부 호출 타임아웃·장애. 현재 코드에는 구현되어 있지 않다.
+- Route 호출 오류·DEM·시간 예산 실패는 [실패와 시간 예산 초안](#실패와-시간-예산-초안)과 [Route 오류 매핑](ai-service.md#route-오류-매핑)대로 `details.reason`과 함께 응답한다(S15P31E105-423 구현). 위 백엔드 입력 검증 오류에는 `details.reason`을 붙이지 않는다.
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- 조건에 맞는 경로를 만들지 못한 경우의 응답(빈 `courses` vs 오류)은 Route 실연동 시 확정한다. 현재 스텁은 항상 후보를 반환한다.
+- 조건에 맞는 경로를 만들지 못하면 빈 `courses`가 아니라 `422 INVALID_SEARCH`(`details.reason=NO_ROUTE`)다.
 
 ### 처리 규칙
 
-- **입력 검증 후 생성기 호출:** 서버는 위 입력만 검증·정규화해 경로 생성기(AI Route, 현재는 스텁 어댑터)에 전달한다. 사용자 프로필·페이스·건강·계정 정보를 생성 입력에 추가하지 않는다.
+- **입력 검증 후 생성기 호출:** 서버는 위 입력만 검증·정규화해 경로 생성기(AI Route HTTP 어댑터)에 전달한다. 생성 호출은 DB 트랜잭션 밖에서 한다. 사용자 프로필·페이스·건강·계정 정보를 생성 입력에 추가하지 않는다.
 - **shape별 경로:** `loop`는 출발점으로 돌아오는 순환, `out_and_back`은 왕복, `point_to_point`는 출발→도착 편도다.
 - **정규화:** `shape` 생략은 `loop`, `filters` 생략·개별 null은 `false`, `seed` 생략은 1.
 - **seed 흐름(다른 경로 더 보기):**
@@ -237,7 +240,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 - **세션 연결:** 저장으로 얻은 `courseId`를 [S01](sessions.md#s01-러닝-세션-생성)의 `courseId`로 보낸다. S01은 `ACTIVE` 코스만 허용한다. 이 코스의 `source_session_id`는 NULL이다.
 - **페이스 없음:** 추천 요청에 목표 페이스·TIME·goal이 없고 응답에 `estimatedDurationSec`도 없다. 목표는 S01(및 S08)에서 정한다.
 - **개인정보:** 개인 저장 별명 등 사용자 데이터를 생성 입력·응답에 넣지 않는다.
-- **현재 구현 상태:** BE는 계약·검증과 스텁 어댑터까지 구현되어 있다. 실제 Route 호출·DEM 경사 계산·저장은 후속 업무([S15P31E105-370](https://ssafy.atlassian.net/browse/S15P31E105-370), [S15P31E105-369](https://ssafy.atlassian.net/browse/S15P31E105-369), [S15P31E105-371](https://ssafy.atlassian.net/browse/S15P31E105-371))에서 다룬다.
+- **현재 구현 상태:** BE는 Route HTTP 어댑터·응답 검증·오류 매핑·DEM 경사 조합까지 구현했다([S15P31E105-423](https://ssafy.atlassian.net/browse/S15P31E105-423)). Route 서비스 운영 배포(381 구현 완료, 배포 전)·DEM 파일 배포(인프라 후속)·선택 후보 저장([S15P31E105-371](https://ssafy.atlassian.net/browse/S15P31E105-371))은 후속이다.
 
 ### 상태값
 
@@ -245,12 +248,12 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 ### 미정 사항
 
-아래 후보 수·거리·오류·시간 예산·중복 기준의 제안은 [370 후속 초안](#코스-생성-후속-필요-사항)에 정리했다. **팀 확인 및 구현 전**이며 위 현행 C01 계약을 자동 대체하지 않는다.
+후보 수·거리·오류·시간 예산은 [370 후속 초안](#코스-생성-후속-필요-사항)대로 구현했다(S15P31E105-423). Route 담당(AI 팀) 확인이 남은 항목은 그 절의 "남은 확인"을 따른다.
 
 - [ ] 선택 코스 저장 API 경로·요청/응답·멱등 처리·중복 경로 기준 (후속 Jira)
-- [ ] 후보 개수(현재 스텁 3개)와 `courses[].distanceM` 허용 오차(요청 거리 대비)
+- [x] 후보 개수 1~3개, `courses[].distanceM` 목표 대비 ±10%, 좌표 길이와 ±5%(S15P31E105-423 구현, Route 확인 대기)
 - [ ] 알 수 없는 `filters` 키 처리, 조건 불충족 시 응답 방식
-- [ ] Route 실연동 오류 코드 세분화(`NO_ROAD_NEARBY`, `DESTINATION_TOO_FAR`, `NOT_READY` 등)·동기/비동기·타임아웃
+- [x] Route 실연동 오류 세분화(`details.reason`)·동기 방식·타임아웃: 초안대로 구현(S15P31E105-423, Route 확인 대기)
 - [x] 서비스 지역 판정: 부산 사각형 사전 검증을 제거하고 Route `OUT_OF_AREA` 기준으로 교체(2026-11-05 AI 팀 협의, 구현 S15P31E105-423)
 - [ ] `nextSeed` 상한 초과 시 서버 동작
 
@@ -735,7 +738,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 ## 코스 생성 후속 필요 사항
 
-**상태: S15P31E105-370 계약 초안, 2026-11-04.** 아래 추가 필드·오류 매핑·시간 예산·중복 기준은 제안이며 현재 C01 스텁의 구현 완료 계약이 아니다. Route 담당(AI 팀) 확인은 설명·점수 응답 필드만 받았고(2026-11-05 AI 팀 회신), 나머지 항목은 확인 전이다. 공개 API를 새로 만들지 않고 기존 `POST /api/v1/courses/recommendations`(C01)의 실연동 후속 계약으로 제안한다. 요구사항 CRS-003·SYS-002에는 DB `ACTIVE` 코스 추천 설명이 남아 있으나, 현행 C01의 명시적 대체 안내를 따른다. 이 초안으로 요구사항 전체를 변경하지 않는다.
+**상태: S15P31E105-370 계약 초안, 2026-11-04.** 아래 추가 필드·오류 매핑·시간 예산은 백엔드·앱에 구현했다(S15P31E105-423, 2026-11-05). 선택 저장·중복 기준은 371 후속이다. Route 담당(AI 팀) 확인은 설명·점수 응답 필드만 받았고(2026-11-05 AI 팀 회신), 나머지 항목은 확인 전이라 Route 실연동 때 달라지면 이 절을 먼저 고친다. 공개 API를 새로 만들지 않고 기존 `POST /api/v1/courses/recommendations`(C01)의 실연동 후속 계약으로 제안한다. 요구사항 CRS-003·SYS-002에는 DB `ACTIVE` 코스 추천 설명이 남아 있으나, 현행 C01의 명시적 대체 안내를 따른다. 이 초안으로 요구사항 전체를 변경하지 않는다.
 
 ### 생성 흐름과 요청 초안
 
@@ -757,7 +760,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 ### 후보 응답 초안
 
-현행 최상위 `courses`, `nextSeed` 및 후보 `index`, `distanceM`, `route`를 유지하고 아래 필드를 추가하는 안이다. 현재 DTO·스텁에는 추가 필드가 없다.
+현행 최상위 `courses`, `nextSeed` 및 후보 `index`, `distanceM`, `route`를 유지하고 아래 필드를 추가한다(S15P31E105-423 구현).
 
 | 필드 | 타입·필수 여부 | 생성 후속 제안 |
 | --- | --- | --- |
@@ -808,12 +811,12 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 응답 최상위에는 `courses`, `notices`(예: `["이 주변은 공원 정보가 일부만 있어요"]`), `nextSeed`가 온다.
 
-설명 문구는 Route 원문을 일반 텍스트로 그대로 표시한다. 백엔드는 번역·재작성·LLM 생성을 하지 않고, 클라이언트는 HTML로 해석하지 않는다. 문구·점수 항목의 길이·개수 상한은 [Route 내부 계약](ai-service.md#route-응답-크기-상한)을 따른다(`summary` 100자, `reasons`·`caveats`·`notices` 각 6개, 좌표 3,000점 등).
+설명 문구는 Route 원문을 일반 텍스트로 그대로 표시한다. `reasons`·`caveats`·`notices`의 빈 문자열(공백뿐 포함) 항목은 표시할 내용이 없으므로 백엔드가 그 항목만 뺀다(423 리뷰 결정). 빈 `summary`와 `scoreTerms`의 빈 `term`·`label`·`group`은 계약 위반으로 전체를 거절한다. 백엔드는 번역·재작성·LLM 생성을 하지 않고, 클라이언트는 HTML로 해석하지 않는다. 문구·점수 항목의 길이·개수 상한은 [Route 내부 계약](ai-service.md#route-응답-크기-상한)을 따른다(`summary` 100자, `reasons`·`caveats`·`notices` 각 20개, 좌표 3,000점 등).
 
-경사 계산이 준비되지 않았거나 실패하면 가짜 평지·빈 경사로 성공시키지 않는다. 한 후보라도 잘못된 경로·거리·경사를 반환하면 전체 요청을 실패시키는 안이다. Route가 합법적으로 1~2개만 찾은 경우와 잘못된 후보를 임의 제거하는 경우를 구분한다. 현행 `distanceM`은 도로 edge 길이이고 경사 재표본은 경로 좌표를 사용하므로, 두 길이의 일치 허용 오차와 최종 거리 축 정규화는 369·371과 실연동 구현 전 확정해야 한다. 이 수치가 정해지기 전 경사/저장 연결을 구현 완료로 취급하지 않는다.
+경사 계산이 준비되지 않았거나 실패하면 가짜 평지·빈 경사로 성공시키지 않는다. 423 구현은 좌표 haversine 길이가 `distance_m`의 ±5% 밖이면 `ROUTE_INVALID_RESPONSE`로 거절하고, 경사는 좌표 길이를 `distanceM`에 비례로 맞춰 계산한다(369 방식). 이 값은 371 저장 연결 때 다시 확인한다. 한 후보라도 잘못된 경로·거리·경사를 반환하면 전체 요청을 실패시키는 안이다. Route가 합법적으로 1~2개만 찾은 경우와 잘못된 후보를 임의 제거하는 경우를 구분한다. 현행 `distanceM`은 도로 edge 길이이고 경사 재표본은 경로 좌표를 사용한다. C01 후보 응답에는 위 423 기준(±5%·비례 맞춤)을 적용했으며, 실제 Route 좌표로 이 기준을 실측하는 일과 저장 시 최종 거리 축 정규화는 Route 실연동(381 서비스 배포 후)·저장 연결(371) 때 확정한다. 그 전까지 저장 연결은 구현 완료로 취급하지 않는다.
 ### 실패와 시간 예산 초안
 
-공개 오류는 기존 공통 `{code,message,details}`를 사용한다. 아래 `details.reason`은 **추가 제안**이며 현행 C01의 message 구분과 다르다. Route의 원본 message·debug·요청 좌표·traceback은 전달하지 않고 백엔드의 고정 안내와 허용한 reason만 사용한다.
+공개 오류는 기존 공통 `{code,message,details}`를 사용한다. 아래 `details.reason`은 S15P31E105-423에서 구현했다. 백엔드 입력 검증의 422는 `details.reason` 없이 message로만 구분한다. Route의 원본 message·debug·요청 좌표·traceback은 전달하지 않고 백엔드의 고정 안내와 허용한 reason만 사용한다.
 
 | HTTP·code | `details.reason` 제안 | 처리·클라이언트 행동 |
 | --- | --- | --- |
@@ -834,7 +837,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | Route admission·생성 | 12초 | 대기를 포함한 전체 처리. 실행 1건·대기 1건까지만 받고 나머지는 `BUSY`. 남은 예산이 6초 미만이면 계산을 시작하지 않고 `TIMEOUT`. 리눅스 실측 최악 처리 4.5초(2026-11-05 AI 팀) |
 | BE→Route HTTP | 15초 | 연결 최대 1초를 포함한 전체 호출 wall-clock. 읽기 대기 1회마다 15초가 아님 |
 | C01 백엔드 | 20초 | Route 호출·변환·최대 3개 DEM 계산·응답 직렬화 전체. 남은 예산 없으면 실패 |
-| 공개 proxy / 모바일 | 25초 / 30초 | proxy 전체 요청 한도 / 클라이언트 전체 대기 한도. 운영·FE 확인 필요 |
+| 공개 proxy / 모바일 | 25초 / 30초 | proxy 전체 요청 한도 / 클라이언트 전체 대기 한도. 앱은 C01만 30초 대기로 구현(423). proxy는 운영 확인 필요 |
 
 12 < 15 < 20 < 25 < 30초로 하위 실패를 상위가 응답할 여유를 둔다. Route 처리는 리눅스 실측 최악 4.5초로 12초 안에 여유가 있다(AI 팀 측정). DEM 계산·cold 기동·동시 요청 실측은 남아 있다. Route 계산은 중간 취소가 어려우므로 [Route 대기·시작 조건](ai-service.md#route-시간-예산동시성과-재시도)으로 늦게 끝날 계산을 시작하지 않는 방식을 쓴다. 긴 대기열로 지연을 숨기지 않는다. 만족하지 못하면 ADR-0019 판정 절차로 돌아가며 런타임에서 임의로 Java/스텁을 재호출하지 않는다.
 
@@ -864,7 +867,7 @@ BE는 같은 요청에서 자동 재시도하지 않는다. 사용자가 명시�
 - AI 확인 대기: [운영용 Route 내부 계약](ai-service.md#route-코스-생성-내부-http-계약-초안)의 URL·본문·오류·메타데이터·큐/시간 상한. 담당 확인 없이 확정으로 바꾸지 않는다.
 - AI 팀 확인 완료(2026-11-05 회신): 후보별 `summary`·`reasons`·`caveats`·`score`/`scoreTerms`와 응답 전체 `notices`를 Route가 제공한다. 추천 이유는 Route에서 이미 생성하며 백엔드 LLM 생성은 하지 않는다.
 - FE/BE 확인 대기: 경사·설명·점수·notices 추가, 점수 표시 여부, 부족 후보 안내, 동기 대기·취소·더 보기 상한 UI.
-- 369·371 및 저장 API 후속: 거리 축 일치 허용 오차, 후보 진위 검증·멱등키·동시 중복 방지, AI 계획 전달. `StoredCourseGradeSource` 연결·FE 고도 그래프의 경사 누적 변환도 후속이다.
+- 369·371 및 저장 API 후속: 거리 축 일치 허용 오차, 후보 진위 검증·멱등키·동시 중복 방지, AI 계획 전달. `StoredCourseGradeSource` 연결은 후속이다. 앱의 고도 그래프·오르막은 C01 `elevationProfile` 경사를 누적해 계산한다(423).
 - 출발점의 지역 역지오코딩·태깅은 미정. `region_code` NULL 원칙을 유지한다.
 - Route는 HR 추론 `ai/service`와 별도 컨테이너이며, DEM/OSM/env 데이터 배포·최적화·성능 판정은 [ADR-0019](../../adr/0019-course-generation-backend.md)와 담당 업무를 따른다.
 

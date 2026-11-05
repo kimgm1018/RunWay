@@ -642,12 +642,18 @@ export function createMockRepositories(
           return fail(new DataError('UNKNOWN', '추천 실패'), options);
         }
         return respond(
-          options.scenario === 'noCourses'
-            ? []
-            : fixtures.recommendedCourses.map(course => ({
-                ...course,
-                saved: saved.some(item => item.id === course.id),
-              })),
+          {
+            courses:
+              options.scenario === 'noCourses'
+                ? []
+                : fixtures.recommendedCourses.map(course => ({
+                    ...course,
+                    saved: saved.some(item => item.id === course.id),
+                  })),
+            notices: [],
+            // The mock has one fixed set, so there is no 다른 코스.
+            nextSeed: null,
+          },
           options,
         );
       },

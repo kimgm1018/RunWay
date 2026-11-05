@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -41,6 +41,7 @@ import { ErrorNotice } from '../onboarding/parts';
 import { RunMap } from '../../components/RunMap';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
+import { recommendFailureNotice } from './recommendFailure';
 import { RangeSlider } from './RangeSlider';
 
 type GoalInput = 'TIME' | 'PACE';
@@ -257,6 +258,7 @@ export function TodayRunScreen() {
     search?.environmentTypes ?? ['PARK', 'RIVERSIDE'],
   );
   const [loading, setLoading] = useState(false);
+  const asking = useRef(false);
   const [notice, setNotice] = useState<{
     title: string;
     detail: string;
@@ -287,9 +289,11 @@ export function TodayRunScreen() {
   };
 
   const recommend = async () => {
-    if (!place || !seconds) {
+    // A second tap before the first answer would start another C01 (courses.md: 중복 탭은 막는다).
+    if (!place || !seconds || asking.current) {
       return;
     }
+    asking.current = true;
     const next = {
       origin: place,
       targetDistanceM: Math.round(distanceKm * 1000),
@@ -303,7 +307,7 @@ export function TodayRunScreen() {
     try {
       const found = await courses.recommend(next);
       setLoading(false);
-      if (found.length === 0) {
+      if (found.courses.length === 0) {
         setNotice({
           title: '조건에 맞는 코스를 찾지 못했어요.',
           detail: '거리나 환경을 바꿔 다시 추천받아 보세요.',
@@ -312,12 +316,11 @@ export function TodayRunScreen() {
       }
       setSearch(next, found);
       navigateTo(navigation, 'RecommendedCourses');
-    } catch {
+    } catch (error) {
       setLoading(false);
-      setNotice({
-        title: '코스를 추천받지 못했어요.',
-        detail: '입력한 조건은 그대로 두었어요. 잠시 후 다시 시도해 주세요.',
-      });
+      setNotice(recommendFailureNotice(error));
+    } finally {
+      asking.current = false;
     }
   };
 
@@ -501,9 +504,10 @@ function PanelContent({
         <RangeSlider
           value={distanceKm}
           min={1}
-          max={21}
+          // C01 makes courses of 1–15km (courses.md C01 distanceKm).
+          max={15}
           step={0.5}
-          ticks={[1, 5, 10, 15, 21]}
+          ticks={[1, 5, 10, 15]}
           onChange={setDistanceKm}
           accessibilityLabel="목표 거리"
           formatValue={value => `${value.toFixed(1)}km`}
