@@ -12,6 +12,10 @@
 !ai/service/tools/**
 !ai/service/scripts/
 !ai/service/scripts/**
+!ai/bpm/
+!ai/bpm/target_bpm.py
+!ai/bpm/stride_model.py
+!ai/bpm/stride_prior.json
 !ai/workspace/
 !ai/workspace/doyeon/
 !ai/workspace/doyeon/gru/

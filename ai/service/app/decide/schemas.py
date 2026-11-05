@@ -88,6 +88,20 @@ class LastCoaching(CamelModel):
     def applied_at_is_aware(cls, value):
         return _aware(value)
 
+class BpmSample(CamelModel):
+    """페이스가 일정한 구간 하나의 평균(백엔드가 만든다)."""
+    speed_mps: float = Field(gt=0)
+    cadence_spm: float = Field(gt=0)
+    cue_bpm: float | None = None          # 그 구간에 켜져 있던 BPM. 큐를 껐으면 null
+
+
+class BpmRecord(BpmSample):
+    run_no: int = Field(ge=1)             # 사용자 러닝 순서(클수록 최근). 같은 러닝의 구간은 같은 값
+
+
+class BpmInput(CamelModel):
+    records: list[BpmRecord] = Field(default_factory=list, max_length=2000)   # 지난 러닝 구간
+    first_minute: BpmSample | None = None  # 이번 러닝 첫 1분(처음 사용자 보정용). 아직 없으면 null
 
 class DecideContext(CamelModel):
     session_id: ServerId
@@ -108,6 +122,7 @@ class DecideContext(CamelModel):
     hr_reference: HrReferenceInput | None = None
     last_coaching: LastCoaching | None = None
     resumed_at: datetime | None = None
+    bpm: BpmInput | None = None   # 없으면 처음 사용자처럼 평균 직선으로 계산
 
     @field_validator("input_as_of", "guide_pace_set_at", "resumed_at")
     @classmethod
@@ -174,7 +189,7 @@ class Decision(CamelModel):
     action: Literal["GUIDE_PACE", "EASE_OFF", "NOT_RUNNING"]
     chosen_index: int | None
     recommended_pace_sec_per_km: float
-    cue_bpm: float | None = None
+    cue_bpm: int | None = Field(default=None, ge=60, le=220)
     predicted_hr_30_bpm: float | None = None
     predicted_hr_60_bpm: float | None = None
     predicted_hr_120_bpm: float | None = None

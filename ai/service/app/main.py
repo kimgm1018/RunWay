@@ -46,6 +46,8 @@ from app.gru_personalization import (CachedDbGruPersonalizationLookup, GRU_PERSO
                                     lookup_user_personalization)
 from app.hr_threshold_lookup import CachedDbHrThresholdLookup
 from app.policy.hr_reference import personal_hr_thresholds
+from app.bpm_cue import CueBpmCalculator, UnavailableCueBpm
+
 
 log = logging.getLogger("runway.ai")
 
@@ -141,7 +143,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                gru_personalization_lookup=None,
                db_factory: Callable[[str], object] = default_db_factory,
                hr_threshold_lookup=None,
-               runner_profile_lookup=None) -> FastAPI:
+               runner_profile_lookup=None,
+               cue_bpm_loader: Callable[[], object] | None = CueBpmCalculator) -> FastAPI:
     try:
         free_run_grade_policy = load_free_run_grade_policy()   # 잘못된 값이면 시작 시 실패
     except Exception as exc:
@@ -208,6 +211,15 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
         log.info("GRU 개인화 꺼짐(GRU_PERSONALIZATION_ENABLED=false): userId가 와도 기본 GRU로 예측한다")
     if not hr_threshold_lookup_configured:
         log.info("AI_DB_URL이 없어 학습 심박 기준을 조회하지 않고 모집단 기준을 쓴다")
+    # 목표 BPM(ai/bpm). 못 불러와도 서비스는 켜고, 응답마다 cueBpm=null + CUE_BPM_UNAVAILABLE을 붙인다.
+    cue_bpm_calc = None
+    if cue_bpm_loader is not None:
+        try:
+            cue_bpm_calc = cue_bpm_loader()
+        except Exception as exc:
+            log_ai_error("CUE_BPM_LOAD_FAILED", "startup", exc, level=logging.WARNING)
+            cue_bpm_calc = UnavailableCueBpm()
+
     demo_settings = demo_loader()
     demo_state = (new_demo_state(demo_settings, rate_per_sec=demo_rate_per_sec, now=clock)
                   if demo_settings.enabled else None)
@@ -275,6 +287,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     app.state.runner_profile_lookup = runner_profile_lookup
     app.state.runner_blend_k = runner_blend_k
     app.state.hr_threshold_lookup_configured = hr_threshold_lookup_configured
+    app.state.cue_bpm_calc = cue_bpm_calc
     # requested = 설정 스위치만, enabled = 스위치와 AI_DB_URL이 모두 있음(조회기를 넘길 수 있음).
     app.state.gru_personalization_requested = gru_personalization_requested
     app.state.gru_personalization_enabled = gru_personalization_requested and bool(db_url)
@@ -382,7 +395,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                                                           if request.app.state.gru_personalization_enabled else None),
                              gru_personalization_enabled=request.app.state.gru_personalization_requested,
                              hr_threshold_lookup=request.app.state.hr_threshold_lookup,
-                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured)
+                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc)
         demo = request.app.state.demo
         if demo is not None:
             stage, _ = demo.profile_for(body.context.session_id)

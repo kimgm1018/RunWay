@@ -18,6 +18,7 @@ from app.hr_threshold_lookup import HrThresholdLookupResult, UNAVAILABLE_WARNING
 from app.policy.config import load_policy_config
 from app.policy.hr_reference import HrThresholds, blend_hr_thresholds
 from app.policy.mpc_policy import handover_phase, plan_pace, progress
+from app.bpm_cue import CUE_BPM_UNAVAILABLE
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,15 @@ def _outcome(body, status, response, policy, pred_hr, received_at, decided_at, b
     return DecideOutcome(body, status, response, policy, pred_hr, received_at, decided_at,
                          (time.perf_counter() - begin) * 1000.0, model_ms, error)
 
+def _cue_bpm(calc, pace: float, bpm_input) -> tuple[int | None, tuple[str, ...]]:
+    """추천 페이스의 목표 BPM. 계산기를 안 넣었으면(기능 꺼짐) null, 계산이 실패하면 null + 경고."""
+    if calc is None:
+        return None, ()
+    try:
+        return calc.compute(pace, bpm_input), ()
+    except Exception as exc:
+        log_ai_error(CUE_BPM_UNAVAILABLE, "/v1/pace/decide", exc, level=logging.WARNING)
+        return None, (CUE_BPM_UNAVAILABLE,)
 
 def _thresholds_for_user(user_id, lookup, cfg, *, configured: bool = True) -> tuple[HrThresholds, tuple[str, ...]]:
     if user_id is None:
@@ -78,7 +88,7 @@ def _thresholds_for_user(user_id, lookup, cfg, *, configured: bool = True) -> tu
 def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, received_at: datetime,
                          decided_at: datetime, begin: float, threshold_warnings: tuple[str, ...],
                          extra_warnings: tuple[str, ...], model_version: str,
-                         policy_version: str) -> DecideOutcome:
+                         policy_version: str, cue_bpm_calc=None) -> DecideOutcome:
     ctx = body.context
     hr_now = body.history.hr_bpm[-1]
     _, speed_now, pace_now = recent_inputs(body.history)
@@ -99,8 +109,9 @@ def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, 
         action, status, reason = "GUIDE_PACE", "OK", "PLAN_HOLD"
         reason_text = "기록이 한 칸뿐이라 예측을 건너뛰고 계획 페이스를 안내합니다."
         gate = None
+    cue, cue_warnings = _cue_bpm(cue_bpm_calc, recommended, ctx.bpm)
     decision = Decision(
-        action=action, chosen_index=None, recommended_pace_sec_per_km=recommended,
+        action=action, chosen_index=None, recommended_pace_sec_per_km=recommended, cue_bpm=cue,
         predicted_hr_30_bpm=None, predicted_hr_60_bpm=None, predicted_hr_120_bpm=None,
         route_progress_m=ctx.route_progress_m, based_on_state_version=ctx.state_version,
         expires_at=min(decided_at, ctx.input_as_of) + timedelta(seconds=20),
@@ -116,7 +127,7 @@ def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, 
                       handover_phase=phase, plan_weight=weight,
                       hr_danger_bpm=thresholds.danger_bpm, hr_sustain_bpm=thresholds.sustain_bpm,
                       hr_threshold_source=thresholds.source, hr_threshold_weight=thresholds.weight),
-        warnings=["HISTORY_TOO_SHORT_PLAN_HOLD", *extra_warnings, *threshold_warnings],
+        warnings=["HISTORY_TOO_SHORT_PLAN_HOLD", *extra_warnings, *threshold_warnings, *cue_warnings],
         hr_personalized=False if body.user_id is not None else None,
     )
     return _outcome(body, status, response, None, None, received_at, decided_at, begin, None, None)
@@ -126,7 +137,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                now: Callable[[], datetime], free_run_grade_policy: str = "reject",
                user_personalization_lookup=None, hr_threshold_lookup=None,
                gru_personalization_enabled: bool = True,
-               hr_threshold_lookup_configured: bool = True) -> DecideOutcome:
+               hr_threshold_lookup_configured: bool = True, cue_bpm_calc=None) -> DecideOutcome:
     """신선도 검사부터 정책 응답까지 수행한다.
 
     gru_personalization_enabled=False면 userId가 있어도 개인화 조회·경고·로그를 하지 않는다.
@@ -168,7 +179,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
         return _too_short_plan_hold(
             body, thresholds=thresholds, cfg=cfg, received_at=received_at, decided_at=at, begin=begin,
             threshold_warnings=threshold_warnings, extra_warnings=extra_warnings,
-            model_version=model.info.model_version, policy_version=policy.policy_version,
+            model_version=model.info.model_version, policy_version=policy.policy_version, cue_bpm_calc=cue_bpm_calc,
         )
 
     try:
@@ -262,14 +273,16 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
             score=verdict.score if verdict else None,
         ))
     decision = None
+    cue_warnings: tuple[str, ...] = ()
     if output.action in {"GUIDE_PACE", "EASE_OFF"} and output.recommended_pace_sec_per_km is not None:
         chosen = output.chosen_index
         chosen_pred = pred_hr[chosen] if chosen is not None and 0 <= chosen < len(pred_hr) else (None, None, None)
         expires = min(decided_at, body.context.input_as_of) + timedelta(seconds=20)
+        cue, cue_warnings = _cue_bpm(cue_bpm_calc, output.recommended_pace_sec_per_km, body.context.bpm)
         decision = Decision(
             action=output.action, chosen_index=chosen,
             recommended_pace_sec_per_km=output.recommended_pace_sec_per_km,
-            cue_bpm=None, predicted_hr_30_bpm=chosen_pred[0], predicted_hr_60_bpm=chosen_pred[1],
+            cue_bpm=cue, predicted_hr_30_bpm=chosen_pred[0], predicted_hr_60_bpm=chosen_pred[1],
             predicted_hr_120_bpm=chosen_pred[2], route_progress_m=body.context.route_progress_m,
             based_on_state_version=body.context.state_version, expires_at=expires,
             reason=output.reason, reason_text=output.reason_text,
@@ -286,7 +299,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                       hr_threshold_weight=output.hr_threshold_weight),
         warnings=list(output.warnings) + free_run_warnings(body, free_run_grade_policy)
         + list(threshold_warnings) + list(compatibility_warnings)
-        + ([personalization_warning] if personalization_warning else []),
+        + ([personalization_warning] if personalization_warning else []) + list(cue_warnings),
         hr_personalized=personalized if body.user_id is not None else None,
         hr_personalization_version=personalization_version if personalized else None,
     )
