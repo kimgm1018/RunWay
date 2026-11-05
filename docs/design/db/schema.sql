@@ -1187,6 +1187,9 @@ CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
 CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
     WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
 
+-- S15P31E105-409 (V11): FK는 인덱스를 자동 생성하지 않는다. 사용자별 완료 러닝의 종료 시각 최근순 조회(AI09·AI04 등)용.
+CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended_at DESC);
+
 -- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
 ALTER TABLE "user_recommendation_preferences"
     ADD CONSTRAINT "FK_users_TO_user_recommendation_preferences"
