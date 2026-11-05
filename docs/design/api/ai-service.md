@@ -302,6 +302,8 @@ AI 서버는 AI04 판단 결과를 DB에 직접 쓰지 않는다. 발행·저장
 
 `POST /v1/hr/personalize` — ODE v2.1. 백엔드가 동의·소유권을 확인한 완료 support session만 보낸다. 이 요청은 비동기화/재시도 없이 동기 계산한다는 패키지 기본값이며 작업 상태 저장은 백엔드가 결정한다.
 
+W07 저장 기록으로 `sessions[]`를 만드는 방법(러닝 선택·5초 재표본화·결측·품질·`hrIsFilled`·`workoutQuality`·DEM 경사)은 [W07 → AI06 변환 규칙](w07-ai06-conversion.md)을 따른다.
+
 ### Request Body
 
 | 필드 | 타입 | 필수 | 설명 |
@@ -354,7 +356,7 @@ AI06 응답에는 기존 ODE 필드와 함께 `hrDangerBpm`(개인 P98 원값, +
 
 `userId`와 `sessions[].sessionId`는 양수 int64 서버 ID이며 응답의 `userId`도 정수다. legacy 호환용 ID 십진 문자열 입력은 현재 코드에서 정수로 정규화하지만, 그 외 새 AI04/AI05/AI06 숫자 필드는 JSON integer 또는 실수만 허용한다. 팀 전체 BIGINT wire 정책을 정한 것은 아니다. API03의 `history.gradePct`/`futureGradePct`는 유지한다. W07·AI05·AI06의 `gradePercent`는 별도 경계 필드다.
 
-AI06은 `elapsedSec=0`부터 중복 없는 5초 격자 표본을 요구한다. 최신 GitLab W07은 최대 5초 단위 batch 수집을 뜻할 뿐, 각 항목이 균일한 5초 격자이거나 AI06 품질 필드가 같은 뜻이라는 보장은 아니다. W07→AI06 재표본화·결측·`qualityStatus` 변환은 backend 합의 전까지 구현하지 않는다. W07 payload를 그대로 AI06 요청으로 전달할 수 없다.
+AI06은 `elapsedSec=0`부터 중복 없는 5초 격자 표본을 요구한다. 최신 GitLab W07은 최대 5초 단위 batch 수집을 뜻할 뿐, 각 항목이 균일한 5초 격자이거나 AI06 품질 필드가 같은 뜻이라는 보장은 아니다. 그래서 W07 payload를 그대로 AI06 요청으로 전달할 수 없다. 재표본화·결측·품질 변환은 [W07 → AI06 변환 규칙](w07-ai06-conversion.md)을 따른다(S15P31E105-411). 같은 문서 7절의 열린 질문은 백엔드(S15P31E105-410)와 합의해 확정한다.
 
 ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입력·계산이 실패해도 이미 계산한 `gruPersonalization` 블록은 오류 응답에 포함한다. 원본 샘플은 요청 종료 뒤 저장하지 않는다. 백엔드가 ODE와 GRU 블록을 각각 `user_hr_personalization`과 `user_gru_personalization`에 저장하는 방식을 합의한다.
 
