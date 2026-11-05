@@ -42,7 +42,7 @@
       return {kind: 'insufficient', text: '입력 부족·20초 이상'};
     }
     if (trace.status === 'SAFETY') return {kind: 'safety', text: '속도 낮추기'};
-    if (trace.status === 'HR_STALE') return {kind: 'stale', text: '입력 지연 15초+: 가속 안 함'};
+    if (trace.status === 'HR_STALE') return {kind: 'stale', text: '입력 지연 20초+: 가속 안 함'};
     if (stage !== 'L3' && trace.latency && trace.latency.inputLagMs < -2000) {
       return {kind: 'clock', text: '기기 시계 확인'};
     }

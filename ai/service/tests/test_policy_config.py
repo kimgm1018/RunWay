@@ -4,12 +4,12 @@ from app.policy.config import load_policy_config
 
 def test_default_values():
     c = load_policy_config()
-    assert (c.policy_version, c.validated) == ("mpc-v0.4.0", False)
+    assert (c.policy_version, c.validated) == ("mpc-v0.4.1", False)
     assert (c.hr_threshold_population_danger_bpm, c.hr_threshold_population_sustain_bpm) == (175.0, 163.0)
     assert c.hr_threshold_blend_weights == (0.0, 0.25, 0.5, 0.75, 0.9, 1.0)
     assert c.final_stretch_extra_bpm == 5.0 and c.provisional is False
     assert (c.p0, c.sprint_m, c.band_bpm, c.ease_off_sec_per_km, c.chase_limit_sec_per_km, c.hold_sec) == (0.5, 400.0, 3.0, 30.0, 30.0, 60.0)
-    assert (c.walk_speed_mps, c.hr_stale_sec, c.input_insufficient_sec, c.publish_delta_sec_per_km) == (1.5, 15.0, 20.0, 5.0)
+    assert (c.walk_speed_mps, c.hr_stale_sec, c.input_insufficient_sec, c.publish_delta_sec_per_km) == (1.5, 20.0, 20.0, 5.0)
     # 기존 나이 공식·HRR 설정은 제거하고 학습 기준·혼합 비중 설정으로 바꿨다.
     assert (c.hr_threshold_population_danger_bpm, c.hr_threshold_population_sustain_bpm,
             c.hr_threshold_blend_weights) == (175.0, 163.0, (0.0, 0.25, 0.5, 0.75, 0.9, 1.0))

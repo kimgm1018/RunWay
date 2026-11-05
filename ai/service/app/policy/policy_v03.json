@@ -1,5 +1,5 @@
 {
-  "policy_version": "mpc-v0.4.0",
+  "policy_version": "mpc-v0.4.1",
   "validated": false,
   "provisional": false,
   "hr_threshold_population_danger_bpm": 175.0,
@@ -15,7 +15,7 @@
   "hold_sec": 60.0,
   "publish_delta_sec_per_km": 5.0,
   "walk_speed_mps": 1.5,
-  "hr_stale_sec": 15.0,
+  "hr_stale_sec": 20.0,
   "input_insufficient_sec": 20.0,
   "margin_quantile": "P90",
   "w_t_base": 0.5,

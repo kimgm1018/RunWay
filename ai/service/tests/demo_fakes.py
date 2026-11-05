@@ -78,7 +78,7 @@ class FakePolicy:
                                 hr_danger_bpm=175.0, hr_sustain_bpm=163.0,
                                 hr_threshold_source="POPULATION", hr_threshold_weight=0.0,
                                 margin_table_version="fake-margin-1")
-        status = "HR_STALE" if inp.input_age_sec > 15 else "OK"
+        status = "HR_STALE" if inp.input_age_sec > 20 else "OK"  # 실제 정책 hr_stale_sec=20과 같은 경계
         return PolicyOutput(status, "GUIDE_PACE", 2, inp.candidates[2].pace_sec_per_km,
                             "HOLD", "현재 pace 유지", "ALL", verdicts, self.publish,
                             allow_bpm=163.0, hard_eff_bpm=175.0,

@@ -67,7 +67,7 @@ def test_t2_preference_order():
 def test_t6_t9_stale_and_hold_block_accel_only():
     behind = dict(activeSec=925)
     assert pace(run(**behind)) == 350
-    o = run(input_age_sec=17, **behind)
+    o = run(input_age_sec=21, **behind)
     assert o.status == "HR_STALE" and pace(o) >= 360 and o.verdicts[0].reject_reason == "HR_STALE"
     assert run(guidePaceSetAt=T0 - timedelta(seconds=30), **behind).verdicts[0].reject_reason == "ACCEL_IN_HOLD"
     assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=61), **behind)) == 350
@@ -124,7 +124,11 @@ def test_t15_publish():
 
 
 def test_t16_stale_window_and_not_running():
-    assert run(input_age_sec=15).status == "OK" and run(input_age_sec=17).status == "HR_STALE"
+    # 팀 명세 20초 정렬(S15P31E105-413): 15~20초는 HR_STALE가 아니고, 20초를 넘으면 HR_STALE다.
+    for age in (15, 17, 19.9, 20):
+        assert run(input_age_sec=age).status == "OK", age
+    for age in (20.1, 25):
+        assert run(input_age_sec=age).status == "HR_STALE", age
     o = run(speed_now=1.4); assert (o.status, o.action, o.chosen_index, o.verdicts) == ("NOT_RUNNING", "NOT_RUNNING", None, ())
 
 
@@ -144,5 +148,5 @@ def test_t11_decel_downhill_raises_upper():
 def test_build_policy(tmp_path):
     with pytest.raises(FileNotFoundError): build_policy(None, "gru")
     path = write_margin_table(tmp_path, model="GRU")
-    assert build_policy(path, "gru").policy_version == "mpc-v0.4.0"
+    assert build_policy(path, "gru").policy_version == "mpc-v0.4.1"
     with pytest.raises(ValueError): build_policy(path, "tf")
