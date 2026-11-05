@@ -78,7 +78,7 @@ private fun WatchScreen(
             PillButton("다시 연결", { navigator.send(RunIntent.RECONNECT_PHONE) }, enabled = !snapshot.pendingCommand)
         }
         WatchRoute.NOT_READY -> ReadinessScreen(ReadinessRules.issue(readiness), actions)
-        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage) { navigator.send(RunIntent.PAUSE) }
+        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage, navigator::send) { navigator.send(RunIntent.PAUSE) }
         WatchRoute.PAUSED -> PausedScreen(snapshot, onEnd = navigator::openEndConfirm) { navigator.send(RunIntent.RESUME) }
         WatchRoute.END_CONFIRM -> EndConfirmScreen(snapshot, onCancel = { navigator.back() }) { navigator.send(RunIntent.END) }
         WatchRoute.RESULT -> ResultScreen(snapshot)
@@ -174,7 +174,9 @@ private fun GroupStandby(snapshot: RunSnapshot) {
 }
 
 @Composable
-private fun RunPager(snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onPause: () -> Unit) {
+private fun RunPager(
+    snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onIntent: (RunIntent) -> Unit, onPause: () -> Unit,
+) {
     val pages = WatchNavigation.pages(snapshot)
     val pager = rememberPagerState(initialPage = page) { pages.size }
     LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
@@ -186,18 +188,8 @@ private fun RunPager(snapshot: RunSnapshot, online: CheckState, page: Int, onPag
             RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible)
-            RunPage.PACE_COACHING -> PaceCoachingPage(pages.size, index, visible)
+            RunPage.PACE_COACHING -> PaceCoachingPage(snapshot, pages.size, index, visible, onIntent)
         }
-    }
-}
-
-/** Page frame kept so swipe order is fixed now; 257 replaces the body. */
-@Composable
-private fun PaceCoachingPage(count: Int, index: Int, visible: Boolean) {
-    RoundScreen(focused = visible) {
-        Text("페이스 코칭", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        Text(MetricFormat.MISSING, style = RunwayType.number(40), color = RunwayColors.ContentDim)
-        PageIndicator(count, index)
     }
 }
 

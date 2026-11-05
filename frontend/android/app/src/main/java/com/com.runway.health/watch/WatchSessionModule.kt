@@ -105,7 +105,7 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
    * MessageClient accepted it; that is only a transport ack, never the watch's execution result.
    */
   @ReactMethod fun send(path: String, type: String, sessionId: String, payloadJson: String, promise: Promise) {
-    if (!path.startsWith(SESSION_PATH_PREFIX) && path != ERROR_PATH) {
+    if (!isSendablePath(path)) {
       promise.reject("WATCH_INVALID", "지원하지 않는 워치 메시지입니다.")
       return
     }

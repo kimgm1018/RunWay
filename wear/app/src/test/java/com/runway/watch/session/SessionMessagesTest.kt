@@ -98,4 +98,64 @@ class SessionMessagesTest {
         assertEquals(0, ended.getInt("pendingBatchCount"))
         assertTrue(ended.getBoolean("uploadComplete"))
     }
+
+    @Test
+    fun `decodes COACHING_GUIDE with int64 ids, BPM range and UTC expiry`() {
+        val guide = decodeSessionMessage(envelope(
+            "COACHING_GUIDE",
+            """{"commandId":9007199254740993,"coachingId":701,"expectedVersion":3,"targetBpm":165,"recommendedPaceSecPerKm":360,"expiresAt":"2026-10-28T01:02:00Z"}""",
+        ))
+        assertNotNull(guide)
+        assertEquals("9007199254740993", guide!!.commandId())
+        assertEquals("701", guide.coachingId())
+        assertEquals(165, guide.bpm("targetBpm"))
+        assertEquals(Instant.parse("2026-10-28T01:02:00Z"), guide.instant("expiresAt"))
+
+        val odd = decodeSessionMessage(envelope("COACHING_GUIDE", """{"targetBpm":221,"currentBpm":165.5,"initialBpm":null,"expiresAt":"2026-10-28T10:02:00+09:00"}"""))!!
+        assertNull(odd.bpm("targetBpm"))
+        assertNull(odd.bpm("currentBpm"))
+        assertNull(odd.bpm("initialBpm"))
+        assertNull(odd.bpm("missing"))
+        assertEquals(Instant.parse("2026-10-28T01:02:00Z"), odd.instant("expiresAt"))
+        // COACHING_RESULT는 워치가 보내는 타입이라 받지 않는다.
+        assertNull(decodeSessionMessage(envelope("COACHING_RESULT", "{}")))
+    }
+
+    @Test
+    fun `builds SET_BPM REQUEST with targetBpm only for SET_BPM`() {
+        val payload = JSONObject(String(SessionMessages.commandRequest("w:7", "201", "SET_BPM", 3, targetBpm = 165))).getJSONObject("payload")
+        assertEquals("REQUEST", payload.getString("phase"))
+        assertEquals("SET_BPM", payload.getString("action"))
+        assertEquals(3L, payload.getLong("expectedVersion"))
+        assertEquals(165, payload.getInt("targetBpm"))
+
+        assertTrue(runCatching { SessionMessages.commandRequest("w:8", "201", "SET_BPM", 3) }.isFailure)
+        assertTrue(runCatching { SessionMessages.commandRequest("w:9", "201", "SET_BPM", 3, targetBpm = 221) }.isFailure)
+        assertTrue(runCatching { SessionMessages.commandRequest("w:10", "201", "PAUSE", 3, targetBpm = 165) }.isFailure)
+    }
+
+    @Test
+    fun `builds COACHING_RESULT and STATE_QUERY`() {
+        val applied = JSONObject(String(SessionMessages.coachingResult(
+            "w:11", "phone:5", "201", "601", "701", "APPLIED", Instant.parse("2026-10-28T01:00:03Z"), null,
+        )))
+        assertEquals("COACHING_RESULT", applied.getString("type"))
+        assertEquals("phone:5", applied.getString("replyTo"))
+        val payload = applied.getJSONObject("payload")
+        assertEquals(601L, payload.getLong("commandId"))
+        assertEquals(701L, payload.getLong("coachingId"))
+        assertEquals("2026-10-28T01:00:03Z", payload.getString("appliedAt"))
+        assertTrue(payload.has("reasonCode") && payload.isNull("reasonCode"))
+
+        val ignored = JSONObject(String(SessionMessages.coachingResult(
+            "w:12", null, "201", "602", "702", "IGNORED", Instant.parse("2026-10-28T01:00:03Z"), "GUIDE_STALE",
+        ))).getJSONObject("payload")
+        assertTrue(ignored.isNull("appliedAt"))
+        assertEquals("GUIDE_STALE", ignored.getString("reasonCode"))
+
+        val query = JSONObject(String(SessionMessages.stateQuery("w:13", "201", Instant.parse("2026-10-28T01:00:00.123Z"))))
+        assertEquals("STATE_QUERY", query.getString("type"))
+        assertEquals("SERVER", query.getJSONObject("payload").getString("scope"))
+        assertEquals("2026-10-28T01:00:00.123Z", query.getJSONObject("payload").getString("clientSendAt"))
+    }
 }

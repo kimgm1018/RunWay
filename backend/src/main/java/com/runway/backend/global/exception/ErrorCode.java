@@ -312,6 +312,8 @@ public enum ErrorCode {
     CONTROL_DEVICE_CHANGED(
             HttpStatus.CONFLICT, "CONTROL_DEVICE_CHANGED", "현재 제어 기기가 바뀌어 결과를 저장할 수 없습니다."),
     COMMAND_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMAND_NOT_FOUND", "제어 명령을 찾을 수 없습니다."),
+    COACHING_UNAVAILABLE(
+            HttpStatus.CONFLICT, "COACHING_UNAVAILABLE", "폰으로 기록을 전환한 운동은 BPM을 바꿀 수 없습니다."),
     INVALID_COMPARISON_SESSION(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_COMPARISON_SESSION", "비교할 수 없는 러닝 기록입니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "서버 오류가 발생했습니다."),

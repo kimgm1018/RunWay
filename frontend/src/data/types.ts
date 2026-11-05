@@ -728,6 +728,21 @@ export type SessionCommand = {
   result: ControlResultCode;
   appliedAt: string | null;
   reasonCode: string | null;
+  // P07 SET_BPM·COACHING의 적용 박자와 코칭 ID. 나머지 명령은 null이다(S02 명령 객체, S15P31E105-257).
+  targetBpm?: number | null;
+  coachingId?: string | null;
+  // 미확정 COACHING 명령의 원래 COACHING_GUIDE payload. 만료 후에도 결과 확인용으로 온다.
+  coachingGuide?: CoachingGuide | null;
+};
+
+// S02 coaching 객체 = COACHING_GUIDE payload (sessions.md "coaching 객체 필드", 9.3).
+export type CoachingGuide = {
+  commandId: string;
+  coachingId: string;
+  expectedVersion: number;
+  targetBpm: number;
+  recommendedPaceSecPerKm: number;
+  expiresAt: string;
 };
 
 export type SessionGoalDraft = {
@@ -750,6 +765,40 @@ export type RunningSessionView = {
   pendingCommand: SessionCommand | null;
   lastCommand: SessionCommand | null;
   analysisStatus: string;
+  // S02의 확정 BPM·현재 유효 코칭·서버 시각(S15P31E105-257). 목업 세션은 채우지 않는다.
+  currentBpm?: number | null;
+  coaching?: CoachingGuide | null;
+  serverReceiveAt?: string | null;
+  serverSendAt?: string | null;
+};
+
+// P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
+export type BpmApproval = {
+  commandId: string;
+  action: 'SET_BPM' | 'COACHING';
+  expectedVersion: number;
+  targetBpm: number;
+  coachingId: string | null;
+  result: ControlResultCode;
+};
+
+// P07 RESULT 본문. SET_BPM·COACHING 모두 실행한 워치가 보고한 값을 그대로 옮긴다.
+export type BpmReport = {
+  commandId: string;
+  deviceId: string;
+  result: 'APPLIED' | 'REJECTED' | 'IGNORED' | 'UNKNOWN';
+  appliedAt: string | null;
+  reasonCode: string | null;
+};
+
+// S10 연결 상태. error는 45초 동안 서버 메시지가 없거나 연결이 끊긴 상태다.
+export type SessionEventsStatus = 'connecting' | 'connected' | 'error';
+
+// S10 스냅샷. reconnected는 (재)연결 뒤 첫 스냅샷이다(미확정 코칭 재전달 기준).
+export type SessionSnapshot = {
+  event: string;
+  session: RunningSessionView;
+  reconnected: boolean;
 };
 
 // S03~S06 REQUEST 응답. 같은 요청 슬롯의 재전송이면 저장된 결과가 온다.
@@ -791,6 +840,30 @@ export type WatchSessionEvent =
       sessionId: string;
       action: 'PAUSE' | 'RESUME' | 'END' | 'CANCEL';
       expectedVersion: number;
+    }
+  // 워치 BPM +/- (P07 SET_BPM 중계 요청, S15P31E105-257).
+  | {
+      type: 'COMMAND_REQUEST';
+      sessionId: string;
+      action: 'SET_BPM';
+      expectedVersion: number;
+      targetBpm: number;
+    }
+  | {
+      type: 'COACHING_RESULT';
+      sessionId: string;
+      commandId: string;
+      coachingId: string | null;
+      result: 'APPLIED' | 'IGNORED' | 'UNKNOWN';
+      appliedAt: string | null;
+      reasonCode: string | null;
+    }
+  // 워치의 상태 조회. SERVER면 폰이 S02로 답한다(clientSendAt은 그대로 돌려준다).
+  | {
+      type: 'STATE_QUERY';
+      sessionId: string;
+      scope: 'WATCH' | 'SERVER';
+      clientSendAt: string | null;
     }
   // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
   | {
@@ -1033,6 +1106,26 @@ export type Repositories = {
       sessionId: string,
       request: { deviceId: string; expectedVersion: number },
     ) => Promise<RunningSessionView>;
+    // P07 SET_BPM REQUEST·SET_BPM/COACHING RESULT와 S10 구독(S15P31E105-257). 서버 연동 저장소만 구현한다.
+    requestBpm?: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number; targetBpm: number },
+    ) => Promise<BpmApproval>;
+    reportBpmResult?: (
+      sessionId: string,
+      report: BpmReport,
+    ) => Promise<{
+      commandId: string;
+      result: ControlResultCode;
+      session: RunningSessionView;
+    }>;
+    subscribeEvents?: (
+      sessionId: string,
+      handlers: {
+        onSnapshot: (snapshot: SessionSnapshot) => void;
+        onStatus?: (status: SessionEventsStatus) => void;
+      },
+    ) => () => void;
     // W07. 워치 batch 본문 원문을 바꾸지 않고 보낸다(S15P31E105-311).
     uploadBatch: (body: string) => Promise<SyncBatchAck>;
   };
@@ -1061,10 +1154,15 @@ export type Repositories = {
         stateVersion: number | null;
       },
     ) => Promise<void>;
-    // STATE_RESULT(scope=SERVER).
+    // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
+    sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
+    // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.
+    sendCoachingGuide: (sessionId: string, guide: CoachingGuide) => Promise<void>;
+    // STATE_RESULT(scope=SERVER). clientSendAt은 워치 STATE_QUERY의 값, 서버 스냅샷 전달이면 null.
     sendServerState: (
       sessionId: string,
       session: RunningSessionView,
+      clientSendAt?: string | null,
     ) => Promise<void>;
     // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
     sendError: (

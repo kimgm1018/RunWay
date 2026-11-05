@@ -35,13 +35,44 @@ public final class RunningSessionMapper {
                         session.getGoalPace()),
                 plan(snapshot.plan(), snapshot.segments()),
                 new RunningSessionResponse.Analysis(session.getAnalysisStatus().name()),
-                null,
+                coaching(snapshot, serverSendAt),
                 command(snapshot.pendingCommand(), snapshot.coachingGuide()),
                 command(snapshot.lastCommand(), lastCommandGuide(snapshot)),
                 serverReceiveAt,
                 serverSendAt,
                 recordingMode(session),
                 snapshot.groupEndedAt());
+    }
+
+    /**
+     * 현재 유효한 최신 코칭. 현재 제어기기의 미확정 COACHING 명령이 있고 그 추천의 기준 버전이 현재 버전이며 만료 전일 때만 채운다(sessions.md
+     * coaching 객체). 만료 뒤에는 null이며 결과 확인은 pendingCommand.coachingGuide로 한다.
+     */
+    private static RunningSessionResponse.CoachingGuide coaching(
+            SessionSnapshot snapshot, Instant now) {
+        SessionControlEvent pending = snapshot.pendingCommand();
+        CoachingGuideRow guide = snapshot.coachingGuide();
+        if (pending == null
+                || guide == null
+                || pending.getAction() != ControlAction.COACHING
+                || !pending.isUnconfirmed()
+                || guide.expiresAt() == null
+                || !now.isBefore(guide.expiresAt())
+                || pending.getExpectedVersion() != snapshot.session().getStateVersion()) {
+            return null;
+        }
+        return guide(pending, guide);
+    }
+
+    private static RunningSessionResponse.CoachingGuide guide(
+            SessionControlEvent event, CoachingGuideRow guide) {
+        return new RunningSessionResponse.CoachingGuide(
+                event.getId(),
+                event.getCoachingId(),
+                event.getExpectedVersion(),
+                event.getTargetBpm(),
+                guide.recommendedPace(),
+                guide.expiresAt());
     }
 
     /** 마지막 명령이 현재 제어기기의 미확정 명령(pendingCommand)과 같으면 같은 코칭 가이드를 보여준다. */
@@ -90,14 +121,7 @@ public final class RunningSessionMapper {
         if (guide != null
                 && event.getAction() == ControlAction.COACHING
                 && event.isUnconfirmed()) {
-            coachingGuide =
-                    new RunningSessionResponse.CoachingGuide(
-                            event.getId(),
-                            event.getCoachingId(),
-                            event.getExpectedVersion(),
-                            event.getTargetBpm(),
-                            guide.recommendedPace(),
-                            guide.expiresAt());
+            coachingGuide = guide(event, guide);
         }
         return new RunningSessionResponse.Command(
                 event.getId(),

@@ -246,3 +246,171 @@ test('stored and new watch batches reach the listener with their body text, and 
   expect(native.commitBatch).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000101', 1);
   expect(native.failBatch).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000102', 'INVALID_BATCH');
 });
+
+// S15P31E105-257 워치 BPM·코칭 중계.
+test('SET_BPM requests, COACHING_RESULT and STATE_QUERY reach the listener; results stay until persisted', async () => {
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events });
+  const received: WatchSessionEvent[] = [];
+  watch.subscribe(event => received.push(event));
+  await flush();
+
+  events.fire({
+    type: 'COMMAND_REQUEST',
+    messageId: 'w:10',
+    sessionId: '201',
+    payload: { phase: 'REQUEST', action: 'SET_BPM', expectedVersion: 3, targetBpm: 172 },
+  });
+  events.fire({
+    type: 'COMMAND_REQUEST',
+    messageId: 'w:11',
+    sessionId: '201',
+    payload: { phase: 'REQUEST', action: 'SET_BPM', expectedVersion: 3, targetBpm: 250 },
+  });
+  events.fire({
+    type: 'COACHING_RESULT',
+    messageId: 'w:12',
+    sessionId: '201',
+    payload: { commandId: '9007199254740993', coachingId: '701', result: 'IGNORED', appliedAt: null, reasonCode: 'GUIDE_STALE' },
+  });
+  events.fire({
+    type: 'STATE_QUERY',
+    messageId: 'w:13',
+    sessionId: '201',
+    payload: { scope: 'SERVER', clientSendAt: '2026-10-28T01:00:59.900Z' },
+  });
+
+  expect(received).toEqual([
+    { type: 'COMMAND_REQUEST', sessionId: '201', action: 'SET_BPM', expectedVersion: 3, targetBpm: 172 },
+    {
+      type: 'COACHING_RESULT',
+      sessionId: '201',
+      commandId: '9007199254740993',
+      coachingId: '701',
+      result: 'IGNORED',
+      appliedAt: null,
+      reasonCode: 'GUIDE_STALE',
+    },
+    { type: 'STATE_QUERY', sessionId: '201', scope: 'SERVER', clientSendAt: '2026-10-28T01:00:59.900Z' },
+  ]);
+  // 범위를 벗어난 BPM 요청은 전달하지 않고 지운다. 코칭 결과는 서버 저장 확인 전까지 남긴다.
+  expect(native.ackInbox).toHaveBeenCalledWith(['w:11']);
+  expect(native.ackInbox).not.toHaveBeenCalledWith(['w:12']);
+  await watch.sendReceived('201', { commandId: '9007199254740993', persisted: true, stateVersion: 5 });
+  expect(native.ackInbox).toHaveBeenCalledWith(['w:12']);
+});
+
+test('sendBpmCommand and sendCoachingGuide keep int64 ids exact', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  await watch.sendBpmCommand('201', {
+    commandId: '9007199254740993',
+    action: 'SET_BPM',
+    expectedVersion: 3,
+    targetBpm: 172,
+    coachingId: null,
+    result: 'PENDING',
+  });
+  await watch.sendCoachingGuide('201', {
+    commandId: '9007199254740995',
+    coachingId: '9007199254740997',
+    expectedVersion: 3,
+    targetBpm: 170,
+    recommendedPaceSecPerKm: 360,
+    expiresAt: '2026-10-28T01:01:20Z',
+  });
+
+  expect(native.send.mock.calls[0]).toEqual([
+    '/runway/v1/session/command',
+    'COMMAND_REQUEST',
+    '201',
+    '{"phase":"APPLY","action":"SET_BPM","expectedVersion":3,"targetBpm":172,"commandId":9007199254740993,"coachingId":null}',
+  ]);
+  expect(native.send.mock.calls[1]).toEqual([
+    '/runway/v1/coaching/guide',
+    'COACHING_GUIDE',
+    '201',
+    '{"commandId":9007199254740995,"coachingId":9007199254740997,"expectedVersion":3,"targetBpm":170,' +
+      '"recommendedPaceSecPerKm":360,"expiresAt":"2026-10-28T01:01:20Z"}',
+  ]);
+});
+
+test('sendServerState carries BPM, commands with the coaching guide, server times and the echoed clientSendAt', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const guide = {
+    commandId: '501',
+    coachingId: '701',
+    expectedVersion: 3,
+    targetBpm: 165,
+    recommendedPaceSecPerKm: 360,
+    expiresAt: '2026-10-29T01:00:20Z',
+  };
+
+  await watch.sendServerState(
+    '201',
+    {
+      sessionId: '201',
+      controlDeviceId: '101',
+      relayDeviceId: '102',
+      state: 'RUNNING',
+      stateVersion: 3,
+      startedAt: '2026-10-28T01:00:01Z',
+      endedAt: null,
+      recordingMode: 'WATCH',
+      pendingCommand: {
+        commandId: '501',
+        action: 'COACHING',
+        expectedVersion: 3,
+        result: 'PENDING',
+        appliedAt: null,
+        reasonCode: null,
+        targetBpm: 165,
+        coachingId: '701',
+        coachingGuide: guide,
+      },
+      lastCommand: { commandId: '500', action: 'START', expectedVersion: 1, result: 'APPLIED', appliedAt: '2026-10-28T01:00:01Z', reasonCode: null },
+      analysisStatus: 'PENDING',
+      currentBpm: 160,
+      coaching: null,
+      serverReceiveAt: '2026-10-28T01:01:00Z',
+      serverSendAt: '2026-10-28T01:01:00.010Z',
+    },
+    '2026-10-28T01:00:59.900Z',
+  );
+
+  const [path, type, sessionId, payload] = native.send.mock.calls[0];
+  expect([path, type, sessionId]).toEqual(['/runway/v1/session/state-result', 'STATE_RESULT', '201']);
+  expect(JSON.parse(payload)).toEqual({
+    scope: 'SERVER',
+    recordingMode: 'WATCH',
+    state: 'RUNNING',
+    stateVersion: 3,
+    currentBpm: 160,
+    pendingCommand: {
+      commandId: 501,
+      action: 'COACHING',
+      targetBpm: 165,
+      expectedVersion: 3,
+      coachingId: 701,
+      result: 'PENDING',
+      appliedAt: null,
+      reasonCode: null,
+      coachingGuide: { ...guide, commandId: 501, coachingId: 701 },
+    },
+    lastCommand: {
+      commandId: 500,
+      action: 'START',
+      targetBpm: null,
+      expectedVersion: 1,
+      coachingId: null,
+      result: 'APPLIED',
+      appliedAt: '2026-10-28T01:00:01Z',
+      reasonCode: null,
+      coachingGuide: null,
+    },
+    pendingBatchCount: 0,
+    clientSendAt: '2026-10-28T01:00:59.900Z',
+    serverReceiveAt: '2026-10-28T01:01:00Z',
+    serverSendAt: '2026-10-28T01:01:00.010Z',
+  });
+});

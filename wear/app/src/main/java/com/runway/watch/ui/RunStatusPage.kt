@@ -3,13 +3,13 @@ package com.runway.watch.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
 import com.runway.watch.readiness.CheckState
 import com.runway.watch.run.FeedStatus
-import com.runway.watch.run.RunMetrics
 import com.runway.watch.run.RunMode
 import com.runway.watch.run.RunSnapshot
 import com.runway.watch.ui.component.*
@@ -43,6 +43,10 @@ data class RunStatusView(
     val ringProgress: Float?,
     /** A request (pause) is accepted but not applied yet; the run is not shown as paused. */
     val pending: Boolean,
+    /** No server state for 45 s during the run (S15P31E105-257, D-8). */
+    val serverLost: Boolean = false,
+    /** Rhythm chip text, always labelled "리듬 BPM" so it is never read as heart rate (D-10). */
+    val rhythmLabel: String = "",
 )
 
 /** Derives 9.2 from the snapshot only. Values that did not arrive are never filled in. */
@@ -61,6 +65,8 @@ object RunStatusDisplay {
             hasGoal = m.goalProgress != null,
             ringProgress = m.goalProgress?.takeIf { feeds.location == FeedStatus.LIVE || feeds.location == FeedStatus.DELAYED },
             pending = snapshot.pendingCommand,
+            serverLost = snapshot.serverLinkLost,
+            rhythmLabel = PaceCoachingDisplay.rhythmLabel(m.rhythm),
         )
     }
 
@@ -98,14 +104,17 @@ internal fun RunStatusPage(
         Row(Modifier.padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 LiveValue(view.distance, 13)
-                LiveValue(view.heartRate, 13)
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+                    Text(MetricFormat.HEART_LABEL, style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+                    LiveValue(view.heartRate, 13)
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 LiveValue(view.elapsed, 13)
                 LiveValue(view.cadence, 13)
             }
         }
-        RhythmChip(snapshot.metrics)
+        Chip(view.rhythmLabel, description = MetricFormat.rhythm(snapshot.metrics.rhythm).description)
         PageIndicator(count, index)
     }
 }
@@ -119,6 +128,7 @@ internal fun RunStatusPage(
 private fun StatusHeader(view: RunStatusView) = when {
     view.pending -> Text("요청 확인 중", style = RunwayType.Caption, color = RunwayColors.Content, maxLines = 1)
     view.phoneLost -> StatusLine("폰 연결 끊김" to StatusTone.WARNING)
+    view.serverLost -> StatusLine(PaceCoachingDisplay.SERVER_LOST to StatusTone.WARNING)
     view.offline -> StatusLine("오프라인 · 저장 미확인" to StatusTone.WARNING)
     else -> StatusLine("폰" to StatusTone.NORMAL)
 }
@@ -126,7 +136,7 @@ private fun StatusHeader(view: RunStatusView) = when {
 @Composable
 private fun LiveValue(metric: LiveMetric, size: Int) = MetricValue(metric.text, size, emphasized = !metric.delayed)
 
-// Guide pace and rhythm are shown as delivered; S15P31E105-257 owns this coaching area. A group run
+// Guide pace is the last applied coaching's (S15P31E105-257); details are on the pace coaching page. A group run
 // shows the group's shared pace instead, so the runner never sees two guide paces at once.
 @Composable
 private fun GuidePace(snapshot: RunSnapshot) {
@@ -136,10 +146,4 @@ private fun GuidePace(snapshot: RunSnapshot) {
         Text(if (group) "공동" else "안내", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
         MetricValue(MetricFormat.pace(pace), 11, emphasized = false)
     }
-}
-
-@Composable
-private fun RhythmChip(m: RunMetrics) {
-    val rhythm = MetricFormat.rhythm(m.rhythm)
-    Chip("${rhythm.symbol}︎ ${rhythm.value} ${rhythm.unit}", description = rhythm.description)
 }

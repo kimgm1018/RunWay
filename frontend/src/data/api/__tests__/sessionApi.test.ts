@@ -157,3 +157,91 @@ test('DataError codes from the request pass through unchanged', async () => {
     repository.requestControl('201', 'START', { deviceId: '101', expectedVersion: 1 }),
   ).rejects.toMatchObject({ code: 'COMMAND_PENDING' });
 });
+
+// P07 세션 BPM 조절 (pace-coaching.md, S15P31E105-257).
+test('requestBpm sends the SET_BPM REQUEST with a null coachingId to PUT /bpm', async () => {
+  const { calls, repository } = fake([
+    { commandId: 601, action: 'SET_BPM', expectedVersion: 3, targetBpm: 172, coachingId: null, result: 'PENDING' },
+  ]);
+
+  const approval = await repository.requestBpm!('201', { deviceId: '101', expectedVersion: 3, targetBpm: 172 });
+
+  expect(calls).toEqual([
+    {
+      method: 'PUT',
+      path: '/running-sessions/201/bpm',
+      body: { phase: 'REQUEST', operation: 'SET_BPM', deviceId: 101, expectedVersion: 3, targetBpm: 172, coachingId: null },
+    },
+  ]);
+  expect(approval).toEqual({
+    commandId: '601',
+    action: 'SET_BPM',
+    expectedVersion: 3,
+    targetBpm: 172,
+    coachingId: null,
+    result: 'PENDING',
+  });
+});
+
+test('reportBpmResult sends the RESULT with null keys and maps BPM, coaching and server times', async () => {
+  const coachingGuide = {
+    commandId: 501,
+    coachingId: 701,
+    expectedVersion: 3,
+    targetBpm: 165,
+    recommendedPaceSecPerKm: 360,
+    expiresAt: '2026-10-29T01:00:20Z',
+  };
+  const { calls, repository } = fake([
+    {
+      commandId: 501,
+      result: 'IGNORED',
+      persisted: true,
+      ...sessionResponse,
+      stateVersion: 4,
+      currentBpm: 160,
+      coaching: coachingGuide,
+      pendingCommand: {
+        commandId: 501,
+        action: 'COACHING',
+        targetBpm: 165,
+        expectedVersion: 3,
+        coachingId: 701,
+        result: 'PENDING',
+        appliedAt: null,
+        reasonCode: null,
+        coachingGuide,
+      },
+      serverReceiveAt: '2026-10-28T01:01:00Z',
+      serverSendAt: '2026-10-28T01:01:00.010Z',
+    },
+  ]);
+
+  const saved = await repository.reportBpmResult!('201', {
+    commandId: '501',
+    deviceId: '101',
+    result: 'IGNORED',
+    appliedAt: null,
+    reasonCode: 'GUIDE_STALE',
+  });
+
+  expect(calls).toEqual([
+    {
+      method: 'PUT',
+      path: '/running-sessions/201/bpm',
+      body: { phase: 'RESULT', commandId: 501, deviceId: 101, result: 'IGNORED', appliedAt: null, reasonCode: 'GUIDE_STALE' },
+    },
+  ]);
+  const guide = { ...coachingGuide, commandId: '501', coachingId: '701' };
+  expect(saved.result).toBe('IGNORED');
+  expect(saved.session).toMatchObject({
+    stateVersion: 4,
+    currentBpm: 160,
+    coaching: guide,
+    serverReceiveAt: '2026-10-28T01:01:00Z',
+    serverSendAt: '2026-10-28T01:01:00.010Z',
+  });
+  expect(saved.session.pendingCommand).toMatchObject({ targetBpm: 165, coachingId: '701', coachingGuide: guide });
+  // 이전 응답처럼 새 필드가 없으면 null로 둔다.
+  expect(saved.session.lastCommand).toMatchObject({ targetBpm: null, coachingId: null, coachingGuide: null });
+});

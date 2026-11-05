@@ -1,6 +1,11 @@
 package com.runway.watch.session
 
 import com.runway.watch.run.AnalysisStatus
+import com.runway.watch.run.BpmChange
+import com.runway.watch.run.BpmChangeStatus
+import com.runway.watch.run.Coaching
+import com.runway.watch.run.CoachingGuide
+import com.runway.watch.run.RhythmBpm
 import com.runway.watch.run.RunIntent
 import com.runway.watch.run.SaveStatus
 import com.runway.watch.run.RunState
@@ -112,5 +117,43 @@ class SessionRunControlTest {
     fun aRunningSessionHasNoResult() {
         val snapshot = SessionRunControl.toSnapshot(WatchSessionState(sessionId = "201", confirmed = RunState.RUNNING, stateVersion = 2))
         assertNull(snapshot.result)
+    }
+
+    @Test
+    fun theSnapshotCarriesBpmCoachingAndTheServerLink() {
+        val snapshot = SessionRunControl.toSnapshot(WatchSessionState(
+            sessionId = "201", confirmed = RunState.RUNNING, stateVersion = 3, currentBpm = 165,
+            bpmRequest = BpmRequest(166, BpmRequestStatus.REJECTED),
+            coaching = AppliedCoaching("601", "701", 165, 360, previousBpm = 170),
+            serverLinkLost = true,
+        ))
+        assertEquals(RhythmBpm(165), snapshot.metrics.rhythm)
+        assertEquals(360, snapshot.metrics.guidePaceSecondsPerKm)
+        assertEquals(BpmChange(RhythmBpm(166), BpmChangeStatus.REJECTED), snapshot.bpmChange)
+        assertEquals(CoachingGuide(360, RhythmBpm(165), "리듬 BPM 165로 조정", dummy = Coaching.DUMMY_GUIDE), snapshot.coaching)
+        assertTrue(snapshot.serverLinkLost)
+    }
+
+    @Test
+    fun bpmButtonsAskForOneStepWithinTheLimitsAndNotWhileWaiting() {
+        val running = WatchSessionState(sessionId = "201", confirmed = RunState.RUNNING, stateVersion = 2, currentBpm = 170)
+        assertEquals(171, SessionRunControl.nextBpm(running, RunIntent.BPM_UP))
+        assertEquals(169, SessionRunControl.nextBpm(running, RunIntent.BPM_DOWN))
+        assertNull(SessionRunControl.nextBpm(running.copy(currentBpm = 220), RunIntent.BPM_UP))
+        assertNull(SessionRunControl.nextBpm(running.copy(currentBpm = 60), RunIntent.BPM_DOWN))
+        assertNull(SessionRunControl.nextBpm(running.copy(pending = PendingCommand("COACHING", "601", PendingStage.AWAITING_SAVE)), RunIntent.BPM_UP))
+        assertNull(SessionRunControl.nextBpm(running.copy(currentBpm = null), RunIntent.BPM_UP))
+        assertEquals(166, SessionRunControl.nextBpm(running.copy(currentBpm = null, coaching = AppliedCoaching("601", "701", 165, 360, null)), RunIntent.BPM_UP))
+    }
+
+    @Test
+    fun aBpmButtonBecomesASetBpmRequest() = runBlocking {
+        controller.onMessage(message("SESSION_PREPARE", """{"stateVersion":1,"deviceId":101,"goal":{},"initialBpm":170}"""))
+        control.send(RunIntent.BPM_UP)
+
+        assertEquals(listOf("SESSION_PREPARED", "COMMAND_REQUEST:SET_BPM"), sender.types)
+        assertEquals(BpmChange(RhythmBpm(171), BpmChangeStatus.REQUESTING), control.snapshot.value.bpmChange)
+        assertEquals("BPM 변경 확인 중", control.snapshot.value.notice)
+        assertEquals(RhythmBpm(170), control.snapshot.value.metrics.rhythm)
     }
 }

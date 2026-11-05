@@ -38,7 +38,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 - **목표 조합:** 거리·시간·페이스는 각각 양수이며 **최대 2개**까지 지정한다. 목표 거리는 **45km(45000m) 이하**이며 넘으면 `422 INVALID_GOAL`이다(2026-10-30 확정). 세 값을 모두 지정하면 `422 INVALID_GOAL`이다. 모두 생략한 무목표 자유러닝은 허용한다. 페이스는 소수 둘째 자리까지 허용하며 그 이상의 정밀도는 `400 VALIDATION_ERROR`다.
 - **비교 기록:** 자유러닝(courseId=null)에는 비교 모드가 없다. 비교 기록은 코스가 있을 때만 지정할 수 있고, 본인·미삭제·COMPLETED이며 `course_id`가 선택 코스와 같아야 한다. 아니면 `422 INVALID_COMPARISON_SESSION`이다. 검증과 참조 저장은 대상 세션 행을 잠근 상태에서 한다.
 - **초기 계획(단순 규칙):** 추천 페이스(초/km)는 ① 목표 페이스, ② 없으면 목표 시간 ÷ (목표 거리 km), ③ 둘 다 없으면 목표 시간 ÷ (코스 거리 km) 순으로 정한다. 계산 근거가 없으면 계획 없이 생성하며 `plan=null`이다. 소수 셋째 자리에서 반올림한다. 반올림한 추천 페이스가 0 이하이거나 저장 범위(NUMERIC(10,2))를 넘는 비현실적인 목표 조합은 `422 INVALID_GOAL`이다. 끝 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누어 저장하고 마지막 구간은 남은 거리만큼 짧게 둔다. 끝 거리가 없거나 0(거리 0인 코스)이면 구간 없이 저장한다. 목표 거리 없이 45km를 넘는 코스를 고르면 구간이 45개를 넘으므로 전체를 구간 1개로 저장한다. 구간 추천 페이스는 AI가 제공하는 1km 구간별 상대 난이도 비율로 배분한다(구간 페이스 = 추천 페이스 × 구간 비율 ÷ 구간 길이로 가중한 평균 비율). 평균보다 힘든 구간은 느리게, 쉬운 구간은 빠르게 배분하며 전체 소요 시간은 추천 페이스 기준과 같다(구간별 반올림 오차 제외). 비율이 없거나(AI 연동 전) 구간 수와 맞지 않거나 양수가 아니거나 계산한 구간 페이스가 저장 범위를 벗어나면 요청을 거절하지 않고 모든 구간에 추천 페이스를 쓴다(2026-10-30 확정, AI 비율 연동은 후속). `pace_plans.cue_bpm`·`route_progress`는 null이다. 목표가 바뀌면 기존 계획·구간을 지우고 새로 저장한다. AI 기반 계획은 후속 업무에서 이 규칙을 대체한다.
-- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정).
+- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정). S10도 건강정보 동의로 구독을 거절하지 않으며, 미동의 세션에는 서버가 자동 코칭을 발행하지 않는다(2026-11-05 S15P31E105-257 확정).
 
 `plan` 객체 필드(객체가 null이면 내부 필드를 보내지 않음):
 
@@ -52,7 +52,16 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `segments[].endDistanceM` | number | O | 구간 종료거리(m) |
 | `segments[].recommendedPaceSecPerKm` | number | O | 구간 추천 페이스(초/km) |
 
-`coaching` 객체의 필드는 P07 업무에서 정한다. 그 전까지 S01·S02·S08 응답의 `coaching`은 항상 `null`이다. 만료된 미확인 코칭 명령은 이미 정의된 `pendingCommand.coachingGuide`로 확인한다.
+`coaching` 객체 필드(2026-11-05 S15P31E105-257 확정). [COACHING_GUIDE payload](../watch-mobile-server-integration.md#93-타입별-필수-payload)와 같은 필드를 사용한다. 현재 제어기기의 미확정 COACHING 명령이 있고, 그 추천의 기준 버전이 현재 `stateVersion`과 같으며 `expiresAt`이 지나지 않았을 때만 채운다. 그 외에는 `null`이다. 만료된 미확인 코칭 명령은 `pendingCommand.coachingGuide`로 확인한다. 세션 생성 직후(S01)와 목표 변경(S08) 응답은 미확정 COACHING 명령이 없으므로 항상 `null`이다.
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `commandId` | integer (int64) | O | 코칭 적용 명령 번호(session_control_events.id) |
+| `coachingId` | integer (int64) | O | 코칭 추천 ID(coaching_decisions.id) |
+| `expectedVersion` | integer (int64) | O | 명령 승인 기준 stateVersion(= based_on_state_version) |
+| `targetBpm` | integer | O | 적용할 박자(60~220, = cue_bpm) |
+| `recommendedPaceSecPerKm` | number | O | 권장 페이스(초/km) |
+| `expiresAt` | string (date-time, UTC) | O | 새로 적용할 수 있는 만료시각 |
 
 ## S01 러닝 세션 생성
 
@@ -1341,7 +1350,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 
 ### 인증 및 권한
 
-JWT·본인 세션·필요한 수집 동의를 확인한다. 인증정보는 URL·로그에 넣지 않는다.
+JWT·본인 세션을 확인한다. 건강정보 동의로 구독을 거절하지 않으며, 미동의 세션에는 자동 코칭만 발행하지 않는다(2026-11-05 S15P31E105-257 확정). 인증정보는 URL·로그에 넣지 않는다.
 
 ### Path Parameters
 
@@ -1363,7 +1372,7 @@ JWT·본인 세션·필요한 수집 동의를 확인한다. 인증정보는 URL
 | `data` | object | O | JSON 형식의 S02 전체 세션 상태. 아래 필드는 이벤트별 추가 정보 |
 | `data.commandId` | integer (int64) | 조건부 | SERVER_END의 현재 실행기기 END 명령 번호. 워치·폰 모두 서버가 발급한 양의 정수 |
 | `data.groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 폰은 SERVER_END를 받으면 종료·저장 |
-| `data.coaching` | object / null | O | 코칭이 있으면 현재 유효 추천. 적용 payload는 [MessageClient 명세](../watch-mobile-server-integration.md#93-타입별-필수-payload)를 따름 |
+| `data.coaching` | object / null | O | 코칭이 있으면 현재 유효 추천. 필드는 [S02 `coaching` 객체](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)이며 [COACHING_GUIDE payload](../watch-mobile-server-integration.md#93-타입별-필수-payload)와 같다 |
 
 SSE 형식 예시(상태 필드는 일부 발췌):
 
@@ -1378,7 +1387,7 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·필요한 수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN` | 본인 세션이 아님 |
 | `404 SESSION_NOT_FOUND` | 구독할 본인 세션이 없음 |
 | `503 SERVICE_UNAVAILABLE` | 저장·필수 처리 장애. 결과를 확인하고 같은 요청으로 제한 재시도 |
 
@@ -1390,7 +1399,7 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 
 **상태 전달**
 
-- JWT·본인 세션·수집 동의를 확인한 뒤 세션별 SSE 연결을 연다.
+- JWT·본인 세션을 확인한 뒤 세션별 SSE 연결을 연다. 각 전송 전에 세션 삭제·회원 탈퇴를 다시 확인하고, 연결 시 토큰의 만료시각에 스트림을 닫는다.
 - 연결 직후 S02 전체 상태를 보내며, 이후 상태·BPM·코칭·분석 상태가 바뀔 때도 전체 상태를 보낸다. 이 시점의 전체 상태를 **스냅샷**이라고 한다.
 - 클라이언트는 오래된 `stateVersion`을 버린다. 같은 버전의 코칭은 더 큰 `coachingId`만 처리한다. 새 코칭 생성 자체는 세션 버전을 바꾸지 않는다.
 

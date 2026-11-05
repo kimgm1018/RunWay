@@ -4,10 +4,12 @@ import android.content.Context
 import android.os.SystemClock
 import com.runway.watch.batch.BatchUploader
 import com.runway.watch.batch.FileBatchStore
+import com.runway.watch.cue.WatchRhythmPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -32,6 +34,8 @@ class RunSessions private constructor(context: Context) {
         sender = sender,
         uploads = uploader,
         keepAlive = ServiceKeepAlive(context),
+        // S15P31E105-257: the approved rhythm BPM plays as a click and vibration while running (D-4).
+        player = WatchRhythmPlayer(context),
     )
     val control = SessionRunControl(controller, scope, uploader.state)
 
@@ -43,6 +47,13 @@ class RunSessions private constructor(context: Context) {
 
     init {
         scope.launch { uploader.run() }
+        // Server-link timer and clock re-estimate; does nothing outside a run (S15P31E105-257, D-8).
+        scope.launch {
+            while (true) {
+                delay(TICK_MS)
+                try { controller.tick() } catch (_: Exception) { /* next tick tries again */ }
+            }
+        }
         scope.launch {
             for (message in inbox) {
                 try { controller.onMessage(message) } catch (_: Exception) { /* storage error: the phone resends */ }
@@ -66,6 +77,8 @@ class RunSessions private constructor(context: Context) {
     }
 
     companion object {
+        private const val TICK_MS = 5_000L
+
         @Volatile private var instance: RunSessions? = null
 
         fun get(context: Context): RunSessions =

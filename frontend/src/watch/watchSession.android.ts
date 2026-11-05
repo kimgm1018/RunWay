@@ -1,7 +1,9 @@
 import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import type {
+  CoachingGuide,
   Repositories,
   RunningSessionView,
+  SessionCommand,
   SessionGoalDraft,
   WatchSessionEvent,
 } from '../data/types';
@@ -85,6 +87,38 @@ function goalJson(goal: SessionGoalDraft) {
   );
 }
 
+const COACHING_GUIDE_PATH = '/runway/v1/coaching/guide';
+
+const isBpm = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 60 && value <= 220;
+
+const nullableText = (value: unknown) => (typeof value === 'string' ? value : null);
+
+// COACHING_GUIDE payload = S02 coaching 객체(9.3). ID는 숫자 토큰 그대로 넣는다.
+function guideJson(guide: CoachingGuide) {
+  return (
+    `{"commandId":${idToken(guide.commandId)},"coachingId":${idToken(guide.coachingId)},` +
+    `"expectedVersion":${JSON.stringify(guide.expectedVersion)},"targetBpm":${JSON.stringify(guide.targetBpm)},` +
+    `"recommendedPaceSecPerKm":${JSON.stringify(guide.recommendedPaceSecPerKm)},` +
+    `"expiresAt":${JSON.stringify(guide.expiresAt)}}`
+  );
+}
+
+// STATE_RESULT의 pendingCommand·lastCommand는 S02 명령 객체 모양이다(9.3).
+function commandJson(command: SessionCommand | null) {
+  if (command === null) {
+    return 'null';
+  }
+  return (
+    `{"commandId":${idToken(command.commandId)},"action":${JSON.stringify(command.action)},` +
+    `"targetBpm":${JSON.stringify(command.targetBpm ?? null)},` +
+    `"expectedVersion":${JSON.stringify(command.expectedVersion)},` +
+    `"coachingId":${idToken(command.coachingId ?? null)},"result":${JSON.stringify(command.result)},` +
+    `"appliedAt":${JSON.stringify(command.appliedAt)},"reasonCode":${JSON.stringify(command.reasonCode)},` +
+    `"coachingGuide":${command.coachingGuide ? guideJson(command.coachingGuide) : 'null'}}`
+  );
+}
+
 function toEvent(raw: NativeEvent): WatchSessionEvent | null {
   const payload = raw.payload;
   switch (raw.type) {
@@ -109,11 +143,50 @@ function toEvent(raw: NativeEvent): WatchSessionEvent | null {
       if (payload.phase !== 'REQUEST') {
         return null;
       }
+      if (payload.action === 'SET_BPM') {
+        // 범위를 벗어난 박자는 서버에 보내지 않는다(P07 60~220).
+        if (!isBpm(payload.targetBpm)) {
+          return null;
+        }
+        return {
+          type: 'COMMAND_REQUEST',
+          sessionId: raw.sessionId,
+          action: 'SET_BPM',
+          expectedVersion: payload.expectedVersion as number,
+          targetBpm: payload.targetBpm,
+        };
+      }
       return {
         type: 'COMMAND_REQUEST',
         sessionId: raw.sessionId,
         action: payload.action as 'PAUSE' | 'RESUME' | 'END' | 'CANCEL',
         expectedVersion: payload.expectedVersion as number,
+      };
+    case 'COACHING_RESULT':
+      if (!['APPLIED', 'IGNORED', 'UNKNOWN'].includes(payload.result as string)) {
+        return null;
+      }
+      return {
+        type: 'COACHING_RESULT',
+        sessionId: raw.sessionId,
+        commandId: String(payload.commandId),
+        coachingId:
+          payload.coachingId === null || payload.coachingId === undefined
+            ? null
+            : String(payload.coachingId),
+        result: payload.result as 'APPLIED' | 'IGNORED' | 'UNKNOWN',
+        appliedAt: nullableText(payload.appliedAt),
+        reasonCode: nullableText(payload.reasonCode),
+      };
+    case 'STATE_QUERY':
+      if (payload.scope !== 'WATCH' && payload.scope !== 'SERVER') {
+        return null;
+      }
+      return {
+        type: 'STATE_QUERY',
+        sessionId: raw.sessionId,
+        scope: payload.scope,
+        clientSendAt: nullableText(payload.clientSendAt),
       };
     default:
       return null;
@@ -161,7 +234,7 @@ export function createNativeWatchSession(
     if (event) {
       listeners.forEach(listener => listener(event));
     }
-    if (event?.type === 'COMMAND_RESULT') {
+    if (event?.type === 'COMMAND_RESULT' || event?.type === 'COACHING_RESULT') {
       unsavedResults.set(event.commandId, [
         ...(unsavedResults.get(event.commandId) ?? []),
         raw.messageId,
@@ -233,6 +306,19 @@ export function createNativeWatchSession(
               `"targetBpm":null,"commandId":${idToken(approval.commandId)},"coachingId":null}`,
           ),
 
+    sendBpmCommand: (sessionId, approval) =>
+      send(
+        'command',
+        'COMMAND_REQUEST',
+        sessionId,
+        `{"phase":"APPLY","action":"SET_BPM","expectedVersion":${approval.expectedVersion},` +
+          `"targetBpm":${JSON.stringify(approval.targetBpm)},"commandId":${idToken(approval.commandId)},` +
+          '"coachingId":null}',
+      ),
+
+    sendCoachingGuide: (sessionId, guide) =>
+      send(COACHING_GUIDE_PATH, 'COACHING_GUIDE', sessionId, guideJson(guide)),
+
     sendReceived: async (sessionId, { commandId, persisted, stateVersion }) => {
       if (persisted) {
         const saved = unsavedResults.get(commandId) ?? [];
@@ -260,24 +346,20 @@ export function createNativeWatchSession(
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
 
-    sendServerState: (sessionId, session: RunningSessionView) =>
+    // S02/S10 스냅샷을 그대로 옮긴다. 서버 시각이 없는 상태(취소 응답 등)는 null로 보낸다.
+    sendServerState: (sessionId, session: RunningSessionView, clientSendAt = null) =>
       send(
         'state-result',
         'STATE_RESULT',
         sessionId,
-        JSON.stringify({
-          scope: 'SERVER',
-          recordingMode: session.recordingMode,
-          state: session.state,
-          stateVersion: session.stateVersion,
-          currentBpm: null,
-          pendingCommand: null,
-          lastCommand: null,
-          pendingBatchCount: 0,
-          clientSendAt: null,
-          serverReceiveAt: null,
-          serverSendAt: null,
-        }),
+        `{"scope":"SERVER","recordingMode":${JSON.stringify(session.recordingMode)},` +
+          `"state":${JSON.stringify(session.state)},"stateVersion":${JSON.stringify(session.stateVersion)},` +
+          `"currentBpm":${JSON.stringify(session.currentBpm ?? null)},` +
+          `"pendingCommand":${commandJson(session.pendingCommand)},` +
+          `"lastCommand":${commandJson(session.lastCommand)},"pendingBatchCount":0,` +
+          `"clientSendAt":${JSON.stringify(clientSendAt)},` +
+          `"serverReceiveAt":${JSON.stringify(session.serverReceiveAt ?? null)},` +
+          `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)}}`,
       ),
 
     subscribe: listener => {

@@ -23,6 +23,7 @@ import { createRegions } from './regions';
 import { serverRequest } from './request';
 import { uploadSyncBatch } from './syncBatches';
 import { createApiSessionRepository } from './sessionApi';
+import { createSessionEvents } from './sessionEvents';
 import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 
@@ -73,7 +74,12 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     watch: createWatchApi(mock.watch),
     // S15P31E105-256 러닝 세션 제어(S01~S08)와 워치 중계. 세션에 쓸 워치·폰 기기 ID는 W02로 읽고 폰이 없으면 W01로 연결한다.
     // W07 워치 batch 업로드(S15P31E105-311)는 본문 원문을 그대로 보낸다.
-    session: { ...createApiSessionRepository(serverRequest), uploadBatch: uploadSyncBatch },
+    // S10 구독(S15P31E105-257)은 러닝 중 서버 코칭·상태를 워치로 중계하는 데 쓴다.
+    session: {
+      ...createApiSessionRepository(serverRequest),
+      uploadBatch: uploadSyncBatch,
+      subscribeEvents: (sessionId, handlers) => createSessionEvents({ sessionId, ...handlers }).stop,
+    },
     watchSession: {
       ...createNativeWatchSession(),
       getLinkedDevices: createLinkedDevices(serverRequest),

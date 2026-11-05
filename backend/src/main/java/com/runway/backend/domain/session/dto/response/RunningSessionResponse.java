@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
-/** S01·S02·S08의 전체 세션 상태. 값이 없어도 키는 항상 포함한다. coaching은 P07 업무에서 필드를 정하기 전까지 null이다. */
+/** S01·S02·S08의 전체 세션 상태. 값이 없어도 키는 항상 포함한다. coaching은 현재 유효한 최신 코칭이며 필드는 COACHING_GUIDE payload와 같다(sessions.md coaching 객체). */
 public record RunningSessionResponse(
         long sessionId,
         Long controlDeviceId,
@@ -17,7 +17,7 @@ public record RunningSessionResponse(
         Goal goal,
         Plan plan,
         Analysis analysis,
-        Object coaching,
+        CoachingGuide coaching,
         Command pendingCommand,
         Command lastCommand,
         Instant serverReceiveAt,

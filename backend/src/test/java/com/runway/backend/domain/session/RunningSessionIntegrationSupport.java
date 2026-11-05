@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
@@ -255,6 +256,72 @@ abstract class RunningSessionIntegrationSupport {
         return "{\"phase\":\"RESULT\",\"commandId\":" + commandId + ",\"deviceId\":" + deviceId
                 + ",\"result\":\"" + result + "\",\"appliedAt\":"
                 + (appliedAt == null ? "null" : "\"" + appliedAt + "\"") + ",\"reasonCode\":null}";
+    }
+
+    /** P07. */
+    protected MockHttpServletRequestBuilder putBpm(long user, Object sessionId, String body) {
+        return put("/api/v1/running-sessions/" + sessionId + "/bpm")
+                .header("Authorization", SecurityTestSupport.bearer(user))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    protected String bpmRequestBody(long deviceId, long expectedVersion, Object targetBpm) {
+        return "{\"phase\":\"REQUEST\",\"operation\":\"SET_BPM\",\"deviceId\":" + deviceId
+                + ",\"expectedVersion\":" + expectedVersion + ",\"targetBpm\":" + targetBpm
+                + ",\"coachingId\":null}";
+    }
+
+    /** 실제 시작시각을 과거로 옮긴다(코칭 2분 기준 확인용). */
+    protected void startedSecondsAgo(long sessionId, long seconds) {
+        jdbc.update(
+                "UPDATE running_sessions SET started_at = now() - make_interval(secs => ?) WHERE id=?",
+                (double) seconds,
+                sessionId);
+    }
+
+    /** 합성 코칭 추천과 COACHING 명령. 만료는 생성 후 20초. */
+    protected long[] insertCoaching(
+            long sessionId, long deviceId, long version, int bpm, String result, boolean expired) {
+        long coachingId =
+                jdbc.queryForObject(
+                        """
+                        INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm,
+                                                       based_on_state_version,expires_at,created_at)
+                        VALUES (?,60,360.00,?,?,
+                                CASE WHEN ? THEN now() - interval '10 seconds' ELSE now() + interval '19 seconds' END,
+                                CASE WHEN ? THEN now() - interval '30 seconds' ELSE now() END)
+                        RETURNING id
+                        """,
+                        Long.class,
+                        sessionId,
+                        bpm,
+                        version,
+                        expired,
+                        expired);
+        long commandId =
+                jdbc.queryForObject(
+                        """
+                        INSERT INTO session_control_events(session_id,device_id,action,target_bpm,expected_version,
+                                                           coaching_id,result,applied_at)
+                        VALUES (?,?,'COACHING',?,?,?,?::session_control_events_result_enum,
+                                CASE WHEN ?::text = 'APPLIED' THEN now() END)
+                        RETURNING id
+                        """,
+                        Long.class,
+                        sessionId,
+                        deviceId,
+                        bpm,
+                        version,
+                        coachingId,
+                        result,
+                        result);
+        return new long[] {coachingId, commandId};
+    }
+
+    protected Integer currentBpm(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT current_bpm FROM running_sessions WHERE id=?", Integer.class, sessionId);
     }
 
     protected int commandCount(long sessionId) {

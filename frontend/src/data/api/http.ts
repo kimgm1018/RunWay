@@ -90,6 +90,12 @@ function refresh(session: number): Promise<void> {
   return entry.promise;
 }
 
+// S10 SSE receives its 401 outside apiRequest. Recovers it the same way: one shared U02 refresh, and on failure
+// the same expiry (keystore cleared, listeners told) as a rejected request (S15P31E105-257, -315).
+export function recoverUnauthorized(): Promise<void> {
+  return refresh(tokenStore.session());
+}
+
 function queryString(query: RequestOptions['query']) {
   const pairs = Object.entries(query ?? {}).filter(
     (pair): pair is [string, string | number | boolean] =>

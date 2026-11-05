@@ -234,6 +234,18 @@ payload는 메시지에 담는 실제 내용이다. 아래 표는 각 메시지�
 | COACHING_RESULT | **워치가 코칭을 실제로 적용했는지 폰에 보고한다.**<br>`commandId`: 결과를 보고할 코칭 적용 명령 번호.<br>`coachingId`: 해당 명령에 연결된 AI 코칭 기록 ID.<br>`result`: APPLIED는 적용 완료, IGNORED는 버전 불일치·만료 등으로 적용하지 않음, UNKNOWN은 실제 적용 여부를 확인할 수 없다는 뜻이다.<br>`appliedAt`(UTC/null): APPLIED일 때 실제 적용시각, 그 외에는 null.<br>`reasonCode`(string/null): 미적용·미확인 등의 사유 코드. 전달할 사유가 없으면 null이다. |
 | ERROR | **폰 또는 워치가 상대 메시지를 처리하지 못한 이유를 알린다.**<br>`code`(string): 오류 종류를 구분하는 코드.<br>`retryable`(boolean): 같은 메시지를 제한 재시도할 수 있으면 true, 원인 수정 없이 다시 보내면 안 되면 false. true여도 9.5절의 횟수·대기 제한을 지킨다.<br>`failedType`(string): 처리에 실패한 원래 메시지의 type.<br>공통 envelope의 `replyTo`에는 실패한 원래 메시지의 messageId를 넣어 어느 요청에 대한 오류인지 연결한다.<br>W07이 같은 본문으로 다시 보내도 결과가 바뀌지 않는 이유(400/403/409/413/422)로 batch를 거절하면 폰은 `failedType=BATCH_DATA`·`retryable=false`·W07 오류 코드로 알리고, 워치는 해당 batch의 재전송을 멈추고 저장 미확인으로 표시한다(S15P31E105-311). |
 
+#### BPM·코칭 결과의 워치 사유 코드
+
+`reasonCode`는 자유 문자열이며 아래 값은 워치가 BPM 변경(COMMAND_RESULT)·코칭(COACHING_RESULT) 결과에 넣는 사유다. 서버는 값을 해석하지 않고 저장·조회만 한다(2026-11-05 S15P31E105-257).
+
+| reasonCode | 결과 | 의미 |
+| --- | --- | --- |
+| `GUIDE_STALE` | IGNORED | 최초 처리 시 만료·버전 불일치·운동 중 아님·이미 적용한 coachingId·서버 시각 추정 없음으로 코칭을 적용하지 않음 |
+| `INVALID_GUIDE` | IGNORED | COACHING_GUIDE payload가 형식·범위에 맞지 않아 적용하지 않음 |
+| `INVALID_TARGET_BPM` | REJECTED | SET_BPM의 targetBpm이 60~220 범위 밖이라 적용하지 않음 |
+| `CUE_PLAYBACK_FAILED` | UNKNOWN | 박자 재생 중 오류가 나 실제 적용 여부를 확인할 수 없음 |
+| `APPLY_INTERRUPTED` | UNKNOWN | 적용 도중 워치 앱이 종료돼 실제 적용 여부를 확인할 수 없음 |
+
 ### 9.4 상태·명령·버전 처리
 
 운동 상태는 기존 READY/RUNNING/PAUSED/COMPLETED/CANCELLED/INTERRUPTED다. 워치는 저장된 서버 명령만 적용하고 같은 commandId의 결과를 보관한다. 재수신 시 동일 결과를 반환하고 센서·박자를 재실행하지 않는다. 낮은 expectedVersion·준비 미확인은 거절한다. SERVER_END도 서버가 만든 명령 ID를 사용한다. 실제 적용 시각은 서버 기준으로 보정하되 수신 시각으로 바꾸지 않는다.

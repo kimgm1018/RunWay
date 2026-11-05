@@ -14,6 +14,7 @@ import com.runway.backend.global.exception.ErrorCode;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +41,7 @@ public class SyncBatchService {
     private static final String COMMITTED = "COMMITTED";
 
     private final SyncBatchJdbcRepository repository;
+    private final ApplicationEventPublisher events;
 
     /** hash는 {@link BatchPayloadHasher#verify}로 확인한 본문 해시다. 트랜잭션 전에 검증해 잘못된 요청이 DB 잠금을 잡지 않게 한다. */
     @Transactional
@@ -94,6 +96,7 @@ public class SyncBatchService {
                 request.sessionId(), request.deviceId(), itemsOf(request, MetricSample.class));
         repository.insertRoutePoints(
                 request.sessionId(), request.deviceId(), itemsOf(request, GpsPoint.class));
+        events.publishEvent(new RunningBatchCommittedEvent(request.sessionId()));
         return ack(request);
     }
 
