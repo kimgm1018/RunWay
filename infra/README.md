@@ -82,7 +82,9 @@
 5. AI를 실행할 때는 준비한 변수를 환경변수 또는 `--env-file <설정 파일>`로 전달하고
    `docker compose -f ~/runway/infra/ai/compose.yaml up -d --wait`를 실행한다.
    GRU·ODE 모델 로드까지 완료되어야 정상으로 판단한다. CPU 1개·메모리 1GiB 제한에서 실제 사용량을 확인한다.
-   외부 포트 없이 `runway-ai_default`와 DB 내부 네트워크에 연결하며, 백엔드 호출 연결은 후속 적용한다.
+   외부 포트 없이 `runway-ai_default`와 DB 내부 네트워크에 연결한다. 백엔드는 `runway-ai_default`에 함께 연결해
+   `BACKEND_AI_BASE_URL=http://ai:8000`으로 실시간 코칭 AI04와 AI06 심박 개인화를 호출한다(S15P31E105-421·410). 백엔드 Compose가 이 외부 네트워크를
+   참조하므로 AI Compose를 먼저 한 번 실행해 네트워크를 만든다.
 6. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
 
 ## Jenkins 설정

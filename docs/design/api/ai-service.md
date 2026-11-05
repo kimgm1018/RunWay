@@ -250,7 +250,10 @@ BPM 적용 규칙(팀 합의 N7-2, S15P31E105-462):
 
 - 적용 시점: 백엔드는 코칭을 발행할 때(`publishSuggested=true`)만 `cueBpm`을 워치에 적용한다. AI04는 5초마다 판단하지만, 발행되지 않은 판단의 `cueBpm`은 워치 BPM을 바꾸지 않는다.
 - 작은 변화: AI는 같은 지난 기록·같은 추천 페이스면 같은 `cueBpm`을 주므로 따로 거르지 않는다. 안내 페이스가 바뀔 때만 BPM이 바뀐다. 기록이 없는 사용자는 첫 1분 보정이 정해질 때(3 BPM 이상 차이) 한 번 더 바뀔 수 있다.
-- 합의 필요: 사용자가 직접 BPM을 바꾼 뒤 `cueBpm`으로 덮어쓸지, `cueBpm=null`일 때 처리(직전 BPM 유지 등).
+- 예외(S15P31E105-421): 2분 재평가에서 현재 BPM이 아직 없으면(출발 직후) `publishSuggested=false`여도 AI 판단의 페이스·`cueBpm`을 보내 첫 BPM을 정한다. `publishSuggested=false`이고 현재 BPM이 있으면 현재 안내 페이스·BPM을 유지한다.
+- 사용자 BPM(S15P31E105-421, 2026-11-05 확정): 러닝 시작 뒤 사용자가 직접 바꾼 BPM이 적용되면 그 러닝이 끝날 때까지 `cueBpm`으로 덮어쓰지 않는다(출발 전 선택은 제외).
+- `cueBpm=null`(S15P31E105-421, 2026-11-05 확정): 현재 BPM을 유지하고, 현재 BPM도 없으면 그 코칭을 보내지 않는다.
+- 상세는 [백엔드 호출 구현](#백엔드-호출-구현-s15p31e105-421).
 
 계산 일치·DB 조회·실제 러닝 재생·끝값 검증은 S15P31E105-456(`ai/service/tests/test_cuebpm_integration.py`, `ai/service/tools/replay_cue_bpm.py`)에 있다.
 
@@ -266,6 +269,27 @@ BPM 적용 규칙(팀 합의 N7-2, S15P31E105-462):
 | `500 PREDICTION_FAILED` / `DECISION_FAILED` | 모델 추론·정책 실패 |
 
 AI 서버는 AI04 판단 결과를 DB에 직접 쓰지 않는다. 발행·저장과 stateVersion 재검사는 백엔드가 맡는다.
+
+### 백엔드 호출 구현 (S15P31E105-421)
+
+백엔드(`SessionCoachingService`·`CoachingInputAssembler`·`AiPaceDecideHttpClient`)는 아래처럼 AI04를 호출한다. 팀 합의 표의 해당 항목(N2·N7-2·N7-5·O5·O14)에 대한 백엔드 기준이다.
+
+| 항목 | 백엔드 기준 |
+| --- | --- |
+| 호출 시점 | 새 W07 batch 저장 커밋 뒤(중복 ACK 제외), 폰의 S10 구독이 있는 세션만. 세션당 직전 호출 시작 후 15초가 지나야 다시 부른다. 판단 실행은 2개 스레드이며 같은 세션은 동시에 하나만 판단한다 |
+| 호출 전 입력 확인 | `running_metric_samples` 최근 30분을 5초 칸으로 묶어 칸마다 지표별 마지막 값을 쓴다. 입력 기준시각(`inputAsOf`)은 심박·속도의 최신 측정시각과 t0 표본(경과초가 가장 큰 표본)의 측정시각 중 가장 오래된 시각이며, 서버 시각보다 늦으면 서버 시각으로 본다. t0 칸의 실측 심박이 없거나 `inputAsOf`가 12초 이상 지났으면 호출하지 않는다. 20초 유효시간에서 발행 하한(남은 5초)과 호출 상한(3초)을 뺀 값이다 |
+| `elapsedSec`·`activeSec` | t0 표본의 `elapsed_duration`. 워치 Health Services의 active duration이라 일시정지를 제외한 값이다 |
+| `mode` | 코스 있음 `COURSE`, 목표 있음 `FREE_WITH_GOAL`, 없음 `FREE_NO_GOAL`(N7-3 잠정) |
+| `anchorPaceSecPerKm`(=`currentGuidePaceSecPerKm`) | 마지막 APPLIED 코칭의 추천 페이스 → 현재 거리의 계획 구간 페이스 → 계획 추천 페이스 → 목표 페이스 → 최근 60초 실측 평균 페이스 순. 120~1800초/km를 벗어나면 호출하지 않는다 |
+| `plan` | 최신 `pace_plans`의 구간. `ratio = 구간 페이스 ÷ 계획 추천 페이스`(O7) |
+| 코스 진행거리·미래 경사 | 워치가 `routeProgressM`을 보내지 않으므로 저장값이 없으면 누적 거리를 코스 거리 안으로 잘라 쓴다. 후보마다 t0+5k초 위치의 `courses.elevation_profile` 100m 경사를 넣고, 한 칸이라도 범위 밖이면 null. 자유러닝은 null |
+| `userId` | 건강정보 동의 사용자만(동의하지 않으면 자동 코칭 자체를 하지 않는다). `context.bpm`·`hrReference`는 보내지 않는다 |
+| 시간 상한·실패 | 연결 1초, 전체 3초. timeout·연결 실패·4xx·5xx·응답 형식 위반은 저장 없이 끝내고 재시도하지 않는다. 로그에는 HTTP 상태·`code`·실패 종류만 남긴다 |
+| 확정 | 세션 잠금 아래에서 `stateVersion`이 호출 때와 같고 `decision.basedOnStateVersion`과도 같은지, 발행 전제(RUNNING·워치 기록·동의·그룹 미종료·미확정 명령 없음)를 다시 확인한다 |
+| 발행 규칙 | `decision=null`·`NOT_RUNNING`은 저장하지 않는다. 2분 재평가 시점에 `publishSuggested=true`면 AI 판단을 보내고, `false`면 AI가 고른 페이스 대신 **현재 안내 페이스·현재 BPM을 그대로** 유지 안내로 보낸다(작은 차이가 쌓여 안내가 한쪽으로 밀리지 않게, 2026-11-05 사용자 확정). 현재 BPM이 아직 없으면(출발 직후) AI 판단을 그대로 보내 BPM을 처음 정한다. 이어지는 `EASE_OFF`가 현재 안내보다 10초/km 미만으로만 느리면 2분 재평가에서도 현재 안내를 유지한다. 유지 안내에는 AI 예측 심박을 저장하지 않는다. 2분 전에는 `publishSuggested=true`이고 페이스 또는 BPM이 현재 안내와 다를 때만 보내며, 마지막 적용(시작·재개·코칭) 후 30초가 지나야 한다. 첫 `EASE_OFF`는 30초 제한의 예외이며, 직전에 보낸 코칭도 `EASE_OFF`였으면 30초를 지키고 현재 안내보다 10초/km 이상 느릴 때만 보낸다(직전 종류는 서버 메모리에 기억, 재시작 시 초기화. 2026-11-05 사용자 확정) |
+| BPM | 러닝 시작 뒤 사용자가 직접 바꾼 BPM(`SET_BPM`, 적용시각 ≥ 시작시각)이 적용된 적이 있으면 AI `cueBpm` 대신 현재 BPM을 러닝이 끝날 때까지 유지한다(페이스 안내는 계속, 2026-11-05 사용자 확정). `cueBpm=null`이면 현재 BPM으로 보내고, 현재 BPM도 없으면 보내지 않는다(N7-2 백엔드 기준). 작은 BPM 변화는 백엔드가 따로 거르지 않는다(AI는 같은 지난 기록·같은 추천 페이스면 같은 `cueBpm`을 준다, S15P31E105-462 합의) |
+| 저장 | `coaching_decisions`에 `elapsed_duration=elapsedSec`, 추천 페이스, 보낸 BPM, 예측 심박 30/60/120, `route_progress=decision.routeProgressM`, `based_on_state_version`, `expires_at = min(생성 + 20초, inputAsOf + 20초, decision.expiresAt)`. 남은 유효시간이 5초 미만이면 보내지 않는다. `EASE_OFF`도 같은 방식으로 저장한다(O5 백엔드 기준). model/policy 버전은 저장하지 않는다(O6 미적용) |
+| 설정 | `BACKEND_AI_BASE_URL`(`runway.coaching.ai.base-url`). AI06(`runway.ai.hr.base-url`)과 같은 HR 추론 서버 주소 변수를 함께 쓴다. 코스 추천 Route는 `BACKEND_ROUTE_BASE_URL`로 별도다. 비면 기동은 하고 자동 코칭을 하지 않는다. 더미 추천으로 대체하지 않는다 |
 
 ## AI05 — 출발 전 페이스 계획
 
@@ -731,7 +755,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 ## 백엔드 호출 순서
 
 1. **S01 / S08**: 잠금 안에서 AI05를 동기 호출하지 않는다. 백엔드는 추천 페이스를 목표 페이스 → 목표 시간 ÷ 목표 거리 → 목표 시간 ÷ 코스 거리 순으로 직접 계산한다. 구간 비율은 `SegmentDifficultyProvider` 구현 Bean이 코스별로 미리 계산·저장된 `segmentDifficultyRatios`를 읽는다. AI05는 계획 표시와 사전 난이도 계산에 쓸 수 있지만 잠금 경로의 원격 의존성으로 두지 않는다.
-2. **W07 → AI04**: 백엔드가 batch를 저장한 뒤 최신 history/context와 5개 후보를 만들어 AI04를 호출한다. 백엔드가 stateVersion을 다시 확인하고 필요한 결정만 저장·발행한다. timeout 후 오래된 본문을 재전송하지 않는다.
+2. **W07 → AI04**: 백엔드가 batch를 저장한 뒤 최신 history/context와 5개 후보를 만들어 AI04를 호출한다. 백엔드가 stateVersion을 다시 확인하고 필요한 결정만 저장·발행한다. timeout 후 오래된 본문을 재전송하지 않는다. AI04 호출은 DB 트랜잭션·세션 잠금 밖에서 한다. 상세는 [백엔드 호출 구현](#백엔드-호출-구현-s15p31e105-421).
 3. **러닝 종료 → AI06**: 백엔드가 동의된 support 세션을 모아 개인화 요청을 보낸다. 버전 JSON 저장·재시도·실패 상태는 별도 백엔드 계약으로 결정한다.
 4. **시연 전용**: Demo player → AI08, 브라우저 console → AI07. 실제 앱/백엔드 동작과 분리한다.
 
@@ -740,16 +764,16 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | ID | 합의 주제 | 패키지 기본값 | 상태 |
 | --- | --- | --- | --- |
 | N1 | AI04 요청·응답 계약 | 시연 설계 필드와 policy v0.4.0 학습 심박 기준 반영 | v6_8_2 반영 |
-| N2 | batch 저장·후보/context·AI04·DB 저장 순서 | W07 저장 후 백엔드가 AI04 호출, 버전 재검사·DB 저장 | 제안 |
+| N2 | batch 저장·후보/context·AI04·DB 저장 순서 | W07 저장 후 백엔드가 AI04 호출, 버전 재검사·DB 저장 | 백엔드 구현 반영(S15P31E105-421), 팀 확인 전 |
 | N3 | AI07 SSE·trace·buffer 정책 | 세션 허용목록, 메모리 ring buffer, 만료/재접속은 demo 설정 | 제안 |
 | N4 | 컨테이너·콘솔·Nginx 경로 | 기존 infra 내부 `runway_service`, host port 없음, demo 경로 예시만 제공 | 제안 |
 | N5 | W07 demo 앱 upload 주소·token 설정 | 시연 입구만 두고 앱 전환은 범위 밖 | 합의 필요 |
 | N6 | 재생 데이터 출처·세션 ID·보존 | prototype Val 사본만 로컬 재생, 원본 기록 저장 없음 | 제안 |
 | N7-1 | 학습 HR 기준 | 최근 20회 GOOD HR의 P98·P85를 모집단 중앙값과 정책 비중으로 섞는다. 위험 기준 = 섞은 P98 + 3(일반화 178), 지속 기준 = 섞은 P85 | v6_8_2 반영 |
-| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 필수 `targetBpm`을 넣는 COACHING 명령 처리(현재 BPM 유지 등)는 백엔드 합의가 필요하다. 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의). 백엔드는 코칭 발행(`publishSuggested=true`) 때만 `cueBpm`을 적용하고, 작은 BPM 변화는 따로 거르지 않는다(S15P31E105-462, 합의) | 기록 조회·적용 시점 합의, 수동 변경 덮어쓰기·null 처리 합의 필요 |
+| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 COACHING 명령은 현재 BPM을 유지한다(S15P31E105-421). 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의). 백엔드는 코칭 발행(`publishSuggested=true`) 때만 `cueBpm`을 적용하고, 작은 BPM 변화는 따로 거르지 않는다(S15P31E105-462, 합의) | 기록 조회·적용 시점 합의(462). 수동 BPM 유지·`cueBpm=null` 처리는 백엔드 구현(S15P31E105-421, 2026-11-05 사용자 확정), 팀 확인 전 |
 | N7-3 | 러닝 mode enum | AI05 `COURSE/FREE_WITH_GOAL/FREE_NO_GOAL`; AI04 입력 문자열 유지 | 잠정 |
 | N7-4 / O1 | 자유러닝 경사 null vs 0 | MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`; 경사 정보가 없으면 0% 평지 계산 후 HTTP 200과 경로별 경고 반환. 코스 경사 저장은 S15P31E105-319, unknown 정책·GPS 고도 활용은 MVP 이후 | flat0 MVP 기본값 합의(MR !142 리뷰) |
-| N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 제안 |
+| N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 백엔드 구현 반영(S15P31E105-421), 팀 확인 전 |
 | N7-6 / O2 | HRmax source | 나이 공식·HRR 경로를 기준 계산에서 제거. 마지막 400m는 안전 한계만 위험 기준 + 5 bpm(허용선은 위험 기준) | v6_8_2 반영 |
 | N7-7 | 목표 시간 기준 | MPC policy v0.4.0의 일시정지 제외 activeSec | 제안 |
 | N8 | 워치 demo 실시간 전송 | 기본 OFF, 5초 batch, 실기기 테스트는 별도 | 합의 필요 |
@@ -757,7 +781,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | O2 | HRmax ERD 출처 | N7-6 처리 | 제안 |
 | O3 | GOOD 판정·최근 20회 P98/P85 | AI06의 GOOD 표본 품질 필드와 `sessionStartedAt` 순서를 사용 | v6_8_2 반영 |
 | O4 | 5초 판단·trace·저장·발행 주기 | 계산과 저장/발행 분리, 발행 판단만 백엔드 저장 | 합의 필요 |
-| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 실제 pace +30 sec/km. 어떤 decision을 저장할지는 백엔드 합의 필요 | 제안 |
+| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 실제 pace +30 sec/km. 어떤 decision을 저장할지는 백엔드 합의 필요 | 백엔드 기준: null·NOT_RUNNING 미저장, 발행하는 GUIDE_PACE·EASE_OFF만 저장(S15P31E105-421), 팀 확인 전 |
 | O6 | model/policy 버전 저장 | nullable 컬럼 2개 추가 제안; migration은 합의 전 | 제안 |
 | O7 | plan ratio와 절대 페이스 변환 | 기준 목표 pace×ratio, DB에는 sec/km 절대값 | 제안 |
 | O8 | AI05 모델·goal 조합·HR 지평 | Planner v1, 코스/목표 있는 자유러닝 계획, HR 미리보기 기본 OFF, 켜면 90분(5400초) 설정. 개인 계획은 **시간 상한 없음**: 예상 완주가 90분(평가로 확인된 범위)을 넘으면 경고 `ODE_BEYOND_VALIDATED_HORIZON`, `validatedHorizonSec`=5400은 정보용. 계산 안전장치는 코스 45 km(422 `INVALID_GOAL`)와 탐색 예산(`PERSONAL_PLAN_SEARCH_BUDGET_CELLS`, 넘으면 탐색을 줄이고 경고 `PLAN_SEARCH_BUDGET_LIMITED`). MVP 이식 후 점검·보완 | 제안 |
@@ -769,6 +793,6 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | O11 | health probe와 공통 오류 | 팀 HEALTHCHECK가 `status=UP`·`modelLoaded=true`를 요구해 DEGRADED를 제거; ODE는 `models.ode.status=UP/DOWN`으로 확인; probe 전용 body 유지 | 합의 필요 |
 | O12 | 배포 모델 버전 | GRU M3-005 + ODE v2.1 1차 epoch20; 2차 variant는 env swap | 사용자가 정한 기본값 |
 | O13 | AI07/AI08 오류·상태 code | bearer 인증, `{code,message,details}`, 비활성화 503·401/404/429 | 제안 |
-| O14 | AI04 timeout/500/503 retry와 중복 | 다음 W07 batch의 최신 입력에서 재판단, 같은 입력 자동 retry 없음 | 제안 |
+| O14 | AI04 timeout/500/503 retry와 중복 | 다음 W07 batch의 최신 입력에서 재판단, 같은 입력 자동 retry 없음 | 백엔드 구현 반영(S15P31E105-421), 팀 확인 전 |
 | O15 | 인스턴스 자원·동시 처리량 | 단일 worker 예시; memory/CPU/GPU 부하 검증 후 제한 합의 | 합의 필요 |
 | AI09 | 개인 페이스 계획 요청·응답 및 신규 사용자 표시 | 건강정보 동의 사용자만 `userId`를 보내며, 생략 시 개인 조회 없이 평균 경로(`AVERAGE_BASED`, `personalized=false`) 사용; AI 서비스는 DB에 저장하지 않음 | userId 선택 입력·동의 규칙 합의(MR !142 리뷰) |
