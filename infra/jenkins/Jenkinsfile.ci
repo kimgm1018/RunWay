@@ -26,16 +26,57 @@ def mobileNeedsApk(List files, boolean forceBuild) {
 
 // 이 작업의 폴더를 비우고 검사할 코드를 받는다. 도구·패키지 캐시는 밖에 유지한다.
 def checkoutCode(String revision) {
+    checkoutCodeWith(revision, [])
+}
+
+def checkoutCodeWith(String revision, List extensions) {
     deleteDir()
     checkout([
         $class: 'GitSCM',
         branches: [[name: revision]],
+        extensions: extensions,
         userRemoteConfigs: [[
             url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
             credentialsId: 'runway-gitlab-repo',
             refspec: '+refs/heads/*:refs/remotes/origin/* +refs/merge-requests/*/head:refs/remotes/origin/mr/*'
         ]]
     ])
+}
+
+// 워치 에이전트 영속 볼륨의 참조 저장소. 작업 폴더는 매번 비우고 Git 객체만 재사용한다.
+def watchGitReference() {
+    return '/home/jenkins/agent/caches/runway-git-reference.git'
+}
+
+// 워치 검사는 워치 앱·CI 스크립트·공통 debug 서명만 풀고, 받은 객체는 참조 저장소에서 재사용한다.
+def watchCheckoutExtensions(boolean useReference) {
+    def extensions = [[
+        $class: 'SparseCheckoutPaths',
+        sparseCheckoutPaths: [
+            [$class: 'SparseCheckoutPath', path: '/wear/'],
+            [$class: 'SparseCheckoutPath', path: '/infra/jenkins/'],
+            [$class: 'SparseCheckoutPath', path: '/frontend/android/app/debug.keystore']
+        ]
+    ]]
+    if (useReference) {
+        // 경로가 아직 없으면 Git 플러그인이 참조 없이 전체를 받는다.
+        extensions << [$class: 'CloneOption', reference: watchGitReference(), shallow: false, noTags: false]
+    }
+    return extensions
+}
+
+def checkoutWatchCode(String revision) {
+    try {
+        checkoutCodeWith(revision, watchCheckoutExtensions(true))
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException err) {
+        throw err
+    } catch (err) {
+        // 참조 저장소가 손상됐을 수 있으므로 지우고 원격에서 한 번 더 받는다.
+        echo "참조 저장소 없이 워치 코드를 다시 받습니다: ${err}"
+        sh "rm -rf '${watchGitReference()}'"
+        checkoutCodeWith(revision, watchCheckoutExtensions(false))
+    }
+    sh "sh infra/jenkins/update-git-reference.sh '${watchGitReference()}'"
 }
 
 // 각 에이전트가 준비 단계에서 고정한 동일한 코드 조합을 검사한다.
@@ -260,7 +301,7 @@ pipeline {
                                 ciStatus('watch-ci') {
                                     node('watch') {
                                         stage('Watch Checkout') {
-                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            checkoutWatchCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
                                         }
                                         try {
@@ -278,6 +319,10 @@ pipeline {
                                                 sh 'sh infra/jenkins/build-watch-apk.sh --stage apk'
                                             }
                                         } finally {
+                                            // 세 단계가 재사용한 Gradle 데몬을 성공·실패와 관계없이 종료한다.
+                                            stage('Watch Gradle Stop') {
+                                                sh 'sh infra/jenkins/build-watch-apk.sh --stage stop'
+                                            }
                                             stage('Watch Reports') {
                                                 archiveArtifacts allowEmptyArchive: true,
                                                     artifacts: 'wear/build/reports/profile/**,wear/app/build/reports/lint-results-debug.*'

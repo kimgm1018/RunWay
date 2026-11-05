@@ -15,7 +15,7 @@
 | `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
 | `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드 명령 |
-| `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
+| `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh`, `jenkins/update-git-reference.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
 | `jenkins/Jenkinsfile.backend` | dev·master 대상 MR의 임시 병합 검사·테스트·JAR 생성 |
 | `jenkins/Jenkinsfile.backend-cd` | master 병합 후 검사·이미지 생성·자동 배포 |
@@ -112,7 +112,7 @@
 | --- | --- |
 | 백엔드 | 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답 검사. 상태 API는 루프백 8082에만 제공 |
 | 모바일 | 앱·의존성·설정 변경 MR, 공통 CI 변경·수동 검사와 master에서 ARM64 APK 빌드. `frontend/`의 `__tests__/` 아래 `.test.*`·`.spec.*` JS/TS 파일만 바뀐 MR은 APK 생략. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
-| 워치 | 검사·빌드 시간과 JUnit·Lint·Gradle profile 보고서 보관 |
+| 워치 | 테스트·Lint·APK 단계는 한 실행 안에서 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료. Kotlin 컴파일은 데몬 안에서 실행해 별도 Kotlin 데몬을 띄우지 않으며, 정리 단계가 실행되지 못해도 데몬은 10분 유휴 후 스스로 종료. 체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 풀고, `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`을 참조 저장소로 써서 새 Git 객체만 받는다. 참조 저장소는 체크아웃 직후 `update-git-reference.sh`가 갱신하고, 손상으로 체크아웃이 실패하면 지운 뒤 참조 없이 한 번 더 받는다. 작업 폴더는 매번 비운다. 단계별 시간(`build-time-<단계>.txt`)과 JUnit·Lint·Gradle profile 보고서 보관 |
 | AI | MR CI는 모델 없는 API·배포 회귀 테스트를 수행하고 실제 모델 테스트 생략 여부를 JUnit에 기록. 실제 모델 로드·예측은 별도로 검증 |
 
 모바일 CI의 Jest 변환 캐시는 `/home/jenkins/agent/.cache/jest`에 둔다. 기존 `mobile_agent_work` 영속 볼륨에 포함되며,

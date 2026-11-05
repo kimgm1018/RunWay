@@ -1,10 +1,13 @@
 // Run with Groovy 2.4: groovy infra/jenkins/tests/MobileCiTest.groovy
 // Parse the actual pipeline and exercise its APK decision without running Jenkins steps.
+// Jenkins-only exception types used by the pipelines are stubbed so the files compile locally.
+jenkinsLoader = new GroovyClassLoader(this.class.classLoader)
+jenkinsLoader.parseClass('package org.jenkinsci.plugins.workflow.steps\nclass FlowInterruptedException extends RuntimeException {}')
 def binding = new Binding([pipeline: { Closure ignored -> }])
-def pipeline = new GroovyShell(binding).parse(new File('infra/jenkins/Jenkinsfile.ci'))
+def pipeline = new GroovyShell(jenkinsLoader, binding).parse(new File('infra/jenkins/Jenkinsfile.ci'))
 pipeline.run()
 ['Jenkinsfile.mobile', 'Jenkinsfile.mobile-apk'].each { name ->
-    new GroovyShell(binding).parse(new File("infra/jenkins/${name}")).run()
+    new GroovyShell(jenkinsLoader, binding).parse(new File("infra/jenkins/${name}")).run()
 }
 
 def cases = [
@@ -67,7 +70,7 @@ def executePipeline(List files, boolean manual = false) {
             return 0
         },
     ])
-    new GroovyShell(context).parse(new File('infra/jenkins/Jenkinsfile.ci')).run()
+    new GroovyShell(jenkinsLoader, context).parse(new File('infra/jenkins/Jenkinsfile.ci')).run()
     return result
 }
 
