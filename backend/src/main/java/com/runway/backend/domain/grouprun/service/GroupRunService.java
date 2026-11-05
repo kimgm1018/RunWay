@@ -29,6 +29,7 @@ import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
@@ -577,12 +578,27 @@ public class GroupRunService {
         } else {
             analysisStatus = "PROCESSING";
         }
+        // 집계 대상: 시작 확인(startedAt) + 실제 거리 있음. 참가자 목록은 시작·거리가 없으면 거리 null이므로 그 값으로 거른다.
+        List<Double> eligibleDistances = new ArrayList<>();
+        List<Double> eligiblePaces = new ArrayList<>();
+        for (GroupRunResultsResponse.Participant p : participants) {
+            if (p.actualDistanceM() != null) {
+                eligibleDistances.add(p.actualDistanceM());
+                eligiblePaces.add(p.averagePaceSecPerKm());
+            }
+        }
+        GroupResultAggregates.Result aggregates =
+                GroupResultAggregates.of(
+                        "READY".equals(analysisStatus), eligibleDistances, eligiblePaces);
         return new GroupRunResultsResponse(
                 groupRunId,
                 row.goalDistance(),
                 row.goalDuration(),
                 new GroupRunResultsResponse.Analysis(analysisStatus),
                 hasUnconfirmedStarts,
+                aggregates.distanceM(),
+                aggregates.averagePaceSecPerKm(),
+                aggregates.maxGapM(),
                 participants);
     }
 

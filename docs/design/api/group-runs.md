@@ -1459,12 +1459,12 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | GRP-001~004, GRP-006~008 / MAT-004 |
-| 미정 사항 | 있음 |
+| 미정 사항 | 그룹 `goalAchieved` 집계만 남음. 함께 거리·평균 페이스·최대 간격은 2026-11-05 확정 |
 | 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
 
 ### 설명
 
-그룹 종료 후 자동 정리된 참가자 기록과 공동 목표 달성 평가 결과를 조회한다.
+그룹 종료 후 자동 정리된 참가자 기록과 공동 목표 달성 평가 결과를 조회한다. 그룹 루트의 `distanceM`·`averagePaceSecPerKm`·`maxGapM`은 참가자 세션 수치의 **조회 시점 파생값**이며 DB에 저장하지 않는다(S15P31E105-467).
 
 ### 인증 및 권한
 
@@ -1497,6 +1497,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
   "targetDurationSec": null,
   "analysis": { "status": "READY" },
   "hasUnconfirmedStarts": false,
+  "distanceM": 4200.5,
+  "averagePaceSecPerKm": 365,
+  "maxGapM": 799.5,
   "participants": [
     {
       "userId": 101,
@@ -1520,8 +1523,18 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `groupRunId` | integer (int64) | O | `group_runs.id` (BIGINT). 저장 값은 NULL 불가. |
 | `targetDistanceM` | integer / null | O | `group_runs.goal_distance` (INTEGER). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `targetDurationSec` | integer / null | O | `group_runs.goal_duration` (INTEGER). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `goalAchieved` | boolean / null (집계 확인 필요) | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `participants` | array | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 |
+| `distanceM` | number / null | O | **함께 달린 거리(m)**. 집계 대상 참가자 `actualDistanceM`의 최솟값. 파생·미저장. 아래 집계 규칙. FE `GroupRunResult.distanceM`. |
+| `averagePaceSecPerKm` | integer / null | O | **그룹 평균 페이스(초/km)**. 집계 대상 중 null이 아닌 참가자 `averagePaceSecPerKm`의 산술 평균을 정수로 반올림(`Math.round`). 유효 페이스 0명이면 null. 파생·미저장. FE 동명 필드. |
+| `maxGapM` | number / null | O | **최대 간격(m)**. 집계 대상 거리의 max−min. 대상 1명이면 `0`. 파생·미저장. FE `GroupRunResult.maxGapM`. |
+| `goalAchieved` | boolean / null (집계 확인 필요) | X | 그룹 단위 목표 달성. **이번 범위 미제공**(참가자별만). ERD 컬럼 없음. |
+| `participants` | array | X | 참가자별 결과 목록 |
+
+#### 그룹 집계 규칙 (`distanceM` / `averagePaceSecPerKm` / `maxGapM`)
+
+- **집계 대상:** 실제 시작이 확인되고(`startedAt` 있음 → 응답에서 `actualDistanceM` 후보) `actualDistanceM != null`인 참가자.
+- **READY만 채움:** 그룹 `analysis.status`가 `READY`가 아니면 세 필드 모두 null. 잠정 수치를 내려주지 않는다.
+- **대상 0명:** 세 필드 모두 null.
+- 마이그레이션·신규 컬럼 없음.
 
 중첩 객체의 저장 필드 대응(추가 표시·집계 값은 기존 후보를 유지하며 별도 확인):
 
