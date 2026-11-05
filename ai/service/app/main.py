@@ -39,7 +39,8 @@ from app.personalization import compute_personalization
 from app.planner import prerun_planner as planner_v1
 from app.personal_plan import OdeBalancedPaceOptimizer, PersonalPlanRequest, build_personal_plan
 from app.population_bundle import load_population_bundle, load_population_mode
-from app.db_lookup import DbCourseLookup, DbUserPersonalizationLookup, default_db_factory
+from app.db_lookup import (DbCourseLookup, DbUserPersonalizationLookup, ElevationProfileStoredGradeSource,
+                            default_db_factory)
 from app.runner_baseline import DbRunnerProfileLookup, load_blend_k
 from app.gru_personalization import (CachedDbGruPersonalizationLookup, GRU_PERSONALIZATION_SCHEMA_VERSION,
                                     UNAVAILABLE_WARNING, compute_gru_personalization,
@@ -184,7 +185,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
         try:
             ai_db = db_factory(db_url)
             if needs_personal_plan_db:
-                personal_plan_course_lookup = DbCourseLookup(ai_db)
+                personal_plan_course_lookup = DbCourseLookup(
+                    ai_db, stored_grade_source=ElevationProfileStoredGradeSource())
                 personal_plan_user_lookup = DbUserPersonalizationLookup(ai_db)
                 personal_plan_optimizer = personal_plan_optimizer or OdeBalancedPaceOptimizer()
             if needs_gru_personalization_db:

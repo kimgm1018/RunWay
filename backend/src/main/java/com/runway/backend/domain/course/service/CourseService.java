@@ -1,12 +1,16 @@
 package com.runway.backend.domain.course.service;
 
+import com.runway.backend.domain.course.candidate.CourseCandidateSigner;
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
 import com.runway.backend.domain.course.dto.request.GradeSegment;
 import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
+import com.runway.backend.domain.course.dto.request.SaveGeneratedCourseRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
+import com.runway.backend.domain.course.dto.response.GeneratedCourseSaveResult;
+import com.runway.backend.domain.course.dto.response.SaveGeneratedCourseResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
@@ -45,10 +49,13 @@ public class CourseService {
     /** courses.elevation_gain NUMERIC(10,2) 상한. */
     private static final BigDecimal MAX_ELEVATION_GAIN_M = new BigDecimal("99999999.99");
     private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
+    /** Route 내부 계약 좌표 상한(RouteResponseParser.MAX_COORDINATES와 같은 값). */
+    private static final int MAX_ROUTE_POSITIONS = 3_000;
 
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseBookmarkRepository courseBookmarkRepository;
     private final JsonMapper jsonMapper;
+    private final CourseCandidateSigner candidateSigner;
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -84,16 +91,60 @@ public class CourseService {
      * AI 생성 코스를 courses에 저장한다. 경로·거리·누적 상승과 100m 경사 목록(elevation_profile)을 함께 기록하며,
      * 입력이 계약을 위반하면 아무것도 쓰지 않고 {@code VALIDATION_ERROR}(400) {@link ApiException}을 던진다.
      *
-     * @return 생성된 코스 ID
+     * <p>좌표 값·순서·방향이 완전히 같은 코스가 있으면 새로 만들지 않는다. ACTIVE이면 그 ID를 재사용하고, MERGED·BLOCKED이면
+     * {@code 403 COURSE_INACCESSIBLE}을 던진다. 같은 경로의 동시 저장은 advisory lock으로 직렬화한다.
+     *
+     * @return 저장 또는 재사용한 코스 ID와 재사용 여부
      */
     @Transactional
-    public long saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+    public GeneratedCourseSaveResult saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+        return persistGenerated(validateGenerated(command));
+    }
+
+    /**
+     * C10 선택 코스 저장. 입력 형식·범위를 먼저 검증해(400) 서명 계산이 거대한 입력을 다루지 않게 한 뒤, C01이 이 사용자에게 발급한
+     * 후보와 값이 같은지 서명으로 확인하고(422) 저장하거나 완전 일치 ACTIVE 코스를 재사용한다.
+     */
+    @Transactional
+    public SaveGeneratedCourseResponse saveSelectedCandidate(
+            long userId, SaveGeneratedCourseRequest request) {
+        requireExistingUser(userId);
+        ValidatedGeneratedCourse validated =
+                validateGenerated(
+                        new GeneratedCourseSaveCommand(
+                                request.route(),
+                                request.distanceM(),
+                                null,
+                                request.elevationProfile()));
+        candidateSigner.verify(
+                userId,
+                request.candidateToken(),
+                request.route(),
+                request.distanceM(),
+                request.elevationProfile());
+        GeneratedCourseSaveResult result = persistGenerated(validated);
+        return new SaveGeneratedCourseResponse(result.courseId(), result.reused());
+    }
+
+    /** 검증·정규화를 마친 생성 코스 저장 값. */
+    private record ValidatedGeneratedCourse(
+            GeoJsonLineString route,
+            BigDecimal distanceM,
+            BigDecimal elevationGainM,
+            List<GradeSegment> gradeProfile) {}
+
+    private static ValidatedGeneratedCourse validateGenerated(GeneratedCourseSaveCommand command) {
         if (command == null) {
             throw GradeProfileValidator.invalid("body", "필수입니다.");
         }
         GeoJsonLineString route = command.route();
         if (route == null) {
             throw GradeProfileValidator.invalid("route", "필수입니다.");
+        }
+        // Route 내부 계약의 좌표 상한과 같다. 서명·DB 작업 전에 작업량을 제한한다.
+        if (route.positionCount() > MAX_ROUTE_POSITIONS) {
+            throw GradeProfileValidator.invalid(
+                    "route", "좌표는 " + MAX_ROUTE_POSITIONS + "개 이하여야 합니다.");
         }
         // DB(NUMERIC(12,2)·(10,2))와 같은 반올림을 먼저 적용해, 검증한 값과 저장되는 값을 일치시킨다.
         BigDecimal distanceM = toStoredScale(command.distanceM());
@@ -114,16 +165,34 @@ public class CourseService {
         // 검증한 값과 저장하는 값이 같도록 정규화된 목록을 저장한다.
         List<GradeSegment> gradeProfile =
                 GradeProfileValidator.validate(command.gradeProfile(), distanceM);
+        return new ValidatedGeneratedCourse(route, distanceM, elevationGainM, gradeProfile);
+    }
 
-        List<Double> first = route.coordinates().get(0);
+    /** 같은 트랜잭션 안에서 경로 잠금 → 완전 일치 조회 → 없으면 INSERT. */
+    private GeneratedCourseSaveResult persistGenerated(ValidatedGeneratedCourse course) {
+        String routeEwkt = GeoJsonGeographyMapper.toEwkt(course.route());
+        // 같은 경로의 동시 저장을 직렬화한 뒤 완전 일치 코스를 찾는다(courses.md 선택 저장·중복).
+        courseJdbcRepository.lockGeneratedRoute(routeEwkt);
+        var existing = courseJdbcRepository.findExactRoute(routeEwkt);
+        if (existing.isPresent()) {
+            if (!"ACTIVE".equals(existing.get().status())) {
+                // MERGED·BLOCKED를 우회하는 새 활성 복제본을 만들지 않는다.
+                throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
+            }
+            return new GeneratedCourseSaveResult(existing.get().id(), true);
+        }
+
+        List<Double> first = course.route().coordinates().get(0);
         String startEwkt =
                 GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(first.get(0), first.get(1)));
-        return courseJdbcRepository.insertGeneratedCourse(
-                GeoJsonGeographyMapper.toEwkt(route),
-                startEwkt,
-                distanceM,
-                elevationGainM,
-                jsonMapper.writeValueAsString(gradeProfile));
+        long id =
+                courseJdbcRepository.insertGeneratedCourse(
+                        routeEwkt,
+                        startEwkt,
+                        course.distanceM(),
+                        course.elevationGainM(),
+                        jsonMapper.writeValueAsString(course.gradeProfile()));
+        return new GeneratedCourseSaveResult(id, false);
     }
 
     @Transactional

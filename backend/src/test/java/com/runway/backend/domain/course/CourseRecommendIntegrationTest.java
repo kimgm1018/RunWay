@@ -117,6 +117,12 @@ class CourseRecommendIntegrationTest {
                 .andExpect(jsonPath("$.courses[0].index").value(0))
                 .andExpect(jsonPath("$.courses[1].index").value(1))
                 .andExpect(jsonPath("$.courses[0].id").doesNotExist())
+                .andExpect(
+                        jsonPath("$.courses[0].candidateToken")
+                                .value(org.hamcrest.Matchers.matchesPattern("v1\\.\\d+\\.[A-Za-z0-9_-]{43}")))
+                .andExpect(
+                        jsonPath("$.courses[1].candidateToken")
+                                .value(org.hamcrest.Matchers.matchesPattern("v1\\.\\d+\\.[A-Za-z0-9_-]{43}")))
                 .andExpect(jsonPath("$.courses[0].distanceM").value(5000.0))
                 .andExpect(jsonPath("$.courses[0].route.type").value("LineString"))
                 .andExpect(jsonPath("$.courses[0].route.coordinates[0]", contains(LON, LAT)))

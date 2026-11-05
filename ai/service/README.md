@@ -303,12 +303,12 @@ DB 오류·시간 초과는 503 `AI_DB_UNAVAILABLE`(원문 미노출).
 
 | 순서 | `gradeSource` | 내용 |
 | --- | --- | --- |
-| 1 | `COURSE_STORED_GRADE` | 백엔드가 코스 저장 때 계산해 둔 경사. `StoredCourseGradeSource` Protocol 자리만 있고 **기본 꺼짐**(저장 형식은 팀 결정 전, 테이블 이름 미정). 구간 길이는 가정하지 않으며(1 km·100 m 모두 가능) 0 m부터 끊김 없이, 450개 이하, 마지막 끝 = 코스 거리(±1 m)여야 쓴다. 아니면 다음 단계 |
-| 2 | `COURSE_ELEVATION_PROFILE` | `courses.elevation_profile`로 AI가 100 m 경사를 계산(예비 경로) |
+| 1 | `COURSE_STORED_GRADE` | 백엔드가 코스 저장 때 계산해 `courses.elevation_profile`에 넣은 100 m 경사 목록(`[{startDistanceM, endDistanceM, gradePercent}]`, S15P31E105-319). `ElevationProfileStoredGradeSource`가 같은 행에서 읽으며 `app/main.py`에서 켠다(S15P31E105-371). 모든 원소가 정확히 세 키·숫자 값이고, 0 m부터 끊김 없이, 450개 이하, 마지막 끝 = 코스 거리(±1 m)여야 쓴다. 아니면 다음 단계 |
+| 2 | `COURSE_ELEVATION_PROFILE` | `courses.elevation_profile`이 예전 원시 고도 형식(숫자 배열 또는 `{distanceM, elevationM}`)이면 AI가 100 m 경사를 계산(호환 경로) |
 | 3 | `ROUTE_ELEVATION_SOURCE` | GPS+DEM 자리(구현 없음) |
 | 4 | `MISSING` | 0% 평지 한 구간. `FREE_RUN_GRADE_POLICY`를 따른다 |
 
-저장 형식이 정해지면 `app/db_lookup.py`에 `StoredCourseGradeSource` 구현(SQL과 행→`PlanGradeSegment` 변환)을 만들고 `app/main.py`의 `DbCourseLookup(ai_db)`에 `stored_grade_source=`로 넘긴다.
+저장 경사 구현은 `app/db_lookup.py`의 `ElevationProfileStoredGradeSource`이며 추가 SQL 없이 `COURSE_SQL` 결과 행을 변환한다.
 
 ### 러닝 중 GRU 개인화 (MVP 이후 선택)
 

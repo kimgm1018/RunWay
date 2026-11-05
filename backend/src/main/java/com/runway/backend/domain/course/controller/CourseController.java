@@ -2,9 +2,11 @@ package com.runway.backend.domain.course.controller;
 
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
 import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
+import com.runway.backend.domain.course.dto.request.SaveGeneratedCourseRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
 import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
+import com.runway.backend.domain.course.dto.response.SaveGeneratedCourseResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.service.CourseRecommendService;
 import com.runway.backend.domain.course.service.CourseService;
@@ -37,6 +39,14 @@ public class CourseController {
             @Valid @RequestBody RecommendCoursesRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return courseRecommendService.recommend(userId, request);
+    }
+
+    @PostMapping("/generated")
+    public SaveGeneratedCourseResponse saveGenerated(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody SaveGeneratedCourseRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return courseService.saveSelectedCandidate(userId, request);
     }
 
     @GetMapping("/{courseId}")

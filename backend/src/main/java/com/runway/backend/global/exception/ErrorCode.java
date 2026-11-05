@@ -163,6 +163,10 @@ public enum ErrorCode {
             HttpStatus.SERVICE_UNAVAILABLE,
             "SERVICE_UNAVAILABLE",
             "코스 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."),
+    COURSE_CANDIDATE_INVALID(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "COURSE_CANDIDATE_INVALID",
+            "코스 후보가 만료되었거나 유효하지 않습니다. 코스를 다시 추천받아 주세요."),
     VALIDATION_ERROR_COURSE_VALIDATE_ALIAS_LENGTH(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "별명은 최대 {0}자까지 가능합니다."),
     INVALID_FILTER_CREW_INVALID_MEMBERSHIP_FILTER(
