@@ -70,6 +70,15 @@ runway:
     dem:
       path: ${BACKEND_COURSE_DEM_PATH:}
       sha256: ${BACKEND_COURSE_DEM_SHA256:45faaa5e36c710a235658e1172183279007ac3b3fdcc29a14246222fdabb3a1f}
+  # AI06 심박 개인화(S15P31E105-410). 러닝 종료 커밋 후 비동기로 POST {base-url}/v1/hr/personalize를 호출한다.
+  # 주소가 비면 서버는 기동하고 호출만 실패한다(저장 없음). 503 AI_BUSY만 Retry-After(상한 30초)로 최대 3회 재시도한다.
+  ai:
+    hr:
+      base-url: ${BACKEND_AI_HR_BASE_URL:}
+      connect-timeout: PT1S
+      request-timeout: PT60S
+      max-retries: 3
+      max-retry-after: PT30S
 
 springdoc:
   swagger-ui:

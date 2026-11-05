@@ -11,20 +11,28 @@ import java.util.Optional;
 public final class PreparedCourseGrade {
 
     private final CourseGradeService gradeService;
+    private final ElevationSource elevationSource;
 
-    private PreparedCourseGrade(CourseGradeService gradeService) {
+    private PreparedCourseGrade(CourseGradeService gradeService, ElevationSource elevationSource) {
         this.gradeService = gradeService;
+        this.elevationSource = elevationSource;
     }
 
     public static PreparedCourseGrade notReady() {
-        return new PreparedCourseGrade(null);
+        return new PreparedCourseGrade(null, null);
     }
 
     public static PreparedCourseGrade of(ElevationSource source) {
-        return new PreparedCourseGrade(new CourseGradeService(Objects.requireNonNull(source)));
+        Objects.requireNonNull(source);
+        return new PreparedCourseGrade(new CourseGradeService(source), source);
     }
 
     public Optional<CourseGradeService> gradeService() {
         return Optional.ofNullable(gradeService);
+    }
+
+    /** 준비된 DEM 고도 조회. 준비되지 않았으면 비어 있다. */
+    public Optional<ElevationSource> elevationSource() {
+        return Optional.ofNullable(elevationSource);
     }
 }

@@ -6,7 +6,7 @@
 | --- | --- |
 | 관련 업무 | S15P31E105-411, 사용처 S15P31E105-410 |
 | 구현 | 참고 구현 `ai/service/tools/w07_to_ai06.py`, 서비스 런타임 미사용 |
-| 상태 | 제안, 백엔드(410) 합의 전 |
+| 상태 | 410 합의 반영 중 (D-1~D-4 2026-11-05 확정) |
 | 기준 dev | `3b2972d`, 2026-11-04 |
 
 완료 러닝의 W07 저장 기록(`running_metric_samples`, `running_route_points`)을 [AI06 `POST /v1/hr/personalize`](ai-service.md#ai06--hr-개인화) 요청으로 바꾸는 규칙이다. AI06 요청·응답 계약은 바꾸지 않는다. ODE 모델이 바뀌어도([S15P31E105-406](https://ssafy.atlassian.net/browse/S15P31E105-406)) 이 규칙은 그대로다.
@@ -184,20 +184,13 @@ AI06은 받은 러닝 중 출발 HR·2분 이상 action이 없는 러닝을 ODE 
 
 ## 7. 백엔드와 합의할 열린 질문
 
-1. **GPS 경로점이 없는 러닝**: 워치·폰 모두 유효한 위치가 없어 경사가 모두 `MISSING`이면 ODE가 그 러닝을 계획 적합에 쓰지 못한다(학습은 경사가 있어야 action이 유효). 이런 러닝이 얼마나 생기는지, 없을 때 코스 `courses.elevation_profile`([100m 경사 구조](courses.md#elevationprofile-100m-경사-구조)의 `gradePercent`)을 `route_progress`(W07 `routeProgressM`) 위치로 찾아 대신 쓸지 정해야 한다. 단, 지금 워치는 `routeProgressM`을 null로 보낸다.
-2. **경사에 쓸 고도 출처**: 학습은 GPS 고도를 썼다. 계산식은 두 선택지 모두 3.4절과 같다. 백엔드와 정한다.
-
-   | 선택지 | 장점 | 단점 |
-   | --- | --- | --- |
-   | DEM 고도 (현재 규칙, ADR-0019) | 코스 경사와 같은 DEM·조회 코드. 기기와 무관하게 일정 | 학습과 출처가 다르다. DEM이 더 매끄러워 경사 크기가 조금 작을 수 있다 |
-   | 저장된 GPS `altitude`(`running_route_points.altitude`, W07 `altitudeM`, V1부터 있음) | 학습과 같은 출처. DEM 조회가 필요 없다 | 기기별 고도 잡음이 크다. null일 수 있다 |
-
-   어느 쪽이든 실제 기록이 쌓이면 학습 데이터와 경사 분포를 비교한다.
+1. **GPS 경로점이 없는 러닝**: **확정(410, 2026-11-05)** — 경사를 전부 `MISSING`으로 보낸다. 코스 `elevation_profile` 폴백은 쓰지 않는다(워치 `routeProgressM`이 null).
+2. **경사에 쓸 고도 출처**: **확정(410, 2026-11-05)** — DEM 고도(ADR-0019, 3.4절 현재 규칙). GPS `altitude`는 쓰지 않는다.
 3. **워치·폰 시계 차이**: 워치 GPS 점만 쓰는 시간에는 심박·거리·경사가 모두 워치 시계라 문제가 없다. 폰 점으로 채운 시간에만 경사(폰 시계)와 심박·거리(워치 시계)를 `measured_at`으로 맞추므로, 두 시계가 몇 초 어긋나면 그 시간의 경사가 그만큼 밀리고, 워치↔폰이 바뀌는 곳의 15초 판정도 그만큼 어긋난다. 보정이 필요한지 확인한다.
 4. **`sessionStartedAt` = 첫 HR 시각**: `running_sessions.started_at`과 몇 초 다를 수 있다. AI 계산에는 문제가 없지만, 백엔드가 이 값을 다른 곳에 쓰는지 확인한다.
 5. **`measured_at` 정밀도**: 행 배정에 소수 초가 필요하다. DB `TIMESTAMPTZ`를 그대로(마이크로초) 읽는지 확인한다.
 6. **2시간 넘는 러닝**: 앞 1441행만 보내는 것으로 충분한지 확인한다.
-7. **종료 결과 확정 판단 값**: "모든 batch 저장 확인으로 종료 결과 확정"을 어느 DB 값으로 판단할지 정한다. 후보는 `running_sessions.analysis_status`(V3, `PENDING`·`PROCESSING`·`READY`·`FAILED`·`LEGACY`)나 END 확정 상태다. AI06 호출을 최종 분석과 같은 시점에 붙일지도 함께 정한다.
+7. **종료 결과 확정 판단 값**: **확정(410, 2026-11-05)** — `running_sessions.status='COMPLETED'` AND `deleted_at IS NULL`. END APPLIED는 `uploadComplete=true`를 요구하고 COMPLETED 이후 새 batch는 거절되므로, END 커밋 시점에 표본이 확정된다. AI06은 `PersonalSessionEndedEvent`의 `@TransactionalEventListener(AFTER_COMMIT)`으로 트리거하며 `analysis_status=READY`와 묶지 않는다(사후 분석 실패와 개인화를 분리).
 
 ## 8. 근거 출처
 

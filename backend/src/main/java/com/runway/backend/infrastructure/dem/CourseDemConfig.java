@@ -1,5 +1,6 @@
 package com.runway.backend.infrastructure.dem;
 
+import com.runway.backend.domain.course.elevation.CourseElevationSource;
 import com.runway.backend.domain.course.elevation.PreparedCourseGrade;
 import com.runway.backend.domain.course.recommend.StubElevationSource;
 import com.runway.backend.global.exception.ApiException;
@@ -53,5 +54,17 @@ public class CourseDemConfig {
         }
         log.warn("코스 DEM 미설정: C01은 GRADE_NOT_READY로 응답한다.");
         return PreparedCourseGrade.notReady();
+    }
+
+    /**
+     * 심박 개인화 변환(경사)용 DEM만 노출한다. 개발 stub 합성 고도({@link StubElevationSource})는 개인화에 넣지 않는다 —
+     * stub이면 비어 있어 경사는 MISSING이 된다(S15P31E105-410 D-2, 423 D-5).
+     */
+    @Bean
+    CourseElevationSource courseElevationSource(PreparedCourseGrade preparedCourseGrade) {
+        return new CourseElevationSource(
+                preparedCourseGrade
+                        .elevationSource()
+                        .filter(GeoTiffElevationSource.class::isInstance));
     }
 }

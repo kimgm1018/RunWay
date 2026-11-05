@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-03 · ERD ver.3 · **29개 테이블 / 270개 컬럼 / 52개 FK**
+기준: 2026-11-05 · ERD ver.3 · **30개 테이블 / 285개 컬럼 / 53개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -28,6 +28,7 @@
 | `users` | 회원·로그인 정보. 개인 활동의 기준 ID |
 | `user_profiles` | 회원의 러닝 수준·평소 페이스·기준 거리/시간. 이번 러닝 목표와 구분 |
 | `user_recommendation_preferences` | U11/U12 추천 기본값. 회원당 최대 1행, 명시적 저장 시 생성·전체 교체 |
+| `user_hr_personalization` | AI06 ODE 개인화 결과. 회원·버전별 append-only. 원본 HR/GPS 시계열은 저장하지 않음 |
 | `user_settings` | 코칭·알림 사용 여부, 위치 수집 모드, 계정의 기록 공개 범위 |
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
@@ -50,6 +51,25 @@
 - 회원탈퇴 시 삭제한다. users의 WITHDRAWN 전환만으로 FK 삭제가 발생하지 않으므로 논리 탈퇴 서비스가 명시적으로 삭제해야 한다. 탈퇴와 저장의 직렬화·계정 상태 확인으로 재생성을 방지한다.
 - 조회·입력·오류·재요청 계약은 [U11·U12](../api/users.md#u11-추천-기본값-조회)를 따른다.
 - 기준 SQL만 반영한 상태다. 서비스용 Flyway 마이그레이션과 API 구현은 후속 구현 단계에서 추가한다. erd.png는 2026-11-04 기준 SQL의 29개 테이블·270개 컬럼·52개 FK를 반영했다. 온라인 ERD에는 이 테이블이 아직 반영되지 않았다.
+
+#### user_hr_personalization — AI06 ODE 개인화 (설계 S15P31E105-337 / 구현 S15P31E105-410, 2026-11-05)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 개인화 행 ID |
+| user_id | BIGINT NOT NULL, FK users.id ON DELETE CASCADE | 회원. 물리 삭제 시 함께 삭제 |
+| personalization_version | INTEGER NOT NULL, CHECK > 0 | 회원별 버전. `(user_id, personalization_version)` UNIQUE |
+| schema_version / model_version | VARCHAR(80/160) NOT NULL | JSON 스키마·ODE 모델 버전 |
+| support_run_count | INTEGER NOT NULL, CHECK >= 0 | 계산에 쓴 support 러닝 수 |
+| summary_u_json / history8_json / p4_json | JSONB NOT NULL | ODE 요약·History8·개인 적합 벡터. 원본 시계열 없음 |
+| hr0_sub_bpm | NUMERIC(7,2) NOT NULL, CHECK 35~220 | support 시작 HR 중앙값(기본 85) |
+| hr_ref_bpm / hr_danger_bpm / hr_sustain_bpm | NUMERIC(7,2) NULL, CHECK 35~220 | AI06 응답 기준값. danger는 +3 전 P98 원값 |
+| hr_threshold_run_count | INTEGER NULL, CHECK 0~20 | P98·P85 기준에 쓴 최근 러닝 수 |
+| created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 생성 시각. updated_at 없음(append-only) |
+
+- AI06 결과를 덮어쓰지 않고 새 버전 행을 추가한다. 최신 조회는 `WHERE user_id=? ORDER BY personalization_version DESC LIMIT 1`이며 UNIQUE 인덱스의 역방향 스캔으로 처리하므로 별도 인덱스를 두지 않는다.
+- 이번 migration 범위는 `user_hr_personalization`만이다. `user_gru_personalization`·코스 난이도·`coaching_decisions` 컬럼은 포함하지 않는다.
+- 기준 SQL·Flyway V12를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 저장·조회 계약은 [AI06](../api/ai-service.md)과 [개인화 ERD 요청](proposals/AI_PERSONALIZATION_ERD_REQUEST.md)을 따른다.
 
 #### daily_health_metrics — 날짜별 건강 요약
 
@@ -244,6 +264,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | --- | --- |
 | users | login_id, nickname 각각 UNIQUE |
 | user_profiles / user_settings | 각각 user_id |
+| user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |

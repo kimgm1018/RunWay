@@ -3,6 +3,7 @@ package com.runway.backend.infrastructure.route;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.runway.backend.domain.course.elevation.CourseElevationSource;
 import com.runway.backend.domain.course.elevation.PreparedCourseGrade;
 import com.runway.backend.domain.course.recommend.CourseRecommendCommand;
 import com.runway.backend.domain.course.recommend.CourseRecommendFilters;
@@ -11,6 +12,7 @@ import com.runway.backend.domain.course.recommend.CourseRecommendShape;
 import com.runway.backend.domain.course.recommend.StubCourseRecommendAdapter;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.infrastructure.dem.CourseDemConfig;
+import com.runway.backend.infrastructure.dem.GeoTiffElevationSource;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +60,7 @@ class CourseGenerationConfigTest {
                                             assertThat(ex.details())
                                                     .containsEntry("reason", "ROUTE_UNAVAILABLE"));
                     assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isEmpty();
+                    assertThat(context.getBean(CourseElevationSource.class).source()).isEmpty();
                 });
     }
 
@@ -70,6 +73,8 @@ class CourseGenerationConfigTest {
                                     .isInstanceOf(StubCourseRecommendAdapter.class);
                             assertThat(context.getBean(PreparedCourseGrade.class).gradeService())
                                     .isPresent();
+                            // 합성 고도는 코스 전용이다. 개인화(경사)에는 노출하지 않아 MISSING이 된다.
+                            assertThat(context.getBean(CourseElevationSource.class).source()).isEmpty();
                         });
     }
 
@@ -103,7 +108,12 @@ class CourseGenerationConfigTest {
         runner.withPropertyValues(
                         "runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
                         "runway.course.dem.sha256=" + good)
-                .run(context -> assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isPresent());
+                .run(
+                        context -> {
+                            assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isPresent();
+                            assertThat(context.getBean(CourseElevationSource.class).source())
+                                    .containsInstanceOf(GeoTiffElevationSource.class);
+                        });
         runner.withPropertyValues(
                         "runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
                         "runway.course.dem.sha256=" + "0".repeat(64))
@@ -111,6 +121,7 @@ class CourseGenerationConfigTest {
                         context -> {
                             assertThat(context).hasNotFailed();
                             assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isEmpty();
+                            assertThat(context.getBean(CourseElevationSource.class).source()).isEmpty();
                         });
         runner.withPropertyValues(
                         "runway.course.dem.path=missing/dem.tif", "runway.course.dem.sha256=" + good)
