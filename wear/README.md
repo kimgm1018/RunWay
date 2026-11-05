@@ -58,4 +58,6 @@ SDK 경로를 `local.properties` 또는 `ANDROID_HOME`으로 설정하고 Androi
 
 제품 `:app`의 debug 빌드는 폰과 Data Layer로 연결되도록 `frontend/android/app/debug.keystore`를 함께 사용한다. 기존 테스트용 파일을 참조하며 새 키를 Git에 추가하지 않는다. 이전에 다른 서명으로 설치한 워치 앱은 삭제 후 재설치해야 하며 앱 내부 데이터는 초기화된다. 정식 배포 서명은 별도다.
 
+제품 `:app`의 release 빌드는 `optimization.packageScope`로 `androidx`·`kotlin`·`kotlinx` 라이브러리만 R8 최적화한다. 이 조합에서 생기는 시작 시 종료를 막는 keep 규칙(Room `*_Impl` 기본 생성자 보존, `-dontrepackage`)과 이유는 `app/src/main/keepRules/release-optimization.keep`에 둔다. 최적화 범위나 WorkManager·Room 버전을 바꾸면 `:app:assembleRelease` 결과를 실기기에서 실행해 확인한다.
+
 로컬 설정·서명 키·빌드 결과·실제 실험 JSON은 Git에 넣지 않는다.

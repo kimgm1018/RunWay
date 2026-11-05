@@ -1,0 +1,15 @@
+# release optimization(packageScope = androidx.**, kotlin.**, kotlinx.**) 보완 규칙.
+# 워치 release 앱이 시작 시 WorkManager 초기화 중 종료되던 두 가지 원인을 막는다.
+
+# 1) Room은 생성된 *_Impl 데이터베이스를 리플렉션으로 기본 생성자를 호출해 만든다.
+#    WorkManager 2.10.0이 가져오는 room-runtime 2.6.1의 소비자 규칙(-keep class * extends RoomDatabase)은
+#    멤버를 지정하지 않아 R8 full mode에서 기본 생성자가 제거되고
+#    NoSuchMethodException(androidx.work.impl.WorkDatabase_Impl.<init>)이 발생한다.
+-keep class * extends androidx.room.RoomDatabase {
+    <init>();
+}
+
+# 2) AGP 9.1부터 기본인 repackaging이 packageScope와 함께 쓰이면, 범위 밖 앱 코드가 참조해 원래 패키지에 남은
+#    package-private 상위 클래스(kotlin.collections.CollectionsKt__IterablesKt)와 달리 하위 파사드 클래스만
+#    최상위 패키지로 옮겨 IllegalAccessError가 발생한다. 최적화·축소·난독화는 유지하고 repackaging만 끈다.
+-dontrepackage
