@@ -52,4 +52,19 @@ class StandbyDisplayTest {
     @Test fun cancelIsOnlyOfferedForAReadyRun() {
         assertNull(view(state = RunState.CANCELLED).cancelLabel)
     }
+
+    /** S15P31E105-457: a run the server cancelled can never be started again from standby. */
+    @Test fun cancelledRunCannotStartAndAsksForANewRun() {
+        val cancelled = RunSnapshot(RunState.CANCELLED, title = "민락수변공원 출발 5.0km")
+        assertFalse(StandbyDisplay.hasPreparedRun(cancelled))
+        val v = StandbyDisplay.from(cancelled)
+        assertFalse(v.startEnabled)
+        assertNull(v.cancelLabel)
+        assertFalse(StandbyDisplay.hasPreparedRun(RunSnapshot()))
+    }
+
+    @Test fun aNewlyPreparedRunCanStartAgain() {
+        assertTrue(StandbyDisplay.hasPreparedRun(RunSnapshot(RunState.READY)))
+        assertTrue(view().startEnabled)
+    }
 }

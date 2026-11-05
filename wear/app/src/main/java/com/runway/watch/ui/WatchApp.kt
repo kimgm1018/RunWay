@@ -89,7 +89,7 @@ private fun WatchScreen(
 private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel: () -> Unit = {}, onStart: () -> Unit) {
     RoundScreen {
         StandbyStatus(readiness)
-        if (snapshot.state == null) {
+        if (!StandbyDisplay.hasPreparedRun(snapshot)) {
             Text("휴대폰에서 러닝을 준비해 주세요", style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
             return@RoundScreen
         }
@@ -121,13 +121,21 @@ data class StandbyView(
  * Standby buttons by the request in flight (S15P31E105-436): only a pending start reads 시작 확인 중, a pending
  * cancel keeps the cancel button as 취소 확인 중, and while anything is pending neither button can be pressed.
  * A refusal or error ends the pending state, so the buttons come back and the notice line explains it.
+ *
+ * Only a READY run can start (S15P31E105-457). 9.1 shows just the run the phone prepared and the watch has no
+ * cancelled screen of its own, so a run the server cancelled (S07) goes back to the no-run prompt
+ * '휴대폰에서 러닝을 준비해 주세요' instead of keeping its title and start button. The phone's next
+ * SESSION_PREPARE makes the new session READY, which brings the start button back.
  */
 object StandbyDisplay {
+    /** False with no session or a finished one (CANCELLED): standby then asks for a run from the phone. */
+    fun hasPreparedRun(snapshot: RunSnapshot): Boolean = snapshot.state == RunState.READY
+
     fun from(snapshot: RunSnapshot): StandbyView {
+        if (!hasPreparedRun(snapshot)) return StandbyView("시작", false, false, null, false)
         // 준비된 개인 러닝은 시작 전에 취소할 수 있다(S07, 휴대폰이 서버에 요청).
-        val cancellable = snapshot.state == RunState.READY
         if (!snapshot.pendingCommand) {
-            return StandbyView("시작", true, false, "취소".takeIf { cancellable }, true)
+            return StandbyView("시작", true, false, "취소", true)
         }
         return when (snapshot.pendingIntent) {
             RunIntent.CANCEL -> StandbyView("시작", false, false, "취소 확인 중", false)
