@@ -11,5 +11,6 @@ public record GroupRunParticipantsResponse(List<Item> items) {
             Instant joinedAt,
             String nickname,
             boolean isHost,
-            String readyStatus) {}
+            String readyStatus,
+            Integer readinessScore) {}
 }

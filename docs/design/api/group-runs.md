@@ -359,7 +359,10 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
   "targetDurationSec": 1800,
   "meetingPlaceName": null,
   "meetingAddress": null,
-  "goalPaceSecPerKm": 360
+  "goalPaceSecPerKm": 360,
+  "groupGuidePaceSecPerKm": 350,
+  "comfortRange": { "fastSecPerKm": 330, "slowSecPerKm": 370 },
+  "myFit": { "recentPaceSecPerKm": 356, "readinessScore": 82 }
 }
 ```
 
@@ -384,10 +387,21 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, S15P31E105-419). `SCHEDULED`: 참가자 `user_profiles.average_pace`의 중앙값(유효값 없는 참가자 제외). 유효 참가자 0명이면 null. 방장 목표 환산값을 추천값으로 쓰지 않는다. DB 신규 컬럼 없음. |
 | `meetingPlaceName` | string / null | O | group_runs.meeting_name. 미지정은 null. |
 | `meetingAddress` | string / null | O | group_runs.meeting_address. 미지정은 null. |
+| `cancellation` | object / null | O | **CANCELLED일 때만** 채운다. 그 외 status는 null. S15P31E105-469. |
+| `cancellation.reason` | string | 조건부 | `group_runs.cancel_reason`. CANCELLED이면 필수. |
+| `cancellation.message` | string / null | 조건부 | **항상 null(조회)**. 요청 `cancelMessage`는 DB에 저장하지 않으며 알림 일회 전송용이다. |
+| `cancellation.byNickname` | string | 조건부 | `host_id` 회원의 닉네임. 호스트만 취소 가능. |
+| `cancellation.byRole` | string | 조건부 | 항상 `"HOST"`. |
+| `comfortRange` | object / null | O | **참가자 편한 페이스 범위**(파생값, 미저장, S15P31E105-470). 대기방 `WaitingRoom.comfortRange`의 출처이며 별도 대기방 API 없이 G03으로 받는다. 계산은 아래 "페이스 적합도·편한 범위 계산" 참고. 근거가 없으면 null. |
+| `comfortRange.fastSecPerKm` | integer | 조건부 | 빠른 쪽 경계(sec/km, 더 작은 값). `comfortRange`가 있을 때만 존재. |
+| `comfortRange.slowSecPerKm` | integer | 조건부 | 느린 쪽 경계(sec/km, `fastSecPerKm` 이상). |
+| `myFit` | object / null | O | **요청자 본인**의 "내 페이스와 잘 맞아요" 근거(파생값, S15P31E105-470). 다른 참가자 값은 담지 않는다. 최근 완료 기록 페이스가 없으면 null. |
+| `myFit.recentPaceSecPerKm` | integer | 조건부 | 본인 `COMPLETED` 세션 `average_pace` 최신 최대 5개 산술평균(반올림). 프로필 usualPace 미사용. |
+| `myFit.readinessScore` | integer / null | 조건부 | 본인 최신 준비도(R02와 같은 기준, 반올림 정수). 미산출·건강정보 미동의면 null. |
 
 **사용 흐름과 응답 판단**
 
-모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다.
+모집·대기방에서 서버에 적용된 일정·장소·코스·목표를 확인한다. 그룹 목표 페이스는 거리·시간에서 파생하며 미설정은 null이다. 취소된 그룹은 `cancellation`으로 사유·호스트를 보여 주고, 남긴 말 카드는 `message`가 null이면 숨긴다. `myFit`·`comfortRange`는 최근 기록·준비도 파생값이다.
 
 위 보완 필드는 호출 목적상 필요한 출력이다. 저장 컬럼 부재는 출력 불필요의 근거가 아니다. 저장·전송 정책 미정 항목은 위 설명의 계약을 확정한 후 구현한다.
 
@@ -409,6 +423,16 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 ### 처리 규칙
 
 - 대기방 `groupGuidePaceSecPerKm`은 조회 시점의 참가자 `user_profiles.average_pace` 중앙값으로 **파생 계산**한다(목표 환산값 아님, 유효 0명이면 null). GET은 쓰기·알림·SSE 등 부수효과를 만들지 않는다.
+
+#### 페이스 적합도·편한 범위 계산 (S15P31E105-470)
+
+`myFit`·`comfortRange`와 G07 `readinessScore`는 DB 신규 컬럼·마이그레이션 없이 기존 `running_sessions`와 `daily_readiness`에서 조회 시점에 **파생 계산**한다. 온보딩 프로필(`user_profiles.average_pace`, 사용자 평소 페이스)은 이 값들의 근거로 쓰지 않는다(`comfortRange`의 폴백이 쓰는 `groupGuidePaceSecPerKm`만 기존 규칙대로 프로필 중앙값이다). GET은 쓰기·알림 같은 부수효과를 만들지 않는다.
+
+- **최근 페이스(사용자별)**: 해당 사용자의 `running_sessions` 중 `status = COMPLETED`, 미삭제(`deleted_at IS NULL`), `average_pace`가 양수인 세션을 `ended_at`(없으면 `started_at`) 최신순으로 최대 5건 가져와 `average_pace`의 산술평균을 정수(sec/km)로 반올림한다(0.5는 올림). 조건에 맞는 세션이 없으면 null. 개인 러닝과 그룹런 세션을 구분하지 않는다.
+- **`myFit`**: 요청자의 최근 페이스가 null이면 `myFit`은 null이다. 아니면 `{ recentPaceSecPerKm: 요청자 최근 페이스, readinessScore: 요청자 최신 준비도 또는 null }`. 요청자가 아직 참가하지 않았어도 계산한다.
+- **최신 준비도(사용자별)**: R02와 같이 `daily_readiness`에서 `readiness_date`가 가장 늦은 1건(날짜 필터 없음)의 `readiness_score`를 정수로 반올림한다. R02와 같은 조건으로 활성 회원이고 건강정보 동의(`health_data_access = AGREEE`)가 있어야 하며, 결과가 없거나 동의가 없으면 null이다. 조회 시점에 동의를 철회한 회원의 값은 노출하지 않는다.
+- **`comfortRange`**: 해당 그룹런 참가자(요청자의 참가 여부와 무관) 각각의 최근 페이스를 구해 null을 제외한다. 값이 2개 이상이면 `[최솟값, 최댓값]`(정수 sec/km, `fastSecPerKm` = 최솟값, `slowSecPerKm` = 최댓값). 2개 미만이면 `groupGuidePaceSecPerKm`이 있을 때 `groupGuidePaceSecPerKm ± 20`초(빠른 쪽은 1 미만으로 내리지 않음)이고, 추천 페이스도 없으면 null이다.
+- **FE 대응**: `GroupRunDetail.myFit` ← G03 `myFit`(readinessScore가 null일 수 있어 FE 타입은 `number | null`로 맞춰야 한다), `WaitingRoom.comfortRange` ← G03 `[comfortRange.fastSecPerKm, comfortRange.slowSecPerKm]`, `GroupRunParticipant.readinessScore` ← G07 `items[].readinessScore`.
 
 - 코스 없는 그룹런은 선두 추종 자유러닝.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
@@ -856,7 +880,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `items[].readinessScore` | number / null | O | 대기방 준비도 점수. 동의·참가자 공개범위 및 최신 날짜 선택 계약 확인 필요. 미측정은 null. |
+| `items[].readinessScore` | integer / null | O | 해당 참가자의 **최신 준비도**(S15P31E105-470, 반올림 정수). `readyStatus`(대기방 준비 버튼)와 **별개**. 최신 1건 선택·동의 조건은 G03 "페이스 적합도·편한 범위 계산"의 최신 준비도 규칙과 같다. 미산출·건강정보 미동의면 null. |
 
 ### 오류 응답
 
@@ -1088,6 +1112,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
   "groupGuidePaceSecPerKm": 360,
   "courseId": null,
   "updatedAt": "2026-11-05T03:00:00Z",
+  "loadAlert": { "memberCount": 1, "nextPaceSecPerKm": 375 },
   "participants": [
     {
       "userId": 101,
@@ -1097,6 +1122,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
       "gapToAheadM": null,
       "gapToBehindM": 35,
       "progressM": 1200.5,
+      "paceSecPerKm": 320,
       "measuredAt": "2026-11-05T02:59:50Z",
       "stale": false
     },
@@ -1108,6 +1134,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
       "gapToAheadM": null,
       "gapToBehindM": null,
       "progressM": null,
+      "paceSecPerKm": null,
       "measuredAt": "2026-11-05T02:58:50Z",
       "stale": true
     }
@@ -1122,6 +1149,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `courseId` | integer (int64) / null | O | `group_runs.course_id` |
 | `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, 중앙값 집계). 방장 목표 환산 `goalPaceSecPerKm`과 별개. 산출 규칙은 아래 `groupGuidePaceSecPerKm` 절. 산출 불가면 null |
 | `updatedAt` | string (ISO 8601 UTC) | O | `group_runs.updated_at` |
+| `loadAlert` | object / null | O | 멤버 부담 알림(파생). 부담 참가자가 없거나 `RUNNING`이 아니거나 `groupGuidePaceSecPerKm`이 null이면 null. 규칙은 아래 `loadAlert` 절 |
+| `loadAlert.memberCount` | integer | loadAlert 존재 시 O | 부담 참가자 수(1 이상) |
+| `loadAlert.nextPaceSecPerKm` | integer | loadAlert 존재 시 O | 그룹이 늦출 안내 페이스(sec/km). `groupGuidePaceSecPerKm + 15` |
 | `participants` | array | O | 참가자별 현황. 저장 컬럼 직접 대응이 아닌 **파생 응답** |
 | `participants[].userId` | integer (int64) | O | 참가자 사용자 ID |
 | `participants[].rank` | integer / null | O | 1부터. 동률은 같은 값. 순위 집합 밖·그룹 비RUNNING이면 null |
@@ -1130,6 +1160,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `participants[].gapToAheadM` | number / null | O | 바로 앞 군집(더 좋은 progress) 최근접과의 진행 거리 차(m). 선두·비순위면 null |
 | `participants[].gapToBehindM` | number / null | O | 바로 뒤 군집 최근접과의 차(m). 꼴등·비순위면 null |
 | `participants[].progressM` | number / null | O | 순위에 쓴 진행 거리(m). 비순위면 null |
+| `participants[].paceSecPerKm` | integer / null | O | 참가자 개인 페이스(sec/km). 연결된 러닝 세션의 `average_pace`를 반올림한 값. `stale=true`(비순위, 즉 rank/progress가 null인 경우)이거나 세션 평균 페이스가 없으면 null. 그룹이 비`RUNNING`이면 null. 선두–후미 간격은 `progressM` 차이로 클라이언트가 계산하며 `gapM`/`spreadM`은 두지 않는다 |
 | `participants[].measuredAt` | string (ISO 8601 UTC) / null | O | 조회에 반영된 **최신 표본 시각**(순위 제외여도 참고용으로 반환). 표본이 없거나 그룹이 비`RUNNING`이면 null. DB 신규 컬럼 없음 |
 | `participants[].stale` | boolean | O | **순위 집합 밖**이면 true(TTL 초과·허용 오차 초과 미래 시각·비RUNNING·표본 없음·그룹 비RUNNING 등). GPS 끊김만 뜻하지 않는다. DB 컬럼 없음 |
 
@@ -1197,6 +1228,13 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 - `RUNNING`: 참가자별 개인 AI04 `recommendedPace`를 우선하고 없으면 실측 페이스를 입력으로 중앙값을 낸다. 뒤처진 참가자도 포함하며 일시정지·개인 종료 참가자는 제외한다. 유효 입력이 없으면 `SCHEDULED`와 같은 프로필 중앙값으로 폴백(이전 값 저장용 컬럼이 없음)하고, 그것도 없으면 null.
 - 개인 SAFETY는 개인 코칭 경로가 우선한다. 중앙값·제외 규칙으로 충분하므로 특정 참가자 때문에 그룹 추천을 따로 낮추지 않는다.
 - 파생 계산만 하며 DB 신규 컬럼·마이그레이션, GET 부수효과(쓰기·알림·SSE)는 없다. SSE·변경 이벤트 푸시는 이번 범위 밖(별도 Jira).
+
+#### `participants[].paceSecPerKm`와 `loadAlert` (MVP, S15P31E105-468)
+
+- 개인 페이스: 참가자 연결 세션의 `running_sessions.average_pace`(sec/km, 반올림). 순위 집합 밖(`stale=true`)이거나 값이 없으면 null. AI 이벤트·현재 구간 페이스는 쓰지 않는다.
+- 부담 참가자: 그룹 `RUNNING`이고, `groupGuidePaceSecPerKm`이 있으며, `stale=false`이고 `paceSecPerKm`이 있으며, `paceSecPerKm <= groupGuidePaceSecPerKm - 30`(안내 페이스보다 30초/km 이상 빠름)인 참가자. 경계값 포함.
+- `loadAlert`: 부담 참가자가 1명 이상이면 `{ memberCount: 부담 참가자 수, nextPaceSecPerKm: groupGuidePaceSecPerKm + 15 }`, 아니면 null. 그룹이 `RUNNING`이 아니거나 안내 페이스가 null이어도 null.
+- 매 GET마다 현재 값으로 파생 계산하며 알림 이력·해제 상태·푸시는 저장하지 않는다(상태·이벤트·알림 부수 효과 없음, DB 변경 없음).
 
 #### 계산 시점·저장
 
@@ -1380,8 +1418,8 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `cancelReason` | string | O | WEATHER/PERSONAL/LACK_OF_PARTICIPANTS/LOCATION_ISSUE/OTHER |
-| `cancelMessage` | string | X | 멤버에게 남길 말(최대 100자) |
+| `cancelReason` | string | O | WEATHER/PERSONAL/LACK_OF_PARTICIPANTS/LOCATION_ISSUE/OTHER. `group_runs.cancel_reason`에 저장. |
+| `cancelMessage` | string | X | 멤버 알림용 남길 말(최대 100자). **길이만 검증·저장하지 않음**. 알림 경로가 연결되면 본문에 일회 전달하고, 없으면 discard. 이후 저장이 필요하면 스키마 추가. |
 
 ```json
 {
@@ -1433,9 +1471,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 - 취소 상태 반영 시 예약된 시작 임박 알림을 무효화한다. 발송 직전에도 상태를 검사하여 취소된 그룹런의 시작 알림을 보내지 않는다.
 
-- 취소하면 크루 멤버 전원(참가 여부와 무관)에게 알림을 보낸다. 취소한 그룹런은 되돌릴 수 없다.
-- 취소된 그룹런은 내 크루 목록에서 빠지고, 상세 조회(G03)는 취소 사유·남긴 말과 함께 계속 열 수 있다.
-- 그룹런 시작 전 호스트 취소.
+- 취소하면 크루 멤버 전원(참가 여부와 무관)에게 알림을 보낸다. 취소한 그룹런은 되돌릴 수 없다. `cancelMessage`가 있으면 알림 본문에만 실을 수 있고 DB·G03에는 남지 않는다.
+- 취소된 그룹런은 내 크루 목록에서 빠지고, 상세 조회(G03)는 `cancellation`(사유·호스트 닉네임·역할 HOST, message는 null)과 함께 계속 열 수 있다.
+- 그룹런 시작 전 호스트 취소. 취소자 컬럼은 두지 않고 `host_id`로 파생한다.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -1459,12 +1497,12 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | GRP-001~004, GRP-006~008 / MAT-004 |
-| 미정 사항 | 있음 |
+| 미정 사항 | 그룹 `goalAchieved` 집계만 남음. 함께 거리·평균 페이스·최대 간격은 2026-11-05 확정 |
 | 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
 
 ### 설명
 
-그룹 종료 후 자동 정리된 참가자 기록과 공동 목표 달성 평가 결과를 조회한다.
+그룹 종료 후 자동 정리된 참가자 기록과 공동 목표 달성 평가 결과를 조회한다. 그룹 루트의 `distanceM`·`averagePaceSecPerKm`·`maxGapM`은 참가자 세션 수치의 **조회 시점 파생값**이며 DB에 저장하지 않는다(S15P31E105-467).
 
 ### 인증 및 권한
 
@@ -1497,6 +1535,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
   "targetDurationSec": null,
   "analysis": { "status": "READY" },
   "hasUnconfirmedStarts": false,
+  "distanceM": 4200.5,
+  "averagePaceSecPerKm": 365,
+  "maxGapM": 799.5,
   "participants": [
     {
       "userId": 101,
@@ -1520,8 +1561,18 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `groupRunId` | integer (int64) | O | `group_runs.id` (BIGINT). 저장 값은 NULL 불가. |
 | `targetDistanceM` | integer / null | O | `group_runs.goal_distance` (INTEGER). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `targetDurationSec` | integer / null | O | `group_runs.goal_duration` (INTEGER). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `goalAchieved` | boolean / null (집계 확인 필요) | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `participants` | array | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 |
+| `distanceM` | number / null | O | **함께 달린 거리(m)**. 집계 대상 참가자 `actualDistanceM`의 최솟값. 파생·미저장. 아래 집계 규칙. FE `GroupRunResult.distanceM`. |
+| `averagePaceSecPerKm` | integer / null | O | **그룹 평균 페이스(초/km)**. 집계 대상 중 null이 아닌 참가자 `averagePaceSecPerKm`의 산술 평균을 정수로 반올림(`Math.round`). 유효 페이스 0명이면 null. 파생·미저장. FE 동명 필드. |
+| `maxGapM` | number / null | O | **최대 간격(m)**. 집계 대상 거리의 max−min. 대상 1명이면 `0`. 파생·미저장. FE `GroupRunResult.maxGapM`. |
+| `goalAchieved` | boolean / null (집계 확인 필요) | X | 그룹 단위 목표 달성. **이번 범위 미제공**(참가자별만). ERD 컬럼 없음. |
+| `participants` | array | X | 참가자별 결과 목록 |
+
+#### 그룹 집계 규칙 (`distanceM` / `averagePaceSecPerKm` / `maxGapM`)
+
+- **집계 대상:** 실제 시작이 확인되고(`startedAt` 있음 → 응답에서 `actualDistanceM` 후보) `actualDistanceM != null`인 참가자.
+- **READY만 채움:** 그룹 `analysis.status`가 `READY`가 아니면 세 필드 모두 null. 잠정 수치를 내려주지 않는다.
+- **대상 0명:** 세 필드 모두 null.
+- 마이그레이션·신규 컬럼 없음.
 
 중첩 객체의 저장 필드 대응(추가 표시·집계 값은 기존 후보를 유지하며 별도 확인):
 

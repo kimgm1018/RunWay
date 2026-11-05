@@ -571,9 +571,9 @@ export type RecordFixture = Omit<
 };
 
 const solo = { runType: 'SOLO' as const, group: null };
-const crew = (finisherCount: number) => ({
+const crew = (finisherCount: number, groupRunId = 'gr-today') => ({
   runType: 'GROUP' as const,
-  group: { crewName: '광안리 새벽 크루', finisherCount },
+  group: { crewName: '광안리 새벽 크루', finisherCount, groupRunId },
 });
 const courseRoute = (id: string) =>
   recommendedCourses.find(course => course.id === id)!.route;

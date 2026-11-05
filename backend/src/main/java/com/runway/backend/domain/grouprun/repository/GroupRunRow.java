@@ -16,5 +16,6 @@ public record GroupRunRow(
         Integer goalDistance,
         Integer goalDuration,
         String status,
+        String cancelReason,
         Instant createdAt,
         Instant updatedAt) {}
