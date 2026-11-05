@@ -382,6 +382,27 @@ test('3.1b has no 다른 코스 once nextSeed is past the seed range', async () 
   expect(hasButton(screen, '다른 코스 추천받기')).toBe(false);
 });
 
+test('3.1b offers 다른 코스 twice per search and again after a new search', async () => {
+  const screen = await openTodayRun();
+  await press(screen, '코스 추천 받기');
+
+  // S15P31E105-383: 첫 추천 + 다른 코스 2번. Route looks back that many answers to leave out courses shown before.
+  await press(screen, '다른 코스 추천받기');
+  expect(hasButton(screen, '다른 코스 추천받기')).toBe(true);
+  await press(screen, '다른 코스 추천받기');
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49]);
+  expect(texts(screen)).toContain('강변을 많이 지나는 코스예요 49-0');
+  expect(texts(screen)).toContain('다른 코스는 2번까지 볼 수 있어요');
+  expect(hasButton(screen, '다른 코스 추천받기')).toBe(false);
+
+  // A new search from 3.1 (still mounted under 3.1b) starts the count again with the first seed.
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies().map(body => body.seed)).toEqual([1, 25, 49, 1]);
+  expect(hasButton(screen, '다른 코스 추천받기')).toBe(true);
+  await press(screen, '다른 코스 추천받기');
+  expect(recommendationBodies().at(-1)).toMatchObject({ seed: 25 });
+});
+
 test('3.1 offers distances only up to the 15km C01 makes', async () => {
   const screen = await openTodayRun();
 

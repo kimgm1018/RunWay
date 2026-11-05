@@ -79,6 +79,7 @@ POST /internal/v1/routes/recommendations: 현재 위치 · 목표 거리 · shap
 
 | 경로 | 한 줄 역할 |
 |---|---|
+| `app/reroll.py` | 재추천 제외용 코스 결과 cache(TTL 10분, TOP3 edge id만)와 seed → 되돌아볼 묶음 수 |
 | `app/main.py` | 엔드포인트(`/internal/v1/...`), 준비 상태(로드 → 예열 → ready), 실행 슬롯 1초 대기(`BUSY`)·`X-Request-Deadline`(`TIMEOUT`), 응답 조립(운영은 BE 계약의 최소 필드, `ROUTE_DEBUG=1`이면 전체 + debug) |
 | `app/config.py` / `schemas.py` / `errors.py` / `ai_logging.py` | 환경변수 / 요청 형식 / 오류 코드·메시지 / `runway.ai` 로그 |
 | `runway_routing/pipeline.py` | 엔진 전체 흐름(`RoutePipeline.run`), rollback 스위치 |
@@ -146,6 +147,7 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 
 | 환경변수 | 끄는 것 | 추천 결과 |
 |---|---|---|
+| `ROUTE_REROLL_EXCLUDE=0` | 재추천에서 이전 2개 응답 코스 빼기(S15P31E105-383, `app/reroll.py`) | 첫 요청(seed 1~24) 같음, 재추천은 예전(seed만 바꿈) 결과 |
 | `RUNWAY_P2P_SUBSTRATE=0` | P2P 배열 substrate → networkx | 같음(느려짐) |
 | `RUNWAY_SP_KERNEL=nx` | D-exact → networkx 최단 경로 | 같음(느려짐) |
 | `RUNWAY_SP_ENGINE=python` | Numba D-exact → Python D-exact | 같음(느려짐), Numba import·컴파일 없음 |

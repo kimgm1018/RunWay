@@ -33,6 +33,7 @@ import time
 from dataclasses import asdict
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 
 from . import candidates, features, scorer, snap
@@ -93,6 +94,7 @@ class RoutePipeline:
         if self.gen.array_enabled:
             self.gen.array_source = ArraySource(self.substrate if self.substrate is not None else Substrate(self.gen, self.ug2))
         self.lock = threading.Lock()
+        self._shown, self._skip = [], frozenset()   # 요청 하나 동안만(run), 재추천 제외 상태
 
     def status(self) -> dict:
         d, lay = self.data, self.data.env["layers"]
@@ -108,14 +110,28 @@ class RoutePipeline:
 
     def run(self, lat: float, lon: float, target_m: float, seed: int = 1, attempts: int | None = None,
             prefs: Preferences | dict | None = None, shape: str | None = None, end_lat: float | None = None,
-            end_lon: float | None = None) -> dict:
+            end_lon: float | None = None, shown=None) -> dict:
         """요청 하나 → out dict(모듈 docstring의 key 순서). shape None/"loop"는 LOOP, "out_and_back", "point_to_point".
+
+        shown(재추천, S15P31E105-383): 이전 응답에서 보여 준 코스의 edge id 배열 목록(같은 요청 graph 기준). 이 중 하나와
+        overlap_ratio >= 0.6(한 응답 안 dedupe와 같은 기준)인 후보는 모든 순위표에서 빠진다(pool·Gate 판정은 그대로).
+        그때만 out 끝에 "reroll" key가 붙는다. None/빈 목록이면 예전과 완전히 같은 out.
 
         순서: 생성 → features + 유효성 → 점수 + 러닝 적합도 → rank(dedupe) → Gate(FAIL 제거 후 재정렬, Stage B).
         API는 out["preference"](선호가 있을 때) 또는 out["baseline"]의 앞 3개를 TOP3로 쓴다.
         막힌 요청(extract 밖, P2P 거리 규칙, snap 실패, 후보 없음)은 out["issues"]의 blocking issue로 돌려준다.
         예외: 알 수 없는 shape/도착 좌표 누락은 ValueError, 주변에 길이 전혀 없으면 osmnx InsufficientResponseError
         (app이 NO_ROAD_NEARBY로 바꾼다). side effect: graph·mask LRU가 채워진다(결과에는 영향 없음)."""
+        self._shown, self._skip = [list(map(int, s)) for s in (shown or ()) if len(s)], frozenset()
+        try:
+            out = self._run(lat, lon, target_m, seed, attempts, prefs, shape, end_lat, end_lon)
+            if self._shown:
+                out["reroll"] = {"shown_routes": len(self._shown), "excluded": sorted(self._skip)}
+            return out
+        finally:
+            self._shown, self._skip = [], frozenset()
+
+    def _run(self, lat, lon, target_m, seed, attempts, prefs, shape, end_lat, end_lon) -> dict:
         prefs = prefs if isinstance(prefs, Preferences) else Preferences.from_dict(prefs)
         if shape in candidates.LOOP_SHAPES:
             active = self.gen.array_active
@@ -181,10 +197,11 @@ class RoutePipeline:
         out["graph"] = cg.stats
         out["pool"] = features.loop_pool(cg, res.candidates, target_m, self.data.env["name"])
         valid = [r for r in out["pool"] if r["invalid_reason"] is None]
+        self._mark_shown(valid, cg.ea["length"])
         scorer.score_loop(valid, prefs, self.data.scfg)
-        out["baseline"] = scorer.rank(valid, "baseline_score", cg.ea["length"])
+        out["baseline"] = self._rank(valid, "baseline_score", cg.ea["length"])
         if not prefs.is_neutral():
-            out["preference"] = scorer.rank(valid, "preference_score", cg.ea["length"])
+            out["preference"] = self._rank(valid, "preference_score", cg.ea["length"])
         # counts.final_* are the lengths of THIS ranking (before Running Suitability re-ranks): API debug contract
         reasons = pd.Series([r["invalid_reason"] for r in out["pool"] if r["invalid_reason"]]).value_counts().to_dict()
         pool_f = [r["features"] for r in out["pool"] if r["nodes"] is not None]
@@ -220,9 +237,9 @@ class RoutePipeline:
         cg = self.graph(lat, lon, target_m)
         features.add_running_suitability(valid, cg, self.rs_cfg)
         scorer.add_suitability(valid, self.rs_weight)
-        out["baseline"] = scorer.rank(valid, "baseline_score", cg.ea["length"])
+        out["baseline"] = self._rank(valid, "baseline_score", cg.ea["length"])
         if out["preference"] is not None:
-            out["preference"] = scorer.rank(valid, "preference_score", cg.ea["length"])
+            out["preference"] = self._rank(valid, "preference_score", cg.ea["length"])
 
     # ------------------------------------------------------------------ OUT_AND_BACK / POINT_TO_POINT
     def _shape(self, shape, lat, lon, target_m, end_lat, end_lon, seed, attempts, prefs) -> dict:
@@ -320,11 +337,12 @@ class RoutePipeline:
                                           self.data.env["name"], self.shape_cfg["tolerance"]["value"],
                                           self.ug2["type_matrix"]["F6"])
         valid = [r for r in out["pool"] if r["invalid_reason"] is None]
+        self._mark_shown(valid, cg.ea["length"])
         features.add_running_suitability(valid, cg, self.rs_cfg)
         scorer.score_shape(valid, prefs, route_type, self.data.scfg, self.rs_weight)
-        out["baseline"] = scorer.rank(valid, "baseline_score", cg.ea["length"])
+        out["baseline"] = self._rank(valid, "baseline_score", cg.ea["length"])
         if not prefs.is_neutral():
-            out["preference"] = scorer.rank(valid, "preference_score", cg.ea["length"])
+            out["preference"] = self._rank(valid, "preference_score", cg.ea["length"])
         out["counts"] = {"generated": len(gen), "loop_valid": len(valid), "final_baseline": len(out["baseline"]),
                          "final_preference": None if out["preference"] is None else len(out["preference"]),
                          "invalid_reasons": _count(r["invalid_reason"] for r in out["pool"] if r["invalid_reason"])}
@@ -337,7 +355,29 @@ class RoutePipeline:
     # ------------------------------------------------------------------ Usability Gate (every shape)
     def _gate(self, out, request_type, glat, glon, target_m, start, p2p=None) -> dict:
         return self.gate.apply(out, request_type, lambda: self.graph(glat, glon, target_m), target_m, start,
-                               self.gen.source, scorer.rank, p2p)
+                               self.gen.source, self._rank, p2p)
+
+    # ------------------------------------------------------------------ re-recommend exclusion (S15P31E105-383)
+    def _rank(self, valid: list, key: str, length) -> list:
+        return scorer.rank(valid, key, length, self._skip)
+
+    def _mark_shown(self, valid: list, length) -> None:
+        """이전에 보여 준 코스와 사실상 같은 유효 후보를 이번 요청의 순위표에서 뺀다. 둘 중 하나면 뺀다(기준 0.6):
+        - 이전 코스 하나와 overlap_ratio >= DEDUPE_OVERLAP (한 응답 안 dedupe와 같은 기준)
+        - 후보 길이 중 이전 코스들 edge 전체(합집합)에 들어 있는 비율 >= DEDUPE_OVERLAP (이전 코스 조각을 이어 붙인 후보;
+          383 측정 지표와 같은 꼴, 왕복처럼 같은 edge를 두 번 지나면 두 번 센다)"""
+        if not self._shown:
+            return
+        seen = np.unique(np.concatenate([np.asarray(s, dtype=np.int64) for s in self._shown]))
+        skip = []
+        for r in valid:
+            e = np.asarray(r["eids"], dtype=np.int64)
+            L = float(length[e].sum())
+            cov = float(length[e[np.isin(e, seen)]].sum()) / L if L > 0 else 1.0
+            if cov >= scorer.DEDUPE_OVERLAP or any(scorer.overlap_ratio(r["eids"], s, length) >= scorer.DEDUPE_OVERLAP
+                                                   for s in self._shown):
+                skip.append(r["candidate_id"])
+        self._skip = frozenset(skip)
 
 
 def _count(it) -> dict:
