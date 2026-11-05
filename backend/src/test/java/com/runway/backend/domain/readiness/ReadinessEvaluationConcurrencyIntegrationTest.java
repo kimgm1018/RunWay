@@ -125,7 +125,9 @@ class ReadinessEvaluationConcurrencyIntegrationTest extends ReadinessIntegration
         while (System.nanoTime() < deadline) {
             Integer waiting =
                     jdbc.queryForObject(
-                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=254001 AND NOT granted",
+                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=254001 AND NOT granted"
+                                    + " AND database = (SELECT oid FROM pg_database"
+                                    + " WHERE datname = current_database())",
                             Integer.class);
             if (waiting != null && waiting > 0) {
                 return true;

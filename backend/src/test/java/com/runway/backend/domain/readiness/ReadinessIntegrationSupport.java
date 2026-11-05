@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -21,24 +22,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
- * 254 통합 테스트 공통 준비. 모든 건강값·날짜는 합성 데이터다. 하위 클래스들이 컨테이너를 공유한다.
+ * 254 통합 테스트 공통 준비. 모든 건강값·날짜는 합성 데이터다. 하위 클래스들이 공유 서버의 전용 DB를 함께 쓴다.
  *
  * <p>W06 metricDate 허용 범위가 서버 UTC 오늘 −8일 ~ +1일이므로 W06으로 보내는 날짜는 UTC 오늘에서 계산하고, 평가 기준값(이전 날짜)은 DB에 직접 넣는다.
  */
 abstract class ReadinessIntegrationSupport {
 
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    static {
-        DATABASE.start();
-    }
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(ReadinessIntegrationSupport.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -58,7 +51,7 @@ abstract class ReadinessIntegrationSupport {
 
     @Autowired protected ReadinessEvaluationDispatcher dispatcher;
 
-    /** 다른 컨텍스트의 테스트 클래스가 같은 컨테이너를 쓰므로, 이 테스트가 남긴 평가를 끝내고 넘긴다. */
+    /** 다른 컨텍스트의 테스트 클래스가 같은 DB를 쓰므로, 이 테스트가 남긴 평가를 끝내고 넘긴다. */
     @AfterEach
     void awaitLeftoverEvaluations() throws InterruptedException {
         awaitEvaluations();

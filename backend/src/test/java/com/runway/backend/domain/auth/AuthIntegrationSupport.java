@@ -1,6 +1,7 @@
 package com.runway.backend.domain.auth;
 
 import com.runway.backend.domain.auth.service.MemberPasswordHasher;
+import com.runway.backend.support.SharedPostgres;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +13,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
@@ -21,10 +21,8 @@ abstract class AuthIntegrationSupport {
     static final String REDIS_IMAGE =
             "redis:8.2.11@sha256:dae6b6fcd9e26c1e73cf70323f0711d4c1ade5bf40c1dfd9aa24d0fbb57e2309";
     static final String TEST_PASSWORD = "synthetic-redis-test-only";
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(AuthIntegrationSupport.class);
     static final GenericContainer<?> REDIS =
             new GenericContainer<>(DockerImageName.parse(REDIS_IMAGE))
                     .withExposedPorts(6379)
@@ -46,7 +44,6 @@ abstract class AuthIntegrationSupport {
                             TEST_PASSWORD);
 
     static {
-        DATABASE.start();
         REDIS.start();
     }
 

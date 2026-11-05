@@ -15,6 +15,7 @@ import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -30,16 +31,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 class GeneratedCourseSaveIntegrationTest {
 
     private static final BigDecimal DISTANCE_M = new BigDecimal("2450.50");
@@ -47,11 +43,8 @@ class GeneratedCourseSaveIntegrationTest {
             GeoJsonLineString.of(
                     List.of(List.of(129.0, 35.0), List.of(129.01, 35.01), List.of(129.02, 35.0)));
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(GeneratedCourseSaveIntegrationTest.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

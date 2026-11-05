@@ -4,6 +4,7 @@ import com.runway.backend.domain.user.model.PreferenceSelection;
 import com.runway.backend.domain.user.service.PreferencesService;
 import com.runway.backend.domain.user.validation.PreferencesValidator;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,8 +14,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -22,14 +21,8 @@ import tools.jackson.databind.node.ObjectNode;
 @SpringBootTest
 @AutoConfigureMockMvc
 abstract class PreferencesIntegrationSupport {
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    static {
-        DATABASE.start();
-    }
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(PreferencesIntegrationSupport.class);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
