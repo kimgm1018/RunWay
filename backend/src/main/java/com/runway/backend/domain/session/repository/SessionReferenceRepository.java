@@ -256,7 +256,7 @@ public class SessionReferenceRepository {
         return jdbc.query(
                 """
                 SELECT p.user_id, s.status::text AS session_status, s.started_at,
-                       m.total_distance, m.measured_at
+                       s.average_pace, m.total_distance, m.measured_at
                 FROM group_run_participants p
                 LEFT JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
                 LEFT JOIN LATERAL (
@@ -276,7 +276,8 @@ public class SessionReferenceRepository {
                                 rs.getString("session_status"),
                                 toInstant(rs, "started_at"),
                                 rs.getBigDecimal("total_distance"),
-                                toInstant(rs, "measured_at")),
+                                toInstant(rs, "measured_at"),
+                                rs.getBigDecimal("average_pace")),
                 Timestamp.from(measuredAtCeiling),
                 groupRunId);
     }
@@ -362,7 +363,8 @@ public class SessionReferenceRepository {
             String sessionStatus,
             Instant startedAt,
             BigDecimal totalDistance,
-            Instant measuredAt) {}
+            Instant measuredAt,
+            BigDecimal averagePaceSecPerKm) {}
 
     public record CoachingGuideRow(BigDecimal recommendedPace, Instant expiresAt) {}
 

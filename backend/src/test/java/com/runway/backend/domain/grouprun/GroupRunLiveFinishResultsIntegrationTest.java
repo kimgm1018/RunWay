@@ -53,6 +53,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
                     "gapToAheadM",
                     "gapToBehindM",
                     "progressM",
+                    "paceSecPerKm",
                     "measuredAt",
                     "stale");
 
@@ -536,9 +537,11 @@ class GroupRunLiveFinishResultsIntegrationTest {
             assertThat(p.get("gapToAheadM").isNull()).isTrue();
             assertThat(p.get("gapToBehindM").isNull()).isTrue();
             assertThat(p.get("progressM").isNull()).isTrue();
+            assertThat(p.get("paceSecPerKm").isNull()).isTrue();
             assertThat(p.get("measuredAt").isNull()).isTrue();
             assertThat(p.get("stale").asBoolean()).isTrue();
         }
+        assertThat(json.get("loadAlert").isNull()).isTrue();
     }
 
     @Test
@@ -573,6 +576,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
                         "groupGuidePaceSecPerKm",
                         "courseId",
                         "updatedAt",
+                        "loadAlert",
                         "participants");
         for (JsonNode p : json.get("participants")) {
             assertThat(propertyNames(p)).containsExactlyElementsOf(PARTICIPANT_KEYS);
@@ -677,6 +681,99 @@ class GroupRunLiveFinishResultsIntegrationTest {
                 .andExpect(jsonPath("$.participants[0].stale").value(false))
                 .andExpect(jsonPath("$.participants[1].rank").value(2))
                 .andExpect(jsonPath("$.participants[1].progressM").value(500.0));
+    }
+
+    @Test
+    void live_running_returnsSessionAveragePace_andLoadAlertForFastMember() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        // 안내 페이스 = 중앙값(300, 400) = 350. host 300 <= 350 - 30 이므로 부담, member 400은 아님.
+        setSessionAveragePace(hostSession, 300);
+        setSessionAveragePace(memberSession, 400);
+        Instant now = Instant.now();
+        insertSample(hostSession, now.minusSeconds(3), 1200.0);
+        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+        int events = totalEventCount();
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(350))
+                .andExpect(jsonPath("$.loadAlert.memberCount").value(1))
+                .andExpect(jsonPath("$.loadAlert.nextPaceSecPerKm").value(365))
+                .andExpect(jsonPath("$.participants[0].userId").value(hostId))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(300))
+                .andExpect(jsonPath("$.participants[1].userId").value(memberId))
+                .andExpect(jsonPath("$.participants[1].paceSecPerKm").value(400));
+        assertThat(totalEventCount()).isEqualTo(events);
+    }
+
+    @Test
+    void live_running_withinMargin_hasNullLoadAlert_butKeepsPaces() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        // 안내 페이스 350. host 321 > 350 - 30 이므로 경계 밖(부담 아님).
+        setSessionAveragePace(hostSession, 321);
+        setSessionAveragePace(memberSession, 379);
+        Instant now = Instant.now();
+        insertSample(hostSession, now.minusSeconds(3), 1200.0);
+        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(350))
+                .andExpect(jsonPath("$.loadAlert").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(321))
+                .andExpect(jsonPath("$.participants[1].paceSecPerKm").value(379));
+    }
+
+    @Test
+    void live_running_staleParticipant_hasNullPace_andIsNotCountedForLoadAlert()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        setSessionAveragePace(hostSession, 300);
+        setSessionAveragePace(memberSession, 400);
+        Instant now = Instant.now();
+        // host 표본은 TTL 초과 -> stale. 빠르지만 부담 집계와 pace 노출에서 제외된다.
+        insertSample(hostSession, now.minusSeconds(120), 1200.0);
+        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(350))
+                .andExpect(jsonPath("$.loadAlert").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].stale").value(true))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].stale").value(false))
+                .andExpect(jsonPath("$.participants[1].paceSecPerKm").value(400));
+    }
+
+    @Test
+    void live_running_withoutSessionAveragePace_hasNullPace() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        insertSample(hostSession, Instant.now().minusSeconds(3), 500.0);
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.loadAlert").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].stale").value(false))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(nullValue()));
     }
 
     @Test

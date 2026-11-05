@@ -1088,6 +1088,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
   "groupGuidePaceSecPerKm": 360,
   "courseId": null,
   "updatedAt": "2026-11-05T03:00:00Z",
+  "loadAlert": { "memberCount": 1, "nextPaceSecPerKm": 375 },
   "participants": [
     {
       "userId": 101,
@@ -1097,6 +1098,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
       "gapToAheadM": null,
       "gapToBehindM": 35,
       "progressM": 1200.5,
+      "paceSecPerKm": 320,
       "measuredAt": "2026-11-05T02:59:50Z",
       "stale": false
     },
@@ -1108,6 +1110,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
       "gapToAheadM": null,
       "gapToBehindM": null,
       "progressM": null,
+      "paceSecPerKm": null,
       "measuredAt": "2026-11-05T02:58:50Z",
       "stale": true
     }
@@ -1122,6 +1125,9 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `courseId` | integer (int64) / null | O | `group_runs.course_id` |
 | `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, 중앙값 집계). 방장 목표 환산 `goalPaceSecPerKm`과 별개. 산출 규칙은 아래 `groupGuidePaceSecPerKm` 절. 산출 불가면 null |
 | `updatedAt` | string (ISO 8601 UTC) | O | `group_runs.updated_at` |
+| `loadAlert` | object / null | O | 멤버 부담 알림(파생). 부담 참가자가 없거나 `RUNNING`이 아니거나 `groupGuidePaceSecPerKm`이 null이면 null. 규칙은 아래 `loadAlert` 절 |
+| `loadAlert.memberCount` | integer | loadAlert 존재 시 O | 부담 참가자 수(1 이상) |
+| `loadAlert.nextPaceSecPerKm` | integer | loadAlert 존재 시 O | 그룹이 늦출 안내 페이스(sec/km). `groupGuidePaceSecPerKm + 15` |
 | `participants` | array | O | 참가자별 현황. 저장 컬럼 직접 대응이 아닌 **파생 응답** |
 | `participants[].userId` | integer (int64) | O | 참가자 사용자 ID |
 | `participants[].rank` | integer / null | O | 1부터. 동률은 같은 값. 순위 집합 밖·그룹 비RUNNING이면 null |
@@ -1130,6 +1136,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `participants[].gapToAheadM` | number / null | O | 바로 앞 군집(더 좋은 progress) 최근접과의 진행 거리 차(m). 선두·비순위면 null |
 | `participants[].gapToBehindM` | number / null | O | 바로 뒤 군집 최근접과의 차(m). 꼴등·비순위면 null |
 | `participants[].progressM` | number / null | O | 순위에 쓴 진행 거리(m). 비순위면 null |
+| `participants[].paceSecPerKm` | integer / null | O | 참가자 개인 페이스(sec/km). 연결된 러닝 세션의 `average_pace`를 반올림한 값. `stale=true`(비순위, 즉 rank/progress가 null인 경우)이거나 세션 평균 페이스가 없으면 null. 그룹이 비`RUNNING`이면 null. 선두–후미 간격은 `progressM` 차이로 클라이언트가 계산하며 `gapM`/`spreadM`은 두지 않는다 |
 | `participants[].measuredAt` | string (ISO 8601 UTC) / null | O | 조회에 반영된 **최신 표본 시각**(순위 제외여도 참고용으로 반환). 표본이 없거나 그룹이 비`RUNNING`이면 null. DB 신규 컬럼 없음 |
 | `participants[].stale` | boolean | O | **순위 집합 밖**이면 true(TTL 초과·허용 오차 초과 미래 시각·비RUNNING·표본 없음·그룹 비RUNNING 등). GPS 끊김만 뜻하지 않는다. DB 컬럼 없음 |
 
@@ -1197,6 +1204,13 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 - `RUNNING`: 참가자별 개인 AI04 `recommendedPace`를 우선하고 없으면 실측 페이스를 입력으로 중앙값을 낸다. 뒤처진 참가자도 포함하며 일시정지·개인 종료 참가자는 제외한다. 유효 입력이 없으면 `SCHEDULED`와 같은 프로필 중앙값으로 폴백(이전 값 저장용 컬럼이 없음)하고, 그것도 없으면 null.
 - 개인 SAFETY는 개인 코칭 경로가 우선한다. 중앙값·제외 규칙으로 충분하므로 특정 참가자 때문에 그룹 추천을 따로 낮추지 않는다.
 - 파생 계산만 하며 DB 신규 컬럼·마이그레이션, GET 부수효과(쓰기·알림·SSE)는 없다. SSE·변경 이벤트 푸시는 이번 범위 밖(별도 Jira).
+
+#### `participants[].paceSecPerKm`와 `loadAlert` (MVP, S15P31E105-468)
+
+- 개인 페이스: 참가자 연결 세션의 `running_sessions.average_pace`(sec/km, 반올림). 순위 집합 밖(`stale=true`)이거나 값이 없으면 null. AI 이벤트·현재 구간 페이스는 쓰지 않는다.
+- 부담 참가자: 그룹 `RUNNING`이고, `groupGuidePaceSecPerKm`이 있으며, `stale=false`이고 `paceSecPerKm`이 있으며, `paceSecPerKm <= groupGuidePaceSecPerKm - 30`(안내 페이스보다 30초/km 이상 빠름)인 참가자. 경계값 포함.
+- `loadAlert`: 부담 참가자가 1명 이상이면 `{ memberCount: 부담 참가자 수, nextPaceSecPerKm: groupGuidePaceSecPerKm + 15 }`, 아니면 null. 그룹이 `RUNNING`이 아니거나 안내 페이스가 null이어도 null.
+- 매 GET마다 현재 값으로 파생 계산하며 알림 이력·해제 상태·푸시는 저장하지 않는다(상태·이벤트·알림 부수 효과 없음, DB 변경 없음).
 
 #### 계산 시점·저장
 

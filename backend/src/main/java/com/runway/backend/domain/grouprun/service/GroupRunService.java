@@ -29,6 +29,7 @@ import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
@@ -61,6 +62,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -595,14 +597,31 @@ public class GroupRunService {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireParticipant(groupRunId, userId);
         Integer guidePace = resolveGroupGuidePace(row);
-        List<GroupRunLiveResponse.Participant> participants =
-                GroupRunStatus.RUNNING.name().equals(row.status())
-                        ? computeLiveParticipants(row)
-                        : participantJdbcRepository.findByGroupRunId(groupRunId).stream()
-                                .map(p -> unrankedParticipant(p.userId()))
-                                .toList();
+        List<GroupRunLiveResponse.Participant> participants;
+        GroupRunLiveResponse.LoadAlert loadAlert = null;
+        if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            participants = computeLiveParticipants(row);
+            loadAlert =
+                    GroupRunLoadAlertCalculator.evaluate(
+                            guidePace,
+                            participants.stream()
+                                    .filter(p -> !p.stale())
+                                    .map(GroupRunLiveResponse.Participant::paceSecPerKm)
+                                    .toList());
+        } else {
+            participants =
+                    participantJdbcRepository.findByGroupRunId(groupRunId).stream()
+                            .map(p -> unrankedParticipant(p.userId()))
+                            .toList();
+        }
         return new GroupRunLiveResponse(
-                groupRunId, row.status(), guidePace, row.courseId(), row.updatedAt(), participants);
+                groupRunId,
+                row.status(),
+                guidePace,
+                row.courseId(),
+                row.updatedAt(),
+                loadAlert,
+                participants);
     }
 
     /**
@@ -628,8 +647,16 @@ public class GroupRunService {
                 now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
         // MVP: GPS 궤적은 읽지 않고 빈 목록을 넘긴다. 자유 그룹도 누적 거리만으로 순위를 매긴다(선두 궤적 투영은 확장).
         // 미래 시각 표본은 ceiling 이하만 고르므로 이후 정상 표본을 가리지 않는다.
+        List<SessionReferenceRepository.GroupLiveRow> liveRows =
+                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling);
+        Map<Long, Integer> paceByUser = new HashMap<>();
+        for (SessionReferenceRepository.GroupLiveRow r : liveRows) {
+            paceByUser.put(
+                    r.userId(),
+                    GroupRunLoadAlertCalculator.toPaceSecPerKm(r.averagePaceSecPerKm()));
+        }
         List<ParticipantSample> samples =
-                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling).stream()
+                liveRows.stream()
                         .map(
                                 r ->
                                         new ParticipantSample(
@@ -653,12 +680,16 @@ public class GroupRunService {
         }
         return GroupRunLiveRanking.compute(now, row.courseId() != null, courseDistanceM, samples)
                 .stream()
-                .map(GroupRunService::toLiveParticipant)
+                .map(live -> toLiveParticipant(live, paceByUser.get(live.userId())))
                 .toList();
     }
 
-    /** 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. */
-    private static GroupRunLiveResponse.Participant toLiveParticipant(ParticipantLive live) {
+    /**
+     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 연결 세션 평균
+     * 페이스이며 stale이면 null이다.
+     */
+    private static GroupRunLiveResponse.Participant toLiveParticipant(
+            ParticipantLive live, Integer sessionAveragePace) {
         return new GroupRunLiveResponse.Participant(
                 live.userId(),
                 live.rank(),
@@ -667,13 +698,14 @@ public class GroupRunService {
                 live.gapToAheadM(),
                 live.gapToBehindM(),
                 live.progressM(),
+                live.stale() ? null : sessionAveragePace,
                 live.measuredAt(),
                 live.stale());
     }
 
     private static GroupRunLiveResponse.Participant unrankedParticipant(long userId) {
         return new GroupRunLiveResponse.Participant(
-                userId, null, null, null, null, null, null, null, true);
+                userId, null, null, null, null, null, null, null, null, true);
     }
 
     private void requireParticipant(long groupRunId, long userId) {
