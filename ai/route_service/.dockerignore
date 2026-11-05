@@ -4,3 +4,9 @@ tests/
 tools/route_regression/
 reports/
 .pytest_cache/
+
+# 인증정보 파일은 빌드 context에서 제외한다.
+.env
+.env.*
+**/.env
+**/.env.*

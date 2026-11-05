@@ -21,6 +21,8 @@ services:
       BACKEND_REDIS_PORT: "6379"
       BACKEND_REDIS_USERNAME: runway_app
       BACKEND_REDIS_SSL_ENABLED: "false"
+      BACKEND_ROUTE_MODE: http
+      BACKEND_ROUTE_BASE_URL: http://route:8000
       BACKEND_DOCS_ACCESS_MODE: password
       BACKEND_DOCS_USERNAME: runway105
     entrypoint: ["/bin/sh", "-c"]
@@ -65,11 +67,15 @@ services:
     ports:
       - "127.0.0.1:18081:8080"
     networks:
+      - route
       - redis
       - database
       - service
 
 networks:
+  route:
+    external: true
+    name: runway-route_default
   redis:
     external: true
     name: runway_redis
