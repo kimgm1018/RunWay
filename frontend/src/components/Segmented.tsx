@@ -9,11 +9,14 @@ export function Segmented<T extends string>({
   value,
   onChange,
   compact = false,
+  segmentWidth,
 }: {
   options: { value: T; label: string }[];
   value: T | null;
   onChange: (value: T) => void;
   compact?: boolean;
+  // Gives every segment this width instead of sizing each to its label.
+  segmentWidth?: number;
 }) {
   const { colors } = useTheme();
   return (
@@ -37,6 +40,10 @@ export function Segmented<T extends string>({
             style={[
               styles.segment,
               compact && styles.segmentCompact,
+              segmentWidth !== undefined && [
+                styles.segmentFixed,
+                { width: segmentWidth },
+              ],
               selected && { backgroundColor: colors.accent },
             ]}
           >
@@ -70,4 +77,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   segmentCompact: { flex: 0, height: 28, paddingHorizontal: spacing.lg },
+  segmentFixed: { flex: 0, paddingHorizontal: 0 },
 });

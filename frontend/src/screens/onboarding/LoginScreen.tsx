@@ -9,9 +9,11 @@ import { spacing } from '../../theme';
 import {
   GoButton,
   InlineError,
-  Logo,
   OnboardingFooter,
   OnboardingHeader,
+  onboardingScreen,
+  RunnerArt,
+  StepTitle,
   TextLink,
 } from './parts';
 
@@ -92,6 +94,7 @@ export function LoginScreen() {
 
   return (
     <Screen
+      {...onboardingScreen}
       header={<OnboardingHeader onBack={navigation.goBack} />}
       footer={
         <OnboardingFooter>
@@ -113,13 +116,18 @@ export function LoginScreen() {
         </OnboardingFooter>
       }
     >
-      <View style={styles.logo}>
-        <Logo width={210} />
-      </View>
+      {/* runway-onboarding-handoff 1.2: the runner and a title in place of the big wordmark. */}
+      <RunnerArt />
+      <StepTitle
+        title="다시 달려볼까요?"
+        description="아이디로 로그인하고 오늘의 러닝을 이어가요."
+      />
       <View style={styles.fields}>
         <TextField
           labelInside
+          icon="person"
           label="아이디"
+          placeholder="아이디를 입력해 주세요"
           value={loginId}
           onChangeText={setLoginId}
           autoCapitalize="none"
@@ -130,7 +138,9 @@ export function LoginScreen() {
         />
         <TextField
           labelInside
+          icon="padlock"
           label="비밀번호"
+          placeholder="비밀번호를 입력해 주세요"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -156,9 +166,7 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  // The wordmark sits a little below the header and well above the fields, as in the K1 draft.
-  logo: { alignItems: 'center', marginTop: 60, marginBottom: 38 },
-  fields: { gap: spacing.lg },
+  fields: { gap: 12 },
   forgot: { alignSelf: 'flex-end' },
   signUp: {
     flexDirection: 'row',

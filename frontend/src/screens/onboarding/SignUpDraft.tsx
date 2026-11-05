@@ -6,7 +6,13 @@ import React, {
   useState,
 } from 'react';
 import type { BirthDateParts } from './validation';
-import type { BasicProfile, HealthDataAccess } from '../../data';
+import type {
+  BasicProfile,
+  Gender,
+  HealthDataAccess,
+  SelfReportedLevel,
+} from '../../data';
+import type { PaceForm } from './runningPresets';
 import { useSession } from '../../session/SessionProvider';
 
 // U15 creates the account only once every required value is in, so 1.3–1.5 collect them here first.
@@ -16,9 +22,17 @@ export type SignUpDraft = {
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
   profile: BasicProfile | null;
+  // The birth date typed or picked on 1.5b, kept while 1.5 is open again so returning does not clear it.
   birthDateParts?: BirthDateParts;
   // Set after U15 succeeds; going back to 1.5 then updates the profile instead of signing up again.
   accountCreated: boolean;
+  // 1.5 → 1.5b (S15P31E105-447 split): the nickname and gender, before 1.5b adds the birth date.
+  basic: { nickname: string; gender: Gender } | null;
+  // A nickname U15 turned down at 1.5b, shown as taken back on 1.5.
+  takenNickname: string | null;
+  // 1.6 → 1.6b: the chosen level and the pace form its preset filled.
+  level: SelfReportedLevel | null;
+  paceForm: PaceForm | null;
 };
 
 const emptyDraft: SignUpDraft = {
@@ -28,6 +42,10 @@ const emptyDraft: SignUpDraft = {
   healthDataAccess: 'DISAGREE',
   profile: null,
   accountCreated: false,
+  basic: null,
+  takenNickname: null,
+  level: null,
+  paceForm: null,
 };
 
 type SignUpDraftValue = {

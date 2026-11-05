@@ -180,6 +180,7 @@ async function openWatchChoice() {
   await type(screen, '비밀번호', 'runway123');
   await press(screen, '로그인');
   await press(screen, '중급, 5–10km 주 2–3회');
+  await press(screen, '다음');
   await type(screen, '거리', '5');
   await type(screen, '완주 시간', '30:00');
   await press(screen, '저장');

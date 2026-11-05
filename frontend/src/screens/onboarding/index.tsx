@@ -4,8 +4,14 @@ import { ConsentScreen } from './ConsentScreen';
 import { LoginScreen } from './LoginScreen';
 import { PasswordFindScreen } from './PasswordFindScreen';
 import { PasswordPhoneScreen } from './PasswordPhoneScreen';
-import { ProfileBasicScreen } from './ProfileBasicScreen';
-import { ProfileRunningScreen } from './ProfileRunningScreen';
+import {
+  ProfileBasicScreen,
+  ProfileBirthdayScreen,
+} from './ProfileBasicScreen';
+import {
+  ProfilePaceScreen,
+  ProfileRunningScreen,
+} from './ProfileRunningScreen';
 import { SignUpScreen } from './SignUpScreen';
 import { StartScreen } from './StartScreen';
 import { WatchChoiceScreen } from './WatchChoiceScreen';
@@ -20,7 +26,9 @@ export const onboardingScreens: Record<AuthRouteName, React.ComponentType> = {
   SignUp: SignUpScreen,
   Consent: ConsentScreen,
   ProfileBasic: ProfileBasicScreen,
+  ProfileBirthday: ProfileBirthdayScreen,
   ProfileRunning: ProfileRunningScreen,
+  ProfilePace: ProfilePaceScreen,
   WatchChoice: WatchChoiceScreen,
   WatchConnect: WatchConnectScreen,
   PasswordFind: PasswordFindScreen,

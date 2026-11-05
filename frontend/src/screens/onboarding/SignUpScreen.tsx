@@ -9,12 +9,16 @@ import {
   type LoginIdAvailability,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { radius, spacing, useTheme } from '../../theme';
+import { fontFamily, radius, spacing } from '../../theme';
 import {
   FieldChip,
   GoButton,
   OnboardingFooter,
   OnboardingHeader,
+  onboardingLook,
+  onboardingScreen,
+  RunnerArt,
+  signUpSteps,
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
@@ -67,7 +71,6 @@ function useLoginIdCheck(loginId: string) {
 // 1.3 회원가입
 export function SignUpScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { draft, update } = useSignUpDraft();
   const [loginId, setLoginId] = useState(draft.loginId);
   const [password, setPassword] = useState(draft.password);
@@ -86,7 +89,10 @@ export function SignUpScreen() {
         helper: '아이디를 확인하지 못했어요. 잠시 후 다시 입력해 주세요',
       }
     : !idCheck.result
-    ? { status: 'default' as const, helper: '사용할 수 있는지 확인하는 중이에요' }
+    ? {
+        status: 'default' as const,
+        helper: '사용할 수 있는지 확인하는 중이에요',
+      }
     : idCheck.result.available
     ? {
         status: 'success' as const,
@@ -138,7 +144,13 @@ export function SignUpScreen() {
 
   return (
     <Screen
-      header={<OnboardingHeader onBack={navigation.goBack} />}
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: 1, total: signUpSteps }}
+        />
+      }
       footer={
         <OnboardingFooter>
           <GoButton
@@ -156,10 +168,13 @@ export function SignUpScreen() {
         </OnboardingFooter>
       }
     >
+      <RunnerArt />
       <StepTitle title="계정을 " muted="만들어요" />
       <TextField
         labelInside
+        icon="person"
         label="아이디"
+        placeholder="영문·숫자 4–16자"
         value={loginId}
         onChangeText={setLoginId}
         autoCapitalize="none"
@@ -172,7 +187,9 @@ export function SignUpScreen() {
       <View style={styles.group}>
         <TextField
           labelInside
+          icon="padlock"
           label="비밀번호"
+          placeholder="8자 이상 · 영문 · 숫자"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -186,18 +203,10 @@ export function SignUpScreen() {
               accessibilityLabel={`${passwordLabels[key]} ${
                 checks[key] ? '충족' : '미충족'
               }`}
-              style={[
-                styles.check,
-                {
-                  backgroundColor: checks[key]
-                    ? colors.inputBackground
-                    : colors.surfaceMuted,
-                },
-              ]}
+              style={[styles.check, checks[key] && styles.checkMet]}
             >
               <AppText
-                variant="label"
-                tone={checks[key] ? 'text' : 'textTertiary'}
+                style={[styles.checkText, checks[key] && styles.checkTextMet]}
               >
                 {checks[key] ? '✓ ' : ''}
                 {passwordLabels[key]}
@@ -208,7 +217,9 @@ export function SignUpScreen() {
       </View>
       <TextField
         labelInside
+        icon="shieldCheck"
         label="비밀번호 확인"
+        placeholder="한 번 더 입력해 주세요"
         value={confirm}
         onChangeText={setConfirm}
         secureTextEntry
@@ -218,6 +229,7 @@ export function SignUpScreen() {
       />
       <TextField
         labelInside
+        icon="handset"
         label="전화번호"
         value={formatPhoneNumber(phone.phoneNumber)}
         onChangeText={phone.setPhoneNumber}
@@ -231,6 +243,7 @@ export function SignUpScreen() {
       {codeVisible ? (
         <TextField
           labelInside
+          icon="message"
           label="인증번호"
           value={phone.code}
           onChangeText={phone.setCode}
@@ -262,11 +275,21 @@ export function SignUpScreen() {
 const styles = StyleSheet.create({
   group: { gap: spacing.md },
   checks: { flexDirection: 'row', gap: spacing.sm },
-  // The password rules of DESIGN.md 2-5: small light pills that fill in once met.
+  // The password rules (kept though the handoff leaves them out, 담당자 결정): small pale pills that turn
+  // white with ink text once met.
   check: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
+  checkMet: { backgroundColor: '#FFFFFF' },
+  checkText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: onboardingLook.muted,
+  },
+  checkTextMet: { color: onboardingLook.ink },
   timer: { paddingHorizontal: spacing.xs },
 });

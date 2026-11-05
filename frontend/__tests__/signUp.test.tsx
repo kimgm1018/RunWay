@@ -148,9 +148,11 @@ async function reachBasicProfile(screen: Screen) {
   await press(screen, '동의하고 가입하기');
 }
 
+// 1.5 takes the nickname and gender, then 1.5b the birth date; its 다음 sends U15.
 async function fillBasicProfile(screen: Screen, nickname = '러너') {
   await type(screen, '닉네임', nickname);
   await press(screen, '남성');
+  await press(screen, '다음');
   await press(screen, '연도 연도');
   await press(screen, '1991년');
   await press(screen, '월 월');
@@ -238,10 +240,14 @@ test('a taken nickname shows under the field until it changes', async () => {
   await fillBasicProfile(screen);
   await press(screen, '다음');
 
+  // U15 turns the nickname down on 1.5b, so 1.5 opens again with it marked.
   expect(texts(screen)).toContain('이미 사용 중인 닉네임이에요');
   expect(isDisabled(screen, '다음')).toBe(true);
   await type(screen, '닉네임', '새러너');
   expect(texts(screen)).not.toContain('이미 사용 중인 닉네임이에요');
+  await press(screen, '다음');
+  // 1.5b still holds the date picked before.
+  expect(isDisabled(screen, '다음')).toBe(false);
   await press(screen, '다음');
 
   expect(texts(screen)).toContain('평소 어떻게');
@@ -266,7 +272,7 @@ test.each([
     respond(503, { code: 'SERVICE_UNAVAILABLE', message: '', details: {} }),
     '가입하지 못했어요. 잠시 후 다시 시도해 주세요.',
   ],
-])('U15 errors show a notice on 1.5 (%#)', async (response, message) => {
+])('U15 errors show a notice on 1.5b (%#)', async (response, message) => {
   serve([response]);
   const screen = await launch();
   await reachBasicProfile(screen);
@@ -274,7 +280,7 @@ test.each([
   await press(screen, '다음');
 
   expect(texts(screen)).toContain(message);
-  expect(texts(screen)).toContain('불러드릴까요?');
+  expect(texts(screen)).toContain('언제예요?');
   expect(tokenStore.current()).toBeNull();
   await act(async () => screen.unmount());
 });
@@ -305,16 +311,18 @@ test('typed birth dates validate, share picker values, survive going back and re
   await type(screen, '생년월일 일 입력', '');
   expect(isDisabled(screen, '다음')).toBe(true);
   expect(texts(screen)).toContain('연도 4자리와 월·일을 모두 입력해 주세요');
-  // Popping this screen also preserves an unfinished date in the signup draft.
-  await press(screen, '이전');
+  // Popping 1.5b and 1.5 also preserves an unfinished date in the signup draft.
+  await press(screen, '뒤로');
+  await press(screen, '뒤로');
   await press(screen, '동의하고 가입하기');
+  await type(screen, '닉네임', '러너');
+  await press(screen, '남성');
+  await press(screen, '다음');
   await press(screen, '생년월일 직접 입력');
   expect(last(screen, '생년월일 연도 입력', 'onChangeText').props.value).toBe(
     '2000',
   );
   expect(last(screen, '생년월일 일 입력', 'onChangeText').props.value).toBe('');
-  await type(screen, '닉네임', '러너');
-  await press(screen, '남성');
   await type(screen, '생년월일 일 입력', '29');
   expect(isDisabled(screen, '다음')).toBe(false);
   await press(screen, '생년월일 목록 선택');
