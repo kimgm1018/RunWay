@@ -23,6 +23,7 @@ python -B tools/route_regression/run_regression.py --tag newdata   # results WIL
 ```
 
 Notes:
+- **Data bundle v2 (S15P31E105-435) covers all of Busan.** Its env layer and DEM span the road extract bbox [128.73, 34.85, 129.35, 35.42]. `fetch_env_layer.py` and `fetch_dem.py` still make the old demo-area files (v1, five-region disk / tile N35 E129 only). Do not use them to refresh v2: that would shrink the coverage again. The v2 files were built from the same Geofabrik PBF with the scripts recorded in `route_data_bundle_v2/DATA_MANIFEST.md`. After any env layer change, run `build_env_cache.py build` again. Bundle v2 is stored in the private Hugging Face repo `AnSeongYun/runway-hr-models`, folder `route_data_v2/`, revision `4952478476ce2d76579e1b6ba16363214e6a6914`.
 - `build_env_cache.py` imports `runway_routing.data.edge_distances` and `_code_sha`. A cache it builds is exactly the one production accepts. Do not edit `edge_distances`: its source text (even whitespace) is part of the cache hash.
 - `--out-dir` / `--out` write somewhere else for testing. The defaults overwrite production data.
 - The PoC "poc5" fallback layer and DEM (`reports/_route_poc_work/`) are only used when the wide files are missing. They are not rebuilt here.

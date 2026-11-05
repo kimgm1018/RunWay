@@ -2,7 +2,7 @@
 # RunWay Route service image (1 worker, target 1 vCPU / 1.5 GiB, separate from the HR container).
 #
 # The data bundle is NOT in git. Pass it as a named build context (folder with DATA_MANIFEST.md, data/, reports/):
-#   docker build -t runway-route --build-context route_data=<path>/route_data_bundle_v1 ai/route_service
+#   docker build -t runway-route --build-context route_data=<path>/route_data_bundle_v2 ai/route_service
 # The build checks every bundle file against DATA_MANIFEST.md, builds the network store + source snapshot,
 # then starts the engine once (load + warm-up request) so the Numba cache is in the image.
 # Run (read-only root fs; the Gate review log needs a writable /tmp):
