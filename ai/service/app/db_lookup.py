@@ -22,6 +22,8 @@ from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.personal_plan import CoursePlanSnapshot, UserPersonalizationSnapshot
 from app.planner import prerun_planner
+from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_RECENT_RUNS, SPEED_REF_VALID_RANGE_MPS,
+                                   speed_ref_from_runs)
 
 log = logging.getLogger("runway.ai")
 
@@ -42,6 +44,23 @@ PERSONALIZATION_COLUMNS = ("user_id", "personalization_version", "schema_version
                            "hr_threshold_run_count", "created_at")
 PERSONALIZATION_SQL = (f"SELECT {', '.join(PERSONALIZATION_COLUMNS)}\nFROM {PERSONALIZATION_TABLE}\n"
                        "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1")
+
+# AI09 속도 보정 v_ref(S15P31E105-402): 계획 시각 이전에 끝난 완료 러닝 최근 20회의 이동 속도.
+# 범위는 app/speed_calibration.py(SPEED_REF_VALID_RANGE_MPS, SPEED_REF_MAX_DURATION_SEC)와 같다.
+SPEED_REF_SQL = """SELECT total_distance, moving_duration, elapsed_duration
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+  AND ended_at <= %(cutoff)s
+  AND total_distance > 0
+  AND moving_duration > 0
+  AND GREATEST(moving_duration, COALESCE(elapsed_duration, 0)) <= %(max_duration_sec)s
+  AND total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
+SPEED_REF_UNAVAILABLE_WARNING = "SPEED_REF_LOOKUP_UNAVAILABLE"
 
 HR_THRESHOLD_COLUMNS = ("user_id", "personalization_version", "hr_danger_bpm", "hr_sustain_bpm",
                         "hr_threshold_run_count")
@@ -282,8 +301,21 @@ class DbUserPersonalizationLookup:
             hr_threshold_run_count=row.get("hr_threshold_run_count"),
         )
 
+    def get_speed_ref(self, user_id: int, *, cutoff: datetime) -> tuple[float | None, int, str | None]:
+        """(v_ref, 러닝 수, 경고). 조회 실패(권한 없음·테이블 없음 포함)는 계획을 막지 않고 Train 기본값으로 둔다."""
+        low, high = SPEED_REF_VALID_RANGE_MPS
+        params = {"user_id": int(user_id), "cutoff": cutoff, "max_duration_sec": SPEED_REF_MAX_DURATION_SEC,
+                  "min_speed_mps": low, "max_speed_mps": high, "limit": SPEED_REF_RECENT_RUNS}
+        try:
+            rows = self.db.fetch_all(SPEED_REF_SQL, params)
+        except DatabaseUnavailable:
+            return None, 0, SPEED_REF_UNAVAILABLE_WARNING
+        value, count = speed_ref_from_runs(rows or [])
+        return value, count, None
+
+
 __all__ = ["MISSING_RELATION_SQLSTATES", "COURSE_SQL", "HR_THRESHOLD_COLUMNS", "HR_THRESHOLD_SQL",
-           "PERSONALIZATION_SQL", "PERSONALIZATION_TABLE",
+           "PERSONALIZATION_SQL", "PERSONALIZATION_TABLE", "SPEED_REF_SQL", "SPEED_REF_UNAVAILABLE_WARNING",
            "GRU_PERSONALIZATION_COLUMNS", "GRU_PERSONALIZATION_SQL", "GRU_PERSONALIZATION_TABLE",
            "Database", "DatabaseUnavailable", "DbCourseLookup", "DbUserPersonalizationLookup",
            "PsycopgDatabase", "RouteElevationSource", "StoredCourseGradeSource", "default_db_factory"]

@@ -7,7 +7,8 @@ explicitly NOT_READY.
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
 import json
@@ -26,6 +27,7 @@ from app.policy.hr_reference import blend_hr_thresholds
 from app.schemas import CamelModel
 from app.planner import prerun_planner
 from app.population_bundle import EMPTY_MODE_POLICY_VERSION, PopulationBundle
+from app.speed_calibration import SpeedCalibration, load_speed_calibration, resolve_speed_ref, transform_speeds
 from app.planner.prerun_planner import PaceCandidate, PreRunSimulationRequest
 
 _CENT = Decimal("0.01")
@@ -131,6 +133,9 @@ class UserPersonalizationSnapshot:
     warnings: tuple[str, ...] = ()
     # 평균 묶음으로 계획할 때만: median_bundle 또는 empty(G0). 개인 묶음이면 None.
     population_mode: str | None = None
+    # AI09 속도 보정 v_ref(running_sessions 최근 20회 이동 속도 중앙값). 없으면 Train 기본값을 쓴다.
+    speed_ref_mps: float | None = None
+    speed_ref_run_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -497,8 +502,11 @@ class OdeBalancedPaceOptimizer:
 
     policy_version = "ode-hr-balance-experimental-v1"
 
-    def __init__(self, *, coordinate_passes: int = 2, policy_config=None, search_budget_cells: int | None = None):
+    def __init__(self, *, coordinate_passes: int = 2, policy_config=None, search_budget_cells: int | None = None,
+                 speed_calibration: SpeedCalibration | None = None):
         self.coordinate_passes = max(1, int(coordinate_passes))
+        # ODE 입력 속도 보정층(app/speed_calibration.py). s=1.0이면 예전과 bit 단위로 같다.
+        self.speed_calibration = speed_calibration or load_speed_calibration()
         self.policy_config = policy_config or load_policy_config()
         if search_budget_cells is None:
             raw = os.getenv("PERSONAL_PLAN_SEARCH_BUDGET_CELLS", str(DEFAULT_SEARCH_BUDGET_CELLS)).strip()
@@ -628,9 +636,17 @@ class OdeBalancedPaceOptimizer:
             candidate = PaceCandidate(0.0, tuple(float(p) for p in paces), float(duration))
             schedules.append((candidate, speeds, grades, duration, avg_pace, tuple(paces)))
 
+        ode_speeds = tuple(item[1] for item in schedules)
+        calibration = self.speed_calibration
+        if calibration.enabled:
+            # ODE 입력에만 v' = v_ref + s·(v − v_ref)를 쓴다. 하한·출력 페이스·완주시간은 원래 v 기준이다.
+            speed_ref, _, _ = resolve_speed_ref(personalization.speed_ref_mps, personalization.speed_ref_run_count,
+                                                calibration.default_speed_ref_mps)
+            floor = float(_TRAIN_SPEED_QUANTILES_MPS[0])
+            ode_speeds = tuple(transform_speeds(row, calibration.scale, speed_ref, floor) for row in ode_speeds)
         request = PreRunSimulationRequest(
             candidates=tuple(item[0] for item in schedules),
-            future_speed_mps=tuple(item[1] for item in schedules),
+            future_speed_mps=ode_speeds,
             future_grade_pct=tuple(item[2] for item in schedules),
             sample_interval_s=30, hr0_bpm=None, personalized=True,
         )
@@ -885,6 +901,12 @@ class OdeBalancedPaceOptimizer:
         if first_segment_capped:
             warning_set.append("PLAN_FIRST_SEGMENT_CAPPED")
         warning_set.append(f"PACE_SEARCH_GRID_STEP_MPS={_SPEED_SEARCH_GRID_STEP_MPS:.2f}")
+        if self.speed_calibration.enabled:
+            _, _, speed_ref_source = resolve_speed_ref(
+                personalization.speed_ref_mps, personalization.speed_ref_run_count,
+                self.speed_calibration.default_speed_ref_mps)
+            warning_set.append(f"ODE_SPEED_CALIB_SCALE={self.speed_calibration.scale:.2f}")
+            warning_set.append(f"ODE_SPEED_REF_SOURCE={speed_ref_source.upper()}")
         warning_set.append("POLICY_UNVALIDATED_NO_SAFETY_CLAIM")
         if support_cutoff_at is None:
             warning_set.append("PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN")
@@ -974,6 +996,18 @@ def build_personal_plan(
     user_thresholds = ((personalization.hr_danger_bpm, personalization.hr_sustain_bpm,
                         personalization.hr_threshold_run_count) if personalization is not None
                        else (None, None, None))
+    # 속도 보정 v_ref: 동의 사용자(userId 있음)만 완료 러닝에서 읽는다. 보정이 꺼져 있거나(s=1.0)
+    # 조회기가 지원하지 않으면 읽지 않는다(Train 기본값).
+    speed_ref = (None, 0)
+    get_speed_ref = getattr(personalization_lookup, "get_speed_ref", None)
+    calibration_on = bool(getattr(getattr(optimizer, "speed_calibration", None), "enabled", False))
+    if body.user_id is not None and calibration_on and callable(get_speed_ref):
+        value, count, speed_warning = get_speed_ref(body.user_id, cutoff=datetime.now(timezone.utc))
+        speed_ref = (value, count)
+        if speed_warning:
+            course_warnings.append(speed_warning)
+    if personalization is not None:
+        personalization = replace(personalization, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
     if personalization is not None and personalization.payload is None:
         personalization = None
     enabled = os.getenv("PERSONAL_PLAN_EXPERIMENTAL_ENABLED", "false").strip().lower() in {
@@ -1001,7 +1035,7 @@ def build_personal_plan(
             user_id=body.user_id, payload=population_payload,
             hr_danger_bpm=user_thresholds[0], hr_sustain_bpm=user_thresholds[1],
             hr_threshold_run_count=user_thresholds[2],
-            population_mode=population_mode)
+            population_mode=population_mode, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
         population_kind = population_mode
 
     if can_personalize or population_kind is not None:

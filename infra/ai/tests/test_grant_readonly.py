@@ -1,4 +1,4 @@
-"""V10 전 권한 부여 차단과 최소 권한 범위를 모의 Docker로 확인한다."""
+"""V10 전 권한 부여 차단, running_sessions 선부여, 최소 권한 범위를 모의 Docker로 확인한다."""
 import os
 from pathlib import Path
 import subprocess
@@ -20,7 +20,8 @@ set -eu
 if [[ $1 == ps ]]; then echo db; exit; fi
 query=$(cat)
 printf '%s\n' "$query" >> "$MOCK_DIR/sql"
-if [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
+if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
+elif [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
 '''
 
 
@@ -44,7 +45,25 @@ class ReadonlyGrantTests(unittest.TestCase):
         self.env["READY_RESULT"] = "f"
         result = self.run_grant()
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("GRANT SELECT", (self.root / "sql").read_text())
+        sql = (self.root / "sql").read_text()
+        self.assertNotIn("user_hr_personalization TO runway_ai", sql)
+        # running_sessions는 V1부터 있으므로 V10 대기와 관계없이 먼저 부여한다.
+        self.assertIn("GRANT SELECT ON public.running_sessions TO runway_ai", sql)
+
+    def test_running_sessions_is_granted_before_waiting_and_checked_read_only(self):
+        result = self.run_grant()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sql = (self.root / "sql").read_text()
+        self.assertLess(sql.index("public.running_sessions TO runway_ai"), sql.index("to_regclass"))
+        self.assertIn("has_table_privilege('runway_ai', 'public.running_sessions', 'SELECT')", sql)
+        self.assertIn("NOT has_table_privilege('runway_ai', 'public.running_sessions', 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                      sql)
+
+    def test_running_sessions_privilege_failure_stops_deployment(self):
+        self.env["RUNNING_SESSIONS_RESULT"] = "f"
+        result = self.run_grant()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("to_regclass", (self.root / "sql").read_text())
 
     def test_v10_ready_grants_only_hr_table_and_checks_write_denial(self):
         result = self.run_grant()

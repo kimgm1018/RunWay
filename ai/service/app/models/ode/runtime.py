@@ -24,7 +24,9 @@ from app.planner import prerun_planner as pp
 DEFAULT_VALIDATED_HORIZON_SEC = 5400
 DEFAULT_VALIDATION_REF = "ODE v2.1 1차 base pre-run H*90, C60 vs B_THS_pers 승"
 
-DEFAULT_CHECKPOINT_SHA256 = "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061"
+# S15P31E105-402: 속도 반응 미세조정(λ=1, V2 Train 전체, S15P31E105-406 최종) checkpoint.
+# 되돌리기: env ODEV21_CHECKPOINT_SHA256에 이전 base ba767a64… 지정.
+DEFAULT_CHECKPOINT_SHA256 = "737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b"
 DEFAULT_STATS_SHA256 = "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066"
 
 # v6_8_1: 기본 파일명을 배포 이름(infra/ai/.env.example, test-artifacts)과 하나로 맞춘다.

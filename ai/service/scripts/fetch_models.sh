@@ -21,11 +21,13 @@ if [[ "$ODEV21_SOURCE_MODE" == "local" ]]; then
 fi
 
 RUNWAY_MODEL_HF_REPO="${RUNWAY_MODEL_HF_REPO:-AnSeongYun/runway-hr-models}"
-RUNWAY_MODEL_HF_REVISION="${RUNWAY_MODEL_HF_REVISION:-11a3d0cce3062c84aa7ffee1740a93d204462190}"
+RUNWAY_MODEL_HF_REVISION="${RUNWAY_MODEL_HF_REVISION:-e44028f7a5cebbed1070094f8e2a081a03c1f523}"
 GRU_MODEL_SHA256="${GRU_MODEL_SHA256:-db59d414b8b88a6ac1140dd5bbce40475878d97a6436fb087141e25bdb3887fe}"
-ODEV21_CHECKPOINT_SHA256="${ODEV21_CHECKPOINT_SHA256:-ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061}"
+ODEV21_CHECKPOINT_SHA256="${ODEV21_CHECKPOINT_SHA256:-737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b}"
 ODEV21_SUMMARY_STATS_SHA256="${ODEV21_SUMMARY_STATS_SHA256:-9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066}"
-ODEV21_POPULATION_BUNDLE_SHA256="${ODEV21_POPULATION_BUNDLE_SHA256:-9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1}"
+ODEV21_POPULATION_BUNDLE_SHA256="${ODEV21_POPULATION_BUNDLE_SHA256:-bb15684840fbf39a35827c26d8d8c67e4d3b10ffaa3ff1b5d8b36c7ab606dcb6}"
+# ODE checkpoint·통계·평균 묶음이 있는 HF 폴더. 새 checkpoint는 revision·SHA와 함께 이 값을 바꿔 고른다.
+ODEV21_HF_DIR="${ODEV21_HF_DIR:-ode_v21_speedcal_b_lam1}"
 
 hf_url() {
   printf 'https://huggingface.co/%s/resolve/%s/%s' \
@@ -123,11 +125,11 @@ if [[ "$ODEV21_SOURCE_MODE" == "local" ]]; then
   copy_verified "$ODEV21_POPULATION_BUNDLE_SOURCE" \
     "$ODE_DIR/population_bundle_v2train_median.json" "$ODEV21_POPULATION_BUNDLE_SHA256"
 else
-  download_verified "$(hf_url ode_v21_stage1_base/selected_model.pt)" \
+  download_verified "$(hf_url "$ODEV21_HF_DIR"/selected_model.pt)" \
     "$ODE_DIR/ode_epoch_020.pt" "$ODEV21_CHECKPOINT_SHA256" true
-  download_verified "$(hf_url ode_v21_stage1_base/summary_stats.json)" \
+  download_verified "$(hf_url "$ODEV21_HF_DIR"/summary_stats.json)" \
     "$ODE_DIR/ode_summary_stats.json" "$ODEV21_SUMMARY_STATS_SHA256" true
-  download_verified "$(hf_url ode_v21_stage1_base/population_bundle_v2train_median.json)" \
+  download_verified "$(hf_url "$ODEV21_HF_DIR"/population_bundle_v2train_median.json)" \
     "$ODE_DIR/population_bundle_v2train_median.json" "$ODEV21_POPULATION_BUNDLE_SHA256" true
 fi
 

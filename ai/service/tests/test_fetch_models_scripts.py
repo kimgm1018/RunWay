@@ -87,8 +87,8 @@ def test_scripts_keep_token_out_of_curl_arguments_and_require_private_hf_auth():
     assert "HF_TOKEN" in powershell and "HF_TOKEN is required" in powershell
     assert "AnSeongYun/runway-hr-models" in bash
     assert "AnSeongYun/runway-hr-models" in powershell
-    assert "11a3d0cce3062c84aa7ffee1740a93d204462190" in bash
-    assert "11a3d0cce3062c84aa7ffee1740a93d204462190" in powershell
+    assert "e44028f7a5cebbed1070094f8e2a081a03c1f523" in bash
+    assert "e44028f7a5cebbed1070094f8e2a081a03c1f523" in powershell
 
 
 def _shell_service(tmp_path: Path) -> tuple[Path, Path, dict[str, str], bytes]:

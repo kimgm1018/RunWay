@@ -48,7 +48,7 @@ pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 | 항목 | 값 |
 | --- | --- |
 | 저장소 | `AnSeongYun/runway-hr-models` (비공개, 읽기 권한 필요) |
-| revision | `11a3d0cce3062c84aa7ffee1740a93d204462190` |
+| revision | `e44028f7a5cebbed1070094f8e2a081a03c1f523` |
 | 설치 파일 | GRU `models/gru_final.pt`; ODE·통계·평균 묶음 `models/ode/` |
 | 다운로드 | `scripts/fetch_models.sh` (Linux) 또는 `scripts/fetch_models.ps1` (Windows) |
 
@@ -68,7 +68,8 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | 이름 | 기본값 | 설명 |
 | --- | --- | --- |
 | `RUNWAY_MODEL_HF_REPO` | `AnSeongYun/runway-hr-models` | 모델 다운로드 저장소. 필요하면 배포 환경에서 재정의한다 |
-| `RUNWAY_MODEL_HF_REVISION` | `11a3d0cce3062c84aa7ffee1740a93d204462190` | 모델 다운로드 고정 revision |
+| `RUNWAY_MODEL_HF_REVISION` | `e44028f7a5cebbed1070094f8e2a081a03c1f523` | 모델 다운로드 고정 revision |
+| `ODEV21_HF_DIR` | `ode_v21_speedcal_b_lam1` | ODE checkpoint·통계·평균 묶음이 있는 HF 폴더. 이전 base는 `ode_v21_stage1_base`. 다른 ODE checkpoint는 이 값과 revision·SHA 세 개(`ODEV21_CHECKPOINT_SHA256`, `ODEV21_SUMMARY_STATS_SHA256`, `ODEV21_POPULATION_BUNDLE_SHA256`)를 함께 바꿔 고른다 |
 | `HF_TOKEN` | HF 모드에서 필수 | 비공개 저장소 읽기 권한. Jenkins credential로 주입하며 실제 값은 파일에 저장하지 않는다 |
 | `ODEV21_SOURCE_MODE` | `hf` | `hf`는 네 파일을 HF에서 받으며 `local`은 ODE checkpoint·통계·평균 묶음을 로컬 경로에서 복사한다. `local`은 HF_TOKEN을 요구하지 않는다 |
 | `ODEV21_SOURCE_CHECKPOINT` | (local 모드에서 필수) | 로컬 ODE checkpoint 원본 경로 |
@@ -92,6 +93,8 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | `PERSONAL_PLAN_EXPERIMENTAL_ENABLED` | `false` | 개인 ODE 계획 실험 기능 |
 | `PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN` | `true` | 첫 구간 과속 방지(출발 HR이 낮게 잡혀 첫 km가 탐색 최고 속도에 붙는 문제). 제약 없이 최적화한 뒤 첫 1 km가 나머지 구간 거리가중 평균 pace보다 빠르면 **첫 km만** 그 평균으로 올린다(나머지 그대로). 목표 시간이 있으면 같은 공통 배율로 완주시간을 맞추고 ODE로 다시 평가한다. 바뀌면 경고 `PLAN_FIRST_SEGMENT_CAPPED`. 부작용: 나머지가 오르막이면 첫 km도 그 평균까지 늦춘다 |
 | `PERSONAL_PLAN_SEARCH_BUDGET_CELLS` | `70000` | 개인 계획 탐색 계산 예산(ODE 30초 rollout 칸 총수, 결정적). 넘을 긴 코스만 탐색을 줄이고(반복 축소 → 이웃 1 km 구간 묶음) 경고 `PLAN_SEARCH_BUDGET_LIMITED`. 기본값은 CPU 1스레드에서 42.195 km ≤10초, 10 km 이하는 도입 전과 같은 결과 |
+| `PERSONAL_PLAN_SPEED_CALIB_SCALE` | `1.45` | AI09가 ODE에 넣는 속도만 `v' = v_ref + s·(v − v_ref)`로 바꾸는 속도 반응 보정 s. `1.0`이면 보정 전 계획과 bit 단위로 같고 러닝 기록도 읽지 않는다(되돌리기). 0 초과 3 이하가 아니면 시작 실패 |
+| `PERSONAL_PLAN_SPEED_REF_DEFAULT_MPS` | `3.4704` | 완료 러닝 기록이 없을 때 쓰는 v_ref(V2 Train 이동 속도 중앙값, m/s). 0.5~8.0 밖이면 시작 실패 |
 | `FREE_RUN_GRADE_POLICY` | `flat0` | 자유러닝(history 경사 전부 null) 처리: `reject`(팀 기존 계약, 422) / `unknown` / `flat0`(0% 평지). 아래 "자유러닝 경사 처리" 참고 |
 | `HR_MODEL_PATH` | `models/gru_final.pt` | 체크포인트 경로 |
 | `HR_MODEL_SHA256` | (없음) | 주면 시작할 때 체크포인트 SHA256 확인 |
@@ -100,11 +103,11 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | `TORCH_NUM_THREADS` | `1` | CPU 추론 스레드 수 |
 | `MPC_MARGIN_TABLE_PATH` | `app/policy/data/margin_gru.json` | MPC 잔차 여유 표 |
 | `ODEV21_CHECKPOINT_PATH` | `models/ode/ode_epoch_020.pt` | 앱 기본 경로. 배포(`infra/ai/.env.example`의 `/models/ode/ode_epoch_020.pt`)·`scripts/fetch_models.*`·test-artifacts와 같은 이름이다. env가 없고 이 파일이 없을 때만 예전 이름 `models/ode/model_epoch_020.pt`를 읽는다. 빈 값을 주면 ODE를 찾지 않는다. |
-| `ODEV21_CHECKPOINT_SHA256` | `ba767a64…b14061` | 시작 시 ODE SHA 검증 |
+| `ODEV21_CHECKPOINT_SHA256` | `737334a7…50dee3b` | 시작 시 ODE SHA 검증. S15P31E105-402/406 속도 반응 미세조정 checkpoint(λ=1, 이전 base `ba767a64…b14061`) |
 | `ODEV21_SUMMARY_STATS_PATH` | `models/ode/ode_summary_stats.json` | 앱 기본 경로. 배포(`/models/ode/ode_summary_stats.json`)와 같은 이름이다. env가 없고 이 파일이 없을 때만 예전 이름 `models/ode/summary_stats.json`을 읽는다. |
 | `ODEV21_SUMMARY_STATS_SHA256` | `9251e04e…e4e066` | 시작 시 통계 SHA 검증 |
 | `ODEV21_POPULATION_BUNDLE_PATH` | (없음) | 신규 사용자 평균 묶음 JSON(`population_bundle_v2train_median.json`). 다운로드 파일은 `models/ode/`에 설치한다. 비면 평균 계획 없음(503 `POPULATION_MEAN_MODEL_NOT_CONFIGURED`) |
-| `ODEV21_POPULATION_BUNDLE_SHA256` | (런타임에서 설정) | 묶음 sha256. 다운로더 기본값은 `9dcb5f4c…7ef1`; 다르면 시작 실패. 묶음 `modelVersion`이 ODE runtime과 다르면 시작 실패 |
+| `ODEV21_POPULATION_BUNDLE_SHA256` | (런타임에서 설정) | 묶음 sha256. 다운로더 기본값은 `bb156848…06dcb6`(새 checkpoint의 Train p4 중앙값으로 다시 만든 묶음, 이전 `9dcb5f4c…7ef1`); 다르면 시작 실패. 묶음 `modelVersion`이 ODE runtime과 다르면 시작 실패 |
 | `PERSONAL_PLAN_POPULATION_MODE` | `median_bundle` | 개인화 행이 없거나 `userId`가 생략된 경우: `median_bundle`(묶음 payload로 같은 ODE 계획, `AVERAGE_BASED`·`planSource=POPULATION_MEDIAN_ODE`) / `empty`(P4·history·요약을 비운 G0, `POPULATION_EMPTY_G0_ODE`) / `off`(기존 503). 사용자 ID가 없으면 사용자 HR 기준을 조회하지 않고 모집단 학습 기준을 쓴다. 정확도는 V2 Val에서 B_THS와 동률이라 우위를 주장하지 않는다 |
 | `ODEV21_DEVICE` | `cpu` | ODE 장치 (`cpu` 또는 `cuda`) |
 | `ODEV21_TORCH_THREADS` | `1` | ODE CPU 추론 스레드 수 |
@@ -265,9 +268,21 @@ history의 `gradePct`가 **전부** null이면 자유러닝으로 본다(코스 
 | --- | --- | --- |
 | 코스 거리·경사 | `courses.distance`, `elevation_profile`, `status`, `updated_at` | ACTIVE만. 없거나 MERGED/BLOCKED면 404. 고도 형식은 [`COURSE_ELEVATION_PROFILE_PROPOSAL.md`](../../docs/design/db/proposals/COURSE_ELEVATION_PROFILE_PROPOSAL.md). 경사 찾는 순서는 아래 "코스 경사 출처" |
 | 개인화·학습 심박 | `user_hr_personalization` 최신 `personalization_version` | **팀 DB에 없는 제안 테이블**. `userId`가 있는 동의 사용자만 조회한다. 행이 없거나 ID를 생략하면 모집단 학습 심박 기준으로 평균 묶음(`PERSONAL_PLAN_POPULATION_MODE`) 계획을 만든다. HR 강도 기준은 P85 지속 기준이며 출처는 `LEARNED_POPULATION`, `LEARNED_BLENDED`, `LEARNED_PERSONAL`이다. 테이블·컬럼이 아직 없으면 경고 `PERSONALIZATION_TABLE_MISSING`을 붙인다. 연결 실패·시간 초과는 503 `AI_DB_UNAVAILABLE` |
+| 평소 이동 속도(v_ref) | `running_sessions.total_distance`, `moving_duration`, `elapsed_duration`, `status`, `deleted_at`, `ended_at` | `userId`가 있는 동의 사용자만, 속도 보정이 켜져 있을 때만 읽는다. 아래 "출발 전 계획 속도 보정". AI 읽기 계정의 `running_sessions` SELECT 권한은 AI CD의 `infra/ai/grant-readonly.sh`가 개인화 테이블 대기 전에 준다. 권한이 없거나 조회가 실패하면 계획을 막지 않고 Train 기본값과 경고 `SPEED_REF_LOOKUP_UNAVAILABLE`을 쓴다 |
 | 제외한 입력 | `users.birth_date`, `daily_health_metrics.rhr_bpm` | AI는 두 값을 읽지 않는다. 나이 공식과 RHR·Karvonen 기준은 계산에서 제거했다. |
 
 DB 오류·시간 초과는 503 `AI_DB_UNAVAILABLE`(원문 미노출).
+
+### 출발 전 계획 속도 보정 (S15P31E105-402)
+
+출발 전 계획이 실제 러닝보다 빨랐다. ODE가 같은 사람 안에서 빨리 달릴 때의 HR 상승을 실제보다 작게 보기 때문이다(V2 Val 속도→HR 기울기 비율 0.71). 그래서 AI09는 ODE에 넣는 속도만 바꾼다(`app/speed_calibration.py`).
+
+- 식: `v' = v_ref + s·(v − v_ref)`, s=1.45(`PERSONAL_PLAN_SPEED_CALIB_SCALE`). v_ref 근처의 HR 수준은 그대로이고 속도 차이에 대한 HR 반응만 커진다. 탐색 범위 검사·출력 페이스·완주시간은 원래 v 기준이다. 바뀐 속도가 탐색 하한보다 낮아지면 하한에서 멈추고, 이미 하한보다 느린 칸은 낮추지 않는다.
+- v_ref: 그 사용자의 `running_sessions` 중 `status='COMPLETED'`, `deleted_at IS NULL`, `ended_at` ≤ 계획 시각인 러닝을 `ended_at` 최근 순으로 최대 20회 골라 `total_distance / moving_duration`의 중앙값을 쓴다. `total_distance`·`moving_duration`이 0·NULL이거나 이동 속도가 0.5~8.0 m/s 밖이거나 2시간을 넘는 러닝은 뺀다(SQL `SPEED_REF_SQL`). 쓸 러닝이 없으면 `PERSONAL_PLAN_SPEED_REF_DEFAULT_MPS`(3.4704)를 쓴다. 연구 하네스의 정의(출발 이전 최근 20회 거리÷이동 시간 중앙값)와 같다.
+- 보정이 켜져 있으면 `warnings`에 `ODE_SPEED_CALIB_SCALE=1.45`와 `ODE_SPEED_REF_SOURCE=HISTORY|TRAIN_DEFAULT`가 붙는다.
+- ODE checkpoint도 같은 사람 두 러닝의 평균 HR 차이를 맞추는 손실(λ=1)로 V2 Train 전체 미세조정한 것으로 바꿨다(S15P31E105-406 최종, SHA `737334a7…`, 구조·형식은 base와 같다). `modelVersion`은 `ode_v21_base_epoch20_legacy27:737334a7d77a`가 되고, 평균 묶음도 새 checkpoint로 다시 만들었다(P4만 다름). 이전 모델로 만든 개인화 행은 AI06을 다시 호출하기 전까지 평균 기반 계획을 받는다.
+- 근거(V2 Val 161회/30명, 개인 목표 P5 기준 완주시간 절대 오차 평균): base 280.1초 → 보정층만 247.3초 → 새 checkpoint + 보정층 241.3초. 재생 HR MAE와 러닝 중 예측(R20)은 사전 등록 기준(+0.3 bpm) 안이다. V2 Test는 쓰지 않았다.
+- 되돌리기: 보정층만 끄려면 `PERSONAL_PLAN_SPEED_CALIB_SCALE=1.0`(변환과 러닝 기록 조회를 모두 건너뛴다). 이전 checkpoint는 `RUNWAY_MODEL_HF_REVISION=11a3d0cce3062c84aa7ffee1740a93d204462190`, `ODEV21_HF_DIR=ode_v21_stage1_base`, `ODEV21_CHECKPOINT_SHA256=ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061`, `ODEV21_POPULATION_BUNDLE_SHA256=9dcb5f4c2aa7281de732b4a5fe64fb658f8acebc9f1b35389a71a7fe2b877ef1`로 다시 받는다(`SOURCES.json`의 `previousOde`).
 
 ### 학습 심박 기준
 

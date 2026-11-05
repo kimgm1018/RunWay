@@ -394,6 +394,8 @@ def test_short_courses_are_unchanged_by_the_search_budget(distance, kind, monkey
     # 예산 회귀만 본다(제약을 끈 순수 탐색 결과). 이 픽스처에서는 제약을 켜도 결과가 같다(아래 테스트).
     monkeypatch.delenv("PERSONAL_PLAN_SEARCH_BUDGET_CELLS", raising=False)
     monkeypatch.setenv("PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN", "false")
+    # _BEFORE_BUDGET은 속도 보정층 도입 전 값이다. s=1.0이면 예전과 bit 단위로 같아야 한다.
+    monkeypatch.setenv("PERSONAL_PLAN_SPEED_CALIB_SCALE", "1.0")
     selection = OdeBalancedPaceOptimizer().select(
         course=_course(distance, grades=_grades(distance, kind)), goal=None,
         personalization=_bundle(), ode_runtime=RecordingOdeRuntime(),
@@ -496,6 +498,7 @@ def test_invalid_first_segment_cap_env_is_rejected(value, monkeypatch):
 def test_first_segment_cap_leaves_plans_without_a_fast_first_km_unchanged(distance, kind, monkeypatch):
     # 후처리 방식: 첫 km가 이미 나머지 평균보다 느리거나 같으면 계획은 그대로다.
     monkeypatch.delenv("PLAN_FIRST_SEGMENT_NO_FASTER_THAN_MEAN", raising=False)
+    monkeypatch.setenv("PERSONAL_PLAN_SPEED_CALIB_SCALE", "1.0")  # 보정층 도입 전 값과 비교
     selection = OdeBalancedPaceOptimizer().select(
         course=_course(distance, grades=_grades(distance, kind)), goal=None,
         personalization=_bundle(), ode_runtime=RecordingOdeRuntime())
