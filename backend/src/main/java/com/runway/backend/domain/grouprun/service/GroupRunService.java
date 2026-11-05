@@ -30,6 +30,9 @@ import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
+import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
+import com.runway.backend.domain.grouprun.live.ParticipantLive;
+import com.runway.backend.domain.grouprun.live.ParticipantSample;
 import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
@@ -52,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -582,18 +586,77 @@ public class GroupRunService {
     }
 
     /**
-     * G10 스텁. 순위·격차·안내 페이스 계약이 확정되기 전이라 그룹 상태와 참가자 ID만 읽어 돌려준다. 계산·알림 같은 부수 효과가 없다.
+     * G10 실시간 순위·앞뒤 격차 조회(MVP). 요청 시점의 최신 스냅샷을 읽어 파생 계산만 하며 상태 변경·이벤트·알림 같은 부수 효과가 없다. RUNNING이 아닌
+     * 그룹은 순위·격차를 모두 null로 돌려준다.
      */
     @Transactional(readOnly = true)
     public GroupRunLiveResponse getLive(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireParticipant(groupRunId, userId);
+        Integer guidePace =
+                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration());
         List<GroupRunLiveResponse.Participant> participants =
-                participantJdbcRepository.findByGroupRunId(groupRunId).stream()
-                        .map(p -> new GroupRunLiveResponse.Participant(p.userId()))
-                        .toList();
+                GroupRunStatus.RUNNING.name().equals(row.status())
+                        ? computeLiveParticipants(row)
+                        : participantJdbcRepository.findByGroupRunId(groupRunId).stream()
+                                .map(p -> unrankedParticipant(p.userId()))
+                                .toList();
         return new GroupRunLiveResponse(
-                groupRunId, row.status(), row.courseId(), row.updatedAt(), participants);
+                groupRunId, row.status(), guidePace, row.courseId(), row.updatedAt(), participants);
+    }
+
+    private List<GroupRunLiveResponse.Participant> computeLiveParticipants(GroupRunRow row) {
+        Instant now = Instant.now();
+        Instant measuredAtCeiling =
+                now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
+        // MVP: GPS 궤적은 읽지 않고 빈 목록을 넘긴다. 자유 그룹도 누적 거리만으로 순위를 매긴다(선두 궤적 투영은 확장).
+        // 미래 시각 표본은 ceiling 이하만 고르므로 이후 정상 표본을 가리지 않는다.
+        List<ParticipantSample> samples =
+                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling).stream()
+                        .map(
+                                r ->
+                                        new ParticipantSample(
+                                                r.userId(),
+                                                r.startedAt() != null
+                                                        && "RUNNING".equals(r.sessionStatus()),
+                                                r.totalDistance() == null
+                                                        ? null
+                                                        : r.totalDistance().doubleValue(),
+                                                r.measuredAt(),
+                                                List.of()))
+                        .toList();
+        Double courseDistanceM = null;
+        if (row.courseId() != null) {
+            courseDistanceM =
+                    courseJdbcRepository
+                            .findById(row.courseId())
+                            .map(CourseRow::distanceM)
+                            .map(BigDecimal::doubleValue)
+                            .orElse(null);
+        }
+        return GroupRunLiveRanking.compute(now, row.courseId() != null, courseDistanceM, samples)
+                .stream()
+                .map(GroupRunService::toLiveParticipant)
+                .toList();
+    }
+
+    /** 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. */
+    private static GroupRunLiveResponse.Participant toLiveParticipant(ParticipantLive live) {
+        return new GroupRunLiveResponse.Participant(
+                live.userId(),
+                live.rank(),
+                live.aheadCount(),
+                live.behindCount(),
+                live.gapToAheadM(),
+                live.gapToBehindM(),
+                live.progressM(),
+                live.measuredAt(),
+                live.stale());
+    }
+
+    private static GroupRunLiveResponse.Participant unrankedParticipant(long userId) {
+        return new GroupRunLiveResponse.Participant(
+                userId, null, null, null, null, null, null, null, true);
     }
 
     private void requireParticipant(long groupRunId, long userId) {

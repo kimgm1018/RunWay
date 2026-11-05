@@ -29,7 +29,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** S15P31E105-261 slice 3. G12 강제 종료, G14 결과 조회, G10 실시간 현황 스텁. */
+/** S15P31E105-261 slice 3. G12 강제 종료, G14 결과 조회, G10 실시간 순위·격차. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class GroupRunLiveFinishResultsIntegrationTest {
@@ -43,6 +43,18 @@ class GroupRunLiveFinishResultsIntegrationTest {
         registry.add("spring.datasource.username", DATABASE::getUsername);
         registry.add("spring.datasource.password", DATABASE::getPassword);
     }
+
+    private static final List<String> PARTICIPANT_KEYS =
+            List.of(
+                    "userId",
+                    "rank",
+                    "aheadCount",
+                    "behindCount",
+                    "gapToAheadM",
+                    "gapToBehindM",
+                    "progressM",
+                    "measuredAt",
+                    "stale");
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
@@ -60,6 +72,7 @@ class GroupRunLiveFinishResultsIntegrationTest {
         jdbc.update("DELETE FROM pace_plan_segments");
         jdbc.update("DELETE FROM pace_plans");
         jdbc.update("DELETE FROM session_control_events");
+        jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM group_run_participants");
         jdbc.update("DELETE FROM group_runs");
         jdbc.update("DELETE FROM crew_memberships");
@@ -435,18 +448,54 @@ class GroupRunLiveFinishResultsIntegrationTest {
     // ---------------------------------------------------------------- G10
 
     @Test
-    void live_stub_returnsOnlyStatusAndParticipantIds() throws Exception {
+    void live_scheduled_returnsNullRanks_andStale_withGuidePace() throws Exception {
         long groupRunId = createGroupRun();
         readyHost(groupRunId);
         joinAndReady(groupRunId, memberId);
+
+        MvcResult result =
+                live(groupRunId, memberId)
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.groupRunId").value(groupRunId))
+                        .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                        // 5000m / 1800s -> 360 sec/km
+                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(360))
+                        .andExpect(jsonPath("$.participants", hasSize(2)))
+                        .andExpect(jsonPath("$.participants[0].userId").value(hostId))
+                        .andExpect(jsonPath("$.participants[1].userId").value(memberId))
+                        .andReturn();
+
+        JsonNode json = body(result);
+        for (JsonNode p : json.get("participants")) {
+            assertThat(propertyNames(p)).containsExactlyElementsOf(PARTICIPANT_KEYS);
+            assertThat(p.get("rank").isNull()).isTrue();
+            assertThat(p.get("aheadCount").isNull()).isTrue();
+            assertThat(p.get("behindCount").isNull()).isTrue();
+            assertThat(p.get("gapToAheadM").isNull()).isTrue();
+            assertThat(p.get("gapToBehindM").isNull()).isTrue();
+            assertThat(p.get("progressM").isNull()).isTrue();
+            assertThat(p.get("measuredAt").isNull()).isTrue();
+            assertThat(p.get("stale").asBoolean()).isTrue();
+        }
+    }
+
+    @Test
+    void live_running_withoutSamples_returnsSchemaKeys_nullRanks_andNoSideEffects()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        joinAndReady(groupRunId, memberId);
         start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
         int events = totalEventCount();
+        long version = sessionVersion(hostSession);
 
         MvcResult result =
                 live(groupRunId, memberId)
                         .andExpect(status().isOk())
                         .andExpect(jsonPath("$.groupRunId").value(groupRunId))
                         .andExpect(jsonPath("$.status").value("RUNNING"))
+                        .andExpect(jsonPath("$.groupGuidePaceSecPerKm").value(360))
                         .andExpect(jsonPath("$.courseId").value(nullValue()))
                         .andExpect(jsonPath("$.updatedAt").isString())
                         .andExpect(jsonPath("$.participants", hasSize(2)))
@@ -455,18 +504,134 @@ class GroupRunLiveFinishResultsIntegrationTest {
                         .andReturn();
 
         JsonNode json = body(result);
-        List<String> topKeys = new ArrayList<>();
-        json.propertyNames().forEach(topKeys::add);
-        assertThat(topKeys)
+        assertThat(propertyNames(json))
                 .containsExactlyInAnyOrder(
-                        "groupRunId", "status", "courseId", "updatedAt", "participants");
-        List<String> participantKeys = new ArrayList<>();
-        json.get("participants").get(0).propertyNames().forEach(participantKeys::add);
-        assertThat(participantKeys).containsExactly("userId");
+                        "groupRunId",
+                        "status",
+                        "groupGuidePaceSecPerKm",
+                        "courseId",
+                        "updatedAt",
+                        "participants");
+        for (JsonNode p : json.get("participants")) {
+            assertThat(propertyNames(p)).containsExactlyElementsOf(PARTICIPANT_KEYS);
+            // 표본이 없으면 순위 0·거리 0으로 채우지 않고 null + stale로 돌려준다.
+            assertThat(p.get("rank").isNull()).isTrue();
+            assertThat(p.get("progressM").isNull()).isTrue();
+            assertThat(p.get("stale").asBoolean()).isTrue();
+        }
 
         // 부수 효과가 없다.
         assertThat(groupStatus(groupRunId)).isEqualTo("RUNNING");
         assertThat(totalEventCount()).isEqualTo(events);
+        assertThat(sessionVersion(hostSession)).isEqualTo(version);
+    }
+
+    @Test
+    void live_running_ranksByLatestDistance_andMarksStaleOrIneligibleAsUnranked()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        Instant now = Instant.now();
+        // 최신 표본이 기준: 오래된 표본(더 큰 거리)은 무시되고 5초 전 표본이 쓰인다.
+        insertSample(hostSession, now.minusSeconds(300), 900.0);
+        insertSample(hostSession, now.minusSeconds(5), 1200.5);
+        insertSample(memberSession, now.minusSeconds(8), 1000.0);
+        int events = totalEventCount();
+
+        live(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].userId").value(hostId))
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[0].aheadCount").value(0))
+                .andExpect(jsonPath("$.participants[0].behindCount").value(1))
+                .andExpect(jsonPath("$.participants[0].gapToAheadM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].gapToBehindM").value(200.5))
+                .andExpect(jsonPath("$.participants[0].progressM").value(1200.5))
+                .andExpect(jsonPath("$.participants[0].measuredAt").isString())
+                .andExpect(jsonPath("$.participants[0].stale").value(false))
+                .andExpect(jsonPath("$.participants[1].userId").value(memberId))
+                .andExpect(jsonPath("$.participants[1].rank").value(2))
+                .andExpect(jsonPath("$.participants[1].aheadCount").value(1))
+                .andExpect(jsonPath("$.participants[1].behindCount").value(0))
+                .andExpect(jsonPath("$.participants[1].gapToAheadM").value(200.5))
+                .andExpect(jsonPath("$.participants[1].gapToBehindM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].progressM").value(1000.0))
+                .andExpect(jsonPath("$.participants[1].stale").value(false));
+
+        // TTL(60초)을 넘긴 표본은 비순위 + stale. 남은 참가자가 순위를 이어받는다.
+        jdbc.update("DELETE FROM running_metric_samples WHERE running_session_id = ?", memberSession);
+        insertSample(memberSession, now.minusSeconds(120), 1500.0);
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[0].aheadCount").value(0))
+                .andExpect(jsonPath("$.participants[0].behindCount").value(0))
+                .andExpect(jsonPath("$.participants[0].gapToBehindM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].rank").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].progressM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].stale").value(true));
+
+        // 일시정지 세션은 신선한 표본이 있어도 순위에서 제외된다.
+        jdbc.update("DELETE FROM running_metric_samples WHERE running_session_id = ?", memberSession);
+        insertSample(memberSession, now.minusSeconds(2), 1500.0);
+        jdbc.update(
+                "UPDATE running_sessions SET status = 'PAUSED'::running_sessions_status_enum WHERE id = ?",
+                memberSession);
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[1].rank").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].gapToAheadM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].stale").value(true));
+
+        // GET은 상태·이벤트를 바꾸지 않는다.
+        assertThat(groupStatus(groupRunId)).isEqualTo("RUNNING");
+        assertThat(totalEventCount()).isEqualTo(events);
+    }
+
+    @Test
+    void live_running_ignoresFutureMeasuredAt_andKeepsEarlierValidSample() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        Instant now = Instant.now();
+        // 정상 표본 뒤에 미래 시각·과장 거리가 와도 최신 후보에서 제외되어 정상 표본이 남는다.
+        insertSample(hostSession, now.minusSeconds(5), 800.0);
+        insertSample(hostSession, now.plusSeconds(300), 99999.0);
+        insertSample(memberSession, now.minusSeconds(4), 500.0);
+
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].userId").value(hostId))
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[0].progressM").value(800.0))
+                .andExpect(jsonPath("$.participants[0].stale").value(false))
+                .andExpect(jsonPath("$.participants[1].rank").value(2))
+                .andExpect(jsonPath("$.participants[1].progressM").value(500.0));
+    }
+
+    @Test
+    void live_completed_returnsNullRanks() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        insertSample(hostSession, Instant.now().minusSeconds(3), 800.0);
+        forceFinish(groupRunId, hostId, "{}").andExpect(status().isOk());
+
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.participants[0].rank").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].progressM").value(nullValue()))
+                .andExpect(jsonPath("$.participants[0].stale").value(true));
     }
 
     @Test
@@ -596,6 +761,24 @@ class GroupRunLiveFinishResultsIntegrationTest {
                 """,
                 Timestamp.from(Instant.now().minusSeconds(600)),
                 sessionId);
+    }
+
+    private void insertSample(long sessionId, Instant measuredAt, double totalDistanceM) {
+        jdbc.update(
+                """
+                INSERT INTO running_metric_samples(running_session_id, measured_at,
+                    elapsed_duration, total_distance, is_hr_measured)
+                VALUES (?, ?, 100, ?, FALSE)
+                """,
+                sessionId,
+                Timestamp.from(measuredAt),
+                totalDistanceM);
+    }
+
+    private static List<String> propertyNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.propertyNames().forEach(names::add);
+        return names;
     }
 
     private void markCompleted(long sessionId) {

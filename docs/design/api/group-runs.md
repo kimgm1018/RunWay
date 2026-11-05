@@ -1047,17 +1047,21 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | GRP-001~004, GRP-006~008 / MAT-004 |
-| 미정 사항 | 있음 |
-| 비고 | API 요청/응답 필드와 값 제한은 검토용 제안 |
+| 관련 Jira | S15P31E105-424 |
+| 미정 사항 | 아래 [확장]만 남김. MVP 순위·격차 정책은 2026-11-05 확정 |
+| 비고 | GET은 최신 스냅샷 읽기만 한다. 순위 재계산·알림·푸시를 트리거하지 않는다 |
 
 ### 설명
 
-지정 코스는 코스상 진행률, 자유는 선두 실제 경로 기준으로 순위·앞뒤 거리 비교.
+참가자가 그룹런 진행 중 화면·워치 복구에 쓰는 **실시간 순위·앞뒤 격차** 조회다.  
+지정 코스는 누적 거리 기반 코스 진행으로 비교한다. 자유 그룹 MVP는 누적 거리로 순위를 매기고, 선두 궤적 투영은 궤적 연동 후 확장한다. GPS는 지도 표시용이며, 순위 키를 GPS 최근접 투영만으로 두지 않는다.
 
 ### 인증 및 권한
 
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
+- 로그인 사용자이며 해당 그룹런 **참가자**만 조회한다.
 - 건강정보·실시간 위치·타인 기록 조회 시 동의 상태 및 공개 범위가 우선한다.
+- 건강·위치 **원본**을 이 API 응답에 넣지 않는다. 파생된 순위·격차·측정 시각만 노출한다.
+- 그룹 참가는 참가자 간 **파생 거리·순위** 공유를 전제한다. 건강정보 동의를 철회해도 진행 중 세션·기존 표본은 삭제·종료되지 않는다(W04). 철회 이후 새 측정 batch는 W07이 거절하며, 철회 직전 표본의 파생값은 최대 `GPS_TTL`(MVP 60초) 동안 live에 남을 수 있다.
 
 ### Path Parameters
 
@@ -1073,82 +1077,158 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 없음
 
-
 ### Response
 
-`200 OK (제안)`
+`200 OK`
 
 ```json
 {
   "groupRunId": 101,
   "status": "RUNNING",
   "groupGuidePaceSecPerKm": 360,
+  "courseId": null,
+  "updatedAt": "2026-11-05T03:00:00Z",
   "participants": [
     {
       "userId": 101,
-      "rank": 2,
-      "aheadCount": 1,
+      "rank": 1,
+      "aheadCount": 0,
       "behindCount": 2,
-      "gapToAheadM": 35,
-      "gapToBehindM": 20
+      "gapToAheadM": null,
+      "gapToBehindM": 35,
+      "progressM": 1200.5,
+      "measuredAt": "2026-11-05T02:59:50Z",
+      "stale": false
+    },
+    {
+      "userId": 102,
+      "rank": null,
+      "aheadCount": null,
+      "behindCount": null,
+      "gapToAheadM": null,
+      "gapToBehindM": null,
+      "progressM": null,
+      "measuredAt": "2026-11-05T02:58:50Z",
+      "stale": true
     }
-  ],
-  "courseId": null,
-  "updatedAt": "2026-10-24T09:00:00Z"
+  ]
 }
 ```
 
-응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
-
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `groupRunId` | integer (int64) | O | `group_runs.id` (BIGINT). 저장 값은 NULL 불가. |
-| `status` | string | O | `group_runs.status` (ENUM('SCHEDULED', 'RUNNING', 'COMPLETED', 'CANCELLED')). 저장 값은 NULL 불가. 허용값: SCHEDULED, RUNNING, COMPLETED, CANCELLED. |
-| `courseId` | integer (int64) / null | O | `group_runs.course_id` (BIGINT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `groupGuidePaceSecPerKm` | number | X | 자동 계산된 현재 공동 안내 페이스 (ERD만으로 응답 형식을 확정하지 않음.) |
-| `updatedAt` | string (ISO 8601 UTC) | O | `group_runs.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
-| `participants` | array | X | 저장 컬럼과 직접 대응하지 않는 응답 값. 산출·표시 구조 확인 필요 |
+| `groupRunId` | integer (int64) | O | `group_runs.id` |
+| `status` | string | O | `group_runs.status` (`SCHEDULED`\|`RUNNING`\|`COMPLETED`\|`CANCELLED`) |
+| `courseId` | integer (int64) / null | O | `group_runs.course_id` |
+| `groupGuidePaceSecPerKm` | number / null | O | 그룹에 확정된 **공통(공동) 페이스**. 대기실·그룹 목표에서 유도한 값(거리·시간 → pace). AI04/419가 러닝 중 바꾸는 값이 아니다. 유도 불가면 null |
+| `updatedAt` | string (ISO 8601 UTC) | O | `group_runs.updated_at` |
+| `participants` | array | O | 참가자별 현황. 저장 컬럼 직접 대응이 아닌 **파생 응답** |
+| `participants[].userId` | integer (int64) | O | 참가자 사용자 ID |
+| `participants[].rank` | integer / null | O | 1부터. 동률은 같은 값. 순위 집합 밖·그룹 비RUNNING이면 null |
+| `participants[].aheadCount` | integer / null | O | 앞선 참가자 수(**동순위 제외**). 비순위면 null |
+| `participants[].behindCount` | integer / null | O | 뒤진 참가자 수(동순위 제외). 비순위면 null |
+| `participants[].gapToAheadM` | number / null | O | 바로 앞 군집(더 좋은 progress) 최근접과의 진행 거리 차(m). 선두·비순위면 null |
+| `participants[].gapToBehindM` | number / null | O | 바로 뒤 군집 최근접과의 차(m). 꼴등·비순위면 null |
+| `participants[].progressM` | number / null | O | 순위에 쓴 진행 거리(m). 비순위면 null |
+| `participants[].measuredAt` | string (ISO 8601 UTC) / null | O | 조회에 반영된 **최신 표본 시각**(순위 제외여도 참고용으로 반환). 표본이 없거나 그룹이 비`RUNNING`이면 null. DB 신규 컬럼 없음 |
+| `participants[].stale` | boolean | O | **순위 집합 밖**이면 true(TTL 초과·허용 오차 초과 미래 시각·비RUNNING·표본 없음·그룹 비RUNNING 등). GPS 끊김만 뜻하지 않는다. DB 컬럼 없음 |
 
+**사용 흐름**
 
-**사용 흐름과 응답 판단**
-
-복구 화면은 참가자별 식별자·순위·앞뒤 인원/거리·현재 페이스와 기준시각이 필요하다. GPS 누락을 순위0/거리0으로 표시하지 않는다.
+- 화면 진입·재연결 시 최신 스냅샷을 읽는다.
+- GPS 누락·TTL 초과를 순위 0 / 거리 0으로 채우지 않는다.
+- 최종 결과는 G14. G10은 실시간 경주용이다.
 
 ### 오류 응답
 
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
+| HTTP·코드 | 발생 조건 |
+|---|---|
+| `403 NOT_PARTICIPANT` | 비참가자 |
+| `404 GROUP_NOT_FOUND` | 그룹 없음 |
+| `401 UNAUTHORIZED` | 미인증 |
+| `400 VALIDATION_ERROR` | path 식별자 형식 오류 |
 
-| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
-|---|---|---|
-| `403 NOT_PARTICIPANT` | 참가 권한 | 해당 그룹 참가 관계가 없는 사용자가 참가자 전용 요청을 보냄 |
-| `404 GROUP_NOT_FOUND` | 대상 없음 | 참조한 그룹런이 없음 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+공통 재시도 기준은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준).
 
-- **대상 없음·접근 차단 점검:** 경로 대상의 부재/삭제, 본인 소유·역할·참가 자격 불충족을 구분한다. 위 표에 없는 경우 `404` 자원 없음 또는 `403` 접근 거부의 추가 매핑을 확인한다. 존재 은닉을 위한 403/404 선택·검사 순서는 미정이며 새 코드로 단정하지 않는다.
+### 확정 정책 (MVP) — S15P31E105-424
 
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
+#### 그룹 상태와 순위 채움
 
-### 처리 규칙
+| `group_runs.status` | 순위·격차 필드 |
+|---|---|
+| `SCHEDULED` | 전원 `rank`/`gap*`/`progressM` = null. 참가자 목록·`groupGuidePaceSecPerKm`만 |
+| `RUNNING` | 아래 규칙으로 순위 집합을 채움 |
+| `COMPLETED` / `CANCELLED` | 실시간 순위 null(또는 마지막 스냅샷을 유지하지 않음). **확정 순위는 G14** |
 
-- 화면 진입·재연결 시 최신 그룹 상태를 복구하는 조회다. 순위 계산·페이스 조정·알림 생성을 실행시키지 않는다.
-- 참가자 측정 데이터 수신에 따라 순위·거리 차이를 자동 계산하고 변경 내용을 실시간 전달한다. 그룹 페이스·격차 알림도 조건 충족 시 자동 전송한다.
-- 반복 GET이 운동 진행의 필수 조건이 되어서는 안 된다. 채널·메시지·순서·만료·재연결 계약은 별도 확정한다.
+#### 순위 집합에 넣는 조건 (`RUNNING`일 때)
 
-- 지정 코스는 코스상 진행률, 자유는 선두 실제 경로 기준으로 순위·앞뒤 거리 비교.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+다음을 **모두** 만족할 때만 순위에 포함한다.
+
+1. 개인 세션이 실제로 시작됨(`started_at` 있음)이며 세션이 `RUNNING` (일시정지·개인 종료·미시작은 **제외**, rank/gap null)
+2. 허용 시각 이하의 거리 표본이 있고 `totalDistanceM`(또는 동등 누적 거리)이 non-null
+3. 표본이 **신선**함: `now - measuredAt ≤ GPS_TTL` (MVP 기본 **60초**)
+4. 표본 시각이 과도한 미래가 아님: `measuredAt ≤ now + MEASURED_AT_FUTURE_SKEW` (MVP 기본 **5초**). 이를 넘는 표본은 최신 후보에서 제외해 이후 정상 표본이 가려지지 않게 한다
+
+제외 참가자는 `stale=true`, rank/gap/progress null. `measuredAt`은 마지막 반영 표본이 있으면 참고용으로 남긴다. `userId`는 목록에 남긴다.
+
+#### 지정 코스 (`courseId != null`)
+
+- **순위 키:** 워치/폰이 올린 **누적 거리**를 코스 진행으로 쓴다. GPS 좌표는 경로 표시용이다.
+- **왕복:** 코스 편도 길이를 `L = courseDistanceM / 2`로 본다(왕편·복편 대칭 전제).  
+  - 누적 거리 `d`에 대해 진행 표시값 `progressM = d` (단조 증가; 반환점 이후에도 d는 계속 증가하므로 순위는 `d`로 비교).  
+  - UI가 “왕편에서의 위치”가 필요하면 `fold = d <= L ? d : (2L - d)` 같은 **표시용** 접기를 쓸 수 있으나, **등수 비교 키는 누적 `d`** 로 고정한다(돌아오는 중 앞사람을 역전하는 관계를 누적이 보존).
+- GPS 최근접 투영만으로 등수를 정하지 않는다(왕복 동일 선 모호성).
+
+#### 자유 그룹 (`courseId == null`)
+
+1. **MVP:** 순위 후보의 누적 거리 `d`만으로 순위를 매긴다(서비스는 궤적을 비워 전달).
+2. **확장(비활성):** 선두 bootstrap = 최대 `d`. 선두 궤적≥2점이면 타 참가자를 궤적에 투영. 위치 없으면 `d`로 대체. 속도·헤딩만으로 선두를 정하지 않는다.
+
+#### 동률
+
+- 진행도를 내림차순 정렬한 뒤 **인접** 차이가 허용 오차(MVP: **1m**) 이하면 같은 동률 군집·같은 `rank`(사슬 포함). 경쟁 순위(예: 1,1,3).
+- `aheadCount`/`behindCount`는 동률 군집 밖 인원만 센다.
+- 바로 앞/뒤 gap은 **인접한 다른 군집**의 최근접 진행도와의 차. 동률 군집만 있으면 해당 gap null.
+
+#### `groupGuidePaceSecPerKm`
+
+- 그룹 목표 거리·시간으로 유도한 **공통 페이스**(기존 `GroupRunGoalCalculator` 등과 동일 계열).
+- 대기실에 쓰던 공동 페이스를 RUNNING live에도 그대로 싣는다.
+- AI04 개인 코칭·419 AI 공동 페이스 재계산과 분리한다.
+
+#### 계산 시점·저장
+
+- 측정(W07)이 반영된 뒤 순위 스냅샷을 갱신할 수 있다. **GET `/live`는 재계산·쓰기·알림을 하지 않는다**(읽기 전용).
+- MVP 구현이 GET 시점에 파생 계산만 하더라도, 부수 효과(상태 변경·이벤트·알림)는 금지한다.
+- 신선도·순위용 **신규 DB 컬럼을 만들지 않는다.** `measuredAt`/`stale`은 기존 `running_metric_samples.measured_at` 등으로 계산한다.
+
+#### 실시간 푸시
+
+- MVP: **없음**. 클라이언트 폴링·재진입 GET.
+- 확장 여지는 아래 [확장] 참고.
+
+### 확장 (열려 있음 · MVP 비범위)
+
+| 확장 | 방향 |
+|---|---|
+| `routeProgressM` 실측 | 워치가 W07 `routeProgressM`을 채우면 지정 코스 순위 키를 누적거리 대신 **코스 방향 진행**으로 교체. 왕복은 폴리라인(왕+복) 누적 길이로 정의하고 `/2` 접기 전제를 폐기 |
+| 코스 폴리라인 투영 | 표시·이탈 감지는 GPS→폴리라인 투영. 등수 키와 표시 좌표를 분리한 현재 구조를 유지한 채 투영기만 교체 |
+| 자유 그룹 궤적 품질 | 궤적 간소화·노이즈 제거·이탈 참가자 재부착 규칙 강화. bootstrap은 누적거리 유지 가능 |
+| 동적 `groupGuidePace` | 419/내부 G08이 RUNNING 중 공동 페이스를 갱신하면 같은 응답 필드에 넣어 FE 계약 유지 |
+| 실시간 채널 | S10 또는 그룹 전용 SSE/WS로 `live` 스냅샷 push. GET 계약은 읽기 복구용으로 유지. 채널이 GET을 대체해 운동 필수 경로가 되지 않게 함 |
+| TTL·오차 | `GPS_TTL`, 동률 ε를 설정값화 |
+| COMPLETED 스냅샷 | 종료 직후 G10에 마지막 live를 잠시 노출할지 G14만 쓸지 제품 결정 |
 
 ### 상태값
 
-- RECRUITING / READY / RUNNING / COMPLETED / CANCELLED (허용 전이 검토).
+저장 상태: `SCHEDULED` / `RUNNING` / `COMPLETED` / `CANCELLED`.  
+(문서 일부의 RECRUITING/READY는 참가자 ready 표시용이며 그룹 저장 상태가 아니다.)
 
 ### 미정 사항
 
-- [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 실시간 전달 채널, 선두 경로 기준 순위·동기화 처리 확정
+- [x] MVP 순위·격차·왕복·선두·동률·TTL·guide pace·GET 읽기 전용 (2026-11-05)
+- [ ] 실시간 push 채널 메시지 스키마 (확장)
+- [ ] `routeProgressM` 전환 일정 (워치 실측 연동 후)
 
 
 ## G12 그룹런 전체 강제 종료
