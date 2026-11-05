@@ -84,29 +84,19 @@ function StartBackground() {
   );
 }
 
-// Everything on 1.1 but the button: the background, the runner and the logo. The launch splash
-// (screens/SplashScreen) draws the same while the saved tokens load, so opening the app runs straight into 1.1.
-export function StartArt() {
+// The 1.1 background with its runner, hung where the RUNWAY letters start. 5.1 · 5.2 · 5.3 use the same
+// (S15P31E105-485, runway-records: 1.1 시작 화면 배경).
+export function StartBackdrop({ blur = 0 }: { blur?: number }) {
   const { width, height } = useWindowDimensions();
   const scale = width / mockWidth;
-
-  // RUNWAY: 16 in from both edges, its top at 50.7% of the height; the loop 30 above it, 16% of the width.
-  const wordmarkWidth = width - 32;
-  const wordmarkHeight = wordmarkWidth * wordmarkRatio;
-  const wordmarkTop = height * 0.507;
-  const symbolWidth = width * 0.16;
-  const symbolHeight =
-    (symbolWidth * symbolViewBox.height) / symbolViewBox.width;
-  // The runner hangs from the letters: its top 264 (on the 412 phone) above them.
-  const runnerTop = wordmarkTop - 264.1 * scale;
-
+  const runnerTop = height * 0.507 - 264.1 * scale;
   return (
-    <View style={StyleSheet.absoluteFill}>
-      <StatusBar barStyle="dark-content" />
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <StartBackground />
       <Image
         source={runner}
         resizeMode="stretch"
+        blurRadius={blur}
         accessibilityIgnoresInvertColors
         style={[
           styles.absolute,
@@ -118,6 +108,28 @@ export function StartArt() {
           },
         ]}
       />
+    </View>
+  );
+}
+
+// Everything on 1.1 but the button: the background, the runner and the logo. The launch splash
+// (screens/SplashScreen) draws the same while the saved tokens load, so opening the app runs straight into 1.1.
+export function StartArt() {
+  const { width, height } = useWindowDimensions();
+
+  // RUNWAY: 16 in from both edges, its top at 50.7% of the height; the loop 30 above it, 16% of the width.
+  const wordmarkWidth = width - 32;
+  const wordmarkHeight = wordmarkWidth * wordmarkRatio;
+  const wordmarkTop = height * 0.507;
+  const symbolWidth = width * 0.16;
+  const symbolHeight =
+    (symbolWidth * symbolViewBox.height) / symbolViewBox.width;
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <StatusBar barStyle="dark-content" />
+      {/* The runner hangs from the letters: its top 264 (on the 412 phone) above them. */}
+      <StartBackdrop />
       <View
         accessible
         accessibilityRole="header"

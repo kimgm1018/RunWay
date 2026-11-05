@@ -254,15 +254,16 @@ test('5.1 shows the newest day from the server and 5.2 opens a run with its spli
     '5.02',
     '29:55',
     '목표 30:00 달성 · 5초 단축',
-    '페이스',
-    '심박',
+    '평균 페이스',
   ]) {
     expect(page).toContain(text);
   }
+  // 5.1 has no 페이스 · 심박 · 케이던스 tabs; they stay on 5.2 (담당자 결정).
+  expect(page).not.toContain('케이던스');
 
   await press(screen, '아침 러닝, 11.01 일 · 30:00, 5.02km');
   page = texts(screen);
-  for (const text of ['기록 상세', '5.02', '29:55', '5′58″']) {
+  for (const text of ['기록 상세', '5.02', '29:55', '5′58″', '심박']) {
     expect(page).toContain(text);
   }
   expect(page).not.toContain('AI 조언');
@@ -276,15 +277,11 @@ test('5.3 sums the server runs and compares them with H06 last month', async () 
   const page = texts(screen);
   for (const text of [
     '11월 ▾',
-    '11.1 · 11.0km',
-    '10월 4.0km',
-    '11.1 – 11.1',
-    '5′59″',
-    '12초 빠름',
-    '11.0',
-    '+7.0km',
-    '+1회',
-    '11월 누적',
+    '러닝 분석 | 11월',
+    '11.0km',
+    '10월보다 +7.0km',
+    '5′59″/km',
+    '러닝 2회',
   ]) {
     expect(page).toContain(text);
   }

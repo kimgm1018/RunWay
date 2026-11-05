@@ -107,7 +107,7 @@ export function SplitChart({
     { length: Math.floor(totalM / 1000) + 1 },
     (_, km) => km,
   );
-  const bestLabel = `${formatValue(best.value)} 최고`;
+  const bestLabel = `최고 ${formatValue(best.value)}`;
   // On the right half the callout sits left of the point, so a best last split stays inside the chart.
   const calloutLeft = bestPoint.x <= width / 2;
   return (
@@ -121,8 +121,8 @@ export function SplitChart({
           <Svg width={width} height={height}>
             <Defs>
               <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor="#182E3D" stopOpacity={0.28} />
-                <Stop offset="1" stopColor="#182E3D" stopOpacity={0} />
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.32} />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.04} />
               </LinearGradient>
             </Defs>
             <Path
@@ -137,27 +137,20 @@ export function SplitChart({
                 x2={width}
                 y1={y(reference.value)}
                 y2={y(reference.value)}
-                stroke={recordsLook.ink}
-                strokeOpacity={0.35}
+                stroke={recordsLook.onCard}
+                strokeOpacity={0.55}
                 strokeDasharray="4 4"
                 strokeWidth={1}
               />
             ) : null}
             <Path
               d={line}
-              stroke={recordsLook.ink}
+              stroke={recordsLook.onCard}
               strokeWidth={2.2}
               strokeLinecap="round"
               fill="none"
             />
-            <Circle
-              cx={bestPoint.x}
-              cy={bestPoint.y}
-              r={6}
-              fill="#FFFFFF"
-              stroke={recordsLook.ink}
-              strokeWidth={2.4}
-            />
+            <Circle cx={bestPoint.x} cy={bestPoint.y} r={4.5} fill="#FFFFFF" />
           </Svg>
           <View
             pointerEvents="none"
@@ -194,35 +187,33 @@ export function SplitChart({
 
 const styles = StyleSheet.create({
   chart: { alignSelf: 'stretch' },
+  // 최고 5′41″ as plain white text by the point (runway-records 2차).
   callout: {
     position: 'absolute',
     height: 24,
-    paddingHorizontal: 9,
-    borderRadius: 8,
     justifyContent: 'center',
-    backgroundColor: recordsLook.ink,
   },
   calloutText: {
-    fontFamily: fontFamily.monoMedium,
-    fontSize: 11,
-    lineHeight: 14,
-    color: '#FFFFFF',
+    fontFamily: fontFamily.bold,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: recordsLook.onCard,
   },
   reference: {
     position: 'absolute',
     right: 0,
-    fontFamily: fontFamily.monoMedium,
-    fontSize: 10.5,
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
     lineHeight: 14,
-    color: recordsLook.sub,
+    color: recordsLook.onCardLabel,
   },
   km: {
     position: 'absolute',
     width: 40,
     textAlign: 'center',
-    fontFamily: fontFamily.mono,
+    fontFamily: fontFamily.medium,
     fontSize: 10.5,
     lineHeight: 16,
-    color: recordsLook.sub,
+    color: recordsLook.onCardMuted,
   },
 });

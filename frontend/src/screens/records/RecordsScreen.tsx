@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
@@ -12,7 +11,6 @@ import {
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState } from '../../components';
 import {
   useRepositories,
@@ -29,14 +27,15 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { HomeStackParamList } from '../../navigation/types';
-import { fontFamily, size } from '../../theme';
+import { fontFamily } from '../../theme';
 import {
   glassCard,
   MonthPicker,
   recordsLook,
-  RecordsBackdrop,
+  RecordsShell,
+  recordsFrame,
+  usePickerTop,
   RoundGlassButton,
-  ScreenTitle,
 } from './look';
 import { addDays, kstDay, kstMonth, mondayOf } from './parts';
 import { RecordView } from './RecordView';
@@ -132,7 +131,7 @@ function Day({
 export function RecordsScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<HomeStackParamList, 'Records'>>();
-  const insets = useSafeAreaInsets();
+  const pickerTop = usePickerTop();
   const { clock } = useRepositories();
   const today = kstDay(clock.now());
   const [day, setDay] = useState<string | null>(route.params?.day ?? null);
@@ -252,40 +251,24 @@ export function RecordsScreen() {
   );
 
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      <RecordsBackdrop />
-      <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          {
-            paddingTop: insets.top + 10,
-            paddingBottom:
-              insets.bottom + size.tabBar + size.tabBarInset * 2 + 12,
-          },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.head}>
-          <ScreenTitle
-            title="내 기록"
-            onBack={() =>
-              navigation.canGoBack()
-                ? navigation.goBack()
-                : navigateTo(navigation, 'Home')
-            }
-            right={
-              <RoundGlassButton
-                icon="calendar"
-                label="월 선택"
-                onPress={() => {
-                  setPickerYear(Number((shown ?? today).slice(0, 4)));
-                  setPicking(shownNow => !shownNow);
-                }}
-              />
-            }
-          />
-        </View>
+    <RecordsShell
+      title="내 기록"
+      onBack={() =>
+        navigation.canGoBack()
+          ? navigation.goBack()
+          : navigateTo(navigation, 'Home')
+      }
+      right={
+        <RoundGlassButton
+          icon="calendar"
+          label="월 선택"
+          onPress={() => {
+            setPickerYear(Number((shown ?? today).slice(0, 4)));
+            setPicking(shownNow => !shownNow);
+          }}
+        />
+      }
+      tabs={
         <View
           style={[styles.week, glassCard]}
           onTouchStart={event => {
@@ -314,126 +297,129 @@ export function RecordsScreen() {
             />
           ))}
         </View>
-        <View style={[styles.card, glassCard]}>
-          {start.status === 'error' || week.status === 'error' ? (
-            <EmptyState
-              icon="alert"
-              title="기록을 불러오지 못했어요"
-              actionLabel="다시 시도"
-              onAction={() => {
-                start.reload();
-                week.reload();
-              }}
+      }
+      after={
+        picking ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="월 선택 닫기"
+              onPress={() => setPicking(false)}
+              style={styles.scrim}
             />
-          ) : !shown || week.status !== 'ready' ? (
-            <ActivityIndicator style={styles.loading} />
-          ) : !run ? (
-            <View style={styles.empty}>
-              <AppText style={styles.emptyTitle}>
-                이 날은 러닝 기록이 없어요
-              </AppText>
-              <AppText style={styles.emptyText}>
-                점이 있는 날을 눌러 보세요
-              </AppText>
-            </View>
-          ) : (
-            <>
-              {runs.length > 1 ? (
-                // Two runs on one day: pick which one the card shows.
-                <View style={styles.runs}>
-                  {runs.map((item, index) => (
-                    <Pressable
-                      key={item.id}
-                      accessibilityRole="tab"
-                      accessibilityLabel={`${formatClockTime(
-                        item.startedAt,
-                      )} 러닝`}
-                      accessibilityState={{ selected: item.id === run.id }}
-                      onPress={() => setRunIndex(index)}
+            <MonthPicker
+              year={pickerYear}
+              selected={kstMonth(shown ?? today)}
+              latest={kstMonth(today)}
+              marked={marks.status === 'ready' ? marks.data : new Set()}
+              onYear={setPickerYear}
+              onPick={month => {
+                pick(month).catch(() => undefined);
+              }}
+              style={{ ...styles.picker, top: pickerTop }}
+            />
+          </>
+        ) : null
+      }
+    >
+      <ScrollView
+        contentContainerStyle={styles.card}
+        showsVerticalScrollIndicator={false}
+      >
+        {start.status === 'error' || week.status === 'error' ? (
+          <EmptyState
+            icon="alert"
+            title="기록을 불러오지 못했어요"
+            actionLabel="다시 시도"
+            onAction={() => {
+              start.reload();
+              week.reload();
+            }}
+          />
+        ) : !shown || week.status !== 'ready' ? (
+          <ActivityIndicator style={styles.loading} />
+        ) : !run ? (
+          <View style={styles.empty}>
+            <AppText style={styles.emptyTitle}>
+              이 날은 러닝 기록이 없어요
+            </AppText>
+            <AppText style={styles.emptyText}>
+              점이 있는 날을 눌러 보세요
+            </AppText>
+          </View>
+        ) : (
+          <>
+            {runs.length > 1 ? (
+              // Two runs on one day: pick which one the card shows.
+              <View style={styles.runs}>
+                {runs.map((item, index) => (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="tab"
+                    accessibilityLabel={`${formatClockTime(
+                      item.startedAt,
+                    )} 러닝`}
+                    accessibilityState={{ selected: item.id === run.id }}
+                    onPress={() => setRunIndex(index)}
+                    style={[
+                      styles.runChip,
+                      item.id === run.id && styles.runChipOn,
+                    ]}
+                  >
+                    <AppText
                       style={[
-                        styles.runChip,
-                        item.id === run.id && styles.runChipOn,
+                        styles.runChipText,
+                        item.id === run.id && styles.runChipTextOn,
                       ]}
                     >
-                      <AppText
-                        style={[
-                          styles.runChipText,
-                          item.id === run.id && styles.runChipTextOn,
-                        ]}
-                      >
-                        {`${formatClockTime(item.startedAt)} · ${formatKm(
-                          item.distanceM,
-                        )}km`}
-                      </AppText>
-                    </Pressable>
-                  ))}
-                </View>
-              ) : null}
-              {detail.status === 'ready' && detail.data ? (
-                <RecordView
-                  key={detail.data.id}
-                  record={detail.data}
-                  chartHeight={300}
-                  onOpen={open}
-                  openLabel={rowLabel(run)}
-                />
-              ) : detail.status === 'error' ? (
-                <EmptyState
-                  icon="alert"
-                  title="기록을 불러오지 못했어요"
-                  actionLabel="다시 시도"
-                  onAction={detail.reload}
-                />
-              ) : (
-                <ActivityIndicator style={styles.loading} />
-              )}
-            </>
-          )}
-        </View>
+                      {`${formatClockTime(item.startedAt)} · ${formatKm(
+                        item.distanceM,
+                      )}km`}
+                    </AppText>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {detail.status === 'ready' && detail.data ? (
+              <RecordView
+                key={detail.data.id}
+                record={detail.data}
+                chartHeight={300}
+                onOpen={open}
+                openLabel={rowLabel(run)}
+              />
+            ) : detail.status === 'error' ? (
+              <EmptyState
+                icon="alert"
+                title="기록을 불러오지 못했어요"
+                actionLabel="다시 시도"
+                onAction={detail.reload}
+              />
+            ) : (
+              <ActivityIndicator style={styles.loading} />
+            )}
+          </>
+        )}
       </ScrollView>
-      {picking ? (
-        <>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="월 선택 닫기"
-            onPress={() => setPicking(false)}
-            style={styles.scrim}
-          />
-          <MonthPicker
-            year={pickerYear}
-            selected={kstMonth(shown ?? today)}
-            latest={kstMonth(today)}
-            marked={marks.status === 'ready' ? marks.data : new Set()}
-            onYear={setPickerYear}
-            onPick={month => {
-              pick(month).catch(() => undefined);
-            }}
-            style={{ ...styles.picker, top: insets.top + 70 }}
-          />
-        </>
-      ) : null}
-    </View>
+    </RecordsShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#D7E1E7' },
-  scroll: { gap: 12 },
-  head: { paddingHorizontal: recordsLook.side },
   week: {
-    marginHorizontal: 12,
+    height: recordsFrame.tabsHeight,
     flexDirection: 'row',
     gap: 4,
-    padding: 8,
-    borderRadius: 22,
+    padding: 6,
+    borderRadius: 20,
   },
   day: {
     flex: 1,
-    height: 58,
+    height: 48,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 1,
   },
   dayOn: {
     backgroundColor: 'rgba(255,255,255,0.72)',
@@ -458,12 +444,9 @@ const styles = StyleSheet.create({
   dot: { width: 4, height: 4, borderRadius: 2 },
   dotOn: { backgroundColor: recordsLook.ink },
   card: {
-    marginHorizontal: 12,
-    borderRadius: 26,
     paddingHorizontal: 22,
     paddingTop: 20,
     paddingBottom: 22,
-    minHeight: 480,
   },
   loading: { marginTop: 120 },
   empty: { marginTop: 150, alignItems: 'center', gap: 6 },
@@ -471,13 +454,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: recordsLook.ink,
+    color: recordsLook.onCard,
   },
   emptyText: {
     fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 18,
-    color: recordsLook.sub,
+    color: recordsLook.onCardSub,
   },
   runs: { flexDirection: 'row', gap: 6, marginBottom: 14 },
   runChip: {
@@ -485,16 +468,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.42)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  runChipOn: { backgroundColor: recordsLook.ink },
+  runChipOn: { backgroundColor: 'rgba(255,255,255,0.72)' },
   runChipText: {
     fontFamily: fontFamily.monoMedium,
     fontSize: 11,
     lineHeight: 14,
-    color: recordsLook.sub,
+    color: recordsLook.onCardSub,
   },
-  runChipTextOn: { color: '#FFFFFF' },
+  runChipTextOn: { color: recordsLook.ink },
   scrim: {
     position: 'absolute',
     top: 0,
