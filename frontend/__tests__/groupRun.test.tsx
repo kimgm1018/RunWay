@@ -365,7 +365,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
     '페이스 6′00″',
     '크루 멤버 18명 중',
     '내 페이스와 잘 맞아요',
-    '최근 5km 평균 5′56″ · 준비도 82',
+    '최근 러닝 평균 5′56″ · 준비도 82',
     '대기방은 10.24 토 06:30에 열려요',
     '참가 취소',
   ]) {
@@ -433,59 +433,62 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
 
 test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finish', async () => {
   const screen = await openGroup();
-  await press(screen, '대기방 입장');
-  let page = texts(screen);
-  for (const text of [
-    '출발 준비',
-    '공동 페이스',
-    'AI 제안 · 참가자 기록 기준',
-    '참가 신청 5명 · 대기방 4명',
-    '2명 준비 완료',
-    '준비도 82',
-  ]) {
-    expect(page).toContain(text);
+  try {
+    await press(screen, '대기방 입장');
+    let page = texts(screen);
+    for (const text of [
+      '출발 준비',
+      '추천 공동 페이스',
+      '참가자 기록 기준',
+      '참가 신청 5명 · 대기방 4명',
+      '2명 준비 완료',
+      '준비도 82',
+    ]) {
+      expect(page).toContain(text);
+    }
+    await press(screen, '준비 완료');
+    expect(texts(screen)).toContain('3명 준비 완료');
+    // The leader starts, then 3·2·1.
+    await waitForText(screen, '그룹장이 출발했어요');
+    expect(texts(screen)).toContain('그룹장이 출발했어요');
+    await waitForText(screen, '내 페이스');
+    // The guide-pace alert arrives with a later tracking sample.
+    await waitForText(screen, '지금 안내 6′15″ · 출발 목표 6′00″');
+    page = texts(screen);
+    expect(page).toContain('내 페이스');
+    expect(page).toContain('민락수변공원 출발 5.0km · 그룹런 4명');
+    expect(page).toContain('그룹 범위 안이에요 · 선두–후미');
+    // After the load alert (6.6b) the group follows a slower guide pace; the start goal stays.
+    expect(page).toContain('지금 안내 6′15″ · 출발 목표 6′00″');
+
+    await press(screen, '위치·간격');
+    page = texts(screen);
+    expect(page).toContain('순위 · 최신 현황');
+    expect(page).toContain('선두');
+    expect(page).toContain('후미');
+
+    await press(screen, '일시정지');
+    page = texts(screen);
+    expect(page).toContain('그룹런 일시정지');
+    expect(page).toContain(
+      '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.',
+    );
+    expect(page).not.toContain('그룹 전체 강제 종료');
+    await act(async () => {
+      labelled(screen, '종료', 'onLongPress').props.onLongPress();
+    });
+    await settle(100);
+    page = texts(screen);
+    expect(page).toContain('4명 중 2명 완주했어요');
+    expect(page).toContain('함께 달린 거리');
+    expect(page).toContain('성윤');
+    expect(page).toContain('3.8km에서 중단');
+    expect(page).toContain('이번 내 기록은 내 기록 › 그룹런 탭에 남아요');
+    await press(screen, '완료');
+    expect(texts(screen)).toContain('광안리 새벽 크루');
+  } finally {
+    await act(async () => screen.unmount());
   }
-  await press(screen, '준비 완료');
-  expect(texts(screen)).toContain('3명 준비 완료');
-  // The leader starts, then 3·2·1.
-  await waitForText(screen, '그룹장이 출발했어요');
-  expect(texts(screen)).toContain('그룹장이 출발했어요');
-  await waitForText(screen, '내 페이스');
-  // The guide-pace alert arrives with a later tracking sample.
-  await waitForText(screen, '지금 안내 6′15″ · 출발 목표 6′00″');
-  page = texts(screen);
-  expect(page).toContain('내 페이스');
-  expect(page).toContain('민락수변공원 출발 5.0km · 그룹런 4명');
-  expect(page).toContain('그룹 범위 안이에요 · 선두–후미');
-  // After the load alert (6.6b) the group follows a slower guide pace; the start goal stays.
-  expect(page).toContain('지금 안내 6′15″ · 출발 목표 6′00″');
-
-  await press(screen, '위치·간격');
-  page = texts(screen);
-  expect(page).toContain('앞에서부터 · 순위 아님');
-  expect(page).toContain('선두');
-  expect(page).toContain('후미');
-
-  await press(screen, '일시정지');
-  page = texts(screen);
-  expect(page).toContain('그룹런 일시정지');
-  expect(page).toContain(
-    '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.',
-  );
-  expect(page).not.toContain('그룹 전체 강제 종료');
-  await act(async () => {
-    labelled(screen, '종료', 'onLongPress').props.onLongPress();
-  });
-  await settle(100);
-  page = texts(screen);
-  expect(page).toContain('4명 중 2명 완주했어요');
-  expect(page).toContain('함께 달린 거리');
-  expect(page).toContain('성윤');
-  expect(page).toContain('3.8km에서 중단');
-  expect(page).toContain('이번 내 기록은 내 기록 › 그룹런 탭에 남아요');
-  await press(screen, '완료');
-  expect(texts(screen)).toContain('광안리 새벽 크루');
-  await act(async () => screen.unmount());
 });
 
 test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {

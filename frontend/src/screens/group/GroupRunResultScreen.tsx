@@ -26,7 +26,13 @@ import { useRunSession } from '../run/RunSession';
 import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
 import { BackButton } from '../../components/BackButton';
 
-const stateOrder = { FINISHED: 0, RUNNING: 1, STOPPED: 2 };
+const stateOrder = {
+  FINISHED: 0,
+  RUNNING: 1,
+  STOPPED: 2,
+  UNCONFIRMED: 3,
+  NOT_STARTED: 4,
+};
 
 // A figure with its unit and label under it, straight on the background (6.7-StatTiles).
 function Stat({
@@ -60,7 +66,7 @@ function Hero({
 }: {
   title: string;
   headline: string;
-  averagePace: number;
+  averagePace: number | null;
   route: [number, number][] | null;
   onBack: () => void;
 }) {
@@ -81,7 +87,9 @@ function Hero({
       </View>
       <AppText style={styles.heroLabel}>그룹 평균</AppText>
       <View style={styles.heroLine}>
-        <AppText style={styles.heroPace}>{formatPace(averagePace)}</AppText>
+        <AppText style={styles.heroPace}>
+          {averagePace === null ? '—' : formatPace(averagePace)}
+        </AppText>
         <AppText style={styles.heroUnit}>/km</AppText>
       </View>
       <AppText style={styles.headline} accessibilityRole="header">
@@ -125,8 +133,12 @@ export function GroupRunResultScreen() {
     route.params?.groupRunId ?? run?.config.groupRunId ?? 'gr-today';
   const [result, setResult] = useState<GroupRunResult | null>(null);
   const [failed, setFailed] = useState(false);
-  // My record joins the result once it is saved (4.5와 같은 저장 흐름).
-  const saved = !run || run.saveState === 'saved' || run.saveState === 'failed';
+  // 서버 결과는 G14를 바로 조회한다. 목업 결과만 기존 로컬 기록 저장을 기다린다.
+  const saved =
+    /^\d+$/.test(groupRunId) ||
+    !run ||
+    run.saveState === 'saved' ||
+    run.saveState === 'failed';
 
   const load = useCallback(() => {
     setFailed(false);
@@ -178,7 +190,7 @@ export function GroupRunResultScreen() {
     (a, b) =>
       stateOrder[a.state] - stateOrder[b.state] ||
       Number(b.goalAchieved) - Number(a.goalAchieved) ||
-      a.durationSec - b.durationSec,
+      (a.durationSec ?? Infinity) - (b.durationSec ?? Infinity),
   );
   const finished = rows.filter(row => row.goalAchieved).length;
   const mine = rows.find(row => row.isMe);
@@ -191,18 +203,41 @@ export function GroupRunResultScreen() {
         <ScrollView contentContainerStyle={styles.content}>
           <Hero
             title={result.title}
-            headline={`${rows.length}명 중 ${finished}명 완주했어요`}
+            headline={
+              result.analysisStatus === 'PROCESSING' ||
+              result.hasUnconfirmedStarts
+                ? `현재 ${finished}명 완주 확인 · 나머지 기록 확인 중`
+                : `${rows.length}명 중 ${finished}명 완주했어요`
+            }
             averagePace={result.averagePaceSecPerKm}
             route={run?.config.plan?.route ?? null}
             onBack={done}
           />
+          {result.analysisStatus === 'PROCESSING' ? (
+            <AppText accessibilityLiveRegion="polite">
+              기록을 분석하고 있어요. 잠시 후 다시 조회해 주세요.
+            </AppText>
+          ) : null}
+          {result.analysisStatus === 'FAILED' ? (
+            <AppText>일부 기록 분석에 실패했어요.</AppText>
+          ) : null}
+          {result.hasUnconfirmedStarts ? (
+            <AppText>실제 시작이 확인되지 않은 참가자가 있어요.</AppText>
+          ) : null}
+          <NavyButton title="결과 새로고침" onPress={load} />
           <View style={styles.stats}>
             <Stat
               label="함께 달린 거리"
-              value={formatKm(result.distanceM, 1)}
+              value={
+                result.distanceM === null ? '—' : formatKm(result.distanceM, 1)
+              }
               unit="km"
             />
-            <Stat label="최대 간격" value={String(result.maxGapM)} unit="m" />
+            <Stat
+              label="최대 간격"
+              value={result.maxGapM === null ? '—' : String(result.maxGapM)}
+              unit="m"
+            />
           </View>
           {/* 6.7-FinishStatus: on the light middle of the background, so the text is navy. */}
           <View style={styles.finish}>
@@ -210,7 +245,11 @@ export function GroupRunResultScreen() {
               <SectionLabel tone="light">완주 현황</SectionLabel>
               {mine ? (
                 <AppText style={styles.mine}>
-                  {`내 기록 ${formatDuration(mine.durationSec)}`}
+                  {`내 기록 ${
+                    mine.durationSec === null
+                      ? '미확인'
+                      : formatDuration(mine.durationSec)
+                  }`}
                 </AppText>
               ) : null}
             </View>
@@ -233,19 +272,30 @@ export function GroupRunResultScreen() {
                 </View>
                 {row.state === 'RUNNING' ? (
                   <AppText style={styles.running}>달리는 중</AppText>
+                ) : row.state === 'NOT_STARTED' ||
+                  row.state === 'UNCONFIRMED' ? (
+                  <AppText>
+                    {row.state === 'UNCONFIRMED' ? '시작 미확인' : '미시작'}
+                  </AppText>
                 ) : row.goalAchieved === false || row.state === 'STOPPED' ? (
                   // A run that stopped short of the goal is the navy pill (6.7-FinishStatus).
                   <Raised tone="navy" style={styles.stopped}>
                     <AppText style={styles.stoppedText}>
-                      {`${formatKm(row.distanceM, 1)}km에서 중단`}
+                      {row.distanceM === null
+                        ? '중단 · 거리 미확인'
+                        : `${formatKm(row.distanceM, 1)}km에서 중단`}
                     </AppText>
                   </Raised>
                 ) : (
                   <View style={styles.nameLine}>
                     <AppText style={styles.time}>
-                      {formatDuration(row.durationSec)}
+                      {row.durationSec === null
+                        ? '기록 미확인'
+                        : formatDuration(row.durationSec)}
                     </AppText>
-                    <Icon name="check" color={groupLook.onLight} size={14} />
+                    {row.goalAchieved === true ? (
+                      <Icon name="check" color={groupLook.onLight} size={14} />
+                    ) : null}
                   </View>
                 )}
               </View>

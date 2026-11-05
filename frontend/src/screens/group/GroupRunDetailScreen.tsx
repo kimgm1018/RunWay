@@ -109,8 +109,8 @@ function FitLine({ run }: { run: GroupRunDetail }) {
     <View style={[styles.card, styles.fit]}>
       <AppText style={styles.blockTitle}>{verdict}</AppText>
       <AppText style={styles.muted}>
-        {`최근 5km 평균 ${formatPace(run.myFit.recentPaceSecPerKm)} · 준비도 ${
-          run.myFit.readinessScore
+        {`최근 러닝 평균 ${formatPace(run.myFit.recentPaceSecPerKm)} · 준비도 ${
+          run.myFit.readinessScore ?? '미산출'
         }`}
       </AppText>
     </View>
@@ -309,17 +309,23 @@ export function GroupRunDetailScreen() {
           )}
           {cancelled ? (
             <>
-              {run.cancellation?.message ? (
+              {run.cancellation ? (
                 <LightGlass radius={18} style={styles.message}>
                   <View style={styles.messageHead}>
                     <Initial name={run.cancellation.byNickname} />
                     <AppText style={[styles.messageName, styles.flex]}>
-                      {`${run.cancellation.byNickname} · ${run.cancellation.byRole}`}
+                      {`${run.cancellation.byNickname} · ${
+                        run.cancellation.byRole === 'HOST'
+                          ? '그룹장'
+                          : run.cancellation.byRole
+                      }`}
                     </AppText>
                   </View>
-                  <AppText style={styles.messageText}>
-                    {run.cancellation.message}
-                  </AppText>
+                  {run.cancellation.message ? (
+                    <AppText style={styles.messageText}>
+                      {run.cancellation.message}
+                    </AppText>
+                  ) : null}
                 </LightGlass>
               ) : null}
               <View style={styles.notice}>
