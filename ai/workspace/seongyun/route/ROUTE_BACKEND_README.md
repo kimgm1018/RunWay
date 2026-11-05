@@ -32,7 +32,7 @@
 | **Usability Gate** | PASS / REVIEW / FAIL. FAIL은 최종 후보에서 제거, REVIEW는 서버 로그에만 남김 |
 | **중복 제거 + TOP3** | 더 좋은 코스와 60 % 이상 겹치면 제거. 결정적 순서로 TOP3 |
 | **설명** | 코스별 한 문장 요약, 이유, 주의 문구, 요청 단위 안내 |
-| **rollback** | 환경변수 4개로 최적화·Gate를 끌 수 있다(6절) |
+| **rollback** | 환경변수 6개로 최적화·Gate를 끌 수 있다(6절) |
 | 전국 1 km grid index | **생성·검증 완료 / production 미연결.** 현재 backend는 부산 extract만 읽는다 |
 
 ## 3. 전체 동작 흐름 (요청 하나)
@@ -53,7 +53,7 @@
    │   OAB : 반환점 → 같은 길로 복귀
    │   P2P : 타원 위 waypoint
    ▼
-⑤ 구간 최단 경로: LOOP·P2P = D-exact(networkx 3.7 정확 이식),      [shortest_path.py, graph.RouteCSR]
+⑤ 구간 최단 경로: LOOP·P2P = Numba D-exact(기존 경로와 동일),     [shortest_path.py, shortest_path_numba.py, graph.RouteCSR]
    │             OAB = networkx single-source Dijkstra 1회
    ▼
 ⑥ route feature 계산 + 유효성(±10 %, 모양 규칙)                  [features.py]
@@ -122,10 +122,71 @@ python -B tools/route_regression/run_regression.py --tag mychange
 |---|---|---|
 | `RUNWAY_P2P_SUBSTRATE=0` | P2P 배열 substrate → networkx | 같음(느려짐) |
 | `RUNWAY_SP_KERNEL=nx` | D-exact → networkx 최단 경로 | 같음(느려짐) |
+| `RUNWAY_SP_ENGINE=python` | Numba D-exact → Python D-exact | 같음(느려짐), Numba import·컴파일 없음 |
+| `RUNWAY_ARRAY_LOOP=0` | LOOP 배열 graph → 기존 NetworkX G/H 준비 | 같음(첫 요청 느려짐), Numba 탐색은 유지 |
 | `RUNWAY_FAST_GRAPH=0` | fast graph builder → canonical builder | 같음(느려짐) |
 | `RUNWAY_USABILITY_GATE=shadow` | Gate FAIL 제거 | **달라질 수 있음**(비상용) |
+| `RUNWAY_SOURCE_SNAPSHOT=0` | 검증된 extract snapshot 읽기 → 매번 PBF 파싱 | 같음(기동 약 3초 느려짐) |
+| `RUNWAY_ENV_PREPARED=0` | env 범위 polygon 1회 준비(prepared) → 요청마다 within | 같음(느려짐) |
+| `RUNWAY_ADAPTER_LEAN_ROUTING=0` | 읽지 않는 CSR/components/KD-tree 생략 → 다시 생성 | 같음(느려짐, 메모리 증가) |
+| `RUNWAY_NETWORK_STORE=0` | 압축 도로망(배열 view) → extract를 dict로 들고 있음(snapshot 또는 PBF) | 같음(기동 메모리 약 250 MiB 증가) |
+
+**cache 크기** (프로세스 시작 시 1회 읽음 → 바꾸면 서버 재시작. 1 이상의 정수만, 잘못된 값이면 기동 단계에서 `ValueError`로 멈춤)
+
+| 환경변수 | 기본 | 정하는 것 | 추천 결과 |
+|---|---:|---|---|
+| `RUNWAY_GRAPH_CACHE_SIZE` | 4 | 요청 graph LRU와 generator (G, rg) LRU 칸 수(둘을 함께) | 같음. 칸이 적으면 메모리↓, 다른 출발점 사이를 오가는 반복 요청은 cold로 느려짐 |
+| `RUNWAY_MASK_CACHE_SIZE` | 4 | P2P disk mask LRU 칸 수(칸당 수 MB) | 같음 |
+
+- **배포 컨테이너(1 worker, 메모리 한도 1.5 GiB): `RUNWAY_GRAPH_CACHE_SIZE=2`.** mask는 기본 4 그대로 둔다.
+- 근거(Linux, 15 km 위주 14개 요청 열의 최대 VmHWM, `reports/route_linux_validation_2026-11-04/REPORT.md` 9.4절):
+  4칸 **1.83 GiB**(1.5 GiB 초과), 2칸 **1.37 GiB**. 두 설정의 추천 결과는 같다(`from_cache` 표시만 다를 수 있음).
+- worker를 늘리면 프로세스마다 이만큼 따로 쓴다. HR과 같은 컨테이너면 HR 메모리를 더한다.
+- 코드 기본값 4는 Golden baseline(Windows·Linux)을 만든 설정이다.
+
+**extract snapshot (기동 단축):** PBF 파싱 결과를 `data/osm/busan/source_snapshot/`(npz + json, pickle 없음)에 미리
+만들어 두면 기동 때 읽는다. key(extract sha256, 파서·snapshot 코드 hash, Python/numpy/osmium/pyproj/PROJ 버전, 형식
+버전)나 파일 hash가 하나라도 다르면 PBF를 파싱한다. 런타임은 읽기만 하므로 배포·image build 단계에서 만든다.
+```bash
+python -B -m runway_routing.source_snapshot build
+```
+`RUNWAY_SOURCE_SNAPSHOT=<dir>`로 위치를 바꿀 수 있다. extract나 라이브러리를 바꾸면 다시 만든다(안 만들면 파싱으로 동작).
+
+**압축 도로망 (기동 메모리 단축):** extract 전체(way·node·tag를 하나도 빼지 않음)와 선분을 `data/osm/busan/network_v1/`
+(npz + json, 약 46 MB, pickle 없음)에 두면, 기동 때 Python dict 대신 배열로 읽고 필요한 값만 그때그때 꺼낸다(준비 완료
+메모리 약 −250 MiB). 분류(classify)는 저장하지 않고 기동 때 계산한다. key(extract sha256, 파서·이 모듈 hash,
+Python/numpy/osmium/pyproj/PROJ/osmnx 버전, 형식 버전)나 파일 hash가 다르면 위 snapshot → PBF 순으로 내려간다(같은 결과,
+`gen.network_store["reason"]`에 이유). 배포·image build 단계에서 만든다.
+```bash
+python -B -m runway_routing.network_store build
+```
+`RUNWAY_NETWORK_STORE=<dir>`로 위치를 바꿀 수 있다. Gate 버전에 PBF sha256이 들어가므로 PBF 파일은 그대로 둔다.
 
 **데이터 재생성:** extract → env layer → env edge cache 순서다. [tools/data/README.md](tools/data/README.md)에 명령이 있다.
+
+### Numba 실행 환경 (2026-11-03)
+
+LOOP는 기본으로 정적 도로 배열에서 요청 graph/CSR·snap index·feature 입력을 구성한다.
+canonical 생성·선호·점수·Gate 규칙은 유지하며 OAB/P2P 생성 graph는 기존 경로를 쓴다.
+`RUNWAY_ARRAY_LOOP=0`은 LOOP graph 준비만 이전 방식으로 되돌린다. `RUNWAY_FAST_GRAPH=0` 또는
+NetworkX kernel rollback에서는 배열 경로를 사용하지 않는다. 최초 시작의 기존 graph self-test는 유지한다.
+
+`requirements-route.txt`의 Numba 0.68.0 / llvmlite 0.50.0을 설치하면 기본 엔진은 `numba`다.
+기존 환경은 같은 requirements로 갱신한 뒤 실행한다. 다른 의존성의 고정 버전은 유지했다.
+Numba가 없거나 컴파일에 실패하면 시작 단계에서 실패한다. 임시 복구는 `RUNWAY_SP_ENGINE=python`이다.
+
+명시적 signature로 import 시 컴파일·warm-up하므로 첫 추천 요청 중에 컴파일하지 않는다.
+새로운 OS/CPU 또는 이미지에서는 시작 시 컴파일이 필요할 수 있다. `NUMBA_CACHE_DIR`는 짧고 쓰기 가능한
+런타임 cache 경로로 지정한다(예: Windows `C:/Temp/runway-numba`, Docker `/tmp/runway-numba`).
+다른 OS/CPU에서 생성한 JIT cache를 배포 artifact로 복사하지 않는다. 첫 요청의 graph 생성 비용은 별개다.
+
+```powershell
+# 선택: 런타임에 맞는 짧은 쓰기 가능 경로를 지정
+$env:NUMBA_CACHE_DIR = "$PWD/.route-numba-cache"
+.venv-route/Scripts/python.exe -B -m uvicorn route_demo.app_runway:app --host 127.0.0.1 --port 8002
+# rollback (서버 재시작 필요)
+$env:RUNWAY_SP_ENGINE = "python"
+```
 
 ## 7. 처음 읽는 순서
 

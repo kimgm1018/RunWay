@@ -25,6 +25,8 @@ import math
 import threading
 from collections import Counter
 from dataclasses import dataclass
+from heapq import heappop, heappush
+from itertools import count, islice
 
 import networkx as nx
 import numpy as np
@@ -106,6 +108,7 @@ class LegMemo:
         self.bound = None
         self.legs = {}
         self.mult_array = None     # the bound multiplier dict as a RouteCSR array (D-exact kernel), built once
+        self.mult_np = None        # the same array as float64 numpy (numba engine only), built once
         self.hits = self.searches = 0
 
     def usable(self, rg, mult, reuse_penalty) -> bool:
@@ -154,7 +157,8 @@ def route_through(rg, seq: list, mult: dict, reuse_penalty: float, memo: LegMemo
 
 def _route_through_exact(rg, seq: list, mult: dict, reuse_penalty: float, memo: LegMemo | None) -> list | None:
     """route_through on the D-exact kernel: the same legs, memo keys and reuse counts, with arrays instead of the
-    networkx callback (used[edge id] == the Counter's used[rrg._key]; mult array == mult.get(key, 1.0))."""
+    networkx callback (used[edge id] == the Counter's used[rrg._key]; mult array == mult.get(key, 1.0)).
+    Engine "numba": the same values held as numpy arrays (mult float64, used int64) for shortest_path_numba."""
     use = memo is not None and memo.usable(rg, mult, reuse_penalty)
     csr = route_csr(rg)
     if use:
@@ -163,7 +167,18 @@ def _route_through_exact(rg, seq: list, mult: dict, reuse_penalty: float, memo: 
         M = memo.mult_array
     else:
         M = csr.mult_array(mult)
-    used = [0] * len(csr.length)
+    if shortest_path.ENGINE == "numba":
+        if use:
+            if memo.mult_np is None:
+                memo.mult_np = np.asarray(M, dtype=np.float64)
+            M = memo.mult_np
+        else:
+            M = np.asarray(M, dtype=np.float64)
+        used = np.zeros(len(csr.length), dtype=np.int64)
+        search = shortest_path.bidirectional_numba
+    else:
+        used = [0] * len(csr.length)
+        search = shortest_path.bidirectional
     index, ids, eid = csr.index, csr.ids, csr.eid
     path = [seq[0]]
     for i, (a, b) in enumerate(zip(seq[:-1], seq[1:])):
@@ -176,7 +191,7 @@ def _route_through_exact(rg, seq: list, mult: dict, reuse_penalty: float, memo: 
                 raise nx.NodeNotFound(f"Source {a} is not in G")
             if b not in index:
                 raise nx.NodeNotFound(f"Target {b} is not in G")
-            nodes = shortest_path.bidirectional(csr, index[a], index[b], M, used, reuse_penalty)
+            nodes = search(csr, index[a], index[b], M, used, reuse_penalty)
             if nodes is None:                       # networkx: NetworkXNoPath -> no candidate
                 return None
             leg = [ids[n] for n in nodes]
@@ -288,6 +303,132 @@ def length(rg, path: list) -> float:
     return float(rrg._length(rg, path))
 
 
+def _sum_step(state, x):
+    """builtins.sum의 float 경로 한 단계(Python 3.12+ Neumaier 보정 합). state = (합, 보정) 또는 None(아직 항목 없음)."""
+    if state is None:
+        return 0 + x, 0.0
+    f, c = state
+    t = f + x
+    c += (f - t) + x if abs(f) >= abs(x) else (x - t) + f
+    return t, c
+
+
+def _sum_result(state) -> float:
+    if state is None:
+        return 0.0
+    f, c = state
+    return f + c if c and math.isfinite(c) else f
+
+
+def _probe_sum_steps() -> bool:
+    """이 interpreter의 sum()이 위 단계와 bit 단위로 같은지 import 시 확인(다르면 _tree_lengths는 기존 재합산)."""
+    for xs in ([1e16, 1.0, -1e16], [0.1] * 10, [3.0, 1e-17, 2.5e-17, 7.25, 1e-30], [5.5]):
+        s = None
+        for x in xs:
+            s = _sum_step(s, x)
+        if _sum_result(s).hex() != float(sum(xs)).hex():
+            return False
+    return True
+
+
+_SUM_STEPS_EXACT = _probe_sum_steps()
+
+
+def _tree_lengths(rg, paths: dict) -> dict:
+    """{n: length(rg, paths[n])}와 bit 단위로 같은 값을 경로별 재합산 없이 구한다(key 순서도 paths와 같다).
+    Dijkstra 경로 dict는 트리다(paths[n] == paths[부모] + [n]). rrg._length의 sum()은 왼쪽→오른쪽으로 (합, 보정)
+    상태를 갱신하므로 부모의 상태에 마지막 간선 한 단계를 더하면 같은 연산을 같은 순서로 한 결과다.
+    단순 누적합(부모 합 + 간선)은 Neumaier 보정 때문에 값이 달라지므로 쓰면 안 된다.
+    sum()이 위 단계와 다르게 동작하거나 길이가 정확한 float가 아니면 기존 경로별 재합산으로 계산한다."""
+    if not _SUM_STEPS_EXACT:
+        return {n: length(rg, p) for n, p in paths.items()}
+    H, state = rg.H, {}
+    if _array_rg(rg):
+        # 배열 H(H21 R1): H[a][b]["length"]는 float(csr.length[eid])다. view를 거치지 않고 같은 값을 직접 읽는다.
+        csr = route_csr(rg)
+        L, eid, key = csr.length, csr.eid, rrg._key
+
+        def edge_length(a, b):
+            return float(L[eid[key(a, b)]])
+    else:
+        def edge_length(a, b):
+            return H[a][b]["length"]
+    for n, p in sorted(paths.items(), key=lambda kv: len(kv[1])):   # 부모(짧은 경로)를 먼저
+        if len(p) == 1:
+            state[n] = None
+            continue
+        x = edge_length(p[-2], n)
+        if type(x) is not float:   # numpy float 등은 sum()의 보정 경로를 타지 않는다
+            return {n: length(rg, p) for n, p in paths.items()}
+        state[n] = _sum_step(state[p[-2]], x)
+    return {n: _sum_result(state[n]) for n in paths}
+
+
+def _dijkstra_csr(csr, source: int, mult: list | None, cutoff: float | None = None, target: int | None = None):
+    """networkx 3.7 _dijkstra_multisource(단일 출발점, pred 없음)를 RouteCSR 위에 그대로 옮긴 것: (거리, 삽입 counter) heap,
+    `<` 갱신, cutoff `>` 제외, target에서 정지. 이웃 순서 = csr 순서 = H._adj 순서(H16 계약). 간선 비용은 networkx weight
+    함수와 같은 식: length (mult가 있으면 length * mult[eid]). 반환 (dist {idx: 거리}, pred {idx: idx}), dist는 pop 순서."""
+    L, ptr, nbr, ned = csr.length, csr.ptr, csr.nbr, csr.ned
+    dist, seen, pred = {}, {source: 0}, {}
+    c = count()
+    fringe = [(0, next(c), source)]
+    while fringe:
+        dist_v, _, v = heappop(fringe)
+        if v in dist:
+            continue
+        dist[v] = dist_v
+        if v == target:
+            break
+        for j in range(ptr[v], ptr[v + 1]):
+            u, e = nbr[j], ned[j]
+            cost = L[e] * mult[e] if mult is not None else L[e]
+            vu_dist = dist_v + cost
+            if cutoff is not None and vu_dist > cutoff:
+                continue
+            if u in dist:
+                if vu_dist < dist[u]:
+                    raise ValueError("Contradictory paths found:", "negative weights?")
+            elif u not in seen or vu_dist < seen[u]:
+                seen[u] = vu_dist
+                heappush(fringe, (vu_dist, next(c), u))
+                pred[u] = v
+    return dist, pred
+
+
+def _array_rg(rg) -> bool:
+    """배열 RouteGraph(array_graph.build_array_pair, rg.H가 NetworkX가 아님)이고 D-exact 경로를 쓰는 엔진일 때."""
+    return not isinstance(rg.H, nx.Graph) and getattr(rg, "_route_csr", None) is not None
+
+
+def single_source_paths(rg, start: int, cutoff: float, mult: dict) -> dict:
+    """nx.single_source_dijkstra(rg.H, start, cutoff=cutoff, weight=w)[1]과 같은 paths(같은 key 순서, 같은 경로).
+    w(u, v, d) = d["length"] * mult.get(rrg._key(u, v), 1.0) (oab_candidates)."""
+    csr = route_csr(rg)
+    if start not in csr.index:
+        raise nx.NodeNotFound(f"Node {start} not found in graph")
+    s = csr.index[start]
+    dist, pred = _dijkstra_csr(csr, s, csr.mult_array(mult), cutoff)
+    ids = csr.ids
+    paths = {start: [start]}
+    for v in islice(dist, 1, None):          # networkx: pop 순서대로 paths[v] = paths[pred[v]] + [v]
+        paths[ids[v]] = paths[ids[pred[v]]] + [ids[v]]
+    return paths
+
+
+def path_length(rg, s: int, t: int) -> float:
+    """nx.shortest_path_length(rg.H, s, t, weight="length")와 같은 값(dijkstra_path_length: 출발=도착이면 0)."""
+    csr = route_csr(rg)
+    if s not in csr.index:
+        raise nx.NodeNotFound(f"Node {s} not found in graph")
+    if s == t:
+        return 0
+    ti = csr.index.get(t)
+    dist, _ = _dijkstra_csr(csr, csr.index[s], None, None, -1 if ti is None else ti)
+    if ti is None or ti not in dist:
+        raise nx.NetworkXNoPath(f"Node {t} not reachable from {s}")
+    return dist[ti]
+
+
 def _nearest_wp(rg, p) -> int:
     return int(rg.wp_nodes[rrg._nearest(rg.wp_xy, p)[0]])
 
@@ -309,8 +450,11 @@ def oab_candidates(rg, start: int, target: float, seed: int, cfg: dict, mult: di
     def w(u, v, d):
         return d["length"] * mult.get(rrg._key(u, v), 1.0)
 
-    _, paths = nx.single_source_dijkstra(rg.H, start, cutoff=(half + win) * mmax, weight=w)
-    real = {n: length(rg, p) for n, p in paths.items()}
+    if _array_rg(rg):   # 배열 graph(H21 R1): networkx와 같은 알고리즘·순서를 RouteCSR 위에서
+        paths = single_source_paths(rg, start, (half + win) * mmax, mult)
+    else:
+        _, paths = nx.single_source_dijkstra(rg.H, start, cutoff=(half + win) * mmax, weight=w)
+    real = _tree_lengths(rg, paths)
     cand = sorted(n for n, d in real.items() if abs(d - half) <= win and n not in forbidden)
     if not cand:
         return []

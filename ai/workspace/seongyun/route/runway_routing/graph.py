@@ -1,6 +1,7 @@
 """Per-request routing graph: cut the working disk from the extract and turn it into the arrays every later step reads.
 
-요약: 요청 위치 주변 working disk를 extract에서 잘라 routing graph와 edge 배열을 만든다. LRU cache 4개.
+요약: 요청 위치 주변 working disk를 extract에서 잘라 routing graph와 edge 배열을 만든다. LRU cache 기본 4개
+(RUNWAY_GRAPH_CACHE_SIZE).
 위치: pipeline의 data 다음, snap/후보 생성 전.
 주의: fast builder는 canonical builder와 node/edge 순서까지 같아야 한다(시작 시 self-test). RouteCSR은 이웃 순서를 보존한다.
 
@@ -11,15 +12,17 @@
                                                        DEM node elevations and stats
     levels  = traffic_node_distance + edge_levels      Running Suitability edge traffic levels (once per graph)
 
-Two LRU caches exist and are kept as they are (sizes and keys unchanged): the canonical generator's (G, rg) cache and
-the pipeline's cg cache. Key = (round(lat, 6), round(lon, 6), round(working radius)): a start moved by more than
-~0.1 m is a new graph. A cached cg keeps its G alive (cg.full) after the generator cache evicts it.
+Two LRU caches exist and are kept as they are (keys unchanged; both sizes = GRAPH_CACHE_SIZE, default 4, env
+RUNWAY_GRAPH_CACHE_SIZE): the canonical generator's (G, rg) cache and the pipeline's cg cache.
+Key = (round(lat, 6), round(lon, 6), round(working radius)): a start moved by more than ~0.1 m is a new graph.
+A cached cg keeps its G alive (cg.full) after the generator cache evicts it.
 
 Fast builder determinism: build_fast reproduces canonical's disk_graph + route_graph node and edge order exactly (way
 order, the Python set of int node ids iterated as canonical iterates it, osmnx 2.1.1 internals). It is used only when
 osmnx is VERIFIED_OSMNX and the start-up self-test finds the fast graph identical to canonical's; otherwise canonical's
 builder runs and status()["graph_builder"] says why.
 """
+import os
 import time
 from collections import OrderedDict, defaultdict
 from importlib.metadata import version as pkg_version
@@ -40,10 +43,28 @@ from scipy.spatial import cKDTree
 from shapely.geometry import Point, box
 from shapely.ops import transform
 
+from . import network_store, source_snapshot
 from .data import ENV_CLASSES, REGIONS, RUNNABLE, UTM_CRS, _Segments, api, edge_distances, edge_flags
 
 busan, rrg = api.busan, api.rrg
-GRAPH_CACHE_SIZE = 4     # pipeline cg cache (the generator keeps its own, also 4)
+
+
+def cache_size_env(name: str, default: int = 4) -> int:
+    """LRU 칸 수 환경변수(import 시 1회 읽음). 없으면 default, 있으면 1 이상의 10진 정수만 허용한다.
+    잘못된 값(빈 문자열·0·음수·소수·문자)은 기동 단계에서 ValueError로 멈춘다(조용히 기본값으로 바꾸지 않는다).
+    칸 수는 메모리와 반복 요청 속도만 바꾸고 추천 결과는 바꾸지 않는다(cache는 결과에 영향 없음)."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    v = raw.strip()
+    if not (v.isascii() and v.isdigit()) or int(v) < 1:
+        raise ValueError(f"{name} must be an integer >= 1 (got {raw!r}); unset it to use the default {default}")
+    return int(v)
+
+
+# 요청 graph LRU 칸 수. RUNWAY_GRAPH_CACHE_SIZE(기본 4)가 이것과 generator의 (G, rg) LRU(gen._cache_size,
+# pipeline이 생성자에 넘김)를 함께 정한다. 배포 컨테이너(1 worker, 1.5 GiB)는 2.
+GRAPH_CACHE_SIZE = cache_size_env("RUNWAY_GRAPH_CACHE_SIZE")
 EDGE_TAGS = ["highway", "name", "osmid", "foot", "access", "bicycle", "bridge", "tunnel", "footway",
              "sidewalk", "layer", "service", "surface", "runway_status", "runway_reason", "in_osmnx_walk"]
 MAJOR = {"primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link"}
@@ -54,6 +75,12 @@ ENV_FLAGS = ["river_near", "water_near", "coastal_near", "beach_near", "waterfro
 USEFUL = sorted(set(busan.SURVEY_TAGS) | set(busan.RULE_TAGS))   # ox.settings.useful_tags_way in disk_graph
 VERIFIED_OSMNX = "2.1.1"     # osmnx internals reproduced here (_convert_path, _add_paths, graph_from_gdfs)
 SELF_TEST = ("haeundae", 5000)
+# rollback 환경변수(import 시 읽음, 0이면 기존 경로; 결과는 같다):
+#   RUNWAY_ENV_PREPARED=0          attach_env: inner polygon을 요청마다 만들고 within(segs, inner)
+#   RUNWAY_ADAPTER_LEAN_ROUTING=0  _build_routing: 읽는 곳이 없는 CSR/components/KD-tree도 만든다
+#   RUNWAY_NETWORK_STORE=0         extract를 압축 도로망 view 대신 S1 snapshot(또는 PBF) dict로 들고 있는다(network_store.py)
+ENV_PREPARED = os.environ.get("RUNWAY_ENV_PREPARED", "1") != "0"
+LEAN_ROUTING = os.environ.get("RUNWAY_ADAPTER_LEAN_ROUTING", "1") != "0"
 
 
 def _s(v):
@@ -70,8 +97,8 @@ def _s(v):
 class CanonicalRoutingGraph:
     """The canonical classified disk graph (all statuses, WGS84 MultiDiGraph) in node-index layout.
 
-    _build_routing is the PoC RoutingGraph's, unchanged: it still builds the CSR matrix, components and KD-tree that
-    production does not read (removing them is a performance change, left for the optimisation stage)."""
+    _build_routing is the PoC RoutingGraph's. With RUNWAY_ADAPTER_LEAN_ROUTING (default) it keeps only what production
+    reads (redges, pair_to_eid); =0 also builds the unread CSR matrix, components and KD-tree as before."""
 
     def __init__(self, G, coverage_wgs):
         self._to_utm = pyproj.Transformer.from_crs("EPSG:4326", UTM_CRS, always_xy=True)
@@ -82,6 +109,9 @@ class CanonicalRoutingGraph:
 
     def _load(self) -> None:
         """RoutingGraph._load without the five-region merge: same node / edge tables from one graph."""
+        if hasattr(self._source, "populate_adapter"):
+            self._source.populate_adapter(self)
+            return
         M = self._source
         self.full = M
         node_ids = np.array(list(M.nodes), dtype=np.int64)
@@ -128,6 +158,10 @@ class CanonicalRoutingGraph:
         self.redges = run  # routing edges; row index = eid
         E, N = len(run), len(self.node_ids)
         u, v = run["u"].to_numpy(), run["v"].to_numpy()
+        if LEAN_ROUTING:
+            # 아래 arc 배열·CSR·components·KD-tree는 읽는 곳이 없다(grep: runway_routing/analysis/route_demo/tools).
+            self.pair_to_eid = {(int(a), int(b)): i for i, (a, b) in enumerate(zip(u, v))}
+            return
         self.arc_src = np.concatenate([u, v])
         self.arc_dst = np.concatenate([v, u])
         self.arc_eid = np.concatenate([np.arange(E), np.arange(E)])
@@ -180,15 +214,34 @@ def attach_env(cg: CanonicalRoutingGraph, env: dict, thresholds: dict, cache=Non
         for c in dist.columns:
             e[c] = dist[c].to_numpy()
     if cache is not None or env["layers"] is not None:
-        ext = transform(cg._to_utm.transform, box(*env["extent_wsen"]))
-        inner = ext.buffer(-max(thresholds[c] for c in ENV_CLASSES))
         u, v = e["u"].to_numpy(), e["v"].to_numpy()
         segs = shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1))
-        cg.env_covered = shapely.within(segs, inner)
+        if ENV_PREPARED:
+            # within(segs, inner) == contains(inner, segs) (DE-9IM 정의). prepared 가속은 첫 인자에만 걸리므로 순서를 바꾼다.
+            cg.env_covered = shapely.contains(_env_inner(cg, env, thresholds), segs)
+        else:
+            ext = transform(cg._to_utm.transform, box(*env["extent_wsen"]))
+            inner = ext.buffer(-max(thresholds[c] for c in ENV_CLASSES))
+            cg.env_covered = shapely.within(segs, inner)
     flags = edge_flags(e, thresholds)
     for c in flags.columns:
         e[c] = flags[c].to_numpy()
     return stats
+
+
+_ENV_INNER: dict = {}
+
+
+def _env_inner(cg, env: dict, thresholds: dict):
+    """The env extent (UTM) shrunk by the largest threshold, built and prepared once per (extent, threshold).
+    Same expression as the per-request path (fresh WGS84->UTM transformer of the same CRS: same coordinates)."""
+    key = (tuple(env["extent_wsen"]), max(thresholds[c] for c in ENV_CLASSES))
+    inner = _ENV_INNER.get(key)
+    if inner is None:
+        inner = transform(cg._to_utm.transform, box(*key[0])).buffer(-key[1])
+        shapely.prepare(inner)
+        _ENV_INNER[key] = inner
+    return inner
 
 
 def prepare_edge_arrays(graph) -> None:
@@ -274,11 +327,18 @@ def edge_levels(cg, node_dist: np.ndarray, cfg: dict) -> dict:
 
 # ------------------------------------------------------------------ fast builder (same graph as canonical)
 class Sidecar:
-    """Static per-extract arrays, built once from the loaded extract."""
+    """Static per-extract arrays, built once from the loaded extract.
+
+    way_status / way_reason: classify() 결과를 way 위치 순서로 둔 list(cls[wid]와 같은 값). 압축 도로망(network_store)이면
+    refs / attrs / cls는 배열에서 그때그때 만드는 view이고 값·순서는 dict 경로와 같다."""
 
     def __init__(self, src):
         t0 = time.perf_counter()
         self.src = src
+        if getattr(src, "net", None) is not None:
+            self._init_compact(src)
+            self.build_s = round(time.perf_counter() - t0, 2)
+            return
         self.way_ids = list(src.ways)
         self.refs = [src.ways[w][0] for w in self.way_ids]
         lens = np.fromiter((len(r) for r in self.refs), np.int64, len(self.refs))
@@ -296,7 +356,26 @@ class Sidecar:
             self.attrs.append(a)
             st, reasons = busan.classify(a)        # classify reads only tag keys (RULE_TAGS)
             self.cls[wid] = (st, ";".join(reasons))
+        self.way_status = [self.cls[w][0] for w in self.way_ids]
+        self.way_reason = [self.cls[w][1] for w in self.way_ids]
         self.build_s = round(time.perf_counter() - t0, 2)
+
+    def _init_compact(self, src):
+        """Same fields from the store's arrays: no per-way dict is kept (views build them on access)."""
+        net = src.net
+        self.way_ids = net["way_ids"].tolist()
+        self.ptr, self.ref_pos = net["ref_ptr"], net["ref_pos"]
+        self.refs = network_store.RefsView(net)
+        self.attrs = network_store.AttrsView(net, src.strings, USEFUL, self.way_ids)
+        status, reason, seen = [], [], {}
+        for i in range(len(self.way_ids)):
+            st, reasons = busan.classify(self.attrs[i])
+            r = ";".join(reasons)
+            r = seen.setdefault(r, r)              # one str object per distinct reason
+            status.append(st)
+            reason.append(r)
+        self.way_status, self.way_reason = status, reason
+        self.cls = network_store.ClsView(net["way_ids"], status, reason)
 
 def build_fast(sc: Sidecar, lat: float, lon: float, radius: float, region):
     """(G, RouteGraph) equal to disk_graph(lat, lon, radius) + route_graph(G, disk, region)."""
@@ -393,7 +472,11 @@ class FastGraphRouteGenerator(api.RouteGenerator):
     """Canonical RouteGenerator whose per-request graph comes from build_fast (canonical's otherwise)."""
 
     def __init__(self, *args, fast: bool = True, self_test: bool = True, **kwargs):
-        super().__init__(*args, **kwargs)
+        self.source_snapshot = {}   # S1: the parsed extract from a validated snapshot when its key matches (else the PBF)
+        self.network_store = {}     # H21: the compact store (views, no dicts) when its key matches (else S1 / the PBF)
+        with source_snapshot.source_from_snapshot(busan, self.source_snapshot):
+            with network_store.source_from_store(busan, self.network_store):
+                super().__init__(*args, **kwargs)
         self.sidecar, self.fast_status = None, {"fast": False, "reason": "disabled"}
         if not fast:
             return
