@@ -372,6 +372,52 @@ const icons = {
       <Path d="M9 6.5l.6-3h4.8l.6 3M9 17.5l.6 3h4.8l.6-3M12 9.5V12l1.6 1.2" />
     </>
   ),
+  // 8.1 설정 tiles (runway-settings).
+  mic: (
+    <>
+      <Rect x="9" y="3" width="6" height="11" rx="3" />
+      <Path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <Path d="M12 17.5V21" />
+    </>
+  ),
+  pulse: <Path d="M3 12h3.5l2.5-6 4 12 2.5-6H21" />,
+  globe: (
+    <>
+      <Circle cx="12" cy="12" r="8.5" />
+      <Path d="M3.5 12h17" />
+      <Path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5z" />
+    </>
+  ),
+  users: (
+    <>
+      <Path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <Circle cx="9" cy="7" r="4" />
+      <Path d="M22 21v-2a4 4 0 0 0-3-3.9" />
+      <Path d="M16 3.1a4 4 0 0 1 0 7.8" />
+    </>
+  ),
+  code: <Path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />,
+  heartbeat: <Path d="M3 12h4l2-4 4 8 2-4h6" />,
+  // 8.4 지워지는 정보: records and posts.
+  trend: (
+    <>
+      <Path d="M5 19l5-6 3 2 5-8" />
+      <Circle cx="18" cy="5" r="1.6" />
+    </>
+  ),
+  note: (
+    <>
+      <Rect x="4" y="4" width="16" height="16" rx="3" />
+      <Path d="M8 9h8M8 13h8M8 17h5" />
+    </>
+  ),
+  target: (
+    <>
+      <Circle cx="12" cy="12" r="8" />
+      <Circle cx="12" cy="12" r="4" />
+      <Circle cx="12" cy="12" r="0.8" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof icons;

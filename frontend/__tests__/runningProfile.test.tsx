@@ -294,8 +294,8 @@ test('8.2 saves a level change with the level alone', async () => {
       : profileResponse({ selfReportedLevel: 'ADVANCED' }),
   );
   const screen = await launch(true);
-  await press(screen, '설정');
-  await press(screen, '내 프로필 보기');
+  // 8.1 has no profile card now (runway-settings), so 7.4b is the 프로필 tab.
+  await press(screen, '프로필');
   await settle(50);
   await press(screen, '프로필 수정');
   await settle(50);

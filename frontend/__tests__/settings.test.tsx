@@ -69,45 +69,72 @@ async function openSettings() {
   return screen!;
 }
 
-test('8.1 saves a switch at once and 7.4b no longer shows the account visibility', async () => {
+// A tile or a row reads its state out (켜기 · 공개 · 러닝 중에만 …).
+const stateOf = (screen: Screen, label: string) =>
+  labelled(screen, label).props.accessibilityValue?.text as string;
+
+test('8.1 tiles switch at once and 8.1b picks where the location is recorded', async () => {
   const screen = await openSettings();
   const page = texts(screen);
   expect(page).toContain('Galaxy Watch7');
-  expect(page).toContain('연결됨 · 06:42 동기화');
+  expect(page).toContain('연결됨');
+  // runway-settings: no profile card and no setting descriptions on 8.1 (담당자 결정).
+  expect(page).not.toContain('내 프로필 보기');
+  expect(page).not.toContain('페이스·심박 이탈 시 음성으로 알려요');
+
   const voice = () => labelled(screen, '코칭 음성 알림');
   expect(voice().props.accessibilityState.checked).toBe(true);
   await press(screen, '코칭 음성 알림');
   expect(voice().props.accessibilityState.checked).toBe(false);
+  expect(stateOf(screen, '코칭 음성 알림')).toBe('끄기');
 
-  // The settings screen stays mounted under 7.4b, so count the 비공개 계정 labels: only 8.1's.
-  const privateLabels = () =>
-    screen.root
-      .findAllByType(Text)
-      .filter(node => node.props.children === '비공개 계정').length;
-  await press(screen, '비공개 계정');
-  expect(privateLabels()).toBe(1);
-  await press(screen, '내 프로필 보기');
+  expect(stateOf(screen, '계정 공개 범위')).toBe('공개');
+  await press(screen, '계정 공개 범위');
+  expect(stateOf(screen, '계정 공개 범위')).toBe('비공개');
+
+  // 위치 기록 opens 8.1b: one of 항상 · 러닝 중에만 · 끔 is on, and 8.1 shows the one picked.
+  expect(stateOf(screen, '위치 기록')).toBe('러닝 중에만');
+  await press(screen, '위치 기록');
   await settle(50);
-  expect(privateLabels()).toBe(1);
+  expect(labelled(screen, '러닝 중에만').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await press(screen, '항상');
+  expect(labelled(screen, '항상').props.accessibilityState.checked).toBe(true);
+  expect(labelled(screen, '러닝 중에만').props.accessibilityState.checked).toBe(
+    false,
+  );
+  await press(screen, '뒤로');
+  await settle(50);
+  expect(stateOf(screen, '위치 기록')).toBe('항상');
   await act(async () => screen.unmount());
 });
 
-test('8.2 saves the nickname and 8.1 shows it', async () => {
+test('8.2 saves the nickname from the foot and opens with it again', async () => {
   const screen = await openSettings();
-  await press(screen, '내 프로필 보기');
+  await press(screen, '뒤로');
+  await press(screen, '프로필');
   await settle(50);
   await press(screen, '프로필 수정');
   await settle(50);
   expect(texts(screen)).toContain('5km · 30:00 · 6′00″/km');
+  // The date is one field; a tap opens 연도 · 월 · 일 under it.
+  expect(texts(screen)).toContain('1991년 3월 14일');
+  expect(texts(screen)).not.toContain('03월');
+  await press(screen, '생년월일 1991년 3월 14일');
+  expect(texts(screen)).toContain('03월');
   await type(screen, '닉네임', '민');
   expect(labelled(screen, '저장').props.accessibilityState.disabled).toBe(true);
   await type(screen, '닉네임', '새벽러너');
   await press(screen, '저장');
   await settle(50);
   expect(texts(screen)).toContain('프로필을 저장했어요');
-  await press(screen, '설정');
+  // 8.1 no longer has the profile card, so open 8.2 again and read the saved nickname.
+  await press(screen, '프로필 수정');
   await settle(50);
-  expect(texts(screen)).toContain('새벽러너');
+  expect(labelled(screen, '닉네임', 'onChangeText').props.value).toBe(
+    '새벽러너',
+  );
   await act(async () => screen.unmount());
 });
 
@@ -120,9 +147,10 @@ test('8.4 to 8.6 withdraws after the agreement and the password, then signs out'
   expect(page).toContain('저장한 코스 5개');
   expect(page).toContain('크루장인 크루가 있어요');
   expect(page).toContain('민락 야경 러너스');
-  expect(labelled(screen, '탈퇴하기').props.disabled).toBe(true);
+  // 8.4 steps on with 다음 (runway-settings); 탈퇴하기 is 8.5's.
+  expect(labelled(screen, '다음').props.disabled).toBe(true);
   await press(screen, '탈퇴 동의');
-  await press(screen, '탈퇴하기');
+  await press(screen, '다음');
   await settle(50);
   expect(texts(screen)).toContain('비밀번호를 입력해 주세요');
 

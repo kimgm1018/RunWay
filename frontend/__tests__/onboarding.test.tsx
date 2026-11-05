@@ -367,7 +367,8 @@ test('a disconnected watch shows the 1.8 state and can be skipped from settings'
   const screen = await render({ initialSignedIn: true }, 'watchDisconnected');
   await press(screen, '설정');
   await settle(400);
-  await press(screen, '연결');
+  // The let-go watch tile opens 1.7 (runway-settings).
+  await press(screen, 'Galaxy Watch7');
   await settle(400);
   const text = texts(screen);
   expect(text).toContain('연결 끊김');
