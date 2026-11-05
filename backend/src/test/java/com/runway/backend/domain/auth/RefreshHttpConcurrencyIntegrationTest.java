@@ -7,13 +7,13 @@ import static org.mockito.Mockito.*;
 import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.concurrent.*;
 
 class RefreshHttpConcurrencyIntegrationTest extends RefreshIntegrationSupport {
-    @MockitoSpyBean RefreshTokenStore spiedStore;
+    @Autowired RefreshTokenStore spiedStore;
 
     @Test
     void twoHttpRequestsReadSameCandidateThenOnlyOneRotates() throws Exception {

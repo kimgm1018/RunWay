@@ -10,8 +10,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
@@ -19,8 +17,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  *
  * <p>현재 W06은 RHR만 저장하므로 결과는 회복 항목 하나로 계산되어 신뢰도 LOW다. 평소 RHR 60, 오늘 66(+10%) → 65점, 오늘 60(0%) → 100점.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class ReadinessAutoEvaluationIntegrationTest extends ReadinessIntegrationSupport {
 

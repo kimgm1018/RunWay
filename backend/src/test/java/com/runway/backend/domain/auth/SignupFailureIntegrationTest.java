@@ -20,7 +20,6 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -29,9 +28,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @ExtendWith(OutputCaptureExtension.class)
 class SignupFailureIntegrationTest extends AuthIntegrationSupport {
-    @MockitoSpyBean SignupRepository repository;
-    @MockitoSpyBean RefreshTokenStore store;
-    @MockitoSpyBean JwtAccessTokenService access;
+    @Autowired SignupRepository repository;
+    @Autowired RefreshTokenStore store;
+    @Autowired JwtAccessTokenService access;
     @Autowired JsonMapper mapper;
 
     void unavailable() throws Exception {

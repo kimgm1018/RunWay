@@ -8,36 +8,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.global.security.SecurityTestSupport;
-import com.runway.backend.support.SharedPostgres;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.math.BigDecimal;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-class RunningRecordStatisticsApiIntegrationTest {
-
+class RunningRecordStatisticsApiIntegrationTest extends SharedContextIntegrationSupport {
     private static final String LOGIN_PREFIX = "rr_stats_";
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
-
-    static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(RunningRecordStatisticsApiIntegrationTest.class);
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;

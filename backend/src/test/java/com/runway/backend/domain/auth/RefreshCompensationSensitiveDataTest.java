@@ -10,13 +10,13 @@ import com.runway.backend.global.security.JwtAccessTokenService;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.*;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 @ExtendWith(OutputCaptureExtension.class)
 class RefreshCompensationSensitiveDataTest extends RefreshIntegrationSupport {
-    @MockitoSpyBean JwtAccessTokenService spiedAccess;
-    @MockitoSpyBean RefreshTokenStore spiedStore;
+    @Autowired JwtAccessTokenService spiedAccess;
+    @Autowired RefreshTokenStore spiedStore;
 
     @Test
     void technicalAndCompensationFailureNeverLogCauseOrCredentials(CapturedOutput output)

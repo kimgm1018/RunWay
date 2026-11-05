@@ -10,14 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** AC-5·AC-6·AC-7·AC-8·AC-15. 인증·소유·동의·기기 상태·세션 상태 검사. 거절 시 행이 남지 않는다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class SyncBatchAuthorizationIntegrationTest extends SyncBatchIntegrationSupport {
 

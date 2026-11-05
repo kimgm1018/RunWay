@@ -22,7 +22,7 @@ import java.sql.SQLException;
 class SchemaIntegrityTest {
 
     static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(SchemaIntegrityTest.class);
+            SharedPostgres.emptyDatabase(SchemaIntegrityTest.class);
 
     private Connection connection;
     private long user;

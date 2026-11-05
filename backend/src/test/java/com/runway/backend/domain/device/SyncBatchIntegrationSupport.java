@@ -3,6 +3,9 @@ package com.runway.backend.domain.device;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import org.springframework.context.annotation.Import;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import com.runway.backend.domain.device.service.BatchPayloadHasher;
 import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
@@ -28,6 +31,9 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <p>하위 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다.
  */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Import(HealthEventRecorder.class)
 abstract class SyncBatchIntegrationSupport {
 
     static final SharedPostgres.Database DATABASE =

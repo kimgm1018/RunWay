@@ -11,23 +11,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.global.security.SecurityTestSupport;
-import com.runway.backend.support.SharedPostgres;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-class CommentApiIntegrationTest {
-
+class CommentApiIntegrationTest extends SharedContextIntegrationSupport {
     @Test
     void 헤더단독과_상충헤더로_댓글작성자를_가장할수없다() throws Exception {
         long comment = insertComment(publicPostId, viewerId, "keep-body", null);
@@ -55,16 +48,6 @@ class CommentApiIntegrationTest {
                                 .header("X-User-Id", viewerId))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCOUNT_ACCESS_DENIED"));
-    }
-
-    static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(CommentApiIntegrationTest.class);
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
     }
 
     @Autowired private MockMvc mockMvc;

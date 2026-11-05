@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class BackendApplicationIntegrationTest {
 
     static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(BackendApplicationIntegrationTest.class);
+            SharedPostgres.emptyDatabase(BackendApplicationIntegrationTest.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

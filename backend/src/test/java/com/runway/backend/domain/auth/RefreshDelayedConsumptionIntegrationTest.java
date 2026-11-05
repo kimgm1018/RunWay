@@ -9,12 +9,12 @@ import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.IssuedRefreshToken;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 
 class RefreshDelayedConsumptionIntegrationTest extends RefreshIntegrationSupport {
-    @MockitoSpyBean RefreshTokenStore spiedStore;
+    @Autowired RefreshTokenStore spiedStore;
 
     @Test
     void realRedisRejectsDelayedConsumptionAndExpiresUsedHistory() throws Exception {

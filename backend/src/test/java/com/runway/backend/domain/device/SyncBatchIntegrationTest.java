@@ -7,14 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.node.ObjectNode;
 
 /** AC-1·AC-9·AC-10·AC-13. 저장·재응답·충돌을 응답과 DB 행으로 판정한다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class SyncBatchIntegrationTest extends SyncBatchIntegrationSupport {
 

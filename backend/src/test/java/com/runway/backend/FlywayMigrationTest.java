@@ -21,7 +21,7 @@ import java.util.UUID;
 /** Uses only disposable databases; never reads the developer's environment file. */
 class FlywayMigrationTest {
     static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(FlywayMigrationTest.class);
+            SharedPostgres.emptyDatabase(FlywayMigrationTest.class);
 
     private String databaseUrl;
 

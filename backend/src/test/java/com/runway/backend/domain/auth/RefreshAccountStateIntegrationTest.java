@@ -9,14 +9,13 @@ import com.runway.backend.global.exception.ApiException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.concurrent.*;
 
 class RefreshAccountStateIntegrationTest extends RefreshIntegrationSupport {
-    @MockitoSpyBean RefreshTokenStore spiedStore;
+    @Autowired RefreshTokenStore spiedStore;
     @Autowired PlatformTransactionManager transactions;
 
     @Test

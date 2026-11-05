@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -26,7 +25,7 @@ class RunningProfileConcurrencyIntegrationTest extends AuthIntegrationSupport {
     @Autowired RunningProfileService service;
     @Autowired LoginService login;
     @Autowired JsonMapper mapper;
-    @MockitoSpyBean ProfileOwnerLockRepository owners;
+    @Autowired ProfileOwnerLockRepository owners;
 
     RunningProfileRequest profile(String level, int pace) {
         return mapper.readValue(

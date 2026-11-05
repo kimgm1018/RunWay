@@ -11,6 +11,8 @@ import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,8 +26,13 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>하위 테스트 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다. 서버는 JVM 종료 시
  * Testcontainers가 정리한다. 클래스마다 내렸다 올리면 캐시된 컨텍스트가 닫힌 포트를 가리킨다.
+ *
+ * <p>웹 환경과 {@link EndedEventRecorder}를 여기서 정해 하위 클래스가 컨텍스트 하나를 함께 쓴다. 기록기는 쓰는 테스트가 매번 비운다.
+ * 동작을 대체하는 Mock이나 다른 속성이 필요한 테스트만 자기 구성을 선언한다.
  */
-@Import(FakePaceDecider.Config.class)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Import({FakePaceDecider.Config.class, EndedEventRecorder.class})
 abstract class RunningSessionIntegrationSupport {
 
     static final SharedPostgres.Database DATABASE =

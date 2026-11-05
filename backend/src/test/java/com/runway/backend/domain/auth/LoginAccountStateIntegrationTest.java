@@ -11,7 +11,6 @@ import com.runway.backend.global.exception.ApiException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -20,8 +19,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 class LoginAccountStateIntegrationTest extends AuthIntegrationSupport {
-    @MockitoSpyBean MemberPasswordHasher hasher;
-    @MockitoSpyBean RefreshTokenStore store;
+    @Autowired MemberPasswordHasher hasher;
+    @Autowired RefreshTokenStore store;
     @Autowired LoginService login;
     @Autowired PlatformTransactionManager transactionManager;
 

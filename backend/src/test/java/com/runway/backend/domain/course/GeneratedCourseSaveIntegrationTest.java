@@ -17,7 +17,7 @@ import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonGeographyMapper;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.security.SecurityTestSupport;
-import com.runway.backend.support.SharedPostgres;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -32,19 +32,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-class GeneratedCourseSaveIntegrationTest {
-
+class GeneratedCourseSaveIntegrationTest extends SharedContextIntegrationSupport {
     private static final BigDecimal DISTANCE_M = new BigDecimal("2450.50");
     private static final GeoJsonLineString ROUTE =
             GeoJsonLineString.of(
@@ -54,16 +47,6 @@ class GeneratedCourseSaveIntegrationTest {
     private static GeoJsonLineString routeEndingAt(double lon) {
         return GeoJsonLineString.of(
                 List.of(List.of(129.0, 35.0), List.of(129.01, 35.01), List.of(lon, 35.0)));
-    }
-
-    static final SharedPostgres.Database DATABASE =
-            SharedPostgres.database(GeneratedCourseSaveIntegrationTest.class);
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
     }
 
     @Autowired private MockMvc mockMvc;

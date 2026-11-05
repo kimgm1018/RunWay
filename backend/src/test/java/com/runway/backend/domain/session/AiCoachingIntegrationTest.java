@@ -13,16 +13,12 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * AI04 판단 → 저장·발행 — 421 플랜 AC-2·AC-3·AC-4·AC-5·AC-6·AC-8·AC-11(T-6·T-8·T-9·T-10). AI는 {@link FakePaceDecider}로
  * 대신한다. 모든 값은 합성 데이터다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
 

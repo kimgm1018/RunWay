@@ -10,8 +10,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -19,8 +17,6 @@ import tools.jackson.databind.node.ObjectNode;
  * AI 서버 주소가 없으면 기동은 하고 자동 코칭을 하지 않는다(더미로 대체하지 않음) — 421 플랜 AC-9(T-14). 다른 W07 통합 테스트와 같은
  * 컨텍스트(주소 미설정)를 쓴다. 모든 값은 합성 데이터다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class SyncBatchCoachingDisabledIntegrationTest extends SyncBatchIntegrationSupport {
 
