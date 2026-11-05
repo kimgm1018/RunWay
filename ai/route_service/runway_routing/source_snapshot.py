@@ -18,6 +18,7 @@ from pathlib import Path
 import platform
 import sys
 import time
+import zipfile
 
 import numpy as np
 
@@ -106,7 +107,8 @@ def build(out: Path, extract: Path | None = None) -> dict:
     arrays, strings = _fields(src)
     np.savez(out / ARRAYS, **arrays)
     (out / STRINGS).write_text(json.dumps(strings, ensure_ascii=False), encoding="utf-8")
-    back = _restore(dict(np.load(out / ARRAYS, allow_pickle=False)), strings, extract)
+    with np.load(out / ARRAYS, allow_pickle=False) as z:     # closed right after reading (441 R15)
+        back = _restore({k: z[k] for k in z.files}, strings, extract)
     diff = compare(src, back)
     if diff:
         raise RuntimeError(f"snapshot differs from the parsed extract: {diff}")
@@ -124,19 +126,29 @@ def load(d: Path, extract: Path, status: dict, cls=None):
     except (OSError, ValueError) as ex:
         status["reason"] = f"no manifest: {type(ex).__name__}"
         return None
-    want = key(extract)
-    if man.get("key") != want:
-        status["reason"] = "key mismatch: " + ",".join(k for k in want if man.get("key", {}).get(k) != want[k])
-        return None
-    for f in (ARRAYS, STRINGS):
-        if not (d / f).is_file() or _sha256(d / f) != man["files"].get(f):
-            status["reason"] = f"file hash mismatch: {f}"
+    want = key(extract)   # hashes the extract: a missing PBF still raises here (not a derived-file problem)
+    # 441 R4: a malformed manifest (not an object, no "files", wrong types), an unreadable file or a broken npz / strings
+    # file is a derived-file problem -> record why and return None, so the factory falls back (snapshot / PBF).
+    try:
+        if not isinstance(man, dict) or not isinstance(man.get("key"), dict):
+            status["reason"] = "malformed manifest"
             return None
-    with np.load(d / ARRAYS, allow_pickle=False) as z:
-        arrays = {k: z[k] for k in z.files}
-    strings = json.loads((d / STRINGS).read_text(encoding="utf-8"))
+        if man["key"] != want:
+            status["reason"] = "key mismatch: " + ",".join(k for k in want if man["key"].get(k) != want[k])
+            return None
+        for f in (ARRAYS, STRINGS):
+            if not (d / f).is_file() or _sha256(d / f) != man["files"].get(f):
+                status["reason"] = f"file hash mismatch: {f}"
+                return None
+        with np.load(d / ARRAYS, allow_pickle=False) as z:
+            arrays = {k: z[k] for k in z.files}
+        strings = json.loads((d / STRINGS).read_text(encoding="utf-8"))
+        src = _restore(arrays, strings, extract, cls)
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError, EOFError, zipfile.BadZipFile) as ex:
+        status["reason"] = f"unreadable or malformed: {type(ex).__name__}"
+        return None
     status["reason"] = ""
-    return _restore(arrays, strings, extract, cls)
+    return src
 
 
 def compare(a, b) -> list:

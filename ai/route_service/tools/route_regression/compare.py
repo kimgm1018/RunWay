@@ -4,8 +4,11 @@
                                                    -> exit 0 iff every required artifact matches
 
 Required (byte compare after removing timing keys, key order kept): HTTP status, response body, status_start/end,
-gate JSONL lines. Required (canonical sorted-key JSON after removing timing keys): pipeline `out` dicts.
-Informational: `out` with key order kept, and raw (unstripped) byte equality.
+gate JSONL lines, pipeline `out` dicts. The scenario list (ids and order) must be the same and non-empty. Every
+scenario must have resp.json in both directories; a scenario that ran the pipeline in A (meta "runs") must have
+out.json and gate.jsonl in both. A missing required artifact fails. An `out` whose key order differs fails (S15P31E105-441:
+README "out key order is part of the Golden contract"); before, this was informational only.
+Informational: raw (unstripped) byte equality.
 
 Without --known the comparison is strict. With --known, an entry applies only when its mode matches the mode of BOTH
 directories (the part after the last "_" in the directory name, or the whole name: baseline/shadow, mytag_shadow) and
@@ -79,16 +82,21 @@ def main() -> int:
     fails, info = [], {"raw_identical": 0, "out_keyorder_diff": [], "artifacts": 0}
     if kpath:
         info["known_differences"] = []
+    if not ia:
+        fails.append(("scenario_list", "A has no scenarios"))
     if list(ia) != list(ib):
-        fails.append(("scenario_list", sorted(set(ia) ^ set(ib))))
+        fails.append(("scenario_list", "ids or order differ", sorted(set(ia) ^ set(ib))))
     for sid in ia:
         if sid not in ib:
             continue
         if ia[sid]["http"] != ib[sid]["http"]:
             fails.append((sid, "http", ia[sid]["http"], ib[sid]["http"]))
+        required = ("resp.json", "out.json", "gate.jsonl") if "runs" in ia[sid] else ("resp.json",)
         for kind in ("resp.json", "out.json", "gate.jsonl"):
             pa, pb = A / f"{sid}.{kind}", B / f"{sid}.{kind}"
             if not pa.exists() and not pb.exists():
+                if kind in required:
+                    fails.append((sid, kind, "missing in both"))
                 continue
             info["artifacts"] += 1
             if not (pa.exists() and pb.exists()):
@@ -111,14 +119,17 @@ def main() -> int:
                 if dump(strip(ja)) != dump(strip(jb)):
                     fails.append((sid, kind, first_diff(strip(ja), strip(jb))))
             else:
-                if dump(strip(ja), True) != dump(strip(jb), True):
-                    kid = is_known(sid, kind, strip(ja), strip(jb), known)
-                    if kid:
-                        info["known_differences"].append((kid, sid, kind, first_diff(strip(ja), strip(jb))))
-                    else:
-                        fails.append((sid, kind, first_diff(strip(ja), strip(jb))))
-                elif dump(strip(ja)) != dump(strip(jb)):
+                sa, sb = strip(ja), strip(jb)
+                order = key_order_diff(sa, sb)
+                if order:
                     info["out_keyorder_diff"].append(sid)
+                    fails.append((sid, kind, "key order", order))
+                elif dump(sa) != dump(sb):
+                    kid = is_known(sid, kind, sa, sb, known)
+                    if kid:
+                        info["known_differences"].append((kid, sid, kind, first_diff(sa, sb)))
+                    else:
+                        fails.append((sid, kind, first_diff(sa, sb)))
     for f in ("status_start.json", "status_end.json"):
         (_, ja), (_, jb) = load(A / f), load(B / f)
         info["artifacts"] += 1
@@ -128,6 +139,24 @@ def main() -> int:
     for f in fails[:40]:
         print("FAIL", f)
     return 1 if fails else 0
+
+
+def key_order_diff(a, b, path="$"):
+    """First path where both sides are dicts with the same keys in a different order (values are not compared)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        if list(a) != list(b) and set(a) == set(b):
+            return f"{path}: {list(a)[:12]} != {list(b)[:12]}"
+        for k in a:
+            if k in b:
+                d = key_order_diff(a[k], b[k], f"{path}.{k}")
+                if d:
+                    return d
+    elif isinstance(a, list) and isinstance(b, list):
+        for i, (x, y) in enumerate(zip(a, b)):
+            d = key_order_diff(x, y, f"{path}[{i}]")
+            if d:
+                return d
+    return None
 
 
 def first_diff(a, b, path="$"):

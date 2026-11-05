@@ -25,6 +25,7 @@ import json
 import os
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 import geopandas as gpd
@@ -109,7 +110,7 @@ def load_env(name: str) -> dict:
     layers = load_layers()
     if layers is None:
         return {"name": None, "layers": None, "extent_wsen": None, "path": None, "note": "no env layer file"}
-    note = None if name == "poc5" else f"{WIDE_ENV_PATH.name} missing (run fetch-env); using the five-box layer"
+    note = None if name == "poc5" else f"{WIDE_ENV_PATH.name} missing (see tools/data/README.md); using the five-box layer"
     return {"name": "poc5", "layers": layers, "extent_wsen": env_bbox(),
             "path": "reports/_route_poc_work/env_layers.geojson", "note": note}
 
@@ -214,6 +215,18 @@ def _code_sha() -> str:
     src = inspect.getsource(edge_distances) + repr(ENV_CLASSES) + f"v{CACHE_VERSION}"
     return hashlib.sha256(src.encode()).hexdigest()
 
+_FILE_SHA: dict = {}
+
+
+def file_sha256(path) -> str:
+    """sha256 of a data file, computed once per process and reused while (path, size, mtime) stay the same.
+    Used for the Busan extract, which several start-up checks hash (S15P31E105-441 R3)."""
+    st = os.stat(path)
+    k = (str(Path(path).resolve()), st.st_size, st.st_mtime_ns)
+    if k not in _FILE_SHA:
+        _FILE_SHA[k] = _sha256(path)
+    return _FILE_SHA[k]
+
 def _extract_meta() -> dict:
     meta = json.loads((api.busan.BUSAN_DIR / "EXTRACT.json").read_text(encoding="utf-8"))
     return {"file": meta["extract_file"], "sha256": meta["extract_sha256"],
@@ -226,9 +239,14 @@ class EnvFeatureCache:
 
     def __init__(self, prov: dict):
         t0 = time.perf_counter()
-        z = np.load(ARRAYS_PATH)
-        keys = z["keys"]
-        self.dist_dm = z["dist_dm"]
+        with np.load(ARRAYS_PATH, allow_pickle=False) as z:
+            keys = z["keys"]
+            self.dist_dm = z["dist_dm"]
+        n = prov["segments"]
+        if (keys.dtype != np.int64 or keys.shape != (n, 3) or self.dist_dm.dtype != np.int32
+                or self.dist_dm.shape != (n, len(ENV_CLASSES))):
+            raise ValueError(f"cache arrays {keys.dtype}{keys.shape} / {self.dist_dm.dtype}{self.dist_dm.shape} "
+                             f"do not match {n} segments x {len(ENV_CLASSES)} classes")
         self.index = pd.MultiIndex.from_arrays([keys[:, 0], keys[:, 1], keys[:, 2]])
         self.index.get_indexer(self.index[:1])  # build the hash engine now, not on the first request
         self.prov = prov
@@ -236,21 +254,39 @@ class EnvFeatureCache:
 
     @classmethod
     def load(cls, env: dict) -> tuple["EnvFeatureCache | None", str]:
-        """(cache, "") when the cache matches the extract, env layer and code on disk; else (None, why)."""
+        """(cache, "") when the cache matches the extract, env layer and code on disk; else (None, why).
+
+        Checks (S15P31E105-441 R3/R4): provenance JSON shape, cache version, the extract sha256 in EXTRACT.json AND of the
+        actual PBF file (computed once, data.file_sha256), env layer file, code hash, the arrays file size + sha256
+        recorded at build time, and the array dtypes / shapes. Any mismatch or unreadable / malformed cache file -> (None,
+        why) and graph.attach_env computes the same distances directly. A missing or duplicate Busan PBF is NOT a cache
+        problem: api.busan._busan_pbf() raises SystemExit and the engine start fails (app: phase failed / UNAVAILABLE)."""
         if not PROVENANCE_PATH.exists() or not ARRAYS_PATH.exists():
             return None, "no cache (run: python -B tools/data/build_env_cache.py build)"
-        prov = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
-        if prov.get("cache_version") != CACHE_VERSION:
-            return None, f"cache version {prov.get('cache_version')} != {CACHE_VERSION}"
-        if prov["extract"]["sha256"] != _extract_meta()["sha256"]:
-            return None, "Busan extract changed since the cache was built"
-        if env["name"] is None or env["path"] is None or prov["env_layer"]["name"] != env["name"]:
-            return None, f"env layer {env['name']} != cached {prov['env_layer']['name']}"
-        if prov["env_layer"]["sha256"] != _sha256(REPORTS.parent / env["path"]):
-            return None, "env layer file changed since the cache was built"
-        if prov["code_sha256"] != _code_sha():
-            return None, "distance code changed since the cache was built"
-        return cls(prov), ""
+        extract_sha = file_sha256(api.busan._busan_pbf())   # outside the try: a missing PBF must still fail
+        try:
+            prov = json.loads(PROVENANCE_PATH.read_text(encoding="utf-8"))
+            if not isinstance(prov, dict):
+                return None, "provenance.json is not a JSON object"
+            if prov.get("cache_version") != CACHE_VERSION:
+                return None, f"cache version {prov.get('cache_version')} != {CACHE_VERSION}"
+            if prov["extract"]["sha256"] != _extract_meta()["sha256"]:
+                return None, "Busan extract changed since the cache was built"
+            if prov["extract"]["sha256"] != extract_sha:
+                return None, "Busan extract file (actual sha256) differs from the one the cache was built from"
+            if env["name"] is None or env["path"] is None or prov["env_layer"]["name"] != env["name"]:
+                return None, f"env layer {env['name']} != cached {prov['env_layer']['name']}"
+            if prov["env_layer"]["sha256"] != _sha256(REPORTS.parent / env["path"]):
+                return None, "env layer file changed since the cache was built"
+            if prov["code_sha256"] != _code_sha():
+                return None, "distance code changed since the cache was built"
+            if (ARRAYS_PATH.stat().st_size != prov["arrays_bytes"]
+                    or _sha256(ARRAYS_PATH) != prov["arrays_sha256"]):
+                return None, "cache arrays file differs from the one recorded in provenance.json"
+            return cls(prov), ""
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError, EOFError,
+                zipfile.BadZipFile) as ex:
+            return None, f"cache unreadable or malformed: {type(ex).__name__}: {ex}"
 
     def lookup(self, redges: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """(distances in m, shape (E, 6) in ENV_CLASSES order, NaN where missing; missing mask)."""

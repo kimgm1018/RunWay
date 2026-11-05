@@ -32,38 +32,48 @@ Two apps (S15P31E105-381):
 | `random` | default, random P2P file | 30 |
 
 ## Commands
+Every command below needs all of its options: `run_regression.py` defaults to the v1 `baseline` folder next to this file
+and to `--app demo`, and `--app demo` stops without `--demo-dir`. With bundle v2 data always pass `--baseline <...>/baseline_v2`.
+`<demo copy>` = a folder holding `route_demo/` from commit 368963c (see "Two apps" above).
 ```bash
-# all modes, with the approved known difference (normal check after any change, ~8 min)
-python -B tools/route_regression/run_regression.py --tag mychange --app demo --demo-dir <demo copy> --baseline <baseline dir>
+# engine identity, all modes, bundle v2 (normal check after any change, ~8 min). v2 has no known difference: use --strict
+python -B tools/route_regression/run_regression.py --tag mychange --app demo --demo-dir <demo copy> --baseline <baseline_v2> --strict
 
-# the service on the same scenarios, compared with the baseline minus the fields it does not send
-python -B tools/route_regression/run_regression.py --tag svc --app service --env ROUTE_WARMUP=0 --baseline <baseline dir>
+# service identity on the same scenarios: the service response must equal the demo/baseline response mapped to the contract
+# ROUTE_REROLL_EXCLUDE=0: the baseline was captured with the demo app, which has no re-roll exclusion (S15P31E105-383).
+# With it on (the service default) every seed >= 25 scenario differs on purpose; compare two service captures for determinism.
+python -B tools/route_regression/run_regression.py --tag svc --app service --env ROUTE_WARMUP=0 ROUTE_REROLL_EXCLUDE=0 --baseline <baseline_v2> --strict
 python -B tools/route_regression/service_identity.py tools/route_regression/runs/mychange_main tools/route_regression/runs/svc_main
 
-# strict: no known differences allowed (shadow will report GS-26 as a failure; that is expected)
-python -B tools/route_regression/run_regression.py --tag mychange_strict --strict
-
 # only some modes
-python -B tools/route_regression/run_regression.py --tag quick --modes main random
+python -B tools/route_regression/run_regression.py --tag quick --modes main random --app demo --demo-dir <demo copy> --baseline <baseline_v2> --strict
 
-# rollback: P2P substrate off (must be identical to the baseline even in strict mode)
-python -B tools/route_regression/run_regression.py --tag sub0 --env RUNWAY_P2P_SUBSTRATE=0 --strict
+# rollback: P2P substrate off (must be identical to the baseline in strict mode)
+python -B tools/route_regression/run_regression.py --tag sub0 --env RUNWAY_P2P_SUBSTRATE=0 --app demo --demo-dir <demo copy> --baseline <baseline_v2> --strict
 
 # rollback: shortest path through networkx instead of D-exact
-python -B tools/route_regression/run_regression.py --tag spnx --env RUNWAY_SP_KERNEL=nx
+python -B tools/route_regression/run_regression.py --tag spnx --env RUNWAY_SP_KERNEL=nx --app demo --demo-dir <demo copy> --baseline <baseline_v2> --strict
 
 # low level: one capture, one comparison
-python -B tools/route_regression/capture.py --mode shadow --out tools/route_regression/runs/x_shadow
-python -B tools/route_regression/compare.py tools/route_regression/baseline/shadow tools/route_regression/runs/x_shadow --known tools/route_regression/known_differences.json
+python -B tools/route_regression/capture.py --mode shadow --app demo --demo-dir <demo copy> --out tools/route_regression/runs/x_shadow
+python -B tools/route_regression/compare.py <baseline_v2>/shadow tools/route_regression/runs/x_shadow
+
+# old bundle v1 data only: the 2026-10-28 baseline, with its one approved known difference (GS-26, shadow)
+python -B tools/route_regression/run_regression.py --tag v1check --app demo --demo-dir <demo copy> --baseline <baseline (v1)>
 ```
 Use a new `--tag` each time; capture refuses an existing output directory. The modes run one after another, and each app process takes about 2.5 GB.
 
 ## Pass criterion
 - `RESULT PASS`: every mode prints `"fails": 0`.
-- With known differences (default), the shadow mode lists **exactly one** entry: `p2p-substrate-gs26-from-cache`. Every other mode lists none.
-- With `RUNWAY_P2P_SUBSTRATE=0 --strict`, every mode is 0.
+- **Bundle v2 (`baseline_v2`)**: 0 in every mode **with `--strict`** (no known difference applies).
+- Bundle v1 (old `baseline`) only: with known differences (default), the shadow mode lists **exactly one** entry: `p2p-substrate-gs26-from-cache`. Every other mode lists none. With `RUNWAY_P2P_SUBSTRATE=0 --strict`, every mode is 0.
 
-### The one known difference (GS-26)
+What the comparators require (S15P31E105-441), besides equal content:
+- `compare.py`: the same non-empty scenario list in the same order; `resp.json` for every scenario and `out.json` + `gate.jsonl` for every scenario that ran the pipeline, on both sides; `out` key order equal (fails, not informational).
+- `service_identity.py`: every scenario of A in B in the same order, except the demo-only debug calls `D-01`/`D-02`; at least one compared; all three artifacts on both sides; `out` key order equal; the service Gate log line = the demo line plus `gate_files_sha256` (recomputed from the frozen rule files) right after `gate_version`.
+- Negative tests: `test_identity_checks.py` (empty capture, one scenario missing, keys reordered, artifact missing, order changed).
+
+### The one known difference (GS-26, bundle v1 baseline only)
 In shadow mode, `GS-26 out.json $[0].canonical.graph.from_cache` is `false` in the baseline and `true` now. This is not a functional difference:
 - Before the P2P substrate patch, the P2P request GS-14 built two 8.5 km networkx graphs. They pushed the centum graph that GS-09 had cached out of the generator's 4-entry LRU, so GS-26 rebuilt it.
 - The substrate no longer builds those graphs, so GS-26 now reuses the cached graph. The content is identical.

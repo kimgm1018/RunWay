@@ -7,13 +7,15 @@
   --modes    default: all five. "random" = 30 random P2P requests (scenarios_p2p_random.json) in the main mode
   --env      extra environment for the captured app, e.g. RUNWAY_P2P_SUBSTRATE=0 or RUNWAY_SP_KERNEL=nx (rollbacks)
   --strict   compare without known_differences.json (default: with it)
-  --baseline baseline directory (default: tools/route_regression/baseline, one sub-directory per mode)
+  --baseline baseline directory (default: tools/route_regression/baseline = bundle v1; use baseline_v2 for bundle v2)
   --app      demo (default: the stored baseline was captured with the retired demo app) or service
   --demo-dir folder that contains route_demo/ (needed with --app demo; e.g. git archive of the !180 commit)
              With --app service the captures are compared with the baseline by service_identity.py, not compare.py.
 
-Pass criterion: every mode "fails": 0. With known differences on, the shadow mode lists exactly one known difference
-(GS-26 canonical.graph.from_cache, see known_differences.json); with RUNWAY_P2P_SUBSTRATE=0 it lists none.
+Pass criterion: every mode "fails": 0. Bundle v2 data: pass --baseline <...>/baseline_v2 (the default folder is the v1
+baseline) and --strict; there is no known difference. Bundle v1 data with the v1 baseline: with known differences on,
+the shadow mode lists exactly one (GS-26 canonical.graph.from_cache, see known_differences.json); with
+RUNWAY_P2P_SUBSTRATE=0 it lists none.
 Each mode runs in its own process, one after another (the app takes ~2.5 GB). Exit code 0 only when every mode passes.
 """
 import argparse

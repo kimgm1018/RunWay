@@ -27,7 +27,6 @@ shape field appears in a LOOP result. Determinism: same request + same data -> t
 tie-breaks and rounding are fixed). Not thread-safe: callers hold p.lock for the whole request, as the app does.
 """
 import math
-import os
 import threading
 import time
 from dataclasses import asdict
@@ -38,6 +37,7 @@ import pandas as pd
 
 from . import candidates, features, scorer, snap
 from . import graph as graph_mod
+from .env_flags import flag as env_flag
 from .data import RunwayData, api
 from .gate import Gate
 from .graph import GraphStore, disk
@@ -85,12 +85,9 @@ class RoutePipeline:
         #   RUNWAY_FAST_GRAPH=0     app(config.py)이 읽어 fast=False로 전달. canonical builder -> 결과 동일, cold 느려짐
         #   RUNWAY_USABILITY_GATE=shadow  app(config.py)이 읽어 mode로 전달. Gate가 기록만 함  -> FAIL 경로가 남을 수 있음
         # 앞의 셋은 같은 결과를 내도록 검증된 느린 경로이고, shadow만 추천 결과가 달라질 수 있는 비상용 스위치다.
-        self.substrate = Substrate(self.gen, self.ug2) if os.environ.get("RUNWAY_P2P_SUBSTRATE", "1") != "0" else None
+        self.substrate = Substrate(self.gen, self.ug2) if env_flag("RUNWAY_P2P_SUBSTRATE") else None
         #   RUNWAY_ARRAY_SHAPES=0   여기서 읽음. OUT_AND_BACK / P2P 생성 disk를 networkx G/H로   -> 결과 동일, cold 느려짐
-        flag = os.environ.get("RUNWAY_ARRAY_SHAPES", "1")
-        if flag not in ("0", "1"):
-            raise ValueError("RUNWAY_ARRAY_SHAPES must be 0 or 1")
-        self.array_shapes = flag == "1"
+        self.array_shapes = env_flag("RUNWAY_ARRAY_SHAPES")
         if self.gen.array_enabled:
             self.gen.array_source = ArraySource(self.substrate if self.substrate is not None else Substrate(self.gen, self.ug2))
         self.lock = threading.Lock()
@@ -156,7 +153,7 @@ class RoutePipeline:
             out["usability"] = self.gate.skipped("no route generated")
             return out
         c = info["graph_centre"]
-        start = {"node": info["start_node"], "snap_m": info["start"]["snap_node_dist_m"]}
+        start = {"node": info["start_node"], "snap_m": snap.start_distance_m(info["start"])}
         return self._gate(out, info["route_type"], c["lat"], c["lon"], target_m, start, info.get("gate_p2p"))
 
     # ------------------------------------------------------------------ LOOP
@@ -176,7 +173,7 @@ class RoutePipeline:
                                              "최종 순위는 기존 scorer가 정합니다."})
         self._running_suitability(out, lat, lon, target_m)
         st = (out.get("canonical") or {}).get("start")
-        start = None if st is None else {"node": st["node_id"], "snap_m": st["snap_node_dist_m"]}
+        start = None if st is None else {"node": st["node_id"], "snap_m": snap.start_distance_m(st)}
         return self._gate(out, LOOP, lat, lon, target_m, start)
 
     def _loop_routes(self, lat, lon, target_m, seed, attempts, prefs, bias) -> dict:

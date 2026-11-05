@@ -27,6 +27,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Header, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -34,20 +35,20 @@ from runway_routing.data import REGIONS
 from runway_routing.explain import ENV_KEYS as SHAPE_ENV_KEYS, FILTER_LABEL, details, explain, explain_shape
 from runway_routing.features import ELEVATION_KEYS
 from runway_routing.scorer import Preferences
-from runway_routing.snap import to_utm
+from runway_routing.snap import start_distance_m, to_utm
 
 from . import reroll
 from .ai_logging import log_ai_error
 from .config import Settings, load_settings
 from .errors import SHAPE_FAIL, fail
-from .schemas import Filters, RecommendRequest
+from .schemas import SEED_MAX, Filters, RecommendRequest
 
 log = logging.getLogger("runway.ai")
 
 ATTEMPTS = 24            # seed 하나당 후보 시도 수; "다른 코스 추천" -> next_seed = seed + ATTEMPTS
 TOP_K = 3
 MIN_KM, MAX_KM = 1.0, 15.0
-MAX_SNAP_M = 250         # = canonical의 start_far_from_network 경고 거리
+MAX_SNAP_M = 250         # 요청 위치 -> 실제 출발 node(snap.start_distance_m) 상한. canonical start_far_from_network 경고 거리와 같은 값
 ENV_FILTERS = ["river", "beach", "park", "trail"]
 FEATURE_OF = {"river": "river_ratio", "beach": "coastal_ratio", "park": "green_ratio", "trail": "trail_ratio"}
 # 응답에서 빼는 고도·경사 값 (엔진 내부와 Gate 로그에는 그대로 있다)
@@ -88,7 +89,9 @@ class Engine:
             self.pipeline = self.factory(self.settings)
             self.load_s = round(time.perf_counter() - t0, 1)
             log.info("Route 엔진 로드 %.1f초", self.load_s)
-        except Exception as exc:
+        # SystemExit: analysis/runway_busan_graph._busan_pbf()가 PBF 0개·여러 개일 때 내는 CLI식 종료를 시작 실패로 바꾼다.
+        # KeyboardInterrupt 등 다른 BaseException은 잡지 않는다(종료 신호를 삼키지 않음).
+        except (Exception, SystemExit) as exc:
             self.phase, self.error = "failed", f"{type(exc).__name__}: {exc}"
             log_ai_error("ROUTE_ENGINE_LOAD_FAILED", "startup", exc)
             return
@@ -97,9 +100,13 @@ class Engine:
             t0 = time.perf_counter()
             try:
                 res = recommend_core(self, warmup_request(), gate_log=False, lock_wait_s=None, remember=False)
-                if getattr(res, "status_code", 200) >= 500:
-                    raise RuntimeError(f"warm-up HTTP {res.status_code}")
-            except Exception as exc:
+                # 441 R13: 예열은 늘 코스가 나오는 고정 요청(광안리 순환 5 km)이다. 200(코스 1개 이상)이 아니면 4xx라도
+                # 데이터·엔진 문제(잘못된 bundle → OUT_OF_AREA, Gate·생성 고장 → NO_ROUTE 등)로 보고 시작 실패로 둔다.
+                status = getattr(res, "status_code", 200)
+                if status != 200:
+                    code = json.loads(res.body).get("code") if hasattr(res, "body") else None
+                    raise RuntimeError(f"warm-up HTTP {status} {code}")
+            except (Exception, SystemExit) as exc:
                 self.phase, self.error = "failed", f"warm-up {type(exc).__name__}: {exc}"
                 log_ai_error("ROUTE_WARMUP_FAILED", "startup", exc)
                 return
@@ -130,12 +137,13 @@ def create_app(settings: Settings | None = None, pipeline_factory=None, *, backg
                    "reason": err["msg"].removeprefix("Value error, ")} for err in e.errors()]
         return fail("VALIDATION_ERROR", details={"fields": fields})
 
+    # probe는 계산 없이 상태만 읽으므로 async: 추천 요청이 thread pool을 다 써도 바로 답한다(R9)
     @app.get("/health/live")
-    def live():
+    async def live():
         return {"status": "UP"}
 
     @app.get(READY)
-    def ready():
+    async def ready():
         body = {"ready": engine.phase == "ready", "phase": engine.phase,
                 "load_s": engine.load_s, "warmup_s": engine.warmup_s}
         return body if body["ready"] else JSONResponse(body, status_code=503)
@@ -162,6 +170,26 @@ def _prefs(f: Filters) -> Preferences:
     d = {k: 5 for k in ("river", "beach", "park", "trail", "pedestrian", "avoid_major_road", "avoid_steps", "avoid_tunnel")
          if getattr(f, k)}
     return Preferences.from_dict({**d, "difficulty": "flat" if f.flat else "any"})
+
+
+def next_seed(seed: int) -> int:
+    """다음 "다시 추천" seed = seed + ATTEMPTS. 허용 범위(1~SEED_MAX)를 넘으면 1부터 다시 센다(R12, API.md 2절).
+    seed <= SEED_MAX - ATTEMPTS인 보통 요청은 seed + ATTEMPTS 그대로다."""
+    return (seed + ATTEMPTS - 1) % SEED_MAX + 1
+
+
+# 441 R7: 엔진이 "작업 영역에 달릴 수 있는(RUNNABLE) 길이나 waypoint 후보가 하나도 없음"일 때 내는 예외(정확한 문구로만 판단).
+#   IndexError  array_graph.build_array_pair / busan.route_graph: 빈 RUNNABLE·waypoint 배열(float dtype)로 index
+#   ValueError  substrate.DiskMask / snap: 빈 RUNNABLE 집합의 argmax; disk 안에 node가 없음
+# 엔진 코드(H23 소유 build_array_pair 포함)는 그대로 두고 서비스 경계에서 422로 바꾼다. 다른 IndexError/ValueError는 500 그대로.
+NO_USABLE_ROAD_ERRORS = {
+    IndexError: ("arrays used as indices must be of integer (or boolean) type",),
+    ValueError: ("attempt to get argmax of an empty sequence", "Found no graph nodes within the requested polygon"),
+}
+
+
+def _no_usable_road(exc: BaseException) -> bool:
+    return any(type(exc) is t and str(exc).startswith(msgs) for t, msgs in NO_USABLE_ROAD_ERRORS.items())
 
 
 def _expired(deadline_ms: int | None) -> bool:
@@ -216,14 +244,31 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
             centre = out["shape"].get("graph_centre")   # OAB: 출발점, P2P: snap된 두 끝의 중점
             cg = p.graph(centre["lat"], centre["lon"], target_m) if centre else None
         if gate_log:
-            _log_usability(settings, req, out)
+            _log_usability(settings, req, out, getattr(getattr(p, "gate", None), "files", None))
     except Exception as exc:
         if type(exc).__name__ == "InsufficientResponseError":  # osmnx: 작업 disk 안에 길이 전혀 없음
+            return _fail("NO_ROAD_NEARBY", debug=f"{type(exc).__name__}: {exc}")
+        if _no_usable_road(exc):   # 441 R7: 길은 있지만 달릴 수 있는 길·waypoint 교차로가 하나도 없음
+            log_ai_error("NO_USABLE_ROAD", RECOMMEND, exc, level=logging.WARNING)
             return _fail("NO_ROAD_NEARBY", debug=f"{type(exc).__name__}: {exc}")
         log_ai_error("INTERNAL", RECOMMEND, exc)
         return _fail("INTERNAL", debug=f"{type(exc).__name__}: {exc}")
     finally:
         p.lock.release()
+    try:   # 응답 조립(설명·edge·점수 읽기·JSON 변환)의 예외도 같은 INTERNAL 경계에서 처리한다(R6)
+        reroll_debug = None if rr is None else {"depth": depth, **(out.get("reroll") or {}), "cache": rr}
+        res = _respond(req, out, cg, prefs, filters, loop, target_m, t0, dbg, _fail, reroll_debug)
+        # 성공 dict를 여기서 JSON으로 만든다(FastAPI 기본 경로와 같은 jsonable_encoder + JSONResponse = 같은 byte).
+        # NaN 같은 직렬화 실패도 이 try 안에서 INTERNAL이 된다.
+        return res if isinstance(res, JSONResponse) else JSONResponse(jsonable_encoder(res))
+    except Exception as exc:
+        log_ai_error("INTERNAL", RECOMMEND, exc)
+        return _fail("INTERNAL", debug=f"{type(exc).__name__}: {exc}")
+
+
+def _respond(req: RecommendRequest, out: dict, cg, prefs: Preferences, filters: dict, loop: bool, target_m: int,
+             t0: float, dbg: bool, _fail, reroll_debug: dict | None = None):
+    """pipeline 결과 -> 성공 dict 또는 업무 오류 JSONResponse. 판단 순서는 데모 /api/recommend와 같다."""
     codes = {i["code"] for i in out["issues"]}
     info = out.get("shape") or {}
     if loop:
@@ -233,11 +278,12 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
                  "running_suitability": out.get("running_suitability"), "preferences": prefs.__dict__}
     else:
         debug = _shape_debug(req, out, prefs)
-    if rr is not None:   # 재추천에만 붙는다(첫 요청 debug는 예전과 같음)
-        debug["reroll"] = {"depth": depth, **(out.get("reroll") or {}), "cache": rr}
+    if reroll_debug is not None:   # 재추천에만 붙는다(첫 요청 debug는 예전과 같음)
+        debug["reroll"] = reroll_debug
     if "OUTSIDE_CANONICAL_EXTRACT" in codes:
         return _fail("OUT_OF_AREA", debug=debug)
-    snap_m = out["canonical"]["start"]["snap_node_dist_m"] if loop else (info.get("start") or {}).get("snap_node_dist_m", 0)
+    # 441 R8: 실제 출발 node(주 연결망으로 옮긴 뒤)까지의 거리로 판단한다
+    snap_m = start_distance_m(out["canonical"]["start"] if loop else (info.get("start") or {"snap_node_dist_m": 0}))
     if snap_m > MAX_SNAP_M:
         return _fail("NO_ROAD_NEARBY", f"고른 위치에서 달릴 수 있는 길까지 {round(snap_m)} m나 떨어져 있어요. "
                      "길 가까이를 눌러 출발 위치를 다시 골라 주세요.", debug=debug)
@@ -285,7 +331,7 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
     else:   # 모든 경로가 snap된 같은 출발 node에서 시작한다
         start = {"lat": req.lat, "lon": req.lon, "node_lat": ranked[0]["coords"][0][0],
                  "node_lon": ranked[0]["coords"][0][1], "snap_m": info["start"]["snap_node_dist_m"]}
-    res = {"ok": True, "seed": req.seed, "next_seed": req.seed + ATTEMPTS, "target_m": target_m,
+    res = {"ok": True, "seed": req.seed, "next_seed": next_seed(req.seed), "target_m": target_m,
            "filters": filters, "mode": mode, "start": start,
            "generation": {"attempts": c["attempts"] if loop else out["request"]["attempts"],
                           "generated": c["generated"], "distinct": c["distinct"] if loop else None,
@@ -313,7 +359,8 @@ def _served(out: dict, loop: bool) -> list:
     if "OUTSIDE_CANONICAL_EXTRACT" in codes:
         return []
     info = out.get("shape") or {}
-    snap_m = out["canonical"]["start"]["snap_node_dist_m"] if loop else (info.get("start") or {}).get("snap_node_dist_m", 0)
+    # _respond와 같은 판단(441 R8: 실제 출발 node까지 거리)
+    snap_m = start_distance_m(out["canonical"]["start"] if loop else (info.get("start") or {"snap_node_dist_m": 0}))
     if (snap_m > MAX_SNAP_M or "DESTINATION_TOO_FAR" in codes or codes & SHAPE_FAIL.keys()
             or "FORBIDDEN_EDGE_USED" in codes):
         return []
@@ -419,15 +466,18 @@ def _jsonable(o):
     return o.item() if hasattr(o, "item") else str(o)   # numpy scalar -> Python 숫자
 
 
-def _log_usability(settings: Settings, req: RecommendRequest, out: dict) -> None:
+def _log_usability(settings: Settings, req: RecommendRequest, out: dict, gate_files: dict | None = None) -> None:
     """서버 쪽 검토 로그(응답에는 넣지 않음): 요청마다 Gate 결과 JSON 한 줄(REVIEW 구간, FAIL 제거, incident).
-    p.lock 안에서 실행한다. 쓰기 실패는 응답을 막지 않는다."""
+    p.lock 안에서 실행한다. 쓰기 실패는 응답을 막지 않는다.
+    gate_files_sha256 = Gate 규칙 파일(ug-v1.json, ug-v2.json, usability_gate.py)의 sha256(gate.Gate.files). gate_version에는
+    usability_gate.py 해시가 없어서 로그만으로 규칙 코드를 확인할 수 있게 함께 남긴다(R10, 데모 로그에는 없던 key)."""
     u = out.get("usability")
     if u is None:
         return
     active = out["preference"] if out["preference"] is not None else out["baseline"]
     rec = {"ts": datetime.now().isoformat(timespec="seconds"), "request": req.model_dump(),
-           "gate_version": u.get("gate_version"), "mode": u.get("mode"), "request_type": u.get("request_type"),
+           "gate_version": u.get("gate_version"), "gate_files_sha256": gate_files, "mode": u.get("mode"),
+           "request_type": u.get("request_type"),
            "skipped": u.get("skipped"), "counts": u.get("counts"), "removed": u.get("removed", []),
            "stage_b_removed": u.get("stage_b_removed", []),
            "top3": [r["candidate_id"] for r in (active or [])[:TOP_K]],

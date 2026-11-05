@@ -58,6 +58,32 @@ class FakePipeline:
         return None
 
 
+def _route(**over):
+    r = {"features": {"distance_m": 5000.0, "distance_error_pct": 0.0}, "eids": [0], "coords": [[35.0, 129.0], [35.0, 129.0]],
+         "baseline_score": {"score": 1.0, "terms": []}, "candidate_id": "c1"}
+    r.update(over)
+    return r
+
+
+class _Graph:
+    """explain/details/edges가 읽는 최소 graph(edge 1개)."""
+    def __init__(self):
+        import numpy as np
+        import pandas as pd
+        self.redges = pd.DataFrame({"osm_u": [1], "osm_v": [2]})
+        self.ea = {"length": np.array([5000.0])}
+
+
+class GraphPipeline(FakePipeline):
+    def graph(self, *args):
+        return _Graph()
+
+
+def ok_pipeline():
+    """예열이 성공하는(코스 1개) 가짜 pipeline. 441 R13부터 예열은 200이어야 ready다."""
+    return GraphPipeline(loop_out(baseline=[_route()]))
+
+
 def settings(tmp_path, debug=False, warmup=True):
     return Settings(debug=debug, warmup=warmup, gate_mode="enforce", fast_graph=True, usability_log_dir=tmp_path / "gate")
 
@@ -79,7 +105,7 @@ def assert_error(r, status, code):
 # ------------------------------------------------------------------ readiness
 def test_live_before_ready_and_ready_after_warmup(tmp_path):
     gate = threading.Event()
-    pipe = FakePipeline()
+    pipe = ok_pipeline()
 
     def slow_factory(_):
         gate.wait(10)

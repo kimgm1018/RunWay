@@ -18,8 +18,8 @@ Spring 백엔드가 호출). 팀원이 가장 먼저 보는 문서다. Jira S15P
 후보마다 거리·도로·환경 feature를 계산하고 규칙 기반 점수로 순위를 매긴다. 안전 규칙(Usability Gate)을 통과한 **TOP3**를 이유 설명과 함께 돌려준다.
 
 - 저장된 코스를 찾는 것이 아니다. 학습 모델도 쓰지 않는다.
-- 같은 요청과 같은 데이터면 항상 같은 결과가 나온다.
-- 고도·경사 값은 응답에 넣지 않는다. 코스 경사는 백엔드가 계산하고, 엔진은 DEM을 "평지 위주" 선호에만 쓴다([API.md](API.md) 3절).
+- 같은 요청과 같은 데이터면 항상 같은 추천 결과(코스·순서·문구)가 나온다. 처리 시간 같은 측정값과 내부 cache 표시는 다를 수 있다.
+- 고도·경사 값은 응답에 넣지 않는다. 코스 경사는 백엔드가 계산하고, 엔진은 DEM을 점수에서는 "평지 위주" 선호에만 쓴다(설명 문장에는 그 밖에도 쓰일 수 있음, [API.md](API.md) 3절).
 
 ## 2. 현재 실제로 되는 기능
 
@@ -29,7 +29,7 @@ Spring 백엔드가 호출). 팀원이 가장 먼저 보는 문서다. Jira S15P
 | **거리** | 1–15 km. 모든 형태에서 목표 거리 **±10 %**([0.9T, 1.1T]) |
 | **P2P 거리 규칙** | 출발–도착 최단 거리가 1.1T를 넘으면 코스 대신 "최소 N km" 안내. 직선 **17 km 초과**는 graph를 만들기 전에 거절(F-1) |
 | **도로** | OSM에서 RUNNABLE로 분류된 길만 쓴다. 자동차 전용·보행 금지 길은 EXCLUDED, 애매한 길은 UNCERTAIN으로 빠진다 |
-| **snap** | 찍은 위치 → 가장 가까운 연결된 RUNNABLE 길. 250 m 넘게 떨어지면 거절. P2P 도착지는 금지 도로·강/큰길 건너기 규칙도 적용 |
+| **snap** | 찍은 위치 → 가장 가까운 연결된 RUNNABLE 길. 실제 출발 node가 250 m 넘게 떨어지면 거절. P2P 도착지는 금지 도로·강/큰길 건너기 규칙도 적용 |
 | **선호 반영** | 강변·해변·공원·산책로·보행로·큰길/계단/터널 피하기·평지. 후보 생성 비용과 최종 점수에 반영(평지는 점수만) |
 | **러닝 적합도** | 큰길 위/옆/떨어진 길과 계단으로 계산한 "일반적으로 달리기 좋은 길" 점수를 모든 요청의 순위에 반영 |
 | **Usability Gate** | PASS / REVIEW / FAIL. FAIL은 최종 후보에서 제거, REVIEW는 서버 로그에만 남김 |
@@ -102,7 +102,9 @@ POST /internal/v1/routes/recommendations: 현재 위치 · 목표 거리 · shap
 v2(S15P31E105-435)부터 강·바다·공원 환경층과 DEM이 도로망과 같은 부산 전체 범위(경도 128.73~129.35, 위도 34.85~35.42)를
 덮는다. v1은 데모 지역(경도 128.99~129.23, 위도 35.10~35.23)만 덮었다. 파일 이름·경로는 v1과 같아서 코드 변경은 없다.
 v2 묶음은 비공개 Hugging Face 저장소 `AnSeongYun/runway-hr-models`의 `route_data_v2/` 폴더에 있다(revision `4952478476ce2d76579e1b6ba16363214e6a6914`).
-받은 폴더를 그대로 `RUNWAY_DATA_DIR`나 아래 build context로 쓰고, 먼저 `tools/data/verify_bundle.py <폴더>`로 sha256을 확인한다.
+받은 폴더를 그대로 `RUNWAY_DATA_DIR`나 아래 build context로 쓰고, 먼저 `tools/data/verify_bundle.py <폴더>`로 확인한다.
+목록의 모든 파일 크기·sha256, 필수 파일 목록, 부산 extract가 정확히 1개인지, 목록에 없는 파일이 없는지를 본다
+(Hugging Face 내려받기 메타데이터 `.cache/`만 무시). 하나라도 어긋나면 종료 코드 1.
 
 ## 5. 로컬 실행
 
@@ -127,8 +129,9 @@ set RUNWAY_DATA_DIR=C:\path\to\data-root
 
 ## 6. Docker
 
-Docker 빌드 때 데이터 묶음을 이름 붙은 build context로 넘긴다. 빌드는 묶음 sha256을 검사하고, store/snapshot을 만들고,
-엔진을 한 번 시작해(로드 + 예열) Numba cache를 이미지에 넣는다.
+Docker 빌드 때 데이터 묶음을 이름 붙은 build context로 넘긴다. 빌드는 묶음을 검사하고, store/snapshot을 만들고,
+**실행 계정(uid 10001)으로 코드·데이터를 읽기 전용으로 둔 채** 엔진을 한 번 시작해(로드 + 예열) Numba cache를 이미지에 넣는다.
+아래 명령은 **저장소 root**에서 실행한다(5절 명령은 `ai/route_service`에서).
 
 ```bash
 docker build -t runway-route --build-context route_data=/path/to/route_data_bundle_v2 ai/route_service
@@ -138,12 +141,36 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 - 목표 자원: 1 vCPU / 1.5 GiB, worker 1개, graph 캐시 2칸(`RUNWAY_GRAPH_CACHE_SIZE=2`). HR 컨테이너와 따로 띄운다.
 - 근거(Linux, 15 km 위주 14개 요청 열의 최대 VmHWM, `reports/route_linux_validation_2026-11-04/REPORT.md` 9.4절):
   캐시 4칸 **1.83 GiB**(1.5 GiB 초과), 2칸 **1.37 GiB**. 두 설정의 추천 결과는 같다(`from_cache` 표시만 다를 수 있음).
-- 이미지의 Numba cache는 빌드한 CPU 기준이다. 배포 CPU가 다르면 시작할 때 다시 컴파일한다(읽기 전용이면 cache에
-  쓰지 못한다는 경고만 나고 동작은 같다). 다른 OS/CPU에서 만든 JIT cache를 따로 복사해 넣지 않는다.
+- **Numba cache와 쓰기 권한(S15P31E105-441):** Numba 0.68은 cache 폴더에 임시 파일을 써 볼 수 있을 때만 그 폴더를 쓴다.
+  쓸 수 있는 후보(`NUMBA_CACHE_DIR`, 소스 옆 `__pycache__`, 사용자 cache 폴더)가 하나도 없으면 import 단계에서
+  `cannot cache function ...: no locator available`로 앱이 시작하지 못한다(경고로 끝나지 않는다). 그래서 이미지는
+  - 빌드 때 만든 cache를 읽기 전용 원본 `/opt/route/numba_cache`에 두고,
+  - 시작 명령이 그것을 `NUMBA_CACHE_DIR=/tmp/numba_cache`로 복사해(수 MB) 쓰기 가능하게 만든 뒤 uvicorn을 띄운다.
+  - 따라서 `/tmp`는 쓰기 가능해야 한다(`--tmpfs /tmp`; Gate 검토 로그도 `/tmp`). 쿠버네티스 등에서는 `/tmp`에 emptyDir를 둔다.
+  - 시작 명령은 `NUMBA_CACHE_DIR`를 `/tmp/numba_cache`로 **고정**한다. 배포 설정이 `NUMBA_CACHE_DIR=/opt/route/numba_cache`(읽기 전용
+    원본)를 넘겨도 무시된다(그 값을 그대로 쓰면 원본을 자기 자신에게 복사하다 시작이 실패한다). `infra/route/compose.yaml`의 이 값은
+    지워도 된다. CMD를 덮어쓰는 배포는 같은 복사 단계를 넣어야 한다.
+- 이미지의 Numba cache는 빌드한 CPU 기준이다. 배포 CPU가 다르면 첫 시작 때 `/tmp`에 다시 컴파일한다(결과 같음, 시작만
+  느려짐). 다른 OS/CPU에서 만든 JIT cache를 따로 복사해 넣지 않는다.
 
 ## 7. 설정과 rollback
 
-모두 프로세스 시작 시 1회 읽는다(바꾸면 재시작). 서비스 설정(`ROUTE_DEBUG`, `ROUTE_WARMUP`, Gate 로그 폴더)은 [API.md](API.md) 6절.
+모두 프로세스 시작 시 1회 읽는다(바꾸면 재시작). 서비스 설정(`ROUTE_DEBUG`, `ROUTE_WARMUP`, Gate 로그 폴더)은 [API.md](API.md) 7절.
+
+**값 검사(S15P31E105-441):** 아래 on/off 스위치(`*_SUBSTRATE`, `ARRAY_*`, `FAST_GRAPH`, `ENV_PREPARED`,
+`ADAPTER_LEAN_ROUTING`)는 없으면 기본(켜짐), `"1"`이면 켬, `"0"`이면 끔이고 **그 밖의 값(`false`, `off`, 공백 포함 등)은
+`ValueError`**다(`runway_routing/env_flags.py`). 예전에는 대부분 정확히 `"0"`일 때만 꺼져서 `false`라고 쓰면 조용히 켜진
+채였다. `RUNWAY_SP_ENGINE`/`RUNWAY_SP_KERNEL`은 정해진 값만, `RUNWAY_NETWORK_STORE`/`RUNWAY_SOURCE_SNAPSHOT`은 `"0"`이면 끔이고
+그 밖에는 폴더 경로, cache 크기는 1 이상의 정수, `ROUTE_DEBUG`/`ROUTE_WARMUP`은 `1/0/true/false/yes/no/on/off`를 받는다.
+
+| 환경변수 | 읽는 때 | 잘못된 값이면 |
+|---|---|---|
+| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
+| `ROUTE_DEBUG`, `ROUTE_WARMUP`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
+| `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
+
+API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **app import가 성공한 뒤**의 상태다. Numba 예열(import 때
+컴파일)과 Numba cache 폴더 문제도 import 단계에서 실패한다.
 
 | 환경변수 | 끄는 것 | 추천 결과 |
 |---|---|---|
@@ -182,24 +209,39 @@ Python/numpy/osmium/pyproj/PROJ/osmnx 버전, 형식 버전)나 파일 hash가 �
 `gen.network_store["reason"]`에 이유). `RUNWAY_NETWORK_STORE=<dir>`로 위치를 바꿀 수 있다. Gate 버전에 PBF sha256이
 들어가므로 PBF 파일은 그대로 둔다.
 
-**Numba:** 명시적 signature로 import 시 컴파일·warm-up하므로 첫 추천 요청 중에 컴파일하지 않는다. Numba가 없거나
-컴파일에 실패하면 시작 단계에서 실패한다. 임시 복구는 `RUNWAY_SP_ENGINE=python`이다. `NUMBA_CACHE_DIR`는 짧은 경로로
-지정한다(예: Windows `C:/Temp/runway-numba`, 이미지 `/opt/route/numba_cache`).
+**파생 파일이 깨졌을 때(S15P31E105-441):** store·snapshot의 manifest가 깨졌거나(JSON 아님, 객체 아님, `key`/`files` 없음)
+파일을 읽지 못하거나 npz가 깨졌으면 이유(`reason`)를 남기고 다음 단계(snapshot → PBF)로 내려간다. env edge cache도
+provenance가 깨졌거나, 기록된 배열 크기·sha256과 실제 파일이 다르거나, 배열 모양이 맞지 않거나, **실제 PBF의 sha256**
+(EXTRACT.json에 적힌 값만이 아니라 파일 자체, 시작 때 한 번 계산)이 cache를 만든 extract와 다르면 쓰지 않고 거리를 직접
+계산한다(`RoutePipeline.status()["env_cache"]`에 `valid: false`와 이유). 정상 bundle v2에서는 셋 다 그대로 쓰인다.
+**원본 PBF가 없거나 여러 개면** 폴백하지 않고 엔진 시작이 실패한다(phase `failed`, 추천 503 `UNAVAILABLE`).
+store·snapshot의 key에는 자기 코드 파일의 sha256이 들어가므로, 이 코드가 바뀐 배포에서는 store·snapshot을 다시 만든다
+(이미지는 빌드 때마다 만든다. 로컬은 5절 3번).
 
-**데이터 재생성:** extract → env layer → env edge cache 순서다. [tools/data/README.md](tools/data/README.md)에 명령이 있다.
+**Numba:** 명시적 signature로 import 시 컴파일·warm-up하므로 첫 추천 요청 중에 컴파일하지 않는다. Numba가 없거나
+컴파일에 실패하면 시작 단계에서 실패한다. 임시 복구는 `RUNWAY_SP_ENGINE=python`이다. `NUMBA_CACHE_DIR`는 짧고 **쓰기 가능한**
+경로로 지정한다(예: Windows `C:/Temp/runway-numba`, 이미지 `/tmp/numba_cache` + 읽기 전용 원본 `/opt/route/numba_cache`, 6절).
+
+**데이터 재생성:** extract → env layer·DEM → env edge cache 순서다. [tools/data/README.md](tools/data/README.md)에 명령과 v2
+env layer·DEM을 만든 스크립트 위치가 있다(v1 전용 수집기 `fetch_env_layer.py`·`fetch_dem.py`는 441에서 삭제).
 
 ## 8. 테스트와 Golden 회귀
 
 ```bash
 pip install pytest==9.2.0 httpx==0.28.1
-python -B -m pytest -q tests/test_api.py                                  # 데이터 없이
-python -B -m pytest -q tools/route_regression tests/test_engine_api.py   # RUNWAY_DATA_DIR 필요
+python -B -m pytest -q tests/test_api.py tests/test_review_fixes.py tools/route_regression/test_identity_checks.py   # 데이터 없이
+python -B -m pytest -q tests tools/route_regression                     # 전부, RUNWAY_DATA_DIR 필요
 ```
 
 Golden 회귀(결과가 한 글자도 안 바뀌었는지, 약 8분): [tools/route_regression/README.md](tools/route_regression/README.md).
-합격은 `RESULT PASS`, 모든 mode `"fails": 0`(shadow 모드의 허용된 차이 GS-26 1건만 보임; 기능 차이가 아니라 cache 플래그).
+**bundle v2 데이터에서는 `--baseline <...>/baseline_v2`를 반드시 준다**(기본값 `baseline`은 v1 데이터용). 합격 기준:
+- v2(`baseline_v2`): 모든 mode `"fails": 0`, `--strict`에서도 0(허용 차이 없음).
+- v1(`baseline`, 옛 데이터): 모든 mode `"fails": 0`, shadow 모드에만 허용 차이 GS-26 1건(cache 플래그, 기능 차이 아님).
 - 엔진 동일성: 저장된 baseline은 예전 데모 앱으로 찍었으므로 `--app demo --demo-dir <!180 커밋의 route_demo 사본>`으로 돌린다.
-- 서비스 동일성: `--app service`로 찍고 `service_identity.py`가 데모 응답에서 고도·debug만 뺀 것과 같은지 본다.
+- 서비스 동일성: `--app service --env ROUTE_WARMUP=0 ROUTE_REROLL_EXCLUDE=0`으로 찍고 `service_identity.py`가 데모 응답에서
+  고도·debug만 뺀 것과 같은지 본다(시나리오 누락·산출물 누락·out key 순서 차이도 실패). baseline은 재추천 제외(S15P31E105-383)가 없는
+  데모 앱으로 찍었으므로 `ROUTE_REROLL_EXCLUDE=0`이 필요하다. 켠 상태(기본)에서는 seed 25 이상 시나리오가 의도적으로 달라진다
+  (2026-11-05 확인: 켠 상태의 두 capture끼리는 같음).
 
 ## 9. 바꾸면 안 되는 것
 

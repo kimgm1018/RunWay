@@ -1,12 +1,14 @@
-"""RunWay dynamic round-trip route generator (PoC).
+"""RunWay round-trip route generator: the canonical LOOP algorithm (PoC origin).
 
 Scope: from a start point and a target distance only, build several different closed running
 routes on the RUNNABLE edges of the custom walk filter graph. No scoring, preference, ranking or
-personalisation: final candidates are numbered in generation order, not ordered by quality.
+personalisation here.
 
-Input: reports/_osm_<region>_work/runway_walk_graph_classified.graphml (read only).
-EXCLUDED / UNCERTAIN edges are dropped before routing, and every route is checked again
-against the full classified graph.
+Used by the service through analysis/runway_route_api.py, analysis/runway_busan_graph.py and runway_routing/
+(RouteGraph, snap_start, make_candidate, trim_spurs, route_features, dedupe and the constants below).
+The old PoC command line (run / route / compare over the cached 3 km survey graphs
+reports/_osm_<region>_work/runway_walk_graph_classified.graphml, with CSV / GeoJSON / folium map reports) was removed
+in S15P31E105-441: those survey graphs are not part of the data bundle. It stays in git history before that commit.
 
 Generator (waypoint loop): for each seed, k waypoints (2-4) sit on a circle that passes through
 the start, facing a random direction. Legs are shortest paths on the RUNNABLE graph; edges the
@@ -15,35 +17,23 @@ detours are trimmed, and the circle is rescaled until the route length is close 
 
 Graph range: every point of a closed route of length L lies within network distance L/2 of the
 start, so a graph holding everything within (1 + tolerance) * L / 2 of the start is enough for
-any candidate. The cached survey boxes (3 km x 3 km) are smaller than that for 5 km, so routes
-that come close to the box edge are flagged.
-
-Usage (run from the RunWay root, isolated mode):
-    <osm-venv>/Scripts/python.exe -I analysis/runway_route_generator.py run [region ...]
-    <osm-venv>/Scripts/python.exe -I analysis/runway_route_generator.py route <region> <lat> <lon> <target_m>
-    <osm-venv>/Scripts/python.exe -I analysis/runway_route_generator.py compare
+any candidate.
 """
-import json
 import math
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import folium
 import geopandas as gpd
 import networkx as nx
 import numpy as np
-import osmnx as ox
-import pandas as pd
 import shapely
 from shapely.geometry import LineString, Point, box
 from shapely.ops import polygonize, unary_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir from sys.path
-from osm_walk_inspect import REGIONS, ROOT, Region  # noqa: E402
-
-COMPARISON_CSV = ROOT / "reports" / "runway_route_generation_comparison.csv"
+from osm_walk_inspect import Region  # noqa: E402
 
 TARGET_M = 5000
 TOLERANCE = 0.10          # valid candidate: |distance error| <= 10 %
@@ -67,12 +57,6 @@ MAJOR = {"primary", "primary_link", "secondary", "secondary_link", "tertiary", "
 MINOR = {"residential", "service", "unclassified"}
 EDGE_ATTRS = ["length", "highway", "osmid", "name", "bridge", "tunnel", "runway_status", "runway_reason",
               "expressway", "toll", "motorroad", "foot", "access"]
-COLORS = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00", "#a65628", "#f781bf", "#17becf",
-          "#666666", "#bcbd22", "#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02"]
-
-
-def _out(r: Region) -> Path:
-    return ROOT / "reports" / f"_route_{r.key}_work"
 
 
 def _present(v) -> bool:
@@ -92,33 +76,6 @@ class RouteGraph:
     bbox_poly: object                # cached survey bbox, projected
     wp_nodes: np.ndarray = field(default=None)   # waypoint pool: main-component intersections
     wp_xy: np.ndarray = field(default=None)
-
-
-def load_graph(r: Region) -> RouteGraph:
-    G = ox.project_graph(ox.load_graphml(r.out / "runway_walk_graph_classified.graphml"))
-    full_status = defaultdict(set)
-    H = nx.Graph()
-    for u, v, d in G.edges(data=True):
-        key = (min(u, v), max(u, v))
-        full_status[key].add(d["runway_status"])
-        if d["runway_status"] != RUNNABLE:
-            continue
-        if H.has_edge(u, v) and H[u][v]["length"] <= d["length"]:
-            continue
-        H.add_edge(u, v, **{k: d.get(k) for k in EDGE_ATTRS})
-    for n in H.nodes:
-        H.nodes[n]["x"], H.nodes[n]["y"] = G.nodes[n]["x"], G.nodes[n]["y"]
-    comps = sorted(nx.connected_components(H),
-                   key=lambda c: -sum(d["length"] for *_, d in H.subgraph(c).edges(data=True)))
-    comp = {n: i for i, c in enumerate(comps) for n in c}
-    comp_km = [sum(d["length"] for *_, d in H.subgraph(c).edges(data=True)) / 1000 for c in comps]
-    nodes = np.array(list(H.nodes))
-    xy = np.array([(H.nodes[n]["x"], H.nodes[n]["y"]) for n in nodes])
-    bbox_poly = gpd.GeoSeries([box(*r.bbox)], crs="EPSG:4326").to_crs(G.graph["crs"]).iloc[0]
-    rg = RouteGraph(r, H, G.graph["crs"], full_status, nodes, xy, comp, comp_km, bbox_poly)
-    pool = np.array([i for i, n in enumerate(nodes) if comp[n] == 0 and H.degree(n) >= 3])
-    rg.wp_nodes, rg.wp_xy = nodes[pool], xy[pool]
-    return rg
 
 
 def _nearest(xy: np.ndarray, p: tuple) -> tuple[int, float]:
@@ -358,189 +315,3 @@ def dedupe(cands: list[dict], threshold: float) -> tuple[list[dict], dict]:
             dup_of[c["seed"]] = hit["seed"]
     return sorted(kept, key=lambda c: c["seed"]), dup_of
 
-
-def generate(r: Region, lat: float, lon: float, target: float = TARGET_M, attempts: int = ATTEMPTS,
-             out: Path | None = None) -> dict:
-    rg = load_graph(r)
-    snap = snap_start(rg, lat, lon)
-    start = snap["start_node"]
-    rows = []
-    for i in range(attempts):
-        c = make_candidate(rg, start, target, SEED0 + i)
-        if c["failure"]:
-            rows.append(c)
-            continue
-        f = route_features(rg, c.pop("path"), target)
-        rows.append({**{k: v for k, v in c.items() if k != "err"}, **f})
-    ok = [c for c in rows if not c["failure"]]
-    valid = [c for c in ok if c["valid"]]
-    good = [c for c in valid if c["quality_ok"]]
-    final, dup_of = dedupe(good, DEDUP_OVERLAP)
-    for n, c in enumerate(final, 1):
-        c["final_label"] = f"Candidate {n}"
-    for c in rows:
-        c.setdefault("final_label", "")
-        c["status"] = ("failed" if c["failure"] else "final" if c["final_label"] else
-                       f"duplicate_of_{dup_of[c['seed']]}" if c["seed"] in dup_of else
-                       "quality_flagged" if c.get("valid") else "invalid")
-    s = _summary(r, rg, snap, target, rows, ok, valid, good, final)
-    if out is not None:
-        _export(r, rg, snap, target, rows, final, s, out)
-    return {"summary": s, "rows": rows, "final": final}
-
-
-def _summary(r, rg, snap, target, rows, ok, valid, good, final) -> dict:
-    def mean(cs, k):
-        return round(float(np.mean([c[k] for c in cs])), 3) if cs else None
-
-    need_r = (1 + TOLERANCE) * target / 2
-    sx, sy = rg.H.nodes[snap["start_node"]]["x"], rg.H.nodes[snap["start_node"]]["y"]
-    disk = Point(sx, sy).buffer(need_r, quad_segs=64)
-    err = np.array([abs(c["distance_error_pct"]) for c in valid]) if valid else np.array([np.nan])
-    fails = Counter(c["failure"] for c in rows if c["failure"])
-    pair = [overlap(a["edge_keys"], b["edge_keys"]) for i, a in enumerate(final) for b in final[i + 1:]]
-    s = {"region": r.key, "label": r.label, "target_m": target, **snap,
-         "runnable_main_component_pct_km": round(100 * rg.comp_km[0] / sum(rg.comp_km), 1),
-         "runnable_components": len(rg.comp_km),
-         "required_graph_radius_m": round(need_r), "cached_bbox_covers_required_disk_pct":
-             round(100 * disk.intersection(rg.bbox_poly).area / disk.area, 1),
-         "requests": len(rows), "generated": len(ok), "failures": sum(fails.values()),
-         "failure_reasons": ";".join(f"{k}:{v}" for k, v in fails.items()),
-         "closed": sum(c["closed"] for c in ok), "connected": sum(c["connected"] for c in ok),
-         "non_runnable_edges_total": sum(c["non_runnable_edges"] for c in ok),
-         "removed_highway_edges_total": sum(c["removed_highway_edges"] for c in ok),
-         "within_5pct": sum(abs(c["distance_error_pct"]) <= 5 for c in ok),
-         "within_10pct": sum(abs(c["distance_error_pct"]) <= 10 for c in ok),
-         "valid": len(valid), "quality_ok": len(good), "final_after_dedupe": len(final),
-         "valid_abs_error_mean_pct": round(float(np.nanmean(err)), 2),
-         "valid_abs_error_median_pct": round(float(np.nanmedian(err)), 2),
-         "valid_abs_error_p90_pct": round(float(np.nanpercentile(err, 90)), 2),
-         "valid_abs_error_max_pct": round(float(np.nanmax(err)), 2),
-         "final_abs_error_mean_pct": round(float(np.mean([abs(c["distance_error_pct"]) for c in final])), 2) if final else None,
-         "valid_repeated_edge_ratio_mean": mean(valid, "repeated_edge_ratio"),
-         "final_repeated_edge_ratio_mean": mean(final, "repeated_edge_ratio"),
-         "valid_out_and_back_ratio_mean": mean(valid, "out_and_back_ratio"),
-         "valid_shape_loop": sum(c["route_shape"] == "loop" for c in valid),
-         "valid_shape_lollipop": sum(c["route_shape"] == "lollipop" for c in valid),
-         "valid_shape_out_and_back": sum(c["route_shape"] == "out_and_back" for c in valid),
-         "final_footway_path_ratio_mean": round(float(np.mean([c["footway_ratio"] + c["path_ratio"] for c in final])), 3) if final else None,
-         "final_walk_dedicated_ratio_mean": mean(final, "walk_dedicated_ratio"),
-         "final_major_road_ratio_mean": mean(final, "major_road_ratio"),
-         "final_loop_compactness_mean": mean(final, "loop_compactness"),
-         "final_pairwise_overlap_mean": round(float(np.mean(pair)), 3) if pair else None,
-         "final_pairwise_overlap_max": round(float(np.max(pair)), 3) if pair else None,
-         "valid_touching_bbox_edge": sum("touches_bbox_edge" in c["flags"] for c in valid),
-         "final_touching_bbox_edge": sum("touches_bbox_edge" in c["flags"] for c in final),
-         "final_bbox_edge_hug_m_max": round(float(max([c["bbox_edge_hug_m"] for c in final], default=0)), 1),
-         "final_bbox_edge_hug_m_sum": round(float(sum(c["bbox_edge_hug_m"] for c in final)), 1),
-         "valid_max_dist_from_start_median_m": round(float(np.median([c["max_dist_from_start_m"] for c in valid])), 1) if valid else None,
-         "valid_max_dist_from_start_max_m": round(float(np.max([c["max_dist_from_start_m"] for c in valid])), 1) if valid else None}
-    for flag in ("repeated_edges", "out_and_back_heavy", "uturn", "alley_zigzag", "self_intersection_heavy",
-                 "touches_bbox_edge", "distance_off"):
-        s[f"flag_{flag}"] = sum(flag in c["flags"].split(";") for c in ok)
-    for t in (0.5, 0.6, 0.7, 0.8):
-        s[f"final_if_overlap_{int(t * 100)}"] = len(dedupe(good, t)[0])
-    return s
-
-
-def _export(r, rg, snap, target, rows, final, s, out: Path) -> None:
-    out.mkdir(parents=True, exist_ok=True)
-    keep = [c for c in rows if not c["failure"]]
-    cols = [k for k in keep[0] if k not in ("geometry", "edge_keys", "waypoints")] if keep else []
-    df = pd.DataFrame([{k: c.get(k) for k in ["seed", "k", "failure", "status", "final_label"] + cols} for c in rows])
-    df = df.loc[:, ~df.columns.duplicated()]
-    df["waypoints"] = [" ".join(map(str, c.get("waypoints", []))) for c in rows]
-    df.to_csv(out / "candidates.csv", index=False, encoding="utf-8")
-
-    ok = df[df["seed"].isin({c["seed"] for c in keep})].copy()  # same order as keep
-    gdf = gpd.GeoDataFrame(ok, geometry=[c["geometry"] for c in keep], crs=rg.crs).to_crs("EPSG:4326")
-    for c in gdf.columns:
-        if gdf[c].dtype == bool:
-            gdf[c] = gdf[c].astype(int)
-    gdf.to_file(out / "candidates.geojson", driver="GeoJSON")
-
-    pair = pd.DataFrame([[round(overlap(a["edge_keys"], b["edge_keys"]), 3) for b in final] for a in final],
-                        index=[c["final_label"] for c in final], columns=[c["final_label"] for c in final])
-    pair.to_csv(out / "final_overlap_matrix.csv", encoding="utf-8")
-    (out / "summary.json").write_text(json.dumps(s, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-    _map(r, rg, snap, final, gdf, out / "route_map.html")
-
-
-def _feature(geom) -> dict:
-    return {"type": "Feature", "properties": {}, "geometry": geom.__geo_interface__}
-
-
-def _map(r, rg, snap, final, gdf, path: Path) -> None:
-    start = gpd.GeoSeries([Point(rg.H.nodes[snap["start_node"]]["x"], rg.H.nodes[snap["start_node"]]["y"])],
-                          crs=rg.crs).to_crs("EPSG:4326").iloc[0]
-    m = folium.Map(location=(start.y, start.x), zoom_start=14, tiles="OpenStreetMap")
-    bb = gpd.GeoSeries([rg.bbox_poly], crs=rg.crs).to_crs("EPSG:4326").iloc[0]
-    folium.GeoJson(_feature(LineString(bb.exterior.coords)), name="cached graph bbox (3 km x 3 km)",
-                   style_function=lambda f: {"color": "#333", "weight": 1, "dashArray": "6 6"}).add_to(m)
-    fields = [("distance_m", "거리 (m)"), ("distance_error_pct", "목표 거리 오차 (%)"),
-              ("walk_dedicated_ratio", "보행 전용 비율"), ("major_road_ratio", "major road 비율"),
-              ("steps_count", "계단 (way 수)"), ("steps_length_m", "계단 길이 (m)"),
-              ("intersection_per_km", "교차로/km"), ("repeated_edge_ratio", "반복 edge 비율"),
-              ("out_and_back_ratio", "왕복 비율"), ("loop_compactness", "loop compactness"),
-              ("route_shape", "형태"), ("flags", "flags")]
-    for i, c in enumerate(final):
-        g = gdf[gdf["seed"] == c["seed"]]
-        row = g.iloc[0]
-        html = f"<b>{c['final_label']}</b> (seed {c['seed']})<table>" + "".join(
-            f"<tr><td>{lab}</td><td style='padding-left:8px'>{row[k]}</td></tr>" for k, lab in fields) + "</table>"
-        fg = folium.FeatureGroup(name=f"{c['final_label']}: {row['distance_m'] / 1000:.2f} km", show=i < 3)
-        folium.GeoJson(_feature(g.geometry.iloc[0]),
-                       style_function=lambda f, col=COLORS[i % len(COLORS)]: {"color": col, "weight": 5, "opacity": 0.8},
-                       popup=folium.Popup(html, max_width=320), tooltip=c["final_label"]).add_to(fg)
-        fg.add_to(m)
-    folium.Marker((start.y, start.x), tooltip=f"start (snap {snap['snap_node_dist_m']} m)",
-                  icon=folium.Icon(color="black", icon="play")).add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m)
-    m.save(path)
-
-
-def run(keys: list[str]) -> None:
-    for k in keys:
-        r = REGIONS[k]
-        print(f"\n##### {k} ({r.label}) start={r.center} target={TARGET_M} m #####")
-        res = generate(r, r.center[0], r.center[1], TARGET_M, ATTEMPTS, out=_out(r))
-        for key, v in res["summary"].items():
-            print(f"{key:40s} {v}")
-        show = ["seed", "k", "status", "distance_m", "distance_error_pct", "route_shape", "repeated_edge_ratio",
-                "out_and_back_ratio", "loop_compactness", "walk_dedicated_ratio", "major_road_ratio", "flags"]
-        df = pd.DataFrame([{c: row.get(c) for c in show} for row in res["rows"]])
-        with pd.option_context("display.width", 250, "display.max_rows", 100):
-            print(df.to_string(index=False))
-
-
-def compare(keys: list[str]) -> None:
-    df = pd.DataFrame([json.loads((_out(REGIONS[k]) / "summary.json").read_text(encoding="utf-8")) for k in keys])
-    df.to_csv(COMPARISON_CSV, index=False, encoding="utf-8-sig")
-    print("wrote", COMPARISON_CSV, df.shape)
-    with pd.option_context("display.width", 250, "display.max_rows", 200):
-        print(df.set_index("region").T.to_string())
-
-
-def main(argv: list[str]) -> None:
-    sys.stdout.reconfigure(encoding="utf-8")
-    ox.settings.log_console = False
-    cmd = argv[0] if argv else "run"
-    if cmd == "route":
-        key, lat, lon, target = argv[1], float(argv[2]), float(argv[3]), float(argv[4])
-        res = generate(REGIONS[key], lat, lon, target, ATTEMPTS)
-        print(json.dumps(res["summary"], ensure_ascii=False, indent=1, default=str))
-        return
-    keys = argv[1:] or list(REGIONS)
-    unknown = [k for k in keys if k not in REGIONS]
-    if unknown:
-        raise SystemExit(f"unknown region(s) {unknown}; use {list(REGIONS)}")
-    if cmd == "run":
-        run(keys)
-    elif cmd == "compare":
-        compare(keys)
-    else:
-        raise SystemExit(f"unknown command {cmd!r}; use run, route or compare")
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])
