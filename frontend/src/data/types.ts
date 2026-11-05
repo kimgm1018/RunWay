@@ -152,6 +152,15 @@ export type CourseSearch = {
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
   environmentTypes: EnvironmentType[];
+  // C01 seed. Leaving it out asks for the first set (1); 다른 코스 sends the nextSeed of the last answer.
+  seed?: number;
+};
+
+// One C01 answer: the cards, notices about the whole answer and the seed for 다른 코스 (null when there is no more).
+export type CourseRecommendations = {
+  courses: RecommendedCourse[];
+  notices: string[];
+  nextSeed: number | null;
 };
 
 // One card of 3.1b 추천 코스; the back of the card is the course detail.
@@ -170,6 +179,8 @@ export type RecommendedCourse = {
   reason: string;
   route: [number, number][];
   saved: boolean;
+  // A route C01 made just now: it has no course id yet, so it cannot be saved or run until 371 saves it.
+  generated?: boolean;
 };
 
 export type NotificationKind =
@@ -860,7 +871,7 @@ export type Repositories = {
     // 2.0's plan for the course picked last with choose(); a default course until then.
     getTodayPlan: () => Promise<CoursePlan>;
     getOrigins: () => Promise<Place[]>;
-    recommend: (search: CourseSearch) => Promise<RecommendedCourse[]>;
+    recommend: (search: CourseSearch) => Promise<CourseRecommendations>;
     save: (courseId: string) => Promise<void>;
     unsave: (courseId: string) => Promise<void>;
     choose: (courseId: string) => Promise<void>;

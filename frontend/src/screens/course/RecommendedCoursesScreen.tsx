@@ -24,6 +24,8 @@ import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, palette } from '../../theme';
 import { useCourseSearch } from './CourseSearch';
+import { recommendFailureNotice } from './recommendFailure';
+import { useRequestTicket } from './requestTicket';
 import { RouteLine } from './RouteLine';
 
 const defaultSearch = {
@@ -402,7 +404,13 @@ export function RecommendedCoursesScreen() {
   const navigation = useNavigation();
   const { courses } = useRepositories();
   const toast = useToast();
-  const { search, results, setResults } = useCourseSearch();
+  const { search, results, notices, nextSeed, setSearch, setResults } =
+    useCourseSearch();
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Set at once on a tap, so a second tap in the same frame does not start another C01.
+  const askingMore = useRef(false);
+  // A 다른 코스 answer that comes back after the search changed or 3.1b closed is dropped.
+  const moreTicket = useRequestTicket(search);
   const window = useWindowDimensions();
   const [failed, setFailed] = useState(false);
   const [index, setIndex] = useState(0);
@@ -443,12 +451,52 @@ export function RecommendedCoursesScreen() {
     if (results) {
       return;
     }
-    courses
-      .recommend(search ?? defaultSearch)
-      .then(setResults, () => setFailed(true));
-  }, [courses, results, search, setResults]);
+    const asked = search ?? defaultSearch;
+    courses.recommend(asked).then(
+      found => setSearch(asked, found),
+      () => setFailed(true),
+    );
+  }, [courses, results, search, setSearch]);
+
+  // 다른 코스: the same conditions with the nextSeed of the last answer.
+  const showMore = async () => {
+    if (!search || nextSeed === null || askingMore.current) {
+      return;
+    }
+    const next = { ...search, seed: nextSeed };
+    const ticket = moreTicket.take();
+    askingMore.current = true;
+    setLoadingMore(true);
+    try {
+      const found = await courses.recommend(next);
+      if (!moreTicket.isCurrent(ticket)) {
+        return;
+      }
+      if (found.courses.length === 0) {
+        toast('다른 코스를 찾지 못했어요. 조건을 바꿔 보세요');
+        return;
+      }
+      setTurned([]);
+      setIndex(0);
+      setSearch(next, found);
+    } catch (error) {
+      if (moreTicket.isCurrent(ticket)) {
+        toast(recommendFailureNotice(error).title);
+      }
+    } finally {
+      askingMore.current = false;
+      setLoadingMore(false);
+    }
+  };
+
+  // A route C01 just made has no course id until 371 saves it.
+  const notYet = () => toast('새로 만든 코스의 저장과 시작은 준비 중이에요');
 
   const toggleSave = async (course: RecommendedCourse) => {
+    if (course.generated) {
+      notYet();
+      return;
+    }
     try {
       if (course.saved) {
         await courses.unsave(course.id);
@@ -466,6 +514,10 @@ export function RecommendedCoursesScreen() {
     );
   };
   const choose = async (course: RecommendedCourse) => {
+    if (course.generated) {
+      notYet();
+      return;
+    }
     await courses.choose(course.id);
     navigateTo(navigation, 'CourseRun');
   };
@@ -487,7 +539,25 @@ export function RecommendedCoursesScreen() {
             {`${index + 1} / ${results.length}`}
           </AppText>
         ) : null}
+        {results && nextSeed !== null ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="다른 코스 추천받기"
+            accessibilityState={{ busy: loadingMore }}
+            disabled={loadingMore}
+            onPress={showMore}
+            style={({ pressed }) => [styles.more, pressed && styles.pressed]}
+          >
+            <AppText style={styles.moreText}>
+              {loadingMore ? '찾는 중…' : '다른 코스'}
+            </AppText>
+          </Pressable>
+        ) : null}
       </View>
+      {/* Route's notes about the whole answer, as plain text. */}
+      {results && notices.length > 0 ? (
+        <AppText style={styles.notice}>{notices.join('\n')}</AppText>
+      ) : null}
       {!results ? (
         <View style={styles.center}>
           {failed ? (
@@ -625,6 +695,26 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.numberRegular,
     fontSize: 14,
     color: '#67696E',
+  },
+  more: {
+    position: 'absolute',
+    left: 16,
+    bottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  moreText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    color: '#02050E',
+  },
+  notice: {
+    marginHorizontal: 24,
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#67696E',
+    textAlign: 'center',
   },
   carousel: { flex: 1 },
   face: {

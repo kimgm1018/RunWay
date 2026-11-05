@@ -11,13 +11,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.domain.course.recommend.CourseRecommendPort;
+import com.runway.backend.domain.course.recommend.StubCourseRecommendAdapter;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 import java.math.BigDecimal;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +31,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
@@ -43,6 +50,24 @@ class CourseApiIntegrationTest {
         registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
         registry.add("spring.datasource.username", DATABASE::getUsername);
         registry.add("spring.datasource.password", DATABASE::getPassword);
+        // C01은 개발용 스텁 모드로 확인한다. Route HTTP 흐름은 CourseRecommendIntegrationTest가 맡는다.
+        registry.add("runway.course.route.mode", () -> "stub");
+    }
+
+    /** C01 생성기 호출 시점의 트랜잭션 여부를 기록한다(AC-10). 결과는 스텁 그대로다. */
+    @TestConfiguration
+    static class RecordingRecommendPortConfig {
+        static final AtomicReference<Boolean> TRANSACTION_ACTIVE = new AtomicReference<>();
+
+        @Bean
+        @Primary
+        CourseRecommendPort recordingCourseRecommendPort() {
+            var stub = new StubCourseRecommendAdapter();
+            return (command, deadline) -> {
+                TRANSACTION_ACTIVE.set(TransactionSynchronizationManager.isActualTransactionActive());
+                return stub.recommend(command, deadline);
+            };
+        }
     }
 
     @Autowired private MockMvc mockMvc;
@@ -401,8 +426,9 @@ class CourseApiIntegrationTest {
     }
 
     @Test
-    void C01_AI입력으로_더미_추천과_nextSeed를_반환한다() throws Exception {
+    void C01_스텁모드는_개발용_안내와_합성경사를_붙인_추천과_nextSeed를_반환한다() throws Exception {
         // DB에 ACTIVE 코스가 있어도 추천은 스텁 경로만 사용한다.
+        RecordingRecommendPortConfig.TRANSACTION_ACTIVE.set(null);
         mockMvc.perform(
                         post("/api/v1/courses/recommendations")
                                 .header("Authorization", SecurityTestSupport.bearer(userId))
@@ -426,7 +452,14 @@ class CourseApiIntegrationTest {
                 .andExpect(jsonPath("$.courses[0].route.type").value("LineString"))
                 .andExpect(jsonPath("$.courses[0].route.coordinates").isArray())
                 .andExpect(jsonPath("$.courses[0].id").doesNotExist())
-                .andExpect(jsonPath("$.courses[0].estimatedDurationSec").doesNotExist());
+                .andExpect(jsonPath("$.courses[0].estimatedDurationSec").doesNotExist())
+                .andExpect(jsonPath("$.courses[0].elevationProfile").isArray())
+                .andExpect(jsonPath("$.courses[0].elevationProfile[0].gradePercent").isNumber())
+                .andExpect(jsonPath("$.courses[0].summary").value(StubCourseRecommendAdapter.NOTICE))
+                .andExpect(jsonPath("$.notices[0]").value(StubCourseRecommendAdapter.NOTICE));
+        // Route 호출(최대 15초)은 DB 트랜잭션 밖에서 실행한다.
+        org.assertj.core.api.Assertions.assertThat(RecordingRecommendPortConfig.TRANSACTION_ACTIVE.get())
+                .isFalse();
 
         mockMvc.perform(
                         post("/api/v1/courses/recommendations")
@@ -446,7 +479,7 @@ class CourseApiIntegrationTest {
     }
 
     @Test
-    void C01_거리_shape_도착_seed_지역_위반은_422() throws Exception {
+    void C01_거리_shape_도착_위도범위_위반은_422() throws Exception {
         mockMvc.perform(
                         post("/api/v1/courses/recommendations")
                                 .header("Authorization", SecurityTestSupport.bearer(userId))
@@ -501,7 +534,7 @@ class CourseApiIntegrationTest {
                                 .content(
                                         """
                                         {
-                                          "latitude": 37.5,
+                                          "latitude": 91.0,
                                           "longitude": 127.0,
                                           "distanceKm": 5.0
                                         }

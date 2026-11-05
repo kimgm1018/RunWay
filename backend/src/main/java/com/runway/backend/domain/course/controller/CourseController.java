@@ -6,6 +6,7 @@ import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
 import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
+import com.runway.backend.domain.course.service.CourseRecommendService;
 import com.runway.backend.domain.course.service.CourseService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
@@ -28,13 +29,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class CourseController {
 
     private final CourseService courseService;
+    private final CourseRecommendService courseRecommendService;
 
     @PostMapping("/recommendations")
     public RecommendCoursesResponse recommend(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody RecommendCoursesRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
-        return courseService.recommend(userId, request);
+        return courseRecommendService.recommend(userId, request);
     }
 
     @GetMapping("/{courseId}")
