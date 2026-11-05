@@ -30,6 +30,8 @@ dependencies {
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
     // W07 payloadHash: RFC 8785 JSON Canonicalization Scheme reference implementation.
     implementation 'io.github.erdtman:java-json-canonicalization:1.1'
+    // ADR-0019: local Copernicus GLO-30 GeoTIFF, pure Java reader.
+    implementation 'mil.nga:tiff:3.0.0'
     runtimeOnly 'org.postgresql:postgresql'
 
     compileOnly 'org.projectlombok:lombok'
