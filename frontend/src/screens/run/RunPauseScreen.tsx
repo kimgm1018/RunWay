@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {
   CommonActions,
+  StackActions,
   useFocusEffect,
   useNavigation,
 } from '@react-navigation/native';
@@ -154,7 +155,13 @@ export function RunPauseScreen() {
       previous.current === 'paused' &&
       run?.status === 'running'
     ) {
-      navigation.goBack();
+      // 재실행·재로그인으로 4.3을 바로 연 경우(S15P31E105-444)에는 아래에 4.2가 없으므로 4.2로 바꿔 연다.
+      const routes = navigation.getState()?.routes ?? [];
+      if (routes[routes.length - 2]?.name === 'RunProgress') {
+        navigation.goBack();
+      } else {
+        navigation.dispatch(StackActions.replace('RunProgress'));
+      }
     }
     previous.current = run?.status;
   }, [navigation, personal, run?.status]);

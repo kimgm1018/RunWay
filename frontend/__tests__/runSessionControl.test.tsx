@@ -318,3 +318,48 @@ test('after reattaching, pause on the progress screen goes to the server', async
   expect((await repositories.session.get(sessionId)).state).toBe('PAUSED');
   await act(async () => screen!.unmount());
 });
+
+// --- S15P31E105-444: 러닝 서비스가 세션을 기억하지 못한 채 새 러닝을 시작 ---
+
+test('러닝 시작 with a paused session left on the server opens its pause screen instead of waiting', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
+  const sessionId = await runningSession(repositories);
+  const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
+  await repositories.session.reportResult(sessionId, 'PAUSE', {
+    commandId: pause.commandId,
+    deviceId: '101',
+    result: 'APPLIED',
+    appliedAt: new Date().toISOString(),
+    reasonCode: null,
+  });
+  await repositories.watchSession.setRunActive(false);
+
+  const screen = await countDown({}, '종료는 1초 길게 눌러야 동작해요', repositories);
+  expect(texts(screen)).not.toContain('시작 확인 중');
+  expect((await repositories.session.get(sessionId)).state).toBe('PAUSED');
+});
+
+test('재개 on a pause screen restored at launch opens the progress screen', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
+  const sessionId = await runningSession(repositories);
+  const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
+  await repositories.session.reportResult(sessionId, 'PAUSE', {
+    commandId: pause.commandId,
+    deviceId: '101',
+    result: 'APPLIED',
+    appliedAt: new Date().toISOString(),
+    reasonCode: null,
+  });
+
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
+  });
+  mounted = screen!;
+  await waitForText(screen!, '종료는 1초 길게 눌러야 동작해요');
+
+  await press(screen!, '재개');
+  await waitForText(screen!, '경과 시간');
+  expect(texts(screen!)).not.toContain('종료는 1초 길게 눌러야 동작해요');
+  expect((await repositories.session.get(sessionId)).state).toBe('RUNNING');
+});
