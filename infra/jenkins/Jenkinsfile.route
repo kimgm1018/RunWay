@@ -1,0 +1,56 @@
+// 최초에는 수동 빌드 검증 후 DEPLOY를 켜서 432번 Route 검증 배포를 수행한다.
+pipeline {
+    agent { label 'ai' }
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timeout(time: 45, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '15'))
+    }
+    parameters {
+        booleanParam(name: 'DEPLOY', defaultValue: false,
+            description: 'Route 컨테이너 교체 및 준비·샘플 코스 생성 검사')
+    }
+    environment {
+        ROUTE_DATA_ROOT = '/home/ubuntu/runway/data/route-bundles'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                checkout scm
+                script {
+                    env.ROUTE_BUILD_TAG = env.BUILD_TAG.toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(96)
+                    def sha = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    if (!(sha ==~ /[0-9a-f]{40}/)) { error('커밋 번호 확인 실패') }
+                    env.ROUTE_IMAGE = "runway-route:${sha.take(12)}-${env.BUILD_NUMBER}"
+                }
+            }
+        }
+        stage('Prepare Route Data') {
+            steps {
+                withCredentials([string(credentialsId: 'runway-hf-read-token', variable: 'HF_TOKEN')]) {
+                    sh 'bash infra/route/prepare-data.sh'
+                }
+            }
+        }
+        stage('Route Image Build') {
+            steps {
+                sh '''
+                    set -eu
+                    docker build -t "$ROUTE_IMAGE" \
+                        --build-context route_data=artifacts/route/data ai/route_service
+                '''
+            }
+        }
+        stage('Deploy and Verify') {
+            when { expression { params.DEPLOY } }
+            steps {
+                sh 'bash infra/route/deploy.sh "$ROUTE_IMAGE" infra/route/compose.yaml'
+            }
+        }
+    }
+    post {
+        success { echo "Route 이미지: ${env.ROUTE_IMAGE}, 실제 배포: ${params.DEPLOY}" }
+    }
+}

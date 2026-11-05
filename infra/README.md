@@ -61,9 +61,7 @@
 - AI 모델은 `ai/models.json`의 고정 HF revision·SHA로 4개를 준비한다. `AI_MODELS_ROOT`를 UID 10001 소유로 먼저 만들고,
   Jenkins Secret text `runway-hf-read-token`을 등록한다. 모델은 버전별 읽기 전용 폴더에 두며 이미지·Git에 넣지 않는다.
 - AI DB 계정은 EC2에서 `sudo python3 <prepare_db.py 경로> --container <DB 컨테이너> --secret-file <Secret 경로>`로 준비한다.
-  `AI_DB_URL_FILE`로 파일 경로만 전달한다. 계정은 CONNECT·USAGE·courses SELECT만 먼저 받고,
-  배포 시 `grant-readonly.sh`가 먼저 running_sessions SELECT(AI09 속도 보정 v_ref·목표 심박 이력, 기다리지 않음)를 주고, V10 완료 후 user_hr_personalization SELECT를 추가한다. user_gru_personalization과 미래 테이블 전체 권한은 제외한다.
-  변수·기능 기본값은 [예시](ai/.env.example), API·모델 계약은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
+  `AI_DB_URL_FILE`로 파일 경로만 전달한다. 계정은 CONNECT·USAGE·courses SELECT만 먼저 받는다. 변수·기능 기본값은 [예시](ai/.env.example), API·모델 계약은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
 
 ## 적용 순서
 
@@ -102,7 +100,7 @@
 | 모바일 APK | `runway-mobile-apk`, `infra/jenkins/Jenkinsfile.mobile-apk`. master Push 후 ARM64 디버그 APK 생성·보관, 산출물은 최근 5개 빌드 기준으로 제한. 정식 출시 서명·스토어 배포 제외 |
 | 워치 APK | `runway-watch-apk`, `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
 | 백엔드 CD | `runway-backend-cd`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.backend-cd`. master Push 배포 |
-| AI CD | `infra/jenkins/Jenkinsfile.ai-cd`. master 전용. `AI_MODELS_ROOT`·`AI_DB_URL_FILE`을 지정한다. 모델 준비 → V10/읽기 권한 → 사전 로드 → 교체/검사 순서이며, 실패 시 이전 이미지·모델·공개 설정을 복구. `DEPLOY=false`, `PREPARE_MODELS=true`는 운영 교체 없이 모델만 준비 |
+| AI CD | `infra/jenkins/Jenkinsfile.ai-cd`. master 전용. `AI_MODELS_ROOT`·`AI_DB_URL_FILE`을 지정한다. 모델 준비 → 읽기 권한 확인 → 사전 로드 → 교체/검사 순서이며, 실패 시 이전 이미지·모델·공개 설정을 복구. `DEPLOY=false`, `PREPARE_MODELS=true`는 운영 교체 없이 모델만 준비 |
 | 기존 단독 CI | `Jenkinsfile.backend`·`Jenkinsfile.mobile`은 기존 단독 검사 파일이며 신규 MR 검사는 통합 CI 사용 |
 | 권한 | 관리자와 조회 권한 분리. 익명 접근·자가 가입 제외 |
 
@@ -196,3 +194,13 @@ python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로
 
 참고: [PostgreSQL 17](https://www.postgresql.org/docs/17/backup-dump.html) · [ThinBackup](https://plugins.jenkins.io/thinBackup/) ·
 [Jenkins 백업 기준](https://www.jenkins.io/doc/book/system-administration/backing-up/) (2026-11-02 확인, GPG 2.4.4).
+
+## Route 코스 생성 서비스
+
+`ai/route_service`의 Dockerfile을 사용하며, 고정 HF revision의 `route_data_v2/`를 받아 DATA_MANIFEST.md의 크기·SHA를 검증한 후 named build context로 전달한다. 기존 `runway-hf-read-token` Credential은 다운로드 단계에만 주입하고, 데이터 묶음은 Git·Jenkins 산출물에 포함하지 않는다.
+
+`infra/jenkins/Jenkinsfile.route`를 AI 에이전트의 수동 Pipeline 작업에서 실행한다. 첫 실행은 DEPLOY를 끄고 빌드·엔진 예열을 확인한다. EC2에는 먼저 `sudo install -d -o 10001 -g 10001 -m 750 /home/ubuntu/runway/data/route-bundles`를 실행한다. 빌드 검증 후 DEPLOY를 켜면 준비 상태와 샘플 코스 생성을 확인하며, 실패 시 이전 이미지로 복구한다. 최초 배포 실패 시에는 실패한 새 컨테이너를 정리한다.
+
+Route는 CPU 1개·메모리 1.5GiB·worker 1개, 읽기 전용 파일시스템과 제한된 /tmp를 사용한다. Numba 캐시는 현재 Dockerfile에서 예열한 `/opt/route/numba_cache`를 따른다. 외부 포트 없이 `runway-route_default` 내부망에서만 접근한다. Route를 먼저 기동하고 백엔드 Compose의 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`과 내부 네트워크 연결을 반영한다.
+
+준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다. 요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.

@@ -1,4 +1,4 @@
-"""V10 전 권한 부여 차단, running_sessions·user_profiles 선부여, 최소 권한 범위를 모의 Docker로 확인한다."""
+"""개인화 테이블 미생성 시 계속 배포하고 기존 읽기 전용 검증을 유지한다."""
 import os
 from pathlib import Path
 import subprocess
@@ -23,6 +23,7 @@ printf '%s\n' "$query" >> "$MOCK_DIR/sql"
 if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
 elif [[ $query == *user_profiles* ]]; then echo "${USER_PROFILES_RESULT:-t}"
 elif [[ $query == *running_metric_samples* ]]; then echo "${BPM_RESULT:-t}"
+elif [[ $query == *has_database_privilege* ]]; then echo "${GRANT_RESULT:-t}"
 elif [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
 '''
 
@@ -43,10 +44,11 @@ class ReadonlyGrantTests(unittest.TestCase):
         return subprocess.run([BASH, posix(ROOT / "grant-readonly.sh"), "1"],
                               env=self.env, capture_output=True, text=True, encoding="utf-8", timeout=15)
 
-    def test_v10_missing_does_not_grant(self):
+    def test_missing_personalization_warns_and_continues(self):
         self.env["READY_RESULT"] = "f"
         result = self.run_grant()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("경고", result.stderr)
         sql = (self.root / "sql").read_text()
         self.assertNotIn("user_hr_personalization TO runway_ai", sql)
         # running_sessions(402)·user_profiles(403)는 V1부터 있으므로 V10 대기와 관계없이 먼저 부여한다.
@@ -97,10 +99,19 @@ class ReadonlyGrantTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         sql = (self.root / "sql").read_text()
         self.assertIn("GRANT SELECT ON public.user_hr_personalization TO runway_ai", sql)
-        self.assertIn("version = '10' AND success", sql)
+        self.assertNotIn("flyway_schema_history", sql)
         self.assertIn("INSERT,UPDATE,DELETE,TRUNCATE", sql)
         self.assertNotIn("user_gru_personalization", sql)
         self.assertNotIn("ALL TABLES", sql)
+
+    def test_missing_table_does_not_bypass_base_privilege_failure(self):
+        self.env["READY_RESULT"] = "f"
+        self.env["GRANT_RESULT"] = "f"
+        self.assertNotEqual(self.run_grant().returncode, 0)
+
+    def test_invalid_table_lookup_stops_deployment(self):
+        self.env["READY_RESULT"] = "invalid"
+        self.assertNotEqual(self.run_grant().returncode, 0)
 
     def test_excess_privilege_stops_deployment(self):
         self.env["GRANT_RESULT"] = "f"
