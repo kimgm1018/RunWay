@@ -1,5 +1,6 @@
 package com.runway.backend.domain.course.service;
 
+import com.runway.backend.domain.course.candidate.CourseCandidateSigner;
 import com.runway.backend.domain.course.dto.request.GradeSegment;
 import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
 import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
@@ -49,6 +50,7 @@ public class CourseRecommendService {
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseRecommendPort courseRecommendPort;
     private final PreparedCourseGrade preparedCourseGrade;
+    private final CourseCandidateSigner candidateSigner;
     private final Clock clock;
     private final Duration generationTimeout;
 
@@ -56,11 +58,13 @@ public class CourseRecommendService {
             CourseJdbcRepository courseJdbcRepository,
             CourseRecommendPort courseRecommendPort,
             PreparedCourseGrade preparedCourseGrade,
+            CourseCandidateSigner candidateSigner,
             Clock clock,
             @Value("${runway.course.generation-timeout:PT20S}") Duration generationTimeout) {
         this.courseJdbcRepository = courseJdbcRepository;
         this.courseRecommendPort = courseRecommendPort;
         this.preparedCourseGrade = preparedCourseGrade;
+        this.candidateSigner = candidateSigner;
         this.clock = clock;
         this.generationTimeout = generationTimeout;
     }
@@ -82,7 +86,7 @@ public class CourseRecommendService {
         List<RecommendedCourseItemResponse> courses = new ArrayList<>(generated.courses().size());
         for (GeneratedCourseCandidate candidate : generated.courses()) {
             requireBudget(deadline);
-            courses.add(toResponse(candidate, grade(gradeService, candidate)));
+            courses.add(toResponse(userId, candidate, grade(gradeService, candidate)));
         }
         // 마지막 계산이 예산을 넘겼으면 정상 응답을 시작하지 않는다.
         requireBudget(deadline);
@@ -105,8 +109,8 @@ public class CourseRecommendService {
         }
     }
 
-    private static RecommendedCourseItemResponse toResponse(
-            GeneratedCourseCandidate candidate, List<GradeSegment> elevationProfile) {
+    private RecommendedCourseItemResponse toResponse(
+            long userId, GeneratedCourseCandidate candidate, List<GradeSegment> elevationProfile) {
         return new RecommendedCourseItemResponse(
                 candidate.index(),
                 candidate.distanceM(),
@@ -126,7 +130,9 @@ public class CourseRecommendService {
                                                 term.featureValue(),
                                                 term.weight(),
                                                 term.contribution()))
-                        .toList());
+                        .toList(),
+                candidateSigner.issue(
+                        userId, candidate.route(), candidate.distanceM(), elevationProfile));
     }
 
     private static ApiException failure(ErrorCode errorCode, String reason) {

@@ -5,6 +5,7 @@
 | ID | 이름 | Method | Endpoint | 단계 | 인증 |
 |---|---|---|---|---|---|
 | [C01](#c01-코스-추천) | 코스 추천(AI 경로 후보 생성) | POST | `/courses/recommendations` | 1차 MVP | 회원 |
+| [C10](#c10-생성-코스-선택-저장) | 생성 코스 선택 저장 | POST | `/courses/generated` | 1차 MVP | 회원 |
 | [C03](#c03-코스-상세-조회) | 코스 상세 조회 | GET | `/courses/{courseId}` | 1차 MVP | 회원 |
 | [C07](#c07-코스-저장) | 코스 저장 | PUT | `/courses/{courseId}/bookmark` | 1차 MVP | 회원 |
 | [C08](#c08-코스-저장-해제) | 코스 저장 해제 | DELETE | `/courses/{courseId}/bookmark` | 1차 MVP | 회원 |
@@ -40,12 +41,12 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | 인증 | 회원 |
 | 관련 요구사항 | CRS-001, CRS-002, CRS-003, CRS-005, CRS-007~008 / SYS-002 |
 | 관련 화면 | 3.1 오늘의 러닝, 3.1b 추천 코스 목록 (화면 설계 v10) |
-| 미정 사항 | Route 내부 계약은 AI 확인 전 초안이며 [370 후속 초안](#코스-생성-후속-필요-사항)대로 구현(S15P31E105-423). 선택 코스 저장 API는 후속(371) |
+| 미정 사항 | Route 내부 계약은 AI 확인 전 초안이며 [370 후속 초안](#코스-생성-후속-필요-사항)대로 구현(S15P31E105-423). 선택 코스 저장은 [C10](#c10-생성-코스-선택-저장)(S15P31E105-371) |
 | 비고 | **기존 "1차 MVP DB `ACTIVE` 필터" 방식은 C01에서 대체(superseded)됨.** 현재 구현은 Route HTTP 호출과 DEM 경사 계산이다(S15P31E105-423). 스텁은 개발자가 명시한 개발용 모드에서만 쓴다 |
 
 ### 설명
 
-출발 위치·목표 거리·형태·선호 조건을 받아 **새 러닝 경로 후보**(최대 3개)를 생성해 반환한다. 서버는 검증·정규화한 입력을 AI Route 생성기에 전달하고, 후보마다 DEM으로 100m 경사를 계산해 붙인다. 개발용 스텁 모드(`BACKEND_ROUTE_MODE=stub`)에서만 같은 입력·seed에 대해 동일한 더미 경로를 반환하며 `notices`에 개발용임을 표시한다. 후보는 이 호출에서 **저장하지 않는다.** 사용자가 후보 중 하나를 고르면 그 경로만 `courses`에 저장하고(후속 저장 API), 저장으로 얻은 `courseId`를 [S01 러닝 세션 생성](sessions.md#s01-러닝-세션-생성)에 사용한다.
+출발 위치·목표 거리·형태·선호 조건을 받아 **새 러닝 경로 후보**(최대 3개)를 생성해 반환한다. 서버는 검증·정규화한 입력을 AI Route 생성기에 전달하고, 후보마다 DEM으로 100m 경사를 계산해 붙인다. 개발용 스텁 모드(`BACKEND_ROUTE_MODE=stub`)에서만 같은 입력·seed에 대해 동일한 더미 경로를 반환하며 `notices`에 개발용임을 표시한다. 후보는 이 호출에서 **저장하지 않는다.** 사용자가 후보 중 하나를 고르면 그 경로만 [C10](#c10-생성-코스-선택-저장)으로 `courses`에 저장하고, 저장으로 얻은 `courseId`를 [S01 러닝 세션 생성](sessions.md#s01-러닝-세션-생성)에 사용한다.
 
 > **대체 안내:** 이전 1차 MVP의 `targetDistanceM`·`goalInputType`·`environmentTypes`·`radiusM`·`limit` 기반 DB `ACTIVE` 코스 검색 계약은 C01에서 폐기한다. 저장된 공용 코스의 조회·저장은 [C03](#c03-코스-상세-조회)·[C07](#c07-코스-저장)·[C09](#c09-저장-코스-목록)가 담당한다.
 
@@ -196,6 +197,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | `courses[].distanceM` | number | O | 경로 거리(m). `courses.distance` 저장 시 사용하는 값. 요청 `distanceKm`과 정확히 같다고 보장하지 않는다(Route 실연동 시 실제 길이 기준, 미정) |
 | `courses[].route` | object | O | GeoJSON `LineString`. 좌표는 `[경도, 위도]` 순서(GeoJSON·PostGIS 기준) |
 | `courses[].elevationProfile`·`summary`·`reasons`·`caveats`·`score`·`scoreTerms` | — | O | [후보 응답 초안](#후보-응답-초안) 표대로 구현(S15P31E105-423) |
+| `courses[].candidateToken` | string | O | 이 후보를 [C10](#c10-생성-코스-선택-저장)으로 저장할 때 `route`·`distanceM`·`elevationProfile`과 함께 그대로 보내는 서명(S15P31E105-371). 형식 `v1.<만료 epoch초>.<서명>`, 발급 후 30분 유효. 클라이언트는 내용을 해석하지 않는다. 코스 ID가 아니다 |
 
 **응답에 없는 필드:** `courses[].id`(저장 전이므로 없음), `status`, `regionCode`, `environmentTags`, `estimatedDurationSec`. 예상 시간은 이 API의 책임이 아니며 목표 페이스를 아는 [S01](sessions.md#s01-러닝-세션-생성) 목표 설정·코스 상세([C03](#c03-코스-상세-조회))의 `targetPaceSecPerKm` 계산 쪽에서 다룬다. 좌표 순서 주의: AI 내부 `coords`는 `[lat,lon]`이고 공개 API는 GeoJSON `[lon,lat]`이다.
 
@@ -236,11 +238,11 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
   2. 응답의 `nextSeed`(= 요청 seed + 24)를 같은 조건으로 다시 보내면 다른 후보 묶음을 받는다.
   3. 같은 입력·같은 `seed`는 같은 결과를 반환(재현성). 스텁은 `index`·seed로 경로 시작 각도만 바꾼 더미를 낸다.
   4. `nextSeed`가 상한(10,000,000)을 넘으면 다음 요청이 `INVALID_SEARCH`가 되므로 클라이언트는 상한 근처에서 다시 1로 돌리거나 더 보기를 막는다(상한 도달 시 서버 동작은 미정).
-- **선택 후 저장(select-then-save):** C01 응답의 후보는 DB에 저장하지 않으며 코스 ID가 없다. 사용자가 후보 하나를 선택하면 **그 경로만** 후속 저장 API로 `courses`에 저장한다([코스 생성 후속](#코스-생성-후속-필요-사항), 후속 Jira: 선택 코스 저장). 선택하지 않은 후보는 공용 코스·추천 대상이 되지 않는다. 저장된 AI 생성 코스는 출발점=경로 첫 좌표, `creator_id`·`source_session_id`·`region_code`·`description`=NULL, 상태 `ACTIVE`이며 경사는 [elevationProfile 구조](#elevationprofile-100m-경사-구조)를 따른다.
+- **선택 후 저장(select-then-save):** C01 응답의 후보는 DB·Redis 등 서버 어디에도 보관하지 않으며 코스 ID가 없다. 사용자가 후보 하나를 선택하면 **그 경로만** [C10](#c10-생성-코스-선택-저장)으로 `courses`에 저장한다. 후보마다 `candidateToken`(사용자·만료·후보 값에 대한 서명)을 붙여 C10이 서버가 만든 후보인지 확인한다. 선택하지 않은 후보는 공용 코스·추천 대상이 되지 않는다. 저장된 AI 생성 코스는 출발점=경로 첫 좌표, `creator_id`·`source_session_id`·`region_code`·`description`=NULL, 상태 `ACTIVE`이며 경사는 [elevationProfile 구조](#elevationprofile-100m-경사-구조)를 따른다.
 - **세션 연결:** 저장으로 얻은 `courseId`를 [S01](sessions.md#s01-러닝-세션-생성)의 `courseId`로 보낸다. S01은 `ACTIVE` 코스만 허용한다. 이 코스의 `source_session_id`는 NULL이다.
 - **페이스 없음:** 추천 요청에 목표 페이스·TIME·goal이 없고 응답에 `estimatedDurationSec`도 없다. 목표는 S01(및 S08)에서 정한다.
 - **개인정보:** 개인 저장 별명 등 사용자 데이터를 생성 입력·응답에 넣지 않는다.
-- **현재 구현 상태:** BE는 Route HTTP 어댑터·응답 검증·오류 매핑·DEM 경사 조합까지 구현했다([S15P31E105-423](https://ssafy.atlassian.net/browse/S15P31E105-423)). Route 서비스 운영 배포(381 구현 완료, 배포 전)·DEM 파일 배포(인프라 후속)·선택 후보 저장([S15P31E105-371](https://ssafy.atlassian.net/browse/S15P31E105-371))은 후속이다.
+- **현재 구현 상태:** BE는 Route HTTP 어댑터·응답 검증·오류 매핑·DEM 경사 조합까지 구현했다([S15P31E105-423](https://ssafy.atlassian.net/browse/S15P31E105-423)). 선택 후보 저장은 [C10](#c10-생성-코스-선택-저장)으로 구현했다([S15P31E105-371](https://ssafy.atlassian.net/browse/S15P31E105-371)). Route 서비스 운영 배포(381 구현 완료, 배포 전)·DEM 파일 배포(인프라 후속)·앱의 C10 호출 연동은 후속이다.
 
 ### 상태값
 
@@ -250,12 +252,81 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 후보 수·거리·오류·시간 예산은 [370 후속 초안](#코스-생성-후속-필요-사항)대로 구현했다(S15P31E105-423). Route 담당(AI 팀) 확인이 남은 항목은 그 절의 "남은 확인"을 따른다.
 
-- [ ] 선택 코스 저장 API 경로·요청/응답·멱등 처리·중복 경로 기준 (후속 Jira)
+- [x] 선택 코스 저장 API 경로·요청/응답·멱등 처리·중복 경로 기준: [C10](#c10-생성-코스-선택-저장)(S15P31E105-371)
 - [x] 후보 개수 1~3개, `courses[].distanceM` 목표 대비 ±10%, 좌표 길이와 ±5%(S15P31E105-423 구현, Route 확인 대기)
 - [ ] 알 수 없는 `filters` 키 처리, 조건 불충족 시 응답 방식
 - [x] Route 실연동 오류 세분화(`details.reason`)·동기 방식·타임아웃: 초안대로 구현(S15P31E105-423, Route 확인 대기)
 - [x] 서비스 지역 판정: 부산 사각형 사전 검증을 제거하고 Route `OUT_OF_AREA` 기준으로 교체(2026-11-05 AI 팀 협의, 구현 S15P31E105-423)
 - [ ] `nextSeed` 상한 초과 시 서버 동작
+
+## C10 생성 코스 선택 저장
+
+`POST` `/api/v1/courses/generated`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | CRS-001, CRS-002 / SYS-002 |
+| 미정 사항 | 없음(앱 연동은 후속) |
+| 비고 | S15P31E105-371. [선택 저장·중복과 태그 경계](#선택-저장중복과-태그-경계)의 구현 |
+
+### 설명
+
+[C01](#c01-코스-추천)로 받은 후보 중 사용자가 고른 하나를 `courses`에 저장하고 `courseId`를 돌려준다. 이 `courseId`로 [S01](sessions.md#s01-러닝-세션-생성)을 호출한다. 서버는 C01 후보를 보관하지 않으므로, 클라이언트는 고른 후보의 `route`·`distanceM`·`elevationProfile`과 `candidateToken`을 C01 응답에서 받은 값 그대로 보낸다. 서버는 서명으로 그 사용자에게 발급한 후보와 값이 같은지 확인한 뒤에만 저장한다.
+
+### 인증 및 권한
+
+- 로그인 사용자(JWT Access Token). 후보 서명은 발급받은 사용자에게만 유효하다. 다른 사용자가 받은 후보는 거절한다.
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `candidateToken` | string | O | C01 `courses[].candidateToken` |
+| `route` | object | O | C01 `courses[].route` 그대로(GeoJSON `LineString`, `[경도, 위도]`) |
+| `distanceM` | number | O | C01 `courses[].distanceM` 그대로 |
+| `elevationProfile` | object[] | O | C01 `courses[].elevationProfile` 그대로. 빈 배열 불가 |
+
+JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 값은 하나도 바꾸면 안 된다. 그 밖의 필드는 무시한다.
+
+```json
+{
+  "candidateToken": "v1.1762311600.3q2-7wE...",
+  "route": {"type": "LineString", "coordinates": [[129.0756, 35.1796], [129.0786, 35.1803], [129.0756, 35.1796]]},
+  "distanceM": 5020.0,
+  "elevationProfile": [{"startDistanceM": 0.0, "endDistanceM": 100.0, "gradePercent": 0.8}]
+}
+```
+
+### Response
+
+`200 OK`
+
+```json
+{"courseId": 123, "reused": false}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `courseId` | integer (int64) | O | 저장했거나 재사용한 `ACTIVE` 코스 ID |
+| `reused` | boolean | O | 좌표가 완전히 같은 기존 코스를 돌려줬으면 `true`, 새로 저장했으면 `false` |
+
+### 오류 응답
+
+| HTTP·코드 | 발생 조건 |
+|---|---|
+| `400 VALIDATION_ERROR` | 필수 필드 누락, JSON 형식 오류, `route`가 `LineString` 아님 또는 좌표 3,000개 초과, `distanceM` 범위 밖, `elevationProfile` 빈 배열·원소 값 null·[100m 경사 구조](#elevationprofile-100m-경사-구조) 위반. 서명 확인보다 먼저 검사한다 |
+| `401 UNAUTHORIZED` | 토큰 없음·만료·위변조, 토큰 사용자가 존재하지 않음 |
+| `403 COURSE_INACCESSIBLE` | 좌표가 완전히 같은 코스가 `MERGED`·`BLOCKED` 상태뿐임(새 복제본을 만들지 않음) |
+| `422 COURSE_CANDIDATE_INVALID` | 서명 형식 오류, 후보 값이 발급 때와 다름(변조), 만료(발급 후 30분), 다른 사용자에게 발급된 후보. 원인은 구분해 알리지 않는다. 클라이언트는 C01을 다시 호출한다 |
+
+### 처리 규칙
+
+- **저장 값:** 출발점=경로 첫 좌표, `creator_id`·`source_session_id`·`region_code`·`description`·`elevation_gain`=NULL, 상태 `ACTIVE`, `elevation_profile`=요청 경사([100m 경사 구조](#elevationprofile-100m-경사-구조) 검증). 생성 코스는 저장 후 수정하지 않으므로 `updated_at`=저장 시각이며 AI 계획 `courseVersion`(`courses:<id>:<updated_at>`)과 맞는다.
+- **중복·재시도:** WGS84 2D 좌표 값·순서·방향이 완전히 같은 코스가 있으면 새로 만들지 않는다. `ACTIVE`이면 그 `courseId`와 `reused=true`를 돌려준다. 같은 요청의 재전송과 동시 선택도 이 규칙으로 같은 `courseId`를 받는다(경로 기준 잠금으로 직렬화). 단, 재전송도 서명 유효 시간(30분) 안이어야 하며 지나면 `422 COURSE_CANDIDATE_INVALID`다. 거리 값 등 좌표 외 값은 중복 판정에 쓰지 않는다. 좌표가 1개라도 다르거나 역방향이면 별개 코스다.
+- **서명:** HMAC-SHA256. 키는 서버 JWT 비밀값에서 용도별로 파생한 별도 키다. 서명 대상은 사용자 ID·만료 시각·후보 값(좌표·거리·경사)이다. 유효 시간은 설정 `runway.course.candidate-ttl`(기본 30분).
+- **AI 계획:** 저장한 `elevation_profile`은 AI09 개인 페이스 계획이 그대로 읽는다([ai-service.md AI09](ai-service.md#ai09--개인-페이스-계획)).
 
 ## C03 코스 상세 조회
 
@@ -745,7 +816,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 1. 회원 인증·현행 C01 입력 검증 및 정규화 후 내부 생성기에 요청한다. 목표 페이스·건강정보·사용자 ID·사용자 토큰은 Route에 전달하지 않는다.
 2. 생성기는 점수·Gate를 통과한 후보를 순위대로 최대 3개 반환한다. 백엔드는 좌표를 GeoJSON으로 바꾸고 DEM에서 고도를 조회해 100m 경사 목록을 계산한다.
 3. Route가 반환한 요약·추천 이유·주의 문구·점수·안내를 공개 필드로 옮겨 후보 응답에 조합한다. 설명 문구의 생성 주체는 Route다(2026-11-05 AI 팀 회신. 2026-11-04의 백엔드 LLM 생성 안은 폐기). 이 호출은 `courses`·북마크·세션에 쓰지 않는다.
-4. 사용자가 선택한 경로만 후속 저장 API에서 저장한 뒤, 받은 `courseId`로 S01을 호출한다. C07 북마크는 이미 저장된 코스에 대한 별도 관계다.
+4. 사용자가 선택한 경로만 [C10](#c10-생성-코스-선택-저장)으로 저장한 뒤, 받은 `courseId`로 S01을 호출한다. C07 북마크는 이미 저장된 코스에 대한 별도 관계다.
 
 | 요청 | 실연동 초안 |
 | --- | --- |
@@ -766,6 +837,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | --- | --- | --- |
 | `courses` | array, 필수 | 1~3개. 3개 미만이면 찾은 후보만 반환하며 복제해 채우지 않는다. 0개는 아래 `NO_ROUTE` 오류 |
 | `courses[].index` | integer, 필수 | 응답 순위대로 0부터 연속 부여. 코스 ID·영속 선택 토큰이 아님 |
+| `courses[].candidateToken` | string, 필수 | C10 저장용 서명(S15P31E105-371). [C10](#c10-생성-코스-선택-저장) 참고 |
 | `courses[].distanceM` | number, 필수 | Route가 계산한 실제 경로 길이(m), 소수 둘째 자리 반올림. 목표 거리 대비 ±10% 이내를 제안(Route 현행 유효성 기준). 목표 거리로 덮어쓰지 않음 |
 | `courses[].route` | object, 필수 | WGS84 GeoJSON `LineString`, `[경도, 위도]` 2D 좌표 2개 이상. 순서·방향·모든 점을 보존하며 Z 고도는 넣지 않음 |
 | `courses[].elevationProfile` | object[], 필수 | **백엔드 계산값**. [100m 경사 구조](#elevationprofile-100m-경사-구조)의 `startDistanceM/endDistanceM/gradePercent`를 사용. 별도 sequence 없이 배열 순서로 구분. 거리·마지막 잔여 구간·null 금지 검증도 동일 |
@@ -847,16 +919,16 @@ BE는 같은 요청에서 자동 재시도하지 않는다. 사용자가 명시�
 
 ### 선택 저장·중복과 태그 경계
 
-**확정된 저장 시점:** 후보 전부를 저장하지 않고 사용자가 선택한 경로만 `courses`에 저장한다. 서버 내부 저장 로직(319)의 출발점=경로 첫 좌표, `creator_id/source_session_id/region_code/description`=NULL, 상태 `ACTIVE`, 100m 경사 형식을 유지한다. 공개 선택 저장 API 경로·요청·응답은 이번에 추가하지 않는다. 기존 내부 저장 메서드는 매번 INSERT하며 아래 중복 방지·멱등 처리를 아직 보장하지 않는다.
+**확정된 저장 시점:** 후보 전부를 저장하지 않고 사용자가 선택한 경로만 `courses`에 저장한다. 서버 내부 저장 로직(319)의 출발점=경로 첫 좌표, `creator_id/source_session_id/region_code/description`=NULL, 상태 `ACTIVE`, 100m 경사 형식을 유지한다. 공개 선택 저장 API는 [C10](#c10-생성-코스-선택-저장)이며 아래 조건을 S15P31E105-371에서 다음과 같이 구현했다.
 
 | 구분 | 370 제안·후속 구현 조건 |
 | --- | --- |
 | 재생성 | C01의 같은 seed나 응답 `index`를 영속 식별자로 쓰지 않는다. 생성기·데이터 갱신으로 같은 입력의 결과가 달라질 수 있음 |
 | 정확히 동일한 경로 | WGS84 2D 좌표의 숫자값·순서·방향·출발점이 모두 같은 경로만 중복 후보로 본다. JSON 공백·숫자 표기 차이는 무시하되 좌표를 추가 반올림·단순화하지 않음 |
 | 유사·역방향 경로 | 겹침률이 높아도 자동 병합하지 않는다. 순환 출발점 이동·역방향·다른 좌표 표본화는 별개다. Route의 **한 응답 안 후보 dedupe**와 DB 공용 코스 병합은 다른 정책 |
-| 재시도·동시 선택 | 후속 선택 저장 API는 사용자 범위 멱등키와 서버 검증한 선택 내용의 일치를 검사하고 같은 결과 `courseId`를 반환하도록 설계해야 함. 다른 내용의 키 재사용은 충돌로 처리하는 안. 원자적 중복 방지는 후속 저장 설계에서 확정 |
-| 상태·검증 | 재사용 대상이 `ACTIVE`인지 확인하고 `MERGED/BLOCKED`를 우회해 새 활성 복제본을 만들지 않음. 정확 경로 중복과 기존 상태 정책의 원자적 적용이 필요 |
-| 신뢰 경계 | 클라이언트가 제출한 경로·거리·경사를 그대로 INSERT하지 않음. 선택 결과를 서버가 검증하는 방법(서명 후보 또는 만료되는 서버 후보 참조)·보존 기간·길이 허용 오차는 저장 API 설계에서 확정 |
+| 재시도·동시 선택 | **371 확정:** 별도 멱등키 없이 정확히 동일한 경로의 ACTIVE 코스를 재사용해 같은 `courseId`를 반환한다(`reused=true`). 같은 경로의 동시 저장은 경로 기준 advisory lock으로 직렬화해 한 행만 만든다 |
+| 상태·검증 | **371 확정:** 동일 경로가 `MERGED/BLOCKED`뿐이면 새 활성 복제본을 만들지 않고 `403 COURSE_INACCESSIBLE` |
+| 신뢰 경계 | **371 확정:** 서명 후보 방식. 서버는 후보를 보관하지 않고, C01이 발급한 `candidateToken`으로 클라이언트가 돌려보낸 경로·거리·경사가 그 사용자에게 발급한 후보와 값까지 같은지 확인한다. 유효 30분. 서버 후보 참조(Redis)는 운영 Redis가 로그인 전용 ACL·메모리 정책이라 쓰지 않았다 |
 
 **선호와 태그:** 요청 boolean은 가중치이며 실제 환경의 증거가 아니다. `river→RIVERSIDE`, `beach→BEACH`, `park→PARK`는 이름상의 대응 후보일 뿐 true라고 저장하지 않는다. `trail`, `pedestrian`, 회피 3종·`flat`에 대응하는 저장 enum은 없으며 `URBAN/TRACK`을 추론하지 않는다. [내부 매핑 표](ai-service.md#route-선호와-저장-태그-매핑)에 9개 키를 정리한다. 실제 경로 기반 태깅 근거·임계값은 후속이며 스키마 enum을 늘리지 않는다.
 
@@ -867,7 +939,7 @@ BE는 같은 요청에서 자동 재시도하지 않는다. 사용자가 명시�
 - AI 확인 대기: [운영용 Route 내부 계약](ai-service.md#route-코스-생성-내부-http-계약-초안)의 URL·본문·오류·메타데이터·큐/시간 상한. 담당 확인 없이 확정으로 바꾸지 않는다.
 - AI 팀 확인 완료(2026-11-05 회신): 후보별 `summary`·`reasons`·`caveats`·`score`/`scoreTerms`와 응답 전체 `notices`를 Route가 제공한다. 추천 이유는 Route에서 이미 생성하며 백엔드 LLM 생성은 하지 않는다.
 - FE/BE 확인 대기: 경사·설명·점수·notices 추가, 점수 표시 여부, 부족 후보 안내, 동기 대기·취소·더 보기 상한 UI.
-- 369·371 및 저장 API 후속: 거리 축 일치 허용 오차, 후보 진위 검증·멱등키·동시 중복 방지, AI 계획 전달. `StoredCourseGradeSource` 연결은 후속이다. 앱의 고도 그래프·오르막은 C01 `elevationProfile` 경사를 누적해 계산한다(423).
+- 후보 진위 검증·동시 중복 방지·AI 계획 경사 전달은 371에서 구현했다(C10, AI `ElevationProfileStoredGradeSource`). 앱의 고도 그래프·오르막은 C01 `elevationProfile` 경사를 누적해 계산한다(423).
 - 출발점의 지역 역지오코딩·태깅은 미정. `region_code` NULL 원칙을 유지한다.
 - Route는 HR 추론 `ai/service`와 별도 컨테이너이며, DEM/OSM/env 데이터 배포·최적화·성능 판정은 [ADR-0019](../../adr/0019-course-generation-backend.md)와 담당 업무를 따른다.
 

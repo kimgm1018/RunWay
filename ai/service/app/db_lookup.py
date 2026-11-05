@@ -4,15 +4,18 @@
 - SQL은 모두 바인딩 파라미터만 쓴다. URL·비밀번호·드라이버 오류 원문은 로그와 응답에 남기지 않는다.
 - 개인화 테이블은 팀 DB에 아직 없다. release 제안 `user_hr_personalization`(migration 번호는 V10 이상, 팀이 정함)
   기준이며 이름·컬럼은 아래 상수다. ERD가 오면 개인화 SQL과 변환을 함께 바꾼다.
-- 코스 경사 찾는 순서: ① 백엔드가 저장한 경사(StoredCourseGradeSource, 기본 꺼짐) ② courses.elevation_profile 계산
-  ③ RouteElevationSource ④ 0% 평지(MISSING). 저장 형식이 정해지면 StoredCourseGradeSource 구현을 만들어
-  DbCourseLookup(stored_grade_source=...)으로 넘긴다(app/main.py). 테이블 이름은 아직 정하지 않았다.
+- 코스 경사 찾는 순서: ① 백엔드가 저장한 경사(StoredCourseGradeSource) ② courses.elevation_profile 원시 고도 계산
+  ③ RouteElevationSource ④ 0% 평지(MISSING). 백엔드는 courses.elevation_profile에 100 m 경사 목록
+  `[{startDistanceM, endDistanceM, gradePercent}]`을 저장하므로(S15P31E105-319, courses.md) ①은
+  ElevationProfileStoredGradeSource가 같은 행에서 읽는다(S15P31E105-371, app/main.py에서 연결).
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
+import math
 import logging
 from typing import Protocol
 
@@ -170,6 +173,45 @@ class StoredCourseGradeSource(Protocol):
     """
 
     def grade_profile_for(self, course_row: dict) -> Sequence[PlanGradeSegment] | None: ...
+
+
+STORED_GRADE_KEYS = frozenset({"startDistanceM", "endDistanceM", "gradePercent"})
+
+
+class ElevationProfileStoredGradeSource:
+    """courses.elevation_profile의 백엔드 저장 경사(courses.md 100m 경사 구조)를 PlanGradeSegment로 읽는다.
+
+    COURSE_SQL이 이미 읽은 행만 쓰며 추가 조회는 없다. 모든 원소가 정확히 세 키를 가진 객체이고 값이 숫자일 때만
+    변환한다. 아니면 None을 돌려 옛 원시 고도 형식(②)으로 넘긴다. 구간 연속·끝 거리 검사는 DbCourseLookup이 한다.
+    """
+
+    def grade_profile_for(self, course_row: dict) -> Sequence[PlanGradeSegment] | None:
+        raw = _json(course_row.get("elevation_profile"))
+        if not isinstance(raw, list) or not raw or len(raw) > MAX_STORED_GRADE_SEGMENTS:
+            return None
+        segments = []
+        for item in raw:
+            if not isinstance(item, dict) or set(item) != STORED_GRADE_KEYS:
+                return None
+            values = {key: _stored_number(item[key]) for key in STORED_GRADE_KEYS}
+            if any(value is None for value in values.values()):
+                return None
+            try:
+                segments.append(PlanGradeSegment.model_validate(values))
+            except ValueError:
+                return None
+        return tuple(segments)
+
+
+def _stored_number(value) -> float | None:
+    """JSON 숫자(int·float, 드라이버가 Decimal로 줄 때 포함)만 float로. bool·문자열·null은 None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class PsycopgDatabase:

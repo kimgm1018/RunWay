@@ -1,5 +1,8 @@
 package com.runway.backend.domain.course.service;
 
+import com.runway.backend.domain.course.candidate.CourseCandidateSigner;
+import com.runway.backend.domain.course.candidate.CourseCandidateSignerTest;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -38,6 +41,7 @@ class CourseRecommendServiceTest {
     private final MutableClock clock = new MutableClock(Instant.parse("2026-11-05T00:00:00Z"));
     private final List<CourseRecommendCommand> calls = new ArrayList<>();
     private final List<Instant> deadlines = new ArrayList<>();
+    private final CourseCandidateSigner signer = CourseCandidateSignerTest.signer(clock);
 
     /** 경사 계산 결과가 비교 가능하도록 남북 방향으로 완만하게 오르는 합성 고도. */
     private static final ElevationSource SLOPE = (lon, lat) -> (lat - START_LAT) * 20_000;
@@ -55,7 +59,8 @@ class CourseRecommendServiceTest {
     }
 
     private CourseRecommendService service(CourseRecommendPort port, PreparedCourseGrade grade) {
-        return new CourseRecommendService(repository, port, grade, clock, Duration.ofSeconds(20));
+        return new CourseRecommendService(
+                repository, port, grade, signer, clock, Duration.ofSeconds(20));
     }
 
     private static RecommendCoursesRequest request(double latitude, double longitude) {
@@ -123,6 +128,13 @@ class CourseRecommendServiceTest {
             assertThat(item.elevationProfile())
                     .anySatisfy(segment -> assertThat(segment.gradePercent().signum()).isNotZero());
             assertThat(item.summary()).isEqualTo("요약 " + i);
+            // 발급한 서명은 같은 사용자·같은 후보 값으로 검증된다.
+            signer.verify(
+                    USER_ID,
+                    item.candidateToken(),
+                    item.route(),
+                    item.distanceM(),
+                    item.elevationProfile());
             assertThat(item.reasons()).containsExactly("이유 " + i);
             assertThat(item.caveats()).isEmpty();
             assertThat(item.score()).isEqualTo(1.5 - i);
