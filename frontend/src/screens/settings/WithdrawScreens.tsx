@@ -16,6 +16,7 @@ import {
   Card,
   EmptyState,
   Icon,
+  KeyboardLift,
   TextField,
   useToast,
 } from '../../components';
@@ -73,19 +74,22 @@ function Frame({
           </AppText>
         </View>
       </SafeAreaView>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.content}
-      >
-        <AppText style={styles.title}>{title}</AppText>
-        <AppText variant="body" tone="textSecondary">
-          {description}
-        </AppText>
-        {children}
-      </ScrollView>
-      <SafeAreaView edges={['bottom']} style={styles.footer}>
-        {footer}
-      </SafeAreaView>
+      {/* The keyboard lifts the footer above it (S15P31E105-473). */}
+      <KeyboardLift>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.content}
+        >
+          <AppText style={styles.title}>{title}</AppText>
+          <AppText variant="body" tone="textSecondary">
+            {description}
+          </AppText>
+          {children}
+        </ScrollView>
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          {footer}
+        </SafeAreaView>
+      </KeyboardLift>
     </View>
   );
 }

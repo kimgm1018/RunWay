@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -12,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { size, spacing, useTheme } from '../theme';
 import { Backdrop } from './Backdrop';
+import { KeyboardLift } from './KeyboardLift';
 
 export function Screen({
   children,
@@ -50,11 +49,8 @@ export function Screen({
         {background ?? <Backdrop />}
       </View>
       {header}
-      {/* Android already resizes the window for the keyboard (adjustResize). */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.fill}
-      >
+      {/* Lifts the footer above the keyboard (see KeyboardLift). */}
+      <KeyboardLift style={styles.fill}>
         {scroll ? (
           <ScrollView
             contentContainerStyle={[content, styles.grow]}
@@ -66,7 +62,7 @@ export function Screen({
           <View style={[styles.fill, content]}>{children}</View>
         )}
         {footer ? <View style={styles.footer}>{footer}</View> : null}
-      </KeyboardAvoidingView>
+      </KeyboardLift>
     </SafeAreaView>
   );
 }

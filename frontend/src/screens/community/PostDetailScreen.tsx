@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -41,6 +39,7 @@ import {
 import { commentFailure, CommentRow } from './comments';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
+import { KeyboardLift } from '../../components/KeyboardLift';
 
 const loadPost = (repositories: Repositories, postId: string) =>
   repositories.community.get(postId);
@@ -207,10 +206,7 @@ export function PostDetailScreen() {
         ) : !post ? (
           <ActivityIndicator style={styles.loading} color={communityLook.ink} />
         ) : (
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
+          <KeyboardLift style={styles.flex}>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.scroll}
@@ -369,7 +365,7 @@ export function PostDetailScreen() {
                 </Pressable>
               </View>
             </SafeAreaView>
-          </KeyboardAvoidingView>
+          </KeyboardLift>
         )}
       </>
       <PostMenu

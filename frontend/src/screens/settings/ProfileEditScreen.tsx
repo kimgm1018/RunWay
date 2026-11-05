@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -40,6 +38,7 @@ import {
   toBirthDate,
 } from '../onboarding/validation';
 import { ProfilePhoto } from './SettingsScreen';
+import { KeyboardLift } from '../../components/KeyboardLift';
 
 const years = Array.from({ length: 61 }, (_, index) => 2010 - index);
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -210,10 +209,7 @@ function Form({
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardLift style={styles.flex}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
@@ -342,7 +338,7 @@ function Form({
           </View>
         </Pressable>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardLift>
   );
 }
 
