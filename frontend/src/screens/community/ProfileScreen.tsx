@@ -48,7 +48,7 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, ThemeProvider } from '../../theme';
+import { fontFamily, size, ThemeProvider } from '../../theme';
 import { CourseGlyph } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
 import { mediaFor, Scrim } from './parts';
@@ -446,10 +446,13 @@ function Profile({
   profile,
   onFollow,
   busy,
+  inTab,
 }: {
   profile: RunnerProfile;
   onFollow: () => void;
   busy: boolean;
+  // Shown as the 프로필 tab (S15P31E105-428): no 뒤로, and room for the tab bar at the foot.
+  inTab: boolean;
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -476,7 +479,12 @@ function Profile({
         scrollY={scrollY}
       />
       <Animated.ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}
+        contentContainerStyle={{
+          paddingBottom:
+            insets.bottom +
+            48 +
+            (inTab ? size.tabBar + size.tabBarInset * 2 : 0),
+        }}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true },
@@ -485,11 +493,15 @@ function Profile({
       >
         <View style={[styles.hero, { height: heroHeight }]}>
           <View style={[styles.topBar, { top: insets.top + 8 }]}>
-            <RoundButton
-              icon="back"
-              label="뒤로"
-              onPress={() => navigation.goBack()}
-            />
+            {inTab ? (
+              <View />
+            ) : (
+              <RoundButton
+                icon="back"
+                label="뒤로"
+                onPress={() => navigation.goBack()}
+              />
+            )}
             {profile.isMe ? (
               <RoundButton
                 icon="settings"
@@ -608,7 +620,13 @@ function Profile({
 }
 
 // 7.4 러너 프로필 (userId) and 7.4b 내 프로필 (userId null) on the dark screen.
-function ProfileView({ userId }: { userId: string | null }) {
+function ProfileView({
+  userId,
+  inTab = false,
+}: {
+  userId: string | null;
+  inTab?: boolean;
+}) {
   const toast = useToast();
   const { runners } = useRepositories();
   const resource = useResource(
@@ -660,6 +678,7 @@ function ProfileView({ userId }: { userId: string | null }) {
             profile={profile}
             busy={busy}
             onFollow={() => follow(profile)}
+            inTab={inTab}
           />
         )}
       </View>
@@ -674,6 +693,11 @@ export function RunnerProfileScreen() {
 
 export function MyProfileScreen() {
   return <ProfileView userId={null} />;
+}
+
+// 7.4b as the fifth tab (runway-tabbar 프로필): the same screen under the tab bar.
+export function MyProfileTabScreen() {
+  return <ProfileView userId={null} inTab />;
 }
 
 const styles = StyleSheet.create({

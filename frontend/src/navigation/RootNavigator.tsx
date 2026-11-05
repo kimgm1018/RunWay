@@ -15,7 +15,7 @@ import { homeScreens } from '../screens/home';
 import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { SplashScreen } from '../screens/SplashScreen';
-import { communityScreens } from '../screens/community';
+import { communityScreens, MyProfileTabScreen } from '../screens/community';
 import { settingsScreens } from '../screens/settings';
 import {
   groupScreens,
@@ -137,6 +137,7 @@ function MainTabs() {
       <Tabs.Screen name="RunTab" component={RunTab} />
       <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
       <Tabs.Screen name="CommunityTab" component={screens.Community} />
+      <Tabs.Screen name="ProfileTab" component={MyProfileTabScreen} />
     </Tabs.Navigator>
   );
 }

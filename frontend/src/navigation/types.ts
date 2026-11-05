@@ -15,6 +15,8 @@ export type MainTabParamList = {
   RunTab: NavigatorScreenParams<RunStackParamList> | undefined;
   GroupTab: GroupTabParams | undefined;
   CommunityTab: undefined;
+  // 7.4b 내 프로필 as the fifth tab (S15P31E105-428).
+  ProfileTab: undefined;
 };
 
 // Screens that open one item take its id; the rest take no params.
