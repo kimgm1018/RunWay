@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import type { BirthDateParts } from './validation';
 import type { BasicProfile, HealthDataAccess } from '../../data';
 import { useSession } from '../../session/SessionProvider';
 
@@ -15,6 +16,7 @@ export type SignUpDraft = {
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
   profile: BasicProfile | null;
+  birthDateParts?: BirthDateParts;
   // Set after U15 succeeds; going back to 1.5 then updates the profile instead of signing up again.
   accountCreated: boolean;
 };

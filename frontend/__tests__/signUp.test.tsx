@@ -278,3 +278,55 @@ test.each([
   expect(tokenStore.current()).toBeNull();
   await act(async () => screen.unmount());
 });
+
+test('typed birth dates validate, share picker values, survive going back and reach U15 unchanged', async () => {
+  serve([]);
+  const screen = await launch();
+  await reachBasicProfile(screen);
+  await fillBasicProfile(screen);
+  await press(screen, '생년월일 직접 입력');
+  expect(last(screen, '생년월일 연도 입력', 'onChangeText').props.value).toBe(
+    '1991',
+  );
+  expect(last(screen, '생년월일 월 입력', 'onChangeText').props.value).toBe(
+    '02',
+  );
+  expect(
+    last(screen, '생년월일 연도 입력', 'onChangeText').props.keyboardType,
+  ).toBe('number-pad');
+  await type(screen, '생년월일 일 입력', '30');
+  expect(isDisabled(screen, '다음')).toBe(true);
+  expect(texts(screen)).toContain('존재하는 날짜를 입력해 주세요');
+  await press(screen, '다음');
+  expect(signUpBodies()).toEqual([]);
+  await type(screen, '생년월일 연도 입력', '2011');
+  expect(texts(screen)).toContain('연도는 1950~2010년 사이로 입력해 주세요');
+  await type(screen, '생년월일 연도 입력', '2000');
+  await type(screen, '생년월일 일 입력', '');
+  expect(isDisabled(screen, '다음')).toBe(true);
+  expect(texts(screen)).toContain('연도 4자리와 월·일을 모두 입력해 주세요');
+  // Popping this screen also preserves an unfinished date in the signup draft.
+  await press(screen, '이전');
+  await press(screen, '동의하고 가입하기');
+  await press(screen, '생년월일 직접 입력');
+  expect(last(screen, '생년월일 연도 입력', 'onChangeText').props.value).toBe(
+    '2000',
+  );
+  expect(last(screen, '생년월일 일 입력', 'onChangeText').props.value).toBe('');
+  await type(screen, '닉네임', '러너');
+  await press(screen, '남성');
+  await type(screen, '생년월일 일 입력', '29');
+  expect(isDisabled(screen, '다음')).toBe(false);
+  await press(screen, '생년월일 목록 선택');
+  expect(isDisabled(screen, '일 29일')).toBe(false);
+  await press(screen, '월 02월');
+  await press(screen, '03월');
+  await press(screen, '생년월일 직접 입력');
+  expect(last(screen, '생년월일 월 입력', 'onChangeText').props.value).toBe(
+    '03',
+  );
+  await press(screen, '다음');
+  expect(signUpBodies()[0].birthDate).toBe('2000-03-29');
+  expect(texts(screen)).toContain('평소 어떻게');
+  await act(async () => screen.unmount());
+});
