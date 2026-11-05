@@ -19,7 +19,6 @@ services:
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       NUMBA_NUM_THREADS: "1"
-      NUMBA_CACHE_DIR: /opt/route/numba_cache
       ROUTE_DEBUG: "0"
       ROUTE_WARMUP: "1"
     expose: ["8000"]
