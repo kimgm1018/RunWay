@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.device.repository.UserDeviceRepository;
 import com.runway.backend.domain.device.service.DeviceService;
+import com.runway.backend.support.SharedPostgres;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,23 +23,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /** 동시에 시작한 요청이 실제 DB 트랜잭션에서 겹치도록 실행해 최종 DB 상태로 판정한다. */
 @SpringBootTest
-@Testcontainers
 class DeviceConcurrencyIntegrationTest {
 
     private static final int THREADS = 8;
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(DeviceConcurrencyIntegrationTest.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

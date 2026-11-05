@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.runway.backend.global.security.JwtAccessTokenService;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -25,14 +26,9 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 @Import(AuthenticationAccountPolicyTest.TimeConfiguration.class)
 class AuthenticationAccountPolicyTest {
     static String expiredToken(long userId) {
@@ -46,11 +42,8 @@ class AuthenticationAccountPolicyTest {
         return issuer.issue(userId, then.plusSeconds(3600)).accessToken();
     }
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(AuthenticationAccountPolicyTest.class);
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {

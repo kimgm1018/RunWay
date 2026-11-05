@@ -163,6 +163,10 @@ Spotless 플러그인과 포맷 검사·자동 수정 태스크는 제거했다.
 `build/libs/runway-backend-0.0.1-SNAPSHOT.jar`에서 확인한다. Docker가 없을 때 DB 테스트를
 자동으로 건너뛰지 않는다. 실패·미실행은 완료가 아니다.
 
+`test`는 테스트 JVM 2개(`maxParallelForks = 2`, JVM당 힙 1536MiB)로 클래스를 나눠 실행한다. 각 JVM은
+PostGIS 서버 하나(`support.SharedPostgres`)를 띄우고, 테스트 그룹마다 그 안의 전용 DB를 쓴다. 다른 JVM과 DB를 함께 쓰지 않는다.
+컨테이너를 멈추는 장애 테스트와 Redis 테스트는 자체 컨테이너를 쓴다. 테스트 클래스 안의 병렬 실행은 쓰지 않는다.
+
 DB와 무관한 부분만 개발 중 확인할 때:
 
 ```powershell

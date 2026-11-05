@@ -454,7 +454,10 @@ class ConsentConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
         while (System.nanoTime() < deadline) {
             Integer waiting =
                     jdbc.queryForObject(
-                            "SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted", Integer.class);
+                            "SELECT count(DISTINCT l.pid) FROM pg_locks l"
+                                    + " JOIN pg_stat_activity a ON a.pid = l.pid"
+                                    + " WHERE NOT l.granted AND a.datname = current_database()",
+                            Integer.class);
             if (waiting != null && waiting >= expected) {
                 return;
             }
@@ -469,7 +472,8 @@ class ConsentConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
         while (System.nanoTime() < deadline) {
             Integer running =
                     jdbc.queryForObject(
-                            "SELECT count(*) FROM pg_stat_activity WHERE state='active'"
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()"
+                                    + " AND state='active'"
                                     + " AND wait_event='PgSleep' AND pid<>pg_backend_pid()",
                             Integer.class);
             if (running != null && running > 0) {

@@ -6,6 +6,7 @@ import com.runway.backend.domain.community.dto.request.CreatePostRequest;
 import com.runway.backend.domain.community.service.PostService;
 import com.runway.backend.domain.session.service.RunningSessionService;
 import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.support.SharedPostgres;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -21,23 +22,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * S15P31E105-280. CMT01 게시물 생성과 S09 세션 삭제가 겹쳐도 삭제된 세션을 가리키는 미삭제 게시물이 남지 않는지 확인한다.
  */
 @SpringBootTest
-@Testcontainers
 class PostCreateSessionDeleteConcurrencyIntegrationTest {
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(PostCreateSessionDeleteConcurrencyIntegrationTest.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

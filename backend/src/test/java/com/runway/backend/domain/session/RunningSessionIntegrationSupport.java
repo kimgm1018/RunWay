@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -14,25 +15,17 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * 세션 API 통합 테스트 공통 준비. 모든 값은 합성 데이터이며 실제 건강·GPS 정보를 쓰지 않는다.
  *
- * <p>하위 테스트 클래스들이 Spring 컨텍스트를 공유하므로 컨테이너는 한 번만 띄우고 JVM 종료 시 Testcontainers가 정리한다. 클래스마다 내렸다 올리면
- * 캐시된 컨텍스트가 닫힌 포트를 가리킨다.
+ * <p>하위 테스트 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다. 서버는 JVM 종료 시
+ * Testcontainers가 정리한다. 클래스마다 내렸다 올리면 캐시된 컨텍스트가 닫힌 포트를 가리킨다.
  */
 abstract class RunningSessionIntegrationSupport {
 
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    static {
-        DATABASE.start();
-    }
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(RunningSessionIntegrationSupport.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {

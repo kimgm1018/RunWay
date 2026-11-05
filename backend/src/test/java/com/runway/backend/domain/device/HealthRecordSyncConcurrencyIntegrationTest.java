@@ -246,12 +246,17 @@ class HealthRecordSyncConcurrencyIntegrationTest extends HealthRecordSyncIntegra
     }
 
     private void waitForLockWait() throws InterruptedException {
-        waitUntil("SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted", "잠금 대기");
+        waitUntil(
+                "SELECT count(DISTINCT l.pid) FROM pg_locks l"
+                        + " JOIN pg_stat_activity a ON a.pid = l.pid"
+                        + " WHERE NOT l.granted AND a.datname = current_database()",
+                "잠금 대기");
     }
 
     private void waitForSleepingInsert() throws InterruptedException {
         waitUntil(
-                "SELECT count(*) FROM pg_stat_activity WHERE wait_event='PgSleep'",
+                "SELECT count(*) FROM pg_stat_activity"
+                        + " WHERE datname=current_database() AND wait_event='PgSleep'",
                 "W06 저장 지연");
     }
 
