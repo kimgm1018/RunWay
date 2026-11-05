@@ -404,6 +404,7 @@ test('an unexpected failure resolves quietly with nothing marked', async () => {
 describe('with the app wiring', () => {
   const { appConfig } = require('../../config');
   const native = {
+    prepareAccount: jest.fn(async () => true),
     setHealthConsent: jest.fn(async () => {}),
     republishConsent: jest.fn(async () => {}),
     getDailyHr: jest.fn(),
@@ -446,8 +447,14 @@ describe('with the app wiring', () => {
 
   test('POSTs to W06 with the access token and marks through the native module', async () => {
     const { upload, store } = load();
-    store.hold({ accessToken: 'access-1', refreshToken: 'refresh-1' });
-    native.getDailyHr.mockResolvedValue([row('2026-10-30', 3)]);
+    store.hold({
+      userId: 101,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    native.getDailyHr.mockResolvedValue([
+      { ...row('2026-10-30', 3), collectionId: 'epoch-1' },
+    ]);
     fetchMock.mockResolvedValue(respond(200, ok(1)));
 
     await expect(upload.uploadWatchDailyHr()).resolves.toBe('done');
@@ -457,24 +464,83 @@ describe('with the app wiring', () => {
     expect(init.method).toBe('POST');
     expect(init.headers.Authorization).toBe('Bearer access-1');
     expect(JSON.parse(init.body).records[0]).not.toHaveProperty('uploaded');
-    expect(native.markUploaded).toHaveBeenCalledWith('2026-10-30', 3);
+    expect(JSON.parse(init.body).records[0]).not.toHaveProperty('collectionId');
+    expect(native.markUploaded).toHaveBeenCalledWith(
+      '2026-10-30',
+      3,
+      'epoch-1',
+    );
+  });
+
+  test('an expired W06 token rotates once, uploads every batch, and marks records', async () => {
+    const { upload, store } = load();
+    store.hold({
+      userId: 101,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    native.getDailyHr.mockResolvedValue(
+      Array.from({ length: 33 }, (_, i) => ({
+        ...row(
+          `2026-${i < 31 ? '08' : '09'}-${String((i % 31) + 1).padStart(
+            2,
+            '0',
+          )}`,
+        ),
+        collectionId: 'epoch-1',
+      })),
+    );
+    fetchMock
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(
+        respond(200, {
+          accessToken: 'access-2',
+          refreshToken: 'refresh-2',
+          expiresInSec: 599,
+          refreshExpiresAt: '2026-12-01T00:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(respond(200, ok(31)))
+      .mockResolvedValueOnce(respond(200, ok(2)));
+    await expect(upload.uploadWatchDailyHr()).resolves.toBe('done');
+    expect(native.markUploaded).toHaveBeenCalledTimes(33);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[3][1].headers.Authorization).toBe(
+      'Bearer access-2',
+    );
   });
 
   test('a rejected record is stored through the native module', async () => {
     const { upload, store } = load();
-    store.hold({ accessToken: 'access-1', refreshToken: 'refresh-1' });
-    native.getDailyHr.mockResolvedValue([row('2026-10-30', 3)]);
+    store.hold({
+      userId: 101,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    native.getDailyHr.mockResolvedValue([
+      { ...row('2026-10-30', 3), collectionId: 'epoch-1' },
+    ]);
     fetchMock.mockResolvedValue(respond(200, ok(1, [0])));
 
     await expect(upload.uploadWatchDailyHr()).resolves.toBe('done');
-    expect(native.markRejected).toHaveBeenCalledWith('2026-10-30', 3);
+    expect(native.markRejected).toHaveBeenCalledWith(
+      '2026-10-30',
+      3,
+      'epoch-1',
+    );
     expect(native.markUploaded).not.toHaveBeenCalled();
   });
 
   test('CONSENT_REQUIRED withdraws consent on the phone and watch', async () => {
     const { upload, store } = load();
-    store.hold({ accessToken: 'access-1', refreshToken: 'refresh-1' });
-    native.getDailyHr.mockResolvedValue([row('2026-10-30')]);
+    store.hold({
+      userId: 101,
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    native.getDailyHr.mockResolvedValue([
+      { ...row('2026-10-30'), collectionId: 'epoch-1' },
+    ]);
     fetchMock.mockResolvedValue(
       respond(403, { code: 'CONSENT_REQUIRED', message: '동의 필요' }),
     );
@@ -482,7 +548,7 @@ describe('with the app wiring', () => {
     await expect(upload.uploadWatchDailyHr()).resolves.toBe(
       'consent-withdrawn',
     );
-    expect(native.setHealthConsent).toHaveBeenCalledWith('DISAGREE');
+    expect(native.setHealthConsent).toHaveBeenCalledWith('DISAGREE', '101');
     expect(native.markUploaded).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,8 @@
 import { NativeModules } from 'react-native';
+import { tokenStore } from '../../data/api/tokenStore';
 
 const native = {
+  prepareAccount: jest.fn(),
   setHealthConsent: jest.fn(),
   republishConsent: jest.fn(),
   getDailyHr: jest.fn(),
@@ -14,9 +16,11 @@ function load() {
 }
 
 beforeEach(() => {
+  tokenStore.hold({ userId: 101, accessToken: 'a', refreshToken: 'r' });
   Object.values(native).forEach(fn =>
     fn.mockReset().mockResolvedValue(undefined),
   );
+  native.prepareAccount.mockResolvedValue(true);
   (NativeModules as Record<string, unknown>).WatchHealth = native;
 });
 
@@ -26,12 +30,12 @@ afterAll(() => {
 
 test('setWatchHealthConsent forwards the choice to the native module', async () => {
   await load().setWatchHealthConsent('AGREEE');
-  expect(native.setHealthConsent).toHaveBeenCalledWith('AGREEE');
+  expect(native.setHealthConsent).toHaveBeenCalledWith('AGREEE', '101');
 });
 
 test('refresh sets the server value when the reader returns one', async () => {
   await load().refreshWatchHealthConsent(async () => 'DISAGREE');
-  expect(native.setHealthConsent).toHaveBeenCalledWith('DISAGREE');
+  expect(native.setHealthConsent).toHaveBeenCalledWith('DISAGREE', '101');
   expect(native.republishConsent).not.toHaveBeenCalled();
 });
 
@@ -68,10 +72,10 @@ test('read and mark pass through to the native module', async () => {
     markWatchDailyHrRejected,
   } = load();
   await expect(readWatchDailyHr()).resolves.toEqual([row]);
-  await markWatchDailyHrUploaded('2026-10-29', 1);
-  expect(native.markUploaded).toHaveBeenCalledWith('2026-10-29', 1);
-  await markWatchDailyHrRejected('2026-10-29', 1);
-  expect(native.markRejected).toHaveBeenCalledWith('2026-10-29', 1);
+  await markWatchDailyHrUploaded('2026-10-29', 1, 'epoch-1');
+  expect(native.markUploaded).toHaveBeenCalledWith('2026-10-29', 1, 'epoch-1');
+  await markWatchDailyHrRejected('2026-10-29', 1, 'epoch-1');
+  expect(native.markRejected).toHaveBeenCalledWith('2026-10-29', 1, 'epoch-1');
 });
 
 test('a missing native module is a silent no-op', async () => {
@@ -114,4 +118,39 @@ test('the fallback module is a no-op that returns no records', async () => {
   await expect(
     m.markWatchDailyHrRejected('2026-10-29', 1),
   ).resolves.toBeUndefined();
+});
+
+test('daily HR prepares the current account before reading and fails closed when binding fails', async () => {
+  tokenStore.hold({ userId: 101, accessToken: 'a', refreshToken: 'r' });
+  const prepareAccount = jest.fn().mockResolvedValue(false);
+  Object.assign(native, { prepareAccount });
+  native.getDailyHr.mockResolvedValue([
+    { metricDate: '2026-11-04', collectionId: 'old' },
+  ]);
+  await expect(load().readWatchDailyHr()).resolves.toEqual([]);
+  expect(prepareAccount).toHaveBeenCalledWith('101');
+  expect(native.getDailyHr).not.toHaveBeenCalled();
+});
+
+test('an unidentifiable legacy login never reads or grants watch health consent', async () => {
+  tokenStore.hold({ accessToken: 'a', refreshToken: 'r' });
+  await expect(load().readWatchDailyHr()).resolves.toEqual([]);
+  await load().setWatchHealthConsent('AGREEE');
+  expect(native.getDailyHr).not.toHaveBeenCalled();
+  expect(native.setHealthConsent).not.toHaveBeenCalled();
+});
+
+test('a late account preparation cannot read records after another login', async () => {
+  let finish!: (ready: boolean) => void;
+  native.prepareAccount.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+  );
+  const reading = load().readWatchDailyHr();
+  tokenStore.hold({ userId: 202, accessToken: 'b', refreshToken: 's' });
+  finish(true);
+  await expect(reading).resolves.toEqual([]);
+  expect(native.getDailyHr).not.toHaveBeenCalled();
 });

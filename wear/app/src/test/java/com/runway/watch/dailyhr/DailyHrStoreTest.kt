@@ -36,6 +36,71 @@ class DailyHrStoreTest {
 
     private fun dayMs(d: LocalDate, hour: Int = 0) = d.atStartOfDay(utc).toInstant().toEpochMilli() + hour * 3_600_000L
 
+    @Test fun sameCollectionSurvivesConsentUpdateAndRestartButDifferentCollectionClearsAll() {
+        val start = Instant.parse("2026-10-01T00:00:00Z")
+        store.saveConsent(HealthConsent(true, start, "a", start))
+        store.addSamples(listOf(start.toEpochMilli() to 60.0))
+        store.addDrops(DropReason.ACCURACY, 2)
+        store.addTransition(ActivityTransition(start.toEpochMilli(), true))
+        val summary = store.saveEstimate(d1, 55.0, 240, at)
+        assertEquals("a", summary.collectionId)
+        store.saveConsent(HealthConsent(true, at, "a", start))
+        store.close()
+        store = DailyHrStore(RuntimeEnvironment.getApplication(), utc)
+        assertEquals(listOf(summary), store.pending())
+        assertEquals(start, store.consent()!!.collectionStartedAt)
+        store.saveConsent(HealthConsent(true, at.plusSeconds(1), "b", at))
+        assertTrue(store.pending().isEmpty())
+        assertTrue(store.minuteMeansBetween(0, Long.MAX_VALUE).isEmpty())
+        assertTrue(store.dropCounts().isEmpty())
+        assertTrue(store.transitions().isEmpty())
+    }
+
+    @Test fun bindingLegacyCollectionDeletesUnownedRecordsAndIgnoresStaleConsent() {
+        agree()
+        store.saveEstimate(d1, 55.0, 240, at)
+        store.addSamples(listOf(at.toEpochMilli() to 60.0))
+        val bound = HealthConsent(true, at.plusSeconds(1), "a", at)
+        store.saveConsent(bound)
+        assertTrue(store.pending().isEmpty())
+        assertTrue(store.minuteMeansBetween(0, Long.MAX_VALUE).isEmpty())
+        store.saveConsent(HealthConsent(true, at, "old", Instant.EPOCH))
+        assertEquals(bound, store.consent())
+    }
+
+    @Test fun delayedAckCannotAcknowledgeNewCollectionWithSameDateAndRevision() {
+        store.saveConsent(HealthConsent(true, at, "a", Instant.EPOCH))
+        store.saveEstimate(d1, 55.0, 240, at)
+        store.saveConsent(HealthConsent(true, at.plusSeconds(1), "b", at))
+        val current = store.saveEstimate(d1, 60.0, 240, at)
+        store.markAcked(d1, 1, "a")
+        store.markAcked(d1, 1)
+        assertEquals(listOf(current), store.pending())
+        store.markAcked(d1, 1, "b")
+        assertTrue(store.pending().isEmpty())
+    }
+
+    @Test fun queuedSensorBatchDropsOldTimestampsAndOldCallbackEpoch() {
+        store.saveConsent(HealthConsent(true, at, "a", Instant.EPOCH))
+        store.saveConsent(HealthConsent(true, at.plusSeconds(1), "b", at))
+        store.addSamples(listOf(at.toEpochMilli() - 1 to 40.0, at.toEpochMilli() to 60.0))
+        store.addSamples(listOf(at.toEpochMilli() + 60_000 to 50.0), "a")
+        store.addTransition(ActivityTransition(at.toEpochMilli() - 1, true))
+        store.addTransition(ActivityTransition(at.toEpochMilli(), true), "a")
+        store.addDrops(DropReason.ACCURACY, 2, "a")
+        assertEquals(listOf(at.toEpochMilli() to 60.0), store.minuteMeansBetween(0, Long.MAX_VALUE))
+        assertTrue(store.transitions().isEmpty())
+        assertTrue(store.dropCounts().isEmpty())
+    }
+
+    @Test fun collectionCutoffDoesNotRoundDownSubMillisecondStart() {
+        store.saveConsent(HealthConsent(true, at, "a", at.plusNanos(1)))
+        store.addSamples(listOf(at.toEpochMilli() to 40.0, at.toEpochMilli() + 1 to 60.0))
+        store.addTransition(ActivityTransition(at.toEpochMilli(), true))
+        assertEquals(listOf(at.toEpochMilli() to 60.0), store.minuteMeansBetween(0, Long.MAX_VALUE))
+        assertTrue(store.transitions().isEmpty())
+    }
+
     @Test fun firstSaveIsRevisionOneAndPending() {
         val s = store.saveEstimate(d1, 55.0, 40, at)
         assertEquals(1, s.revision)

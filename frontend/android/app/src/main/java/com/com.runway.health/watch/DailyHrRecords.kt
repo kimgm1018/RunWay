@@ -1,6 +1,9 @@
 package com.runway.health.watch
 
 import android.content.Context
+import android.content.SharedPreferences
+import java.time.Instant
+import java.util.UUID
 import org.json.JSONObject
 import java.time.LocalDate
 
@@ -15,6 +18,7 @@ data class DailyHrRecord(
   val uploadedRevision: Int?,
   /** Revision W06 rejected (record error, 400·413·422); resending the same content cannot succeed. */
   val rejectedRevision: Int? = null,
+  val collectionId: String? = null,
 )
 
 /** A parsed DAILY_HR_SUMMARY with the envelope messageId needed for the reply. */
@@ -77,6 +81,7 @@ fun parseSummary(bytes: ByteArray): DailyHrSummaryMessage? = try {
         validSampleCount = p.getInt("validSampleCount"),
         computedAt = p.get("computedAt") as? String ?: throw IllegalArgumentException(),
         uploadedRevision = null,
+        collectionId = if (p.has("collectionId") && !p.isNull("collectionId")) p.getString("collectionId") else null,
       )
       if (record.revision < 1 || record.validSampleCount < 1 || !record.estimatedRestingHrBpm.isFinite()) null
       else DailyHrSummaryMessage(messageId, record)
@@ -86,26 +91,57 @@ fun parseSummary(bytes: ByteArray): DailyHrSummaryMessage? = try {
   null
 }
 
-fun receivedReply(messageId: String, replyTo: String, date: String, revision: Int): ByteArray = JSONObject()
+fun receivedReply(messageId: String, replyTo: String, date: String, revision: Int, collectionId: String? = null): ByteArray = JSONObject()
   .put("protocolVersion", PROTOCOL_VERSION)
   .put("type", "DAILY_HR_RECEIVED")
   .put("messageId", messageId)
   .put("replyTo", replyTo)
   .put("senderDeviceId", JSONObject.NULL)
   .put("sessionId", JSONObject.NULL)
-  .put("payload", JSONObject().put("metricDate", date).put("revision", revision))
+  .put("payload", JSONObject().put("metricDate", date).put("revision", revision).put("collectionId", collectionId ?: JSONObject.NULL))
   .toString()
   .toByteArray(Charsets.UTF_8)
 
 /** SharedPreferences store shared by the listener service and the RN module. Writes use commit(). */
-class DailyHrPrefs(context: Context) {
-  private val prefs = context.applicationContext.getSharedPreferences("watch_daily_hr", Context.MODE_PRIVATE)
+class DailyHrPrefs(private val prefs: SharedPreferences) {
+  constructor(context: Context) : this(context.applicationContext.getSharedPreferences("watch_daily_hr", Context.MODE_PRIVATE))
+
+  /** Only one account's records are kept. Reset and owner/epoch change commit together. */
+  fun prepareAccount(account: String): Boolean = synchronized(LOCK) {
+    if (!account.matches(Regex("[1-9][0-9]{0,18}"))) return false
+    if (owner() == account && collectionId() != null && collectionStartedAt() != null) return true
+    check(prefs.edit().remove(KEY_RECORDS).putString(KEY_OWNER, account)
+      .putString(KEY_COLLECTION, UUID.randomUUID().toString()).putString(KEY_STARTED, Instant.now().toString())
+      .putString(KEY_CONSENT, CONSENT_DISAGREE).putBoolean(KEY_CONSENT_DELIVERED, false).commit())
+    true
+  }
+
+  fun owner(): String? = prefs.getString(KEY_OWNER, null)
+  fun collectionId(): String? = prefs.getString(KEY_COLLECTION, null)
+  fun collectionStartedAt(): String? = prefs.getString(KEY_STARTED, null)
+
+  /** A persisted strictly increasing DataItem timestamp also works within one millisecond or after clock rollback. */
+  fun nextConsentUpdatedAt(now: Instant): String = synchronized(LOCK) {
+    val previous = prefs.getString(KEY_UPDATED, null)?.let(Instant::parse)
+    val started = collectionStartedAt()?.let(Instant::parse) ?: now
+    val next = maxOf(now, started, previous?.plusMillis(1) ?: now).toString()
+    check(prefs.edit().putString(KEY_UPDATED, next).commit())
+    next
+  }
+
+  fun allForAccount(account: String): List<DailyHrRecord> = synchronized(LOCK) {
+    if (owner() != account || collectionId() == null) emptyList()
+    else readRecords().values.filter { it.collectionId == collectionId() }.sortedBy { it.metricDate }
+  }
 
   fun upsert(incoming: DailyHrRecord): DailyHrRecord = upsertWith(incoming) { existing -> merge(existing, incoming) }!!
 
   /** Consent check and write share one lock so a withdrawal cannot interleave; null means not stored. */
   fun upsertIfConsented(incoming: DailyHrRecord): DailyHrRecord? =
-    upsertWith(incoming) { existing -> consentedMerge(consent(), existing, incoming) }
+    upsertWith(incoming) { existing ->
+      if (owner() == null || incoming.collectionId == null || incoming.collectionId != collectionId()) null
+      else consentedMerge(consent(), existing, incoming)
+    }
 
   private fun upsertWith(incoming: DailyHrRecord, decide: (DailyHrRecord?) -> DailyHrRecord?): DailyHrRecord? = synchronized(LOCK) {
     val records = readRecords()
@@ -117,14 +153,16 @@ class DailyHrPrefs(context: Context) {
 
   fun all(): List<DailyHrRecord> = synchronized(LOCK) { readRecords().values.sortedBy { it.metricDate } }
 
-  fun markUploaded(date: String, revision: Int) = synchronized(LOCK) {
+  fun markUploaded(date: String, revision: Int, collectionId: String? = null) = synchronized(LOCK) {
+    if (collectionId == null || collectionId != this.collectionId()) return@synchronized
     val records = readRecords()
     val record = records[date]
     if (record != null && record.revision == revision) writeRecords(records + (date to record.copy(uploadedRevision = revision)))
   }
 
   /** Persists a W06 rejection so the same revision is not resent after an app restart. */
-  fun markRejected(date: String, revision: Int) = synchronized(LOCK) {
+  fun markRejected(date: String, revision: Int, collectionId: String? = null) = synchronized(LOCK) {
+    if (collectionId == null || collectionId != this.collectionId()) return@synchronized
     val records = readRecords()
     val record = records[date]
     if (record != null && record.revision == revision) writeRecords(records + (date to record.copy(rejectedRevision = revision)))
@@ -135,7 +173,13 @@ class DailyHrPrefs(context: Context) {
   /** Saving DISAGREE also removes stored records in the same commit (withdrawal is atomic). */
   fun saveConsent(access: String) = synchronized(LOCK) {
     val edit = prefs.edit().putString(KEY_CONSENT, access).putBoolean(KEY_CONSENT_DELIVERED, false)
-    if (access != CONSENT_AGREE) edit.remove(KEY_RECORDS)
+    if (access != CONSENT_AGREE) {
+      edit.remove(KEY_RECORDS)
+      // A repeated publish retry retains the same reset identifier.
+      if (consent() != CONSENT_DISAGREE || collectionId() == null) {
+        edit.putString(KEY_COLLECTION, UUID.randomUUID().toString()).putString(KEY_STARTED, Instant.now().toString())
+      }
+    }
     check(edit.commit())
   }
 
@@ -168,6 +212,7 @@ class DailyHrPrefs(context: Context) {
         computedAt = r.getString("computedAt"),
         uploadedRevision = if (r.has("uploadedRevision")) r.getInt("uploadedRevision") else null,
         rejectedRevision = if (r.has("rejectedRevision")) r.getInt("rejectedRevision") else null,
+        collectionId = if (r.has("collectionId")) r.getString("collectionId") else null,
       )
     }
   }
@@ -184,6 +229,7 @@ class DailyHrPrefs(context: Context) {
         .put("validSampleCount", r.validSampleCount)
         .put("computedAt", r.computedAt)
         .apply {
+          r.collectionId?.let { put("collectionId", it) }
           r.uploadedRevision?.let { put("uploadedRevision", it) }
           r.rejectedRevision?.let { put("rejectedRevision", it) }
         })
@@ -193,6 +239,10 @@ class DailyHrPrefs(context: Context) {
 
   private companion object {
     val LOCK = Any()
+    const val KEY_UPDATED = "consent_updated_at"
+    const val KEY_OWNER = "owner"
+    const val KEY_COLLECTION = "collection_id"
+    const val KEY_STARTED = "collection_started_at"
     const val KEY_RECORDS = "records"
     const val KEY_CONSENT = "consent"
     const val KEY_CONSENT_DELIVERED = "consent_delivered"

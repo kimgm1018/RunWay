@@ -1,15 +1,28 @@
 import { NativeModules } from 'react-native';
 import type { HealthDataAccess } from '../data/types';
+import { tokenStore } from '../data/api/tokenStore';
 import type { WatchDailyHr } from './watchHealth';
 
 export type { WatchDailyHr } from './watchHealth';
 
 type NativeWatchHealth = {
-  setHealthConsent(access: HealthDataAccess): Promise<void>;
+  prepareAccount(userId: string): Promise<boolean>;
+  setHealthConsent(
+    access: HealthDataAccess,
+    userId: string | null,
+  ): Promise<void>;
   republishConsent(): Promise<void>;
-  getDailyHr(): Promise<WatchDailyHr[]>;
-  markUploaded(date: string, revision: number): Promise<void>;
-  markRejected(date: string, revision: number): Promise<void>;
+  getDailyHr(userId: string): Promise<WatchDailyHr[]>;
+  markUploaded(
+    date: string,
+    revision: number,
+    collectionId: string,
+  ): Promise<void>;
+  markRejected(
+    date: string,
+    revision: number,
+    collectionId: string,
+  ): Promise<void>;
 };
 
 // Read per call so a missing module (tests, unsupported builds) is a quiet no-op.
@@ -33,22 +46,43 @@ async function quietly<T>(
   }
 }
 
+function owner(): string | null {
+  const userId = tokenStore.current()?.userId;
+  return Number.isSafeInteger(userId) && userId! > 0 ? String(userId) : null;
+}
+
+// Bind before reading or granting consent. A missing/older bridge fails closed.
+async function prepare(): Promise<string | null> {
+  const userId = owner();
+  const session = tokenStore.session();
+  if (!userId) return null;
+  const ready = await quietly(module => module.prepareAccount(userId), false);
+  return ready && tokenStore.session() === session && owner() === userId
+    ? userId
+    : null;
+}
+
 export async function setWatchHealthConsent(
   access: HealthDataAccess,
 ): Promise<void> {
-  await quietly(module => module.setHealthConsent(access), undefined);
+  const userId = access === 'AGREEE' ? await prepare() : owner();
+  if (access === 'AGREEE' && !userId) return;
+  await quietly(module => module.setHealthConsent(access, userId), undefined);
 }
 
 // Pushes the server's consent when known; otherwise re-sends the saved one only if its last delivery failed.
 export async function refreshWatchHealthConsent(
   readServerConsent?: () => Promise<HealthDataAccess | null>,
 ): Promise<void> {
+  const session = tokenStore.session();
+  if (readServerConsent && !(await prepare())) return;
   let access: HealthDataAccess | null = null;
   try {
     access = (await readServerConsent?.()) ?? null;
   } catch {
     access = null;
   }
+  if (tokenStore.session() !== session) return;
   if (access) {
     await setWatchHealthConsent(access);
     return;
@@ -57,19 +91,30 @@ export async function refreshWatchHealthConsent(
 }
 
 export async function readWatchDailyHr(): Promise<WatchDailyHr[]> {
-  return quietly(module => module.getDailyHr(), []);
+  const userId = await prepare();
+  return userId ? quietly(module => module.getDailyHr(userId), []) : [];
 }
 
 export async function markWatchDailyHrUploaded(
   date: string,
   revision: number,
+  collectionId?: string,
 ): Promise<void> {
-  await quietly(module => module.markUploaded(date, revision), undefined);
+  if (!collectionId) return;
+  await quietly(
+    module => module.markUploaded(date, revision, collectionId),
+    undefined,
+  );
 }
 
 export async function markWatchDailyHrRejected(
   date: string,
   revision: number,
+  collectionId?: string,
 ): Promise<void> {
-  await quietly(module => module.markRejected(date, revision), undefined);
+  if (!collectionId) return;
+  await quietly(
+    module => module.markRejected(date, revision, collectionId),
+    undefined,
+  );
 }

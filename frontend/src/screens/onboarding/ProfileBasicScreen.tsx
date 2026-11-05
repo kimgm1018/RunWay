@@ -123,6 +123,7 @@ export function ProfileBasicScreen() {
         });
         // Setup is not finished yet, so the tokens stay in memory until 1.7 signs in (users.md 초기 설정과 화면 분기).
         holdTokens({
+          userId: session.user.id,
           accessToken: session.accessToken,
           refreshToken: session.refreshToken,
           refreshExpiresAt: session.refreshExpiresAt,

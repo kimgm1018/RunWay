@@ -139,6 +139,7 @@ test('a completed account enters home and stays signed in after a relaunch', asy
   // S15P31E105-313: the login hands the consent to the watch again.
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(2);
   expect(tokenStore.current()).toEqual({
+    userId: 101,
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
     refreshExpiresAt: '2026-12-02T01:00:00Z',

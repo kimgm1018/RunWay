@@ -27,7 +27,7 @@ class WatchListenerService : WearableListenerService() {
       // Persist before acking; equal or lower revisions keep the stored value but are acked the same way.
       // Without AGREEE consent nothing is stored and nothing is acked.
       prefs.upsertIfConsented(summary.record) ?: return
-      val reply = receivedReply(prefs.nextMessageId(), summary.messageId, summary.record.metricDate, summary.record.revision)
+      val reply = receivedReply(prefs.nextMessageId(), summary.messageId, summary.record.metricDate, summary.record.revision, summary.record.collectionId)
       Tasks.await(Wearable.getMessageClient(this).sendMessage(event.sourceNodeId, RECEIVED_PATH, reply), 10, TimeUnit.SECONDS)
     } catch (_: Exception) {
       // The watch retries an unacked summary later.

@@ -42,23 +42,25 @@ class DailyHrStore(
      * so a batch racing a withdrawal's clearAll is dropped.
      */
     @Synchronized
-    fun addSamples(samples: List<Pair<Long, Double>>) = inTransaction { db ->
-        if (!canStore(consent())) return@inTransaction
+    fun addSamples(samples: List<Pair<Long, Double>>, collectionId: String? = consent()?.collectionId) = inTransaction { db ->
+        val current = consent()
+        if (!canStore(current) || current?.collectionId != collectionId) return@inTransaction
         samples.forEach { (epochMs, bpm) ->
+            if (current?.collectionStartedAt?.isAfter(Instant.ofEpochMilli(epochMs)) == true) return@forEach
             db.execSQL(
                 "INSERT INTO minutes(minute_start_ms,bpm_sum,bpm_count) VALUES(?,?,1) ON CONFLICT(minute_start_ms) " +
                     "DO UPDATE SET bpm_sum = bpm_sum + excluded.bpm_sum, bpm_count = bpm_count + 1",
-                arrayOf(Math.floorDiv(epochMs, MINUTE_MS) * MINUTE_MS, bpm),
+                arrayOf<Any>(Math.floorDiv(epochMs, MINUTE_MS) * MINUTE_MS, bpm),
             )
         }
     }
 
     @Synchronized
-    fun addDrops(reason: DropReason, count: Int) {
-        if (!canStore(consent())) return
+    fun addDrops(reason: DropReason, count: Int, collectionId: String? = consent()?.collectionId) {
+        if (!canStore(consent()) || consent()?.collectionId != collectionId) return
         writableDatabase.execSQL(
             "INSERT INTO drops(reason,count) VALUES(?,?) ON CONFLICT(reason) DO UPDATE SET count = count + excluded.count",
-            arrayOf(reason.name, count),
+            arrayOf<Any>(reason.name, count),
         )
     }
 
@@ -68,8 +70,10 @@ class DailyHrStore(
     }
 
     @Synchronized
-    fun addTransition(t: ActivityTransition) {
-        if (!canStore(consent())) return
+    fun addTransition(t: ActivityTransition, collectionId: String? = consent()?.collectionId) {
+        val current = consent()
+        if (!canStore(current) || current?.collectionId != collectionId) return
+        if (current?.collectionStartedAt?.isAfter(Instant.ofEpochMilli(t.epochMs)) == true) return
         writableDatabase.insertWithOnConflict(
             "transitions", null,
             ContentValues().apply { put("epoch_ms", t.epochMs); put("exercising", if (t.exercising) 1 else 0) },
@@ -133,6 +137,8 @@ class DailyHrStore(
         method = c.getString(4),
         validSampleCount = c.getInt(3),
         computedAt = Instant.parse(c.getString(5)),
+        // Epoch changes clear summaries in the same transaction; snapshot it while holding the store lock.
+        collectionId = getMeta(readableDatabase, KEY_COLLECTION_ID),
     )
 
     @Synchronized
@@ -140,12 +146,13 @@ class DailyHrStore(
         "SELECT $SUMMARY_COLUMNS FROM summaries WHERE acked=0 ORDER BY metric_date", null,
     ).use { buildList { while (it.moveToNext()) add(readSummary(it)) } }
 
-    /** Acks only the exact revision, so a newer recomputation stays pending. */
+    /** Checks collection and exact revision under one lock, so an old ACK cannot acknowledge a new account. */
     @Synchronized
-    fun markAcked(date: LocalDate, revision: Int) {
+    fun markAcked(date: LocalDate, revision: Int, collectionId: String? = null) {
+        if (consent()?.collectionId != collectionId) return
         writableDatabase.execSQL(
             "UPDATE summaries SET acked=1 WHERE metric_date=? AND revision=?",
-            arrayOf(date.toString(), revision),
+            arrayOf<Any>(date.toString(), revision),
         )
     }
 
@@ -189,14 +196,24 @@ class DailyHrStore(
 
     @Synchronized
     fun saveConsent(c: HealthConsent) = inTransaction { db ->
+        val current = consent()
+        if (newerConsent(current, c) != c) return@inTransaction
+        if (current?.collectionId != c.collectionId) {
+            listOf("minutes", "drops", "transitions", "summaries").forEach { db.delete(it, null, null) }
+        }
         setMeta(db, KEY_CONSENT_ACCESS, if (c.agreed) "AGREEE" else "DISAGREE")
         setMeta(db, KEY_CONSENT_UPDATED_AT, c.updatedAt.toString())
+        setMetaOrRemove(db, KEY_COLLECTION_ID, c.collectionId)
+        setMetaOrRemove(db, KEY_COLLECTION_STARTED_AT, c.collectionStartedAt?.toString())
     }
 
     @Synchronized
     fun consent(): HealthConsent? {
         val db = readableDatabase
-        return HealthConsent.fromDataMap(getMeta(db, KEY_CONSENT_ACCESS), getMeta(db, KEY_CONSENT_UPDATED_AT))
+        return HealthConsent.fromDataMap(
+            getMeta(db, KEY_CONSENT_ACCESS), getMeta(db, KEY_CONSENT_UPDATED_AT),
+            getMeta(db, KEY_COLLECTION_ID), getMeta(db, KEY_COLLECTION_STARTED_AT),
+        )
     }
 
     @Synchronized
@@ -209,6 +226,10 @@ class DailyHrStore(
 
     private fun getMeta(db: SQLiteDatabase, key: String): String? =
         db.rawQuery("SELECT value FROM meta WHERE key=?", arrayOf(key)).use { if (it.moveToFirst()) it.getString(0) else null }
+
+    private fun setMetaOrRemove(db: SQLiteDatabase, key: String, value: String?) {
+        if (value == null) db.delete("meta", "key=?", arrayOf(key)) else setMeta(db, key, value)
+    }
 
     private fun setMeta(db: SQLiteDatabase, key: String, value: String) {
         db.insertWithOnConflict(
@@ -231,6 +252,8 @@ class DailyHrStore(
 
     companion object {
         private const val KEY_MESSAGE_COUNTER = "message_counter"
+        private const val KEY_COLLECTION_ID = "collection_id"
+        private const val KEY_COLLECTION_STARTED_AT = "collection_started_at"
         private const val KEY_CONSENT_ACCESS = "consent_access"
         private const val KEY_CONSENT_UPDATED_AT = "consent_updated_at"
         private const val KEY_STATE = "collection_state"

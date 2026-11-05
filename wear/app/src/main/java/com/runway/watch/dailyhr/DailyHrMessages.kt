@@ -12,7 +12,10 @@ data class DailyHrSummary(
     val method: String,
     val validSampleCount: Int,
     val computedAt: Instant,
+    val collectionId: String? = null,
 )
+
+data class DailyHrReceipt(val metricDate: LocalDate, val revision: Int, val collectionId: String?)
 
 /** Wire format for DAILY_HR_SUMMARY / DAILY_HR_RECEIVED (design doc 9.1, 9.9). */
 object DailyHrMessages {
@@ -27,6 +30,7 @@ object DailyHrMessages {
 
     fun encodeSummary(messageId: String, s: DailyHrSummary): ByteArray {
         val payload = JSONObject()
+            .put("collectionId", s.collectionId ?: JSONObject.NULL)
             .put("metricDate", s.metricDate.toString())
             .put("revision", s.revision)
             .put("estimatedRestingHrBpm", s.estimatedRestingHrBpm)
@@ -47,8 +51,8 @@ object DailyHrMessages {
         return bytes
     }
 
-    /** Returns the acknowledged (metricDate, revision), or null for anything malformed. */
-    fun decodeReceived(bytes: ByteArray): Pair<LocalDate, Int>? = try {
+    /** Returns the acknowledged collection, date and revision, or null for malformed input. */
+    fun decodeReceived(bytes: ByteArray): DailyHrReceipt? = try {
         val json = JSONObject(String(bytes, Charsets.UTF_8))
         if (json.getInt("protocolVersion") != PROTOCOL_VERSION ||
             json.getString("type") != RECEIVED_TYPE
@@ -57,7 +61,10 @@ object DailyHrMessages {
         } else {
             val payload = json.getJSONObject("payload")
             val revision = payload.getInt("revision")
-            if (revision < 1) null else LocalDate.parse(payload.getString("metricDate")) to revision
+            val collectionId = if (payload.has("collectionId") && !payload.isNull("collectionId")) {
+                payload.getString("collectionId").also { require(it.isNotBlank()) }
+            } else null
+            if (revision < 1) null else DailyHrReceipt(LocalDate.parse(payload.getString("metricDate")), revision, collectionId)
         }
     } catch (_: Exception) {
         null
@@ -65,11 +72,18 @@ object DailyHrMessages {
 }
 
 /** Health data consent shared by the phone through a DataItem. */
-data class HealthConsent(val agreed: Boolean, val updatedAt: Instant) {
+data class HealthConsent(
+    val agreed: Boolean,
+    val updatedAt: Instant,
+    val collectionId: String? = null,
+    val collectionStartedAt: Instant? = null,
+) {
     companion object
 }
 
-fun HealthConsent.Companion.fromDataMap(access: String?, updatedAt: String?): HealthConsent? {
+fun HealthConsent.Companion.fromDataMap(
+    access: String?, updatedAt: String?, collectionId: String? = null, collectionStartedAt: String? = null,
+): HealthConsent? {
     val agreed = when (access) {
         "AGREEE" -> true
         "DISAGREE" -> false
@@ -80,7 +94,11 @@ fun HealthConsent.Companion.fromDataMap(access: String?, updatedAt: String?): He
     } catch (_: Exception) {
         return null
     }
-    return HealthConsent(agreed, at)
+    val id = collectionId?.takeIf { it.isNotBlank() }
+    val startedAt = if (id != null) {
+        try { Instant.parse(collectionStartedAt ?: return null) } catch (_: Exception) { return null }
+    } else null
+    return HealthConsent(agreed, at, id, startedAt)
 }
 
 /** Keeps [current] unless [incoming] is strictly newer; stale updates are ignored. */
