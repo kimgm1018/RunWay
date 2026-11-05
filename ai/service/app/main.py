@@ -47,6 +47,7 @@ from app.gru_personalization import (CachedDbGruPersonalizationLookup, GRU_PERSO
 from app.hr_threshold_lookup import CachedDbHrThresholdLookup
 from app.policy.hr_reference import personal_hr_thresholds
 from app.bpm_cue import CueBpmCalculator, UnavailableCueBpm
+from app.bpm_lookup import CachedDbBpmLookup, UnavailableBpmLookup
 
 
 log = logging.getLogger("runway.ai")
@@ -144,7 +145,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                db_factory: Callable[[str], object] = default_db_factory,
                hr_threshold_lookup=None,
                runner_profile_lookup=None,
-               cue_bpm_loader: Callable[[], object] | None = CueBpmCalculator) -> FastAPI:
+               cue_bpm_loader: Callable[[], object] | None = CueBpmCalculator, bpm_lookup=None) -> FastAPI:
     try:
         free_run_grade_policy = load_free_run_grade_policy()   # 잘못된 값이면 시작 시 실패
     except Exception as exc:
@@ -176,8 +177,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     needs_gru_personalization_db = gru_personalization_lookup is None
     needs_hr_threshold_db = hr_threshold_lookup is None
     needs_runner_profile_db = runner_profile_lookup is None
+    needs_bpm_db = bpm_lookup is None
     if db_url and (needs_personal_plan_db or needs_gru_personalization_db or needs_hr_threshold_db
-                   or needs_runner_profile_db):
+                   or needs_runner_profile_db or needs_bpm_db):
         # 읽기 전용 팀 DB 조회. URL·비밀번호는 로그에 남기지 않는다.
         try:
             ai_db = db_factory(db_url)
@@ -198,9 +200,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             if needs_runner_profile_db:
                 # S15P31E105-403: AI09 신규 사용자 첫 계획 기준(user_profiles, 읽기 전용).
                 runner_profile_lookup = DbRunnerProfileLookup(ai_db)
+            if needs_bpm_db:
+                # S15P31E105-438: AI04 목표 BPM 개인 기록(측정값·BPM 변경 기록, 읽기 전용).
+                bpm_lookup = CachedDbBpmLookup(ai_db)
         except Exception as exc:
             log_ai_error("AI_DB_UNAVAILABLE", "startup", exc, level=logging.WARNING)
             ai_db = None
+    if db_url and bpm_lookup is None:
+        bpm_lookup = UnavailableBpmLookup()   # DB를 켰는데 연결 실패: 평균 BPM + BPM_RECORDS_UNAVAILABLE
     # v6_8_1: "설정상 꺼짐/없음"과 "켰는데 DB 연결·조회 실패"를 구분한다.
     #   - GRU 개인화 꺼짐: userId가 와도 조회·응답 경고·호출별 로그 없이 기본 GRU를 쓴다(시작 로그 한 번).
     #   - 학습 심박 기준: AI_DB_URL이 없고 주입된 조회기도 없으면 조용히 모집단 기준을 쓴다(시작 로그 한 번).
@@ -288,6 +295,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     app.state.runner_blend_k = runner_blend_k
     app.state.hr_threshold_lookup_configured = hr_threshold_lookup_configured
     app.state.cue_bpm_calc = cue_bpm_calc
+    app.state.bpm_lookup = bpm_lookup
     # requested = 설정 스위치만, enabled = 스위치와 AI_DB_URL이 모두 있음(조회기를 넘길 수 있음).
     app.state.gru_personalization_requested = gru_personalization_requested
     app.state.gru_personalization_enabled = gru_personalization_requested and bool(db_url)
@@ -395,7 +403,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                                                           if request.app.state.gru_personalization_enabled else None),
                              gru_personalization_enabled=request.app.state.gru_personalization_requested,
                              hr_threshold_lookup=request.app.state.hr_threshold_lookup,
-                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc)
+                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc,
+                             bpm_lookup=request.app.state.bpm_lookup)
         demo = request.app.state.demo
         if demo is not None:
             stage, _ = demo.profile_for(body.context.session_id)

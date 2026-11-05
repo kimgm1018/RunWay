@@ -154,9 +154,9 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `context.hrReference` | object / null | X | 이전 클라이언트 호환용. 보내도 나이·RHR·HRmax를 기준 계산에 쓰지 않으며 `HR_REFERENCE_INPUT_IGNORED` 경고를 반환한다. |
 | `context.lastCoaching` | object / null | X | `coachingId` 양수 int64, `appliedAt` |
 | `context.resumedAt` | string (UTC date-time) / null | X | 재개 시각 |
-| `context.bpm` | object / null | X | 목표 BPM 계산 입력. 없으면 기록 없는 처음 사용자처럼 평균 보폭으로 계산한다. 아래 "목표 BPM (cueBpm)" 참고 |
+| `context.bpm` | object / null | X | 시험·시연용 목표 BPM 입력. 백엔드는 보내지 않는다(AI가 DB에서 직접 읽음). 보내면 DB를 읽지 않고 이 값을 쓴다. 아래 "목표 BPM (cueBpm)" 참고 |
 | `context.bpm.records[]` | object[] (최대 2000) | X | 지난 러닝의 페이스가 일정한 60초 구간. `runNo`(정수 ≥ 1, 클수록 최근, 같은 러닝은 같은 값), `speedMps`(> 0), `cadenceSpm`(> 0), `cueBpm`(그 구간에 켜져 있던 BPM, 큐를 껐으면 null) |
-| `context.bpm.firstMinute` | object / null | X | 이번 러닝 첫 1분의 페이스 일정 구간 평균. `speedMps`, `cadenceSpm`, `cueBpm`. 기록 없는 사용자만 쓰며, 생긴 뒤부터 매 요청 같은 값을 보낸다 |
+| `context.bpm.firstMinute` | object / null | X | 이번 러닝 첫 1분의 페이스 일정 구간 평균. `speedMps`, `cadenceSpm`, `cueBpm`. 기록 없는 사용자만 쓴다 |
 | `includeForecast` | boolean | X | ODE 남은 구간 HR·완주 예상 요청. 기본 false이며 서버 `DECIDE_FORECAST_ENABLED=false`이면 `forecast.status=DISABLED`. 기능이 켜져 있고 ODE 미준비이면 503 오류 |
 
 `context.goal`의 거리·시간은 JSON integer, 페이스는 JSON integer 또는 실수다. 거리·시간에 정수처럼 보이는 실수(예: `5000.0`)도 허용하지 않는다. 숫자 문자열·boolean·비유한 페이스는 받지 않는다. 거리·시간·페이스 중 최대 두 값을 지정하고, 설정한 값은 모두 양수여야 하며 명시 거리 상한은 45000m다. 페이스는 소수 둘째 자리까지다. 시간은 임의의 제품 상한을 추가하지 않으며, 실제 float 계산으로 표현할 수 없는 정수는 정책 오류 500 대신 요청 검증 `400 VALIDATION_ERROR`로 돌린다. 팀 DB `INTEGER` 저장 범위와 API 범위를 같게 둘지는 별도 고려사항이다. 세 목표를 모두 보내거나 그 밖의 목표 검증에 실패하면 AI04의 기존 공개 요청 검증 분류인 `400 VALIDATION_ERROR`를 반환한다. 이는 AI05의 의미 오류 `422 INVALID_GOAL`과 별개다.
@@ -217,13 +217,24 @@ GRU 개인화가 설정상 꺼져 있으면(`GRU_PERSONALIZATION_ENABLED=false`,
 
 AI04는 추천 페이스를 사용자의 목표 BPM으로 바꿔 `decision.cueBpm`에 넣는다. 계산은 `ai/bpm/target_bpm.py`를 그대로 쓰며(S15P31E105-416), 근거와 실험 결과는 `ai/bpm/README.md`에 있다.
 
-- 기록이 있는 사용자(`records`에 쓸 구간이 있음): BPM을 따라간 구간(|케이던스 − cueBpm| ≤ 5, 큐를 끈 구간은 모두 사용)만 골라 최근 20회 러닝으로 보정한다. `firstMinute`는 쓰지 않는다.
-- 기록이 없는 사용자: 평균 보폭으로 계산한다. `firstMinute`가 오고 그 1분에 BPM을 따라갔으면 그 1분으로 보정하며, 보정 전보다 3 BPM 이상 차이 날 때만 바꾼다.
-- AI 서비스는 상태를 저장하지 않는다. 같은 `firstMinute`를 매 요청 보내면 같은 결과가 나오므로 보정이 반복·누적되지 않고, 목표 페이스가 바뀌어도 보정이 이어진다.
+사용자 기록은 백엔드가 보내지 않고 AI가 읽기 전용 DB(`AI_DB_URL`)에서 직접 만든다(S15P31E105-438, 백엔드 합의).
+
+- 사용자 찾기: `context.sessionId`의 `running_sessions.user_id`.
+- 지난 기록: 그 사용자의 완료 러닝(`COMPLETED`, 미삭제, 최근 종료 순 40회)의 `running_metric_samples`를 60초 칸(`elapsed_duration` 기준)으로 묶고, 속도 1.5 m/s 이상·케이던스 120~230 spm 측정만 쓴다. 측정 4개 이상, 속도 변동계수 5% 이하, 케이던스 표준편차 5 spm 이하인 칸만 페이스가 일정한 구간으로 본다.
+- 그 구간의 BPM: `session_control_events`의 적용된(`APPLIED`) `SET_BPM`·`COACHING` `target_bpm`을 시간순으로 되짚는다. 러닝 시작 때 처음 튼 BPM은 DB에 남지 않으므로 첫 BPM 변경 전 구간과 구간 안에서 BPM이 바뀐 구간은 쓰지 않는다.
+- 이번 러닝 첫 1분: 이번 세션의 첫 일정 구간. 아직 BPM을 바꾼 적이 없으면 `running_sessions.current_bpm`을 그때 BPM으로 본다.
+- 캐시: 지난 기록은 사용자별 300초, 첫 1분은 찾으면 세션 동안 기억한다. DB 조회 제한 시간은 한 번에 300ms다.
+- DB 권한: `runway_ai`는 `running_metric_samples`의 `running_session_id`·`measured_at`·`elapsed_duration`·`speed`·`cadence`, `session_control_events`의 `session_id`·`action`·`target_bpm`·`result`·`applied_at` 칸만 읽는다(`infra/ai/grant-readonly.sh`). 심박 등 다른 칸은 읽지 않는다.
+
+보정 규칙:
+
+- 기록이 있는 사용자(지난 기록에 쓸 구간이 있음): BPM을 따라간 구간(|케이던스 − 그때 BPM| ≤ 5)만 골라 최근 20회 러닝으로 보정한다. 첫 1분은 쓰지 않는다.
+- 기록이 없는 사용자: 평균 보폭으로 계산한다. 첫 1분에 BPM을 따라갔으면 그 1분으로 보정하며, 보정 전보다 3 BPM 이상 차이 날 때만 바꾼다. 같은 세션에서는 같은 첫 1분을 쓰므로 보정이 반복·누적되지 않고, 목표 페이스가 바뀌어도 보정이 이어진다.
 - 키는 계약에 없으므로 쓰지 않는다.
+- `AI_DB_URL`이 없는 환경은 경고 없이 평균 보폭 BPM을 준다. `AI_DB_URL`이 있는데 시작 연결 또는 조회가 실패하면 평균 보폭 BPM과 `BPM_RECORDS_UNAVAILABLE` 경고를 준다.
 - BPM 모듈을 불러오지 못하거나 계산에 실패하면 `cueBpm=null`, `warnings[]`에 `CUE_BPM_UNAVAILABLE`을 넣고 페이스 판단은 그대로 반환한다. 임의의 고정 BPM으로 채우지 않는다.
 
-요청 예시(`context` 일부):
+`context.bpm`은 시험·시연용이다. 요청에 있으면 DB를 읽지 않고 그 값을 쓴다. 예시(`context` 일부):
 
 ```json
 "bpm": {
@@ -235,7 +246,7 @@ AI04는 추천 페이스를 사용자의 목표 BPM으로 바꿔 `decision.cueBp
 }
 ```
 
-구간을 누가 만드는지(백엔드가 `running_metric_samples`와 BPM 적용 이력으로 만들지 등)와 실제 BPM 적용 규칙은 백엔드와 합의가 필요하다(팀 합의 N7-2).
+실제 BPM 적용 규칙(페이스가 그대로일 때 BPM 유지, 수동 변경 후 덮어쓰기, `cueBpm=null`일 때 처리)은 백엔드와 합의가 필요하다(팀 합의 N7-2).
 
 ### 오류
 
@@ -728,7 +739,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | N5 | W07 demo 앱 upload 주소·token 설정 | 시연 입구만 두고 앱 전환은 범위 밖 | 합의 필요 |
 | N6 | 재생 데이터 출처·세션 ID·보존 | prototype Val 사본만 로컬 재생, 원본 기록 저장 없음 | 제안 |
 | N7-1 | 학습 HR 기준 | 최근 20회 GOOD HR의 P98·P85를 모집단 중앙값과 정책 비중으로 섞는다. 위험 기준 = 섞은 P98 + 3(일반화 178), 지속 기준 = 섞은 P85 | v6_8_2 반영 |
-| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 필수 `targetBpm`을 넣는 COACHING 명령 처리(현재 BPM 유지 등)와 `context.bpm` 구간 생성 주체는 백엔드 합의가 필요하다 | 합의 필요 |
+| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 필수 `targetBpm`을 넣는 COACHING 명령 처리(현재 BPM 유지 등)는 백엔드 합의가 필요하다. 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의) | 기록 조회 합의, BPM 적용 규칙 합의 필요 |
 | N7-3 | 러닝 mode enum | AI05 `COURSE/FREE_WITH_GOAL/FREE_NO_GOAL`; AI04 입력 문자열 유지 | 잠정 |
 | N7-4 / O1 | 자유러닝 경사 null vs 0 | MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`; 경사 정보가 없으면 0% 평지 계산 후 HTTP 200과 경로별 경고 반환. 코스 경사 저장은 S15P31E105-319, unknown 정책·GPS 고도 활용은 MVP 이후 | flat0 MVP 기본값 합의(MR !142 리뷰) |
 | N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 제안 |
