@@ -303,7 +303,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 |---|---|:---:|---|
 | `name` | string | O | `crews.name` (VARCHAR(100)). 비어 있지 않은 문자열 |
 | `description` | string | X | `crews.description` (TEXT). 생략 또는 null 허용 |
-| `imageKey` | string | X | `crews.image_key` (VARCHAR(1024)). 생략 또는 null 허용. 저장됨 |
+| `imageKey` | string | X | `crews.image_key` (VARCHAR(1024)). 생략 또는 null 허용. 본인이 CREW 용도로 올린 실제 정규 원본 경로만 연결(246번 후속 확정) |
 | `regionCode` | string | X | `crews.region_code` (VARCHAR(40)). `regions.region_code` 참조. 생략 또는 null 허용. 저장됨 |
 | `capacity` | integer | O | `crews.capacity`. 1~200의 정수. 자동 기본값은 두지 않는다 |
 | `imageId` | string (UUID) | X | 대표 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 `crews`에 저장하지 않음. `imageKey`와 병행 시 저장은 `imageKey`만 |
@@ -370,6 +370,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 - 생성자는 `crews.owner_id`에 기록되고 `crew_memberships`에 APPROVED로 등록된다. 가입 방식은 크루장 승인으로 고정이므로 `joinPolicy`를 받지 않는다.
 - 저장하는 필드: `name`, `description`, `imageKey`→`image_key`, `regionCode`→`region_code`, `capacity`. `status`는 ACTIVE.
+- 2026-11-05 사용자 추가 승인(S15P31E105-246): imageKey가 있으면 인증된 생성자가 업로드한 CREW 용도 정규 경로와 실제 파일 존재를 확인한다. 타인 이미지·다른 용도·없는 파일·비정규 경로는 `403 RESOURCE_NOT_OWNED`로 거절하며 크루·구성원을 저장하지 않는다. imageKey 생략/null은 허용한다. imageId 수신만 하는 기존 범위는 유지한다. 이 검사는 타인의 미연결 CREW 이미지를 자신의 크루에 붙여 공개하는 우회를 방지한다. 정상 크루장 이양은 이미 검증해 연결한 image_key를 유지한다.
 - `regionCode`를 보낸 경우 `regions.region_code`에 존재해야 한다. 없으면 422 INVALID_CREW.
 - `imageId`, `regionName`, `regionPosition`, `level`은 요청에 포함해도 되며 null/생략 가능하나 **현재 저장·검증하지 않는다**(스키마 반영·매핑 후속).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.

@@ -24,6 +24,8 @@ import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.RegionExistsRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.image.ImagePurpose;
+import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -52,6 +54,7 @@ public class CrewService {
     private final UserExistsRepository userExistsRepository;
     private final RegionExistsRepository regionExistsRepository;
     private final EntityManager entityManager;
+    private final ImageService images;
 
     @Transactional
     public CrewCreateResponse create(long userId, CreateCrewRequest request) {
@@ -61,12 +64,17 @@ public class CrewService {
             throw new ApiException(ErrorCode.INVALID_CREW);
         }
 
+        String imageKey = blankToNull(request.imageKey());
+        if (imageKey != null) {
+            imageKey = images.requireOwnedImageKey(userId, ImagePurpose.CREW, imageKey);
+        }
+
         Crew crew =
                 Crew.create(
                         userId,
                         request.name().trim(),
                         blankToNull(request.description()),
-                        blankToNull(request.imageKey()),
+                        imageKey,
                         request.capacity(),
                         regionCode);
         crewRepository.save(crew);

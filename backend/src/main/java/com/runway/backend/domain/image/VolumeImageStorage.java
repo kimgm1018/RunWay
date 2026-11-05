@@ -51,6 +51,21 @@ public class VolumeImageStorage implements ImageStorage {
 
     private Optional<StoredImage> openById(UUID imageId, String extension, String contentType) {
         String imageKey = "images/by-id/" + imageId + "." + extension;
+        return openKey(imageKey, contentType);
+    }
+
+    @Override
+    public Optional<StoredImage> findByKey(String imageKey) {
+        if (imageKey.endsWith(".jpg")) {
+            return openKey(imageKey, MediaType.IMAGE_JPEG_VALUE);
+        }
+        if (imageKey.endsWith(".png")) {
+            return openKey(imageKey, MediaType.IMAGE_PNG_VALUE);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<StoredImage> openKey(String imageKey, String contentType) {
         Path path = resolve(imageKey);
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             return Optional.empty();

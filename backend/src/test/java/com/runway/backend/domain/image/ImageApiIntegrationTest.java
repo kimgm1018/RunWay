@@ -149,7 +149,7 @@ class ImageApiIntegrationTest {
     }
 
     @Test
-    void 이미지조회_공개GET_바이너리() throws Exception {
+    void 미연결이미지조회_본인GET_바이너리() throws Exception {
         MockMultipartFile file =
                 new MockMultipartFile("file", "a.png", MediaType.IMAGE_PNG_VALUE, PNG);
         MvcResult uploaded =
@@ -162,7 +162,8 @@ class ImageApiIntegrationTest {
                         .andReturn();
         String imageId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.imageId");
 
-        mockMvc.perform(get("/api/v1/images/" + imageId))
+        mockMvc.perform(get("/api/v1/images/" + imageId)
+                        .header("Authorization", SecurityTestSupport.bearer(42)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", MediaType.IMAGE_PNG_VALUE))
                 .andExpect(content().bytes(PNG));
