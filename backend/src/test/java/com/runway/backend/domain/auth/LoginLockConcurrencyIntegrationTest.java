@@ -11,7 +11,6 @@ import com.runway.backend.domain.auth.service.MemberPasswordHasher;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -20,8 +19,8 @@ import java.util.concurrent.TimeUnit;
 class LoginLockConcurrencyIntegrationTest extends AuthIntegrationSupport {
     @Autowired LoginService login;
     @Autowired LoginAttemptStore attempts;
-    @MockitoSpyBean MemberPasswordHasher hasher;
-    @MockitoSpyBean RefreshTokenStore store;
+    @Autowired MemberPasswordHasher hasher;
+    @Autowired RefreshTokenStore store;
 
     @Test
     void failureWinningAfterPasswordVerificationPreventsIssuance() throws Exception {

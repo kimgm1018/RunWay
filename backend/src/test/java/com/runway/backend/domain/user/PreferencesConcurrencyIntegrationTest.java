@@ -11,7 +11,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.TransientDataAccessResourceException;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -20,8 +19,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 class PreferencesConcurrencyIntegrationTest extends PreferencesIntegrationSupport {
-    @MockitoSpyBean UserAccountRepository owners;
-    @MockitoSpyBean RecommendationPreferencesRepository preferences;
+    @Autowired UserAccountRepository owners;
+    @Autowired RecommendationPreferencesRepository preferences;
     @Autowired PlatformTransactionManager manager;
     @Autowired jakarta.persistence.EntityManager entities;
 

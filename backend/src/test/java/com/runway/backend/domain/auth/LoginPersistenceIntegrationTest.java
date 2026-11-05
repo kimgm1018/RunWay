@@ -10,14 +10,14 @@ import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.domain.auth.service.RefreshTokenFactory.IssuedRefreshToken;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.DriverManager;
 import java.util.concurrent.atomic.AtomicReference;
 
 class LoginPersistenceIntegrationTest extends AuthIntegrationSupport {
-    @MockitoSpyBean RefreshTokenStore store;
+    @Autowired RefreshTokenStore store;
 
     @Test
     void storageAndResponseFailure() throws Exception {

@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.runway.backend.domain.readiness.service.ReadinessEvaluationService;
+import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
@@ -28,6 +33,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  *
  * <p>W06 metricDate 허용 범위가 서버 UTC 오늘 −8일 ~ +1일이므로 W06으로 보내는 날짜는 UTC 오늘에서 계산하고, 평가 기준값(이전 날짜)은 DB에 직접 넣는다.
  */
+@SpringBootTest
+@AutoConfigureMockMvc
+@MockitoSpyBean(types = {ReadinessJdbcRepository.class, ReadinessEvaluationService.class})
 abstract class ReadinessIntegrationSupport {
 
     static final SharedPostgres.Database DATABASE =

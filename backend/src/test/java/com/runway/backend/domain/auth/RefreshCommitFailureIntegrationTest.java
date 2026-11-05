@@ -9,14 +9,14 @@ import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.global.security.JwtAccessTokenService;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class RefreshCommitFailureIntegrationTest extends RefreshIntegrationSupport {
-    @MockitoSpyBean RefreshTokenStore spiedStore;
-    @MockitoSpyBean JwtAccessTokenService spiedAccess;
+    @Autowired RefreshTokenStore spiedStore;
+    @Autowired JwtAccessTokenService spiedAccess;
 
     @Test
     void commitFailureAfterRotationReturns503AndRevokesUsingOldHistory() throws Exception {

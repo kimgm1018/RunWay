@@ -166,6 +166,19 @@ Spotless 플러그인과 포맷 검사·자동 수정 태스크는 제거했다.
 
 `test`는 테스트 JVM 2개(`maxParallelForks = 2`, JVM당 힙 1536MiB)로 클래스를 나눠 실행한다. 각 JVM은
 PostGIS 서버 하나(`support.SharedPostgres`)를 띄우고, 테스트 그룹마다 그 안의 전용 DB를 쓴다. 다른 JVM과 DB를 함께 쓰지 않는다.
+전용 DB는 JVM마다 Flyway 마이그레이션을 한 번 적용해 만든 템플릿에서 복제하므로 컨텍스트 기동 시 Flyway는 적용 상태만 확인한다.
+템플릿은 실행마다 새 컨테이너에 현재 마이그레이션으로 다시 만든다. 빈 DB부터 마이그레이션·스키마를 검증하는 테스트는
+`SharedPostgres.emptyDatabase`로 빈 DB를 쓴다.
+
+Spring 컨텍스트는 설정(속성·Mock·Spy·`@Import`·웹 환경)이 같은 테스트끼리만 재사용되므로 다음 규칙으로 기동 횟수를 줄인다.
+
+- 별도 설정이 필요 없는 통합 테스트는 `support.SharedContextIntegrationSupport`를 상속한다. 컨텍스트와 DB를 함께 쓰며 매 테스트 전
+  `flyway_schema_history`, 시드 테이블 `regions`, PostGIS 확장 테이블을 뺀 모든 테이블을 비운다. 시드를 넣는 마이그레이션을 추가하면
+  보존 목록도 함께 고친다. 하위 클래스는 속성·Mock·`@Import`를 따로 선언하지 않으며, 필요하면 이 기반을 쓰지 않는다.
+- 도메인별 `*IntegrationSupport`는 그룹에서 쓰는 `@MockitoSpyBean`을 모두 선언하고, 하위 클래스는 같은 빈을 `@Autowired`로 받아 스텁한다.
+  Spy는 스텁하지 않으면 실제 빈과 같게 동작하고 테스트마다 초기화된다. 동작을 대체하는 `@MockitoBean`은 해당 클래스에만 둔다.
+- DB 대기 상한(연결·잠금·쿼리·소켓)의 동작 테스트는 같은 설정 키에 짧은 테스트 값을 넣어 실제 대기를 줄이고, 원인은 SQLState 등 결과로
+  확인한다. 운영 기본값의 적용은 `RunningSessionDbTimeoutDefaultsIntegrationTest`가 확인한다.
 컨테이너를 멈추는 장애 테스트와 Redis 테스트는 자체 컨테이너를 쓴다. 테스트 클래스 안의 병렬 실행은 쓰지 않는다.
 
 DB와 무관한 부분만 개발 중 확인할 때:
@@ -176,8 +189,8 @@ DB와 무관한 부분만 개발 중 확인할 때:
 
 Bash에서는 실행 부분을 `./gradlew`로 바꾼다. 이 부분 테스트 성공을 전체 완료 검증으로
 보고하지 않는다. DB 테스트는 `BackendApplicationIntegrationTest`, `SchemaIntegrityTest`,
-`FlywayMigrationTest`이며 Testcontainers가
-일회성 DB를 만들고 정리한다. 개발 `.env`는 읽지 않고 컨테이너 연결을 테스트에 주입한다.
+`FlywayMigrationTest`이며 Testcontainers 서버 안의
+빈 전용 DB를 쓴다. 개발 `.env`는 읽지 않고 컨테이너 연결을 테스트에 주입한다.
 
 테스트는 설정 누락·Lombok 생성·MVC JSON 및 입력 검증·DB/PostGIS 연결을 확인한다.
 업무 로직·소유권·러닝 저장·동시성·공간 Entity 매핑 검증은 기능 구현 시 추가한다.

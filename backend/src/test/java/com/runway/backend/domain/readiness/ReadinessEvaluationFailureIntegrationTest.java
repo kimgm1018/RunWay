@@ -12,20 +12,16 @@ import com.runway.backend.domain.readiness.service.ReadinessEvaluationService;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * 254 AC-9. 평가 실패가 W06 응답·저장을 깨지 않고, 한 날짜 실패가 다른 날짜 평가를 막지 않으며, 로그에 회원 ID·날짜·예외 종류만 남고 건강값·예외
  * 메시지는 남지 않는지 확인한다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 @ExtendWith(OutputCaptureExtension.class)
 class ReadinessEvaluationFailureIntegrationTest extends ReadinessIntegrationSupport {
@@ -33,7 +29,7 @@ class ReadinessEvaluationFailureIntegrationTest extends ReadinessIntegrationSupp
     /** 건강값이 들어간 것처럼 꾸민 예외 메시지. 로그에 나오면 안 된다. */
     private static final String SECRET_MESSAGE = "Failing row contains (66.43)";
 
-    @MockitoSpyBean private ReadinessEvaluationService evaluationService;
+    @Autowired private ReadinessEvaluationService evaluationService;
 
     @Test
     void 평가가_실패해도_W06은_200이고_건강값은_저장된다(CapturedOutput output) throws Exception {

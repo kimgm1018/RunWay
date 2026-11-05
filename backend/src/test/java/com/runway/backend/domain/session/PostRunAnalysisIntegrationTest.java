@@ -22,8 +22,6 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -35,8 +33,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * <p>분석은 종료 이벤트 커밋 뒤 전용 실행기에서 돌므로 이벤트를 커밋하는 트랜잭션으로 발행하고 {@link
  * PostRunAnalysisDispatcher#awaitIdle(Duration)}로 끝나기를 기다린 뒤 DB를 확인한다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class PostRunAnalysisIntegrationTest extends RunningSessionIntegrationSupport {
 

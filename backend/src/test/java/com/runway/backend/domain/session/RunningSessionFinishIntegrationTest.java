@@ -10,16 +10,10 @@ import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Import;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** S06 종료 저장 확인과 종료 이벤트 — 작업 계획 AC-A9. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
-@Import(EndedEventRecorder.class)
 class RunningSessionFinishIntegrationTest extends RunningSessionIntegrationSupport {
 
     private static final String ENDED = "2026-10-28T01:30:00Z";

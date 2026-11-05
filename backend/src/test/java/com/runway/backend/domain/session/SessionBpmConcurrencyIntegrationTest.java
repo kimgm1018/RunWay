@@ -20,16 +20,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.RepeatedTest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * P07·서버 코칭이 다른 제어와 세션 행 잠금에서 실제로 겹치도록 동시에 호출한다 — 작업 계획 AC-12. 순차 재요청은 SessionBpmIntegrationTest가
  * 다룬다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class SessionBpmConcurrencyIntegrationTest extends RunningSessionIntegrationSupport {
 

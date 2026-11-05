@@ -13,16 +13,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.node.ObjectNode;
 
 /** W06 AC-2. 레코드 위반은 해당 항목만, 구문·최상위 위반은 요청 전체를 거절하고 아무것도 저장하지 않는다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class HealthRecordSyncValidationIntegrationTest extends HealthRecordSyncIntegrationSupport {
 

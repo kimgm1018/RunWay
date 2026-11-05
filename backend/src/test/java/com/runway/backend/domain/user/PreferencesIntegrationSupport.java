@@ -1,5 +1,8 @@
 package com.runway.backend.domain.user;
 
+import com.runway.backend.domain.user.repository.RecommendationPreferencesRepository;
+import com.runway.backend.domain.user.repository.UserAccountRepository;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.runway.backend.domain.user.model.PreferenceSelection;
 import com.runway.backend.domain.user.service.PreferencesService;
 import com.runway.backend.domain.user.validation.PreferencesValidator;
@@ -20,6 +23,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@MockitoSpyBean(types = {UserAccountRepository.class, RecommendationPreferencesRepository.class})
 abstract class PreferencesIntegrationSupport {
     static final SharedPostgres.Database DATABASE =
             SharedPostgres.database(PreferencesIntegrationSupport.class);

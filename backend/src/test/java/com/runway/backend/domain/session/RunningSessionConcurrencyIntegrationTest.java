@@ -24,8 +24,6 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -35,8 +33,6 @@ import tools.jackson.databind.json.JsonMapper;
  * AC-5·AC-19. 경합 사례는 각 10회 반복한다. 목표 변경과 시작 미확인 중단은 선행 조건이 서로 배타적이라 경합 사례에서 제외했다(플랜 8장).
  * 동시에 출발시킨 요청이 실제 DB 트랜잭션에서 겹치도록 실행하고 응답 코드와 최종 DB 상태로 판정한다. 단일 서버·단일 DB 범위의 확인이다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class RunningSessionConcurrencyIntegrationTest extends RunningSessionIntegrationSupport {
 

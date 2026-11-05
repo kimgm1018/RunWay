@@ -14,8 +14,6 @@ import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,8 +22,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 서버 코칭 발행과 S02 coaching 노출 — 257 작업 계획 AC-9·AC-10. 421부터 추천은 AI04 대역({@code FakePaceDecider}: 기준 페이스 유지·BPM
  * 160)이 만든다. 모든 값은 합성 데이터다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
 

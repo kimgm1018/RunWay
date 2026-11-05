@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.node.ObjectNode;
@@ -22,7 +21,6 @@ import tools.jackson.databind.node.ObjectNode;
  *
  * <p>metricDate 허용 범위가 서버 UTC 오늘 기준이므로 테스트 날짜도 실행 시점의 UTC 오늘에서 계산한다.
  */
-@Import(HealthEventRecorder.class)
 abstract class HealthRecordSyncIntegrationSupport extends SyncBatchIntegrationSupport {
 
     @Autowired protected HealthEventRecorder events;

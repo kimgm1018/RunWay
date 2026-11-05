@@ -38,8 +38,6 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -49,8 +47,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * S15P31E105-250 AC-7·AC-8·AC-10. 동의 철회와 W06·W07·준비도 평가(회원 행 FOR SHARE)·세션 생성이 실제 DB 트랜잭션에서 겹치도록
  * 실행하고, pg_locks로 대기를 관찰한 뒤 응답과 최종 DB 행으로 판정한다. 단일 서버·단일 DB 범위의 확인이며 값은 모두 합성 데이터다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class ConsentConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
 

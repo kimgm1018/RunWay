@@ -7,13 +7,9 @@ import com.runway.backend.domain.device.event.DailyHealthMetricsChangedEvent;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** W06 AC-10. 값이 실제로 저장·갱신된 날짜만 커밋 후 이벤트로 알리고, 조회나 별도 평가 요청 없이 발행된다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class HealthRecordSyncEventIntegrationTest extends HealthRecordSyncIntegrationSupport {
 
