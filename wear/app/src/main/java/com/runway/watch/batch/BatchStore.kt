@@ -8,7 +8,8 @@ import java.time.Instant
 /**
  * A finished batch waiting for the server save ACK. [body] (W07 body), [id] and [messageId] never change after
  * creation; only the delivery fields do. [failed] marks a batch that hit the retry limit or a final phone error:
- * it is kept, not resent, and counts as unconfirmed.
+ * it is kept, not resent, and counts as unconfirmed. [rejected] tells the final phone error apart: such a batch is
+ * never sent again, not even when the user asks again for the END result (S15P31E105-446).
  */
 data class OutboxBatch(
     val id: String,
@@ -19,6 +20,7 @@ data class OutboxBatch(
     val received: Boolean = false,
     val attempts: Int = 0,
     val failed: Boolean = false,
+    val rejected: Boolean = false,
 )
 
 /**
@@ -120,6 +122,7 @@ class FileBatchStore(context: Context) : BatchStore {
         .put("received", b.received)
         .put("attempts", b.attempts)
         .put("failed", b.failed)
+        .put("rejected", b.rejected)
         .toString()
 
     // When each batch was last sent is kept in memory by the uploader: after a restart a reloaded batch is due at once.
@@ -134,6 +137,8 @@ class FileBatchStore(context: Context) : BatchStore {
             received = o.getBoolean("received"),
             attempts = o.getInt("attempts"),
             failed = o.getBoolean("failed"),
+            // 이 필드 이전에 저장된 batch는 최종 오류 여부를 모르므로 재시도 상한 실패로 본다.
+            rejected = o.optBoolean("rejected", false),
         )
     } catch (_: Exception) {
         null

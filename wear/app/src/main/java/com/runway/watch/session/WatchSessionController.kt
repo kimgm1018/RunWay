@@ -108,6 +108,8 @@ class WatchSessionController(
     private val clock: ServerClock = ServerClock(),
     /** Monotonic milliseconds for the link and query timers; never the wall clock. */
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
+    /** END-path diagnostics for device checks (S15P31E105-446): ids, stages, counts and durations only, never readings. */
+    private val log: (String) -> Unit = {},
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(
@@ -131,6 +133,21 @@ class WatchSessionController(
     private val restoredSession = _state.value.sessionId
     private val startedAtMs = elapsedMs()
     private var serverStateSeen = false
+    /**
+     * An applied END reported while watch batches still lacked the server save ACK (S15P31E105-446). The phone got
+     * 409 UPLOAD_PENDING for it; once those batches are saved the same result is reported again with none left.
+     * A re-report the phone did not take is sent again every [REPORT_RETRY_MS] until the server saves the END or
+     * another run is prepared. Kept in memory only: after a restart the phone's 다시 확인 (the same END again) asks for it.
+     */
+    private var unsavedEnd: UnsavedEnd? = null
+
+    private data class UnsavedEnd(
+        val sessionId: String,
+        val commandId: String,
+        val replyTo: String?,
+        /** [elapsedMs] of the last re-report that was not delivered; null before the first one. */
+        val lastTryMs: Long? = null,
+    )
 
     suspend fun onMessage(message: SessionEnvelope) = mutex.withLock {
         when (message.type) {
@@ -205,6 +222,7 @@ class WatchSessionController(
      */
     suspend fun tick() = mutex.withLock {
         releaseStaleRequest()
+        reportSavedEnd()
         val current = _state.value
         val sessionId = current.sessionId
         // S15P31E105-445: 재시작한 워치는 폰의 상태 전달을 기다리지 않고 저장된 세션의 서버 상태를 직접 묻는다.
@@ -258,6 +276,24 @@ class WatchSessionController(
         )
     }
 
+    /**
+     * Reports an applied END again once its last batches are saved, unless the server already saved the END or another
+     * run was prepared. A re-report that did not reach the phone is tried again after [REPORT_RETRY_MS].
+     */
+    private suspend fun reportSavedEnd() {
+        val end = unsavedEnd ?: return
+        val stored = store.outcome(end.commandId)
+        if (stored == null || stored.persisted || _state.value.sessionId != end.sessionId) {
+            unsavedEnd = null
+            return
+        }
+        if (uploads.pendingCount(end.sessionId) > 0) return
+        val last = end.lastTryMs
+        if (last != null && elapsedMs() - last < REPORT_RETRY_MS) return
+        log("END ${end.commandId} batches saved, reporting again")
+        if (!sendResult(end.replyTo, stored)) unsavedEnd = end.copy(lastTryMs = elapsedMs())
+    }
+
     private fun runActive(state: WatchSessionState) =
         exerciseRunning || state.confirmed == RunState.RUNNING || state.confirmed == RunState.PAUSED
 
@@ -294,8 +330,13 @@ class WatchSessionController(
         val stored = store.outcome(commandId)
         if (stored != null) {
             if (stored.action == COACHING) return
+            // 저장되지 않은 종료를 다시 묻는 것은 폰의 '다시 확인'이다. 재시도 상한에 걸린 batch를 한 번 더 보내게 한다(S15P31E105-446).
+            if (stored.action == "END" && stored.result == OutcomeResult.APPLIED && !stored.persisted) {
+                log("END $commandId asked again, retrying unsaved batches")
+                uploads.retryFailed(stored.sessionId)
+            }
             // 같은 명령은 다시 실행하지 않는다. 실행 도중 끊겼다면 실제 적용 여부를 모르므로 UNKNOWN으로 남긴다.
-            sendResult(message, replayable(stored))
+            sendResult(message.messageId, replayable(stored))
             return
         }
         val bpm = if (action == SET_BPM) message.bpm("targetBpm") else null
@@ -305,7 +346,7 @@ class WatchSessionController(
             val rejected = CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, reason, false, null, targetBpm = bpm)
             store.saveOutcome(rejected)
             noteBpm(rejected)
-            sendResult(message, rejected)
+            sendResult(message.messageId, rejected)
             return
         }
 
@@ -318,6 +359,8 @@ class WatchSessionController(
         // 측정이 끊긴 운동은 워치에 멈추거나 끝낼 운동이 없다. 일시정지·종료는 서버 상태만 바꾸고, 종료는 남은 batch를
         // 보낸 뒤 결과를 보고한다. 폰에서 일시정지 후 종료하는 길이 막히지 않게 한다(S15P31E105-445).
         val lost = _state.value.measurementLost
+        val startedMs = elapsedMs()
+        if (action == "END") log("END $commandId received confirmed=${_state.value.confirmed} lost=$lost")
         val outcome = try {
             withTimeout(callTimeoutMs) {
                 when (action) {
@@ -338,6 +381,7 @@ class WatchSessionController(
             outcome(OutcomeResult.UNKNOWN, null, if (action == SET_BPM) CUE_FAILED else "EXERCISE_CALL_FAILED")
         }
         store.saveOutcome(outcome)
+        if (action == "END") log("END $commandId exercise=${outcome.result} reason=${outcome.reasonCode} after=${elapsedMs() - startedMs}ms")
         if (outcome.result == OutcomeResult.APPLIED) {
             when (action) {
                 "START" -> {
@@ -346,7 +390,10 @@ class WatchSessionController(
                     store.prepared()?.deviceId?.let { uploads.begin(message.sessionId, it) }
                 }
                 // 종료 직후 남은 측정값을 마지막 batch로 보내고 서버 저장 확인을 기다린 뒤 결과를 보고한다(9.3 COMMAND_RESULT).
-                "END" -> uploads.finish(message.sessionId)
+                "END" -> {
+                    val left = uploads.finish(message.sessionId)
+                    log("END $commandId batches left=$left after=${elapsedMs() - startedMs}ms")
+                }
             }
             // 박자는 실제 운동이 진행 중일 때만 재생한다. 일시정지·종료에서 멈추고, 재개하면 최신 BPM으로 다시 재생한다(D-4).
             when (action) {
@@ -364,7 +411,7 @@ class WatchSessionController(
             syncPlayback()
         }
         noteBpm(outcome)
-        sendResult(message, outcome)
+        sendResult(message.messageId, outcome)
         if (outcome.result == OutcomeResult.APPLIED && (action == "START" || action == "RESUME")) {
             // 시작·재개 때 서버 시각을 다시 추정해 코칭 만료 판단에 쓴다(D-8).
             sendStateQuery(message.sessionId)
@@ -503,19 +550,29 @@ class WatchSessionController(
         }
     }
 
-    private suspend fun sendResult(message: SessionEnvelope, outcome: CommandOutcome) {
+    /** Sends a COMMAND_RESULT; returns whether the phone took it. */
+    private suspend fun sendResult(replyTo: String?, outcome: CommandOutcome): Boolean {
         val wire = if (outcome.result == OutcomeResult.EXECUTING) "UNKNOWN" else outcome.result.name
         val end = outcome.action == "END"
+        val pendingBatches = if (end) uploads.pendingCount(outcome.sessionId) else 0
+        if (end) {
+            unsavedEnd = if (outcome.result == OutcomeResult.APPLIED && !outcome.persisted && pendingBatches > 0) {
+                UnsavedEnd(outcome.sessionId, outcome.commandId, replyTo)
+            } else {
+                null
+            }
+        }
         val bytes = SessionMessages.commandResult(
-            store.nextMessageId(), message.messageId, outcome.sessionId, outcome.commandId,
+            store.nextMessageId(), replyTo, outcome.sessionId, outcome.commandId,
             wire, outcome.appliedAt, outcome.reasonCode, end = end,
-            pendingBatchCount = if (end) uploads.pendingCount(outcome.sessionId) else 0,
+            pendingBatchCount = pendingBatches,
         )
         val delivered = sendWithRetry(SessionPaths.COMMAND_RESULT, bytes)
+        if (end) log("END ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
         val current = _state.value
         if (outcome.persisted) {
             _state.value = current.copy(pending = null)
-            return
+            return delivered
         }
         _state.value = current.copy(
             pending = PendingCommand(outcome.action, outcome.commandId, PendingStage.AWAITING_SAVE),
@@ -525,6 +582,7 @@ class WatchSessionController(
                 else -> null
             },
         )
+        return delivered
     }
 
     private fun onReceived(message: SessionEnvelope) {
@@ -640,5 +698,7 @@ class WatchSessionController(
          * case for one request: three server calls of up to 15 s each plus the 1 s·2 s retry gaps.
          */
         const val REQUEST_TIMEOUT_MS = 60_000L
+        /** Gap between re-reports of a saved END that did not reach the phone (S15P31E105-446). */
+        const val REPORT_RETRY_MS = 10_000L
     }
 }

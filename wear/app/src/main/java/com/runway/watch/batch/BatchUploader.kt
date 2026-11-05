@@ -26,12 +26,19 @@ interface RunUploads {
     /** An END was applied: send what is left at once and wait for the server save ACKs. Returns what stays unconfirmed. */
     suspend fun finish(sessionId: String): Int
     suspend fun pendingCount(sessionId: String): Int
+    /**
+     * The phone asked again for an ended run's result (S15P31E105-446): batches of [sessionId] that hit the retry limit
+     * are sent once more with the same id and body, again at most [BatchUploader] maxAttempts tries. Batches stopped by
+     * a final phone error (400/401/403/409 content or permission errors) are not sent again.
+     */
+    suspend fun retryFailed(sessionId: String)
 }
 
 object NoUploads : RunUploads {
     override suspend fun begin(sessionId: String, deviceId: String) = Unit
     override suspend fun finish(sessionId: String) = 0
     override suspend fun pendingCount(sessionId: String) = 0
+    override suspend fun retryFailed(sessionId: String) = Unit
 }
 
 /**
@@ -65,6 +72,8 @@ class BatchUploader(
     private var deviceId: String? = null
     private var accepting = false
     private var unconfirmed = false
+    /** Collection stopped by the 64-batch cap or an unsplittable reading; a retry of failed batches keeps it unconfirmed. */
+    private var capped = false
     private val backoff = mutableMapOf<String, Long>()
     // Last send (or BATCH_RECEIVED) time per batch, on [clock]. Not stored: after a restart every open batch is due.
     private val sentAt = mutableMapOf<String, Long>()
@@ -93,6 +102,7 @@ class BatchUploader(
             buffer.clear()
             bufferSinceMs = null
             unconfirmed = store.all().any { it.failed }
+            capped = false
             // 같은 운동을 재시작 후 이어 받으면 재시작 전에 batch로 만든 원본을 다시 넣지 않는다(S15P31E105-445).
             floor = store.marks()?.takeIf { it.sessionId == sessionId }?.latest.orEmpty()
         }
@@ -119,6 +129,15 @@ class BatchUploader(
 
     override suspend fun pendingCount(sessionId: String): Int = mutex.withLock {
         store.all().count { it.sessionId == sessionId }
+    }
+
+    override suspend fun retryFailed(sessionId: String) = mutex.withLock {
+        val failed = store.all().filter { it.sessionId == sessionId && it.failed && !it.rejected }
+        if (failed.isEmpty()) return@withLock
+        store.put(failed.map { it.copy(attempts = 0, received = false, failed = false) })
+        failed.forEach { sentAt.remove(it.id); backoff.remove(it.id) }
+        unconfirmed = capped || store.all().any { it.failed }
+        publish()
     }
 
     /** Called every second while the process runs: closes a due batch and resends what timed out. */
@@ -179,12 +198,12 @@ class BatchUploader(
     /** ERROR from the phone about a batch (replyTo = its messageId). Final errors stop the retries for it. */
     suspend fun onError(replyTo: String, retryable: Boolean) = mutex.withLock {
         if (retryable) return@withLock
-        store.all().firstOrNull { it.messageId == replyTo && !it.failed }?.let { fail(it) }
+        store.all().firstOrNull { it.messageId == replyTo && !it.failed }?.let { fail(it, rejected = true) }
         publish()
     }
 
-    private fun fail(batch: OutboxBatch) {
-        store.put(listOf(batch.copy(failed = true)))
+    private fun fail(batch: OutboxBatch, rejected: Boolean = false) {
+        store.put(listOf(batch.copy(failed = true, rejected = rejected)))
         unconfirmed = true
     }
 
@@ -202,12 +221,14 @@ class BatchUploader(
         val groups = try {
             BatchFormat.split(items) { part -> BatchFormat.envelope("x".repeat(200), sessionId, BatchFormat.body(SAMPLE_ID, deviceId, sessionId, part)).size }
         } catch (_: IllegalStateException) {
+            capped = true
             unconfirmed = true
             publish()
             return
         }
         if (open + groups.size > maxPending) {
             // 64개 상한: 미확인 batch를 버리지 않고 새 수집을 멈춘다.
+            capped = true
             unconfirmed = true
             publish()
             return

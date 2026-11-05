@@ -207,7 +207,70 @@ test('finish without upload confirmation shows saveUnconfirmed', async () => {
 
   await control.finish();
 
-  expect(control.getState()).toMatchObject({ status: 'RUNNING', problem: { kind: 'saveUnconfirmed' } });
+  expect(control.getState()).toMatchObject({
+    status: 'RUNNING',
+    problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' },
+  });
+  control.dispose();
+});
+
+// S15P31E105-446: 마지막 batch 저장이 늦어 409 UPLOAD_PENDING을 받은 뒤, 워치가 저장을 확인하고 같은 END 결과를
+// pendingBatchCount=0으로 다시 보내면 '다시 확인' 없이 COMPLETED가 된다.
+test('an END result sent again after its batches were saved completes the run', async () => {
+  const { control, calls, repositories } = setup();
+  await started(control);
+  const watch = repositories.watchSession as unknown as { emit: (event: unknown) => void };
+  const original = repositories.watchSession.sendCommand;
+  let endCommand: { sessionId: string; commandId: string } | null = null;
+  const endResult = (pending: number) => ({
+    type: 'COMMAND_RESULT',
+    sessionId: endCommand!.sessionId,
+    commandId: endCommand!.commandId,
+    result: 'APPLIED',
+    appliedAt: new Date(Date.now() + 1_000).toISOString(),
+    reasonCode: null,
+    pendingBatchCount: pending,
+    uploadComplete: pending === 0,
+  });
+  repositories.watchSession.sendCommand = async (sessionId, approval) => {
+    if (approval.action !== 'END') {
+      return original(sessionId, approval);
+    }
+    endCommand = { sessionId, commandId: approval.commandId };
+    setTimeout(() => watch.emit(endResult(2)), 0);
+  };
+
+  await control.finish();
+  expect(control.getState()).toMatchObject({
+    problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' },
+  });
+  expect(calls.request.filter(action => action === 'END')).toHaveLength(1);
+
+  watch.emit(endResult(0));
+  await wait(50);
+
+  expect(control.getState()).toMatchObject({ status: 'COMPLETED', pending: null, problem: null });
+  expect(calls.request.filter(action => action === 'END')).toHaveLength(1);
+  expect(calls.report).toBe(3);
+  control.dispose();
+});
+
+test('no END result from the watch shows saveUnconfirmed for the missing result', async () => {
+  const { control, repositories } = setup();
+  await started(control);
+  const original = repositories.watchSession.sendCommand;
+  repositories.watchSession.sendCommand = async (sessionId, approval) => {
+    if (approval.action !== 'END') {
+      return original(sessionId, approval);
+    }
+  };
+
+  await control.finish();
+
+  expect(control.getState()).toMatchObject({
+    status: 'RUNNING',
+    problem: { kind: 'saveUnconfirmed', reason: 'NO_RESULT' },
+  });
   control.dispose();
 });
 

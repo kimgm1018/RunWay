@@ -2,6 +2,7 @@ package com.runway.watch.session
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.runway.watch.batch.BatchUploader
 import com.runway.watch.batch.FileBatchStore
 import com.runway.watch.cue.WatchRhythmPlayer
@@ -36,6 +37,7 @@ class RunSessions private constructor(context: Context) {
         keepAlive = ServiceKeepAlive(context),
         // S15P31E105-257: the approved rhythm BPM plays as a click and vibration while running (D-4).
         player = WatchRhythmPlayer(context),
+        log = { Log.i(TAG, it) },
     )
     val control = SessionRunControl(controller, scope, uploader.state)
 
@@ -78,6 +80,7 @@ class RunSessions private constructor(context: Context) {
 
     companion object {
         private const val TICK_MS = 5_000L
+        private const val TAG = "RunSession"
 
         @Volatile private var instance: RunSessions? = null
 

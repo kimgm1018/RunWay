@@ -121,6 +121,58 @@ class BatchUploaderTest {
         assertEquals(1, store.all().size)
     }
 
+    // S15P31E105-446: 종료 뒤 '다시 확인'(같은 END 재수신)에서 저장 미확인 batch를 같은 ID·본문으로 한 번 더 보낸다.
+    @Test
+    fun `retrying the unsaved batches of an ended run resends them for another three tries`() = runBlocking {
+        val u = uploader(finishTimeoutMs = 0)
+        u.begin("201", "101")
+        u.offer(listOf(hr(1)))
+        u.finish("201")
+        repeat(4) {
+            nowMs += 15_000
+            u.tick()
+        }
+        assertEquals(3, sender.sent.size)
+        assertTrue(u.state.value.unconfirmed)
+        val body = sender.sent[0].getJSONObject("payload").toString()
+
+        u.retryFailed("201")
+        assertFalse(u.state.value.unconfirmed)
+        assertEquals(1, u.pendingCount("201"))
+        u.tick()
+        assertEquals(4, sender.sent.size)
+        assertEquals(body, sender.sent.last().getJSONObject("payload").toString())
+        assertEquals(sender.sent[0].getString("messageId"), sender.sent.last().getString("messageId"))
+
+        // 다시 시도도 최초 포함 3회까지만 보낸다.
+        repeat(4) {
+            nowMs += 15_000
+            u.tick()
+        }
+        assertEquals(6, sender.sent.size)
+        assertTrue(u.state.value.unconfirmed)
+
+        u.retryFailed("201")
+        u.tick()
+        u.onCommitted(store.all().single().id, 1)
+        assertEquals(0, u.pendingCount("201"))
+        assertFalse(u.state.value.unconfirmed)
+    }
+
+    @Test
+    fun `retrying does not clear a collection stopped by the batch cap`() = runBlocking {
+        val u = uploader(maxPending = 1)
+        u.begin("201", "101")
+        repeat(2) { i ->
+            u.offer(listOf(hr(i.toLong())))
+            nowMs += 5_000
+            u.tick()
+        }
+        assertTrue(u.state.value.unconfirmed)
+        u.retryFailed("201")
+        assertTrue(u.state.value.unconfirmed)
+    }
+
     @Test
     fun `a final phone error stops the retries for that batch`() = runBlocking {
         val u = uploader()
@@ -133,6 +185,25 @@ class BatchUploaderTest {
         u.tick()
         assertEquals(1, sender.sent.size)
         assertTrue(u.state.value.unconfirmed)
+    }
+
+    // S15P31E105-446: 폰의 최종 오류(권한·내용 오류)로 멈춘 batch는 '다시 확인'에서도 다시 보내지 않는다.
+    @Test
+    fun `retrying the unsaved batches skips a batch stopped by a final phone error`() = runBlocking {
+        val u = uploader(finishTimeoutMs = 0)
+        u.begin("201", "101")
+        u.offer(listOf(hr(1)))
+        nowMs = 5_000
+        u.tick()
+        u.onError(sender.sent[0].getString("messageId"), retryable = false)
+        u.finish("201")
+
+        u.retryFailed("201")
+        nowMs += 60_000
+        u.tick()
+        assertEquals(1, sender.sent.size)
+        assertTrue(u.state.value.unconfirmed)
+        assertEquals(1, u.pendingCount("201"))
     }
 
     @Test

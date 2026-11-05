@@ -60,6 +60,14 @@ class FileBatchStoreTest {
         assertEquals(sent[0], sent[1])
     }
 
+    // S15P31E105-446: 최종 오류로 멈춘 batch는 재시작 뒤에도 '다시 확인'의 재전송 대상이 아니다.
+    @Test
+    fun `the final phone error mark survives a reload`() {
+        val batch = OutboxBatch("b1", "201", "watch:1", "{}", 1, failed = true, rejected = true)
+        FileBatchStore(RuntimeEnvironment.getApplication()).put(listOf(batch))
+        assertEquals(batch, FileBatchStore(RuntimeEnvironment.getApplication()).all().single())
+    }
+
     @Test
     fun `batch marks survive a reload and are not read as a batch`() {
         val marks = BatchMarks("201", mapOf("heartRate" to Instant.parse("2026-10-28T01:00:02Z")))
