@@ -246,7 +246,13 @@ AI04는 추천 페이스를 사용자의 목표 BPM으로 바꿔 `decision.cueBp
 }
 ```
 
-실제 BPM 적용 규칙(페이스가 그대로일 때 BPM 유지, 수동 변경 후 덮어쓰기, `cueBpm=null`일 때 처리)은 백엔드와 합의가 필요하다(팀 합의 N7-2).
+BPM 적용 규칙(팀 합의 N7-2, S15P31E105-462):
+
+- 적용 시점: 백엔드는 코칭을 발행할 때(`publishSuggested=true`)만 `cueBpm`을 워치에 적용한다. AI04는 5초마다 판단하지만, 발행되지 않은 판단의 `cueBpm`은 워치 BPM을 바꾸지 않는다.
+- 작은 변화: AI는 같은 지난 기록·같은 추천 페이스면 같은 `cueBpm`을 주므로 따로 거르지 않는다. 안내 페이스가 바뀔 때만 BPM이 바뀐다. 기록이 없는 사용자는 첫 1분 보정이 정해질 때(3 BPM 이상 차이) 한 번 더 바뀔 수 있다.
+- 합의 필요: 사용자가 직접 BPM을 바꾼 뒤 `cueBpm`으로 덮어쓸지, `cueBpm=null`일 때 처리(직전 BPM 유지 등).
+
+계산 일치·DB 조회·실제 러닝 재생·끝값 검증은 S15P31E105-456(`ai/service/tests/test_cuebpm_integration.py`, `ai/service/tools/replay_cue_bpm.py`)에 있다.
 
 ### 오류
 
@@ -740,7 +746,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | N5 | W07 demo 앱 upload 주소·token 설정 | 시연 입구만 두고 앱 전환은 범위 밖 | 합의 필요 |
 | N6 | 재생 데이터 출처·세션 ID·보존 | prototype Val 사본만 로컬 재생, 원본 기록 저장 없음 | 제안 |
 | N7-1 | 학습 HR 기준 | 최근 20회 GOOD HR의 P98·P85를 모집단 중앙값과 정책 비중으로 섞는다. 위험 기준 = 섞은 P98 + 3(일반화 178), 지속 기준 = 섞은 P85 | v6_8_2 반영 |
-| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 필수 `targetBpm`을 넣는 COACHING 명령 처리(현재 BPM 유지 등)는 백엔드 합의가 필요하다. 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의) | 기록 조회 합의, BPM 적용 규칙 합의 필요 |
+| N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 필수 `targetBpm`을 넣는 COACHING 명령 처리(현재 BPM 유지 등)는 백엔드 합의가 필요하다. 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의). 백엔드는 코칭 발행(`publishSuggested=true`) 때만 `cueBpm`을 적용하고, 작은 BPM 변화는 따로 거르지 않는다(S15P31E105-462, 합의) | 기록 조회·적용 시점 합의, 수동 변경 덮어쓰기·null 처리 합의 필요 |
 | N7-3 | 러닝 mode enum | AI05 `COURSE/FREE_WITH_GOAL/FREE_NO_GOAL`; AI04 입력 문자열 유지 | 잠정 |
 | N7-4 / O1 | 자유러닝 경사 null vs 0 | MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`; 경사 정보가 없으면 0% 평지 계산 후 HTTP 200과 경로별 경고 반환. 코스 경사 저장은 S15P31E105-319, unknown 정책·GPS 고도 활용은 MVP 이후 | flat0 MVP 기본값 합의(MR !142 리뷰) |
 | N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 제안 |
