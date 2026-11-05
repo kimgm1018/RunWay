@@ -213,7 +213,15 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    if (auth && accessToken && response.status === 401) {
+    const error = await toDataError(response);
+    // Only a token failure (UNAUTHORIZED, or a 401 code the app cannot read) is refreshed or expires the session.
+    // Other 401 codes such as U18 INVALID_PASSWORD reach the caller with the session kept.
+    if (
+      auth &&
+      accessToken &&
+      error.status === 401 &&
+      error.code === 'UNAUTHORIZED'
+    ) {
       if (tokenStore.session() !== session) throw sessionError();
       if (replayed) {
         expire(session);
@@ -228,7 +236,7 @@ async function request<T>(
       }
       return request<T>(path, options, session, true);
     }
-    throw await toDataError(response);
+    throw error;
   }
   const text = await response.text();
   return (text ? JSON.parse(text) : undefined) as T;

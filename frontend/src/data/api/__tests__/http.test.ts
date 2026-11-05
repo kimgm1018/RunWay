@@ -342,6 +342,65 @@ test('logout and a new login discard an old refresh response without replaying i
   });
 });
 
+test('a member 401 with a non-token code reaches the caller without rotation or sign-out', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock.mockResolvedValueOnce(
+      respond(401, {
+        code: 'INVALID_PASSWORD',
+        message: '비밀번호가 일치하지 않습니다.',
+        details: {},
+      }),
+    );
+    const error = await failure(
+      apiRequest('/users/me', { method: 'DELETE', body: { password: 'x' } }),
+    );
+    expect(error.code).toBe('INVALID_PASSWORD');
+    expect(error.status).toBe(401);
+    expect(error.message).toBe('비밀번호가 일치하지 않습니다.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-1');
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a replay answered with a non-token 401 code keeps the rotated session', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(respond(200, rotated))
+      .mockResolvedValueOnce(respond(401, { code: 'INVALID_PASSWORD' }));
+    const error = await failure(
+      apiRequest('/users/me', { method: 'DELETE', body: { password: 'x' } }),
+    );
+    expect(error.code).toBe('INVALID_PASSWORD');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-2');
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a member 401 with a code the app cannot read is treated as token failure', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401, { code: 'SOMETHING_NEW' }))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(200, { id: 7 }));
+  await expect(apiRequest('/users/me')).resolves.toEqual({ id: 7 });
+  expect(fetchMock.mock.calls[1][0]).toBe(
+    `${appConfig.apiBaseUrl}/auth/refresh`,
+  );
+});
+
 test('403 and public 401 never attempt token rotation', async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
   fetchMock
