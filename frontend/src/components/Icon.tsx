@@ -17,6 +17,15 @@ const icons = {
       <Path d="M4 13h4" />
     </>
   ),
+  // A running figure (5.3 러닝 tile), after Tabler's run (MIT).
+  runner: (
+    <>
+      <Circle cx="13" cy="4" r="1.6" />
+      <Path d="M4 17l5 1 .75-1.5" />
+      <Path d="M15 21v-4l-4-3 1-6" />
+      <Path d="M7 12V9l5-1 3 3 3 1" />
+    </>
+  ),
   group: (
     <>
       <Circle cx="8" cy="4.5" r="2" />

@@ -2,16 +2,23 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 import type {
   AuthRouteName,
   GroupTabRouteName,
+  HomeTabRouteName,
   MainRouteName,
   RunTabRouteName,
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
+// The home tab's stack: 2.1, then 5.1 (on a day, YYYY-MM-DD) and 5.3.
+export type HomeStackParamList = {
+  Home: undefined;
+} & Record<Exclude<HomeTabRouteName, 'Records'>, undefined> & {
+    Records: { day: string } | undefined;
+  };
 // The group tab is one pager screen; screen picks the page to show (GroupTabScreen).
 export type GroupTabParams = { screen?: GroupTabRouteName };
 
 export type MainTabParamList = {
-  HomeTab: undefined;
+  HomeTab: NavigatorScreenParams<HomeStackParamList> | undefined;
   RunTab: NavigatorScreenParams<RunStackParamList> | undefined;
   GroupTab: GroupTabParams | undefined;
   CommunityTab: undefined;
@@ -23,7 +30,6 @@ export type MainTabParamList = {
 export type RootStackParamList = Record<
   Exclude<
     AuthRouteName | MainRouteName,
-    | 'Records'
     | 'RecordDetail'
     | 'GroupRunDetail'
     | 'WaitingRoom'
@@ -54,8 +60,6 @@ export type RootStackParamList = Record<
   GroupRunCreate: { crewId?: string; groupRunId?: string } | undefined;
   GroupRunCancel: { groupRunId: string } | undefined;
   GroupRunResult: { groupRunId: string } | undefined;
-  // 5.1 opens on a month (YYYY-MM), this month by default.
-  Records: { month: string } | undefined;
   // 5.2 shows one run; without an id it shows the newest run.
   RecordDetail: { recordId: string } | undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;

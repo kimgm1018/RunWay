@@ -7,6 +7,7 @@ import * as fixtures from '../src/data/mock/fixtures';
 import {
   authRoutes,
   groupTabRoutes,
+  homeTabRoutes,
   mainRoutes,
   routes,
   runTabRoutes,
@@ -65,6 +66,7 @@ test('every prototype link points at a registered screen', () => {
     ...authRoutes,
     ...mainRoutes,
     ...runTabRoutes,
+    ...homeTabRoutes,
     ...groupTabRoutes,
     'Home',
     'Community',

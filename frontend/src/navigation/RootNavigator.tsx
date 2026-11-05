@@ -32,11 +32,13 @@ import { PillTabBar } from './PillTabBar';
 import {
   authRoutes,
   groupTabRoutes,
+  homeTabRoutes,
   mainRoutes,
   runTabRoutes,
   type RouteName,
 } from './routes';
 import type {
+  HomeStackParamList,
   MainTabParamList,
   RootStackParamList,
   RunStackParamList,
@@ -45,6 +47,7 @@ import type {
 const Root = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
 // Built once per route so React Navigation always receives the same component.
 const placeholders = Object.fromEntries(
@@ -53,6 +56,7 @@ const placeholders = Object.fromEntries(
       ...authRoutes,
       ...mainRoutes,
       ...runTabRoutes,
+      ...homeTabRoutes,
       ...groupTabRoutes,
       'Home',
       'Community',
@@ -115,6 +119,18 @@ function loadMapPoc() {
   return require('../screens/MapPocScreen').MapPocScreen;
 }
 
+// 2.1 with 5.1 · 5.3 on top, all under the tab bar (runway-records).
+function HomeTab() {
+  return (
+    <HomeStack.Navigator screenOptions={noHeader}>
+      <HomeStack.Screen name="Home" component={screens.Home} />
+      {homeTabRoutes.map(name => (
+        <HomeStack.Screen key={name} name={name} component={screens[name]} />
+      ))}
+    </HomeStack.Navigator>
+  );
+}
+
 function RunTab() {
   return (
     <RunStack.Navigator screenOptions={noHeader}>
@@ -133,7 +149,7 @@ function MainTabs() {
   useResumeRun();
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
-      <Tabs.Screen name="HomeTab" component={screens.Home} />
+      <Tabs.Screen name="HomeTab" component={HomeTab} />
       <Tabs.Screen name="RunTab" component={RunTab} />
       <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
       <Tabs.Screen name="CommunityTab" component={screens.Community} />
