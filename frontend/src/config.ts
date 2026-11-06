@@ -8,6 +8,10 @@ export const appConfig = {
   // Client ID of the RunWay app in the Spotify Developer Dashboard (redirect URI runway://spotify-callback).
   // Sign-in uses PKCE without a client secret, so the ID may live in the app. Empty keeps Spotify on mock data.
   spotifyClientId: 'a9edc207ef2848cda30cfddb639da6a2',
+  // Style ID of runway-k1-day in the NAVER Cloud Maps Style Editor (S15P31E105-325). Day maps use it; after
+  // sunset the map stays Naver's night map with no custom style (담당자 결정: 써 보며 비교). Like the Client ID it
+  // ships in the app; empty shows Naver's default day map.
+  naverMapDayStyleId: '66a3e64c-b1da-4776-9f63-40e6e4721ea8',
   // The installed Android build bundles JS without __DEV__, so the developer menu is a flag; turn it off before release.
   developerMenu: true,
 };
