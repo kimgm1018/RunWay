@@ -92,6 +92,7 @@ class CachedDbBpmLookup:
         return fetch(sql, params, self.timeout_ms) if callable(fetch) else self.db.fetch_one(sql, params)
 
     def _remember(self, cache: OrderedDict, key, value) -> None:
+        """lock을 잡은 채 부른다."""
         if self.max_entries <= 0:
             return
         cache[key] = value
@@ -99,11 +100,14 @@ class CachedDbBpmLookup:
         while len(cache) > self.max_entries:
             cache.popitem(last=False)
 
+    # lock은 캐시를 읽고 쓸 때만 잡고 DB는 lock 밖에서 읽는다. lock을 잡은 채 읽으면 느린 DB 한 번에
+    # 모든 러너의 AI04가 줄을 선다(S15P31E105-500).
     def _past_records(self, user_id: int) -> list[BpmRecord]:
         now = self.monotonic()
-        cached = self._records.get(user_id)
-        if cached is not None and cached[0] > now:
-            return cached[1]
+        with self._lock:
+            cached = self._records.get(user_id)
+            if cached is not None and cached[0] > now:
+                return cached[1]
         run_ids = [r["id"] for r in self._all(BPM_RUNS_SQL, {"user_id": user_id, "limit": FETCH_RUNS})]
         records = []
         if run_ids:
@@ -116,12 +120,14 @@ class CachedDbBpmLookup:
                     records.append(BpmRecord(run_no=run_no[sid], speed_mps=_num(row["speed_mps"]),
                                              cadence_spm=_num(row["cadence_spm"]), cue_bpm=cue))
         if self.ttl_sec > 0:
-            self._remember(self._records, user_id, (now + self.ttl_sec, records))
+            with self._lock:
+                self._remember(self._records, user_id, (now + self.ttl_sec, records))
         return records
 
     def _first_minute(self, session_id: int, current_bpm) -> BpmSample | None:
-        if session_id in self._first:
-            return self._first[session_id]
+        with self._lock:
+            if session_id in self._first:
+                return self._first[session_id]
         rows = self._all(BPM_WINDOWS_SQL, {"session_ids": [session_id]})
         events = self._all(BPM_EVENTS_SQL, {"session_ids": [session_id]})
         steady = [r for r in sorted(rows, key=lambda r: r["bucket"]) if is_steady(r)]
@@ -130,18 +136,20 @@ class CachedDbBpmLookup:
         first = steady[0]
         cue = cue_bpm_at(events, first["start_at"], first["end_at"], current_bpm)
         sample = BpmSample(speed_mps=_num(first["speed_mps"]), cadence_spm=_num(first["cadence_spm"]), cue_bpm=cue)
-        self._remember(self._first, session_id, sample)
+        with self._lock:
+            if session_id in self._first:          # 같은 세션 요청이 동시에 찾았으면 먼저 기억한 첫 1분을 쓴다
+                return self._first[session_id]
+            self._remember(self._first, session_id, sample)
         return sample
 
     def get_for_session(self, session_id: int) -> BpmLookupResult:
         try:
-            with self._lock:
-                session = self._one(BPM_SESSION_SQL, {"session_id": int(session_id)})
-                if session is None:
-                    return BpmLookupResult()
-                records = self._past_records(int(session["user_id"]))
-                first = self._first_minute(int(session_id), session.get("current_bpm"))
-                return BpmLookupResult(BpmInput(records=records[:MAX_RECORDS], first_minute=first))
+            session = self._one(BPM_SESSION_SQL, {"session_id": int(session_id)})
+            if session is None:
+                return BpmLookupResult()
+            records = self._past_records(int(session["user_id"]))
+            first = self._first_minute(int(session_id), session.get("current_bpm"))
+            return BpmLookupResult(BpmInput(records=records[:MAX_RECORDS], first_minute=first))
         except Exception as exc:
             log_ai_error(UNAVAILABLE_WARNING, "/v1/pace/decide", exc, level=logging.WARNING)
             return BpmLookupResult(warning=UNAVAILABLE_WARNING)
