@@ -1018,8 +1018,10 @@ export type Repositories = {
     listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
     // M03: I become the leader and the only member.
     create: (draft: CrewDraft) => Promise<{ id: string }>;
-    // M08 크루 나가기. The leader cannot leave this way (OWNER_CANNOT_LEAVE).
-    leave: (crewId: string) => Promise<void>;
+    // M08: 크루장은 승인된 다른 멤버에게 이양한 뒤 탈퇴한다.
+    leave: (crewId: string, successorUserId?: string) => Promise<void>;
+    // M11: 크루장만 인원 수와 관계없이 해산할 수 있다.
+    dissolve: (crewId: string) => Promise<void>;
     // M09: 크루장만 다른 일반 멤버를 내보낼 수 있다.
     removeMember: (crewId: string, userId: string) => Promise<void>;
     // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.

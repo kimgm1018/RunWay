@@ -466,3 +466,82 @@ test('목업도 크루장만 내보낼 수 있고 재조회 후 구성원과 인
     crews.removeMember(regularCrew.id, regularCrew.members[1].userId),
   ).rejects.toMatchObject({ code: 'NOT_ADMIN' });
 });
+
+test('M08 크루장 이양 탈퇴는 선택한 후임 ID만 본문에 보낸다', async () => {
+  serve((path, init) =>
+    path === '/crews/41/members/me' && init.method === 'DELETE'
+      ? respond(200, { status: 'LEFT' })
+      : undefined,
+  );
+  await api().crews.leave('41', '9');
+  expect(sent('DELETE')).toEqual([
+    { path: '/crews/41/members/me', body: { successorUserId: 9 } },
+  ]);
+});
+
+test('M11 해산은 본문 없이 크루 DELETE를 호출한다', async () => {
+  serve((path, init) =>
+    path === '/crews/41' && init.method === 'DELETE'
+      ? respond(200, { id: 41, status: 'INACTIVE' })
+      : undefined,
+  );
+  await api().crews.dissolve('41');
+  expect(sent('DELETE')).toEqual([{ path: '/crews/41', body: undefined }]);
+});
+
+test('M08 후임 부적합 코드를 전달한다', async () => {
+  serve(() =>
+    respond(422, { code: 'INVALID_SUCCESSOR', message: '', details: {} }),
+  );
+  await expect(api().crews.leave('41', '9')).rejects.toMatchObject({
+    code: 'INVALID_SUCCESSOR',
+    status: 422,
+  });
+});
+
+test('목업 이양 탈퇴는 후임만 크루장으로 바꾸고 본인만 목록에서 제외한다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  const before = await crews.get('crew-minrak-night');
+  const successor = before.members.find(member => !member.isMe)!;
+  await expect(crews.leave(before.id, 'missing')).rejects.toMatchObject({
+    code: 'INVALID_SUCCESSOR',
+  });
+  expect((await crews.get(before.id)).memberCount).toBe(before.memberCount);
+  await crews.leave(before.id, successor.userId);
+  const after = await crews.get(before.id);
+  expect(after.myMembership).toBeNull();
+  expect(after.amOwner).toBe(false);
+  expect(after.memberCount).toBe(before.memberCount - 1);
+  expect(after.members.some(member => member.isMe)).toBe(false);
+  expect(
+    after.members.filter(member => member.isOwner).map(member => member.userId),
+  ).toEqual([successor.userId]);
+});
+
+test('목업 해산은 비소유자를 거부하고 소유자 해산 후 검색에서 제외한다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  await expect(crews.dissolve('crew-gwangalli')).rejects.toMatchObject({
+    code: 'NOT_ADMIN',
+  });
+  const { id } = await crews.create({
+    name: '혼자 크루',
+    description: null,
+    area: '부산',
+    address: '부산',
+    capacity: 20,
+    joinPolicy: 'APPROVAL',
+  });
+  await expect(crews.leave(id)).rejects.toMatchObject({
+    code: 'OWNER_CANNOT_LEAVE',
+  });
+  await crews.dissolve(id);
+  await crews.dissolve(id);
+  expect(
+    (await crews.search({ query: '', nearby: false })).some(
+      item => item.id === id,
+    ),
+  ).toBe(false);
+  await expect(async () => crews.get(id)).rejects.toMatchObject({
+    code: 'CREW_NOT_FOUND',
+  });
+});

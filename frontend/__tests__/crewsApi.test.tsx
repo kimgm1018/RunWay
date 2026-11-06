@@ -135,6 +135,10 @@ function serve() {
         return respond(200, { items: crews.map(summary) });
       }
       let match = path.match(/^\/crews\/(\d+)$/);
+      if (match && init.method === 'DELETE') {
+        crews = crews.filter(crew => crew.id !== Number(match![1]));
+        return respond(200, { id: Number(match[1]), status: 'INACTIVE' });
+      }
       if (match) {
         return respond(200, summary(find(match[1])));
       }
@@ -153,6 +157,7 @@ function serve() {
       match = path.match(/^\/crews\/(\d+)\/members\/me$/);
       if (match && init.method === 'DELETE') {
         const crew = find(match[1]);
+        if (init.body) crew.ownerId = JSON.parse(init.body).successorUserId;
         crew.members = crew.members.filter(member => member.userId !== meId);
         return respond(200, { status: 'LEFT', leftAt: '2026-11-02T01:00:00Z' });
       }
@@ -379,7 +384,7 @@ test('6.2 lets a member leave with M08', async () => {
   await act(async () => screen.unmount());
 });
 
-test('6.2 leader approves a request on 6.2a and is asked to stay', async () => {
+test('6.2 leader approves a request and can choose a successor', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
   await press(screen, '민락 야경 러너스, 모집 중 2/30명');
@@ -397,7 +402,7 @@ test('6.2 leader approves a request on 6.2a and is asked to stay', async () => {
   await press(screen, '뒤로');
   await settle(50);
   await press(screen, '크루 나가기');
-  expect(texts(screen)).toContain('크루장은 바로 나갈 수 없어요');
+  expect(texts(screen)).toContain('크루장을 넘기고 나갈까요?');
   expect(sent('DELETE')).toEqual([]);
   await act(async () => screen.unmount());
 });
@@ -512,6 +517,177 @@ test.each([
       expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(2);
       expect(labelled(screen, '도윤 내보내기')).toBeTruthy();
     } finally {
+      await act(async () => screen.unmount());
+    }
+  },
+);
+
+test('후임을 선택하고 확인하면 이양 탈퇴 후 내 크루로 돌아간다', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+    await press(screen, '크루 나가기');
+    expect(labelled(screen, '크루장 넘기고 나가기').props.disabled).toBe(true);
+    expect(
+      screen.root.findAll(
+        node => node.props.accessibilityLabel === '민준 후임 선택',
+      ),
+    ).toHaveLength(0);
+    await press(screen, '도윤 후임 선택');
+    expect(sent('DELETE')).toEqual([]);
+    await press(screen, '크루장 넘기고 나가기');
+    const request = fetchMock.mock.calls.find(
+      ([, init]) => init.method === 'DELETE',
+    );
+    expect(JSON.parse(request![1].body)).toEqual({ successorUserId: 12 });
+    expect(crews.find(crew => crew.id === 42)!.ownerId).toBe(12);
+    expect(
+      crews
+        .find(crew => crew.id === 42)!
+        .members.some(member => member.userId === meId),
+    ).toBe(false);
+    expect(texts(screen)).toContain('‘민락 야경 러너스’에서 나왔어요');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test('혼자인 크루장은 해산 확인 전까지 요청하지 않는다', async () => {
+  crews[1].members = [{ userId: meId, nickname: '민준' }];
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '민락 야경 러너스, 모집 중 1/30명');
+    await press(screen, '크루 나가기');
+    expect(texts(screen)).toContain('크루를 해산할까요?');
+    expect(sent('DELETE')).toEqual([]);
+    await press(screen, '취소');
+    expect(sent('DELETE')).toEqual([]);
+    await press(screen, '크루 나가기');
+    await press(screen, '해산');
+    expect(sent('DELETE')).toEqual(['/crews/42']);
+    expect(crews.some(crew => crew.id === 42)).toBe(false);
+    expect(texts(screen)).toContain('‘민락 야경 러너스’를 해산했어요');
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test('일반 멤버에게는 크루 해산이 보이지 않는다', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '광안리 새벽 크루, 모집 중 3/30명');
+    expect(
+      screen.root.findAll(
+        node => node.props.accessibilityLabel === '크루 해산',
+      ),
+    ).toHaveLength(0);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test.each([
+  [403, 'NOT_ADMIN', '크루장만 해산할 수 있어요'],
+  [404, 'CREW_NOT_FOUND', '크루를 찾지 못했어요'],
+  [0, 'NETWORK_ERROR', '크루를 해산하지 못했어요'],
+] as const)(
+  '여러 멤버가 있어도 해산을 확인할 수 있고 실패(%s)하면 화면을 유지한다',
+  async (status, code, message) => {
+    const screen = await openGroup();
+    try {
+      await press(screen, '크루 모집');
+      await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+      await press(screen, '크루 해산');
+      expect(sent('DELETE')).toEqual([]);
+      const original = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation((address, init) => {
+        if (init.method === 'DELETE') {
+          if (status === 0) throw new TypeError('Network request failed');
+          return Promise.resolve(
+            respond(status, { code, message: '', details: {} }),
+          );
+        }
+        return original(address, init);
+      });
+      await press(screen, '해산');
+      expect(texts(screen)).toContain(message);
+      expect(texts(screen)).toContain('크루를 해산할까요?');
+      expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(2);
+    } finally {
+      await act(async () => screen.unmount());
+    }
+  },
+);
+
+test('후임 부적합 응답은 이양 화면과 멤버를 유지한다', async () => {
+  const screen = await openGroup();
+  try {
+    await press(screen, '크루 모집');
+    await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+    await press(screen, '크루 나가기');
+    await press(screen, '도윤 후임 선택');
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((address, init) =>
+      init.method === 'DELETE'
+        ? Promise.resolve(
+            respond(422, {
+              code: 'INVALID_SUCCESSOR',
+              message: '',
+              details: {},
+            }),
+          )
+        : original(address, init),
+    );
+    await press(screen, '크루장 넘기고 나가기');
+    expect(texts(screen)).toContain('후임으로 지정할 수 없는 멤버예요');
+    expect(texts(screen)).toContain('크루장을 넘기고 나갈까요?');
+    expect(crews.find(crew => crew.id === 42)!.ownerId).toBe(meId);
+  } finally {
+    await act(async () => screen.unmount());
+  }
+});
+
+test.each(['이양', '해산'] as const)(
+  '%s 처리 중 연속 확인은 한 번만 요청한다',
+  async action => {
+    const screen = await openGroup();
+    let release: (() => void) | undefined;
+    try {
+      await press(screen, '크루 모집');
+      await press(screen, '민락 야경 러너스, 모집 중 2/30명');
+      if (action === '이양') {
+        await press(screen, '크루 나가기');
+        await press(screen, '도윤 후임 선택');
+      } else {
+        await press(screen, '크루 해산');
+      }
+      const original = fetchMock.getMockImplementation()!;
+      fetchMock.mockImplementation(async (address, init) => {
+        if (init.method === 'DELETE')
+          await new Promise<void>(resolve => {
+            release = resolve;
+          });
+        return original(address, init);
+      });
+      const label = action === '이양' ? '크루장 넘기고 나가기' : '해산';
+      const confirm = labelled(screen, label);
+      await act(async () => {
+        confirm.props.onPress();
+        confirm.props.onPress();
+      });
+      expect(sent('DELETE')).toEqual([
+        action === '이양' ? '/crews/42/members/me' : '/crews/42',
+      ]);
+      expect(labelled(screen, label).props.disabled).toBe(true);
+      await act(async () => {
+        release!();
+      });
+      await settle();
+    } finally {
+      release?.();
       await act(async () => screen.unmount());
     }
   },
