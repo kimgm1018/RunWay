@@ -4,6 +4,12 @@ import org.springframework.http.HttpStatus;
 
 /** 공개 오류 정의. 상수 이름과 응답 code는 다를 수 있으며 기존 메시지 변형도 보존한다. */
 public enum ErrorCode {
+    FOLLOW_USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다."),
+    CANNOT_FOLLOW_SELF(HttpStatus.UNPROCESSABLE_CONTENT, "CANNOT_FOLLOW_SELF", "본인을 팔로우할 수 없습니다."),
+    REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "REQUEST_NOT_FOUND", "팔로우 요청을 찾을 수 없습니다."),
+    REQUEST_STATE_CONFLICT(HttpStatus.CONFLICT, "REQUEST_STATE_CONFLICT", "팔로우 요청 상태가 변경되었습니다."),
+    FOLLOW_INVALID_DECISION(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_DECISION", "APPROVE 또는 REJECT를 지정해 주세요."),
+    FOLLOW_INVALID_FILTER(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "요청 목록 조회 조건이 올바르지 않습니다."),
     INVALID_SHAPE(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_SHAPE", "지원하지 않는 코스 형태입니다."),
     INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "다시 로그인해 주세요."),
     NOT_AUTHOR(HttpStatus.FORBIDDEN, "NOT_AUTHOR", "작성자만 {0}할 수 있습니다."),
