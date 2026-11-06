@@ -26,8 +26,10 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seedUser() {
+        jdbc.update("DELETE FROM notifications");
         jdbc.update("DELETE FROM crew_memberships");
         jdbc.update("DELETE FROM crews");
+        jdbc.update("DELETE FROM user_settings");
         jdbc.update("DELETE FROM users");
         userId =
                 jdbc.queryForObject(
@@ -117,6 +119,7 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
     void 가입신청_목록_승인_거절_재신청_흐름() throws Exception {
         long applicantId = insertUser("applicant", "지원자", "01033334444");
         long outsiderId = insertUser("outsider", "외부인", "01055556666");
+        enableCommunityNotifications(applicantId);
 
         long crewId = createCrew(userId, "가입 테스트 크루", 10);
 
@@ -161,6 +164,12 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                                         """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("REJECTED"));
+        assertNotification(
+                applicantId,
+                "CREW_JOIN_REJECTED",
+                crewId,
+                "CREW_JOIN_REJECTED:" + crewId + ":" + applicantId,
+                "「가입 테스트 크루」크루 가입이 거절되었습니다.");
 
         mockMvc.perform(
                         patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
@@ -191,6 +200,12 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.crewId").value(crewId))
                 .andExpect(jsonPath("$.userId").value(applicantId))
                 .andExpect(jsonPath("$.status").value("APPROVED"));
+        assertNotification(
+                applicantId,
+                "CREW_JOIN_APPROVED",
+                crewId,
+                "CREW_JOIN_APPROVED:" + crewId + ":" + applicantId,
+                "「가입 테스트 크루」크루 가입이 승인되었습니다.");
 
         mockMvc.perform(
                         get("/api/v1/crews/{crewId}", crewId)
@@ -334,6 +349,7 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("OWNER_CANNOT_LEAVE"));
 
+        enableCommunityNotifications(pendingId);
         mockMvc.perform(
                         post("/api/v1/crews/{crewId}/join-requests", soloCrewId)
                                 .header("Authorization", SecurityTestSupport.bearer(pendingId)))
@@ -356,6 +372,15 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 jdbc.queryForObject(
                         "SELECT status::text FROM crews WHERE id = ?", String.class, soloCrewId);
         org.junit.jupiter.api.Assertions.assertEquals("INACTIVE", status);
+        Long rejectSpam =
+                jdbc.queryForObject(
+                        """
+                        SELECT count(*) FROM notifications
+                        WHERE user_id = ? AND notification_type = 'CREW_JOIN_REJECTED'
+                        """,
+                        Long.class,
+                        pendingId);
+        org.junit.jupiter.api.Assertions.assertEquals(0L, rejectSpam);
     }
 
     @Test
@@ -391,6 +416,36 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                 loginId,
                 nickname,
                 phone);
+    }
+
+    private void enableCommunityNotifications(long userId) {
+        jdbc.update(
+                """
+                INSERT INTO user_settings(
+                    user_id, voice_coaching_enabled, bpm_guide_enabled,
+                    group_notifications_enabled, community_notifications_enabled,
+                    location_collection_mode, account_visibility)
+                VALUES (?, false, false, false, true, 'OFF', 'PRIVATE')
+                """,
+                userId);
+    }
+
+    private void assertNotification(
+            long userId, String type, long targetId, String dedupeKey, String message) {
+        var row =
+                jdbc.queryForMap(
+                        """
+                        SELECT notification_type, target_id, dedupe_key, message
+                        FROM notifications
+                        WHERE user_id = ? AND dedupe_key = ?
+                        """,
+                        userId,
+                        dedupeKey);
+        org.junit.jupiter.api.Assertions.assertEquals(type, row.get("notification_type"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                targetId, ((Number) row.get("target_id")).longValue());
+        org.junit.jupiter.api.Assertions.assertEquals(dedupeKey, row.get("dedupe_key"));
+        org.junit.jupiter.api.Assertions.assertEquals(message, row.get("message"));
     }
 
     private long createCrew(long ownerId, String name, int capacity) throws Exception {

@@ -149,13 +149,39 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
         insertReadiness(memberId, "2026-11-03", "40.00");
         insertReadiness(memberId, "2026-11-05", "69.50");
 
-        JsonNode items = participants(groupRunId, hostId).get("items");
+        JsonNode body = participants(groupRunId, hostId);
+        JsonNode items = body.get("items");
         JsonNode hostItem = byUser(items, hostId);
         JsonNode memberItem = byUser(items, memberId);
         assertThat(hostItem.get("readyStatus").asText()).isEqualTo("READY");
         assertThat(hostItem.get("readinessScore").isNull()).isTrue();
         assertThat(memberItem.get("readyStatus").asText()).isEqualTo("WAITING");
         assertThat(memberItem.get("readinessScore").asInt()).isEqualTo(70);
+        // S15P31E105-499: session null 멤버도 대기방 인원에 포함하고 ready만 센다.
+        assertThat(body.get("participantCount").asInt()).isEqualTo(2);
+        assertThat(body.get("readyCount").asInt()).isEqualTo(1);
+        assertThat(memberItem.get("sessionId").isNull()).isTrue();
+    }
+
+    @Test
+    void participants_countsIncludeJoinOnlyRows_andIncreaseReadyAfterReadyTrue() throws Exception {
+        long groupRunId = createGroupRun();
+        join(groupRunId, memberId);
+
+        JsonNode before = participants(groupRunId, hostId);
+        assertThat(before.get("participantCount").asInt()).isEqualTo(2);
+        assertThat(before.get("readyCount").asInt()).isEqualTo(0);
+        assertThat(before.get("items")).hasSize(2);
+        assertThat(byUser(before.get("items"), memberId).get("sessionId").isNull()).isTrue();
+
+        jdbc.update(
+                "UPDATE group_run_participants SET ready = TRUE WHERE group_run_id=? AND user_id=?",
+                groupRunId,
+                memberId);
+
+        JsonNode after = participants(groupRunId, hostId);
+        assertThat(after.get("participantCount").asInt()).isEqualTo(2);
+        assertThat(after.get("readyCount").asInt()).isEqualTo(1);
     }
 
     @Test

@@ -845,7 +845,9 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
       "readyStatus": "READY",
       "readinessScore": null
     }
-  ]
+  ],
+  "participantCount": 1,
+  "readyCount": 1
 }
 ```
 
@@ -853,7 +855,9 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `items` | array | X | 그룹 참가자의 역할·준비·세션 연결 상태 목록. 세부 객체 계약 미정 |
+| `items` | array | O | 그룹 참가자의 역할·준비·세션 연결 상태 목록. `session_id` null 행도 포함한다(대기방 구성원). |
+| `participantCount` | integer | O | `group_run_participants` 해당 그룹 행 수(session null 포함). **대기방 인원**. G16와 동일 의미(S15P31E105-499). |
+| `readyCount` | integer | O | 그중 `ready=true` 행 수. G16와 동일 의미(S15P31E105-499). |
 
 중첩 객체의 저장 필드 대응(추가 표시·집계 값은 기존 후보를 유지하며 별도 확인):
 
@@ -900,6 +904,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 ### 처리 규칙
 
 - 참가자 역할·상태, 세션 연결. 위치는 별도 실시간 응답.
+- `participantCount`·`readyCount`는 `items`와 같은 조회 결과에서 집계한다. session null을 제외하지 않는다. 별도 화면 입장(presence) 상태는 두지 않는다.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -1471,7 +1476,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 - 취소 상태 반영 시 예약된 시작 임박 알림을 무효화한다. 발송 직전에도 상태를 검사하여 취소된 그룹런의 시작 알림을 보내지 않는다.
 
-- 취소하면 크루 멤버 전원(참가 여부와 무관)에게 알림을 보낸다. 취소한 그룹런은 되돌릴 수 없다. `cancelMessage`가 있으면 알림 본문에만 실을 수 있고 DB·G03에는 남지 않는다.
+- 취소하면 크루 멤버 전원(참가 여부와 무관, 취소자 본인 제외)에게 앱 내 알림함 행을 만든다(S15P31E105-458, [notifications.md](notifications.md)). 저장 코드는 기존 ERD `GROUP_RUN_PARTICIPATION_CANCELLED`(참가 취소 알림이 아님). `notifications.groupRun`이 false인 수신자는 행을 만들지 않는다. 취소한 그룹런은 되돌릴 수 없다. `cancelMessage`가 있으면 알림 본문에만 실을 수 있고 DB·G03에는 남지 않는다.
 - 취소된 그룹런은 내 크루 목록에서 빠지고, 상세 조회(G03)는 `cancellation`(사유·호스트 닉네임·역할 HOST, message는 null)과 함께 계속 열 수 있다.
 - 그룹런 시작 전 호스트 취소. 취소자 컬럼은 두지 않고 `host_id`로 파생한다.
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).

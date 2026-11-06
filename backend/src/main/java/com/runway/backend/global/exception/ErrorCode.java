@@ -10,6 +10,8 @@ public enum ErrorCode {
     REQUEST_STATE_CONFLICT(HttpStatus.CONFLICT, "REQUEST_STATE_CONFLICT", "팔로우 요청 상태가 변경되었습니다."),
     FOLLOW_INVALID_DECISION(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_DECISION", "APPROVE 또는 REJECT를 지정해 주세요."),
     FOLLOW_INVALID_FILTER(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "요청 목록 조회 조건이 올바르지 않습니다."),
+    NOTIFICATION_INVALID_FILTER(
+            HttpStatus.BAD_REQUEST, "INVALID_FILTER", "알림 목록 조회 조건이 올바르지 않습니다."),
 
     INVALID_PASSWORD(HttpStatus.UNAUTHORIZED, "INVALID_PASSWORD", "비밀번호가 올바르지 않습니다."),
     AGREEMENT_REQUIRED(HttpStatus.UNPROCESSABLE_CONTENT, "AGREEMENT_REQUIRED", "탈퇴 안내에 동의해 주세요."),

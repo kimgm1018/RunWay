@@ -193,7 +193,7 @@
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
 | `user_follows` | 팔로우 요청/성립 관계와 승인 여부 |
 | `follow_request_history` | 요청별 최종 처리 결과와 재전송 판별. 자동 삭제하지 않음 |
-| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상 |
+| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`) |
 
 ## 3. 핵심 관계와 데이터 흐름
 
@@ -233,19 +233,22 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 
 ## 5. 알림 종류와 화면 이동
 
-`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다.
+`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다. 2026-11-06(S15P31E105-458): 앱 내 알림함용이며 `dedupe_key VARCHAR(200) NOT NULL UNIQUE`로 논리 사건 중복 삽입을 막는다. FCM 토큰 저장은 이 테이블 범위가 아니다.
 
 | 알림 종류 | notification_type | target_id | 클릭 시 이동 |
 | --- | --- | --- | --- |
-| 그룹런 참여 취소 | GROUP_RUN_PARTICIPATION_CANCELLED | group_runs.id | 그룹런 상세 |
+| 그룹런 취소(G13) | GROUP_RUN_PARTICIPATION_CANCELLED | group_runs.id | 그룹런 상세. 코드명은 기존 ERD 유지. 참가 취소(G06) 알림은 만들지 않음 |
 | 크루 가입 승인 | CREW_JOIN_APPROVED | crews.id | 크루 상세 |
 | 크루 가입 거절 | CREW_JOIN_REJECTED | crews.id | 크루 상세 |
 | 게시물 댓글 | POST_COMMENT | posts.id | 게시글 상세 |
-| 그룹런 시작 임박 | GROUP_RUN_START_REMINDER | group_runs.id | 그룹런 상세 |
+| 그룹런 시작 임박 | GROUP_RUN_START_REMINDER | group_runs.id | 그룹런 상세. 발송 시각·횟수는 미정 |
+| 새 팔로워 | NEW_FOLLOWER | 행위자 users.id | 러너 프로필 |
+| 팔로우 요청 | FOLLOW_REQUEST | 행위자 users.id | 러너 프로필·요청 목록 |
+| 팔로우 승인 | FOLLOW_APPROVED | 승인자 users.id | 러너 프로필 |
 
-앱은 푸시의 종류·대상 ID로 화면을 선택한다. target_id는 여러 테이블을 가리키므로 단일 FK를 두지 않는다. 서비스가 허용 코드와 종류별 대상 조합을 검증하고, 클릭 시 삭제 여부와 현재 열람 권한을 확인한다. 삭제된 대상은 이동 불가로 안내하며 알림 수신이 비공개 기록의 접근 권한을 부여하지는 않는다. 가입 거절 후 크루 상세 조회와 가입자 전용 기능 권한도 구분한다.
+앱은 종류·대상 ID로 화면을 선택한다. target_id는 여러 테이블을 가리키므로 단일 FK를 두지 않는다. 서비스가 허용 코드와 종류별 대상 조합을 검증하고, 클릭 시 삭제 여부와 현재 열람 권한을 확인한다. 삭제된 대상은 이동 불가로 안내하며 알림 수신이 비공개 기록의 접근 권한을 부여하지는 않는다. 가입 거절 후 크루 상세 조회와 가입자 전용 기능 권한도 구분한다.
 
-참여 취소 알림의 수신자, 시작 임박 알림의 발송 시점·수신 대상은 아직 미정이다. 실제 푸시 전송·화면 이동과 푸시 토큰 저장은 이 두 컬럼 추가만으로 구현되지 않는다.
+시작 임박의 발송 시점·횟수는 미정이다. 조회·읽음 API는 [notifications.md](../api/notifications.md)를 따른다.
 
 ## 6. 상태·NULL을 읽는 기준
 
@@ -300,6 +303,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | user_devices | user_id, device_type — unlinked_at이 NULL(연결 중)일 때만 |
 | regions | region_code |
 | comments | post_id, id (부모 복합 FK의 참조 키) |
+| notifications | dedupe_key |
 
 기기는 회원별·유형별로 연결 중인 행을 하나만 둔다. 해제 후 재등록은 새 행을 만들어 연결·해제 이력을 보존하며, 설치 식별자는 저장하지 않는다(기기 API W01~W03). 크루 재가입은 같은 `(crew_id,user_id)` 행을 갱신한다. 상태 전이 시 요청·가입·탈퇴 시각을 새 상태에 맞게 정리하는 책임은 서비스에 있다. 가입 이력 전체를 별도 행으로 누적하는 모델은 이번 범위가 아니다. 로그인 아이디의 대소문자 정규화·탈퇴 후 재사용 정책은 이 UNIQUE만으로 결정되지 않는다.
 

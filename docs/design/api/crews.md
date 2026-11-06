@@ -700,7 +700,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 - body `status`는 `APPROVED`|`REJECTED`만 허용. OWNER만 처리; 비소유자 → `403 NOT_ADMIN`.
 - 대상이 PENDING이 아니면 → `409 NOT_PENDING`.
 - APPROVED 시 현재 APPROVED 인원이 `capacity` 이상이면 → `409 CREW_CAPACITY_EXCEEDED`. 승인 성공 시 `joined_at` 설정.
-- 알림 자동 발송은 **후속**. 이번 스프린트는 상태 저장만 한다(상세 정책은 [알림 정책](../requirements.md#알림-정책) 참고).
+- 승인·거절 확정 후 신청자 알림함 연계는 S15P31E105-458([notifications.md](notifications.md)). 종류는 `CREW_JOIN_APPROVED`/`CREW_JOIN_REJECTED`. 수신자 설정은 잠정 `notifications.community`(별도 확정 전까지). false이면 행 없음.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
@@ -711,7 +711,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 
 - [ ] 요청·응답의 세부 필드 타입, 허용 범위, nullable 규칙 및 실제 JSON 구조 검토
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-- [ ] 승인·거절 알림 자동 발송(이번 스프린트는 상태 저장만)
+- [x] 승인·거절 알림함 연계 계약(S15P31E105-458). 크루 전용 설정 키는 미확정
 - [ ] 인증 수단을 토큰으로 교체할 때 `X-User-Id` 제거
 
 
