@@ -3,7 +3,7 @@
 RunWay AI 추론용 **내부 API 서버**다. 앱이 직접 부르지 않고 **백엔드(Spring) 서버만** 부른다([ADR-0004](../../docs/adr/0004-python-fastapi-ai-service.md)).
 
 - 이 릴리스의 AI03·AI04 HR 예측은 팀 HF 저장소의 GRU M3-005 체크포인트를 사용한다.
-- AI04 정책 v0.4.1(`mpc-v0.4.1`, 설정 파일 이름은 `policy_v03.json` 그대로)은 학습 심박 기준과 GRU의 2분 HR 예측을 사용한다. 요청 때만 ODE 남은 구간 forecast를 추가할 수 있다.
+- AI04 정책 v0.4.2(`mpc-v0.4.2`, 설정 파일 이름은 `policy_v03.json` 그대로)은 학습 심박 기준과 GRU의 2분 HR 예측을 사용한다. 요청 때만 ODE 남은 구간 forecast를 추가할 수 있다.
 - AI05는 Planner v1, AI06은 ODE v2.1과 학습 심박 기준을 계산한다. GRU 개인 출력층은 MVP 기본값에서 계산하지 않는다.
 - AI01 readiness는 GRU 기준이다. GRU가 준비되면 ODE 상태와 관계없이 200 (`UP`), GRU가 미준비면 503 (`DOWN`)이다. ODE 가용성은 `models.ode.status`의 `UP`/`DOWN`으로 따로 확인한다.
 - AI07·AI08 시연 기능은 `DEMO_STREAM_ENABLED=false`가 기본이다. W07 GPS 표본은 AI07 SSE의 코스·고도 표시용 메모리 데이터로만 사용하며 서버 로그/파일에 저장하지 않는다.
@@ -150,7 +150,7 @@ API 문서(OpenAPI): `http://localhost:8000/docs`
 | GET | `/health` | 서버·모델 상태 |
 | GET | `/v1/model-info` | GRU·ODE 버전, 필요한 입력(`requiredMetrics`), 과거 길이(`windowSec`), `minSamples`, ODE 검증 지평 |
 | POST | `/v1/hr/predict` | pace 후보별 30·60·120초 뒤 심박 예측, 선택 `userId` GRU 개인화 |
-| POST | `/v1/pace/decide` | 정책 v0.4.1 + GRU 판단, 선택 학습 HR 기준 조회, ODE forecast는 선택 |
+| POST | `/v1/pace/decide` | 정책 v0.4.2 + GRU 판단, 선택 학습 HR 기준 조회, ODE forecast는 선택 |
 | POST | `/v1/pace/plan` | Planner v1 출발 전 페이스 계획 |
 | POST | `/v1/hr/personalize` | ODE summary u·History8·P4와 선택 GRU 출력층 개인화 |
 | GET | `/v1/demo/sessions/{sessionRef}/events` | AI07 시연 SSE (`DEMO_STREAM_ENABLED=false` 기본) |
@@ -315,7 +315,7 @@ DB 오류·시간 초과는 503 `AI_DB_UNAVAILABLE`(원문 미노출).
 - 마지막 400m에서는 안전 한계(SAFETY)를 위험 기준 + 정책 `final_stretch_extra_bpm`(기본 5 bpm)으로 올린다(일반화만 쓰면 178 + 5 = 183). 허용선(SLOW_ONLY gate)은 위험 기준 그대로다. 옛 정책의 "허용선 = hard, 안전 한계 = HRmax"에서 HRmax 자리만 바꾼 것이다.
 - 계획이 있는 첫 요청은 t=0초부터 호출해도 된다. 한 칸 기록이면 GRU 예측 없이 `PLAN_HOLD` 계획 페이스를 돌려주고 `HISTORY_TOO_SHORT_PLAN_HOLD`를 붙인다. 이 응답에는 자유러닝 경고를 붙이지 않는다. 그 한 칸의 심박이 위험 기준 이상이면 SAFETY를 우선한다.
 - 요청 `anchorPaceSecPerKm`에는 현재 러너에게 안내 중인 페이스를 넣는다. 실제 측정 페이스를 넣으면 후보 기준이 바뀌어 안내 페이스가 튈 수 있다.
-- `EASE_OFF`·`WALK_ADVISED` 같은 경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
+- `EASE_OFF`·`OVERPACE` 같은 판단·경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
 
 **코스 경사 출처** (`DbCourseLookup.get_course`, 앞에서부터 처음 성공한 것을 쓴다)
 
@@ -337,7 +337,7 @@ DB 오류·시간 초과는 503 `AI_DB_UNAVAILABLE`(원문 미노출).
 - GRU 출력층은 Support로 계산하지만 predictor 기본 상태에는 넣지 않는다. 러닝 중에는 현재 체크포인트 SHA·스키마·head 모양·유한값이 모두 맞을 때만 요청 하나 동안 적용하고, 끝나면 기본 상태로 되돌린다.
 - 개인화 조회 실패는 러닝 중 기본 GRU 예측을 막지 않는다. 경고: `GRU_PERSONALIZATION_NOT_FOUND`, `GRU_PERSONALIZATION_TABLE_MISSING`, `GRU_PERSONALIZATION_MODEL_MISMATCH`, `GRU_PERSONALIZATION_INVALID`, `GRU_PERSONALIZATION_UNAVAILABLE`. DB 오류가 503인 출발 전 개인 계획과 다르게, 러닝 중에는 안전 안내를 먼저 반환한다.
 - `GRU_PERSONALIZATION_ENABLED=false`가 기본이다. MVP에서 GRU 개인화는 사용하지 않으며 C11·C12는 MVP 이후 선택 항목이다. 꺼져 있으면 위 경고는 붙지 않는다(조회 자체를 하지 않음). 위 경고는 켠 상태의 실패만 뜻한다.
-- 현재 정책 버전은 `policy_v03.json`/`mpc-v0.4.1`이다. `PLAN_HOLD` 60초 → `PLAN_BLEND` 180초 → MPC 단계에서는 심박 안전 gate를 항상 적용한다.
+- 현재 정책 버전은 `policy_v03.json`/`mpc-v0.4.2`이다. 응답 `decision.coachingLevel`(OK/CAUTION/DANGER)과 위험 감속 하한 11:07/km는 `docs/design/api/ai-service.md` "코칭 단계"를 따른다(S15P31E105-504). `PLAN_HOLD` 60초 → `PLAN_BLEND` 180초 → MPC 단계에서는 심박 안전 gate를 항상 적용한다.
 
 ### 확정이 필요한 것 (백엔드와 협의)
 

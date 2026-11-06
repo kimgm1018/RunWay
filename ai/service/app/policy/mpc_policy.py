@@ -121,16 +121,19 @@ def plan_pace(ctx: DecideContext, prog: Progress) -> float:
 
 
 def ease_off_pace(ctx: DecideContext, pace_now_sec_per_km: float | None, cfg: PolicyConfig) -> float:
-    """위험 심박일 때의 감속 권고 pace. 실측과 지금 안내 중 느린 쪽에 ease_off를 더한다(S15P31E105-497).
+    """위험 심박일 때의 감속 권고 pace = max(안내, min(max(실측, 안내) + ease_off, 걷기 경계)).
 
-    실측만 기준으로 하면 러너가 안내보다 빠를 때 권고가 안내와 같거나 더 빨라진다
-    (안내 5:30·실측 4:50 → 5:20). 그러면 안내가 오히려 빨라지거나, 같은 값이라 발행되지 않는다.
+    - 실측과 지금 안내 중 느린 쪽에 ease_off를 더한다(S15P31E105-497). 실측만 기준으로 하면 러너가 안내보다
+      빠를 때 권고가 안내와 같거나 더 빨라진다(안내 5:30·실측 4:50 → 5:20).
+    - 감속 권고가 이어져도 걷기 경계(walk_speed_mps, 1.5 m/s = 11:07/km)보다 느려지지 않는다. 멈춤·걷기 권고는
+      두지 않는다(S15P31E105-504). 안내가 이미 걷기 경계보다 느리면 안내보다 빨라지지 않게 안내를 그대로 쓴다.
     """
     base = pace_now_sec_per_km if pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
     guide = ctx.current_guide_pace_sec_per_km
     if guide is not None:
         base = max(base, guide)
-    return base + cfg.ease_off_sec_per_km
+    pace = min(base + cfg.ease_off_sec_per_km, 1000.0 / cfg.walk_speed_mps)
+    return max(pace, guide) if guide is not None else pace
 
 
 class MpcPolicy:
@@ -210,6 +213,14 @@ class MpcPolicy:
             known = [v for v in upper_tuple if v is not None]
             peaks.append(max(known) if known else None)
 
+        # 러너가 지금 실측 속도로 계속 달릴 때의 상한 심박. 안내 그대로 후보(2)의 경사·여유 표 칸을 쓴다(S15P31E105-504).
+        actual_peak = None
+        if inp.actual_pred_hr_bpm is not None and len(inp.candidates) > 2:
+            dspeed = inp.speed_now_mps - mean_past if mean_past is not None else None
+            grade = _mean(inp.candidates[2].future_grade_pct)
+            actual_peak = max(p + self.margins.margin(h, dspeed, grade)
+                              for h, p in zip((30, 60, 120), inp.actual_pred_hr_bpm))
+
         baseline_peak = peaks[2] if len(peaks) > 2 else None
         baseline_allow = allow_by_candidate[2] if allow_by_candidate else allow_at(prog.p, ref, self.cfg)
         baseline_hard = hard_by_candidate[2] if hard_by_candidate else ref.danger_bpm
@@ -224,10 +235,6 @@ class MpcPolicy:
                         if inp.pace_now_sec_per_km is not None and guide is not None else None)
         if safety:
             recommended = ease_off_pace(ctx, inp.pace_now_sec_per_km, self.cfg)
-            # WALK_ADVISED 조건은 그대로 둔다(실측 + ease_off ≤ 안내). 뜻 재정의는 멈춤 권고(P0-2)와 함께 정한다.
-            actual_base = inp.pace_now_sec_per_km if inp.pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
-            if guide is not None and guide >= actual_base + self.cfg.ease_off_sec_per_km:
-                warnings.append("WALK_ADVISED")
             verdicts = tuple(CandidateVerdict(upper_hr_bpm=u, peak_upper_bpm=p, passed=False,
                                                reject_reason="SAFETY", score=None)
                              for u, p in zip(upper_by_candidate, peaks))
@@ -239,7 +246,7 @@ class MpcPolicy:
                                        publish=True, ref=ref, allow=baseline_allow, hard_eff=baseline_hard,
                                        actual_minus=actual_minus, prog=prog, warnings=tuple(warnings))
             # 심박 안전이 먼저다. 계획 단계는 알리기만 한다.
-            return replace(output, handover_phase=phase, plan_weight=plan_weight)
+            return replace(output, handover_phase=phase, plan_weight=plan_weight, coaching_level="DANGER")
 
         if baseline_peak is None:
             gate = "ALL"
@@ -249,6 +256,12 @@ class MpcPolicy:
             gate = "HOLD_OR_SLOW"
         else:
             gate = "ALL"
+
+        # 코칭 단계(S15P31E105-504). CAUTION = 이대로 가면 힘들어질 것: 안내 페이스로도 허용선 이상(SLOW_ONLY),
+        # 과속 감지(OVERPACE), 또는 실측 속도로 계속 달릴 때의 상한이 허용선 이상. 그 밖은 OK(막지 않음).
+        caution = (gate == "SLOW_ONLY" or "OVERPACE" in warnings
+                   or (actual_peak is not None and actual_peak >= baseline_allow))
+        coaching_level = "CAUTION" if caution else "OK"
 
         hold_times = [t for t in (ctx.guide_pace_set_at, ctx.resumed_at) if t is not None]
         hold = bool(hold_times and (inp.now - max(hold_times)).total_seconds() < self.cfg.hold_sec)
@@ -289,6 +302,13 @@ class MpcPolicy:
             chosen = min(allowed, key=lambda i: (abs(inp.candidates[i].pace_sec_per_km - target),
                                                   -inp.candidates[i].pace_sec_per_km))
             handover_reason = phase
+        if (coaching_level == "OK" and handover_reason is None and inp.candidates[chosen].delta_sec_per_km > 0
+                and not prog.goal_unreachable):
+            # OK(심박 여유)면 목표보다 앞서 있다는 이유로 안내를 늦추지 않는다(인계 I-12, S15P31E105-504).
+            # 안내 그대로 후보가 통과했을 때만 바꾼다. 심박 때문에 늦추는 SLOW_ONLY는 CAUTION이라 여기 오지 않는다.
+            same = [i for i in allowed if inp.candidates[i].delta_sec_per_km == 0]
+            if same:
+                chosen = same[0]
         candidate = inp.candidates[chosen]
         delta = candidate.delta_sec_per_km
         if delta > 0 and gate == "SLOW_ONLY":
@@ -335,4 +355,4 @@ class MpcPolicy:
                                    gate=gate, verdicts=tuple(verdicts_list), publish=publish, ref=ref,
                                    allow=baseline_allow, hard_eff=baseline_hard, actual_minus=actual_minus,
                                    prog=prog, warnings=tuple(warnings))
-        return replace(output, handover_phase=phase, plan_weight=plan_weight)
+        return replace(output, handover_phase=phase, plan_weight=plan_weight, coaching_level=coaching_level)

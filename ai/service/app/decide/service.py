@@ -45,6 +45,30 @@ def recent_inputs(history) -> tuple[float | None, float | None, float | None]:
     return hr_now, speed_now, pace_now
 
 
+def _anchor_index(body: DecideRequest) -> int:
+    """안내(기준 페이스) 그대로인 후보의 위치. 후보는 −10, −5, 0, +5, +10 순서라 보통 2다."""
+    anchor = body.context.anchor_pace_sec_per_km
+    return min(range(len(body.candidates)), key=lambda i: abs(body.candidates[i].pace_sec_per_km - anchor))
+
+
+def _with_actual_speed(batch: dict, speed: float, anchor_index: int) -> dict:
+    """안내 그대로 후보를 복사해 미래 속도만 실측 속도로 바꾼 행을 배치 끝에 덧붙인다(S15P31E105-504).
+
+    과거 심박·속도·경사, 경과 시간, 미래 경사는 그 후보와 같다. GRU는 마지막 행으로
+    "러너가 지금 속도로 2분 계속 달리면"의 심박을 예측한다.
+    """
+    out = {}
+    for key, value in batch.items():
+        if value is None:
+            out[key] = None
+            continue
+        row = np.array(value[anchor_index:anchor_index + 1], copy=True)
+        if key == "future_speed":
+            row[:] = speed
+        out[key] = np.concatenate([value, row], axis=0)
+    return out
+
+
 def _outcome(body, status, response, policy, pred_hr, received_at, decided_at, begin, model_ms, error):
     return DecideOutcome(body, status, response, policy, pred_hr, received_at, decided_at,
                          (time.perf_counter() - begin) * 1000.0, model_ms, error)
@@ -111,10 +135,6 @@ def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, 
         action, status, reason = "EASE_OFF", "SAFETY", "SAFETY"
         reason_text = f"실측 심박 {round(hr_now)}가 위험 기준 {round(thresholds.danger_bpm)} 이상입니다. 페이스를 늦춰 주세요."
         gate = "SAFETY"
-        # WALK_ADVISED 조건은 그대로 둔다(실측 + ease_off ≤ 안내). 뜻 재정의는 멈춤 권고(P0-2)와 함께 정한다.
-        actual_base = pace_now if pace_now is not None else ctx.anchor_pace_sec_per_km
-        if guide is not None and guide >= actual_base + cfg.ease_off_sec_per_km:
-            extra_warnings = extra_warnings + ("WALK_ADVISED",)
     else:
         recommended = plan_pace(ctx, prog)
         action, status, reason = "GUIDE_PACE", "OK", "PLAN_HOLD"
@@ -127,6 +147,8 @@ def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, 
         route_progress_m=ctx.route_progress_m, based_on_state_version=ctx.state_version,
         expires_at=min(decided_at, ctx.input_as_of) + timedelta(seconds=20),
         reason=reason, reason_text=reason_text,
+        # 한 칸 경로는 예측이 없어 실측 심박으로만 나눈다(S15P31E105-504).
+        coaching_level="DANGER" if safety else "OK",
     )
     actual_minus = pace_now - guide if pace_now is not None and guide is not None else None
     response = DecideResponse(
@@ -207,6 +229,17 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     thresholds, threshold_warnings = _thresholds_for_user(body.user_id, hr_threshold_lookup, cfg,
                                                           configured=hr_threshold_lookup_configured)
 
+    hr_now, speed_now, pace_now = recent_inputs(body.history)
+    # 코칭 단계용: 러너가 실측 속도로 2분 달리는 행을 하나 덧붙여 같은 GRU 호출로 함께 예측한다(S15P31E105-504).
+    # 요청 후보 5개는 그대로다. 걷기·정지면 정책이 NOT_RUNNING으로 끝내므로 덧붙이지 않는다.
+    actual_speed = (speed_now if getattr(cfg, "actual_pace_check_enabled", False) and speed_now is not None
+                    and speed_now >= cfg.walk_speed_mps else None)
+    n_rows = len(body.candidates) + (1 if actual_speed is not None else 0)
+
+    def model_batch() -> dict:
+        batch = to_batch(body, free_run_grade_policy)
+        return _with_actual_speed(batch, actual_speed, _anchor_index(body)) if actual_speed is not None else batch
+
     model_start = time.perf_counter()
     personalization_warning = None
     personalization_version = None
@@ -228,8 +261,8 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
             if callable(predict_with_state):
                 try:
                     candidate_prediction = np.asarray(
-                        predict_with_state(to_batch(body, free_run_grade_policy), personalization.state), dtype=float)
-                    if (candidate_prediction.shape != (len(body.candidates), 3)
+                        predict_with_state(model_batch(), personalization.state), dtype=float)
+                    if (candidate_prediction.shape != (n_rows, 3)
                             or not np.isfinite(candidate_prediction).all()):
                         raise ValueError("GRU 개인화 출력이 올바르지 않습니다.")
                     prediction = candidate_prediction
@@ -246,15 +279,16 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                 personalization_warning = UNAVAILABLE_WARNING
     try:
         if prediction is None:
-            prediction = np.asarray(model.predict(to_batch(body, free_run_grade_policy)), dtype=float)
+            prediction = np.asarray(model.predict(model_batch()), dtype=float)
     except Exception:
         raise ApiError(500, "PREDICTION_FAILED", "모델 출력이 올바르지 않습니다.") from None
     model_ms = (time.perf_counter() - model_start) * 1000.0
-    if prediction.shape != (len(body.candidates), 3) or not np.isfinite(prediction).all():
+    if prediction.shape != (n_rows, 3) or not np.isfinite(prediction).all():
         raise ApiError(500, "PREDICTION_FAILED", "모델 출력이 올바르지 않습니다.")
-    pred_hr = tuple(tuple(float(v) for v in row) for row in prediction)
+    pred_hr = tuple(tuple(float(v) for v in row) for row in prediction[:len(body.candidates)])
+    actual_pred = (tuple(float(v) for v in prediction[len(body.candidates)])
+                   if actual_speed is not None else None)
     decided_at = now()
-    hr_now, speed_now, pace_now = recent_inputs(body.history)
     recent_cells = tuple(zip(body.history.hr_bpm[-12:], body.history.speed_mps[-12:]))
     candidates = tuple(
         PolicyCandidate(
@@ -266,7 +300,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
         ) for i, c in enumerate(body.candidates)
     )
     policy_input = PolicyInput(decided_at, age, hr_now, speed_now, pace_now, recent_cells, body.context,
-                               candidates, thresholds)
+                               candidates, thresholds, actual_pred_hr_bpm=actual_pred)
     try:
         output = policy.decide(policy_input)
     except Exception as exc:
@@ -297,6 +331,7 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
             predicted_hr_120_bpm=chosen_pred[2], route_progress_m=body.context.route_progress_m,
             based_on_state_version=body.context.state_version, expires_at=expires,
             reason=output.reason, reason_text=output.reason_text,
+            coaching_level=getattr(output, "coaching_level", None),
         )
     response = DecideResponse(
         trace_id=None, model_version=model.info.model_version, policy_version=policy.policy_version,

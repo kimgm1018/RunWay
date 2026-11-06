@@ -27,6 +27,8 @@ class PolicyInput:
     context: DecideContext
     candidates: tuple[PolicyCandidate, ...]
     hr_thresholds: "HrThresholds | None" = None
+    # 러너의 실측 속도로 2분을 달린다고 본 예측 심박(30/60/120초). 코칭 단계 판정용, 끄면 None(S15P31E105-504).
+    actual_pred_hr_bpm: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ class PolicyOutput:
     # 러닝 초반 계획 넘겨주기 단계: PLAN_HOLD / PLAN_BLEND / MPC, 계획 비중 w. 기능이 꺼져 있으면 None.
     handover_phase: str | None = None
     plan_weight: float | None = None
+    # 코칭 단계 OK / CAUTION / DANGER(S15P31E105-504). 판단이 없거나 정책이 정하지 않으면 None.
+    coaching_level: str | None = None
 
 
 class PacePolicy(Protocol):

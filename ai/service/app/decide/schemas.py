@@ -198,6 +198,8 @@ class Decision(CamelModel):
     expires_at: datetime
     reason: str | None = None
     reason_text: str | None = None
+    # 코칭 단계(S15P31E105-504): OK 막지 않음 · CAUTION 안내 페이스로 복귀 · DANGER 위험 감속. 없어도 되는 칸이다.
+    coaching_level: Literal["OK", "CAUTION", "DANGER"] | None = None
 
     @field_validator("expires_at")
     @classmethod
