@@ -958,6 +958,12 @@ export type Repositories = {
     get: () => Promise<AppSettings>;
     update: (change: Partial<AppSettings>) => Promise<AppSettings>;
   };
+  // 8.1 건강정보 수집 (W04·W05): the server's HEALTH_DATA consent, true when given.
+  // setHealth resolves to the value the server applied.
+  consents: {
+    getHealth: () => Promise<boolean>;
+    setHealth: (granted: boolean) => Promise<boolean>;
+  };
   // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
   account: {
     getWithdrawalSummary: () => Promise<WithdrawalSummary>;

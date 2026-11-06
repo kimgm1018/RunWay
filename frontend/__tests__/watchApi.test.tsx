@@ -104,6 +104,12 @@ function serve() {
           onboardingCompleted: true,
         });
       }
+      // W05 for the 8.1 건강정보 수집 tile (S15P31E105-396).
+      if (path === '/consents' && init.method === 'GET') {
+        return respond(200, {
+          items: [{ consentType: 'HEALTH_DATA', granted: true }],
+        });
+      }
       // U19·U13 for the 8.1 setting tiles (S15P31E105-460).
       if (path === '/users/me/settings' && init.method === 'GET') {
         return respond(200, {

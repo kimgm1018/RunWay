@@ -322,6 +322,8 @@ export function createMockRepositories(
     ...fixtures.appSettings,
     notifications: { ...fixtures.appSettings.notifications },
   };
+  // HEALTH_DATA consent (W04·W05): the demo account gave it; a new account keeps what 1.4 picked.
+  let healthConsent = true;
   // 1.8 starts with the watch off; 8.1 연결 해제 turns it off until 1.7 or 실행 취소 reconnects.
   let watchConnected = options.scenario !== 'watchDisconnected';
   const watchState = () =>
@@ -478,6 +480,7 @@ export function createMockRepositories(
         };
         accounts.set(request.loginId, account);
         runningProfileSaved = false;
+        healthConsent = request.healthDataAccess === 'AGREEE';
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {
@@ -563,6 +566,13 @@ export function createMockRepositories(
           social.setPrivate(change.isPrivate);
         }
         return respond(settings, options);
+      },
+    },
+    consents: {
+      getHealth: () => respond(healthConsent, options),
+      setHealth: granted => {
+        healthConsent = granted;
+        return respond(healthConsent, options);
       },
     },
     account: {

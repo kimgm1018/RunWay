@@ -2,12 +2,21 @@ import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories } from '../src/data';
+import { createMockRepositories, type Repositories } from '../src/data';
+import { DataError } from '../src/data/errors';
+import { setWatchHealthConsent } from '../src/health/watchHealth';
 
 jest.mock(
   'react-native-safe-area-context',
   () => require('react-native-safe-area-context/jest/mock').default,
 );
+// 8.1 건강정보 수집 hands the saved consent to the watch; the tests read what it was given.
+jest.mock('../src/health/watchHealth', () => ({
+  ...jest.requireActual('../src/health/watchHealth'),
+  setWatchHealthConsent: jest.fn(async () => undefined),
+}));
+const watchConsent = setWatchHealthConsent as jest.Mock;
+beforeEach(() => watchConsent.mockClear());
 // The first React Native render loads lazy host components on this Windows runner.
 jest.setTimeout(60000);
 
@@ -53,14 +62,13 @@ async function type(screen: Screen, label: string, text: string) {
   await settle();
 }
 
-async function openSettings() {
+async function openSettings(
+  repositories: Repositories = createMockRepositories({ latencyMs: 0 }),
+) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({ latencyMs: 0 })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
   await settle();
@@ -107,6 +115,60 @@ test('8.1 tiles switch at once and 8.1b picks where the location is recorded', a
   await press(screen, '뒤로');
   await settle(50);
   expect(stateOf(screen, '위치 기록')).toBe('항상');
+  await act(async () => screen.unmount());
+});
+
+test('8.1 건강정보 수집 asks before withdrawing and gives consent again at once', async () => {
+  const screen = await openSettings();
+  expect(stateOf(screen, '건강정보 수집')).toBe('동의함');
+
+  // A tap only asks; 취소 leaves the consent as it was.
+  await press(screen, '건강정보 수집');
+  expect(texts(screen)).toContain('건강정보 수집 동의를 철회할까요?');
+  await press(screen, '취소');
+  expect(stateOf(screen, '건강정보 수집')).toBe('동의함');
+  expect(watchConsent).not.toHaveBeenCalled();
+
+  await press(screen, '건강정보 수집');
+  await press(screen, '철회하기');
+  expect(stateOf(screen, '건강정보 수집')).toBe('철회함');
+  expect(texts(screen)).toContain('건강정보 수집 동의를 철회했어요');
+  expect(watchConsent).toHaveBeenLastCalledWith('DISAGREE');
+
+  // Giving it again needs no sheet.
+  await press(screen, '건강정보 수집');
+  expect(stateOf(screen, '건강정보 수집')).toBe('동의함');
+  expect(watchConsent).toHaveBeenLastCalledWith('AGREEE');
+  await act(async () => screen.unmount());
+});
+
+test('8.1 asks W05 again when W04 fails and shows what the server holds', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  // The withdrawal landed on the server, but its answer was lost.
+  let server = true;
+  repositories.consents = {
+    getHealth: async () => server,
+    setHealth: async granted => {
+      server = granted;
+      throw new DataError('NETWORK_ERROR', '응답 없음');
+    },
+  };
+  const screen = await openSettings(repositories);
+  await press(screen, '건강정보 수집');
+  await press(screen, '철회하기');
+  expect(stateOf(screen, '건강정보 수집')).toBe('철회함');
+  expect(texts(screen)).toContain('건강정보 수집 동의를 철회했어요');
+  expect(watchConsent).toHaveBeenLastCalledWith('DISAGREE');
+
+  // Nothing landed this time: the tile stays and the user is told to try again.
+  repositories.consents.setHealth = async () => {
+    throw new DataError('SERVER_ERROR', '503');
+  };
+  await press(screen, '건강정보 수집');
+  expect(stateOf(screen, '건강정보 수집')).toBe('철회함');
+  expect(texts(screen)).toContain(
+    '저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
   await act(async () => screen.unmount());
 });
 

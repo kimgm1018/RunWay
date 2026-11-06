@@ -5,6 +5,7 @@ import {
 import type { Repositories } from '../types';
 import { checkLoginId, login, logout, signUp } from './auth';
 import { createCommunityApi } from './community';
+import { consentsApi } from './consents';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
@@ -69,6 +70,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       }),
     },
     records,
+    // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.
+    consents: consentsApi,
     // 8.1 설정·8.1b 위치 기록: U19·U20 app settings and U13·U14 account visibility.
     settings: settingsApi,
     // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
