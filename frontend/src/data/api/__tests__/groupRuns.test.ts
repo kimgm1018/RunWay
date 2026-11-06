@@ -454,6 +454,26 @@ test('G09 sends no body; G13 and G12 use the actual endpoints', async () => {
   ]);
 });
 
+test('G13 sends the trimmed cancelMessage and leaves a blank one out', async () => {
+  serve((path, init) =>
+    init.method === 'POST' && path.endsWith('/cancel')
+      ? respond(200, {})
+      : undefined,
+  );
+  const { groupRuns } = api();
+  await groupRuns.cancel('61', 'WEATHER', '  비가 많이 와요  ');
+  await groupRuns.cancel('62', 'PERSONAL', '   ');
+  await groupRuns.cancel('63', 'OTHER', null);
+  expect(sent('POST')).toEqual([
+    {
+      path: '/group-runs/61/cancel',
+      body: { cancelReason: 'WEATHER', cancelMessage: '비가 많이 와요' },
+    },
+    { path: '/group-runs/62/cancel', body: { cancelReason: 'PERSONAL' } },
+    { path: '/group-runs/63/cancel', body: { cancelReason: 'OTHER' } },
+  ]);
+});
+
 test('G09 approval does not imply a start; watchStart waits for my confirmed session', async () => {
   let started = false;
   serve(path => {

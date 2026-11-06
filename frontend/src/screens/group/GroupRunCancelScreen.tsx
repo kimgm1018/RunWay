@@ -2,8 +2,10 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
+  TextInput,
   View,
 } from 'react-native';
 import {
@@ -17,6 +19,7 @@ import {
   BottomSheet,
   EmptyState,
   Icon,
+  KeyboardLift,
   LightGlass,
   useToast,
 } from '../../components';
@@ -33,12 +36,16 @@ import {
   size,
   spacing,
   ThemeProvider,
+  typography,
   useTheme,
 } from '../../theme';
 import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
 import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
 import { formatSchedule, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
+
+// G13 cancelMessage: at most 100 characters, sent once as the members' notification body.
+const messageLimit = 100;
 
 // 6.4c-CancelButton: the raised white bottom pill of the 6 그룹 screens, its circle in --warn with a ×.
 function CancelButton({
@@ -86,6 +93,7 @@ export function GroupRunCancelScreen() {
     ),
   );
   const [reason, setReason] = useState<GroupRunCancelReason | null>(null);
+  const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const run = detail.status === 'ready' ? detail.data : null;
@@ -97,7 +105,7 @@ export function GroupRunCancelScreen() {
     }
     setBusy(true);
     try {
-      await groupRuns.cancel(groupRunId, reason);
+      await groupRuns.cancel(groupRunId, reason, message);
       changed();
       setConfirming(false);
       // Back to 6.4, which now shows the cancelled run (6.4e).
@@ -130,57 +138,87 @@ export function GroupRunCancelScreen() {
       ) : !run ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
-        <View style={styles.content}>
-          {/* 6.4c-RunSummary: no card. */}
-          <View style={styles.summary}>
-            <AppText style={styles.crew}>{run.crewName}</AppText>
-            <AppText style={styles.title}>{run.title}</AppText>
-            <AppText style={styles.sub}>
-              {`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
-            </AppText>
-          </View>
-          {/* 6.4c-CancelReason: a line-labelled section; the picked chip is navy, the rest light glass. */}
-          <View style={styles.reasons}>
-            <View style={styles.rowBetween}>
-              <SectionLabel tone="light">취소 이유</SectionLabel>
-              <AppText style={styles.note}>하나만 골라요</AppText>
+        <KeyboardLift style={styles.flex}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.content}
+          >
+            {/* 6.4c-RunSummary: no card. */}
+            <View style={styles.summary}>
+              <AppText style={styles.crew}>{run.crewName}</AppText>
+              <AppText style={styles.title}>{run.title}</AppText>
+              <AppText style={styles.sub}>
+                {`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
+              </AppText>
             </View>
-            <View style={styles.chips}>
-              {cancelReasons.map(item => {
-                const selected = item.value === reason;
-                return (
-                  <Pressable
-                    key={item.value}
-                    accessibilityRole="radio"
-                    accessibilityLabel={item.label}
-                    accessibilityState={{ selected }}
-                    onPress={() => setReason(item.value)}
-                    style={({ pressed }) => pressed && styles.chipPressed}
-                  >
-                    {selected ? (
-                      <Raised tone="navy" style={styles.chip}>
-                        <AppText style={styles.chipTextOn}>
-                          {item.label}
-                        </AppText>
-                      </Raised>
-                    ) : (
-                      <LightGlass radius={19} style={styles.chip}>
-                        <AppText style={styles.chipText}>{item.label}</AppText>
-                      </LightGlass>
-                    )}
-                  </Pressable>
-                );
-              })}
+            {/* 6.4c-CancelReason: a line-labelled section; the picked chip is navy, the rest light glass. */}
+            <View style={styles.reasons}>
+              <View style={styles.rowBetween}>
+                <SectionLabel tone="light">취소 이유</SectionLabel>
+                <AppText style={styles.note}>하나만 골라요</AppText>
+              </View>
+              <View style={styles.chips}>
+                {cancelReasons.map(item => {
+                  const selected = item.value === reason;
+                  return (
+                    <Pressable
+                      key={item.value}
+                      accessibilityRole="radio"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ selected }}
+                      onPress={() => setReason(item.value)}
+                      style={({ pressed }) => pressed && styles.chipPressed}
+                    >
+                      {selected ? (
+                        <Raised tone="navy" style={styles.chip}>
+                          <AppText style={styles.chipTextOn}>
+                            {item.label}
+                          </AppText>
+                        </Raised>
+                      ) : (
+                        <LightGlass radius={19} style={styles.chip}>
+                          <AppText style={styles.chipText}>
+                            {item.label}
+                          </AppText>
+                        </LightGlass>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-          {/* 6.4c-CancelNotice: the coral bell and the line, no box. */}
-          <View style={styles.warning}>
-            <Icon name="bell" color={k1.coral} size={16} />
-            <AppText style={[styles.warningText, styles.flex]}>
-              {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
-            </AppText>
-          </View>
-        </View>
+            {/* 6.4c-CancelMessage: an optional note; a blank one is not sent and the server's default text goes out. */}
+            <View style={styles.reasons}>
+              <View style={styles.rowBetween}>
+                <SectionLabel tone="light">남길 말</SectionLabel>
+                <AppText style={styles.note}>
+                  {`선택 · ${message.length} / ${messageLimit}`}
+                </AppText>
+              </View>
+              <LightGlass radius={20} style={styles.messageBox}>
+                <TextInput
+                  accessibilityLabel="남길 말"
+                  placeholder="참가자에게 전할 말을 적어 주세요"
+                  placeholderTextColor={groupLook.onLightSub}
+                  selectionColor={groupLook.navy}
+                  value={message}
+                  onChangeText={setMessage}
+                  maxLength={messageLimit}
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.messageInput}
+                />
+              </LightGlass>
+            </View>
+            {/* 6.4c-CancelNotice: the coral bell and the line, no box. */}
+            <View style={styles.warning}>
+              <Icon name="bell" color={k1.coral} size={16} />
+              <AppText style={[styles.warningText, styles.flex]}>
+                {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
+              </AppText>
+            </View>
+          </ScrollView>
+        </KeyboardLift>
       )}
       <ThemeProvider tone="dark">
         <SafeAreaView edges={['bottom']} style={styles.footer}>
@@ -259,7 +297,13 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     color: groupLook.onLight,
   },
-  content: { paddingHorizontal: 16, paddingTop: spacing.md, gap: 28 },
+  // paddingBottom keeps the last line clear of the pinned footer button.
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: spacing.md,
+    paddingBottom: 120,
+    gap: 28,
+  },
   summary: { gap: spacing.xs },
   crew: {
     fontFamily: fontFamily.bold,
@@ -311,6 +355,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     color: groupLook.onDark,
+  },
+  messageBox: { minHeight: 88, paddingHorizontal: 18, borderRadius: 20 },
+  // No lineHeight: on Android it clips the top of the input.
+  messageInput: {
+    height: 88,
+    padding: 0,
+    paddingVertical: spacing.lg,
+    fontFamily: typography.input.fontFamily,
+    fontSize: 15,
+    color: groupLook.onLight,
   },
   warning: { flexDirection: 'row', gap: spacing.md },
   warningText: {

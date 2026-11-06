@@ -264,12 +264,13 @@ export function createGroupRunMock({
       });
       return respond(undefined);
     },
-    cancel: (groupRunId, reason: GroupRunCancelReason) => {
+    cancel: (groupRunId, reason: GroupRunCancelReason, message) => {
       const run = find(groupRunId);
       run.status = 'CANCELLED';
       run.cancellation = {
         reason,
-        message: null,
+        // The mock keeps the note so 6.4e can show it.
+        message: message?.trim() || null,
         byNickname: me.nickname,
         byRole: '그룹장',
       };
