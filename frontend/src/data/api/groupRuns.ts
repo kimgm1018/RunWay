@@ -433,11 +433,16 @@ export function createGroupRunsApi({
       // G09는 본문을 허용하지 않는다. 응답의 PENDING을 실제 출발로 간주하지 않는다.
       await apiRequest(`/group-runs/${groupRunId}/start`, { method: 'POST' });
     },
-    cancel: async (groupRunId, reason) => {
-      if (!isServerId(groupRunId)) return mock.cancel(groupRunId, reason);
+    cancel: async (groupRunId, reason, message) => {
+      if (!isServerId(groupRunId))
+        return mock.cancel(groupRunId, reason, message);
+      // A blank note is left out, so the server sends its default notification text.
+      const cancelMessage = message?.trim();
       await apiRequest(`/group-runs/${groupRunId}/cancel`, {
         method: 'POST',
-        body: { cancelReason: reason },
+        body: cancelMessage
+          ? { cancelReason: reason, cancelMessage }
+          : { cancelReason: reason },
       });
     },
     watchStart: (groupRunId, onStart, onError, onParticipants) => {

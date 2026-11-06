@@ -1109,7 +1109,12 @@ export type Repositories = {
       groupRunId: string,
       draft: Omit<GroupRunDraft, 'crewId'>,
     ) => Promise<void>;
-    cancel: (groupRunId: string, reason: GroupRunCancelReason) => Promise<void>;
+    // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
+    cancel: (
+      groupRunId: string,
+      reason: GroupRunCancelReason,
+      message?: string | null,
+    ) => Promise<void>;
     searchPlaces: (query: string) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
     setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
