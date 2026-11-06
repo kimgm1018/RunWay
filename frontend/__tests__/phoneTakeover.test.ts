@@ -128,6 +128,9 @@ function setup(
       return () => gps.delete(listener);
     },
     requestPermission: async () => true,
+    current: async (): Promise<PhoneFix> => {
+      throw new DataError('LOCATION_UNAVAILABLE', '현재 위치 없음');
+    },
   };
   let ids = 900;
   const control = createRunControl({

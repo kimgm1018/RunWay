@@ -2,7 +2,13 @@ import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories, type MockScenario } from '../src/data';
+import {
+  createMockRepositories,
+  DataError,
+  type MockScenario,
+  type PhoneFix,
+  type Repositories,
+} from '../src/data';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -63,6 +69,12 @@ async function type(screen: Screen, label: string, text: string) {
   await settle();
 }
 
+// Types into 장소·주소 검색 and waits past the pause before searchPlaces is asked.
+async function search(screen: Screen, text: string) {
+  await type(screen, '장소·주소 검색', text);
+  await settle(400);
+}
+
 async function adjust(screen: Screen, label: string, action: string) {
   await act(async () => {
     labelled(
@@ -74,15 +86,43 @@ async function adjust(screen: Screen, label: string, action: string) {
   await settle();
 }
 
+// A synthetic fix near 민락수변공원 (not a real person's location).
+const here: PhoneFix = {
+  latitude: 35.1551,
+  longitude: 129.1301,
+  accuracyM: 5,
+  altitudeM: null,
+  time: Date.UTC(2026, 10, 6, 1, 0, 0),
+};
+
+// The mock data has no phone location; 3.1 gets one that answers with `current`.
+function withLocation(
+  repositories: Repositories,
+  current: () => Promise<PhoneFix> = async () => here,
+): Repositories {
+  return {
+    ...repositories,
+    phoneLocation: {
+      start: async () => false,
+      stop: async () => undefined,
+      subscribe: () => () => undefined,
+      requestPermission: async () => true,
+      current,
+    },
+  };
+}
+
 // Signs in and opens 3.1 오늘의 러닝 from 2.0M 코스 러닝.
-async function openTodayRun(scenario: MockScenario = 'default') {
+async function openTodayRun(
+  scenario: MockScenario = 'default',
+  repositories: Repositories = withLocation(
+    createMockRepositories({ latencyMs: 0, scenario }),
+  ),
+) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({ latencyMs: 0, scenario })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
   await settle();
@@ -96,7 +136,7 @@ test('today’s run works out pace and finish time from the distance', async () 
   let page = texts(screen);
   for (const text of [
     '환경 · 여러 개 선택',
-    '광안리해수욕장 · 현재 위치',
+    '현재 위치',
     '목표 완주 시간',
     '6′00″',
   ]) {
@@ -124,9 +164,102 @@ test('today’s run works out pace and finish time from the distance', async () 
   ).toMatchObject({
     checked: true,
   });
-  await press(screen, '기준 위치 광안리해수욕장 · 현재 위치');
-  await press(screen, '민락수변공원');
-  expect(texts(screen)).toContain('민락수변공원');
+  await press(screen, '기준 위치 현재 위치');
+  await search(screen, '민락수변공원');
+  await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
+  expect(() =>
+    labelled(screen, '기준 위치 민락수변공원 주차장 입구'),
+  ).not.toThrow();
+  await act(async () => screen.unmount());
+});
+
+test('장소 검색 결과가 없거나 검색이 실패하면 안내한다', async () => {
+  const repositories = withLocation(createMockRepositories({ latencyMs: 0 }));
+  const searchPlaces = jest.spyOn(repositories.groupRuns, 'searchPlaces');
+  const screen = await openTodayRun('default', repositories);
+  await press(screen, '기준 위치 현재 위치');
+
+  await search(screen, '없는장소');
+  expect(texts(screen)).toContain('검색 결과가 없어요.');
+
+  searchPlaces.mockRejectedValueOnce(new DataError('NETWORK_ERROR', '연결 없음'));
+  await search(screen, '광안리');
+  expect(texts(screen)).toContain('장소를 검색하지 못했어요.');
+  // The origin stays as it was.
+  expect(() => labelled(screen, '기준 위치 현재 위치')).not.toThrow();
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-494: 현재 위치 is the phone's own fix, sent to C01 but never saved with the preferences.
+test('현재 위치 좌표를 C01에 보내고 기본값 저장에는 좌표를 넣지 않는다', async () => {
+  const repositories = withLocation(createMockRepositories({ latencyMs: 0 }));
+  const recommend = jest.spyOn(repositories.courses, 'recommend');
+  const save = jest.spyOn(repositories.courses, 'savePreferences');
+  const screen = await openTodayRun('default', repositories);
+  expect(() => labelled(screen, '기준 위치 현재 위치')).not.toThrow();
+
+  await press(screen, '이 조건을 기본값으로 저장');
+  expect(Object.keys(save.mock.calls[0][0]).sort()).toEqual([
+    'filters',
+    'shape',
+  ]);
+
+  await press(screen, '코스 추천 받기');
+  expect(recommend.mock.calls[0][0].origin).toEqual({
+    name: '현재 위치',
+    position: [here.longitude, here.latitude],
+  });
+  await act(async () => screen.unmount());
+});
+
+test('위치 권한이 없으면 안내하고 고정 장소를 현재 위치로 쓰지 않는다', async () => {
+  const screen = await openTodayRun(
+    'default',
+    withLocation(createMockRepositories({ latencyMs: 0 }), async () => {
+      throw new DataError('LOCATION_PERMISSION_DENIED', '권한 없음');
+    }),
+  );
+  expect(texts(screen)).toContain('위치 권한이 없어 현재 위치를 쓸 수 없어요.');
+  expect(texts(screen)).toContain('기준 위치를 선택해 주세요');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+
+  // A place found by search still works.
+  await press(screen, '기준 위치 ');
+  await search(screen, '광안리');
+  await press(screen, '광안리해수욕장 입구, 부산 수영구 광안해변로 219');
+  expect(texts(screen)).not.toContain(
+    '위치 권한이 없어 현재 위치를 쓸 수 없어요.',
+  );
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+  expect(texts(screen)).not.toContain('현재 위치를 찾는 중이에요');
+  await act(async () => screen.unmount());
+});
+
+test('위치가 꺼져 있으면 안내하고 다시 찾기로 현재 위치를 쓴다', async () => {
+  const current = jest
+    .fn<Promise<PhoneFix>, []>()
+    .mockRejectedValueOnce(new DataError('LOCATION_DISABLED', '위치 꺼짐'))
+    .mockResolvedValue(here);
+  const screen = await openTodayRun(
+    'default',
+    withLocation(createMockRepositories({ latencyMs: 0 }), current),
+  );
+  expect(texts(screen)).toContain('휴대폰 위치가 꺼져 있어요.');
+
+  await press(screen, '현재 위치 다시 찾기');
+  expect(texts(screen)).not.toContain('휴대폰 위치가 꺼져 있어요.');
+  expect(() => labelled(screen, '기준 위치 현재 위치')).not.toThrow();
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+  await act(async () => screen.unmount());
+});
+
+test('폰 위치가 없는 기기는 현재 위치를 쓸 수 없다고 안내한다', async () => {
+  const screen = await openTodayRun(
+    'default',
+    createMockRepositories({ latencyMs: 0 }),
+  );
+  expect(texts(screen)).toContain('이 기기에서는 현재 위치를 쓸 수 없어요.');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
   await act(async () => screen.unmount());
 });
 

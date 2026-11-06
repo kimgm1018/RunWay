@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Handler
 import android.os.Looper
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -13,6 +14,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 const val RUN_LOCATION_EVENT = "RunwayRunLocation"
 
@@ -53,6 +55,66 @@ class RunLocationModule(private val app: ReactApplicationContext) : ReactContext
     }
   }
 
+  /**
+   * One fix for 3.1 기준 위치 (S15P31E105-494), with a listener of its own so a run's updates are untouched. A recent
+   * last-known fix answers at once; otherwise the first new fix does, or LOCATION_TIMEOUT after [timeoutMs].
+   * Rejects LOCATION_PERMISSION_DENIED, LOCATION_DISABLED or LOCATION_UNAVAILABLE without a fix to give.
+   */
+  @SuppressLint("MissingPermission")
+  @ReactMethod fun current(timeoutMs: Double, promise: Promise) {
+    if (app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+      promise.reject("LOCATION_PERMISSION_DENIED", "Location permission not granted")
+      return
+    }
+    val manager = app.getSystemService(LocationManager::class.java)
+    if (manager == null) {
+      promise.reject("LOCATION_UNAVAILABLE", "No location manager")
+      return
+    }
+    val providers = try {
+      if (!manager.isLocationEnabled) emptyList()
+      else listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter { manager.isProviderEnabled(it) }
+    } catch (_: Exception) {
+      emptyList()
+    }
+    if (providers.isEmpty()) {
+      promise.reject("LOCATION_DISABLED", "Location services are off")
+      return
+    }
+    val now = System.currentTimeMillis()
+    val recent = providers
+      .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+      .filter { now - it.time in 0..MAX_FIX_AGE_MS }
+      .maxByOrNull { it.time }
+    if (recent != null) {
+      promise.resolve(fixJson(recent).toString())
+      return
+    }
+
+    val handler = Handler(Looper.getMainLooper())
+    val settled = AtomicBoolean(false)
+    lateinit var single: LocationListener
+    lateinit var timeout: Runnable
+    fun settle(location: Location?) {
+      if (!settled.compareAndSet(false, true)) return
+      handler.removeCallbacks(timeout)
+      runCatching { manager.removeUpdates(single) }
+      if (location != null) promise.resolve(fixJson(location).toString())
+      else promise.reject("LOCATION_TIMEOUT", "No location fix in time")
+    }
+    single = LocationListener { location -> settle(location) }
+    timeout = Runnable { settle(null) }
+    try {
+      providers.forEach { manager.requestLocationUpdates(it, 0L, 0f, single, Looper.getMainLooper()) }
+      handler.postDelayed(timeout, timeoutMs.toLong().coerceIn(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS))
+    } catch (_: Exception) {
+      if (settled.compareAndSet(false, true)) {
+        runCatching { manager.removeUpdates(single) }
+        promise.reject("LOCATION_UNAVAILABLE", "Location updates could not start")
+      }
+    }
+  }
+
   @ReactMethod fun stop(promise: Promise) {
     stopUpdates()
     promise.resolve(null)
@@ -75,16 +137,22 @@ class RunLocationModule(private val app: ReactApplicationContext) : ReactContext
 
   private fun emit(location: Location) {
     if (!app.hasActiveReactInstance()) return
-    val event = JSONObject()
-      .put("latitude", location.latitude)
-      .put("longitude", location.longitude)
-      .put("accuracyM", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
-      .put("altitudeM", if (location.hasAltitude()) location.altitude else JSONObject.NULL)
-      .put("time", location.time)
-    app.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java).emit(RUN_LOCATION_EVENT, event.toString())
+    app.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit(RUN_LOCATION_EVENT, fixJson(location).toString())
   }
+
+  private fun fixJson(location: Location) = JSONObject()
+    .put("latitude", location.latitude)
+    .put("longitude", location.longitude)
+    .put("accuracyM", if (location.hasAccuracy()) location.accuracy.toDouble() else JSONObject.NULL)
+    .put("altitudeM", if (location.hasAltitude()) location.altitude else JSONObject.NULL)
+    .put("time", location.time)
 
   private companion object {
     const val INTERVAL_MS = 1000L
+    // A last-known fix younger than this stands in for a new one.
+    const val MAX_FIX_AGE_MS = 120_000L
+    const val MIN_TIMEOUT_MS = 1_000L
+    const val MAX_TIMEOUT_MS = 60_000L
   }
 }

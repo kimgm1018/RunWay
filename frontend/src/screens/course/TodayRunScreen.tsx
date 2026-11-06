@@ -23,6 +23,7 @@ import {
   Button,
   Icon,
   MistFill,
+  TextField,
   useToast,
   type IconName,
 } from '../../components';
@@ -30,6 +31,7 @@ import { KeyboardLift } from '../../components/KeyboardLift';
 import {
   useRepositories,
   useResource,
+  type MeetingPlace,
   type RecommendationPreferences,
   type Place,
   type Repositories,
@@ -42,7 +44,15 @@ import { ErrorNotice } from '../onboarding/parts';
 import { RunMap } from '../../components/RunMap';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
-import { recommendFailureNotice } from './recommendFailure';
+import {
+  recommendFailureNotice,
+  type RecommendNotice,
+} from './recommendFailure';
+import {
+  CURRENT_PLACE_NAME,
+  locationFailureNotice,
+  noLocationNotice,
+} from './currentLocation';
 import { RangeSlider } from './RangeSlider';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import {
@@ -62,9 +72,9 @@ const goalInputs: { value: GoalInput; label: string }[] = [
 const loadPreferences = (repositories: Repositories) =>
   repositories.courses.getPreferences();
 
-// 코스 생성에 필요한 위치 목록만 조회한다. 준비도는 C01 추천 입력이 아니다.
-const loadOptions = (repositories: Repositories) =>
-  repositories.courses.getOrigins();
+// 기준·도착 위치는 현재 위치(폰) 또는 장소 검색 결과에서 고른다(S15P31E105-494). 장소 검색은 그룹런 만남 장소와
+// 같은 searchPlaces(백엔드 S15P31E105-471)를 쓴다. 입력이 멈춘 뒤에만 검색한다.
+const SEARCH_DELAY_MS = 300;
 
 // 환경 chips on the dark half of the mist card: picked ones are filled pale, the rest outlined.
 function Chip({
@@ -246,10 +256,9 @@ function Divider({ light = false }: { light?: boolean }) {
 // bottom with the mist condition card and 코스 추천 받기.
 export function TodayRunScreen() {
   const navigation = useNavigation();
-  const { courses } = useRepositories();
+  const { courses, groupRuns, phoneLocation } = useRepositories();
   const toast = useToast();
   const { search, setSearch } = useCourseSearch();
-  const options = useResource(useCallback(loadOptions, []));
   const defaults = useResource(useCallback(loadPreferences, []));
   const loadedPreferences = defaults.status === 'ready' ? defaults.data : null;
   const [preferences, setPreferences] =
@@ -269,9 +278,83 @@ export function TodayRunScreen() {
   const [destination, setDestination] = useState<Place | null>(
     search?.destination ?? null,
   );
-  const origins = options.status === 'ready' ? options.data : undefined;
   const [origin, setOrigin] = useState<Place | null>(search?.origin ?? null);
+  // Coming back from 3.1b keeps the origin used there; a fresh 3.1 looks for where I am.
+  const firstOrigin = useRef(search?.origin ?? null);
+  const [locating, setLocating] = useState(false);
+  const [locationNotice, setLocationNotice] = useState<RecommendNotice | null>(
+    null,
+  );
+  // 현재 위치: the phone's own fix, never a fixed place. On failure the origin is left as it was.
+  const locate = useCallback(async () => {
+    if (!phoneLocation) {
+      setLocationNotice(noLocationNotice);
+      return;
+    }
+    setLocating(true);
+    setLocationNotice(null);
+    try {
+      const fix = await phoneLocation.current();
+      setOrigin({
+        name: CURRENT_PLACE_NAME,
+        position: [fix.longitude, fix.latitude],
+      });
+    } catch (error) {
+      setLocationNotice(locationFailureNotice(error));
+    } finally {
+      setLocating(false);
+    }
+  }, [phoneLocation]);
+  useEffect(() => {
+    if (!firstOrigin.current) {
+      locate();
+    }
+  }, [locate]);
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
+  const [query, setQuery] = useState('');
+  // null until a search answers; [] is 검색 결과 없음.
+  const [places, setPlaces] = useState<MeetingPlace[] | null>(null);
+  const [searchFailed, setSearchFailed] = useState(false);
+  useEffect(() => {
+    const text = query.trim();
+    setSearchFailed(false);
+    if (!picking || !text) {
+      setPlaces(null);
+      return;
+    }
+    // A later keystroke or closing the sheet drops this answer.
+    let live = true;
+    const timer = setTimeout(() => {
+      groupRuns.searchPlaces(text).then(
+        found => {
+          if (live) setPlaces(found);
+        },
+        () => {
+          if (!live) return;
+          setPlaces(null);
+          setSearchFailed(true);
+        },
+      );
+    }, SEARCH_DELAY_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [groupRuns, picking, query]);
+  const openPicker = (kind: 'origin' | 'destination') => {
+    setQuery('');
+    setPicking(kind);
+  };
+  const pickPlace = (item: MeetingPlace) => {
+    const value: Place = { name: item.name, position: item.position };
+    if (picking === 'destination') {
+      setDestination(value);
+    } else {
+      setOrigin(value);
+      setLocationNotice(null);
+    }
+    setPicking(null);
+  };
   const [distanceKm, setDistanceKm] = useState(
     search ? search.targetDistanceM / 1000 : 5,
   );
@@ -290,7 +373,7 @@ export function TodayRunScreen() {
     detail: string;
   } | null>(null);
 
-  const place = origin ?? origins?.[0] ?? null;
+  const place = origin;
   const seconds = parseClock(goalText);
   // The other half of the goal is worked out from the distance (6′00″ ↔ 30:00 at 5km).
   const derived = seconds
@@ -375,10 +458,6 @@ export function TodayRunScreen() {
     }
   };
 
-  // 현재 위치 button: back to the origin that is where I am.
-  const here =
-    origins?.find(item => item.name.includes('현재 위치')) ?? origins?.[0];
-
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
@@ -395,8 +474,8 @@ export function TodayRunScreen() {
           <GlassIconButton
             icon="locate"
             accessibilityLabel="현재 위치로"
-            disabled={!here}
-            onPress={() => here && setOrigin(here)}
+            disabled={locating}
+            onPress={locate}
             style={styles.locate}
           />
         </View>
@@ -408,19 +487,21 @@ export function TodayRunScreen() {
               contentContainerStyle={styles.content}
               keyboardShouldPersistTaps="handled"
             >
-              {options.status === 'error' ? (
-                // Without the origins 코스 추천 받기 stays off, so the screen says why and offers a retry.
+              {locationNotice ? (
                 <View style={styles.optionsError}>
                   <ErrorNotice
-                    title="기준 위치를 불러오지 못했어요"
-                    detail="기준 위치가 있어야 코스를 추천받을 수 있어요."
+                    title={locationNotice.title}
+                    detail={locationNotice.detail}
                   />
-                  <Button
-                    title="다시 시도"
-                    variant="secondary"
-                    size="small"
-                    onPress={options.reload}
-                  />
+                  {phoneLocation ? (
+                    <Button
+                      title="현재 위치 다시 찾기"
+                      variant="secondary"
+                      size="small"
+                      disabled={locating}
+                      onPress={locate}
+                    />
+                  ) : null}
                 </View>
               ) : null}
               {defaults.status === 'error' ? (
@@ -443,10 +524,10 @@ export function TodayRunScreen() {
                 <MistFill id="todayRunCard" />
                 <PanelContent
                   place={place}
-                  placeFailed={options.status === 'error'}
-                  onPickOrigin={() => setPicking('origin')}
+                  locating={locating}
+                  onPickOrigin={() => openPicker('origin')}
                   destination={destination}
-                  onPickDestination={() => setPicking('destination')}
+                  onPickDestination={() => openPicker('destination')}
                   distanceKm={distanceKm}
                   setDistanceKm={setDistanceKm}
                   goal={goal}
@@ -502,24 +583,57 @@ export function TodayRunScreen() {
         onClose={() => setPicking(null)}
         title={picking === 'destination' ? '도착 위치' : '기준 위치'}
       >
-        {(origins ?? []).map(item => (
+        {picking === 'origin' ? (
           <Button
-            key={item.name}
-            title={item.name}
+            title={locating ? '현재 위치 찾는 중…' : CURRENT_PLACE_NAME}
             variant={
-              item.name ===
-              (picking === 'destination' ? destination?.name : place?.name)
-                ? 'primary'
-                : 'secondary'
+              place?.name === CURRENT_PLACE_NAME ? 'primary' : 'secondary'
             }
             size="medium"
+            disabled={locating}
             onPress={() => {
-              if (picking === 'destination') setDestination(item);
-              else setOrigin(item);
               setPicking(null);
+              locate();
             }}
           />
-        ))}
+        ) : null}
+        <TextField
+          accessibilityLabel="장소·주소 검색"
+          placeholder="장소·주소 검색"
+          value={query}
+          onChangeText={setQuery}
+          returnKeyType="search"
+        />
+        {searchFailed ? (
+          <AppText tone="textSecondary">
+            장소를 검색하지 못했어요. 잠시 후 다시 시도해 주세요.
+          </AppText>
+        ) : places && places.length === 0 ? (
+          <AppText tone="textSecondary">
+            검색 결과가 없어요. 다른 이름이나 주소로 찾아보세요.
+          </AppText>
+        ) : null}
+        <ScrollView
+          style={styles.places}
+          keyboardShouldPersistTaps="handled"
+        >
+          {(places ?? []).map(item => (
+            <Pressable
+              key={`${item.name}|${item.address}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name}, ${item.address}`}
+              onPress={() => pickPlace(item)}
+              style={({ pressed }) => [styles.placeRow, pressed && styles.dim]}
+            >
+              <AppText variant="body" numberOfLines={1}>
+                {item.name}
+              </AppText>
+              <AppText tone="textSecondary" numberOfLines={1}>
+                {item.address}
+              </AppText>
+            </Pressable>
+          ))}
+        </ScrollView>
       </BottomSheet>
     </View>
   );
@@ -543,11 +657,11 @@ function PanelContent({
   conditionsDisabled,
   destination,
   onPickDestination,
-  placeFailed,
+  locating,
 }: {
   place: Place | null;
-  // The origins did not load, so the row stops saying it is still looking.
-  placeFailed: boolean;
+  // 현재 위치 is being looked for; otherwise an empty origin asks to be picked.
+  locating: boolean;
   onPickOrigin: () => void;
   distanceKm: number;
   setDistanceKm: (value: number) => void;
@@ -581,7 +695,7 @@ function PanelContent({
             <AppText style={styles.inkLabel}>기준 위치</AppText>
             <AppText style={styles.originName} numberOfLines={1}>
               {place?.name ??
-                (placeFailed ? '불러오지 못했어요' : '위치를 찾는 중이에요')}
+                (locating ? '위치를 찾는 중이에요' : '기준 위치를 선택해 주세요')}
             </AppText>
           </View>
           <Icon name="forward" color="rgba(17,17,17,0.55)" size={16} />
@@ -741,6 +855,9 @@ const dangerPale = '#F0A08E';
 
 const styles = StyleSheet.create({
   optionsError: { gap: spacing.md, alignItems: 'flex-start' },
+  // The results scroll inside the sheet so it never grows past the screen.
+  places: { maxHeight: 280 },
+  placeRow: { paddingVertical: spacing.md, gap: 2 },
   root: { flex: 1, backgroundColor: '#F3F5F6' },
   flex: { flex: 1 },
   // The map shows between the tabs and the sheet, with 현재 위치 at its bottom right.

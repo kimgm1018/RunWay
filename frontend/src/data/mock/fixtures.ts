@@ -11,7 +11,6 @@ import type {
   MusicLibrary,
   MusicState,
   MyCrew,
-  Place,
   Post,
   PostComment,
   PostRecord,
@@ -264,12 +263,6 @@ export const savedCourses: SavedCourse[] = [
   },
 ];
 
-// 3.1 기준 위치 choices; the first one is the current position.
-export const origins: Place[] = [
-  { name: '광안리해수욕장 · 현재 위치', position: [129.1186, 35.1532] },
-  { name: '민락수변공원', position: [129.1318, 35.1543] },
-  { name: '수영강 APEC나루공원', position: [129.1345, 35.1697] },
-];
 
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],

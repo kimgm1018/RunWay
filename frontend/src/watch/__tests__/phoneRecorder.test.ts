@@ -14,6 +14,9 @@ function harness(upload: (body: string) => Promise<unknown>) {
       return () => listeners.delete(listener);
     },
     requestPermission: async () => true,
+    current: async (): Promise<PhoneFix> => {
+      throw new DataError('LOCATION_UNAVAILABLE', '현재 위치 없음');
+    },
   };
   let n = 1;
   const bodies: string[] = [];

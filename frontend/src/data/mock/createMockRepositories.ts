@@ -669,7 +669,6 @@ export function createMockRepositories(
       },
       getSaved: () => respond(saved, options),
       getTodayPlan: () => respond(planFor(chosen, saved), options),
-      getOrigins: () => respond(fixtures.origins, options),
       recommend: search => {
         if (options.scenario === 'courseError') {
           return fail(new DataError('UNKNOWN', '추천 실패'), options);
