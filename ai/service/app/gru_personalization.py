@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from concurrent.futures import Future
+from contextlib import nullcontext
 from dataclasses import dataclass
 import json
 import logging
@@ -154,8 +156,8 @@ def compute_gru_personalization(body, model, *, max_windows: int | None = None) 
     support = support_to_frames(body)
     window_limit = _max_training_windows(max_windows)
     try:
-        # 모든 predictor 접근과 출력층 계산은 예측과 같은 lock 안에서 한다.
-        with model.lock:
+        # features는 GRU 본체만 읽고 fit_head는 복제본만 학습한다. 예측도 공유 상태를 바꾸지 않는다.
+        with nullcontext() if getattr(model, "_mutation_free", False) else model.lock:
             batches = {key: [] for key in predictor.models}
             used_runs = 0
             for frame in support:
@@ -249,6 +251,7 @@ class CachedDbGruPersonalizationLookup:
         self.monotonic = monotonic
         self._cache: OrderedDict[int, tuple[float, dict | None, str | None]] = OrderedDict()
         self._lock = threading.RLock()
+        self._inflight: dict[int, Future] = {}
 
     @staticmethod
     def _decode_head(value):
@@ -311,6 +314,8 @@ class CachedDbGruPersonalizationLookup:
 
         now = self.monotonic()
         user_id = int(user_id)
+        flight = None
+        leader = False
         with self._lock:
             cached = self._cache.get(user_id)
             if cached is not None and cached[0] > now:
@@ -318,14 +323,36 @@ class CachedDbGruPersonalizationLookup:
                 row, warning = cached[1], cached[2]
             else:
                 self._cache.pop(user_id, None)
+                flight = self._inflight.get(user_id)
+                if flight is None:
+                    flight = Future()
+                    self._inflight[user_id] = flight
+                    leader = True
+
+        if leader:
+            try:
+                # DB 대기 중에는 다른 사용자의 캐시와 조회를 막지 않는다.
                 row, warning, cacheable = self.adapter.get_latest(user_id)
-                if cacheable and self.max_users > 0:
-                    ttl = self.empty_ttl_sec if row is None else self.ttl_sec
-                    if ttl > 0:
-                        self._cache[user_id] = (now + ttl, row, warning)
-                        self._cache.move_to_end(user_id)
-                        while len(self._cache) > self.max_users:
-                            self._cache.popitem(last=False)
+                with self._lock:
+                    if cacheable and self.max_users > 0:
+                        ttl = self.empty_ttl_sec if row is None else self.ttl_sec
+                        if ttl > 0:
+                            self._cache[user_id] = (now + ttl, row, warning)
+                            self._cache.move_to_end(user_id)
+                            while len(self._cache) > self.max_users:
+                                self._cache.popitem(last=False)
+            except BaseException as exc:
+                with self._lock:
+                    flight.set_exception(exc)
+                raise
+            else:
+                with self._lock:
+                    flight.set_result((row, warning))
+            finally:
+                with self._lock:
+                    self._inflight.pop(user_id, None)
+        elif flight is not None:
+            row, warning = flight.result()
 
         if warning is not None:
             return GruPersonalizationResult(warning=warning)
