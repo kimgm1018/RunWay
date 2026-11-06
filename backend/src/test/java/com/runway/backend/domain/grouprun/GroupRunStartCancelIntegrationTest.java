@@ -29,6 +29,7 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
 
     private long hostId;
     private long memberId;
+    private long crewOnlyId;
     private long outsiderId;
     private long crewId;
     private long hostWatchId;
@@ -46,10 +47,13 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
         jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
+        jdbc.update("DELETE FROM notifications");
+        jdbc.update("DELETE FROM user_settings");
         jdbc.update("DELETE FROM users");
 
         hostId = insertUser("gr_sc_host", "호스트", "01033330001");
         memberId = insertUser("gr_sc_member", "멤버", "01033330002");
+        crewOnlyId = insertUser("gr_sc_crew", "크루만", "01033330004");
         outsiderId = insertUser("gr_sc_out", "외부인", "01033330003");
         hostWatchId = insertDevice(hostId, "WATCH");
         insertDevice(hostId, "PHONE");
@@ -58,6 +62,10 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
         crewId = insertCrew(hostId, "시작취소 크루");
         approveMember(crewId, hostId);
         approveMember(crewId, memberId);
+        approveMember(crewId, crewOnlyId);
+        enableGroupNotifications(hostId);
+        enableGroupNotifications(memberId);
+        enableGroupNotifications(crewOnlyId);
     }
 
     // ---------------------------------------------------------------- G13
@@ -151,6 +159,60 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
 
         assertThat(cancelReason(groupRunId)).isEqualTo("WEATHER");
         assertThat(sessionVersion(hostSession)).isEqualTo(versionAfterFirst);
+    }
+
+    @Test
+    void cancel_notifiesApprovedCrewMembers_excludesCanceller_andDedupeOnRepeat()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        joinAndReady(groupRunId, memberId);
+        disableGroupNotifications(crewOnlyId);
+
+        cancel(
+                        groupRunId,
+                        hostId,
+                        "{\"cancelReason\":\"WEATHER\",\"cancelMessage\":\"비가 와요\"}")
+                .andExpect(status().isOk());
+
+        assertThat(notificationCount(hostId)).isZero();
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(crewOnlyId)).isZero();
+        assertThat(notificationCount(outsiderId)).isZero();
+
+        var row =
+                jdbc.queryForMap(
+                        """
+                        SELECT notification_type, target_id, message, dedupe_key
+                        FROM notifications WHERE user_id=?
+                        """,
+                        memberId);
+        assertThat(row.get("notification_type")).isEqualTo("GROUP_RUN_PARTICIPATION_CANCELLED");
+        assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(groupRunId);
+        assertThat(row.get("message")).isEqualTo("비가 와요");
+        assertThat(row.get("dedupe_key"))
+                .isEqualTo("GROUP_RUN_PARTICIPATION_CANCELLED:" + groupRunId + ":" + memberId);
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"PERSONAL\",\"cancelMessage\":\"다시\"}")
+                .andExpect(status().isOk());
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(hostId)).isZero();
+    }
+
+    @Test
+    void cancel_notifiesNonParticipantCrewMember_andUsesDefaultMessage() throws Exception {
+        long groupRunId = createGroupRun();
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"OTHER\"}").andExpect(status().isOk());
+
+        assertThat(notificationCount(hostId)).isZero();
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(crewOnlyId)).isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT message FROM notifications WHERE user_id=?",
+                                String.class,
+                                crewOnlyId))
+                .isEqualTo("그룹런이 취소되었습니다.");
     }
 
     @Test
@@ -608,6 +670,30 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
                 """,
                 crewId,
                 userId);
+    }
+
+    private void enableGroupNotifications(long userId) {
+        jdbc.update(
+                """
+                INSERT INTO user_settings(
+                    user_id, voice_coaching_enabled, bpm_guide_enabled,
+                    group_notifications_enabled, community_notifications_enabled,
+                    location_collection_mode, account_visibility)
+                VALUES (?, false, false, true, false, 'OFF', 'PRIVATE')
+                ON CONFLICT (user_id) DO UPDATE SET group_notifications_enabled=true
+                """,
+                userId);
+    }
+
+    private void disableGroupNotifications(long userId) {
+        jdbc.update(
+                "UPDATE user_settings SET group_notifications_enabled=false WHERE user_id=?",
+                userId);
+    }
+
+    private long notificationCount(long userId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM notifications WHERE user_id=?", Long.class, userId);
     }
 
     private long insertDevice(long userId, String type) {

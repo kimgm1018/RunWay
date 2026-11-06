@@ -8,8 +8,11 @@ import com.runway.backend.domain.community.dto.response.CommentListItemResponse;
 import com.runway.backend.domain.community.dto.response.CommentListResponse;
 import com.runway.backend.domain.community.dto.response.CommentUpdateResponse;
 import com.runway.backend.domain.community.entity.Comment;
+import com.runway.backend.domain.community.entity.Post;
 import com.runway.backend.domain.community.repository.CommentRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
+import com.runway.backend.domain.notification.NotificationType;
+import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -30,6 +33,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final CommunityUserQueryRepository communityUserQueryRepository;
     private final PostService postService;
+    private final NotificationService notificationService;
     private final EntityManager entityManager;
 
     @Transactional(readOnly = true)
@@ -47,7 +51,7 @@ public class CommentService {
     @Transactional
     public CommentCreateResponse create(long userId, long postId, CreateCommentRequest request) {
         requireExistingUser(userId);
-        postService.requireReadablePost(userId, postId);
+        Post post = postService.requireReadablePost(userId, postId);
 
         String body = requireNonBlankBody(request == null ? null : request.body());
         Long parentCommentId = request == null ? null : request.parentCommentId();
@@ -59,6 +63,14 @@ public class CommentService {
         commentRepository.save(comment);
         commentRepository.flush();
         entityManager.refresh(comment);
+        if (comment.getId() != null && !post.getAuthorId().equals(userId)) {
+            notificationService.create(
+                    post.getAuthorId(),
+                    NotificationType.POST_COMMENT,
+                    postId,
+                    "게시물에 새 댓글이 달렸습니다.",
+                    "POST_COMMENT:" + comment.getId());
+        }
         return CommentCreateResponse.from(comment);
     }
 

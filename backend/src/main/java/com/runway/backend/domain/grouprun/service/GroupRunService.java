@@ -42,6 +42,8 @@ import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
 import com.runway.backend.domain.grouprun.repository.GroupRunRow;
+import com.runway.backend.domain.notification.NotificationType;
+import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.domain.session.dto.response.GroupStartCommand;
 import com.runway.backend.domain.session.entity.SessionGoal;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository;
@@ -91,6 +93,7 @@ public class GroupRunService {
     private final SessionReferenceRepository sessionReferenceRepository;
     private final RunningSessionService runningSessionService;
     private final RunningSessionControlService runningSessionControlService;
+    private final NotificationService notificationService;
     private final JsonMapper jsonMapper;
 
     @Transactional
@@ -399,7 +402,9 @@ public class GroupRunService {
                                                 ReadyStatus.fromReady(p.ready()).name(),
                                                 toScore(readiness.get(p.userId()))))
                         .toList();
-        return new GroupRunParticipantsResponse(items);
+        // 대기방 인원 = 참가 행 전체(session null 포함). readyCount는 그중 준비 완료(S15P31E105-499).
+        int readyCount = (int) participants.stream().filter(GroupRunParticipantRow::ready).count();
+        return new GroupRunParticipantsResponse(items, participants.size(), readyCount);
     }
 
     /**
@@ -445,8 +450,8 @@ public class GroupRunService {
 
     /**
      * G13. 시작 전 호스트 취소. 그룹 행을 잠근 뒤 SCHEDULED만 CANCELLED로 바꾸고 연결된 READY 세션을 세션 ID 순서로 취소한다. 이미 취소된 그룹은 200으로
-     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증한다. 취소 알림 경로가 아직 없어
-     * 저장·전달하지 않고 요청 처리 후 버린다(향후 알림 본문 전송 전용).
+     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증하며, 최초 취소 시 크루 APPROVED 멤버(취소자 제외)에게
+     * 인박스 알림 본문으로 전달한다.
      */
     @Transactional
     public CancelGroupRunResponse cancel(
@@ -468,12 +473,38 @@ public class GroupRunService {
             throw new ApiException(ErrorCode.INVALID_GROUP_STATE_GROUPRUN_CANCEL);
         }
         groupRunJdbcRepository.markCancelled(groupRunId, reason.name());
+        notifyParticipationCancelled(userId, groupRunId, row.crewId(), request.cancelMessage());
         // 그룹을 이미 잠갔으므로 S07 cancel의 그룹 재잠금은 같은 트랜잭션에서 통과한다. 참가 행의 session_id는 유지한다.
         participantJdbcRepository.findByGroupRunId(groupRunId).stream()
                 .filter(p -> p.sessionId() != null)
                 .sorted(Comparator.comparingLong(GroupRunParticipantRow::sessionId))
                 .forEach(p -> runningSessionControlService.cancel(p.userId(), p.sessionId()));
         return new CancelGroupRunResponse(groupRunId, GroupRunStatus.CANCELLED.name());
+    }
+
+    private void notifyParticipationCancelled(
+            long cancellerUserId, long groupRunId, long crewId, String cancelMessage) {
+        String message =
+                cancelMessage == null || cancelMessage.isBlank()
+                        ? "그룹런이 취소되었습니다."
+                        : cancelMessage;
+        crewMembershipRepository
+                .findByCrewIdAndStatus(crewId, CrewMembershipStatus.APPROVED)
+                .stream()
+                .map(CrewMembership::getUserId)
+                .filter(recipientId -> recipientId != cancellerUserId)
+                .forEach(
+                        recipientId ->
+                                notificationService.create(
+                                        recipientId,
+                                        NotificationType.GROUP_RUN_PARTICIPATION_CANCELLED,
+                                        groupRunId,
+                                        message,
+                                        NotificationType.GROUP_RUN_PARTICIPATION_CANCELLED.name()
+                                                + ":"
+                                                + groupRunId
+                                                + ":"
+                                                + recipientId));
     }
 
     /**

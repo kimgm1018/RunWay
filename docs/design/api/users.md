@@ -1248,7 +1248,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 | `notifications` | object | O | groupRun/community는 ERD boolean 설정. coaching은 지원하지 않음. |
 
 
-`notifications.groupRun`은 user_settings.group_notifications_enabled, `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 2026-11-05 사용자 확정(S15P31E105-249): 공개 계정 새 팔로워·비공개 계정 새 팔로우 요청·수동 승인 푸시는 `notifications.community`를 따른다. false이면 발송하지 않으며 팔로우 전용 설정은 추가하지 않는다. 공개 전환 자동 승인 알림은 발송하지 않는다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 요청·응답에서 지원하지 않는다.
+`notifications.groupRun`은 user_settings.group_notifications_enabled, `notifications.community`는 community_notifications_enabled(모두 boolean NOT NULL)에 대응한다. 2026-11-05 사용자 확정(S15P31E105-249) + 2026-11-06(S15P31E105-458): 공개 계정 새 팔로워·비공개 계정 새 팔로우 요청·수동 승인 **알림함 행**은 `notifications.community`를 따른다. false이면 행을 만들지 않으며 팔로우 전용 설정은 추가하지 않는다. 공개 전환 자동 승인 알림은 발송하지 않는다. 알림함 API는 [notifications.md](notifications.md)를 본다. 기존 `notifications.coaching`에 대응하는 독립 알림 컬럼은 없다. voice_coaching_enabled는 음성 코칭 설정이므로 같은 값으로 간주하지 않는다. 중첩 객체 존재 시 groupRun/community 키를 포함하며 coaching은 요청·응답에서 지원하지 않는다.
 
 **사용 흐름과 응답 판단**
 
@@ -1572,7 +1572,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 
 팔로우 버튼을 요청 대기 또는 팔로우 중으로 갱신한다. 재전송은 기존 멱등 규칙으로 같은 결과를 확인한다.
 
-응답은 처리 후 상태와 승인된 팔로워 수를 반환한다. 알림 전달 기반은 S15P31E105-458과 연계한다.
+응답은 처리 후 상태와 승인된 팔로워 수를 반환한다. 알림함 저장은 S15P31E105-458([notifications.md](notifications.md))과 연계한다.
 
 ### 오류 응답
 
@@ -1593,7 +1593,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 
 ### 처리 규칙
 
-- 비공개 계정에 새 PENDING 요청 생성이 확정되면 대상에게 팔로우 요청 알림을 연계한다. 동일 요청 재전송은 추가 알림을 생성하지 않는다. 공개 계정의 새 팔로워 알림은 아직 제안 항목이다.
+- 비공개 계정에 새 PENDING 요청이 확정되면 대상에게 `FOLLOW_REQUEST` 알림함 행을 연계한다. 공개 계정의 새 FOLLOWING은 `NEW_FOLLOWER`다. 동일 요청 재전송은 `dedupe_key`로 추가 행을 만들지 않는다. 발행은 249 `FollowNotificationEvent`, 소비·저장은 458([notifications.md](notifications.md)).
 
 - 비공개 대상은 PENDING만 생성한다. 승인 전에는 팔로워 수·비공개 프로필·게시물 접근 권한에 반영하지 않는다.
 - 동일 관계의 중복 요청·이미 승인된 관계 재요청은 현재 PENDING/FOLLOWING 상태로 성공 응답하고 새 요청·팔로워 중복을 만들지 않는다(2026-11-05 사용자 확정). 대상 계정 소유자는 U24에서 확인하고 U25로 승인·거절한다.
@@ -1674,7 +1674,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 
 팔로우/요청 취소 후 버튼을 미관계 상태로 갱신한다.
 
-응답은 처리 후 상태와 승인된 팔로워 수를 반환한다. 알림 전달 기반은 S15P31E105-458과 연계한다.
+응답은 처리 후 상태와 승인된 팔로워 수를 반환한다. 알림함 저장은 S15P31E105-458([notifications.md](notifications.md))과 연계한다.
 
 ### 오류 응답
 
@@ -1881,7 +1881,7 @@ PENDING
 
 ### 처리 규칙
 
-- 승인 확정 후 요청자에게 팔로우 승인 알림을 자동 연계한다. 공통 생성·전달 계약은 S15P31E105-458에서 제공하며 수신자의 community 푸시 설정을 적용한다.
+- 승인 확정 후 요청자에게 팔로우 승인 알림을 자동 연계한다. 공통 생성·알림함 저장은 S15P31E105-458([notifications.md](notifications.md))이며 수신자의 `notifications.community`가 false이면 행을 만들지 않는다.
 
 - `decision`은 APPROVE 또는 REJECT다. 대상 계정 소유자만 결정할 수 있다.
 - 승인 시 팔로우 관계를 확정하고 팔로워 수와 비공개 프로필·게시물 접근 권한을 반영한다. 거절 시 접근 권한을 부여하지 않으며 `followStatus=NONE`을 반환한다.
