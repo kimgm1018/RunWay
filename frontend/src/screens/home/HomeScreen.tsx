@@ -125,7 +125,7 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const photo = me.data?.profileImageUrl ?? null;
   // Notifications that did not load only leave the bell without its dot.
-  const unread = notifications.data?.some(item => !item.read) ?? false;
+  const unread = (notifications.data?.unreadCount ?? 0) > 0;
   // Pull to refresh: the spinner stays until every section that reloads has settled.
   const [pull, setPull] = useState(0);
   const [pending, setPending] = useState(0);

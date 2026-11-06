@@ -367,10 +367,11 @@ export const recommendedCourses: RecommendedCourse[] = [
 export const notifications: AppNotification[] = [
   {
     id: 'noti-1',
-    kind: 'GROUP_RUN_STARTING',
+    kind: 'GROUP_RUN_START_REMINDER',
     message: '‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
     createdAt: '2026-10-19T12:42:00+09:00',
     read: false,
+    targetId: 'gr-saturday',
   },
   {
     id: 'noti-2',
@@ -378,6 +379,7 @@ export const notifications: AppNotification[] = [
     message: '‘민락 야경 러너스’ 가입이 승인됐어요',
     createdAt: '2026-10-19T12:33:00+09:00',
     read: false,
+    targetId: 'crew-minrak-night',
   },
   {
     id: 'noti-3',
@@ -385,13 +387,15 @@ export const notifications: AppNotification[] = [
     message: '서연님이 내 게시물에 댓글을 남겼어요: 페이스 좋네요!',
     createdAt: '2026-10-19T11:45:00+09:00',
     read: false,
+    targetId: 'post-minjun-1015',
   },
   {
     id: 'noti-4',
-    kind: 'GROUP_RUN_CANCELED',
-    message: '이번 주 ‘수요일 저녁 회복런’ 그룹런이 취소됐어요',
+    kind: 'GROUP_RUN_PARTICIPATION_CANCELLED',
+    message: '이번 주 ‘수요일 회복 조깅’ 그룹런이 취소됐어요',
     createdAt: '2026-10-17T09:00:00+09:00',
     read: true,
+    targetId: 'gr-wednesday',
   },
   {
     id: 'noti-5',
@@ -399,6 +403,7 @@ export const notifications: AppNotification[] = [
     message: '‘수영강 하프 크루’ 가입이 거절됐어요',
     createdAt: '2026-10-16T09:00:00+09:00',
     read: true,
+    targetId: 'crew-suyeong-half',
   },
 ];
 
