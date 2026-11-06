@@ -406,6 +406,8 @@ W07 저장 기록으로 `sessions[]`를 만드는 방법(러닝 선택·5초 재
 | `modelVersion` | string | 적합한 ODE 모델·SHA 버전 |
 | `createdAt` | string (UTC date-time) | 계산 시각 |
 | `supportRunCount` | integer | 입력 지원 러닝 수 |
+| `gradeFilledRunCount` | integer | 사용한 support 러닝 중 경사를 0%로 채운 러닝 수 |
+| `gradeMissingRatio` | number | 사용한 support 러닝 전체 행 중 원래 경사가 결측인 행 비율. 소수점 넷째 자리까지 반올림하며 행이 없으면 0.0 |
 | `summaryU` | object | ODE 27 또는 28개 특성 이름별 값; 결측은 null |
 | `hrRefBpm` | number / null | 과거 support의 HR reference |
 | `history8` | number[≤512][5] | History8 입력 행 |
@@ -435,6 +437,14 @@ AI06 응답에는 기존 ODE 필드와 함께 `hrDangerBpm`(개인 P98 원값, +
 AI06은 `elapsedSec=0`부터 중복 없는 5초 격자 표본을 요구한다. 최신 GitLab W07은 최대 5초 단위 batch 수집을 뜻할 뿐, 각 항목이 균일한 5초 격자이거나 AI06 품질 필드가 같은 뜻이라는 보장은 아니다. 그래서 W07 payload를 그대로 AI06 요청으로 전달할 수 없다. 재표본화·결측·품질 변환은 [W07 → AI06 변환 규칙](w07-ai06-conversion.md)을 따른다(S15P31E105-411). 같은 문서 7절의 열린 질문은 백엔드(S15P31E105-410)와 합의해 확정한다.
 
 ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입력·계산이 실패해도 이미 계산한 `gruPersonalization` 블록은 오류 응답에 포함한다. 원본 샘플은 요청 종료 뒤 저장하지 않는다. 백엔드가 ODE와 GRU 블록을 각각 `user_hr_personalization`과 `user_gru_personalization`에 저장하는 방식을 합의한다.
+
+### 경사(grade) 결측 처리
+
+유효한 경사가 없는 러닝도 개인화에 사용할 수 있다. 기존 전처리에서 제외되는 러닝에만 경사 보완을 시도한다. 경사 값이 유한하지 않거나 품질이 `GOOD`·`LOW`가 아닌 행을 0%(평지), 품질 `LOW`로 채운 뒤 다시 검사한다. 통과한 러닝은 요약·이력·P4 적합·출발 HR 계산에 온전히 포함하며, 개인 P98·P85 계산에서도 같은 입력 조건으로 인정한다.
+
+보완한 러닝이 하나라도 사용되면 기존 경고 뒤에 `GRADE_FILLED_0`을 붙인다. 성공 응답에는 `gradeFilledRunCount`와 `gradeMissingRatio`를 항상 포함한다. 기존에 통과하던 고도 있는 러닝의 계산값과 경사 결측에 대한 30초 LOCF(이전 값 유지)·잘라내기 규칙은 바꾸지 않는다. 출발 HR·속도·2분 이상 조건을 만족하는 러닝이 하나도 없으면 여전히 422 `INPUT_INSUFFICIENT`를 반환한다.
+
+백엔드에서 코스 경사로 채우는 방식은 백엔드와 합의할 후보.
 
 ## AI07 — 시연 SSE
 
