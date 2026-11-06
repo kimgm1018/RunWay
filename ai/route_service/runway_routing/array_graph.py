@@ -15,7 +15,6 @@ from shapely.ops import transform
 from . import graph as legacy
 from . import shortest_path
 from .array_components import component_layout, component_layout_fast
-from .data import UTM_CRS
 
 # S15P31E105-437: 작업판 생성의 Python 반복문을 배열/Numba로(결과 같음). "0"이면 기존 반복문(rollback, 재시작 필요).
 _FAST_FLAG = os.environ.get("RUNWAY_ARRAY_PAIR_FAST", "1")

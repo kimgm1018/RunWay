@@ -29,13 +29,12 @@ import geopandas as gpd
 import networkx as nx
 import numpy as np
 import shapely
-from shapely.geometry import LineString, Point, box
+from shapely.geometry import LineString, Point
 from shapely.ops import polygonize, unary_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script dir from sys.path
 from osm_walk_inspect import Region  # noqa: E402
 
-TARGET_M = 5000
 TOLERANCE = 0.10          # valid candidate: |distance error| <= 10 %
 ATTEMPTS = 40             # generation requests per start point
 MAX_ITER = 6              # circle rescaling steps per attempt
