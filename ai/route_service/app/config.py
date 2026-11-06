@@ -3,6 +3,7 @@
 서비스가 읽는 값:
   ROUTE_DEBUG=1                 응답에 debug 블록을 넣는다(개발용, 기본 0)
   ROUTE_WARMUP=0                시작 시 예열 요청을 건너뛴다(기본 1; 0이면 엔진 로드만으로 ready)
+  ROUTE_LOCK_WAIT_S             실행 슬롯 대기 상한(초, 기본 8.0, 유한한 양수만 허용)
   RUNWAY_USABILITY_GATE         enforce(기본) / shadow(비상용: 기록만)
   RUNWAY_FAST_GRAPH=0           canonical graph builder로 되돌린다(결과 동일, cold 느려짐)
   RUNWAY_USABILITY_LOG_DIR      Gate 검토 로그(JSONL) 폴더. 기본: <코드 root>/reports/_usability_gate_log
@@ -12,6 +13,7 @@
   RUNWAY_SOURCE_SNAPSHOT, RUNWAY_SP_ENGINE, RUNWAY_SP_KERNEL, RUNWAY_ARRAY_LOOP, RUNWAY_ARRAY_SHAPES, RUNWAY_ARRAY_PAIR_FAST,
   RUNWAY_ENV_PREPARED, RUNWAY_ADAPTER_LEAN_ROUTING, RUNWAY_P2P_SUBSTRATE, NUMBA_CACHE_DIR.
 """
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,11 +43,18 @@ class Settings:
     usability_log_dir: Path     # Gate 검토 로그 폴더(쓰기 가능해야 함; 실패해도 응답은 막지 않음)
     reroll_exclude: bool = True     # 재추천에서 이전 1~2개 응답의 코스 제외
     reroll_cache_size: int = 256    # 그 비교용 코스 결과 cache 칸 수
+    lock_wait_s: float = 8.0        # 실행 슬롯 대기 상한(초)
 
 
 def load_settings() -> Settings:
     gate = os.getenv("RUNWAY_USABILITY_GATE", "enforce")
     log_dir = os.getenv("RUNWAY_USABILITY_LOG_DIR", "").strip()
+    try:
+        lock_wait_s = float(os.getenv("ROUTE_LOCK_WAIT_S", "8.0"))
+    except ValueError:
+        raise ValueError("ROUTE_LOCK_WAIT_S must be a finite number > 0") from None
+    if not math.isfinite(lock_wait_s) or lock_wait_s <= 0:
+        raise ValueError("ROUTE_LOCK_WAIT_S must be a finite number > 0")
     return Settings(
         debug=_flag("ROUTE_DEBUG", False),
         warmup=_flag("ROUTE_WARMUP", True),
@@ -54,4 +63,5 @@ def load_settings() -> Settings:
         usability_log_dir=Path(log_dir) if log_dir else SERVICE_DIR / "reports" / "_usability_gate_log",
         reroll_exclude=_flag("ROUTE_REROLL_EXCLUDE", True),
         reroll_cache_size=int(os.getenv("ROUTE_REROLL_CACHE_SIZE", "256")),
+        lock_wait_s=lock_wait_s,
     )

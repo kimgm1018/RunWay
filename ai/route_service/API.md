@@ -151,7 +151,7 @@ seed + 24가 10,000,000을 넘으면 1부터 다시 센다(예: seed 10,000,000 
 | 422 | `USABILITY_GATE_ALL_FAILED` | 안전 기준을 통과한 코스 없음 | null |
 | 422 | `NO_ROUTE` | 조건에 맞는 코스를 못 만듦 | null |
 | 503 | `NOT_READY` | 엔진 준비 중 | null |
-| 503 | `BUSY` | 다른 요청 처리 중이라 1초 안에 실행 슬롯을 못 잡음 | null |
+| 503 | `BUSY` | 다른 요청 처리 중이라 설정된 대기 시간(기본 8초, `ROUTE_LOCK_WAIT_S`) 안에 실행 슬롯을 못 잡음. 요청 마감으로 대기가 끝나면 `TIMEOUT` | null |
 | 503 | `TIMEOUT` | `X-Request-Deadline`이 계산 시작 전에 지남 | null |
 | 503 | `UNAVAILABLE` | 엔진 시작(로드·예열) 실패 | null |
 | 500 | `INTERNAL` | 처리 중 예외: 계산·응답 조립·JSON 변환(비정상 숫자) 어디서든 (서버 로그 `runway.ai`에 `ai_error code=INTERNAL ...`) | null |
@@ -172,14 +172,17 @@ Gate 검토 로그(서버 JSONL, 응답에는 없음): 요청마다 한 줄. `ga
 
 ## 5. 동시성·시간·재시도
 
-- 엔진은 thread-safe가 아니라 한 번에 한 요청만 계산한다(worker 1개). 엔진 안에서 실행 슬롯을 **최대 1초** 기다리고 못
-  잡으면 503 `BUSY`. 엔진 안에 대기열을 두지 않는다.
-- 이 1초는 **엔진 lock 대기만**이다. 추천 endpoint는 서버 thread pool(Starlette 기본 40칸)에서 돈다. 요청이 아주 많이 몰리면
-  endpoint에 들어가기 전에 thread pool에서 기다릴 수 있고, 그 시간은 1초에 들어가지 않는다. 서비스는 입구에서 동시 요청 수를
+- 엔진은 thread-safe가 아니라 한 번에 한 요청만 계산한다(worker 1개). 엔진 안에서 실행 슬롯을 **기본 최대 8초** 기다린다
+  (`ROUTE_LOCK_WAIT_S`, 유한한 양수). `X-Request-Deadline`이 있으면 설정값과 마감까지 남은 시간 중 짧은 쪽만 기다린다.
+  슬롯을 못 잡으면 설정 대기 상한으로 끝난 경우 503 `BUSY`, 마감으로 끝났거나 이미 마감이 지난 경우 503 `TIMEOUT`이다.
+  슬롯을 잡은 직후에도 마감을 확인한다. 대기 요청 수 상한은 두지 않는다. 예열은 마감 없이 무제한 대기한다.
+- 이 대기 상한은 **엔진 lock 대기만**이다. 추천 endpoint는 서버 thread pool(Starlette 기본 40칸)에서 돈다. 요청이 아주 많이 몰리면
+  endpoint에 들어가기 전에 thread pool에서 기다릴 수 있고, 그 시간은 lock 대기 상한에 들어가지 않는다. 서비스는 입구에서 동시 요청 수를
   제한하지 않는다(BE가 호출 시간 상한을 둔다). 상태 확인 경로(live/ready)는 thread pool을 쓰지 않아 이 대기와 무관하다.
 - 응답 시간(측정값): 처음 요청한 지역 1~5초, 같은 지역 반복 0.3~1.2초. 1 vCPU에서는 더 길 수 있다.
-- BE 계약 제안: BE→Route 전체 호출 15초, Route 처리 상한 12초(대기 1초 포함). 지금 구현은 **시작 전 deadline 확인**까지
-  만 한다. 시작한 계산은 끝까지 가며 늦은 결과는 BE가 버린다. 계산 중단·자원 회수는 MVP 범위 밖이다.
+- BE→Route 전체 호출은 15초이며, BE는 자신의 마감에서 6초를 뺀 시각(epoch ms)을 `X-Request-Deadline`으로 보낸다.
+  이 값은 Route가 **계산을 시작할 수 있는 마지막 시각**이다. 시작한 계산은 끝까지 가며 늦은 결과는 BE가 버린다.
+  계산 중단·자원 회수는 MVP 범위 밖이다.
 - BE 자동 재시도는 0회(계약). 같은 입력은 같은 결과이므로 422 재시도는 의미가 없다.
 
 ## 6. 응답 크기 상한 (제안, 미확정)
@@ -207,6 +210,7 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 | `RUNWAY_MASK_CACHE_SIZE` | 4 | 편도 마스크 캐시 칸 수 |
 | `ROUTE_DEBUG` | 0 | 1이면 debug 응답(3절) |
 | `ROUTE_WARMUP` | 1 | 0이면 예열 없이 로드만 끝나면 ready |
+| `ROUTE_LOCK_WAIT_S` | 8.0 | 실행 슬롯 대기 상한(초). 유한한 양수만 허용하며 잘못된 값이면 앱 시작 실패. 요청 마감이 더 가까우면 그때까지만 대기 |
 | `RUNWAY_USABILITY_GATE` | enforce | `shadow`는 비상용(안전 기준 탈락 코스를 지우지 않고 기록만) |
 | `RUNWAY_USABILITY_LOG_DIR` | `<코드 폴더>/reports/_usability_gate_log` | 안전 기준 검토 로그(JSONL, 요청 좌표 포함). 이미지는 `/tmp/...` |
 | `ROUTE_REROLL_EXCLUDE` | 1 | 0이면 재추천에서 이전 코스를 빼지 않는다(seed만 바꾸는 예전 재추천, 2절) |
