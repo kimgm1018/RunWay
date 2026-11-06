@@ -10,6 +10,8 @@
 """
 from fastapi.responses import JSONResponse
 
+REROLL_NO_ROUTE_MESSAGE = "이 조건으로 더 보여 드릴 다른 코스가 없어요."
+
 NO_ROAD_MESSAGE = "고른 위치 주변에 달릴 수 있는 길이 없어요 (바다나 산속일 수 있어요). 길 가까이를 눌러 주세요."
 END_SNAP_MESSAGE = "도착 위치 근처에서 안전하게 달릴 수 있는 길을 찾지 못했어요. 도착 위치를 길 가까이로 옮겨 주세요."
 SHAPE_FAIL = {  # 새 모양(왕복·편도)의 blocking issue code -> 사용자 메시지 (code는 그대로 쓴다)
