@@ -78,6 +78,11 @@ export const dataErrorCodes = [
   'UNSUPPORTED_MEDIA_TYPE',
   'INVALID_FILE',
   'INVALID_IMAGE',
+  // 3.1 현재 위치 on the phone (S15P31E105-494): no permission, location off, no fix in time, no location at all.
+  'LOCATION_PERMISSION_DENIED',
+  'LOCATION_DISABLED',
+  'LOCATION_TIMEOUT',
+  'LOCATION_UNAVAILABLE',
   // 400 with the common VALIDATION_ERROR code: the server rejected the input format.
   'VALIDATION_ERROR',
   // 401 on a member API: the access token is missing, expired or rejected. The session signs out.

@@ -257,6 +257,20 @@ async function launch() {
         repositories={{
           ...createApiRepositories({ latencyMs: 0 }),
           clock: { now: () => new Date(now) },
+          // 3.1 starts from 현재 위치 (S15P31E105-494); a synthetic fix stands in for the phone.
+          phoneLocation: {
+            start: async () => false,
+            stop: async () => undefined,
+            subscribe: () => () => undefined,
+            requestPermission: async () => true,
+            current: async () => ({
+              latitude: 35.1551,
+              longitude: 129.1301,
+              accuracyM: 5,
+              altitudeM: null,
+              time: Date.UTC(2026, 10, 6, 1, 0, 0),
+            }),
+          },
         }}
         initialSignedIn
       />,
@@ -520,7 +534,17 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
   expect(texts(screen)).toContain('추천 기본값을 저장했어요');
   expect(recommendationBodies()).toEqual([]);
   await press(screen, '도착 위치 선택');
-  await press(screen, '민락수변공원');
+  // 장소 검색(searchPlaces) answers after typing stops (S15P31E105-494).
+  await act(async () => {
+    const fields = screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === '장소·주소 검색' &&
+        typeof node.props.onChangeText === 'function',
+    );
+    fields[fields.length - 1].props.onChangeText('민락수변공원');
+  });
+  await settle(400);
+  await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
   await press(screen, '코스 추천 받기');
   expect(recommendationBodies()[0]).toMatchObject({
     shape: 'point_to_point',

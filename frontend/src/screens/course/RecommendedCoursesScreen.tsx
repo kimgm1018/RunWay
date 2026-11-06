@@ -30,9 +30,10 @@ import { recommendFailureNotice } from './recommendFailure';
 import { useRequestTicket } from './requestTicket';
 import { RouteLine } from './RouteLine';
 
+// A fixed place, not my location (S15P31E105-494: no fixed point stands in for 현재 위치).
 const defaultSearch = {
   origin: {
-    name: '광안리해수욕장 · 현재 위치',
+    name: '광안리해수욕장',
     position: [129.1186, 35.1532] as [number, number],
   },
   targetDistanceM: 5000,

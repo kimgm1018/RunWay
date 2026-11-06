@@ -934,6 +934,9 @@ export type PhoneLocation = {
   subscribe: (listener: (fix: PhoneFix) => void) => () => void;
   // 위치 권한을 묻는다. 거절해도 인계는 이어가며 경로만 남지 않는다.
   requestPermission: () => Promise<boolean>;
+  // 3.1 기준 위치의 현재 위치 한 번(S15P31E105-494). 권한을 묻고, 실패는 LOCATION_* DataError로 거절한다.
+  // 러닝 중 start/subscribe와 별개의 리스너를 쓴다.
+  current: () => Promise<PhoneFix>;
 };
 
 // W07 서버 저장 ACK (devices-health.md W07 Response).
@@ -1034,7 +1037,6 @@ export type Repositories = {
     getSaved: () => Promise<SavedCourse[]>;
     // 2.0's plan for the course picked last with choose(); a default course until then.
     getTodayPlan: () => Promise<CoursePlan>;
-    getOrigins: () => Promise<Place[]>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,

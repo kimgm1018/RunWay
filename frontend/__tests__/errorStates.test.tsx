@@ -145,27 +145,6 @@ test('2.0F says the location was not found and a tap looks again', async () => {
   expect(texts(screen)).toContain('민락수변공원 입구');
 });
 
-test('3.1 says why 코스 추천 받기 is off when the origins did not load', async () => {
-  const repositories = createMockRepositories({ latencyMs: 0 });
-  const getOrigins = repositories.courses.getOrigins;
-  const origins = jest
-    .spyOn(repositories.courses, 'getOrigins')
-    .mockRejectedValueOnce(offline());
-  const screen = await launch(repositories);
-  await press(screen, '러닝');
-  await press(screen, '코스 러닝');
-
-  expect(texts(screen)).toContain('기준 위치를 불러오지 못했어요');
-  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
-
-  origins.mockImplementation(getOrigins);
-  await act(async () => retry(screen).props.onPress());
-  await settle();
-  await settle();
-  expect(texts(screen)).not.toContain('기준 위치를 불러오지 못했어요');
-  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
-});
-
 test('6.4c says the run did not load instead of spinning on', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const get = repositories.groupRuns.get;

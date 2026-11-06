@@ -168,6 +168,9 @@ const noLocation: PhoneLocation = {
   stop: async () => undefined,
   subscribe: () => () => undefined,
   requestPermission: async () => false,
+  current: async () => {
+    throw new DataError('LOCATION_UNAVAILABLE', '현재 위치를 찾지 못했어요');
+  },
 };
 
 type RandomSource = { getRandomValues: (array: Uint8Array) => Uint8Array };
