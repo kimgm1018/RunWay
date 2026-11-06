@@ -140,8 +140,22 @@ function titleOf(draft: GroupRunDraft) {
   return `${weekday}요일, 함께 ${goal}`;
 }
 
-// The run's place, time and course for G01/G04. Goals are left out: the server wants a distance with every
-// goal, so a free run's time cannot be kept and a course run reads its distance from the course.
+// The run's goal for G01/G04. The server wants a distance with every goal, so only a course run sends one:
+// TIME with the course distance sent explicitly, as G04 would otherwise keep the old goal's distance.
+// A free run sends none; G04 rejects null goal fields, so a run made free keeps its saved goal.
+function goalOf(draft: Omit<GroupRunDraft, 'crewId'>) {
+  const distanceM = Math.round(draft.targetDistanceM ?? 0);
+  const durationSec = Math.round(draft.targetDurationSec ?? 0);
+  return draft.courseId !== null && distanceM > 0 && durationSec > 0
+    ? {
+        goalInputType: 'TIME' as const,
+        targetDistanceM: distanceM,
+        targetDurationSec: durationSec,
+      }
+    : {};
+}
+
+// The run's place, time, course and goal for G01/G04.
 const placeAndTime = (draft: Omit<GroupRunDraft, 'crewId'>) => ({
   courseId: draft.courseId === null ? null : Number(draft.courseId),
   scheduledAt: new Date(draft.scheduledAt).toISOString(),
@@ -150,6 +164,7 @@ const placeAndTime = (draft: Omit<GroupRunDraft, 'crewId'>) => ({
   meetingAddress: draft.meetingAddress,
   // 찾아오는 법 goes in the run's description.
   description: draft.meetingNote,
+  ...goalOf(draft),
 });
 
 export function createGroupRunsApi({

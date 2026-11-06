@@ -50,7 +50,7 @@ const modes: { value: Mode; label: string }[] = [
   { value: 'COURSE', label: '코스 러닝' },
   { value: 'FREE', label: '자유 러닝' },
 ];
-const freeMinutes = [30, 40, 50, 60];
+const goalMinutes = [30, 40, 50, 60];
 // Start times offered on 6.8, every 30 minutes from 05:00 to 22:00.
 const times = Array.from({ length: 35 }, (_, index) => 5 * 60 + index * 30);
 const kstOffsetMs = 9 * 3600 * 1000;
@@ -264,6 +264,10 @@ export function GroupRunCreateScreen() {
     dayAfter(now, index),
   ).filter(value => timesOn(value).length > 0);
   const passed = day === todayDay && time <= nowMinutes;
+  // An edited run's saved minutes stay pickable even when not one of the usual chips.
+  const minuteOptions = goalMinutes.includes(minutes)
+    ? goalMinutes
+    : [...goalMinutes, minutes].sort((a, b) => a - b);
 
   // Editing starts from the run as it is: its course or minutes, place, day and time (KST).
   useEffect(() => {
@@ -373,7 +377,8 @@ export function GroupRunCreateScreen() {
         time % 60,
       )}:00+09:00`,
       targetDistanceM: mode === 'COURSE' ? course?.distanceM ?? null : null,
-      targetDurationSec: mode === 'FREE' ? minutes * 60 : null,
+      // Course runs send it as the TIME goal; a free run's minutes only name the run.
+      targetDurationSec: minutes * 60,
     };
     try {
       if (edited) {
@@ -392,7 +397,9 @@ export function GroupRunCreateScreen() {
       );
     } catch (error) {
       toast(
-        !edited
+        errorCode(error) === 'INVALID_GOAL'
+          ? '목표 시간을 저장하지 못했어요. 코스와 시간을 확인해 주세요'
+          : !edited
           ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
           : errorCode(error) === 'EDIT_NOT_ALLOWED'
           ? '출발 전 그룹런만 수정할 수 있어요'
@@ -422,47 +429,43 @@ export function GroupRunCreateScreen() {
           title="코스"
           right={<ModeSwitch value={mode} onChange={setMode} />}
         >
-          {mode === 'COURSE' ? (
-            course ? (
-              <ChangeRow
-                icon={<RouteThumb shape={course.shape} />}
-                title={course.name}
-                detail={`${formatKm(course.distanceM, 1)}km`}
-                label="코스 변경"
-                onChange={() => setSheet('course')}
-              />
-            ) : null
-          ) : (
-            <View style={styles.chips}>
-              {freeMinutes.map(value => {
-                const selected = value === minutes;
-                return (
-                  <Pressable
-                    key={value}
-                    accessibilityRole="radio"
-                    accessibilityLabel={`${value}분`}
-                    accessibilityState={{ selected }}
-                    onPress={() => setMinutes(value)}
-                    style={({ pressed }) => pressed && styles.pressed}
-                  >
-                    {selected ? (
-                      <Raised tone="navy" style={styles.chip}>
-                        <AppText style={styles.chipTextOn}>
-                          {`${value}분`}
-                        </AppText>
-                      </Raised>
-                    ) : (
-                      <LightGlass radius={18} style={styles.chip}>
-                        <AppText
-                          style={styles.chipText}
-                        >{`${value}분`}</AppText>
-                      </LightGlass>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
+          {mode === 'COURSE' && course ? (
+            <ChangeRow
+              icon={<RouteThumb shape={course.shape} />}
+              title={course.name}
+              detail={`${formatKm(course.distanceM, 1)}km`}
+              label="코스 변경"
+              onChange={() => setSheet('course')}
+            />
+          ) : null}
+          {/* Both modes pick minutes: a course run's TIME goal, a free run's name. */}
+          <View style={styles.chips}>
+            {minuteOptions.map(value => {
+              const selected = value === minutes;
+              return (
+                <Pressable
+                  key={value}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${value}분`}
+                  accessibilityState={{ selected }}
+                  onPress={() => setMinutes(value)}
+                  style={({ pressed }) => pressed && styles.pressed}
+                >
+                  {selected ? (
+                    <Raised tone="navy" style={styles.chip}>
+                      <AppText
+                        style={styles.chipTextOn}
+                      >{`${value}분`}</AppText>
+                    </Raised>
+                  ) : (
+                    <LightGlass radius={18} style={styles.chip}>
+                      <AppText style={styles.chipText}>{`${value}분`}</AppText>
+                    </LightGlass>
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
         </Section>
         <Section
           title="만나는 곳"
