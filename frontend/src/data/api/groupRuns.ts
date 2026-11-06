@@ -180,13 +180,16 @@ export function createGroupRunsApi({
 
   // G03 with G07: who is in, who leads and whether I joined.
   async function load(groupRunId: string) {
-    const [run, { items }, me] = await Promise.all([
+    const [run, roster, me] = await Promise.all([
       apiRequest<DetailResponse>(`/group-runs/${groupRunId}`),
-      apiRequest<{ items: ParticipantItem[] }>(
-        `/group-runs/${groupRunId}/participants`,
-      ),
+      apiRequest<{
+        items: ParticipantItem[];
+        participantCount?: number;
+        readyCount?: number;
+      }>(`/group-runs/${groupRunId}/participants`),
       myId(),
     ]);
+    const items = roster.items;
     const participants: GroupRunParticipant[] = [...items]
       .sort((a, b) => Number(b.isHost) - Number(a.isHost))
       .map(item => ({
@@ -198,7 +201,11 @@ export function createGroupRunsApi({
         // 준비도는 기존 화면에서 본인 값만 표시한다.
         readinessScore: item.readinessScore ?? null,
       }));
-    return { run, participants, me, items };
+    const participantCount = roster.participantCount ?? items.length;
+    const readyCount =
+      roster.readyCount ??
+      participants.filter(member => member.readyStatus === 'READY').length;
+    return { run, participants, me, items, participantCount, readyCount };
   }
 
   async function summaryOf(
@@ -233,7 +240,9 @@ export function createGroupRunsApi({
     run.goalPaceSecPerKm ?? (await usualPace()) ?? defaultPaceSecPerKm;
 
   async function waitingRoom(groupRunId: string): Promise<WaitingRoom> {
-    const { run, participants } = await load(groupRunId);
+    const { run, participants, participantCount, readyCount } = await load(
+      groupRunId,
+    );
     const [pace, course] = await Promise.all([
       goalPace(run),
       courseOf(run.courseId),
@@ -249,8 +258,10 @@ export function createGroupRunsApi({
       expectedDurationSec: distanceM
         ? Math.round((distanceM / 1000) * pace)
         : run.targetDurationSec ?? 0,
-      appliedCount: participants.length,
-      // The server keeps no 입장 state, so everyone who joined is in the room.
+      // presence 없음: 참가 신청·대기방 인원 모두 G07 participantCount.
+      appliedCount: participantCount,
+      participantCount,
+      readyCount,
       participants,
     };
   }
@@ -454,6 +465,10 @@ export function createGroupRunsApi({
                   loaded.run.comfortRange.slowSecPerKm,
                 ]
               : null,
+            {
+              participantCount: loaded.participantCount,
+              readyCount: loaded.readyCount,
+            },
           );
           if (
             session?.startedAt &&

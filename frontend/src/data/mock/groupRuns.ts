@@ -108,9 +108,13 @@ export function createGroupRunMock({
 
   // Only the members who entered gr-today's room are in it (지우 applied but stayed out).
   const waitingRoom = (run: Run): WaitingRoom => {
-    const inRoom = participants(run).filter(
+    const applied = participants(run);
+    const inRoom = applied.filter(
       member => member.isMe || ready.has(member.userId),
     );
+    const readyCount = inRoom.filter(
+      member => member.readyStatus === 'READY',
+    ).length;
     return {
       groupRunId: run.id,
       goalPaceSecPerKm: run.goalPaceSecPerKm,
@@ -119,7 +123,9 @@ export function createGroupRunMock({
       expectedDurationSec: run.targetDistanceM
         ? Math.round((run.targetDistanceM / 1000) * run.goalPaceSecPerKm)
         : run.targetDurationSec ?? 0,
-      appliedCount: participants(run).length,
+      appliedCount: applied.length,
+      participantCount: inRoom.length,
+      readyCount,
       participants: inRoom,
     };
   };

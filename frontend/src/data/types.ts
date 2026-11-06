@@ -502,6 +502,9 @@ export type WaitingRoom = {
   comfortRange: [number, number] | null;
   expectedDurationSec: number;
   appliedCount: number;
+  // G07 집계(S15P31E105-499/511). session null 포함 대기방 인원·준비 수.
+  participantCount: number;
+  readyCount: number;
   participants: GroupRunParticipant[];
 };
 
@@ -1110,6 +1113,7 @@ export type Repositories = {
         participants: GroupRunParticipant[],
         recommendedPaceSecPerKm?: number | null,
         comfortRange?: WaitingRoom['comfortRange'],
+        counts?: { participantCount: number; readyCount: number },
       ) => void,
     ) => () => void;
     // G10을 주기적으로 조회한다. 구독 해제 후 도착한 응답은 전달하지 않는다.

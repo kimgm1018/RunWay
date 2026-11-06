@@ -213,14 +213,22 @@ export function WaitingRoomScreen() {
       participants: WaitingRoom['participants'],
       recommendedPaceSecPerKm?: number | null,
       comfortRange?: WaitingRoom['comfortRange'],
+      counts?: { participantCount: number; readyCount: number },
     ) => {
+      const participantCount = counts?.participantCount ?? participants.length;
+      const readyCount =
+        counts?.readyCount ??
+        participants.filter(member => member.readyStatus === 'READY').length;
       setWatchError(null);
       setRoom(current =>
         current
           ? {
               ...current,
               participants,
-              appliedCount: participants.length,
+              // presence 없음: 참가 신청·대기방 인원 모두 G07 participantCount.
+              appliedCount: participantCount,
+              participantCount,
+              readyCount,
               comfortRange:
                 comfortRange === undefined
                   ? current.comfortRange
@@ -309,9 +317,6 @@ export function WaitingRoomScreen() {
 
   const me = room.participants.find(member => member.isMe);
   const isReady = me?.readyStatus === 'READY';
-  const readyCount = room.participants.filter(
-    member => member.readyStatus === 'READY',
-  ).length;
   const toggleReady = async () => {
     if (readyBusy.current || startRequested || (!isReady && !ensureRunLogin()))
       return;
@@ -382,10 +387,10 @@ export function WaitingRoomScreen() {
         <View style={styles.card}>
           <View style={styles.rowBetween}>
             <SectionLabel tone="light">
-              {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participants.length}명`}
+              {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
             </SectionLabel>
             <AppText style={styles.noteText}>
-              {`${readyCount}명 준비 완료`}
+              {`${room.readyCount}명 준비 완료`}
             </AppText>
           </View>
           <View>
