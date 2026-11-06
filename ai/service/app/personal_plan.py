@@ -9,7 +9,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, ROUND_HALF_UP, localcontext
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, ROUND_HALF_UP, localcontext
 import hashlib
 import json
 import math
@@ -41,6 +41,7 @@ PACE_RATIO_MAX = Decimal("1.20")
 # paceRatio 응답 자릿수. 소수 여섯째 자리면 반올림 뒤 거리 가중 평균이 1±5e-7 안에 든다.
 _RATIO_SCALE = Decimal("0.000001")
 SEGMENT_RATIO_CLAMPED = "SEGMENT_RATIO_CLAMPED"
+GOAL_OUTSIDE_VALIDATED_PACE_RANGE = "GOAL_OUTSIDE_VALIDATED_PACE_RANGE"
 _RATIO_PRECISION = 50
 # 계산 안전장치(지연·메모리): 코스 45 km, 1 km 구간 45개까지만 계획한다. 넘으면 422 INVALID_GOAL.
 _MAX_DISTANCE_M = Decimal("45000")
@@ -166,6 +167,26 @@ class ResolvedGoal:
     predicted_finish_sec: int | None
     target_pace_source: str
     target_finish_sec: int | None = None
+
+
+def _search_goal_within_support(goal: ResolvedGoal | None) -> tuple[ResolvedGoal | None, bool]:
+    if goal is None or goal.target_pace_sec_per_km is None:
+        return goal, False
+    goal_speed = 1000.0 / float(goal.target_pace_sec_per_km)
+    min_speed, max_speed = _TRAIN_SPEED_QUANTILES_MPS[0], _TRAIN_SPEED_QUANTILES_MPS[-1]
+    if min_speed - 1e-9 <= goal_speed <= max_speed + 1e-9:
+        return goal, False
+    too_fast = goal_speed > max_speed
+    # 경계 페이스 그대로 탐색하면 목표 배율을 맞춘 뒤 고르지 않은 구간이 모두 지원 범위를 벗어나
+    # 균일 계획(비율 1.0)만 남는다(운영 ODE 스모크 확인). 그래서 비율 0.85~1.20이 모두 범위 안에 드는
+    # 가장 가까운 페이스(빠른 쪽 4.1272×0.85 m/s, 느린 쪽 1.7638×1.20 m/s)에서 탐색한다.
+    boundary_speed = (Decimal(str(max_speed)) * PACE_RATIO_MIN if too_fast
+                      else Decimal(str(min_speed)) * PACE_RATIO_MAX)
+    boundary_pace = (_M_PER_KM / boundary_speed).quantize(
+        _CENT, rounding=ROUND_CEILING if too_fast else ROUND_FLOOR)
+    # 지원 범위는 V2 검증 범위가 아닌 FitRec v1 연구 범위다. 범위 밖 목표는 위 탐색 페이스
+    # 계획의 구간 비율을 쓰고 실제 목표 완주시간은 정확히 유지한다.
+    return replace(goal, target_pace_sec_per_km=boundary_pace), True
 
 
 @dataclass(frozen=True)
@@ -1230,7 +1251,8 @@ def build_personal_plan(
         return segments, pace, list(baseline_plan.warnings) + extra, clamped
 
     if can_personalize or population_kind is not None:
-        selection = optimizer.select(course=course, goal=goal,
+        search_goal, outside_support = _search_goal_within_support(goal)
+        selection = optimizer.select(course=course, goal=search_goal,
                                      personalization=personalization, ode_runtime=ode_runtime)
         if (selection is None or not selection.personalized or not selection.model_version
                 or not selection.policy_version or selection.preserve_goal_duration is None
@@ -1238,8 +1260,14 @@ def build_personal_plan(
             raise _not_ready("PACE_SELECTION_RESULT_NOT_EXPERIMENTAL_OR_PERSONALIZED")
         if selection.model_version != ode_runtime.info.model_version:
             raise _not_ready("PACE_SELECTION_MODEL_VERSION_MISMATCH")
-        segments, baseline_pace, baseline_plan_warnings, ratio_clamped = finalize_with_baseline(
-            selection.segment_paces_sec_per_km, selection.preserve_goal_duration)
+        if outside_support:
+            segments, ratio_clamped = finalize_personal_segments_with_clamp(
+                goal.distance_m, goal.target_pace_sec_per_km, selection.segment_paces_sec_per_km,
+                preserve_goal_duration=True)
+            baseline_plan_warnings = []
+        else:
+            segments, baseline_pace, baseline_plan_warnings, ratio_clamped = finalize_with_baseline(
+                selection.segment_paces_sec_per_km, selection.preserve_goal_duration)
         course_warnings = course_warnings + baseline_plan_warnings
         if goal.target_finish_sec is not None:
             finished = finish_sec_from_segments(segments)
@@ -1251,7 +1279,7 @@ def build_personal_plan(
                   if hasattr(optimizer, "replay") else None)
         mean_plan_pace = sum(segment.length_m * segment.pace_sec_per_km for segment in segments) / float(goal.distance_m)
         selection_warnings = list(selection.warnings)
-        if (baseline_plan is not None or ratio_clamped) and replay:
+        if (baseline_plan is not None or ratio_clamped or outside_support) and replay:
             # 배율 조정·비율 제한 뒤 계획의 HR band 경고는 최종 계획 재생 기준으로 다시 정한다(막지 않음).
             band_warning = "HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN"
             selection_warnings = [w for w in selection_warnings if w != band_warning]
@@ -1274,6 +1302,9 @@ def build_personal_plan(
                 "AVERAGE_BASED_RECOMMENDATION", "PERSONALIZED=false", f"POPULATION_MODE={population_kind}",
                 f"TRAIN_SUBJECTS={population_bundle.train_subject_count}",
                 f"TRAIN_RUNS={population_bundle.train_run_count}"] + selection_warnings
+        if outside_support:
+            plan_warnings = [w for w in plan_warnings if w != GOAL_OUTSIDE_VALIDATED_PACE_RANGE]
+            plan_warnings.append(GOAL_OUTSIDE_VALIDATED_PACE_RANGE)
         response = dict(
             plan_status="EXPERIMENTAL" if population_kind is None else "AVERAGE_BASED",
             user_id=body.user_id,
