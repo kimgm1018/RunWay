@@ -124,6 +124,8 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 `POST /v1/pace/decide` — 정책 v0.4.1(`mpc-v0.4.1`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
 
+**응답 시간·동시 처리(S15P31E105-440, 2026-11-05 측정).** CPU 1개, uvicorn worker 1, 스레드 1, 실제 GRU(`db59d414`), 합성 데이터 기준이다. AI04 1회는 p50 12~20 ms, p99 14~27 ms로 history 1~1440칸·plan 유무에 따른 차이는 거의 없다(1칸 `PLAN_HOLD`는 약 3 ms, 시작 뒤 첫 호출은 약 55 ms). 5초 주기 동시 사용자는 AI04만 받으면 200명까지 p99 1초 이하이고 약 250~300명부터 3초를 넘는다. 같은 프로세스에서 AI09·AI06이 쉬지 않고 돌면 50명 p99 0.58 s, 100명에서 1.1%가 3초를 넘는다. **백엔드 호출 기준: timeout 3초, 세션당 동시 1건, timeout·연결 오류·5xx는 재시도 없이 다음 W07 batch로 넘긴다. 컨테이너(1 vCPU)당 동시 러닝 50명이 계획 기준이다.** uvicorn 기본 keep-alive 5초와 5초 호출 주기가 겹쳐 드물게 연결이 끊기므로 백엔드 유휴 연결 정리를 4초 이하로 두거나 AI 실행 명령에 `--timeout-keep-alive 15`를 준다. 단, 목표 BPM 조회(S15P31E105-438)와 학습 심박 기준 조회는 DB를 부르는 동안 프로세스 공용 lock을 잡고 실패를 캐시하지 않는다. 스텁 DB 실측(50명)은 DB 정상 p99 74 ms, 쿼리 100 ms면 p50 3.98 s·70.8%가 3초 초과, DB 응답 없음이면 p50 12.0 s·98.9%가 3초 초과였다(응답은 200 + `BPM_RECORDS_UNAVAILABLE`). 수정 전까지 DB 지연이 AI04 전체 지연이 된다. 수정 방향은 DB 호출을 lock 밖으로, 세션 조회 캐시, 실패 30초 차단이다.
+
 - v0.4.1: HR 입력 지연 기준을 15초에서 20초로 바꿈(팀 명세 정렬, S15P31E105-413).
 
 ### Request Body
@@ -773,7 +775,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | N7-2 | cueBpm | AI04는 추천 페이스의 정수 BPM(60~220)을 반환한다(S15P31E105-416). BPM 모듈 로드·계산 실패 때만 null + `CUE_BPM_UNAVAILABLE`이며, 이때 COACHING 명령은 현재 BPM을 유지한다(S15P31E105-421). 사용자 기록은 백엔드가 보내지 않고 AI가 DB에서 직접 읽는다(S15P31E105-438, 합의). 백엔드는 코칭 발행(`publishSuggested=true`) 때만 `cueBpm`을 적용하고, 작은 BPM 변화는 따로 거르지 않는다(S15P31E105-462, 합의) | 기록 조회·적용 시점 합의(462). 수동 BPM 유지·`cueBpm=null` 처리는 백엔드 구현(S15P31E105-421, 2026-11-05 사용자 확정), 팀 확인 전 |
 | N7-3 | 러닝 mode enum | AI05 `COURSE/FREE_WITH_GOAL/FREE_NO_GOAL`; AI04 입력 문자열 유지 | 잠정 |
 | N7-4 / O1 | 자유러닝 경사 null vs 0 | MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`; 경사 정보가 없으면 0% 평지 계산 후 HTTP 200과 경로별 경고 반환. 코스 경사 저장은 S15P31E105-319, unknown 정책·GPS 고도 활용은 MVP 이후 | flat0 MVP 기본값 합의(MR !142 리뷰) |
-| N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch | 백엔드 구현 반영(S15P31E105-421), 팀 확인 전 |
+| N7-5 | AI04 timeout | 3초, timeout 후 재시도 없이 다음 batch. 1 vCPU 실측 p99 ≤ 0.6 s(동시 50명, AI09·AI06 동시 실행 포함, S15P31E105-440). 단 DB 조회 lock 수정 전에는 DB 지연 시 초과 | 백엔드 구현 반영(S15P31E105-421), 실측 확인(S15P31E105-440) |
 | N7-6 / O2 | HRmax source | 나이 공식·HRR 경로를 기준 계산에서 제거. 마지막 400m는 안전 한계만 위험 기준 + 5 bpm(허용선은 위험 기준) | v6_8_2 반영 |
 | N7-7 | 목표 시간 기준 | MPC policy v0.4.0의 일시정지 제외 activeSec | 제안 |
 | N8 | 워치 demo 실시간 전송 | 기본 OFF, 5초 batch, 실기기 테스트는 별도 | 합의 필요 |
