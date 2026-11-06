@@ -98,14 +98,15 @@ export function FreeRunScreen() {
 
   return (
     <MapScreenFrame
-      map={
+      renderMap={logo => (
         <RunMap
           dark={night}
           position={place.status === 'ready' ? place.data.position : undefined}
           area={{ top: 0.36, bottom: 0.36 }}
+          logo={logo}
           style={StyleSheet.absoluteFill}
         />
-      }
+      )}
       top={
         place.status === 'ready' ? (
           <PlaceCard name={place.data.name} gps={place.data.gps} />

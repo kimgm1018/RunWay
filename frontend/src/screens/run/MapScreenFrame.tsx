@@ -1,27 +1,46 @@
-import React from 'react';
-import { StatusBar, StyleSheet, View } from 'react-native';
+import React, { useState } from 'react';
+import {
+  StatusBar,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardLift, LightGlass } from '../../components';
+import type { RunMapLogo } from '../../components/RunMap';
 import { k1, size, spacing, useTheme } from '../../theme';
 
 // Layout shared by 2.0 and 2.0F: a full-screen map, a bar pinned to the top and a sheet that sits just
 // above the floating tab bar. By day the sheet is light glass (runway-course-handoff); after sunset it
-// stays the dark sheet of DESIGN.md 2-6.
+// stays the dark sheet of DESIGN.md 2-6. The map gets where the NAVER logo goes: just over the sheet, as
+// measured, since the sheet's height changes with day, night and what it holds (S15P31E105-429).
 export function MapScreenFrame({
-  map,
+  renderMap,
   top,
   bottom,
 }: {
-  map: React.ReactNode;
+  renderMap: (logo: RunMapLogo | undefined) => React.ReactNode;
   top: React.ReactNode;
   bottom: React.ReactNode;
 }) {
   const { name, colors } = useTheme();
   const night = name === 'dark';
+  const [screen, setScreen] = useState(0);
+  const [sheet, setSheet] = useState(0);
+  // The sheet ends above the tab bar, so it covers its own height and the tab bar's room under it.
+  const logo =
+    screen && sheet
+      ? { above: (sheet + size.tabBar + size.tabBarInset * 2) / screen }
+      : undefined;
+  const measureSheet = (event: LayoutChangeEvent) =>
+    setSheet(event.nativeEvent.layout.height);
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.root, { backgroundColor: colors.background }]}
+      onLayout={event => setScreen(event.nativeEvent.layout.height)}
+    >
       <StatusBar barStyle={colors.statusBar} />
-      {map}
+      {renderMap(logo)}
       <SafeAreaView
         edges={['top']}
         style={[styles.top, !night && styles.topDay]}
@@ -33,6 +52,7 @@ export function MapScreenFrame({
         {night ? (
           // After sunset the sheet matches the dark map, so a faint rim keeps it apart.
           <View
+            onLayout={measureSheet}
             style={[
               styles.sheet,
               styles.sheetNight,
@@ -45,7 +65,11 @@ export function MapScreenFrame({
             {bottom}
           </View>
         ) : (
-          <LightGlass radius={34} style={[styles.sheet, styles.sheetDay]}>
+          <LightGlass
+            radius={34}
+            onLayout={measureSheet}
+            style={[styles.sheet, styles.sheetDay]}
+          >
             {bottom}
           </LightGlass>
         )}

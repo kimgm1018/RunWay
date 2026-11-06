@@ -6,6 +6,7 @@ import {
   StatusBar,
   StyleSheet,
   View,
+  type LayoutChangeEvent,
 } from 'react-native';
 import {
   CommonActions,
@@ -402,6 +403,7 @@ function PaceCard({
   music,
   busy,
   onCommand,
+  onLayout,
 }: {
   pace: number | null;
   goal: number | null;
@@ -410,10 +412,11 @@ function PaceCard({
   music: MusicState | null;
   busy: boolean;
   onCommand: (command: MusicCommand) => void;
+  onLayout?: (event: LayoutChangeEvent) => void;
 }) {
   const withMusic = Boolean(music?.nowPlaying);
   return (
-    <View style={styles.paceGlassCard}>
+    <View style={styles.paceGlassCard} onLayout={onLayout}>
       <MistFill
         id="runPaceCard"
         colors={withMusic ? runGradient : runGradient.slice(0, 11)}
@@ -471,6 +474,21 @@ export function RunProgressScreen() {
   };
   const { run, start, pause, resume, recheck, takeOver } = useRunSession();
   const [player, setPlayer] = useState<MusicState | null>(null);
+  // The NAVER logo sits just over the pace card, wherever it is laid out: notes, the music row and the
+  // watch warning change its height (S15P31E105-429).
+  const [screenHeight, setScreenHeight] = useState(0);
+  const [blockY, setBlockY] = useState(0);
+  const [cardY, setCardY] = useState(0);
+  const logoOver = (top: number) =>
+    screenHeight && top
+      ? { above: (screenHeight - top) / screenHeight }
+      : undefined;
+  const layScreen = (event: LayoutChangeEvent) =>
+    setScreenHeight(event.nativeEvent.layout.height);
+  const layBlock = (event: LayoutChangeEvent) =>
+    setBlockY(event.nativeEvent.layout.y);
+  const layCard = (event: LayoutChangeEvent) =>
+    setCardY(event.nativeEvent.layout.y);
   const status = useRef(run?.status);
   status.current = run?.status;
   const latest = useRef({ pause, resume });
@@ -579,7 +597,7 @@ export function RunProgressScreen() {
 
   if (!night) {
     return (
-      <View style={styles.root}>
+      <View style={styles.root} onLayout={layScreen}>
         <StatusBar barStyle="dark-content" />
         <RunMap
           dark={false}
@@ -591,6 +609,7 @@ export function RunProgressScreen() {
               ? { top: 0.39, bottom: 0.56 }
               : { top: 0.19, bottom: 0.56 }
           }
+          logo={logoOver(blockY + cardY)}
           style={StyleSheet.absoluteFill}
         />
         <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
@@ -666,7 +685,7 @@ export function RunProgressScreen() {
               style={styles.locateDay}
             />
           </View>
-          <View style={styles.dayBottom}>
+          <View style={styles.dayBottom} onLayout={layBlock}>
             {waiting ? (
               <AppText style={styles.dayNote} accessibilityLabel="제어 확인">
                 {waiting}
@@ -737,6 +756,7 @@ export function RunProgressScreen() {
               music={showPlayer ? player : null}
               busy={musicBusy}
               onCommand={runMusic}
+              onLayout={layCard}
             />
           </View>
         </SafeAreaView>
@@ -745,7 +765,10 @@ export function RunProgressScreen() {
   }
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
+    <View
+      style={[styles.root, { backgroundColor: colors.background }]}
+      onLayout={layScreen}
+    >
       <StatusBar barStyle={colors.statusBar} />
       {/* After sunset the whole screen is the K1 dark map (DESIGN.md 2-7). */}
       <RunMap
@@ -753,6 +776,8 @@ export function RunProgressScreen() {
         route={plan?.route}
         trail={trail.length > 0 ? trail : undefined}
         area={{ top: 0.36, bottom: 0.55 }}
+        // The pace card opens the bottom block, so the block's top is the card's.
+        logo={logoOver(blockY)}
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
@@ -841,7 +866,7 @@ export function RunProgressScreen() {
           </View>
         </View>
 
-        <View style={styles.bottom}>
+        <View style={styles.bottom} onLayout={layBlock}>
           {/* 내 페이스 on the vignette card (DESIGN.md 2-7 비네트). */}
           <Card variant="vignette" style={styles.paceCard}>
             <AppText variant="caption" tone="textSecondary">
