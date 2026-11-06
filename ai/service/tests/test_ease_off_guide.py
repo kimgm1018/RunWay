@@ -54,7 +54,25 @@ def test_without_guide_ease_off_still_uses_actual_pace(cells):
 
 
 @pytest.mark.parametrize("cells", [80, 1])
-def test_walk_advised_condition_is_unchanged(cells):
-    """WALK_ADVISED 뜻 재정의는 P0-2에서 정한다. 지금은 실측 + 30 ≤ 안내일 때 그대로 붙는다."""
-    assert "WALK_ADVISED" in decide(330, 290, cells=cells).warnings
-    assert "WALK_ADVISED" not in decide(330, 330, cells=cells).warnings
+def test_no_walk_advised_warning(cells):
+    """S15P31E105-504: 걷기·멈춤 권고는 두지 않으므로 WALK_ADVISED 경고를 내지 않는다."""
+    for guide, actual in ((330, 290), (330, 330), (650, 650)):
+        assert "WALK_ADVISED" not in decide(guide, actual, cells=cells).warnings
+
+
+WALK_PACE = 1000.0 / CFG.walk_speed_mps     # 1.5 m/s = 666.7초/km(11:07)
+
+
+@pytest.mark.parametrize("cells", [80, 1])
+@pytest.mark.parametrize("guide,actual,expected", [
+    (600, 600, 630),           # 10:00 + 30 = 10:30: 하한 전이라 그대로
+    (650, 650, WALK_PACE),     # 10:50 + 30 = 11:20 → 걷기 경계 11:07에서 멈춤
+    (640, 620, WALK_PACE),     # max(실측, 안내) 640 + 30 = 670 → 666.7
+    (700, 600, 700),           # 안내가 이미 걷기 경계보다 느림: 안내보다 빨라지지 않게 안내 그대로
+])
+def test_ease_off_stops_at_walking_boundary(cells, guide, actual, expected):
+    """S15P31E105-504: 감속 권고가 이어져도 걷기 경계보다 느려지지 않고, 안내보다 빨라지지도 않는다."""
+    decision = decide(guide, actual, cells=cells).decision
+    assert decision.action == "EASE_OFF" and decision.coaching_level == "DANGER"
+    assert decision.recommended_pace_sec_per_km == pytest.approx(expected)
+    assert decision.recommended_pace_sec_per_km >= guide

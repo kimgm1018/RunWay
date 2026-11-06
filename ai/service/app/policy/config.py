@@ -1,8 +1,12 @@
 """MPC 정책 설정을 엄격하게 읽는다."""
 import json
 import math
-from dataclasses import dataclass, fields
+import os
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
+
+# 실측 페이스 예측으로 OK/CAUTION을 정할지 배포에서 바꿀 때 쓴다(true/false). 없으면 설정 파일 값(S15P31E105-504).
+ACTUAL_PACE_CHECK_ENV = "AI04_ACTUAL_PACE_CHECK_ENABLED"
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,9 @@ class PolicyConfig:
     detector_window_cells: int
     detector_min_valid_cells: int
     overpace_hr_rise_bpm_per_min: float
+    # 코칭 단계(S15P31E105-504): 러너의 실측 속도로도 심박을 예측해 OK/CAUTION을 정한다. 끄면 CAUTION은 OVERPACE 감지와
+    # 안내 페이스 심박 gate로만 정한다(GRU가 작은 페이스 차이를 잘 구분하지 못할 때 끈다).
+    actual_pace_check_enabled: bool
 
 
 def load_policy_config(path: Path | None = None) -> PolicyConfig:
@@ -60,6 +67,8 @@ def load_policy_config(path: Path | None = None) -> PolicyConfig:
         raise ValueError("hr_threshold_blend_weights는 0~5+ 러닝용 6개 오름차순 비중이어야 합니다")
     if not isinstance(raw.get("provisional"), bool):
         raise ValueError("provisional은 true 또는 false여야 합니다")
+    if not isinstance(raw.get("actual_pace_check_enabled"), bool):
+        raise ValueError("actual_pace_check_enabled는 true 또는 false여야 합니다")
     for key, value in raw.items():
         if isinstance(value, float) and not math.isfinite(value):
             raise ValueError(f"{key}는 유한한 값이어야 합니다")
@@ -79,4 +88,10 @@ def load_policy_config(path: Path | None = None) -> PolicyConfig:
         raise ValueError("학습 심박 기준, 위험 기준 더하기 값(0~20), 마지막 구간 추가 심박 값 중 범위를 벗어난 것이 있습니다")
     if not 0.0 <= cfg.plan_hold_sec <= cfg.plan_blend_end_sec:
         raise ValueError("plan_hold_sec는 0 이상이고 plan_blend_end_sec 이하여야 합니다")
+    override = os.getenv(ACTUAL_PACE_CHECK_ENV)
+    if override is not None and override.strip():
+        value = override.strip().lower()
+        if value not in {"true", "false"}:
+            raise ValueError(f"{ACTUAL_PACE_CHECK_ENV}는 true 또는 false여야 합니다")
+        cfg = replace(cfg, actual_pace_check_enabled=value == "true")
     return cfg

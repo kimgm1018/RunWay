@@ -128,11 +128,12 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 ## AI04 — 러닝 중 페이스 결정
 
-`POST /v1/pace/decide` — 정책 v0.4.1(`mpc-v0.4.1`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
+`POST /v1/pace/decide` — 정책 v0.4.2(`mpc-v0.4.2`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
 
-**응답 시간·동시 처리(S15P31E105-440, 2026-11-05 측정).** CPU 1개, uvicorn worker 1, 스레드 1, 실제 GRU(`db59d414`), 합성 데이터 기준이다. AI04 1회는 p50 12~20 ms, p99 14~27 ms로 history 1~1440칸·plan 유무에 따른 차이는 거의 없다(1칸 `PLAN_HOLD`는 약 3 ms, 시작 뒤 첫 호출은 약 55 ms). 5초 주기 동시 사용자는 AI04만 받으면 200명까지 p99 1초 이하이고 약 250~300명부터 3초를 넘는다. 같은 프로세스에서 AI09·AI06이 쉬지 않고 돌면 50명 p99 0.58 s, 100명에서 1.1%가 3초를 넘는다. **백엔드 호출 기준: timeout 3초, 세션당 동시 1건, timeout·연결 오류·5xx는 재시도 없이 다음 W07 batch로 넘긴다. 컨테이너(1 vCPU)당 동시 러닝 50명이 계획 기준이다.** uvicorn 기본 keep-alive 5초와 5초 호출 주기가 겹쳐 드물게 연결이 끊기므로 백엔드 유휴 연결 정리를 4초 이하로 두거나 AI 실행 명령에 `--timeout-keep-alive 15`를 준다. 단, 목표 BPM 조회(S15P31E105-438)와 학습 심박 기준 조회는 DB를 부르는 동안 프로세스 공용 lock을 잡고 실패를 캐시하지 않는다. 스텁 DB 실측(50명)은 DB 정상 p99 74 ms, 쿼리 100 ms면 p50 3.98 s·70.8%가 3초 초과, DB 응답 없음이면 p50 12.0 s·98.9%가 3초 초과였다(응답은 200 + `BPM_RECORDS_UNAVAILABLE`). 수정 전까지 DB 지연이 AI04 전체 지연이 된다. 수정 방향은 DB 호출을 lock 밖으로, 세션 조회 캐시, 실패 30초 차단이다.
+**응답 시간·동시 처리(S15P31E105-440, 2026-11-05 측정).** CPU 1개, uvicorn worker 1, 스레드 1, 실제 GRU(`db59d414`), 합성 데이터 기준이다. AI04 1회는 p50 12~20 ms, p99 14~27 ms로 history 1~1440칸·plan 유무에 따른 차이는 거의 없다(1칸 `PLAN_HOLD`는 약 3 ms, 시작 뒤 첫 호출은 약 55 ms). 5초 주기 동시 사용자는 AI04만 받으면 200명까지 p99 1초 이하이고 약 250~300명부터 3초를 넘는다. 같은 프로세스에서 AI09·AI06이 쉬지 않고 돌면 50명 p99 0.58 s, 100명에서 1.1%가 3초를 넘는다. **백엔드 호출 기준: timeout 3초, 세션당 동시 1건, timeout·연결 오류·5xx는 재시도 없이 다음 W07 batch로 넘긴다. 컨테이너(1 vCPU)당 동시 러닝 50명이 계획 기준이다.** uvicorn 기본 keep-alive 5초와 5초 호출 주기가 겹쳐 드물게 연결이 끊기므로 백엔드 유휴 연결 정리를 4초 이하로 두거나 AI 실행 명령에 `--timeout-keep-alive 15`를 준다. 단, 목표 BPM 조회(S15P31E105-438)와 학습 심박 기준 조회는 DB를 부르는 동안 프로세스 공용 lock을 잡고 실패를 캐시하지 않는다. 스텁 DB 실측(50명)은 DB 정상 p99 74 ms, 쿼리 100 ms면 p50 3.98 s·70.8%가 3초 초과, DB 응답 없음이면 p50 12.0 s·98.9%가 3초 초과였다(응답은 200 + `BPM_RECORDS_UNAVAILABLE`). S15P31E105-500에서 두 조회의 DB 호출을 lock 밖으로 뺐다(캐시를 읽고 쓸 때만 lock). 세션 조회 캐시와 실패 차단은 아직 없다.
 
 - v0.4.1: HR 입력 지연 기준을 15초에서 20초로 바꿈(팀 명세 정렬, S15P31E105-413).
+- v0.4.2: 코칭 단계 `decision.coachingLevel` 추가, OK면 목표보다 앞서도 늦추지 않음, 위험 감속 권고 하한(걷기 경계 11:07/km), `WALK_ADVISED` 삭제(S15P31E105-504). 위험 감속 권고가 안내보다 빨라지지 않게 고친 것(S15P31E105-497)도 이 버전부터 반영된 것으로 본다.
 
 ### Request Body
 
@@ -189,7 +190,7 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `status` | string | 정책 결과 상태 |
 | `gate` | string / null | 정책 gate |
 | `publishSuggested` | boolean | 백엔드가 발행 판단을 이어갈지 |
-| `decision` | object / null | 최종 `action`, `chosenIndex`, `recommendedPaceSecPerKm`, `cueBpm`, `predictedHr30Bpm`, `predictedHr60Bpm`, `predictedHr120Bpm`, `routeProgressM`, `basedOnStateVersion`, `expiresAt`, `reason`, `reasonText`. `cueBpm`은 `recommendedPaceSecPerKm`의 목표 BPM(60~220 정수)이며 `PLAN_HOLD`·`GUIDE_PACE`·`EASE_OFF`에 모두 넣는다. 계산하지 못하면 null과 경고 `CUE_BPM_UNAVAILABLE` |
+| `decision` | object / null | 최종 `action`, `chosenIndex`, `recommendedPaceSecPerKm`, `cueBpm`, `predictedHr30Bpm`, `predictedHr60Bpm`, `predictedHr120Bpm`, `routeProgressM`, `basedOnStateVersion`, `expiresAt`, `reason`, `reasonText`, `coachingLevel`. `coachingLevel`은 코칭 단계 `OK`/`CAUTION`/`DANGER`(아래 "코칭 단계", 없어도 되는 칸). `cueBpm`은 `recommendedPaceSecPerKm`의 목표 BPM(60~220 정수)이며 `PLAN_HOLD`·`GUIDE_PACE`·`EASE_OFF`에 모두 넣는다. 계산하지 못하면 null과 경고 `CUE_BPM_UNAVAILABLE` |
 | `candidates[]` | object[] | `paceSecPerKm`, `predHrBpm[3]`, `upperHrBpm[3]`, `passed`, `rejectReason`, `score` |
 | `pacing` | object / null | `actualMinusGuideSecPerKm`, `etaSec`, `etaMinusGoalSec`, `hrDangerBpm`(섞은 P98 + 3), `hrSustainBpm`(섞은 P85), `hrThresholdSource`(`POPULATION`/`BLENDED`/`PERSONAL`), `hrThresholdWeight`. 선택: `handoverPhase`(`PLAN_HOLD`/`PLAN_BLEND`/`MPC`), `planWeight`(0~1). |
 | `warnings[]` | string[] | 모델·정책 경고 |
@@ -197,9 +198,24 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `hrPersonalized` | boolean | 요청에 `userId`가 있을 때 개인 head 사용 여부 |
 | `hrPersonalizationVersion` | integer / null | 적용한 개인화 행 버전. 적용하지 못했으면 null |
 
-`EASE_OFF`·`WALK_ADVISED` 같은 경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
+`EASE_OFF`·`OVERPACE` 같은 판단·경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
 
-`EASE_OFF`(위험 심박 감속 권고)의 `recommendedPaceSecPerKm` = max(최근 실측 pace, `currentGuidePaceSecPerKm`) + 30 sec/km다. 안내가 없으면 실측(없으면 `anchorPaceSecPerKm`) + 30이다. 러너가 안내보다 빨리 달려도 감속 권고는 늘 지금 안내보다 30초/km 이상 느리다(S15P31E105-497). 기록이 한 칸뿐인 경로도 같다. `WALK_ADVISED`는 지금처럼 실측 + 30이 안내보다 느리지 않을 때 붙으며, 뜻은 멈춤 권고와 함께 다시 정한다.
+`EASE_OFF`(위험 심박 감속 권고)의 `recommendedPaceSecPerKm` = max(안내, min(max(최근 실측 pace, 안내) + 30, 걷기 경계)) sec/km다. 안내는 `currentGuidePaceSecPerKm`, 걷기 경계는 `walk_speed_mps` 1.5 m/s = 666.7초/km(11:07)다. 안내가 없으면 min(실측(없으면 `anchorPaceSecPerKm`) + 30, 걷기 경계)다. 러너가 안내보다 빨리 달려도 감속 권고는 지금 안내보다 빠르지 않고(S15P31E105-497), 감속 권고가 이어져도 걷기 경계보다 느려지지 않는다(S15P31E105-504). 걷기·멈춤 권고는 두지 않으며 `WALK_ADVISED` 경고는 없앴다. 기록이 한 칸뿐인 경로도 같다.
+
+### 코칭 단계 (coachingLevel)
+
+`decision.coachingLevel`은 러너의 심박 상태로 코칭을 세 단계로 나눈다(S15P31E105-504). 안내 페이스를 러너 페이스로 옮기지는 않는다. 백엔드 저장·전달·발행은 S15P31E105-503이다.
+
+| 값 | 판정 | `recommendedPaceSecPerKm` |
+| --- | --- | --- |
+| `OK` | 아래 둘 다 아님. 러너가 안내보다 빨라도 막지 않는다 | 보통 지금 안내 그대로. 심박 여유가 있으면 목표보다 앞서 있다는 이유로 늦추지 않는다(`SLOW_DOWN_GOAL` 대신 안내 유지). 목표에 뒤처지면 올리는 판단(`SPEED_UP_GOAL`)은 그대로 |
+| `CAUTION` | 안내 페이스로도 예측 상한이 허용선 이상(`SLOW_DOWN_HR` gate), 과속 감지 `OVERPACE`, 또는 러너가 지금 실측 속도로 2분 달릴 때의 예측 상한이 허용선 이상 | 안내로 돌아오라는 뜻. 추천은 기존 MPC 판단 그대로라 보통 지금 안내이고, 안내 페이스로도 허용선 이상이면 늦추며(`SLOW_DOWN_HR`), 목표보다 앞서 있으면 늦출 수도 있다(`SLOW_DOWN_GOAL`) |
+| `DANGER` | 위험 심박(`action=EASE_OFF`, `status=SAFETY`) | 위 감속 권고 |
+
+- 실측 속도 예측: 요청 후보 5개는 그대로 두고, 안내 그대로 후보(`anchorPaceSecPerKm`)를 복사해 미래 속도만 최근 실측 평균 속도로 바꾼 행을 GRU 배치에 덧붙여 같은 호출로 예측한다. 여유분(margin)과 경사는 그 후보와 같은 칸을 쓴다. 실측 속도가 걷기 경계 미만이면 덧붙이지 않는다.
+- 설정: `policy_v03.json`의 `actual_pace_check_enabled`(기본 true). 배포에서 환경변수 `AI04_ACTUAL_PACE_CHECK_ENABLED=true|false`로 바꿀 수 있다. 끄면 실측 속도 예측을 하지 않고, `CAUTION`은 `SLOW_DOWN_HR` gate와 `OVERPACE`로만 정한다. GRU가 작은 페이스 차이를 잘 구분하지 못하는 문제가 해결되기 전에는 운영에서 결과를 보고 켤지 정한다.
+- 기록이 한 칸뿐인 경로(예측 없음)는 실측 심박이 위험 기준 이상이면 `DANGER`, 아니면 `OK`다. 판단이 없으면(`decision=null`, `NOT_RUNNING` 등) 단계도 없다.
+- OK와 CAUTION은 추천 페이스가 같을 수 있다. 백엔드는 단계가 바뀌면 페이스·BPM이 같아도 발행하기로 한다(S15P31E105-503).
 
 `userId`가 없으면 위 두 선택 응답 필드는 생략한다. 사용자 ID가 있고 행이 없거나 사용할 수 없으면 기본 GRU로 계속 판단하고 `warnings[]`에 아래 코드 중 하나를 추가한다. 개인화 로드·적용 실패는 러닝 판단을 막지 않는다.
 
@@ -827,7 +843,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | O2 | HRmax ERD 출처 | N7-6 처리 | 제안 |
 | O3 | GOOD 판정·최근 20회 P98/P85 | AI06의 GOOD 표본 품질 필드와 `sessionStartedAt` 순서를 사용 | v6_8_2 반영 |
 | O4 | 5초 판단·trace·저장·발행 주기 | 계산과 저장/발행 분리, 발행 판단만 백엔드 저장 | 합의 필요 |
-| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 max(실제 pace, 현재 안내) +30 sec/km(S15P31E105-497). 어떤 decision을 저장할지는 백엔드 합의 필요 | 백엔드 기준: null·NOT_RUNNING 미저장, 발행하는 GUIDE_PACE·EASE_OFF만 저장(S15P31E105-421), 팀 확인 전 |
+| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 max(안내, min(max(실제 pace, 현재 안내) +30, 11:07/km)) sec/km(S15P31E105-497·504). 어떤 decision을 저장할지는 백엔드 합의 필요 | 백엔드 기준: null·NOT_RUNNING 미저장, 발행하는 GUIDE_PACE·EASE_OFF만 저장(S15P31E105-421), 팀 확인 전 |
 | O6 | model/policy 버전 저장 | nullable 컬럼 2개 추가 제안; migration은 합의 전 | 제안 |
 | O7 | plan ratio와 절대 페이스 변환 | 기준 목표 pace×ratio, DB에는 sec/km 절대값 | 제안 |
 | O8 | AI05 모델·goal 조합·HR 지평 | Planner v1, 코스/목표 있는 자유러닝 계획, HR 미리보기 기본 OFF, 켜면 90분(5400초) 설정. 개인 계획은 **시간 상한 없음**: 예상 완주가 90분(평가로 확인된 범위)을 넘으면 경고 `ODE_BEYOND_VALIDATED_HORIZON`, `validatedHorizonSec`=5400은 정보용. 계산 안전장치는 코스 45 km(422 `INVALID_GOAL`)와 탐색 예산(`PERSONAL_PLAN_SEARCH_BUDGET_CELLS`, 넘으면 탐색을 줄이고 경고 `PLAN_SEARCH_BUDGET_LIMITED`). MVP 이식 후 점검·보완 | 제안 |

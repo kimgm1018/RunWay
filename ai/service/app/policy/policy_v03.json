@@ -1,5 +1,5 @@
 {
-  "policy_version": "mpc-v0.4.1",
+  "policy_version": "mpc-v0.4.2",
   "validated": false,
   "provisional": false,
   "hr_threshold_population_danger_bpm": 175.0,
@@ -28,5 +28,6 @@
   "overpace_faster_sec_per_km": 10.0,
   "detector_window_cells": 12,
   "detector_min_valid_cells": 6,
-  "overpace_hr_rise_bpm_per_min": 10.0
+  "overpace_hr_rise_bpm_per_min": 10.0,
+  "actual_pace_check_enabled": true
 }

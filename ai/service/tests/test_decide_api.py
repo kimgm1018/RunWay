@@ -171,7 +171,7 @@ def test_load_policy(tmp_path):
     assert load_policy(replace(s, margin_table_path=None)) is None
     assert load_policy(replace(s, margin_table_path=tmp_path / "none.json")) is None
     path = write_margin_table(tmp_path, model="GRU")
-    assert load_policy(replace(s, margin_table_path=path, model_type="gru")).policy_version == "mpc-v0.4.1"
+    assert load_policy(replace(s, margin_table_path=path, model_type="gru")).policy_version == "mpc-v0.4.2"
     assert load_policy(replace(s, margin_table_path=path, model_type="tf")) is None
 
 

@@ -33,7 +33,7 @@ def test_t3_safety():
         assert (o.status, o.action, o.chosen_index, pace(o), o.reason) == ("SAFETY", "EASE_OFF", None, 390, "SAFETY")
         assert all(v.reject_reason == "SAFETY" for v in o.verdicts) and o.publish_suggested is True
     assert run(hr_now=177.9).status == "OK"                     # 위험 기준 178 바로 아래는 SAFETY가 아니다
-    assert "WALK_ADVISED" in run(hr_now=178, currentGuidePaceSecPerKm=390).warnings
+    assert "WALK_ADVISED" not in run(hr_now=178, currentGuidePaceSecPerKm=390).warnings   # 504에서 걷기 권고를 없앰
 
 
 def test_t4_sprint_only_near_finish_and_ignores_after_finish():
@@ -148,5 +148,5 @@ def test_t11_decel_downhill_raises_upper():
 def test_build_policy(tmp_path):
     with pytest.raises(FileNotFoundError): build_policy(None, "gru")
     path = write_margin_table(tmp_path, model="GRU")
-    assert build_policy(path, "gru").policy_version == "mpc-v0.4.1"
+    assert build_policy(path, "gru").policy_version == "mpc-v0.4.2"
     with pytest.raises(ValueError): build_policy(path, "tf")

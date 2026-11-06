@@ -4,7 +4,7 @@ from app.policy.config import load_policy_config
 
 def test_default_values():
     c = load_policy_config()
-    assert (c.policy_version, c.validated) == ("mpc-v0.4.1", False)
+    assert (c.policy_version, c.validated) == ("mpc-v0.4.2", False)
     assert (c.hr_threshold_population_danger_bpm, c.hr_threshold_population_sustain_bpm) == (175.0, 163.0)
     assert c.hr_threshold_blend_weights == (0.0, 0.25, 0.5, 0.75, 0.9, 1.0)
     assert c.final_stretch_extra_bpm == 5.0 and c.provisional is False
