@@ -1264,3 +1264,28 @@ CREATE TABLE follow_request_history (
 );
 
 COMMENT ON TABLE follow_request_history IS 'U25 재전송 판별용 처리 이력. 자동 삭제하지 않으며 현재 관계의 집계·인가에는 사용하지 않는다. request_id는 삭제될 수 있는 user_follows.id이므로 해당 행 FK를 두지 않는다.';
+
+-- S15P31E105-297 (V15): 코스 지형 기준 1km 구간 난이도 비율(AI05 segmentDifficultyRatios). 코스당 1행. courses PK 정의 이후 FK.
+CREATE TABLE "course_segment_difficulties" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "course_id" BIGINT NOT NULL,
+    "distance_m" NUMERIC(12,2) NOT NULL,
+    "ratios" JSONB NOT NULL,
+    "planner_version" VARCHAR(80) NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    CONSTRAINT "PK_COURSE_SEGMENT_DIFFICULTIES" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_course_segment_difficulties_course" UNIQUE ("course_id"),
+    CONSTRAINT "FK_courses_TO_course_segment_difficulties_1"
+        FOREIGN KEY ("course_id") REFERENCES "courses" ("id") ON DELETE CASCADE,
+    CONSTRAINT "ck_course_segment_difficulties_distance_positive"
+        CHECK ("distance_m" > 0),
+    CONSTRAINT "ck_course_segment_difficulties_ratios_array"
+        CHECK (jsonb_typeof("ratios") = 'array' AND jsonb_array_length("ratios") BETWEEN 1 AND 45)
+);
+
+COMMENT ON TABLE "course_segment_difficulties" IS '코스 지형 기준 1km 구간 난이도 비율(AI05 segmentDifficultyRatios). 코스당 1행이며 사용자와 무관하다.';
+COMMENT ON COLUMN "course_segment_difficulties"."course_id" IS '코스 ID. 코스당 1행(UNIQUE)';
+COMMENT ON COLUMN "course_segment_difficulties"."distance_m" IS '비율 계산 기준 코스 거리(m). 구간 수는 이 거리를 1km로 나눈 올림이다.';
+COMMENT ON COLUMN "course_segment_difficulties"."ratios" IS '0m부터 1km 구간 순서의 양수 상대 비율 배열(마지막은 남은 거리). 클수록 힘든 구간이며 절대 크기는 의미가 없다.';
+COMMENT ON COLUMN "course_segment_difficulties"."planner_version" IS '계산한 AI05 plannerVersion. 계산 방식이 바뀐 뒤 재계산 대상을 찾는 데 쓴다.';
+COMMENT ON COLUMN "course_segment_difficulties"."created_at" IS '저장일시';

@@ -13,6 +13,7 @@ import com.runway.backend.domain.course.dto.response.GeneratedCourseSaveResult;
 import com.runway.backend.domain.course.dto.response.SaveGeneratedCourseResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
+import com.runway.backend.domain.course.event.GeneratedCourseSavedEvent;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkUpsertRow;
@@ -26,6 +27,7 @@ import com.runway.backend.global.geo.GeoJsonPoint;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,6 +58,7 @@ public class CourseService {
     private final CourseBookmarkRepository courseBookmarkRepository;
     private final JsonMapper jsonMapper;
     private final CourseCandidateSigner candidateSigner;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -179,6 +182,8 @@ public class CourseService {
                 // MERGED·BLOCKED를 우회하는 새 활성 복제본을 만들지 않는다.
                 throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
             }
+            // 이전 계산이 실패했을 수 있으므로 재사용에도 비율 계산을 요청한다(이미 있으면 받는 쪽이 건너뜀, S15P31E105-297).
+            eventPublisher.publishEvent(new GeneratedCourseSavedEvent(existing.get().id()));
             return new GeneratedCourseSaveResult(existing.get().id(), true);
         }
 
@@ -192,6 +197,8 @@ public class CourseService {
                         course.distanceM(),
                         course.elevationGainM(),
                         jsonMapper.writeValueAsString(course.gradeProfile()));
+        // 커밋 후 코스 지형 구간 난이도 비율을 계산·저장한다(S15P31E105-297).
+        eventPublisher.publishEvent(new GeneratedCourseSavedEvent(id));
         return new GeneratedCourseSaveResult(id, false);
     }
 

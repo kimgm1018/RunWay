@@ -80,6 +80,13 @@ runway:
       request-timeout: PT60S
       max-retries: 3
       max-retry-after: PT30S
+    # AI05 코스 지형 구간 난이도 비율(S15P31E105-297). 생성 코스 저장 커밋 후 비동기로 POST {base-url}/v1/pace/plan을 한 번 호출해
+    # course_segment_difficulties에 저장한다. 주소가 비면 기동은 하고 계산하지 않는다(세션 계획은 균등 분배). 재시도는 없다.
+    # 전체 상한 45초는 AI 계획 대기열 대기(HEAVY_QUEUE_WAIT_SEC 기본 30초)보다 길게 둔 값이다.
+    pace-plan:
+      base-url: ${BACKEND_AI_BASE_URL:}
+      connect-timeout: PT1S
+      request-timeout: PT45S
   # 실시간 코칭 AI04(S15P31E105-421). AI06과 같은 HR 추론 서버(ai/service)다. 주소가 비면 기동은 하고 AI 판단·자동 코칭을 하지 않는다(더미로 대체하지 않음).
   # 시간 상한은 ai-service.md N7-5(연결 1초, 전체 3초)이며 자동 재시도는 없다.
   coaching:
