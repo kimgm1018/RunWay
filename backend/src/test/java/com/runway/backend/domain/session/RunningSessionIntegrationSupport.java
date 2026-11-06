@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.runway.backend.domain.coaching.decide.FakePaceDecider;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,12 +28,12 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * <p>하위 테스트 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다. 서버는 JVM 종료 시
  * Testcontainers가 정리한다. 클래스마다 내렸다 올리면 캐시된 컨텍스트가 닫힌 포트를 가리킨다.
  *
- * <p>웹 환경과 {@link EndedEventRecorder}를 여기서 정해 하위 클래스가 컨텍스트 하나를 함께 쓴다. 기록기는 쓰는 테스트가 매번 비운다.
- * 동작을 대체하는 Mock이나 다른 속성이 필요한 테스트만 자기 구성을 선언한다.
+ * <p>웹 환경과 {@link EndedEventRecorder}를 여기서 정해 하위 클래스가 컨텍스트 하나를 함께 쓴다. 기록기는 쓰는 테스트가 매번 비운다. 동작을 대체하는
+ * Mock이나 다른 속성이 필요한 테스트만 자기 구성을 선언한다.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Import({FakePaceDecider.Config.class, EndedEventRecorder.class})
+@Import({FakePaceDecider.Config.class, FakePersonalPacePlan.Config.class, EndedEventRecorder.class})
 abstract class RunningSessionIntegrationSupport {
 
     static final SharedPostgres.Database DATABASE =
@@ -48,6 +49,7 @@ abstract class RunningSessionIntegrationSupport {
     @Autowired protected MockMvc mockMvc;
     @Autowired protected JdbcTemplate jdbc;
     @Autowired protected FakePaceDecider paceDecider;
+    @Autowired protected FakePersonalPacePlan personalPlan;
 
     protected long userId;
     protected long otherUserId;
@@ -60,6 +62,7 @@ abstract class RunningSessionIntegrationSupport {
     @BeforeEach
     void resetData() {
         paceDecider.reset();
+        personalPlan.reset();
         jdbc.update("DELETE FROM posts");
         jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM session_control_events");
@@ -195,7 +198,8 @@ abstract class RunningSessionIntegrationSupport {
 
     protected void joinGroup(long groupRunId, long owner, long sessionId) {
         jdbc.update(
-                "INSERT INTO group_run_participants(group_run_id,user_id,session_id) VALUES (?,?,?)",
+                "INSERT INTO group_run_participants(group_run_id,user_id,session_id) VALUES"
+                        + " (?,?,?)",
                 groupRunId,
                 owner,
                 sessionId);
@@ -260,15 +264,24 @@ abstract class RunningSessionIntegrationSupport {
     }
 
     protected String requestBody(long deviceId, long expectedVersion) {
-        return "{\"phase\":\"REQUEST\",\"deviceId\":" + deviceId + ",\"expectedVersion\":"
-                + expectedVersion + "}";
+        return "{\"phase\":\"REQUEST\",\"deviceId\":"
+                + deviceId
+                + ",\"expectedVersion\":"
+                + expectedVersion
+                + "}";
     }
 
     /** appliedAt은 APPLIED일 때만 따옴표로 감싼 값, 그 밖에는 null. */
     protected String resultBody(long commandId, long deviceId, String result, String appliedAt) {
-        return "{\"phase\":\"RESULT\",\"commandId\":" + commandId + ",\"deviceId\":" + deviceId
-                + ",\"result\":\"" + result + "\",\"appliedAt\":"
-                + (appliedAt == null ? "null" : "\"" + appliedAt + "\"") + ",\"reasonCode\":null}";
+        return "{\"phase\":\"RESULT\",\"commandId\":"
+                + commandId
+                + ",\"deviceId\":"
+                + deviceId
+                + ",\"result\":\""
+                + result
+                + "\",\"appliedAt\":"
+                + (appliedAt == null ? "null" : "\"" + appliedAt + "\"")
+                + ",\"reasonCode\":null}";
     }
 
     /** P07. */
@@ -280,23 +293,26 @@ abstract class RunningSessionIntegrationSupport {
     }
 
     protected String bpmRequestBody(long deviceId, long expectedVersion, Object targetBpm) {
-        return "{\"phase\":\"REQUEST\",\"operation\":\"SET_BPM\",\"deviceId\":" + deviceId
-                + ",\"expectedVersion\":" + expectedVersion + ",\"targetBpm\":" + targetBpm
+        return "{\"phase\":\"REQUEST\",\"operation\":\"SET_BPM\",\"deviceId\":"
+                + deviceId
+                + ",\"expectedVersion\":"
+                + expectedVersion
+                + ",\"targetBpm\":"
+                + targetBpm
                 + ",\"coachingId\":null}";
     }
 
     /** 실제 시작시각을 과거로 옮긴다(코칭 2분 기준 확인용). */
     protected void startedSecondsAgo(long sessionId, long seconds) {
         jdbc.update(
-                "UPDATE running_sessions SET started_at = now() - make_interval(secs => ?) WHERE id=?",
+                "UPDATE running_sessions SET started_at = now() - make_interval(secs => ?) WHERE"
+                        + " id=?",
                 (double) seconds,
                 sessionId);
         insertFreshSamples(sessionId, seconds);
     }
 
-    /**
-     * AI04 입력용 합성 측정 표본. 최근 25초 동안 5초마다 심박 150·속도 2.5m/s(기준 페이스 400초/km)를 넣는다. 마지막 표본은 지금 측정됐다.
-     */
+    /** AI04 입력용 합성 측정 표본. 최근 25초 동안 5초마다 심박 150·속도 2.5m/s(기준 페이스 400초/km)를 넣는다. 마지막 표본은 지금 측정됐다. */
     protected void insertFreshSamples(long sessionId, long elapsedSec) {
         for (int i = 5; i >= 0; i--) {
             long elapsed = Math.max(0, elapsedSec - i * 5L);

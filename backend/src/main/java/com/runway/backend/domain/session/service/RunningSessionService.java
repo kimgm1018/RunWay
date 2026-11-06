@@ -2,7 +2,6 @@ package com.runway.backend.domain.session.service;
 
 import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.session.dto.request.CreateRunningSessionRequest;
-import com.runway.backend.domain.session.stream.SessionStreamChanged;
 import com.runway.backend.domain.session.dto.request.UpdateRunningSessionRequest;
 import com.runway.backend.domain.session.dto.response.DeletedSessionResponse;
 import com.runway.backend.domain.session.dto.response.PreparedResponse;
@@ -24,6 +23,7 @@ import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.CourseInfo;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.DeviceRef;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.PostRef;
+import com.runway.backend.domain.session.stream.SessionStreamChanged;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -32,8 +32,11 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -72,7 +75,8 @@ public class RunningSessionService {
     private final PacePlanSegmentRepository segmentRepository;
     private final SessionControlEventRepository controlEventRepository;
     private final SessionReferenceRepository referenceRepository;
-    private final SegmentDifficultyProvider segmentDifficultyProvider;
+    private final SessionPlanPreparation planPreparation;
+    private final PlatformTransactionManager transactionManager;
     private final SessionAccess access;
     private final ApplicationEventPublisher events;
 
@@ -83,21 +87,45 @@ public class RunningSessionService {
      * 생성이 모두 통과한다). 세션을 만드는 다른 경로도 같은 회원 잠금을 쓰며, 잠금을 놓친 경로는 부분 UNIQUE
      * uq_running_sessions_active(V8)가 막는다.
      */
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RunningSessionResponse create(
             long userId, CreateRunningSessionRequest request, Instant serverReceiveAt) {
-        RunningSession session =
-                createReadySession(
-                        userId, request.controlDeviceId(), request.relayDeviceId(), request.goal());
-        return access.response(session, serverReceiveAt);
+        access.requireActiveUser(userId);
+        SessionAccess.requireOwnedDevice(
+                userId,
+                referenceRepository.findDevice(request.controlDeviceId()),
+                DeviceType.WATCH);
+        SessionAccess.requireOwnedDevice(
+                userId, referenceRepository.findDevice(request.relayDeviceId()), DeviceType.PHONE);
+        sessionRepository
+                .findActiveSessionId(userId)
+                .ifPresent(
+                        id -> {
+                            throw new ApiException(
+                                    ErrorCode.ACTIVE_SESSION_EXISTS, Map.of("sessionId", id));
+                        });
+        var prepared = planPreparation.prepare(userId, request.goal());
+        return writeTransaction()
+                .execute(
+                        status -> {
+                            RunningSession session =
+                                    createReadySession(
+                                            userId,
+                                            request.controlDeviceId(),
+                                            request.relayDeviceId(),
+                                            request.goal(),
+                                            prepared);
+                            return access.response(session, serverReceiveAt);
+                        });
     }
 
     /**
-     * 그룹런 준비(G16)용 READY 세션 생성. 호출 전에 그룹 행을 잠근다. 본인 연결 워치·폰을 쓰고, 활성 세션이 있으면
-     * ACTIVE_SESSION_EXISTS다. 반환 ID를 참가 관계 session_id에 저장하는 것은 호출자 책임이다.
+     * 그룹런 준비(G16)용 READY 세션 생성. 호출 전에 그룹 행을 잠근다. 본인 연결 워치·폰을 쓰고, 활성 세션이 있으면 ACTIVE_SESSION_EXISTS다.
+     * 반환 ID를 참가 관계 session_id에 저장하는 것은 호출자 책임이다.
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public long createReadyForGroupParticipant(long userId, SessionGoal goal) {
+    public long createReadyForGroupParticipant(
+            long userId, SessionGoal goal, SessionPlanPreparation.Prepared prepared) {
         long watchId =
                 referenceRepository
                         .lockLinkedDeviceId(userId, DeviceType.WATCH.name())
@@ -106,11 +134,15 @@ public class RunningSessionService {
                 referenceRepository
                         .lockLinkedDeviceId(userId, DeviceType.PHONE.name())
                         .orElseThrow(() -> new ApiException(ErrorCode.DEVICE_NOT_FOUND));
-        return createReadySession(userId, watchId, phoneId, goal).getId();
+        return createReadySession(userId, watchId, phoneId, goal, prepared).getId();
     }
 
     private RunningSession createReadySession(
-            long userId, long controlDeviceId, long relayDeviceId, SessionGoal goal) {
+            long userId,
+            long controlDeviceId,
+            long relayDeviceId,
+            SessionGoal goal,
+            SessionPlanPreparation.Prepared prepared) {
         access.requireActiveUser(userId);
         access.requireOwnedDevice(userId, controlDeviceId, DeviceType.WATCH);
         access.requireOwnedDevice(userId, relayDeviceId, DeviceType.PHONE);
@@ -127,11 +159,8 @@ public class RunningSessionService {
                                     ErrorCode.ACTIVE_SESSION_EXISTS, Map.of("sessionId", activeId));
                         });
 
-        var draft =
-                InitialPacePlanCalculator.calculate(
-                        goal,
-                        course == null ? null : course.distanceM(),
-                        segmentDifficultyProvider);
+        planPreparation.verify(userId, goal, prepared);
+        var draft = prepared.draft();
         Instant now = now();
         RunningSession session =
                 sessionRepository.saveAndFlush(
@@ -158,17 +187,49 @@ public class RunningSessionService {
     }
 
     /** S08 UPDATE_GOAL / TAKE_OVER_PHONE / ABORT_UNCONFIRMED_START. 변경 후 전체 상태를 반환한다. */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RunningSessionResponse update(
             long userId,
             long sessionId,
             UpdateRunningSessionRequest request,
             Instant serverReceiveAt) {
+        SessionPlanPreparation.Prepared prepared = null;
+        if (request.operation() == UpdateRunningSessionRequest.Operation.UPDATE_GOAL) {
+            access.requireActiveUser(userId);
+            var current =
+                    sessionRepository
+                            .findById(sessionId)
+                            .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+            if (current.isDeleted()) throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
+            if (current.getUserId() != userId) throw new ApiException(ErrorCode.SESSION_FORBIDDEN);
+            var next = request.goalPatch().applyTo(current.goal());
+            if (!next.sameAs(current.goal())) {
+                if (current.getStatus() != RunningSessionStatus.READY
+                        || referenceRepository.findGroupRunId(sessionId).isPresent())
+                    throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+                if (current.getStateVersion() != request.expectedVersion())
+                    throw new ApiException(ErrorCode.STALE_STATE);
+                prepared = planPreparation.prepare(userId, next);
+            }
+        }
+        var result = prepared;
+        return writeTransaction()
+                .execute(
+                        status ->
+                                updateStored(userId, sessionId, request, serverReceiveAt, result));
+    }
+
+    private RunningSessionResponse updateStored(
+            long userId,
+            long sessionId,
+            UpdateRunningSessionRequest request,
+            Instant serverReceiveAt,
+            SessionPlanPreparation.Prepared prepared) {
         LockedSession locked =
                 access.lockOwnedSession(userId, sessionId, SessionAccess.LockPurpose.UPDATE);
         RunningSession session = locked.session();
         switch (request.operation()) {
-            case UPDATE_GOAL -> updateGoal(userId, locked, request);
+            case UPDATE_GOAL -> updateGoal(userId, locked, request, prepared);
             case TAKE_OVER_PHONE -> takeOverPhone(userId, session, request);
             case ABORT_UNCONFIRMED_START -> abortUnconfirmedStart(userId, session, request);
             case REPORT_PREPARED ->
@@ -237,7 +298,10 @@ public class RunningSessionService {
     }
 
     private void updateGoal(
-            long userId, LockedSession locked, UpdateRunningSessionRequest request) {
+            long userId,
+            LockedSession locked,
+            UpdateRunningSessionRequest request,
+            SessionPlanPreparation.Prepared prepared) {
         RunningSession session = locked.session();
         SessionGoal goal = request.goalPatch().applyTo(session.goal());
         if (goal.sameAs(session.goal())) {
@@ -261,11 +325,8 @@ public class RunningSessionService {
             validateComparison(userId, goal);
         }
 
-        var draft =
-                InitialPacePlanCalculator.calculate(
-                        goal,
-                        course == null ? null : course.distanceM(),
-                        segmentDifficultyProvider);
+        planPreparation.verify(userId, goal, prepared);
+        var draft = prepared.draft();
         Instant now = now();
         pacePlanRepository.deleteSegmentsBySessionId(session.getId());
         pacePlanRepository.deletePlansBySessionId(session.getId());
@@ -377,7 +438,7 @@ public class RunningSessionService {
     }
 
     /** 거리·시간·페이스는 양수이며 최대 2개까지 지정한다. 목표 거리는 45km 이하다. */
-    private static void validateTargets(SessionGoal goal) {
+    static void validateTargets(SessionGoal goal) {
         if (isNotPositive(goal.distanceM())
                 || (goal.distanceM() != null && goal.distanceM() > MAX_TARGET_DISTANCE_M)
                 || isNotPositive(goal.durationSec())
@@ -434,6 +495,13 @@ public class RunningSessionService {
                                 session.getControlDeviceId(),
                                 EnumSet.of(ControlResult.PENDING))
                         .isPresent();
+    }
+
+    private TransactionTemplate writeTransaction() {
+        var tx = new TransactionTemplate(transactionManager);
+        tx.setIsolationLevel(
+                org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return tx;
     }
 
     /** PostgreSQL TIMESTAMPTZ는 마이크로초까지 저장하므로 응답과 DB 값이 같도록 자른다. */
