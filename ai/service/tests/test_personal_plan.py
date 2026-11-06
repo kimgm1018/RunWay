@@ -107,7 +107,7 @@ def test_final_segments_round_pace_and_ratio_but_keep_exact_remainder():
 
     assert [segment.end_distance_m for segment in segments] == [1000, 2000, 2345.678]
     assert [segment.pace_sec_per_km for segment in segments] == [290, 310, 300]
-    assert [segment.pace_ratio for segment in segments] == [0.97, 1.03, 1.0]
+    assert [segment.pace_ratio for segment in segments] == [0.966667, 1.033333, 1.0]
 
 
 def test_final_segments_normalize_only_when_goal_duration_policy_is_explicit():
@@ -119,7 +119,7 @@ def test_final_segments_normalize_only_when_goal_duration_policy_is_explicit():
     )
 
     assert [segment.pace_sec_per_km for segment in segments] == [289.33, 330.67]
-    assert [segment.pace_ratio for segment in segments] == [0.93, 1.07]
+    assert [segment.pace_ratio for segment in segments] == [0.933333, 1.066667]
 
 
 def test_personal_plan_finish_uses_the_finalized_segment_paces():
