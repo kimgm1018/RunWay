@@ -30,6 +30,12 @@ export type RunMapMember = { position: LngLat; label: string; color: string };
 // the part left visible between the screen's chips and sheets. A lone point sits at `top`.
 export type RunMapArea = { top: number; bottom: number };
 
+// Where the NAVER logo sits (S15P31E105-429). The SDK draws it at the bottom of the camera padding, never
+// lower. `above` is the share of the map height, from the bottom, that the screen keeps covered (a sheet,
+// cards); the logo goes just over it, left or right. When the padding ends higher than that, the padding is
+// cut down to the sheet and the camera region widened to match, so what is shown keeps its place and zoom.
+export type RunMapLogo = { above: number; side?: 'left' | 'right' };
+
 type RunMapProps = {
   // A course or record as GeoJSON [longitude, latitude] points (코스 API route).
   route?: LngLat[];
@@ -55,6 +61,7 @@ type RunMapProps = {
   // (S15P31E105-325) and the dark map Naver's night navigation map, so the two can be compared in use.
   customStyleId?: string;
   area?: RunMapArea;
+  logo?: RunMapLogo;
   // The points the camera fits instead of everything shown (6.6: me and the members, not the whole
   // course), zoomed in closer.
   fitTo?: LngLat[];
@@ -145,6 +152,69 @@ function paddingFor(area: RunMapArea | undefined, height: number) {
   return { top: area.top * height, bottom: (1 - area.bottom) * height };
 }
 
+type Padding = { top: number; bottom: number };
+type Region = ReturnType<typeof regionFor>;
+
+// Lowers the padding's bottom to the sheet so the logo can sit on it, and widens the region north–south so
+// fitBounds lands on the same zoom and the same middle as before. Mercator: a degree of latitude is
+// 1/cos(lat) times as tall as a degree of longitude.
+export function lowerToLogo(
+  region: Region,
+  padding: Padding | undefined,
+  logo: RunMapLogo | undefined,
+  width: number,
+  height: number,
+) {
+  const sheet = logo ? logo.above * height : 0;
+  if (!padding || !logo || !width || padding.bottom <= sheet) {
+    return { region, padding };
+  }
+  const box = height - padding.top - padding.bottom;
+  const tall = height - padding.top - sheet;
+  if (box <= 0) {
+    return { region, padding };
+  }
+  const middle = region.latitude + region.latitudeDelta / 2;
+  const cos = Math.cos((middle * Math.PI) / 180);
+  // Pixels per degree of longitude that fitBounds picks for the old box.
+  const scale = Math.min(
+    width / region.longitudeDelta,
+    (box * cos) / region.latitudeDelta,
+  );
+  const latitudeDelta = (tall * cos) / scale;
+  // The new box's middle is lower on screen; move the region's middle south by as much.
+  const shift = ((padding.bottom - sheet) / 2) * (cos / scale);
+  return {
+    region: {
+      ...region,
+      latitude: middle - shift - latitudeDelta / 2,
+      latitudeDelta,
+    },
+    padding: { top: padding.top, bottom: sheet },
+  };
+}
+
+// The logo's corner and margin. The margin counts from the padded area's bottom, so it is the gap between
+// that edge and the covered part, plus a little air; never negative.
+const logoGap = 8;
+const logoSide = 14;
+function logoFor(
+  logo: RunMapLogo | undefined,
+  padding: Padding | undefined,
+  height: number,
+) {
+  if (!logo || !height) {
+    return undefined;
+  }
+  const bottom =
+    Math.max(0, logo.above * height - (padding?.bottom ?? 0)) + logoGap;
+  const right = logo.side === 'right';
+  return {
+    align: right ? ('BottomRight' as const) : ('BottomLeft' as const),
+    margin: right ? { right: logoSide, bottom } : { left: logoSide, bottom },
+  };
+}
+
 // A dot drawn as a marker: an optional soft circle around a solid dot with a ring.
 function Dot({
   size,
@@ -227,6 +297,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     showLocation = false,
     customStyleId,
     area,
+    logo,
     fitTo,
     interactive = true,
     onTapMap,
@@ -237,14 +308,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 ) {
   const map = useRef<NaverMapViewRef>(null);
   useImperativeHandle(ref, () => map.current as NaverMapViewRef, []);
-  const [height, setHeight] = useState(0);
-  const padding = paddingFor(area, height);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const { width: mapWidth, height } = size;
 
   const running = !!trail && trail.length > 0;
   const hasRoute = !!route && route.length >= 2;
 
   // The camera follows whatever the screen shows; it moves only when that changes.
-  const region = fitTo?.length
+  const fitted = fitTo?.length
     ? regionFor(fitTo, 0.002)
     : regionFor([
         ...(route ?? []),
@@ -252,6 +323,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         ...(position ? [position] : []),
         ...(members ?? []).map(member => member.position),
       ]);
+  const { region, padding } = lowerToLogo(
+    fitted,
+    paddingFor(area, height),
+    logo,
+    mapWidth,
+    height,
+  );
+  const logoAt = logoFor(logo, padding, height);
   // The padding is known only after layout, so it moves the camera as well.
   const key = `${regionKey(region)}|${padding?.top ?? 0},${
     padding?.bottom ?? 0
@@ -299,15 +378,22 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     <NaverMapView
       ref={map}
       style={[{ backgroundColor: dark ? k1.night : palette.white }, style]}
-      onLayout={event => setHeight(event.nativeEvent.layout.height)}
+      onLayout={event =>
+        setSize({
+          width: event.nativeEvent.layout.width,
+          height: event.nativeEvent.layout.height,
+        })
+      }
       onInitialized={() => setReady(true)}
-      initialRegion={region}
+      initialRegion={fitted}
       customStyleId={styleId}
       mapType={nightFallback ? 'Navi' : 'Basic'}
       isNightModeEnabled={nightFallback}
       layerGroups={layerGroups}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
       mapPadding={padding}
+      logoAlign={logoAt?.align}
+      logoMargin={logoAt?.margin}
       onTapMap={
         onTapMap
           ? ({ latitude, longitude }) => onTapMap([longitude, latitude])

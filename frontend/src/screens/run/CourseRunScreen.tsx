@@ -249,7 +249,7 @@ export function CourseRunScreen() {
 
   return (
     <MapScreenFrame
-      map={
+      renderMap={logo => (
         <RunMap
           dark={night}
           route={plan?.route}
@@ -259,9 +259,10 @@ export function CourseRunScreen() {
             night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
           }
           area={{ top: 0.19, bottom: 0.56 }}
+          logo={logo}
           style={StyleSheet.absoluteFill}
         />
-      }
+      )}
       top={top}
       bottom={bottom}
     />

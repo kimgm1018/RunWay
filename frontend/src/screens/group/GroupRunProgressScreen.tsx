@@ -61,6 +61,8 @@ function GroupMap({
           : undefined
       }
       area={running ? { top: 0.39, bottom: 0.56 } : { top: 0.19, bottom: 0.56 }}
+      // The NAVER logo over the scrim, which starts halfway down (S15P31E105-429).
+      logo={{ above: 0.5 }}
       style={StyleSheet.absoluteFill}
     />
   );

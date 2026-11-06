@@ -466,6 +466,8 @@ export function TodayRunScreen() {
         position={place?.position}
         // The place sits above the sheet, under the tabs (142 of 844).
         area={{ top: 0.17, bottom: 0.17 }}
+        // The NAVER logo just over the sheet, on the left (S15P31E105-429).
+        logo={{ above: 0.715 }}
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView edges={['top']} style={styles.flex}>

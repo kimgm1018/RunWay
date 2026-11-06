@@ -155,6 +155,8 @@ export function MeetingPlaceScreen() {
           position={picked?.position}
           showLocation={showMe}
           area={{ top: 0.447, bottom: 0.447 }}
+          // The NAVER logo just over the place sheet (S15P31E105-429).
+          logo={{ above: 0.255 }}
           onTapMap={point => {
             setConfirming(false);
             setPicked(mapPlace(point, '지도에서 고른 위치', me));
