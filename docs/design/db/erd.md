@@ -94,7 +94,7 @@
 | `session_control_events` | 시작·일시정지·재개·종료·수동/AI BPM 명령과 실제 결과, 명령 중복 판정 |
 | `pace_plans` | 세션의 초기 권장 페이스·BPM |
 | `pace_plan_segments` | 초기 페이스 계획의 거리 구간별 권장 페이스 |
-| `coaching_decisions` | 러닝 도중의 권장 페이스·BPM·미래 심박 예측 |
+| `coaching_decisions` | 러닝 도중의 권장 페이스·BPM·코칭 단계·미래 심박 예측 |
 
 #### running_session_splits — 종료 후 구간 집계
 
@@ -146,6 +146,7 @@
 | --- | --- | --- |
 | based_on_state_version | BIGINT/null, 값이 있으면 ≥1 | 계산 기준 세션 버전 |
 | expires_at | TIMESTAMPTZ/null | 적용 만료 시각 |
+| coaching_level | VARCHAR(16)/null, OK·CAUTION·DANGER | AI04 코칭 단계(S15P31E105-503). AI가 단계를 주지 않았거나 이전 행이면 null |
 
 `created_at`은 생성 시각이고, `expires_at`은 적용 가능한 마지막 시각이다. 신규 코칭은 기준 버전과 만료 시각을 함께 채운다. 자동 적용 조건은 [페이스 코칭 API](../api/pace-coaching.md)를 따른다.
 

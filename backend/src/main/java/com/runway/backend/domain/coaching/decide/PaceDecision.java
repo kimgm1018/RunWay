@@ -9,6 +9,7 @@ import java.time.Instant;
  * @param recommendedPaceSecPerKm 양수, 소수 둘째 자리
  * @param cueBpm 60~220. AI가 계산하지 못했으면 null(CUE_BPM_UNAVAILABLE)
  * @param predictedHr30Bpm 30초 뒤 예측 심박. 없으면 null
+ * @param coachingLevel 코칭 단계. 없거나 null이면 null
  */
 public record PaceDecision(
         boolean publishSuggested,
@@ -20,7 +21,8 @@ public record PaceDecision(
         BigDecimal predictedHr120Bpm,
         BigDecimal routeProgressM,
         long basedOnStateVersion,
-        Instant expiresAt) {
+        Instant expiresAt,
+        CoachingLevel coachingLevel) {
 
     public enum Action {
         GUIDE_PACE,

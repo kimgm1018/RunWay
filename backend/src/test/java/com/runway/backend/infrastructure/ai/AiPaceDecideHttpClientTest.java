@@ -3,6 +3,7 @@ package com.runway.backend.infrastructure.ai;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.PaceDecideRequest;
 import com.runway.backend.domain.coaching.decide.PaceDecision;
 import java.math.BigDecimal;
@@ -113,7 +114,39 @@ class AiPaceDecideHttpClientTest {
             assertThat(d.predictedHr120Bpm()).isNull();
             assertThat(d.basedOnStateVersion()).isEqualTo(4);
             assertThat(d.expiresAt()).isEqualTo(Instant.parse("2026-11-05T03:00:20Z"));
+            assertThat(d.coachingLevel()).isNull();
         });
+    }
+
+    @Test
+    void coachingLevel이_있으면_단계로_파싱한다() {
+        String decision =
+                """
+                {"action":"GUIDE_PACE","chosenIndex":1,"recommendedPaceSecPerKm":360,"cueBpm":165,
+                 "predictedHr30Bpm":null,"predictedHr60Bpm":null,"predictedHr120Bpm":null,"routeProgressM":null,
+                 "basedOnStateVersion":4,"expiresAt":"2026-11-05T03:00:20Z","reason":"r","reasonText":"t",
+                 "coachingLevel":"CAUTION"}
+                """;
+        server.respond(200, okBody(decision));
+
+        assertThat(client(Duration.ofSeconds(3)).decide(request()))
+                .get()
+                .extracting(PaceDecision::coachingLevel)
+                .isEqualTo(CoachingLevel.CAUTION);
+    }
+
+    @Test
+    void 잘못된_coachingLevel은_판단을_버린다() {
+        String decision =
+                """
+                {"action":"GUIDE_PACE","chosenIndex":1,"recommendedPaceSecPerKm":360,"cueBpm":165,
+                 "predictedHr30Bpm":null,"predictedHr60Bpm":null,"predictedHr120Bpm":null,"routeProgressM":null,
+                 "basedOnStateVersion":4,"expiresAt":"2026-11-05T03:00:20Z","reason":"r","reasonText":"t",
+                 "coachingLevel":"FAST"}
+                """;
+        server.respond(200, okBody(decision));
+
+        assertThat(client(Duration.ofSeconds(3)).decide(request())).isEmpty();
     }
 
     @Test

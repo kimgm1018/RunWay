@@ -1,5 +1,7 @@
 package com.runway.backend.domain.session.dto.response;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -76,5 +78,6 @@ public record RunningSessionResponse(
             long expectedVersion,
             int targetBpm,
             BigDecimal recommendedPaceSecPerKm,
-            Instant expiresAt) {}
+            Instant expiresAt,
+            CoachingLevel coachingLevel) {}
 }

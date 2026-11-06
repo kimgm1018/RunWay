@@ -1,5 +1,6 @@
 package com.runway.backend.infrastructure.ai;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.PaceDecision;
 
 import tools.jackson.databind.JsonNode;
@@ -81,7 +82,24 @@ final class PaceDecideResponseParser {
                         optionalDecimal(decision, "predictedHr120Bpm", MAX_HR),
                         optionalDecimal(decision, "routeProgressM", MAX_PROGRESS),
                         requiredLong(decision, "basedOnStateVersion"),
-                        requiredInstant(decision, "expiresAt")));
+                        requiredInstant(decision, "expiresAt"),
+                        coachingLevel(decision)));
+    }
+
+    /** 없거나 null이면 null. 잘못된 문자열·타입은 계약 위반. */
+    private static CoachingLevel coachingLevel(JsonNode decision) throws InvalidResponse {
+        JsonNode node = decision.get("coachingLevel");
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isString()) {
+            throw new InvalidResponse("decision.coachingLevel");
+        }
+        try {
+            return CoachingLevel.valueOf(node.stringValue());
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidResponse("decision.coachingLevel");
+        }
     }
 
     private static Integer cueBpm(JsonNode node) throws InvalidResponse {

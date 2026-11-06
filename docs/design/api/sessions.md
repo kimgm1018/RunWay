@@ -68,6 +68,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `targetBpm` | integer | O | 적용할 박자(60~220, = cue_bpm) |
 | `recommendedPaceSecPerKm` | number | O | 권장 페이스(초/km) |
 | `expiresAt` | string (date-time, UTC) | O | 새로 적용할 수 있는 만료시각 |
+| `coachingLevel` | string (enum) / null | O | AI04 코칭 단계 `OK`/`CAUTION`/`DANGER`. 저장된 값이 없으면 null(S15P31E105-503) |
 
 ## 기록 비교 (S15P31E105-422 확정, 2026-11-05)
 
@@ -1525,7 +1526,8 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
       "expectedVersion": 3,
       "targetBpm": 165,
       "recommendedPaceSecPerKm": 360,
-      "expiresAt": "2026-10-29T01:00:20Z"
+      "expiresAt": "2026-10-29T01:00:20Z",
+      "coachingLevel": "CAUTION"
     }
   }
 }

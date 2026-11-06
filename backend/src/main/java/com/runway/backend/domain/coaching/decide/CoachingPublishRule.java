@@ -43,6 +43,7 @@ public final class CoachingPublishRule {
      * @param previousEaseOff 이 세션에 직전에 보낸 코칭이 감속 권고(EASE_OFF)였는지
      * @param reevaluationDue "코칭 없이 2분 경과" 조건을 만족하는지
      * @param lastAppliedAt 마지막 실제 시작·재개·코칭 적용 시각 중 가장 최근 값
+     * @param lastAppliedLevel 워치에 적용된 마지막 코칭 단계. 없으면 null(S15P31E105-503)
      */
     public static Optional<Publish> evaluate(
             PaceDecision decision,
@@ -54,6 +55,7 @@ public final class CoachingPublishRule {
             boolean previousEaseOff,
             boolean reevaluationDue,
             Instant lastAppliedAt,
+            CoachingLevel lastAppliedLevel,
             Instant now) {
         if (decision.action() == PaceDecision.Action.NOT_RUNNING
                 || decision.basedOnStateVersion() != stateVersion) {
@@ -81,6 +83,10 @@ public final class CoachingPublishRule {
                         && guidePace != null
                         && decision.recommendedPaceSecPerKm().subtract(guidePace).compareTo(MIN_EASE_OFF_STEP)
                                 < 0;
+        boolean levelChanged =
+                decision.coachingLevel() != null
+                        && lastAppliedLevel != null
+                        && decision.coachingLevel() != lastAppliedLevel;
         if (reevaluationDue) {
             // 현재 BPM이 아직 없으면(출발 직후) 현재 안내와 짝이 맞는 BPM이 없으므로 AI 판단을 그대로 보내 BPM을 처음 정한다(후속 리뷰 F-1).
             if (currentBpm == null || (decision.publishSuggested() && !smallEaseOffStep)) {
@@ -91,13 +97,17 @@ public final class CoachingPublishRule {
             // 페이스가 한쪽으로 밀리지 않게 한다(리뷰 A-7·후속 리뷰 F-5, 2026-11-05 사용자 확정).
             return Optional.of(new Publish(guidePace, currentBpm, expiresAt, false));
         }
-        if (!decision.publishSuggested() || smallEaseOffStep) {
+        if (!decision.publishSuggested()) {
+            return Optional.empty();
+        }
+        // 이어지는 작은 감속은 막되, 코칭 단계가 바뀌면 안내는 유지한 채 발행한다(S15P31E105-503 B-1).
+        if (smallEaseOffStep && !levelChanged) {
             return Optional.empty();
         }
         boolean samePace =
                 guidePace != null && guidePace.compareTo(decision.recommendedPaceSecPerKm()) == 0;
-        if (samePace && bpm.equals(currentBpm)) {
-            // 같은 조정 판단을 연속 발행하지 않는다.
+        if (samePace && bpm.equals(currentBpm) && !levelChanged) {
+            // 같은 조정 판단을 연속 발행하지 않는다. 단계는 양쪽이 non-null이고 다를 때만 변경으로 본다(S15P31E105-503).
             return Optional.empty();
         }
         // 첫 감속 권고만 30초 간격의 예외다. 감속 권고가 이어지면 일반 변경처럼 30초를 지키고, 지금 안내보다 10초/km 이상 느릴 때만 보낸다.
@@ -105,6 +115,10 @@ public final class CoachingPublishRule {
         if ((!easeOff || previousEaseOff)
                 && now.isBefore(lastAppliedAt.plus(MIN_CHANGE_INTERVAL))) {
             return Optional.empty();
+        }
+        if (smallEaseOffStep) {
+            int holdBpm = currentBpm != null ? currentBpm : bpm;
+            return Optional.of(new Publish(guidePace, holdBpm, expiresAt, false));
         }
         return Optional.of(
                 new Publish(decision.recommendedPaceSecPerKm(), bpm, expiresAt, true));

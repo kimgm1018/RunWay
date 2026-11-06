@@ -1,6 +1,7 @@
 package com.runway.backend.domain.session.service;
 
 import com.runway.backend.domain.coaching.decide.CoachingInputAssembler;
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.CoachingPublishRule;
 import com.runway.backend.domain.coaching.decide.CoachingSource;
 import com.runway.backend.domain.coaching.decide.PaceDecider;
@@ -274,6 +275,11 @@ public class SessionCoachingService {
             return null;
         }
         Instant lastApplied = lastAppliedBase(session);
+        CoachingLevel lastAppliedLevel =
+                coachingRepository
+                        .lastAppliedCoaching(sessionId)
+                        .map(CoachingSource.AppliedCoaching::coachingLevel)
+                        .orElse(null);
         Optional<CoachingPublishRule.Publish> publish =
                 CoachingPublishRule.evaluate(
                         decision,
@@ -285,6 +291,7 @@ public class SessionCoachingService {
                         previousEaseOff(sessionId, now),
                         !now.isBefore(lastApplied.plus(REEVALUATE_AFTER)),
                         lastApplied,
+                        lastAppliedLevel,
                         now);
         if (publish.isEmpty()) {
             return null;
@@ -302,7 +309,9 @@ public class SessionCoachingService {
                         decision.routeProgressM(),
                         version,
                         now,
-                        publish.get().expiresAt());
+                        publish.get().expiresAt(),
+                        // 유지 안내도 AI가 준 단계를 남긴다(S15P31E105-503).
+                        decision.coachingLevel());
         SessionControlEvent command =
                 controlEventRepository.saveAndFlush(
                         SessionControlEvent.bpmRequest(

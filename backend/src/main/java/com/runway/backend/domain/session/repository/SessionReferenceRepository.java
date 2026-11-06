@@ -1,5 +1,7 @@
 package com.runway.backend.domain.session.repository;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
+
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -286,17 +288,25 @@ public class SessionReferenceRepository {
         return jdbc
                 .query(
                         """
-                        SELECT recommended_pace, expires_at FROM coaching_decisions
+                        SELECT recommended_pace, expires_at, coaching_level FROM coaching_decisions
                         WHERE session_id = ? AND id = ?
                         """,
                         (rs, n) ->
                                 new CoachingGuideRow(
                                         rs.getBigDecimal("recommended_pace"),
-                                        toInstant(rs, "expires_at")),
+                                        toInstant(rs, "expires_at"),
+                                        coachingLevel(rs.getString("coaching_level"))),
                         sessionId,
                         coachingId)
                 .stream()
                 .findFirst();
+    }
+
+    private static CoachingLevel coachingLevel(String value) {
+        if (value == null) {
+            return null;
+        }
+        return CoachingLevel.valueOf(value);
     }
 
     /** 세션에 연결된 게시물을 ID 순서로 잠근다. 세션 → 게시물 순서는 공유 게시물 생성(CMT01)과 같다. */
@@ -366,7 +376,8 @@ public class SessionReferenceRepository {
             Instant measuredAt,
             BigDecimal averagePaceSecPerKm) {}
 
-    public record CoachingGuideRow(BigDecimal recommendedPace, Instant expiresAt) {}
+    public record CoachingGuideRow(
+            BigDecimal recommendedPace, Instant expiresAt, CoachingLevel coachingLevel) {}
 
     public record PostRef(long id, long authorId) {}
 }
