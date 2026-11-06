@@ -40,8 +40,8 @@ function detail(id: number, fields: Record<string, unknown> = {}) {
   };
 }
 
-const participants = (id: number) => ({
-  items:
+const participants = (id: number) => {
+  const items =
     id === 61
       ? [
           { userId: 9, nickname: '하린', isHost: false, readyStatus: 'READY' },
@@ -52,8 +52,13 @@ const participants = (id: number) => ({
             readyStatus: 'WAITING',
           },
         ]
-      : [{ userId: 7, nickname: '성윤', isHost: true, readyStatus: 'WAITING' }],
-});
+      : [{ userId: 7, nickname: '성윤', isHost: true, readyStatus: 'WAITING' }];
+  return {
+    items,
+    participantCount: items.length,
+    readyCount: items.filter(item => item.readyStatus === 'READY').length,
+  };
+};
 
 type Route = (
   path: string,
@@ -388,7 +393,48 @@ test('6.5 reads the room from G07 and G16 marks me ready', async () => {
     // 5km of course at 6′20″.
     expectedDurationSec: 1900,
     appliedCount: 2,
+    participantCount: 2,
+    readyCount: 1,
   });
+});
+
+test('511 waiting room uses G07 participantCount and readyCount', async () => {
+  serve(path =>
+    path.endsWith('/participants')
+      ? respond(200, {
+          items: [
+            {
+              userId: 101,
+              nickname: '민준',
+              isHost: true,
+              readyStatus: 'WAITING',
+            },
+            {
+              userId: 9,
+              nickname: '하린',
+              isHost: false,
+              readyStatus: 'READY',
+            },
+            {
+              userId: 8,
+              nickname: '서연',
+              isHost: false,
+              readyStatus: 'READY',
+            },
+          ],
+          // items보다 큰 집계(목록 일부만 온 경우에도 서버 집계를 씀).
+          participantCount: 5,
+          readyCount: 3,
+        })
+      : undefined,
+  );
+  const room = await api().groupRuns.getWaitingRoom('61');
+  expect(room).toMatchObject({
+    appliedCount: 5,
+    participantCount: 5,
+    readyCount: 3,
+  });
+  expect(room.participants).toHaveLength(3);
 });
 
 test('G09 sends no body; G13 and G12 use the actual endpoints', async () => {
@@ -719,6 +765,7 @@ test('419 waiting-room polling refreshes the recommendation when participants ch
       expect.any(Array),
       350,
       null,
+      { participantCount: 2, readyCount: 1 },
     );
     pace = 370;
     await jest.advanceTimersByTimeAsync(3100);
@@ -726,6 +773,7 @@ test('419 waiting-room polling refreshes the recommendation when participants ch
       expect.any(Array),
       370,
       null,
+      { participantCount: 2, readyCount: 1 },
     );
   } finally {
     stop();
