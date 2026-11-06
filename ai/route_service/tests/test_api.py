@@ -7,11 +7,12 @@ import copy
 import logging
 import threading
 import time
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import Settings
+from app.config import Settings, load_settings
 from app.main import ATTEMPTS, create_app
 
 URL = "/internal/v1/routes/recommendations"
@@ -287,29 +288,69 @@ def test_debug_flag_on_error_response(tmp_path, debug):
 
 
 # ------------------------------------------------------------------ admission (BUSY) and deadline (TIMEOUT)
-def test_busy_when_slot_not_free_within_one_second(tmp_path):
+def test_lock_wait_defaults_to_eight_seconds(tmp_path, monkeypatch):
+    monkeypatch.delenv("ROUTE_LOCK_WAIT_S", raising=False)
+    assert load_settings().lock_wait_s == 8.0
+    assert settings(tmp_path).lock_wait_s == 8.0
+
+
+def test_lock_wait_env_override(monkeypatch):
+    monkeypatch.setenv("ROUTE_LOCK_WAIT_S", "0.05")
+    assert load_settings().lock_wait_s == 0.05
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid", "", "nan", "inf", "-inf"])
+def test_invalid_lock_wait_prevents_app_creation(monkeypatch, value):
+    monkeypatch.setenv("ROUTE_LOCK_WAIT_S", value)
+    with pytest.raises(ValueError, match="ROUTE_LOCK_WAIT_S"):
+        create_app(pipeline_factory=lambda s: FakePipeline(), background=False)
+
+
+@pytest.mark.parametrize("with_deadline", [False, True])
+@pytest.mark.parametrize("wait_value", ["0.05", "1e300"])
+def test_busy_when_slot_not_free_within_configured_wait(monkeypatch, with_deadline, wait_value):
+    monkeypatch.setenv("ROUTE_LOCK_WAIT_S", wait_value)
+    monkeypatch.setenv("ROUTE_WARMUP", "0")
+    if wait_value == "1e300":
+        monkeypatch.setattr(threading, "TIMEOUT_MAX", 0.05)
     pipe = FakePipeline(loop_out([issue("NO_CANDIDATE_IN_TOLERANCE")]))
-    c, _ = client(tmp_path, pipe, warmup=False)
+    app = create_app(load_settings(), lambda s: pipe, background=False)
+    c = TestClient(app)
+    headers = {"X-Request-Deadline": str(int(time.time() * 1000) + 60_000)} if with_deadline else {}
     with c:
         pipe.lock.acquire()
         try:
             t0 = time.perf_counter()
-            assert_error(c.post(URL, json=BODY), 503, "BUSY")
+            assert_error(c.post(URL, json=BODY, headers=headers), 503, "BUSY")
             waited = time.perf_counter() - t0
         finally:
             pipe.lock.release()
-        assert 0.9 <= waited < 3.0
+        assert 0.04 <= waited < 1.0
         assert_error(c.post(URL, json=BODY), 422, "NO_ROUTE")   # free again
     assert len(pipe.calls) == 1
 
 
-def test_waits_for_slot_freed_within_one_second(tmp_path):
+def test_waits_for_slot_freed_within_limit(tmp_path):
     pipe = FakePipeline(loop_out([issue("NO_CANDIDATE_IN_TOLERANCE")]))
     c, _ = client(tmp_path, pipe, warmup=False)
     with c:
         pipe.lock.acquire()
         threading.Timer(0.3, pipe.lock.release).start()
         assert_error(c.post(URL, json=BODY), 422, "NO_ROUTE")
+    assert len(pipe.calls) == 1
+
+
+def test_warmup_waits_without_configured_limit(tmp_path):
+    pipe = ok_pipeline()
+    app = create_app(replace(settings(tmp_path), lock_wait_s=0.01), lambda s: pipe, background=False)
+    pipe.lock.acquire()
+    release = threading.Timer(0.1, pipe.lock.release)
+    release.start()
+    try:
+        with TestClient(app) as c:
+            assert c.get(READY).status_code == 200
+    finally:
+        release.join()
     assert len(pipe.calls) == 1
 
 
@@ -326,10 +367,40 @@ def test_deadline_passed_while_waiting_for_slot(tmp_path):
     c, _ = client(tmp_path, pipe, warmup=False)
     with c:
         pipe.lock.acquire()
-        threading.Timer(0.5, pipe.lock.release).start()
+        try:
+            soon = str(int(time.time() * 1000) + 200)
+            t0 = time.perf_counter()
+            assert_error(c.post(URL, json=BODY, headers={"X-Request-Deadline": soon}), 503, "TIMEOUT")
+            waited = time.perf_counter() - t0
+        finally:
+            pipe.lock.release()
+        assert 0.1 <= waited < 1.0
+    assert pipe.calls == []
+
+
+def test_deadline_checked_again_after_acquiring_slot(tmp_path):
+    class SlowAcquireLock:
+        def __init__(self):
+            self.lock = threading.Lock()
+
+        def acquire(self, timeout):
+            acquired = self.lock.acquire(timeout=timeout)
+            if acquired:
+                time.sleep(0.25)   # 마감 직전에 lock을 잡고, 반환 전에 스레드가 지연된 경우
+            return acquired
+
+        def release(self):
+            self.lock.release()
+
+    pipe = FakePipeline()
+    pipe.lock = SlowAcquireLock()
+    c, _ = client(tmp_path, pipe, warmup=False)
+    with c:
         soon = str(int(time.time() * 1000) + 200)
         assert_error(c.post(URL, json=BODY, headers={"X-Request-Deadline": soon}), 503, "TIMEOUT")
     assert pipe.calls == []
+    assert pipe.lock.lock.acquire(blocking=False)   # TIMEOUT도 잡은 lock을 반환한다
+    pipe.lock.lock.release()
 
 
 def test_future_deadline_runs(tmp_path):

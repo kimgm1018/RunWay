@@ -10,8 +10,9 @@ ROUTE_DEBUG=1이면 성공 응답이 예전 데모의 전체 필드(고도·경�
 고도·경사 값(elevation_profile_m, features의 고도 key, details의 누적 상승·평균 경사)은 어느 모드에서도 보내지 않는다.
 경사는 백엔드가 계산한다. 엔진은 DEM을 "평지 위주(flat)" 선호에만 쓴다. 같은 입력 + 같은 seed = 같은 결과.
 
-동시성: pipeline.lock(엔진은 thread-safe가 아님)을 최대 1초 기다리고 못 잡으면 503 BUSY. 요청 헤더
-X-Request-Deadline(epoch ms)이 있으면 계산 시작 직전에 확인해 이미 지났으면 503 TIMEOUT. 시작한 계산은 끊지 않는다.
+동시성: pipeline.lock(엔진은 thread-safe가 아님)을 기본 최대 8초(ROUTE_LOCK_WAIT_S) 기다리고 못 잡으면 503 BUSY.
+요청 헤더 X-Request-Deadline(epoch ms)이 있으면 남은 시간까지만 기다리고 마감으로 대기를 끝내면 503 TIMEOUT.
+계산 시작 직전에도 마감을 확인하며, 시작한 계산은 끊지 않는다. 예열은 시간 제한 없이 lock을 기다린다.
 
 준비 순서: 프로세스 시작(live) -> 엔진 로드 -> 예열 요청 1회(ROUTE_WARMUP=0이면 생략) -> ready.
 ready 전 추천 요청은 503 NOT_READY, 로드·예열 실패는 503 UNAVAILABLE.
@@ -57,7 +58,7 @@ DROP_DETAIL_LABELS = frozenset({"누적 상승", "평균 경사"})
 RECOMMEND = "/internal/v1/routes/recommendations"
 READY = "/internal/v1/ready"
 DEADLINE_HEADER = "X-Request-Deadline"   # epoch ms, 선택. 계산 시작 직전에 지났으면 503 TIMEOUT
-LOCK_WAIT_S = 1.0                        # 실행 슬롯 대기 상한. 넘으면 503 BUSY
+LOCK_WAIT_S = 8.0                        # 실행 슬롯 기본 대기 상한. HTTP 요청은 settings 값을 쓴다
 SLIM_ROUTE_KEYS = ("rank", "coords", "distance_m", "summary", "reasons", "caveats", "score", "score_terms")
 
 
@@ -161,7 +162,7 @@ def create_app(settings: Settings | None = None, pipeline_factory=None, *, backg
             except ValueError:
                 return fail("VALIDATION_ERROR", details={"fields": [
                     {"name": DEADLINE_HEADER, "reason": "epoch milliseconds integer"}]})
-        return recommend_core(engine, req, deadline_ms=deadline_ms)
+        return recommend_core(engine, req, lock_wait_s=settings.lock_wait_s, deadline_ms=deadline_ms)
 
     return app
 
@@ -222,8 +223,15 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
     shape_kw = {} if loop else {"shape": req.shape, "end_lat": req.end_lat, "end_lon": req.end_lon}
     if _expired(deadline_ms):
         return _fail("TIMEOUT")
-    if not p.lock.acquire(timeout=-1 if lock_wait_s is None else lock_wait_s):
-        return _fail("BUSY")
+    # 유한한 양수라도 운영체제가 허용하는 timeout보다 클 수 있다.
+    wait_s = None if lock_wait_s is None else min(lock_wait_s, threading.TIMEOUT_MAX)
+    deadline_limits_wait = False
+    if deadline_ms is not None:
+        remaining_s = max(0.0, deadline_ms / 1000 - time.time())
+        deadline_limits_wait = wait_s is None or remaining_s <= wait_s
+        wait_s = remaining_s if wait_s is None else min(wait_s, remaining_s)
+    if not p.lock.acquire(timeout=-1 if wait_s is None else wait_s):
+        return _fail("TIMEOUT" if deadline_limits_wait or _expired(deadline_ms) else "BUSY")
     cache = engine.reroll
     depth = reroll.depth(req.seed, ATTEMPTS) if cache is not None else 0
     rr = None
