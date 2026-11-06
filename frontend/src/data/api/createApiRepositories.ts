@@ -22,6 +22,7 @@ import { createReadinessApi } from './readiness';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
 import { serverRequest } from './request';
+import { searchApi } from './search';
 import { settingsApi } from './settings';
 import { uploadSyncBatch } from './syncBatches';
 import { createApiSessionRepository } from './sessionApi';
@@ -76,6 +77,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     settings: settingsApi,
     // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
     community: createCommunityApi({ records }),
+    // 7.5 검색 (CMT13): runners and crews by name.
+    search: searchApi,
     // Without a profile the expected course times fall back to 6′00″.
     courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
     watch: createWatchApi(mock.watch),

@@ -220,7 +220,7 @@ export function CommunityScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="검색"
-          onPress={() => toast('검색은 준비 중이에요')}
+          onPress={() => navigateTo(navigation, 'CommunitySearch')}
           style={({ pressed }) => [
             styles.headerButton,
             pressed && styles.pressed,
