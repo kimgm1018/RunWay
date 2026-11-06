@@ -743,29 +743,9 @@ class OdeBalancedPaceOptimizer:
     @classmethod
     def _forward_profile(cls, course: CoursePlanSnapshot, paces: Sequence[float],
                          grade_index: _CourseGradeIndex | None = None):
-        grade_index = grade_index or _CourseGradeIndex(course)
-        splits = split_distance_1km(course.distance_m)
-        duration = sum(float(end - start) * float(pace) / 1000.0
-                       for (start, end), pace in zip(splits, paces))
-        if not math.isfinite(duration) or duration <= 0:
-            raise ApiError(422, "PERSONAL_PLAN_PREDICTION_INVALID", "계획 완주 시간이 유한한 양수가 아닙니다.")
-        steps = max(1, int(math.ceil(duration / 30.0)))
-        speeds, grades = [], []
-        for index in range(steps):
-            start_t, end_t = index * 30.0, (index + 1) * 30.0
-            start_m = cls._distance_at_time(start_t, splits, paces)
-            end_m = cls._distance_at_time(min(end_t, duration), splits, paces)
-            if end_m <= start_m:
-                end_m = min(float(course.distance_m), start_m + 1e-6)
-            active_sec = max(1e-9, min(end_t, duration) - start_t)
-            if active_sec >= 30.0 - 1e-9:
-                speeds.append((end_m - start_m) / 30.0)
-            else:
-                # The ODE grid is fixed at 30s; its last post-finish point is discarded.
-                pace_index = min(len(splits) - 1, max(0, int(start_m // 1000)))
-                speeds.append(1000.0 / float(paces[pace_index]))
-            grades.append(cls._grade_over(course, start_m, end_m, grade_index))
-        return tuple(speeds), tuple(grades), duration
+        from app.plan_profile_fast import forward_profile
+
+        return forward_profile(course, paces, grade_index)
 
     def _predict_many(self, *, course, pace_profiles, personalization, runtime, support_hr,
                       grade_index: _CourseGradeIndex | None = None, forward_profiles=None):

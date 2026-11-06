@@ -101,6 +101,8 @@ class ODEv21Runtime:
         self.fit_module = fit_module
         self.device = device
         self.hr0_head = bool(getattr(model, "hr0_head_enabled", False))
+        from .prerun_fast import PreRunFast
+        self._prerun_fast = PreRunFast(self.model, self.model_module)
         self.horizon_sec = max(0, int(validated_horizon_sec))
         self.info = ODEModelInfo(
             model_type="ODE-v2.1", model_version=f"{variant}:{checkpoint_sha256[:12]}",
@@ -210,17 +212,22 @@ class ODEv21Runtime:
             items.append(item)
         return items
 
-    def _predict_items(self, items, *, max_steps: int | None = None) -> np.ndarray:
+    def _predict_items(self, items, *, max_steps: int | None = None, fast: bool = False) -> np.ndarray:
         if not items:
             return np.empty((0, 0), np.float32)
         batch = self.batch.collate(items, self.stats, max_steps=max_steps)
         batch = {key: value.to(self.device) for key, value in batch.items()}
         with self.torch.inference_mode():
-            output = self.model(batch)
-        n_points = output["heart_rate"].shape[1] // 3
+            use_fast = (fast and type(self.model) is getattr(self.model_module, "V21ODE", None)
+                        and not self.hr0_head and self.torch.device(self.device).type == "cpu"
+                        and os.getenv("ODEV21_PRERUN_FAST", "true").strip().lower()
+                        not in {"false", "0", "no", "off"})
+            heart_rate = (self._prerun_fast.predict(batch) if use_fast
+                          else self.model(batch)["heart_rate"])
+        n_points = heart_rate.shape[1] // 3
         if n_points <= 0:
             return np.empty((len(items), 0), np.float32)
-        return self.model_module.points30(output["heart_rate"], n_points).detach().cpu().numpy()
+        return self.model_module.points30(heart_rate, n_points).detach().cpu().numpy()
 
     def pre_run_predictor(self, personalization: dict | None = None,
                           support_start_hr_median_bpm: float | None = None,
@@ -246,7 +253,7 @@ class ODEv21Runtime:
                 steps = max(3, max((len(row) for row in speeds), default=0) * 3) if speeds else 0
                 rows = runtime._predict_items(runtime._items(speeds, grades, personalization, fallback,
                                                              drop_personal_inputs=drop_personal_inputs),
-                                              max_steps=steps or None)
+                                              max_steps=steps or None, fast=True)
                 return pp.PreRunSimulationResult(
                     hr_bpm=tuple(tuple(float(v) for v in row[:len(speeds[index])])
                                  for index, row in enumerate(rows)), model_name="ODE-v2.1",
