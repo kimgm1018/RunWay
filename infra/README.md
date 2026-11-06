@@ -25,6 +25,9 @@
 | `backend/deploy.sh`, `backend/check.sh` | 배포 전후 기동 검사·실패 시 이전 이미지 복구 |
 | `ai/Dockerfile`, `ai/compose.yaml` | FastAPI·GRU/ODE CPU 추론 이미지·내부 네트워크 실행 |
 | `ai/deploy.sh`, `ai/check.sh`, `jenkins/Jenkinsfile.ai-cd` | AI 이미지·모델 교체, 상태 확인·복구와 master 배포 흐름 |
+| `route/compose.yaml`, `../ai/route_service/Dockerfile` | Route 코스 생성 이미지·내부 네트워크 실행 |
+| `route/prepare-data.sh`, `route/deploy.sh`, `jenkins/Jenkinsfile.route` | Route 데이터 준비·master 배포·상태 확인·복구 |
+| `jenkins/check-route.sh` | Route MR의 Linux API 검사·JUnit 보고서·임시 자원 정리 |
 | `certbot/runway-cert-renew.*` | 인증서 갱신 스크립트·systemd service/timer |
 | `backup/` | DB·업로드 파일 암호화 백업, 보관 정책·격리 복원 검사 |
 
@@ -62,6 +65,10 @@
   Jenkins Secret text `runway-hf-read-token`을 등록한다. 모델은 버전별 읽기 전용 폴더에 두며 이미지·Git에 넣지 않는다.
 - AI DB 계정은 EC2에서 `sudo python3 <prepare_db.py 경로> --container <DB 컨테이너> --secret-file <Secret 경로>`로 준비한다.
   `AI_DB_URL_FILE`로 파일 경로만 전달한다. 계정은 CONNECT·USAGE·courses SELECT만 먼저 받는다. 변수·기능 기본값은 [예시](ai/.env.example), API·모델 계약은 [AI 서비스 안내](../ai/service/README.md)를 따른다.
+- Route는 기존 AI 에이전트와 `runway-hf-read-token`을 사용한다. EC2에
+  `sudo install -d -o 10001 -g 10001 -m 750 /home/ubuntu/runway/data/route-bundles`로 데이터 폴더를 준비한다.
+  고정 HF revision의 `route_data_v2/`를 받아 `DATA_MANIFEST.md`의 크기·SHA 검증 후 이미지 빌드 context로 전달한다.
+  토큰은 다운로드 단계에만 주입하고, 데이터 묶음은 Git·Jenkins 산출물에 포함하지 않는다.
 
 ## 적용 순서
 
@@ -78,16 +85,20 @@
    최초 인증서 발급은 HTTP 전용 설정으로 진행하고, 인증서·백엔드·Jenkins가 준비된 뒤 최종 HTTPS 설정을 적용한다.
    백엔드의 `BACKEND_AUTH_TRUSTED_PROXIES`는 Nginx·백엔드 전용 `runway_service`의 실제 대역(현재 `172.18.0.0/16`)과 맞춘다.
    컨테이너 재생성에는 유지되지만 네트워크를 새로 만들면 다시 확인한다. 전체 인터넷을 신뢰하지 않으며 백엔드 직접 외부 접근은 차단한다.
-4. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
-5. AI를 실행할 때는 준비한 변수를 환경변수 또는 `--env-file <설정 파일>`로 전달하고
+4. AI를 실행할 때는 준비한 변수를 환경변수 또는 `--env-file <설정 파일>`로 전달하고
    `docker compose -f ~/runway/infra/ai/compose.yaml up -d --wait`를 실행한다.
    GRU·ODE 모델 로드까지 완료되어야 정상으로 판단한다. CPU 1개·메모리 1GiB 제한에서 실제 사용량을 확인한다.
    외부 포트 없이 `runway-ai_default`와 DB 내부 네트워크에 연결한다. 백엔드는 `runway-ai_default`에 함께 연결해
    `BACKEND_AI_BASE_URL=http://ai:8000`으로 실시간 코칭 AI04와 AI06 심박 개인화를 호출한다(S15P31E105-421·410). 백엔드 Compose가 이 외부 네트워크를
    참조하므로 AI Compose를 먼저 한 번 실행해 네트워크를 만든다.
-6. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
+5. Route CD로 이미지 빌드·엔진 예열을 확인한 뒤 배포한다. CPU 1개·메모리 1.5GiB·worker 1개로 실행하며,
+   읽기 전용 파일시스템의 Numba 예열 캐시를 쓰기 가능한 `/tmp/numba_cache`로 복사한다.
+   외부 포트 없이 `runway-route_default`에 연결한다. 백엔드 기동 전에 이 네트워크를 준비한다.
+6. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
+   Route 연결은 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`을 사용한다.
+7. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
 
-## Jenkins 설정
+## Jenkins 공통 설정
 
 | 항목 | 기준 |
 | --- | --- |
@@ -96,51 +107,89 @@
 | 에이전트 접속 | 작업 경로 `/home/jenkins/agent`, 컨트롤러에 접속하는 방식·라벨이 일치하는 작업만 실행 |
 | 모바일 도구 | Jenkins 접속 Java 21·앱 빌드 Java 17, Node 22·pnpm 11.28.9. 메모리 6GiB·CPU 2개 상한 |
 | 워치 도구 | Jenkins 접속 Java 21·Gradle Java 25, Gradle 9.6.0·AGP 9.4.1·SDK 37. 메모리 4GiB·CPU 1개 상한 |
-| AI 도구 | Java 21·Docker CLI 에이전트에서 Python 3.12·CPU PyTorch 검사 컨테이너 실행. 에이전트 512MiB·CPU 1개, 검사 컨테이너 1GiB·CPU 1개 상한 |
+| AI·Route 도구 | Java 21·Docker CLI 에이전트에서 서비스별 Python 3.12 검사 컨테이너 실행. 에이전트 512MiB·CPU 1개, 검사는 CPU 1개·AI 1GiB·Route 1.5GiB 상한 |
 | GitLab 연결 | `runway-gitlab`, 저장소 Credentials ID `runway-gitlab-repo` |
-| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사하며 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사. 모바일은 타입·린트·전체 Jest를 항상 유지하고, JS·TS 소스만 바뀐 MR은 APK 대신 JS 번들 생성, 테스트 파일만 바뀐 MR은 둘 다 생략 |
-| 모바일 APK | `runway-mobile-apk`, `infra/jenkins/Jenkinsfile.mobile-apk`. master Push 후 ARM64 디버그 APK 생성·보관, 산출물은 최근 5개 빌드 기준으로 제한. 정식 출시 서명·스토어 배포 제외 |
-| 워치 APK | `runway-watch-apk`, `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
-| 백엔드 CD | `runway-backend-cd`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.backend-cd`. master Push 배포 |
-| AI CD | `infra/jenkins/Jenkinsfile.ai-cd`. master 전용. `AI_MODELS_ROOT`·`AI_DB_URL_FILE`을 지정한다. 모델 준비 → 읽기 권한 확인 → 사전 로드 → 교체/검사 순서이며, 실패 시 이전 이미지·모델·공개 설정을 복구. `DEPLOY=false`, `PREPARE_MODELS=true`는 운영 교체 없이 모델만 준비 |
+| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사. 공통 Jenkins 설정 변경·수동 실행은 백엔드·모바일·워치·AI·Route를 모두 검사 |
 | 기존 단독 CI | `Jenkinsfile.backend`·`Jenkinsfile.mobile`은 기존 단독 검사 파일이며 신규 MR 검사는 통합 CI 사용 |
-| 권한 | 관리자와 조회 권한 분리. 익명 접근·자가 가입 제외 |
+| 접근 권한 | 관리자와 조회 권한 분리. 익명 접근·자가 가입 제외 |
 
-### 빌드·검증 결과
+Webhook 경로는 `/jenkins/project/<작업명>`이며 Job별 Secret token을 별도 등록한다.
+Jenkins 계정·Credentials·Job 설정은 영속 볼륨에서 관리하며 이 저장소가 자동 생성하지 않는다.
+AI와 Route는 같은 노드를 사용하므로 executor 1에서는 두 검사가 차례로 실행된다.
 
-| 영역 | 검사·보관 기준 |
-| --- | --- |
-| 백엔드 | 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답 검사. 상태 API는 루프백 8082에만 제공 |
-| 모바일 | 네이티브·의존성·빌드 설정 변경 MR, 공통 CI 변경·수동 검사와 master에서 ARM64 APK 빌드. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 파일만 바뀐 MR은 APK 대신 `react-native bundle`로 Android 릴리스 JS 번들을 만들어 번들링 오류를 검사(`Mobile JS Bundle` 단계). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀐 MR은 둘 다 생략. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
-| 워치 | 테스트·Lint·APK 단계는 한 실행 안에서 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료. Kotlin 컴파일은 데몬 안에서 실행해 별도 Kotlin 데몬을 띄우지 않으며, 정리 단계가 실행되지 못해도 데몬은 10분 유휴 후 스스로 종료. 체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 풀고, `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`을 참조 저장소로 써서 새 Git 객체만 받는다. 참조 저장소는 체크아웃 직후 `update-git-reference.sh`가 갱신하고, 손상으로 체크아웃이 실패하면 지운 뒤 참조 없이 한 번 더 받는다. 작업 폴더는 매번 비운다. 단계별 시간(`build-time-<단계>.txt`)과 JUnit·Lint·Gradle profile 보고서 보관 |
-| AI | MR CI는 모델 없는 API·배포 회귀 테스트를 수행하고 실제 모델 테스트 생략 여부를 JUnit에 기록. 실제 모델 로드·예측은 별도로 검증 |
+## 서비스별 CI/CD
 
-모바일 CI의 Jest 변환 캐시는 `/home/jenkins/agent/.cache/jest`에 둔다. 기존 `mobile_agent_work` 영속 볼륨에 포함되며,
-체크아웃 작업 폴더 삭제 후에도 유지된다. 캐시를 사용해도 타입·린트·전체 Jest는 매번 실행한다.
-`frontend/android/`·`package.json`·`pnpm-lock.yaml`·babel·metro·`react-native.config.js`·`app.json`·Jest 설정·`assets/`·
-알 수 없는 프론트엔드 경로 변경은 JS·TS 소스와 함께 바뀌어도 APK를 빌드하며, master APK 작업은 항상 APK를 생성한다.
-JS 번들 검사는 네이티브 컴파일·Hermes 바이트코드 변환·APK 패키징을 검사하지 않는다. 이 영역의 오류는 APK를 빌드하는 MR·수동 검사 또는 master APK 작업에서 확인한다.
+### 백엔드
 
-AI 배포는 `.env` 자동 로딩을 사용하지 않는다. Jenkins가 전달한 값과 검증된 모델 설정만 사용하며,
-HF 토큰은 다운로드 단계에만 주입한다. DB Secret은 컨테이너 시작 시 파일에서 읽고 복구 기록에 저장하지 않는다.
-GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09를 검증할 때는 `PERSONAL_PLAN_EXPERIMENTAL_ENABLED=true`와 유효한 코스를 준비한다.
-`bash infra/ai/verify-isolated.sh <실행 이미지> <공개 모델 설정 파일> <PostGIS 이미지>`는 합성 코스 DB·기동 API·실패 롤백을 별도 환경에서 검증하고 정리한다.
+- **MR 검사:** 백엔드 변경 시 통합 CI에서 검사·테스트·JAR 빌드를 수행한다.
+- **배포:** `runway-backend-cd`는 SCM `*/dev`의 `infra/jenkins/Jenkinsfile.backend-cd`를 사용하며 master Push로 배포한다.
+  이미지 교체에 실패하면 이전 이미지로 복구한다.
+- **결과·보관:** JUnit 결과와 JAR을 보관한다. 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답을 확인한다.
+  상태 API는 컨테이너 루프백 8082에만 제공한다.
+- **설정·주의:** 새 배포는 항상 readiness로 검사한다. 이미지 롤백은 DB 마이그레이션을 되돌리지 않는다.
+  검사 이미지 `python:3.12-alpine`은 기존 서비스 교체 전에 준비한다.
+
+최초 readiness 전환 때만 `BACKEND_LEGACY_HEALTH_IMAGE_ID`에 기존 컨테이너의 정확한 `sha256:...` 이미지 ID를 지정할 수 있다.
+해당 이미지의 배포 전·복구 검사에만 기존 시작 로그·404 확인을 허용하며, 미설정·ID 불일치 시 우회하지 않는다.
+첫 readiness 배포 성공 후에는 이 설정을 제거한다.
+
+### 모바일
+
+- **MR 검사:** 타입·린트·전체 Jest는 매번 실행한다. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 소스만
+  바뀌면 APK 대신 Android 릴리스 JS 번들을 생성한다(`Mobile JS Bundle`). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀌면
+  APK·JS 번들을 모두 생략한다. 네이티브·의존성·빌드 설정·그 밖의 프론트엔드 경로 변경과 공통 설정 변경·수동 검사는 APK를 빌드한다.
+- **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug APK를 생성·보관한다.
+  정식 출시 서명·스토어 배포는 제외하며 x86 에뮬레이터·32비트 기기는 대상이 아니다.
+- **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
+  Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
+  체크아웃 폴더를 삭제해도 캐시는 유지되며 검사 자체를 생략하지 않는다.
+- **설정·주의:** `frontend/android/`·`package.json`·`pnpm-lock.yaml`·babel·metro·`react-native.config.js`·`app.json`·Jest 설정·`assets/`·
+  알 수 없는 프론트엔드 경로가 함께 바뀌면 APK를 빌드한다. JS 번들은 네이티브 컴파일·Hermes 바이트코드 변환·APK 패키징을 검사하지 않으므로
+  해당 오류는 APK를 생성하는 MR·수동 검사·master 작업에서 확인한다.
+
+### 워치
+
+- **MR 검사:** 제품 `wear/app`의 단위 테스트·Lint·debug APK를 검사한다. 실험용 `wear/demo`·기기 연결 테스트는 별도다.
+- **배포:** `runway-watch-apk`는 `infra/jenkins/Jenkinsfile.watch-apk`로 master Push 후 제품 APK를 생성·보관한다.
+- **결과·보관:** JUnit·Lint·Gradle profile과 단계별 시간(`build-time-<단계>.txt`)을 보관한다.
+  SDK·작업·Gradle 캐시는 모바일과 분리한다.
+- **설정·주의:** 테스트·Lint·APK는 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료한다.
+  Kotlin도 같은 데몬 안에서 컴파일하며, 정리 단계가 실행되지 못하면 데몬은 10분 유휴 후 종료한다.
+  체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 받고 작업 폴더는 매번 비운다.
+
+워치 참조 저장소는 `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`이다.
+`update-git-reference.sh`가 체크아웃 직후 갱신해 새 Git 객체만 받으며, 참조 저장소 손상 시 지운 뒤 참조 없이 한 번 더 체크아웃한다.
+
+### AI
+
+- **MR 검사:** 모델 없는 API·배포 회귀 테스트와 이미지 빌드를 검사한다. 실제 모델 테스트의 생략 여부는 JUnit에 기록한다.
+- **배포:** `infra/jenkins/Jenkinsfile.ai-cd`는 master 전용이다. 모델 준비 → DB 읽기 권한 확인 → 사전 로드 → 교체·검사 순서로 실행하며,
+  실패하면 이전 이미지·모델·공개 설정으로 복구한다. `DEPLOY=false`, `PREPARE_MODELS=true`는 운영 교체 없이 모델만 준비한다.
+- **결과·보관:** JUnit 보고서·이미지 정보를 보관한다. 실제 모델 로드·예측은 MR CI와 구분해 검증한다.
+  `bash infra/ai/verify-isolated.sh <실행 이미지> <공개 모델 설정 파일> <PostGIS 이미지>`로 합성 코스 DB·기동 API·실패 롤백을 격리 검증한다.
+- **설정·주의:** `AI_MODELS_ROOT`·`AI_DB_URL_FILE`을 지정한다. 배포 스크립트는 `.env`를 자동으로 읽지 않고 Jenkins가 전달한 값과
+  검증된 모델 설정을 사용한다. HF 토큰은 다운로드 단계에만 주입하고, DB Secret은 시작 시 파일에서 읽으며 복구 기록에 저장하지 않는다.
+
+GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09 검증에는 `PERSONAL_PLAN_EXPERIMENTAL_ENABLED=true`와 유효한 코스가 필요하다.
 짧은 요청의 메모리 측정은 장거리·동시 부하 성능 보장과 구분한다.
 
-모바일·워치 debug APK는 같은 테스트 서명을 사용하며 서명 변경 시 두 앱을 모두 검사한다.
-Data Layer 실기기 검증에는 applicationId·서명 인증서가 모두 일치해야 한다. APK 생성 성공과 설치·연결 성공은 구분한다.
+### Route
 
-### 백엔드 배포 상태 검사
+- **MR 검사:** `ai/route_service/`·`infra/route/` 변경 시 `route-ci`를 실행한다. 운영 Dockerfile의 `test` target으로 Python·런타임 의존성을
+  공유해 데이터 없는 API·오류 처리·합성 회귀 테스트를 수행한다. HF 토큰·실제 데이터·운영 DB는 사용하지 않는다.
+- **배포:** `runway-route-cd`는 `infra/jenkins/Jenkinsfile.route`, SCM `*/master`를 사용한다. 웹훅은 master Push만 허용하며,
+  자동 배포는 체크아웃이 master인지도 검사한다. 수동 실행은 `DEPLOY` 선택을 따르고 최초에는 `DEPLOY=false`로 빌드·예열을 확인한다.
+- **결과·보관:** JUnit 보고서를 보관하고 데이터가 필요한 엔진 테스트는 생략으로 기록한다. CD는 준비 상태·샘플 코스 생성을 검사하며
+  실패 시 이전 이미지로 복구한다. 첫 배포 실패는 실패한 새 컨테이너만 정리한다.
+- **설정·주의:** 저장소 루트에서 `ROUTE_CI_TAG=<실행별 소문자 태그> sh infra/jenkins/check-route.sh`로 MR 검사를 재현한다.
+  임시 컨테이너·이미지는 실행별로 정리한다. 운영 준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다.
+  요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.
 
-최초 readiness 전환 때만 Jenkins 백엔드 노드/작업의 `BACKEND_LEGACY_HEALTH_IMAGE_ID`에 기존 컨테이너의 정확한
-`sha256:...` 이미지 ID를 지정할 수 있다. 이 이미지의 배포 전·복구 검사에만 기존 시작 로그·404 확인을 허용한다.
-새 배포는 항상 readiness를 검사하며, 첫 성공 후 이 설정을 제거한다. 미설정·ID 불일치 시 기존 검사로 우회하지 않는다.
-검사 이미지 `python:3.12-alpine`은 기존 서비스를 교체하기 전에 준비한다. 이미지 롤백은 DB 마이그레이션을 되돌리지 않는다.
+## 폰·워치 연결 검증
 
-### GitLab 연결·인증
-
-- Webhook 경로는 `/jenkins/project/<작업명>`이며 Job별 Secret token을 별도 등록한다.
-- Jenkins 계정·Credentials·Job 설정은 영속 볼륨에서 관리하며 이 저장소가 자동 생성하지 않는다.
+모바일·워치 debug APK는 같은 테스트 서명을 사용하며 서명 변경 시 통합 CI가 두 앱을 모두 검사한다.
+Data Layer 실기기 검증에는 applicationId·서명 인증서가 모두 일치해야 한다.
+APK 생성 성공과 실제 설치·연결 성공은 구분한다.
 
 ## Redis 연결
 
@@ -198,13 +247,3 @@ python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로
 
 참고: [PostgreSQL 17](https://www.postgresql.org/docs/17/backup-dump.html) · [ThinBackup](https://plugins.jenkins.io/thinBackup/) ·
 [Jenkins 백업 기준](https://www.jenkins.io/doc/book/system-administration/backing-up/) (2026-11-02 확인, GPG 2.4.4).
-
-## Route 코스 생성 서비스
-
-`ai/route_service`의 Dockerfile을 사용하며, 고정 HF revision의 `route_data_v2/`를 받아 DATA_MANIFEST.md의 크기·SHA를 검증한 후 named build context로 전달한다. 기존 `runway-hf-read-token` Credential은 다운로드 단계에만 주입하고, 데이터 묶음은 Git·Jenkins 산출물에 포함하지 않는다.
-
-`infra/jenkins/Jenkinsfile.route`를 AI 에이전트에서 실행한다. 운영 작업의 SCM은 `*/master`, 웹훅은 master Push만 허용한다. master Push는 자동 배포하며 수동 실행은 DEPLOY 선택을 따른다. 실제 배포는 체크아웃한 코드가 master인지도 검사한다. 첫 실행은 DEPLOY를 끄고 빌드·엔진 예열을 확인한다. EC2에는 먼저 `sudo install -d -o 10001 -g 10001 -m 750 /home/ubuntu/runway/data/route-bundles`를 실행한다. 빌드 검증 후 DEPLOY를 켜면 준비 상태와 샘플 코스 생성을 확인하며, 실패 시 이전 이미지로 복구한다. 최초 배포 실패 시에는 실패한 새 컨테이너를 정리한다.
-
-Route는 CPU 1개·메모리 1.5GiB·worker 1개, 읽기 전용 파일시스템과 제한된 /tmp를 사용한다. Numba 캐시는 기동 시 이미지의 예열 데이터를 쓰기 가능한 `/tmp/numba_cache`로 복사해 사용한다. 외부 포트 없이 `runway-route_default` 내부망에서만 접근한다. Route를 먼저 기동하고 백엔드 Compose의 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`과 내부 네트워크 연결을 반영한다.
-
-준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다. 요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.

@@ -6,11 +6,12 @@
 //   테스트 파일만 변경한 MR은 둘 다 생략. 네이티브·의존성·빌드 설정 변경은 APK 빌드.
 // - wear/ 변경 → 워치 에이전트에서 제품 :app 단위 테스트·Lint·APK 빌드 검사.
 // - AI 서비스·GRU 실행 소스·AI 인프라 변경 → AI 에이전트에서 API 테스트·이미지 빌드 검사.
+// - Route 서비스·Route 인프라 변경 → AI 에이전트에서 데이터 없는 Route API·오류 처리 검사.
 // - 모바일 debug 서명 파일 변경 → 같은 서명을 쓰는 모바일·워치 모두 검사.
 // - 여러 영역 변경 → 해당 에이전트에서 선택한 검사를 병렬 실행.
-// - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치·AI 모두 검사.
+// - infra/jenkins/ 또는 공통 Git 설정 변경 → 백엔드·모바일·워치·AI·Route 모두 검사.
 // - 위 검사 대상 외의 파일만 변경 → 대상 브랜치와 병합 가능한지만 확인.
-// - 수동 실행 → dev 코드로 백엔드·모바일·워치·AI 모두 검사.
+// - 수동 실행 → dev 코드로 백엔드·모바일·워치·AI·Route 모두 검사.
 //
 // 각 검사는 MR 코드와 대상 브랜치를 합친 코드로 수행한다.
 // 하나라도 실패하면 통합 CI도 실패하며, GitLab에는 통합 결과와 영역별 결과를 전달한다.
@@ -149,13 +150,14 @@ pipeline {
                             : "#${env.BUILD_NUMBER} · 수동 · dev"
                         // 긴 제목은 이력 대신 상세 설명에서 확인한다.
                         currentBuild.description = mrId ? "MR !${mrId}: ${mrTitle}" : '수동 실행 · dev'
-                        // 수동 실행은 네 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
+                        // 수동 실행은 다섯 영역을 모두 검사하고, MR 실행은 아래에서 변경 영역을 선택한다.
                         def checkBackend = true
                         def checkMobile = true
                         def checkMobileApk = true
                         def checkMobileBundle = false
                         def checkWatch = true
                         def checkAI = true
+                        def checkRoute = true
                         // 1. MR 코드와 대상 브랜치를 확인하고 합친 상태를 준비한다.
                         def prepared = false
                         try {
@@ -211,8 +213,12 @@ pipeline {
                                                 it.startsWith('ai/workspace/doyeon/gru/src/') ||
                                                 it.startsWith('infra/ai/')
                                             }
+                                            checkRoute = common || files.any {
+                                                it.startsWith('ai/route_service/') ||
+                                                it.startsWith('infra/route/')
+                                            }
                                         }
-                                        echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}, ai=${checkAI}"
+                                        echo "검사 선택: backend=${checkBackend}, mobile=${checkMobile}, watch=${checkWatch}, ai=${checkAI}, route=${checkRoute}"
                                         echo "모바일 APK 검사: ${checkMobileApk}, JS 번들 검사: ${checkMobileBundle}"
                                         echo "검사 버전: ${env.CI_SOURCE_SHA} + ${env.CI_TARGET_SHA}"
                                     }
@@ -233,6 +239,9 @@ pipeline {
                                 }
                                 if (!prepared || !checkAI) {
                                     updateGitlabCommitStatus(name: 'ai-ci', state: 'skipped')
+                                }
+                                if (!prepared || !checkRoute) {
+                                    updateGitlabCommitStatus(name: 'route-ci', state: 'skipped')
                                 }
                             }
                         }
@@ -407,9 +416,51 @@ pipeline {
                                 }
                             }
                         }
+                        if (checkRoute) {
+                            checks['Route'] = {
+                                ciStatus('route-ci') {
+                                    // HR AI와 같은 노드를 사용하며 executor 1이면 두 검사는 차례로 실행된다.
+                                    node('ai') {
+                                        stage('Route Checkout') {
+                                            checkoutCode(env.CI_SOURCE_SHA)
+                                            mergeTarget()
+                                        }
+                                        def tag = env.BUILD_TAG.toLowerCase().replaceAll(/[^a-z0-9_.-]/, '-').take(96)
+                                        withEnv(["ROUTE_CI_TAG=${tag}"]) {
+                                            try {
+                                                stage('Route Test Image') {
+                                                    sh 'sh infra/jenkins/check-route.sh --stage test-image'
+                                                }
+                                                stage('Route Tests') {
+                                                    echo '데이터 없는 API 검사입니다. 실제 엔진·데이터 검증은 Route CD에서 별도로 확인합니다.'
+                                                    try {
+                                                        sh 'sh infra/jenkins/check-route.sh --stage test'
+                                                    } finally {
+                                                        def results = junit(allowEmptyResults: false,
+                                                            testResults: 'artifacts/route/pytest.xml')
+                                                        if (results && results.failCount > 0) {
+                                                            error('Route 테스트 보고서에 실패가 있습니다.')
+                                                        }
+                                                    }
+                                                }
+                                            } finally {
+                                                try {
+                                                    stage('Route Reports') {
+                                                        archiveArtifacts allowEmptyArchive: true,
+                                                            artifacts: 'artifacts/route/pytest.xml'
+                                                    }
+                                                } finally {
+                                                    sh 'sh infra/jenkins/check-route.sh --stage clean'
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         // 4. 선택한 영역만 병렬 실행한다. 생략된 영역은 skipped를 유지한다.
                         if (checks.isEmpty()) {
-                            echo '백엔드·모바일·워치·AI 변경 없음: 임시 병합 확인 후 종료합니다.'
+                            echo '백엔드·모바일·워치·AI·Route 변경 없음: 임시 병합 확인 후 종료합니다.'
                         } else {
                             parallel checks
                             if (currentBuild.currentResult != 'SUCCESS') {
