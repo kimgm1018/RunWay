@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from app.inference import ApiError
+from app.grade_fill import prepare_with_grade_fallback
 from app.models.ode.validation import pv_data
 
 
@@ -37,7 +38,7 @@ def _records(body, runtime):
     history = importlib.import_module(package_name + ".history")
     summary = importlib.import_module(package_name + ".summary")
     model_user_key = str(body.user_id)
-    records, start_hrs = [], []
+    records, start_hrs, fill_info = [], [], []
     for session in body.sessions:
         samples = session.samples
         frame = pd.DataFrame([{
@@ -60,10 +61,10 @@ def _records(body, runtime):
         if len(intervals) and not np.allclose(intervals, 5.0):
             raise ApiError(400, "VALIDATION_ERROR", "support sample 간격은 5초여야 합니다.",
                            [{"name": "sessions.samples.elapsedSec", "reason": "5초 간격이 아닙니다"}])
-        summ = summary.run_summary(frame)
-        prepared = pv_data.prepare_session(frame)
+        frame, prepared, grade_fill = prepare_with_grade_fallback(frame)
         if isinstance(prepared, str):
             continue
+        summ = summary.run_summary(frame)
         n_cell = int(prepared["n_cell"])
         measured = cells.measured_hr(frame)[:6 * n_cell + 1]
         hr = frame.hr_bpm.to_numpy(np.float64)[:6 * n_cell + 1]
@@ -84,17 +85,20 @@ def _records(body, runtime):
                               hist_rows=hist_rows, summ=summ, prep=prep,
                               y10=cells.targets10(frame, n_cell))
         records.append(rec)
+        fill_info.append(grade_fill)
         if np.isfinite(prep["hr0"]):
             start_hrs.append(float(prep["hr0"]))
-    records.sort(key=lambda r: (r.start, r.session_id))
+    ordered = sorted(zip(records, fill_info), key=lambda item: (item[0].start, item[0].session_id))
+    records = [rec for rec, _info in ordered]
+    fill_info = [info for _rec, info in ordered]
     if not records:
         raise ApiError(422, "INPUT_INSUFFICIENT", "개인화에 쓸 수 있는 support 러닝이 없습니다.",
-                       [{"name": "sessions", "reason": "2분 이상이고 출발 HR·속도·경사 입력이 필요합니다"}])
-    return records, start_hrs, package
+                       [{"name": "sessions", "reason": "2분 이상이고 출발 HR·속도 입력이 필요합니다"}])
+    return records, start_hrs, package, fill_info
 
 
 def compute_personalization(body, runtime, *, now: datetime | None = None) -> dict:
-    records, start_hrs, package = _records(body, runtime)
+    records, start_hrs, package, fill_info = _records(body, runtime)
     model_user_key = str(body.user_id)
     user_seed = int(hashlib.sha256(model_user_key.encode()).hexdigest()[:8], 16)
     context_module = __import__(package.__name__ + ".context", fromlist=["SourceIndex", "build_context"])
@@ -118,6 +122,12 @@ def compute_personalization(body, runtime, *, now: datetime | None = None) -> di
     else:
         warnings.append("P4_INPUT_INSUFFICIENT")
 
+    grade_filled_run_count = sum(info.filled for info in fill_info)
+    grade_rows = sum(info.rows for info in fill_info)
+    grade_missing_ratio = round(sum(info.missing_rows for info in fill_info) / grade_rows, 4) if grade_rows else 0.0
+    if grade_filled_run_count:
+        warnings.append("GRADE_FILLED_0")
+
     support_hr = float(np.median(start_hrs)) if start_hrs else 85.0
     raw = dict(current.u_raw)
     # Serialize the model's exact ordered summary values as a named vector.
@@ -129,6 +139,8 @@ def compute_personalization(body, runtime, *, now: datetime | None = None) -> di
         "modelVersion": runtime.info.model_version,
         "createdAt": (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "supportRunCount": len(records),
+        "gradeFilledRunCount": grade_filled_run_count,
+        "gradeMissingRatio": grade_missing_ratio,
         "summaryU": summary_u,
         "hrRefBpm": _json_safe(raw.get("hr_ref")),
         "history8": history8,

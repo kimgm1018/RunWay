@@ -59,7 +59,7 @@ def test_example_request_reaches_ode_after_http_validation(case):
                                          ("low_quality", False), ("mixed_gps", True)])
 def test_example_survives_ode_session_preprocessing(case, usable):
     body = PersonalizeRequest.model_validate(_load(case, "ai06_request"))
-    records, start_hrs, _package = _records(body, runtime=None)
+    records, start_hrs, _package, _fill_info = _records(body, runtime=None)
     assert len(records) == 1 and start_hrs == [97.0]
     rec = records[0]
     assert rec.usable is usable
