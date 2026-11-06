@@ -10,8 +10,10 @@ import com.runway.backend.global.exception.ApiException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.mock.env.MockEnvironment;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -108,6 +110,116 @@ class RefreshTokenStoreIntegrationTest {
                 original.hash(),
                 original.createdAt(),
                 expires);
+    }
+
+    @Test
+    void withdrawalRevokesEveryIndexedFamilyAndKeepsOtherUsersAndDeadlines() {
+        try (var server = container()) {
+            server.start();
+            try (var context = context(server, "default")) {
+                var redis = context.getBean(StringRedisTemplate.class);
+                var store = new RefreshTokenStore(redis);
+                var factory = new RefreshTokenFactory();
+                var first = factory.create(1, Instant.now());
+                var second = factory.create(1, Instant.now());
+                var other = factory.create(2, Instant.now());
+                store.create(first);
+                store.create(second);
+                store.create(other);
+                var presented = RefreshTokenFactory.parse(first.value());
+                var rotated = factory.rotate(1, first.familyId(), first.createdAt(), first.expiresAt());
+                store.rotate(presented, rotated, Instant.now());
+                // A stale index member whose family has expired must not block withdrawal.
+                var expired = factory.create(1, Instant.now());
+                redis.opsForZSet().add(RefreshTokenStore.userKey(1), expired.familyId(), 1);
+
+                store.revokeAll(1);
+                store.revokeAll(1);
+                store.revokeAll(3); // No logins is also idempotent success.
+
+                assertRestored(redis, rotated, "REVOKED");
+                assertThat(redis.opsForHash().get(RefreshTokenStore.familyKey(first.familyId()),
+                        "currentTokenHash")).isEqualTo(rotated.hash());
+                assertRestored(redis, second, "REVOKED");
+                assertRestored(redis, other, "ACTIVE");
+                assertThatThrownBy(() -> store.find(presented)).isInstanceOf(ApiException.class);
+                assertThatThrownBy(() -> store.find(RefreshTokenFactory.parse(rotated.value())))
+                        .isInstanceOf(ApiException.class);
+                assertThatThrownBy(() -> store.find(RefreshTokenFactory.parse(second.value())))
+                        .isInstanceOf(ApiException.class);
+                assertThat(store.find(RefreshTokenFactory.parse(other.value())).userId()).isEqualTo(2);
+                assertThat(redis.opsForZSet().score(RefreshTokenStore.userKey(1), first.familyId()))
+                        .isEqualTo((double) first.expiresAt().getEpochSecond());
+            }
+        }
+    }
+
+    @Test
+    void malformedOrForeignFamilyStopsWithdrawalBeforeAnyRevocation() {
+        try (var server = container()) {
+            server.start();
+            try (var context = context(server, "default")) {
+                var redis = context.getBean(StringRedisTemplate.class);
+                var store = new RefreshTokenStore(redis);
+                var factory = new RefreshTokenFactory();
+                var own = factory.create(1, Instant.now());
+                var foreign = factory.create(2, Instant.now());
+                store.create(own);
+                store.create(foreign);
+                redis.opsForZSet().add(RefreshTokenStore.userKey(1), foreign.familyId(),
+                        foreign.expiresAt().getEpochSecond());
+                assertUnavailable(() -> store.revokeAll(1));
+                assertRestored(redis, own, "ACTIVE");
+                assertRestored(redis, foreign, "ACTIVE");
+                redis.opsForZSet().remove(RefreshTokenStore.userKey(1), foreign.familyId());
+                redis.opsForZSet().add(RefreshTokenStore.userKey(1), "malformed", 1);
+                assertUnavailable(() -> store.revokeAll(1));
+                assertRestored(redis, own, "ACTIVE");
+                redis.opsForZSet().remove(RefreshTokenStore.userKey(1), "malformed");
+                redis.opsForValue().set(RefreshTokenStore.familyKey(foreign.familyId()), "wrong-type");
+                redis.opsForZSet().add(RefreshTokenStore.userKey(1), foreign.familyId(), 1);
+                assertUnavailable(() -> store.revokeAll(1));
+                assertRestored(redis, own, "ACTIVE");
+            }
+        }
+    }
+
+    private void assertUnavailable(Runnable operation) {
+        assertThatThrownBy(operation::run)
+                .isInstanceOfSatisfying(ApiException.class,
+                        error -> assertThat(error.code()).isEqualTo("SERVICE_UNAVAILABLE"));
+    }
+
+    @Test
+    void changedOrExpiredCandidateIndexIsRecheckedBeforeRevocation() {
+        try (var server = container()) {
+            server.start();
+            try (var context = context(server, "default")) {
+                var redis = context.getBean(StringRedisTemplate.class);
+                var store = new RefreshTokenStore(redis);
+                var factory = new RefreshTokenFactory();
+                var token = factory.create(1, Instant.now());
+                store.create(token);
+                var candidateKeys = java.util.List.of(RefreshTokenStore.userKey(1),
+                        RefreshTokenStore.familyKey(token.familyId()));
+                var script = new DefaultRedisScript<Long>();
+                script.setLocation(new ClassPathResource("auth/revoke-user-families.lua"));
+                script.setResultType(Long.class);
+                var extra = factory.create(1, Instant.now());
+                redis.opsForZSet().add(RefreshTokenStore.userKey(1), extra.familyId(),
+                        extra.expiresAt().getEpochSecond());
+                assertThat(redis.execute(script, candidateKeys, "1")).isEqualTo(-1L);
+                assertRestored(redis, token, "ACTIVE");
+
+                // Model index expiry/loss after candidate read, with a live grant remaining.
+                redis.delete(RefreshTokenStore.userKey(1));
+                assertThat(redis.execute(script, candidateKeys, "1")).isEqualTo(-1L);
+                assertRestored(redis, token, "ACTIVE");
+                // If both the index and all candidate families expired, retry is harmless.
+                redis.delete(RefreshTokenStore.familyKey(token.familyId()));
+                assertThat(redis.execute(script, candidateKeys, "1")).isEqualTo(1L);
+            }
+        }
     }
 
     private void assertRestored(StringRedisTemplate redis, IssuedRefreshToken token, String state) {
@@ -259,6 +371,7 @@ class RefreshTokenStoreIntegrationTest {
                                                 RefreshTokenStore.familyKey(token.familyId()),
                                                 "state"))
                         .isEqualTo("ACTIVE");
+                store.revokeAll(1);
                 assertThat(store.revokeUndelivered(token)).isTrue();
                 assertThatThrownBy(() -> redis.opsForValue().set("outside:auth:scope", "synthetic"))
                         .isInstanceOf(RuntimeException.class);

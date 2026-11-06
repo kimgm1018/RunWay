@@ -15,6 +15,8 @@ import com.runway.backend.support.SharedPostgres;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -123,6 +125,20 @@ class ImageApiIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ImageStorage imageStorage;
+    @Autowired private JdbcTemplate jdbc;
+
+    @BeforeEach
+    void activeImageOwners() {
+        for (long id : new long[] {1, 7, 42}) {
+            jdbc.update("""
+                    INSERT INTO users(id,login_id,password,nickname,birth_date,gender,
+                        phone_number,health_data_access)
+                    OVERRIDING SYSTEM VALUE
+                    VALUES (?,?,'synthetic','이미지' || ?,'2000-01-01','MALE','00000000000','DISAGREE')
+                    ON CONFLICT (id) DO NOTHING
+                    """, id, "imageuser" + id, id);
+        }
+    }
 
     @Test
     void png업로드_201_imageId와_볼륨저장_url은_F02경로() throws Exception {

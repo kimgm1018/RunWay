@@ -131,6 +131,10 @@ public class PostService {
     @Transactional(readOnly = true)
     public PostDetailResponse getDetail(long userId, long postId) {
         requireExistingUser(userId);
+        Post candidate=postRepository.findById(postId).orElseThrow(PostService::postNotFound);
+        if (candidate.isDeleted() && "탈퇴한 회원의 게시물입니다.".equals(candidate.getBody())
+                && communityUserQueryRepository.withdrawn(candidate.getAuthorId()))
+            throw new ApiException(ErrorCode.WITHDRAWN_POST);
         Post post = requireReadablePost(userId, postId);
 
         String nickname =

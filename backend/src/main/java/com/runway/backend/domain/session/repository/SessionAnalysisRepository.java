@@ -13,7 +13,7 @@ import org.springframework.stereotype.Repository;
  * 종료 후 분석(S15P31E105-312)이 읽는 W07 원본 샘플과 쓰는 1km 구간 저장소.
  *
  * <p>구간 테이블에는 Entity가 없고 기존 기록 조회도 JDBC를 쓰므로 같은 방식으로 다룬다. 호출자의 트랜잭션 커넥션을 그대로 사용하므로 세션 통계 저장과
- * 한 트랜잭션이다.
+ * 한 트랜잭션이다. 캐시 권한 확인 cacheOwnerActive만 기존 조회 스냅샷과 분리된 새 트랜잭션을 사용한다.
  */
 @Repository
 public class SessionAnalysisRepository {
@@ -22,6 +22,20 @@ public class SessionAnalysisRepository {
 
     public SessionAnalysisRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /** Cache admission must not reuse the caller's older S02/S10 REPEATABLE READ snapshot. */
+    @org.springframework.transaction.annotation.Transactional(
+            readOnly = true,
+            propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW,
+            isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED,
+            timeout = 2)
+    public boolean cacheOwnerActive(long userId, long sessionId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM running_sessions s JOIN users u ON u.id=s.user_id
+                    WHERE s.id=? AND s.user_id=? AND s.deleted_at IS NULL
+                    AND u.account_status='ACTIVE' AND u.withdrawn_at IS NULL)
+                """, Boolean.class, sessionId, userId));
     }
 
     /** 세션의 측정 샘플을 측정시각 순으로 읽는다. 같은 시각이면 경과시간·ID 순이다. */

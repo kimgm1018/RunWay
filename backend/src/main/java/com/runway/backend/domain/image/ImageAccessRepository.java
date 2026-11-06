@@ -4,11 +4,28 @@ import lombok.RequiredArgsConstructor;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 @RequiredArgsConstructor
 public class ImageAccessRepository {
     private final JdbcTemplate jdbc;
+
+    public boolean activeUserExists(long userId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM users WHERE id=?
+                    AND account_status='ACTIVE' AND withdrawn_at IS NULL)
+                """, Boolean.class, userId));
+    }
+
+    @Transactional
+    public boolean lockActiveUser(long userId) {
+        jdbc.execute("SET LOCAL lock_timeout = '2s'");
+        return !jdbc.query("""
+                SELECT id FROM users WHERE id=? AND account_status='ACTIVE'
+                    AND withdrawn_at IS NULL FOR UPDATE
+                """, (rs, row) -> rs.getLong(1), userId).isEmpty();
+    }
 
     // Evaluate the resource reference and its current access policy in one DB snapshot.
     public List<String> findReadableKeys(Long viewerId, String fileName) {

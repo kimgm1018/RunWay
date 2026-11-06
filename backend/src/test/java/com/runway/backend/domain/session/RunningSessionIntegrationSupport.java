@@ -69,7 +69,7 @@ abstract class RunningSessionIntegrationSupport {
         jdbc.update("DELETE FROM group_run_participants");
         jdbc.update("DELETE FROM group_runs");
         jdbc.update("DELETE FROM crews");
-        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
+        // One DELETE removes both ends of the self-FK; do not mutate retired owners during cleanup.
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM courses");
         jdbc.update("DELETE FROM user_devices");

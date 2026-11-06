@@ -17,6 +17,12 @@ public class CommunityUserQueryRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    public boolean withdrawn(long userId) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                "SELECT EXISTS(SELECT 1 FROM users WHERE id=? AND account_status='WITHDRAWN')",
+                Boolean.class,userId));
+    }
+
     public boolean existsById(long userId) {
         Integer count =
                 jdbcTemplate.queryForObject(

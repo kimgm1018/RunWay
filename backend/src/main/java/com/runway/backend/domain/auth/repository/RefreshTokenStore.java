@@ -12,6 +12,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Repository
@@ -21,6 +22,7 @@ public class RefreshTokenStore {
     private final DefaultRedisScript<Long> revoke = script("revoke-undelivered-family.lua");
     private final DefaultRedisScript<Long> rotate = script("rotate-refresh-token.lua");
     private final DefaultRedisScript<Long> logout = script("logout-family.lua");
+    private final DefaultRedisScript<Long> revokeAll = script("revoke-user-families.lua");
 
     public RefreshTokenStore(@Qualifier("authenticationRedisTemplate") StringRedisTemplate redis) {
         this.redis = redis;
@@ -112,6 +114,31 @@ public class RefreshTokenStore {
     }
 
     public record Family(long userId, Instant createdAt, Instant expiresAt) {}
+
+    /**
+     * Revoke the user's indexed login families, retaining their original absolute deadlines.
+     * The caller must hold the PostgreSQL user lock used by login and refresh until commit.
+     * A timeout may have revoked some or all grants; never retry automatically or restore them.
+     */
+    public void revokeAll(long userId) {
+        if (userId <= 0) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        try {
+            var families = redis.opsForZSet().range(userKey(userId), 0, -1);
+            if (families == null) throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+            var keys = new ArrayList<String>(families.size() + 1);
+            keys.add(userKey(userId));
+            for (String family : families) {
+                if (!family.matches("[A-Za-z0-9_-]{22}"))
+                    throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+                keys.add(familyKey(family));
+            }
+            Long result = redis.execute(revokeAll, keys, Long.toString(userId));
+            if (!Long.valueOf(1).equals(result))
+                throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        } catch (RuntimeException exception) {
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
+    }
 
     // 로그인할 때 토큰 정보를 레디스에 저장
     private void create(IssuedRefreshToken token, List<String> keys) {
