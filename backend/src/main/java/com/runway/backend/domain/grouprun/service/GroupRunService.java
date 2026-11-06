@@ -15,12 +15,12 @@ import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.response.CancelGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.CreateGroupRunResponse;
-import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
 import com.runway.backend.domain.grouprun.dto.response.ForceFinishGroupRunResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunListResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunLiveResponse;
-import com.runway.backend.domain.grouprun.dto.response.GroupRunResultsResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunParticipantsResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunResultsResponse;
 import com.runway.backend.domain.grouprun.dto.response.JoinGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.PatchGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.ReadyGroupRunResponse;
@@ -31,9 +31,9 @@ import com.runway.backend.domain.grouprun.entity.ReadyStatus;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
 import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
-import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
+import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
 import com.runway.backend.domain.grouprun.live.ParticipantLive;
 import com.runway.backend.domain.grouprun.live.ParticipantSample;
@@ -50,6 +50,7 @@ import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.GroupResultRow;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.domain.session.service.RunningSessionService;
+import com.runway.backend.domain.session.service.SessionPlanPreparation;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonPoint;
@@ -58,7 +59,10 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -95,6 +99,8 @@ public class GroupRunService {
     private final RunningSessionControlService runningSessionControlService;
     private final NotificationService notificationService;
     private final JsonMapper jsonMapper;
+    private final SessionPlanPreparation planPreparation;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public CreateGroupRunResponse create(long userId, CreateGroupRunRequest request) {
@@ -212,7 +218,10 @@ public class GroupRunService {
 
         List<Integer> participantPaces =
                 participants.stream()
-                        .map(p -> GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(p.userId())))
+                        .map(
+                                p ->
+                                        GroupRunFitCalculator.recentPaceSecPerKm(
+                                                recentPaces.get(p.userId())))
                         .filter(Objects::nonNull)
                         .toList();
         GroupRunDetailResponse.ComfortRange comfortRange =
@@ -224,8 +233,10 @@ public class GroupRunService {
             myFit =
                     new GroupRunDetailResponse.MyFit(
                             myPace,
-                            toScore(fitJdbcRepository.findLatestReadinessScores(List.of(userId))
-                                    .get(userId)));
+                            toScore(
+                                    fitJdbcRepository
+                                            .findLatestReadinessScores(List.of(userId))
+                                            .get(userId)));
         }
         return toDetail(row, participantCount, comfortRange, myFit);
     }
@@ -408,12 +419,34 @@ public class GroupRunService {
     }
 
     /**
-     * G16. ready=true면 그룹 목표로 READY 세션을 만들어 참가 관계에 연결하고, ready=false면 연결을 끊은 뒤 미시작 세션을 취소한다.
-     * 대기방 ready 표시와 세션 확보는 같이 두고, G09 START 승인 근거는 연결 세션 상태로 본다.
+     * G16. ready=true면 그룹 목표로 READY 세션을 만들어 참가 관계에 연결하고, ready=false면 연결을 끊은 뒤 미시작 세션을 취소한다. 대기방
+     * ready 표시와 세션 확보는 같이 두고, G09 START 승인 근거는 연결 세션 상태로 본다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReadyGroupRunResponse setReady(
             long userId, long groupRunId, ReadyGroupRunRequest request) {
+        var row = requireGroupRun(groupRunId);
+        requireApprovedActiveCrewMember(row.crewId(), userId);
+        var participant =
+                participantJdbcRepository
+                        .find(groupRunId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.NOT_PARTICIPANT));
+        boolean ready = request == null || request.resolvedReady();
+        var prepared =
+                ready && participant.sessionId() == null
+                        ? planPreparation.prepare(userId, goalFromGroup(row))
+                        : null;
+        var tx = new TransactionTemplate(transactionManager);
+        tx.setIsolationLevel(
+                org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return tx.execute(status -> setReadyStored(userId, groupRunId, request, prepared));
+    }
+
+    private ReadyGroupRunResponse setReadyStored(
+            long userId,
+            long groupRunId,
+            ReadyGroupRunRequest request,
+            SessionPlanPreparation.Prepared prepared) {
         sessionReferenceRepository
                 .lockGroupRun(groupRunId)
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
@@ -431,7 +464,7 @@ public class GroupRunService {
             if (sessionId == null) {
                 sessionId =
                         runningSessionService.createReadyForGroupParticipant(
-                                userId, goalFromGroup(row));
+                                userId, goalFromGroup(row), prepared);
             }
             participantJdbcRepository.updateSessionAndReady(groupRunId, userId, sessionId, true);
         } else {
@@ -508,8 +541,8 @@ public class GroupRunService {
     }
 
     /**
-     * G09. 호스트만 본문 없이 호출한다. 이미 승인한 시작이 있으면 최초 START 명령을 그대로 돌려주고, 새 승인은 SCHEDULED 그룹의 연결된 READY 세션 전체를 한
-     * 트랜잭션으로 승인한 뒤 그룹을 RUNNING으로 바꾼다. 하나라도 실패하면 전체 롤백한다. 새 개인 세션을 자동 생성하지 않는다.
+     * G09. 호스트만 본문 없이 호출한다. 이미 승인한 시작이 있으면 최초 START 명령을 그대로 돌려주고, 새 승인은 SCHEDULED 그룹의 연결된 READY 세션
+     * 전체를 한 트랜잭션으로 승인한 뒤 그룹을 RUNNING으로 바꾼다. 하나라도 실패하면 전체 롤백한다. 새 개인 세션을 자동 생성하지 않는다.
      */
     @Transactional
     public StartGroupRunResponse start(long userId, long groupRunId) {
@@ -555,9 +588,9 @@ public class GroupRunService {
     }
 
     /**
-     * G12. 호스트만 호출한다. 그룹 행을 잠근 뒤 RUNNING 그룹을 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 이미 종료 시각이 있는 그룹은 같은 시각을
-     * 200으로 재응답하며 세션을 다시 건드리지 않는다. 연결 세션은 세션 ID 오름차순으로 처리한다: 미확정 START는 중단하고, 시작된 세션에는 현재 제어기기의 END를
-     * 승인한다(다른 미확정 제어가 있으면 보류하되 그룹 종료는 막지 않는다).
+     * G12. 호스트만 호출한다. 그룹 행을 잠근 뒤 RUNNING 그룹을 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 이미 종료 시각이 있는 그룹은 같은
+     * 시각을 200으로 재응답하며 세션을 다시 건드리지 않는다. 연결 세션은 세션 ID 오름차순으로 처리한다: 미확정 START는 중단하고, 시작된 세션에는 현재 제어기기의
+     * END를 승인한다(다른 미확정 제어가 있으면 보류하되 그룹 종료는 막지 않는다).
      */
     @Transactional
     public ForceFinishGroupRunResponse forceFinish(long userId, long groupRunId) {
@@ -594,8 +627,8 @@ public class GroupRunService {
     }
 
     /**
-     * G14. 참가자만 읽는다. 종료·분석을 실행하지 않고 현재 저장된 값만 돌려준다. 시작이 확인되지 않은 참가자의 측정값은 null이다. 그룹 분석 상태는 저장하지 않고 참가자
-     * 상태에서 파생한다.
+     * G14. 참가자만 읽는다. 종료·분석을 실행하지 않고 현재 저장된 값만 돌려준다. 시작이 확인되지 않은 참가자의 측정값은 null이다. 그룹 분석 상태는 저장하지 않고
+     * 참가자 상태에서 파생한다.
      */
     @Transactional(readOnly = true)
     public GroupRunResultsResponse getResults(long userId, long groupRunId) {
@@ -715,10 +748,7 @@ public class GroupRunService {
                 participants);
     }
 
-    /**
-     * 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자
-     * 프로필 평균 페이스 중앙값.
-     */
+    /** 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자 프로필 평균 페이스 중앙값. */
     private Integer resolveGroupGuidePace(GroupRunRow row) {
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
             Integer running =
@@ -834,8 +864,7 @@ public class GroupRunService {
     }
 
     private static SessionGoal goalFromGroup(GroupRunRow row) {
-        return new SessionGoal(
-                row.courseId(), null, row.goalDistance(), row.goalDuration(), null);
+        return new SessionGoal(row.courseId(), null, row.goalDistance(), row.goalDuration(), null);
     }
 
     private void requireApprovedActiveCrewMember(long crewId, long userId) {

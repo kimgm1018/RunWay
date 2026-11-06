@@ -20,8 +20,8 @@ import java.util.Optional;
  * 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누고 마지막 구간은 남은 거리만큼 짧게 둔다(5000.01m이면 마지막 구간이 0.01m여도
  * 합치지 않는다. AI 비율 개수도 같은 올림 구간 수를 따른다). 끝 거리가 없거나 0이면 구간 없이 페이스만 저장한다.
  *
- * <p>구간 페이스는 {@link SegmentDifficultyProvider}의 난이도 비율로 나눈다. 비율이 없으면(자유러닝, 코스 비율 미저장, 목표 거리가 코스보다 김) 모든 구간이
- * 추천 페이스와 같다.
+ * <p>구간 페이스는 {@link SegmentDifficultyProvider}의 난이도 비율로 나눈다. 비율이 없으면(자유러닝, 코스 비율 미저장, 목표 거리가 코스보다
+ * 김) 모든 구간이 추천 페이스와 같다.
  */
 @Slf4j
 final class InitialPacePlanCalculator {
@@ -53,18 +53,20 @@ final class InitialPacePlanCalculator {
         if (pace == null) {
             return Optional.empty();
         }
-        if (pace.signum() <= 0 || pace.compareTo(MAX_PACE) > 0) {
+        if (pace.setScale(2, RoundingMode.HALF_UP).signum() <= 0 || pace.compareTo(MAX_PACE) > 0) {
             throw new ApiException(ErrorCode.INVALID_GOAL);
         }
         BigDecimal endDistance =
                 goal.distanceM() != null ? BigDecimal.valueOf(goal.distanceM()) : courseDistanceM;
         if (endDistance == null || endDistance.signum() <= 0) {
-            return Optional.of(new PlanDraft(pace, List.of()));
+            return Optional.of(new PlanDraft(pace.setScale(2, RoundingMode.HALF_UP), List.of()));
         }
         // 저장 컬럼 NUMERIC(12,2)에 맞춘다. 현재 입력(정수 목표 거리·NUMERIC(12,2) 코스 거리)은 값이 바뀌지 않는다.
         endDistance = endDistance.setScale(2, RoundingMode.HALF_UP);
         return Optional.of(
-                new PlanDraft(pace, segments(goal.courseId(), pace, endDistance, difficulty)));
+                new PlanDraft(
+                        pace.setScale(2, RoundingMode.HALF_UP),
+                        segments(goal.courseId(), pace, endDistance, difficulty)));
     }
 
     private static List<SegmentDraft> segments(
@@ -122,7 +124,8 @@ final class InitialPacePlanCalculator {
         List<BigDecimal> paces = new ArrayList<>(ranges.size());
         for (BigDecimal ratio : ratios) {
             BigDecimal segmentPace =
-                    pace.multiply(ratio)
+                    pace.round(new MathContext(16, RoundingMode.HALF_UP))
+                            .multiply(ratio)
                             .divide(meanRatio, MathContext.DECIMAL64)
                             .setScale(2, RoundingMode.HALF_UP);
             if (segmentPace.signum() <= 0 || segmentPace.compareTo(MAX_PACE) > 0) {
@@ -134,7 +137,7 @@ final class InitialPacePlanCalculator {
         return paces;
     }
 
-    private static BigDecimal recommendedPace(SessionGoal goal, BigDecimal courseDistanceM) {
+    static BigDecimal recommendedPace(SessionGoal goal, BigDecimal courseDistanceM) {
         if (goal.paceSecPerKm() != null) {
             return goal.paceSecPerKm().setScale(2, RoundingMode.HALF_UP);
         }
@@ -148,7 +151,7 @@ final class InitialPacePlanCalculator {
         }
         return BigDecimal.valueOf(goal.durationSec())
                 .multiply(METERS_PER_KM)
-                .divide(distance, 2, RoundingMode.HALF_UP);
+                .divide(distance, MathContext.DECIMAL64);
     }
 
     /**
@@ -161,6 +164,7 @@ final class InitialPacePlanCalculator {
             BigDecimal startDistanceM, BigDecimal endDistanceM, BigDecimal paceSecPerKm) {
 
         SegmentDraft {
+            paceSecPerKm = paceSecPerKm.setScale(2, RoundingMode.HALF_UP);
             startDistanceM = startDistanceM.setScale(2, RoundingMode.UNNECESSARY);
             endDistanceM = endDistanceM.setScale(2, RoundingMode.UNNECESSARY);
         }

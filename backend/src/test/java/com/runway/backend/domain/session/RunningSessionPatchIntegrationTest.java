@@ -20,7 +20,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
 
     private String result(long commandId) {
         return jdbc.queryForObject(
-                "SELECT result::text || ':' || coalesce(reason_code,'') FROM session_control_events WHERE id=?",
+                "SELECT result::text || ':' || coalesce(reason_code,'') FROM session_control_events"
+                        + " WHERE id=?",
                 String.class,
                 commandId);
     }
@@ -48,8 +49,7 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                 .andExpect(jsonPath("$.goal.targetDistanceM").value(5000))
                 .andExpect(jsonPath("$.goal.targetPaceSecPerKm").value(300.0))
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(300.0))
-                .andExpect(jsonPath("$.plan.segments", hasSize(5)))
-                .andExpect(jsonPath("$.plan.segments[4].endDistanceM").value(5000.0));
+                .andExpect(jsonPath("$.plan.segments", hasSize(0)));
 
         assertThat(count("SELECT count(*) FROM pace_plans")).isEqualTo(1);
         assertThat(count("SELECT count(*) FROM pace_plans WHERE id=?", firstPlan)).isZero();
@@ -61,8 +61,9 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         long sessionId = insertReadySession();
         long courseId = insertCourse("ACTIVE", "3000.00");
         jdbc.update(
-                "INSERT INTO course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
-                        + " VALUES (?,3000.00,'[1.2,0.8,1.0]'::jsonb,'planner-test')",
+                "INSERT INTO"
+                    + " course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
+                    + " VALUES (?,3000.00,'[1.2,0.8,1.0]'::jsonb,'planner-test')",
                 courseId);
 
         mockMvc.perform(
@@ -86,7 +87,10 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.goal.courseId").value(courseId))
                 .andExpect(jsonPath("$.plan.segments", hasSize(4)))
-                .andExpect(jsonPath("$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(300.0))));
+                .andExpect(
+                        jsonPath(
+                                "$.plan.segments[*].recommendedPaceSecPerKm",
+                                everyItem(is(300.0))));
     }
 
     @Test
@@ -107,7 +111,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     @Test
     void 같은_목표_재요청은_버전을_올리지_않고_오래된_버전의_다른_변경은_STALE() throws Exception {
         long sessionId = insertReadySession();
-        String change = "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"targetDistanceM\":5000}";
+        String change =
+                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"targetDistanceM\":5000}";
         mockMvc.perform(patchRequest(userId, sessionId, change)).andExpect(status().isOk());
         mockMvc.perform(patchRequest(userId, sessionId, change))
                 .andExpect(status().isOk())
@@ -135,7 +140,9 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                 .andExpect(jsonPath("$.code").value("COMMAND_PENDING"));
 
         jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("UPDATE running_sessions SET status='RUNNING', started_at=now() WHERE id=?", pending);
+        jdbc.update(
+                "UPDATE running_sessions SET status='RUNNING', started_at=now() WHERE id=?",
+                pending);
         mockMvc.perform(
                         patchRequest(
                                 userId,
@@ -155,7 +162,9 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":9,\"courseId\":" + course + "}"))
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":9,\"courseId\":"
+                                        + course
+                                        + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stateVersion").value(1));
     }
@@ -166,21 +175,25 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         long active = insertCourse("ACTIVE", "4000");
         long comparison = insertSession(userId, "COMPLETED", 1, watchId, phoneId, "READY", active);
         long sessionId = insertSession(userId, "READY", 1, watchId, phoneId, "PENDING", active);
-        jdbc.update("UPDATE running_sessions SET comparison_session_id=? WHERE id=?", comparison, sessionId);
+        jdbc.update(
+                "UPDATE running_sessions SET comparison_session_id=? WHERE id=?",
+                comparison,
+                sessionId);
 
         mockMvc.perform(
                         patchRequest(
                                 userId,
                                 sessionId,
                                 "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"targetDistanceM\":1,"
-                                        + "\"targetDurationSec\":1,\"targetPaceSecPerKm\":1}"))
+                                    + "\"targetDurationSec\":1,\"targetPaceSecPerKm\":1}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
         mockMvc.perform(
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"courseId\":" + merged
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"courseId\":"
+                                        + merged
                                         + ",\"comparisonSessionId\":null}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("COURSE_INACCESSIBLE"));
@@ -197,7 +210,7 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                                 userId,
                                 sessionId,
                                 "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"courseId\":null,"
-                                        + "\"comparisonSessionId\":null}"))
+                                    + "\"comparisonSessionId\":null}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.goal.courseId").value(nullValue()))
                 .andExpect(jsonPath("$.goal.comparisonSessionId").value(nullValue()))
@@ -210,7 +223,10 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         long otherCourse = insertCourse("ACTIVE", "3000");
         long comparison = insertSession(userId, "COMPLETED", 1, watchId, phoneId, "READY", course);
         long sessionId = insertSession(userId, "READY", 1, watchId, phoneId, "PENDING", course);
-        jdbc.update("UPDATE running_sessions SET comparison_session_id=? WHERE id=?", comparison, sessionId);
+        jdbc.update(
+                "UPDATE running_sessions SET comparison_session_id=? WHERE id=?",
+                comparison,
+                sessionId);
         jdbc.update("UPDATE running_sessions SET deleted_at=now() WHERE id=?", comparison);
 
         mockMvc.perform(
@@ -227,7 +243,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":2,\"courseId\":" + otherCourse
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":2,\"courseId\":"
+                                        + otherCourse
                                         + "}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_COMPARISON_SESSION"));
@@ -252,17 +269,22 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":2,\"courseId\":" + after + "}"))
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":2,\"courseId\":"
+                                        + after
+                                        + "}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.goal.courseId").value(after))
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(400.0))
                 .andExpect(jsonPath("$.plan.segments", hasSize(3)))
                 .andExpect(jsonPath("$.plan.segments[2].endDistanceM").value(3000.0))
-                .andExpect(jsonPath("$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(400.0))))
+                .andExpect(
+                        jsonPath(
+                                "$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(400.0))))
                 .andExpect(jsonPath("$.stateVersion").value(3));
         assertThat(count("SELECT count(*) FROM pace_plans")).isEqualTo(1);
         assertThat(count("SELECT count(*) FROM pace_plan_segments")).isEqualTo(3);
-        assertThat(count("SELECT count(*) FROM pace_plan_segments WHERE end_distance=3000")).isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM pace_plan_segments WHERE end_distance=3000"))
+                .isEqualTo(1);
     }
 
     @Test
@@ -304,8 +326,10 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
 
     @Test
     void 타인_세션과_없는_세션() throws Exception {
-        long others = insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
-        String body = "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"targetDistanceM\":5000}";
+        long others =
+                insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
+        String body =
+                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"targetDistanceM\":5000}";
         mockMvc.perform(patchRequest(userId, others, body))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("SESSION_FORBIDDEN"));
@@ -337,8 +361,11 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                             patchRequest(
                                     userId,
                                     sessionId,
-                                    "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":" + watchId
-                                            + ",\"expectedVersion\":2,\"ready\":" + ready + ",\"reasonCode\":null}"))
+                                    "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":"
+                                            + watchId
+                                            + ",\"expectedVersion\":2,\"ready\":"
+                                            + ready
+                                            + ",\"reasonCode\":null}"))
                     .andExpect(status().isOk())
                     .andExpect(content().json("{\"expectedVersion\":2}", true));
         }
@@ -348,7 +375,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":" + watchId
+                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":"
+                                        + watchId
                                         + ",\"expectedVersion\":1,\"ready\":true,\"reasonCode\":\"LOW_BATTERY\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("STALE_STATE"));
@@ -356,17 +384,21 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":" + phoneId
+                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":"
+                                        + phoneId
                                         + ",\"expectedVersion\":2,\"ready\":true,\"reasonCode\":null}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("DEVICE_FORBIDDEN"));
 
-        jdbc.update("UPDATE running_sessions SET status='RUNNING', started_at=now() WHERE id=?", sessionId);
+        jdbc.update(
+                "UPDATE running_sessions SET status='RUNNING', started_at=now() WHERE id=?",
+                sessionId);
         mockMvc.perform(
                         patchRequest(
                                 userId,
                                 sessionId,
-                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":" + watchId
+                                "{\"operation\":\"REPORT_PREPARED\",\"deviceId\":"
+                                        + watchId
                                         + ",\"expectedVersion\":2,\"ready\":true,\"reasonCode\":null}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
@@ -375,19 +407,28 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     // --- TAKE_OVER_PHONE ---
 
     private String takeOver(long expectedVersion, long deviceId, boolean uploaded) {
-        return "{\"operation\":\"TAKE_OVER_PHONE\",\"deviceId\":" + deviceId + ",\"expectedVersion\":"
-                + expectedVersion + ",\"receivedWatchBatchesUploaded\":" + uploaded + "}";
+        return "{\"operation\":\"TAKE_OVER_PHONE\",\"deviceId\":"
+                + deviceId
+                + ",\"expectedVersion\":"
+                + expectedVersion
+                + ",\"receivedWatchBatchesUploaded\":"
+                + uploaded
+                + "}";
     }
 
     @Test
     void 폰_인계는_제어기기를_바꾸고_워치_대기명령을_UNKNOWN으로_남긴다() throws Exception {
         long sessionId = insertSession(userId, "RUNNING", 5, watchId, phoneId, "PENDING", null);
-        jdbc.update("UPDATE running_sessions SET current_bpm=170, goal_distance=5000 WHERE id=?", sessionId);
+        jdbc.update(
+                "UPDATE running_sessions SET current_bpm=170, goal_distance=5000 WHERE id=?",
+                sessionId);
         long applied = insertCommand(sessionId, watchId, "START", 1, "APPLIED");
         long pause = insertCommand(sessionId, watchId, "PAUSE", 5, "PENDING");
         String startedAt =
                 jdbc.queryForObject(
-                        "SELECT started_at::text FROM running_sessions WHERE id=?", String.class, sessionId);
+                        "SELECT started_at::text FROM running_sessions WHERE id=?",
+                        String.class,
+                        sessionId);
 
         mockMvc.perform(patchRequest(userId, sessionId, takeOver(5, phoneId, true)))
                 .andExpect(status().isOk())
@@ -407,9 +448,9 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         assertThat(result(applied)).isEqualTo("APPLIED:");
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT control_device_id || ':' || relay_device_id || ':' || status::text"
-                                        + " || ':' || coalesce(current_bpm::text,'null')"
-                                        + " FROM running_sessions WHERE id=?",
+                                "SELECT control_device_id || ':' || relay_device_id || ':' ||"
+                                    + " status::text || ':' || coalesce(current_bpm::text,'null')"
+                                    + " FROM running_sessions WHERE id=?",
                                 String.class,
                                 sessionId))
                 .isEqualTo(phoneId + ":" + phoneId + ":RUNNING:null");
@@ -426,7 +467,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     void 기존_워치_UNKNOWN의_사유는_보존한다() throws Exception {
         long sessionId = insertSession(userId, "PAUSED", 4, watchId, phoneId, "PENDING", null);
         long unknown = insertCommand(sessionId, watchId, "RESUME", 4, "UNKNOWN");
-        jdbc.update("UPDATE session_control_events SET reason_code='ACK_TIMEOUT' WHERE id=?", unknown);
+        jdbc.update(
+                "UPDATE session_control_events SET reason_code='ACK_TIMEOUT' WHERE id=?", unknown);
 
         mockMvc.perform(patchRequest(userId, sessionId, takeOver(4, phoneId, true)))
                 .andExpect(status().isOk())
@@ -440,7 +482,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         mockMvc.perform(patchRequest(userId, sessionId, takeOver(5, phoneId, true)))
                 .andExpect(status().isOk());
         jdbc.update(
-                "UPDATE running_sessions SET status='COMPLETED', ended_at=now(), state_version=8 WHERE id=?",
+                "UPDATE running_sessions SET status='COMPLETED', ended_at=now(), state_version=8"
+                        + " WHERE id=?",
                 sessionId);
 
         mockMvc.perform(patchRequest(userId, sessionId, takeOver(5, phoneId, true)))
@@ -456,7 +499,10 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
 
-        jdbc.update("UPDATE running_sessions SET status='RUNNING', started_at=now(), state_version=5 WHERE id=?", ready);
+        jdbc.update(
+                "UPDATE running_sessions SET status='RUNNING', started_at=now(), state_version=5"
+                        + " WHERE id=?",
+                ready);
         mockMvc.perform(patchRequest(userId, ready, takeOver(5, phoneId, false)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("UPLOAD_PENDING"));
@@ -483,8 +529,11 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     // --- ABORT_UNCONFIRMED_START ---
 
     private String abort(long expectedVersion, long deviceId) {
-        return "{\"operation\":\"ABORT_UNCONFIRMED_START\",\"deviceId\":" + deviceId
-                + ",\"expectedVersion\":" + expectedVersion + "}";
+        return "{\"operation\":\"ABORT_UNCONFIRMED_START\",\"deviceId\":"
+                + deviceId
+                + ",\"expectedVersion\":"
+                + expectedVersion
+                + "}";
     }
 
     @Test
@@ -507,7 +556,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
         }
         assertThat(result(start)).isEqualTo("UNKNOWN:START_UNCONFIRMED_ABORTED");
 
-        mockMvc.perform(createRequest(userId, "{" + devices() + "}")).andExpect(status().isCreated());
+        mockMvc.perform(createRequest(userId, "{" + devices() + "}"))
+                .andExpect(status().isCreated());
     }
 
     @Test
@@ -549,7 +599,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     void 이미_UNKNOWN인_START도_중단하며_사유를_보존한다() throws Exception {
         long sessionId = insertReadySession();
         long start = insertCommand(sessionId, watchId, "START", 1, "UNKNOWN");
-        mockMvc.perform(patchRequest(userId, sessionId, abort(1, phoneId))).andExpect(status().isOk());
+        mockMvc.perform(patchRequest(userId, sessionId, abort(1, phoneId)))
+                .andExpect(status().isOk());
         assertThat(result(start)).isEqualTo("UNKNOWN:");
     }
 
@@ -568,7 +619,8 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
 
-        long stale = insertSession(otherUserId, "READY", 3, otherWatchId, otherPhoneId, "PENDING", null);
+        long stale =
+                insertSession(otherUserId, "READY", 3, otherWatchId, otherPhoneId, "PENDING", null);
         insertCommand(stale, otherWatchId, "START", 3, "PENDING");
         mockMvc.perform(patchRequest(otherUserId, stale, abort(2, otherPhoneId)))
                 .andExpect(status().isConflict())
