@@ -758,11 +758,17 @@ export function createMockRepositories(
         records.find(record => record.groupRunId === groupRunId) ?? null,
     }),
     notifications: {
-      list: () =>
-        respond(
-          options.scenario === 'noNotifications' ? [] : notifications,
+      list: () => {
+        const items =
+          options.scenario === 'noNotifications' ? [] : notifications;
+        return respond(
+          {
+            items,
+            unreadCount: items.filter(item => !item.read).length,
+          },
           options,
-        ),
+        );
+      },
       markAllRead: () => {
         notifications = notifications.map(item => ({ ...item, read: true }));
         return respond(undefined, options);

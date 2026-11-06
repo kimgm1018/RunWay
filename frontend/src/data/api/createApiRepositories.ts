@@ -10,6 +10,7 @@ import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
 import { createWatchApi } from './devices';
 import { createGroupRunsApi } from './groupRuns';
+import { notificationsApi } from './notifications';
 import {
   changePhoto,
   getDetail,
@@ -79,6 +80,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     community: createCommunityApi({ records }),
     // 7.5 검색 (CMT13): runners and crews by name.
     search: searchApi,
+    // 2.9 알림 (N01·N02): the inbox and its unread count; leaving the screen reads them all.
+    notifications: notificationsApi,
     // Without a profile the expected course times fall back to 6′00″.
     courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
     watch: createWatchApi(mock.watch),

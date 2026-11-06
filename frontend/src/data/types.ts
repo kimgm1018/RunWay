@@ -210,13 +210,16 @@ export type RecommendedCourse = {
   generated?: boolean;
 };
 
+// 2.9 알림 kinds, the server's notifications.notification_type (docs/design/api/notifications.md).
 export type NotificationKind =
-  | 'GROUP_RUN_STARTING'
+  | 'GROUP_RUN_PARTICIPATION_CANCELLED'
+  | 'GROUP_RUN_START_REMINDER'
   | 'CREW_JOIN_APPROVED'
   | 'CREW_JOIN_REJECTED'
   | 'POST_COMMENT'
-  | 'GROUP_RUN_CANCELED'
-  | 'FOLLOW_REQUEST';
+  | 'NEW_FOLLOWER'
+  | 'FOLLOW_REQUEST'
+  | 'FOLLOW_APPROVED';
 
 // 7.x 커뮤니티 (CMT01–CMT11). The 7.3 share card shows heart rate and cadence and the bookmark,
 // share and 코스도 함께 공유 controls follow the K1 sheets; the API has none of these yet.
@@ -296,6 +299,14 @@ export type AppNotification = {
   message: string;
   createdAt: string;
   read: boolean;
+  // What the row opens: the group run, crew or post id, or the runner's user id for follow kinds.
+  targetId: string;
+};
+
+// N01: the newest page of the inbox and the unread count across all of it.
+export type NotificationList = {
+  items: AppNotification[];
+  unreadCount: number;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -1153,7 +1164,7 @@ export type Repositories = {
     find: (request: SearchRequest) => Promise<SearchPage>;
   };
   notifications: {
-    list: () => Promise<AppNotification[]>;
+    list: () => Promise<NotificationList>;
     markAllRead: () => Promise<void>;
   };
   run: {

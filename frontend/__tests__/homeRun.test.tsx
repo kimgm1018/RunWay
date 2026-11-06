@@ -226,8 +226,13 @@ test('notifications split into 오늘 and 이번 주, count as read once left, a
     '그룹런 곧 시작, ‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
   );
   await settle();
-  // 6.4 opens on the run (its pace shows as a pill there).
+  // 6.4 opens on the notification's run (its pace shows as a pill there), not the next one.
   expect(texts(screen)).toContain('페이스 6′00″');
+  expect(
+    screen.root
+      .findAllByType(Text)
+      .some(node => node.props.children === '토요일 아침, 함께 5km'),
+  ).toBe(true);
   await act(async () => screen.unmount());
 });
 
