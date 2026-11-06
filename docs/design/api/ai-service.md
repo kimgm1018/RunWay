@@ -199,6 +199,8 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 `EASE_OFF`·`WALK_ADVISED` 같은 경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
 
+`EASE_OFF`(위험 심박 감속 권고)의 `recommendedPaceSecPerKm` = max(최근 실측 pace, `currentGuidePaceSecPerKm`) + 30 sec/km다. 안내가 없으면 실측(없으면 `anchorPaceSecPerKm`) + 30이다. 러너가 안내보다 빨리 달려도 감속 권고는 늘 지금 안내보다 30초/km 이상 느리다(S15P31E105-497). 기록이 한 칸뿐인 경로도 같다. `WALK_ADVISED`는 지금처럼 실측 + 30이 안내보다 느리지 않을 때 붙으며, 뜻은 멈춤 권고와 함께 다시 정한다.
+
 `userId`가 없으면 위 두 선택 응답 필드는 생략한다. 사용자 ID가 있고 행이 없거나 사용할 수 없으면 기본 GRU로 계속 판단하고 `warnings[]`에 아래 코드 중 하나를 추가한다. 개인화 로드·적용 실패는 러닝 판단을 막지 않는다.
 
 | 경고 코드 | 뜻 |
@@ -823,7 +825,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 | O2 | HRmax ERD 출처 | N7-6 처리 | 제안 |
 | O3 | GOOD 판정·최근 20회 P98/P85 | AI06의 GOOD 표본 품질 필드와 `sessionStartedAt` 순서를 사용 | v6_8_2 반영 |
 | O4 | 5초 판단·trace·저장·발행 주기 | 계산과 저장/발행 분리, 발행 판단만 백엔드 저장 | 합의 필요 |
-| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 실제 pace +30 sec/km. 어떤 decision을 저장할지는 백엔드 합의 필요 | 백엔드 기준: null·NOT_RUNNING 미저장, 발행하는 GUIDE_PACE·EASE_OFF만 저장(S15P31E105-421), 팀 확인 전 |
+| O5 | decision=null·EASE_OFF 저장 | EASE_OFF pace는 max(실제 pace, 현재 안내) +30 sec/km(S15P31E105-497). 어떤 decision을 저장할지는 백엔드 합의 필요 | 백엔드 기준: null·NOT_RUNNING 미저장, 발행하는 GUIDE_PACE·EASE_OFF만 저장(S15P31E105-421), 팀 확인 전 |
 | O6 | model/policy 버전 저장 | nullable 컬럼 2개 추가 제안; migration은 합의 전 | 제안 |
 | O7 | plan ratio와 절대 페이스 변환 | 기준 목표 pace×ratio, DB에는 sec/km 절대값 | 제안 |
 | O8 | AI05 모델·goal 조합·HR 지평 | Planner v1, 코스/목표 있는 자유러닝 계획, HR 미리보기 기본 OFF, 켜면 90분(5400초) 설정. 개인 계획은 **시간 상한 없음**: 예상 완주가 90분(평가로 확인된 범위)을 넘으면 경고 `ODE_BEYOND_VALIDATED_HORIZON`, `validatedHorizonSec`=5400은 정보용. 계산 안전장치는 코스 45 km(422 `INVALID_GOAL`)와 탐색 예산(`PERSONAL_PLAN_SEARCH_BUDGET_CELLS`, 넘으면 탐색을 줄이고 경고 `PLAN_SEARCH_BUDGET_LIMITED`). MVP 이식 후 점검·보완 | 제안 |
