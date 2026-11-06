@@ -17,7 +17,7 @@ from app.ai_logging import log_ai_error
 from app.hr_threshold_lookup import HrThresholdLookupResult, UNAVAILABLE_WARNING as HR_THRESHOLD_UNAVAILABLE_WARNING
 from app.policy.config import load_policy_config
 from app.policy.hr_reference import HrThresholds, blend_hr_thresholds
-from app.policy.mpc_policy import handover_phase, plan_pace, progress
+from app.policy.mpc_policy import ease_off_pace, handover_phase, plan_pace, progress
 from app.bpm_cue import CUE_BPM_UNAVAILABLE
 
 
@@ -107,12 +107,13 @@ def _too_short_plan_hold(body: DecideRequest, *, thresholds: HrThresholds, cfg, 
     guide = ctx.current_guide_pace_sec_per_km
     safety = hr_now is not None and hr_now >= thresholds.danger_bpm
     if safety:
-        base_pace = pace_now if pace_now is not None else ctx.anchor_pace_sec_per_km
-        recommended = base_pace + cfg.ease_off_sec_per_km
+        recommended = ease_off_pace(ctx, pace_now, cfg)
         action, status, reason = "EASE_OFF", "SAFETY", "SAFETY"
         reason_text = f"실측 심박 {round(hr_now)}가 위험 기준 {round(thresholds.danger_bpm)} 이상입니다. 페이스를 늦춰 주세요."
         gate = "SAFETY"
-        if guide is not None and guide >= recommended:
+        # WALK_ADVISED 조건은 그대로 둔다(실측 + ease_off ≤ 안내). 뜻 재정의는 멈춤 권고(P0-2)와 함께 정한다.
+        actual_base = pace_now if pace_now is not None else ctx.anchor_pace_sec_per_km
+        if guide is not None and guide >= actual_base + cfg.ease_off_sec_per_km:
             extra_warnings = extra_warnings + ("WALK_ADVISED",)
     else:
         recommended = plan_pace(ctx, prog)

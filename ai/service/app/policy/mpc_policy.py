@@ -120,6 +120,19 @@ def plan_pace(ctx: DecideContext, prog: Progress) -> float:
     return guide if guide is not None else ctx.anchor_pace_sec_per_km
 
 
+def ease_off_pace(ctx: DecideContext, pace_now_sec_per_km: float | None, cfg: PolicyConfig) -> float:
+    """위험 심박일 때의 감속 권고 pace. 실측과 지금 안내 중 느린 쪽에 ease_off를 더한다(S15P31E105-497).
+
+    실측만 기준으로 하면 러너가 안내보다 빠를 때 권고가 안내와 같거나 더 빨라진다
+    (안내 5:30·실측 4:50 → 5:20). 그러면 안내가 오히려 빨라지거나, 같은 값이라 발행되지 않는다.
+    """
+    base = pace_now_sec_per_km if pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
+    guide = ctx.current_guide_pace_sec_per_km
+    if guide is not None:
+        base = max(base, guide)
+    return base + cfg.ease_off_sec_per_km
+
+
 class MpcPolicy:
     """MPC 정책 v0.4 구현."""
     def __init__(self, cfg: PolicyConfig, margins: MarginTable):
@@ -210,9 +223,10 @@ class MpcPolicy:
         actual_minus = (inp.pace_now_sec_per_km - guide
                         if inp.pace_now_sec_per_km is not None and guide is not None else None)
         if safety:
-            base_pace = inp.pace_now_sec_per_km if inp.pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
-            recommended = base_pace + self.cfg.ease_off_sec_per_km
-            if guide is not None and guide >= base_pace + self.cfg.ease_off_sec_per_km:
+            recommended = ease_off_pace(ctx, inp.pace_now_sec_per_km, self.cfg)
+            # WALK_ADVISED 조건은 그대로 둔다(실측 + ease_off ≤ 안내). 뜻 재정의는 멈춤 권고(P0-2)와 함께 정한다.
+            actual_base = inp.pace_now_sec_per_km if inp.pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
+            if guide is not None and guide >= actual_base + self.cfg.ease_off_sec_per_km:
                 warnings.append("WALK_ADVISED")
             verdicts = tuple(CandidateVerdict(upper_hr_bpm=u, peak_upper_bpm=p, passed=False,
                                                reject_reason="SAFETY", score=None)
