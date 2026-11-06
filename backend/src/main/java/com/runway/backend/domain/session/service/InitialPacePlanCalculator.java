@@ -20,7 +20,8 @@ import java.util.Optional;
  * 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누고 마지막 구간은 남은 거리만큼 짧게 둔다(5000.01m이면 마지막 구간이 0.01m여도
  * 합치지 않는다. AI 비율 개수도 같은 올림 구간 수를 따른다). 끝 거리가 없거나 0이면 구간 없이 페이스만 저장한다.
  *
- * <p>구간 페이스는 {@link SegmentDifficultyProvider}의 난이도 비율로 나눈다. 비율이 없으면(AI 연동 전) 모든 구간이 추천 페이스와 같다.
+ * <p>구간 페이스는 {@link SegmentDifficultyProvider}의 난이도 비율로 나눈다. 비율이 없으면(자유러닝, 코스 비율 미저장, 목표 거리가 코스보다 김) 모든 구간이
+ * 추천 페이스와 같다.
  */
 @Slf4j
 final class InitialPacePlanCalculator {

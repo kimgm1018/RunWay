@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-05 · ERD ver.3 · **31개 테이블 / 291개 컬럼 / 55개 FK**
+기준: 2026-11-06 · ERD ver.3 · **32개 테이블 / 297개 컬럼 / 56개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -162,10 +162,26 @@
 | `courses` | 여러 러닝에서 재사용하는 공용 경로·출발점·거리·지역·상태 |
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
+| `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
 | `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태 |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
+
+#### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 비율 행 ID |
+| course_id | BIGINT NOT NULL UNIQUE, FK courses.id ON DELETE CASCADE | 코스. 코스당 1행 |
+| distance_m | NUMERIC(12,2) NOT NULL, CHECK > 0 | 계산 기준 코스 거리. 구간 수 = 거리 ÷ 1km 올림 |
+| ratios | JSONB NOT NULL, CHECK 배열·1~45개 | 0m부터 1km 구간 순서의 양수 상대 비율(마지막은 남은 거리) |
+| planner_version | VARCHAR(80) NOT NULL | 계산한 AI05 `plannerVersion` |
+| created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장 시각. 갱신하지 않음 |
+
+- 생성 코스 저장 커밋 후 백엔드가 AI05를 호출해 한 번 저장한다(`INSERT ... ON CONFLICT DO NOTHING`). 세션 생성·목표 변경은 잠금 안에서 이 행만 읽는다. 비율의 개수·양수 검사는 서비스가, 배열 형식·개수 상한은 DB가 확인한다.
+- 비율은 사용자와 무관한 지형 값이다. 개인 비율(AI09)은 저장하지 않는다(S15P31E105-442 범위).
+- 기준 SQL·Flyway V15를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 계산·사용 규칙은 [sessions.md 초기 계획](../api/sessions.md)과 [ai-service.md 백엔드 호출 순서](../api/ai-service.md#백엔드-호출-순서)를 따른다.
 
 ### 지역·커뮤니티·알림
 
@@ -269,6 +285,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | daily_health_metrics | user_id, metric_date |
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |
+| course_segment_difficulties | course_id |
 | post_likes | post_id, user_id |
 | user_follows | follower_id, followee_id |
 | course_environment_tags | course_id, environment_type |

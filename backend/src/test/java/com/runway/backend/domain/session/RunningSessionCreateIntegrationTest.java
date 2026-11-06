@@ -113,6 +113,86 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         assertThat(count("SELECT count(*) FROM pace_plan_segments")).isEqualTo(5);
     }
 
+    /** 코스에 미리 저장된 AI05 지형 난이도 비율(297). */
+    private void storeDifficulty(long courseId, String distance, String ratiosJson) {
+        jdbc.update(
+                "INSERT INTO course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
+                        + " VALUES (?,?::numeric,?::jsonb,'planner-test')",
+                courseId,
+                distance,
+                ratiosJson);
+    }
+
+    @Test
+    void 코스_난이도_비율이_저장돼_있으면_구간_페이스를_비율로_나누고_전체시간은_유지한다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "3000.00");
+        storeDifficulty(courseId, "3000.00", "[1.2,0.8,1.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{" + devices() + ",\"courseId\":" + courseId + ",\"targetDurationSec\":900}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(300.0))
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0))
+                .andExpect(jsonPath("$.plan.segments[2].recommendedPaceSecPerKm").value(300.0));
+        // 구간 시간 합 = Σ 페이스 × 길이(km) = 900초(목표 시간).
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT sum(recommended_pace * (end_distance - start_distance) / 1000)"
+                                        + " FROM pace_plan_segments",
+                                java.math.BigDecimal.class))
+                .isEqualByComparingTo("900");
+    }
+
+    @Test
+    void 목표거리가_코스보다_짧으면_앞_구간_비율을_쓴다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "5000.00");
+        storeDifficulty(courseId, "5000.00", "[1.2,0.8,2.0,2.0,2.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{" + devices() + ",\"courseId\":" + courseId
+                                        + ",\"targetDistanceM\":2000,\"targetPaceSecPerKm\":300}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(2)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0));
+    }
+
+    @Test
+    void 정수_목표거리가_소수_코스거리보다_조금_길어도_구간수가_같으면_비율을_쓴다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "2999.60");
+        storeDifficulty(courseId, "2999.60", "[1.2,0.8,1.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{" + devices() + ",\"courseId\":" + courseId
+                                        + ",\"targetDistanceM\":3000,\"targetPaceSecPerKm\":300}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0));
+    }
+
+    @Test
+    void 코스_비율이_없으면_모든_구간이_추천_페이스다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "3000.00");
+        storeDifficulty(insertCourse("ACTIVE", "3000.00"), "3000.00", "[1.2,0.8,1.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{" + devices() + ",\"courseId\":" + courseId + ",\"targetDurationSec\":900}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(jsonPath("$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(300.0))));
+    }
+
     @Test
     void 끝거리가_1km로_나누어지지_않으면_마지막_구간이_짧다() throws Exception {
         mockMvc.perform(

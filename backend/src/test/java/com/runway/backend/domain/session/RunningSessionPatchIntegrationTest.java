@@ -57,6 +57,39 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     }
 
     @Test
+    void 목표_변경도_코스_난이도_비율을_쓰고_목표거리가_코스보다_길면_균등이다() throws Exception {
+        long sessionId = insertReadySession();
+        long courseId = insertCourse("ACTIVE", "3000.00");
+        jdbc.update(
+                "INSERT INTO course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
+                        + " VALUES (?,3000.00,'[1.2,0.8,1.0]'::jsonb,'planner-test')",
+                courseId);
+
+        mockMvc.perform(
+                        patchRequest(
+                                userId,
+                                sessionId,
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":1,\"courseId\":"
+                                        + courseId
+                                        + ",\"targetPaceSecPerKm\":300}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0))
+                .andExpect(jsonPath("$.plan.segments[2].recommendedPaceSecPerKm").value(300.0));
+
+        mockMvc.perform(
+                        patchRequest(
+                                userId,
+                                sessionId,
+                                "{\"operation\":\"UPDATE_GOAL\",\"expectedVersion\":2,\"targetDistanceM\":4000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goal.courseId").value(courseId))
+                .andExpect(jsonPath("$.plan.segments", hasSize(4)))
+                .andExpect(jsonPath("$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(300.0))));
+    }
+
+    @Test
     void null은_해제하고_계획이_없어지면_plan_null이다() throws Exception {
         long sessionId = insertReadySession();
         jdbc.update("UPDATE running_sessions SET goal_pace=300 WHERE id=?", sessionId);
