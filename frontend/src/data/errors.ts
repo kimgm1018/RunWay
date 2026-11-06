@@ -43,6 +43,8 @@ export const dataErrorCodes = [
   'RUN_ALREADY_STARTED',
   'FULL_OR_ALREADY_JOINED',
   'EDIT_NOT_ALLOWED',
+  // G01·G04 목표 환산 실패 (422).
+  'INVALID_GOAL',
   // CMT08 · CMT09 댓글 수정·삭제 (docs/design/api/community.md).
   'EMPTY_COMMENT',
   'NOT_AUTHOR',

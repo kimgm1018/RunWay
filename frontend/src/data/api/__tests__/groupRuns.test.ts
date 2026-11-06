@@ -336,6 +336,108 @@ test('G04 sends the edit and keeps the saved note when none is typed', async () 
   });
 });
 
+const place = {
+  meetingPlaceName: '광안리해수욕장 입구',
+  meetingAddress: '부산 수영구 광안해변로 219',
+  meetingPosition: [129.118, 35.153] as [number, number],
+  meetingNote: null,
+  scheduledAt: '2026-11-08T07:00:00+09:00',
+};
+const goalFields = [
+  'goalInputType',
+  'targetDistanceM',
+  'targetDurationSec',
+  'targetPaceSecPerKm',
+];
+
+test('G01 sends a course run TIME goal with the course distance', async () => {
+  serve((path, init) =>
+    path === '/group-runs' && init.method === 'POST'
+      ? respond(201, { id: 71 })
+      : undefined,
+  );
+
+  await api().groupRuns.create({
+    ...place,
+    crewId: '41',
+    courseId: '301',
+    targetDistanceM: 5000.4,
+    targetDurationSec: 2400,
+  });
+
+  const { body } = sent('POST')[0];
+  expect(body).toMatchObject({
+    courseId: 301,
+    title: '일요일, 함께 5km',
+    goalInputType: 'TIME',
+    targetDistanceM: 5000,
+    targetDurationSec: 2400,
+  });
+  expect(body).not.toHaveProperty('targetPaceSecPerKm');
+});
+
+test('G01 sends no goal fields for a free run', async () => {
+  serve((path, init) =>
+    path === '/group-runs' && init.method === 'POST'
+      ? respond(201, { id: 72 })
+      : undefined,
+  );
+
+  await api().groupRuns.create({
+    ...place,
+    crewId: '41',
+    courseId: null,
+    targetDistanceM: null,
+    targetDurationSec: 1800,
+  });
+
+  const { body } = sent('POST')[0];
+  expect(body.title).toBe('일요일, 함께 30분');
+  goalFields.forEach(field => expect(body).not.toHaveProperty(field));
+});
+
+test('G04 sends the new course distance with the TIME goal', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'PATCH'
+      ? respond(200, { id: 61 })
+      : undefined,
+  );
+
+  await api().groupRuns.update('61', {
+    ...place,
+    courseId: '302',
+    targetDistanceM: 7200,
+    targetDurationSec: 3000,
+  });
+
+  expect(sent('PATCH')[0].body).toMatchObject({
+    courseId: 302,
+    goalInputType: 'TIME',
+    targetDistanceM: 7200,
+    targetDurationSec: 3000,
+  });
+});
+
+// G04 rejects null goal fields (부분 목표 해제 미지원), so a run made free omits them instead.
+test('G04 to a free run clears the course and omits goal fields', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'PATCH'
+      ? respond(200, { id: 61 })
+      : undefined,
+  );
+
+  await api().groupRuns.update('61', {
+    ...place,
+    courseId: null,
+    targetDistanceM: null,
+    targetDurationSec: 2400,
+  });
+
+  const { body } = sent('PATCH')[0];
+  expect(body.courseId).toBeNull();
+  goalFields.forEach(field => expect(body).not.toHaveProperty(field));
+});
+
 test('G05 joins, G06 leaves and errors reach the screen', async () => {
   serve((path, init) => {
     if (path === '/group-runs/62/join') {
