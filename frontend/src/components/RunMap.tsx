@@ -14,6 +14,7 @@ import {
   NaverMapView,
   NaverMapViewRef,
 } from '@mj-studio/react-native-naver-map';
+import { appConfig } from '../config';
 import type { LngLat } from '../geo';
 import { fontFamily, k1, palette } from '../theme';
 import { coursePaceColors, paceColor, splitRoute } from './mapRoute';
@@ -50,8 +51,8 @@ type RunMapProps = {
   dark?: boolean;
   // Shows the GPS location dot. Turn it on with location tracking, after the permission is granted.
   showLocation?: boolean;
-  // A style from the NAVER Cloud Style Editor (ADR-0018: K1 day and night maps, S15P31E105-325). Until the
-  // K1 styles exist, the dark map falls back to Naver's night navigation map.
+  // A style from the NAVER Cloud Style Editor (ADR-0018). Left out, the day map takes runway-k1-day
+  // (S15P31E105-325) and the dark map Naver's night navigation map, so the two can be compared in use.
   customStyleId?: string;
   area?: RunMapArea;
   // The points the camera fits instead of everything shown (6.6: me and the members, not the whole
@@ -289,7 +290,11 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
       : coursePaceColors[1];
 
-  const nightFallback = dark && !customStyleId;
+  // K1 by day only (담당자 결정: 밤은 스타일 없이 써 보며 비교).
+  const styleId =
+    customStyleId ??
+    (dark ? undefined : appConfig.naverMapDayStyleId || undefined);
+  const nightFallback = dark && !styleId;
   return (
     <NaverMapView
       ref={map}
@@ -297,7 +302,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       onLayout={event => setHeight(event.nativeEvent.layout.height)}
       onInitialized={() => setReady(true)}
       initialRegion={region}
-      customStyleId={customStyleId}
+      customStyleId={styleId}
       mapType={nightFallback ? 'Navi' : 'Basic'}
       isNightModeEnabled={nightFallback}
       layerGroups={layerGroups}
