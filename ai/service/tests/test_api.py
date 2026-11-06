@@ -60,6 +60,9 @@ def test_health_up(client):
     assert r.json()["status"] == "UP" and r.json()["modelLoaded"] is True
     assert r.json()["models"]["gru"]["modelVersion"] == "fake-1"
     assert r.json()["models"]["ode"]["modelVersion"] == "ode-test"
+    assert r.json()["components"]["gru"] == "UP"
+    assert r.json()["components"]["ode"] == "UP"
+    assert r.json()["components"]["aiDb"] == "NOT_CONFIGURED"
 
 
 def test_health_down_when_model_missing():
@@ -69,8 +72,59 @@ def test_health_down_when_model_missing():
         assert health.json()["status"] == "DOWN"
         assert health.json()["models"]["gru"]["status"] == "DOWN"
         assert health.json()["models"]["ode"]["status"] == "UP"
+        assert health.json()["components"]["gru"] == "DOWN"
+        assert health.json()["components"]["ode"] == "UP"
         r = c.post("/v1/hr/predict", json=body())
         assert r.status_code == 503 and r.json()["code"] == "MODEL_NOT_READY"
+
+
+def test_health_reports_database_and_plan_component_states(monkeypatch):
+    monkeypatch.setenv("AI_DB_URL", "postgresql://unit.test/runway")
+    monkeypatch.setenv("PERSONAL_PLAN_EXPERIMENTAL_ENABLED", "true")
+    calls = []
+
+    def db_factory(_url):
+        calls.append("연결")
+        return object()
+
+    with TestClient(create_app(lambda: FakeModel(), ode_loader=lambda: None,
+                               db_factory=db_factory, cue_bpm_loader=None)) as c:
+        components = c.get("/health").json()["components"]
+
+    assert calls == ["연결"]
+    assert components["aiDb"] == "CONFIGURED"
+    assert components["personalPlan"] == {
+        "enabled": True,
+        "populationMode": "median_bundle",
+        "populationBundleLoaded": False,
+    }
+    assert components["cueBpm"] == "DISABLED"
+
+
+def test_health_reports_database_connection_failure_without_exposing_url(monkeypatch):
+    monkeypatch.setenv("AI_DB_URL", "postgresql://unit.test/runway")
+
+    def fail_db_factory(_url):
+        raise RuntimeError("연결 실패")
+
+    with TestClient(create_app(lambda: FakeModel(), ode_loader=lambda: None,
+                               db_factory=fail_db_factory, cue_bpm_loader=None)) as c:
+        response = c.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["components"]["aiDb"] == "CONNECT_FAILED"
+    assert "unit.test" not in response.text
+
+
+def test_health_reports_unavailable_cue_bpm_module_as_down():
+    def fail_cue_loader():
+        raise RuntimeError("모듈 준비 실패")
+
+    with TestClient(create_app(lambda: FakeModel(), ode_loader=lambda: None,
+                               cue_bpm_loader=fail_cue_loader)) as c:
+        components = c.get("/health").json()["components"]
+
+    assert components["cueBpm"] == "DOWN"
 
 
 def test_model_info(client):

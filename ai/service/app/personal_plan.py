@@ -9,7 +9,7 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, ROUND_HALF_UP, localcontext
 import hashlib
 import json
 import math
@@ -34,6 +34,14 @@ from app.planner.prerun_planner import PaceCandidate, PreRunSimulationRequest
 
 _CENT = Decimal("0.01")
 _M_PER_KM = Decimal("1000")
+# 구간 비율(paceRatio) 허용 범위(S15P31E105-487). 백엔드는 목표 페이스 × paceRatio로 구간 페이스를 만든다.
+# 0.85 = 평균보다 15% 빠름, 1.20 = 20% 느림. 범위를 벗어나면 공통 배율 λ로 다시 맞추고 경고를 붙인다.
+PACE_RATIO_MIN = Decimal("0.85")
+PACE_RATIO_MAX = Decimal("1.20")
+# paceRatio 응답 자릿수. 소수 여섯째 자리면 반올림 뒤 거리 가중 평균이 1±5e-7 안에 든다.
+_RATIO_SCALE = Decimal("0.000001")
+SEGMENT_RATIO_CLAMPED = "SEGMENT_RATIO_CLAMPED"
+_RATIO_PRECISION = 50
 # 계산 안전장치(지연·메모리): 코스 45 km, 1 km 구간 45개까지만 계획한다. 넘으면 422 INVALID_GOAL.
 _MAX_DISTANCE_M = Decimal("45000")
 # Common search support from FitRec v1 Train, fitrec_fmap/REPORT_fitrec.md §1-4.
@@ -61,6 +69,12 @@ _FIRST_SEGMENT_TOL_SEC_PER_KM = 1e-6
 _BOOL_ENV = {"1": True, "true": True, "yes": True, "on": True, "0": False, "false": False, "no": False, "off": False}
 _HR_TARGET_WEIGHT = 1.0
 _HR_SPLIT_VARIANCE_WEIGHT = 1.0
+
+
+def personal_plan_enabled() -> bool:
+    """AI09 개인 계획 실험 스위치(PERSONAL_PLAN_EXPERIMENTAL_ENABLED) 판정. health도 같은 값을 쓴다."""
+    return os.getenv("PERSONAL_PLAN_EXPERIMENTAL_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes", "on"}
 
 
 class SelectedGoal(CamelModel):
@@ -360,6 +374,99 @@ def split_distance_1km(total_distance_m: float | Decimal) -> tuple[tuple[Decimal
     return tuple(result)
 
 
+def clamp_segment_ratios(
+    lengths: Sequence[Decimal | float | int],
+    ratios: Sequence[Decimal | float | int],
+    *,
+    lower: Decimal = PACE_RATIO_MIN,
+    upper: Decimal = PACE_RATIO_MAX,
+) -> tuple[tuple[Decimal, ...], bool]:
+    """구간 비율을 [lower, upper] 안에서 거리 가중 평균 1로 맞춘다. (비율, 잘림 여부)를 돌려준다.
+
+    모든 구간에 같은 배율 λ를 곱한 뒤 범위로 자른다: r'_i = clamp(λ·r_i). f(λ) = Σ l_i·r'_i / Σ l_i는
+    λ에 대해 연속·단조 증가하고, λ가 아주 작으면 lower(<1), 아주 크면 upper(>1)이므로 f(λ)=1인 λ가
+    항상 있다(모든 값이 1인 계획이 범위 안에 있으므로). f는 꺾이는 점(lower/r_i, upper/r_i) 사이에서
+    직선이라, 꺾이는 점 목록을 이분법으로 좁혀 f(a)<1≤f(b)인 구간 [a, b]를 찾고 그 안에서 정확히 푼다.
+    입력이 이미 범위 안이고 평균이 1이면 그대로 돌려준다. 잘린 구간을 고정하고 나머지만 다시 맞추던
+    방식(공유 패키지 0002)은 (0.75, 1.25)처럼 해가 있는 입력을 '맞출 수 없음'으로 처리했다.
+    """
+    try:
+        segment_lengths = tuple(value if isinstance(value, Decimal) else Decimal(str(value)) for value in lengths)
+        original = tuple(value if isinstance(value, Decimal) else Decimal(str(value)) for value in ratios)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("구간 길이와 비율은 유한한 양수여야 합니다") from exc
+    if not segment_lengths or len(segment_lengths) != len(original):
+        raise ValueError("구간 길이와 비율의 개수가 맞지 않습니다")
+    if any(not value.is_finite() or value <= 0 for value in segment_lengths + original):
+        raise ValueError("구간 길이와 비율은 유한한 양수여야 합니다")
+    if not 0 < lower <= 1 <= upper:
+        raise ValueError("비율 범위는 lower ≤ 1 ≤ upper인 양수여야 합니다")
+
+    with localcontext() as context:
+        context.prec = _RATIO_PRECISION
+        context.rounding = ROUND_HALF_EVEN
+        total = sum(segment_lengths, Decimal(0))
+        one = Decimal(1)
+        # 이미 평균 1인 입력으로 볼 오차. 응답 자릿수(1e-6)보다 훨씬 작다.
+        tolerance = Decimal("1e-20")
+
+        def clamped_at(scale: Decimal) -> tuple[Decimal, ...]:
+            return tuple(min(upper, max(lower, scale * ratio)) for ratio in original)
+
+        def mean_at(scale: Decimal) -> Decimal:
+            return sum((length * ratio for length, ratio in zip(segment_lengths, clamped_at(scale))),
+                       Decimal(0)) / total
+
+        if all(lower <= ratio <= upper for ratio in original) and abs(mean_at(one) - one) <= tolerance:
+            return original, False
+
+        # f(가장 작은 꺾임점) = lower < 1, f(가장 큰 꺾임점) = upper > 1. lower = 1 = upper인 퇴화 범위는 아래에서 처리.
+        breakpoints = sorted({lower / ratio for ratio in original} | {upper / ratio for ratio in original})
+        low_index, high_index = 0, len(breakpoints) - 1
+        if mean_at(breakpoints[low_index]) >= one:
+            scale = breakpoints[low_index]
+        else:
+            while high_index - low_index > 1:
+                middle = (low_index + high_index) // 2
+                if mean_at(breakpoints[middle]) < one:
+                    low_index = middle
+                else:
+                    high_index = middle
+            left, right = breakpoints[low_index], breakpoints[high_index]
+            mean_left, mean_right = mean_at(left), mean_at(right)
+            # [left, right] 안에는 꺾임점이 없어 f가 직선이다. mean_left < 1 ≤ mean_right.
+            scale = left + (right - left) * (one - mean_left) / (mean_right - mean_left)
+        bounded = clamped_at(scale)
+        clamped = any(scale * ratio < lower or scale * ratio > upper for ratio in original)
+        return bounded, clamped
+
+
+def _match_goal_finish(lengths: Sequence[Decimal], exact: Sequence[Decimal],
+                       rounded: Sequence[Decimal]) -> tuple[Decimal, ...]:
+    """두 자리 반올림 페이스의 완주시간(초, 반올림)을 반올림 전 목표 완주시간과 같게 맞춘다.
+
+    구간마다 두 자리 반올림 오차가 쌓여 완주시간이 1초 어긋날 수 있다. 그때만 반올림 경계에 가까운
+    구간부터 반올림 방향(올림↔내림)을 바꾼다. 바꾼 페이스도 반올림 전 값과 0.01초/km 안이다.
+    """
+    def finish(values) -> int:
+        seconds = sum((length * pace for length, pace in zip(lengths, values)), Decimal(0)) / _M_PER_KM
+        return int(seconds.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+    target = finish(exact)
+    paces = list(rounded)
+    current = finish(paces)
+    if current == target:
+        return tuple(rounded)
+    step = -_CENT if current > target else _CENT
+    candidates = sorted((index for index in range(len(paces)) if (paces[index] - exact[index]) * step < 0),
+                        key=lambda index: (-abs(paces[index] - exact[index]), index))
+    for index in candidates:
+        paces[index] += step
+        if finish(paces) == target:
+            break
+    return tuple(paces)
+
+
 def finalize_personal_segments(
     total_distance_m: float | Decimal,
     target_pace_sec_per_km: float | Decimal | None,
@@ -368,6 +475,23 @@ def finalize_personal_segments(
     preserve_goal_duration: bool,
 ) -> tuple[PersonalPlanSegment, ...]:
     """Serialize selected paces; this does not choose paces or score ODE output."""
+    return finalize_personal_segments_with_clamp(
+        total_distance_m, target_pace_sec_per_km, segment_paces_sec_per_km,
+        preserve_goal_duration=preserve_goal_duration)[0]
+
+
+def finalize_personal_segments_with_clamp(
+    total_distance_m: float | Decimal,
+    target_pace_sec_per_km: float | Decimal | None,
+    segment_paces_sec_per_km: Sequence[float | Decimal],
+    *,
+    preserve_goal_duration: bool,
+) -> tuple[tuple[PersonalPlanSegment, ...], bool]:
+    """(구간, 비율 잘림 여부). 구간 비율을 0.85~1.20·거리 가중 평균 1로 맞춘 뒤 페이스를 다시 계산한다.
+
+    평균 페이스 m(목표가 있으면 목표 페이스)은 바뀌지 않는다: 최종 페이스 = m × 제한 비율.
+    따라서 반올림 전 완주시간은 그대로이고, 백엔드가 목표 페이스 × paceRatio로 만든 구간 페이스와 같다.
+    """
     splits = split_distance_1km(total_distance_m)
     try:
         target_pace = (None if target_pace_sec_per_km is None
@@ -390,14 +514,23 @@ def finalize_personal_segments(
         paces = tuple(pace * scale for pace in paces)
 
     distance = Decimal(str(total_distance_m))
+    lengths = tuple(end - start for start, end in splits)
+    with localcontext() as context:
+        context.prec = _RATIO_PRECISION
+        context.rounding = ROUND_HALF_EVEN
+        mean_pace = sum((length * pace for length, pace in zip(lengths, paces)), Decimal(0)) / distance
+        if not mean_pace.is_finite() or mean_pace <= 0:
+            raise ValueError("pace ratio basis must be finite and positive")
+        bounded_ratios, clamped = clamp_segment_ratios(lengths, tuple(pace / mean_pace for pace in paces))
+        if clamped:
+            paces = tuple(mean_pace * ratio for ratio in bounded_ratios)
     rounded_paces = tuple(pace.quantize(_CENT, rounding=ROUND_HALF_UP) for pace in paces)
-    ratio_basis = sum((end - start) * pace for (start, end), pace
-                      in zip(splits, rounded_paces)) / distance
-    if not ratio_basis.is_finite() or ratio_basis <= 0:
-        raise ValueError("pace ratio basis must be finite and positive")
+    if preserve_goal_duration and target_pace is not None:
+        rounded_paces = _match_goal_finish(lengths, paces, rounded_paces)
+    rounded_ratios =tuple(ratio.quantize(_RATIO_SCALE, rounding=ROUND_HALF_UP) for ratio in bounded_ratios)
     finalized: list[PersonalPlanSegment] = []
-    for index, ((start, end), rounded_pace) in enumerate(zip(splits, rounded_paces), start=1):
-        rounded_ratio = (rounded_pace / ratio_basis).quantize(_CENT, rounding=ROUND_HALF_UP)
+    for index, ((start, end), rounded_pace, rounded_ratio) in enumerate(
+            zip(splits, rounded_paces, rounded_ratios), start=1):
         finalized.append(PersonalPlanSegment(
             sequence=index,
             start_distance_m=float(start),
@@ -406,7 +539,7 @@ def finalize_personal_segments(
             pace_sec_per_km=float(rounded_pace),
             pace_ratio=float(rounded_ratio),
         ))
-    return tuple(finalized)
+    return tuple(finalized), clamped
 
 
 def finish_sec_from_segments(segments: Sequence[PersonalPlanSegment]) -> int:
@@ -1020,8 +1153,7 @@ def build_personal_plan(
         personalization = replace(personalization, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
     if personalization is not None and personalization.payload is None:
         personalization = None
-    enabled = os.getenv("PERSONAL_PLAN_EXPERIMENTAL_ENABLED", "false").strip().lower() in {
-        "1", "true", "yes", "on"}
+    enabled = personal_plan_enabled()
     can_personalize = (enabled and personalization is not None and ode_runtime is not None
                        and optimizer is not None)
 
@@ -1065,15 +1197,17 @@ def build_personal_plan(
         course_warnings = course_warnings + baseline_warnings
 
     def finalize_with_baseline(paces, preserve):
-        """(segments, 목표 pace, 경고). 기준이 없으면 예전 그대로."""
+        """(segments, 목표 pace, 경고, 비율 잘림 여부). 기준이 없으면 예전 그대로."""
         if baseline_plan is None:
-            return (finalize_personal_segments(goal.distance_m, goal.target_pace_sec_per_km, paces,
-                                               preserve_goal_duration=preserve), goal.target_pace_sec_per_km, [])
+            segments, clamped = finalize_personal_segments_with_clamp(
+                goal.distance_m, goal.target_pace_sec_per_km, paces, preserve_goal_duration=preserve)
+            return segments, goal.target_pace_sec_per_km, [], clamped
         ode_finish = sum(float(end - start) * float(pace) / 1000.0
                          for (start, end), pace in zip(split_distance_1km(goal.distance_m), paces))
         pace, extra = runner_baseline.plan_target_pace(baseline_plan, ode_finish, float(goal.distance_m))
-        return (finalize_personal_segments(goal.distance_m, pace, paces, preserve_goal_duration=True), pace,
-                list(baseline_plan.warnings) + extra)
+        segments, clamped = finalize_personal_segments_with_clamp(goal.distance_m, pace, paces,
+                                                                  preserve_goal_duration=True)
+        return segments, pace, list(baseline_plan.warnings) + extra, clamped
 
     if can_personalize or population_kind is not None:
         selection = optimizer.select(course=course, goal=goal,
@@ -1084,7 +1218,7 @@ def build_personal_plan(
             raise _not_ready("PACE_SELECTION_RESULT_NOT_EXPERIMENTAL_OR_PERSONALIZED")
         if selection.model_version != ode_runtime.info.model_version:
             raise _not_ready("PACE_SELECTION_MODEL_VERSION_MISMATCH")
-        segments, baseline_pace, baseline_plan_warnings = finalize_with_baseline(
+        segments, baseline_pace, baseline_plan_warnings, ratio_clamped = finalize_with_baseline(
             selection.segment_paces_sec_per_km, selection.preserve_goal_duration)
         course_warnings = course_warnings + baseline_plan_warnings
         if goal.target_finish_sec is not None:
@@ -1097,12 +1231,14 @@ def build_personal_plan(
                   if hasattr(optimizer, "replay") else None)
         mean_plan_pace = sum(segment.length_m * segment.pace_sec_per_km for segment in segments) / float(goal.distance_m)
         selection_warnings = list(selection.warnings)
-        if baseline_plan is not None and replay:
-            # 배율 조정 뒤 계획의 HR band 경고는 목표 경로처럼 최종 계획 재생 기준으로 다시 정한다(막지 않음).
+        if (baseline_plan is not None or ratio_clamped) and replay:
+            # 배율 조정·비율 제한 뒤 계획의 HR band 경고는 최종 계획 재생 기준으로 다시 정한다(막지 않음).
             band_warning = "HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN"
             selection_warnings = [w for w in selection_warnings if w != band_warning]
             if replay.get("hr_reference_band_satisfied") is False:
                 selection_warnings.append(band_warning)
+        if ratio_clamped:
+            selection_warnings.append(SEGMENT_RATIO_CLAMPED)
         population_fields = {}
         plan_warnings = course_warnings + selection_warnings
         if population_kind is not None:
@@ -1185,7 +1321,7 @@ def build_personal_plan(
     splits = split_distance_1km(goal.distance_m)
     if len(population.segment_paces_sec_per_km) != len(splits):
         raise _not_ready("POPULATION_MEAN_SPLIT_SHAPE_MISMATCH")
-    segments, _, baseline_plan_warnings = finalize_with_baseline(
+    segments, _, baseline_plan_warnings, ratio_clamped = finalize_with_baseline(
         population.segment_paces_sec_per_km, goal.target_pace_sec_per_km is not None)
     course_warnings = course_warnings + baseline_plan_warnings
     finish = finish_sec_from_segments(segments)
@@ -1219,5 +1355,6 @@ def build_personal_plan(
                   f"TRAIN_RUNS={population.train_run_count}",
                   f"COURSE_PROFILE_COVERAGE={population.course_coverage:.4f}"]
                  + (["FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION"]
-                    if population.usage and "RESEARCH_ONLY_NOT_FOR_PRODUCT" in population.usage else []),
+                    if population.usage and "RESEARCH_ONLY_NOT_FOR_PRODUCT" in population.usage else [])
+                 + ([SEGMENT_RATIO_CLAMPED] if ratio_clamped else []),
     )

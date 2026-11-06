@@ -134,6 +134,7 @@ class HealthResponse(CamelModel):
     model_loaded: bool
     model_version: str | None = None
     models: dict[str, dict] = Field(default_factory=dict)
+    components: dict[str, object] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):

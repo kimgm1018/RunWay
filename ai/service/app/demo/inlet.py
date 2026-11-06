@@ -19,6 +19,7 @@ from app.demo.w07 import GpsPoint, MetricSample, parse_batch
 from app.decide.schemas import DecideRequest
 from app.inference import ApiError
 from app.decide.service import run_decide
+from app.schemas import ErrorResponse
 
 log = logging.getLogger("runway.ai")
 RATE_PER_SEC = 2
@@ -63,7 +64,20 @@ def build_inlet_router(state: DemoState) -> APIRouter:
     request_times: dict[int, deque[float]] = defaultdict(deque)
     rate_lock = threading.Lock()
 
-    @router.post("/v1/demo/sessions/{session_id}/batches")
+    @router.post(
+        "/v1/demo/sessions/{session_id}/batches", response_model=dict,
+        tags=["AI08"], summary="AI08 W07 시연 batch 수신",
+        responses={
+            400: {"model": ErrorResponse},
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
+            413: {"model": ErrorResponse},
+            422: {"model": ErrorResponse},
+            429: {"model": ErrorResponse},
+            503: {"model": ErrorResponse},
+        },
+    )
     async def receive(session_id: int, request: Request):
         reject_query_token(request)
         require_bearer(request, state.settings.ingest_token)

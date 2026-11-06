@@ -31,7 +31,7 @@
 
 백엔드는 호출 직전 건강정보 동의 상태가 '동의'인 사용자만 AI 요청에 `userId`를 넣는다. 철회했거나 동의하지 않은 사용자는 `userId`를 생략한다. 생략 시 AI03·AI04는 개인화·학습 기준 대신 모집단 기준(위험 178 bpm / 지속 163 bpm)을 쓰고, AI09는 평균 기반 계획을 쓴다. 동의 상태는 백엔드 건강정보 동의 API(S15P31E105-250)의 응답을 기준으로 확인한다.
 
-AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVersion, models}`를 사용한다. readiness는 필수 모델인 GRU를 기준으로 하며 ODE 상태는 선택 기능의 가용성을 별도로 나타낸다. health 본문은 probe 전용 형식이므로 O11 합의 대상이다.
+AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVersion, models}`를 사용하고, 진단용 `components`를 덧붙인다(S15P31E105-487). readiness는 필수 모델인 GRU를 기준으로 하며 ODE 상태는 선택 기능의 가용성을 별도로 나타낸다. health 본문은 probe 전용 형식이므로 O11 합의 대상이다.
 
 ## AI01 — 준비 상태
 
@@ -46,8 +46,14 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | `models.gru.modelVersion` | string / null | GRU M3-005 버전 |
 | `models.ode.status` | string | `UP` / `DOWN` |
 | `models.ode.modelVersion` | string / null | ODE v2.1 variant와 checkpoint SHA 접두사 |
+| `components.gru` / `components.ode` | string | `UP` / `DOWN`. 위 모델 상태 요약 |
+| `components.aiDb` | string | `CONFIGURED`(AI_DB_URL 설정, 시작 시 조회기 초기화 실패 없음) / `CONNECT_FAILED`(설정됐지만 초기화 실패) / `NOT_CONFIGURED`. 시작 때 실제 DB 연결 probe는 하지 않으므로 `CONFIGURED`가 연결 성공을 보장하지 않는다 |
+| `components.personalPlan.enabled` | boolean | `PERSONAL_PLAN_EXPERIMENTAL_ENABLED` 설정 상태. false면 AI09는 `503 PERSONAL_PLAN_NOT_READY` |
+| `components.personalPlan.populationMode` | string | 평균 묶음 경로 모드(`median_bundle`, `empty`, `off`) |
+| `components.personalPlan.populationBundleLoaded` | boolean | 시작 때 평균 묶음을 읽어 검증했는지 여부 |
+| `components.cueBpm` | string | `UP` / `DOWN` / `DISABLED`. 목표 BPM 계산기 상태 |
 
-GRU가 준비되면 ODE가 미준비여도 HTTP 200과 `status=UP`, `modelLoaded=true`를 반환한다. ODE 준비 상태는 `models.ode.status`의 `UP`/`DOWN`으로만 알린다. GRU가 미준비이면 ODE 준비 여부와 관계없이 HTTP 503과 `status=DOWN`을 반환한다. 팀 AI 이미지의 HEALTHCHECK와 `infra/ai/check.sh`가 `status=UP` 및 `modelLoaded=true`를 요구하므로 ODE의 선택적 가용성을 전체 서비스 readiness와 분리한다.
+`components`는 진단 정보이며 `status`, `modelLoaded`, HTTP 200/503 판정에 영향을 주지 않는다. 설정값·URL·경로는 반환하지 않는다. GRU가 준비되면 ODE가 미준비여도 HTTP 200과 `status=UP`, `modelLoaded=true`를 반환한다. ODE 준비 상태는 `models.ode.status`의 `UP`/`DOWN`으로만 알린다. GRU가 미준비이면 ODE 준비 여부와 관계없이 HTTP 503과 `status=DOWN`을 반환한다. 팀 AI 이미지의 HEALTHCHECK와 `infra/ai/check.sh`가 `status=UP` 및 `modelLoaded=true`를 요구하므로 ODE의 선택적 가용성을 전체 서비스 readiness와 분리한다.
 
 ## AI02 — 모델 정보
 
@@ -456,9 +462,22 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 ## AI09 — 개인 페이스 계획
 
-`POST /v1/pace/personal-plan` — **팀 계약 제안**. 코드 기준으로 코스와 선택 목표에 대한 페이스 계획을 계산한다. AI 서비스가 DB를 직접 쓰지 않는다.
+`POST /v1/pace/personal-plan` — **팀 계약 제안**. 코드 기준으로 코스와 선택 목표에 대한 페이스 계획을 계산한다. AI 서비스가 DB를 직접 쓰지 않는다. OpenAPI 응답 모델은 `PersonalPlanResponse`다.
+
+**백엔드 출발 전 계획 연동(2026-11-06 결정, S15P31E105-442·-297·-487).** 출발 전 구간 계획은 별도 비율 API(공유 패키지의 AI10안) 없이 AI09 하나로 만든다. 백엔드는 아래 경우에만 AI09를 호출한다.
+
+| 러닝 | 목표 | 백엔드 동작 |
+| --- | --- | --- |
+| 코스 | 없음 | AI09 응답의 `segments[].paceSecPerKm`를 그대로 쓴다 |
+| 코스 | 있음(시간 또는 페이스) | 목표 시간·페이스는 백엔드 값을 유지하고, 구간 페이스 = 목표 페이스 × `segments[].paceRatio`. AI09를 쓸 수 없으면 AI05 `segmentDifficultyRatios`, 그다음 균등 분배 |
+| 자유러닝 | 거리만 | AI09 평지 계획(S15P31E105-486) |
+| 자유러닝 | 거리+페이스 / 없음 | AI 호출 없음 |
+
+`paceRatio`는 0.85 이상 1.20 이하이고 거리 가중 평균이 1(±1e-6)이므로, 목표 페이스 × `paceRatio`를 소수 둘째 자리로 반올림한 구간 페이스는 AI09의 `paceSecPerKm`와 구간별 0.01초/km 안에서 같고 전체 시간은 목표 시간과 같다(반올림 차이 제외).
 
 ### Request Body
+
+선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다.
 
 허용하는 최상위 입력은 필수 `courseId`와 선택 `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
 
@@ -474,7 +493,9 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 ### Response
 
-`segments`는 1 km 단위와 마지막 잔여 거리로 나눈다. `paceSecPerKm`와 `paceRatio`는 소수 둘째 자리까지 반올림한다. `paceRatio`는 각 구간 페이스를 계획 전체의 거리 가중 평균 페이스로 나눈 값이다.
+`segments`는 1 km 단위와 마지막 잔여 거리로 나눈다. `paceSecPerKm`는 소수 둘째 자리, `paceRatio`는 소수 여섯째 자리까지 `ROUND_HALF_UP`으로 반올림한다. `paceRatio`는 반올림 전 구간 페이스를 계획 전체의 거리 가중 평균 페이스(목표가 있으면 목표 페이스)로 나눈 값이다.
+
+**구간 비율 제한(S15P31E105-487).** `paceRatio`는 항상 0.85 이상 1.20 이하이고 거리 가중 평균이 1이다. 계획 비율 r_i가 범위를 벗어나면 모든 구간에 같은 배율 λ를 곱한 뒤 범위로 자른 값 clamp(λ·r_i)를 쓰고, 거리 가중 평균이 1이 되는 λ를 찾는다(꺾이는 점을 이분법으로 좁힌 뒤 그 구간에서 정확히 계산). 모든 값이 1인 계획이 범위 안에 있으므로 해는 항상 있고, 이 단계 때문에 계획이 실패하지 않는다. 그다음 구간 페이스 = 평균 페이스 × 제한 비율로 다시 계산하므로 반올림 전 전체 시간은 바뀌지 않는다. 범위 안의 계획은 예전과 같은 페이스다. 잘림이 있었으면 경고 `SEGMENT_RATIO_CLAMPED`를 한 번 붙이고, HR band 판정은 최종 계획 재생 결과로 다시 정한다. 목표가 있으면 두 자리 반올림 오차로 `predictedFinishSec`가 목표 시간과 1초 어긋나는 경우 반올림 경계에 가까운 구간부터 올림·내림 방향만 바꿔 목표 시간과 같게 맞춘다(바꾼 구간도 반올림 전 값과 0.01초/km 안).
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
@@ -504,18 +525,18 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | `courseProfileCoverage` | number / null | 모집단 계획의 코스 프로파일 coverage (0~1) |
 | `targetDistanceM` | number | 계획 거리(m) |
 | `targetPaceSecPerKm` | number | 목표 또는 거리 가중 계획 평균 페이스(초/km) |
-| `predictedFinishSec` | integer | 반올림된 구간 페이스로 계산한 완주 시간(초) |
+| `predictedFinishSec` | integer | 반올림된 구간 페이스로 계산한 완주 시간(초). 목표가 있으면 목표 시간과 같다 |
 | `segments[]` | object[] | 구간별 계획 페이스 |
 | `segments[].sequence` | integer | 1부터 시작하는 구간 순서 |
 | `segments[].startDistanceM` / `endDistanceM` | number | 구간 시작·끝 거리(m) |
 | `segments[].lengthM` | number | 구간 길이(m) |
 | `segments[].paceSecPerKm` | number | 구간 페이스(초/km), 소수 둘째 자리 |
-| `segments[].paceRatio` | number | 전체 거리 가중 평균 대비 구간 페이스 비율, 소수 둘째 자리 |
+| `segments[].paceRatio` | number | 전체 거리 가중 평균(목표 페이스) 대비 구간 페이스 비율. 0.85~1.20, 거리 가중 평균 1±1e-6, 소수 여섯째 자리 |
 | `warnings[]` | string[] | 경고 코드와 provenance 값 |
 
 `userId`가 생략되거나 null이면 AI09는 사용자 개인화와 사용자 HR 기준을 조회하지 않는다. 기존 신규 사용자와 같은 평균 기반 경로를 사용해 `userId=null`, `planStatus=AVERAGE_BASED`, `personalized=false`와 `USER_ID_NOT_PROVIDED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false` 경고를 반환한다. 개인화 행이 없는 동의 사용자도 `AVERAGE_BASED`와 `personalized=false`를 반환하지만 `USER_ID_NOT_PROVIDED`는 붙이지 않는다. 평균 경로의 실험 스위치, ODE 및 평균 묶음이 준비되지 않으면 기존 `503 PERSONAL_PLAN_NOT_READY`를 반환한다. 클라이언트는 평균 기반 계획을 개인화 완료로 표시하지 않는다.
 
-코드에서 만드는 경고는 `USER_ID_NOT_PROVIDED`, `PERSONALIZATION_TABLE_MISSING`, `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_<mode>_PROVISIONAL`, `ODE_GRADE_FILLED_0`, `FINAL_PARTIAL_30S_CELL_HR_HOLD_LAST_OBSERVED_SAMPLE`, `HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN`, `PACE_SEARCH_SUPPORT=<scope>`, `PACE_SEARCH_DOMAIN_BOUNDARY_HIT_BEST_EFFORT`, `ODE_BEYOND_VALIDATED_HORIZON`, `PLAN_SEARCH_BUDGET_LIMITED`, `PLAN_FIRST_SEGMENT_CAPPED`, `PACE_SEARCH_GRID_STEP_MPS=<value>`, `POLICY_UNVALIDATED_NO_SAFETY_CLAIM`, `PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN`, `HR0_NOT_MEASURED_SUPPORT_MEDIAN_USED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false`, `POPULATION_MODE=<mode>`, `TRAIN_SUBJECTS=<count>`, `TRAIN_RUNS=<count>`, `COURSE_PROFILE_COVERAGE=<value>`, `FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION`, `ODE_SPEED_CALIB_SCALE=<s>`, `ODE_SPEED_REF_SOURCE=HISTORY|TRAIN_DEFAULT`, `SPEED_REF_LOOKUP_UNAVAILABLE`, `TARGET_HR_CALIB_GLOBAL_RATIO=<g>`, `TARGET_HR_CALIB_K=<k>`, `TARGET_HR_CALIB_HISTORY_RUNS=<n>`, `TARGET_HR_HISTORY_LOOKUP_UNAVAILABLE`, `RUNNER_BASELINE_SOURCE=<DISTANCE_TIME|PACE|LEVEL_PRESET|LEVEL_FALLBACK>`, `RUNNER_BASELINE_KIND=<TYPED|LEVEL>`, `RUNNER_BASELINE_WEIGHT=<w>`, `RUNNER_BASELINE_PAST_RUNS=<n>`, `RUNNER_BASELINE_RECORD_IMPLAUSIBLE_LEVEL_USED`, `RUNNER_BASELINE_PACE_CLIPPED_TO_SEARCH_SUPPORT`, `RUNNER_PROFILE_NOT_SET`, `RUNNER_PROFILE_INVALID`, `RUNNER_PROFILE_TABLE_MISSING`, `RUNNER_PROFILE_LOOKUP_UNAVAILABLE`, `RUNNER_PAST_RUNS_LOOKUP_UNAVAILABLE`이다. 경고는 해당 데이터·계획 경로에서만 붙는다.
+코드에서 만드는 경고는 `USER_ID_NOT_PROVIDED`, `PERSONALIZATION_TABLE_MISSING`, `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_<mode>_PROVISIONAL`, `ODE_GRADE_FILLED_0`, `FINAL_PARTIAL_30S_CELL_HR_HOLD_LAST_OBSERVED_SAMPLE`, `HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN`, `PACE_SEARCH_SUPPORT=<scope>`, `PACE_SEARCH_DOMAIN_BOUNDARY_HIT_BEST_EFFORT`, `ODE_BEYOND_VALIDATED_HORIZON`, `PLAN_SEARCH_BUDGET_LIMITED`, `PLAN_FIRST_SEGMENT_CAPPED`, `PACE_SEARCH_GRID_STEP_MPS=<value>`, `POLICY_UNVALIDATED_NO_SAFETY_CLAIM`, `PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN`, `HR0_NOT_MEASURED_SUPPORT_MEDIAN_USED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false`, `POPULATION_MODE=<mode>`, `TRAIN_SUBJECTS=<count>`, `TRAIN_RUNS=<count>`, `COURSE_PROFILE_COVERAGE=<value>`, `FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION`, `ODE_SPEED_CALIB_SCALE=<s>`, `ODE_SPEED_REF_SOURCE=HISTORY|TRAIN_DEFAULT`, `SPEED_REF_LOOKUP_UNAVAILABLE`, `TARGET_HR_CALIB_GLOBAL_RATIO=<g>`, `TARGET_HR_CALIB_K=<k>`, `TARGET_HR_CALIB_HISTORY_RUNS=<n>`, `TARGET_HR_HISTORY_LOOKUP_UNAVAILABLE`, `SEGMENT_RATIO_CLAMPED`, `RUNNER_BASELINE_SOURCE=<DISTANCE_TIME|PACE|LEVEL_PRESET|LEVEL_FALLBACK>`, `RUNNER_BASELINE_KIND=<TYPED|LEVEL>`, `RUNNER_BASELINE_WEIGHT=<w>`, `RUNNER_BASELINE_PAST_RUNS=<n>`, `RUNNER_BASELINE_RECORD_IMPLAUSIBLE_LEVEL_USED`, `RUNNER_BASELINE_PACE_CLIPPED_TO_SEARCH_SUPPORT`, `RUNNER_PROFILE_NOT_SET`, `RUNNER_PROFILE_INVALID`, `RUNNER_PROFILE_TABLE_MISSING`, `RUNNER_PROFILE_LOOKUP_UNAVAILABLE`, `RUNNER_PAST_RUNS_LOOKUP_UNAVAILABLE`이다. 경고는 해당 데이터·계획 경로에서만 붙는다.
 
 **속도 반응 보정(S15P31E105-402).** 출발 전 계획이 실제 러닝보다 빨랐던 문제를 줄이기 위해 AI09는 ODE에 넣는 속도만 `v' = v_ref + s·(v − v_ref)`로 바꾼다(기본 s=1.45, `PERSONAL_PLAN_SPEED_CALIB_SCALE`). 요청·응답 필드는 바뀌지 않는다. 응답 페이스·완주시간과 탐색 범위 검사는 원래 속도 기준이다. v_ref는 동의 사용자의 `running_sessions`에서 계획 시각 이전에 끝난 완료 러닝 최근 20회의 `total_distance / moving_duration` 중앙값이며, 기록이 없거나 조회할 수 없으면 V2 Train 기본값 3.4704 m/s를 쓴다. 같은 변경에서 ODE checkpoint를 속도 반응 미세조정본(λ=1)으로 바꿔 `modelVersion`이 `ode_v21_base_epoch20_legacy27:737334a7d77a`가 된다. 이전 모델로 만든 개인화 행은 AI06을 다시 호출하기 전까지 평균 기반 계획을 받는다. V2 Val 완주시간 절대 오차는 평균 280.1초에서 241.3초로 줄었다. s=1.0이면 보정층만 꺼진다.
 
@@ -551,8 +572,9 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | 503 | `AI_DB_UNAVAILABLE` | DB 조회 실패 또는 시간 초과 |
 | 503 | `PERSONAL_PLAN_NOT_READY` | DB·ODE·평균 계획 데이터 또는 실험 설정이 준비되지 않음 |
 | 503 | `AI_BUSY` | 공용 계획 대기열의 최대 대기 시간을 넘김 |
+| 503 | `DEADLINE_EXCEEDED` | `X-Request-Deadline`이 계산 시작 전에 지남. 계산하지 않음 |
 
-모든 오류는 공통 `{code, message, details}` 형식을 따른다. 이는 현재 코드의 동작을 정리한 **팀 계약 제안**이며, 백엔드 저장 필드·클라이언트 표시는 별도 합의가 필요하다.
+400 `VALIDATION_ERROR`에는 `X-Request-Deadline` 헤더 형식 오류도 포함한다. 모든 오류는 공통 `{code, message, details}` 형식을 따른다. 이는 현재 코드의 동작을 정리한 **팀 계약 제안**이며, 백엔드 저장 필드·클라이언트 표시는 별도 합의가 필요하다.
 
 ### DB 대응
 
@@ -563,7 +585,7 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 | 저장 후보 | `targetPaceSecPerKm` | `pace_plans.recommended_pace` (`NUMERIC(10,2)`). 구간 페이스는 소수 둘째 자리까지 반올림하지만, 최상위 값은 목표 페이스 또는 거리 가중 평균이므로 저장 시 두 자리 반올림 규칙을 백엔드에서 확인한다 |
 | 저장 후보 | `segments[].sequence`, `startDistanceM`, `endDistanceM`, `paceSecPerKm` | `pace_plan_segments.segment_sequence`, `start_distance`, `end_distance`, `recommended_pace` (`INTEGER`, `NUMERIC(12,2)`, `NUMERIC(12,2)`, `NUMERIC(10,2)`) |
 | 세션 연결 | AI09 요청·응답에는 `session_id` 없음 | `pace_plans.session_id`는 `NOT NULL`; 백엔드 세션 ID가 필요하며 저장 시점은 별도 합의 필요 |
-| 대응 컬럼 없음 | `segments[].paceRatio`, `segments[].lengthM`, `warnings[]`, `planSource` 및 출처·provenance 정보 | 현재 `pace_plans`·`pace_plan_segments`에 대응 컬럼 없음 |
+| 대응 컬럼 없음 | `segments[].paceRatio`, `segments[].lengthM`, `warnings[]`, `planSource` 및 출처·provenance 정보 | 현재 `pace_plans`·`pace_plan_segments`에 대응 컬럼 없음. 목표가 있는 코스 러닝은 백엔드가 목표 페이스 × `paceRatio`로 `pace_plan_segments.recommended_pace`를 계산한다 |
 | AI 조회 | `courses` | 현재 조회는 `id`, `distance`, `elevation_profile`, `status`, `updated_at`을 사용. `schema.sql`의 `courses` 테이블에 정의됨 |
 | AI 조회 | `user_hr_personalization` | AI09는 `userId`가 있을 때만 `user_id` 기준 최신 행의 `personalization_version`, `schema_version`, `model_version`, `support_run_count`, `summary_u_json`, `history8_json`, `p4_json`, `hr0_sub_bpm`, `hr_ref_bpm`, `hr_danger_bpm`, `hr_sustain_bpm`, `hr_threshold_run_count`, `created_at`을 조회한다. 속도 보정이 켜져 있으면 `running_sessions`에서 같은 `user_id`의 `total_distance`, `moving_duration`, `elapsed_duration`을 `status='COMPLETED'`, `deleted_at IS NULL`, `ended_at` ≤ 계획 시각 조건으로 최근 20행까지 읽는다(S15P31E105-402). 목표 심박 보정(k가 `inf`가 아닐 때)은 같은 테이블에서 같은 조건에 경과 900~5,400초, 거리 3,000 m 이상, `average_heart_rate` 30~240 bpm 조건을 더해 `average_heart_rate`, `elapsed_duration`, `total_distance`를 최근 20행까지 읽는다(S15P31E105-377, 같은 SELECT 권한). AI 읽기 계정의 `running_sessions` SELECT 권한은 AI CD의 `infra/ai/grant-readonly.sh`가 개인화 테이블 대기 전에 준다. ERD V10 반영 대상이며, 현재 `schema.sql` 스냅샷에는 테이블 정의가 없음 |
 
