@@ -45,7 +45,7 @@ import {
   useTheme,
 } from '../../theme';
 import { RunMap } from '../../components/RunMap';
-import { AlbumArt } from './musicParts';
+import { AlbumArt, useLivePosition } from './musicParts';
 import { K1Badge } from './parts';
 import { comparisonLine } from './recordComparison';
 import { useRunControlState, useRunSession } from './RunSession';
@@ -149,6 +149,7 @@ export function MiniPlayer({ music }: { music: MusicState }) {
       <MiniPlayerRow
         title={music.nowPlaying.title}
         subtitle={music.nowPlaying.subtitle}
+        artworkUrl={music.nowPlaying.artworkUrl ?? null}
         playing={playing}
         onToggle={() => setPlaying(value => !value)}
       />
@@ -159,18 +160,29 @@ export function MiniPlayer({ music }: { music: MusicState }) {
 function MiniPlayerRow({
   title,
   subtitle,
+  artworkUrl,
   playing,
   onToggle,
 }: {
   title: string;
   subtitle: string;
+  // Spotify·멜론이 준 앨범 아트. 없으면 목업 기본 커버(S15P31E105-398).
+  artworkUrl: string | null;
   playing: boolean;
   onToggle: () => void;
 }) {
   const { colors } = useTheme();
   return (
     <View style={styles.miniRow}>
-      <AlbumArt index={2} size={44} />
+      {artworkUrl ? (
+        <Image
+          source={{ uri: artworkUrl }}
+          accessibilityIgnoresInvertColors
+          style={styles.miniCover}
+        />
+      ) : (
+        <AlbumArt index={2} size={44} />
+      )}
       <View style={styles.flex}>
         <AppText variant="bodyMedium" numberOfLines={1}>
           {title}
@@ -300,11 +312,12 @@ function PaceCardMusic({
   onCommand: (command: MusicCommand) => void;
 }) {
   const track = music.nowPlaying;
+  const position = useLivePosition(track);
   if (!track) {
     return null;
   }
   const progress = track.durationSec
-    ? Math.min(track.positionSec / track.durationSec, 1)
+    ? Math.min(position / track.durationSec, 1)
     : 0;
   return (
     <View style={styles.music}>
@@ -679,7 +692,10 @@ export function RunProgressScreen() {
             ) : null}
             {takeover ? (
               <View style={styles.notice}>
-                <AppText style={styles.dayNote} accessibilityLabel="폰 기록 안내">
+                <AppText
+                  style={styles.dayNote}
+                  accessibilityLabel="폰 기록 안내"
+                >
                   {takeover.text}
                 </AppText>
                 {takeover.offer ? (
@@ -875,7 +891,10 @@ export function RunProgressScreen() {
           ) : null}
           {takeover ? (
             <View style={styles.notice}>
-              <AppText variant="captionStrong" accessibilityLabel="폰 기록 안내">
+              <AppText
+                variant="captionStrong"
+                accessibilityLabel="폰 기록 안내"
+              >
                 {takeover.text}
               </AppText>
               {takeover.offer ? (
@@ -1103,6 +1122,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+  },
+  // AlbumArt의 44 크기 모서리(rx 22/100)와 맞춘다.
+  miniCover: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
   },
   cover: {
     width: 40,

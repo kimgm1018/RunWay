@@ -38,6 +38,8 @@ export function withSavedMusic(base: Music): Music {
   let memo: Saved | null = null;
   let restoring: Promise<void> | null = null;
 
+  let saving = Promise.resolve();
+
   async function write() {
     try {
       await Keychain.setGenericPassword('music', JSON.stringify(memo), {
@@ -76,7 +78,9 @@ export function withSavedMusic(base: Music): Music {
         heard.playing !== memo.track.playing
       ) {
         memo = { source: state.source, track: heard };
-        await write();
+        // 키체인 저장은 0.2초쯤 걸려 곡 전환 표시를 늦추므로 기다리지 않는다. 저장은 순서대로 이어 붙인다
+        // (S15P31E105-398).
+        saving = saving.then(write);
       }
       return state;
     }
