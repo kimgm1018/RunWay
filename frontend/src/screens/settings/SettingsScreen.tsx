@@ -1,7 +1,9 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StatusBar,
@@ -28,6 +30,7 @@ import {
   type Repositories,
   type WatchConnection,
 } from '../../data';
+import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1, spacing, useTheme } from '../../theme';
@@ -143,6 +146,7 @@ const loadAll = (repositories: Repositories) =>
   Promise.all([
     repositories.settings.get(),
     repositories.watch.getConnection(),
+    repositories.consents.getHealth(),
   ]);
 
 // 8.1 설정 (runway-settings): full-width bands with two tiles each. A switch tile saves at once (U20·U14)
@@ -154,13 +158,21 @@ export function SettingsScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const session = useSession();
-  const { settings: settingsApi, watch: watchApi } = useRepositories();
+  const {
+    settings: settingsApi,
+    watch: watchApi,
+    consents: consentsApi,
+  } = useRepositories();
   const loaded = useResource(loadAll);
   const { reload } = loaded;
   // Coming back from 1.7 shows the watch connected again, and from 8.1b the location mode.
   useFocusEffect(useCallback(() => reload(), [reload]));
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
+  // HEALTH_DATA consent (W05). Withdrawing asks first in a sheet; saving blocks a second tap.
+  const [health, setHealth] = useState<boolean | null>(null);
+  const [askWithdraw, setAskWithdraw] = useState(false);
+  const [savingHealth, setSavingHealth] = useState(false);
   // True while U03 runs (5 seconds at most), so 로그아웃 is not sent twice.
   const [leaving, setLeaving] = useState(false);
   const logOut = () => {
@@ -172,8 +184,47 @@ export function SettingsScreen() {
     if (data) {
       setSettings(data[0]);
       setWatch(data[1]);
+      setHealth(data[2]);
     }
   }, [data]);
+
+  // W04 saves the consent; the watch then gets the same value (DISAGREE also clears the
+  // unuploaded heart-rate records on the phone and the watch, as sign-out does — 담당자 결정).
+  // A 503 or a lost answer may still have applied it, so W05 says what the server holds now.
+  const saveHealth = async (granted: boolean) => {
+    setAskWithdraw(false);
+    setSavingHealth(true);
+    const applied = (value: boolean) => {
+      setHealth(value);
+      void setWatchHealthConsent(value ? 'AGREEE' : 'DISAGREE');
+    };
+    try {
+      const saved = await consentsApi.setHealth(granted);
+      applied(saved);
+      toast(
+        saved
+          ? '건강정보 수집에 동의했어요'
+          : '건강정보 수집 동의를 철회했어요',
+      );
+    } catch {
+      let now: boolean | null = null;
+      try {
+        now = await consentsApi.getHealth();
+        applied(now);
+      } catch {
+        // The server could not be asked either; the tile keeps the last known value.
+      }
+      toast(
+        now === granted
+          ? granted
+            ? '건강정보 수집에 동의했어요'
+            : '건강정보 수집 동의를 철회했어요'
+          : '저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+    } finally {
+      setSavingHealth(false);
+    }
+  };
 
   const change = async (next: Partial<AppSettings>) => {
     if (!settings) {
@@ -285,6 +336,20 @@ export function SettingsScreen() {
                 toast('권한은 Health Connect 앱의 앱 권한에서 바꿀 수 있어요')
               }
             />
+            {/* Giving consent saves at once; withdrawing asks first (W04·W05). */}
+            {health !== null ? (
+              <Tile
+                icon="shieldCheck"
+                name="건강정보 수집"
+                state={health ? '동의함' : '철회함'}
+                on={health}
+                onPress={() => {
+                  if (savingHealth) return;
+                  if (health) setAskWithdraw(true);
+                  else void saveHealth(true);
+                }}
+              />
+            ) : null}
           </Tiles>
 
           <Band>공개 및 위치</Band>
@@ -386,13 +451,191 @@ export function SettingsScreen() {
           </View>
         </ScrollView>
       )}
+      <WithdrawConsentSheet
+        visible={askWithdraw}
+        onCancel={() => setAskWithdraw(false)}
+        onWithdraw={() => saveHealth(false)}
+      />
     </View>
+  );
+}
+
+// 건강정보 수집 철회 확인 in the 8.x look (담당자 결정): a mist sheet with its top corners rounded, the
+// navy title and grey line of 8.4–8.6, and their foot buttons — 취소 in glass, 철회하기 in red.
+function WithdrawConsentSheet({
+  visible,
+  onCancel,
+  onWithdraw,
+}: {
+  visible: boolean;
+  onCancel: () => void;
+  onWithdraw: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const rise = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (visible) {
+      rise.setValue(1);
+      Animated.timing(rise, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [rise, visible]);
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onCancel}
+    >
+      <View style={styles.sheetRoot}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="닫기"
+          onPress={onCancel}
+          style={[StyleSheet.absoluteFill, styles.scrim]}
+        />
+        <Animated.View
+          accessibilityViewIsModal
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: insets.bottom + 16,
+              transform: [
+                {
+                  translateY: rise.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 400],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.handle} />
+          {/* One line (담당자 요청): a narrow phone shrinks the 25 title rather than wrapping it. */}
+          <AppText
+            style={styles.sheetTitle}
+            accessibilityRole="header"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            건강정보 수집 동의를 철회할까요?
+          </AppText>
+          {/* Two lines broken after 중단되며 (담당자 요청); a narrow phone shrinks them to keep two. */}
+          <AppText
+            style={styles.sheetNote}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+          >
+            {
+              '동의 철회 시 건강정보 수집 및 컨디션 확인이 중단되며,\n아직 전송되지 않은 심박 기록은 삭제되고 기존 기록은 유지됩니다.'
+            }
+          </AppText>
+          <View style={styles.sheetActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="취소"
+              onPress={onCancel}
+              style={({ pressed }) => [
+                styles.sheetAction,
+                styles.sheetCancel,
+                pressed && styles.pressed,
+              ]}
+            >
+              <AppText style={styles.sheetCancelText}>취소</AppText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="철회하기"
+              onPress={onWithdraw}
+              style={({ pressed }) => [
+                styles.sheetAction,
+                styles.sheetWithdraw,
+                pressed && styles.pressed,
+              ]}
+            >
+              <AppText style={styles.sheetWithdrawText}>철회하기</AppText>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
+  // The 철회 sheet: the top of the mist (mistGradient) under a navy dim, with 8.4–8.6's type and buttons.
+  sheetRoot: { flex: 1, justifyContent: 'flex-end' },
+  scrim: { backgroundColor: 'rgba(2,5,14,0.45)' },
+  sheet: {
+    backgroundColor: '#F5F7F9',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 10,
+    marginBottom: 22,
+    backgroundColor: 'rgba(24,46,61,0.16)',
+  },
+  sheetTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 25,
+    lineHeight: 33,
+    letterSpacing: -0.6,
+    color: settingsLook.ink,
+  },
+  sheetNote: {
+    marginTop: 8,
+    // 15 rather than 8.4–8.6's 14 (담당자 요청).
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: -0.2,
+    color: settingsLook.sub,
+  },
+  sheetActions: { flexDirection: 'row', gap: 10, marginTop: 28 },
+  sheetAction: {
+    flex: 1,
+    height: 58,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 8.5's glass 취소 and navy step-on button (WithdrawScreens).
+  sheetCancel: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    boxShadow:
+      '0 10px 30px rgba(9,17,26,0.08), inset 0 1px 0 rgba(255,255,255,0.7)',
+  },
+  // The red of 5.2's 기록 삭제 (RecordDetailScreen danger), as the withdrawal deletes records too (담당자 요청).
+  sheetWithdraw: {
+    backgroundColor: '#D44A4A',
+    boxShadow: '0 10px 24px rgba(212,74,74,0.22)',
+  },
+  sheetCancelText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16.5,
+    lineHeight: 22,
+    color: settingsLook.ink,
+  },
+  sheetWithdrawText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16.5,
+    lineHeight: 22,
+    color: '#FFFFFF',
+  },
   pressed: { opacity: 0.6 },
   // 뒤로 and the title on one line, the content from 92 down.
   header: {
