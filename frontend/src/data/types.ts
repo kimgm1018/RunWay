@@ -139,7 +139,7 @@ export type SavedCourse = {
   shape: [number, number][];
 };
 
-// U10 환경 코드 (3.1 환경 · 여러 개 선택).
+// 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
 export type EnvironmentType =
   | 'PARK'
   | 'RIVERSIDE'
@@ -149,6 +149,24 @@ export type EnvironmentType =
 
 export type Place = { name: string; position: [number, number] };
 
+// U11·U12: 좌표·거리·페이스를 포함하지 않는 추천 기본값.
+export type CourseShape = 'loop' | 'out_and_back' | 'point_to_point';
+export type RecommendationFilters = {
+  river: boolean;
+  beach: boolean;
+  park: boolean;
+  trail: boolean;
+  pedestrian: boolean;
+  flat: boolean;
+  avoid_major_road: boolean;
+  avoid_steps: boolean;
+  avoid_tunnel: boolean;
+};
+export type RecommendationPreferences = {
+  shape: CourseShape;
+  filters: RecommendationFilters;
+};
+
 // C01 코스 추천 request, from 3.1 오늘의 러닝.
 export type CourseSearch = {
   origin: Place;
@@ -157,6 +175,10 @@ export type CourseSearch = {
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
   environmentTypes: EnvironmentType[];
+  // 기존 호출은 순환·기존 환경을 사용하며, 추천 조건 화면은 아래 선택값을 명시한다.
+  shape?: CourseShape;
+  filters?: RecommendationFilters;
+  destination?: Place | null;
   // C01 seed. Leaving it out asks for the first set (1); 다른 코스 sends the nextSeed of the last answer.
   seed?: number;
 };
@@ -995,6 +1017,10 @@ export type Repositories = {
     // 2.0's plan for the course picked last with choose(); a default course until then.
     getTodayPlan: () => Promise<CoursePlan>;
     getOrigins: () => Promise<Place[]>;
+    getPreferences: () => Promise<RecommendationPreferences>;
+    savePreferences: (
+      value: RecommendationPreferences,
+    ) => Promise<RecommendationPreferences>;
     recommend: (search: CourseSearch) => Promise<CourseRecommendations>;
     save: (courseId: string) => Promise<void>;
     unsave: (courseId: string) => Promise<void>;

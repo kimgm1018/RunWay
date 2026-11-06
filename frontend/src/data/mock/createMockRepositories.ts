@@ -1,5 +1,9 @@
 import { routeLengthM, walkAlong } from '../../geo';
 import { DataError } from '../errors';
+import {
+  copyCoursePreferences,
+  defaultCoursePreferences,
+} from '../coursePreferences';
 import type {
   AuthSession,
   CoursePlan,
@@ -308,6 +312,7 @@ export function createMockRepositories(
   );
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
+  let coursePreferences = defaultCoursePreferences();
   let profile: ProfileDetail = { ...fixtures.profileDetail };
   // 8.2 사진 바꾸기 shows the picked photo from the phone itself.
   let photo = fixtures.me.profileImageUrl;
@@ -654,6 +659,13 @@ export function createMockRepositories(
       },
     },
     courses: {
+      getPreferences: () =>
+        respond(copyCoursePreferences(coursePreferences), options),
+      savePreferences: async value => {
+        const result = await respond(copyCoursePreferences(value), options);
+        coursePreferences = copyCoursePreferences(result);
+        return copyCoursePreferences(result);
+      },
       getSaved: () => respond(saved, options),
       getTodayPlan: () => respond(planFor(chosen, saved), options),
       getOrigins: () => respond(fixtures.origins, options),

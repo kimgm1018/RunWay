@@ -99,12 +99,11 @@ test('today’s run works out pace and finish time from the distance', async () 
     '광안리해수욕장 · 현재 위치',
     '목표 완주 시간',
     '6′00″',
-    '준비도 82',
   ]) {
     expect(page).toContain(text);
   }
-  expect(labelled(screen, '공원').props.accessibilityState).toEqual({
-    checked: true,
+  expect(labelled(screen, '공원').props.accessibilityState).toMatchObject({
+    checked: false,
   });
   // 3.1p: the pace goes in, the finish time comes out.
   await press(screen, '페이스');
@@ -119,8 +118,10 @@ test('today’s run works out pace and finish time from the distance', async () 
   expect(texts(screen)).toContain('33:00');
   await type(screen, '목표 페이스', '5:30');
   expect(texts(screen)).toContain('30:15');
-  await press(screen, '도심');
-  expect(labelled(screen, '도심').props.accessibilityState).toEqual({
+  await press(screen, '큰길 피하기');
+  expect(
+    labelled(screen, '큰길 피하기').props.accessibilityState,
+  ).toMatchObject({
     checked: true,
   });
   await press(screen, '기준 위치 광안리해수욕장 · 현재 위치');
@@ -129,9 +130,11 @@ test('today’s run works out pace and finish time from the distance', async () 
   await act(async () => screen.unmount());
 });
 
-test('readiness is left out of the recommendation until there is a score', async () => {
+test('코스 생성에 사용하지 않는 건강 반영 문구를 표시하지 않는다', async () => {
   const screen = await openTodayRun('newUser');
-  expect(texts(screen)).toContain('준비도 미반영');
+  expect(texts(screen)).not.toContain('함께 반영');
+  expect(texts(screen)).not.toContain('준비도 미반영');
+  expect(texts(screen)).not.toContain('운동 강도');
   await act(async () => screen.unmount());
 });
 

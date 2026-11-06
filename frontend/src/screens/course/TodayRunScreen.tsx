@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -23,13 +23,14 @@ import {
   Button,
   Icon,
   MistFill,
+  useToast,
   type IconName,
 } from '../../components';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import {
   useRepositories,
   useResource,
-  type EnvironmentType,
+  type RecommendationPreferences,
   type Place,
   type Repositories,
 } from '../../data';
@@ -44,6 +45,12 @@ import { useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
 import { RangeSlider } from './RangeSlider';
 import { GlassIconButton } from '../../components/GlassIconButton';
+import {
+  copyCoursePreferences,
+  courseShapeOptions,
+  courseFilterOptions,
+  legacyEnvironmentTypes,
+} from '../../data/coursePreferences';
 
 type GoalInput = 'TIME' | 'PACE';
 
@@ -52,38 +59,39 @@ const goalInputs: { value: GoalInput; label: string }[] = [
   { value: 'PACE', label: '페이스' },
 ];
 
-const environments: { value: EnvironmentType; label: string }[] = [
-  { value: 'PARK', label: '공원' },
-  { value: 'RIVERSIDE', label: '하천변' },
-  { value: 'URBAN', label: '도심' },
-  { value: 'BEACH', label: '해변' },
-  { value: 'TRACK', label: '트랙' },
-];
+const loadPreferences = (repositories: Repositories) =>
+  repositories.courses.getPreferences();
 
-// A readiness that did not load (R02 down) only leaves 준비도 미반영; the origins still decide the screen.
+// 코스 생성에 필요한 위치 목록만 조회한다. 준비도는 C01 추천 입력이 아니다.
 const loadOptions = (repositories: Repositories) =>
-  Promise.all([
-    repositories.courses.getOrigins(),
-    repositories.home.getTodayCondition().catch(() => null),
-  ]);
+  repositories.courses.getOrigins();
 
 // 환경 chips on the dark half of the mist card: picked ones are filled pale, the rest outlined.
 function Chip({
   label,
   selected,
   onPress,
+  disabled = false,
+  role = 'checkbox',
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  disabled?: boolean;
+  role?: 'checkbox' | 'radio';
 }) {
   return (
     <Pressable
-      accessibilityRole="checkbox"
+      accessibilityRole={role}
       accessibilityLabel={label}
-      accessibilityState={{ checked: selected }}
+      accessibilityState={
+        role === 'radio'
+          ? { selected, disabled }
+          : { checked: selected, disabled }
+      }
+      disabled={disabled}
       onPress={onPress}
-      style={[styles.chip, selected && styles.chipOn]}
+      style={[styles.chip, selected && styles.chipOn, disabled && styles.dim]}
     >
       <AppText style={[styles.chipText, selected && styles.chipTextOn]}>
         {label}
@@ -239,11 +247,31 @@ function Divider({ light = false }: { light?: boolean }) {
 export function TodayRunScreen() {
   const navigation = useNavigation();
   const { courses } = useRepositories();
+  const toast = useToast();
   const { search, setSearch } = useCourseSearch();
   const options = useResource(useCallback(loadOptions, []));
-  const [origins, today] = options.status === 'ready' ? options.data : [];
+  const defaults = useResource(useCallback(loadPreferences, []));
+  const loadedPreferences = defaults.status === 'ready' ? defaults.data : null;
+  const [preferences, setPreferences] =
+    useState<RecommendationPreferences | null>(() =>
+      search?.filters
+        ? { shape: search.shape ?? 'loop', filters: { ...search.filters } }
+        : null,
+    );
+  useEffect(() => {
+    if (loadedPreferences)
+      setPreferences(
+        current => current ?? copyCoursePreferences(loadedPreferences),
+      );
+  }, [loadedPreferences]);
+  const [saving, setSaving] = useState(false);
+  const savingPreferences = useRef(false);
+  const [destination, setDestination] = useState<Place | null>(
+    search?.destination ?? null,
+  );
+  const origins = options.status === 'ready' ? options.data : undefined;
   const [origin, setOrigin] = useState<Place | null>(search?.origin ?? null);
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
   const [distanceKm, setDistanceKm] = useState(
     search ? search.targetDistanceM / 1000 : 5,
   );
@@ -254,9 +282,6 @@ export function TodayRunScreen() {
       : search?.targetDurationSec
       ? formatDuration(search.targetDurationSec)
       : '30:00',
-  );
-  const [picked, setPicked] = useState<EnvironmentType[]>(
-    search?.environmentTypes ?? ['PARK', 'RIVERSIDE'],
   );
   const [loading, setLoading] = useState(false);
   const asking = useRef(false);
@@ -273,7 +298,6 @@ export function TodayRunScreen() {
       ? formatPace(seconds / distanceKm)
       : formatDuration(seconds * distanceKm)
     : '– –';
-  const readinessApplied = today?.readinessState === 'ready';
 
   const switchGoal = (next: GoalInput) => {
     if (next === goal) {
@@ -289,9 +313,32 @@ export function TodayRunScreen() {
     setGoal(next);
   };
 
+  const savePreferences = async () => {
+    if (!preferences || savingPreferences.current || asking.current) return;
+    const value = copyCoursePreferences(preferences);
+    savingPreferences.current = true;
+    setSaving(true);
+    try {
+      await courses.savePreferences(value);
+      toast('추천 기본값을 저장했어요');
+    } catch {
+      toast('기본값을 저장하지 못했어요. 선택한 조건은 유지돼요');
+    } finally {
+      savingPreferences.current = false;
+      setSaving(false);
+    }
+  };
+
   const recommend = async () => {
     // A second tap before the first answer would start another C01 (courses.md: 중복 탭은 막는다).
-    if (!place || !seconds || asking.current) {
+    if (
+      !place ||
+      !seconds ||
+      !preferences ||
+      savingPreferences.current ||
+      asking.current ||
+      (preferences.shape === 'point_to_point' && !destination)
+    ) {
       return;
     }
     asking.current = true;
@@ -301,7 +348,10 @@ export function TodayRunScreen() {
       goalInputType: goal,
       targetDurationSec: goal === 'TIME' ? seconds : null,
       targetPaceSecPerKm: goal === 'PACE' ? seconds : null,
-      environmentTypes: picked,
+      environmentTypes: legacyEnvironmentTypes(preferences.filters),
+      shape: preferences.shape,
+      filters: { ...preferences.filters },
+      destination: preferences.shape === 'point_to_point' ? destination : null,
     };
     setLoading(true);
     setNotice(null);
@@ -373,12 +423,30 @@ export function TodayRunScreen() {
                   />
                 </View>
               ) : null}
+              {defaults.status === 'error' ? (
+                <View style={styles.optionsError}>
+                  <ErrorNotice
+                    title="추천 기본값을 불러오지 못했어요"
+                    detail="저장된 조건을 확인한 뒤 추천받을 수 있어요."
+                  />
+                  <Button
+                    title="기본값 다시 불러오기"
+                    size="small"
+                    variant="secondary"
+                    onPress={defaults.reload}
+                  />
+                </View>
+              ) : !preferences ? (
+                <ActivityIndicator accessibilityLabel="추천 기본값 불러오는 중" />
+              ) : null}
               <View style={styles.card}>
                 <MistFill id="todayRunCard" />
                 <PanelContent
                   place={place}
                   placeFailed={options.status === 'error'}
-                  onPickOrigin={() => setPicking(true)}
+                  onPickOrigin={() => setPicking('origin')}
+                  destination={destination}
+                  onPickDestination={() => setPicking('destination')}
                   distanceKm={distanceKm}
                   setDistanceKm={setDistanceKm}
                   goal={goal}
@@ -387,16 +455,26 @@ export function TodayRunScreen() {
                   setGoalText={setGoalText}
                   seconds={seconds}
                   derived={derived}
-                  picked={picked}
-                  setPicked={setPicked}
-                  readiness={
-                    // Readiness counts only when today's score exists (2.1 평가 가능).
-                    readinessApplied && today?.readinessScore !== null
-                      ? `준비도 ${today?.readinessScore}`
-                      : null
-                  }
+                  preferences={preferences}
+                  setPreferences={setPreferences}
+                  conditionsDisabled={!preferences || saving || loading}
                 />
               </View>
+              {preferences?.shape === 'point_to_point' && !destination ? (
+                <AppText tone="textSecondary">
+                  편도 코스는 도착 위치를 선택해 주세요.
+                </AppText>
+              ) : null}
+              <Button
+                title="이 조건을 기본값으로 저장"
+                size="small"
+                variant="secondary"
+                disabled={!preferences || saving || loading}
+                onPress={savePreferences}
+              />
+              {saving ? (
+                <AppText tone="textSecondary">기본값 저장 중…</AppText>
+              ) : null}
               {notice ? (
                 <ErrorNotice title={notice.title} detail={notice.detail} />
               ) : null}
@@ -406,7 +484,13 @@ export function TodayRunScreen() {
                 title="코스 추천 받기"
                 tone="teal"
                 loading={loading}
-                disabled={!place || !seconds}
+                disabled={
+                  !place ||
+                  !seconds ||
+                  !preferences ||
+                  saving ||
+                  (preferences.shape === 'point_to_point' && !destination)
+                }
                 onPress={recommend}
               />
             </SafeAreaView>
@@ -414,19 +498,25 @@ export function TodayRunScreen() {
         </View>
       </SafeAreaView>
       <BottomSheet
-        visible={picking}
-        onClose={() => setPicking(false)}
-        title="기준 위치"
+        visible={picking !== null}
+        onClose={() => setPicking(null)}
+        title={picking === 'destination' ? '도착 위치' : '기준 위치'}
       >
         {(origins ?? []).map(item => (
           <Button
             key={item.name}
             title={item.name}
-            variant={item.name === place?.name ? 'primary' : 'secondary'}
+            variant={
+              item.name ===
+              (picking === 'destination' ? destination?.name : place?.name)
+                ? 'primary'
+                : 'secondary'
+            }
             size="medium"
             onPress={() => {
-              setOrigin(item);
-              setPicking(false);
+              if (picking === 'destination') setDestination(item);
+              else setOrigin(item);
+              setPicking(null);
             }}
           />
         ))}
@@ -436,7 +526,7 @@ export function TodayRunScreen() {
 }
 
 // Everything on the mist card (runway-course-handoff ConditionCard). The light top half is read in ink
-// (기준 위치, 목표 거리) and the dark bottom half in pale (목표, 환경, 함께 반영).
+// (기준 위치, 목표 거리) and the dark bottom half in pale (목표, 형태, 환경).
 function PanelContent({
   place,
   onPickOrigin,
@@ -448,9 +538,11 @@ function PanelContent({
   setGoalText,
   seconds,
   derived,
-  picked,
-  setPicked,
-  readiness,
+  preferences,
+  setPreferences,
+  conditionsDisabled,
+  destination,
+  onPickDestination,
   placeFailed,
 }: {
   place: Place | null;
@@ -465,9 +557,13 @@ function PanelContent({
   setGoalText: (text: string) => void;
   seconds: number | null;
   derived: string;
-  picked: EnvironmentType[];
-  setPicked: React.Dispatch<React.SetStateAction<EnvironmentType[]>>;
-  readiness: string | null;
+  preferences: RecommendationPreferences | null;
+  setPreferences: React.Dispatch<
+    React.SetStateAction<RecommendationPreferences | null>
+  >;
+  conditionsDisabled: boolean;
+  destination: Place | null;
+  onPickDestination: () => void;
 }) {
   return (
     <>
@@ -493,6 +589,28 @@ function PanelContent({
         <Divider />
       </View>
 
+      {preferences?.shape === 'point_to_point' ? (
+        <View style={styles.originSection}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`도착 위치 ${destination?.name ?? '선택'}`}
+            onPress={onPickDestination}
+            style={styles.origin}
+          >
+            <View style={styles.originIcon}>
+              <Icon name="mapPin" color={inkColor} size={18} />
+            </View>
+            <View style={styles.flex}>
+              <AppText style={styles.inkLabel}>도착 위치</AppText>
+              <AppText style={styles.originName} numberOfLines={1}>
+                {destination?.name ?? '도착 위치를 선택해 주세요'}
+              </AppText>
+            </View>
+            <Icon name="forward" color="rgba(17,17,17,0.55)" size={16} />
+          </Pressable>
+          <Divider />
+        </View>
+      ) : null}
       <View style={styles.distanceSection}>
         <View style={styles.between}>
           <AppText style={styles.inkLabelLarge}>목표 거리</AppText>
@@ -566,40 +684,52 @@ function PanelContent({
       </View>
 
       <View style={styles.envSection}>
-        <AppText style={styles.envLabel}>환경 · 여러 개 선택</AppText>
-        <View style={styles.chips}>
-          {environments.map(env => (
+        <AppText style={styles.envLabel}>코스 형태</AppText>
+        <View style={styles.chips} accessibilityRole="radiogroup">
+          {courseShapeOptions.map(option => (
             <Chip
-              key={env.value}
-              label={env.label}
-              selected={picked.includes(env.value)}
+              key={option.value}
+              label={option.label}
+              role="radio"
+              selected={preferences?.shape === option.value}
+              disabled={conditionsDisabled}
               onPress={() =>
-                setPicked(current =>
-                  current.includes(env.value)
-                    ? current.filter(item => item !== env.value)
-                    : [...current, env.value],
+                setPreferences(current =>
+                  current ? { ...current, shape: option.value } : current,
                 )
               }
             />
           ))}
         </View>
-        <View style={styles.reflect}>
-          <AppText style={styles.reflectLabel}>함께 반영</AppText>
-          {['수준·목표', '운동 강도', readiness ?? '준비도 미반영'].map(
-            label => (
-              <View key={label} style={styles.reflectChip}>
-                <AppText
-                  style={[
-                    styles.reflectText,
-                    label === '준비도 미반영' && styles.reflectOff,
-                  ]}
-                >
-                  {label}
-                </AppText>
-              </View>
-            ),
-          )}
+        <AppText style={[styles.envLabel, styles.filterTitle]}>
+          환경 · 여러 개 선택
+        </AppText>
+        <View style={styles.chips}>
+          {courseFilterOptions.map(option => (
+            <Chip
+              key={option.key}
+              label={option.label}
+              selected={preferences?.filters[option.key] ?? false}
+              disabled={conditionsDisabled}
+              onPress={() =>
+                setPreferences(current =>
+                  current
+                    ? {
+                        ...current,
+                        filters: {
+                          ...current.filters,
+                          [option.key]: !current.filters[option.key],
+                        },
+                      }
+                    : current,
+                )
+              }
+            />
+          ))}
         </View>
+        <AppText style={styles.filterNote}>
+          선택하지 않은 조건은 고려하지 않아요.
+        </AppText>
       </View>
     </>
   );
@@ -757,6 +887,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(232,238,244,0.7)',
   },
+  filterTitle: { marginTop: 14 },
+  filterNote: { color: pale, fontSize: 12, marginTop: 10 },
   envSection: { paddingTop: 10, paddingHorizontal: 20, paddingBottom: 18 },
   envLabel: {
     fontFamily: fontFamily.regular,
@@ -781,34 +913,6 @@ const styles = StyleSheet.create({
     color: pale,
   },
   chipTextOn: { color: '#02050E' },
-  reflect: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-  },
-  reflectLabel: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: '#A1A8AF',
-    marginRight: 1,
-  },
-  reflectChip: {
-    height: 22,
-    paddingHorizontal: 8,
-    borderRadius: 11,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  reflectText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: pale,
-  },
-  reflectOff: { color: 'rgba(232,238,244,0.6)' },
   footer: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 8 },
   glow: {
     height: glowHeight,
