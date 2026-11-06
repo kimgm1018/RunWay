@@ -107,17 +107,43 @@ def test_lookback_hit_uses_cache_and_miss_recomputes_same_value():
     assert [a.tolist() for a in shown_hit] == [[25, 26], [27], [28], [1, 2], [3], [4]]   # s-24 다음 s-48
 
 
-def test_run_excluding_falls_back_when_everything_was_excluded():
+@pytest.mark.parametrize("active", ["baseline", "preference"])
+def test_run_excluding_keeps_empty_result_when_everything_was_excluded(active):
     class Pipe:
-        calls = []
+        def __init__(self):
+            self.calls = []
+            self.out = _out([], excluded=[1, 2])
+            if active == "preference":
+                self.out.update(baseline=[{"eids": [9]}], preference=[])
 
         def run(self, *a, shown=None, **kw):
             self.calls.append(shown)
-            return _out([], excluded=[1, 2]) if shown else _out([[9]])
+            return self.out if shown else _out([[9]])
+
+    req = RecommendRequest(**BODY, seed=25)
+    p = Pipe()
+    out = _run_excluding(p, req, 25, 5000, None, {}, [np.array([1])])
+    assert len(p.calls) == 1 and p.calls[0][0].tolist() == [1]
+    assert out is p.out and out[active] == []
+    assert out["reroll"] == {"shown_routes": 1, "excluded": [1, 2], "all_excluded": True}
+
+
+@pytest.mark.parametrize("remaining", [1, 2])
+@pytest.mark.parametrize("active", ["baseline", "preference"])
+def test_run_excluding_returns_remaining_courses_unchanged(remaining, active):
+    expected = _out([[9], [10]][:remaining], excluded=[1, 2])
+    if active == "preference":
+        expected["preference"], expected["baseline"] = expected["baseline"], [{"eids": [1]}]
+    before = copy.deepcopy(expected)
+
+    class Pipe:
+        def run(self, *a, **kw):
+            return expected
 
     req = RecommendRequest(**BODY, seed=25)
     out = _run_excluding(Pipe(), req, 25, 5000, None, {}, [np.array([1])])
-    assert Pipe.calls[1] is None and out["reroll"]["fallback_all_excluded"] is True and out["baseline"] == [{"eids": [9]}]
+    assert out is expected and out == before
+    assert _served(out, True) == [{"eids": [9]}, {"eids": [10]}][:remaining]
 
 
 def test_served_is_empty_for_blocking_errors():
@@ -148,11 +174,75 @@ class FakePipeline:
         return None
 
 
-def _client(tmp_path, exclude=True, warmup=False):
-    pipe = FakePipeline()
+def _client(tmp_path, exclude=True, warmup=False, pipe=None):
+    pipe = pipe if pipe is not None else FakePipeline()
     s = Settings(debug=False, warmup=warmup, gate_mode="enforce", fast_graph=True,
                  usability_log_dir=tmp_path / "gate", reroll_exclude=exclude)
     return TestClient(create_app(s, lambda _: pipe, background=False)), pipe
+
+
+class AllExcludedPipeline(FakePipeline):
+    """첫 묶음의 코스가 재추천에서도 반복되어 모두 제외되는 가짜 pipeline."""
+
+    def run(self, *args, **kw):
+        out = super().run(*args, **kw)
+        if kw.get("shown"):
+            out["reroll"] = {"shown_routes": len(kw["shown"]), "excluded": [1]}
+        else:
+            out["baseline"] = [{"eids": [1, 2]}]
+        return out
+
+
+def test_all_excluded_api_returns_no_route_and_hit_matches_miss(tmp_path):
+    c, pipe = _client(tmp_path, pipe=AllExcludedPipeline())
+    cond = reroll.condition_key(RecommendRequest(**BODY), 5000)
+    with c:
+        engine = c.app.state.engine
+        engine.reroll.put((cond, 1, 0), reroll.pack([{"eids": [1, 2]}]))
+        hit25 = c.post(URL, json={**BODY, "seed": 25})
+        assert engine.reroll.get((cond, 25, 1)) == ()
+        hit49 = c.post(URL, json={**BODY, "seed": 49})
+        assert [k["seed"] for k in pipe.calls] == [25, 49]
+        assert [a.tolist() for a in pipe.calls[-1]["shown"]] == [[1, 2]]
+        assert engine.reroll.get((cond, 49, 2)) == ()
+
+        engine.reroll = reroll.ShownCache()
+        pipe.calls.clear()
+        miss25 = c.post(URL, json={**BODY, "seed": 25})
+        assert engine.reroll.get((cond, 25, 1)) == ()
+        engine.reroll = reroll.ShownCache()
+        miss49 = c.post(URL, json={**BODY, "seed": 49})
+        assert [k["seed"] for k in pipe.calls] == [1, 25, 1, 25, 49]
+        assert [a.tolist() for a in pipe.calls[-1]["shown"]] == [[1, 2]]
+        assert engine.reroll.get((cond, 49, 2)) == ()
+
+    for response in (hit25, hit49, miss25, miss49):
+        assert response.status_code == 422
+        assert response.json() == {"code": "NO_ROUTE", "message": "이 조건으로 더 보여 드릴 다른 코스가 없어요.",
+                                   "details": None}
+        assert response.content == hit25.content
+
+
+@pytest.mark.parametrize("gate_failed", [False, True])
+def test_empty_reroll_preserves_normal_no_route_and_gate_errors(tmp_path, gate_failed):
+    from app.errors import MESSAGES
+
+    class Pipe(FakePipeline):
+        def run(self, *args, **kw):
+            out = super().run(*args, **kw)
+            out["reroll"] = {"shown_routes": len(kw.get("shown", [])), "excluded": [1] if gate_failed else []}
+            if gate_failed:
+                out["issues"] = [{"code": "USABILITY_GATE_ALL_FAILED"}]
+            return out
+
+    c, _ = _client(tmp_path, pipe=Pipe())
+    cond = reroll.condition_key(RecommendRequest(**BODY), 5000)
+    with c:
+        c.app.state.engine.reroll.put((cond, 1, 0), reroll.pack([{"eids": [1, 2]}]))
+        response = c.post(URL, json={**BODY, "seed": 25})
+    code = "USABILITY_GATE_ALL_FAILED" if gate_failed else "NO_ROUTE"
+    assert response.status_code == 422
+    assert response.json() == {"code": code, "message": MESSAGES[code], "details": None}
 
 
 def test_first_request_calls_engine_exactly_as_before(tmp_path):

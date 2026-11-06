@@ -40,7 +40,7 @@ from runway_routing.snap import start_distance_m, to_utm
 from . import reroll
 from .ai_logging import log_ai_error
 from .config import Settings, load_settings
-from .errors import SHAPE_FAIL, fail
+from .errors import REROLL_NO_ROUTE_MESSAGE, SHAPE_FAIL, fail
 from .schemas import SEED_MAX, Filters, RecommendRequest
 
 log = logging.getLogger("runway.ai")
@@ -301,6 +301,8 @@ def _respond(req: RecommendRequest, out: dict, cg, prefs: Preferences, filters: 
     if not ranked:
         if "USABILITY_GATE_ALL_FAILED" in codes:
             return _fail("USABILITY_GATE_ALL_FAILED", debug=debug)
+        if (out.get("reroll") or {}).get("all_excluded"):
+            return _fail("NO_ROUTE", REROLL_NO_ROUTE_MESSAGE, debug=debug)
         return _fail("NO_ROUTE", debug=debug)
     mode = "preference" if out["preference"] is not None else "baseline"
     routes = []
@@ -368,15 +370,14 @@ def _served(out: dict, loop: bool) -> list:
 
 
 def _run_excluding(p, req: RecommendRequest, seed: int, target_m: int, prefs: Preferences, shape_kw: dict, shown: list):
-    """이전 TOP3(shown)를 빼고 계산한다. 빼고 나서 코스가 하나도 안 남으면(빈 응답 대신) 빼지 않은 결과를 돌려준다.
+    """이전 TOP3(shown)를 빼고 계산한다. 모두 제외되면 빈 결과를 유지하고 all_excluded로 표시한다.
     뺄 코스가 없으면(이전 응답이 오류였거나 depth 0) 첫 요청과 같은 호출이다."""
     if not shown:
         return p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
     out = p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, shown=shown, **shape_kw)
     rr = out.get("reroll")
     if rr and rr["excluded"] and not (out["preference"] if out["preference"] is not None else out["baseline"]):
-        out = p.run(req.lat, req.lon, target_m, seed=seed, attempts=ATTEMPTS, prefs=prefs, **shape_kw)
-        out["reroll"] = {**rr, "fallback_all_excluded": True}
+        out["reroll"] = {**rr, "all_excluded": True}
     return out
 
 
