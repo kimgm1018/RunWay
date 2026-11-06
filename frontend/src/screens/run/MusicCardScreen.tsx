@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -27,7 +27,7 @@ import {
 import { formatDuration } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
-import { MusicOverlay } from './musicParts';
+import { MusicOverlay, useLivePosition } from './musicParts';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 const serviceNames = { MELON: '멜론', SPOTIFY: 'Spotify' };
@@ -40,15 +40,29 @@ const cardHeight = 500;
 // A song without album art (멜론, mock data) takes the mockup's default 'ocean' cover.
 const ocean = ['#2F5174', '#22446A', '#1A3A5C', '#12304D'];
 
-// Spotify plays on the account's own devices, so its card re-reads the state every few seconds.
-const spotifyPollMs = 5000;
+// Spotify and 멜론 play outside RunWay, so a linked card re-reads the state every few seconds.
+const pollMs = 5000;
+// A new song whose length has not come in yet (멜론 buffers for about a second) is read again this soon.
+const lengthPollMs = 300;
 
 function useMusicState() {
   const { music } = useRepositories();
   const [state, setState] = useState<MusicState | null>(null);
   const [failed, setFailed] = useState(false);
   const polling = useRef(false);
-  polling.current = state?.source === 'SPOTIFY' && state.linked;
+  const reread = useRef<() => void>(() => {});
+  polling.current =
+    (state?.source === 'SPOTIFY' || state?.source === 'MELON') && state.linked;
+  const lengthMissing = Boolean(
+    polling.current && state?.nowPlaying && !state.nowPlaying.durationSec,
+  );
+  useEffect(() => {
+    if (!lengthMissing) {
+      return;
+    }
+    const timer = setTimeout(() => reread.current(), lengthPollMs);
+    return () => clearTimeout(timer);
+  }, [lengthMissing, state]);
   // 2.8 opens on top of this card, so re-read the state whenever the card shows again.
   useFocusEffect(
     useCallback(() => {
@@ -58,10 +72,12 @@ function useMusicState() {
           next => active && (setState(next), setFailed(false)),
           () => active && setFailed(true),
         );
+      reread.current = read;
       read();
-      const timer = setInterval(() => polling.current && read(), spotifyPollMs);
+      const timer = setInterval(() => polling.current && read(), pollMs);
       return () => {
         active = false;
+        reread.current = () => {};
         clearInterval(timer);
       };
     }, [music]),
@@ -255,8 +271,19 @@ function Player({
 }) {
   const track = state.nowPlaying;
   const playing = track?.playing ?? false;
-  const progress = track ? track.positionSec / track.durationSec : 0;
+  // 멜론이 길이를 아직 알리지 않은 새 곡은 0:00 대신 --:--로 둔다.
+  const length = track?.durationSec
+    ? formatDuration(track.durationSec)
+    : track
+    ? '--:--'
+    : '0:00';
+  const position = useLivePosition(track);
+  const progress = track?.durationSec
+    ? Math.min(position / track.durationSec, 1)
+    : 0;
   const idle = !track || busy;
+  // 멜론은 곡이 없어도 재생으로 기본 재생목록(없으면 TOP100)을 처음부터 튼다(S15P31E105-398).
+  const playIdle = busy || (!track && state.source !== 'MELON');
   return (
     <>
       <View style={styles.titleRow}>
@@ -265,9 +292,7 @@ function Player({
         </AppText>
         {track ? (
           <View style={styles.length}>
-            <AppText style={styles.lengthText}>
-              {formatDuration(track.durationSec)}
-            </AppText>
+            <AppText style={styles.lengthText}>{length}</AppText>
           </View>
         ) : null}
       </View>
@@ -275,6 +300,8 @@ function Player({
         {track?.subtitle ??
           (state.source === 'SPOTIFY'
             ? 'Spotify 앱에서 곡을 재생하면 여기에 보여요'
+            : state.source === 'MELON'
+            ? '재생을 누르면 멜론 재생목록을 틀어요'
             : '--')}
       </AppText>
       {state.source === 'SPOTIFY' && !state.premium ? (
@@ -287,7 +314,7 @@ function Player({
         accessibilityValue={{
           min: 0,
           max: track?.durationSec ?? 0,
-          now: track?.positionSec ?? 0,
+          now: Math.floor(position),
         }}
         style={styles.progress}
       >
@@ -296,11 +323,9 @@ function Player({
       </View>
       <View style={styles.times}>
         <AppText style={styles.time}>
-          {track ? formatDuration(track.positionSec) : '0:00'}
+          {track ? formatDuration(Math.floor(position)) : '0:00'}
         </AppText>
-        <AppText style={styles.time}>
-          {track ? formatDuration(track.durationSec) : '0:00'}
-        </AppText>
+        <AppText style={styles.time}>{length}</AppText>
       </View>
       <View style={styles.controls}>
         <Pressable
@@ -316,8 +341,8 @@ function Player({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={playing ? '일시정지' : '재생'}
-          accessibilityState={{ disabled: idle }}
-          disabled={idle}
+          accessibilityState={{ disabled: playIdle }}
+          disabled={playIdle}
           onPress={() => onCommand(playing ? 'pause' : 'play')}
           style={styles.play}
         >

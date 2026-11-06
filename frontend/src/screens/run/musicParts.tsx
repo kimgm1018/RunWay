@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -9,6 +9,38 @@ import { useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { Backdrop } from '../../components';
 import { k1 } from '../../theme';
+import type { MusicState } from '../../data';
+
+type Playing = NonNullable<MusicState['nowPlaying']>;
+
+// How often a playing song's position moves on screen between reads.
+const tickMs = 250;
+
+// The position to show now (S15P31E105-398). The state is read every few seconds, so while the song plays the
+// position runs on from the last read and is set right again by the next read; it stops at the song's end.
+export function useLivePosition(track: Playing | null | undefined) {
+  // Each read brings a new track object, which restarts the count from its position.
+  const read = useRef({ track, at: Date.now() });
+  if (read.current.track !== track) {
+    read.current = { track, at: Date.now() };
+  }
+  const readAt = read.current.at;
+  const [now, setNow] = useState(readAt);
+  const playing = track?.playing === true;
+  useEffect(() => {
+    if (!playing) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), tickMs);
+    return () => clearInterval(timer);
+  }, [playing]);
+  if (!track) {
+    return 0;
+  }
+  const run = playing ? Math.max(0, now - readAt) / 1000 : 0;
+  const at = track.positionSec + run;
+  return track.durationSec ? Math.min(at, track.durationSec) : at;
+}
 
 // Album art stand-ins in K1 tones for 4.2's mini player.
 const artColors: [string, string][] = [
