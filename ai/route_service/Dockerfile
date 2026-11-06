@@ -14,7 +14,7 @@
 # raises "cannot cache function ...: no locator available" and the app does not start. So the start command copies the
 # read-only seed to NUMBA_CACHE_DIR=/tmp/numba_cache (a few MB) and Numba reads / writes there. Same kernels, same
 # results. On a CPU unlike the build machine Numba recompiles into /tmp (slower first start only).
-FROM python:3.12.10-slim
+FROM python:3.12.10-slim AS dependencies
 
 # osmium이 사용하는 XML 파서 런타임 라이브러리를 설치한다.
 RUN apt-get update \
@@ -38,6 +38,23 @@ WORKDIR /app
 COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
+# MR은 실제 데이터·HF 토큰 없이 운영과 같은 Python·런타임 의존성으로 검사한다.
+FROM dependencies AS test
+RUN pip install --no-cache-dir pytest==9.2.0 httpx==0.28.1 \
+ && pip check \
+ && useradd --system --uid 10001 --no-create-home runway \
+ && mkdir /reports && chown runway:runway /reports
+COPY runway_routing ./runway_routing
+COPY analysis ./analysis
+COPY app ./app
+COPY tests ./tests
+COPY tools/route_regression ./tools/route_regression
+USER runway
+# 실제 엔진 테스트는 데이터 부재로 생략되며 그 결과도 JUnit에 남는다.
+CMD ["python", "-B", "-m", "pytest", "-q", "tests", "tools/route_regression/test_identity_checks.py", "-p", "no:cacheprovider", "--junitxml=/reports/pytest.xml"]
+
+# 일반 빌드는 기존처럼 데이터 검증·엔진 예열을 포함한 운영 이미지를 만든다.
+FROM dependencies AS runtime
 # data bundle (named build context "route_data"), verified before anything is derived from it
 COPY --from=route_data . /data/
 COPY tools/data/verify_bundle.py tools/data/verify_bundle.py
