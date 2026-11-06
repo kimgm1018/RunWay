@@ -218,8 +218,29 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception) {
+        ErrorCode guard = withdrawalGuard(exception);
+        if (guard != null) return response(guard, Map.of());
         log.error("처리하지 못한 예외", exception);
         return response(ErrorCode.INTERNAL_ERROR, Map.of());
+    }
+
+    private static ErrorCode withdrawalGuard(Throwable exception) {
+        for (Throwable cause=exception; cause!=null; cause=cause.getCause()) {
+            if (cause instanceof SQLException first) {
+                for (SQLException sql=first; sql!=null; sql=sql.getNextException()) {
+                    if (!"23514".equals(sql.getSQLState())) continue;
+                    try {
+                        Object message=sql.getClass().getMethod("getServerErrorMessage").invoke(sql);
+                        String constraint=(String) message.getClass().getMethod("getConstraint").invoke(message);
+                        if ("rw_active_owner".equals(constraint)) return ErrorCode.UNAUTHORIZED;
+                        if ("rw_active_post".equals(constraint)) return ErrorCode.POST_NOT_FOUND;
+                    } catch (ReflectiveOperationException | NullPointerException ignored) {
+                        // Preserve the original handling for unrelated database failures.
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private static ResponseEntity<ApiErrorResponse> validation(List<Map<String, String>> fields) {

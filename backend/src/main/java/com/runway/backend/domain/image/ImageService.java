@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -29,6 +30,7 @@ public class ImageService {
     private final ImageStorageProperties properties;
     private final ImageAccessRepository access;
 
+    @Transactional
     public ImageUploadResponse upload(long userId, MultipartFile file, String purposeRaw) {
         ImagePurpose purpose = ImagePurpose.from(purposeRaw);
         if (file == null || file.isEmpty()) {
@@ -64,6 +66,7 @@ public class ImageService {
             throw new ApiException(ErrorCode.IMAGE_MEDIA_MISMATCH);
         }
 
+        if (!access.lockActiveUser(userId)) throw new ApiException(ErrorCode.UNAUTHORIZED);
         String imageId = UUID.randomUUID().toString();
         String extension = format.extension();
         String imageKey =
@@ -76,6 +79,7 @@ public class ImageService {
 
     public StoredImage load(Long viewerId, String imageIdRaw) {
         UUID imageId = parseImageId(imageIdRaw);
+        boolean ownUploadsVisible = viewerId != null && access.activeUserExists(viewerId);
         for (String extension : new String[] {"jpg", "png"}) {
             String fileName = imageId + "." + extension;
             for (String key : access.findReadableKeys(viewerId, fileName)) {
@@ -88,7 +92,7 @@ public class ImageService {
                     }
                 }
             }
-            if (viewerId != null) {
+            if (ownUploadsVisible) {
                 for (ImagePurpose purpose : ImagePurpose.values()) {
                     Optional<StoredImage> image = imageStorage.findByKey(
                             "images/" + purpose.pathSegment() + "/" + viewerId + "/" + fileName);

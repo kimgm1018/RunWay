@@ -378,12 +378,14 @@ Path·Query Parameters 없음. 클라이언트가 userId·기기 ID로 폐기 �
 |---|---|:---:|---|
 | `id` | integer (int64) | O | `users.id` |
 | `nickname` | string | O | `users.nickname` |
-| `gender` | string | O | MALE / FEMALE |
-| `birthDate` | string (YYYY-MM-DD) | O | `users.birth_date` |
+| `gender` | string / null | O | MALE / FEMALE |
+| `birthDate` | string (YYYY-MM-DD) / null | O | `users.birth_date` |
 | `profileImageUrl` | string / null | O | [F02](files.md#f02-이미지-조회) 경로. `profile_image_key`가 없으면 null |
-| `loginId` | string | O | `users.login_id` |
+| `loginId` | string / null | O | `users.login_id` |
 | `status` | string | O | ACTIVE / WITHDRAWN (`account_status`) |
 | `onboardingCompleted` | boolean | O | 러닝 수준·유효 페이스가 있으면 true |
+
+탈퇴 계정은 nickname="탈퇴한 회원", status="WITHDRAWN", gender/birthDate/loginId/profileImageUrl=null, onboardingCompleted=false로 반환한다. DB의 개인정보 대체값과 해시 로그인 ID를 노출하지 않는다.
 
 ### 오류 응답
 
@@ -1014,7 +1016,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | --- | --- | --- | --- |
 | loginId | string | O | 영문·숫자 4~16자, 대소문자 구분. trim·정규화 없음. 탈퇴 계정 포함 중복 불가 |
 | password | string | O | 공통 비밀번호 정책: Unicode 코드포인트 8~20자, 공백·고립 surrogate 불가, 특수문자 허용 |
-| nickname | string | O | Unicode 코드포인트 2~10자, 공백·고립 surrogate 불가. 대소문자 구분·정규화 없음, DB UNIQUE로 중복 불가 |
+| nickname | string | O | Unicode 코드포인트 2~10자, 공백·고립 surrogate 불가. 대소문자 구분·정규화 없음, ACTIVE 회원 대상 부분 UNIQUE로 중복 불가. 탈퇴한 회원의 기존 닉네임은 재사용 허용 |
 | birthDate | string | O | YYYY-MM-DD의 유효한 날짜, 미래 불가. 나이 제한 없음 |
 | gender | string | O | MALE 또는 FEMALE |
 | phoneNumber | string | O | 국내 휴대전화 010으로 시작하는 숫자 11자리. 하이픈·공백 거절, 인증 절차 없음 |
@@ -1083,7 +1085,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | 422 | INVALID_PASSWORD_POLICY | 문자열 비밀번호 정책 위반 |
 | 422 | INVALID_CONSENT | 네 유형의 누락·중복·미지원 값, 잘못된 granted, 필수 동의 거절 |
 | 409 | LOGIN_ID_DUPLICATED | 기존·탈퇴 아이디 또는 동일 아이디 동시 가입 |
-| 409 | NICKNAME_DUPLICATED | 기존·탈퇴 닉네임 또는 동일 닉네임 동시 가입 |
+| 409 | NICKNAME_DUPLICATED | 현재 ACTIVE 회원의 닉네임 또는 동일 닉네임 동시 가입 |
 | 503 | SERVICE_UNAVAILABLE | 저장·발급·DB/Redis 처리 결과를 확인할 수 없음 |
 
 ## U16 아이디 사용 가능 여부 확인
@@ -1114,196 +1116,78 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 
 ## U17 회원탈퇴 사전 정보 조회
 
-`GET` `/api/v1/users/me/withdrawal-summary`
+`GET /api/v1/users/me/withdrawal-summary` · 회원 본인 ACTIVE · 1차 MVP
 
-| 항목 | 값 |
-|---|---|
-| 단계 | 1차 MVP |
-| 인증 | 회원 |
-| 관련 요구사항 | USR-001 / SYS-001 |
-| 관련 화면 | 8.4 회원탈퇴 확인 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | 화면 설계 v10 대조로 추가. 응답 형식은 ERD 확정 후 갱신 |
+2026-11-05 S15P31E105-248 사용자 확정 정책을 적용한다. U18에서 현재 상태를 다시 검사하므로 사전 조회가 실행 성공을 보장하지 않는다. 읽기 전용 REPEATABLE_READ로 같은 스냅샷을 사용한다.
 
-### 설명
+200 OK, Cache-Control: no-store.
 
-탈퇴 시 삭제되는 정보의 개수와 크루장 위임 대상 크루를 보여 준다.
-
-### 인증 및 권한
-
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-
-### Path Parameters
-
-없음
-
-### Query Parameters
-
-없음
-
-### Request Body
-
-없음
-
-### Response
-
-`200 OK (제안)`
-
-```json
-{
-  "runningRecordCount": 0,
-  "postCount": 0,
-  "bookmarkedCourseCount": 0,
-  "connectedDevices": [],
-  "ownedCrews": []
-}
-```
-
-응답 필드 정의(ERD ver.3 대조):
-
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|:---:|---|
-| `runningRecordCount` | integer | O | 탈퇴 영향 안내의 러닝 기록 수. 삭제범위는 탈퇴 정책 따름. |
-| `postCount` | integer | O | 삭제 대상 게시물 수. |
-| `bookmarkedCourseCount` | integer | O | 본인 북마크 수. 공용 코스 삭제 의미 아님. |
-| `connectedDevices` | array | O | 해제 대상 본인 기기(id/deviceType). |
-| `ownedCrews` | array | O | 위임 대상 크루와 후보 회원 ID/닉네임. 후보 부재 표현은 결정 필요. |
-
-
-**사용 흐름과 응답 판단**
-
-탈퇴 대상 개수와 크루별 위임 대상 식별자·닉네임이 필요하다. 후보 부재와 조회 실패를 구분하고 사전 조회 이후 실행 시 다시 검증한다.
-
-### 오류 응답
-
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
-| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+| 필드 | 타입 | 의미 |
 |---|---|---|
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| runningRecordCount | integer (int64) | 본인 미삭제 COMPLETED 러닝 기록 수 |
+| postCount | integer (int64) | 본인 미삭제 게시물 수 |
+| bookmarkedCourseCount | integer (int64) | 본인 북마크 수. 공용 코스 삭제 의미 아님 |
+| connectedDevices | array | 연결 중 본인 기기의 id·deviceType |
+| ownedCrews | array | 먼저 이양/크루 탈퇴 또는 해산할 크루의 crewId·name |
+| ownedGroupRuns | array | 먼저 취소/종료할 그룹의 groupRunId·title·status |
+| scheduledGroupRuns | array | 회원탈퇴 시 자동 참가 취소할 일반 참가 그룹의 groupRunId·title·status |
+| blockers | array | code·message·resourceIds. 없으면 빈 배열 |
 
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
+blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN, PENDING_START, ANALYSIS_PENDING을 사용한다. 이름/식별자는 본인이 소유하거나 참여한 자원만 반환하고 건강/GPS 원문은 포함하지 않는다. 일반 크루 멤버의 사전 크루 탈퇴는 요구하지 않는다. 예정 일반 그룹 참가 취소는 이 응답으로 안내한다.
 
-### 처리 규칙
-
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
-
-### 상태값
-
-- 해당 없음.
-
-### 미정 사항
-
-- [ ] 응답 필드는 ERD 확정 후 갱신
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
-
+미인증/유효하지 않은 토큰·없는/탈퇴 회원은 401 UNAUTHORIZED, 저장소 장애는 503 SERVICE_UNAVAILABLE다. 실패를 0건/빈 배열로 바꾸지 않는다.
 
 ## U18 회원탈퇴
 
-`DELETE` `/api/v1/users/me`
+`DELETE /api/v1/users/me` · 회원 본인 · 1차 MVP
 
-| 항목 | 값 |
-|---|---|
-| 단계 | 1차 MVP |
-| 인증 | 회원 |
-| 관련 요구사항 | USR-001 / SYS-001 |
-| 관련 화면 | 8.4 회원탈퇴 확인, 8.5 비밀번호 확인, 8.6 탈퇴 완료 (화면 설계 v10) |
-| 미정 사항 | 있음 |
-| 비고 | 화면 설계 v10 대조로 추가. 응답 형식은 ERD 확정 후 갱신 |
+2026-11-05 S15P31E105-248 사용자 확정 정책이다. 기존 자동 후임 선정 문구를 대체한다.
 
-### 설명
+### 요청과 응답
 
-비밀번호로 본인을 확인한 뒤 계정을 탈퇴 처리한다.
-
-### 인증 및 권한
-
-- 로그인 사용자 본인 또는 서비스 리소스 접근 권한 검사.
-
-### Path Parameters
-
-없음
-
-### Query Parameters
-
-없음
-
-### Request Body
-
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|:---:|---|
-| `password` | string | O | 본인 확인용 비밀번호 |
-| `agreed` | boolean | O | 삭제 정보 확인·복구 불가 동의(8.4 체크박스). true만 허용 |
-
-```json
-{
-  "password": "********",
-  "agreed": true
-}
-```
-
-### Response
-
-`200 OK (제안)`
-
-```json
-{
-  "withdrawnAt": "2026-10-24T09:00:00Z"
-}
-```
-
-응답 필드 정의(ERD ver.3 대조):
-
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|:---:|---|
-| `withdrawnAt` | string (ISO 8601 UTC) / null | O | `users.withdrawn_at` (TIMESTAMPTZ). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-
-
-**사용 흐름과 응답 판단**
-
-탈퇴 완료를 확인할 시각과 인증 종료 처리가 필요하다. 후속 삭제/위임 실패를 탈퇴 저장 실패로 혼동하지 않는다.
-
-### 오류 응답
-
-**상태: 오류 계약 초안.** 기존 오류 코드에 발생 조건을 보완했다. HTTP 상태·코드는 기존 제안을 유지하며, 추가 후보는 아래에 구분한다. 이 표만으로 미정 정책을 확정하지 않는다.
-
-| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+| 요청 필드 | 타입·필수 | 규칙 |
 |---|---|---|
-| `401 INVALID_PASSWORD` | 본인 확인 | 탈퇴 확인용 비밀번호 불일치 |
-| `422 AGREEMENT_REQUIRED` | 필수 확인 | 탈퇴에 필요한 기존 확인 항목을 수락하지 않음 |
-| `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
-| `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
-| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
+| password | string, 필수 | 기존 가입/로그인과 동일한 8~20 코드포인트·공백 없음. 원문은 저장/로그에 넣지 않음 |
+| agreed | boolean, 필수 | true만 허용. 누락/null/타입 오류와 false를 구분 |
 
-**추가 오류 후보 — HTTP·코드·판정 정책 확인 필요**
+200 OK, Cache-Control: no-store. `{ "withdrawnAt": "2026-11-05T00:00:00Z" }` (합성 예시). 최초 서버 탈퇴시각이며 동일 본인의 재요청은 시각을 변경하지 않는다. 재요청에도 유효한 본인 JWT와 형식상 유효한 요청/동의가 필요하되 이미 제거한 비밀번호와 재비교하지 않는다. 만료 JWT를 탈퇴 복구 명목으로 우회하지 않는다.
 
-| 후보 | 발생 가능 상황 |
+| HTTP·code | 조건 |
 |---|---|
-| `409 WITHDRAWAL_CONFLICT` | 탈퇴와 진행 중 러닝·그룹장/크루장 위임이 충돌하는 경우. 차단/정리 정책 미정 |
+| 400 VALIDATION_ERROR | JSON·필수값·자료형·비밀번호 형식 오류 |
+| 401 UNAUTHORIZED | 본인 인증 불가/회원 없음 |
+| 401 INVALID_PASSWORD | ACTIVE 회원 비밀번호 불일치/검증한 해시가 잠금 전 변경됨 |
+| 422 AGREEMENT_REQUIRED | agreed=false |
+| 409 WITHDRAWAL_CONFLICT | 아래 사전 정리가 필요. details.blockers는 U17과 같은 형식 |
+| 503 SERVICE_UNAVAILABLE | 잠금 제한/DB·Redis 장애 또는 상태/시각 불일치·결과 불확실 |
+| 503 IMAGE_CLEANUP_PENDING | DB 탈퇴는 확정됐지만 이미지 정리 미완료. details.withdrawalCompleted=true·withdrawnAt, 재요청/서버 worker로 복구 |
 
-- 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
-- **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다. 기존 멱등 처리 기준이 없는 경우 성공 재응답/409/재조회 선택은 확인 필요다.
+### 처리·보존 규칙
 
-### 처리 규칙
+- 운동 중(RUNNING/PAUSED 또는 참여 그룹 RUNNING)에는 탈퇴를 막는다. 미확정 START와 종료 후 분석 PENDING/PROCESSING도 정리 후 허용한다. 아직 시작하지 않은 READY는 취소한다. legacy READY(state_version=0)는 U18에서 CANCELLED로 닫고 버전은 유지한다.
+- 활성 크루장은 M08에서 지정 후임에게 이양 후 크루 탈퇴하거나 M11 해산을 먼저 해야 한다. U18은 자동 후임 선정/해산을 하지 않는다. 일반 APPROVED 멤버는 자동 LEFT, PENDING 신청은 삭제, 기존 LEFT/REJECTED 이력 유지.
+- 예정/진행 그룹장은 G13 취소/G12 종료를 먼저 한다. 시작 전 일반 참가 관계는 기존 나가기·READY 취소 로직으로 자동 정리한다. 다른 참가자의 운동을 탈퇴 API가 자동 종료하지 않는다.
+- 비밀번호 검증은 DB 잠금 밖에서, 상태/해시 재검사는 사용자 잠금 안에서 한다. 관련 크루/그룹/세션의 현재 상태를 잠그고 재검사한다. 모든 차단 검증 뒤 Refresh 계열을 선폐기한다. 사용자 DB 상태 변경과 Redis를 공동 트랜잭션이라고 표현하지 않는다. 이후 DB 실패로 로그인 권한이 풀릴 수 있다는 사용자 승인을 적용한다.
+- 갱신/로그인은 같은 사용자 잠금 아래 ACTIVE를 재검사한다. Redis 인덱스에서 누락된 계열도 탈퇴 확정 후 새 발급/갱신에 사용할 수 없다. 기존 JWT는 원래 exp까지 최대 10분 유효하고, 자원별 소유권·동의·공개 범위 및 현재 상태 검사는 유지한다.
+- users.id·참조는 보존한다. login_id는 SHA-256 소문자 64자리 해시로 예약해 재사용 금지. nickname은 “탈퇴한 회원”으로 통일하고 이전 닉네임 재사용 허용. 생일=1970-01-01·성별=MALE·전화번호=00000000000·비밀번호=!WITHDRAWN! 대체값으로 원문을 없애고 NOT NULL 유지. 건강 동의는 DISAGREE, 프로필 이미지 연결은 NULL. 대체값을 실제 프로필로 반환하지 않는다.
+- 본인 프로필 U04는 WITHDRAWN·탈퇴 이름·기본 이미지 상태만 제공하며 gender/birthDate/loginId/profileImageUrl은 null, onboardingCompleted=false다. 탈퇴 후 프로필 수정은 401이다.
+- 본인 설정·러닝 프로필·선호·북마크·좋아요·양방향 팔로우·일별 건강/준비도·심박 개인화·배치 메타데이터·GPS/측정/구간/페이스 전략 및 건강 파생 코칭은 실제 삭제한다. SET_BPM/COACHING 이벤트도 삭제하되 그룹 상태 증거 START/END 등은 보존한다.
+- 세션 식별 행/FK는 deleted_at과 함께 보존한다. HR/cadence·개인 목표·기기/BPM은 제거한다. 확정 그룹 결과에서 사용하는 거리·시간·페이스·목표 달성·실제 시각은 보존하고, 기타 개인 세션 지표는 제거한다. 공용 코스 행/경로/원본 세션 참조는 변경하지 않는다.
+- 게시물은 본문·이미지·지역을 제거하고 deleted_at으로 목록/검색에서 숨긴다. 상세 직접 접근은 410 WITHDRAWN_POST, message “탈퇴한 회원의 게시물입니다.”를 반환한다. 댓글은 본문을 “탈퇴한 회원의 댓글입니다”로 교체, 타인 대댓글·관계 보존. 기존 삭제 댓글을 부활시키지 않는다. 숨겨진 부모 글의 댓글 원문은 조회 불가다.
+- 기기는 연결 해제 이력을 남긴다. PostgreSQL 정리·멤버십 변경은 한 트랜잭션으로 반영/롤백한다. 쓰기 guard가 사용자 상태를 다시 검사해 탈퇴 후 업로드·개인화·소셜/설정 저장으로 개인정보가 재생성되지 않게 한다.
+- DB 커밋 후 개인 이미지 실제 삭제·테이블 없는 재시도를 연결한다. 크루가 사용하는 이미지·타인 파일은 보존한다. 상세 계약은 files.md의 회원탈퇴 정리 절을 따른다.
 
-- 크루장인 크루는 가장 오래된 멤버에게 크루장을 넘긴다(화면 8.4 안내 기준).
-- 등록 기기 연결을 해제하고 탈퇴 계정의 갱신 권한을 폐기하며 새 발급·갱신으로 접근을 연장하지 않는다. 기존 Access Token은 원래 만료시각까지 최대 10분 유효하고 즉시 차단 목록은 두지 않는다. 자원 소유권·동의·공개 범위·자원 존재 검사는 유지한다.
-- 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
-- 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
+탈퇴 시 현재 팔로우 관계를 제거하면서 해당 요청의 기존 처리 이력은 삭제하지 않고 CANCELLED로 갱신한다. 과거 승인 요청을 재전송해 FOLLOWING 성공으로 오인하는 것을 막고, 이미 끝난 다른 요청 이력은 유지한다.
 
-### 상태값
+탈퇴 커밋 뒤 해당 회원의 운동 비교 곡선·일시정지 시각 캐시도 제거한다. 캐시 사용 직전 별도 READ COMMITTED 트랜잭션에서 활성 회원·미삭제 세션을 확인하고 회원별 고정 스트라이프 잠금으로 진행 중인 비교가 캐시를 쓴 뒤 정리되도록 하고, 이후 호출은 삭제 상태를 다시 확인한다. DB 롤백 때는 캐시를 지우지 않는다. 팔로우 처리 이력의 쓰기도 요청자·대상 두 회원의 상태를 검사하여 탈퇴와 겹친 늦은 승인 이력이 새로 저장되지 않도록 한다.
 
-- 해당 없음.
+### 탈퇴와 저장의 동시 실행
 
-### 미정 사항
+세션 종속 쓰기(측정·좌표·코칭·페이스·sync_batches)는 부모 running_sessions FOR SHARE로 U18의 세션 FOR UPDATE와 직렬화하고 그 뒤 회원 상태는 잠금 없이 읽는다. running_sessions UPDATE는 자체 행 잠금으로 같은 보장을 얻으며 회원 행을 추가 잠그지 않는다. 기존 W07의 ‘회원 행이 잠겨 있어도 세션 저장은 진행’ 계약을 유지한다.
 
-- [ ] 즉시 삭제/유예 기간 후 삭제, 게시물·댓글 익명화 여부 등 개인정보 삭제 정책
-- [ ] 탈퇴자가 만든 공용 코스 처리
-- [ ] 응답 필드는 ERD 확정 후 갱신
-- [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
+신규 세션 INSERT 및 나머지 직접 회원 자원은 회원 KEY SHARE NOWAIT를 사용한다. 강한 회원 잠금과 겹치면 해당 저장 전체를 즉시 롤백해503을 반환하고 서버가 자동 재전송하지 않는다. W07의 같은 clientBatchId·같은 payload 재시도 규칙은 유지한다. 세션 없는 과거 sync_batches는 device_id로 회원을 확인한다.
 
+게시물 탈퇴 안내 구분: U18이 새로 숨기는 글은 body에 원문 대신 고정 문구 “탈퇴한 회원의 게시물입니다.”를 저장한다. 이미 deleted_at이 있던 글은 body=NULL로 원문만 지우고 계속404를 유지한다. 다른 필드/테이블 추가 없이 두 경우를 구분하며, 410은 고정 문구·삭제 상태·작성자 탈퇴 상태를 모두 확인한다.
 
 ## U19 앱 설정 조회
 

@@ -46,9 +46,23 @@ public class RecordComparisonService {
     private final SessionAnalysisRepository analysisRepository;
     private final SessionControlEventRepository controlEventRepository;
 
-    private record CachedTrack(SampleMark mark, List<PauseResumeEvent> pauses, Track track) {}
+    private record CachedTrack(long userId, SampleMark mark, List<PauseResumeEvent> pauses, Track track) {}
 
     private final Map<Long, CachedTrack> pastTracks = new ConcurrentHashMap<>();
+    private final Object[] cacheLocks = java.util.stream.IntStream.range(0, 64)
+            .mapToObj(index -> new Object()).toArray();
+
+    private Object cacheLock(long userId) {
+        return cacheLocks[Math.floorMod(userId, cacheLocks.length)];
+    }
+
+    /** Called after withdrawal commits; an in-flight comparison cannot refill after this returns. */
+    public void forgetUser(long userId) {
+        synchronized (cacheLock(userId)) {
+            pastTracks.entrySet().removeIf(entry -> entry.getValue().userId() == userId);
+        }
+    }
+
 
     /**
      * 비교 기록을 고르지 않은 세션은 null. 표시용 값이므로 계산 오류가 S01·S06·S08 등 같은 트랜잭션의 명령 저장을 막지 않게 WAITING으로 대신한다.
@@ -60,7 +74,13 @@ public class RecordComparisonService {
             return null;
         }
         try {
-            return calculate(session, targetId, now);
+            synchronized (cacheLock(session.getUserId())) {
+                if (!analysisRepository.cacheOwnerActive(session.getUserId(), targetId)) {
+                    pastTracks.remove(targetId);
+                    return new RecordComparison(UNAVAILABLE, null, null, null, null);
+                }
+                return calculate(session, targetId, now);
+            }
         } catch (DataAccessException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -82,7 +102,7 @@ public class RecordComparisonService {
             return new RecordComparison(UNAVAILABLE, null, null, null, null);
         }
         ComparisonTarget target = found.get();
-        Track past = pastTrack(targetId, target);
+        Track past = pastTrack(session.getUserId(), targetId, target);
         if (past.distance() <= 0) {
             return new RecordComparison(NO_RECORD, target.startedAt(), null, null, null);
         }
@@ -112,7 +132,7 @@ public class RecordComparisonService {
         return new RecordComparison(WAITING, target.startedAt(), null, null, null);
     }
 
-    private Track pastTrack(long targetId, ComparisonTarget target) {
+    private Track pastTrack(long userId, long targetId, ComparisonTarget target) {
         // 늦게 도착한 batch(샘플 표식)나 종료 뒤 확정된 일시정지 결과가 있으면 다시 만든다.
         SampleMark mark = analysisRepository.sampleMark(targetId);
         List<PauseResumeEvent> pauses = pauseResumeEvents(targetId);
@@ -129,7 +149,7 @@ public class RecordComparisonService {
         if (pastTracks.size() >= MAX_CACHED) {
             pastTracks.clear();
         }
-        pastTracks.put(targetId, new CachedTrack(mark, pauses, track));
+        pastTracks.put(targetId, new CachedTrack(userId, mark, pauses, track));
         return track;
     }
 
