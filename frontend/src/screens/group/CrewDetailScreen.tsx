@@ -355,11 +355,22 @@ export function CrewDetailScreen() {
   }, [loaded]);
   const [allMembers, setAllMembers] = useState(false);
   const [sheet, setSheet] = useState<
-    'full' | 'sent' | 'joined' | 'leave' | 'ownerLeave' | 'remove' | null
+    | 'full'
+    | 'sent'
+    | 'joined'
+    | 'leave'
+    | 'ownerLeave'
+    | 'remove'
+    | 'dissolve'
+    | null
   >(null);
   const [busy, setBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<CrewMember | null>(null);
   const removing = useRef(false);
+  const membershipAction = useRef(false);
+  const [successorId, setSuccessorId] = useState<string | null>(null);
+  const successors =
+    crew?.members.filter(member => !member.isMe && !member.isOwner) ?? [];
   const removeMember = async () => {
     if (
       busy ||
@@ -431,22 +442,57 @@ export function CrewDetailScreen() {
       setBusy(false);
     }
   };
-  // M08: the leader is asked to stay, as the server lets a leader leave only with a successor.
-  const leave = async (current: CrewDetail) => {
-    setSheet(null);
+  // M08: 후임을 선택한 경우에만 크루장 권한을 이양하고 탈퇴한다.
+  const leave = async (current: CrewDetail, successorUserId?: string) => {
+    if (
+      busy ||
+      membershipAction.current ||
+      (current.amOwner && !successorUserId)
+    )
+      return;
+    membershipAction.current = true;
     setBusy(true);
     try {
-      await crews.leave(current.id);
+      await crews.leave(current.id, successorUserId);
+      setSheet(null);
       changed();
       toast(`‘${current.name}’에서 나왔어요`);
       navigateTo(navigation, 'MyCrews');
     } catch (error) {
       if (errorCode(error) === 'OWNER_CANNOT_LEAVE') {
-        setSheet('ownerLeave');
+        setSheet('dissolve');
+        toast('후임을 지정해 탈퇴하거나 크루 해산을 확인해 주세요');
+      } else if (errorCode(error) === 'INVALID_SUCCESSOR') {
+        toast('후임으로 지정할 수 없는 멤버예요. 다른 멤버를 선택해 주세요');
       } else {
         toast('크루에서 나가지 못했어요. 잠시 후 다시 시도해 주세요');
       }
     } finally {
+      membershipAction.current = false;
+      setBusy(false);
+    }
+  };
+  const dissolve = async (current: CrewDetail) => {
+    if (busy || membershipAction.current || !current.amOwner) return;
+    membershipAction.current = true;
+    setBusy(true);
+    try {
+      await crews.dissolve(current.id);
+      setSheet(null);
+      changed();
+      toast(`‘${current.name}’를 해산했어요`);
+      navigateTo(navigation, 'MyCrews');
+    } catch (error) {
+      const code = errorCode(error);
+      toast(
+        code === 'NOT_ADMIN'
+          ? '크루장만 해산할 수 있어요'
+          : code === 'CREW_NOT_FOUND'
+          ? '크루를 찾지 못했어요'
+          : '크루를 해산하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+    } finally {
+      membershipAction.current = false;
       setBusy(false);
     }
   };
@@ -629,11 +675,33 @@ export function CrewDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="크루 나가기"
                 disabled={busy}
-                onPress={() => setSheet(crew.amOwner ? 'ownerLeave' : 'leave')}
+                onPress={() => {
+                  setSuccessorId(null);
+                  setSheet(
+                    crew.amOwner
+                      ? successors.length
+                        ? 'ownerLeave'
+                        : 'dissolve'
+                      : 'leave',
+                  );
+                }}
                 style={styles.leave}
               >
                 <AppText variant="body" tone="danger" style={styles.underline}>
                   크루 나가기
+                </AppText>
+              </Pressable>
+            ) : null}
+            {crew.amOwner ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="크루 해산"
+                disabled={busy}
+                onPress={() => setSheet('dissolve')}
+                style={styles.leave}
+              >
+                <AppText variant="body" tone="danger" style={styles.underline}>
+                  크루 해산
                 </AppText>
               </Pressable>
             ) : null}
@@ -714,23 +782,81 @@ export function CrewDetailScreen() {
                 title="크루에서 나갈까요?"
                 body={`‘${crew.name}’의 그룹런과 구성원 목록에서 빠져요. 다시 함께하려면 가입 신청을 새로 보내야 해요.`}
               >
-                <FooterButton title="취소" onPress={() => setSheet(null)} />
+                <FooterButton
+                  title="취소"
+                  disabled={busy}
+                  onPress={() => setSheet(null)}
+                />
                 <FooterButton
                   title="나가기"
+                  disabled={busy}
                   primary
                   onPress={() => leave(crew)}
                 />
               </SheetBody>
             ) : crew && sheet === 'ownerLeave' ? (
+              <>
+                <AppText style={styles.sheetTitle}>
+                  크루장을 넘기고 나갈까요?
+                </AppText>
+                <AppText variant="body" tone="textSecondary">
+                  새 크루장을 선택해 주세요. 확인하면 크루장을 넘긴 뒤 탈퇴해요.
+                </AppText>
+                <ScrollView style={styles.successors}>
+                  {successors.map(member => (
+                    <Pressable
+                      key={member.userId}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${member.nickname} 후임 선택`}
+                      accessibilityState={{
+                        selected: successorId === member.userId,
+                        disabled: busy,
+                      }}
+                      disabled={busy}
+                      onPress={() => setSuccessorId(member.userId)}
+                      style={styles.memberRow}
+                    >
+                      <AppText style={styles.memberName}>
+                        {member.nickname}
+                      </AppText>
+                      {successorId === member.userId ? (
+                        <Icon name="check" size={18} color={groupLook.onDark} />
+                      ) : null}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <View style={styles.sheetButtons}>
+                  <FooterButton
+                    title="취소"
+                    disabled={busy}
+                    onPress={() => setSheet(null)}
+                  />
+                  <FooterButton
+                    title="크루장 넘기고 나가기"
+                    primary
+                    disabled={busy || !successorId}
+                    onPress={() => {
+                      if (successorId) void leave(crew, successorId);
+                    }}
+                  />
+                </View>
+              </>
+            ) : crew && sheet === 'dissolve' ? (
               <SheetBody
                 icon="alert"
-                title="크루장은 바로 나갈 수 없어요"
-                body="크루장을 다른 구성원에게 넘긴 뒤에 나갈 수 있어요. 크루장 넘기기는 준비 중이에요."
+                title="크루를 해산할까요?"
+                body={`‘${crew.name}’의 모든 구성원이 크루에서 나가며, 크루 목록에서 더 이상 보이지 않아요.`}
               >
                 <FooterButton
-                  title="닫기"
-                  primary
+                  title="취소"
+                  disabled={busy}
                   onPress={() => setSheet(null)}
+                />
+                <FooterButton
+                  title="해산"
+                  danger
+                  disabled={busy}
+                  onPress={() => dissolve(crew)}
                 />
               </SheetBody>
             ) : null}
@@ -843,6 +969,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   // 6.2-MembersCard rows: 34 initial, name, 크루장 chip, recent pace on the right.
+  successors: { maxHeight: 240 },
   removeMember: {
     minHeight: 44,
     justifyContent: 'center',

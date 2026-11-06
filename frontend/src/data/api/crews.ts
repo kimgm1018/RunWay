@@ -9,7 +9,7 @@ import type {
 import { apiRequest } from './http';
 import type { Regions } from './regions';
 
-// M01–M10 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
+// M01–M11 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
 // edit and 바로 가입 have no API, so they are kept on this phone for the session only.
 
 type MembershipStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'LEFT';
@@ -196,11 +196,19 @@ export function createCrewsApi({
       policies.set(String(id), draft.joinPolicy);
       return { id: String(id) };
     },
-    leave: async crewId => {
-      if (!isServerId(crewId)) {
-        return mock.leave(crewId);
-      }
-      await apiRequest(`/crews/${crewId}/members/me`, { method: 'DELETE' });
+    leave: async (crewId, successorUserId) => {
+      if (!isServerId(crewId)) return mock.leave(crewId, successorUserId);
+      await apiRequest(`/crews/${crewId}/members/me`, {
+        method: 'DELETE',
+        body:
+          successorUserId === undefined
+            ? undefined
+            : { successorUserId: Number(successorUserId) },
+      });
+    },
+    dissolve: async crewId => {
+      if (!isServerId(crewId)) return mock.dissolve(crewId);
+      await apiRequest(`/crews/${crewId}`, { method: 'DELETE' });
     },
     removeMember: async (crewId, userId) => {
       if (!isServerId(crewId)) return mock.removeMember(crewId, userId);
