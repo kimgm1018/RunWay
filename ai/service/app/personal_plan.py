@@ -106,7 +106,9 @@ class PersonalPlanRequest(CamelModel):
     """Internal backend request. Include userId only for a health-consented user."""
 
     user_id: ServerId | None = None
-    course_id: ServerId
+    # 없으면 자유러닝(S15P31E105-486): selectedGoal.targetDistanceM 거리를 평지(0%)로 계획한다.
+    course_id: ServerId | None = None
+    # courseId가 없는데 targetDistanceM도 없으면 build_personal_plan이 400 VALIDATION_ERROR(selectedGoal)로 거절한다.
     selected_goal: SelectedGoal | None = None
 
     model_config = {"extra": "forbid", **CamelModel.model_config}
@@ -114,7 +116,7 @@ class PersonalPlanRequest(CamelModel):
     @field_validator("user_id", "course_id", mode="before")
     @classmethod
     def server_ids_are_signed_int64(cls, value, info):
-        if info.field_name == "user_id" and value is None:
+        if value is None:
             return None
         return normalize_server_id(value)
 
@@ -254,8 +256,9 @@ class PersonalPaceOptimizer(Protocol):
 class PersonalPlanResponse(CamelModel):
     plan_status: str
     user_id: ServerId | None
-    course_id: ServerId
-    course_version: str
+    # 자유러닝(코스 없음, S15P31E105-486)이면 courseId·courseVersion은 null이다.
+    course_id: ServerId | None
+    course_version: str | None
     model_version: str
     policy_version: str
     personalized: bool
@@ -301,9 +304,14 @@ def _not_ready(reason: str) -> ApiError:
     )
 
 
-def resolve_selected_goal(selected_goal: SelectedGoal | None, course: CoursePlanSnapshot) -> ResolvedGoal:
-    """Use the AI05 goal conversion when present; no-goal uses the course length only."""
-    if course.course_id <= 0 or not math.isfinite(course.distance_m) or course.distance_m <= 0:
+def resolve_selected_goal(selected_goal: SelectedGoal | None, course: CoursePlanSnapshot, *,
+                          free_run: bool = False) -> ResolvedGoal:
+    """Use the AI05 goal conversion when present; no-goal uses the course length only.
+
+    free_run이면 course는 목표 거리로 만든 평지 자리표시이고, 목표 변환은 AI05 자유러닝 형식(courseId·경사 없음)이다.
+    """
+    if ((not free_run and course.course_id <= 0) or not math.isfinite(course.distance_m)
+            or course.distance_m <= 0):
         raise ApiError(422, "INVALID_GOAL", "코스 거리 정보가 유효하지 않습니다.")
     if course.distance_m > float(_MAX_DISTANCE_M):
         raise ApiError(422, "INVALID_GOAL", "코스 거리가 현재 AI05 계획 상한을 초과했습니다.")
@@ -329,9 +337,10 @@ def resolve_selected_goal(selected_goal: SelectedGoal | None, course: CoursePlan
         # Course distance alone is not a time/pace goal; AI05 would ask for a habitual pace.
         return no_goal
     body = selected_goal.model_dump(by_alias=True, exclude_none=True)
-    body["courseId"] = course.course_id
-    body["gradeProfile"] = [segment.model_dump(by_alias=True, exclude_none=True)
-                            for segment in course.grade_profile]
+    if not free_run:
+        body["courseId"] = course.course_id
+        body["gradeProfile"] = [segment.model_dump(by_alias=True, exclude_none=True)
+                                for segment in course.grade_profile]
     status, result = prerun_planner.plan_api(body, predictor=prerun_planner.NO_HR_PREVIEW,
                                              config=prerun_planner.API_CONFIG)
     if status >= 400:
@@ -1099,6 +1108,33 @@ class OdeBalancedPaceOptimizer:
         return result
 
 
+FREE_RUN_FLAT_GRADE = "FREE_RUN_FLAT_GRADE"
+_FREE_RUN_COURSE_VERSION = "free-run-flat0"
+
+
+def _free_run_flat_course(selected_goal: SelectedGoal | None,
+                          free_run_grade_policy: str) -> tuple[CoursePlanSnapshot, list[str]]:
+    """자유러닝(코스 없음): 목표 거리를 0% 평지 한 구간으로 둔 자리표시 코스와 경고."""
+    distance = None if selected_goal is None else selected_goal.target_distance_m
+    if distance is None:   # 요청 검증에서 이미 막지만, 직접 호출에도 같은 규칙을 지킨다.
+        raise ApiError(400, "VALIDATION_ERROR", "요청 값이 유효하지 않습니다.",
+                       [{"name": "selectedGoal",
+                         "reason": "courseId가 없으면 자유러닝 목표 거리 selectedGoal.targetDistanceM이 필요합니다"}])
+    if not 0 < distance <= int(_MAX_DISTANCE_M):
+        raise ApiError(422, "INVALID_GOAL", "자유러닝 목표 거리가 현재 계획 범위(0 초과 45 km 이하)를 벗어났습니다.",
+                       [{"name": "selectedGoal.targetDistanceM", "reason": "1~45000 m"}])
+    if free_run_grade_policy == "reject":
+        raise ApiError(422, "COURSE_GRADE_UNAVAILABLE",
+                       "자유러닝 경사 정책(FREE_RUN_GRADE_POLICY=reject)으로 평지 계획을 만들지 않습니다.")
+    course = CoursePlanSnapshot(
+        course_id=0, distance_m=float(distance),
+        grade_profile=(PlanGradeSegment(startDistanceM=0, endDistanceM=distance, gradePercent=0),),
+        version=_FREE_RUN_COURSE_VERSION, grade_source="MISSING")
+    # ODE에는 경사 모름 모드가 없어 unknown·flat0 모두 0% 평지로 계산한다(코스 경사 없음 경로와 같음).
+    return course, [FREE_RUN_FLAT_GRADE, f"FREE_RUN_GRADE_POLICY_{free_run_grade_policy.upper()}_PROVISIONAL",
+                    "ODE_GRADE_FILLED_0"]
+
+
 def build_personal_plan(
     body: PersonalPlanRequest,
     *,
@@ -1114,22 +1150,26 @@ def build_personal_plan(
     runner_blend_k: dict[str, float] | None = None,
 ) -> PersonalPlanResponse:
     """Build from an ODE bundle or a provenance-bearing train-cohort mean plan."""
-    if course_lookup is None:
-        raise _not_ready("COURSE_LOOKUP_NOT_CONFIGURED")
-    course = course_lookup.get_course(body.course_id)
-    if course is None:
-        raise ApiError(404, "COURSE_NOT_FOUND", "선택한 코스를 찾을 수 없습니다.")
-    if course.course_id != body.course_id:
-        raise _not_ready("COURSE_LOOKUP_ID_MISMATCH")
+    free_run = body.course_id is None
     course_warnings = []
-    if course.grade_source == "MISSING":
+    if free_run:
+        course, course_warnings = _free_run_flat_course(body.selected_goal, free_run_grade_policy)
+    else:
+        if course_lookup is None:
+            raise _not_ready("COURSE_LOOKUP_NOT_CONFIGURED")
+        course = course_lookup.get_course(body.course_id)
+        if course is None:
+            raise ApiError(404, "COURSE_NOT_FOUND", "선택한 코스를 찾을 수 없습니다.")
+        if course.course_id != body.course_id:
+            raise _not_ready("COURSE_LOOKUP_ID_MISMATCH")
+    if not free_run and course.grade_source == "MISSING":
         if free_run_grade_policy == "reject":
             raise ApiError(422, "COURSE_GRADE_UNAVAILABLE", "코스 고도 정보가 없어 경사 기반 계획을 만들 수 없습니다.")
         # ODE에는 경사 모름 모드가 없어 unknown·flat0 모두 0% 평지로 계산한다.
         course_warnings = ["COURSE_GRADE_PROFILE_MISSING",
                            f"FREE_RUN_GRADE_POLICY_{free_run_grade_policy.upper()}_PROVISIONAL",
                            "ODE_GRADE_FILLED_0"]
-    goal = resolve_selected_goal(body.selected_goal, course)
+    goal = resolve_selected_goal(body.selected_goal, course, free_run=free_run)
     personalization = (personalization_lookup.get_personalization(body.user_id)
                        if body.user_id is not None and personalization_lookup is not None else None)
     lookup_warnings = list(personalization.warnings) if personalization is not None else []
@@ -1258,7 +1298,7 @@ def build_personal_plan(
             plan_status="EXPERIMENTAL" if population_kind is None else "AVERAGE_BASED",
             user_id=body.user_id,
             course_id=body.course_id,
-            course_version=course.version,
+            course_version=None if free_run else course.version,
             model_version=selection.model_version,
             policy_version=(selection.policy_version if population_kind is None
                             else population_bundle.policy_version if population_kind == "median_bundle"
@@ -1302,8 +1342,9 @@ def build_personal_plan(
 
     # Missing personal ODE state must use a real train-cohort mean, never a user
     # pace average or a locally invented fallback.
+    # 코스 조건부 학습 평균은 코스가 있어야 뜻이 있다. 자유러닝은 이 경로를 쓰지 않는다.
     population = (population_lookup.get_population_mean_plan(course)
-                  if population_lookup is not None else None)
+                  if population_lookup is not None and not free_run else None)
     if population is None:
         # "Disabled" only when the flag, not a missing bundle, blocked personalization.
         reason = ("PERSONAL_PLAN_EXPERIMENTAL_DISABLED" if not enabled and personalization is not None
