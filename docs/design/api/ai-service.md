@@ -472,7 +472,7 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | --- | --- | --- |
 | 코스 | 없음 | AI09 응답의 `segments[].paceSecPerKm`를 그대로 쓴다 |
 | 코스 | 있음(시간 또는 페이스) | 목표 시간·페이스는 백엔드 값을 유지하고, 구간 페이스 = 목표 페이스 × `segments[].paceRatio`. AI09를 쓸 수 없으면 AI05 `segmentDifficultyRatios`, 그다음 균등 분배 |
-| 자유러닝 | 거리만 | AI09 평지 계획(S15P31E105-486) |
+| 자유러닝 | 거리만 | `courseId` 없이 `selectedGoal.targetDistanceM`만 보내 AI09 평지 계획(S15P31E105-486)을 받는다 |
 | 자유러닝 | 거리+페이스 / 없음 | AI 호출 없음 |
 
 `paceRatio`는 0.85 이상 1.20 이하이고 거리 가중 평균이 1(±1e-6)이므로, 목표 페이스 × `paceRatio`를 소수 둘째 자리로 반올림한 구간 페이스는 AI09의 `paceSecPerKm`와 구간별 0.01초/km 안에서 같고 전체 시간은 목표 시간과 같다(반올림 차이 제외).
@@ -481,17 +481,23 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다.
 
-허용하는 최상위 입력은 필수 `courseId`와 선택 `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
+허용하는 최상위 입력은 `courseId`, `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`가 있으면 코스 러닝, 없으면(생략 또는 null) 자유러닝이다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
 
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | :---: | --- |
 | `userId` | integer (int64) / null | X | 건강정보 동의 사용자만 보냄. 생략 또는 null이면 개인 데이터를 조회하지 않고 평균 기반 계획(`personalized=false`, `USER_ID_NOT_PROVIDED`)을 쓴다 |
-| `courseId` | integer (int64) | O | 계획할 ACTIVE 코스 ID |
+| `courseId` | integer (int64) / null | 코스 러닝 O | 계획할 ACTIVE 코스 ID. 생략 또는 null이면 자유러닝(아래) |
 | `selectedGoal` | object / null | X | 선택 목표. 생략하면 코스 거리로 계획한다. 내부에 정의된 필드 외에는 허용하지 않는다 |
-| `selectedGoal.targetDistanceM` | integer / null | X | 목표 거리(m). |
+| `selectedGoal.targetDistanceM` | integer / null | 자유러닝 O | 목표 거리(m). 코스 러닝이면 코스 거리와 같아야 하고, 자유러닝이면 이 거리(1~45,000 m)로 계획한다 |
 | `selectedGoal.targetDurationSec` | integer / null | X | 목표 완주 시간(초). |
 | `selectedGoal.targetPaceSecPerKm` | number / null | X | 목표 페이스(초/km). |
 | `selectedGoal.goalPreference` | number | X | 현재 공개값은 `0.5`로 고정한다. 생략 시 `0.5` |
+
+**자유러닝(목표 거리만, S15P31E105-486).** `courseId` 없이 `selectedGoal.targetDistanceM`이 오면 코스를 조회하지 않고 그 거리를 경사 0%(평지)로 계획한다. 나머지 계산(개인 속도 보정 s=1.45, 신규 사용자 기준, 목표 심박 보정 k=5·c=1.0126, 구간 비율 0.85~1.20 제한)은 코스 러닝과 같다. 응답의 `courseId`·`courseVersion`은 null이고, `warnings` 맨 앞에 `FREE_RUN_FLAT_GRADE`, `FREE_RUN_GRADE_POLICY_FLAT0_PROVISIONAL`, `ODE_GRADE_FILLED_0`가 붙는다. 시간·페이스 목표를 함께 보내면 코스 러닝처럼 목표 시간을 지킨다(백엔드 규칙상 자유러닝 거리+페이스는 AI를 부르지 않는다). 코스 조건부 학습 평균 계획(`COURSE_CONDITIONAL_TRAIN_MEAN`) 경로는 자유러닝에 쓰지 않는다. `courseId`도 `targetDistanceM`도 없으면 `400 VALIDATION_ERROR`(필드 `selectedGoal`)로 거절한다. 거리가 1~45,000 m 밖이면 `422 INVALID_GOAL`, `FREE_RUN_GRADE_POLICY=reject`이면 `422 COURSE_GRADE_UNAVAILABLE`이다. 코스 러닝 요청의 응답은 바뀌지 않는다.
+
+```json
+{"userId": 73, "selectedGoal": {"targetDistanceM": 5000}}
+```
 
 ### Response
 
@@ -503,8 +509,8 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 | --- | --- | --- |
 | `planStatus` | string | `EXPERIMENTAL` 또는 `AVERAGE_BASED` |
 | `userId` | integer (int64) / null | 요청 사용자 ID. 요청에서 생략했으면 null |
-| `courseId` | integer (int64) | 요청 코스 ID |
-| `courseVersion` | string | 계획에 사용한 코스 버전 |
+| `courseId` | integer (int64) / null | 요청 코스 ID. 자유러닝이면 null |
+| `courseVersion` | string / null | 계획에 사용한 코스 버전. 자유러닝이면 null |
 | `modelVersion` / `policyVersion` | string | 사용 모델·정책 버전 |
 | `personalized` | boolean | 개인 ODE 경로는 true, 평균 기반 경로는 false |
 | `planSource` | string | `PERSONAL_ODE_HR_BALANCE`, `POPULATION_MEDIAN_ODE`, `POPULATION_EMPTY_G0_ODE` 또는 모집단 계획의 출처 |
@@ -538,7 +544,7 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 `userId`가 생략되거나 null이면 AI09는 사용자 개인화와 사용자 HR 기준을 조회하지 않는다. 기존 신규 사용자와 같은 평균 기반 경로를 사용해 `userId=null`, `planStatus=AVERAGE_BASED`, `personalized=false`와 `USER_ID_NOT_PROVIDED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false` 경고를 반환한다. 개인화 행이 없는 동의 사용자도 `AVERAGE_BASED`와 `personalized=false`를 반환하지만 `USER_ID_NOT_PROVIDED`는 붙이지 않는다. 평균 경로의 실험 스위치, ODE 및 평균 묶음이 준비되지 않으면 기존 `503 PERSONAL_PLAN_NOT_READY`를 반환한다. 클라이언트는 평균 기반 계획을 개인화 완료로 표시하지 않는다.
 
-코드에서 만드는 경고는 `USER_ID_NOT_PROVIDED`, `PERSONALIZATION_TABLE_MISSING`, `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_<mode>_PROVISIONAL`, `ODE_GRADE_FILLED_0`, `FINAL_PARTIAL_30S_CELL_HR_HOLD_LAST_OBSERVED_SAMPLE`, `HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN`, `PACE_SEARCH_SUPPORT=<scope>`, `PACE_SEARCH_DOMAIN_BOUNDARY_HIT_BEST_EFFORT`, `ODE_BEYOND_VALIDATED_HORIZON`, `PLAN_SEARCH_BUDGET_LIMITED`, `PLAN_FIRST_SEGMENT_CAPPED`, `PACE_SEARCH_GRID_STEP_MPS=<value>`, `POLICY_UNVALIDATED_NO_SAFETY_CLAIM`, `PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN`, `HR0_NOT_MEASURED_SUPPORT_MEDIAN_USED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false`, `POPULATION_MODE=<mode>`, `TRAIN_SUBJECTS=<count>`, `TRAIN_RUNS=<count>`, `COURSE_PROFILE_COVERAGE=<value>`, `FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION`, `ODE_SPEED_CALIB_SCALE=<s>`, `ODE_SPEED_REF_SOURCE=HISTORY|TRAIN_DEFAULT`, `SPEED_REF_LOOKUP_UNAVAILABLE`, `TARGET_HR_CALIB_GLOBAL_RATIO=<g>`, `TARGET_HR_CALIB_K=<k>`, `TARGET_HR_CALIB_HISTORY_RUNS=<n>`, `TARGET_HR_HISTORY_LOOKUP_UNAVAILABLE`, `SEGMENT_RATIO_CLAMPED`, `RUNNER_BASELINE_SOURCE=<DISTANCE_TIME|PACE|LEVEL_PRESET|LEVEL_FALLBACK>`, `RUNNER_BASELINE_KIND=<TYPED|LEVEL>`, `RUNNER_BASELINE_WEIGHT=<w>`, `RUNNER_BASELINE_PAST_RUNS=<n>`, `RUNNER_BASELINE_RECORD_IMPLAUSIBLE_LEVEL_USED`, `RUNNER_BASELINE_PACE_CLIPPED_TO_SEARCH_SUPPORT`, `RUNNER_PROFILE_NOT_SET`, `RUNNER_PROFILE_INVALID`, `RUNNER_PROFILE_TABLE_MISSING`, `RUNNER_PROFILE_LOOKUP_UNAVAILABLE`, `RUNNER_PAST_RUNS_LOOKUP_UNAVAILABLE`이다. 경고는 해당 데이터·계획 경로에서만 붙는다.
+코드에서 만드는 경고는 `USER_ID_NOT_PROVIDED`, `PERSONALIZATION_TABLE_MISSING`, `COURSE_GRADE_PROFILE_MISSING`, `FREE_RUN_GRADE_POLICY_<mode>_PROVISIONAL`, `ODE_GRADE_FILLED_0`, `FINAL_PARTIAL_30S_CELL_HR_HOLD_LAST_OBSERVED_SAMPLE`, `HR_REFERENCE_BAND_NOT_SATISFIED_BEST_EFFORT_EXPERIMENTAL_PLAN`, `PACE_SEARCH_SUPPORT=<scope>`, `PACE_SEARCH_DOMAIN_BOUNDARY_HIT_BEST_EFFORT`, `ODE_BEYOND_VALIDATED_HORIZON`, `PLAN_SEARCH_BUDGET_LIMITED`, `PLAN_FIRST_SEGMENT_CAPPED`, `PACE_SEARCH_GRID_STEP_MPS=<value>`, `POLICY_UNVALIDATED_NO_SAFETY_CLAIM`, `PERSONALIZATION_SUPPORT_CUTOFF_NOT_PROVEN`, `HR0_NOT_MEASURED_SUPPORT_MEDIAN_USED`, `AVERAGE_BASED_RECOMMENDATION`, `PERSONALIZED=false`, `POPULATION_MODE=<mode>`, `TRAIN_SUBJECTS=<count>`, `TRAIN_RUNS=<count>`, `COURSE_PROFILE_COVERAGE=<value>`, `FITREC_RESEARCH_ONLY_NOT_FOR_PRODUCT_OR_REDISTRIBUTION`, `ODE_SPEED_CALIB_SCALE=<s>`, `ODE_SPEED_REF_SOURCE=HISTORY|TRAIN_DEFAULT`, `SPEED_REF_LOOKUP_UNAVAILABLE`, `TARGET_HR_CALIB_GLOBAL_RATIO=<g>`, `TARGET_HR_CALIB_K=<k>`, `TARGET_HR_CALIB_HISTORY_RUNS=<n>`, `TARGET_HR_HISTORY_LOOKUP_UNAVAILABLE`, `SEGMENT_RATIO_CLAMPED`, `FREE_RUN_FLAT_GRADE`, `RUNNER_BASELINE_SOURCE=<DISTANCE_TIME|PACE|LEVEL_PRESET|LEVEL_FALLBACK>`, `RUNNER_BASELINE_KIND=<TYPED|LEVEL>`, `RUNNER_BASELINE_WEIGHT=<w>`, `RUNNER_BASELINE_PAST_RUNS=<n>`, `RUNNER_BASELINE_RECORD_IMPLAUSIBLE_LEVEL_USED`, `RUNNER_BASELINE_PACE_CLIPPED_TO_SEARCH_SUPPORT`, `RUNNER_PROFILE_NOT_SET`, `RUNNER_PROFILE_INVALID`, `RUNNER_PROFILE_TABLE_MISSING`, `RUNNER_PROFILE_LOOKUP_UNAVAILABLE`, `RUNNER_PAST_RUNS_LOOKUP_UNAVAILABLE`이다. 경고는 해당 데이터·계획 경로에서만 붙는다.
 
 **속도 반응 보정(S15P31E105-402).** 출발 전 계획이 실제 러닝보다 빨랐던 문제를 줄이기 위해 AI09는 ODE에 넣는 속도만 `v' = v_ref + s·(v − v_ref)`로 바꾼다(기본 s=1.45, `PERSONAL_PLAN_SPEED_CALIB_SCALE`). 요청·응답 필드는 바뀌지 않는다. 응답 페이스·완주시간과 탐색 범위 검사는 원래 속도 기준이다. v_ref는 동의 사용자의 `running_sessions`에서 계획 시각 이전에 끝난 완료 러닝 최근 20회의 `total_distance / moving_duration` 중앙값이며, 기록이 없거나 조회할 수 없으면 V2 Train 기본값 3.4704 m/s를 쓴다. 같은 변경에서 ODE checkpoint를 속도 반응 미세조정본(λ=1)으로 바꿔 `modelVersion`이 `ode_v21_base_epoch20_legacy27:737334a7d77a`가 된다. 이전 모델로 만든 개인화 행은 AI06을 다시 호출하기 전까지 평균 기반 계획을 받는다. V2 Val 완주시간 절대 오차는 평균 280.1초에서 241.3초로 줄었다. s=1.0이면 보정층만 꺼진다.
 
@@ -564,7 +570,7 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 | HTTP | code | 발생 조건 |
 | --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | JSON 형식·ID·허용하지 않은 요청 필드 |
+| 400 | `VALIDATION_ERROR` | JSON 형식·ID·허용하지 않은 요청 필드, `courseId`와 `selectedGoal.targetDistanceM`이 모두 없음 |
 | 404 | `COURSE_NOT_FOUND` | ACTIVE 코스 조회 결과가 없음 |
 | 422 | `INVALID_GOAL`, `COURSE_DATA_MISMATCH`, `COURSE_GRADE_UNAVAILABLE` | 목표·코스 거리·경사 정보가 유효하지 않음 |
 | 422 | `GOAL_OUTSIDE_PACE_SEARCH_SUPPORT`, `PERSONAL_PLAN_NOT_FEASIBLE`, `PERSONAL_PLAN_GOAL_NOT_PRESERVED`, `POPULATION_PLAN_GOAL_NOT_PRESERVED` | 목표가 탐색 범위를 벗어나거나 계획 제약·시간 보존을 만족하지 못함 |
