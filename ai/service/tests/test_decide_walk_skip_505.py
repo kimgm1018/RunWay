@@ -77,6 +77,11 @@ def test_dev_response_and_predict_calls(name):
                          received_at=at, now=lambda: at, **kwargs)
 
     expected = copy.deepcopy(DEV_RESPONSES[name])
+    # S15P31E105-506에서 바뀐 값만 맞춘다: 정책 버전(mpc-v0.4.3)과 위험 감속 권고 공식
+    # max(안내, 실측 + 30)(캡처는 497의 max(실측, 안내) + 30 = 370). 이 경우 안내 340, 실측 3.0 m/s(333.3).
+    expected["response"]["policyVersion"] = policy.policy_version
+    if name == "running_safety":
+        expected["response"]["decision"]["recommendedPaceSecPerKm"] = max(340.0, 1000.0 / 3.0 + 30.0)
     if name in WALK_CASES:
         expected["response"]["candidates"] = []
         if name == "walk_user_personalization":

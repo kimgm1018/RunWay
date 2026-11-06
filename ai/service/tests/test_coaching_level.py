@@ -48,8 +48,8 @@ def test_caution_when_actual_pace_would_cross_allow_line():
     response, model = decide(330, 220, 155.0)
     assert response.decision.coaching_level == "CAUTION"
     assert response.decision.recommended_pace_sec_per_km == pytest.approx(330)         # 안내로 돌아오라는 뜻
-    assert model.batches[-1]["future_speed"].shape[0] == 6                             # 후보 5 + 실측 1행
-    assert model.batches[-1]["future_speed"][-1] == pytest.approx(1000.0 / 220)
+    assert model.batches[-1]["future_speed"].shape[0] == 6                             # 후보 5 + 실측 1(늦추거나 올릴 때만 두 번째 호출, 506)
+    assert model.batches[-1]["future_speed"][5] == pytest.approx(1000.0 / 220)
 
 
 def test_actual_pace_check_can_be_turned_off():

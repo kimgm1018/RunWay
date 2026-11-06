@@ -3,7 +3,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -51,22 +51,26 @@ def _anchor_index(body: DecideRequest) -> int:
     return min(range(len(body.candidates)), key=lambda i: abs(body.candidates[i].pace_sec_per_km - anchor))
 
 
-def _with_actual_speed(batch: dict, speed: float, anchor_index: int) -> dict:
-    """안내 그대로 후보를 복사해 미래 속도만 실측 속도로 바꾼 행을 배치 끝에 덧붙인다(S15P31E105-504).
+def _speed_rows(batch: dict, speeds: list[float], anchor_index: int, *, keep: bool) -> dict:
+    """안내 그대로 후보를 복사해 미래 속도만 바꾼 행들을 만든다(S15P31E105-504, -506).
 
-    과거 심박·속도·경사, 경과 시간, 미래 경사는 그 후보와 같다. GRU는 마지막 행으로
-    "러너가 지금 속도로 2분 계속 달리면"의 심박을 예측한다.
+    과거 심박·속도·경사, 경과 시간, 미래 경사는 그 후보와 같다. 실측 속도 행은 "러너가 지금 속도로 2분 계속
+    달리면"(코칭 단계), 느린·빠른 페이스 행은 "이만큼 늦추면/올리면"(넘친 만큼)의 심박을 예측한다.
+    keep=True면 원래 배치 끝에 덧붙이고, False면 만든 행만 돌려준다.
     """
+    if not speeds:
+        return batch
     out = {}
     for key, value in batch.items():
         if value is None:
             out[key] = None
             continue
-        row = np.array(value[anchor_index:anchor_index + 1], copy=True)
+        rows = np.repeat(np.array(value[anchor_index:anchor_index + 1], copy=True), len(speeds), axis=0)
         if key == "future_speed":
-            row[:] = speed
-        out[key] = np.concatenate([value, row], axis=0)
+            rows[:] = np.asarray(speeds, dtype=rows.dtype)[:, None]
+        out[key] = np.concatenate([value, rows], axis=0) if keep else rows
     return out
+
 
 
 def _outcome(body, status, response, policy, pred_hr, received_at, decided_at, begin, model_ms, error):
@@ -248,11 +252,12 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     # 요청 후보 5개는 그대로다. 걷기·정지는 위에서 NOT_RUNNING으로 끝내므로 이 경로에 오지 않는다.
     actual_speed = (speed_now if getattr(cfg, "actual_pace_check_enabled", False) and speed_now is not None
                     and speed_now >= cfg.walk_speed_mps else None)
-    n_rows = len(body.candidates) + (1 if actual_speed is not None else 0)
+    n_actual = 1 if actual_speed is not None else 0
+    n_rows = len(body.candidates) + n_actual
 
     def model_batch() -> dict:
         batch = to_batch(body, free_run_grade_policy)
-        return _with_actual_speed(batch, actual_speed, _anchor_index(body)) if actual_speed is not None else batch
+        return _speed_rows(batch, [actual_speed], _anchor_index(body), keep=True) if actual_speed is not None else batch
 
     model_start = time.perf_counter()
     personalization_warning = None
@@ -320,6 +325,46 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     except Exception as exc:
         raise ApiError(500, "DECISION_FAILED", "판단 중 오류가 발생했습니다.") from None
 
+    # 넘친 만큼 늦추기·빨라지기(S15P31E105-506): 늦추거나 올릴 때만 느린 페이스 max(안내, 실측) + 폭과 빠른 페이스
+    # 안내 − 폭을 두 번째 GRU 호출로 예측해 다시 판단한다. 대부분의 판단(유지·쿨다운)은 한 번만 부른다.
+    # 두 번째 예측이 실패하면 첫 판단(요청 후보 안에서 고른 것)을 그대로 쓴다.
+    if (output.reason in ("SLOW_DOWN_HR", "SPEED_UP_GOAL") and "GUIDE_NOT_FOLLOWED" not in output.warnings
+            and (getattr(cfg, "hr_slow_steps_sec_per_km", ()) or getattr(cfg, "speed_up_steps_sec_per_km", ()))):
+        anchor_pace = body.context.anchor_pace_sec_per_km
+        guide_pace = body.context.current_guide_pace_sec_per_km or anchor_pace
+        slow_base = max(guide_pace, pace_now) if pace_now is not None else guide_pace
+        slow_paces = ([slow_base + d for d in cfg.hr_slow_steps_sec_per_km]
+                      if output.reason == "SLOW_DOWN_HR" else [])
+        fast_paces = ([anchor_pace - d for d in cfg.speed_up_steps_sec_per_km
+                       if anchor_pace - d > 0 and 1000.0 / (anchor_pace - d) <= 10.0]
+                      if output.reason == "SPEED_UP_GOAL" else [])
+        paces = slow_paces + fast_paces
+        anchor_index = _anchor_index(body)
+        extra_start = time.perf_counter()
+        try:
+            batch = _speed_rows(to_batch(body, free_run_grade_policy), [1000.0 / q for q in paces],
+                                anchor_index, keep=False)
+            extra_pred = np.asarray(model.predict_with_state(batch, personalization.state) if personalized
+                                    else model.predict(batch), dtype=float)
+            if extra_pred.shape != (len(paces), 3) or not np.isfinite(extra_pred).all():
+                raise ValueError("추가 페이스 예측 출력이 올바르지 않습니다.")
+        except Exception as exc:
+            log_ai_error("EXTRA_PACE_PREDICTION_FAILED", "/v1/pace/decide", exc, level=logging.WARNING)
+            extra_pred = None
+        model_ms += (time.perf_counter() - extra_start) * 1000.0
+        if extra_pred is not None:
+            grade = body.candidates[anchor_index].future_grade_pct
+            rows = tuple(
+                PolicyCandidate(delta_sec_per_km=int(round(q - anchor_pace)), pace_sec_per_km=q,
+                                future_speed_mps=1000.0 / q, pred_hr_bpm=tuple(float(v) for v in extra_pred[k]),
+                                future_grade_pct=tuple(grade) if grade is not None else None)
+                for k, q in enumerate(paces))
+            policy_input = replace(policy_input, extra_slow=rows[:len(slow_paces)], extra_fast=rows[len(slow_paces):])
+            try:
+                output = policy.decide(policy_input)
+            except Exception:
+                raise ApiError(500, "DECISION_FAILED", "판단 중 오류가 발생했습니다.") from None
+
     results = []
     for i, candidate in enumerate(body.candidates):
         verdict = output.verdicts[i] if i < len(output.verdicts) else None
@@ -335,7 +380,8 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     cue_warnings: tuple[str, ...] = ()
     if output.action in {"GUIDE_PACE", "EASE_OFF"} and output.recommended_pace_sec_per_km is not None:
         chosen = output.chosen_index
-        chosen_pred = pred_hr[chosen] if chosen is not None and 0 <= chosen < len(pred_hr) else (None, None, None)
+        chosen_pred = (pred_hr[chosen] if chosen is not None and 0 <= chosen < len(pred_hr)
+                       else getattr(output, "chosen_pred_hr_bpm", None) or (None, None, None))
         expires = min(decided_at, body.context.input_as_of) + timedelta(seconds=20)
         cue, cue_warnings = _cue_bpm(cue_bpm_calc, output.recommended_pace_sec_per_km, body, bpm_lookup)
         decision = Decision(
