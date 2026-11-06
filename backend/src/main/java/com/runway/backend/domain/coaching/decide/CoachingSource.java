@@ -36,7 +36,8 @@ public record CoachingSource(
 
     public record PlanSegment(BigDecimal startDistanceM, BigDecimal endDistanceM, BigDecimal pace) {}
 
-    public record AppliedCoaching(long coachingId, Instant appliedAt, BigDecimal recommendedPace) {}
+    public record AppliedCoaching(
+            long coachingId, Instant appliedAt, BigDecimal recommendedPace, CoachingLevel coachingLevel) {}
 
     /** running_metric_samples 한 행. 심박은 실제 측정(is_hr_measured)일 때만 값이 있다. */
     public record Sample(

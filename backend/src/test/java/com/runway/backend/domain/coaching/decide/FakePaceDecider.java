@@ -69,7 +69,8 @@ public class FakePaceDecider implements PaceDecider {
                 new BigDecimal("155.00"),
                 null,
                 request.context().stateVersion(),
-                Instant.now().plusSeconds(20));
+                Instant.now().plusSeconds(20),
+                null);
     }
 
     @TestConfiguration(proxyBeanMethods = false)

@@ -96,7 +96,7 @@ class CoachingInputAssemblerTest {
         CoachingSource source =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, 5000, 1800, null, null, null, null,
-                        new AppliedCoaching(11L, NOW.minusSeconds(90), new BigDecimal("355.50")),
+                        new AppliedCoaching(11L, NOW.minusSeconds(90), new BigDecimal("355.50"), null),
                         NOW.minusSeconds(200), steadySamples());
 
         var assembled = CoachingInputAssembler.assemble(source, NOW).assembled();
@@ -134,7 +134,8 @@ class CoachingInputAssemblerTest {
                         List.of(
                                 new PlanSegment(new BigDecimal("0"), new BigDecimal("500"), new BigDecimal("350.00")),
                                 new PlanSegment(new BigDecimal("500"), new BigDecimal("1000"), new BigDecimal("332.00"))));
-        AppliedCoaching applied = new AppliedCoaching(1L, NOW.minusSeconds(60), new BigDecimal("345.25"));
+        AppliedCoaching applied =
+                new AppliedCoaching(1L, NOW.minusSeconds(60), new BigDecimal("345.25"), null);
 
         assertThat(request(withGoalAndPlan(plan, applied)).context().anchorPaceSecPerKm())
                 .isEqualByComparingTo("345.25");

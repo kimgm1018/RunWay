@@ -73,7 +73,8 @@ public final class RunningSessionMapper {
                 event.getExpectedVersion(),
                 event.getTargetBpm(),
                 guide.recommendedPace(),
-                guide.expiresAt());
+                guide.expiresAt(),
+                guide.coachingLevel());
     }
 
     /** 마지막 명령이 현재 제어기기의 미확정 명령(pendingCommand)과 같으면 같은 코칭 가이드를 보여준다. */

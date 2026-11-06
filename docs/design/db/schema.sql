@@ -352,7 +352,8 @@ CREATE TABLE "coaching_decisions" (
 	"route_progress"	NUMERIC(12,2)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
     "based_on_state_version" BIGINT NULL,
-    "expires_at" TIMESTAMPTZ NULL
+    "expires_at" TIMESTAMPTZ NULL,
+    "coaching_level" VARCHAR(16) NULL
 );
 
 COMMENT ON COLUMN "coaching_decisions"."elapsed_duration" IS '러닝 경과시간(초)';
@@ -368,6 +369,8 @@ COMMENT ON COLUMN "coaching_decisions"."predicted_hr_60_bpm" IS '60초 뒤 예�
 COMMENT ON COLUMN "coaching_decisions"."predicted_hr_120_bpm" IS '120초 뒤 예측 심박수(bpm)';
 
 COMMENT ON COLUMN "coaching_decisions"."route_progress" IS '코스 진행거리(m)';
+
+COMMENT ON COLUMN "coaching_decisions"."coaching_level" IS 'AI04 코칭 단계 OK/CAUTION/DANGER(S15P31E105-503). AI가 단계를 주지 않았거나 이전 행이면 null.';
 
 COMMENT ON COLUMN "coaching_decisions"."created_at" IS '생성일시';
 
@@ -1118,6 +1121,9 @@ ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_values"
         AND "recommended_pace" <> 'NaN'::numeric
         AND "route_progress" <> 'NaN'::numeric
     );
+
+ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_coaching_level"
+    CHECK ("coaching_level" IS NULL OR "coaching_level" IN ('OK', 'CAUTION', 'DANGER'));
 
 ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_revision"
     CHECK ("rhr_revision" IS NULL OR "rhr_revision" >= 1);

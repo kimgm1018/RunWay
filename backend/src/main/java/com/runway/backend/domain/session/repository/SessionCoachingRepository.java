@@ -1,5 +1,6 @@
 package com.runway.backend.domain.session.repository;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.CoachingSource;
 
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -100,12 +101,12 @@ public class SessionCoachingRepository {
                 windowSec);
     }
 
-    /** 워치에 적용(APPLIED)된 마지막 코칭과 그 추천 페이스. */
+    /** 워치에 적용(APPLIED)된 마지막 코칭과 그 추천 페이스·단계. */
     public Optional<CoachingSource.AppliedCoaching> lastAppliedCoaching(long sessionId) {
         return jdbc
                 .query(
                         """
-                        SELECT e.coaching_id, e.applied_at, d.recommended_pace
+                        SELECT e.coaching_id, e.applied_at, d.recommended_pace, d.coaching_level
                         FROM session_control_events e
                         JOIN coaching_decisions d ON d.id = e.coaching_id
                         WHERE e.session_id = ? AND e.action = 'COACHING' AND e.result = 'APPLIED'
@@ -115,10 +116,18 @@ public class SessionCoachingRepository {
                                 new CoachingSource.AppliedCoaching(
                                         rs.getLong("coaching_id"),
                                         rs.getTimestamp("applied_at").toInstant(),
-                                        rs.getBigDecimal("recommended_pace")),
+                                        rs.getBigDecimal("recommended_pace"),
+                                        coachingLevel(rs.getString("coaching_level"))),
                         sessionId)
                 .stream()
                 .findFirst();
+    }
+
+    private static CoachingLevel coachingLevel(String value) {
+        if (value == null) {
+            return null;
+        }
+        return CoachingLevel.valueOf(value);
     }
 
     /**
@@ -183,14 +192,16 @@ public class SessionCoachingRepository {
             BigDecimal routeProgress,
             long basedOnStateVersion,
             Instant createdAt,
-            Instant expiresAt) {
+            Instant expiresAt,
+            CoachingLevel coachingLevel) {
         Long id =
                 jdbc.queryForObject(
                         """
                         INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm,
                                                        predicted_hr_30_bpm,predicted_hr_60_bpm,predicted_hr_120_bpm,
-                                                       route_progress,based_on_state_version,expires_at,created_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id
+                                                       route_progress,based_on_state_version,expires_at,created_at,
+                                                       coaching_level)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id
                         """,
                         Long.class,
                         sessionId,
@@ -203,7 +214,8 @@ public class SessionCoachingRepository {
                         routeProgress,
                         basedOnStateVersion,
                         Timestamp.from(expiresAt),
-                        Timestamp.from(createdAt));
+                        Timestamp.from(createdAt),
+                        coachingLevel == null ? null : coachingLevel.name());
         if (id == null) {
             throw new IllegalStateException("coaching decision id not returned");
         }
