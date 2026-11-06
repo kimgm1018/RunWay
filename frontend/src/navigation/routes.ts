@@ -65,6 +65,7 @@ export const mainRoutes = [
   'PostWrite',
   'PostEdit',
   'RunnerProfile',
+  'CommunitySearch',
   'MyProfile',
   'ProfileEdit',
   'Settings',
@@ -390,7 +391,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '커뮤니티',
     task: COMMUNITY,
     tab: 'CommunityTab',
-    links: ['PostDetail', 'RunnerProfile', 'SavedCourses'],
+    links: ['PostDetail', 'RunnerProfile', 'SavedCourses', 'CommunitySearch'],
   },
   PostDetail: {
     code: '7.2',
@@ -415,6 +416,13 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '러너 프로필',
     task: COMMUNITY,
     links: [],
+  },
+  // runway-search (S15P31E105-390): runners and crews by name (CMT13).
+  CommunitySearch: {
+    code: '7.5',
+    title: '검색',
+    task: COMMUNITY,
+    links: ['RunnerProfile', 'CrewDetail'],
   },
   MyProfile: {
     code: '7.4b',

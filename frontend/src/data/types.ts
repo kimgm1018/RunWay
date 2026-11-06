@@ -943,6 +943,24 @@ export type SyncBatchAck = {
   acceptedCount: number;
 };
 
+// 7.5 검색 (CMT13, docs/design/api/community.md). 전체 asks for both kinds, 러너 · 크루 for one.
+export type SearchType = 'ALL' | 'RUNNER' | 'CREW';
+
+export type SearchRequest = {
+  query: string;
+  type: SearchType;
+  // The cursor of the previous page; left out for the first one.
+  cursor?: string | null;
+};
+
+// Up to 20 of each kind per page. A kind not asked for, or used up, is an empty list.
+// cursor is null when nothing more is left.
+export type SearchPage = {
+  runners: { userId: string; nickname: string }[];
+  crews: { crewId: string; name: string }[];
+  cursor: string | null;
+};
+
 export type Repositories = {
   auth: {
     login: (request: {
@@ -1123,6 +1141,10 @@ export type Repositories = {
       userId: string,
       following: boolean,
     ) => Promise<RunnerProfile>;
+  };
+  // 7.5 검색 (CMT13): runners and crews whose name holds the query.
+  search: {
+    find: (request: SearchRequest) => Promise<SearchPage>;
   };
   notifications: {
     list: () => Promise<AppNotification[]>;

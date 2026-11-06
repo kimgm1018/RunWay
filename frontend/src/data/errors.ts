@@ -26,6 +26,8 @@ export const dataErrorCodes = [
   'CREW_CAPACITY_EXCEEDED',
   // M02–M08 크루.
   'CREW_NOT_FOUND',
+  // CMT13 통합 검색: the query is under the server's minimum length.
+  'QUERY_TOO_SHORT',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

@@ -24,6 +24,7 @@ import { createCommunityMock } from './community';
 import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
+import { createSearchMock } from './search';
 import { createMockSession } from './mockSession';
 import {
   createMockWatchSession,
@@ -746,6 +747,10 @@ export function createMockRepositories(
     crews: crews.repository,
     community: social.community,
     runners: social.runners,
+    search: createSearchMock({
+      respond: value => respond(value, options),
+      fail: error => fail(error, options),
+    }),
     groupRuns: createGroupRunMock({
       respond: value => respond(value, options),
       tickMs: options.tickMs ?? 1000,

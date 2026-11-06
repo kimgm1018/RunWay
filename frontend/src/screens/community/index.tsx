@@ -3,6 +3,7 @@ import type { RouteName } from '../../navigation/routes';
 import { CommunityScreen } from './CommunityScreen';
 import { PostDetailScreen } from './PostDetailScreen';
 import { PostEditScreen, PostWriteScreen } from './PostWriteScreen';
+import { SearchScreen } from './SearchScreen';
 import {
   MyProfileScreen,
   MyProfileTabScreen,
@@ -19,5 +20,6 @@ export const communityScreens: Partial<Record<RouteName, React.ComponentType>> =
     PostWrite: PostWriteScreen,
     PostEdit: PostEditScreen,
     RunnerProfile: RunnerProfileScreen,
+    CommunitySearch: SearchScreen,
     MyProfile: MyProfileScreen,
   };
