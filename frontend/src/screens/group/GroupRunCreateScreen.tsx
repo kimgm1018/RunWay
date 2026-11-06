@@ -254,6 +254,16 @@ export function GroupRunCreateScreen() {
     mine?.crews.find(item => item.crew.id === route.params?.crewId)?.crew ??
     mine?.crews.find(item => item.crew.membership === 'MEMBER')?.crew;
   const now = clock.now();
+  // Today (KST) is offered too, but only the start times still ahead of now.
+  const todayDay = dayAfter(now, 0);
+  const kstNow = new Date(now.getTime() + kstOffsetMs);
+  const nowMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
+  const timesOn = (value: string | null) =>
+    value === todayDay ? times.filter(item => item > nowMinutes) : times;
+  const days = Array.from({ length: 14 }, (_, index) =>
+    dayAfter(now, index),
+  ).filter(value => timesOn(value).length > 0);
+  const passed = day === todayDay && time <= nowMinutes;
 
   // Editing starts from the run as it is: its course or minutes, place, day and time (KST).
   useEffect(() => {
@@ -512,6 +522,7 @@ export function GroupRunCreateScreen() {
               (editingId ? !edited : !crew) ||
               !draft.place ||
               !day ||
+              passed ||
               (mode === 'COURSE' && !course)
             }
             onPress={create}
@@ -542,9 +553,7 @@ export function GroupRunCreateScreen() {
         title="날짜"
       >
         <ScrollView style={styles.sheetList}>
-          {Array.from({ length: 14 }, (_, index) =>
-            dayAfter(now, index + 1),
-          ).map(value => (
+          {days.map(value => (
             <Button
               key={value}
               title={formatDotDateWeekday(`${value}T12:00:00+09:00`)}
@@ -552,6 +561,11 @@ export function GroupRunCreateScreen() {
               size="medium"
               style={styles.sheetItem}
               onPress={() => {
+                // Today with a start time already gone moves to the next open slot.
+                const open = timesOn(value);
+                if (!open.includes(time)) {
+                  setTime(open[0]);
+                }
                 setDay(value);
                 setSheet(null);
               }}
@@ -565,7 +579,7 @@ export function GroupRunCreateScreen() {
         title="시간"
       >
         <ScrollView style={styles.sheetList}>
-          {times.map(value => (
+          {timesOn(day).map(value => (
             <Button
               key={value}
               title={timeLabel(value)}
