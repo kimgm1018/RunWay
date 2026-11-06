@@ -230,8 +230,22 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
                                                           configured=hr_threshold_lookup_configured)
 
     hr_now, speed_now, pace_now = recent_inputs(body.history)
+    # 걷기·정지는 HR 기준 경고를 유지하고 GRU 개인화 조회·예측과 정책 판단을 건너뛴다.
+    if speed_now is None or speed_now < cfg.walk_speed_mps:
+        at = now()
+        response = DecideResponse(
+            trace_id=None, model_version=model.info.model_version, policy_version=policy.policy_version,
+            status="NOT_RUNNING", gate=None, publish_suggested=False, decision=None, candidates=[],
+            pacing=Pacing(),
+            warnings=free_run_warnings(body, free_run_grade_policy)
+            + list(threshold_warnings) + list(compatibility_warnings),
+            hr_personalized=False if body.user_id is not None else None,
+            hr_personalization_version=None,
+        )
+        return _outcome(body, "NOT_RUNNING", response, None, None, received_at, at, begin, None, None)
+
     # 코칭 단계용: 러너가 실측 속도로 2분 달리는 행을 하나 덧붙여 같은 GRU 호출로 함께 예측한다(S15P31E105-504).
-    # 요청 후보 5개는 그대로다. 걷기·정지면 정책이 NOT_RUNNING으로 끝내므로 덧붙이지 않는다.
+    # 요청 후보 5개는 그대로다. 걷기·정지는 위에서 NOT_RUNNING으로 끝내므로 이 경로에 오지 않는다.
     actual_speed = (speed_now if getattr(cfg, "actual_pace_check_enabled", False) and speed_now is not None
                     and speed_now >= cfg.walk_speed_mps else None)
     n_rows = len(body.candidates) + (1 if actual_speed is not None else 0)
