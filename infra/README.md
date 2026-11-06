@@ -98,7 +98,7 @@
 | 워치 도구 | Jenkins 접속 Java 21·Gradle Java 25, Gradle 9.6.0·AGP 9.4.1·SDK 37. 메모리 4GiB·CPU 1개 상한 |
 | AI 도구 | Java 21·Docker CLI 에이전트에서 Python 3.12·CPU PyTorch 검사 컨테이너 실행. 에이전트 512MiB·CPU 1개, 검사 컨테이너 1GiB·CPU 1개 상한 |
 | GitLab 연결 | `runway-gitlab`, 저장소 Credentials ID `runway-gitlab-repo` |
-| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사하며 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사. 모바일 테스트 파일만 바뀐 MR은 타입·린트·전체 Jest를 유지하고 APK만 생략 |
+| 통합 MR CI | `runway-ci`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.ci`. dev·master 대상 MR의 변경 영역만 검사하며 공통 Jenkins 설정 변경·수동 실행은 네 영역 모두 검사. 모바일은 타입·린트·전체 Jest를 항상 유지하고, JS·TS 소스만 바뀐 MR은 APK 대신 JS 번들 생성, 테스트 파일만 바뀐 MR은 둘 다 생략 |
 | 모바일 APK | `runway-mobile-apk`, `infra/jenkins/Jenkinsfile.mobile-apk`. master Push 후 ARM64 디버그 APK 생성·보관, 산출물은 최근 5개 빌드 기준으로 제한. 정식 출시 서명·스토어 배포 제외 |
 | 워치 APK | `runway-watch-apk`, `infra/jenkins/Jenkinsfile.watch-apk`. master Push 후 제품 `:app` 단위 테스트·Lint·debug APK 생성·보관. 실험용 `:demo`·기기 연결 테스트는 별도 |
 | 백엔드 CD | `runway-backend-cd`, SCM `*/dev`, `infra/jenkins/Jenkinsfile.backend-cd`. master Push 배포 |
@@ -111,13 +111,15 @@
 | 영역 | 검사·보관 기준 |
 | --- | --- |
 | 백엔드 | 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답 검사. 상태 API는 루프백 8082에만 제공 |
-| 모바일 | 앱·의존성·설정 변경 MR, 공통 CI 변경·수동 검사와 master에서 ARM64 APK 빌드. `frontend/`의 `__tests__/` 아래 `.test.*`·`.spec.*` JS/TS 파일만 바뀐 MR은 APK 생략. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
+| 모바일 | 네이티브·의존성·빌드 설정 변경 MR, 공통 CI 변경·수동 검사와 master에서 ARM64 APK 빌드. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 파일만 바뀐 MR은 APK 대신 `react-native bundle`로 Android 릴리스 JS 번들을 만들어 번들링 오류를 검사(`Mobile JS Bundle` 단계). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀐 MR은 둘 다 생략. x86 에뮬레이터·32비트 기기 제외, Gradle 캐시는 전용 볼륨 유지. 소요 시간은 콘솔·`build-time.txt`·Gradle profile 보고서에서 확인 |
 | 워치 | 테스트·Lint·APK 단계는 한 실행 안에서 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료. Kotlin 컴파일은 데몬 안에서 실행해 별도 Kotlin 데몬을 띄우지 않으며, 정리 단계가 실행되지 못해도 데몬은 10분 유휴 후 스스로 종료. 체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 풀고, `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`을 참조 저장소로 써서 새 Git 객체만 받는다. 참조 저장소는 체크아웃 직후 `update-git-reference.sh`가 갱신하고, 손상으로 체크아웃이 실패하면 지운 뒤 참조 없이 한 번 더 받는다. 작업 폴더는 매번 비운다. 단계별 시간(`build-time-<단계>.txt`)과 JUnit·Lint·Gradle profile 보고서 보관 |
 | AI | MR CI는 모델 없는 API·배포 회귀 테스트를 수행하고 실제 모델 테스트 생략 여부를 JUnit에 기록. 실제 모델 로드·예측은 별도로 검증 |
 
 모바일 CI의 Jest 변환 캐시는 `/home/jenkins/agent/.cache/jest`에 둔다. 기존 `mobile_agent_work` 영속 볼륨에 포함되며,
 체크아웃 작업 폴더 삭제 후에도 유지된다. 캐시를 사용해도 타입·린트·전체 Jest는 매번 실행한다.
-알 수 없는 프론트엔드 경로·fixture·Jest 설정 변경은 APK도 빌드하며, master APK 작업은 항상 APK를 생성한다.
+`frontend/android/`·`package.json`·`pnpm-lock.yaml`·babel·metro·`react-native.config.js`·`app.json`·Jest 설정·`assets/`·
+알 수 없는 프론트엔드 경로 변경은 JS·TS 소스와 함께 바뀌어도 APK를 빌드하며, master APK 작업은 항상 APK를 생성한다.
+JS 번들 검사는 네이티브 컴파일·Hermes 바이트코드 변환·APK 패키징을 검사하지 않는다. 이 영역의 오류는 APK를 빌드하는 MR·수동 검사 또는 master APK 작업에서 확인한다.
 
 AI 배포는 `.env` 자동 로딩을 사용하지 않는다. Jenkins가 전달한 값과 검증된 모델 설정만 사용하며,
 HF 토큰은 다운로드 단계에만 주입한다. DB Secret은 컨테이너 시작 시 파일에서 읽고 복구 기록에 저장하지 않는다.

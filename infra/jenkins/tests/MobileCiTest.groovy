@@ -10,31 +10,48 @@ pipeline.run()
     new GroovyShell(jenkinsLoader, binding).parse(new File("infra/jenkins/${name}")).run()
 }
 
+// [name, files, forceBuild, APK, JS bundle]
 def cases = [
-    ['root test', ['frontend/__tests__/course.test.tsx'], false, false],
-    ['nested test', ['frontend/src/health/__tests__/reader.test.ts'], false, false],
-    ['multiple tests', ['frontend/__tests__/course.test.tsx', 'frontend/__tests__/communityApi.test.tsx'], false, false],
-    ['test and docs', ['frontend/__tests__/course.test.tsx', 'docs/development/git-convention.md'], false, false],
-    ['app source', ['frontend/src/screens/run/RunSession.tsx'], false, true],
-    ['mixed app and test', ['frontend/__tests__/course.test.tsx', 'frontend/App.tsx'], false, true],
-    ['dependency lock', ['frontend/pnpm-lock.yaml'], false, true],
-    ['Jest setup', ['frontend/jest.setup.js'], false, true],
-    ['Jest config', ['frontend/jest.config.js'], false, true],
-    ['native build', ['frontend/android/app/build.gradle'], false, true],
-    ['test fixture', ['frontend/__tests__/fixtures/data.ts'], false, true],
-    ['unknown frontend path', ['frontend/new-file'], false, true],
-    ['unrelated', ['backend/README.md'], false, false],
-    ['empty', [], false, false],
-    ['common CI with tests', ['infra/jenkins/Jenkinsfile.ci', 'frontend/__tests__/course.test.tsx'], true, true],
-    ['common CI only', ['infra/jenkins/Jenkinsfile.ci'], true, true],
-    ['manual', [], true, true],
-    ['spaces in test name', ['frontend/__tests__/course flow.test.tsx'], false, false],
-    ['newline in source name', ['frontend/src/new\nfile.ts'], false, true],
+    ['root test', ['frontend/__tests__/course.test.tsx'], false, false, false],
+    ['nested test', ['frontend/src/health/__tests__/reader.test.ts'], false, false, false],
+    ['multiple tests', ['frontend/__tests__/course.test.tsx', 'frontend/__tests__/communityApi.test.tsx'], false, false, false],
+    ['test and docs', ['frontend/__tests__/course.test.tsx', 'docs/development/git-convention.md'], false, false, false],
+    ['app source', ['frontend/src/screens/run/RunSession.tsx'], false, false, true],
+    ['app JS source', ['frontend/src/data/api/client.js'], false, false, true],
+    ['app root', ['frontend/App.tsx'], false, false, true],
+    ['entry file', ['frontend/index.js'], false, false, true],
+    ['mixed app and test', ['frontend/__tests__/course.test.tsx', 'frontend/App.tsx'], false, false, true],
+    ['test fixture', ['frontend/__tests__/fixtures/data.ts'], false, false, true],
+    ['source and docs', ['frontend/src/geo.ts', 'docs/development/git-convention.md'], false, false, true],
+    ['dependency manifest', ['frontend/package.json'], false, true, false],
+    ['dependency lock', ['frontend/pnpm-lock.yaml'], false, true, false],
+    ['source and dependency', ['frontend/src/geo.ts', 'frontend/package.json'], false, true, false],
+    ['Babel config', ['frontend/babel.config.js'], false, true, false],
+    ['Metro config', ['frontend/metro.config.js'], false, true, false],
+    ['React Native config', ['frontend/react-native.config.js'], false, true, false],
+    ['app metadata', ['frontend/app.json'], false, true, false],
+    ['Jest setup', ['frontend/jest.setup.js'], false, true, false],
+    ['Jest config', ['frontend/jest.config.js'], false, true, false],
+    ['native build', ['frontend/android/app/build.gradle'], false, true, false],
+    ['native source', ['frontend/android/app/src/main/java/com/runwayhealth/MainApplication.kt'], false, true, false],
+    ['source and native', ['frontend/src/geo.ts', 'frontend/android/gradle.properties'], false, true, false],
+    ['asset', ['frontend/assets/images/logo.png'], false, true, false],
+    ['non-code file in src', ['frontend/src/data/sample.json'], false, true, false],
+    ['unknown frontend path', ['frontend/new-file'], false, true, false],
+    ['unrelated', ['backend/README.md'], false, false, false],
+    ['empty', [], false, false, false],
+    ['common CI with tests', ['infra/jenkins/Jenkinsfile.ci', 'frontend/__tests__/course.test.tsx'], true, true, false],
+    ['common CI with source', ['infra/jenkins/Jenkinsfile.ci', 'frontend/src/geo.ts'], true, true, false],
+    ['common CI only', ['infra/jenkins/Jenkinsfile.ci'], true, true, false],
+    ['manual', [], true, true, false],
+    ['spaces in test name', ['frontend/__tests__/course flow.test.tsx'], false, false, false],
+    ['newline in source name', ['frontend/src/new\nfile.ts'], false, true, false],
 ]
-cases.each { name, files, forceBuild, expected ->
-    assert pipeline.mobileNeedsApk(files, forceBuild) == expected: name
+cases.each { name, files, forceBuild, apk, bundle ->
+    assert pipeline.mobileNeedsApk(files, forceBuild) == apk: name
+    assert pipeline.mobileNeedsBundle(files, forceBuild) == bundle: name
 }
-println "APK selection: ${cases.size()} cases passed"
+println "APK/JS bundle selection: ${cases.size()} cases passed"
 
 // Execute the actual stage closures with recorded Jenkins steps. Shell commands are not run.
 def executePipeline(List files, boolean manual = false) {
@@ -74,14 +91,17 @@ def executePipeline(List files, boolean manual = false) {
     return result
 }
 
+// [name, files, manual, APK, JS bundle]
 def scenarios = [
-    ['tests only', ['frontend/__tests__/community.test.tsx'], false, false],
-    ['source changed', ['frontend/App.tsx'], false, true],
-    ['mixed source and test', ['frontend/App.tsx', 'frontend/__tests__/community.test.tsx'], false, true],
-    ['common CI', ['infra/jenkins/Jenkinsfile.ci'], false, true],
-    ['manual', [], true, true],
+    ['tests only', ['frontend/__tests__/community.test.tsx'], false, false, false],
+    ['source changed', ['frontend/App.tsx'], false, false, true],
+    ['mixed source and test', ['frontend/App.tsx', 'frontend/__tests__/community.test.tsx'], false, false, true],
+    ['dependency changed', ['frontend/src/geo.ts', 'frontend/pnpm-lock.yaml'], false, true, false],
+    ['native changed', ['frontend/android/app/build.gradle'], false, true, false],
+    ['common CI', ['infra/jenkins/Jenkinsfile.ci'], false, true, false],
+    ['manual', [], true, true, false],
 ]
-scenarios.each { name, files, manual, apk ->
+scenarios.each { name, files, manual, apk, bundle ->
     def result = executePipeline(files, manual)
     assert result.stages.contains('Mobile Typecheck and Lint'): name
     assert result.commands.contains('pnpm typecheck'): name
@@ -91,6 +111,8 @@ scenarios.each { name, files, manual, apk ->
     assert result.stages.contains('Mobile APK Build') == apk: name
     assert result.commands.contains('sh infra/jenkins/build-mobile-apk.sh') == apk: name
     assert (result.credentials > 0) == apk: name
+    assert result.stages.contains('Mobile JS Bundle') == bundle: name
+    assert result.commands.any { it.contains('react-native bundle --platform android --dev false') } == bundle: name
 }
 assert !executePipeline(['docs/development/git-convention.md']).stages.contains('Mobile Tests')
 println "Pipeline execution: ${scenarios.size() + 1} scenarios passed"
