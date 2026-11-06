@@ -111,6 +111,7 @@ release_v4의 `infra/ai/compose.yaml`은 `ODE_PREVIEW_ENABLED`와 `DECIDE_FORECA
 | `PERSONAL_PLAN_POPULATION_MODE` | `median_bundle` | 개인화 행이 없거나 `userId`가 생략된 경우: `median_bundle`(묶음 payload로 같은 ODE 계획, `AVERAGE_BASED`·`planSource=POPULATION_MEDIAN_ODE`) / `empty`(P4·history·요약을 비운 G0, `POPULATION_EMPTY_G0_ODE`) / `off`(기존 503). 사용자 ID가 없으면 사용자 HR 기준을 조회하지 않고 모집단 학습 기준을 쓴다. 정확도는 V2 Val에서 B_THS와 동률이라 우위를 주장하지 않는다 |
 | `ODEV21_DEVICE` | `cpu` | ODE 장치 (`cpu` 또는 `cuda`) |
 | `ODEV21_TORCH_THREADS` | `1` | ODE CPU 추론 스레드 수 |
+| `ODEV21_PRERUN_FAST` | `true` | AI09 사전 계획 ODE 빠른 경로(`app/models/ode/prerun_fast.py`: 같은 shape·같은 입력 캐시, numpy 산술 + torch.pow 적분). 결과는 원래 경로와 bit 단위로 같고, 첫 요청에서 자가 검사가 다르면 스스로 꺼진다. `false`면 원래 경로 |
 | `ODEV21_WARMUP_ENABLED` | `true` | ODE가 준비됐을 때 서버 시작 중 Adam 1단계를 실행해 첫 개인화 호출의 지연 import를 미리 끝냄 |
 | `ODEV21_VALIDATED_HORIZON_SEC` | `5400` | ODE 검증 지평(초, 90분). AI02 보고값과 HR 미리보기 표시 범위. 근거: ODE v2.1 1차 base pre-run H*90, C60 vs B_THS_pers 승. **개인 계획에는 시간 상한이 없다**: 90분을 넘는 계획도 내고 경고 `ODE_BEYOND_VALIDATED_HORIZON`을 붙이며 응답 `validatedHorizonSec`=5400은 정보용이다(MVP 이식 후 점검·보완 예정). 계산 안전장치는 코스 45 km·1 km 구간 45개(넘으면 422 `INVALID_GOAL`) |
 | `ODE_PREVIEW_ENABLED` | `false` | AI05 HR 미리보기 표시 여부 |
