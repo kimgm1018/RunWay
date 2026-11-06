@@ -7,6 +7,9 @@ import type {
   SavedCourse,
 } from '../types';
 import { apiRequest } from './http';
+import { DataError } from '../errors';
+import { courseShapeOptions } from '../coursePreferences';
+import { getCoursePreferences, saveCoursePreferences } from './preferences';
 import type { Regions } from './regions';
 
 // C01·C03·C07·C08·C09 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
@@ -226,11 +229,26 @@ export function createCoursesApi({
   const recommend: Repositories['courses']['recommend'] = async search => {
     const [longitude, latitude] = search.origin.position;
     const seed = search.seed ?? 1;
-    const filters = Object.fromEntries(
-      search.environmentTypes.flatMap(type =>
-        filterOf[type] ? [[filterOf[type], true]] : [],
-      ),
-    );
+    if (search.shape === 'point_to_point' && !search.destination)
+      throw new DataError('VALIDATION_ERROR', '편도 도착지를 선택해 주세요');
+    // U11·U12는 snake_case, C01은 camelCase 회피 키를 사용한다.
+    const filters = search.filters
+      ? {
+          river: search.filters.river,
+          beach: search.filters.beach,
+          park: search.filters.park,
+          trail: search.filters.trail,
+          pedestrian: search.filters.pedestrian,
+          flat: search.filters.flat,
+          avoidMajorRoad: search.filters.avoid_major_road,
+          avoidSteps: search.filters.avoid_steps,
+          avoidTunnel: search.filters.avoid_tunnel,
+        }
+      : Object.fromEntries(
+          search.environmentTypes.flatMap(type =>
+            filterOf[type] ? [[filterOf[type], true]] : [],
+          ),
+        );
     const answer = await apiRequest<RecommendationResponse>(
       '/courses/recommendations',
       {
@@ -241,7 +259,13 @@ export function createCoursesApi({
           latitude,
           longitude,
           distanceKm: search.targetDistanceM / 1000,
-          shape: 'loop',
+          shape: search.shape ?? 'loop',
+          ...(search.shape === 'point_to_point' && search.destination
+            ? {
+                endLongitude: search.destination.position[0],
+                endLatitude: search.destination.position[1],
+              }
+            : {}),
           filters,
           seed,
         },
@@ -264,7 +288,10 @@ export function createCoursesApi({
         estimatedDurationSec: Math.round(
           (item.distanceM / 1000) * paceSecPerKm,
         ),
-        shapeKind: shapeKindOf(route),
+        // 왕복도 시작·끝 좌표가 같으므로 선택한 형태가 있으면 그 의미를 사용한다.
+        shapeKind:
+          courseShapeOptions.find(option => option.value === search.shape)
+            ?.label ?? shapeKindOf(route),
         // The preferences are weights, not what the route really passes, so no tags are claimed.
         environmentLabels: [],
         elevationGainM:
@@ -323,6 +350,8 @@ export function createCoursesApi({
 
   const courses: Repositories['courses'] = {
     ...mock,
+    getPreferences: getCoursePreferences,
+    savePreferences: saveCoursePreferences,
     getSaved,
     recommend,
     getTodayPlan,

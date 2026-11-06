@@ -1,3 +1,4 @@
+import { defaultCoursePreferences } from '../../coursePreferences';
 import { appConfig } from '../../../config';
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import type { CourseSearch } from '../../types';
@@ -436,4 +437,58 @@ test('2.0 names a course it never listed by its distance', async () => {
   await courses.choose('9');
 
   expect((await courses.getTodayPlan()).name).toBe('6.2km 코스');
+});
+
+test.each(['loop', 'out_and_back', 'point_to_point'] as const)(
+  'C01은 선택한 %s 형태와 9개 조건을 전달한다',
+  async shape => {
+    serve((url, init) =>
+      url.pathname.endsWith('/courses/recommendations')
+        ? respond(200, generatedAnswer)
+        : common(url, init),
+    );
+    const filters = defaultCoursePreferences().filters;
+    filters.trail = true;
+    filters.avoid_tunnel = true;
+    const found = await api().courses.recommend({
+      ...search,
+      shape,
+      filters,
+      destination: { name: '도착', position: [129.12, 35.16] },
+    });
+    const body = calls().find(call => call.method === 'POST')!.body;
+    expect(body).toMatchObject({
+      shape,
+      filters: {
+        river: false,
+        beach: false,
+        park: false,
+        trail: true,
+        pedestrian: false,
+        flat: false,
+        avoidMajorRoad: false,
+        avoidSteps: false,
+        avoidTunnel: true,
+      },
+    });
+    expect(body.filters).not.toHaveProperty('avoid_tunnel');
+    expect(found.courses[0].shapeKind).toBe(
+      shape === 'loop' ? '순환' : shape === 'out_and_back' ? '왕복' : '편도',
+    );
+    expect(Object.keys(body.filters)).toHaveLength(9);
+    if (shape === 'point_to_point')
+      expect(body).toMatchObject({ endLongitude: 129.12, endLatitude: 35.16 });
+    else {
+      expect(body).not.toHaveProperty('endLatitude');
+      expect(body).not.toHaveProperty('endLongitude');
+    }
+    expect(calls().some(call => call.method === 'PUT')).toBe(false);
+  },
+);
+
+test('편도 도착지가 없으면 추천 요청을 보내지 않는다', async () => {
+  await expect(
+    api().courses.recommend({ ...search, shape: 'point_to_point' }),
+  ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  expect(fetchMock).not.toHaveBeenCalled();
 });

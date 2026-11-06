@@ -1,3 +1,9 @@
+import {
+  defaultCoursePreferences,
+  copyCoursePreferences,
+  courseFilterOptions,
+} from '../src/data/coursePreferences';
+import type { RecommendationPreferences } from '../src/data';
 import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
@@ -73,12 +79,24 @@ let recommendations: (body: { seed?: number }) => ReturnType<typeof respond>;
 // My bookmarks live here so PUT and DELETE change what C09 answers.
 let bookmarked: number[];
 let failUnsave: boolean;
+let preferences: RecommendationPreferences;
+let failPreferenceRead: boolean;
+let failPreferenceSave: boolean;
 
 function serve() {
   fetchMock.mockImplementation(
-    async (address: string, init: { method: string }) => {
+    async (address: string, init: { method: string; body?: string }) => {
       const url = new URL(address);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/users/me/preferences') {
+        if (init.method === 'PUT') {
+          if (failPreferenceSave)
+            return respond(503, { code: 'SERVICE_UNAVAILABLE', message: '' });
+          preferences = copyCoursePreferences(JSON.parse(init.body!));
+        } else if (failPreferenceRead)
+          return respond(503, { code: 'SERVICE_UNAVAILABLE', message: '' });
+        return respond(200, copyCoursePreferences(preferences));
+      }
       if (path === '/regions') {
         return respond(200, {
           items: [
@@ -261,6 +279,9 @@ async function openTodayRun() {
 beforeEach(async () => {
   bookmarked = [7, 9];
   failUnsave = false;
+  preferences = defaultCoursePreferences();
+  failPreferenceRead = false;
+  failPreferenceSave = false;
   recommendations = body => respond(200, generated(body.seed ?? 1));
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -449,4 +470,131 @@ test('3.1 says why C01 failed from details.reason and keeps the conditions', asy
 
   expect(texts(screen)).toContain('지금 코스 추천 요청이 많아요.');
   expect(hasButton(screen, '코스 추천 받기')).toBe(true);
+});
+
+test('U11의 형태·환경 기본값을 표시하고 변경·추천만으로는 저장하지 않는다', async () => {
+  preferences.shape = 'out_and_back';
+  preferences.filters.river = true;
+  preferences.filters.avoid_steps = true;
+  const screen = await openTodayRun();
+  expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
+  expect(labelled(screen, '강변').props.accessibilityState.checked).toBe(true);
+  expect(labelled(screen, '계단 피하기').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await press(screen, '평지 위주');
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies()[0]).toMatchObject({
+    shape: 'out_and_back',
+    filters: {
+      river: true,
+      beach: false,
+      park: false,
+      trail: false,
+      pedestrian: false,
+      flat: true,
+      avoidMajorRoad: false,
+      avoidSteps: true,
+      avoidTunnel: false,
+    },
+  });
+  expect(sent('PUT')).toEqual([]);
+  expect(preferences.filters.flat).toBe(false);
+});
+
+test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 도착지를 골라야 한다', async () => {
+  const screen = await openTodayRun();
+  await press(screen, '편도');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+  await press(screen, '큰길 피하기');
+  await press(screen, '이 조건을 기본값으로 저장');
+  const put = fetchMock.mock.calls.find(
+    ([address, init]) =>
+      address.endsWith('/users/me/preferences') && init.method === 'PUT',
+  );
+  const body = JSON.parse(put![1].body);
+  expect(body).toEqual({
+    shape: 'point_to_point',
+    filters: { ...defaultCoursePreferences().filters, avoid_major_road: true },
+  });
+  expect(texts(screen)).toContain('추천 기본값을 저장했어요');
+  expect(recommendationBodies()).toEqual([]);
+  await press(screen, '도착 위치 선택');
+  await press(screen, '민락수변공원');
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies()[0]).toMatchObject({
+    shape: 'point_to_point',
+    endLatitude: 35.1543,
+    endLongitude: 129.1318,
+    filters: { avoidMajorRoad: true },
+  });
+});
+
+test('기본값 저장 실패는 선택값을 유지하고 재시도할 수 있다', async () => {
+  const screen = await openTodayRun();
+  await press(screen, '왕복');
+  await press(screen, '트레일');
+  failPreferenceSave = true;
+  await press(screen, '이 조건을 기본값으로 저장');
+  expect(texts(screen)).toContain('기본값을 저장하지 못했어요');
+  expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
+  expect(labelled(screen, '트레일').props.accessibilityState.checked).toBe(
+    true,
+  );
+  expect(preferences).toEqual(defaultCoursePreferences());
+  failPreferenceSave = false;
+  await press(screen, '이 조건을 기본값으로 저장');
+  expect(preferences.shape).toBe('out_and_back');
+  expect(preferences.filters.trail).toBe(true);
+});
+
+test('U11 실패를 기본값 없음으로 숨기지 않고 재조회한다', async () => {
+  failPreferenceRead = true;
+  preferences.shape = 'out_and_back';
+  const screen = await openTodayRun();
+  expect(texts(screen)).toContain('추천 기본값을 불러오지 못했어요');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+  expect(sent('PUT')).toEqual([]);
+  failPreferenceRead = false;
+  await press(screen, '기본값 다시 불러오기');
+  expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+});
+
+test('9개 조건을 모두 해제하면 false를 빠짐없이 저장한다', async () => {
+  for (const { key } of courseFilterOptions) preferences.filters[key] = true;
+  const screen = await openTodayRun();
+  for (const { label } of courseFilterOptions) await press(screen, label);
+  await press(screen, '이 조건을 기본값으로 저장');
+  expect(preferences).toEqual(defaultCoursePreferences());
+});
+
+test('저장 중 연속 클릭해도 U12는 한 번만 보낸다', async () => {
+  const screen = await openTodayRun();
+  const original = fetchMock.getMockImplementation()!;
+  let release!: () => void;
+  fetchMock.mockImplementation(async (address, init) => {
+    if (address.endsWith('/users/me/preferences') && init.method === 'PUT')
+      await new Promise<void>(resolve => {
+        release = resolve;
+      });
+    return original(address, init);
+  });
+  try {
+    const button = labelled(screen, '이 조건을 기본값으로 저장');
+    await act(async () => {
+      button.props.onPress();
+      button.props.onPress();
+    });
+    expect(sent('PUT')).toEqual(['/users/me/preferences']);
+    expect(labelled(screen, '이 조건을 기본값으로 저장').props.disabled).toBe(
+      true,
+    );
+    await act(async () => {
+      release();
+    });
+    await settle();
+  } finally {
+    release?.();
+  }
 });
