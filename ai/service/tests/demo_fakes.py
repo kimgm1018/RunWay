@@ -134,7 +134,8 @@ def policy_input(**kw) -> PolicyInput:
     }
     aliases = {"plan": "plan", "anchorPaceSecPerKm": "anchorPaceSecPerKm",
                "currentGuidePaceSecPerKm": "currentGuidePaceSecPerKm", "guidePaceSetAt": "guidePaceSetAt",
-               "resumedAt": "resumedAt", "activeSec": "activeSec", "distanceM": "distanceM"}
+               "resumedAt": "resumedAt", "activeSec": "activeSec", "distanceM": "distanceM",
+               "lastCoaching": "lastCoaching"}
     for key, alias in aliases.items():
         if key in kw:
             ctx[alias] = kw.pop(key)

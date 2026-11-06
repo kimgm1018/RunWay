@@ -29,6 +29,10 @@ class PolicyInput:
     hr_thresholds: "HrThresholds | None" = None
     # 러너의 실측 속도로 2분을 달린다고 본 예측 심박(30/60/120초). 코칭 단계 판정용, 끄면 None(S15P31E105-504).
     actual_pred_hr_bpm: tuple[float, float, float] | None = None
+    # 넘친 만큼 늦추기·빨라지기용으로 AI가 안에서 덧붙여 예측한 페이스(S15P31E105-506). 폭 오름차순.
+    # 느린 쪽은 max(안내, 실측 페이스) + 폭, 빠른 쪽은 안내 − 폭. delta_sec_per_km는 안내(anchor) 기준.
+    extra_slow: tuple["PolicyCandidate", ...] = ()
+    extra_fast: tuple["PolicyCandidate", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,8 @@ class PolicyOutput:
     plan_weight: float | None = None
     # 코칭 단계 OK / CAUTION / DANGER(S15P31E105-504). 판단이 없거나 정책이 정하지 않으면 None.
     coaching_level: str | None = None
+    # 추천 페이스가 요청 후보가 아닐 때(chosen_index=None) 그 페이스의 예측 심박(30/60/120초).
+    chosen_pred_hr_bpm: tuple[float, float, float] | None = None
 
 
 class PacePolicy(Protocol):

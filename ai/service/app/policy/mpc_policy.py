@@ -3,7 +3,7 @@ import math
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from app.decide.policy_port import CandidateVerdict, PolicyInput, PolicyOutput
+from app.decide.policy_port import CandidateVerdict, PolicyCandidate, PolicyInput, PolicyOutput
 from app.decide.schemas import DecideContext
 from app.policy.config import PolicyConfig
 from app.policy.detectors import detect
@@ -121,17 +121,18 @@ def plan_pace(ctx: DecideContext, prog: Progress) -> float:
 
 
 def ease_off_pace(ctx: DecideContext, pace_now_sec_per_km: float | None, cfg: PolicyConfig) -> float:
-    """위험 심박일 때의 감속 권고 pace = max(안내, min(max(실측, 안내) + ease_off, 걷기 경계)).
+    """위험 심박일 때의 감속 권고 pace = max(안내, min(실측 + ease_off, 걷기 경계)).
 
-    - 실측과 지금 안내 중 느린 쪽에 ease_off를 더한다(S15P31E105-497). 실측만 기준으로 하면 러너가 안내보다
-      빠를 때 권고가 안내와 같거나 더 빨라진다(안내 5:30·실측 4:50 → 5:20).
+    - 실측 페이스에 ease_off를 더한다. 러너가 안내대로 달리면 안내 + ease_off이고, 안내를 따르지 않고 빠르게 달리면
+      권고가 안내에 머문다(같은 안내를 다시 알림). 예전(max(실측, 안내) + ease_off, S15P31E105-497)은 러너가 무시하는
+      동안 30초마다 안내만 30초씩 느려졌다(팀 검토 2026-11-06, S15P31E105-506).
+    - 권고는 지금 안내보다 빠르지 않다(S15P31E105-497). 처음 위험이 되면 코칭 단계가 DANGER로 바뀌어 페이스가
+      같아도 백엔드가 알린다(S15P31E105-503).
     - 감속 권고가 이어져도 걷기 경계(walk_speed_mps, 1.5 m/s = 11:07/km)보다 느려지지 않는다. 멈춤·걷기 권고는
-      두지 않는다(S15P31E105-504). 안내가 이미 걷기 경계보다 느리면 안내보다 빨라지지 않게 안내를 그대로 쓴다.
+      두지 않는다(S15P31E105-504). 안내가 이미 걷기 경계보다 느리면 안내를 그대로 쓴다.
     """
     base = pace_now_sec_per_km if pace_now_sec_per_km is not None else ctx.anchor_pace_sec_per_km
     guide = ctx.current_guide_pace_sec_per_km
-    if guide is not None:
-        base = max(base, guide)
     pace = min(base + cfg.ease_off_sec_per_km, 1000.0 / cfg.walk_speed_mps)
     return max(pace, guide) if guide is not None else pace
 
@@ -263,8 +264,17 @@ class MpcPolicy:
                    or (actual_peak is not None and actual_peak >= baseline_allow))
         coaching_level = "CAUTION" if caution else "OK"
 
-        hold_times = [t for t in (ctx.guide_pace_set_at, ctx.resumed_at) if t is not None]
+        # 안내가 바뀐 시각은 guidePaceSetAt, 없으면 마지막으로 워치에 적용된 코칭 시각이다(지금 백엔드는 guidePaceSetAt를
+        # 보내지 않는다, 인계 I-4). 빨라지기는 안내 변경·재개 뒤 hold_sec(60초) 동안 막는다(메시지 간격 최소 60초).
+        guide_set_at = ctx.guide_pace_set_at
+        if guide_set_at is None and ctx.last_coaching is not None:
+            guide_set_at = ctx.last_coaching.applied_at
+        hold_times = [t for t in (guide_set_at, ctx.resumed_at) if t is not None]
         hold = bool(hold_times and (inp.now - max(hold_times)).total_seconds() < self.cfg.hold_sec)
+        # 감속 쿨다운(인계 I-23, S15P31E105-506): 안내를 바꾼 뒤 hr_slow_cooldown_sec 동안은 더 늦추지 않는다. 심박 감속 폭은
+        # 아래 넘친 만큼 늦추기로 정한다. 5 s/km씩 30초마다 나가던 메시지를 줄인다. 위험 심박은 위 SAFETY가 먼저 낸다.
+        slow_wait = bool(guide_set_at is not None
+                         and (inp.now - guide_set_at).total_seconds() < self.cfg.hr_slow_cooldown_sec)
         pace_req = prog.pace_req_sec_per_km
         wt = 0.0 if pace_req is None or prog.goal_unreachable else self.cfg.w_t_base + ctx.goal_preference
         verdicts_list = []
@@ -282,6 +292,8 @@ class MpcPolicy:
                 rejection = "HR_STALE"
             if rejection is None and delta < 0 and hold:
                 rejection = "ACCEL_IN_HOLD"
+            if rejection is None and delta > 0 and slow_wait:
+                rejection = "SLOW_IN_HOLD"
             score = None
             if rejection is None:
                 tracking = 0.0 if pace_req is None else wt * abs(candidate.pace_sec_per_km - pace_req) / self.cfg.score_unit_sec_per_km
@@ -310,13 +322,44 @@ class MpcPolicy:
             if same:
                 chosen = same[0]
         candidate = inp.candidates[chosen]
+        at_floor = not_following = False
+        settled = (guide_set_at is None
+                   or (inp.now - guide_set_at).total_seconds() >= self.cfg.not_following_grace_sec)
+        if (gate == "SLOW_ONLY" and guide is not None and inp.pace_now_sec_per_km is not None and settled
+                and inp.pace_now_sec_per_km <= guide - self.cfg.not_following_sec_per_km):
+            # 러너가 안내를 따르지 않는다(안내보다 빠름). 안내를 더 늦춰도 러너는 그대로라 안내만 느려진다.
+            # 같은 안내를 다시 알리고 단계만 올린다(팀 검토 2026-11-06). 안내를 바꾼 뒤 not_following_grace_sec(60초)는
+            # 러너가 따라올 시간으로 두고, 그 뒤로는 쿨다운 중에도 같게 둬서 단계가 오가지 않게 한다.
+            not_following = True
+            same = [i for i, c in enumerate(inp.candidates) if c.delta_sec_per_km == 0]
+            chosen = same[0] if same else chosen
+            candidate = replace(inp.candidates[chosen], pace_sec_per_km=guide,
+                                delta_sec_per_km=int(round(guide - ctx.anchor_pace_sec_per_km)))
+            warnings.append("GUIDE_NOT_FOLLOWED")
+        elif gate == "SLOW_ONLY" and candidate.delta_sec_per_km > 0:
+            pick = self._slow_by_overshoot(inp, ctx, baseline_allow)
+            if pick is not None:
+                chosen, candidate = None, pick
+                # 걷기 경계(11:07/km)보다 느리게는 안내하지 않는다. 하한에 닿으면 위험 알림(DANGER)으로 올린다(팀 검토 2026-11-06).
+                floor = 1000.0 / self.cfg.walk_speed_mps
+                if candidate.pace_sec_per_km >= floor:
+                    at_floor = True
+                    pace = max(floor, guide if guide is not None else ctx.anchor_pace_sec_per_km)
+                    candidate = replace(candidate, pace_sec_per_km=pace,
+                                        delta_sec_per_km=int(round(pace - ctx.anchor_pace_sec_per_km)))
+        elif (gate == "ALL" and handover_reason is None and candidate.delta_sec_per_km < 0
+              and not sprint[chosen] and pace_req is not None and not prog.goal_unreachable):
+            # 넘친 만큼 빨라지기: 허용선 − band 아래를 통과하는 가장 빠른 폭으로 한 번에 올린다(목표 페이스보다 빠르지 않게).
+            pick = self._fast_by_room(inp, mean_past, baseline_allow - self.cfg.band_bpm, pace_req)
+            if pick is not None and pick.pace_sec_per_km < candidate.pace_sec_per_km:
+                chosen, candidate = None, pick
         delta = candidate.delta_sec_per_km
-        if delta > 0 and gate == "SLOW_ONLY":
+        if not_following or (delta > 0 and gate == "SLOW_ONLY"):
             reason = "SLOW_DOWN_HR"
         elif prog.goal_unreachable:
             reason = "GOAL_UNREACHABLE"
         elif delta < 0:
-            reason = "SPRINT" if sprint[chosen] else "SPEED_UP_GOAL"
+            reason = "SPRINT" if chosen is not None and sprint[chosen] else "SPEED_UP_GOAL"
         elif delta > 0:
             reason = "SLOW_DOWN_GOAL"
         elif stale:
@@ -326,14 +369,21 @@ class MpcPolicy:
         if handover_reason is not None:
             reason = handover_reason
         d = abs(delta)
-        peak_text = _round_int(peaks[chosen])
-        allow_text = _round_int(allow_by_candidate[chosen])
-        if reason == "HOLD":
+        peak_text = _round_int(peaks[chosen]) if chosen is not None else "-"
+        allow_text = _round_int(allow_by_candidate[chosen]) if chosen is not None else _round_int(baseline_allow)
+        if reason == "HOLD" and gate == "SLOW_ONLY":
+            # 심박은 허용선 이상이지만 안내를 바꾼 지 hold_sec가 안 돼 반응을 기다린다(SLOW_IN_HOLD).
+            reason_text = f"심박 반응 대기. 상한 {_round_int(baseline_peak)} ≥ 허용 {_round_int(baseline_allow)}, 안내 유지"
+        elif reason == "HOLD":
             reason_text = f"현재 pace 유지. 상한 {_round_int(baseline_peak)} < 허용 {_round_int(baseline_allow)}"
+        elif reason == "SPEED_UP_GOAL" and chosen is None:
+            reason_text = f"목표보다 늦어 {_round_int(d)}초 빠르게. 심박 여유(허용 {allow_text} − {_round_int(self.cfg.band_bpm)}) 안에서 한 번에"
         elif reason == "SPEED_UP_GOAL":
             reason_text = f"목표보다 늦어 {_round_int(d)}초 빠르게. 상한 {peak_text} < 허용 {allow_text}"
         elif reason == "SLOW_DOWN_GOAL":
             reason_text = f"목표보다 빨라 {_round_int(d)}초 느리게"
+        elif reason == "SLOW_DOWN_HR" and not_following:
+            reason_text = f"안내를 따르지 않음. 상한 {_round_int(baseline_peak)} ≥ 허용 {_round_int(baseline_allow)}, 같은 안내 다시"
         elif reason == "SLOW_DOWN_HR":
             reason_text = f"상한 {_round_int(baseline_peak)} ≥ 허용 {_round_int(baseline_allow)}. {_round_int(d)}초 느리게"
         elif reason == "SPRINT":
@@ -349,10 +399,59 @@ class MpcPolicy:
         else:
             reason_text = "현재 pace 유지"
         status = "HR_STALE" if stale else "OK"
-        publish = guide is None or abs(candidate.pace_sec_per_km - guide) >= self.cfg.publish_delta_sec_per_km
+        publish = (not_following or guide is None
+                   or abs(candidate.pace_sec_per_km - guide) >= self.cfg.publish_delta_sec_per_km)
+        if at_floor or not_following:
+            # 하한이면 위험 알림, 안내 미준수면 단계를 한 칸 올린다(OK → CAUTION → DANGER).
+            coaching_level = "DANGER" if at_floor or coaching_level == "CAUTION" else "CAUTION"
         output = self._base_output(status=status, action="GUIDE_PACE", chosen=chosen,
                                    pace=candidate.pace_sec_per_km, reason=reason, reason_text=reason_text,
                                    gate=gate, verdicts=tuple(verdicts_list), publish=publish, ref=ref,
                                    allow=baseline_allow, hard_eff=baseline_hard, actual_minus=actual_minus,
                                    prog=prog, warnings=tuple(warnings))
-        return replace(output, handover_phase=phase, plan_weight=plan_weight, coaching_level=coaching_level)
+        return replace(output, handover_phase=phase, plan_weight=plan_weight, coaching_level=coaching_level,
+                       chosen_pred_hr_bpm=candidate.pred_hr_bpm if chosen is None else None)
+
+    def _slow_by_overshoot(self, inp: PolicyInput, ctx, allow: float) -> PolicyCandidate | None:
+        """넘친 만큼 늦추기(인계 I-23, 팀 검토 U3m, S15P31E105-506).
+
+        느린 페이스(max(안내, 실측) + 폭, 서비스가 덧붙여 예측)마다 "2분 뒤 예측 + 감속 전용 여유분(경사 칸별)"을 상한으로
+        보고, 상한이 허용선 아래가 되는 가장 작은 폭을 고른다. 없으면 가장 큰 폭. 30/60초 예측은 늦춰도 거의 그대로라 세
+        지평선 최대로는 폭을 가를 수 없고, 느린 후보에 더 큰 감속(DECEL) 칸을 쓰면 늦출수록 위험해 보인다. 출발 뒤
+        early_slow_cap_sec 동안은 early_slow_cap_sec_per_km까지만 늦춘다(위험 감속은 위 SAFETY).
+        덧붙인 행이 없으면(정책만 직접 부를 때) 요청 후보의 느린 쪽을 쓴다.
+        """
+        options = list(inp.extra_slow) or [c for c in inp.candidates if c.delta_sec_per_km > 0]
+        if not options:
+            return None
+        guide = ctx.current_guide_pace_sec_per_km or ctx.anchor_pace_sec_per_km
+        if inp.extra_slow and inp.pace_now_sec_per_km is not None:
+            base_pace = max(guide, inp.pace_now_sec_per_km)
+        else:
+            base_pace = ctx.anchor_pace_sec_per_km
+        if ctx.active_sec < self.cfg.early_slow_cap_sec:
+            capped = [c for c in options if c.pace_sec_per_km - base_pace <= self.cfg.early_slow_cap_sec_per_km + 0.5]
+            options = capped or options[:1]
+        anchor = next((c for c in inp.candidates if c.delta_sec_per_km == 0), None)
+        grade = MarginTable.grade_of(_mean(anchor.future_grade_pct)) if anchor is not None else None
+        margin = self.cfg.hr_slow_margin_120_bpm[grade or "UNKNOWN"]
+        for candidate in options:
+            if candidate.pred_hr_bpm[2] + margin < allow:
+                return candidate
+        return options[-1]
+
+    def _fast_by_room(self, inp: PolicyInput, mean_past: float | None, limit: float,
+                      pace_req: float) -> PolicyCandidate | None:
+        """넘친 만큼 빨라지기(S15P31E105-506). 빠른 페이스(안내 − 폭) 중 상한(세 지평선 최대 + 여유 표)이 limit
+        (허용선 − band) 아래이고 목표에 필요한 페이스보다 빠르지 않은 가장 빠른 것. 없으면 None."""
+        best = None
+        for candidate in inp.extra_fast:
+            if candidate.pace_sec_per_km < pace_req - 0.5:
+                continue
+            dspeed = candidate.future_speed_mps - mean_past if mean_past is not None else None
+            grade = _mean(candidate.future_grade_pct)
+            peak = max(p + self.margins.margin(h, dspeed, grade)
+                       for h, p in zip((30, 60, 120), candidate.pred_hr_bpm))
+            if peak < limit and (best is None or candidate.pace_sec_per_km < best.pace_sec_per_km):
+                best = candidate
+        return best

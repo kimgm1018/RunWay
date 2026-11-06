@@ -128,12 +128,13 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 ## AI04 — 러닝 중 페이스 결정
 
-`POST /v1/pace/decide` — 정책 v0.4.2(`mpc-v0.4.2`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
+`POST /v1/pace/decide` — 정책 v0.4.3(`mpc-v0.4.3`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
 
 **응답 시간·동시 처리(S15P31E105-440, 2026-11-05 측정).** CPU 1개, uvicorn worker 1, 스레드 1, 실제 GRU(`db59d414`), 합성 데이터 기준이다. AI04 1회는 p50 12~20 ms, p99 14~27 ms로 history 1~1440칸·plan 유무에 따른 차이는 거의 없다(1칸 `PLAN_HOLD`는 약 3 ms, 시작 뒤 첫 호출은 약 55 ms). 5초 주기 동시 사용자는 AI04만 받으면 200명까지 p99 1초 이하이고 약 250~300명부터 3초를 넘는다. 같은 프로세스에서 AI09·AI06이 쉬지 않고 돌면 50명 p99 0.58 s, 100명에서 1.1%가 3초를 넘는다. **백엔드 호출 기준: timeout 3초, 세션당 동시 1건, timeout·연결 오류·5xx는 재시도 없이 다음 W07 batch로 넘긴다. 컨테이너(1 vCPU)당 동시 러닝 50명이 계획 기준이다.** uvicorn 기본 keep-alive 5초와 5초 호출 주기가 겹쳐 드물게 연결이 끊기므로 백엔드 유휴 연결 정리를 4초 이하로 두거나 AI 실행 명령에 `--timeout-keep-alive 15`를 준다. 단, 목표 BPM 조회(S15P31E105-438)와 학습 심박 기준 조회는 DB를 부르는 동안 프로세스 공용 lock을 잡고 실패를 캐시하지 않는다. 스텁 DB 실측(50명)은 DB 정상 p99 74 ms, 쿼리 100 ms면 p50 3.98 s·70.8%가 3초 초과, DB 응답 없음이면 p50 12.0 s·98.9%가 3초 초과였다(응답은 200 + `BPM_RECORDS_UNAVAILABLE`). S15P31E105-500에서 두 조회의 DB 호출을 lock 밖으로 뺐다(캐시를 읽고 쓸 때만 lock). 세션 조회 캐시와 실패 차단은 아직 없다.
 
 - v0.4.1: HR 입력 지연 기준을 15초에서 20초로 바꿈(팀 명세 정렬, S15P31E105-413).
 - v0.4.2: 코칭 단계 `decision.coachingLevel` 추가, OK면 목표보다 앞서도 늦추지 않음, 위험 감속 권고 하한(걷기 경계 11:07/km), `WALK_ADVISED` 삭제(S15P31E105-504). 위험 감속 권고가 안내보다 빨라지지 않게 고친 것(S15P31E105-497)도 이 버전부터 반영된 것으로 본다.
+- v0.4.3: 넘친 만큼 늦추기·빨라지기, 감속 쿨다운 120초, 안내 미준수 처리, 위험 감속 권고를 실측 기준으로(S15P31E105-506). 아래 "심박 감속·빨라지기(넘친 만큼)".
 
 ### Request Body
 
@@ -156,12 +157,13 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `context.plan[]` | object[] / null | X | `startM`, `endM`, `ratio` 구간 |
 | `context.anchorPaceSecPerKm` | number | O | 후보 기준 페이스. 백엔드는 러너에게 지금 안내 중인 페이스를 보낸다. 실제 측정 페이스를 넣으면 추천이 튈 수 있다. |
 | `context.currentGuidePaceSecPerKm` | number / null | X | 현재 안내 페이스 |
+| `context.guidePaceSetAt` | string (UTC date-time) / null | X | 안내 페이스가 마지막으로 바뀐 시각. 단계만 바뀐 발행(같은 페이스)으로는 바뀌지 않는다. 감속 쿨다운·빨라지기 간격·안내 미준수 판단에 쓴다. 없으면 `lastCoaching.appliedAt`을 쓴다(S15P31E105-506). 지금 백엔드는 보내지 않는다 |
 | `context.activeSec` | number | O | 일시정지를 제외한 경과 시간 |
 | `context.distanceM` | number | O | 실측 누적 거리 |
 | `context.routeProgressM` | number / null | X | 코스 누적 거리 |
 | `context.inputAsOf` | string (UTC date-time) | O | 판단에 사용하는 최신 입력 시각 |
 | `context.hrReference` | object / null | X | 이전 클라이언트 호환용. 보내도 나이·RHR·HRmax를 기준 계산에 쓰지 않으며 `HR_REFERENCE_INPUT_IGNORED` 경고를 반환한다. |
-| `context.lastCoaching` | object / null | X | `coachingId` 양수 int64, `appliedAt` |
+| `context.lastCoaching` | object / null | X | `coachingId` 양수 int64, `appliedAt`. `guidePaceSetAt`가 없으면 `appliedAt`을 안내가 바뀐 시각으로 쓴다(S15P31E105-506) |
 | `context.resumedAt` | string (UTC date-time) / null | X | 재개 시각 |
 | `context.bpm` | object / null | X | 시험·시연용 목표 BPM 입력. 백엔드는 보내지 않는다(AI가 DB에서 직접 읽음). 보내면 DB를 읽지 않고 이 값을 쓴다. 아래 "목표 BPM (cueBpm)" 참고 |
 | `context.bpm.records[]` | object[] (최대 2000) | X | 지난 러닝의 페이스가 일정한 60초 구간. `runNo`(정수 ≥ 1, 클수록 최근, 같은 러닝은 같은 값), `speedMps`(> 0), `cadenceSpm`(> 0), `cueBpm`(그 구간에 켜져 있던 BPM, 큐를 껐으면 null) |
@@ -200,7 +202,58 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 `EASE_OFF`·`OVERPACE` 같은 판단·경고가 15초마다 반복될 수 있으므로, 백엔드는 앱에 같은 안내를 반복 표시하지 않도록 권고한다.
 
-`EASE_OFF`(위험 심박 감속 권고)의 `recommendedPaceSecPerKm` = max(안내, min(max(최근 실측 pace, 안내) + 30, 걷기 경계)) sec/km다. 안내는 `currentGuidePaceSecPerKm`, 걷기 경계는 `walk_speed_mps` 1.5 m/s = 666.7초/km(11:07)다. 안내가 없으면 min(실측(없으면 `anchorPaceSecPerKm`) + 30, 걷기 경계)다. 러너가 안내보다 빨리 달려도 감속 권고는 지금 안내보다 빠르지 않고(S15P31E105-497), 감속 권고가 이어져도 걷기 경계보다 느려지지 않는다(S15P31E105-504). 걷기·멈춤 권고는 두지 않으며 `WALK_ADVISED` 경고는 없앴다. 기록이 한 칸뿐인 경로도 같다.
+`EASE_OFF`(위험 심박 감속 권고)의 `recommendedPaceSecPerKm` = max(안내, min(최근 실측 pace + 30, 걷기 경계)) sec/km다. 안내는 `currentGuidePaceSecPerKm`, 걷기 경계는 `walk_speed_mps` 1.5 m/s = 666.7초/km(11:07)다. 안내가 없으면 min(실측(없으면 `anchorPaceSecPerKm`) + 30, 걷기 경계)다. 기록이 한 칸뿐인 경로도 같다.
+
+- 러너가 안내대로 달리면 안내 + 30이다. 안내를 따르지 않고 빠르게 달리면 권고가 안내에 머물러 같은 안내를 다시 알린다(S15P31E105-506). 예전 max(실측, 안내) + 30(S15P31E105-497)은 러너가 무시하는 동안 30초마다 안내만 30초씩 느려졌다(합성 시뮬레이션 5:30 → 11:07).
+- 감속 권고는 지금 안내보다 빠르지 않고(S15P31E105-497), 이어져도 걷기 경계보다 느려지지 않는다(S15P31E105-504). 걷기·멈춤 권고는 두지 않으며 `WALK_ADVISED` 경고는 없앴다.
+- 처음 위험이 되면 단계가 `DANGER`로 바뀌므로 페이스가 같아도 백엔드가 알린다(S15P31E105-503). 위험이 이어지면 코칭 없이 2분이 지날 때 백엔드가 지금 안내를 다시 보낸다(아래 "백엔드와의 관계").
+
+### 심박 감속·빨라지기(넘친 만큼)
+
+S15P31E105-506(인계 I-23, 팀 검토 2026-11-06). 예전에는 후보 간격(±5·±10초/km)이 작고 상한을 30·60·120초 중 최대로 비교해, 늦춰야 할 때 "얼마나 늦출지"를 가르지 못하고 늘 +5를 골라 30초마다 5초씩 늦추는 메시지가 이어졌다. 실측으로 10~30초/km 감속은 2분 뒤 심박이 1~2 bpm, 60초/km는 약 11 bpm 내려간다(같은 조건 GRU 약 7 bpm).
+
+**넘친 만큼 늦추기** (gate `SLOW_ONLY`, 쿨다운 밖)
+- 느린 페이스 = max(안내, 최근 실측 pace) + 폭. 폭은 정책 `hr_slow_steps_sec_per_km` 5~60초/km(5초 간격)다. 러너가 안내보다 느리면 실측 기준이라 실측보다 빠른 "감속"을 내지 않는다.
+- 각 페이스의 상한 = 2분 뒤 예측 + 감속 전용 여유분 `hr_slow_margin_120_bpm`(안내 그대로 후보의 경사 칸: 평지 4.89, 오르막 5.98, 내리막 6.65, 모름 7.46 bpm, 팀 감속 잔차 측정). 30·60초 예측은 늦춰도 거의 그대로라 쓰지 않고, 여유 표의 DECEL 칸은 늦출수록 커져 쓰지 않는다.
+- 상한이 허용선 아래가 되는 **가장 작은 폭**을 고르고, 없으면 가장 큰 폭(+60)이다. 걷기 경계(11:07)보다 느려지면 하한에서 멈추고 `coachingLevel=DANGER`로 올린다.
+- 출발 뒤 `early_slow_cap_sec`(180초) 동안은 `early_slow_cap_sec_per_km`(10초/km)까지만 늦춘다(위험 감속은 예외). 출발 직후 크게 늦췄다가 되돌아오는 일을 줄인다.
+- 추천이 요청 후보가 아니면 `decision.chosenIndex=null`이고, `predictedHr*Bpm`은 그 페이스의 예측이다. 응답 `candidates[]`는 요청 후보 5개 그대로다.
+
+**넘친 만큼 빨라지기** (gate `ALL`, 목표보다 늦어 `SPEED_UP_GOAL`일 때)
+- 빠른 페이스 = 안내 − 폭(`speed_up_steps_sec_per_km` 5~60초/km). 상한은 지금처럼 세 지평선 최대 + 여유 표(빠른 쪽은 보수적으로 둔다).
+- 상한이 허용선 − band(3 bpm) 아래이고 목표에 필요한 페이스보다 빠르지 않은 **가장 빠른 페이스**로 한 번에 올린다. 언덕 뒤 5초씩 30초마다 되돌아오던 메시지를 줄인다.
+
+**쿨다운과 간격**
+- 안내 페이스가 바뀐 뒤 `hr_slow_cooldown_sec`(120초) 동안은 더 늦추지 않는다(후보 `rejectReason=SLOW_IN_HOLD`, 심박 반응 60~105초). 이때 `reason=HOLD`, `reasonText`는 "심박 반응 대기…", `coachingLevel=CAUTION`, `publishSuggested=false`다. 목표 감속도 같다.
+- 빨라지기는 안내 변경·재개 뒤 `hold_sec`(60초) 동안 막는다(`ACCEL_IN_HOLD`, 메시지 간격 최소 60초).
+- 안내가 바뀐 시각은 `guidePaceSetAt`, 없으면 `lastCoaching.appliedAt`이다. 둘 다 없으면 쿨다운·간격이 없다. 위험 감속 권고(`EASE_OFF`)는 기다리지 않는다.
+
+**안내 미준수**
+- 심박 감속이 필요한데(`SLOW_ONLY`) 러너가 안내보다 `not_following_sec_per_km`(10초/km) 이상 빠르면, 안내를 더 늦추지 않고 같은 안내를 다시 알리며 단계를 한 칸 올린다(보통 CAUTION → DANGER). `reason=SLOW_DOWN_HR`, `publishSuggested=true`, 경고 `GUIDE_NOT_FOLLOWED`, `reasonText`는 "안내를 따르지 않음…".
+- 안내가 바뀐 뒤 `not_following_grace_sec`(60초)는 러너가 따라올 시간으로 두고 판단하지 않는다. 그 뒤로는 쿨다운 중에도 같게 둔다.
+- 위험 단계(`EASE_OFF`)는 위 실측 기준 공식으로 같은 효과를 낸다.
+
+**예측 호출**: 첫 GRU 호출(요청 후보 5개 + 실측 1행)로 판단하고, 늦추거나(`SLOW_DOWN_HR`) 올릴 때(`SPEED_UP_GOAL`)만 느린·빠른 페이스 12행을 두 번째 호출로 예측해 다시 판단한다. 대부분의 판단(유지·쿨다운)은 한 번만 부른다. 두 번째 호출이 실패하면 첫 판단(요청 후보 안에서 고른 것)을 쓰고 로그 `EXTRA_PACE_PREDICTION_FAILED`를 남긴다. 합성 시뮬레이션에서 판단 1회 평균 약 18~20 ms로 수정 전과 비슷했다(CPU 1스레드).
+
+**합성 러너 시뮬레이션** (`ai/service/tools/simulate_hr_loop.py`, 실제 GRU, 15분, 백엔드 30초 발행 간격·단계 변경 발행(503) 흉내, 러너 심박은 합성 수식: 속도 기울기 25 bpm/(m/s)로 60초/km 감속이 2분 뒤 −11 bpm, 시간 상수 40초, 허용선 163)
+
+| 상황 | 수정 전(v0.4.2) 페이스 메시지(+단계 변경) / 허용선 넘은 시간 / 최고 심박 / 가장 느린 안내 | v0.4.3 |
+| --- | --- | --- |
+| 평지, 심박 drift 0.6 bpm/분 | 10(+8) / 0초 / 158.0 / 6:20 | 5(+3) / 0초 / 158.0 / 6:25 |
+| 평지, 심박 drift 1.5 bpm/분 | 26(+1) / 0초 / 158.9 / 7:40 | 7(+5) / 0초 / 158.9 / 7:35 |
+| 700~1300 m 오르막 6% 뒤 평지 | 16(+2) / 185초 / 166.2 / 6:25 | 5(+2) / 0초 / 159.7 / 7:40 |
+| 안내 무시(늘 5:30, drift 1.5) | 29(+0) / 661초 / 179.5 / 11:07 | 2(+13) / 661초 / 179.5 / 6:00 |
+
+- 시간 상수 60초나 기울기 30에서도 같은 방향이다. 출발 3분 제한을 끄면 메시지가 1~2개 늘고 처음에 더 늦췄다.
+- 언덕에서 최고 심박이 허용선보다 꽤 낮은데 7:40까지 늦춘 것은 GRU가 큰 감속의 효과를 실제보다 작게 예측하기 때문이다(495 재학습 대상).
+- 안내 무시에서 단계 변경 13회는 단계만 바뀐 발행이 `lastCoaching.appliedAt`을 새로 써서 미준수 유예(60초)가 다시 시작되며 DANGER·CAUTION이 오간 것이다. 백엔드가 `guidePaceSetAt`(페이스가 바뀐 시각)을 보내면 1회로 줄었다.
+- 합성 심박이라 숫자는 방향을 보는 용도다. 실제 러너가 안내를 따른 기록으로는 확인하지 못했다.
+- 바꾸지 않은 것: 요청 후보(백엔드 −10~+10 그대로), 여유 표(`margin_gru.json`), 목표 −30 후보.
+
+**백엔드와의 관계** (S15P31E105-503 병합 코드 기준)
+- 단계 변경 발행은 `publishSuggested=true`일 때만 한다. 안내 미준수와 위험 감속 권고는 `publishSuggested=true`라 같은 페이스여도 단계가 바뀌면 알린다. 쿨다운 중 `HOLD`는 `false`라 보내지 않는다.
+- 위험이나 안내 미준수가 이어져 페이스·단계가 같으면 새로 보내지 않고, 코칭 없이 2분이 지나면 백엔드가 지금 안내를 다시 보낸다(`reevaluationDue`). 따로 재알림 규칙은 필요 없다.
+- 요청 사항(선택): `guidePaceSetAt` = 안내 페이스가 마지막으로 바뀐 시각을 보내 주기(단계만 바뀐 발행으로는 바꾸지 않음, 인계 I-4). 없으면 단계만 바뀐 발행도 `lastCoaching.appliedAt`을 새로 써서 안내 미준수 유예(60초)가 다시 시작되고, 무시가 이어질 때 DANGER·CAUTION이 오간다.
 
 ### 코칭 단계 (coachingLevel)
 
@@ -209,8 +262,8 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | 값 | 판정 | `recommendedPaceSecPerKm` |
 | --- | --- | --- |
 | `OK` | 아래 둘 다 아님. 러너가 안내보다 빨라도 막지 않는다 | 보통 지금 안내 그대로. 심박 여유가 있으면 목표보다 앞서 있다는 이유로 늦추지 않는다(`SLOW_DOWN_GOAL` 대신 안내 유지). 목표에 뒤처지면 올리는 판단(`SPEED_UP_GOAL`)은 그대로 |
-| `CAUTION` | 안내 페이스로도 예측 상한이 허용선 이상(`SLOW_DOWN_HR` gate), 과속 감지 `OVERPACE`, 또는 러너가 지금 실측 속도로 2분 달릴 때의 예측 상한이 허용선 이상 | 안내로 돌아오라는 뜻. 추천은 기존 MPC 판단 그대로라 보통 지금 안내이고, 안내 페이스로도 허용선 이상이면 늦추며(`SLOW_DOWN_HR`), 목표보다 앞서 있으면 늦출 수도 있다(`SLOW_DOWN_GOAL`) |
-| `DANGER` | 위험 심박(`action=EASE_OFF`, `status=SAFETY`) | 위 감속 권고 |
+| `CAUTION` | 안내 페이스로도 예측 상한이 허용선 이상(`SLOW_DOWN_HR` gate), 과속 감지 `OVERPACE`, 또는 러너가 지금 실측 속도로 2분 달릴 때의 예측 상한이 허용선 이상 | 안내로 돌아오라는 뜻. 추천은 MPC 판단 그대로라 보통 지금 안내이고, 안내 페이스로도 허용선 이상이면 넘친 만큼 늦추며(`SLOW_DOWN_HR`), 목표보다 앞서 있으면 늦출 수도 있다(`SLOW_DOWN_GOAL`) |
+| `DANGER` | 위험 심박(`action=EASE_OFF`, `status=SAFETY`), 심박 감속이 걷기 경계 하한에 닿음, 또는 심박 감속이 필요한데 러너가 안내를 따르지 않음(S15P31E105-506) | 위 감속 권고, 하한 페이스, 또는 같은 안내 |
 
 - 실측 속도 예측: 요청 후보 5개는 그대로 두고, 안내 그대로 후보(`anchorPaceSecPerKm`)를 복사해 미래 속도만 최근 실측 평균 속도로 바꾼 행을 GRU 배치에 덧붙여 같은 호출로 예측한다. 여유분(margin)과 경사는 그 후보와 같은 칸을 쓴다. 실측 속도가 걷기 경계 미만이면 덧붙이지 않는다.
 - 설정: `policy_v03.json`의 `actual_pace_check_enabled`(기본 true). 배포에서 환경변수 `AI04_ACTUAL_PACE_CHECK_ENABLED=true|false`로 바꿀 수 있다. 끄면 실측 속도 예측을 하지 않고, `CAUTION`은 `SLOW_DOWN_HR` gate와 `OVERPACE`로만 정한다. GRU가 작은 페이스 차이를 잘 구분하지 못하는 문제가 해결되기 전에는 운영에서 결과를 보고 켤지 정한다.
@@ -233,9 +286,11 @@ GRU 개인화가 설정상 꺼져 있으면(`GRU_PERSONALIZATION_ENABLED=false`,
 
 일반 예측 경로에서 자유러닝 경사 정보가 없으면 0% 평지로 계산하고 HTTP 200과 경고를 반환한다(MVP 기본 `FREE_RUN_GRADE_POLICY=flat0`). AI04 응답 `warnings[]`에 `FREE_RUN_GRADE_POLICY_FLAT0_PROVISIONAL`, `FREE_RUN_HISTORY_GRADE_FILLED_0`를 담는다. 계획이 있는 t0 한 칸 `PLAN_HOLD` 응답은 GRU 예측을 하지 않아 경사를 채우지 않으므로, history 경사가 비어 있어도 이 경고를 붙이지 않는다.
 
+미래 경사를 모르면(자유러닝) GRU는 평지(0%)로 예측하지만, 상한의 여유분(margin)은 여유 표(`policy/data/margin_gru.json`)에서 그 지평선·방향의 모든 경사 칸 중 가장 큰 값을 쓴다(`residual_margin.py`, 경고 `GRADE_UNKNOWN`). 120초 기준 평지 칸보다 1.5~3.3 bpm 크다. 평지 칸을 쓰자는 의견(인계 I-24)이 있었으나 정책 담당의 검증에서 이쪽이 더 정확해 유지한다(2026-11-06 확인).
+
 ### 러닝 초반 계획 넘겨주기
 
-`context.activeSec`가 `plan_hold_sec`(잠정 60초) 전이면 계획 pace를 유지하고(`PLAN_HOLD`), `plan_blend_end_sec`(잠정 180초)까지 계획 비중 w를 1→0으로 줄이며 MPC와 섞는다(`PLAN_BLEND`). 그 뒤는 기존 MPC다(`MPC`). 결과는 늘 후보 5개 중 하나(섞은 값에 가장 가까운 후보, 같으면 느린 쪽)이고, SAFETY와 심박 gate가 먼저다. 계획 pace는 `context.plan`과 `goal`로 구한 지금 구간 목표 pace이며, 계획이 없으면 현재 안내 pace를 유지한다. 단계는 `pacing.handoverPhase`, `pacing.planWeight`로 알린다. 60/180초는 V2 Val 재생 평가로 조정 예정(잠정)이다.
+`context.activeSec`가 `plan_hold_sec`(잠정 60초) 전이면 계획 pace를 유지하고(`PLAN_HOLD`), `plan_blend_end_sec`(잠정 180초)까지 계획 비중 w를 1→0으로 줄이며 MPC와 섞는다(`PLAN_BLEND`). 그 뒤는 기존 MPC다(`MPC`). 넘겨주기 단계의 결과는 후보 5개 중 하나(섞은 값에 가장 가까운 후보, 같으면 느린 쪽)이고, SAFETY와 심박 gate가 먼저다. 계획 pace는 `context.plan`과 `goal`로 구한 지금 구간 목표 pace이며, 계획이 없으면 현재 안내 pace를 유지한다. 단계는 `pacing.handoverPhase`, `pacing.planWeight`로 알린다. 60/180초는 V2 Val 재생 평가로 조정 예정(잠정)이다.
 
 **고려사항(팀 합의 필요):** 백엔드가 AI04 호출 시 사전 계획 구간 비율(`context.plan`)과 예상 완주시간(`goal.targetDurationSec` = personal-plan `predictedFinishSec`, M-A)을 넘겨야 함. 넘기지 않으면 계획 유지 구간은 현재 안내 pace 유지로 동작한다.
 
