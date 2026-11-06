@@ -104,6 +104,18 @@ function serve() {
           onboardingCompleted: true,
         });
       }
+      // U19·U13 for the 8.1 setting tiles (S15P31E105-460).
+      if (path === '/users/me/settings' && init.method === 'GET') {
+        return respond(200, {
+          voiceCoachingEnabled: true,
+          bpmGuideEnabled: true,
+          locationRecordingMode: 'RUNNING_ONLY',
+          notifications: { groupRun: true, community: true },
+        });
+      }
+      if (path === '/users/me/privacy-settings' && init.method === 'GET') {
+        return respond(200, { isPrivate: false });
+      }
       throw new Error(`unexpected request ${init.method} ${address}`);
     },
   );
