@@ -9,7 +9,14 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon, Logo, useToast } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  EmptyState,
+  Icon,
+  Logo,
+  useToast,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -189,6 +196,10 @@ export function CommunityScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
+      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop tail />
+      </View>
       <View style={[styles.header, { marginTop: insets.top }]}>
         <Logo width={104} />
         <Pressable
@@ -327,7 +338,7 @@ export function CommunityScreen() {
   );
 }
 
-// runway-community-handoff 7.1: a white photo feed without cards, pills or dividers.
+// runway-community-handoff 7.1: a photo feed without cards, pills or dividers, on the mist (S15P31E105-483).
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: communityLook.background },
   flex: { flex: 1 },

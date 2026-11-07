@@ -18,7 +18,7 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
 import { DarkSegmented } from './CrewJoinRequestsScreen';
-import { DarkBackground, GroupCta, groupLook, SectionLabel } from './look';
+import { GroupCta, groupLook, MistBackground, SectionLabel } from './look';
 import { useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
@@ -52,7 +52,7 @@ function Field({
   return (
     <View style={styles.field}>
       <View style={styles.rowBetween}>
-        <SectionLabel>{title}</SectionLabel>
+        <SectionLabel tone="mist">{title}</SectionLabel>
         {note ? (
           <AppText style={styles.note} numberOfLines={1}>
             {note}
@@ -110,9 +110,9 @@ function AreaPicker({
         onPress={() => onPick(null)}
       >
         <InputBox>
-          <Icon name="mapPin" color={groupLook.onDark} size={18} />
+          <Icon name="mapPin" color={groupLook.onLight} size={18} />
           <AppText style={[styles.picked, styles.flex]}>{area.name}</AppText>
-          <Icon name="close" color={groupLook.onDarkSub} size={16} />
+          <Icon name="close" color={groupLook.onLightSub} size={16} />
         </InputBox>
       </Pressable>
     );
@@ -120,12 +120,12 @@ function AreaPicker({
   return (
     <View style={styles.picker}>
       <InputBox>
-        <Icon name="search" color={groupLook.onDarkSub} size={16} />
+        <Icon name="search" color={groupLook.onLightSub} size={16} />
         <TextInput
           accessibilityLabel="지역 검색"
           placeholder="동네나 장소 이름으로 검색"
-          placeholderTextColor={groupLook.onDarkMuted}
-          selectionColor={groupLook.onDark}
+          placeholderTextColor={groupLook.onLightMuted}
+          selectionColor={groupLook.onLight}
           value={query}
           onChangeText={search}
           style={styles.input}
@@ -143,7 +143,7 @@ function AreaPicker({
           }}
           style={styles.result}
         >
-          <Icon name="mapPin" color={groupLook.onDarkSub} size={16} />
+          <Icon name="mapPin" color={groupLook.onLightSub} size={16} />
           <View style={styles.flex}>
             <AppText style={styles.picked}>{place.name}</AppText>
             <AppText style={styles.sub}>{place.address}</AppText>
@@ -179,7 +179,7 @@ function StepButton({
         pressed && styles.pressed,
       ]}
     >
-      <Icon name={icon} color={groupLook.onDark} size={20} />
+      <Icon name={icon} color={groupLook.onLight} size={20} />
     </Pressable>
   );
 }
@@ -224,13 +224,14 @@ export function CrewCreateScreen() {
 
   return (
     // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
-    <ThemeProvider tone="dark">
-      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
-        <StatusBar barStyle="light-content" />
-        <DarkBackground id="crewCreateBackground" />
+    // On the mist like the rest of 6.0~6.3 (S15P31E105-483).
+    <ThemeProvider tone="light">
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        <MistBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <BackButton tone="dark" onPress={() => navigation.goBack()} />
+            <BackButton tone="light" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               크루 만들기
             </AppText>
@@ -253,7 +254,7 @@ export function CrewCreateScreen() {
                 pressed && styles.rowPressed,
               ]}
             >
-              <Icon name="camera" color={groupLook.onDark} size={20} />
+              <Icon name="camera" color={groupLook.onLight} size={20} />
               <AppText style={styles.photoText}>대표 사진 추가</AppText>
             </Pressable>
             <Field title="크루 이름" note="필수">
@@ -261,8 +262,8 @@ export function CrewCreateScreen() {
                 <TextInput
                   accessibilityLabel="크루 이름"
                   placeholder="예: 광안리 주말 러너스"
-                  placeholderTextColor={groupLook.onDarkMuted}
-                  selectionColor={groupLook.onDark}
+                  placeholderTextColor={groupLook.onLightMuted}
+                  selectionColor={groupLook.onLight}
                   value={name}
                   onChangeText={setName}
                   maxLength={30}
@@ -281,8 +282,8 @@ export function CrewCreateScreen() {
                 <TextInput
                   accessibilityLabel="소개"
                   placeholder="언제, 어디서, 어떤 페이스로 달리는지 적어 주세요"
-                  placeholderTextColor={groupLook.onDarkMuted}
-                  selectionColor={groupLook.onDark}
+                  placeholderTextColor={groupLook.onLightMuted}
+                  selectionColor={groupLook.onLight}
                   value={description}
                   onChangeText={setDescription}
                   maxLength={descriptionLimit}
@@ -305,7 +306,7 @@ export function CrewCreateScreen() {
             </Field>
             <View style={styles.capacityRow}>
               <View style={styles.flex}>
-                <SectionLabel style={styles.capacityLabel}>
+                <SectionLabel tone="mist" style={styles.capacityLabel}>
                   모집 인원
                 </SectionLabel>
               </View>
@@ -343,11 +344,11 @@ export function CrewCreateScreen() {
   );
 }
 
-// --input-dark-*: the gradient's middle as a plain fill (an Svg stop loses rgba alpha on Android).
+// A light glass field on the mist (S15P31E105-483), in place of --input-dark-*.
 const inputDark = {
-  backgroundColor: 'rgba(255,255,255,0.105)',
+  backgroundColor: 'rgba(255,255,255,0.6)',
   boxShadow:
-    'inset 0 1px 0 rgba(255,255,255,0.24), inset 0 -1px 0 rgba(0,0,0,0.28), 0 10px 26px rgba(0,0,0,0.35)',
+    'inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(30,45,60,0.08), 0 6px 18px rgba(30,45,60,0.1)',
 };
 
 const styles = StyleSheet.create({
@@ -365,11 +366,11 @@ const styles = StyleSheet.create({
     fontSize: 19,
     lineHeight: 26,
     letterSpacing: -0.4,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   // Room under the last section for the floating button.
   content: { paddingHorizontal: 16, paddingBottom: 120, gap: spacing.xl },
-  // 6.3-PhotoUpload: a dark glass box, 96 high.
+  // 6.3-PhotoUpload: a light glass box, 96 high.
   photo: {
     height: 96,
     alignItems: 'center',
@@ -382,7 +383,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 13,
     lineHeight: 17,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   rowPressed: { transform: [{ scale: 0.985 }] },
   field: { gap: spacing.md },
@@ -397,13 +398,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onDarkMuted,
+    color: groupLook.onLightMuted,
   },
   sub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   inputBox: {
     flexDirection: 'row',
@@ -422,14 +423,14 @@ const styles = StyleSheet.create({
     padding: 0,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   multiline: { height: 88, paddingVertical: spacing.lg },
   picked: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   picker: { gap: spacing.xs },
   result: {
@@ -439,7 +440,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xs,
   },
-  // 모집 인원: the line label, then −  20  + in dark glass circles.
+  // 모집 인원: the line label, then −  20  + in light glass circles.
   capacityRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   capacityLabel: { alignSelf: 'flex-start' },
   step: {
@@ -448,9 +449,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.11)',
-    boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.24), inset 0 -1px 0 rgba(0,0,0,0.28), 0 6px 16px rgba(0,0,0,0.3)',
+    ...inputDark,
   },
   dim: { opacity: 0.4 },
   pressed: { transform: [{ scale: 0.97 }] },
@@ -460,7 +459,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.numberRegular,
     fontSize: 34,
     lineHeight: 42,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   footer: {
     position: 'absolute',

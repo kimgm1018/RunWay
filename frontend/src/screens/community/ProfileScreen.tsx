@@ -26,6 +26,7 @@ import Svg, {
 } from 'react-native-svg';
 import {
   AppText,
+  Backdrop,
   EmptyState,
   Icon,
   MistFill,
@@ -56,13 +57,13 @@ import { mediaFor, Scrim } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
-// 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into a dark screen, the
-// name sits over its foot, then one wide white button, a row of three numbers, a glass card and the runs
+// 7.4 · 7.4b after the user's reference (담당자 요청): the top half is a picture fading into the mist (홈 · 러닝과
+// 같은 배경, S15P31E105-483), the name sits over its foot, then one wide navy button, a row of three numbers, a
+// glass card and the runs
 // as two-column photo tiles. The picture is the runner's profile photo; without one it is a mist-to-teal
 // gradient with the nickname's first letter large on it (담당자 결정). Only what the screen already showed is drawn.
 const look = {
-  background: '#091019',
-  // The picture: pale mist at the top, through steel and teal, into the screen's dark.
+  // The picture without a photo: pale mist at the top, through steel and teal; the mist covers its foot.
   hero: [
     '#C4D4DC',
     '#A4BDC9',
@@ -75,11 +76,13 @@ const look = {
   ],
   heroStops: [0, 0.16, 0.3, 0.42, 0.56, 0.7, 0.86, 1],
   white: '#FFFFFF',
-  sub: 'rgba(255,255,255,0.6)',
-  muted: 'rgba(255,255,255,0.45)',
-  glass: 'rgba(255,255,255,0.07)',
-  glassEdge: 'rgba(255,255,255,0.12)',
-  roundButton: 'rgba(9,16,25,0.35)',
+  // The page under the picture: the mist, with navy text (S15P31E105-483).
+  mist: ['#E9EFF2', '#DEE6EA', '#CDDBE1', '#B3C4CD'],
+  ink: communityLook.ink,
+  inkSub: 'rgba(2,5,14,0.6)',
+  inkMuted: 'rgba(2,5,14,0.45)',
+  lightGlass: 'rgba(255,255,255,0.55)',
+  lightGlassEdge: 'rgba(255,255,255,0.8)',
 };
 
 const levelLabels: Record<SelfReportedLevel, string> = {
@@ -223,7 +226,7 @@ function HeroBackdrop({
   });
   const darker = scrollY.interpolate({
     inputRange: [0, heroHeight],
-    outputRange: [0, 0.5],
+    outputRange: [0, 0.85],
     extrapolate: 'clamp',
   });
   return (
@@ -290,16 +293,12 @@ function HeroBackdrop({
           </Animated.View>
         </>
       )}
+      {/* The picture's foot melts into the mist, which is opaque by the counts so the navy text reads. */}
       <FadeFill
         id="profileFrostTint"
-        colors={[
-          look.background,
-          look.background,
-          look.background,
-          look.background,
-        ]}
-        offsets={[0, 0.2, 0.62, 1]}
-        opacities={[0, 0.28, 0.5, 1]}
+        colors={[...look.mist]}
+        offsets={[0, 0.14, 0.32, 1]}
+        opacities={[0, 0.7, 1, 1]}
         style={{ top: heroHeight - panelLead }}
       />
       <Animated.View
@@ -330,7 +329,7 @@ function Count({
   );
 }
 
-// The wide white button: 팔로우 + · 팔로잉 ✓ · 요청됨 ✓ (U22·U23), or 프로필 수정 on my own profile.
+// The wide navy button: 팔로우 + · 팔로잉 ✓ · 요청됨 ✓ (U22·U23), or 프로필 수정 on my own profile.
 function MainButton({
   label,
   icon,
@@ -352,7 +351,7 @@ function MainButton({
       style={({ pressed }) => [styles.main, pressed && styles.mainPressed]}
     >
       <AppText style={[styles.mainText, busy && styles.busy]}>{label}</AppText>
-      <Icon name={icon} color={communityLook.ink} size={16} strokeWidth={2.4} />
+      <Icon name={icon} color={look.white} size={16} strokeWidth={2.4} />
     </Pressable>
   );
 }
@@ -551,7 +550,7 @@ function Profile({
               ) : null}
               <Icon
                 name="forward"
-                color={look.muted}
+                color={look.inkMuted}
                 size={14}
                 strokeWidth={2.2}
               />
@@ -559,7 +558,7 @@ function Profile({
           ) : null}
           {locked ? (
             <View style={styles.locked}>
-              <Icon name="lock" color={look.sub} size={22} />
+              <Icon name="lock" color={look.inkSub} size={22} />
               <AppText style={styles.lockedText}>
                 비공개 계정이에요. 팔로우 요청이 승인되면 러닝 기록이 보여요.
               </AppText>
@@ -665,9 +664,13 @@ function ProfileView({
     }
   };
   return (
-    <ThemeProvider tone="dark">
+    <ThemeProvider tone="light">
       <View style={styles.root}>
-        <StatusBar barStyle="light-content" />
+        {/* Light icons over the picture; dark ones on the plain mist while it loads. */}
+        <StatusBar barStyle={profile ? 'light-content' : 'dark-content'} />
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Backdrop />
+        </View>
         {resource.status === 'error' && !profile ? (
           <EmptyState
             icon="alert"
@@ -676,7 +679,7 @@ function ProfileView({
             onAction={reload}
           />
         ) : !profile ? (
-          <ActivityIndicator style={styles.loading} color={look.white} />
+          <ActivityIndicator style={styles.loading} color={look.ink} />
         ) : (
           <Profile
             profile={profile}
@@ -706,7 +709,7 @@ export function MyProfileTabScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: look.background },
+  root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: 120 },
   busy: { opacity: 0.45 },
@@ -722,7 +725,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   blurCopy: { position: 'absolute', top: 0, left: -60 },
-  darken: { backgroundColor: look.background },
+  // Scrolling the page up over the picture covers it with the mist, so the navy text stays readable.
+  darken: { backgroundColor: look.mist[0] },
   // Past every edge, so the blur does not thin out and let the sharp photo show at the sides.
   photoBlur: {
     position: 'absolute',
@@ -742,22 +746,29 @@ const styles = StyleSheet.create({
   },
 
   name: { alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8 },
+  // White over the picture's foot; a soft shadow keeps it readable once the page scrolls onto the mist.
   handle: {
     fontFamily: fontFamily.bold,
     fontSize: 32,
     lineHeight: 40,
     letterSpacing: -0.5,
     color: look.white,
+    textShadowColor: 'rgba(2,5,14,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
   level: {
     marginTop: 2,
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
-    color: look.muted,
+    color: 'rgba(255,255,255,0.85)',
+    textShadowColor: 'rgba(2,5,14,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   body: { paddingHorizontal: 16, paddingTop: 16 },
-  // The wide white button, 54 high.
+  // The wide navy button, 54 high.
   main: {
     height: 54,
     borderRadius: 27,
@@ -765,14 +776,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: look.white,
+    backgroundColor: look.ink,
   },
   mainPressed: { transform: [{ scale: 0.98 }] },
   mainText: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 21,
-    color: communityLook.ink,
+    color: look.white,
   },
   // 팔로워 · 팔로잉 · 이번 달 러닝, each centred in a third.
   counts: { flexDirection: 'row', marginTop: 20 },
@@ -781,19 +792,19 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.numberMedium,
     fontSize: 26,
     lineHeight: 32,
-    color: look.white,
+    color: look.ink,
   },
   countUnit: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
-    color: look.sub,
+    color: look.inkSub,
   },
   countLabel: {
     marginTop: 2,
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: look.sub,
+    color: look.inkSub,
   },
   // The glass card, as the reference's bio box.
   card: {
@@ -806,21 +817,21 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: look.glassEdge,
-    backgroundColor: look.glass,
+    borderColor: look.lightGlassEdge,
+    backgroundColor: look.lightGlass,
   },
-  cardPressed: { backgroundColor: 'rgba(255,255,255,0.12)' },
+  cardPressed: { backgroundColor: 'rgba(255,255,255,0.8)' },
   cardTitle: {
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
-    color: look.white,
+    color: look.ink,
   },
   cardValue: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
     lineHeight: 19,
-    color: look.sub,
+    color: look.inkSub,
   },
   locked: { alignItems: 'center', gap: 10, paddingVertical: 32 },
   lockedText: {
@@ -828,7 +839,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 15,
     lineHeight: 22,
-    color: look.sub,
+    color: look.inkSub,
   },
   section: {
     marginTop: 28,
@@ -836,13 +847,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 21,
-    color: look.white,
+    color: look.ink,
   },
   empty: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: look.sub,
+    color: look.inkSub,
   },
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: tileGap },
   tile: { borderRadius: 16, overflow: 'hidden', justifyContent: 'flex-end' },

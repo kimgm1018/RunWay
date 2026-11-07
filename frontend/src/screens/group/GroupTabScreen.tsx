@@ -14,13 +14,13 @@ import {
 } from '@react-navigation/native';
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, MistFill } from '../../components';
+import { AppText, Backdrop } from '../../components';
 import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
 import { MyCrewsPage } from './GroupScreen';
-import { groupLook, insetTrackDark, Raised } from './look';
+import { groupLook, insetTrackLight, Raised } from './look';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 // 내 크루 is the left page, 크루 모집 the right one.
@@ -28,8 +28,8 @@ const pages: readonly GroupTabRouteName[] = ['MyCrews', 'CrewRecruit'];
 const pageOf = (name: GroupTabRouteName | undefined) =>
   name === 'CrewRecruit' ? 1 : 0;
 
-// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager: the handoff's segmented switch, the picked tab a
-// raised white pill on a pressed-in track.
+// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager: the handoff's segmented switch on a light screen, the
+// picked tab a raised navy pill on a pressed-in track.
 export function GroupTabs({
   active,
   onSelect,
@@ -53,7 +53,7 @@ export function GroupTabs({
         style={styles.tab}
       >
         {selected ? (
-          <Raised tone="white" style={styles.tabOn}>
+          <Raised tone="navy" style={styles.tabOn}>
             {text}
           </Raised>
         ) : (
@@ -129,22 +129,21 @@ export function GroupTabScreen() {
   );
 
   return (
-    // 6.0 · 6.1 sit on --bg-analysis-dark, so both pages take the dark theme (white text).
-    <ThemeProvider tone="dark">
-      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
-        <StatusBar barStyle="light-content" />
-        <MistFill
-          id="groupTabBackground"
-          colors={[...groupLook.darkBackground]}
-          offsets={[...groupLook.darkBackgroundStops]}
-        />
+    // 6.0 · 6.1 sit on the mist like 홈 and 러닝 (S15P31E105-483), so the tab bar's move between tabs keeps one
+    // background; only the crew cards stay navy.
+    <ThemeProvider tone="light">
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Backdrop />
+        </View>
         <View style={[styles.header, { paddingTop: insets.top }]}>
           <View style={styles.root}>
             <GroupTabs active={page} onSelect={select} />
           </View>
           <GlassIconButton
             icon="search"
-            tone="dark"
+            tone="light"
             accessibilityLabel={
               page === 1 ? '크루 검색 열기' : '내 크루 검색 열기'
             }
@@ -204,8 +203,8 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
     borderRadius: 22,
-    backgroundColor: groupLook.darkButton,
-    boxShadow: insetTrackDark,
+    backgroundColor: groupLook.lightButton,
+    boxShadow: insetTrackLight,
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   tabOn: {
@@ -220,9 +219,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     letterSpacing: -0.3,
-    color: 'rgba(255,255,255,0.7)',
+    color: groupLook.onLightSub,
   },
-  tabTextOn: { color: groupLook.navy },
+  tabTextOn: { color: groupLook.onDark },
   // As tall as the tabs, flat like the round buttons on the crew cards.
   search: { marginTop: 3 },
 });

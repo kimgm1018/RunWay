@@ -78,7 +78,7 @@ function CreateBox() {
         onPress={() => navigateTo(navigation, 'CrewCreate')}
         style={({ pressed }) => pressed && styles.pressed}
       >
-        <Raised tone="white" style={styles.createButton}>
+        <Raised tone="navy" style={styles.createButton}>
           <AppText style={styles.createButtonText}>크루 만들기</AppText>
         </Raised>
       </Pressable>
@@ -154,7 +154,7 @@ export function CrewRecruitPage({
         ) : !list ? (
           <ActivityIndicator style={styles.loading} />
         ) : list.length === 0 ? (
-          <AppText style={[styles.sub, styles.none]}>
+          <AppText style={[styles.sub, styles.onMist, styles.none]}>
             찾는 크루가 없어요.
           </AppText>
         ) : (
@@ -186,9 +186,10 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: groupLook.onDarkSub,
   },
+  // Text straight on the mist rather than in a navy crew card (S15P31E105-483).
+  onMist: { color: groupLook.onLightSub },
   list: { gap: 12, marginTop: spacing.md },
-  // 6.1-CrewCard on a faint glass card so each crew reads as something to tap (담당자 요청): a little
-  // lighter than the background, with the dark glass edge light and a soft shadow.
+  // 6.1-CrewCard on a navy card so each crew reads as something to tap (담당자 요청, S15P31E105-483).
   crew: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   rowPressed: { transform: [{ scale: 0.985 }] },
   // Regular weight, not bold (담당자 요청).
@@ -217,7 +218,7 @@ const styles = StyleSheet.create({
     fontSize: 16.5,
     lineHeight: 21,
     letterSpacing: -0.3,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   // A little more room under 원하는 크루가 없나요? (담당자 요청).
   createSub: {
@@ -225,7 +226,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 17,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   createButton: {
     width: 100,
@@ -238,7 +239,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.navy,
+    color: groupLook.onDark,
   },
   pressed: { transform: [{ scale: 0.97 }] },
 });

@@ -34,9 +34,9 @@ import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { joinPolicyLabels } from './CrewDetailScreen';
 import {
-  DarkBackground,
+  MistBackground,
   groupLook,
-  insetTrackDark,
+  insetTrackLight,
   Raised,
   SectionLabel,
 } from './look';
@@ -85,7 +85,7 @@ export function DarkSegmented<T extends string>({
             style={styles.segment}
           >
             {selected ? (
-              <Raised tone="white" style={styles.segmentOn}>
+              <Raised tone="navy" style={styles.segmentOn}>
                 {label}
               </Raised>
             ) : (
@@ -152,7 +152,7 @@ function RequestRow({
         onPress={() => onDecide(false)}
         style={({ pressed }) => pressed && styles.pressed}
       >
-        <Raised tone="darkGlass" style={styles.decide}>
+        <Raised tone="navy" style={styles.decide}>
           <AppText style={styles.decideTextLight}>거절</AppText>
         </Raised>
       </Pressable>
@@ -267,17 +267,18 @@ export function CrewJoinRequestsScreen() {
 
   return (
     // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
-    <ThemeProvider tone="dark">
-      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
-        <StatusBar barStyle="light-content" />
-        <DarkBackground id="crewJoinRequestsBackground" />
+    // On the mist like the rest of 6.0~6.3 (S15P31E105-483).
+    <ThemeProvider tone="light">
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        <MistBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <BackButton tone="dark" onPress={() => navigation.goBack()} />
+            <BackButton tone="light" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               가입 신청
             </AppText>
-            <Raised tone="darkGlass" style={styles.ownerOnly}>
+            <Raised tone="navy" style={styles.ownerOnly}>
               <AppText style={styles.ownerOnlyText}>크루장만 보여요</AppText>
             </Raised>
           </View>
@@ -305,7 +306,7 @@ export function CrewJoinRequestsScreen() {
             </View>
             <View style={styles.section}>
               <View style={styles.rowBetween}>
-                <SectionLabel>가입 방식</SectionLabel>
+                <SectionLabel tone="mist">가입 방식</SectionLabel>
                 <AppText style={styles.note} numberOfLines={1}>
                   크루 상세·신청 화면에 같이 표시돼요
                 </AppText>
@@ -322,7 +323,7 @@ export function CrewJoinRequestsScreen() {
             </View>
             <View style={styles.section}>
               <View style={styles.rowBetween}>
-                <SectionLabel>대기 중인 신청</SectionLabel>
+                <SectionLabel tone="mist">대기 중인 신청</SectionLabel>
                 <AppText style={styles.count}>{`${requests.length}건`}</AppText>
               </View>
               {requests.length === 0 ? (
@@ -372,7 +373,7 @@ const styles = StyleSheet.create({
     fontSize: 19,
     lineHeight: 26,
     letterSpacing: -0.4,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   ownerOnly: {
     height: 26,
@@ -394,15 +395,15 @@ const styles = StyleSheet.create({
     fontSize: 30,
     lineHeight: 38,
     letterSpacing: -0.6,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   summary: {
     fontFamily: fontFamily.regular,
     fontSize: 15,
     lineHeight: 21,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
-  summaryStrong: { fontFamily: fontFamily.bold, color: groupLook.onDark },
+  summaryStrong: { fontFamily: fontFamily.bold, color: groupLook.onLight },
   section: { gap: spacing.md, marginTop: spacing.xxl },
   rowBetween: {
     flexDirection: 'row',
@@ -415,19 +416,19 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onDarkMuted,
+    color: groupLook.onLightMuted,
   },
   count: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 17,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   sub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 19,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   // 가입 방식 switch: 44 high on a pressed-in track (6.2a-JoinModeCard).
   segments: {
@@ -436,8 +437,8 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
     borderRadius: 22,
-    backgroundColor: groupLook.darkButton,
-    boxShadow: insetTrackDark,
+    backgroundColor: groupLook.lightButton,
+    boxShadow: insetTrackLight,
   },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   segmentOn: {
@@ -451,9 +452,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: 'rgba(255,255,255,0.7)',
+    color: groupLook.onLightSub,
   },
-  segmentTextOn: { color: groupLook.navy },
+  segmentTextOn: { color: groupLook.onDark },
   // 6.2a-PendingRequests rows.
   row: {
     flexDirection: 'row',
@@ -465,7 +466,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: groupLook.darkFill,
+    backgroundColor: groupLook.lightFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -473,13 +474,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   name: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 21,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   decide: {
     height: 38,
