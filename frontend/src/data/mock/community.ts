@@ -14,6 +14,8 @@ type Respond = <T>(value: T) => Promise<T>;
 type Fail = (error: DataError) => Promise<never>;
 
 const me = fixtures.communityUsers.me;
+// U24 reads 10 requests a page.
+const requestPage = 10;
 
 // My run as a post card. The mock has no heart rate or cadence totals, so a watch run gets
 // the 7.3 sheet's values.
@@ -71,6 +73,20 @@ export function createCommunityMock({
     ]),
   );
   let nextId = 1;
+  // 7.4b 팔로우 요청: answered ones leave the list (U24 lists PENDING only).
+  let followRequests = fixtures.myFollowRequests.map(request => ({
+    ...request,
+  }));
+  // A request that is no longer waiting answers 404 like U25.
+  const settle = (requesterId: string, approved: boolean) => {
+    followRequests = followRequests.filter(
+      request => request.requesterId !== requesterId,
+    );
+    const mine = profiles.get(me.userId);
+    if (approved && mine) {
+      mine.followerCount += 1;
+    }
+  };
 
   const find = (postId: string) => {
     const post = posts.find(item => item.id === postId);
@@ -145,7 +161,12 @@ export function createCommunityMock({
       followingCount: accessible ? profile.followingCount : null,
       followStatus: profile.followStatus,
       accessible,
-      followRequestCount: isMe ? fixtures.myFollowRequestCount : null,
+      followRequests: isMe
+        ? {
+            count: Math.min(followRequests.length, requestPage),
+            more: followRequests.length > requestPage,
+          }
+        : null,
       monthly: accessible
         ? {
             runCount: summary?.runCount ?? thisMonth.length,
@@ -289,6 +310,27 @@ export function createCommunityMock({
       }
       return respond(profileOf(userId));
     },
+    // U24 pages of 10; the cursor is where the next page starts.
+    listFollowRequests: cursor => {
+      const start = cursor ? Number(cursor) : 0;
+      const end = start + requestPage;
+      return respond({
+        items: followRequests.slice(start, end),
+        nextCursor: end < followRequests.length ? String(end) : null,
+      });
+    },
+    decideFollowRequest: (request, decision) => {
+      const waiting = followRequests.find(
+        item =>
+          item.requesterId === request.requesterId &&
+          item.requestId === request.requestId,
+      );
+      if (!waiting) {
+        return fail(new DataError('REQUEST_NOT_FOUND', '요청 없음'));
+      }
+      settle(request.requesterId, decision === 'APPROVE');
+      return respond(undefined);
+    },
   };
 
   return {
@@ -302,6 +344,10 @@ export function createCommunityMock({
       const profile = profiles.get(me.userId);
       if (profile) {
         profile.isPrivate = isPrivate;
+      }
+      // Going public approves every waiting request (U14).
+      if (!isPrivate) {
+        followRequests.forEach(request => settle(request.requesterId, true));
       }
     },
     // S09 기록 삭제 takes my posts sharing that run with it.

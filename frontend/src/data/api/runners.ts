@@ -1,10 +1,15 @@
-import type { Repositories, RunnerProfile, SelfReportedLevel } from '../types';
+import type {
+  FollowRequestPage,
+  Repositories,
+  RunnerProfile,
+  SelfReportedLevel,
+} from '../types';
 import { recordOf, type PostResponse } from './community';
 import { apiRequest } from './http';
 
-// 7.4 러너 프로필 · 7.4b 내 프로필 (U21) and 팔로우 · 취소 (U22 · U23), docs/design/api/users.md.
-// U21 has no month summary or 팔로우 요청 count: someone else's month is worked out from the runs they
-// shared, mine from my records, and the request count waits for U24 (S15P31E105-525).
+// 7.4 러너 프로필 · 7.4b 내 프로필 (U21), 팔로우 · 취소 (U22 · U23) and 팔로우 요청 (U24 · U25),
+// docs/design/api/users.md. U21 has no month summary or 팔로우 요청 count: someone else's month is worked
+// out from the runs they shared, mine from my records, and the count from U24's first page.
 
 type FollowStatus = RunnerProfile['followStatus'];
 
@@ -31,6 +36,45 @@ const kstMonth = (time: number) =>
   new Date(time + kstOffsetMs).toISOString().slice(0, 7);
 
 const noMonth = { runCount: 0, totalDistanceM: 0, averagePaceSecPerKm: null };
+
+// U24 item: a pending request to my account.
+type FollowRequestResponse = {
+  requesterId: number;
+  requestId: number;
+  nickname: string | null;
+  requestedAt: string;
+};
+
+type FollowRequestsResponse = {
+  items: FollowRequestResponse[];
+  nextCursor: string | null;
+  hasNext: boolean;
+};
+
+const followRequestsPath = '/users/me/follow-requests';
+
+async function readFollowRequests(cursor: string | null) {
+  const page = await apiRequest<FollowRequestsResponse>(followRequestsPath, {
+    query: { cursor },
+  });
+  const result: FollowRequestPage = {
+    items: page.items.map(item => ({
+      requesterId: String(item.requesterId),
+      requestId: String(item.requestId),
+      nickname: item.nickname ?? unknownNickname,
+      requestedAt: item.requestedAt,
+    })),
+    nextCursor: page.hasNext ? page.nextCursor : null,
+  };
+  return result;
+}
+
+// 7.4b 팔로우 요청 N건 from U24's first page; the card still opens without a count when it fails.
+const requestCount = () =>
+  readFollowRequests(null).then(
+    page => ({ count: page.items.length, more: page.nextCursor !== null }),
+    () => null,
+  );
 
 export function createRunnersApi({
   myId,
@@ -66,14 +110,16 @@ export function createRunnersApi({
     };
   }
 
-  // My recent runs (H01) and this month's totals (H06), every run type as in 5.3.
+  // My recent runs (H01), this month's totals (H06), every run type as in 5.3, and my 팔로우 요청 (U24).
   async function mine() {
     const month = kstMonth(now().getTime());
-    const [recent, summary] = await Promise.all([
+    const [recent, summary, followRequests] = await Promise.all([
       records.getRecent('recent', shownRuns),
       records.getStatistics('MONTH', `${month}-01`),
+      requestCount(),
     ]);
     return {
+      followRequests,
       records: recent.map(record => ({ record, postId: null })),
       monthly: {
         runCount: summary.runCount,
@@ -109,7 +155,8 @@ export function createRunnersApi({
       followingCount: accessible ? response.followingCount ?? null : null,
       followStatus: isMe ? 'NONE' : response.followStatus,
       accessible,
-      followRequestCount: null,
+      // Mine come with my runs below.
+      followRequests: null,
       ...runs,
     };
   }
@@ -124,6 +171,17 @@ export function createRunnersApi({
         method: following ? 'PUT' : 'DELETE',
       });
       return getProfile(userId);
+    },
+    listFollowRequests: readFollowRequests,
+    // U25 names the request as U24 listed it, so a late answer never settles a request sent again later.
+    decideFollowRequest: async (request, decision) => {
+      await apiRequest(
+        `${followRequestsPath}/${encodeURIComponent(request.requesterId)}`,
+        {
+          method: 'PATCH',
+          body: { requestId: Number(request.requestId), decision },
+        },
+      );
     },
   };
 }

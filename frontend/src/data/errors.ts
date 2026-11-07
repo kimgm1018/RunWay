@@ -31,6 +31,9 @@ export const dataErrorCodes = [
   // U21–U23 러너 프로필·팔로우: the runner is gone or withdrew, or I tried to follow myself.
   'USER_NOT_FOUND',
   'CANNOT_FOLLOW_SELF',
+  // U25 팔로우 요청 승인·거절: the request is gone, or was cancelled or answered meanwhile.
+  'REQUEST_NOT_FOUND',
+  'REQUEST_STATE_CONFLICT',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

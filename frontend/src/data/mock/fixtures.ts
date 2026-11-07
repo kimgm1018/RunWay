@@ -1425,5 +1425,23 @@ export const runnerPhotos: Record<string, string | null> = {
   [communityUsers.seoyun.userId]: assetUri(mockSeoyunPhoto),
 };
 
-// 7.4b 팔로우 요청 N건.
-export const myFollowRequestCount = 0;
+// 7.4b 팔로우 요청 (U24): requests waiting for my answer, newest first.
+export const myFollowRequests: {
+  requesterId: string;
+  requestId: string;
+  nickname: string;
+  requestedAt: string;
+}[] = [
+  {
+    requesterId: 'user-dohyun',
+    requestId: 'follow-request-2',
+    nickname: 'dohyun_r',
+    requestedAt: '2026-10-15T23:40:00Z',
+  },
+  {
+    requesterId: communityUsers.jiwoo.userId,
+    requestId: 'follow-request-1',
+    nickname: communityUsers.jiwoo.handle,
+    requestedAt: '2026-10-15T12:10:00Z',
+  },
+];

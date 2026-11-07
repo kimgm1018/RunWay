@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories } from '../src/data';
+import { createMockRepositories, DataError } from '../src/data';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -266,6 +266,69 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(page).toContain('비공개 계정이에요');
   await press(screen, '요청됨');
   expect(texts(screen)).toContain('팔로우');
+});
+
+test('7.4b answers follow requests in the sheet and the counts follow', async () => {
+  const screen = await openCommunity();
+  await press(screen, '프로필');
+  await settle(50);
+  let page = texts(screen);
+  expect(page).toContain('2건');
+  expect(page).toContain('86');
+
+  await press(screen, '팔로우 요청 2건');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.');
+  expect(page).toContain('dohyun_r');
+  expect(page).toContain('jiwoo.runs');
+
+  await press(screen, 'dohyun_r 승인');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('dohyun_r님을 승인했어요');
+  expect(page).not.toContain('dohyun_r 승인');
+  // My profile reads again behind the sheet: one more follower, one request left.
+  expect(page).toContain('87');
+  expect(page).toContain('1건');
+
+  await press(screen, 'jiwoo.runs 거절');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('jiwoo.runs님의 요청을 거절했어요');
+  expect(page).toContain('대기 중인 요청이 없어요.');
+  expect(page).toContain('0건');
+  expect(page).toContain('87');
+});
+
+test('a request answered elsewhere leaves the sheet with a note, and a failed list can be retried', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const { listFollowRequests, decideFollowRequest } = repositories.runners;
+  let listFails = true;
+  repositories.runners.listFollowRequests = cursor =>
+    listFails
+      ? Promise.reject(new DataError('NETWORK_ERROR', '응답 없음'))
+      : listFollowRequests(cursor);
+  repositories.runners.decideFollowRequest = (request, decision) =>
+    request.nickname === 'dohyun_r'
+      ? Promise.reject(new DataError('REQUEST_STATE_CONFLICT', '이미 처리됨'))
+      : decideFollowRequest(request, decision);
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '팔로우 요청 2건');
+  await settle(50);
+  expect(texts(screen)).toContain('요청을 불러오지 못했어요');
+
+  listFails = false;
+  await press(screen, '다시 시도');
+  await settle(50);
+  await press(screen, 'dohyun_r 승인');
+  await settle(50);
+  const page = texts(screen);
+  expect(page).toContain('이미 처리됐거나 취소된 요청이에요');
+  expect(page).not.toContain('dohyun_r 승인');
+  expect(page).toContain('jiwoo.runs');
 });
 
 test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {

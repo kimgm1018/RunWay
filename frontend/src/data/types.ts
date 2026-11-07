@@ -285,8 +285,9 @@ export type RunnerProfile = {
   followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
   // U21 profileAccessible: me, a public account, or a private one that approved my follow.
   accessible: boolean;
-  // 7.4b 팔로우 요청 N건; null on someone else's profile, or while the count is not read (U24, S15P31E105-525).
-  followRequestCount: number | null;
+  // 7.4b 팔로우 요청 N건 (U24): more when there are further pages past the count. null on someone else's
+  // profile, or when the requests could not be read.
+  followRequests: { count: number; more: boolean } | null;
   monthly: {
     runCount: number;
     totalDistanceM: number;
@@ -295,6 +296,23 @@ export type RunnerProfile = {
   // A shared run opens its post (postId); my own runs open 5.2.
   records: { record: RunRecordSummary; postId: string | null }[];
 };
+
+// 7.4b 팔로우 요청 (U24): one request to my private account, waiting for my answer.
+export type FollowRequest = {
+  requesterId: string;
+  // U25 checks it is still the request I saw, not one sent again after a refusal or cancel.
+  requestId: string;
+  nickname: string;
+  requestedAt: string;
+};
+
+// U24 pages of 10, newest first; nextCursor is null on the last page.
+export type FollowRequestPage = {
+  items: FollowRequest[];
+  nextCursor: string | null;
+};
+
+export type FollowDecision = 'APPROVE' | 'REJECT';
 
 export type AppNotification = {
   id: string;
@@ -1175,6 +1193,12 @@ export type Repositories = {
       userId: string,
       following: boolean,
     ) => Promise<RunnerProfile>;
+    // 7.4b 팔로우 요청 (U24 · U25, S15P31E105-525). cursor null reads the first page.
+    listFollowRequests: (cursor: string | null) => Promise<FollowRequestPage>;
+    decideFollowRequest: (
+      request: FollowRequest,
+      decision: FollowDecision,
+    ) => Promise<void>;
   };
   // 7.5 검색 (CMT13): runners and crews whose name holds the query.
   search: {
