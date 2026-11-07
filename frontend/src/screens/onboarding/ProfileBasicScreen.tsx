@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { AppText, Screen, TextField } from '../../components';
+import { AppText, Screen, TextField, WheelPicker } from '../../components';
 import { errorCode, useRepositories, type Gender } from '../../data';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import { fontFamily, useTheme } from '../../theme';
+import { fontFamily } from '../../theme';
 import {
   ErrorNotice,
   GoButton,
@@ -16,25 +16,23 @@ import {
   onboardingLook,
   onboardingScreen,
   RunnerArt,
-  SelectField,
   SelectionCard,
   signUpSteps,
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 import {
-  birthDateError,
-  daysInMonth,
-  digitsOnly,
+  birthDateOptions,
+  clampBirthDate,
+  defaultBirthDate,
   isValidNickname,
   nicknameRule,
   parseBirthDate,
+  toBirthDate,
+  type BirthDate,
   type BirthDateParts,
 } from './validation';
 
-// 1.5b lists 2010 down to 1950.
-const years = Array.from({ length: 61 }, (_, index) => 2010 - index);
-const months = Array.from({ length: 12 }, (_, index) => index + 1);
 const pad = (value: number) => String(value).padStart(2, '0');
 
 const genders: { value: Gender; label: string }[] = [
@@ -66,11 +64,16 @@ function splitDate(date: string | undefined): BirthDateParts {
   return { year, month, day };
 }
 
-const dateParts = [
-  { part: 'year', label: '연도', placeholder: 'YYYY', length: 4 },
-  { part: 'month', label: '월', placeholder: 'MM', length: 2 },
-  { part: 'day', label: '일', placeholder: 'DD', length: 2 },
-] as const;
+// A kept date opens the wheels where it was; nothing kept yet opens them on 2002-01-01.
+function initialBirthDate(parts: BirthDateParts): BirthDate {
+  return parseBirthDate(parts)
+    ? clampBirthDate({
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+      })
+    : defaultBirthDate;
+}
 
 // The handoff's filled figures for 남성 · 여성.
 function GenderIcon({ gender }: { gender: Gender }) {
@@ -206,50 +209,34 @@ export function ProfileBirthdayScreen() {
   const repositories = useRepositories();
   const { holdTokens } = useSession();
   const { draft, update } = useSignUpDraft();
-  const { colors } = useTheme();
-  // The parts live in the draft as they change (S15P31E105-287), so going back to 1.5 keeps them.
-  const initial = draft.birthDateParts ?? splitDate(draft.profile?.birthDate);
-  const [birthParts, setBirthParts] = useState(initial);
-  const [directInput, setDirectInput] = useState(false);
-  const [birthTouched, setBirthTouched] = useState(false);
+  // The date lives in the draft as it changes (S15P31E105-287), so going back to 1.5 keeps it.
+  const [birth, setBirth] = useState(() =>
+    initialBirthDate(
+      draft.birthDateParts ?? splitDate(draft.profile?.birthDate),
+    ),
+  );
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const year = birthParts.year ? Number(birthParts.year) : null;
-  const month = birthParts.month ? Number(birthParts.month) : null;
-  const day = birthParts.day ? Number(birthParts.day) : null;
-  const birthDate = parseBirthDate(birthParts);
-  const dateError = birthDateError(birthParts);
-  const changeBirthParts = (changes: Partial<BirthDateParts>) => {
-    const next = { ...birthParts, ...changes };
-    setBirthParts(next);
-    update({ birthDateParts: next });
-    setBirthTouched(true);
+  const { years, months, days } = birthDateOptions(birth);
+  const birthDate = toBirthDate(birth.year, birth.month, birth.day);
+  // A shorter month, or today's month in the latest year, pulls the later wheels back.
+  const changeBirth = (changes: Partial<BirthDate>) => {
+    const next = clampBirthDate({ ...birth, ...changes });
+    setBirth(next);
+    update({
+      birthDateParts: {
+        year: String(next.year),
+        month: pad(next.month),
+        day: pad(next.day),
+      },
+    });
   };
 
-  const dayCount =
-    year && month && month >= 1 && month <= 12 ? daysInMonth(year, month) : 31;
-  const days = Array.from({ length: dayCount }, (_, index) => index + 1);
-  // The lists pull the day back to the month's last date; typed dates are never clamped.
-  const changeSelectedPart = (changes: Partial<BirthDateParts>) => {
-    const next = { ...birthParts, ...changes };
-    const nextYear = Number(next.year);
-    const nextMonth = Number(next.month);
-    if (
-      nextYear &&
-      nextMonth >= 1 &&
-      nextMonth <= 12 &&
-      Number(next.day) > daysInMonth(nextYear, nextMonth)
-    ) {
-      next.day = pad(daysInMonth(nextYear, nextMonth));
-    }
-    changeBirthParts(next);
-  };
-
+  // The wheels always hold a date, so 다음 waits only for 1.5's nickname and gender.
   const basic = draft.basic;
-  const ready = basic && birthDate;
 
   const submit = async () => {
-    if (!ready) {
+    if (!basic) {
       return;
     }
     const profile = { ...basic, birthDate };
@@ -307,100 +294,42 @@ export function ProfileBirthdayScreen() {
         />
       }
       footer={
-        <StepFooter title="다음" disabled={!ready || saving} onPress={submit} />
+        <StepFooter title="다음" disabled={!basic || saving} onPress={submit} />
       }
     >
       <RunnerArt />
       <StepTitle title="생일이 " muted="언제예요?" />
       {failure ? <ErrorNotice title={failure} /> : null}
-      <AppText style={styles.label}>생년월일</AppText>
-      {/* 목록 선택 · 직접 입력 (S15P31E105-287), as the 1.x glass cards. */}
-      <View accessibilityRole="radiogroup" style={styles.dateRow}>
-        {[false, true].map(direct => (
-          <SelectionCard
-            key={String(direct)}
-            selected={directInput === direct}
-            onPress={() => setDirectInput(direct)}
-            accessibilityLabel={
-              direct ? '생년월일 직접 입력' : '생년월일 목록 선택'
-            }
-            style={styles.mode}
-          >
-            <AppText style={styles.modeText}>
-              {direct ? '직접 입력' : '목록 선택'}
-            </AppText>
-          </SelectionCard>
-        ))}
+      {/* Three wheels in 년 · 월 · 일 order, rolled in place like the reference (S15P31E105-520). */}
+      <View style={styles.wheels}>
+        <WheelPicker
+          label="연도"
+          options={years}
+          value={birth.year}
+          format={value => `${value}년`}
+          onChange={year => changeBirth({ year })}
+          color={onboardingLook.ink}
+          style={styles.year}
+        />
+        <WheelPicker
+          label="월"
+          options={months}
+          value={birth.month}
+          format={value => `${value}월`}
+          onChange={month => changeBirth({ month })}
+          color={onboardingLook.ink}
+          style={styles.flex}
+        />
+        <WheelPicker
+          label="일"
+          options={days}
+          value={birth.day}
+          format={value => `${value}일`}
+          onChange={day => changeBirth({ day })}
+          color={onboardingLook.ink}
+          style={styles.flex}
+        />
       </View>
-      {directInput ? (
-        <View style={styles.dateRow}>
-          {dateParts.map(({ part, label, placeholder, length }) => (
-            <View
-              key={part}
-              style={part === 'year' ? styles.year : styles.flex}
-            >
-              <TextField
-                labelInside
-                label={label}
-                accessibilityLabel={`생년월일 ${label} 입력`}
-                accessibilityHint="연도 4자리와 월·일을 숫자로 입력해 주세요"
-                placeholder={placeholder}
-                keyboardType="number-pad"
-                value={birthParts[part]}
-                onChangeText={value =>
-                  changeBirthParts({
-                    [part]: digitsOnly(value).slice(0, length),
-                  })
-                }
-                onBlur={() => setBirthTouched(true)}
-                status={birthTouched && dateError ? 'error' : 'default'}
-              />
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.dateRow}>
-          <SelectField
-            glass
-            label="연도"
-            placeholder="연도"
-            value={year}
-            options={years}
-            format={value => `${value}년`}
-            onChange={value => changeSelectedPart({ year: String(value) })}
-            style={styles.year}
-          />
-          <SelectField
-            glass
-            label="월"
-            placeholder="월"
-            value={month}
-            options={months}
-            format={value => `${pad(value)}월`}
-            onChange={value => changeSelectedPart({ month: pad(value) })}
-            style={styles.flex}
-          />
-          <SelectField
-            glass
-            label="일"
-            placeholder="일"
-            value={day}
-            options={days}
-            format={value => `${pad(value)}일`}
-            onChange={value => changeBirthParts({ day: pad(value) })}
-            style={styles.flex}
-          />
-        </View>
-      )}
-      {/* The format hint and the padlock note are gone (담당자 결정); a wrong date still says why. */}
-      {birthTouched && dateError ? (
-        <AppText
-          accessibilityLiveRegion="polite"
-          style={[styles.hint, { color: colors.danger }]}
-        >
-          {dateError}
-        </AppText>
-      ) : null}
     </Screen>
   );
 }
@@ -428,26 +357,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: onboardingLook.ink,
   },
-  dateRow: { flexDirection: 'row', gap: 8 },
-  mode: {
-    flex: 1,
-    minHeight: 44,
-    paddingVertical: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: onboardingLook.ink,
-  },
-  hint: {
-    paddingHorizontal: 4,
-    fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 17,
-    color: onboardingLook.sub,
-  },
+  wheels: { flexDirection: 'row', gap: 8, marginTop: 12 },
   year: { flex: 1.4 },
 });
