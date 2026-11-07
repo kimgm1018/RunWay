@@ -276,13 +276,16 @@ export type RunnerProfile = {
   nickname: string;
   // U21 profileImageUrl: the runner's photo address, or null without one (7.4 · 7.4b draw it big).
   profileImageUrl: string | null;
-  level: SelfReportedLevel;
+  // U21 runningLevel; null before the running profile is set or while the profile is closed to me.
+  level: SelfReportedLevel | null;
   isMe: boolean;
-  followerCount: number;
-  followingCount: number;
+  // Approved followers and followings; null while the profile is closed to me.
+  followerCount: number | null;
+  followingCount: number | null;
   followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
-  isPrivate: boolean;
-  // 7.4b 팔로우 요청 N건; null on someone else's profile.
+  // U21 profileAccessible: me, a public account, or a private one that approved my follow.
+  accessible: boolean;
+  // 7.4b 팔로우 요청 N건; null on someone else's profile, or while the count is not read (U24, S15P31E105-525).
   followRequestCount: number | null;
   monthly: {
     runCount: number;

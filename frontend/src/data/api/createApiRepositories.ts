@@ -5,6 +5,7 @@ import {
 import type { Repositories } from '../types';
 import { checkLoginId, login, logout, signUp } from './auth';
 import { createCommunityApi } from './community';
+import { createRunnersApi } from './runners';
 import { consentsApi } from './consents';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
@@ -79,8 +80,10 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     settings: settingsApi,
     // 8.4–8.6 회원탈퇴: U17 사전 정보와 U18 탈퇴 (S15P31E105-523).
     account: createAccountApi(),
-    // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
+    // CMT01–CMT11 커뮤니티.
     community: createCommunityApi({ records }),
+    // 7.4 러너 프로필 · 7.4b 내 프로필 (U21) and 팔로우 · 취소 (U22 · U23), S15P31E105-524.
+    runners: createRunnersApi({ myId, records }),
     // 7.5 검색 (CMT13): runners and crews by name.
     search: searchApi,
     // 2.9 알림 (N01·N02): the inbox and its unread count; leaving the screen reads them all.

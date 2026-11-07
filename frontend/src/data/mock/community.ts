@@ -108,6 +108,9 @@ export function createCommunityMock({
       throw new Error(`러너 없음: ${userId}`);
     }
     const isMe = userId === me.userId;
+    // As U21: a private account shows only the name, photo and follow state until it approves me.
+    const accessible =
+      isMe || !profile.isPrivate || profile.followStatus === 'FOLLOWING';
     const user = Object.values(fixtures.communityUsers).find(
       item => item.userId === userId,
     );
@@ -136,21 +139,23 @@ export function createCommunityMock({
       handle: user?.handle ?? userId,
       nickname: user?.nickname ?? userId,
       profileImageUrl: isMe ? myPhoto() : fixtures.runnerPhotos[userId] ?? null,
-      level: profile.level,
+      level: accessible ? profile.level : null,
       isMe,
-      followerCount: profile.followerCount,
-      followingCount: profile.followingCount,
+      followerCount: accessible ? profile.followerCount : null,
+      followingCount: accessible ? profile.followingCount : null,
       followStatus: profile.followStatus,
-      isPrivate: profile.isPrivate,
+      accessible,
       followRequestCount: isMe ? fixtures.myFollowRequestCount : null,
-      monthly: {
-        runCount: summary?.runCount ?? thisMonth.length,
-        totalDistanceM: summary?.totalDistanceM ?? distance,
-        averagePaceSecPerKm:
-          summary?.averagePaceSecPerKm ??
-          (distance ? Math.round(duration / (distance / 1000)) : null),
-      },
-      records: runs.slice(0, 3),
+      monthly: accessible
+        ? {
+            runCount: summary?.runCount ?? thisMonth.length,
+            totalDistanceM: summary?.totalDistanceM ?? distance,
+            averagePaceSecPerKm:
+              summary?.averagePaceSecPerKm ??
+              (distance ? Math.round(duration / (distance / 1000)) : null),
+          }
+        : { runCount: 0, totalDistanceM: 0, averagePaceSecPerKm: null },
+      records: accessible ? runs.slice(0, 3) : [],
     };
   };
 
