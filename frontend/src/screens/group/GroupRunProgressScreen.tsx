@@ -50,7 +50,6 @@ function GroupMap({
   const running = !!trail && trail.length > 0;
   return (
     <RunMap
-      dark={false}
       route={route}
       trail={running ? trail : undefined}
       members={markers?.map(marker => ({ ...marker, color: memberDot }))}

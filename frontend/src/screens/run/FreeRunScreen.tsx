@@ -100,7 +100,6 @@ export function FreeRunScreen() {
     <MapScreenFrame
       renderMap={logo => (
         <RunMap
-          dark={night}
           position={place.status === 'ready' ? place.data.position : undefined}
           area={{ top: 0.36, bottom: 0.36 }}
           logo={logo}

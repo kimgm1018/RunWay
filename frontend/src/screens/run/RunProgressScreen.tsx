@@ -600,7 +600,6 @@ export function RunProgressScreen() {
       <View style={styles.root} onLayout={layScreen}>
         <StatusBar barStyle="dark-content" />
         <RunMap
-          dark={false}
           route={plan?.route}
           trail={trail.length > 0 ? trail : undefined}
           // The run so far between the stat strip and the pace card; the course before the first metres.
@@ -769,10 +768,10 @@ export function RunProgressScreen() {
       style={[styles.root, { backgroundColor: colors.background }]}
       onLayout={layScreen}
     >
-      <StatusBar barStyle={colors.statusBar} />
-      {/* After sunset the whole screen is the K1 dark map (DESIGN.md 2-7). */}
+      {/* After sunset the cards stay dark, but the map under them is the K1 day map (S15P31E105-527), so
+          the status bar and the words right on the map are dark-on-light. */}
+      <StatusBar barStyle="dark-content" />
       <RunMap
-        dark
         route={plan?.route}
         trail={trail.length > 0 ? trail : undefined}
         area={{ top: 0.36, bottom: 0.55 }}
@@ -795,9 +794,11 @@ export function RunProgressScreen() {
           </View>
           {rival ? (
             <View style={styles.titleRow}>
-              <AppText variant="caption" tone="textSecondary">
-                {rival.label}
-              </AppText>
+              <View style={styles.rivalLabel}>
+                <AppText variant="caption" tone="textSecondary">
+                  {rival.label}
+                </AppText>
+              </View>
               <View
                 style={[styles.rival, { backgroundColor: colors.surfaceMuted }]}
               >
@@ -1224,6 +1225,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xxs,
     borderRadius: 999,
+  },
+  // On the light map the label sits on the status chip's dark pill so it stays readable.
+  rivalLabel: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xxs,
+    borderRadius: 999,
+    backgroundColor: 'rgba(2,5,14,0.72)',
   },
   stats: {
     borderRadius: 28,

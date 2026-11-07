@@ -10,7 +10,6 @@ import {
   NaverMapMarkerOverlay,
   NaverMapMultiPathOverlay,
   NaverMapPathOverlay,
-  NaverMapPolylineOverlay,
   NaverMapView,
   NaverMapViewRef,
 } from '@mj-studio/react-native-naver-map';
@@ -53,12 +52,10 @@ type RunMapProps = {
   members?: RunMapMember[];
   // 6.4 취소된 그룹런: the course in grey.
   muted?: boolean;
-  // 3.1·4.2·5.2·6.x after sunset use the dark map; by day the light one (DESIGN.md 2-6·2-7).
-  dark?: boolean;
   // Shows the GPS location dot. Turn it on with location tracking, after the permission is granted.
   showLocation?: boolean;
-  // A style from the NAVER Cloud Style Editor (ADR-0018). Left out, the day map takes runway-k1-day
-  // (S15P31E105-325) and the dark map Naver's night navigation map, so the two can be compared in use.
+  // A style from the NAVER Cloud Style Editor (ADR-0018). Left out, the map takes runway-k1-day
+  // (S15P31E105-325) by day and after sunset alike (S15P31E105-527).
   customStyleId?: string;
   area?: RunMapArea;
   logo?: RunMapLogo;
@@ -79,9 +76,6 @@ const toCoord = ([longitude, latitude]: LngLat) => ({ latitude, longitude });
 // By day the course is a hollow line: the km colour outside a thin near-white core (runway-course-handoff).
 const core = '#F9F9F9';
 const ink = '#060606';
-// After sunset it is a white line with a faint white halo; the part already run fades.
-const halo = 'rgba(255, 255, 255, 0.18)';
-const passed = 'rgba(232, 238, 244, 0.42)';
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
 const layerGroups = {
   BUILDING: false,
@@ -293,7 +287,6 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     position,
     members,
     muted = false,
-    dark = true,
     showLocation = false,
     customStyleId,
     area,
@@ -369,15 +362,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
       : coursePaceColors[1];
 
-  // K1 by day only (담당자 결정: 밤은 스타일 없이 써 보며 비교).
-  const styleId =
-    customStyleId ??
-    (dark ? undefined : appConfig.naverMapDayStyleId || undefined);
-  const nightFallback = dark && !styleId;
+  // The K1 day map by day and after sunset alike (S15P31E105-527: 낮·밤 구분 없이 낮 스타일).
+  const styleId = customStyleId ?? (appConfig.naverMapDayStyleId || undefined);
   return (
     <NaverMapView
       ref={map}
-      style={[{ backgroundColor: dark ? k1.night : palette.white }, style]}
+      style={[{ backgroundColor: palette.white }, style]}
       onLayout={event =>
         setSize({
           width: event.nativeEvent.layout.width,
@@ -387,8 +377,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       onInitialized={() => setReady(true)}
       initialRegion={fitted}
       customStyleId={styleId}
-      mapType={nightFallback ? 'Navi' : 'Basic'}
-      isNightModeEnabled={nightFallback}
+      mapType="Basic"
       layerGroups={layerGroups}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
       mapPadding={padding}
@@ -415,50 +404,35 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       isShowCompass={false}
       locale="ko"
     >
-      {/* The course: by day a hollow line in the km colours, after sunset a white line. While running
-          after sunset it is a dashed guide under the run. */}
-      {pieces.length > 0 && !(dark && running) ? (
+      {/* The course: a hollow line in the km colours. While running it is a guide under the run. */}
+      {pieces.length > 0 ? (
         <NaverMapMultiPathOverlay
           pathParts={pieces.map((piece, index) => {
-            const color = dark ? (muted ? k1.mid : palette.white) : core;
-            const outline = dark
-              ? muted
-                ? 'transparent'
-                : halo
-              : pieceColor(index);
+            const outline = pieceColor(index);
             return {
               coords: piece.map(toCoord),
-              color,
+              color: core,
               outlineColor: outline,
-              passedColor: dark ? passed : core,
-              passedOutlineColor: dark ? halo : outline,
+              passedColor: core,
+              passedOutlineColor: outline,
             };
           })}
-          width={dark ? 3 : 2}
-          outlineWidth={dark ? 2 : 2.5}
+          width={2}
+          outlineWidth={2.5}
           progress={progress}
         />
       ) : null}
-      {hasRoute && dark && running ? (
-        <NaverMapPolylineOverlay
-          coords={route.map(toCoord)}
-          width={3}
-          color="rgba(255, 255, 255, 0.45)"
-          pattern={[4, 10]}
-          capType="Round"
-        />
-      ) : null}
-      {/* The run so far: by day a black hollow line from a white start, after sunset a bright white one. */}
+      {/* The run so far: a black hollow line from a white start. */}
       {trail && trail.length >= 2 ? (
         <NaverMapPathOverlay
           coords={trail.map(toCoord)}
-          width={dark ? 5 : 2}
-          outlineWidth={dark ? 5 : 2}
-          color={dark ? palette.white : core}
-          outlineColor={dark ? halo : ink}
+          width={2}
+          outlineWidth={2}
+          color={core}
+          outlineColor={ink}
         />
       ) : null}
-      {trail && trail.length >= 2 && !dark ? (
+      {trail && trail.length >= 2 ? (
         <DotMarker
           at={trail[0]}
           dot={{ size: 10, fill: palette.white, ring: ink, ringWidth: 2.5 }}
@@ -507,34 +481,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {running || (position && !hasRoute) ? (
         <DotMarker
           at={running ? trail[trail.length - 1] : (position as LngLat)}
-          dot={
-            dark
-              ? running
-                ? {
-                    size: 16,
-                    fill: k1.night,
-                    ring: palette.white,
-                    ringWidth: 3,
-                    glow: 'rgba(255, 255, 255, 0.12)',
-                    glowSize: 36,
-                  }
-                : {
-                    size: 18,
-                    fill: palette.white,
-                    ring: palette.white,
-                    ringWidth: 3,
-                    glow: 'rgba(255, 255, 255, 0.12)',
-                    glowSize: 44,
-                  }
-              : {
-                  size: 17,
-                  fill: ink,
-                  ring: palette.white,
-                  ringWidth: 3,
-                  glow: 'rgba(58, 90, 108, 0.16)',
-                  glowSize: 48,
-                }
-          }
+          dot={{
+            size: 17,
+            fill: ink,
+            ring: palette.white,
+            ringWidth: 3,
+            glow: 'rgba(58, 90, 108, 0.16)',
+            glowSize: 48,
+          }}
         />
       ) : null}
       {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
@@ -558,10 +512,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 ringWidth={2}
               />
               <Text
-                style={[
-                  styles.memberName,
-                  dark ? styles.memberNameDark : styles.memberNameLight,
-                ]}
+                style={[styles.memberName, styles.memberNameLight]}
               >
                 {member.label}
               </Text>
@@ -588,7 +539,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 0 },
   },
   memberNameLight: { color: '#253649', textShadowColor: '#F3F5F6' },
-  memberNameDark: { color: k1.ice, textShadowColor: k1.night },
   center: { alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute' },
   start: {

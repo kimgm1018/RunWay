@@ -462,7 +462,6 @@ export function TodayRunScreen() {
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
       <RunMap
-        dark={false}
         position={place?.position}
         // The place sits above the sheet, under the tabs (142 of 844).
         area={{ top: 0.17, bottom: 0.17 }}
