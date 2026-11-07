@@ -56,13 +56,6 @@ async function press(screen: Screen, label: string) {
   await settle();
 }
 
-async function type(screen: Screen, label: string, text: string) {
-  await act(async () => {
-    labelled(screen, label, 'onChangeText').props.onChangeText(text);
-  });
-  await settle();
-}
-
 async function render(scenario: MockScenario = 'default') {
   let screen: Screen;
   await act(async () => {
@@ -257,16 +250,31 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(free, '자유 러닝');
   expect(texts(free)).toContain('민락수변공원 입구');
   expect(texts(free)).toContain('GPS 양호');
-  expect(texts(free)).not.toContain('예상 완주 시간');
-  await type(free, '거리 목표', '5');
-  expect(texts(free)).not.toContain('예상 완주 시간');
-  await type(free, '페이스 목표', '6:00');
-  expect(texts(free)).toContain('예상 완주 시간 30:00');
+  // 운동 목표 (S15P31E105-517): the chip opens the goal cards; 페이서 works the pace out of a distance and a time.
+  expect(texts(free)).toContain('목표 설정');
+  await press(free, '목표 설정');
+  for (const text of ['운동 목표', '목표 없음', '거리', '시간', '페이서']) {
+    expect(texts(free)).toContain(text);
+  }
+  expect(texts(free)).not.toContain('칼로리');
+  await press(free, '페이서 목표');
+  expect(texts(free)).toContain('거리와 시간으로 계산한 페이스');
+  expect(texts(free)).toContain('6′00″/km');
+  // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.
+  await act(async () => {
+    labelled(free, '목표 거리', 'onAccessibilityAction').props.onAccessibilityAction({
+      nativeEvent: { actionName: 'increment' },
+    });
+  });
+  expect(texts(free)).toContain('5.5km');
+  expect(texts(free)).toContain('5′27″/km');
+  await press(free, '목표만 설정');
+  expect(texts(free)).toContain('5.5km · 30분 · 5′27″/km');
   await press(free, '러닝 시작');
   expect(texts(free)).toContain('3');
   // Countdown, watch execution and server confirmation must all finish.
-  await waitForText(free, '내 페이스');
-  expect(texts(free)).toContain('내 페이스');
+  await waitForText(free, '현재 페이스');
+  expect(texts(free)).toContain('현재 페이스');
   await act(async () => free.unmount());
 });
 

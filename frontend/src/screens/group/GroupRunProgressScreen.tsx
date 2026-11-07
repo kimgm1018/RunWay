@@ -1,263 +1,194 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import {
-  BackHandler,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, LightGlass } from '../../components';
+  CommonActions,
+  useFocusEffect,
+  useNavigation,
+} from '@react-navigation/native';
+import { AppText, BottomSheet, Icon, useToast } from '../../components';
 import {
+  spotifyFailureMessage,
   useRepositories,
   type GroupRunLive,
   type MusicState,
 } from '../../data';
-import { formatPace } from '../../format';
-import { walkAlong, routeLengthM, type LngLat } from '../../geo';
-import { navigateTo } from '../../navigation/navigateTo';
+import { formatDuration, formatKm, formatPace } from '../../format';
 import { useSession } from '../../session/SessionProvider';
-import { fontFamily, k1, spacing, ThemeProvider } from '../../theme';
-import { RunMap } from '../../components/RunMap';
-import { MiniPlayer, PaceBar } from '../run/RunProgressScreen';
+import { fontFamily, k1 } from '../../theme';
+import { controlModeOf, statusOf } from '../run/RunProgressScreen';
+import { RunControlBar } from '../run/live/RunControlBar';
+import {
+  liveLook,
+  RunLiveFrame,
+  type LivePage,
+  type LiveView,
+} from '../run/live/RunLiveFrame';
+import {
+  LiveMapPanel,
+  LiveMusicRow,
+  averagePace,
+  LiveNotice,
+  metricPages,
+  useRunHistory,
+  type MusicCommand,
+} from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
-import { groupLook, Raised } from './look';
+import { FooterButton } from './GroupRunDetailScreen';
 
-type Tab = 'pace' | 'position';
+type Tab = 'summary' | 'group';
 
-const tabs: { value: Tab; label: string }[] = [
-  { value: 'pace', label: '페이스' },
-  { value: 'position', label: '위치·간격' },
-];
-// The other members on the light map (6.6r-MapView): steel blue dots with their names.
-const memberDot = '#5D8194';
+const noSample = {
+  elapsedSec: 0,
+  paceSecPerKm: null,
+  distanceM: 0,
+  heartRate: null,
+  cadence: null,
+};
 
-type Marker = { position: LngLat; label: string };
-
-// 6.6 · 6.6r map (runway-group-handoff): the light map of 2.0, the run so far as the black hollow line, the
-// other members as dots with their names, above the #f3f5f6 scrim under the info (as on 4.2 by day).
-function GroupMap({
-  route,
-  trail,
-  markers,
-}: {
-  route?: LngLat[];
-  trail?: LngLat[];
-  markers?: Marker[];
-}) {
-  const running = !!trail && trail.length > 0;
-  return (
-    <RunMap
-      route={route}
-      trail={running ? trail : undefined}
-      members={markers?.map(marker => ({ ...marker, color: memberDot }))}
-      // While running the camera keeps me and the members in view, close enough to tell them apart.
-      fitTo={
-        running && markers?.length
-          ? [trail[trail.length - 1], ...markers.map(marker => marker.position)]
-          : undefined
-      }
-      area={running ? { top: 0.39, bottom: 0.56 } : { top: 0.19, bottom: 0.56 }}
-      // The NAVER logo over the scrim, which starts halfway down (S15P31E105-429).
-      logo={{ above: 0.5 }}
-      style={StyleSheet.absoluteFill}
-    />
-  );
-}
-
-// The #f3f5f6 cover over the lower map, fading in, so the info reads on a plain light ground.
-function Scrim() {
-  const [box, setBox] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-  return (
-    <View
-      style={styles.scrim}
-      pointerEvents="none"
-      onLayout={event => setBox(event.nativeEvent.layout)}
-    >
-      {box ? (
-        <Svg width={box.width} height={box.height}>
-          <Defs>
-            <LinearGradient id="groupRunScrim" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#F3F5F6" stopOpacity={0} />
-              <Stop offset="0.22" stopColor="#F3F5F6" stopOpacity={1} />
-              <Stop offset="1" stopColor="#F3F5F6" stopOpacity={1} />
-            </LinearGradient>
-          </Defs>
-          <Rect
-            width={box.width}
-            height={box.height}
-            fill="url(#groupRunScrim)"
-          />
-        </Svg>
-      ) : null}
-    </View>
-  );
-}
-
-// 페이스 · 위치·간격: a light glass track with the picked tab a raised navy pill (6.6-ModeTabs).
-function ModeTabs({
-  value,
-  onChange,
-}: {
-  value: Tab;
-  onChange: (tab: Tab) => void;
-}) {
-  return (
-    <LightGlass radius={16} style={styles.tabs} accessibilityRole="radiogroup">
-      {tabs.map(option => {
-        const selected = option.value === value;
-        const label = (
-          <AppText style={[styles.tabText, selected && styles.tabTextOn]}>
-            {option.label}
-          </AppText>
-        );
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityLabel={option.label}
-            accessibilityState={{ selected }}
-            onPress={() => onChange(option.value)}
-            style={styles.tab}
-          >
-            {selected ? (
-              <Raised tone="navy" style={styles.tabOn}>
-                {label}
-              </Raised>
-            ) : (
-              label
-            )}
-          </Pressable>
-        );
-      })}
-    </LightGlass>
-  );
-}
-
+// 6.6b: the server's advice to slow the group; the pace is never changed for the user.
 function LoadAlert({
   alert,
 }: {
   alert: NonNullable<GroupRunLive['loadAlert']>;
 }) {
-  // 서버가 계산한 감속 권고이며, 페이스를 자동 변경하지 않는다.
   return (
-    <LightGlass radius={20} style={styles.alert}>
-      <View accessibilityLiveRegion="assertive" style={styles.alertRow}>
-        <View style={styles.alertIcon}>
-          <Icon name="heart" color={k1.coral} size={18} />
-        </View>
-        <View style={styles.flex}>
-          <AppText style={styles.alertTitle}>
-            {`멤버 ${alert.memberCount}명 페이스 조정 권고`}
-          </AppText>
-          <AppText style={styles.sub}>
-            {'그룹 페이스를 '}
-            <AppText style={styles.subStrong}>
-              {formatPace(alert.nextPaceSecPerKm)}
-            </AppText>
-            로 늦추는 것을 권장해요
-          </AppText>
-        </View>
+    <View style={styles.alert} accessibilityLiveRegion="assertive">
+      <Icon name="heart" color={k1.coral} size={18} />
+      <View style={styles.flex}>
+        <AppText style={styles.alertTitle}>
+          {`멤버 ${alert.memberCount}명 페이스 조정 권고`}
+        </AppText>
+        <AppText style={styles.sub}>
+          {`그룹 페이스를 ${formatPace(
+            alert.nextPaceSecPerKm,
+          )}로 늦추는 것을 권장해요`}
+        </AppText>
       </View>
-    </LightGlass>
-  );
-}
-
-function PositionList({
-  live,
-  myPace,
-}: {
-  live: GroupRunLive;
-  myPace: number | null;
-}) {
-  const rows = [...live.members].sort(
-    (a, b) =>
-      (a.rank ?? Number.MAX_SAFE_INTEGER) -
-        (b.rank ?? Number.MAX_SAFE_INTEGER) ||
-      (b.gapM ?? -Infinity) - (a.gapM ?? -Infinity),
-  );
-  // On the scrim without a card or dividers: 선두·후미 labels, names, distance from me and pace (6.6r).
-  return (
-    <View style={styles.list}>
-      <PositionRows rows={rows} myPace={myPace} />
     </View>
   );
 }
 
-function PositionRows({
-  rows,
+// 그룹: the shared pace, the spread and who is ahead or behind by how far, from G10. Members' places on the
+// map are not given by the server, so this page shows distances only.
+function GroupPage({
+  live,
+  liveError,
+  goal,
   myPace,
 }: {
-  rows: GroupRunLive['members'];
+  live: GroupRunLive | null;
+  liveError: boolean;
+  goal: number;
   myPace: number | null;
 }) {
+  const guide = live?.guidePaceSecPerKm ?? goal;
+  const rows = live
+    ? [...live.members].sort(
+        (a, b) =>
+          (a.rank ?? Number.MAX_SAFE_INTEGER) -
+            (b.rank ?? Number.MAX_SAFE_INTEGER) ||
+          (b.gapM ?? -Infinity) - (a.gapM ?? -Infinity),
+      )
+    : [];
   return (
-    <>
-      <View style={styles.listHead}>
-        <AppText style={[styles.headText, styles.flex]}>
-          순위 · 최신 현황
+    <View style={styles.page}>
+      {live?.loadAlert ? <LoadAlert alert={live.loadAlert} /> : null}
+      <View style={styles.tile}>
+        <AppText style={styles.label}>
+          {guide === goal ? '공동 목표 페이스' : '지금 안내 페이스'}
         </AppText>
-        <AppText style={[styles.headText, styles.gap]}>나와의 거리</AppText>
-        <AppText style={[styles.headText, styles.listPace]}>페이스</AppText>
+        <AppText style={styles.big}>{`${formatPace(guide)}/km`}</AppText>
+        {guide !== goal ? (
+          <AppText style={styles.sub}>
+            {`지금 안내 ${formatPace(guide)} · 출발 목표 ${formatPace(goal)}`}
+          </AppText>
+        ) : null}
+        {live ? (
+          <AppText style={[styles.sub, live.inRange === false && styles.warn]}>
+            {`${
+              live.inRange === null
+                ? '현재 선두–후미 간격 '
+                : live.inRange
+                ? '그룹 범위 안이에요 · 선두–후미 '
+                : '그룹 범위를 벗어났어요 · 선두–후미 '
+            }${live.spreadM === null ? '미확인' : `${live.spreadM}m`}`}
+          </AppText>
+        ) : null}
       </View>
-      {rows.map((member, index) => {
-        const role = member.stale
-          ? '미확인'
-          : member.rank != null
-          ? `${member.rank}위`
-          : index === 0
-          ? '선두'
-          : index === rows.length - 1
-          ? '후미'
-          : '';
-        const pace = member.paceSecPerKm ?? (member.isMe ? myPace : null);
-        return (
-          <View key={member.userId} style={styles.listRow}>
-            <AppText style={styles.role}>{role}</AppText>
-            <View style={[styles.flex, styles.nameLine]}>
-              <AppText style={styles.name}>{member.nickname}</AppText>
-              {member.isMe ? (
-                <Raised tone="navy" style={styles.meBadge}>
-                  <AppText style={styles.meText}>나</AppText>
-                </Raised>
-              ) : null}
-            </View>
-            <AppText style={[styles.gapText, styles.gap]}>
-              {member.isMe
-                ? '–'
-                : member.gapM === null
-                ? '—'
-                : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(member.gapM)}m`}
+      {liveError ? (
+        <AppText style={styles.sub} accessibilityLiveRegion="polite">
+          최신 현황을 확인하지 못했어요. 연결 상태를 확인해 주세요.
+        </AppText>
+      ) : null}
+      {live ? (
+        <View style={styles.tile}>
+          <View style={styles.row}>
+            <AppText style={[styles.head, styles.flex]}>
+              순위 · 최신 현황
             </AppText>
-            <AppText style={[styles.number, styles.listPace]}>
-              {pace ? formatPace(pace) : '– –'}
-            </AppText>
+            <AppText style={[styles.head, styles.gapCol]}>나와의 거리</AppText>
+            <AppText style={[styles.head, styles.paceCol]}>페이스</AppText>
           </View>
-        );
-      })}
-    </>
+          {rows.map((member, index) => {
+            const role = member.stale
+              ? '미확인'
+              : member.rank != null
+              ? `${member.rank}위`
+              : index === 0
+              ? '선두'
+              : index === rows.length - 1
+              ? '후미'
+              : '';
+            const pace = member.paceSecPerKm ?? (member.isMe ? myPace : null);
+            return (
+              <View key={member.userId} style={styles.row}>
+                <AppText style={styles.role}>{role}</AppText>
+                <AppText style={[styles.name, styles.flex]} numberOfLines={1}>
+                  {member.isMe ? `${member.nickname} (나)` : member.nickname}
+                </AppText>
+                <AppText style={[styles.value, styles.gapCol]}>
+                  {member.isMe
+                    ? '–'
+                    : member.gapM === null
+                    ? '—'
+                    : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(
+                        member.gapM,
+                      )}m`}
+                </AppText>
+                <AppText style={[styles.value, styles.paceCol]}>
+                  {pace ? formatPace(pace) : '– –'}
+                </AppText>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
-// 6.6 그룹런 진행 (6.6b 멤버 부담 알림, 6.6r 위치·간격): the light map of runway-group-handoff with the other
-// members on it, and my pace or the members' gaps on the scrim below.
+// 6.6 그룹런 진행 (S15P31E105-517): the same frame as 4.2 with 요약 · 그룹 pages. Pausing stays here, and
+// pause and finish apply to my record only; the leader of this run can also end it for everyone.
 export function GroupRunProgressScreen({
-  initialTab = 'pace',
+  initialTab = 'summary',
 }: {
   initialTab?: Tab;
 }) {
   const navigation = useNavigation();
   const { groupRuns, music } = useRepositories();
-  const { run, start, pause, resume } = useRunSession();
+  const toast = useToast();
+  const { run, start, pause, resume, finish } = useRunSession();
   const { ensureRunLogin } = useSession();
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [view, setView] = useState<LiveView>('numbers');
+  // 6.6r opens on 그룹, after the four number pages.
+  const [page, setPage] = useState(initialTab === 'group' ? 4 : 0);
   const [live, setLive] = useState<GroupRunLive | null>(null);
   const [liveError, setLiveError] = useState(false);
   const [player, setPlayer] = useState<MusicState | null>(null);
+  const [musicBusy, setMusicBusy] = useState(false);
+  const [isHost, setIsHost] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const finishing = useRef(false);
   const groupRunId = run?.config.groupRunId ?? 'gr-today';
 
   // Opened without a run: start a group run without a course.
@@ -294,6 +225,16 @@ export function GroupRunProgressScreen({
   );
   useEffect(() => {
     let active = true;
+    groupRuns.get(groupRunId).then(
+      detail => active && setIsHost(detail.isHost),
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [groupRunId, groupRuns]);
+  useEffect(() => {
+    let active = true;
     music.getState().then(
       state => active && setPlayer(state),
       () => undefined,
@@ -302,372 +243,296 @@ export function GroupRunProgressScreen({
       active = false;
     };
   }, [music]);
+  const runMusic = async (command: MusicCommand) => {
+    setMusicBusy(true);
+    try {
+      setPlayer(await music[command]());
+    } catch (error) {
+      const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
+      if (message) {
+        toast(message);
+      }
+    }
+    setMusicBusy(false);
+  };
 
+  const history = useRunHistory(
+    run?.sample ?? noSample,
+    run?.startedAt ?? 'none',
+  );
   const status = useRef(run?.status);
   status.current = run?.status;
-  const latest = useRef({ pause, resume });
-  latest.current = { pause, resume };
-  const openPause = useCallback(() => {
-    latest.current.pause();
-    navigateTo(navigation, 'GroupRunPause');
-  }, [navigation]);
+  const latest = useRef({ pause, toast });
+  latest.current = { pause, toast };
+  // The back key never leaves or resumes the run: while running it pauses, while paused it stays.
   useFocusEffect(
     useCallback(() => {
-      if (status.current === 'paused') {
-        latest.current.resume();
-      }
       const back = BackHandler.addEventListener('hardwareBackPress', () => {
-        openPause();
+        if (status.current === 'running') {
+          latest.current.pause();
+        } else {
+          latest.current.toast('재개하거나 종료를 길게 눌러 러닝을 끝내요');
+        }
         return true;
       });
       return () => back.remove();
-    }, [openPause]),
+    }, []),
   );
 
   if (!run) {
-    return <View style={[styles.root, styles.mapGround]} />;
+    return <View style={[styles.flex, styles.ground]} />;
   }
   const { config, sample, trail } = run;
-  const route = config.plan?.route;
   const goal = config.goalPaceSecPerKm ?? 360;
-  const guide = live?.guidePaceSecPerKm ?? goal;
-  const lap = route ? routeLengthM(route) : 0;
-  const markers =
-    route && live && live.locationsAvailable !== false && lap > 0
-      ? live.members
-          .filter(
-            member => !member.isMe && member.gapM !== null && !member.stale,
-          )
-          .map(member => {
-            const along = walkAlong(
-              route,
-              (((sample.distanceM + member.gapM!) % lap) + lap) % lap,
-            );
-            return {
-              position: along[along.length - 1],
-              label: member.nickname,
-            };
-          })
-      : undefined;
+  const toResult = () => {
+    finish();
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: 'MainTabs' },
+          {
+            name: 'GroupRunResult',
+            params: run.config.groupRunId
+              ? { groupRunId: run.config.groupRunId }
+              : undefined,
+          },
+        ],
+      }),
+    );
+  };
+  const mode = controlModeOf(run.status, null);
+  const paused = run.status === 'paused';
+  const ended = live?.status === 'COMPLETED' || live?.status === 'CANCELLED';
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
 
-  return (
-    // The map is light day and night here (runway-group-handoff), so the screen takes the light theme.
-    <ThemeProvider tone="light">
-      <View style={[styles.root, styles.mapGround]}>
-        <StatusBar barStyle="dark-content" />
-        <GroupMap
-          route={route}
-          trail={trail.length > 0 ? trail : undefined}
-          markers={markers}
+  const pages: LivePage[] = [
+    ...metricPages({
+      pace: sample.paceSecPerKm,
+      goalPace: live?.guidePaceSecPerKm ?? goal,
+      distanceM: sample.distanceM,
+      totalM: config.plan?.distanceM ?? null,
+      elapsedSec: sample.elapsedSec,
+      heartRate: sample.heartRate,
+      cadence: sample.cadence,
+      targetBpm: null,
+      history,
+      rival: null,
+      guidance: null,
+    }),
+    {
+      key: 'group',
+      title: '그룹',
+      content: (
+        <GroupPage
+          live={live}
+          liveError={liveError}
+          goal={goal}
+          myPace={sample.paceSecPerKm}
         />
-        <Scrim />
-        <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
-          <View style={styles.top}>
-            {live?.loadAlert ? <LoadAlert alert={live.loadAlert} /> : null}
-            {/* 6.6-StatusPill: a light glass pill with a navy dot. */}
-            <LightGlass radius={14} style={styles.chip}>
-              <View style={styles.dot} />
-              <AppText style={styles.chipText}>
-                {`${config.plan ? `${config.plan.name} · ` : ''}그룹런 ${
-                  live?.members.length ?? 1
-                }명`}
-              </AppText>
-            </LightGlass>
-            <ModeTabs value={tab} onChange={setTab} />
-            {liveError ? (
-              <AppText accessibilityLiveRegion="polite">
-                최신 현황을 확인하지 못했어요. 연결 상태를 확인해 주세요.
-              </AppText>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <RunLiveFrame
+        // A long course name shrinks in the title; the group size keeps its own line.
+        title={config.plan ? config.plan.name : '그룹런'}
+        status={statusOf(mode)}
+        subtitle={`그룹런 ${live?.members.length ?? 1}명`}
+        pages={pages}
+        page={page}
+        onPageChange={setPage}
+        view={view}
+        renderMap={({ area, logo }) => (
+          <LiveMapPanel
+            route={config.plan?.route}
+            trail={trail}
+            area={area}
+            logo={logo}
+          />
+        )}
+        mapSummary={[
+          { label: '거리', value: formatKm(sample.distanceM), unit: 'km' },
+          { label: '운동 시간', value: formatDuration(sample.elapsedSec) },
+          {
+            label: '평균 페이스',
+            value: (() => {
+              const average = averagePace(sample.elapsedSec, sample.distanceM);
+              return average === null ? '– –' : formatPace(average);
+            })(),
+            unit: '/km',
+          },
+        ]}
+        elapsedSec={sample.elapsedSec}
+        paused={paused}
+        notes={
+          <>
+            {ended ? (
+              <LiveNotice
+                label="그룹런 종료 안내"
+                text="그룹런이 종료되었어요"
+                action={{
+                  label: '그룹런 결과 보기',
+                  onPress: () =>
+                    navigation.navigate('GroupRunResult', { groupRunId }),
+                }}
+              />
             ) : null}
-            {live?.status === 'COMPLETED' || live?.status === 'CANCELLED' ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="그룹런 결과 보기"
-                onPress={() =>
-                  navigation.navigate('GroupRunResult', { groupRunId })
+            {paused ? (
+              <LiveNotice
+                label="그룹런 일시정지 안내"
+                text={
+                  '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.'
                 }
-              >
-                <AppText>그룹런이 종료되었어요 · 결과 보기</AppText>
-              </Pressable>
+                action={
+                  isHost
+                    ? {
+                        label: '그룹 전체 강제 종료',
+                        onPress: () => setConfirming(true),
+                      }
+                    : null
+                }
+              />
             ) : null}
-            {live ? (
-              <LightGlass radius={14} style={styles.range}>
-                <AppText
-                  style={[
-                    styles.rangeText,
-                    live.inRange === false && styles.outOfRange,
-                  ]}
-                >
-                  {live.inRange === null
-                    ? '현재 선두–후미 간격 '
-                    : live.inRange
-                    ? '그룹 범위 안이에요 · 선두–후미 '
-                    : '그룹 범위를 벗어났어요 · 선두–후미 '}
-                  <AppText style={styles.spread}>
-                    {live.spreadM === null ? '미확인' : `${live.spreadM}m`}
-                  </AppText>
-                </AppText>
-              </LightGlass>
-            ) : null}
-          </View>
-          <View style={styles.bottom}>
-            {tab === 'pace' ? (
-              // 6.6-PacePanel: 내 페이스 on the scrim, no card.
-              <View style={styles.pacePanel}>
-                <View style={styles.paceHead}>
-                  <View style={styles.dot} />
-                  <AppText style={styles.paceLabel}>내 페이스</AppText>
-                </View>
-                <View style={styles.paceLine}>
-                  <AppText style={styles.pace} accessibilityLabel="내 페이스">
-                    {sample.paceSecPerKm === null
-                      ? '– –'
-                      : formatPace(sample.paceSecPerKm)}
-                  </AppText>
-                  <AppText style={styles.paceUnit}>/km</AppText>
-                </View>
-                <PaceBar
-                  pace={sample.paceSecPerKm}
-                  goal={guide}
-                  goalLabel={guide === goal ? '공동 목표' : '지금 안내'}
-                />
-                {guide !== goal ? (
-                  <AppText style={styles.guide}>
-                    {`지금 안내 ${formatPace(guide)} · 출발 목표 ${formatPace(
-                      goal,
-                    )}`}
-                  </AppText>
-                ) : null}
-              </View>
-            ) : live ? (
-              <PositionList live={live} myPace={sample.paceSecPerKm} />
-            ) : null}
-            {showPlayer && player && tab === 'pace' ? (
-              <View style={styles.player}>
-                <MiniPlayer music={player} />
-              </View>
-            ) : null}
-            {/* 6.6-PauseButton: a raised navy circle of 64. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="일시정지"
-              onPress={openPause}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <Raised tone="navy" style={styles.pause}>
-                <Icon name="pause" color={groupLook.onDark} size={24} />
-              </Raised>
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </View>
-    </ThemeProvider>
+          </>
+        }
+        music={
+          showPlayer && player ? (
+            <LiveMusicRow
+              music={player}
+              busy={musicBusy}
+              onCommand={runMusic}
+            />
+          ) : null
+        }
+        controls={
+          <RunControlBar
+            mode={mode}
+            view={view}
+            onToggleView={() =>
+              setView(current => (current === 'numbers' ? 'map' : 'numbers'))
+            }
+            onPause={pause}
+            onResume={resume}
+            onFinish={toResult}
+            finishHint="종료는 1초 길게 · 내 기록만 끝나요"
+          />
+        }
+      />
+      <BottomSheet
+        visible={confirming}
+        onClose={() => setConfirming(false)}
+        title="그룹런을 모두 끝낼까요?"
+        description="달리고 있는 멤버의 기록도 지금까지로 끝나요. 완주로 바뀌지는 않아요."
+      >
+        <View style={styles.sheetButtons}>
+          <FooterButton title="돌아가기" onPress={() => setConfirming(false)} />
+          <FooterButton
+            title="전체 종료"
+            danger
+            onPress={async () => {
+              if (finishing.current || !run.config.groupRunId) {
+                return;
+              }
+              finishing.current = true;
+              try {
+                await groupRuns.forceFinish(run.config.groupRunId);
+                setConfirming(false);
+                toResult();
+              } catch {
+                toast(
+                  '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
+                );
+              } finally {
+                finishing.current = false;
+              }
+            }}
+          />
+        </View>
+      </BottomSheet>
+    </>
   );
 }
 
-// 6.6r opens the same screen on the 위치·간격 tab.
+// 6.6r opens the same screen on the 그룹 page.
 export function GroupRunPositionScreen() {
-  return <GroupRunProgressScreen initialTab="position" />;
+  return <GroupRunProgressScreen initialTab="group" />;
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
   flex: { flex: 1 },
-  mapGround: { backgroundColor: groupLook.mapBackground },
-  // From a little above the middle down; the info sits on the plain part.
-  scrim: { position: 'absolute', left: 0, right: 0, top: '50%', bottom: 0 },
-  layout: { flex: 1, justifyContent: 'space-between' },
-  top: {
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingTop: spacing.sm,
-    gap: 8,
+  ground: { backgroundColor: liveLook.ground },
+  page: { flex: 1, paddingHorizontal: 20, gap: 12 },
+  tile: {
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: liveLook.tile,
+    gap: 6,
   },
-  chip: {
+  label: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: liveLook.sub,
+  },
+  big: {
+    fontFamily: fontFamily.numberMedium,
+    fontSize: 32,
+    lineHeight: 40,
+    color: liveLook.text,
+  },
+  sub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: liveLook.sub,
+  },
+  warn: { color: liveLook.paused },
+  alert: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    height: 28,
-    paddingHorizontal: 12,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: groupLook.onLight,
-  },
-  chipText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: groupLook.onLight,
-  },
-  // 6.6-ModeTabs: 136 × 32.
-  tabs: { flexDirection: 'row', height: 32, padding: 2, gap: 2 },
-  tab: {
-    minWidth: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabOn: {
-    alignSelf: 'stretch',
-    flex: 1,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabText: {
-    paddingHorizontal: 10,
-    fontFamily: fontFamily.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: groupLook.onLightSub2,
-  },
-  tabTextOn: { paddingHorizontal: 0, color: groupLook.onDark },
-  range: { height: 28, paddingHorizontal: 12, justifyContent: 'center' },
-  rangeText: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: groupLook.onLightSub,
-  },
-  outOfRange: { color: k1.coralText },
-  spread: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 13,
-    color: groupLook.onLight,
-  },
-  alert: {
-    alignSelf: 'stretch',
-    borderColor: 'rgba(226,135,111,0.6)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  alertRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  alertIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(226,135,111,0.14)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(226, 135, 111, 0.16)',
   },
   alertTitle: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: k1.coralText,
+    color: liveLook.text,
   },
-  sub: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupLook.onLightSub,
-  },
-  subStrong: { fontFamily: fontFamily.bold, color: groupLook.onLight },
-  bottom: {
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingBottom: spacing.md,
-    gap: spacing.lg,
-  },
-  pacePanel: { alignSelf: 'stretch', paddingHorizontal: 6, gap: 6 },
-  paceHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  paceLabel: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupLook.onLight,
-  },
-  paceLine: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
-  // Big numbers stay Barlow Regular at the sheet's 64.
-  pace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 64,
-    lineHeight: 72,
-    color: groupLook.onLight,
-  },
-  paceUnit: {
-    marginBottom: 12,
-    fontFamily: fontFamily.numberMedium,
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 },
+  head: {
+    fontFamily: fontFamily.medium,
     fontSize: 14,
-    color: groupLook.onLightSub2,
-  },
-  guide: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupLook.onLightSub,
-  },
-  player: { alignSelf: 'stretch' },
-  pause: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { transform: [{ scale: 0.97 }] },
-  // 6.6r-MemberGapList: on the scrim, no card or dividers.
-  list: { alignSelf: 'stretch', paddingHorizontal: 6 },
-  listHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingLeft: 28 + spacing.md,
-    marginBottom: spacing.xs,
-  },
-  headText: {
-    fontFamily: fontFamily.regular,
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: groupLook.onLightSub2,
-  },
-  listRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 46,
-    gap: spacing.md,
+    lineHeight: 18,
+    color: liveLook.muted,
   },
   role: {
-    width: 28,
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupLook.onLightSub2,
-  },
-  nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  name: {
+    width: 44,
     fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    color: groupLook.onLight,
-  },
-  meBadge: {
-    height: 18,
-    paddingHorizontal: 7,
-    borderRadius: 9,
-    justifyContent: 'center',
-  },
-  meText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 11,
-    lineHeight: 14,
-    color: groupLook.onDark,
-  },
-  gapText: {
-    fontFamily: fontFamily.numberMedium,
     fontSize: 14,
-    color: groupLook.onLightSub,
+    lineHeight: 18,
+    color: liveLook.sub,
   },
-  number: {
-    fontFamily: fontFamily.numberBold,
+  name: {
+    fontFamily: fontFamily.medium,
     fontSize: 15,
-    color: groupLook.onLight,
+    lineHeight: 20,
+    color: liveLook.text,
   },
-  gap: { width: 76, textAlign: 'right' },
-  listPace: { width: 56, textAlign: 'right' },
+  value: {
+    fontFamily: fontFamily.numberMedium,
+    fontSize: 16,
+    lineHeight: 20,
+    color: liveLook.text,
+    textAlign: 'right',
+  },
+  gapCol: { width: 100, textAlign: 'right' },
+  paceCol: { width: 64, textAlign: 'right' },
+  sheetButtons: { flexDirection: 'row', gap: 10 },
 });

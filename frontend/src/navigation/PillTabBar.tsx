@@ -18,7 +18,7 @@ const tabs: Record<TabKey, { label: string }> = {
   ProfileTab: { label: '프로필' },
 };
 
-// runway-tabbar (S15P31E105-428): the light bar over most screens, the navy one over full-screen maps.
+// runway-tabbar (S15P31E105-428): the light bar. The full-screen map screens (2.0·2.0F) hide it (S15P31E105-517).
 const light = {
   bar: '#FFFFFF',
   barBorder: 'rgba(2,5,14,0.05)',
@@ -31,23 +31,11 @@ const light = {
     '0 6px 14px rgba(2,5,14,0.28), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06)',
   texture: true,
 };
-const dark = {
-  bar: '#091019',
-  barBorder: 'rgba(255,255,255,0.08)',
-  barShadow:
-    '0 12px 30px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06)',
-  inactive: '#8B99A3',
-  active: '#091019',
-  // The chosen tab is a white tile.
-  tile: '#FFFFFF',
-  tileShadow: '0 6px 14px rgba(0,0,0,0.28), inset 0 -1px 0 rgba(9,16,25,0.08)',
-  texture: false,
-};
 
 const texture = require('../../assets/images/tab-active-texture.png');
 
-// Screens whose map fills the screen get the navy bar instead (DESIGN.md 2-6 하단 탭바).
-const mapScreens = ['FreeRun', 'CourseRun'];
+// The run start screens hide the tab bar: their own start row sits at the foot (S15P31E105-517, 담당자 결정).
+const hiddenOn = ['FreeRun', 'CourseRun'];
 
 // The handoff's 21px line icons; the chosen one is drawn a little heavier.
 function TabIcon({
@@ -111,7 +99,9 @@ function TabIcon({
 export function PillTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const shown = getFocusedRouteNameFromRoute(state.routes[state.index]);
-  const look = shown && mapScreens.includes(shown) ? dark : light;
+  if (shown && hiddenOn.includes(shown)) {
+    return null;
+  }
   return (
     <View
       pointerEvents="box-none"
@@ -125,16 +115,16 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
         style={[
           styles.bar,
           {
-            backgroundColor: look.bar,
-            borderColor: look.barBorder,
-            boxShadow: look.barShadow,
+            backgroundColor: light.bar,
+            borderColor: light.barBorder,
+            boxShadow: light.barShadow,
           },
         ]}
       >
         {state.routes.map((route, index) => {
           const focused = state.index === index;
           const key = route.name as TabKey;
-          const color = focused ? look.active : look.inactive;
+          const color = focused ? light.active : light.inactive;
           return (
             <Pressable
               key={route.key}
@@ -154,13 +144,13 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
               style={({ pressed }) => [
                 styles.tab,
                 focused && {
-                  backgroundColor: look.tile,
-                  boxShadow: look.tileShadow,
+                  backgroundColor: light.tile,
+                  boxShadow: light.tileShadow,
                 },
                 pressed && styles.pressed,
               ]}
             >
-              {focused && look.texture ? (
+              {focused && light.texture ? (
                 <View style={styles.textureClip}>
                   <Image
                     source={texture}

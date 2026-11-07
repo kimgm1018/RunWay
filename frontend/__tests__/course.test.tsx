@@ -149,14 +149,19 @@ test('today’s run works out pace and finish time from the distance', async () 
   await press(screen, '페이스');
   page = texts(screen);
   expect(page).toContain('목표 페이스');
-  expect(labelled(screen, '목표 페이스', 'onChangeText').props.value).toBe(
-    '6:00',
-  );
+  // 페이스 is picked on a ruler now (S15P31E105-517).
+  expect(
+    labelled(screen, '목표 페이스', 'onAccessibilityAction').props
+      .accessibilityValue.text,
+  ).toBe('6′00″/km');
   expect(page).toContain('30:00');
   await adjust(screen, '목표 거리', 'increment');
   expect(texts(screen)).toContain('5.5');
   expect(texts(screen)).toContain('33:00');
-  await type(screen, '목표 페이스', '5:30');
+  // Six 5-second steps down: 6′00″ → 5′30″.
+  for (let step = 0; step < 6; step += 1) {
+    await adjust(screen, '목표 페이스', 'decrement');
+  }
   expect(texts(screen)).toContain('30:15');
   await press(screen, '큰길 피하기');
   expect(

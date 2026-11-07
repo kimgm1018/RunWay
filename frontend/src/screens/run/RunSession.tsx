@@ -20,6 +20,7 @@ import {
   type RunControlState,
 } from './runControl';
 import { useSession } from '../../session/SessionProvider';
+import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
   mode: 'FREE' | 'COURSE' | 'GROUP';
@@ -29,6 +30,8 @@ export type RunConfig = {
   // Goals are fixed once the run starts (4.3: 목표는 일시정지 중에도 바뀌지 않음).
   goalDistanceM: number | null;
   goalPaceSecPerKm: number | null;
+  // 목표 시간(S01 targetDurationSec, S15P31E105-517 목표 설정). 거리·시간·페이스 중 최대 2개만 보낸다(sessions.md).
+  goalDurationSec?: number | null;
   // 2.0 경쟁 모드: my earlier run on this course to compare with (S01 comparisonSessionId, S15P31E105-422).
   // Only a course run can compare; the server checks it is mine, completed and on the same course.
   comparisonSessionId?: string | null;
@@ -80,6 +83,23 @@ const firstSample: RunSample = {
   position: null,
 };
 
+// 실측값(워치 batch·폰 GPS)이 있으면 그 값을 화면 기록에 쓴다(S15P31E105-517). 운동 시간은 화면 기록의 일시정지 제외
+// 시계를 그대로 쓰고, 실측이 없는 값은 비워 둔다(이전 값이나 목업으로 채우지 않는다).
+export function withLive(sample: RunSample, live: LiveMetrics | null): RunSample {
+  if (!live) {
+    return sample;
+  }
+  return {
+    ...sample,
+    distanceM: live.distanceM ?? sample.distanceM,
+    paceSecPerKm: live.paceSecPerKm,
+    heartRate: live.heartRate,
+    cadence: live.cadence,
+    position:
+      live.route.length > 0 ? live.route[live.route.length - 1] : sample.position,
+  };
+}
+
 // Actions stay the same object for the whole session, so screens that only start a run (2.0's
 // 러닝 시작) do not re-render on every reading.
 const RunActionsContext = createContext<RunActions | null>(null);
@@ -88,7 +108,7 @@ const RunStateContext = createContext<RunState | null>(null);
 const RunControlContext = createContext<RunControlState | null>(null);
 // 앱 재실행·재로그인으로 진행 중인 개인 러닝에 다시 붙었을 때 열 화면. 한 번 열면 비운다.
 // 아직 시작하지 않은 준비 세션(READY)은 시작 화면에서 같은 세션으로 이어 시작한다.
-type ResumeTarget = 'RunProgress' | 'RunPause' | 'FreeRun';
+type ResumeTarget = 'RunProgress' | 'FreeRun';
 const RunResumeContext = createContext<{
   target: ResumeTarget | null;
   consume: () => void;
@@ -105,13 +125,22 @@ const joinedConfig: RunConfig = {
 };
 
 const resumeTargetOf = (status: string | null): ResumeTarget | null =>
-  status === 'RUNNING'
+  // 일시정지된 러닝도 4.2로 연다. 4.2가 재개 · 종료를 그 자리에서 보인다(S15P31E105-517).
+  status === 'RUNNING' || status === 'PAUSED'
     ? 'RunProgress'
-    : status === 'PAUSED'
-    ? 'RunPause'
     : status === 'READY'
     ? 'FreeRun'
     : null;
+
+// The pace the run aims at: the set pace, or the one a distance and a time together make (페이서).
+export function goalPaceOf(config: RunConfig): number | null {
+  if (config.goalPaceSecPerKm) {
+    return config.goalPaceSecPerKm;
+  }
+  return config.goalDistanceM && config.goalDurationSec
+    ? config.goalDurationSec / (config.goalDistanceM / 1000)
+    : null;
+}
 
 function goalOf(config: RunConfig): SessionGoalDraft {
   return {
@@ -120,7 +149,7 @@ function goalOf(config: RunConfig): SessionGoalDraft {
       ? config.comparisonSessionId ?? null
       : null,
     targetDistanceM: config.goalDistanceM,
-    targetDurationSec: null,
+    targetDurationSec: config.goalDurationSec ?? null,
     targetPaceSecPerKm: config.goalPaceSecPerKm,
   };
 }
@@ -151,6 +180,8 @@ export function RunSessionProvider({
     heartRates: [] as number[],
     cadences: [] as number[],
   });
+  // The newest measured values from the run control; the tracker's ticks are drawn under them.
+  const liveRef = useRef<LiveMetrics | null>(null);
 
   const track = useCallback(
     (from: RunSample, route: [number, number][] | null) => {
@@ -158,11 +189,14 @@ export function RunSessionProvider({
       stopTracking.current = tracker.startTracking(
         from,
         route,
-        (sample, guidance) => {
-          if (sample.heartRate !== null) {
+        (tick, guidance) => {
+          const live = liveRef.current;
+          const sample = withLive(tick, live);
+          // With measured values the readings come in as they arrive (below), not once per tick.
+          if (!live && sample.heartRate !== null) {
             readings.current.heartRates.push(sample.heartRate);
           }
-          if (sample.cadence !== null) {
+          if (!live && sample.cadence !== null) {
             readings.current.cadences.push(sample.cadence);
           }
           setRun(current =>
@@ -171,9 +205,12 @@ export function RunSessionProvider({
                   ...current,
                   sample,
                   guidance,
-                  trail: sample.position
-                    ? [...current.trail, sample.position]
-                    : current.trail,
+                  trail:
+                    live && live.route.length > 0
+                      ? live.route
+                      : sample.position
+                      ? [...current.trail, sample.position]
+                      : current.trail,
                 }
               : current,
           );
@@ -275,6 +312,29 @@ export function RunSessionProvider({
   );
 
   const [control, setControl] = useState<RunControlState | null>(null);
+  // 새 실측값이 오면 다음 시계 틱을 기다리지 않고 바로 보인다. 평균 심박·케이던스는 받은 값으로 모은다.
+  const live = control?.live ?? null;
+  useEffect(() => {
+    liveRef.current = live;
+    if (!live) {
+      return;
+    }
+    if (live.heartRate !== null) {
+      readings.current.heartRates.push(live.heartRate);
+    }
+    if (live.cadence !== null) {
+      readings.current.cadences.push(live.cadence);
+    }
+    setRun(current =>
+      current && current.status === 'running'
+        ? {
+            ...current,
+            sample: withLive(current.sample, live),
+            trail: live.route.length > 0 ? live.route : current.trail,
+          }
+        : current,
+    );
+  }, [live]);
   const controlRef = useRef<RunControl | null>(null);
   const stopListening = useRef<(() => void) | null>(null);
   const pendingConfig = useRef<RunConfig | null>(null);

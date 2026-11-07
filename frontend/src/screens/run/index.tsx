@@ -8,7 +8,6 @@ import { FreeRunScreen } from './FreeRunScreen';
 import { MusicCardScreen } from './MusicCardScreen';
 import { MusicSourceScreen } from './MusicSourceScreen';
 import { RunModeScreen } from './RunModeScreen';
-import { RunPauseScreen } from './RunPauseScreen';
 import { RunProgressScreen } from './RunProgressScreen';
 import { RunResultScreen } from './RunResultScreen';
 
@@ -32,7 +31,7 @@ export function themed(
 // The map screens are light by day (2.0·2.0F) and dark after sunset (2.0N).
 export const dayNight = (night: boolean): ThemeName =>
   night ? 'dark' : 'light';
-// 4.3 일시정지 and 4.5 결과 are dark in every prototype screen. 2.7·2.8 draw their own K1 card on the light tone.
+// 4.5 결과 is dark in every prototype screen. 2.7·2.8 draw their own K1 card on the light tone.
 export const dark = (): ThemeName => 'dark';
 
 export const runScreens: Partial<Record<RouteName, React.ComponentType>> = {
@@ -41,10 +40,8 @@ export const runScreens: Partial<Record<RouteName, React.ComponentType>> = {
   CourseRun: themed(CourseRunScreen, 'CourseRunScreen', dayNight),
   MusicCard: MusicCardScreen,
   MusicSource: MusicSourceScreen,
-  // 4.2: the light runway-running-handoff screen by day, the K1 dark map after sunset (S15P31E105-392).
-  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dayNight),
-  // 4.3 sits on the K1 background like 1.x (DESIGN.md 2-7).
-  RunPause: RunPauseScreen,
+  // 4.2 (with 4.3 일시정지 folded in) is one dark frame day and night (S15P31E105-517).
+  RunProgress: themed(RunProgressScreen, 'RunProgressScreen', dark),
   // 4.5 sits on the K1 background; its buttons read the dark tone on the black part.
   RunResult: RunResultScreen,
 };

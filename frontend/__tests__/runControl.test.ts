@@ -520,3 +520,54 @@ test('attaching to a session that already ended stops the run service', async ()
   expect(after.active).toEqual([false]);
   relaunched.dispose();
 });
+
+// S15P31E105-517: 폰이 받은 워치 batch를 W07로 그대로 올리면서, 화면용으로 한 번 더 읽어 실측값을 보인다.
+test('a watch batch for the running session shows its measured values, and another session’s batch does not', async () => {
+  const { control, repositories } = setup();
+  await started(control);
+  const sessionId = control.getState().sessionId!;
+  expect(control.getState().live).toBeNull();
+  const watch = repositories.watchSession as unknown as { emit: (event: unknown) => void };
+  const batch = (session: string, n: number, heartRateBpm: number) => {
+    const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    return {
+      type: 'BATCH_DATA',
+      sessionId: session,
+      batchId: id,
+      deviceId: '101',
+      itemCount: 1,
+      body: JSON.stringify({
+        id,
+        deviceId: 101,
+        sessionId: Number(session),
+        schemaVersion: '1',
+        items: [
+          {
+            type: 'METRIC_SAMPLE',
+            measuredAt: `2026-11-07T01:00:0${n}Z`,
+            elapsedDurationSec: n,
+            heartRateBpm,
+            cadenceSpm: 172,
+            speedMps: 3.2,
+            gradePercent: null,
+            totalDistanceM: 640,
+            routeProgressM: null,
+            isHrMeasured: true,
+          },
+        ],
+        payloadHash: '0'.repeat(64),
+      }),
+    };
+  };
+  watch.emit(batch(sessionId, 1, 148));
+  await wait();
+  expect(control.getState().live).toMatchObject({
+    source: 'WATCH',
+    heartRate: 148,
+    cadence: 172,
+    distanceM: 640,
+  });
+  watch.emit(batch(`${sessionId}9`, 2, 99));
+  await wait();
+  expect(control.getState().live?.heartRate).toBe(148);
+});

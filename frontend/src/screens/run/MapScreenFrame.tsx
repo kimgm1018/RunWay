@@ -5,7 +5,10 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { KeyboardLift, LightGlass } from '../../components';
 import type { RunMapLogo } from '../../components/RunMap';
 import { k1, size, spacing, useTheme } from '../../theme';
@@ -27,11 +30,10 @@ export function MapScreenFrame({
   const night = name === 'dark';
   const [screen, setScreen] = useState(0);
   const [sheet, setSheet] = useState(0);
-  // The sheet ends above the tab bar, so it covers its own height and the tab bar's room under it.
-  const logo =
-    screen && sheet
-      ? { above: (sheet + size.tabBar + size.tabBarInset * 2) / screen }
-      : undefined;
+  // No tab bar here (S15P31E105-517): the sheet sits on the safe area, covering its height and the room under it.
+  const insets = useSafeAreaInsets();
+  const foot = Math.max(insets.bottom, size.tabBarInset);
+  const logo = screen && sheet ? { above: (sheet + foot) / screen } : undefined;
   const measureSheet = (event: LayoutChangeEvent) =>
     setSheet(event.nativeEvent.layout.height);
   return (
@@ -49,7 +51,10 @@ export function MapScreenFrame({
         {top}
       </SafeAreaView>
       {/* The sheet's box ends above the tab bar, so the keyboard lifts the sheet by what it covers (S15P31E105-473). */}
-      <KeyboardLift style={styles.lift} pointerEvents="box-none">
+      <KeyboardLift
+        style={[styles.lift, { bottom: foot }]}
+        pointerEvents="box-none"
+      >
         {night ? (
           // After sunset the sheet stays dark, with a faint rim.
           <View
@@ -93,7 +98,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    bottom: size.tabBar + size.tabBarInset * 2,
   },
   sheet: {
     position: 'absolute',

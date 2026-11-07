@@ -97,6 +97,25 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       ...createNativeWatchSession(),
       getLinkedDevices: createLinkedDevices(serverRequest),
     },
+    // 실제 모드의 화면 기록은 일시정지 제외 시계만 센다(S15P31E105-517). 거리·페이스·심박·케이던스·위치는 폰이 받은
+    // 워치 batch(또는 인계 후 폰 GPS)의 실측값으로 채우고(runControl live), 목업 값이나 목업 길 안내는 만들지 않는다.
+    run: {
+      ...mock.run,
+      startTracking: (from, route, onSample) =>
+        mock.run.startTracking(from, route, tick =>
+          onSample(
+            {
+              elapsedSec: tick.elapsedSec,
+              distanceM: from.distanceM,
+              paceSecPerKm: null,
+              heartRate: null,
+              cadence: null,
+              position: null,
+            },
+            null,
+          ),
+        ),
+    },
     // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464).
     phoneLocation: createPhoneLocation(),
     crews,

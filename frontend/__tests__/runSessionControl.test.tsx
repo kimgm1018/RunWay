@@ -99,7 +99,7 @@ async function hold(screen: Screen, label: string) {
 // Wait for the state each test observes; pending-start tests must stop before confirmation.
 async function countDown(
   options: MockOptions,
-  expectedText = '경과 시간',
+  expectedText = '운동 시간',
   repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, ...options }),
 ) {
   let screen: Screen;
@@ -125,10 +125,10 @@ test('러닝 시작 waits for the watch: 시작 확인 중 then the progress scr
   controlTime();
   const screen = await countDown({ watchLatencyMs: 1500 }, '시작 확인 중');
   expect(texts(screen)).toContain('시작 확인 중');
-  expect(texts(screen)).not.toContain('경과 시간');
+  expect(texts(screen)).not.toContain('운동 시간');
 
-  await waitForText(screen, '경과 시간');
-  expect(texts(screen)).toContain('경과 시간');
+  await waitForText(screen, '운동 시간');
+  expect(texts(screen)).toContain('운동 시간');
   expect(texts(screen)).not.toContain('시작 확인 중');
 });
 
@@ -136,7 +136,7 @@ test('a rejected start stays on the start screen with 다시 시작', async () =
   const screen = await countDown({ scenario: 'watchRejectsStart' }, '워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('다시 시작');
-  expect(texts(screen)).not.toContain('경과 시간');
+  expect(texts(screen)).not.toContain('운동 시간');
 });
 
 test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다시 확인 and 이번 운동 중단', async () => {
@@ -148,7 +148,7 @@ test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다�
   expect(shown).toContain('시작 여부를 확인할 수 없습니다');
   expect(shown).toContain('다시 확인');
   expect(shown).toContain('이번 운동 중단');
-  expect(shown).not.toContain('경과 시간');
+  expect(shown).not.toContain('운동 시간');
 
   await press(screen, '이번 운동 중단');
   await settle(100);
@@ -158,13 +158,13 @@ test('a silent watch shows 시작 여부를 확인할 수 없습니다 with 다�
 test('no watch shows 워치를 연결해 주세요', async () => {
   const screen = await countDown({ scenario: 'watchDisconnected' }, '워치를 연결해 주세요');
   expect(texts(screen)).toContain('워치를 연결해 주세요');
-  expect(texts(screen)).not.toContain('경과 시간');
+  expect(texts(screen)).not.toContain('운동 시간');
 });
 
 test('pause shows 일시정지 확인 중 until the watch confirms', async () => {
   controlTime();
   const screen = await countDown({ watchLatencyMs: 300 });
-  expect(texts(screen)).toContain('경과 시간');
+  expect(texts(screen)).toContain('운동 시간');
 
   await press(screen, '일시정지');
   expect(texts(screen)).toContain('일시정지 확인 중');
@@ -198,17 +198,17 @@ test('다시 확인 after an unconfirmed start moves to the progress screen', as
   expect(texts(screen)).toContain('시작 여부를 확인할 수 없습니다');
 
   await press(screen, '다시 확인');
-  await waitForText(screen, '경과 시간');
-  expect(texts(screen)).toContain('경과 시간');
+  await waitForText(screen, '운동 시간');
+  expect(texts(screen)).toContain('운동 시간');
 });
 
-test('an unconfirmed pause shows 다시 확인 and recheck opens the pause screen', async () => {
+test('an unconfirmed pause shows 다시 확인 and recheck turns the foot into 재개 · 종료', async () => {
   const screen = await countDown(
     { scenario: 'watchNoResult', resultWaitMs: 500 },
     '시작 여부를 확인할 수 없습니다',
   );
   await press(screen, '다시 확인');
-  await waitForText(screen, '경과 시간');
+  await waitForText(screen, '운동 시간');
 
   await press(screen, '일시정지');
   await waitForText(screen, '일시정지 여부를 확인할 수 없습니다');
@@ -222,8 +222,8 @@ test('an unconfirmed pause shows 다시 확인 and recheck opens the pause scree
 
 test('종료 pressed on the watch moves the progress screen to the result', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 50 });
-  const screen = await countDown({}, '경과 시간', repositories);
-  expect(texts(screen)).toContain('경과 시간');
+  const screen = await countDown({}, '운동 시간', repositories);
+  expect(texts(screen)).toContain('운동 시간');
 
   await act(async () => {
     (repositories.watchSession as unknown as { emit: (event: unknown) => void }).emit({
@@ -297,9 +297,9 @@ test('on launch during a running session the app opens the progress screen', asy
   await act(async () => {
     screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
   });
-  await waitForText(screen!, '경과 시간');
+  await waitForText(screen!, '운동 시간');
 
-  expect(texts(screen!)).toContain('경과 시간');
+  expect(texts(screen!)).toContain('운동 시간');
   await act(async () => screen!.unmount());
 });
 
@@ -311,7 +311,7 @@ test('after reattaching, pause on the progress screen goes to the server', async
   await act(async () => {
     screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
   });
-  await waitForText(screen!, '경과 시간');
+  await waitForText(screen!, '운동 시간');
   await press(screen!, '일시정지');
   await settle(500);
 
@@ -321,7 +321,7 @@ test('after reattaching, pause on the progress screen goes to the server', async
 
 // --- S15P31E105-444: 러닝 서비스가 세션을 기억하지 못한 채 새 러닝을 시작 ---
 
-test('러닝 시작 with a paused session left on the server opens its pause screen instead of waiting', async () => {
+test('러닝 시작 with a paused session left on the server opens it paused on 4.2 instead of waiting', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
   const sessionId = await runningSession(repositories);
   const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
@@ -339,7 +339,7 @@ test('러닝 시작 with a paused session left on the server opens its pause scr
   expect((await repositories.session.get(sessionId)).state).toBe('PAUSED');
 });
 
-test('재개 on a pause screen restored at launch opens the progress screen', async () => {
+test('재개 on a paused run restored at launch carries on in 4.2', async () => {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50, watchLatencyMs: 0 });
   const sessionId = await runningSession(repositories);
   const pause = await repositories.session.requestControl(sessionId, 'PAUSE', { deviceId: '101', expectedVersion: 2 });
@@ -359,7 +359,7 @@ test('재개 on a pause screen restored at launch opens the progress screen', as
   await waitForText(screen!, '종료는 1초 길게 눌러야 동작해요');
 
   await press(screen!, '재개');
-  await waitForText(screen!, '경과 시간');
+  await waitForText(screen!, '운동 시간');
   expect(texts(screen!)).not.toContain('종료는 1초 길게 눌러야 동작해요');
   expect((await repositories.session.get(sessionId)).state).toBe('RUNNING');
 });

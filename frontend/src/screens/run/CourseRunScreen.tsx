@@ -19,6 +19,8 @@ import { coursePaceColors } from '../../components/mapRoute';
 import { RunMap } from '../../components/RunMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
+import { RunGoalSheet } from './goal/RunGoalSheet';
+import { goalConfig, goalLabel, type RunGoal } from './goal/runGoal';
 import { BackButton } from '../../components/BackButton';
 
 const loadCourse = (repositories: Repositories) =>
@@ -123,7 +125,15 @@ function ComparisonPicker({
       <AppText
         style={[
           styles.chipText,
-          { color: selected ? (night ? colors.background : '#FFFFFF') : night ? colors.text : ink },
+          {
+            color: selected
+              ? night
+                ? colors.background
+                : '#FFFFFF'
+              : night
+              ? colors.text
+              : ink,
+          },
         ]}
         numberOfLines={1}
       >
@@ -139,8 +149,12 @@ function ComparisonPicker({
         {runs.map(run =>
           chip(
             run.id,
-            `${formatDotDate(run.startedAt)} · ${formatDuration(run.durationSec)}`,
-            `${formatDotDate(run.startedAt)} ${formatDuration(run.durationSec)} 기록과 비교`,
+            `${formatDotDate(run.startedAt)} · ${formatDuration(
+              run.durationSec,
+            )}`,
+            `${formatDotDate(run.startedAt)} ${formatDuration(
+              run.durationSec,
+            )} 기록과 비교`,
             value === run.id,
             run.id,
           ),
@@ -161,16 +175,26 @@ export function CourseRunScreen() {
   const resource = useResource(useCallback(loadCourse, []));
   const [plan, place] = resource.status === 'ready' ? resource.data : [];
   const [comparisonSessionId, setComparison] = useState<string | null>(null);
-  // A course run aims at the course distance and the plan's pace.
+  // 운동 목표 (S15P31E105-517): the course keeps its distance; 추천 전략 runs the plan's pace, or a time or a pace
+  // of the user's own.
+  const [goal, setGoal] = useState<RunGoal>({ kind: 'PLAN' });
+  const [choosing, setChoosing] = useState(false);
+  const [startSignal, setStartSignal] = useState(0);
+  const course = plan
+    ? { distanceM: plan.distanceM, plannedPace: plan.targetPaceSecPerKm }
+    : undefined;
   const courseConfig: RunConfig | null = plan
     ? {
         mode: 'COURSE',
         plan,
-        goalDistanceM: plan.distanceM,
-        goalPaceSecPerKm: plan.targetPaceSecPerKm,
+        ...goalConfig(goal, course),
         comparisonSessionId,
       }
     : null;
+  const goalChip = {
+    label: goalLabel(goal, plan?.targetPaceSecPerKm),
+    onPress: () => setChoosing(true),
+  };
   const picker = plan ? (
     <ComparisonPicker
       courseId={plan.courseId}
@@ -184,7 +208,12 @@ export function CourseRunScreen() {
     ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
     : '';
   const top = !plan ? null : night && place ? (
-    <PlaceCard name={place.name} gps={place.gps} />
+    <View style={styles.nightTop}>
+      <BackButton tone="dark" onPress={navigation.goBack} />
+      <View style={styles.flex}>
+        <PlaceCard name={place.name} gps={place.gps} />
+      </View>
+    </View>
   ) : (
     <>
       <LightGlass radius={31} style={styles.topBar}>
@@ -224,7 +253,12 @@ export function CourseRunScreen() {
         <ChangeLink />
       </View>
       {picker}
-      <RunStartBar night config={courseConfig} />
+      <RunStartBar
+        night
+        config={courseConfig}
+        goal={goalChip}
+        startSignal={startSignal}
+      />
     </>
   ) : (
     <>
@@ -243,28 +277,51 @@ export function CourseRunScreen() {
         </AppText>
       </View>
       {picker}
-      <RunStartBar night={false} config={courseConfig} />
+      <RunStartBar
+        night={false}
+        config={courseConfig}
+        goal={goalChip}
+        startSignal={startSignal}
+      />
     </>
   );
 
   return (
-    <MapScreenFrame
-      renderMap={logo => (
-        <RunMap
-          route={plan?.route}
-          segmentPaces={plan?.segmentPacesSecPerKm}
-          // The km paces are labelled by day; after sunset the course is a plain white line.
-          paceLabels={
-            night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
-          }
-          area={{ top: 0.19, bottom: 0.56 }}
-          logo={logo}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
-      top={top}
-      bottom={bottom}
-    />
+    <>
+      <MapScreenFrame
+        renderMap={logo => (
+          <RunMap
+            route={plan?.route}
+            segmentPaces={plan?.segmentPacesSecPerKm}
+            // The km paces are labelled by day; after sunset the course is a plain white line.
+            paceLabels={
+              night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
+            }
+            area={{ top: 0.19, bottom: 0.56 }}
+            logo={logo}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        top={top}
+        bottom={bottom}
+      />
+      <RunGoalSheet
+        visible={choosing}
+        onClose={() => setChoosing(false)}
+        mode="COURSE"
+        goal={goal}
+        course={course}
+        onSet={next => {
+          setGoal(next);
+          setChoosing(false);
+        }}
+        onStart={next => {
+          setGoal(next);
+          setChoosing(false);
+          setStartSignal(value => value + 1);
+        }}
+      />
+    </>
   );
 }
 
@@ -273,6 +330,7 @@ const grey = '#95969A';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  nightTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // The glass strategy bar: a bare back chevron, the course and 변경.
   topBar: {
     height: 62,

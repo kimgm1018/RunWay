@@ -5,7 +5,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -53,7 +52,8 @@ import {
   locationFailureNotice,
   noLocationNotice,
 } from './currentLocation';
-import { RangeSlider } from './RangeSlider';
+import { RulerPicker } from '../../components/RulerPicker';
+import { formatGoalDuration, goalLimits } from '../run/goal/runGoal';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import {
   copyCoursePreferences,
@@ -533,7 +533,6 @@ export function TodayRunScreen() {
                   setDistanceKm={setDistanceKm}
                   goal={goal}
                   switchGoal={switchGoal}
-                  goalText={goalText}
                   setGoalText={setGoalText}
                   seconds={seconds}
                   derived={derived}
@@ -614,10 +613,7 @@ export function TodayRunScreen() {
             검색 결과가 없어요. 다른 이름이나 주소로 찾아보세요.
           </AppText>
         ) : null}
-        <ScrollView
-          style={styles.places}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView style={styles.places} keyboardShouldPersistTaps="handled">
           {(places ?? []).map(item => (
             <Pressable
               key={`${item.name}|${item.address}`}
@@ -649,7 +645,6 @@ function PanelContent({
   setDistanceKm,
   goal,
   switchGoal,
-  goalText,
   setGoalText,
   seconds,
   derived,
@@ -668,7 +663,6 @@ function PanelContent({
   setDistanceKm: (value: number) => void;
   goal: GoalInput;
   switchGoal: (next: GoalInput) => void;
-  goalText: string;
   setGoalText: (text: string) => void;
   seconds: number | null;
   derived: string;
@@ -696,7 +690,9 @@ function PanelContent({
             <AppText style={styles.inkLabel}>기준 위치</AppText>
             <AppText style={styles.originName} numberOfLines={1}>
               {place?.name ??
-                (locating ? '위치를 찾는 중이에요' : '기준 위치를 선택해 주세요')}
+                (locating
+                  ? '위치를 찾는 중이에요'
+                  : '기준 위치를 선택해 주세요')}
             </AppText>
           </View>
           <Icon name="forward" color="rgba(17,17,17,0.55)" size={16} />
@@ -726,25 +722,20 @@ function PanelContent({
           <Divider />
         </View>
       ) : null}
+      {/* The same ruler as 운동 목표 (S15P31E105-517): drag sideways, the value big above it. */}
       <View style={styles.distanceSection}>
-        <View style={styles.between}>
-          <AppText style={styles.inkLabelLarge}>목표 거리</AppText>
-          <AppText style={styles.distance}>
-            {distanceKm.toFixed(1)}
-            <AppText style={styles.distanceUnit}>{' km'}</AppText>
-          </AppText>
-        </View>
-        <RangeSlider
+        <AppText style={styles.inkLabelLarge}>목표 거리</AppText>
+        <RulerPicker
+          label="목표 거리"
           value={distanceKm}
           min={1}
           // C01 makes courses of 1–15km (courses.md C01 distanceKm).
           max={15}
           step={0.5}
-          ticks={[1, 5, 10, 15]}
+          format={value => `${value.toFixed(1)}km`}
           onChange={setDistanceKm}
-          accessibilityLabel="목표 거리"
-          formatValue={value => `${value.toFixed(1)}km`}
-          ink={inkColor}
+          color={inkColor}
+          mutedColor="rgba(17,17,17,0.32)"
         />
         <Divider />
       </View>
@@ -756,44 +747,42 @@ function PanelContent({
           </AppText>
           <GoalSwitch value={goal} onChange={switchGoal} />
         </View>
-        <View style={styles.goalRow}>
-          {/* The field being typed in has the pale rim; the worked-out one only a faint rim. */}
-          <View
-            style={[
-              styles.goalBox,
-              { borderColor: seconds ? pale : dangerPale },
-            ]}
-          >
-            <AppText style={styles.goalLabel}>
-              {goal === 'TIME' ? '완주 시간 · 입력' : '페이스 · 입력'}
-            </AppText>
-            <View style={styles.goalInputRow}>
-              <TextInput
-                accessibilityLabel={
-                  goal === 'TIME' ? '목표 완주 시간' : '목표 페이스'
-                }
-                value={goalText}
-                onChangeText={setGoalText}
-                keyboardType="numbers-and-punctuation"
-                selectionColor={pale}
-                style={[styles.goalNumber, styles.goalInput]}
-              />
-              {goal === 'PACE' ? (
-                <AppText style={styles.goalUnit}>/km</AppText>
-              ) : null}
-            </View>
-          </View>
-          <View style={[styles.goalBox, styles.goalBoxFaint]}>
-            <AppText style={styles.goalLabel}>
-              {goal === 'TIME' ? '자동 계산 · 페이스' : '자동 계산 · 완주 시간'}
-            </AppText>
-            <AppText style={styles.goalNumber} numberOfLines={1}>
-              {derived}
-              {goal === 'TIME' && seconds ? (
-                <AppText style={styles.goalUnit}>/km</AppText>
-              ) : null}
-            </AppText>
-          </View>
+        {/* 완주 시간 or 페이스 on a ruler; the other half is worked out from the distance (S15P31E105-517). */}
+        <View style={styles.goalRuler}>
+          {goal === 'TIME' ? (
+            <RulerPicker
+              label="목표 완주 시간"
+              value={(seconds ?? 1800) / 60}
+              min={5}
+              max={180}
+              step={1}
+              format={value => formatGoalDuration(value * 60)}
+              onChange={value => setGoalText(formatDuration(value * 60))}
+              color={pale}
+              mutedColor="rgba(232,238,244,0.35)"
+            />
+          ) : (
+            <RulerPicker
+              label="목표 페이스"
+              value={seconds ?? 360}
+              {...goalLimits.paceSec}
+              format={value => `${formatPace(value)}/km`}
+              onChange={value => setGoalText(formatDuration(value))}
+              color={pale}
+              mutedColor="rgba(232,238,244,0.35)"
+            />
+          )}
+        </View>
+        <View style={[styles.goalBox, styles.goalBoxFaint, styles.goalDerived]}>
+          <AppText style={styles.goalLabel}>
+            {goal === 'TIME' ? '자동 계산 · 페이스' : '자동 계산 · 완주 시간'}
+          </AppText>
+          <AppText style={styles.goalNumber} numberOfLines={1}>
+            {derived}
+            {goal === 'TIME' && seconds ? (
+              <AppText style={styles.goalUnit}>/km</AppText>
+            ) : null}
+          </AppText>
         </View>
         <Divider light />
       </View>
@@ -852,7 +841,6 @@ function PanelContent({
 
 const inkColor = '#111111';
 const pale = '#E8EEF4';
-const dangerPale = '#F0A08E';
 
 const styles = StyleSheet.create({
   optionsError: { gap: spacing.md, alignItems: 'flex-start' },
@@ -929,18 +917,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: 'rgba(17,17,17,0.55)',
   },
-  distance: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 32,
-    lineHeight: 34,
-    letterSpacing: -0.5,
-    color: inkColor,
-  },
-  distanceUnit: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    color: 'rgba(17,17,17,0.6)',
-  },
   goalSection: { paddingTop: 10, paddingHorizontal: 20, gap: 8 },
   goalTitle: {
     fontFamily: fontFamily.regular,
@@ -969,7 +945,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   switchTextOn: { fontFamily: fontFamily.bold, color: '#02050E' },
-  goalRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  goalRuler: { marginTop: 4 },
+  goalDerived: { alignItems: 'center', marginBottom: 12 },
   goalBox: {
     flex: 1,
     height: 76,
@@ -987,11 +964,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: 'rgba(232,238,244,0.6)',
   },
-  goalInputRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 1,
-  },
   goalNumber: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 31,
@@ -999,7 +971,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: pale,
   },
-  goalInput: { flex: 1, padding: 0 },
   goalUnit: {
     fontFamily: fontFamily.medium,
     fontSize: 12,
