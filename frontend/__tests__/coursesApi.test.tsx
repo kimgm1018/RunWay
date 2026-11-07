@@ -466,8 +466,7 @@ test('3.1 offers distances only up to the 15km C01 makes', async () => {
 
   const slider = screen.root.find(
     node =>
-      node.props.accessibilityLabel === '목표 거리' &&
-      node.props.max !== undefined,
+      node.props.label === '목표 거리' && node.props.max !== undefined,
   );
   expect(slider.props.max).toBe(15);
 });

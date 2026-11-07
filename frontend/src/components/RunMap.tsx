@@ -68,6 +68,12 @@ type RunMapProps = {
   onTapMap?: (point: LngLat) => void;
   // 6.9: the centre of the visible part once the camera stops (after following my location).
   onCameraIdle?: (center: LngLat) => void;
+  // 4.2 지도 보기 (S15P31E105-517): the user dragged or zoomed the map, so the screen stops following.
+  onUserMove?: () => void;
+  // Leaves the camera where the user put it; while true the map does not fit what it shows.
+  cameraLocked?: boolean;
+  // Two-finger rotation. Off where the screen has no way to turn the map back north.
+  rotatable?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -295,6 +301,9 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     interactive = true,
     onTapMap,
     onCameraIdle,
+    onUserMove,
+    cameraLocked = false,
+    rotatable = true,
     style,
   },
   ref,
@@ -332,7 +341,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // Camera calls sent before the native map is ready are dropped, so they wait for it.
   const [ready, setReady] = useState(false);
   useEffect(() => {
-    if (!ready || !height || shownKey.current === key) {
+    if (!ready || !height || cameraLocked || shownKey.current === key) {
       return;
     }
     // One frame later, so the new padding reaches the native map before the camera moves.
@@ -343,7 +352,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     return () => cancelAnimationFrame(frame);
     // region is rebuilt every render; key says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, ready, height]);
+  }, [key, ready, height, cameraLocked]);
+  // Once the user moves the map the shown view is theirs; following again fits it afresh.
+  useEffect(() => {
+    if (cameraLocked) {
+      shownKey.current = '';
+    }
+  }, [cameraLocked]);
 
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
   const pieces = hasRoute
@@ -388,6 +403,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           ? ({ latitude, longitude }) => onTapMap([longitude, latitude])
           : undefined
       }
+      onCameraChanged={
+        onUserMove
+          ? ({ reason }) => {
+              if (reason === 'Gesture') {
+                onUserMove();
+              }
+            }
+          : undefined
+      }
       onCameraIdle={
         onCameraIdle
           ? ({ latitude, longitude }) => onCameraIdle([longitude, latitude])
@@ -396,7 +420,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       isScrollGesturesEnabled={interactive}
       isZoomGesturesEnabled={interactive}
       isTiltGesturesEnabled={false}
-      isRotateGesturesEnabled={interactive}
+      isRotateGesturesEnabled={interactive && rotatable}
       isExtentBoundedInKorea
       isShowLocationButton={false}
       isShowZoomControls={false}

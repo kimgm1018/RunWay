@@ -431,7 +431,7 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   await act(async () => screen.unmount());
 });
 
-test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finish', async () => {
+test('6.5 → 6.6 (paused in place) → 6.7: ready, start together, see members and finish', async () => {
   const screen = await openGroup();
   try {
     await press(screen, '대기방 입장');
@@ -451,25 +451,27 @@ test('6.5 → 6.6 → 6.6c → 6.7: ready, start together, see members and finis
     // The leader starts, then 3·2·1.
     await waitForText(screen, '그룹장이 출발했어요');
     expect(texts(screen)).toContain('그룹장이 출발했어요');
-    await waitForText(screen, '내 페이스');
+    await waitForText(screen, '현재 페이스');
     // The guide-pace alert arrives with a later tracking sample.
     await waitForText(screen, '지금 안내 6′15″ · 출발 목표 6′00″');
     page = texts(screen);
-    expect(page).toContain('내 페이스');
-    expect(page).toContain('민락수변공원 출발 5.0km · 그룹런 4명');
+    expect(page).toContain('현재 페이스');
+    expect(page).toContain('민락수변공원 출발 5.0km');
+    expect(page).toContain('그룹런 4명');
     expect(page).toContain('그룹 범위 안이에요 · 선두–후미');
     // After the load alert (6.6b) the group follows a slower guide pace; the start goal stays.
     expect(page).toContain('지금 안내 6′15″ · 출발 목표 6′00″');
 
-    await press(screen, '위치·간격');
+    await press(screen, '그룹 페이지');
     page = texts(screen);
     expect(page).toContain('순위 · 최신 현황');
     expect(page).toContain('선두');
     expect(page).toContain('후미');
 
+    // 6.6c is part of 6.6 now: pausing stays here and the foot turns into 재개 · 종료 (S15P31E105-517).
     await press(screen, '일시정지');
     page = texts(screen);
-    expect(page).toContain('그룹런 일시정지');
+    expect(page).toContain('종료는 1초 길게 · 내 기록만 끝나요');
     expect(page).toContain(
       '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.',
     );

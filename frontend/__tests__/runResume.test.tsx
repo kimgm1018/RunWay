@@ -168,13 +168,13 @@ test('a restored session keeps control: pause goes to the server and the watch',
   expect(seen.run.run?.status).toBe('paused');
 });
 
-test('a paused session is restored to the pause screen with the run paused', async () => {
+test('a paused session is restored to 4.2 with the run paused (4.3 is part of 4.2, S15P31E105-517)', async () => {
   const repositories = repositoriesFor();
   await startedSession(repositories, { paused: true });
   await mount(repositories, true);
   await waitUntil(() => seen.target !== null, 'resume target');
 
-  expect(seen.target).toBe('RunPause');
+  expect(seen.target).toBe('RunProgress');
   expect(seen.run.run?.status).toBe('paused');
 });
 
@@ -252,7 +252,7 @@ test('starting a new run while a paused session exists opens that session instea
   );
   await waitUntil(() => seen.target !== null, 'resume target');
 
-  expect(seen.target).toBe('RunPause');
+  expect(seen.target).toBe('RunProgress');
   expect(seen.control).toMatchObject({ sessionId, status: 'PAUSED', joined: true });
   // 이 앱이 만든 운동이 아니므로 고른 목표 대신 자유 러닝으로 이어간다.
   expect(seen.run.run).toMatchObject({ status: 'paused', config: { mode: 'FREE', goalDistanceM: null } });

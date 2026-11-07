@@ -152,16 +152,23 @@ export function useMusicSource() {
 
 const countdownSeconds = 3;
 
-// 2.0·2.0F 하단: settings, 러닝 시작 (3초 카운트다운 후 4.2), music.
+// 2.0·2.0F 하단 (S15P31E105-517, the reference's start row made RunWay's): the goal chip, then 러닝 방식 ·
+// 러닝 시작 (3초 카운트다운 후 4.2) · 음악, each side button named under it.
 // By day a glass circle, the black pill with a dot in a grey ring and the dark music badge
 // (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
   config,
+  goal,
+  startSignal = 0,
 }: {
   night: boolean;
   // What the run starts with; the button stays disabled until it is known.
   config: RunConfig | null;
+  // The goal chip above the row: what the run aims at, opening the goal sheet.
+  goal?: { label: string; onPress: () => void } | null;
+  // Raised by the goal sheet's start buttons: starts the same countdown as 러닝 시작.
+  startSignal?: number;
 }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
@@ -201,6 +208,16 @@ export function RunStartBar({
       ? startNotice(control?.problem ?? null)
       : null;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signalled = useRef(startSignal);
+  useEffect(() => {
+    if (startSignal === signalled.current) {
+      return;
+    }
+    signalled.current = startSignal;
+    if (ensureRunLogin()) {
+      setCount(countdownSeconds);
+    }
+  }, [ensureRunLogin, startSignal]);
   useEffect(() => {
     if (count === null) {
       return;
@@ -227,81 +244,112 @@ export function RunStartBar({
       }
     };
   }, [count, ensureRunLogin]);
+  const course = config?.mode === 'COURSE';
   return (
-    <View style={[styles.bar, !night && styles.barDay]}>
-      <GlassIconButton
-        icon="settings"
-        tone={night ? 'dark' : 'light'}
-        diameter={52}
-        accessibilityLabel="설정"
-        onPress={() => navigateTo(navigation, 'Settings')}
-      />
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="러닝 시작"
-        accessibilityState={{ disabled: !config || confirming }}
-        disabled={!config || confirming}
-        onPress={() => {
-          if (ensureRunLogin()) {
-            setCount(countdownSeconds);
-          }
-        }}
-        style={({ pressed }) => [
-          styles.start,
-          { backgroundColor: night ? colors.accent : startInk },
-          (pressed || !config || confirming) && styles.pressed,
-        ]}
-      >
-        <AppText
-          style={
-            night
-              ? [typography.button, { color: colors.onAccent }]
-              : styles.startText
-          }
-        >
-          {confirming ? '시작 확인 중' : '러닝 시작'}
-        </AppText>
-        <View
-          style={[
-            styles.ring,
-            night
-              ? { borderColor: colors.onAccent }
-              : [styles.ringDay, { borderColor: startRing }],
-          ]}
-        >
-          <View
-            style={[
-              styles.ringDot,
-              { backgroundColor: night ? colors.onAccent : startRing },
-            ]}
-          />
-        </View>
-      </Pressable>
-      {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
-      {!night || source === 'MELON' || source === 'SPOTIFY' ? (
+    <View style={styles.startArea}>
+      {goal ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="음악"
-          onPress={() => navigateTo(navigation, 'MusicCard')}
-          style={({ pressed }) => pressed && styles.pressed}
+          accessibilityLabel="목표 설정"
+          accessibilityHint={goal.label}
+          onPress={goal.onPress}
+          style={({ pressed }) => [
+            styles.goalChip,
+            { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
+            pressed && styles.pressed,
+          ]}
         >
-          <K1Badge diameter={52}>
-            {source === 'MELON' || source === 'SPOTIFY' ? (
-              <ServiceMark service={source} size={30} mono />
-            ) : (
-              <Icon name="music" color={k1.ice} size={20} />
-            )}
-          </K1Badge>
+          <Icon name="target" color={colors.text} size={16} />
+          <AppText variant="captionStrong" numberOfLines={1}>
+            {goal.label}
+          </AppText>
         </Pressable>
-      ) : (
-        <GlassIconButton
-          icon="music"
-          tone={night ? 'dark' : 'light'}
-          diameter={52}
-          accessibilityLabel="음악"
-          onPress={() => navigateTo(navigation, 'MusicCard')}
-        />
-      )}
+      ) : null}
+      <View style={[styles.bar, !night && styles.barDay]}>
+        <View style={styles.side}>
+          <GlassIconButton
+            icon={course ? 'route' : 'compass'}
+            tone={night ? 'dark' : 'light'}
+            diameter={52}
+            accessibilityLabel="러닝 방식 변경"
+            onPress={() => navigateTo(navigation, 'RunMode')}
+          />
+          <AppText variant="label" tone="textSecondary" style={styles.caption}>
+            {course ? '코스 러닝' : '자유 러닝'}
+          </AppText>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="러닝 시작"
+          accessibilityState={{ disabled: !config || confirming }}
+          disabled={!config || confirming}
+          onPress={() => {
+            if (ensureRunLogin()) {
+              setCount(countdownSeconds);
+            }
+          }}
+          style={({ pressed }) => [
+            styles.start,
+            { backgroundColor: night ? colors.accent : startInk },
+            (pressed || !config || confirming) && styles.pressed,
+          ]}
+        >
+          <AppText
+            style={
+              night
+                ? [typography.button, { color: colors.onAccent }]
+                : styles.startText
+            }
+          >
+            {confirming ? '시작 확인 중' : '러닝 시작'}
+          </AppText>
+          <View
+            style={[
+              styles.ring,
+              night
+                ? { borderColor: colors.onAccent }
+                : [styles.ringDay, { borderColor: startRing }],
+            ]}
+          >
+            <View
+              style={[
+                styles.ringDot,
+                { backgroundColor: night ? colors.onAccent : startRing },
+              ]}
+            />
+          </View>
+        </Pressable>
+        <View style={styles.side}>
+          {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
+          {!night || source === 'MELON' || source === 'SPOTIFY' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="음악"
+              onPress={() => navigateTo(navigation, 'MusicCard')}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <K1Badge diameter={52}>
+                {source === 'MELON' || source === 'SPOTIFY' ? (
+                  <ServiceMark service={source} size={30} mono />
+                ) : (
+                  <Icon name="music" color={k1.ice} size={20} />
+                )}
+              </K1Badge>
+            </Pressable>
+          ) : (
+            <GlassIconButton
+              icon="music"
+              tone={night ? 'dark' : 'light'}
+              diameter={52}
+              accessibilityLabel="음악"
+              onPress={() => navigateTo(navigation, 'MusicCard')}
+            />
+          )}
+          <AppText variant="label" tone="textSecondary" style={styles.caption}>
+            음악
+          </AppText>
+        </View>
+      </View>
       <Modal
         visible={count !== null}
         transparent
@@ -313,7 +361,7 @@ export function RunStartBar({
           accessibilityRole="button"
           accessibilityLabel="카운트다운 취소"
           onPress={() => setCount(null)}
-          style={[styles.countdown, { backgroundColor: colors.scrim }]}
+          style={styles.countdown}
         >
           <AppText style={styles.countText}>{count}</AppText>
           <AppText variant="caption" style={styles.countHint}>
@@ -494,6 +542,19 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   barDay: { gap: 10 },
+  startArea: { gap: 12 },
+  goalChip: {
+    alignSelf: 'center',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  side: { alignItems: 'center', gap: 4 },
+  caption: { textAlign: 'center' },
   notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
   noticeActions: { flexDirection: 'row', gap: spacing.lg },
 
@@ -532,8 +593,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 3·2·1 on a solid dark screen, the same ground as the run screen that follows (S15P31E105-517).
   countdown: {
     flex: 1,
+    backgroundColor: k1.night,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xl,

@@ -1,5 +1,6 @@
 import { DataError, errorCode, type DataErrorCode } from '../../data/errors';
 import { createBatchRelay } from '../../watch/batchRelay';
+import { createLiveMetrics, type LiveMetrics } from '../../watch/liveMetrics';
 import { createPhoneRecorder, type PhoneRecorder } from '../../watch/phoneRecorder';
 import type {
   BpmApproval,
@@ -49,6 +50,11 @@ export type RunControlState = {
   joined: boolean;
   // S02/S10 기록 비교(S15P31E105-422). 비교 기록을 고르지 않았으면 null.
   comparison: RecordComparison | null;
+  // S02/S10의 현재 코칭(추천 페이스·목표 BPM)과 서버가 기록한 적용 BPM(S15P31E105-517 코칭 페이지). 워치 전달과 별개로 화면에 보인다.
+  coaching: CoachingGuide | null;
+  currentBpm: number | null;
+  // 폰이 받은 워치 batch(또는 인계 후 폰 batch)에서 읽은 실측값(S15P31E105-517). 아직 받은 값이 없으면 null.
+  live: LiveMetrics | null;
   // WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 서버 값 그대로.
   recordingMode: 'WATCH' | 'PHONE_FALLBACK' | null;
   // 워치 기록 중 워치 연결이 끊겼거나 워치 기록(batch)이 한동안 오지 않았다. 폰 인계를 안내한다.
@@ -148,6 +154,9 @@ const initialState: RunControlState = {
   problem: null,
   joined: false,
   comparison: null,
+  coaching: null,
+  currentBpm: null,
+  live: null,
   recordingMode: null,
   watchLost: false,
   phoneGps: null,
@@ -224,7 +233,7 @@ export function createRunControl({
   const early = new Map<string, ResultEvent>();
   // 서버에 보고 중이거나 보고한 결과. 같은 결과를 두 번 받아도 한 번만 보고한다.
   const reported = new Set<string>();
-  // ── 워치 BPM·서버 코칭 중계(S15P31E105-257). 폰에는 코칭 화면이 없으므로 화면 상태(problem·pending)는 바꾸지 않는다.
+  // ── 워치 BPM·서버 코칭 중계(S15P31E105-257). 코칭 값은 화면 상태(coaching·currentBpm)로도 보이지만, 중계 결과로 problem·pending은 바꾸지 않는다.
   // 워치에 보낸 SET_BPM 승인 명령. 시간 초과 뒤 늦게 온 결과도 보고한다.
   let bpmInflight: BpmApproval | null = null;
   // 워치에 전달 중인 코칭 명령. 같은 명령은 결과를 기다리는 동안 다시 보내지 않고, 재연결 때만 다시 보낸다.
@@ -271,6 +280,23 @@ export function createRunControl({
   };
 
   const phoneMode = () => state.recordingMode === 'PHONE_FALLBACK';
+
+  // ── 화면용 실측값. W07로 올리는 원문은 그대로 두고, 같은 본문을 한 번 더 읽는다(S15P31E105-517).
+  let liveFor: string | null = null;
+  let live = createLiveMetrics();
+  const ingestLive = (sessionId: string, body: string, from: LiveMetrics['source']) => {
+    if (disposed || sessionId !== state.sessionId) {
+      return;
+    }
+    if (liveFor !== sessionId) {
+      live = createLiveMetrics();
+      liveFor = sessionId;
+    }
+    const next = live.ingest(body, from, Date.now());
+    if (next) {
+      setState({ live: next });
+    }
+  };
   const active = () => state.status === 'RUNNING' || state.status === 'PAUSED';
 
   // 폰 기록 모드인 진행 중 세션 동안 폰 GPS 기록을 서버 상태(실행 중인 폰 명령이 없을 때)에 맞춘다.
@@ -290,7 +316,10 @@ export function createRunControl({
         // 인계 후 제어기기는 이 세션의 중계 폰이다. 폰 GPS는 폰 자신의 deviceId로 batch를 만든다.
         deviceId: controlDeviceId ?? relayDeviceId ?? '',
         location,
-        upload: session.uploadBatch,
+        upload: body => {
+          ingestLive(want, body, 'PHONE');
+          return session.uploadBatch(body);
+        },
         newId,
         flushMs: timers?.phoneFlushMs,
         finishWaitMs: timers?.phoneFinishWaitMs,
@@ -361,12 +390,16 @@ export function createRunControl({
     controlDeviceId = view.controlDeviceId;
     relayDeviceId = view.relayDeviceId;
     setState({
+      // 다른 세션에 붙으면 이전 세션의 실측값을 남기지 않는다.
+      ...(view.sessionId !== state.sessionId ? { live: null } : {}),
       sessionId: view.sessionId,
       status: view.state,
       stateVersion: view.stateVersion,
       startedAt: view.startedAt,
       endedAt: view.endedAt,
       comparison: view.comparison ?? null,
+      coaching: view.coaching ?? null,
+      currentBpm: view.currentBpm ?? null,
       recordingMode: view.recordingMode,
       ...extra,
     });
@@ -814,7 +847,11 @@ export function createRunControl({
     const sessionId = view.sessionId;
     // 기록 비교는 batch 저장마다 같은 버전으로 온다(sessions.md S10). 더 오래된 버전으로는 되돌리지 않는다.
     if (view.stateVersion >= state.stateVersion) {
-      setState({ comparison: view.comparison ?? null });
+      setState({
+        comparison: view.comparison ?? null,
+        coaching: view.coaching ?? null,
+        currentBpm: view.currentBpm ?? null,
+      });
     }
     watch.sendServerState(sessionId, view, null).catch(noop);
     if (view.recordingMode === 'PHONE_FALLBACK') {
@@ -1165,6 +1202,10 @@ export function createRunControl({
         lastWatchDataAt = Date.now();
         if (state.watchLost) {
           checkWatch().catch(noop);
+        }
+        // 인계 뒤에 늦게 온 워치 batch는 화면 값을 바꾸지 않는다(폰이 기록 중이다).
+        if (!phoneMode()) {
+          ingestLive(event.sessionId, event.body, 'WATCH');
         }
       }
       batches.handle(event);

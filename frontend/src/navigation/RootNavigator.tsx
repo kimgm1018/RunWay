@@ -99,11 +99,9 @@ const runScreen = { gestureEnabled: false, animation: 'fade' } as const;
 
 const runRoutes: ReadonlySet<RouteName> = new Set<RouteName>([
   'RunProgress',
-  'RunPause',
   'RunResult',
   'GroupRunProgress',
   'GroupRunPosition',
-  'GroupRunPause',
   'GroupRunResult',
 ]);
 

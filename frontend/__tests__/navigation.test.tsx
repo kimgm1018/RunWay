@@ -140,7 +140,11 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await press(screen, '러닝');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '자유 러닝');
-  expect(texts(screen)).toContain('코스 없이 기록만 남겨요');
+  // 2.0F has no tab bar (S15P31E105-517): the goal chip and the start row, and 뒤로 to leave.
+  expect(texts(screen)).toContain('목표 설정');
+  expect(() => pressable(screen, '그룹')).toThrow();
+  await press(screen, '뒤로');
+  expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '그룹');
   // The group list loads after the tab opens.
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));

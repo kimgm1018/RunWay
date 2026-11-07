@@ -46,14 +46,12 @@ export const mainRoutes = [
   'SavedCourses',
   'RecommendedCourses',
   'RunProgress',
-  'RunPause',
   'RunResult',
   'RecordDetail',
   'GroupRunDetail',
   'WaitingRoom',
   'GroupRunProgress',
   'GroupRunPosition',
-  'GroupRunPause',
   'GroupRunResult',
   'GroupRunCreate',
   'GroupRunCancel',
@@ -256,13 +254,8 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '4.2',
     title: '러닝 진행',
     task: RUN,
-    links: ['RunPause'],
-  },
-  RunPause: {
-    code: '4.3',
-    title: '일시정지·종료',
-    task: RUN,
-    links: ['RunProgress', 'RunResult', 'Settings'],
+    // 4.3 일시정지 is part of 4.2 now (S15P31E105-517): the foot turns into 재개 · 종료.
+    links: ['RunResult'],
   },
   RunResult: {
     code: '4.5',
@@ -321,19 +314,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '6.6',
     title: '그룹런 진행',
     task: GROUP_RUN,
-    links: ['GroupRunPosition', 'GroupRunPause'],
+    // 6.6c 일시정지 is part of 6.6 now (S15P31E105-517).
+    links: ['GroupRunPosition', 'GroupRunResult'],
   },
   GroupRunPosition: {
     code: '6.6r',
     title: '그룹런 위치·간격',
     task: GROUP_RUN,
-    links: ['GroupRunPause'],
-  },
-  GroupRunPause: {
-    code: '6.6c',
-    title: '그룹런 일시정지·종료',
-    task: GROUP_RUN,
-    links: ['GroupRunProgress', 'GroupRunResult'],
+    links: ['GroupRunResult'],
   },
   GroupRunResult: {
     code: '6.7',

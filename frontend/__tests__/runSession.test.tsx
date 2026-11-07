@@ -1,9 +1,11 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { BackHandler, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, type MockScenario } from '../src/data';
 import { formatDotDate, formatDuration } from '../src/format';
+import { controlModeOf } from '../src/screens/run/RunProgressScreen';
+import type { RunControlState } from '../src/screens/run/runControl';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -157,11 +159,25 @@ test('a course run shows live numbers and turn guidance, and no made-up rival ga
   for (const text of [
     '광안대교 루프 5.0km',
     '거리',
-    '경과 시간',
+    '운동 시간',
     '남은 거리',
-    '내 페이스',
-    // The pace card names the goal and how the pace stands against it.
+    '현재 페이스',
+    '평균 페이스',
+    // The heart rate stays even with a remaining distance (S15P31E105-517).
+    '심박',
+    '케이던스',
+    // The summary names the goal; the 코칭 page says how the pace stands against it.
     '목표 6′00″',
+    // One page per number, then 코칭 (S15P31E105-517).
+    '페이스',
+    '거리',
+    '심박',
+    '케이던스',
+    '코칭',
+    '평균 심박',
+    '평균 케이던스',
+    // No coaching came from the server, so the page says so instead of a made-up figure.
+    '아직 받은 코칭이 없어요',
   ]) {
     expect(shown).toContain(text);
   }
@@ -170,7 +186,7 @@ test('a course run shows live numbers and turn guidance, and no made-up rival ga
   expect(shown).not.toMatch(/(앞서는|뒤처지는) 중/);
   expect(shown).toMatch(/목표보다 \d+초 (빠름|느림)|목표 페이스/);
   expect(shown).toMatch(/앞 .+(직진|왼쪽|오른쪽)/);
-  expect(textOf(screen, '내 페이스')).toMatch(/^\d′\d\d″$/);
+  expect(textOf(screen, '현재 페이스')).toMatch(/^\d′\d\d″$/);
   await act(async () => screen.unmount());
 });
 
@@ -178,9 +194,9 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   const screen = await startRun('course');
   await press(screen, '일시정지');
   expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
-  const paused = textOf(screen, '경과 시간');
+  const paused = textOf(screen, '운동 시간');
   await settle(300);
-  expect(textOf(screen, '경과 시간')).toBe(paused);
+  expect(textOf(screen, '운동 시간')).toBe(paused);
 
   // Letting go early does nothing; finishing needs the hold.
   await act(async () => {
@@ -190,13 +206,15 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   await settle();
   expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
 
+  // Pausing stays on 4.2: the foot turns into 재개 · 종료 (S15P31E105-517).
+  expect(texts(screen)).toContain('현재 페이스');
   await press(screen, '재개');
   await settle(300);
-  expect(texts(screen)).toContain('내 페이스');
+  expect(texts(screen)).not.toContain('종료는 1초 길게 눌러야 동작해요');
   await press(screen, '일시정지');
   const toSeconds = (value: string) =>
     value.split(':').reduce((sum, part) => sum * 60 + Number(part), 0);
-  expect(toSeconds(textOf(screen, '경과 시간'))).toBeGreaterThan(
+  expect(toSeconds(textOf(screen, '운동 시간'))).toBeGreaterThan(
     toSeconds(paused),
   );
 
@@ -306,4 +324,78 @@ test('without a pick the course run is created without a comparison', async () =
   const { goal, progress } = await courseStartGoal(false);
   expect(goal.comparisonSessionId).toBeNull();
   expect(progress).not.toContain('경쟁 모드');
+});
+
+// S15P31E105-517: 4.3 is part of 4.2. The foot follows the confirmed state, and a request still waiting for
+// the server or watch shows as 확인 중 instead of flipping the state on press.
+test('the controls follow the confirmed state and the request still waiting', () => {
+  const control = (pending: RunControlState['pending'], problem: RunControlState['problem'] = null) =>
+    ({ pending, problem } as RunControlState);
+  expect(controlModeOf('running', null)).toBe('running');
+  expect(controlModeOf('paused', null)).toBe('paused');
+  expect(controlModeOf('running', control({ action: 'PAUSE', commandId: 'c1' }))).toBe('pausing');
+  expect(controlModeOf('paused', control({ action: 'RESUME', commandId: 'c2' }))).toBe('resuming');
+  expect(controlModeOf('paused', control({ action: 'END', commandId: 'c3' }))).toBe('finishing');
+  // A request that ended in a problem is not waiting; its notice says what happened.
+  expect(
+    controlModeOf(
+      'running',
+      control({ action: 'PAUSE', commandId: 'c1' }, { kind: 'unconfirmed', action: 'PAUSE' } as RunControlState['problem']),
+    ),
+  ).toBe('running');
+});
+
+test('지도 보기 keeps the same run, the back key pauses, and back while paused never resumes', async () => {
+  // RN calls back listeners newest first until one handles it; the test does the same.
+  const listeners: Array<() => boolean | null | undefined> = [];
+  const spy = jest
+    .spyOn(BackHandler, 'addEventListener')
+    .mockImplementation((_event, handler) => {
+      listeners.push(handler);
+      return {
+        remove: () => {
+          const index = listeners.indexOf(handler);
+          if (index >= 0) {
+            listeners.splice(index, 1);
+          }
+        },
+      };
+    });
+  const back = async () => {
+    await act(async () => {
+      for (const listener of [...listeners].reverse()) {
+        if (listener()) {
+          break;
+        }
+      }
+    });
+    await settle();
+  };
+  const toSeconds = (value: string) =>
+    value.split(':').reduce((sum, part) => sum * 60 + Number(part), 0);
+  const screen = await startRun('free');
+  try {
+    await press(screen, '지도 보기');
+    expect(shows(screen, '내 위치로 이동')).toBe(true);
+    expect(shows(screen, '수치 보기')).toBe(true);
+    const before = textOf(screen, '운동 시간');
+    await settle(300);
+    // The run goes on under the map: the same clock keeps counting.
+    expect(toSeconds(textOf(screen, '운동 시간'))).toBeGreaterThan(toSeconds(before));
+    await press(screen, '수치 보기');
+    expect(texts(screen)).toContain('현재 페이스');
+
+    // Running, the back key asks to pause instead of leaving the run.
+    await back();
+    expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
+    const paused = textOf(screen, '운동 시간');
+    // Paused, the back key keeps it paused: 재개 is only by pressing 재개.
+    await back();
+    await settle(300);
+    expect(texts(screen)).toContain('종료는 1초 길게 눌러야 동작해요');
+    expect(textOf(screen, '운동 시간')).toBe(paused);
+  } finally {
+    spy.mockRestore();
+    await act(async () => screen.unmount());
+  }
 });
