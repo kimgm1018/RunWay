@@ -104,3 +104,7 @@ wandb/
 __pycache__/
 # Route 데이터 묶음과 다운로드 도구의 임시 빌드 파일
 /artifacts/route/
+
+# Local QA credentials (do not commit)
+.qa-local/
+

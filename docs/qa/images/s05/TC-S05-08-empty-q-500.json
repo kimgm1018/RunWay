@@ -1,0 +1,24 @@
+{
+    "reproducedAt":  "2026-11-07T05:38:09.9013022Z",
+    "paths":  [
+                  "/api/v1/crews?q=",
+                  "/api/v1/crews",
+                  "/api/v1/crews?q=%20"
+              ],
+    "method":  "GET",
+    "dbErrorSummary":  "ERROR: function lower(bytea) does not exist — Hibernate binds null q/region params; PG infers concat as bytea",
+    "tc":  "TC-S05-08",
+    "contrast":  {
+                     "path":  "/api/v1/crews?q=S05",
+                     "httpStatus":  200,
+                     "note":  "non-empty q succeeds"
+                 },
+    "httpStatus":  500,
+    "response":  {
+                     "message":  "서버 오류가 발생했습니다.",
+                     "code":  "INTERNAL_ERROR",
+                     "details":  {
+
+                                 }
+                 }
+}
