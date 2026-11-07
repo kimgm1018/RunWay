@@ -14,7 +14,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, useToast } from '../../components';
+import { AppText, Backdrop, EmptyState, useToast } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -149,11 +149,15 @@ function Composer({
   );
 }
 
-// 7.3 · 7.3e sit on white like the other community screens.
+// 7.3 · 7.3e sit on the mist like the other community screens (S15P31E105-483).
 function Frame({ children }: { children: React.ReactNode }) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
+      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop tail />
+      </View>
       {children}
     </View>
   );

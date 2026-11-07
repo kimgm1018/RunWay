@@ -15,7 +15,13 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon, useToast } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  EmptyState,
+  Icon,
+  useToast,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -180,6 +186,10 @@ export function PostDetailScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
+      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Backdrop tail />
+      </View>
       <>
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
@@ -398,7 +408,7 @@ export function PostDetailScreen() {
   );
 }
 
-// runway-community-handoff 7.2 on white (담당자 요청): no cards or pills; groups part by space and line labels.
+// runway-community-handoff 7.2 on the mist (S15P31E105-483): no cards or pills; groups part by space and line labels.
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: communityLook.background },
   flex: { flex: 1 },

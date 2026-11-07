@@ -19,7 +19,14 @@ import {
 } from '../../data';
 import { formatClockTime } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
+import {
+  fontFamily,
+  radius,
+  size,
+  spacing,
+  ThemeProvider,
+  useTheme,
+} from '../../theme';
 import {
   canEnterRoom,
   dDay,
@@ -411,7 +418,7 @@ export function MyCrewsPage({
           ) : null}
           {term &&
           !mine.data.crews.some(({ crew }) => matches(crew.name, crew.area)) ? (
-            <AppText style={[styles.sub, styles.noMatch]}>
+            <AppText style={[styles.sub, styles.onMist, styles.noMatch]}>
               찾는 크루가 없어요.
             </AppText>
           ) : null}
@@ -423,15 +430,18 @@ export function MyCrewsPage({
                 run => run.id !== mine.data.upcoming?.id,
               );
               return (
-                <View key={crew.id} style={crewCard.card}>
-                  <CrewPanel
-                    crew={crew}
-                    runs={listed.map(withJoin)}
-                    initiallyOpen={index === 0}
-                    pinnedOnly={runs.length > 0 && listed.length === 0}
-                    onToggleJoin={toggle}
-                  />
-                </View>
+                // The navy card keeps the dark theme inside it, so the run lines stay white on the mist.
+                <ThemeProvider key={crew.id} tone="dark">
+                  <View style={crewCard.card}>
+                    <CrewPanel
+                      crew={crew}
+                      runs={listed.map(withJoin)}
+                      initiallyOpen={index === 0}
+                      pinnedOnly={runs.length > 0 && listed.length === 0}
+                      onToggleJoin={toggle}
+                    />
+                  </View>
+                </ThemeProvider>
               );
             })}
         </ScrollView>
@@ -530,6 +540,8 @@ const styles = StyleSheet.create({
   },
   // No initial tile (there are no crew photos), so the name is bigger (담당자 요청).
   subColor: { color: groupLook.onDarkSub },
+  // Text straight on the mist rather than in a navy crew card (S15P31E105-483).
+  onMist: { color: groupLook.onLightSub },
   noMatch: { textAlign: 'center', paddingVertical: spacing.xxxl },
   pendingChip: {
     height: 34,

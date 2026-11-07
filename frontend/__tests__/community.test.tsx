@@ -2,7 +2,13 @@ import React from 'react';
 import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
+import { Backdrop } from '../src/components';
 import { createMockRepositories, DataError } from '../src/data';
+import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
+import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
+import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
+import { ThemeProvider } from '../src/theme';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -266,6 +272,34 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(page).toContain('비공개 계정이에요');
   await press(screen, '요청됨');
   expect(texts(screen)).toContain('팔로우');
+});
+
+test('그룹 · 커뮤니티 · 프로필 sit on the mist like 홈, and only the crew cards stay navy (S15P31E105-483)', async () => {
+  const screen = await openCommunity();
+  const onMist = (component: React.ElementType) =>
+    screen.root.findByType(component).findAllByType(Backdrop).length > 0;
+  expect(onMist(CommunityScreen)).toBe(true);
+
+  await press(screen, '그룹');
+  await settle(50);
+  expect(onMist(GroupTabScreen)).toBe(true);
+  // 6.0's navy crew cards keep the dark theme inside them, so their run lines stay white.
+  expect(
+    screen.root
+      .findByType(GroupTabScreen)
+      .findAll(
+        node => node.type === ThemeProvider && node.props.tone === 'dark',
+      ).length,
+  ).toBeGreaterThan(0);
+
+  await press(screen, '민락 야경 러너스 크루 상세');
+  await settle(50);
+  expect(onMist(CrewDetailScreen)).toBe(true);
+  await press(screen, '뒤로');
+
+  await press(screen, '프로필');
+  await settle(50);
+  expect(onMist(MyProfileTabScreen)).toBe(true);
 });
 
 test('7.4b answers follow requests in the sheet and the counts follow', async () => {

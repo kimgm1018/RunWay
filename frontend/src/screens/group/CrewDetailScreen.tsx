@@ -46,7 +46,7 @@ import {
 } from '../../theme';
 import { FooterButton } from './GroupRunDetailScreen';
 import {
-  DarkBackground,
+  MistBackground,
   GroupCta,
   groupLook,
   Raised,
@@ -87,7 +87,7 @@ function ManageBody({
   return (
     <>
       <View style={styles.rowBetween}>
-        <SectionLabel>크루 관리</SectionLabel>
+        <SectionLabel tone="mist">크루 관리</SectionLabel>
         <View style={[styles.ownerOnly, { borderColor: colors.borderStrong }]}>
           <AppText variant="captionStrong" tone="textSecondary">
             크루장만 보여요
@@ -215,7 +215,7 @@ function MemberRow({
         {member.isMe ? `${member.nickname} (나)` : member.nickname}
       </AppText>
       {member.isOwner ? (
-        <Raised tone="darkGlass" style={styles.ownerTag}>
+        <Raised tone="navy" style={styles.ownerTag}>
           <AppText style={styles.ownerTagText}>크루장</AppText>
         </Raised>
       ) : null}
@@ -294,7 +294,7 @@ function RequestsLink({
 }) {
   const navigation = useNavigation();
   return (
-    <ThemeProvider tone="dark">
+    <ThemeProvider tone="light">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`가입 신청 ${count}건`}
@@ -308,7 +308,7 @@ function RequestsLink({
           </AppText>
         </View>
         <View style={styles.round}>
-          <Icon name="forward" color={k1.ice} size={16} />
+          <Icon name="forward" color={groupLook.onLight} size={16} />
         </View>
       </Pressable>
     </ThemeProvider>
@@ -563,14 +563,14 @@ export function CrewDetailScreen() {
       };
 
   return (
-    // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
-    <ThemeProvider tone="dark">
-      <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
-        <StatusBar barStyle="light-content" />
-        <DarkBackground id="crewDetailBackground" />
+    // 6.0~6.3 sit on the mist like the group tab (S15P31E105-483), so the whole screen takes the light theme.
+    <ThemeProvider tone="light">
+      <View style={styles.root}>
+        <StatusBar barStyle="dark-content" />
+        <MistBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <BackButton tone="dark" onPress={() => navigation.goBack()} />
+            <BackButton tone="light" onPress={() => navigation.goBack()} />
           </View>
         </SafeAreaView>
         {detail.status === 'error' ? (
@@ -584,7 +584,7 @@ export function CrewDetailScreen() {
           <ActivityIndicator style={styles.loading} />
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
-            <Raised tone={full ? 'darkGlass' : 'white'} style={styles.status}>
+            <Raised tone={full ? 'navy' : 'white'} style={styles.status}>
               <AppText style={full ? styles.statusTextFull : styles.statusText}>
                 {full
                   ? `정원 마감 ${crew.memberCount}/${crew.capacity}`
@@ -623,13 +623,13 @@ export function CrewDetailScreen() {
             ) : null}
             {crew.description ? (
               <View style={styles.section}>
-                <SectionLabel>소개</SectionLabel>
+                <SectionLabel tone="mist">소개</SectionLabel>
                 <AppText style={styles.intro}>{crew.description}</AppText>
               </View>
             ) : null}
             <View style={styles.section}>
               <View style={styles.rowBetween}>
-                <SectionLabel>구성원</SectionLabel>
+                <SectionLabel tone="mist">구성원</SectionLabel>
                 <AppText style={styles.memberCount}>
                   {`${crew.memberCount}명`}
                 </AppText>
@@ -713,6 +713,7 @@ export function CrewDetailScreen() {
               title={footer.title}
               icon={'icon' in footer ? footer.icon : undefined}
               primary={footer.primary}
+              onMist
               disabled={busy || ('disabled' in footer && footer.disabled)}
               onPress={footer.onPress}
             />
@@ -904,13 +905,13 @@ const styles = StyleSheet.create({
     fontSize: 30,
     lineHeight: 38,
     letterSpacing: -0.6,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   // 6.2-InfoStats: two columns, a white line on the left of each.
   facts: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs },
   fact: {
     borderLeftWidth: 1.5,
-    borderLeftColor: groupLook.onDark,
+    borderLeftColor: groupLook.onLight,
     paddingLeft: 10,
     gap: 2,
   },
@@ -918,20 +919,20 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 16,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   factLine: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
   factValue: {
     fontFamily: fontFamily.regular,
     fontSize: 26,
     lineHeight: 34,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   factUnit: {
     fontFamily: fontFamily.regular,
     fontSize: 14,
     lineHeight: 19,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   requests: {
     flexDirection: 'row',
@@ -946,7 +947,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: groupLook.lightButton,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -955,13 +956,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 15,
     lineHeight: 22,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(2,5,14,0.8)',
   },
   memberCount: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 17,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
   rowBetween: {
     flexDirection: 'row',
@@ -985,7 +986,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: groupLook.darkFill,
+    backgroundColor: groupLook.lightFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -993,13 +994,13 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 18,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   memberName: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   ownerTag: {
     height: 22,
@@ -1017,19 +1018,19 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.numberBold,
     fontSize: 18,
     lineHeight: 24,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   paceUnit: {
     fontFamily: fontFamily.numberRegular,
     fontSize: 13,
-    color: groupLook.onDarkMuted,
+    color: groupLook.onLightMuted,
   },
   more: { alignSelf: 'flex-start', paddingVertical: spacing.xs },
   moreText: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   leave: { alignSelf: 'center', paddingVertical: spacing.md },
   underline: { textDecorationLine: 'underline' },
