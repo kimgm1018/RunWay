@@ -70,11 +70,14 @@ const generated = (seed: number) => ({
     caveats: [],
     score: 1.2,
     scoreTerms: [],
+    candidateToken: `v1.1762311600.token-${seed}-${index}`,
   })),
   notices: ['이 주변은 공원 정보가 일부만 있어요'],
   nextSeed: seed + 24,
 });
 let recommendations: (body: { seed?: number }) => ReturnType<typeof respond>;
+// C10's answer when a generated route is saved or picked (S15P31E105-526).
+let storeGenerated: () => ReturnType<typeof respond>;
 
 // My bookmarks live here so PUT and DELETE change what C09 answers.
 let bookmarked: number[];
@@ -135,6 +138,9 @@ function serve() {
         return recommendations(
           JSON.parse((init as { body?: string }).body ?? '{}'),
         );
+      }
+      if (path === '/courses/generated' && init.method === 'POST') {
+        return storeGenerated();
       }
       const bookmark = path.match(/^\/courses\/(\d+)\/bookmark$/);
       if (bookmark) {
@@ -297,6 +303,7 @@ beforeEach(async () => {
   failPreferenceRead = false;
   failPreferenceSave = false;
   recommendations = body => respond(200, generated(body.seed ?? 1));
+  storeGenerated = () => respond(200, { courseId: 11, reused: false });
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
@@ -357,7 +364,7 @@ const recommendationBodies = () =>
     )
     .map(([, init]) => JSON.parse(init.body));
 
-test('3.1b shows the generated routes, asks again with nextSeed and holds save and start', async () => {
+test('3.1b shows the generated routes, asks again with nextSeed, and saves and runs one through C10', async () => {
   const screen = await openTodayRun();
   const before = fetchMock.mock.calls.length;
   await press(screen, '코스 추천 받기');
@@ -395,15 +402,39 @@ test('3.1b shows the generated routes, asks again with nextSeed and holds save a
   expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
   expect(page).toContain('강변을 많이 지나는 코스예요 25-0');
 
-  // Saving or running a route C01 just made waits for S15P31E105-371.
+  // Saving a route C01 just made stores it with C10 first and bookmarks the stored course; running it
+  // again uses the same course without a second C10.
   await press(screen, '내 코스에 저장');
-  expect(sent('PUT')).toEqual([]);
-  expect(texts(screen)).toContain(
-    '새로 만든 코스의 저장과 시작은 준비 중이에요',
-  );
+  expect(
+    sent('POST').filter(path => path === '/courses/generated'),
+  ).toHaveLength(1);
+  expect(sent('PUT')).toContain('/courses/11/bookmark');
   await press(screen, '이 코스로 달리기');
+  await settle(50);
+  expect(
+    sent('POST').filter(path => path === '/courses/generated'),
+  ).toHaveLength(1);
   page = texts(screen);
+  expect(page).toContain('오늘의 러닝 전략');
+  expect(page).toContain('5.0km 코스');
+  expect(sent('GET')).toContain('/courses/11');
+});
+
+test('3.1b says to ask again when C10 finds the route too old, and stays on the cards', async () => {
+  storeGenerated = () =>
+    respond(422, {
+      code: 'COURSE_CANDIDATE_INVALID',
+      message: '',
+      details: {},
+    });
+  const screen = await openTodayRun();
+  await press(screen, '코스 추천 받기');
+
+  await press(screen, '이 코스로 달리기');
+  const page = texts(screen);
+  expect(page).toContain('추천받은 지 오래된 코스예요. 다시 추천받아 주세요');
   expect(page).not.toContain('오늘의 러닝 전략');
+  expect(page).toContain('강변을 많이 지나는 코스예요 1-0');
 });
 
 test('a second tap before the answer does not send C01 again', async () => {
@@ -465,8 +496,7 @@ test('3.1 offers distances only up to the 15km C01 makes', async () => {
   const screen = await openTodayRun();
 
   const slider = screen.root.find(
-    node =>
-      node.props.label === '목표 거리' && node.props.max !== undefined,
+    node => node.props.label === '목표 거리' && node.props.max !== undefined,
   );
   expect(slider.props.max).toBe(15);
 });

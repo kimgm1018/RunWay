@@ -34,6 +34,8 @@ export const dataErrorCodes = [
   // U25 팔로우 요청 승인·거절: the request is gone, or was cancelled or answered meanwhile.
   'REQUEST_NOT_FOUND',
   'REQUEST_STATE_CONFLICT',
+  // C10 생성 코스 저장: the C01 route is older than 30 minutes or was changed (COURSE_INACCESSIBLE is listed above).
+  'COURSE_CANDIDATE_INVALID',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

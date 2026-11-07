@@ -12,7 +12,7 @@ import { courseShapeOptions } from '../coursePreferences';
 import { getCoursePreferences, saveCoursePreferences } from './preferences';
 import type { Regions } from './regions';
 
-// C01·C03·C07·C08·C09 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
+// C01·C03·C07·C08·C09·C10 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
 
 type LineString = { type: 'LineString'; coordinates: [number, number][] };
@@ -54,7 +54,15 @@ type GeneratedItem = {
   summary: string;
   reasons: string[];
   caveats: string[];
+  // C10 signs the route, distance and grades with it; valid for 30 minutes after C01.
+  candidateToken: string;
 };
+
+// What C10 needs to store a C01 route: the values exactly as C01 sent them.
+type Candidate = Pick<
+  GeneratedItem,
+  'candidateToken' | 'route' | 'distanceM' | 'elevationProfile'
+> & { name: string };
 
 type RecommendationResponse = {
   courses: GeneratedItem[];
@@ -78,6 +86,8 @@ const loopGapM = 100;
 
 // Only server courses have numeric ids; mock ones (a free run saved as a course) stay on the mock.
 const isServerId = (courseId: string) => /^\d+$/.test(courseId);
+// A C01 route on 3.1b, stored by C10 when it is picked or saved.
+const isGeneratedId = (courseId: string) => courseId.startsWith('generated:');
 
 // The same 0–1 box as the mock thumbnails (y grows downward).
 function shapeOf(route: [number, number][]): [number, number][] {
@@ -166,6 +176,37 @@ export function createCoursesApi({
   let chosen: string | null = null;
   // C03 has no region, so names worked out for the 3.1b and 3.1c lists are kept for 2.0.
   const named = new Map<string, string>();
+  // C01 routes by card id, and the course id C10 gave each one stored so far.
+  const candidates = new Map<string, Candidate>();
+  const stored = new Map<string, Promise<string>>();
+
+  // C10 stores the picked route, or hands back the course with exactly the same points (reused). Asking again
+  // for the same card reuses the answer; a failure lets the next tap ask again.
+  function serverIdOf(courseId: string): Promise<string> {
+    if (!isGeneratedId(courseId)) {
+      return Promise.resolve(courseId);
+    }
+    const candidate = candidates.get(courseId);
+    if (!candidate) {
+      return Promise.reject(
+        new DataError('COURSE_CANDIDATE_INVALID', '추천 후보 없음'),
+      );
+    }
+    let answer = stored.get(courseId);
+    if (!answer) {
+      const { name, ...body } = candidate;
+      answer = apiRequest<{ courseId: number; reused: boolean }>(
+        '/courses/generated',
+        { method: 'POST', body },
+      ).then(({ courseId: id }) => {
+        named.set(String(id), name);
+        return String(id);
+      });
+      stored.set(courseId, answer);
+      answer.catch(() => stored.delete(courseId));
+    }
+    return answer;
+  }
 
   // Without a region name a course is named by its distance.
   async function nameOf(
@@ -225,7 +266,7 @@ export function createCoursesApi({
   };
 
   // C01 makes new routes; each card is shown from the answer itself (no C03, no saved flag) because the
-  // routes are not stored yet. Choosing one to save and run is S15P31E105-371.
+  // routes are not stored until one is picked or saved (C10).
   const recommend: Repositories['courses']['recommend'] = async search => {
     const [longitude, latitude] = search.origin.position;
     const seed = search.seed ?? 1;
@@ -281,9 +322,18 @@ export function createCoursesApi({
     const courses = answer.courses.map((item): RecommendedCourse => {
       const route = item.route.coordinates;
       const heights = heightsOf(item.elevationProfile);
+      const id = `generated:${seed}:${item.index}`;
+      const name = `${kmLabel(item.distanceM)} 코스`;
+      candidates.set(id, {
+        candidateToken: item.candidateToken,
+        route: item.route,
+        distanceM: item.distanceM,
+        elevationProfile: item.elevationProfile,
+        name,
+      });
       return {
-        id: `generated:${seed}:${item.index}`,
-        name: `${kmLabel(item.distanceM)} 코스`,
+        id,
+        name,
         distanceM: item.distanceM,
         estimatedDurationSec: Math.round(
           (item.distanceM / 1000) * paceSecPerKm,
@@ -355,23 +405,27 @@ export function createCoursesApi({
     getSaved,
     recommend,
     getTodayPlan,
-    // C07 with no body keeps any alias already set.
+    // C07 with no body keeps any alias already set. A C01 route is stored by C10 first.
     save: async courseId => {
-      if (!isServerId(courseId)) {
-        return mock.save(courseId);
+      const id = await serverIdOf(courseId);
+      if (!isServerId(id)) {
+        return mock.save(id);
       }
-      await apiRequest(`/courses/${courseId}/bookmark`, { method: 'PUT' });
+      await apiRequest(`/courses/${id}/bookmark`, { method: 'PUT' });
     },
     // C08 succeeds even when the course was not saved.
     unsave: async courseId => {
-      if (!isServerId(courseId)) {
-        return mock.unsave(courseId);
+      const id = await serverIdOf(courseId);
+      if (!isServerId(id)) {
+        return mock.unsave(id);
       }
-      await apiRequest(`/courses/${courseId}/bookmark`, { method: 'DELETE' });
+      await apiRequest(`/courses/${id}/bookmark`, { method: 'DELETE' });
     },
+    // A C01 route runs as the course C10 stores, so 2.0 and S01 get its id and route.
     choose: async courseId => {
-      chosen = courseId;
-      await mock.choose(courseId);
+      const id = await serverIdOf(courseId);
+      chosen = id;
+      await mock.choose(id);
     },
   };
   return courses;
