@@ -20,7 +20,11 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { AppText, Backdrop, Icon, MistFill, useToast } from '../../components';
-import { useRepositories, type RecommendedCourse } from '../../data';
+import {
+  errorCode,
+  useRepositories,
+  type RecommendedCourse,
+} from '../../data';
 import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { BackGlassButton } from '../records/look';
@@ -490,22 +494,28 @@ export function RecommendedCoursesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atEnd, canAskMore, nextSeed]);
 
-  // A route C01 just made has no course id until 371 saves it.
-  const notYet = () => toast('새로 만든 코스의 저장과 시작은 준비 중이에요');
+  // A route C01 just made is stored (C10) when it is saved or picked; these say why that did not work.
+  const generatedFailure = (error: unknown) => {
+    const code = errorCode(error);
+    return code === 'COURSE_CANDIDATE_INVALID'
+      ? '추천받은 지 오래된 코스예요. 다시 추천받아 주세요'
+      : code === 'COURSE_INACCESSIBLE'
+      ? '이 코스는 지금 쓸 수 없어요. 다른 코스를 골라 주세요'
+      : null;
+  };
 
   const toggleSave = async (course: RecommendedCourse) => {
-    if (course.generated) {
-      notYet();
-      return;
-    }
     try {
       if (course.saved) {
         await courses.unsave(course.id);
       } else {
         await courses.save(course.id);
       }
-    } catch {
-      toast('코스를 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        generatedFailure(error) ??
+          '코스를 저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
       return;
     }
     setResults(
@@ -514,12 +524,24 @@ export function RecommendedCoursesScreen() {
       ),
     );
   };
+  // Storing a new route takes a moment; a second tap meanwhile does not open 2.0 twice.
+  const picking = useRef(false);
   const choose = async (course: RecommendedCourse) => {
-    if (course.generated) {
-      notYet();
+    if (picking.current) {
       return;
     }
-    await courses.choose(course.id);
+    picking.current = true;
+    try {
+      await courses.choose(course.id);
+    } catch (error) {
+      toast(
+        generatedFailure(error) ??
+          '코스를 고르지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      return;
+    } finally {
+      picking.current = false;
+    }
     navigateTo(navigation, 'CourseRun');
   };
 

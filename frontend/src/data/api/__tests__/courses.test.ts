@@ -215,6 +215,7 @@ const generatedAnswer = {
       caveats: ['계단이 1곳 있어요'],
       score: 1.42,
       scoreTerms: [],
+      candidateToken: 'v1.1762311600.token-0',
     },
     {
       index: 1,
@@ -226,6 +227,7 @@ const generatedAnswer = {
       caveats: [],
       score: 0.8,
       scoreTerms: [],
+      candidateToken: 'v1.1762311600.token-1',
     },
   ],
   notices: ['이 주변은 공원 정보가 일부만 있어요'],
@@ -437,6 +439,102 @@ test('2.0 names a course it never listed by its distance', async () => {
   await courses.choose('9');
 
   expect((await courses.getTodayPlan()).name).toBe('6.2km 코스');
+});
+
+// C01 then C10 (S15P31E105-526): the picked route is stored and runs as course 7.
+function serveGenerated(stored: () => ReturnType<typeof respond>) {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/recommendations') {
+      return respond(200, generatedAnswer);
+    }
+    if (path === '/courses/generated' && init.method === 'POST') {
+      return stored();
+    }
+    if (path === '/courses/7/bookmark') {
+      return respond(200, { bookmarked: true });
+    }
+    return common(url, init);
+  });
+}
+
+const posted = () =>
+  calls().filter(call => call.url.pathname.endsWith('/courses/generated'));
+
+test('C10 stores the picked C01 route as it came, and 2.0 runs that course', async () => {
+  serveGenerated(() => respond(200, { courseId: 7, reused: false }));
+  const { courses } = api(400);
+  const found = await courses.recommend(search);
+
+  await courses.choose(found.courses[0].id);
+  const plan = await courses.getTodayPlan();
+
+  expect(posted().map(call => call.body)).toEqual([
+    {
+      candidateToken: 'v1.1762311600.token-0',
+      route: { type: 'LineString', coordinates: loop },
+      distanceM: 5020,
+      elevationProfile: generatedAnswer.courses[0].elevationProfile,
+    },
+  ]);
+  expect(plan).toMatchObject({
+    courseId: '7',
+    // The card's name, as C03 has no region.
+    name: '5.0km 코스',
+    distanceM: 5000,
+    route: loop,
+    expectedDurationSec: 2000,
+  });
+});
+
+test('saving and picking the same route asks C10 once and saves the stored course with C07', async () => {
+  // The same points as a course already stored: C10 hands that one back.
+  serveGenerated(() => respond(200, { courseId: 7, reused: true }));
+  const { courses } = api();
+  const found = await courses.recommend(search);
+  const card = found.courses[0].id;
+
+  await Promise.all([courses.save(card), courses.choose(card)]);
+  await courses.unsave(card);
+
+  expect(posted()).toHaveLength(1);
+  expect(
+    calls()
+      .filter(call => call.url.pathname.endsWith('/bookmark'))
+      .map(call => call.method),
+  ).toEqual(['PUT', 'DELETE']);
+  expect((await courses.getTodayPlan()).courseId).toBe('7');
+});
+
+test('a route C10 turns down says so, and the next tap asks again', async () => {
+  let answer = respond(422, {
+    code: 'COURSE_CANDIDATE_INVALID',
+    message: '',
+    details: {},
+  });
+  serveGenerated(() => answer);
+  const { courses } = api();
+  const found = await courses.recommend(search);
+
+  await expect(courses.choose(found.courses[1].id)).rejects.toMatchObject({
+    code: 'COURSE_CANDIDATE_INVALID',
+  });
+  answer = respond(200, { courseId: 7, reused: false });
+  await courses.choose(found.courses[1].id);
+
+  expect(posted().map(call => call.body.candidateToken)).toEqual([
+    'v1.1762311600.token-1',
+    'v1.1762311600.token-1',
+  ]);
+  expect((await courses.getTodayPlan()).courseId).toBe('7');
+});
+
+test('a route this search never made cannot be stored and sends nothing', async () => {
+  const { courses } = api();
+  await expect(courses.save('generated:1:9')).rejects.toMatchObject({
+    code: 'COURSE_CANDIDATE_INVALID',
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test.each(['loop', 'out_and_back', 'point_to_point'] as const)(
