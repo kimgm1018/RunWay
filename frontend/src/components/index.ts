@@ -16,3 +16,4 @@ export * from './TextField';
 export * from './Toast';
 export * from './Toggle';
 export * from './KeyboardLift';
+export * from './WheelPicker';

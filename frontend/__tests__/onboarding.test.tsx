@@ -167,15 +167,19 @@ test('sign-up validates each field and reaches home through the watch connection
 
   // 1.5b 생년월일 creates the account.
   expect(texts(screen)).toContain('언제예요?');
-  await press(screen, '연도 연도');
-  await press(screen, '1991년');
-  await press(screen, '일 일');
-  await press(screen, '31일');
-  expect(isDisabled(screen, '다음')).toBe(true);
-  await press(screen, '월 월');
-  await press(screen, '02월');
-  // February 1991 has 28 days, so the 31st moves back to the 28th.
-  expect(isDisabled(screen, '일 28일')).toBe(false);
+  await press(screen, '연도 1991년');
+  await press(screen, '일 31일');
+  await press(screen, '월 2월');
+  // February 1991 has 28 days, so the 31st rolls back to the 28th.
+  expect(
+    screen.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '일' &&
+          typeof node.props.onAccessibilityAction === 'function',
+      )
+      .pop()?.props.accessibilityValue.text,
+  ).toBe('28일');
   await press(screen, '다음');
 
   expect(texts(screen)).toContain('평소 어떻게');

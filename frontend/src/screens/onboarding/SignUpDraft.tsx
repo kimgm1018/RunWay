@@ -22,7 +22,7 @@ export type SignUpDraft = {
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
   profile: BasicProfile | null;
-  // The birth date typed or picked on 1.5b, kept while 1.5 is open again so returning does not clear it.
+  // The birth date rolled on 1.5b's wheels, kept while 1.5 is open again so returning does not clear it.
   birthDateParts?: BirthDateParts;
   // Set after U15 succeeds; going back to 1.5 then updates the profile instead of signing up again.
   accountCreated: boolean;

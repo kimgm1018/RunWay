@@ -1,6 +1,8 @@
 import {
   daysInMonth,
   birthDateError,
+  birthDateOptions,
+  clampBirthDate,
   parseBirthDate,
   editClock,
   formatClockDigits,
@@ -100,15 +102,22 @@ test('editing a time keeps the value and cursor on the digits', () => {
   expect(editClock('12:34', '12:345', 4)).toEqual({ text: '12:34', cursor: 5 });
 });
 
+// A fixed today, so the 2026 cases do not move with the calendar.
+const today = new Date('2026-11-07T03:00:00Z');
+
 test.each([
   ['1950', '1', '1', '1950-01-01'],
   ['2010', '12', '31', '2010-12-31'],
+  ['2011', '01', '01', '2011-01-01'],
+  ['2026', '11', '07', '2026-11-07'],
   ['2000', '02', '29', '2000-02-29'],
   ['1991', '02', '29', null],
   ['2000', '02', '30', null],
   ['2001', '04', '31', null],
   ['1949', '12', '31', null],
-  ['2011', '01', '01', null],
+  ['2026', '11', '08', null],
+  ['2026', '12', '01', null],
+  ['2027', '01', '01', null],
   ['2000', '00', '01', null],
   ['2000', '13', '01', null],
   ['2000', '01', '00', null],
@@ -120,7 +129,43 @@ test.each([
   'birth date %s-%s-%s parses without normalizing invalid dates',
   (year, month, day, expected) => {
     const parts = { year, month, day };
-    expect(parseBirthDate(parts)).toBe(expected);
-    expect(birthDateError(parts) === null).toBe(expected !== null);
+    expect(parseBirthDate(parts, today)).toBe(expected);
+    expect(birthDateError(parts, today) === null).toBe(expected !== null);
   },
 );
+
+test('birth date wheels list 1950–2026 and nothing after today (UTC)', () => {
+  const full = birthDateOptions({ year: 2000, month: 2, day: 1 }, today);
+  expect(full.years[0]).toBe(1950);
+  expect(full.years[full.years.length - 1]).toBe(2026);
+  expect(full.months).toHaveLength(12);
+  expect(full.days).toHaveLength(29);
+  // November 2026 stops at the 7th, and 2026 itself at November.
+  const latest = birthDateOptions({ year: 2026, month: 11, day: 1 }, today);
+  expect(latest.months[latest.months.length - 1]).toBe(11);
+  expect(latest.days[latest.days.length - 1]).toBe(7);
+  // 00:30 on the 8th in Korea is still the 7th in UTC, which U15 checks.
+  const korea = birthDateOptions(
+    { year: 2026, month: 11, day: 1 },
+    new Date('2026-11-07T15:30:00Z'),
+  );
+  expect(korea.days[korea.days.length - 1]).toBe(7);
+});
+
+test('birth date wheels pull a date back inside their lists', () => {
+  expect(clampBirthDate({ year: 1991, month: 2, day: 31 }, today)).toEqual({
+    year: 1991,
+    month: 2,
+    day: 28,
+  });
+  expect(clampBirthDate({ year: 2026, month: 12, day: 25 }, today)).toEqual({
+    year: 2026,
+    month: 11,
+    day: 7,
+  });
+  expect(clampBirthDate({ year: 1940, month: 5, day: 5 }, today)).toEqual({
+    year: 1950,
+    month: 5,
+    day: 5,
+  });
+});

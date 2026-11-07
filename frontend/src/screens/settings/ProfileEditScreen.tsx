@@ -33,6 +33,8 @@ import { formatDuration, formatPace } from '../../format';
 import { fontFamily, k1 } from '../../theme';
 import { SelectField } from '../onboarding/parts';
 import {
+  birthYearMax,
+  birthYearMin,
   daysInMonth,
   isValidNickname,
   nicknameRule,
@@ -41,7 +43,11 @@ import {
 import { ProfilePhoto, settingsLook } from './SettingsScreen';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
-const years = Array.from({ length: 61 }, (_, index) => 2010 - index);
+// The same years as 1.5b (S15P31E105-520), newest first, so a date picked at sign-up always shows here.
+const years = Array.from(
+  { length: birthYearMax - birthYearMin + 1 },
+  (_, index) => birthYearMax - index,
+);
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
 const pad = (value: number) => String(value).padStart(2, '0');
 
