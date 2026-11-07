@@ -51,6 +51,11 @@ export const dataErrorCodes = [
   'COMMENT_NOT_FOUND',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
+  // U18 회원탈퇴 (users.md, S15P31E105-523): 먼저 정리할 크루·그룹런·운동이 있음(409), 동의 없음(422),
+  // DB 탈퇴는 확정됐지만 이미지 정리 미완료(503, details.withdrawalCompleted).
+  'WITHDRAWAL_CONFLICT',
+  'AGREEMENT_REQUIRED',
+  'IMAGE_CLEANUP_PENDING',
   // S01~S08 러닝 세션 제어 (docs/design/api/sessions.md, S15P31E105-256).
   'SESSION_NOT_FOUND',
   'SESSION_FORBIDDEN',

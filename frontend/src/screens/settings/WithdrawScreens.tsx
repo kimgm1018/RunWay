@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -9,7 +9,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { StackActions, useNavigation } from '@react-navigation/native';
+import {
+  StackActions,
+  useFocusEffect,
+  useNavigation,
+} from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
@@ -32,6 +36,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1 } from '../../theme';
 import { settingsLook } from './SettingsScreen';
+import { isValidPassword } from '../onboarding/validation';
 
 // The glass of the 8.4 · 8.5 cards and the 취소 button (runway-settings).
 const glassFill = {
@@ -216,19 +221,33 @@ function losses(
 const loadSummary = (repositories: Repositories) =>
   repositories.account.getWithdrawalSummary();
 
-// 8.4 회원탈퇴 확인 (U17, runway-settings): what goes away, the crews I lead and the agreement U18 needs.
-// The step on is 다음 now (담당자 결정: 시안대로); 탈퇴하기 is 8.5's.
+// 8.4 회원탈퇴 확인 (U17, runway-settings): what goes away, what must be cleared first and the agreement U18
+// needs. The step on is 다음 now (담당자 결정: 시안대로); 탈퇴하기 is 8.5's. While the server names anything to
+// clear first (blockers: a crew I lead, a group run I host, a run in progress), 다음 stays off: U18 would refuse.
 export function WithdrawScreen() {
   const navigation = useNavigation();
   const summary = useResource(loadSummary);
   const [agreed, setAgreed] = useState(false);
+  // Coming back from 8.5 (the server found something to clear first) reads U17 again.
+  const opened = useRef(false);
+  const { reload } = summary;
+  useFocusEffect(
+    useCallback(() => {
+      if (opened.current) {
+        reload();
+      }
+      opened.current = true;
+    }, [reload]),
+  );
+  const blocked =
+    summary.status === 'ready' && summary.data.blockers.length > 0;
   return (
     <Frame
       progress={0.5}
       footer={
         <Actions
           next="다음"
-          disabled={!agreed || summary.status !== 'ready'}
+          disabled={!agreed || summary.status !== 'ready' || blocked}
           onCancel={() => navigation.goBack()}
           onNext={() => navigateTo(navigation, 'WithdrawPassword')}
         />
@@ -257,9 +276,34 @@ export function WithdrawScreen() {
               icon="crown"
               strong
               title="크루장인 크루가 있어요"
-              detail={`${summary.data.ownedCrews.join(
+              detail={summary.data.ownedCrews.join(', ')}
+            />
+          ) : null}
+          {summary.data.ownedGroupRuns.length ? (
+            <InfoCard
+              icon="users"
+              strong
+              title="내가 연 그룹런이 있어요"
+              detail={summary.data.ownedGroupRuns.join(', ')}
+            />
+          ) : null}
+          {summary.data.scheduledGroupRuns.length ? (
+            <InfoCard
+              icon="calendar"
+              title={`참가 예정 그룹런 ${summary.data.scheduledGroupRuns.length}개`}
+              detail={`${summary.data.scheduledGroupRuns.join(
                 ', ',
-              )} · 탈퇴하면 가장 오래된 멤버에게 크루장이 넘어가요.`}
+              )} · 탈퇴하면 자동으로 참가가 취소돼요.`}
+            />
+          ) : null}
+          {blocked ? (
+            <InfoCard
+              icon="alert"
+              strong
+              title="먼저 정리해야 탈퇴할 수 있어요"
+              detail={summary.data.blockers
+                .map(blocker => blocker.message)
+                .join('\n')}
             />
           ) : null}
           <Pressable
@@ -307,8 +351,13 @@ export function WithdrawPasswordScreen() {
       await account.withdraw(password);
       navigation.dispatch(StackActions.replace('WithdrawDone'));
     } catch (error) {
-      if (errorCode(error) === 'INVALID_PASSWORD') {
+      const code = errorCode(error);
+      if (code === 'INVALID_PASSWORD' || code === 'VALIDATION_ERROR') {
         setWrong(true);
+      } else if (code === 'WITHDRAWAL_CONFLICT') {
+        // Something to clear came up since 8.4 (a crew, a group run, a run): 8.4 reads U17 again and says what.
+        toast('탈퇴 전에 정리할 항목이 있어요. 내용을 다시 확인해 주세요');
+        navigation.goBack();
       } else {
         toast('탈퇴하지 못했어요. 잠시 후 다시 시도해 주세요');
       }
@@ -322,7 +371,8 @@ export function WithdrawPasswordScreen() {
       footer={
         <Actions
           next="탈퇴하기"
-          disabled={!password || busy}
+          // The same rule as sign-up and login (8–20 characters, no spaces); others the server turns down anyway.
+          disabled={!isValidPassword(password) || busy}
           onCancel={() => navigateTo(navigation, 'Settings')}
           onNext={withdraw}
         />

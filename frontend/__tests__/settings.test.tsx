@@ -200,15 +200,33 @@ test('8.2 saves the nickname from the foot and opens with it again', async () =>
   await act(async () => screen.unmount());
 });
 
-test('8.4 to 8.6 withdraws after the agreement and the password, then signs out', async () => {
+test('8.4 keeps 다음 off while a crew I lead must be handed over first (users.md U17·U18)', async () => {
   const screen = await openSettings();
   await press(screen, '회원탈퇴');
   await settle(50);
-  let page = texts(screen);
+  const page = texts(screen);
   expect(page).toContain('정말 탈퇴할까요?');
   expect(page).toContain('저장한 코스 5개');
   expect(page).toContain('크루장인 크루가 있어요');
   expect(page).toContain('민락 야경 러너스');
+  // The confirmed policy has no automatic successor: the server's blocker says to hand it over or dissolve it.
+  expect(page).toContain('크루장을 다른 멤버에게 넘기거나 크루를 해산한 뒤 탈퇴할 수 있어요.');
+  expect(page).not.toContain('가장 오래된 멤버');
+  expect(page).toContain('먼저 정리해야 탈퇴할 수 있어요');
+  await press(screen, '탈퇴 동의');
+  expect(labelled(screen, '다음').props.disabled).toBe(true);
+  await act(async () => screen.unmount());
+});
+
+test('8.4 to 8.6 withdraws after the agreement and the password, then signs out', async () => {
+  const screen = await openSettings(
+    createMockRepositories({ latencyMs: 0, scenario: 'noCrews' }),
+  );
+  await press(screen, '회원탈퇴');
+  await settle(50);
+  let page = texts(screen);
+  expect(page).toContain('정말 탈퇴할까요?');
+  expect(page).not.toContain('먼저 정리해야 탈퇴할 수 있어요');
   // 8.4 steps on with 다음 (runway-settings); 탈퇴하기 is 8.5's.
   expect(labelled(screen, '다음').props.disabled).toBe(true);
   await press(screen, '탈퇴 동의');
@@ -216,6 +234,9 @@ test('8.4 to 8.6 withdraws after the agreement and the password, then signs out'
   await settle(50);
   expect(texts(screen)).toContain('비밀번호를 입력해 주세요');
 
+  // A password outside the 8–20 rule does not go to the server.
+  await type(screen, '비밀번호', 'short');
+  expect(labelled(screen, '탈퇴하기').props.disabled).toBe(true);
   await type(screen, '비밀번호', 'wrong123');
   await press(screen, '탈퇴하기');
   await settle(50);

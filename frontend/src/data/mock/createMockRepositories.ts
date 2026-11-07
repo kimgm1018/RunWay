@@ -582,21 +582,38 @@ export function createMockRepositories(
       },
     },
     account: {
+      // U17: like the server, a crew I lead blocks withdrawal until it is handed over or dissolved (users.md,
+      // 2026-11-05 확정 정책: 자동 후임 선정 없음).
       getWithdrawalSummary: () =>
         respond(
           {
             runningRecordCount: records.length,
             postCount: social.myPostCount(),
             savedCourseCount: saved.length,
-            connectedDevices: watchConnected
-              ? [fixtures.connectedWatch.deviceName]
-              : [],
+            connectedDevices: watchConnected ? ['워치'] : [],
             ownedCrews: crews.owned(),
+            ownedGroupRuns: [],
+            scheduledGroupRuns: [],
+            blockers: crews.owned().length
+              ? [
+                  {
+                    code: 'CREW_OWNER',
+                    message:
+                      '크루장을 다른 멤버에게 넘기거나 크루를 해산한 뒤 탈퇴할 수 있어요.',
+                  },
+                ]
+              : [],
           },
           options,
         ),
       // U18: the mock account is gone afterwards, so 1.2 can no longer sign in with it.
       withdraw: password => {
+        if (crews.owned().length) {
+          return fail(
+            new DataError('WITHDRAWAL_CONFLICT', '먼저 정리할 항목이 있어요'),
+            options,
+          );
+        }
         if (password !== fixtures.account.password) {
           return fail(
             new DataError('INVALID_PASSWORD', '비밀번호가 맞지 않아요'),
