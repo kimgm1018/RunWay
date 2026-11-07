@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 import { lowerToLogo, RunMap } from '../src/components/RunMap';
+import { appConfig } from '../src/config';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -34,7 +35,6 @@ const texts = (root: ReactTestRenderer.ReactTestInstance) =>
 test('a course with paces shows the start and one pace label per km', () => {
   const root = render(
     <RunMap
-      dark={false}
       route={route}
       segmentPaces={[330, 345, 360]}
       paceLabels={['5\'30"', '5\'45"', '6\'00"']}
@@ -57,9 +57,20 @@ test('while running the course is a guide: no start, no labels, the run on top',
   );
   expect(texts(root)).not.toContain('SF');
   expect(texts(root)).not.toContain('5\'30"');
-  // After sunset the course is dashed under the run.
-  expect(count(root, 'naver-map-polyline')).toBe(1);
+  // The course stays a hollow line under the run, by day and after sunset alike.
+  expect(count(root, 'naver-map-multipath')).toBe(1);
+  expect(count(root, 'naver-map-polyline')).toBe(0);
   expect(count(root, 'naver-map-path')).toBe(1);
+});
+
+test('the map is always the K1 day style, with no night map after sunset (S15P31E105-527)', () => {
+  const root = render(<RunMap route={route} trail={route.slice(0, 2)} />);
+  const map = root.find(
+    node => 'customStyleId' in node.props && 'mapType' in node.props,
+  );
+  expect(map.props.customStyleId).toBe(appConfig.naverMapDayStyleId);
+  expect(map.props.mapType).toBe('Basic');
+  expect(map.props.isNightModeEnabled).toBeFalsy();
 });
 
 test('members are markers and a tap on the map gives the point', () => {
@@ -99,7 +110,6 @@ function layOut(root: ReactTestRenderer.ReactTestInstance, height: number) {
 test('the logo goes just over the covered part when that reaches above the padding', () => {
   const root = render(
     <RunMap
-      dark={false}
       position={route[0]}
       area={{ top: 0.36, bottom: 0.36 }}
       logo={{ above: 0.47 }}
@@ -114,7 +124,6 @@ test('the logo goes just over the covered part when that reaches above the paddi
 test('a padding that ends above the sheet is lowered to it, the logo right on top', () => {
   const root = render(
     <RunMap
-      dark={false}
       route={route}
       area={{ top: 0.19, bottom: 0.56 }}
       logo={{ above: 0.19, side: 'right' }}
@@ -154,7 +163,7 @@ test('lowering the padding to the sheet keeps the zoom and the middle of what is
 });
 
 test('without a logo the map keeps its own logo place', () => {
-  const root = render(<RunMap dark={false} route={route} />);
+  const root = render(<RunMap route={route} />);
   const map = layOut(root, 1000);
   expect(map.props.logoAlign).toBeUndefined();
   expect(map.props.logoMargin).toBeUndefined();

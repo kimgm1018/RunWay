@@ -151,7 +151,6 @@ export function MeetingPlaceScreen() {
         {/* 6.9-MapView: the light map, the picked point under the pin (377 of 844). */}
         <RunMap
           ref={map}
-          dark={false}
           position={picked?.position}
           showLocation={showMe}
           area={{ top: 0.447, bottom: 0.447 }}

@@ -251,7 +251,6 @@ export function CourseRunScreen() {
     <MapScreenFrame
       renderMap={logo => (
         <RunMap
-          dark={night}
           route={plan?.route}
           segmentPaces={plan?.segmentPacesSecPerKm}
           // The km paces are labelled by day; after sunset the course is a plain white line.

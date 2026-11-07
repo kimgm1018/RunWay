@@ -160,7 +160,6 @@ function MapBackdrop({
   return (
     <View style={styles.map} pointerEvents="none">
       <RunMap
-        dark={false}
         muted={cancelled}
         route={run.route ?? undefined}
         position={run.route ? undefined : run.meetingPosition}
