@@ -21,8 +21,8 @@ type RecordSummaryResponse = {
   averagePaceSecPerKm: number | null;
 };
 
-// CMT02 item; CMT03 adds courseId and updatedAt.
-type PostResponse = {
+// CMT02 item; CMT03 adds courseId and updatedAt. U21 lists a runner's posts in the same shape.
+export type PostResponse = {
   id: number;
   authorId: number;
   sessionId: number;
@@ -75,7 +75,7 @@ const authorOf = (userId: number, nickname: string): PostAuthor => ({
 
 // Only the distance, moving time and pace come with a post, so the card leaves the rest blank and is
 // dated by the post.
-function recordOf(response: PostResponse): PostRecord {
+export function recordOf(response: PostResponse): PostRecord {
   const distanceM = response.recordSummary?.distanceM ?? 0;
   const durationSec = response.recordSummary?.movingDurationSec ?? 0;
   const pace = response.recordSummary?.averagePaceSecPerKm;

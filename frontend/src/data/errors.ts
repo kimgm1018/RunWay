@@ -28,6 +28,9 @@ export const dataErrorCodes = [
   'CREW_NOT_FOUND',
   // CMT13 통합 검색: the query is under the server's minimum length.
   'QUERY_TOO_SHORT',
+  // U21–U23 러너 프로필·팔로우: the runner is gone or withdrew, or I tried to follow myself.
+  'USER_NOT_FOUND',
+  'CANNOT_FOLLOW_SELF',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

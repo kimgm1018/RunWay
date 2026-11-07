@@ -91,6 +91,35 @@ function serve() {
       if (path === '/devices') {
         return respond(200, { items: [] });
       }
+      // 7.4b (U21) with my H01 runs and H06 month (S15P31E105-524).
+      if (path === `/users/${me.id}/profile`) {
+        return respond(200, {
+          userId: me.id,
+          nickname: me.nickname,
+          profileImageUrl: me.profileImageUrl,
+          profileAccessible: true,
+          followStatus: 'NONE',
+          isFollowing: null,
+          runningLevel: runningProfile.selfReportedLevel,
+          followerCount: 3,
+          followingCount: 5,
+          posts: [],
+        });
+      }
+      if (path === '/running-records') {
+        return respond(200, { items: [] });
+      }
+      if (path === '/running-records/statistics') {
+        return respond(200, {
+          runCount: 0,
+          totalDistanceM: 0,
+          totalDurationSec: 0,
+          averagePaceSecPerKm: null,
+          breakdown: [],
+          heartRateZones: [],
+          previousPeriod: null,
+        });
+      }
       return respond(503, {
         code: 'SERVICE_UNAVAILABLE',
         message: '',

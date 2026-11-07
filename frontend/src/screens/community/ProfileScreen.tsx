@@ -32,6 +32,7 @@ import {
   useToast,
 } from '../../components';
 import {
+  DataError,
   useRepositories,
   useResource,
   type Repositories,
@@ -85,6 +86,10 @@ const levelLabels: Record<SelfReportedLevel, string> = {
   INTERMEDIATE: '중급',
   ADVANCED: '고급',
 };
+
+// A closed private profile has no counts (U21), so they show as a dash.
+const countText = (count: number | null) =>
+  count === null ? '–' : String(count);
 
 // A vertical gradient whose stops can fade: alpha goes through stopOpacity, which Android keeps.
 function FadeFill({
@@ -436,8 +441,7 @@ function Profile({
   const insets = useSafeAreaInsets();
   const toast = useToast();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const locked =
-    !profile.isMe && profile.isPrivate && profile.followStatus !== 'FOLLOWING';
+  const locked = !profile.accessible;
   const heroHeight = Math.round(screenHeight * 0.48);
   const tileWidth = Math.floor((screenWidth - 32 - tileGap) / 2);
   // The page's scroll drives the picture's blur behind it.
@@ -489,7 +493,11 @@ function Profile({
             <AppText style={styles.handle} numberOfLines={1}>
               {profile.handle}
             </AppText>
-            <AppText style={styles.level}>{levelLabels[profile.level]}</AppText>
+            {profile.level ? (
+              <AppText style={styles.level}>
+                {levelLabels[profile.level]}
+              </AppText>
+            ) : null}
           </View>
         </View>
         <View style={styles.body}>
@@ -508,8 +516,8 @@ function Profile({
             />
           )}
           <View style={styles.counts}>
-            <Count value={String(profile.followerCount)} label="팔로워" />
-            <Count value={String(profile.followingCount)} label="팔로잉" />
+            <Count value={countText(profile.followerCount)} label="팔로워" />
+            <Count value={countText(profile.followingCount)} label="팔로잉" />
             <Count
               value={locked ? '–' : String(profile.monthly.runCount)}
               unit={locked ? undefined : '회'}
@@ -519,9 +527,11 @@ function Profile({
           {profile.isMe ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`팔로우 요청 ${
-                profile.followRequestCount ?? 0
-              }건`}
+              accessibilityLabel={
+                profile.followRequestCount === null
+                  ? '팔로우 요청'
+                  : `팔로우 요청 ${profile.followRequestCount}건`
+              }
               onPress={() => toast('팔로우 요청 목록은 준비 중이에요')}
               style={({ pressed }) => [
                 styles.card,
@@ -530,9 +540,11 @@ function Profile({
             >
               <AppText style={styles.cardTitle}>팔로우 요청</AppText>
               <View style={styles.flex} />
-              <AppText style={styles.cardValue}>
-                {`${profile.followRequestCount ?? 0}건`}
-              </AppText>
+              {profile.followRequestCount === null ? null : (
+                <AppText style={styles.cardValue}>
+                  {`${profile.followRequestCount}건`}
+                </AppText>
+              )}
               <Icon
                 name="forward"
                 color={look.muted}
@@ -629,8 +641,14 @@ function ProfileView({
           current.followStatus === 'NONE',
         ),
       );
-    } catch {
-      toast('처리하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        error instanceof DataError && error.code === 'USER_NOT_FOUND'
+          ? '탈퇴했거나 찾을 수 없는 러너예요'
+          : '처리하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+      // The follow may have gone through before the failure, so show what the server holds.
+      reload();
     } finally {
       setBusy(false);
     }

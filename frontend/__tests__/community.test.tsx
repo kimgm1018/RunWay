@@ -244,6 +244,30 @@ test('7.4b draws my profile photo behind the page and 7.4 falls back to the lett
   expect(texts(screen)).toContain('성');
 });
 
+test('7.4 of a private runner shows only the name until the request is approved, and takes it back', async () => {
+  const screen = await openCommunity();
+  // Their posts stay out of the feed, so the profile opens from 7.5 검색.
+  await press(screen, '검색');
+  await settle(50);
+  await type(screen, '러너·크루 검색 검색', 'jiwoo');
+  await settle(400);
+  await press(screen, 'jiwoo.runs 러너 프로필');
+  await settle(50);
+  let page = texts(screen);
+  expect(page).toContain('jiwoo.runs');
+  expect(page).toContain('비공개 계정이에요');
+  // No counts, level or shared runs before approval (U21 제한 프로필).
+  expect(page).not.toContain('120');
+  expect(page).not.toContain('중급');
+  expect(page).not.toContain('공유한 러닝 결과');
+  await press(screen, '팔로우');
+  page = texts(screen);
+  expect(page).toContain('요청됨');
+  expect(page).toContain('비공개 계정이에요');
+  await press(screen, '요청됨');
+  expect(texts(screen)).toContain('팔로우');
+});
+
 test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {
   const screen = await openCommunity();
   await press(screen, 'seoyun.run 프로필');
