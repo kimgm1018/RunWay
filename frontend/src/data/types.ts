@@ -741,12 +741,21 @@ export type ProfileDetail = BasicProfile & {
 };
 
 // 8.4 회원탈퇴 확인 (U17): what goes away and the crews I lead, handed to their oldest member.
+// U17 (users.md, S15P31E105-523). blockers are what must be cleared before U18 can go through: a crew I
+// lead (CREW_OWNER), a group run I host (GROUP_RUN_HOST), a run in progress and so on. The server's message
+// is shown as it is.
+export type WithdrawalBlocker = { code: string; message: string };
 export type WithdrawalSummary = {
   runningRecordCount: number;
   postCount: number;
   savedCourseCount: number;
+  // 워치 · 휴대폰 for each connected device.
   connectedDevices: string[];
   ownedCrews: string[];
+  // Group runs I host (cancel or end them first) and ones I only joined (cancelled on withdrawal).
+  ownedGroupRuns: string[];
+  scheduledGroupRuns: string[];
+  blockers: WithdrawalBlocker[];
 };
 
 // S01~S08 러닝 세션 제어 (docs/design/api/sessions.md). 서버 ID는 int64 정밀도를 지키기 위해 문자열로 다룬다.

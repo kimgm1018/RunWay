@@ -31,6 +31,7 @@ import { createSessionEvents } from './sessionEvents';
 import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
+import { createAccountApi } from './account';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -76,6 +77,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     consents: consentsApi,
     // 8.1 설정·8.1b 위치 기록: U19·U20 app settings and U13·U14 account visibility.
     settings: settingsApi,
+    // 8.4–8.6 회원탈퇴: U17 사전 정보와 U18 탈퇴 (S15P31E105-523).
+    account: createAccountApi(),
     // CMT01–CMT11. Runner profiles and follows (U21–U23) have no API yet and stay on mock data.
     community: createCommunityApi({ records }),
     // 7.5 검색 (CMT13): runners and crews by name.
