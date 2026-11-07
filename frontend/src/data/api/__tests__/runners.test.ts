@@ -36,7 +36,12 @@ const runners = createRunnersApi({
   now: () => new Date('2026-11-07T03:00:00Z'),
 });
 
-const post = (id: number, createdAt: string, distanceM: number, sec: number) => ({
+const post = (
+  id: number,
+  createdAt: string,
+  distanceM: number,
+  sec: number,
+) => ({
   id,
   authorId: 202,
   sessionId: id * 10,
@@ -44,12 +49,17 @@ const post = (id: number, createdAt: string, distanceM: number, sec: number) => 
   regionCode: null,
   createdAt,
   author: { userId: 202, nickname: '서윤' },
-  recordSummary: { distanceM, movingDurationSec: sec, averagePaceSecPerKm: null },
+  recordSummary: {
+    distanceM,
+    movingDurationSec: sec,
+    averagePaceSecPerKm: null,
+  },
 });
 
 const calls = () =>
   fetchMock.mock.calls.map(
-    ([url, init]) => `${init.method} ${String(url).replace(appConfig.apiBaseUrl, '')}`,
+    ([url, init]) =>
+      `${init.method} ${String(url).replace(appConfig.apiBaseUrl, '')}`,
   );
 
 beforeEach(async () => {
@@ -97,12 +107,15 @@ test('U21 shows a runner with the runs they shared and this month worked out fro
     followStatus: 'FOLLOWING',
     followerCount: 248,
     followingCount: 131,
-    followRequestCount: null,
+    followRequests: null,
     // 15km in 80 minutes: 5′20″/km.
     monthly: { runCount: 2, totalDistanceM: 15000, averagePaceSecPerKm: 320 },
   });
   expect(profile.records.map(run => run.postId)).toEqual(['3', '2', '1']);
-  expect(profile.records[0].record).toMatchObject({ id: '30', distanceM: 5000 });
+  expect(profile.records[0].record).toMatchObject({
+    id: '30',
+    distanceM: 5000,
+  });
   expect(getRecent).not.toHaveBeenCalled();
 });
 
@@ -129,29 +142,59 @@ test('U21 of a private runner who has not approved me keeps only the name, photo
     followingCount: null,
     followStatus: 'PENDING',
     accessible: false,
-    followRequestCount: null,
+    followRequests: null,
     monthly: { runCount: 0, totalDistanceM: 0, averagePaceSecPerKm: null },
     records: [],
   });
 });
 
+const myProfile = {
+  userId: 101,
+  nickname: '민준',
+  profileImageUrl: null,
+  profileAccessible: true,
+  followStatus: 'NONE',
+  isFollowing: null,
+  followerCount: 86,
+  followingCount: 102,
+  posts: [post(9, '2026-11-06T00:00:00Z', 5000, 1500)],
+};
+
+const request = (
+  requesterId: number,
+  requestId: number,
+  nickname: string | null,
+) => ({
+  requesterId,
+  requestId,
+  nickname,
+  requestedAt: '2026-11-06T01:00:00Z',
+  status: 'PENDING',
+});
+
+// U21 for me and U24 for my requests, by path.
+function serveMine(requests: () => ReturnType<typeof respond>) {
+  fetchMock.mockImplementation(async (url: string) =>
+    String(url).includes('/follow-requests')
+      ? requests()
+      : respond(200, myProfile),
+  );
+}
+
 test('7.4b reads U21 with my id and fills the month and recent runs from my records', async () => {
-  fetchMock.mockResolvedValue(
+  serveMine(() =>
     respond(200, {
-      userId: 101,
-      nickname: '민준',
-      profileImageUrl: null,
-      profileAccessible: true,
-      followStatus: 'NONE',
-      isFollowing: null,
-      followerCount: 86,
-      followingCount: 102,
-      posts: [post(9, '2026-11-06T00:00:00Z', 5000, 1500)],
+      items: [request(7, 71, '지우'), request(8, 81, '도현')],
+      nextCursor: 'next-1',
+      hasNext: true,
     }),
   );
 
   const profile = await runners.getProfile(null);
-  expect(calls()).toEqual(['GET /users/101/profile']);
+  expect(calls()).toEqual([
+    'GET /users/101/profile',
+    'GET /users/me/follow-requests',
+  ]);
   expect(profile).toMatchObject({
     userId: '101',
     isMe: true,
@@ -160,6 +203,8 @@ test('7.4b reads U21 with my id and fills the month and recent runs from my reco
     followerCount: 86,
     monthly: { runCount: 7, totalDistanceM: 35200, averagePaceSecPerKm: 352 },
     records: [{ record: myRun, postId: null }],
+    // Two on the first page and more after it: 2건+.
+    followRequests: { count: 2, more: true },
   });
   expect(getRecent).toHaveBeenCalledWith('recent', 3);
   expect(getStatistics).toHaveBeenCalledWith('MONTH', '2026-11-01');
@@ -168,40 +213,153 @@ test('7.4b reads U21 with my id and fills the month and recent runs from my reco
 test.each([
   [true, 'PUT'],
   [false, 'DELETE'],
-])('following %s sends %s /users/{id}/follow and reads the profile again', async (following, method) => {
-  fetchMock
-    .mockResolvedValueOnce(
-      respond(200, {
-        followerCount: 0,
-        followStatus: following ? 'PENDING' : 'NONE',
-        following: false,
-      }),
-    )
-    .mockResolvedValueOnce(
-      respond(200, {
-        userId: 303,
-        nickname: '지우',
-        profileImageUrl: null,
-        profileAccessible: false,
-        followStatus: following ? 'PENDING' : 'NONE',
-        isFollowing: false,
-      }),
-    );
+])(
+  'following %s sends %s /users/{id}/follow and reads the profile again',
+  async (following, method) => {
+    fetchMock
+      .mockResolvedValueOnce(
+        respond(200, {
+          followerCount: 0,
+          followStatus: following ? 'PENDING' : 'NONE',
+          following: false,
+        }),
+      )
+      .mockResolvedValueOnce(
+        respond(200, {
+          userId: 303,
+          nickname: '지우',
+          profileImageUrl: null,
+          profileAccessible: false,
+          followStatus: following ? 'PENDING' : 'NONE',
+          isFollowing: false,
+        }),
+      );
 
-  const profile = await runners.setFollowing('303', following);
-  expect(calls()).toEqual([`${method} /users/303/follow`, 'GET /users/303/profile']);
-  expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
-  expect(profile.followStatus).toBe(following ? 'PENDING' : 'NONE');
-  expect(profile.accessible).toBe(false);
-});
+    const profile = await runners.setFollowing('303', following);
+    expect(calls()).toEqual([
+      `${method} /users/303/follow`,
+      'GET /users/303/profile',
+    ]);
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+    expect(profile.followStatus).toBe(following ? 'PENDING' : 'NONE');
+    expect(profile.accessible).toBe(false);
+  },
+);
 
 test.each([
   [404, 'USER_NOT_FOUND'],
   [422, 'CANNOT_FOLLOW_SELF'],
 ])('U22 %s %s reaches the screen as that failure', async (status, code) => {
-  fetchMock.mockResolvedValue(respond(status, { code, message: '', details: {} }));
+  fetchMock.mockResolvedValue(
+    respond(status, { code, message: '', details: {} }),
+  );
 
   const failure = await runners.setFollowing('303', true).catch(error => error);
+  expect(failure).toBeInstanceOf(DataError);
+  expect((failure as DataError).code).toBe(code);
+});
+
+test('7.4b still opens when U24 fails, without a request count', async () => {
+  serveMine(() =>
+    respond(503, { code: 'SERVICE_UNAVAILABLE', message: '', details: {} }),
+  );
+
+  const profile = await runners.getProfile(null);
+  expect(profile.isMe).toBe(true);
+  expect(profile.followRequests).toBeNull();
+});
+
+test('U24 lists my waiting requests page by page', async () => {
+  fetchMock
+    .mockResolvedValueOnce(
+      respond(200, {
+        items: [request(7, 71, '지우'), request(8, 81, null)],
+        nextCursor: 'cursor-2',
+        hasNext: true,
+      }),
+    )
+    .mockResolvedValueOnce(
+      respond(200, {
+        items: [request(9, 91, '수아')],
+        nextCursor: null,
+        hasNext: false,
+      }),
+    );
+
+  await expect(runners.listFollowRequests(null)).resolves.toEqual({
+    items: [
+      {
+        requesterId: '7',
+        requestId: '71',
+        nickname: '지우',
+        requestedAt: '2026-11-06T01:00:00Z',
+      },
+      {
+        requesterId: '8',
+        requestId: '81',
+        nickname: '러너',
+        requestedAt: '2026-11-06T01:00:00Z',
+      },
+    ],
+    nextCursor: 'cursor-2',
+  });
+  await expect(runners.listFollowRequests('cursor-2')).resolves.toMatchObject({
+    items: [{ requesterId: '9', requestId: '91' }],
+    nextCursor: null,
+  });
+  // The default page of 10 is the only size U24 takes, so no limit is sent.
+  expect(
+    fetchMock.mock.calls.map(([url]) =>
+      String(url).replace(appConfig.apiBaseUrl, ''),
+    ),
+  ).toEqual([
+    '/users/me/follow-requests',
+    '/users/me/follow-requests?cursor=cursor-2',
+  ]);
+});
+
+test.each(['APPROVE', 'REJECT'] as const)(
+  'U25 %s names the request as U24 listed it',
+  async decision => {
+    fetchMock.mockResolvedValue(
+      respond(200, {
+        requesterId: 7,
+        followStatus: decision === 'APPROVE' ? 'FOLLOWING' : 'NONE',
+      }),
+    );
+
+    await expect(
+      runners.decideFollowRequest(
+        {
+          requesterId: '7',
+          requestId: '71',
+          nickname: '지우',
+          requestedAt: '',
+        },
+        decision,
+      ),
+    ).resolves.toBeUndefined();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${appConfig.apiBaseUrl}/users/me/follow-requests/7`);
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body)).toEqual({ requestId: 71, decision });
+  },
+);
+
+test.each([
+  [404, 'REQUEST_NOT_FOUND'],
+  [409, 'REQUEST_STATE_CONFLICT'],
+])('U25 %s %s reaches the sheet as that failure', async (status, code) => {
+  fetchMock.mockResolvedValue(
+    respond(status, { code, message: '', details: {} }),
+  );
+
+  const failure = await runners
+    .decideFollowRequest(
+      { requesterId: '7', requestId: '71', nickname: '지우', requestedAt: '' },
+      'APPROVE',
+    )
+    .catch(error => error);
   expect(failure).toBeInstanceOf(DataError);
   expect((failure as DataError).code).toBe(code);
 });

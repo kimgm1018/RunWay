@@ -46,6 +46,7 @@ import {
   formatKm,
   formatPace,
 } from '../../format';
+import { FollowRequestSheet } from './FollowRequestSheet';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
@@ -428,24 +429,31 @@ function RunTile({
 function Profile({
   profile,
   onFollow,
+  onRequestsChanged,
   busy,
   inTab,
 }: {
   profile: RunnerProfile;
   onFollow: () => void;
+  // 7.4b after a follow request is answered: the follower and request counts change.
+  onRequestsChanged: () => void;
   busy: boolean;
   // Shown as the 프로필 tab (S15P31E105-428): no 뒤로, and room for the tab bar at the foot.
   inTab: boolean;
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const toast = useToast();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const locked = !profile.accessible;
   const heroHeight = Math.round(screenHeight * 0.48);
   const tileWidth = Math.floor((screenWidth - 32 - tileGap) / 2);
   // The page's scroll drives the picture's blur behind it.
   const scrollY = useRef(new Animated.Value(0)).current;
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  // 팔로우 요청 N건, or N건+ when U24 has more pages.
+  const requestText = profile.followRequests
+    ? `${profile.followRequests.count}건${profile.followRequests.more ? '+' : ''}`
+    : null;
   const followLabel =
     profile.followStatus === 'FOLLOWING'
       ? '팔로잉'
@@ -528,11 +536,9 @@ function Profile({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={
-                profile.followRequestCount === null
-                  ? '팔로우 요청'
-                  : `팔로우 요청 ${profile.followRequestCount}건`
+                requestText ? `팔로우 요청 ${requestText}` : '팔로우 요청'
               }
-              onPress={() => toast('팔로우 요청 목록은 준비 중이에요')}
+              onPress={() => setRequestsOpen(true)}
               style={({ pressed }) => [
                 styles.card,
                 pressed && styles.cardPressed,
@@ -540,11 +546,9 @@ function Profile({
             >
               <AppText style={styles.cardTitle}>팔로우 요청</AppText>
               <View style={styles.flex} />
-              {profile.followRequestCount === null ? null : (
-                <AppText style={styles.cardValue}>
-                  {`${profile.followRequestCount}건`}
-                </AppText>
-              )}
+              {requestText ? (
+                <AppText style={styles.cardValue}>{requestText}</AppText>
+              ) : null}
               <Icon
                 name="forward"
                 color={look.muted}
@@ -602,6 +606,13 @@ function Profile({
           )}
         </View>
       </Animated.ScrollView>
+      {profile.isMe ? (
+        <FollowRequestSheet
+          visible={requestsOpen}
+          onClose={() => setRequestsOpen(false)}
+          onDecided={onRequestsChanged}
+        />
+      ) : null}
     </>
   );
 }
@@ -671,6 +682,7 @@ function ProfileView({
             profile={profile}
             busy={busy}
             onFollow={() => follow(profile)}
+            onRequestsChanged={reload}
             inTab={inTab}
           />
         )}
