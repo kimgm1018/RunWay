@@ -66,13 +66,10 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       getRunningProfile,
       saveRunningProfile,
     },
-    // 2.1 러닝 분석 reads my runs; 오늘 컨디션 takes its readiness from R02 and the rest from mock data.
+    // 2.1 러닝 분석 reads my runs; 오늘 컨디션 reads the readiness score and that day's health metrics from R02.
     home: {
       getMonthlySummary,
-      getTodayCondition: createReadinessApi({
-        base: mock.home.getTodayCondition,
-        now: () => new Date(),
-      }),
+      getTodayCondition: createReadinessApi({ now: () => new Date() }),
     },
     records,
     // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.

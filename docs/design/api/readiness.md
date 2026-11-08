@@ -50,7 +50,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | RDY-001~003 |
-| 상태 | S15P31E105-254 확정(2026-11-02). 등급·판단 요인은 후속 |
+| 상태 | S15P31E105-254 확정(2026-11-02). 기준일 건강 지표는 S15P31E105-550 확정(2026-11-08). 등급·판단 요인은 후속 |
 
 ### 설명
 
@@ -82,7 +82,10 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
   "id": 101,
   "readinessScore": 75.00,
   "readinessDate": "2026-10-24",
-  "readinessConfidence": "LOW"
+  "readinessConfidence": "LOW",
+  "restingHrBpm": 58.40,
+  "sleepDurationMin": null,
+  "healthUpdatedAt": "2026-10-24T21:05:12.345Z"
 }
 ```
 
@@ -92,9 +95,13 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | `readinessScore` | number | O | `daily_readiness.readiness_score` (0~100, 소수 둘째 자리) |
 | `readinessDate` | string (YYYY-MM-DD) | O | `daily_readiness.readiness_date`. 워치 시간대 날짜다. 서버는 회원 시간대를 모르므로 오늘 결과인지는 클라이언트가 이 값으로 판단한다. |
 | `readinessConfidence` | string / null | O | `daily_readiness.readiness_confidence`. 계산에 쓴 항목 수: HIGH 3 / MEDIUM 2 / LOW 1. 미산출은 null이며 키는 항상 포함한다. 준비도 등급이 아니다. |
+| `restingHrBpm` | number / null | O | `readinessDate`와 같은 날짜의 본인 `daily_health_metrics.rhr_bpm`(bpm, 소수 둘째 자리). 행이나 값이 없으면 null |
+| `sleepDurationMin` | number / null | O | 같은 행의 `sleep_duration_min`(분, 소수 둘째 자리). 행이나 값이 없으면 null. 현재 W06은 수면을 저장하지 않으므로 항상 null이다 |
+| `healthUpdatedAt` | string (ISO 8601 UTC) / null | O | 같은 행의 `updated_at`. 그 날짜 건강 행이 마지막으로 바뀐 시각이며 준비도 평가 시각(`assessedAt`, 후속)이 아니다. 행이 없으면 null |
 
 - "최신"은 본인 결과 중 `readinessDate`가 가장 늦은 1건이다. 오늘 날짜 필터를 두지 않는다.
 - 점수만으로 날짜·신뢰도를 추측하지 않는다. 미산출 점수를 0으로 채우지 않는다.
+- 건강 지표 3개는 점수와 같은 기준일(`readinessDate`) 값만 반환한다. 다른 날짜 값으로 대체하지 않고, 미측정 값을 0으로 채우지 않는다(S15P31E105-550). 앱은 결과가 오늘 날짜가 아니면(오래된 평가) 이 지표를 오늘 값으로 표시하지 않는다.
 
 후속 필드(이번 계약에 없음):
 
@@ -119,6 +126,9 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 ### 처리 규칙
 
 - 활성 회원 동의 확인과 결과 조회를 한 읽기 트랜잭션에서 한다.
+- 결과와 기준일 건강 행은 한 SQL(`daily_readiness`에 같은 회원·같은 날짜 `daily_health_metrics`를 LEFT JOIN)로 읽는다. 동의가 없으면 결과·건강 행을 읽지 않는다.
+- 동의 확인과 결과 조회는 잠그지 않는 별도 문장(READ COMMITTED)이라 그 사이에 동의 철회·탈퇴가 커밋될 수 있다. 결과 조회 문장에도 활성 회원·동의 조건을 두어 그 경우 행을 반환하지 않고, 결과가 없으면 동의를 다시 확인해 401·403을 404보다 먼저 응답한다(S15P31E105-550). 결과 조회 문장 이후에 커밋된 철회는 그 응답에 반영되지 않는다.
+- 건강 지표는 조회 시점의 기준일 건강 행 값이고, 점수는 마지막 자동 평가 시점의 값이다. W06이 같은 날짜 값을 갱신한 뒤 평가가 끝나기 전이거나 평가가 누락되면(위 "정하지 않은 것") 지표가 점수 계산에 쓴 값보다 최신일 수 있다. 평가 시각(`assessedAt`)과 누락 재평가는 후속이다.
 - 조회는 평가를 실행하지 않는다. 결과는 위 자동 평가가 만든다.
 
 ### 상태값

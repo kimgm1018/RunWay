@@ -4,7 +4,9 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 
-// 2.1 오늘 컨디션 against the server (dataSource 'api'): the readiness from R02 (S15P31E105-322).
+// 2.1 오늘 컨디션 against the server (dataSource 'api'): the readiness and that day's health metrics
+// from R02 (S15P31E105-322, S15P31E105-550). Values differ from the mock fixture (7h 12m, 58 bpm)
+// so a mock value on screen would show up.
 
 jest.mock(
   'react-native-safe-area-context',
@@ -78,22 +80,48 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test("2.1 shows today's R02 score without a made-up grade", async () => {
+test("2.1 shows today's R02 score and metrics without a made-up grade", async () => {
   serve(200, {
     id: 101,
     readinessScore: 74.6,
     readinessDate: '2026-11-02',
     readinessConfidence: 'MEDIUM',
+    restingHrBpm: 61.4,
+    sleepDurationMin: 395,
+    healthUpdatedAt: '2026-11-01T22:10:00Z',
   });
   const screen = await launch();
 
   const page = texts(screen);
   expect(page).toContain('75');
+  expect(page).toContain('6h 35m');
+  expect(page).toContain('61 bpm');
+  expect(page).not.toContain('7h 12m');
+  expect(page).not.toContain('58 bpm');
   // No grade from R02, so the title names none.
   expect(page).toContain('오늘 준비도');
   expect(page).not.toContain('오늘 준비도 양호');
   expect(page).toContain('러닝 시작');
   expect(page).not.toContain('undefined');
+  await act(async () => screen.unmount());
+});
+
+test("2.1 shows only the measured metric when the day's sleep is missing", async () => {
+  serve(200, {
+    id: 101,
+    readinessScore: 74.6,
+    readinessDate: '2026-11-02',
+    readinessConfidence: 'LOW',
+    restingHrBpm: 61.4,
+    sleepDurationMin: null,
+    healthUpdatedAt: '2026-11-01T22:10:00Z',
+  });
+  const screen = await launch();
+
+  const page = texts(screen);
+  expect(page).toContain('61 bpm');
+  expect(page).toContain('– –');
+  expect(page).not.toContain('7h 12m');
   await act(async () => screen.unmount());
 });
 
@@ -103,6 +131,9 @@ test('2.1 shows 2.P′ 오래된 데이터 for an earlier day', async () => {
     readinessScore: 81,
     readinessDate: '2026-10-30',
     readinessConfidence: 'HIGH',
+    restingHrBpm: 61.4,
+    sleepDurationMin: 395,
+    healthUpdatedAt: '2026-10-30T22:10:00Z',
   });
   const screen = await launch();
 
@@ -110,6 +141,9 @@ test('2.1 shows 2.P′ 오래된 데이터 for an earlier day', async () => {
   expect(page).toContain('마지막 평가 10월 30일');
   expect(page).toContain('워치 동기화');
   expect(page).not.toContain('81');
+  // That day's metrics are not today's.
+  expect(page).not.toContain('61 bpm');
+  expect(page).not.toContain('6h 35m');
   await act(async () => screen.unmount());
 });
 
