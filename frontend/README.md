@@ -40,17 +40,33 @@ Maps Application `runway-mobile`의 **Client ID**가 필요하며, 없으면 Gra
 
 ## Spotify 연동
 
-2.7 음악 카드는 Spotify Web API로 지금 재생 중인 곡·앨범 표지를 읽고 이전·재생/일시정지·다음을 보냅니다
-(S15P31E105-374). 로그인은 앱 안에서 Authorization Code + PKCE로 하므로 **Client Secret은 쓰지 않습니다.**
+Android의 음악 카드와 러닝 중 플레이어는 공식 **App Remote 0.8.0**으로 휴대폰 Spotify 앱에 연결한다
+(S15P31E105-501, [ADR-0020 제안](../docs/adr/0020-spotify-android-app-remote.md)). 재생 버튼은 현재 폰으로
+기기를 전환한 뒤 마지막 음악을 재개한다. 재생·일시정지·이전·다음과 곡·앨범 아트·상태 이벤트를 SDK로 처리한다.
+Spotify 앱에서 미리 재생 버튼을 누르는 과정을 요구하지 않으며, 이력이 없으면 임의의 곡을 틀지 않고 안내한다.
+곡·플레이리스트 선택 화면은 S15P31E105-493의 별도 범위다.
 
-1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)에서 앱을 만들고 Web API를 고릅니다.
-2. Redirect URI에 `runway://spotify-callback`을 등록합니다.
-3. 개발 모드에서는 대시보드 User Management에 등록한 계정만 로그인됩니다.
-4. Client ID를 `src/config.ts`의 `spotifyClientId`에 넣습니다. 비어 있으면 Spotify도 목업 데이터로 동작합니다.
+1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)의 RunWay 앱에서 사용하는 API에 **Android**를 추가한다.
+2. Redirect URI `runway://spotify-callback`을 등록한다. Client ID는 공개 식별자이므로 `src/config.ts`의 `spotifyClientId`에 설정한다. Client Secret은 앱에 넣지 않는다.
+3. Android 패키지 `com.runway.health`와 **실제 APK 서명 인증서의 SHA-1**을 등록한다. 현재 저장소의 디버그 키는
+   `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`이다. 배포 키를 바꾸면 그 서명도 별도로 등록한다.
+4. 개발 모드에서는 휴대폰 Spotify 앱에 로그인한 계정을 허용 사용자로 등록한다. Spotify 앱 설치·로그인과 최초 연결 동의가 필요하다.
+5. 2.8에서 Spotify의 로그인 버튼 또는 2.7의 다시 연결을 누른다. 연결 읽기만으로 인증 화면을 자동 실행하지 않는다.
 
-- 표지와 지금 곡은 무료 계정도 보이지만, 재생 조작은 Spotify Premium 계정만 됩니다(Web API 제한).
-- 곡은 계정의 다른 기기(폰·PC의 Spotify 앱)에서 재생 중이어야 보입니다. 카드는 5초마다 다시 읽습니다.
-- RunWay에서 로그아웃하면 Spotify 토큰도 지웁니다. iOS의 redirect 처리는 아직 넣지 않았습니다.
+App Remote 인증은 **휴대폰 Spotify 앱의 계정**을 사용한다. 브라우저의 Web API PKCE 계정과는 별개다.
+계정 변경은 Spotify 앱에서 수행한다. RunWay 로그아웃·세션 만료 시 SDK 연결과 로컬 연결 동의 표시를 지우며,
+다음 RunWay 로그인은 다시 명시적으로 연결해야 한다. `UserNotAuthorizedException`이 발생하면 Android 등록,
+허용 사용자, 연결 동의를 확인한다. SDK 연결 실패를 Web API의 다른 활성 기기 제어로 자동 우회하지 않는다.
+
+Android 14 이상에서는 SDK 서비스 연결용 Context가 명시적 연결에 한해 Spotify 동의 화면 실행을 허용한다.
+SDK 원본 AAR은 수정하지 않는다. 최초 동의를 읽고 응답할 시간은 최대 2분, 자동 재연결 제한은 20초다.
+
+SDK의 `canPlayOnDemand`와 실제 오류로 이용권 제한을 확인한다. 특정 곡 URI 지정 재생에는 Premium이 필요하다.
+연결 명령 전송만으로 재생 성공을 표시하지 않고 실제 PlayerState를 확인한다. 재생 상태·앨범 아트는 로그에 기록하지 않는다.
+
+SDK AAR은 공식 GitHub 0.8.0 배포본을 `android/app/libs/`에 고정했다. 다운로드 출처와 SHA-256은 ADR-0020에 있다.
+iOS의 기존 Spotify Web API 구현과 PKCE `show_dialog=true`, 403 오류 분류는 유지한다. Client ID가 비어 있거나
+네이티브 모듈이 없는 환경에서는 기존 경로를 쓴다. iOS의 실제 callback 연결은 아직 별도 검증이 필요하다.
 
 ## 건강 데이터 PoC
 

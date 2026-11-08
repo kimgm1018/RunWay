@@ -1,2 +1,2 @@
 export { spotifyTokens, SpotifyError } from './auth';
-export { spotifyFailureMessage, withSpotify } from './music';
+export { spotifyFailureMessage, SpotifyStateError, withSpotify } from './music';

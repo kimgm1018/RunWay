@@ -139,3 +139,11 @@ describe('withSavedMusic', () => {
     expect((await launch(broken).getState()).nowPlaying).toBeNull();
   });
 });
+
+test('disabling Spotify track restoration still restores the last Melon track', async () => {
+  const heard = await heardOnMelon();
+  const state = await withSavedMusic(silent(), {
+    restoreSpotifyTrack: false,
+  }).getState();
+  expect(state.nowPlaying).toEqual({ ...heard, playing: false });
+});

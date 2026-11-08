@@ -1,4 +1,5 @@
 import { AppState, Linking } from 'react-native';
+import { withSavedMusic } from '../../music/withSavedMusic';
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import {
   base64Url,
@@ -10,7 +11,7 @@ import {
 } from '../auth';
 import { spotifyFailureMessage, trackOf, withSpotify } from '../music';
 
-type Reply = { status: number; body?: unknown };
+type Reply = { status: number; body?: unknown; text?: string };
 
 // Answers fetch in order and keeps what was asked.
 function fakeFetch(replies: Reply[]) {
@@ -22,7 +23,8 @@ function fakeFetch(replies: Reply[]) {
       ok: reply.status >= 200 && reply.status < 300,
       status: reply.status,
       text: async () =>
-        reply.body === undefined ? '' : JSON.stringify(reply.body),
+        reply.text ??
+        (reply.body === undefined ? '' : JSON.stringify(reply.body)),
       json: async () => reply.body,
     };
   }) as unknown as typeof fetch;
@@ -202,13 +204,20 @@ test('a free account or no active device turns into a message, not a silent succ
   fakeFetch([
     { status: 200, body: { product: 'free' } },
     { status: 200, body: playback },
-    { status: 403 },
+    {
+      status: 403,
+      body: {
+        error: { reason: 'PREMIUM_REQUIRED', message: 'Premium required' },
+      },
+    },
     { status: 404 },
   ]);
   const repo = music();
   await repo.selectSource('SPOTIFY');
   const premium = await repo.next().catch(error => error);
   expect(premium).toBeInstanceOf(SpotifyError);
+  // A rejected command does not mean the account's playback connection was lost.
+  expect(premium.state).toBeUndefined();
   expect(spotifyFailureMessage(premium, '')).toBe(
     'Spotify Premium에서만 조작할 수 있어요',
   );
@@ -292,6 +301,7 @@ test('sign-in opens Spotify with an S256 challenge and trades the code with the 
   );
   expect(authorize.searchParams.get('redirect_uri')).toBe(spotifyRedirectUri);
   expect(authorize.searchParams.get('code_challenge_method')).toBe('S256');
+  expect(authorize.searchParams.get('show_dialog')).toBe('true');
   onUrl?.({
     url: `${spotifyRedirectUri}?code=xyz&state=${authorize.searchParams.get(
       'state',
@@ -328,4 +338,169 @@ test('a redirect with another state is refused', async () => {
   onUrl?.({ url: `${spotifyRedirectUri}?code=xyz&state=forged` });
   expect((await done).reason).toBe('FAILED');
   expect(await spotifyTokens.load()).toBe(null);
+});
+
+test.each([
+  [
+    'plain text',
+    { status: 403, text: 'The user is not registered for this application' },
+  ],
+  [
+    'JSON',
+    {
+      status: 403,
+      body: {
+        error: {
+          status: 403,
+          message: 'The user is not registered for this application',
+        },
+      },
+    },
+  ],
+])(
+  'an unregistered account (%s) is signed out with a dashboard instruction and disconnected snapshot',
+  async (_format, reply) => {
+    await signedIn();
+    fakeFetch([reply]);
+    const repo = music();
+    const error = await repo.selectSource('SPOTIFY').catch(value => value);
+    expect(error.reason).toBe('USER_NOT_REGISTERED');
+    expect(spotifyFailureMessage(error, '')).toContain('대시보드');
+    expect(error.state).toMatchObject({
+      source: 'SPOTIFY',
+      linked: false,
+      nowPlaying: null,
+      services: { SPOTIFY: 'LOGIN_REQUIRED' },
+    });
+    expect(await spotifyTokens.load()).toBeNull();
+    expect(await repo.getState()).toMatchObject({
+      services: { SPOTIFY: 'LOGIN_REQUIRED' },
+      linked: false,
+      nowPlaying: null,
+    });
+  },
+);
+
+test.each([
+  { status: 403 },
+  { status: 403, text: '<html>Forbidden</html>' },
+  { status: 403, body: { error: { message: 'Insufficient client scope' } } },
+])(
+  'an unrelated 403 is not reported as Premium and keeps the account',
+  async reply => {
+    await signedIn();
+    fakeFetch([reply]);
+    const error = await music()
+      .selectSource('SPOTIFY')
+      .catch(value => value);
+    expect(error.reason).toBe('FAILED');
+    expect(error.state).toMatchObject({ linked: false, nowPlaying: null });
+    expect(await spotifyTokens.load()).not.toBeNull();
+  },
+);
+
+test('a failed playback read carries a disconnected state instead of the previous song', async () => {
+  await signedIn();
+  fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 200, body: playback },
+    { status: 503 },
+  ]);
+  const repo = music();
+  await repo.selectSource('SPOTIFY');
+  const error = await repo.getState().catch(value => value);
+  expect(error.state).toMatchObject({
+    source: 'SPOTIFY',
+    linked: false,
+    nowPlaying: null,
+    library: null,
+  });
+});
+
+test('a failed Spotify read still persists a new source across a relaunch', async () => {
+  await signedIn();
+  const repo = withSavedMusic(music());
+  fakeFetch([]);
+  await repo.selectSource('MELON');
+  const error = await repo.selectSource('SPOTIFY').catch(value => value);
+  expect(error.state).toMatchObject({
+    source: 'SPOTIFY',
+    linked: false,
+    nowPlaying: null,
+  });
+  await spotifyTokens.clear();
+  expect(await withSavedMusic(music()).getState()).toMatchObject({
+    source: 'SPOTIFY',
+    linked: false,
+    nowPlaying: null,
+  });
+});
+
+test('launching on Spotify still reports an unregistered account after restoring the saved source', async () => {
+  await signedIn();
+  fakeFetch([
+    { status: 403, text: 'The user is not registered for this application' },
+  ]);
+  const error = await withSavedMusic(music())
+    .getState()
+    .catch(value => value);
+  expect(error.reason).toBe('USER_NOT_REGISTERED');
+  expect(error.state).toMatchObject({
+    linked: false,
+    nowPlaying: null,
+    services: { SPOTIFY: 'LOGIN_REQUIRED' },
+  });
+});
+
+test.each(['play', 'pause', 'next', 'previous'] as const)(
+  'a successful %s command with a non-JSON body reads back playback without a false error',
+  async command => {
+    await signedIn();
+    const updated = {
+      ...playback,
+      is_playing: command !== 'pause',
+      item: { ...playback.item, id: 'trk2' },
+    };
+    fakeFetch([
+      { status: 200, body: { product: 'premium' } },
+      { status: 200, body: playback },
+      // Real-device Spotify player commands can reply 200 with a non-JSON success body.
+      { status: 200, text: 'accepted' },
+      { status: 200, body: updated },
+    ]);
+    const repo = music();
+    await repo.selectSource('SPOTIFY');
+    await expect(repo[command]()).resolves.toMatchObject({
+      linked: true,
+      nowPlaying: { id: 'trk2', playing: command !== 'pause' },
+    });
+  },
+);
+
+test('an already-applied command reads back immediately instead of waiting for the retry interval', async () => {
+  await signedIn();
+  const calls = fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 200, body: playback },
+    { status: 204 },
+    { status: 200, body: { ...playback, is_playing: false } },
+  ]);
+  const repo = music(1000);
+  await repo.selectSource('SPOTIFY');
+  jest.useFakeTimers();
+  try {
+    const paused = repo.pause();
+    await jest.advanceTimersByTimeAsync(10);
+    expect(calls.map(call => call.url)).toEqual([
+      'https://api.spotify.com/v1/me',
+      'https://api.spotify.com/v1/me/player',
+      'https://api.spotify.com/v1/me/player/pause',
+      'https://api.spotify.com/v1/me/player',
+    ]);
+    await expect(paused).resolves.toMatchObject({
+      nowPlaying: { playing: false },
+    });
+  } finally {
+    jest.useRealTimers();
+  }
 });

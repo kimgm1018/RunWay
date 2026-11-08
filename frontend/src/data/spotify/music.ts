@@ -9,11 +9,46 @@ import {
 
 type Music = Repositories['music'];
 
+// A read can fail after the source was changed. Keep that result available to storage and screens.
+export class SpotifyStateError extends SpotifyError {
+  constructor(error: unknown, readonly state: MusicState) {
+    super(error instanceof SpotifyError ? error.reason : 'FAILED');
+  }
+}
+
+async function forbiddenReason(response: Response): Promise<SpotifyFailure> {
+  let text = '';
+  try {
+    text = await response.text();
+  } catch {
+    return 'FAILED';
+  }
+  let reason = '';
+  let message = text;
+  try {
+    const body = JSON.parse(text);
+    reason = body?.error?.reason ?? '';
+    message = body?.error?.message ?? text;
+  } catch {
+    // Development-mode allowlist errors can be plain text.
+  }
+  if (/the user is not registered for this application/i.test(message)) {
+    return 'USER_NOT_REGISTERED';
+  }
+  return reason === 'PREMIUM_REQUIRED' || /premium required/i.test(message)
+    ? 'PREMIUM_REQUIRED'
+    : 'FAILED';
+}
+
 // What a toast says when a Spotify call fails; null when nothing needs saying (the user closed sign-in).
 const failureMessages: Record<SpotifyFailure, string | null> = {
   CANCELED: null,
   SIGNED_OUT: 'Spotify에 다시 로그인해 주세요',
+  USER_NOT_REGISTERED:
+    'Spotify 개발자 대시보드의 User Management에 계정을 등록해 주세요. 다른 계정으로 다시 로그인할 수 있어요',
   PREMIUM_REQUIRED: 'Spotify Premium에서만 조작할 수 있어요',
+  NO_HISTORY:
+    'Spotify에 이어 들을 음악이 없어요. Spotify에서 재생할 음악을 선택해 주세요',
   NO_ACTIVE_DEVICE: 'Spotify 앱에서 먼저 곡을 재생해 주세요',
   FAILED: 'Spotify와 연결하지 못했어요',
 };
@@ -102,19 +137,41 @@ export function withSpotify(
       return null;
     }
     if (!response.ok) {
-      throw new SpotifyError(
+      const reason =
         response.status === 401
           ? 'SIGNED_OUT'
           : response.status === 403
-          ? 'PREMIUM_REQUIRED'
+          ? await forbiddenReason(response)
           : response.status === 404
           ? 'NO_ACTIVE_DEVICE'
-          : 'FAILED',
-        `${method} ${path} ${response.status}`,
-      );
+          : 'FAILED';
+      if (reason === 'USER_NOT_REGISTERED' || reason === 'SIGNED_OUT') {
+        await spotifyTokens.clear();
+        premium = null;
+        lastTrackId = null;
+      }
+      throw new SpotifyError(reason, `${method} ${path} ${response.status}`);
+    }
+    // Player commands can return 200 with a non-JSON success body. Playback comes from the next GET.
+    if (method !== 'GET') {
+      return null;
     }
     const text = await response.text();
     return text ? (JSON.parse(text) as T) : null;
+  }
+
+  async function disconnected(state: MusicState): Promise<MusicState> {
+    lastTrackId = null;
+    return {
+      ...state,
+      linked: false,
+      nowPlaying: null,
+      library: null,
+      services: {
+        ...state.services,
+        SPOTIFY: (await spotifyTokens.load()) ? 'CONNECTED' : 'LOGIN_REQUIRED',
+      },
+    };
   }
 
   async function getState(): Promise<MusicState> {
@@ -131,7 +188,7 @@ export function withSpotify(
     const spotify = { ...state, services, library: null };
     if (!tokens) {
       // Picked but signed out: 2.7b 연결이 끊겼어요 offers 다시 연결.
-      return { ...spotify, linked: false, nowPlaying: null };
+      return disconnected(spotify);
     }
     try {
       if (premium === null) {
@@ -145,9 +202,9 @@ export function withSpotify(
       return { ...spotify, linked: true, premium, nowPlaying };
     } catch (error) {
       if (error instanceof SpotifyError && error.reason === 'SIGNED_OUT') {
-        return { ...spotify, linked: false, nowPlaying: null };
+        return disconnected(spotify);
       }
-      throw error;
+      throw new SpotifyStateError(error, await disconnected(spotify));
     }
   }
 
@@ -165,12 +222,25 @@ export function withSpotify(
         return fallback();
       }
       const before = lastTrackId;
-      await call(method, path);
+      try {
+        await call(method, path);
+      } catch (error) {
+        if (
+          error instanceof SpotifyError &&
+          (error.reason === 'USER_NOT_REGISTERED' ||
+            error.reason === 'SIGNED_OUT')
+        ) {
+          throw new SpotifyStateError(error, await disconnected(state));
+        }
+        throw error;
+      }
       let next = state;
       for (let tries = 0; tries < 4; tries++) {
-        await new Promise<void>(resolve =>
-          setTimeout(() => resolve(), settleMs),
-        );
+        if (tries > 0) {
+          await new Promise<void>(resolve =>
+            setTimeout(() => resolve(), settleMs),
+          );
+        }
         next = await getState();
         if (applied(next, before)) {
           break;

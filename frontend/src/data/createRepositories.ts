@@ -3,6 +3,8 @@ import { createApiRepositories } from './api/createApiRepositories';
 import { createMockRepositories } from './mock/createMockRepositories';
 import { createMelonBridge, withMelon } from './melon';
 import { withSavedMusic } from './music/withSavedMusic';
+import { createSpotifyRemoteBridge } from './spotify/native';
+import { withSpotifyRemote } from './spotify/remote';
 import { withSpotify } from './spotify/music';
 import type { Repositories } from './types';
 
@@ -23,8 +25,14 @@ export function createRepositories(source: DataSource): Repositories {
     ? withMelon(repositories.music, melon)
     : repositories.music;
   // Spotify talks to Spotify, not the RunWay server, so it applies to either source once the app has a Client ID.
+  const remote = createSpotifyRemoteBridge();
   const music = appConfig.spotifyClientId
-    ? withSpotify(base, appConfig.spotifyClientId)
+    ? remote
+      ? withSpotifyRemote(base, remote, appConfig.spotifyClientId)
+      : withSpotify(base, appConfig.spotifyClientId)
     : base;
-  return { ...repositories, music: withSavedMusic(music) };
+  return {
+    ...repositories,
+    music: withSavedMusic(music, { restoreSpotifyTrack: !remote }),
+  };
 }

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   Linking,
   Pressable,
@@ -21,6 +22,7 @@ import Svg, {
 import { AppText, Icon, useToast } from '../../components';
 import {
   spotifyFailureMessage,
+  SpotifyStateError,
   useRepositories,
   type MusicState,
 } from '../../data';
@@ -47,12 +49,15 @@ const lengthPollMs = 300;
 
 function useMusicState() {
   const { music } = useRepositories();
+  const toast = useToast();
   const [state, setState] = useState<MusicState | null>(null);
   const [failed, setFailed] = useState(false);
   const polling = useRef(false);
   const reread = useRef<() => void>(() => {});
   polling.current =
-    (state?.source === 'SPOTIFY' || state?.source === 'MELON') && state.linked;
+    (state?.source === 'MELON' ||
+      (state?.source === 'SPOTIFY' && !music.subscribe)) &&
+    state.linked;
   const lengthMissing = Boolean(
     polling.current && state?.nowPlaying && !state.nowPlaying.durationSec,
   );
@@ -67,11 +72,42 @@ function useMusicState() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      const read = () =>
-        music.getState().then(
-          next => active && (setState(next), setFailed(false)),
-          () => active && setFailed(true),
+      let revision = 0;
+      const read = () => {
+        const requested = revision;
+        return music.getState().then(
+          next =>
+            active &&
+            requested === revision &&
+            (setState(next), setFailed(false)),
+          error => {
+            if (!active || requested !== revision) {
+              return;
+            }
+            setFailed(true);
+            setState(error instanceof SpotifyStateError ? error.state : null);
+            const message = spotifyFailureMessage(
+              error,
+              '음악 정보를 불러오지 못했어요',
+            );
+            if (message) {
+              toast(message);
+            }
+          },
         );
+      };
+      const stop = music.subscribe?.(next => {
+        if (active) {
+          revision++;
+          setState(next);
+          setFailed(false);
+        }
+      });
+      const appState = AppState.addEventListener('change', next => {
+        if (next === 'active') {
+          read();
+        }
+      });
       reread.current = read;
       read();
       const timer = setInterval(() => polling.current && read(), pollMs);
@@ -79,8 +115,10 @@ function useMusicState() {
         active = false;
         reread.current = () => {};
         clearInterval(timer);
+        stop?.();
+        appState.remove();
       };
-    }, [music]),
+    }, [music, toast]),
   );
   return { state, setState, failed };
 }
@@ -264,7 +302,9 @@ function Player({
   state,
   busy,
   onCommand,
+  canStartWithoutTrack = false,
 }: {
+  canStartWithoutTrack?: boolean;
   state: MusicState;
   busy: boolean;
   onCommand: (command: Command) => void;
@@ -283,7 +323,8 @@ function Player({
     : 0;
   const idle = !track || busy;
   // 멜론은 곡이 없어도 재생으로 기본 재생목록(없으면 TOP100)을 처음부터 튼다(S15P31E105-398).
-  const playIdle = busy || (!track && state.source !== 'MELON');
+  const playIdle =
+    busy || (!track && state.source !== 'MELON' && !canStartWithoutTrack);
   return (
     <>
       <View style={styles.titleRow}>
@@ -299,14 +340,18 @@ function Player({
       <AppText style={styles.subtitle} numberOfLines={1}>
         {track?.subtitle ??
           (state.source === 'SPOTIFY'
-            ? 'Spotify 앱에서 곡을 재생하면 여기에 보여요'
+            ? canStartWithoutTrack
+              ? '재생을 누르면 마지막으로 듣던 음악을 이어 틀어요'
+              : 'Spotify 앱에서 곡을 재생하면 여기에 보여요'
             : state.source === 'MELON'
             ? '재생을 누르면 멜론 재생목록을 틀어요'
             : '--')}
       </AppText>
       {state.source === 'SPOTIFY' && !state.premium ? (
         <AppText style={styles.notice}>
-          재생을 조작하려면 Spotify Premium이 필요해요
+          {canStartWithoutTrack
+            ? '곡을 지정해 재생하려면 Spotify Premium이 필요해요'
+            : '재생을 조작하려면 Spotify Premium이 필요해요'}
         </AppText>
       ) : null}
       <View
@@ -404,6 +449,9 @@ export function MusicCardScreen() {
     try {
       setState(await music.reconnect());
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setState(error.state);
+      }
       say(spotifyFailureMessage(error, '다시 연결하지 못했어요'));
     }
     setReconnecting(false);
@@ -414,6 +462,9 @@ export function MusicCardScreen() {
     try {
       setState(await music[command]());
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setState(error.state);
+      }
       say(spotifyFailureMessage(error, '음악을 조작하지 못했어요'));
     }
     setBusy(false);
@@ -484,7 +535,12 @@ export function MusicCardScreen() {
                 <View style={styles.dot} />
                 <View style={styles.dot} />
               </View>
-              <Player state={state} busy={busy} onCommand={runCommand} />
+              <Player
+                state={state}
+                busy={busy}
+                onCommand={runCommand}
+                canStartWithoutTrack={music.canStartWithoutTrack}
+              />
               <WideButton
                 label={`${serviceNames[service]} 열기`}
                 onPress={openApp}

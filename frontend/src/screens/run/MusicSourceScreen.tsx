@@ -11,6 +11,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Icon, useToast, type IconName } from '../../components';
 import {
   spotifyFailureMessage,
+  SpotifyStateError,
   useRepositories,
   type MusicService,
   type MusicServiceStatus,
@@ -119,7 +120,24 @@ export function MusicSourceScreen() {
             );
           }
         },
-        () => active && toast('음원 정보를 불러오지 못했어요'),
+        error => {
+          if (!active) {
+            return;
+          }
+          if (error instanceof SpotifyStateError) {
+            setState(error.state);
+            setPicked(current =>
+              current === undefined ? error.state.source : current,
+            );
+          }
+          const message = spotifyFailureMessage(
+            error,
+            '음원 정보를 불러오지 못했어요',
+          );
+          if (message) {
+            toast(message);
+          }
+        },
       );
       return () => {
         active = false;
@@ -141,7 +159,12 @@ export function MusicSourceScreen() {
       navigation.goBack();
     } catch (error) {
       say(spotifyFailureMessage(error, '음원을 바꾸지 못했어요'));
-      setSaving(false);
+      if (error instanceof SpotifyStateError) {
+        // The source was saved; only Spotify's read-back failed.
+        navigation.goBack();
+      } else {
+        setSaving(false);
+      }
     }
   };
   // Spotify 로그인 opens Spotify's sign-in page and comes back here.
@@ -149,6 +172,9 @@ export function MusicSourceScreen() {
     try {
       setState(await music.resolveService(service));
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setState(error.state);
+      }
       say(spotifyFailureMessage(error, '연결하지 못했어요'));
     }
   };
@@ -162,6 +188,11 @@ export function MusicSourceScreen() {
             음원
           </AppText>
         </View>
+        {music.canStartWithoutTrack ? (
+          <AppText style={styles.accountHint}>
+            휴대폰 Spotify 앱의 계정으로 연결해요
+          </AppText>
+        ) : null}
         {!state ? (
           <ActivityIndicator style={styles.loading} color={ink} />
         ) : (
@@ -220,6 +251,7 @@ export function MusicSourceScreen() {
 }
 
 const styles = StyleSheet.create({
+  accountHint: { marginTop: 8, color: ink, fontSize: 12 },
   card: {
     padding: 20,
     borderRadius: 30,

@@ -12,7 +12,7 @@ import { appConfig } from '../config';
 import { useRepositories } from '../data/DataProvider';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
-import { spotifyTokens } from '../data/spotify/auth';
+import { clearSpotifySession } from '../data/spotify/session';
 import { serverHealthConsentReader } from '../health/serverHealthConsent';
 import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
 import {
@@ -131,7 +131,7 @@ export function SessionProvider({
     void setWatchHealthConsent('DISAGREE');
     tokenStore.clear().catch(() => {});
     // The next person on this phone should not inherit the Spotify account.
-    spotifyTokens.clear().catch(() => {});
+    clearSpotifySession().catch(() => {});
     setSignedIn(false);
   }, []);
 
@@ -170,7 +170,7 @@ export function SessionProvider({
 
   // Session expiry is not health-consent withdrawal. Pending watch records survive reauthentication.
   const expireSession = useCallback(() => {
-    spotifyTokens.clear().catch(() => {});
+    clearSpotifySession().catch(() => {});
     setLoginRequired(true);
     setSignedIn(false);
   }, []);
