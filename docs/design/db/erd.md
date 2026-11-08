@@ -219,6 +219,8 @@
 
 `user_follows.follower_id`는 팔로우하는 회원, `followee_id`는 팔로우받는 회원이다. `is_approved BOOLEAN NOT NULL DEFAULT FALSE`를 사용한다.
 
+팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청 목록·팔로워 수)는 `(followee_id, is_approved, created_at DESC, id DESC)` 인덱스 `idx_user_follows_followee_created`(V20, S15P31E105-534)를 사용한다. `is_approved`가 키에 있어 승인·대기 중 드문 쪽 목록도 해당 행만 읽고, 승인 UPDATE는 HOT 업데이트 대상에서 빠진다. 팔로우하는 회원 기준 조회(U27 팔로잉 목록)는 기존 UNIQUE `(follower_id, followee_id)`로 그 회원의 행을 찾고 정렬은 별도로 수행한다(회원별 팔로잉 수가 작아 별도 인덱스를 두지 않음).
+
 | 팔로우받는 회원의 account_visibility | 요청 처리 |
 | --- | --- |
 | PUBLIC | 별도 승인 없이 is_approved=TRUE로 생성하여 즉시 성립 |

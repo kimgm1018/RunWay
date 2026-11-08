@@ -34,6 +34,8 @@ export const dataErrorCodes = [
   // U25 팔로우 요청 승인·거절: the request is gone, or was cancelled or answered meanwhile.
   'REQUEST_NOT_FOUND',
   'REQUEST_STATE_CONFLICT',
+  // U26 · U27 팔로워 · 팔로잉: a private account I am not an approved follower of (S15P31E105-534).
+  'ACCOUNT_ACCESS_DENIED',
   // C10 생성 코스 저장: the C01 route is older than 30 minutes or was changed (COURSE_INACCESSIBLE is listed above).
   'COURSE_CANDIDATE_INVALID',
   // M03 크루 대표 사진: the imageKey is not a CREW photo I uploaded myself.

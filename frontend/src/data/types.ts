@@ -314,6 +314,21 @@ export type FollowRequestPage = {
 
 export type FollowDecision = 'APPROVE' | 'REJECT';
 
+// 7.4c 팔로워 · 팔로잉 (U26 · U27, S15P31E105-534): the runners approved on either side of a runner.
+export type FollowListKind = 'followers' | 'following';
+
+export type FollowListItem = {
+  userId: string;
+  nickname: string;
+  profileImageUrl: string | null;
+};
+
+// U26 · U27 pages of 20, newest relation first; nextCursor is null on the last page.
+export type FollowListPage = {
+  items: FollowListItem[];
+  nextCursor: string | null;
+};
+
 export type AppNotification = {
   id: string;
   kind: NotificationKind;
@@ -1224,6 +1239,12 @@ export type Repositories = {
       request: FollowRequest,
       decision: FollowDecision,
     ) => Promise<void>;
+    // 7.4c (U26 · U27). A private account I may not see answers ACCOUNT_ACCESS_DENIED.
+    listFollows: (
+      userId: string,
+      kind: FollowListKind,
+      cursor: string | null,
+    ) => Promise<FollowListPage>;
   };
   // 7.5 검색 (CMT13): runners and crews whose name holds the query.
   search: {

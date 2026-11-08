@@ -70,6 +70,7 @@ export const mainRoutes = [
   'RunnerProfile',
   'CommunitySearch',
   'MyProfile',
+  'FollowList',
   'ProfileEdit',
   'RunningBaselineEdit',
   'Settings',
@@ -417,7 +418,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '7.4',
     title: '러너 프로필',
     task: COMMUNITY,
-    links: [],
+    links: ['FollowList'],
+  },
+  // S15P31E105-534: a runner's approved followers and followings (U26 · U27), from 7.4 · 7.4b's counts.
+  FollowList: {
+    code: '7.4c',
+    title: '팔로워 · 팔로잉',
+    task: COMMUNITY,
+    links: ['RunnerProfile'],
   },
   // runway-search (S15P31E105-390): runners and crews by name (CMT13).
   CommunitySearch: {
@@ -430,7 +438,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '7.4b',
     title: '내 프로필',
     task: COMMUNITY,
-    links: ['ProfileEdit', 'Settings'],
+    links: ['ProfileEdit', 'Settings', 'FollowList'],
   },
 
   ProfileEdit: {

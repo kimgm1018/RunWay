@@ -16,6 +16,9 @@ public class FollowRepository {
     public record Request(long requesterId, long requestId, String nickname, Instant requestedAt,
                           String status) {}
     public record History(long requesterId, long targetId, String result) {}
+    // U26 · U27 row; relationId and followedAt stay internal and only build the cursor.
+    public record Member(long userId, String nickname, String profileImageKey, long relationId,
+                         Instant followedAt) {}
 
     public boolean isActive(long id) {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
@@ -92,5 +95,24 @@ public class FollowRepository {
                         rs.getTimestamp(4).toInstant(), "PENDING"),
                 before == null ? new Object[]{owner}
                         : new Object[]{owner, java.sql.Timestamp.from(before), beforeId});
+    }
+
+    // Approved relations of target, newest relation first; followers=true lists who follows target.
+    public List<Member> approved(long target, boolean followers, Instant before, long beforeId,
+                                 int size) {
+        String self = followers ? "f.followee_id" : "f.follower_id";
+        String other = followers ? "f.follower_id" : "f.followee_id";
+        return jdbc.query("""
+                SELECT u.id,u.nickname,u.profile_image_key,f.id,f.created_at
+                FROM user_follows f JOIN users u ON u.id=%s
+                WHERE %s=? AND f.is_approved=TRUE
+                  AND u.account_status='ACTIVE' AND u.withdrawn_at IS NULL
+                """.formatted(other, self)
+                        + (before == null ? "" : " AND (f.created_at,f.id)<(?,?)")
+                        + " ORDER BY f.created_at DESC,f.id DESC LIMIT ?",
+                (rs, n) -> new Member(rs.getLong(1), rs.getString(2), rs.getString(3),
+                        rs.getLong(4), rs.getTimestamp(5).toInstant()),
+                before == null ? new Object[]{target, size}
+                        : new Object[]{target, java.sql.Timestamp.from(before), beforeId, size});
     }
 }

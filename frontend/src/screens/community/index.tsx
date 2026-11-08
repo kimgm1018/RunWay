@@ -4,6 +4,7 @@ import { CommunityScreen } from './CommunityScreen';
 import { PostDetailScreen } from './PostDetailScreen';
 import { PostEditScreen, PostWriteScreen } from './PostWriteScreen';
 import { SearchScreen } from './SearchScreen';
+import { FollowListScreen } from './FollowListScreen';
 import {
   MyProfileScreen,
   MyProfileTabScreen,
@@ -22,4 +23,5 @@ export const communityScreens: Partial<Record<RouteName, React.ComponentType>> =
     RunnerProfile: RunnerProfileScreen,
     CommunitySearch: SearchScreen,
     MyProfile: MyProfileScreen,
+    FollowList: FollowListScreen,
   };
