@@ -38,6 +38,10 @@ export const dataErrorCodes = [
   'COURSE_CANDIDATE_INVALID',
   // M03 크루 대표 사진: the imageKey is not a CREW photo I uploaded myself.
   'RESOURCE_NOT_OWNED',
+  // 4.5 결과: the run finished on the server, but its record could not be read back yet (S15P31E105-529).
+  'SAVE_UNCONFIRMED',
+  // A screen action the server has no API for yet, e.g. saving a free run as my course (S15P31E105-529).
+  'NOT_AVAILABLE',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

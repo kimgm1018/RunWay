@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  errorCode,
   useRepositories,
   type CoursePlan,
   type RunGuidance,
@@ -45,8 +46,9 @@ export type RunSummary = {
   averageCadence: number | null;
 };
 
-// 4.5 위쪽 표시: 기록 저장 중 → 기록 저장됨 · 동기화 완료, or a failure with 다시 저장.
-export type SaveState = 'saving' | 'saved' | 'failed';
+// 4.5 위쪽 표시: 기록 저장 중 → 기록 저장됨 · 동기화 완료, or a failure with 다시 저장. unconfirmed: the server finished
+// the run but its record could not be read back yet, so it is not called lost (S15P31E105-529).
+export type SaveState = 'saving' | 'saved' | 'failed' | 'unconfirmed';
 
 type RunState = {
   config: RunConfig;
@@ -176,6 +178,8 @@ export function RunSessionProvider({
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
+  // 개인 러닝의 서버·워치 제어. 그룹 러닝과 시작 전에는 null.
+  const controlRef = useRef<RunControl | null>(null);
   const readings = useRef({
     heartRates: [] as number[],
     cadences: [] as number[],
@@ -223,12 +227,12 @@ export function RunSessionProvider({
   useEffect(() => () => stopTracking.current?.(), []);
 
   const save = useCallback(
-    async (state: RunState, summary: RunSummary) => {
+    async (state: RunState, summary: RunSummary, sessionId: string | null) => {
       setRun(current =>
         current ? { ...current, saveState: 'saving' } : current,
       );
       try {
-        const { recordId } = await tracker.saveRecord({
+        const { recordId, server } = await tracker.saveRecord({
           mode: state.config.mode,
           courseId: state.config.plan?.courseId ?? null,
           groupRunId: state.config.groupRunId ?? null,
@@ -237,17 +241,50 @@ export function RunSessionProvider({
           route: state.trail.length > 1 ? state.trail : null,
           goalDistanceM: state.config.goalDistanceM,
           goalPaceSecPerKm: state.config.goalPaceSecPerKm,
+          sessionId,
         });
         setRun(current =>
-          current ? { ...current, saveState: 'saved', recordId } : current,
+          current
+            ? {
+                ...current,
+                saveState: 'saved',
+                recordId,
+                // The result shows the server's totals where it has them, as 기록 보기 does.
+                summary:
+                  server && current.summary
+                    ? {
+                        durationSec:
+                          server.durationSec ?? current.summary.durationSec,
+                        distanceM: server.distanceM ?? current.summary.distanceM,
+                        averagePaceSecPerKm:
+                          server.averagePaceSecPerKm ??
+                          current.summary.averagePaceSecPerKm,
+                        averageHeartRate:
+                          server.averageHeartRate ??
+                          current.summary.averageHeartRate,
+                        averageCadence:
+                          server.averageCadence ??
+                          current.summary.averageCadence,
+                      }
+                    : current.summary,
+              }
+            : current,
         );
-      } catch {
-        setRun(current =>
-          current ? { ...current, saveState: 'failed' } : current,
-        );
+      } catch (error) {
+        const saveState: SaveState =
+          errorCode(error) === 'SAVE_UNCONFIRMED' ? 'unconfirmed' : 'failed';
+        setRun(current => (current ? { ...current, saveState } : current));
       }
     },
     [tracker],
+  );
+  // The server session of the personal run on screen; its record shares the id. null for a group run.
+  const sessionIdOf = useCallback(
+    (state: RunState) =>
+      state.config.mode === 'GROUP'
+        ? null
+        : controlRef.current?.getState().sessionId ?? null,
+    [],
   );
 
   const latest = useRef(run);
@@ -305,10 +342,10 @@ export function RunSessionProvider({
         };
         const finished: RunState = { ...run, status: 'finished', summary };
         setRun(finished);
-        save(finished, summary);
+        save(finished, summary, sessionIdOf(finished));
       },
     }),
-    [clock, save, track],
+    [clock, save, sessionIdOf, track],
   );
 
   const [control, setControl] = useState<RunControlState | null>(null);
@@ -335,7 +372,6 @@ export function RunSessionProvider({
         : current,
     );
   }, [live]);
-  const controlRef = useRef<RunControl | null>(null);
   const stopListening = useRef<(() => void) | null>(null);
   const pendingConfig = useRef<RunConfig | null>(null);
   const [resumeTarget, setResumeTarget] = useState<ResumeTarget | null>(null);
@@ -523,7 +559,7 @@ export function RunSessionProvider({
       retrySave: () => {
         const run = latest.current;
         if (run?.summary) {
-          save(run, run.summary);
+          save(run, run.summary, sessionIdOf(run));
         }
       },
       cancel: () => {
@@ -539,7 +575,7 @@ export function RunSessionProvider({
         controlRef.current?.takeOver();
       },
     };
-  }, [local, newControl, save]);
+  }, [local, newControl, save, sessionIdOf]);
 
   const resume = useMemo(
     () => ({ target: resumeTarget, consume: () => setResumeTarget(null) }),

@@ -2,7 +2,12 @@ import React from 'react';
 import { BackHandler, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories, type MockScenario } from '../src/data';
+import {
+  createMockRepositories,
+  DataError,
+  type MockScenario,
+  type RunRecordDraft,
+} from '../src/data';
 import { formatDotDate, formatDuration } from '../src/format';
 import { controlModeOf } from '../src/screens/run/RunProgressScreen';
 import type { RunControlState } from '../src/screens/run/runControl';
@@ -109,18 +114,16 @@ async function hold(screen: Screen, label: string) {
 async function startRun(
   kind: 'course' | 'free',
   scenario: MockScenario = 'default',
+  repositories = createMockRepositories({
+    latencyMs: 0,
+    tickMs: 50,
+    scenario,
+  }),
 ) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({
-          latencyMs: 0,
-          tickMs: 50,
-          scenario,
-        })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
   // 화면 이동과 mock 응답은 settle의 act가 끝날 때 반영되므로, 고정 시간 대신 누를 대상이 열릴 때까지
@@ -143,11 +146,7 @@ async function startRun(
   // 카운트다운 뒤 확정까지는 mock 응답 타이머가 이어지는 비동기 흐름이고, 화면은 settle의 act가 끝날 때만
   // 갱신된다. 고정 시간 대기는 전체 jest 부하에서 확정이 늦으면 진행 화면 전이나 첫 샘플 전에 끝나므로
   // 진행 화면이 열릴 때까지 기다린다(S15P31E105-323).
-  await settleUntil(
-    screen!,
-    () => shows(screen!, '일시정지'),
-    '4.2 러닝 진행',
-  );
+  await settleUntil(screen!, () => shows(screen!, '일시정지'), '4.2 러닝 진행');
   // 진행 화면이 열릴 때 추적이 시작된다. 50ms 간격 샘플은 이 200ms 대기보다 먼저 도착한다.
   await settle(200);
   return screen!;
@@ -275,6 +274,61 @@ test('a free run result can be saved as my course, and a failed save offers 다�
   await act(async () => failed.unmount());
 });
 
+// S15P31E105-529: with the server the finished run is its session's record (H02). The result confirms it with the
+// session id, shows the server's totals, and a record not read back yet is 확인 못 함 with 다시 확인.
+test('the result uses the server record of the session, and an unconfirmed one offers 다시 확인', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  const drafts: RunRecordDraft[] = [];
+  let confirmed = false;
+  repositories.run.saveRecord = async draft => {
+    drafts.push(draft);
+    if (!confirmed) {
+      throw new DataError('SAVE_UNCONFIRMED', '기록 확인 실패');
+    }
+    return {
+      recordId: draft.sessionId,
+      server: {
+        distanceM: 4210,
+        durationSec: 1500,
+        averagePaceSecPerKm: 356,
+        averageHeartRate: 151,
+        averageCadence: null,
+      },
+    };
+  };
+  // No server API turns a free run into my course yet.
+  repositories.courses.saveFromRun = () =>
+    Promise.reject(
+      new DataError('NOT_AVAILABLE', '자유 러닝 코스 저장 API 없음'),
+    );
+  const screen = await startRun('free', 'default', repositories);
+  await press(screen, '일시정지');
+  await hold(screen, '종료');
+  await settleUntil(
+    screen,
+    () => texts(screen).includes('기록 저장을 확인하지 못했어요'),
+    '기록 확인 실패',
+  );
+  expect(drafts[0].sessionId).toEqual(expect.any(String));
+  expect(labelled(screen, '기록 공유').props.disabled).toBe(true);
+
+  confirmed = true;
+  await press(screen, '다시 확인');
+  await settle();
+  const page = texts(screen);
+  expect(page).not.toContain('확인하지 못했어요');
+  // The server's totals replace what the phone counted; a value it does not have keeps the phone's.
+  expect(page).toContain('4.21');
+  expect(page).toContain('151');
+  expect(drafts[1].sessionId).toBe(drafts[0].sessionId);
+  expect(labelled(screen, '기록 공유').props.disabled).toBe(false);
+
+  await press(screen, '내 코스에 저장');
+  expect(texts(screen)).toContain('자유 러닝 코스 저장은 준비 중이에요');
+  expect(texts(screen)).not.toContain('내 코스에 저장됨');
+  await act(async () => screen.unmount());
+});
+
 // S15P31E105-422: 코스 러닝 준비에서 이 코스의 내 기록 하나를 고르면 S01 comparisonSessionId로 보내고, 고르지 않으면 null이다.
 async function courseStartGoal(pick: boolean) {
   const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
@@ -292,12 +346,16 @@ async function courseStartGoal(pick: boolean) {
   };
   await open('저장한 코스', '홈');
   await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
-  const chip = `${formatDotDate(first.startedAt)} ${formatDuration(first.durationSec)} 기록과 비교`;
+  const chip = `${formatDotDate(first.startedAt)} ${formatDuration(
+    first.durationSec,
+  )} 기록과 비교`;
   await settleUntil(screen!, () => shows(screen!, chip), '비교 기록 선택');
   expect(texts(screen!)).toContain('이 코스의 내 기록과 비교');
   if (pick) {
     await press(screen!, chip);
-    expect(labelled(screen!, chip).props.accessibilityState).toEqual({ selected: true });
+    expect(labelled(screen!, chip).props.accessibilityState).toEqual({
+      selected: true,
+    });
   }
   await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
   await press(screen!, '러닝 시작');
@@ -329,18 +387,29 @@ test('without a pick the course run is created without a comparison', async () =
 // S15P31E105-517: 4.3 is part of 4.2. The foot follows the confirmed state, and a request still waiting for
 // the server or watch shows as 확인 중 instead of flipping the state on press.
 test('the controls follow the confirmed state and the request still waiting', () => {
-  const control = (pending: RunControlState['pending'], problem: RunControlState['problem'] = null) =>
-    ({ pending, problem } as RunControlState);
+  const control = (
+    pending: RunControlState['pending'],
+    problem: RunControlState['problem'] = null,
+  ) => ({ pending, problem } as RunControlState);
   expect(controlModeOf('running', null)).toBe('running');
   expect(controlModeOf('paused', null)).toBe('paused');
-  expect(controlModeOf('running', control({ action: 'PAUSE', commandId: 'c1' }))).toBe('pausing');
-  expect(controlModeOf('paused', control({ action: 'RESUME', commandId: 'c2' }))).toBe('resuming');
-  expect(controlModeOf('paused', control({ action: 'END', commandId: 'c3' }))).toBe('finishing');
+  expect(
+    controlModeOf('running', control({ action: 'PAUSE', commandId: 'c1' })),
+  ).toBe('pausing');
+  expect(
+    controlModeOf('paused', control({ action: 'RESUME', commandId: 'c2' })),
+  ).toBe('resuming');
+  expect(
+    controlModeOf('paused', control({ action: 'END', commandId: 'c3' })),
+  ).toBe('finishing');
   // A request that ended in a problem is not waiting; its notice says what happened.
   expect(
     controlModeOf(
       'running',
-      control({ action: 'PAUSE', commandId: 'c1' }, { kind: 'unconfirmed', action: 'PAUSE' } as RunControlState['problem']),
+      control({ action: 'PAUSE', commandId: 'c1' }, {
+        kind: 'unconfirmed',
+        action: 'PAUSE',
+      } as RunControlState['problem']),
     ),
   ).toBe('running');
 });
@@ -381,7 +450,9 @@ test('지도 보기 keeps the same run, the back key pauses, and back while paus
     const before = textOf(screen, '운동 시간');
     await settle(300);
     // The run goes on under the map: the same clock keeps counting.
-    expect(toSeconds(textOf(screen, '운동 시간'))).toBeGreaterThan(toSeconds(before));
+    expect(toSeconds(textOf(screen, '운동 시간'))).toBeGreaterThan(
+      toSeconds(before),
+    );
     await press(screen, '수치 보기');
     expect(texts(screen)).toContain('현재 페이스');
 

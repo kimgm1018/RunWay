@@ -6,6 +6,7 @@ import type { Repositories } from '../types';
 import { checkLoginId, login, logout, signUp } from './auth';
 import { createCommunityApi } from './community';
 import { createRunnersApi } from './runners';
+import { saveRunRecord } from './runRecords';
 import { consentsApi } from './consents';
 import { createCoursesApi } from './courses';
 import { createCrewsApi } from './crews';
@@ -121,6 +122,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
             null,
           ),
         ),
+      // 4.5 결과는 서버 세션의 기록(H02)을 확인해 쓰고, 폰에서 목업 기록을 만들지 않는다(S15P31E105-529).
+      saveRecord: saveRunRecord,
     },
     // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464).
     phoneLocation: createPhoneLocation(),

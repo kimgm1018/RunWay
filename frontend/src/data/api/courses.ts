@@ -167,7 +167,7 @@ export function createCoursesApi({
   usualPace,
   regions,
 }: {
-  // Saving a free run as a course (4.5F) and the 2.0 pace plan have no API yet.
+  // The 2.0 pace plan has no API yet; saving a free run as a course (4.5F) answers NOT_AVAILABLE.
   mock: Repositories['courses'];
   usualPace: () => Promise<number | null>;
   regions: Regions;
@@ -422,6 +422,12 @@ export function createCoursesApi({
       await apiRequest(`/courses/${id}/bookmark`, { method: 'DELETE' });
     },
     // A C01 route runs as the course C10 stores, so 2.0 and S01 get its id and route.
+    // A free run becomes a course on the server by itself (courses.md 러닝 경로 자동 코스 반영), which the server does
+    // not do yet and H02 has no course id for, so it cannot be saved as my course here (S15P31E105-529).
+    saveFromRun: () =>
+      Promise.reject(
+        new DataError('NOT_AVAILABLE', '자유 러닝 코스 저장 API 없음'),
+      ),
     choose: async courseId => {
       const id = await serverIdOf(courseId);
       chosen = id;

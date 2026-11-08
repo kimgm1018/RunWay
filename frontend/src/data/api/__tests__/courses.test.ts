@@ -529,6 +529,19 @@ test('a route C10 turns down says so, and the next tap asks again', async () => 
   expect((await courses.getTodayPlan()).courseId).toBe('7');
 });
 
+test('a free run cannot be saved as my course yet and says so (S15P31E105-529)', async () => {
+  const { courses } = api();
+  await expect(
+    courses.saveFromRun({
+      recordId: '701',
+      route: loop,
+      distanceM: 5000,
+      durationSec: 1800,
+    }),
+  ).rejects.toMatchObject({ code: 'NOT_AVAILABLE' });
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
 test('a route this search never made cannot be stored and sends nothing', async () => {
   const { courses } = api();
   await expect(courses.save('generated:1:9')).rejects.toMatchObject({
