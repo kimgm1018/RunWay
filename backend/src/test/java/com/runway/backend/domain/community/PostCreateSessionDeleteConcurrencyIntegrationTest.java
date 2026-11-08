@@ -34,19 +34,6 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM post_likes");
-        jdbc.update("DELETE FROM comments");
-        jdbc.update("DELETE FROM posts");
-        jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("DELETE FROM pace_plan_segments");
-        jdbc.update("DELETE FROM pace_plans");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users WHERE login_id LIKE 'post_race_%'");
-
         userId = insertUser("post_race_user", "경합유저", "01028002800");
         watchId = insertDevice(userId, "WATCH");
         phoneId = insertDevice(userId, "PHONE");

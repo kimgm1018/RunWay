@@ -32,8 +32,6 @@ class DeviceApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seedUsers() {
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM users");
         userId = insertUser("device_user");
         otherUserId = insertUser("device_other");
     }

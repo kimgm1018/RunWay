@@ -11,6 +11,7 @@ import com.runway.backend.domain.user.service.PrivacySettingsService;
 import com.runway.backend.domain.user.repository.UserAccountRepository;
 import com.runway.backend.domain.user.repository.PrivacySettingsRepository;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -31,18 +32,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 class PrivacySettingsApiIntegrationTest {
-    @Container static final PostgreSQLContainer DATABASE = new PostgreSQLContainer(
-            DockerImageName.parse("postgis/postgis:17-3.6")
-                    .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(PrivacySettingsApiIntegrationTest.class);
     @TempDir static Path images;
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {

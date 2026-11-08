@@ -59,7 +59,6 @@ class GeneratedCourseSaveIntegrationTest extends SharedContextIntegrationSupport
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM users WHERE login_id = 'gen_course_user'");
         userId =
                 jdbc.queryForObject(
                         """

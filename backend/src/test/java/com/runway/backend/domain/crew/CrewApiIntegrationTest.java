@@ -26,11 +26,6 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seedUser() {
-        jdbc.update("DELETE FROM notifications");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
         userId =
                 jdbc.queryForObject(
                         """

@@ -40,12 +40,6 @@ class GroupRunConcurrencyIntegrationTest extends SharedContextIntegrationSupport
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("DELETE FROM users");
-
         hostId = insertUser("gr_host", "호스트", "01011110001");
         memberAId = insertUser("gr_member_a", "멤버에이", "01011110002");
         memberBId = insertUser("gr_member_b", "멤버비", "01011110003");

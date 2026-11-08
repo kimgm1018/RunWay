@@ -31,20 +31,6 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM pace_plan_segments");
-        jdbc.update("DELETE FROM pace_plans");
-        jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM daily_readiness");
-        jdbc.update("DELETE FROM user_profiles");
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM users");
-
         hostId = insertUser("gr_fit_host", "호스트", "01055550001", "AGREEE");
         memberId = insertUser("gr_fit_member", "멤버", "01055550002", "AGREEE");
         outsiderId = insertUser("gr_fit_out", "미참가", "01055550003", "AGREEE");

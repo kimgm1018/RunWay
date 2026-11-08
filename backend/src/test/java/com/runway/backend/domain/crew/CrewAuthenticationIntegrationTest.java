@@ -21,9 +21,6 @@ class CrewAuthenticationIntegrationTest extends SharedContextIntegrationSupport 
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("DELETE FROM users");
         first = seedUser(jdbc, "first");
         second = seedUser(jdbc, "second");
     }

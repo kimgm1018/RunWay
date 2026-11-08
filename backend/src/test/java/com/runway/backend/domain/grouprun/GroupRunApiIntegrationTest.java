@@ -33,18 +33,6 @@ class GroupRunApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM pace_plan_segments");
-        jdbc.update("DELETE FROM pace_plans");
-        jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM users");
-
         hostId = insertUser("gr_api_host", "호스트", "01022220001");
         memberId = insertUser("gr_api_member", "멤버", "01022220002");
         outsiderId = insertUser("gr_api_out", "외부인", "01022220003");

@@ -35,8 +35,6 @@ class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
         a = user("settingsa");
         b = user("settingsb");
         signup.insertSettings(a);
