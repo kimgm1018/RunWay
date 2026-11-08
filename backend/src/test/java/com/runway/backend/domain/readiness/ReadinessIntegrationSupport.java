@@ -121,6 +121,18 @@ abstract class ReadinessIntegrationSupport {
                 new BigDecimal(bpm));
     }
 
+    /** 일별 건강 행을 RHR·수면 값으로 직접 넣는다. null 값은 미측정. */
+    protected void insertHealth(long user, LocalDate date, String bpm, String sleepMin) {
+        jdbc.update(
+                "INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,rhr_revision,sleep_duration_min)"
+                        + " VALUES (?,?,?,?,?)",
+                user,
+                date,
+                bpm == null ? null : new BigDecimal(bpm),
+                bpm == null ? null : 1,
+                sleepMin == null ? null : new BigDecimal(sleepMin));
+    }
+
     /** date 이전 days일(D-1~D-days)에 같은 RHR을 넣는다. */
     protected void insertBaseline(long user, LocalDate date, int days, String bpm) {
         for (int i = 1; i <= days; i++) {

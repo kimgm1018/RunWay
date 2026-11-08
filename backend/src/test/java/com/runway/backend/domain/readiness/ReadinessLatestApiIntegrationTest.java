@@ -3,19 +3,33 @@ package com.runway.backend.domain.readiness;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 254 AC-5·AC-6. R02가 본인의 가장 늦은 날짜 결과만 반환하고, 조회가 평가를 실행하지 않으며, 오류 코드를 구분하는지 확인한다. */
+/**
+ * 254 AC-5·AC-6, 550 AC-1~AC-5·AC-11. R02가 본인의 가장 늦은 날짜 결과만 반환하고, 조회가 평가를 실행하지 않으며, 오류 코드를 구분하는지,
+ * 기준일 건강 지표를 본인 같은 날짜 행에서만 반환하는지 확인한다.
+ */
 @Testcontainers
 class ReadinessLatestApiIntegrationTest extends ReadinessIntegrationSupport {
 
     private static final LocalDate DAY = LocalDate.of(2026, 10, 30);
+
+    @Autowired private ReadinessJdbcRepository repository;
 
     @Test
     void 본인의_가장_늦은_날짜_결과를_반환한다() throws Exception {
@@ -99,5 +113,150 @@ class ReadinessLatestApiIntegrationTest extends ReadinessIntegrationSupport {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
                 .andExpect(jsonPath("$.readinessScore").doesNotExist());
+    }
+
+    @Test
+    void 기준일의_본인_건강_지표를_함께_반환한다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        insertHealth(userId, DAY, "58.40", "432.00");
+        insertHealth(userId, DAY.minusDays(1), "70.00", "300.00");
+        OffsetDateTime updatedAt =
+                jdbc.queryForObject(
+                        "SELECT updated_at FROM daily_health_metrics WHERE user_id=? AND metric_date=?",
+                        OffsetDateTime.class,
+                        userId,
+                        DAY);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.restingHrBpm").value(58.40))
+                .andExpect(jsonPath("$.sleepDurationMin").value(432.00))
+                .andExpect(jsonPath("$.healthUpdatedAt").value(updatedAt.toInstant().toString()));
+    }
+
+    @Test
+    void 기준일_건강_행이_없으면_지표_키를_null로_포함한다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        // 다른 날짜 값으로 대체하지 않는다.
+        insertHealth(userId, DAY.minusDays(1), "70.00", "300.00");
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasKey("restingHrBpm")))
+                .andExpect(jsonPath("$.restingHrBpm", nullValue()))
+                .andExpect(jsonPath("$", hasKey("sleepDurationMin")))
+                .andExpect(jsonPath("$.sleepDurationMin", nullValue()))
+                .andExpect(jsonPath("$", hasKey("healthUpdatedAt")))
+                .andExpect(jsonPath("$.healthUpdatedAt", nullValue()));
+    }
+
+    @Test
+    void 일부_지표만_있으면_없는_지표만_null이다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        insertHealth(userId, DAY, "58", null);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.restingHrBpm").value(58))
+                .andExpect(jsonPath("$", hasKey("sleepDurationMin")))
+                .andExpect(jsonPath("$.sleepDurationMin", nullValue()))
+                .andExpect(jsonPath("$.healthUpdatedAt").isString());
+    }
+
+    @Test
+    void 다른_회원의_같은_날짜_건강_지표는_반환하지_않는다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        insertReadiness(otherUserId, DAY, "40.00", "LOW");
+        insertHealth(otherUserId, DAY, "99.00", "120.00");
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.restingHrBpm", nullValue()))
+                .andExpect(jsonPath("$.sleepDurationMin", nullValue()))
+                .andExpect(jsonPath("$.healthUpdatedAt", nullValue()));
+    }
+
+    @Test
+    void 건강정보_동의가_없으면_건강_지표도_반환하지_않는다() throws Exception {
+        insertReadiness(userId, DAY, "75.00", "LOW");
+        insertHealth(userId, DAY, "58.00", "432.00");
+        jdbc.update("UPDATE users SET health_data_access='DISAGREE' WHERE id=?", userId);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+                .andExpect(jsonPath("$.restingHrBpm").doesNotExist())
+                .andExpect(jsonPath("$.sleepDurationMin").doesNotExist())
+                .andExpect(jsonPath("$.healthUpdatedAt").doesNotExist());
+        // 오류 본문에는 원래 이 키들이 없으므로, 동의 확인 뒤 결과·건강 행 조회 자체를 하지 않는지 확인한다.
+        verify(repository, never()).findLatest(anyLong());
+    }
+
+    @Test
+    void 동의_확인_직후_철회가_커밋되면_점수와_건강_지표를_반환하지_않고_403() throws Exception {
+        insertReadiness(userId, DAY, "75.00", "LOW");
+        insertHealth(userId, DAY, "58.00", "432.00");
+        // 첫 동의 확인은 철회 커밋 전 값을 읽고, 결과 조회 시점에는 철회가 커밋된 상황을 만든다.
+        jdbc.update("UPDATE users SET health_data_access='DISAGREE' WHERE id=?", userId);
+        doReturn(Optional.of(true))
+                .doCallRealMethod()
+                .when(repository)
+                .findActiveUserConsent(userId);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CONSENT_REQUIRED"))
+                .andExpect(jsonPath("$.readinessScore").doesNotExist())
+                .andExpect(jsonPath("$.restingHrBpm").doesNotExist());
+        // 스텁으로 첫 확인을 통과해 결과 조회까지 간 뒤, 재확인에서 403이 났는지 확인한다.
+        verify(repository).findLatest(userId);
+        verify(repository, times(2)).findActiveUserConsent(userId);
+    }
+
+    @Test
+    void 동의_확인_직후_탈퇴가_커밋되면_401() throws Exception {
+        insertReadiness(userId, DAY, "75.00", "LOW");
+        insertHealth(userId, DAY, "58.00", "432.00");
+        // 동의는 유지된 채 계정 상태만 바뀐 경우로 findLatest의 활성 회원 조건을 따로 확인한다.
+        jdbc.update(
+                "UPDATE users SET account_status='WITHDRAWN', withdrawn_at=now() WHERE id=?", userId);
+        doReturn(Optional.of(true))
+                .doCallRealMethod()
+                .when(repository)
+                .findActiveUserConsent(userId);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.readinessScore").doesNotExist())
+                .andExpect(jsonPath("$.restingHrBpm").doesNotExist());
+        verify(repository).findLatest(userId);
+        verify(repository, times(2)).findActiveUserConsent(userId);
+    }
+
+    @Test
+    void 탈퇴한_회원이면_동의가_남아도_결과_조회_SQL이_행을_반환하지_않는다() {
+        insertReadiness(userId, DAY, "75.00", "LOW");
+        jdbc.update(
+                "UPDATE users SET account_status='WITHDRAWN', withdrawn_at=now() WHERE id=?", userId);
+
+        assertThat(repository.findLatest(userId)).isEmpty();
+    }
+
+    @Test
+    void 동의가_없으면_결과_조회_SQL이_행을_반환하지_않는다() {
+        insertReadiness(userId, DAY, "75.00", "LOW");
+        insertHealth(userId, DAY, "58.00", "432.00");
+        jdbc.update("UPDATE users SET health_data_access='DISAGREE' WHERE id=?", userId);
+
+        assertThat(repository.findLatest(userId)).isEmpty();
+    }
+
+    @Test
+    void 동의_확인_후_결과가_없고_동의도_유지되면_404() throws Exception {
+        // 결과가 없을 때 동의를 다시 확인해도 404 판정은 그대로다.
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ASSESSMENT_NOT_FOUND"));
     }
 }

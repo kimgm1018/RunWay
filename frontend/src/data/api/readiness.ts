@@ -3,16 +3,20 @@ import type { ReadinessState, TodayCondition } from '../types';
 import { apiRequest } from './http';
 
 // R02 response (docs/design/api/readiness.md). The confidence counts the inputs used
-// (HIGH 3 · MEDIUM 2 · LOW 1) and is not a grade, so 2.1 does not show it.
+// (HIGH 3 · MEDIUM 2 · LOW 1) and is not a grade, so 2.1 does not show it. The health
+// metrics come from the same day's health row as the score, null when not measured.
 type ReadinessResponse = {
   id: number;
   readinessScore: number;
   readinessDate: string;
   readinessConfidence: 'HIGH' | 'MEDIUM' | 'LOW' | null;
+  restingHrBpm: number | null;
+  sleepDurationMin: number | null;
+  healthUpdatedAt: string | null;
 };
 
 type Latest =
-  | { kind: 'score'; score: number; date: string }
+  | { kind: 'score'; response: ReadinessResponse }
   | { kind: 'none'; state: Exclude<ReadinessState, 'ready' | 'stale'> };
 
 const kstOffsetMs = 9 * 60 * 60 * 1000;
@@ -25,11 +29,7 @@ async function latestReadiness(): Promise<Latest> {
     const response = await apiRequest<ReadinessResponse>(
       '/readiness-assessments/latest',
     );
-    return {
-      kind: 'score',
-      score: response.readinessScore,
-      date: response.readinessDate,
-    };
+    return { kind: 'score', response };
   } catch (error) {
     const code = errorCode(error);
     if (code === 'ASSESSMENT_NOT_FOUND') {
@@ -42,46 +42,53 @@ async function latestReadiness(): Promise<Latest> {
   }
 }
 
-// 2.1 오늘 컨디션 with the readiness score from R02. R02 has no sleep, resting heart rate,
-// 7-day load or AI advice, so those keep coming from base (mock data until their own API tasks).
-export function createReadinessApi({
-  base,
-  now,
-}: {
-  base: () => Promise<TodayCondition>;
-  now: () => Date;
-}) {
+const round = (value: number | null | undefined) =>
+  value === null || value === undefined ? null : Math.round(value);
+
+// 2.1 오늘 컨디션 from R02 alone. Nothing in R02 backs a grade, condition, labels, 7-day load
+// or AI advice, so API mode leaves them empty rather than showing mock values as real ones.
+export function createReadinessApi({ now }: { now: () => Date }) {
   return async (): Promise<TodayCondition> => {
-    const [condition, latest] = await Promise.all([base(), latestReadiness()]);
+    const latest = await latestReadiness();
     const today = kstDate(now());
-    // R02 has no grade yet (readinessLevel is a later field), so no mock grade sits beside a real score.
-    const scoreless = {
-      ...condition,
+    const empty: TodayCondition = {
       date: today,
+      syncedAt: null,
+      readinessState: 'collecting',
       readinessScore: null,
+      condition: null,
+      sleepMinutes: null,
+      restingHeartRate: null,
       readinessSummary: null,
+      sleepLabel: null,
+      restingHeartRateLabel: null,
+      weeklyLoad: null,
+      weeklyLoadLabel: null,
+      aiAdvice: null,
+      lastAssessedDate: null,
     };
     if (latest.kind === 'none') {
-      return {
-        ...scoreless,
-        readinessState: latest.state,
-        lastAssessedDate: null,
-      };
+      return { ...empty, readinessState: latest.state };
     }
+    const { response } = latest;
     // The date is the watch's own day, so one ahead of KST still counts as today.
-    if (latest.date >= today) {
+    if (response.readinessDate >= today) {
       return {
-        ...scoreless,
+        ...empty,
         readinessState: 'ready',
-        readinessScore: Math.round(latest.score),
-        lastAssessedDate: latest.date,
+        readinessScore: Math.round(response.readinessScore),
+        sleepMinutes: round(response.sleepDurationMin),
+        restingHeartRate: round(response.restingHrBpm),
+        syncedAt: response.healthUpdatedAt ?? null,
+        lastAssessedDate: response.readinessDate,
       };
     }
-    // 2.P′ 오래된 데이터: only an earlier day's result, which is not used as today's score.
+    // 2.P′ 오래된 데이터: only an earlier day's result. Neither its score nor that day's
+    // metrics are shown as today's.
     return {
-      ...scoreless,
+      ...empty,
       readinessState: 'stale',
-      lastAssessedDate: latest.date,
+      lastAssessedDate: response.readinessDate,
     };
   };
 }

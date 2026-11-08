@@ -4,7 +4,9 @@ import com.runway.backend.domain.readiness.formula.DailyHealthInput;
 import com.runway.backend.domain.readiness.formula.ReadinessConfidence;
 import java.math.BigDecimal;
 import java.sql.Date;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -116,29 +118,54 @@ public class ReadinessJdbcRepository {
                 confidence == null ? null : confidence.name());
     }
 
-    /** 본인의 기준 날짜가 가장 늦은 준비도 1건. */
+    /**
+     * 본인의 기준 날짜가 가장 늦은 준비도 1건과 같은 날짜의 본인 일별 건강 지표. 건강 행이 없으면 지표는 null이며 다른 날짜 값으로 대체하지
+     * 않는다. {@code (user_id, metric_date)} 유니크 키라 조인으로 행이 늘지 않는다.
+     *
+     * <p>활성 회원·건강정보 동의 조건을 같은 문장에 넣어, 앞선 동의 확인 뒤 철회가 커밋됐으면 행을 반환하지 않는다.
+     */
     public Optional<LatestReadinessRow> findLatest(long userId) {
         return jdbc
                 .query(
                         """
-                        SELECT id, readiness_score, readiness_date, readiness_confidence::text AS confidence
-                        FROM daily_readiness
-                        WHERE user_id = ?
-                        ORDER BY readiness_date DESC
+                        SELECT r.id, r.readiness_score, r.readiness_date,
+                               r.readiness_confidence::text AS confidence,
+                               m.rhr_bpm, m.sleep_duration_min, m.updated_at AS health_updated_at
+                        FROM daily_readiness r
+                        JOIN users u
+                          ON u.id = r.user_id
+                         AND u.account_status = 'ACTIVE'
+                         AND u.health_data_access = 'AGREEE'
+                        LEFT JOIN daily_health_metrics m
+                               ON m.user_id = r.user_id AND m.metric_date = r.readiness_date
+                        WHERE r.user_id = ?
+                        ORDER BY r.readiness_date DESC
                         LIMIT 1
                         """,
-                        (rs, n) ->
-                                new LatestReadinessRow(
-                                        rs.getLong("id"),
-                                        rs.getBigDecimal("readiness_score"),
-                                        rs.getObject("readiness_date", LocalDate.class),
-                                        rs.getString("confidence")),
+                        (rs, n) -> {
+                            OffsetDateTime healthUpdatedAt =
+                                    rs.getObject("health_updated_at", OffsetDateTime.class);
+                            return new LatestReadinessRow(
+                                    rs.getLong("id"),
+                                    rs.getBigDecimal("readiness_score"),
+                                    rs.getObject("readiness_date", LocalDate.class),
+                                    rs.getString("confidence"),
+                                    rs.getBigDecimal("rhr_bpm"),
+                                    rs.getBigDecimal("sleep_duration_min"),
+                                    healthUpdatedAt == null ? null : healthUpdatedAt.toInstant());
+                        },
                         userId)
                 .stream()
                 .findFirst();
     }
 
-    /** R02 조회 행. confidence는 미산출이면 null. */
+    /** R02 조회 행. confidence는 미산출이면 null. 건강 지표는 기준일 건강 행이나 값이 없으면 null. */
     public record LatestReadinessRow(
-            long id, BigDecimal readinessScore, LocalDate readinessDate, String confidence) {}
+            long id,
+            BigDecimal readinessScore,
+            LocalDate readinessDate,
+            String confidence,
+            BigDecimal restingHrBpm,
+            BigDecimal sleepDurationMin,
+            Instant healthUpdatedAt) {}
 }
