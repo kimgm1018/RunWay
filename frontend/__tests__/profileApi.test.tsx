@@ -248,9 +248,12 @@ test('2.1 greets me with my U04 nickname and shows the U04 photo', async () => {
   await settle();
   await settle();
 
-  // 2.1 has no greeting any more (S15P31E105-382); the profile shows in the header avatar.
-  const avatar = labelled(screen!, '내 프로필');
-  const photo = avatar.findAll(node => node.props.source?.uri !== undefined)[0];
+  // 2.1 greets me with the U04 nickname beside the U04 photo (S15P31E105-564).
+  expect(texts(screen!)).toContain(`${me.nickname}님`);
+  const photo = screen!.root.findAll(
+    node =>
+      node.props.source?.uri !== undefined && typeof node.type === 'string',
+  )[0];
   expect(photo.props.source.uri).toBe(
     'https://k15e105.p.ssafy.io/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
   );

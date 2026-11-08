@@ -88,43 +88,26 @@ afterEach(async () => {
   }
 });
 
-test('2.1 says when my runs did not load, shows – – and loads again on retry', async () => {
+test('2.1 과거 러닝 기록 says when the day’s runs did not load and loads again on retry', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
-  const getRecent = repositories.records.getRecent;
+  const getMonth = repositories.records.getMonth;
   const failing = jest
-    .spyOn(repositories.records, 'getRecent')
+    .spyOn(repositories.records, 'getMonth')
     .mockRejectedValue(offline());
   const screen = await launch(repositories);
+  await press(screen, '과거 러닝 기록');
+  await settle();
 
-  let page = texts(screen);
-  expect(page).toContain('러닝 기록을 불러오지 못했어요');
-  expect(page).toContain('– –');
+  expect(texts(screen)).toContain('기록을 불러오지 못했어요');
 
-  failing.mockImplementation(getRecent);
+  failing.mockImplementation(getMonth);
   await act(async () => retry(screen).props.onPress());
   await settle();
   await settle();
-  page = texts(screen);
-  expect(page).not.toContain('러닝 기록을 불러오지 못했어요');
-  expect(page).toContain('5.0 km');
-});
-
-test('2.1 shows that there are no runs yet instead of empty cards', async () => {
-  const repositories = createMockRepositories({ latencyMs: 0 });
-  jest.spyOn(repositories.records, 'getRecent').mockResolvedValue([]);
-  const screen = await launch(repositories);
-
-  // 지난 러닝 and 과거 러닝 기록 both say so.
   const page = texts(screen);
-  expect(page).toContain('아직 기록이 없어요');
-  // Without a last run the 지난 러닝 card has nothing to open.
-  expect(
-    screen.root.findAll(
-      node =>
-        node.props.accessibilityLabel === '지난 러닝' &&
-        typeof node.props.onPress === 'function',
-    ),
-  ).toHaveLength(0);
+  expect(page).not.toContain('기록을 불러오지 못했어요');
+  // Today (10.19) has no run.
+  expect(page).toContain('이 날은 러닝 기록이 없어요');
 });
 
 test('2.0F says the location was not found and a tap looks again', async () => {

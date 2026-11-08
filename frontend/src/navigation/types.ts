@@ -9,9 +9,10 @@ import type {
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
-// The home tab's stack: 2.1, then 5.1 (on a day, YYYY-MM-DD) and 5.3.
+// The home tab's stack: 2.1 (opening one of my runs in 기록 상세, S15P31E105-564), then 5.1 (on a day, YYYY-MM-DD)
+// and 5.3.
 export type HomeStackParamList = {
-  Home: undefined;
+  Home: { recordId: string } | undefined;
 } & Record<Exclude<HomeTabRouteName, 'Records'>, undefined> & {
     Records: { day: string } | undefined;
   };
@@ -31,7 +32,6 @@ export type MainTabParamList = {
 export type RootStackParamList = Record<
   Exclude<
     AuthRouteName | MainRouteName,
-    | 'RecordDetail'
     | 'GroupRunDetail'
     | 'WaitingRoom'
     | 'GroupRunCreate'
@@ -64,8 +64,6 @@ export type RootStackParamList = Record<
   GroupRunCreate: { crewId?: string; groupRunId?: string } | undefined;
   GroupRunCancel: { groupRunId: string } | undefined;
   GroupRunResult: { groupRunId: string } | undefined;
-  // 5.2 shows one run; without an id it shows the newest run.
-  RecordDetail: { recordId: string } | undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   HealthPoc: undefined;
   MapPoc: undefined;

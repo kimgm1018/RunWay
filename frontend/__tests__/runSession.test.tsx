@@ -133,8 +133,10 @@ async function startRun(
     await press(screen!, label);
   };
   if (kind === 'course') {
-    // 2.1 저장한 코스 → 3.1c, where a course sets up the run.
-    await open('저장한 코스', '홈');
+    // 러닝 → 2.0C 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-564).
+    await open('러닝', '홈 탭');
+    await open('코스 러닝', '러닝 방식 선택');
+    await open('저장한 코스', '코스 러닝 시작');
     await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
   } else {
     await open('러닝', '홈 탭');
@@ -344,7 +346,9 @@ async function courseStartGoal(pick: boolean) {
     await settleUntil(screen!, () => shows(screen!, label), what);
     await press(screen!, label);
   };
-  await open('저장한 코스', '홈');
+  await open('러닝', '홈 탭');
+  await open('코스 러닝', '러닝 방식 선택');
+  await open('저장한 코스', '코스 러닝 시작');
   await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
   const chip = `${formatDotDate(first.startedAt)} ${formatDuration(
     first.durationSec,

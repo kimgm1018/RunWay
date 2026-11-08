@@ -319,12 +319,15 @@ afterEach(async () => {
   }
 });
 
-test('2.1 lists my saved courses from the server', async () => {
+test('2.0C opens my saved courses from the server beside 코스 설정 (S15P31E105-564)', async () => {
   const screen = await launch();
-  const page = texts(screen);
-  // 2.1 저장한 코스 shows the first one's distance (S15P31E105-367).
-  expect(page).toContain('저장한 코스');
-  expect(page).toContain('5.0km');
+  // 2.1 has no 저장한 코스 any more.
+  expect(texts(screen)).not.toContain('저장한 코스');
+  await press(screen, '러닝');
+  await press(screen, '코스 러닝');
+  await press(screen, '저장한 코스');
+  await settle();
+  expect(texts(screen)).toContain('5.0km');
 });
 
 test('3.1c shows the server list and an unsave goes to the server', async () => {

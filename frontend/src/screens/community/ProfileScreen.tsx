@@ -51,7 +51,7 @@ import {
   formatPace,
 } from '../../format';
 import { FollowRequestSheet } from './FollowRequestSheet';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
 import { CourseGlyph } from '../course/SavedCoursesScreen';
@@ -633,9 +633,10 @@ function Profile({
                       onPress={() =>
                         postId
                           ? navigation.navigate('PostDetail', { postId })
-                          : navigation.navigate('RecordDetail', {
-                              recordId: record.id,
-                            })
+                          : // My own run opens in 2.1 기록 상세 (S15P31E105-564).
+                          profile.isMe
+                          ? openRecord(navigation, record.id)
+                          : undefined
                       }
                     />
                   ))}

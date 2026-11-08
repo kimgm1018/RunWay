@@ -552,8 +552,21 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   expect(page).toContain('최근 기록');
   // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
   expect(page).not.toContain('공개 계정');
+  // My run opens in 2.1 기록 상세 on its day (S15P31E105-564), where 기록 공유 is.
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
-  await settle(50);
+  for (let tries = 0; tries < 40; tries++) {
+    if (
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === '기록 공유' &&
+          typeof node.props.onPress === 'function',
+      ).length > 0
+    ) {
+      break;
+    }
+    await settle(50);
+  }
+  expect(texts(screen)).toContain('10월 15일 목요일');
   await press(screen, '기록 공유');
   await settle(50);
   expect(texts(screen)).toContain('기록 공유');

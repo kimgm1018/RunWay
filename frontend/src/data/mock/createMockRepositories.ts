@@ -87,6 +87,9 @@ export type MockOptions = {
   // 워치 결과 대기 시간(기본 30초/120초). 화면 테스트가 실제로 기다리지 않게 줄인다.
   resultWaitMs?: number;
   endResultWaitMs?: number;
+  // The clock. Tests keep the fixtures' 2026-10-19 morning (or evening for night); the app passes the phone's clock
+  // so its dates reach today (S15P31E105-564).
+  now?: () => Date;
 };
 
 function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
@@ -937,10 +940,12 @@ export function createMockRepositories(
             },
     }),
     clock: {
-      now: () =>
-        new Date(
-          options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
-        ),
+      now:
+        options.now ??
+        (() =>
+          new Date(
+            options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
+          )),
     },
     watch: {
       getConnection: () => respond(watchState(), options),
