@@ -381,6 +381,23 @@ export type RunRecordDraft = {
   route: [number, number][] | null;
   goalDistanceM: number | null;
   goalPaceSecPerKm: number | null;
+  // The server session a personal run belongs to; its record has the same id (H02). null for group runs and
+  // the mock (S15P31E105-529).
+  sessionId: string | null;
+};
+
+// What saving a finished run gives back. recordId is null when the run has no record of its own to open (a group
+// run, whose result is 6.7). server holds the totals the server worked out (H02) when it has them; a null value
+// keeps what the phone counted.
+export type SavedRunRecord = {
+  recordId: string | null;
+  server: {
+    distanceM: number | null;
+    durationSec: number | null;
+    averagePaceSecPerKm: number | null;
+    averageHeartRate: number | null;
+    averageCadence: number | null;
+  } | null;
 };
 
 // G03 status (group_runs.status).
@@ -1219,8 +1236,9 @@ export type Repositories = {
       route: [number, number][] | null,
       onSample: (sample: RunSample, guidance: RunGuidance | null) => void,
     ) => () => void;
-    // Saves the finished run (4.5 기록 저장 중 → 기록 저장됨 · 동기화 완료).
-    saveRecord: (record: RunRecordDraft) => Promise<{ recordId: string }>;
+    // Saves the finished run (4.5 기록 저장 중 → 기록 저장됨 · 동기화 완료). With the server the run is already stored
+    // when its session completes, so this confirms the record (H02) instead; a failure there is SAVE_UNCONFIRMED.
+    saveRecord: (record: RunRecordDraft) => Promise<SavedRunRecord>;
   };
   music: {
     getState: () => Promise<MusicState>;

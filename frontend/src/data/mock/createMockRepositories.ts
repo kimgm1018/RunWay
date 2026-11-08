@@ -849,7 +849,7 @@ export function createMockRepositories(
           ),
           ...records,
         ];
-        return respond({ recordId: id }, options);
+        return respond({ recordId: id, server: null }, options);
       },
     },
     music: {
