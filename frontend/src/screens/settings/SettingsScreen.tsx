@@ -261,18 +261,32 @@ export function SettingsScreen() {
     }
   };
 
-  if (loaded.status === 'error' && !data) {
-    return (
-      <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <EmptyState
-          icon="alert"
-          title="설정을 불러오지 못했어요"
-          actionLabel="다시 시도"
-          onAction={reload}
-        />
-      </View>
-    );
-  }
+  // S15P31E105-555: 로그아웃 (U03) and 회원탈퇴 need none of the settings, so a failed read still shows them.
+  const failed = loaded.status === 'error' && !data;
+  const accountLinks = (
+    <View style={styles.links}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="로그아웃"
+        accessibilityState={{ busy: leaving, disabled: leaving }}
+        disabled={leaving}
+        onPress={logOut}
+        hitSlop={8}
+        style={leaving && styles.leaving}
+      >
+        <AppText style={styles.logOut}>로그아웃</AppText>
+      </Pressable>
+      <View style={styles.bar} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="회원탈퇴"
+        onPress={() => navigateTo(navigation, 'Withdraw')}
+        hitSlop={8}
+      >
+        <AppText style={styles.withdraw}>회원탈퇴</AppText>
+      </Pressable>
+    </View>
+  );
   const onOff = (on: boolean) => (on ? '켜기' : '끄기');
 
   return (
@@ -287,7 +301,19 @@ export function SettingsScreen() {
           설정
         </AppText>
       </View>
-      {!settings || !watch ? (
+      {failed ? (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
+        >
+          <EmptyState
+            icon="alert"
+            title="설정을 불러오지 못했어요"
+            actionLabel="다시 시도"
+            onAction={reload}
+          />
+          {accountLinks}
+        </ScrollView>
+      ) : !settings || !watch ? (
         <ActivityIndicator style={styles.loading} />
       ) : (
         <ScrollView
@@ -427,28 +453,7 @@ export function SettingsScreen() {
             </>
           ) : null}
 
-          <View style={styles.links}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="로그아웃"
-              accessibilityState={{ busy: leaving, disabled: leaving }}
-              disabled={leaving}
-              onPress={logOut}
-              hitSlop={8}
-              style={leaving && styles.leaving}
-            >
-              <AppText style={styles.logOut}>로그아웃</AppText>
-            </Pressable>
-            <View style={styles.bar} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="회원탈퇴"
-              onPress={() => navigateTo(navigation, 'Withdraw')}
-              hitSlop={8}
-            >
-              <AppText style={styles.withdraw}>회원탈퇴</AppText>
-            </Pressable>
-          </View>
+          {accountLinks}
         </ScrollView>
       )}
       <WithdrawConsentSheet
