@@ -45,6 +45,7 @@ import { onRecordsChanged } from '../../data/recordsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily, homePalette as palette } from '../../theme';
+import { drawableShape } from '../course/SavedCoursesScreen';
 import { RetryNotice, useHomeRefresh } from './parts';
 
 // 2.1 홈 (S15P31E105-367 핸드오프, 390×844 한 화면): the condition card, then two columns of cards,
@@ -715,15 +716,20 @@ const lineWidth = 112;
 const lineHeight = 56;
 
 // The first course's route in the white line where the mockup drew an elevation curve; there is no elevation data.
+// A route with fewer than two drawable points has no line to draw (S15P31E105-567).
 function CourseLine({ shape }: { shape: [number, number][] }) {
-  const xs = shape.map(([x]) => x);
-  const ys = shape.map(([, y]) => y);
+  const route = drawableShape(shape);
+  if (route.length < 2) {
+    return null;
+  }
+  const xs = route.map(([x]) => x);
+  const ys = route.map(([, y]) => y);
   const spanX = Math.max(...xs) - Math.min(...xs) || 1;
   const spanY = Math.max(...ys) - Math.min(...ys) || 1;
   const scale = Math.min((lineWidth - 28) / spanX, (lineHeight - 8) / spanY);
   const offsetX = (lineWidth - spanX * scale) / 2 - Math.min(...xs) * scale;
   const offsetY = (lineHeight - spanY * scale) / 2 - Math.min(...ys) * scale;
-  const points = shape
+  const points = route
     .map(
       ([x, y]) =>
         `${(offsetX + x * scale).toFixed(1)},${(offsetY + y * scale).toFixed(
