@@ -1241,6 +1241,9 @@ export type Repositories = {
     saveRecord: (record: RunRecordDraft) => Promise<SavedRunRecord>;
   };
   music: {
+    // Optional native player updates; older repositories continue using getState.
+    subscribe?: (listener: (state: MusicState) => void) => () => void;
+    canStartWithoutTrack?: boolean;
     getState: () => Promise<MusicState>;
     // null clears the pick (2.8: the picked row pressed again), back to 2.7a 미연결.
     selectSource: (source: MusicSource | null) => Promise<MusicState>;

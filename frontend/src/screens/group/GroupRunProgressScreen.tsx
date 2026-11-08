@@ -8,6 +8,7 @@ import {
 import { AppText, BottomSheet, Icon, useToast } from '../../components';
 import {
   spotifyFailureMessage,
+  SpotifyStateError,
   useRepositories,
   type GroupRunLive,
   type MusicState,
@@ -237,10 +238,20 @@ export function GroupRunProgressScreen({
     let active = true;
     music.getState().then(
       state => active && setPlayer(state),
-      () => undefined,
+      error => {
+        if (active && error instanceof SpotifyStateError) {
+          setPlayer(error.state);
+        }
+      },
     );
+    const stop = music.subscribe?.(state => {
+      if (active) {
+        setPlayer(state);
+      }
+    });
     return () => {
       active = false;
+      stop?.();
     };
   }, [music]);
   const runMusic = async (command: MusicCommand) => {
@@ -248,6 +259,9 @@ export function GroupRunProgressScreen({
     try {
       setPlayer(await music[command]());
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setPlayer(error.state);
+      }
       const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
       if (message) {
         toast(message);

@@ -25,7 +25,9 @@ export type SpotifyTokens = {
 export type SpotifyFailure =
   | 'CANCELED'
   | 'SIGNED_OUT'
+  | 'USER_NOT_REGISTERED'
   | 'PREMIUM_REQUIRED'
+  | 'NO_HISTORY'
   | 'NO_ACTIVE_DEVICE'
   | 'FAILED';
 
@@ -212,6 +214,7 @@ export async function signInToSpotify(clientId: string) {
       code_challenge: codeChallenge(verifier),
       state,
       scope: scopes.join(' '),
+      show_dialog: 'true',
     })}`,
     state,
   );

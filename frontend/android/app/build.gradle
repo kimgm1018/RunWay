@@ -123,6 +123,7 @@ dependencies {
     def samsungSdk = file(project.findProperty('samsungHealthSdk') ?: '../../../tmp/samsung-sdk/1.1.0/1.1.0/libs/samsung-health-data-api-1.1.0.aar')
     if (!samsungSdk.exists()) { throw new GradleException('Download Samsung Health Data SDK 1.1.0 and set -PsamsungHealthSdk=<aar path>. See frontend/README.md.') }
     implementation files(samsungSdk)
+    implementation files('libs/spotify-app-remote-release-0.8.0.aar')
     implementation 'com.google.code.gson:gson:2.9.0'
     implementation 'com.google.android.gms:play-services-wearable:18.0.0'
     testImplementation 'junit:junit:4.13.2'

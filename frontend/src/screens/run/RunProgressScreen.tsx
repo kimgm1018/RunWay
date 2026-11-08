@@ -8,6 +8,7 @@ import {
 import { useToast } from '../../components';
 import {
   spotifyFailureMessage,
+  SpotifyStateError,
   useRepositories,
   type MusicState,
 } from '../../data';
@@ -37,11 +38,7 @@ import {
 } from './live/RunLivePages';
 import { comparisonLine } from './recordComparison';
 import type { RunControlState } from './runControl';
-import {
-  goalPaceOf,
-  useRunControlState,
-  useRunSession,
-} from './RunSession';
+import { goalPaceOf, useRunControlState, useRunSession } from './RunSession';
 
 const noSample = {
   elapsedSec: 0,
@@ -115,6 +112,9 @@ export function RunProgressScreen() {
     try {
       setPlayer(await music[command]());
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setPlayer(error.state);
+      }
       const message = spotifyFailureMessage(error, '음악을 조작하지 못했어요');
       if (message) {
         toast(message);
@@ -176,10 +176,20 @@ export function RunProgressScreen() {
       let active = true;
       music.getState().then(
         state => active && setPlayer(state),
-        () => undefined,
+        error => {
+          if (active && error instanceof SpotifyStateError) {
+            setPlayer(error.state);
+          }
+        },
       );
+      const stop = music.subscribe?.(state => {
+        if (active) {
+          setPlayer(state);
+        }
+      });
       return () => {
         active = false;
+        stop?.();
       };
     }, [music]),
   );

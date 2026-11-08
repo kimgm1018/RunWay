@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
     <queries>
+      <package android:name="com.spotify.music" />
       <package android:name="com.google.android.apps.healthdata" />
       <!-- S15P31E105-398: 멜론 설치 확인·MediaBrowser 연결·앱 열기. -->
       <package android:name="com.iloen.melon" />
