@@ -1,4 +1,4 @@
-import { routeLengthM, walkAlong } from '../../geo';
+import { shapeOfRoute, routeLengthM, walkAlong } from '../../geo';
 import { DataError } from '../errors';
 import {
   copyCoursePreferences,
@@ -243,22 +243,7 @@ function musicFor(scenario: MockScenario = 'default'): MusicState {
   }
 }
 
-// Fits a GeoJSON route into the 0–1 box used by list thumbnails.
-function shapeOf(route: [number, number][]): [number, number][] {
-  const xs = route.map(point => point[0]);
-  const ys = route.map(point => point[1]);
-  const [minX, maxX, minY, maxY] = [
-    Math.min(...xs),
-    Math.max(...xs),
-    Math.min(...ys),
-    Math.max(...ys),
-  ];
-  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  return route.map(([x, y]) => [
-    0.1 + ((x - minX) / span) * 0.8,
-    0.9 - ((y - minY) / span) * 0.8,
-  ]);
-}
+const shapeOf = shapeOfRoute;
 
 // 2.0 shows the course chosen on 3.1b or 3.1c; the paces spread around the 6′00″ goal.
 function planFor(courseId: string | null, saved: SavedCourse[]): CoursePlan {

@@ -109,7 +109,9 @@ test('7.5 opens from 7.1, finds runners and crews, and opens a runner', async ()
   const screen = await openCommunity();
   await press(screen, '검색');
   await settle(50);
-  expect(texts(screen)).toContain('러너나 크루를 찾아보세요');
+  // It opens on 탐색: the shared runs as cards that open the post (S15P31E105-561, 담당자 시안).
+  expect(texts(screen)).toContain('탐색');
+  expect(has(screen, 'seoyun.run의 5.02km 러닝')).toBe(true);
 
   // One letter is too short and never reaches the server.
   await search(screen, '러너·크루 검색 검색', 's');
@@ -132,6 +134,23 @@ test('7.5 opens from 7.1, finds runners and crews, and opens a runner', async ()
   expect(texts(screen)).toContain('248');
 });
 
+test('7.5 shows 추천 runners while the empty field has focus and closes back to 탐색', async () => {
+  const screen = await openCommunity();
+  await press(screen, '검색');
+  await settle(50);
+  const field = screen.root.find(
+    node =>
+      node.props.accessibilityLabel === '러너·크루 검색 검색' &&
+      typeof node.props.onFocus === 'function',
+  );
+  await act(async () => field.props.onFocus());
+  expect(texts(screen)).toContain('추천');
+  expect(has(screen, 'seoyun.run 러너 프로필')).toBe(true);
+  await press(screen, '검색어 지우기');
+  expect(texts(screen)).not.toContain('추천');
+  expect(has(screen, 'seoyun.run의 5.02km 러닝')).toBe(true);
+});
+
 test('7.5 filters to crews from the menu and retries after a failure', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const find = repositories.search.find;
@@ -144,9 +163,16 @@ test('7.5 filters to crews from the menu and retries after a failure', async () 
   await press(screen, '검색');
   await settle(50);
 
-  await press(screen, '검색 대상 전체');
+  // The 전체 · 러너 · 크루 chips pick what to search.
   await press(screen, '크루');
-  expect(has(screen, '검색 대상 크루')).toBe(true);
+  expect(
+    screen.root.find(
+      node =>
+        node.props.accessibilityLabel === '크루' &&
+        node.props.accessibilityRole === 'tab' &&
+        typeof node.props.onPress === 'function',
+    ).props.accessibilityState,
+  ).toMatchObject({ selected: true });
 
   await search(screen, '크루 이름 검색', '크루');
   expect(texts(screen)).toContain('검색 결과를 불러오지 못했어요');

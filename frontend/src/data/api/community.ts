@@ -34,6 +34,9 @@ export type PostResponse = {
   recordSummary: RecordSummaryResponse | null;
 };
 
+// C03, only the route (GeoJSON [longitude, latitude]).
+type CourseRouteResponse = { route: { coordinates: [number, number][] } };
+
 type CommentResponse = {
   id: number;
   postId: number;
@@ -97,6 +100,8 @@ export function recordOf(response: PostResponse): PostRecord {
     goalAchieved: null,
     place: '',
     courseRun: response.courseId != null,
+    // The route comes with 7.2 (C03 by the post's course), not with the list.
+    route: null,
     averageHeartRate: null,
     cadence: null,
   };
@@ -164,8 +169,18 @@ export function createCommunityApi({
         apiRequest<PostResponse>(`/posts/${postId}`),
         apiRequest<{ items: CommentResponse[] }>(`/posts/${postId}/comments`),
       ]);
+      const base = toPost(post);
+      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. A course that cannot
+      // be read leaves the post without a route rather than failing the page.
+      const route =
+        post.courseId == null
+          ? null
+          : await apiRequest<CourseRouteResponse>(`/courses/${post.courseId}`)
+              .then(course => course.route.coordinates)
+              .catch(() => null);
       const detail: PostDetail = {
-        ...toPost(post),
+        ...base,
+        record: { ...base.record, route },
         commentCount: items.length,
         comments: items.map(item => toComment(item, post.author)),
       };
@@ -182,6 +197,7 @@ export function createCommunityApi({
         ...detail,
         place: '',
         courseRun: detail.courseId !== null,
+        route: detail.route,
         averageHeartRate: null,
         cadence: null,
       };

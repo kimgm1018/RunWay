@@ -93,7 +93,7 @@ export function Avatar({
 }
 
 // 2026.10.19 07:12
-function stamp(iso: string) {
+export function stamp(iso: string) {
   const day = new Date(Date.parse(iso) + 9 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10)

@@ -26,6 +26,7 @@ function shareableOf(record: RecordFixture): PostRecord {
     ...toSummary(record),
     place: record.title.replace(/ 출발$/, ''),
     courseRun: record.courseId !== null,
+    route: record.route,
     averageHeartRate: record.watch ? 158 : null,
     cadence: record.watch ? 170 : null,
   };
