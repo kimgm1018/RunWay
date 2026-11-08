@@ -45,3 +45,20 @@ export function walkAlong(route: LngLat[], walkedM: number): LngLat[] {
   }
   return path;
 }
+
+// Fits a route into the 0–1 box the list thumbnails draw (north up, the longer side 0.1–0.9).
+export function shapeOfRoute(route: LngLat[]): [number, number][] {
+  const xs = route.map(point => point[0]);
+  const ys = route.map(point => point[1]);
+  const [minX, maxX, minY, maxY] = [
+    Math.min(...xs),
+    Math.max(...xs),
+    Math.min(...ys),
+    Math.max(...ys),
+  ];
+  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
+  return route.map(([x, y]) => [
+    0.1 + ((x - minX) / span) * 0.8,
+    0.9 - ((y - minY) / span) * 0.8,
+  ]);
+}

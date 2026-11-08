@@ -1,11 +1,19 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -15,24 +23,36 @@ import { BackButton } from '../../components/BackButton';
 import {
   errorCode,
   useRepositories,
+  useResource,
+  type Post,
+  type Repositories,
   type SearchPage,
   type SearchType,
 } from '../../data';
+import { formatKm } from '../../format';
 import { fontFamily } from '../../theme';
+import { feedLook, MapBackdrop, RouteLine } from './FeedPage';
+import { Avatar } from './parts';
 
 // 7.5 커뮤니티 검색 (runway-search, CMT13): runners and crews by name, from 7.1's 검색 button.
 // It searches 0.3 s after typing stops; under two letters it says so without asking the server.
-// 뒤로 and the filter are 44 like every round button of the app (담당자 결정), not the mockup's 38.
+// S15P31E105-561 (담당자 시안): it opens on 탐색, a two-column grid of shared runs under a white search pill and
+// the 전체 · 러너 · 크루 chips; focusing the field shows 추천 runners, and typing searches as before.
 
 const look = {
+  ground: '#F2F3F6',
+  white: '#FFFFFF',
   ink: '#02050E',
   sub: '#56646C',
   bandText: '#3A5A6C',
-  band: 'rgba(24,46,61,0.08)',
+  chip: '#E4E6EB',
   // The tab bar's selected cell: avatars and crew marks.
   mark: '#0F1011',
-  picked: 'rgba(24,46,61,0.06)',
+  skeleton: '#E4E6EB',
 } as const;
+
+const loadFeed = (repositories: Repositories) =>
+  repositories.community.listFeed('ALL');
 
 const minLength = 2;
 const waitMs = 300;
@@ -146,7 +166,11 @@ export function SearchScreen() {
   const { search } = useRepositories();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<SearchType>('ALL');
-  const [menuOpen, setMenuOpen] = useState(false);
+  // The field has focus: with nothing typed it shows 추천 instead of 탐색.
+  const [focused, setFocused] = useState(false);
+  const input = useRef<TextInput>(null);
+  const feed = useResource(loadFeed);
+  const { width: screenWidth } = useWindowDimensions();
   const [status, setStatus] = useState<Status>('idle');
   const [found, setFound] = useState<Found>({
     runners: [],
@@ -218,16 +242,37 @@ export function SearchScreen() {
   };
 
   const rows = status === 'ready' ? rowsOf(found, type) : [];
+  const posts = feed.status === 'ready' ? feed.data : null;
+  // 추천: the runners of the shared runs, each once, not me.
+  const suggestions = useMemo(() => {
+    const seen = new Set<string>();
+    return (posts ?? [])
+      .filter(post => !post.isMine)
+      .map(post => post.author)
+      .filter(author => {
+        if (seen.has(author.userId)) return false;
+        seen.add(author.userId);
+        return true;
+      })
+      .slice(0, 8);
+  }, [posts]);
+  const exploring = words.length === 0 && !focused;
+  const suggesting = words.length === 0 && focused;
+  const cardWidth = (screenWidth - gutter * 2 - gap) / 2;
+  const cardHeight = Math.round(cardWidth * 1.6);
+  const closeSearch = () => {
+    setQuery('');
+    input.current?.blur();
+    setFocused(false);
+  };
 
   const renderRow = ({ item }: { item: Row }) => {
-    if (item.kind === 'gap') return <View style={styles.gap} />;
+    if (item.kind === 'gap') return <View style={styles.gapRow} />;
     if (item.kind === 'band') {
       return (
-        <View style={styles.band}>
-          <AppText style={styles.bandText} accessibilityRole="header">
-            {item.label}
-          </AppText>
-        </View>
+        <AppText style={styles.section} accessibilityRole="header">
+          {item.label}
+        </AppText>
       );
     }
     const runner = item.kind === 'runner';
@@ -242,7 +287,7 @@ export function SearchScreen() {
             ? navigation.navigate('RunnerProfile', { userId: item.userId })
             : navigation.navigate('CrewDetail', { crewId: item.crewId })
         }
-        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+        style={({ pressed }) => [styles.person, pressed && styles.pressed]}
       >
         <View style={[styles.mark, runner ? styles.avatar : styles.crewMark]}>
           {runner ? (
@@ -255,8 +300,8 @@ export function SearchScreen() {
         </View>
         <View style={styles.nameBox}>
           <Highlighted name={item.name} query={words} />
+          <AppText style={styles.personSub}>{runner ? '러너' : '크루'}</AppText>
         </View>
-        <Icon name="forward" color={look.sub} size={18} strokeWidth={1.8} />
       </Pressable>
     );
   };
@@ -264,69 +309,168 @@ export function SearchScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
+      {/* 탐색 sits on the app's mist like 홈 (담당자 요청). */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Backdrop tail />
       </View>
-      <View style={[styles.bar, { paddingTop: insets.top + 6 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <BackButton onPress={() => navigation.goBack()} />
-        <View style={styles.field} accessibilityRole="search">
-          <Icon name="search" color={look.bandText} size={20} strokeWidth={2} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={filter.placeholder}
-            placeholderTextColor="rgba(2,5,14,0.42)"
-            accessibilityLabel={`${filter.placeholder} 검색`}
-            autoFocus
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            style={styles.input}
-          />
-          {query.length > 0 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="검색어 지우기"
-              onPress={() => setQuery('')}
-              hitSlop={6}
-              style={styles.clear}
-            >
-              <View style={styles.clearDot}>
-                <Icon
-                  name="close"
-                  color="#FFFFFF"
-                  size={11}
-                  strokeWidth={2.6}
-                />
-              </View>
-            </Pressable>
-          ) : null}
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`검색 대상 ${filter.label}`}
-          accessibilityState={{ expanded: menuOpen }}
-          onPress={() => setMenuOpen(open => !open)}
-          style={({ pressed }) => [styles.filter, pressed && styles.pressed]}
-        >
-          <AppText style={styles.filterText}>{filter.label}</AppText>
-          <View style={menuOpen ? styles.flipped : undefined}>
-            <Icon
-              name="chevronDown"
-              color={look.ink}
-              size={16}
-              strokeWidth={2.2}
-            />
-          </View>
-        </Pressable>
+        <AppText style={styles.title} accessibilityRole="header">
+          탐색
+        </AppText>
       </View>
-
-      {status === 'idle' ? (
-        <StateMessage
-          icon="search"
-          title="러너나 크루를 찾아보세요"
-          body="닉네임이나 크루 이름으로 검색할 수 있어요"
+      <View style={styles.field} accessibilityRole="search">
+        <Icon name="search" color={look.sub} size={20} strokeWidth={2} />
+        <TextInput
+          ref={input}
+          value={query}
+          onChangeText={setQuery}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={filter.placeholder}
+          placeholderTextColor="rgba(2,5,14,0.42)"
+          accessibilityLabel={`${filter.placeholder} 검색`}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          style={styles.input}
         />
+        {query.length > 0 || focused ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="검색어 지우기"
+            onPress={closeSearch}
+            hitSlop={8}
+          >
+            <Icon name="close" color={look.sub} size={20} strokeWidth={2} />
+          </Pressable>
+        ) : null}
+      </View>
+      {suggesting ? null : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chips}
+          accessibilityRole="tablist"
+        >
+          {filters.map(item => {
+            const picked = item.type === type;
+            return (
+              <Pressable
+                key={item.type}
+                accessibilityRole="tab"
+                accessibilityLabel={item.label}
+                accessibilityState={{ selected: picked }}
+                onPress={() => setType(item.type)}
+                style={({ pressed }) => [
+                  styles.chip,
+                  picked && styles.chipPicked,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AppText
+                  style={[styles.chipText, picked && styles.chipTextPicked]}
+                >
+                  {item.label}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {exploring ? (
+        <ScrollView
+          contentContainerStyle={[
+            styles.grid,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {posts
+            ? posts.map(post => (
+                <ExploreCard
+                  key={post.id}
+                  post={post}
+                  width={cardWidth}
+                  height={cardHeight}
+                  onPress={() =>
+                    navigation.navigate('PostDetail', { postId: post.id })
+                  }
+                />
+              ))
+            : feed.status === 'error'
+            ? null
+            : [0, 1, 2, 3].map(index => (
+                <View
+                  key={index}
+                  style={[
+                    styles.card,
+                    styles.skeleton,
+                    { width: cardWidth, height: cardHeight },
+                  ]}
+                />
+              ))}
+          {feed.status === 'error' ? (
+            <StateMessage
+              icon="alert"
+              title="러닝을 불러오지 못했어요"
+              body="검색으로 러너나 크루를 찾아보세요"
+              onRetry={feed.reload}
+            />
+          ) : posts && posts.length === 0 ? (
+            <StateMessage
+              icon="search"
+              title="러너나 크루를 찾아보세요"
+              body="닉네임이나 크루 이름으로 검색할 수 있어요"
+            />
+          ) : null}
+        </ScrollView>
+      ) : suggesting ? (
+        <ScrollView keyboardShouldPersistTaps="handled">
+          <AppText style={styles.section} accessibilityRole="header">
+            추천
+          </AppText>
+          {suggestions.length === 0 ? (
+            <StateMessage
+              icon="search"
+              title="러너나 크루를 찾아보세요"
+              body="닉네임이나 크루 이름으로 검색할 수 있어요"
+            />
+          ) : (
+            suggestions.map(author => (
+              <Pressable
+                key={author.userId}
+                accessibilityRole="button"
+                accessibilityLabel={`${author.handle} 러너 프로필`}
+                onPress={() =>
+                  navigation.navigate('RunnerProfile', {
+                    userId: author.userId,
+                  })
+                }
+                style={({ pressed }) => [
+                  styles.person,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Avatar
+                  nickname={author.nickname}
+                  userId={author.userId}
+                  size={48}
+                />
+                <View style={styles.nameBox}>
+                  <AppText style={styles.name} numberOfLines={1}>
+                    {author.nickname}
+                  </AppText>
+                  <AppText style={styles.personSub} numberOfLines={1}>
+                    {`@${author.handle}`}
+                  </AppText>
+                </View>
+              </Pressable>
+            ))
+          )}
+        </ScrollView>
       ) : status === 'short' ? (
         <StateMessage
           icon="search"
@@ -340,7 +484,7 @@ export function SearchScreen() {
           body="네트워크 상태를 확인하고 다시 시도해 주세요"
           onRetry={() => runSearch(words, type)}
         />
-      ) : status === 'loading' ? (
+      ) : status === 'loading' || status === 'idle' ? (
         <ActivityIndicator style={styles.loading} color={look.bandText} />
       ) : rows.length === 0 ? (
         <StateMessage
@@ -368,240 +512,275 @@ export function SearchScreen() {
           }
         />
       )}
-
-      {menuOpen ? (
-        <>
-          <Pressable
-            accessibilityLabel="필터 닫기"
-            onPress={() => setMenuOpen(false)}
-            style={StyleSheet.absoluteFill}
-          />
-          <View
-            accessibilityRole="menu"
-            style={[styles.menu, { top: insets.top + 6 + 44 + 10 }]}
-          >
-            {filters.map(item => {
-              const picked = item.type === type;
-              return (
-                <Pressable
-                  key={item.type}
-                  accessibilityRole="menuitem"
-                  accessibilityLabel={item.label}
-                  accessibilityState={{ selected: picked }}
-                  onPress={() => {
-                    setType(item.type);
-                    setMenuOpen(false);
-                  }}
-                  style={[styles.option, picked && styles.optionPicked]}
-                >
-                  <AppText
-                    style={[
-                      styles.optionText,
-                      picked && styles.optionTextPicked,
-                    ]}
-                  >
-                    {item.label}
-                  </AppText>
-                  {picked ? (
-                    <Icon
-                      name="check"
-                      color={look.ink}
-                      size={18}
-                      strokeWidth={2.2}
-                    />
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </View>
-        </>
-      ) : null}
     </View>
   );
 }
 
-const raised = {
-  borderWidth: 1,
-  borderColor: 'rgba(255,255,255,0.6)',
-  backgroundColor: 'rgba(255,255,255,0.5)',
-  boxShadow:
-    '0 10px 30px rgba(9,17,26,0.08), inset 0 1px 0 rgba(255,255,255,0.7)',
-} as const;
+const gutter = 16;
+const gap = 10;
+
+// 탐색 card (시안): the run on the dark map with its route, the author at the top and the distance at the foot.
+function ExploreCard({
+  post,
+  width,
+  height,
+  onPress,
+}: {
+  post: Post;
+  width: number;
+  height: number;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${post.author.handle}의 ${formatKm(
+        post.record.distanceM,
+      )}km 러닝`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        { width, height },
+        pressed && styles.pressed,
+      ]}
+    >
+      <MapBackdrop seed={post.id} width={width} height={height} scale={0.6} />
+      {post.courseShared ? (
+        <RouteLine
+          shape={post.record.shape}
+          width={width}
+          height={height}
+          scale={0.6}
+        />
+      ) : null}
+      <View style={styles.cardShade} pointerEvents="none" />
+      <View style={styles.cardAuthor}>
+        <Avatar
+          nickname={post.author.nickname}
+          userId={post.author.userId}
+          mine={post.isMine}
+          size={22}
+        />
+        <AppText style={styles.cardHandle} numberOfLines={1}>
+          {post.author.handle}
+        </AppText>
+      </View>
+      <View style={styles.cardDistance}>
+        <Icon name="runner" color={feedLook.route} size={16} />
+        <AppText style={styles.cardKm}>
+          {formatKm(post.record.distanceM)}
+          <AppText style={styles.cardUnit}> km</AppText>
+        </AppText>
+      </View>
+    </Pressable>
+  );
+}
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8FAFB' },
-  pressed: { opacity: 0.6 },
-  bar: {
+  root: { flex: 1, backgroundColor: look.ground },
+  pressed: { opacity: 0.7 },
+  loading: { marginTop: 48 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
+  },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 22,
+    lineHeight: 28,
+    color: look.ink,
+  },
+  // 시안의 흰 검색 알약.
+  field: {
+    height: 48,
+    marginHorizontal: gutter,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  field: {
-    ...raised,
-    flex: 1,
-    minWidth: 0,
-    height: 44,
-    borderRadius: 22,
-    paddingLeft: 14,
-    paddingRight: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    borderRadius: 24,
+    backgroundColor: look.white,
   },
   input: {
     flex: 1,
-    minWidth: 0,
-    padding: 0,
-    fontFamily: fontFamily.medium,
-    fontSize: 15.5,
+    paddingVertical: 0,
+    fontFamily: fontFamily.regular,
+    fontSize: 16,
     color: look.ink,
   },
-  clear: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
+  // A fixed height: a sideways list sized by its content can come out shorter than its chips.
+  chipScroll: { flexGrow: 0, flexShrink: 0, height: 40, marginTop: 12 },
+  chips: { gap: 8, paddingHorizontal: gutter, alignItems: 'center' },
+  chip: {
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
     justifyContent: 'center',
+    backgroundColor: look.chip,
   },
-  clearDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(24,46,61,0.28)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filter: {
-    ...raised,
-    height: 44,
-    borderRadius: 22,
-    paddingLeft: 16,
-    paddingRight: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  filterText: {
-    fontFamily: fontFamily.bold,
+  chipPicked: { backgroundColor: look.mark },
+  chipText: {
+    fontFamily: fontFamily.medium,
     fontSize: 14,
-    letterSpacing: -0.3,
+    lineHeight: 18,
     color: look.ink,
   },
-  flipped: { transform: [{ rotate: '180deg' }] },
-  menu: {
-    position: 'absolute',
-    right: 16,
-    width: 176,
-    padding: 6,
-    gap: 2,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
-    // The mockup's 94% white sits on a blur; without one the rows behind show through, so it is solid.
-    backgroundColor: '#FCFDFD',
-    boxShadow:
-      '0 22px 48px rgba(9,17,26,0.18), 0 2px 8px rgba(9,17,26,0.06), inset 0 1px 0 #FFFFFF',
+  chipTextPicked: { color: look.white },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap,
+    paddingHorizontal: gutter,
+    paddingTop: 14,
   },
-  option: {
-    height: 46,
-    paddingHorizontal: 12,
-    borderRadius: 14,
+  card: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: feedLook.ground,
+  },
+  skeleton: { backgroundColor: look.skeleton },
+  cardShade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 70,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  cardAuthor: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 11,
+    gap: 6,
   },
-  optionPicked: { backgroundColor: look.picked },
-  optionText: {
-    flex: 1,
+  cardHandle: {
+    flexShrink: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: feedLook.white,
+  },
+  cardDistance: {
+    position: 'absolute',
+    left: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cardKm: {
+    fontFamily: fontFamily.bold,
+    letterSpacing: -0.6,
+    fontSize: 22,
+    lineHeight: 26,
+    color: feedLook.white,
+  },
+  cardUnit: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
+    color: feedLook.white,
+  },
+  section: {
+    marginTop: 18,
+    marginBottom: 6,
+    paddingHorizontal: gutter,
     fontFamily: fontFamily.medium,
     fontSize: 15,
-    letterSpacing: -0.3,
-    color: look.ink,
+    lineHeight: 20,
+    color: look.sub,
   },
-  optionTextPicked: { fontFamily: fontFamily.bold },
-  // The 8.1 band: full width, 48 high.
-  band: {
-    height: 48,
-    marginBottom: 4,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    backgroundColor: look.band,
-  },
-  bandText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    letterSpacing: -0.2,
-    color: look.bandText,
-  },
-  gap: { height: 12 },
-  row: {
-    height: 60,
-    paddingHorizontal: 16,
+  gapRow: { height: 6 },
+  person: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
+    paddingHorizontal: gutter,
+    paddingVertical: 8,
   },
-  rowPressed: { backgroundColor: 'rgba(2,5,14,0.04)' },
   mark: {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: look.mark,
-    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.5)',
   },
-  avatar: { borderRadius: 20 },
-  crewMark: { borderRadius: 13 },
-  initial: { fontFamily: fontFamily.bold, fontSize: 15, color: '#FFFFFF' },
-  nameBox: { flex: 1, minWidth: 0 },
+  avatar: { borderRadius: 24 },
+  crewMark: { borderRadius: 14 },
+  initial: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    color: '#FFFFFF',
+  },
+  nameBox: { flex: 1 },
   name: {
     fontFamily: fontFamily.medium,
     fontSize: 16,
     lineHeight: 22,
-    letterSpacing: -0.2,
     color: look.ink,
   },
-  match: { fontFamily: fontFamily.black },
+  match: { fontFamily: fontFamily.bold },
+  personSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: look.sub,
+  },
   state: {
+    width: '100%',
     alignItems: 'center',
     paddingHorizontal: 32,
-    marginTop: '45%',
+    paddingTop: 56,
     gap: 8,
   },
   stateTitle: {
-    marginTop: 16,
+    marginTop: 8,
     fontFamily: fontFamily.bold,
-    fontSize: 19,
-    letterSpacing: -0.4,
+    fontSize: 17,
+    lineHeight: 24,
     color: look.ink,
     textAlign: 'center',
   },
   stateBody: {
+    fontFamily: fontFamily.regular,
     fontSize: 14,
     lineHeight: 20,
     color: look.sub,
     textAlign: 'center',
   },
   retry: {
-    marginTop: 20,
-    height: 48,
-    paddingHorizontal: 28,
-    borderRadius: 16,
+    marginTop: 12,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#02050D',
-    boxShadow: '0 10px 24px rgba(2,5,14,0.22)',
+    gap: 6,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    backgroundColor: look.mark,
   },
-  retryText: { fontFamily: fontFamily.bold, fontSize: 16, color: '#FFFFFF' },
-  loading: { marginTop: 48 },
+  retryText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 18,
+    color: '#FFFFFF',
+  },
   more: {
-    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    paddingVertical: 16,
   },
-  moreText: { fontSize: 13, fontFamily: fontFamily.medium, color: look.sub },
+  moreText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: look.sub,
+  },
 });

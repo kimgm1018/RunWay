@@ -103,7 +103,9 @@ export function FollowRequestSheet({
     } catch {
       setNote('요청을 더 불러오지 못했어요');
       setState(current =>
-        current.status === 'ready' ? { ...current, loadingMore: false } : current,
+        current.status === 'ready'
+          ? { ...current, loadingMore: false }
+          : current,
       );
     }
   };
@@ -184,7 +186,10 @@ export function FollowRequestSheet({
             return (
               <View key={request.requestId} style={styles.row}>
                 <View
-                  style={[styles.avatar, { backgroundColor: colors.surfaceMuted }]}
+                  style={[
+                    styles.avatar,
+                    { backgroundColor: colors.surfaceMuted },
+                  ]}
                 >
                   <AppText variant="bodyStrong">
                     {request.nickname.slice(0, 1)}

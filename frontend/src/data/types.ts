@@ -228,6 +228,9 @@ export type NotificationKind =
 export type PostRecord = RunRecordSummary & {
   // 민락수변공원 in 민락수변공원 · 코스 러닝.
   place: string;
+  // The shared course as GeoJSON [longitude, latitude] points (C03 route), for 7.2's map and 코스 재생; null
+  // when the post has no course or the list (CMT02) does not carry it.
+  route: [number, number][] | null;
   courseRun: boolean;
   averageHeartRate: number | null;
   cadence: number | null;

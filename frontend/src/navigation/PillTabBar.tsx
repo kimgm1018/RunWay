@@ -280,7 +280,11 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
     borderColor: k1.night,
   },
+  // The full tab width, centred: measured on its own, the name can come out 0 wide on the first draw before the
+  // font is ready and stay hidden until the tab draws again.
   label: {
+    alignSelf: 'stretch',
+    textAlign: 'center',
     fontFamily: fontFamily.medium,
     fontSize: 10,
     lineHeight: 13,

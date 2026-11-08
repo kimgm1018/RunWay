@@ -5,6 +5,8 @@ import App from '../App';
 import { Backdrop } from '../src/components';
 import { createMockRepositories, DataError } from '../src/data';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { FeedPage } from '../src/screens/community/FeedPage';
+import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
 import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
 import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
@@ -124,6 +126,127 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(1);
   await press(screen, '좋아요');
   expect(liked()).toBe(2);
+});
+
+// 7.1 (S15P31E105-561, 담당자 시안): one full-screen page per post, the run's numbers at the foot, the actions down
+// the right, and the route drawn only for a post that shares its course.
+test('7.1 shows each post as a full-screen page with its numbers, and the route only when the course is shared', async () => {
+  const screen = await openCommunity();
+  const pages = screen.root.findAllByType(FeedPage);
+  expect(pages.length).toBeGreaterThan(1);
+  const first = pages[0];
+  const words = first
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string')
+    .join(' ');
+  for (const label of ['거리', '시간', '평균 페이스', '예시 경로']) {
+    expect(words).toContain(label);
+  }
+  for (const action of ['댓글', '공유']) {
+    expect(
+      first.findAll(
+        node =>
+          node.props.accessibilityLabel === action &&
+          typeof node.props.onPress === 'function',
+      ).length,
+    ).toBeGreaterThan(0);
+  }
+  // Without the course shared, the page keeps the map but draws no route or 예시 경로.
+  const hidden = pages.find(page => !page.props.post.courseShared);
+  if (hidden) {
+    const hiddenWords = hidden
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .join(' ');
+    expect(hiddenWords).not.toContain('예시 경로');
+  }
+});
+
+// 7.2 (S15P31E105-561, 담당자 레퍼런스): the map behind a white sheet with the numbers, the run, 좋아요, the 댓글
+// card and 달성, and a comment bar that opens the same comments sheet as 7.1.
+test('7.2 shows the run over its map, likes it and opens the comments from the card and the bar', async () => {
+  const screen = await openCommunity();
+  await press(screen, '검색');
+  await settle(50);
+  await press(screen, 'seoyun.run의 5.02km 러닝');
+  await settle(50);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const words = detail
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string')
+    .join(' ');
+  for (const label of [
+    '거리',
+    '평균 페이스',
+    '평균 심박',
+    '케이던스',
+    '민락수변공원 출발 5.0km · 완주',
+    '댓글 3',
+    '달성',
+    '목표 완주',
+  ]) {
+    expect(words).toContain(label);
+  }
+  await press(screen, '댓글 3개 열기');
+  expect(texts(screen)).toContain(
+    '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
+  );
+  await press(screen, '댓글 닫기');
+  await press(screen, '댓글 쓰기');
+  expect(labelled(screen, '댓글 입력', 'onChangeText')).toBeTruthy();
+});
+
+// A feed page opens 7.2, and 7.2's map plays the course back: the distance counts up, a tap pauses and resumes,
+// and it ends on the run's full distance (S15P31E105-561, 담당자 레퍼런스).
+test('a feed page opens 7.2, whose map plays the course from the start with pause and replay', async () => {
+  const screen = await openCommunity();
+  await press(screen, 'minjun.run의 게시물 열기');
+  await settle(50);
+  expect(screen.root.findAllByType(PostDetailScreen)).toHaveLength(1);
+  // The distance counts up beside the time; the average pace stays big (담당자 요청: 페이스가 주).
+  const km = () =>
+    parseFloat(
+      (
+        screen.root.find(
+          node =>
+            typeof node.props.accessibilityLabel === 'string' &&
+            node.props.accessibilityLabel.startsWith('거리 ') &&
+            node.props.accessibilityLabel.endsWith('km'),
+        ).props.accessibilityLabel as string
+      ).slice(3),
+    );
+
+  await press(screen, '코스 재생');
+  // It starts at the start.
+  expect(km()).toBeLessThan(0.1);
+  expect(texts(screen)).toContain('탭하면 일시정지');
+  expect(texts(screen)).toContain('평균 페이스 (/KM)');
+  // The camera swoops in first (once the map is up, here after its limit), then the run plays; time passes in
+  // steps so each stage's timers start.
+  for (let step = 0; step < 18; step++) {
+    await settle(500);
+  }
+  const halfway = km();
+  expect(halfway).toBeGreaterThan(0);
+  expect(halfway).toBeLessThan(5.02);
+
+  await press(screen, '재생 일시정지');
+  expect(texts(screen)).toContain('일시정지됨 · 탭하면 계속');
+  const paused = km();
+  for (let step = 0; step < 6; step++) {
+    await settle(500);
+  }
+  expect(km()).toBe(paused);
+
+  await press(screen, '재생 계속');
+  for (let step = 0; step < 20; step++) {
+    await settle(500);
+  }
+  expect(km()).toBe(5.02);
+  expect(texts(screen)).toContain('탭하면 다시 재생');
+  await press(screen, '코스 재생 닫기');
 });
 
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
@@ -274,11 +397,12 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(texts(screen)).toContain('팔로우');
 });
 
-test('그룹 · 커뮤니티 · 프로필 sit on the mist like 홈, and only the crew cards stay navy (S15P31E105-483)', async () => {
+test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark map feed, only the crew cards staying navy (S15P31E105-483·561)', async () => {
   const screen = await openCommunity();
   const onMist = (component: React.ElementType) =>
     screen.root.findByType(component).findAllByType(Backdrop).length > 0;
-  expect(onMist(CommunityScreen)).toBe(true);
+  // 7.1 is now full-screen pages on a dark map (S15P31E105-561, 담당자 시안), not the mist.
+  expect(onMist(CommunityScreen)).toBe(false);
 
   await press(screen, '그룹');
   await settle(50);
