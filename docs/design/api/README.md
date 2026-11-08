@@ -10,7 +10,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 
 | 문서 | 도메인 | API 수 |
 |---|---|---:|
-| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 25 |
+| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 27 |
 | [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
 | [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
@@ -23,7 +23,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **95개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
+총 **97개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -180,6 +180,8 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | U23 | [러너 팔로우·요청 취소](./users.md#u23-러너-팔로우요청-취소) | DELETE | `/users/{userId}/follow` | [users.md](./users.md) |
 | U24 | [받은 팔로우 요청 목록](./users.md#u24-받은-팔로우-요청-목록) | GET | `/users/me/follow-requests` | [users.md](./users.md) |
 | U25 | [팔로우 요청 승인·거절](./users.md#u25-팔로우-요청-승인거절) | PATCH | `/users/me/follow-requests/{requesterId}` | [users.md](./users.md) |
+| U26 | [팔로워 목록](./users.md#u26-팔로워-목록) | GET | `/users/{userId}/followers` | [users.md](./users.md) |
+| U27 | [팔로잉 목록](./users.md#u27-팔로잉-목록) | GET | `/users/{userId}/following` | [users.md](./users.md) |
 | W01 | [기기 등록](./devices-health.md#w01-기기-등록) | POST | `/devices` | [devices-health.md](./devices-health.md) |
 | W02 | [등록 기기 조회](./devices-health.md#w02-등록-기기-조회) | GET | `/devices` | [devices-health.md](./devices-health.md) |
 | W03 | [기기 연결 해제](./devices-health.md#w03-기기-연결-해제) | DELETE | `/devices/{deviceId}` | [devices-health.md](./devices-health.md) |
@@ -334,6 +336,7 @@ P07은 세션 BPM 조절, G12는 그룹장 전용 전체 강제 종료로 변경
 | U13·U14 | 계정 공개 여부로 통일. 공개는 전체, 비공개는 본인·승인된 팔로워. 공개 전환 시 유효한 대기 요청 전부 자동 승인 |
 | U22·U23 | 공개 계정 즉시 팔로우 / 비공개 계정 요청 생성, 팔로우·대기 요청 취소 |
 | U24·U25 | 받은 요청 목록, 본인에게 들어온 요청 승인·거절 추가 |
+| U26·U27 | 승인된 팔로워·팔로잉 목록 추가. 비공개 계정은 본인·승인된 팔로워만 조회(S15P31E105-534) |
 | CMT13 | 공용 코스 이름 검색 제외. 러너·크루 검색만 유지 |
 
 계정 정책은 [계정 공개·팔로우 명세](./users.md)를 따른다. 기존 ERD와 화면 맵의 이름·공개 필드·조회 전제는 해당 사용자 결정에 맞춰 후속 정리가 필요하다.

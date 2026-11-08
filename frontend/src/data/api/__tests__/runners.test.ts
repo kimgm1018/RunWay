@@ -363,3 +363,59 @@ test.each([
   expect(failure).toBeInstanceOf(DataError);
   expect((failure as DataError).code).toBe(code);
 });
+
+// 7.4c 팔로워 · 팔로잉 (U26 · U27, S15P31E105-534).
+test.each(['followers', 'following'] as const)(
+  'U26 · U27 %s read 20 a page with string ids and the cursor',
+  async kind => {
+    fetchMock
+      .mockResolvedValueOnce(
+        respond(200, {
+          items: [
+            { userId: 7, nickname: '지우', profileImageUrl: '/api/v1/images/a' },
+            { userId: 8, nickname: null, profileImageUrl: null },
+          ],
+          nextCursor: 'cursor-2',
+          hasNext: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        respond(200, {
+          items: [{ userId: 9, nickname: '수아', profileImageUrl: null }],
+          nextCursor: null,
+          hasNext: false,
+        }),
+      );
+
+    await expect(runners.listFollows('202', kind, null)).resolves.toEqual({
+      items: [
+        { userId: '7', nickname: '지우', profileImageUrl: '/api/v1/images/a' },
+        { userId: '8', nickname: '러너', profileImageUrl: null },
+      ],
+      nextCursor: 'cursor-2',
+    });
+    await expect(
+      runners.listFollows('202', kind, 'cursor-2'),
+    ).resolves.toEqual({
+      items: [{ userId: '9', nickname: '수아', profileImageUrl: null }],
+      nextCursor: null,
+    });
+    // 20 is the only page size U26 · U27 take, so no limit is sent.
+    expect(calls()).toEqual([
+      `GET /users/202/${kind}`,
+      `GET /users/202/${kind}?cursor=cursor-2`,
+    ]);
+  },
+);
+
+test('U26 403 ACCOUNT_ACCESS_DENIED reaches the screen as that failure', async () => {
+  fetchMock.mockResolvedValue(
+    respond(403, { code: 'ACCOUNT_ACCESS_DENIED', message: '', details: {} }),
+  );
+
+  const failure = await runners
+    .listFollows('303', 'followers', null)
+    .catch(error => error);
+  expect(failure).toBeInstanceOf(DataError);
+  expect((failure as DataError).code).toBe('ACCOUNT_ACCESS_DENIED');
+});

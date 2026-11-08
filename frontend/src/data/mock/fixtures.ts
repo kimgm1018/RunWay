@@ -1437,6 +1437,19 @@ export const runnerProfiles: Record<
   },
 };
 
+// 7.4c 팔로워 (U26): who follows each runner, newest first, besides my own follows.
+export const runnerFollowers: Record<string, string[]> = {
+  [communityUsers.me.userId]: [
+    communityUsers.seoyun.userId,
+    communityUsers.sungyoon.userId,
+  ],
+  [communityUsers.seoyun.userId]: [
+    communityUsers.eunseo.userId,
+    communityUsers.jiwoo.userId,
+  ],
+  [communityUsers.sungyoon.userId]: [communityUsers.seoyun.userId],
+};
+
 // 7.4 러너 프로필 photos (U21 profileImageUrl); runners left out have none.
 export const runnerPhotos: Record<string, string | null> = {
   [communityUsers.seoyun.userId]: assetUri(mockSeoyunPhoto),

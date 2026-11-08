@@ -1,4 +1,5 @@
 import type {
+  FollowListPage,
   FollowRequestPage,
   Repositories,
   RunnerProfile,
@@ -52,6 +53,13 @@ type FollowRequestsResponse = {
 };
 
 const followRequestsPath = '/users/me/follow-requests';
+
+// U26 · U27 item: a runner on the other side of an approved follow.
+type FollowListResponse = {
+  items: { userId: number; nickname: string | null; profileImageUrl: string | null }[];
+  nextCursor: string | null;
+  hasNext: boolean;
+};
 
 async function readFollowRequests(cursor: string | null) {
   const page = await apiRequest<FollowRequestsResponse>(followRequestsPath, {
@@ -173,6 +181,22 @@ export function createRunnersApi({
       return getProfile(userId);
     },
     listFollowRequests: readFollowRequests,
+    // U26 followers · U27 following, 20 a page.
+    listFollows: async (userId, kind, cursor) => {
+      const page = await apiRequest<FollowListResponse>(
+        `/users/${encodeURIComponent(userId)}/${kind}`,
+        { query: { cursor } },
+      );
+      const result: FollowListPage = {
+        items: page.items.map(item => ({
+          userId: String(item.userId),
+          nickname: item.nickname ?? unknownNickname,
+          profileImageUrl: item.profileImageUrl ?? null,
+        })),
+        nextCursor: page.hasNext ? page.nextCursor : null,
+      };
+      return result;
+    },
     // U25 names the request as U24 listed it, so a late answer never settles a request sent again later.
     decideFollowRequest: async (request, decision) => {
       await apiRequest(

@@ -1257,6 +1257,9 @@ CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended
 -- S15P31E105-421 (V13): 세션별 경과시간 순 측정값 조회(AI04 실시간 코칭 history, 세션당 15초마다)용. FK 인덱스가 없어 전체 스캔하던 조회다.
 CREATE INDEX idx_running_metric_samples_session_elapsed ON running_metric_samples (running_session_id, elapsed_duration);
 
+-- S15P31E105-534 (V20): 팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청·팔로워 수)용. FK 인덱스가 없어 전체 스캔하던 조회다.
+CREATE INDEX idx_user_follows_followee_created ON user_follows (followee_id, is_approved, created_at DESC, id DESC);
+
 -- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
 ALTER TABLE "user_recommendation_preferences"
     ADD CONSTRAINT "FK_users_TO_user_recommendation_preferences"
