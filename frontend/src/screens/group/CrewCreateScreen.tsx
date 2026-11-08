@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -11,9 +12,11 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText, Icon, useToast } from '../../components';
 import {
+  errorCode,
   useRepositories,
   type CrewJoinPolicy,
   type MeetingPlace,
+  type PhotoFile,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
@@ -22,6 +25,7 @@ import { GroupCta, groupLook, MistBackground, SectionLabel } from './look';
 import { useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
+import { photoFailure, pickPhoto } from '../photoPicker';
 
 // M03: 1–200 members; a new crew starts at 20.
 const minCapacity = 1;
@@ -195,8 +199,19 @@ export function CrewCreateScreen() {
   const [description, setDescription] = useState('');
   const [joinPolicy, setJoinPolicy] = useState<CrewJoinPolicy>('APPROVAL');
   const [capacity, setCapacity] = useState(defaultCapacity);
+  // 대표 사진 (F01 CREW → M03 imageKey): optional, sent with 크루 만들기.
+  const [photo, setPhoto] = useState<PhotoFile | null>(null);
   const [busy, setBusy] = useState(false);
   const ready = name.trim().length > 0 && area !== null;
+
+  const choosePhoto = async () => {
+    const picked = await pickPhoto('crew');
+    if (picked.kind === 'refused') {
+      toast(picked.message);
+    } else if (picked.kind === 'picked') {
+      setPhoto(picked.photo);
+    }
+  };
 
   const create = async () => {
     if (!ready || !area) {
@@ -211,19 +226,25 @@ export function CrewCreateScreen() {
         description: description.trim() || null,
         joinPolicy,
         capacity,
+        photo,
       });
       // 6.0 lists the new crew from now on.
       changed();
       toast('크루를 만들었어요');
       navigateTo(navigation, 'MyCrews');
-    } catch {
-      toast('크루를 만들지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      // What was typed stays; a photo problem says to pick another one.
+      toast(
+        photoFailure(error) ??
+          (errorCode(error) === 'RESOURCE_NOT_OWNED'
+            ? '이 사진은 쓸 수 없어요. 사진을 다시 골라 주세요'
+            : '크루를 만들지 못했어요. 잠시 후 다시 시도해 주세요'),
+      );
       setBusy(false);
     }
   };
 
   return (
-    // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
     // On the mist like the rest of 6.0~6.3 (S15P31E105-483).
     <ThemeProvider tone="light">
       <View style={styles.root}>
@@ -242,21 +263,51 @@ export function CrewCreateScreen() {
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.content}
           >
-            {/* No photo upload yet (M03 imageId is not stored), so the box only says so. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="대표 사진 추가"
-              onPress={() =>
-                toast('대표 사진은 사진 업로드가 준비되면 추가할 수 있어요')
-              }
-              style={({ pressed }) => [
-                styles.photo,
-                pressed && styles.rowPressed,
-              ]}
-            >
-              <Icon name="camera" color={groupLook.onLight} size={20} />
-              <AppText style={styles.photoText}>대표 사진 추가</AppText>
-            </Pressable>
+            {/* 대표 사진: the picked photo fills the box; tapping it picks another, × takes it out. */}
+            <View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  photo ? '대표 사진 바꾸기' : '대표 사진 추가'
+                }
+                disabled={busy}
+                onPress={choosePhoto}
+                style={({ pressed }) => [
+                  styles.photo,
+                  photo && styles.photoPicked,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                {photo ? (
+                  <Image
+                    source={{ uri: photo.uri }}
+                    style={StyleSheet.absoluteFill}
+                    resizeMode="cover"
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : (
+                  <>
+                    <Icon name="camera" color={groupLook.onLight} size={20} />
+                    <AppText style={styles.photoText}>대표 사진 추가</AppText>
+                  </>
+                )}
+              </Pressable>
+              {photo ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="대표 사진 빼기"
+                  disabled={busy}
+                  onPress={() => setPhoto(null)}
+                  hitSlop={8}
+                  style={({ pressed }) => [
+                    styles.photoRemove,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Icon name="close" color={groupLook.onDark} size={14} />
+                </Pressable>
+              ) : null}
+            </View>
             <Field title="크루 이름" note="필수">
               <InputBox>
                 <TextInput
@@ -378,6 +429,19 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     borderRadius: 24,
     ...inputDark,
+  },
+  // A picked photo fills the box edge to edge.
+  photoPicked: { height: 160, overflow: 'hidden' },
+  photoRemove: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2,5,14,0.55)',
   },
   photoText: {
     fontFamily: fontFamily.bold,

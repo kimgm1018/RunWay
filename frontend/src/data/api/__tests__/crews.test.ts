@@ -307,6 +307,7 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     description: null,
     joinPolicy: 'INSTANT',
     capacity: 21,
+    photo: null,
   });
 
   expect(id).toBe('50');
@@ -317,6 +318,103 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     regionCode: '26500',
   });
   expect((await crews.get('50')).joinPolicy).toBe('INSTANT');
+});
+
+// 6.3 대표 사진 (S15P31E105-531): F01 with purpose CREW, then its stored path as M03 imageKey.
+const crewPhotoDraft = {
+  name: '광안리 주말 러너스',
+  area: '광안리해수욕장 입구',
+  address: '부산 수영구 광안해변로 219',
+  description: null,
+  joinPolicy: 'APPROVAL' as const,
+  capacity: 20,
+  photo: {
+    uri: 'file:///photos/crew.png',
+    type: 'image/png' as const,
+    name: 'crew.png',
+  },
+};
+const imageId = '550e8400-e29b-41d4-a716-446655440000';
+
+const uploads = () =>
+  fetchMock.mock.calls.filter(([address]) =>
+    new URL(address).pathname.endsWith('/images'),
+  );
+const crewPosts = () =>
+  fetchMock.mock.calls
+    .filter(
+      ([address, init]) =>
+        init.method === 'POST' && new URL(address).pathname.endsWith('/crews'),
+    )
+    .map(([, init]) => JSON.parse(init.body));
+
+test('M03 sends the photo F01 stored for the crew as imageKey', async () => {
+  serve((path, init) => {
+    if (path === '/images' && init.method === 'POST') {
+      return respond(201, { imageId, url: null });
+    }
+    if (path === '/crews' && init.method === 'POST') {
+      return respond(201, { id: 50, ownerId: 101 });
+    }
+    return undefined;
+  });
+  const { crews } = api();
+
+  await expect(crews.create(crewPhotoDraft)).resolves.toEqual({ id: '50' });
+
+  const [[, upload]] = uploads();
+  // The test runtime's FormData can be read back; React Native's type has no get().
+  const form = upload.body as { get: (name: string) => unknown };
+  expect(form.get('purpose')).toBe('CREW');
+  expect(crewPosts()).toEqual([
+    {
+      name: '광안리 주말 러너스',
+      description: null,
+      capacity: 20,
+      regionCode: '26500',
+      imageKey: `images/crew/101/${imageId}.png`,
+    },
+  ]);
+});
+
+test('a crew retried after M03 fails keeps the photo it uploaded, and a refused photo reaches the screen', async () => {
+  let crewAnswer = respond(503, {
+    code: 'SERVICE_UNAVAILABLE',
+    message: '',
+    details: {},
+  });
+  let uploadAnswer = respond(201, { imageId, url: null });
+  serve((path, init) => {
+    if (path === '/images' && init.method === 'POST') {
+      return uploadAnswer;
+    }
+    if (path === '/crews' && init.method === 'POST') {
+      return crewAnswer;
+    }
+    return undefined;
+  });
+  const { crews } = api();
+
+  await expect(crews.create(crewPhotoDraft)).rejects.toMatchObject({
+    code: 'SERVER_ERROR',
+  });
+  crewAnswer = respond(201, { id: 51, ownerId: 101 });
+  await expect(crews.create(crewPhotoDraft)).resolves.toEqual({ id: '51' });
+  expect(uploads()).toHaveLength(1);
+
+  // A new photo that F01 turns down stops before M03.
+  uploadAnswer = respond(413, {
+    code: 'FILE_TOO_LARGE',
+    message: '',
+    details: {},
+  });
+  await expect(
+    crews.create({
+      ...crewPhotoDraft,
+      photo: { ...crewPhotoDraft.photo, uri: 'file:///photos/big.png' },
+    }),
+  ).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+  expect(crewPosts()).toHaveLength(2);
 });
 
 test('a place in an unknown or ambiguous region is sent without a region', async () => {
@@ -530,6 +628,7 @@ test('목업 해산은 비소유자를 거부하고 소유자 해산 후 검색�
     address: '부산',
     capacity: 20,
     joinPolicy: 'APPROVAL',
+    photo: null,
   });
   await expect(crews.leave(id)).rejects.toMatchObject({
     code: 'OWNER_CANNOT_LEAVE',

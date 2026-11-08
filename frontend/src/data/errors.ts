@@ -36,6 +36,8 @@ export const dataErrorCodes = [
   'REQUEST_STATE_CONFLICT',
   // C10 생성 코스 저장: the C01 route is older than 30 minutes or was changed (COURSE_INACCESSIBLE is listed above).
   'COURSE_CANDIDATE_INVALID',
+  // M03 크루 대표 사진: the imageKey is not a CREW photo I uploaded myself.
+  'RESOURCE_NOT_OWNED',
   'ALREADY_MEMBER_OR_PENDING',
   'NOT_PENDING',
   'OWNER_CANNOT_LEAVE',

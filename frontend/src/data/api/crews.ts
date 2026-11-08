@@ -4,9 +4,11 @@ import type {
   CrewListItem,
   CrewMember,
   MyCrew,
+  PhotoFile,
   Repositories,
 } from '../types';
 import { apiRequest } from './http';
+import { uploadImage } from './images';
 import type { Regions } from './regions';
 
 // M01–M11 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
@@ -78,6 +80,24 @@ export function createCrewsApi({
         throw error;
       });
     return me;
+  };
+
+  // 6.3 대표 사진: F01 (purpose CREW) stores it under images/crew/{userId}/{imageId}.{ext}, and M03 takes that path
+  // as imageKey (files.md F01, crews.md M03). A photo already uploaded is not sent again when M03 is retried.
+  const photoKeys = new Map<string, Promise<string>>();
+  const crewPhotoKey = (photo: PhotoFile) => {
+    let key = photoKeys.get(photo.uri);
+    if (!key) {
+      key = Promise.all([uploadImage(photo, 'CREW'), myId()]).then(
+        ([{ imageId }, userId]) =>
+          `images/crew/${userId}/${imageId}.${
+            photo.type === 'image/png' ? 'png' : 'jpg'
+          }`,
+      );
+      photoKeys.set(photo.uri, key);
+      key.catch(() => photoKeys.delete(photo.uri));
+    }
+    return key;
   };
 
   const areaOf = async (regionCode: string | null) =>
@@ -184,6 +204,7 @@ export function createCrewsApi({
     listJoinRequests,
     // M03 keeps the region the picked place is in; the place name itself is not stored.
     create: async draft => {
+      const imageKey = draft.photo ? await crewPhotoKey(draft.photo) : null;
       const { id } = await apiRequest<{ id: number }>('/crews', {
         method: 'POST',
         body: {
@@ -191,6 +212,7 @@ export function createCrewsApi({
           description: draft.description,
           capacity: draft.capacity,
           regionCode: (await regions.codeOf(draft.address)) ?? undefined,
+          ...(imageKey ? { imageKey } : {}),
         },
       });
       policies.set(String(id), draft.joinPolicy);

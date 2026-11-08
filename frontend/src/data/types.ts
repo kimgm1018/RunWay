@@ -449,6 +449,8 @@ export type CrewDraft = {
   description: string | null;
   joinPolicy: CrewJoinPolicy;
   capacity: number;
+  // 6.3 대표 사진 (F01 CREW → M03 imageKey, S15P31E105-531); null without one.
+  photo: PhotoFile | null;
 };
 
 // 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
