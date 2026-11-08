@@ -34,8 +34,6 @@ class DeviceConcurrencyIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seedUser() {
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM users");
         userId =
                 jdbc.queryForObject(
                         """

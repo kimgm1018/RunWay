@@ -28,14 +28,6 @@ class PostReactionApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM post_likes");
-        jdbc.update("DELETE FROM comments");
-        jdbc.update("DELETE FROM posts");
-        jdbc.update("DELETE FROM user_follows");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM users");
-
         viewerId = insertUser("rx_viewer", "뷰어", "01030001001");
         publicAuthorId = insertUser("rx_public", "공개작성", "01030001002");
         privateAuthorId = insertUser("rx_private", "비공개작", "01030001003");

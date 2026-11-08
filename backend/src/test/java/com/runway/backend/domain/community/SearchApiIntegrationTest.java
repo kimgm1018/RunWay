@@ -34,11 +34,6 @@ class SearchApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
-
         viewerId = insertUser("srch_viewer", "조회자", "01030001000");
         runnerA = insertUser("srch_a", "달리기A", "01030001001");
         runnerB = insertUser("srch_b", "달리기B", "01030001002");

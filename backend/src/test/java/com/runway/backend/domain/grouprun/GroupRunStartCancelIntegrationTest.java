@@ -37,20 +37,6 @@ class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM pace_plan_segments");
-        jdbc.update("DELETE FROM pace_plans");
-        jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM notifications");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
-
         hostId = insertUser("gr_sc_host", "호스트", "01033330001");
         memberId = insertUser("gr_sc_member", "멤버", "01033330002");
         crewOnlyId = insertUser("gr_sc_crew", "크루만", "01033330004");

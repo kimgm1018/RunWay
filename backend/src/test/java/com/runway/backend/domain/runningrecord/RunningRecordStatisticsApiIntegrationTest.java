@@ -30,16 +30,6 @@ class RunningRecordStatisticsApiIntegrationTest extends SharedContextIntegration
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM running_metric_samples");
-        jdbc.update("DELETE FROM running_session_splits");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews WHERE name LIKE 'rr_stats_%'");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM daily_health_metrics");
-        jdbc.update("DELETE FROM users WHERE login_id LIKE ?", LOGIN_PREFIX + "%");
-
         ownerId = insertUser(LOGIN_PREFIX + "owner", "통계소유자", "01050001001");
         emptyUserId = insertUser(LOGIN_PREFIX + "empty", "빈통계", "01050001002");
     }

@@ -65,15 +65,6 @@ class CommentApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM notifications");
-        jdbc.update("DELETE FROM post_likes");
-        jdbc.update("DELETE FROM comments");
-        jdbc.update("DELETE FROM posts");
-        jdbc.update("DELETE FROM user_follows");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM users");
-
         viewerId = insertUser("cmt_viewer", "뷰어", "01020001001");
         publicAuthorId = insertUser("cmt_public", "공개작성", "01020001002");
         privateAuthorId = insertUser("cmt_private", "비공개작", "01020001003");

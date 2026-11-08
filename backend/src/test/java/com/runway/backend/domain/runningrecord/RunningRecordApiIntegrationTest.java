@@ -48,19 +48,6 @@ class RunningRecordApiIntegrationTest extends SharedContextIntegrationSupport {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM running_session_splits");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews WHERE name LIKE 'rr_api_%'");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM course_environment_tags");
-        jdbc.update("DELETE FROM course_bookmarks");
-        jdbc.update(
-                "UPDATE courses SET merged_into_course_id = NULL WHERE description LIKE 'rr_api_%'");
-        jdbc.update("DELETE FROM courses WHERE description LIKE 'rr_api_%'");
-        jdbc.update("DELETE FROM users WHERE login_id LIKE ?", LOGIN_PREFIX + "%");
-
         ownerId = insertUser(LOGIN_PREFIX + "owner", "기록소유자", "01040001001");
         otherId = insertUser(LOGIN_PREFIX + "other", "타인", "01040001002");
         emptyUserId = insertUser(LOGIN_PREFIX + "empty", "빈유저", "01040001003");

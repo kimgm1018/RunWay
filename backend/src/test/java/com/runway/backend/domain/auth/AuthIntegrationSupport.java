@@ -84,6 +84,11 @@ abstract class AuthIntegrationSupport {
     long user;
     String encoded;
 
+    /** 준비 데이터만 재사용한다. 실제 요청의 해싱과 Spy 호출 이력은 각 테스트가 검증한다. */
+    private static final class SeedPassword {
+        static final String ENCODED = new MemberPasswordHasher().encode("Runner9!");
+    }
+
     @BeforeEach
     void seedAuth() {
         try (var connection = redis.getConnectionFactory().getConnection()) {
@@ -92,7 +97,7 @@ abstract class AuthIntegrationSupport {
         jdbc.update("DELETE FROM user_settings");
         jdbc.update("DELETE FROM user_profiles");
         jdbc.update("DELETE FROM users");
-        encoded = passwords.encode("Runner9!");
+        encoded = SeedPassword.ENCODED;
         user =
                 jdbc.queryForObject(
                         """
