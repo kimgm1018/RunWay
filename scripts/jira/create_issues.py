@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -253,6 +254,37 @@ def priority_options(metadata: dict) -> list[dict]:
     return [{"id": x["id"], "name": x["name"]} for x in values]
 
 
+def sprint_summary(sprint: dict) -> dict:
+    return {key: sprint.get(key) for key in ("id", "name", "state", "startDate", "endDate")}
+
+
+def parse_jira_time(value) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def default_sprint(sprints: list[dict]) -> dict:
+    """Suggest the board's single active sprint for new Task/Story drafts; ask only when it is unclear."""
+    active = [x for x in sprints if x.get("state") == "active"]
+    future = sorted((x for x in sprints if x.get("state") == "future"),
+                    key=lambda x: parse_jira_time(x.get("startDate")) or datetime.max.replace(tzinfo=timezone.utc))
+    result = {"sprint": None, "reason": None, "question": None}
+    if len(active) == 1:
+        result.update(sprint=sprint_summary(active[0]), reason="active")
+    elif not active:
+        result.update(reason="no_active", next_sprint=sprint_summary(future[0]) if future else None,
+                      question="활성 스프린트가 없습니다. 예정 스프린트에 등록할까요, 스프린트 미지정으로 둘까요?")
+    else:
+        result.update(reason="multiple_active", candidates=[sprint_summary(x) for x in active],
+                      question="활성 스프린트가 여러 개입니다. 어느 스프린트에 등록할까요?")
+    return result
+
+
 class Workflow:
     def __init__(self, client: Client):
         self.client, self.config = client, client.config
@@ -323,6 +355,7 @@ class Workflow:
         epics = self.client.search(f"project = {jql_string(self.config.project)} AND issuetype = {jql_string(str(epic_types[0]['id']))}") if len(epic_types) == 1 else []
         sprints = self.client.pages(f"/rest/agile/1.0/board/{self.config.board}/sprint", "values", {"state": "active,future"})
         return {"current_user": current_user, "issue_types": types, "priorities": priorities, "epics": epics, "sprints": sprints,
+                "default_sprint": default_sprint(sprints),
                 "assignable_users": self.users(user_query) if user_query else [],
                 "hint": "담당자 검색은 --user-query 이름 또는 이메일을 사용하세요."}
 
@@ -402,17 +435,20 @@ class Workflow:
         unknown = set(fields) - set(meta) - {"project", "issuetype"}
         if unknown:
             raise JiraError("생성 화면에 요청 필드가 없습니다: " + ", ".join(sorted(unknown)))
+        sprint = None
         if draft["sprint_id"] is not None:
             sprints = self.client.pages(f"/rest/agile/1.0/board/{self.config.board}/sprint", "values", {"state": "active,future"})
-            if not any(x["id"] == draft["sprint_id"] for x in sprints):
+            matches = [x for x in sprints if x["id"] == draft["sprint_id"]]
+            if not matches:
                 raise JiraError("스프린트는 지정 보드의 활성/예정 스프린트여야 합니다.")
+            sprint = sprint_summary(matches[0])
         # Compare all project summaries, rather than hiding duplicates with a narrow text search.
         issues = self.client.search(f"project = {jql_string(self.config.project)} ORDER BY created DESC")
         normalized = lambda text: " ".join(text.casefold().split())
         exact = [x for x in issues if normalized(x["fields"].get("summary", "")) == normalized(draft["summary"])]
         # Korean word stems and scope are reviewed by the AI using the full candidate list.
         return {"fields": fields, "exact_duplicates": exact, "project_issues": issues,
-                "sprint_id": draft["sprint_id"], "approval_sha256": draft_hash(self.config, draft),
+                "sprint_id": draft["sprint_id"], "sprint": sprint, "approval_sha256": draft_hash(self.config, draft),
                 "draft": draft, "priority": priority, "jira_changed": False}
 
     def verify(self, key: str, fields: dict, sprint_id: int | None) -> dict:

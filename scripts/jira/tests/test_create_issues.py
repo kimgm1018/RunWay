@@ -169,6 +169,44 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn("SECRET_TOKEN", json.dumps(catalog))
                 self.assertFalse(self.writes())
 
+    def catalog_default_sprint(self, rows):
+        self.client.sprint_rows = rows
+        return self.workflow.catalog("")["default_sprint"]
+
+    def test_catalog_suggests_single_active_sprint_even_when_ending(self):
+        active = {"id": 7, "name": "5주차", "state": "active", "startDate": "2026-11-02T00:00:00.000Z",
+                  "endDate": "2000-01-01T00:00:00.000Z", "goal": "ignored"}
+        result = self.catalog_default_sprint([active, {"id": 8, "name": "6주차", "state": "future",
+                                                       "startDate": "2026-11-08T15:00:00.000Z"}])
+        self.assertEqual(result["sprint"]["id"], 7)
+        self.assertNotIn("goal", result["sprint"])
+        self.assertEqual(result["reason"], "active")
+        self.assertIsNone(result["question"])
+        self.assertFalse(self.writes())
+
+    def test_catalog_asks_without_default_when_no_or_multiple_active_sprints(self):
+        later = {"id": 9, "name": "7주차", "state": "future", "startDate": "2026-11-15T15:00:00.000Z"}
+        future = {"id": 8, "name": "6주차", "state": "future", "startDate": "2026-11-08T15:00:00.000Z"}
+        result = self.catalog_default_sprint([later, future])
+        self.assertIsNone(result["sprint"])
+        self.assertEqual(result["reason"], "no_active")
+        self.assertEqual(result["next_sprint"]["id"], 8)
+        self.assertTrue(result["question"])
+        rows = [{"id": 7, "name": "A", "state": "active"}, {"id": 10, "name": "B", "state": "active"}]
+        result = self.catalog_default_sprint(rows)
+        self.assertIsNone(result["sprint"])
+        self.assertEqual(result["reason"], "multiple_active")
+        self.assertEqual([x["id"] for x in result["candidates"]], [7, 10])
+        self.assertTrue(result["question"])
+        self.assertFalse(self.writes())
+
+    def test_preview_shows_selected_sprint_and_keeps_hash(self):
+        plan = self.workflow.prepare(deepcopy(DRAFT))
+        self.assertEqual(plan["sprint"], {"id": 7, "name": "이번 주", "state": "active", "startDate": None, "endDate": None})
+        self.assertEqual(plan["approval_sha256"], jira.draft_hash(CONFIG, jira.validate_draft(deepcopy(DRAFT))))
+        self.assertIsNone(self.workflow.prepare({**DRAFT, "sprint_id": None})["sprint"])
+        self.assertFalse(self.writes())
+
     def test_check_fails_without_create_permission(self):
         self.client.permissions = False
         with self.assertRaises(jira.JiraError):
