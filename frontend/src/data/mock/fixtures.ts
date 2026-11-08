@@ -10,8 +10,8 @@ import type {
   MonthlyRunSummary,
   MusicLibrary,
   MusicState,
+  Track,
   MyCrew,
-  Place,
   Post,
   PostComment,
   PostRecord,
@@ -78,6 +78,9 @@ const mockProfilePhoto = require('../../../assets/images/mock-profile.jpg');
 
 const assetUri = (asset: number) =>
   Image.resolveAssetSource(asset)?.uri ?? null;
+
+// seoyun.run's 7.4 photo, given by the 담당자 as mock data only.
+const mockSeoyunPhoto = require('../../../assets/images/mock-runner-seoyun.webp');
 
 // Sample values shown in prototype v15 2.1 홈.
 export const me: UserProfile = {
@@ -261,13 +264,6 @@ export const savedCourses: SavedCourse[] = [
   },
 ];
 
-// 3.1 기준 위치 choices; the first one is the current position.
-export const origins: Place[] = [
-  { name: '광안리해수욕장 · 현재 위치', position: [129.1186, 35.1532] },
-  { name: '민락수변공원', position: [129.1318, 35.1543] },
-  { name: '수영강 APEC나루공원', position: [129.1345, 35.1697] },
-];
-
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],
   [129.1352, 35.1561],
@@ -371,10 +367,11 @@ export const recommendedCourses: RecommendedCourse[] = [
 export const notifications: AppNotification[] = [
   {
     id: 'noti-1',
-    kind: 'GROUP_RUN_STARTING',
+    kind: 'GROUP_RUN_START_REMINDER',
     message: '‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
     createdAt: '2026-10-19T12:42:00+09:00',
     read: false,
+    targetId: 'gr-saturday',
   },
   {
     id: 'noti-2',
@@ -382,6 +379,7 @@ export const notifications: AppNotification[] = [
     message: '‘민락 야경 러너스’ 가입이 승인됐어요',
     createdAt: '2026-10-19T12:33:00+09:00',
     read: false,
+    targetId: 'crew-minrak-night',
   },
   {
     id: 'noti-3',
@@ -389,13 +387,15 @@ export const notifications: AppNotification[] = [
     message: '서연님이 내 게시물에 댓글을 남겼어요: 페이스 좋네요!',
     createdAt: '2026-10-19T11:45:00+09:00',
     read: false,
+    targetId: 'post-minjun-1015',
   },
   {
     id: 'noti-4',
-    kind: 'GROUP_RUN_CANCELED',
-    message: '이번 주 ‘수요일 저녁 회복런’ 그룹런이 취소됐어요',
+    kind: 'GROUP_RUN_PARTICIPATION_CANCELLED',
+    message: '이번 주 ‘수요일 회복 조깅’ 그룹런이 취소됐어요',
     createdAt: '2026-10-17T09:00:00+09:00',
     read: true,
+    targetId: 'gr-wednesday',
   },
   {
     id: 'noti-5',
@@ -403,6 +403,7 @@ export const notifications: AppNotification[] = [
     message: '‘수영강 하프 크루’ 가입이 거절됐어요',
     createdAt: '2026-10-16T09:00:00+09:00',
     read: true,
+    targetId: 'crew-suyeong-half',
   },
 ];
 
@@ -439,7 +440,6 @@ export const todayPlan: CoursePlan = {
   targetPaceSecPerKm: 360,
   expectedDurationSec: 1800,
   caution: '2km 오르막 주의',
-  rival: { startedAt: '2026-10-13T06:40:00+09:00', durationSec: 1788 },
 };
 
 // 4.5F 자유 러닝: the path drawn for a free run, since it has no planned course.
@@ -540,6 +540,23 @@ const spotifyLibrary: MusicLibrary = {
 
 export const musicLibraries = { MELON: melonLibrary, SPOTIFY: spotifyLibrary };
 
+// 2.7 최근 들은 곡 on Spotify, newest first.
+export const spotifyRecentTracks: Track[] = [
+  { id: 'sp-r1', title: '새벽 해변', subtitle: 'Ocean Club', durationSec: 214 },
+  {
+    id: 'sp-r2',
+    title: '케이던스 180',
+    subtitle: 'Run Crew',
+    durationSec: 198,
+  },
+  {
+    id: 'sp-r3',
+    title: '마지막 1km',
+    subtitle: 'Finish Line',
+    durationSec: 236,
+  },
+];
+
 // 2.7 멜론 연결됨, playing at 1:24 of 3:41.
 export const musicState: MusicState = {
   source: 'MELON',
@@ -568,9 +585,9 @@ export type RecordFixture = Omit<
 };
 
 const solo = { runType: 'SOLO' as const, group: null };
-const crew = (finisherCount: number) => ({
+const crew = (finisherCount: number, groupRunId = 'gr-today') => ({
   runType: 'GROUP' as const,
-  group: { crewName: '광안리 새벽 크루', finisherCount },
+  group: { crewName: '광안리 새벽 크루', finisherCount, groupRunId },
 });
 const courseRoute = (id: string) =>
   recommendedCourses.find(course => course.id === id)!.route;
@@ -1420,5 +1437,28 @@ export const runnerProfiles: Record<
   },
 };
 
-// 7.4b 팔로우 요청 N건.
-export const myFollowRequestCount = 0;
+// 7.4 러너 프로필 photos (U21 profileImageUrl); runners left out have none.
+export const runnerPhotos: Record<string, string | null> = {
+  [communityUsers.seoyun.userId]: assetUri(mockSeoyunPhoto),
+};
+
+// 7.4b 팔로우 요청 (U24): requests waiting for my answer, newest first.
+export const myFollowRequests: {
+  requesterId: string;
+  requestId: string;
+  nickname: string;
+  requestedAt: string;
+}[] = [
+  {
+    requesterId: 'user-dohyun',
+    requestId: 'follow-request-2',
+    nickname: 'dohyun_r',
+    requestedAt: '2026-10-15T23:40:00Z',
+  },
+  {
+    requesterId: communityUsers.jiwoo.userId,
+    requestId: 'follow-request-1',
+    nickname: communityUsers.jiwoo.handle,
+    requestedAt: '2026-10-15T12:10:00Z',
+  },
+];

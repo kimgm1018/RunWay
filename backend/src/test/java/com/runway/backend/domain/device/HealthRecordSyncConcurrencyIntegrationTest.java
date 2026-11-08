@@ -23,16 +23,12 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * W06 AC-6·AC-8. 동시에 출발시킨 요청과 동의 철회가 실제 DB 트랜잭션에서 겹치도록 실행하고 응답과 최종 DB 행으로 판정한다. 단일 서버·단일 DB 범위의
  * 확인이다. 철회는 회원 행 UPDATE로 재현한다. W04 실제 서비스와의 경합은 ConsentConcurrencyIntegrationTest가 확인한다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class HealthRecordSyncConcurrencyIntegrationTest extends HealthRecordSyncIntegrationSupport {
 
@@ -246,12 +242,17 @@ class HealthRecordSyncConcurrencyIntegrationTest extends HealthRecordSyncIntegra
     }
 
     private void waitForLockWait() throws InterruptedException {
-        waitUntil("SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted", "잠금 대기");
+        waitUntil(
+                "SELECT count(DISTINCT l.pid) FROM pg_locks l"
+                        + " JOIN pg_stat_activity a ON a.pid = l.pid"
+                        + " WHERE NOT l.granted AND a.datname = current_database()",
+                "잠금 대기");
     }
 
     private void waitForSleepingInsert() throws InterruptedException {
         waitUntil(
-                "SELECT count(*) FROM pg_stat_activity WHERE wait_event='PgSleep'",
+                "SELECT count(*) FROM pg_stat_activity"
+                        + " WHERE datname=current_database() AND wait_event='PgSleep'",
                 "W06 저장 지연");
     }
 

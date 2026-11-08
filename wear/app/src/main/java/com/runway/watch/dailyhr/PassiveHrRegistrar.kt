@@ -56,7 +56,9 @@ class PassiveHrRegistrar(context: Context) {
                 }
             } finally {
                 // Withdrawn consent deletes local data even when unregistering fails.
-                if (next == CollectionState.OFF_NO_CONSENT) store.clearAll()
+                if (next == CollectionState.OFF_NO_CONSENT) synchronized(store) {
+                    if (!canStore(store.consent())) store.clearAll()
+                }
             }
             store.saveState(next)
             ReconcileResult(next, failed = false)

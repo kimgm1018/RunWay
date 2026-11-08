@@ -140,6 +140,7 @@ test('a rejected access token signs the user out', async () => {
 
   expect(session.signedIn).toBe(false);
   expect(tokenStore.current()).toBeNull();
+  expect(setWatchHealthConsent).not.toHaveBeenCalledWith('DISAGREE');
   await act(async () => screen.unmount());
 });
 
@@ -317,4 +318,47 @@ test('mock data never reads W05', async () => {
   const screen = await mount(true);
   expect(refreshWatchHealthConsent).toHaveBeenLastCalledWith(undefined);
   await act(async () => screen.unmount());
+});
+
+test('starting U03 invalidates credentials before its response and does not sign out a newer login', async () => {
+  await tokenStore.save(tokens);
+  const screen = await mount();
+  let release!: () => void;
+  logout.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        release = resolve;
+      }),
+  );
+  let leaving!: Promise<void>;
+  await act(async () => {
+    leaving = session.logOut();
+  });
+  expect(tokenStore.current()).toBeNull();
+  await act(async () =>
+    session.signIn({ accessToken: 'new-access', refreshToken: 'new-refresh' }),
+  );
+  await act(async () => {
+    release();
+    await leaving;
+  });
+  expect(session.signedIn).toBe(true);
+  expect(tokenStore.current()?.accessToken).toBe('new-access');
+  await act(async () => screen.unmount());
+});
+
+test('an API login saved before account tracking requires reauthentication without deleting health data', async () => {
+  const source = appConfig.dataSource;
+  (appConfig as { dataSource: string }).dataSource = 'api';
+  try {
+    await tokenStore.save(tokens);
+    const screen = await mount();
+    expect(session.signedIn).toBe(false);
+    expect(session.loginRequired).toBe(true);
+    expect(tokenStore.current()).toBeNull();
+    expect(setWatchHealthConsent).not.toHaveBeenCalledWith('DISAGREE');
+    await act(async () => screen.unmount());
+  } finally {
+    (appConfig as { dataSource: string }).dataSource = source;
+  }
 });

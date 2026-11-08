@@ -1,0 +1,18 @@
+**/__pycache__
+**/*.pyc
+# CI에 필요한 테스트·합성 회귀 검사만 허용한다. 실제 데이터·보고서는 제외한다.
+tests/*
+!tests/*.py
+tools/route_regression/*
+!tools/route_regression/test_identity_checks.py
+!tools/route_regression/service_identity.py
+!tools/route_regression/compare.py
+!tools/route_regression/scenarios.json
+reports/
+.pytest_cache/
+
+# 인증정보 파일은 빌드 context에서 제외한다.
+.env
+.env.*
+**/.env
+**/.env.*

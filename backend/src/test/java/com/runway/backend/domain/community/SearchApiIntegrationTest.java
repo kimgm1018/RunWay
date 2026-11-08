@@ -7,41 +7,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@Testcontainers
-class SearchApiIntegrationTest {
-
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
-
+class SearchApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
 
@@ -58,11 +34,6 @@ class SearchApiIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
-
         viewerId = insertUser("srch_viewer", "조회자", "01030001000");
         runnerA = insertUser("srch_a", "달리기A", "01030001001");
         runnerB = insertUser("srch_b", "달리기B", "01030001002");

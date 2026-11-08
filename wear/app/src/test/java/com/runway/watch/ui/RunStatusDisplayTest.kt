@@ -88,4 +88,21 @@ class RunStatusDisplayTest {
         assertFalse(RunStatusDisplay.from(snapshot, online = CheckState.UNKNOWN).offline)
         assertFalse(RunStatusDisplay.from(snapshot).offline)
     }
+
+    @Test fun serverLinkLossAndTheLabelledRhythmAreShown() {
+        val v = RunStatusDisplay.from(RunSnapshot(RunState.RUNNING, serverLinkLost = true, metrics = measured.copy(rhythm = RhythmBpm(172))))
+        assertTrue(v.serverLost)
+        assertEquals("♪︎ 리듬 BPM 172", v.rhythmLabel)
+        // 심박수는 ♥ 기호와 "심박" 표시로, 리듬은 "리듬 BPM"으로 구분한다.
+        assertEquals("♥", v.heartRate.text.symbol)
+        assertEquals("심박수 152", v.heartRate.text.description)
+        assertFalse(view().serverLost)
+    }
+
+    // S15P31E105-445: the running face says the watch stopped recording, not only the control pages.
+    @Test fun aRunTheWatchNoLongerRecordsSaysSoOnTheRunningFace() {
+        val v = RunStatusDisplay.from(RunSnapshot(RunState.RUNNING, metrics = measured, measurementLost = true))
+        assertTrue(v.measurementLost)
+        assertFalse(view().measurementLost)
+    }
 }

@@ -1,9 +1,11 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon, LightGlass } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
+import type { RunRecordSummary } from '../../data/types';
 import {
+  formatDotDate,
   formatDuration,
   formatKm,
   formatPace,
@@ -13,10 +15,13 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, radius, spacing, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
-import { coursePaceColors } from './CourseMockMap';
-import { MockMap } from './MockMap';
+import { coursePaceColors } from '../../components/mapRoute';
+import { RunMap } from '../../components/RunMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
+import { RunGoalSheet } from './goal/RunGoalSheet';
+import { goalConfig, goalLabel, type RunGoal } from './goal/runGoal';
+import { BackButton } from '../../components/BackButton';
 
 const loadCourse = (repositories: Repositories) =>
   Promise.all([
@@ -59,6 +64,106 @@ function PaceLegend() {
   );
 }
 
+// 경쟁 모드 (S15P31E105-422): pick one of my earlier runs on this course, or none. The server checks the pick
+// and compares the time to reach the same distance during the run; nothing shows when the course has no run yet.
+function ComparisonPicker({
+  courseId,
+  night,
+  value,
+  onChange,
+}: {
+  courseId: string;
+  night: boolean;
+  value: string | null;
+  onChange: (sessionId: string | null) => void;
+}) {
+  const { colors } = useTheme();
+  const { records } = useRepositories();
+  const [runs, setRuns] = useState<RunRecordSummary[]>([]);
+  useEffect(() => {
+    let alive = true;
+    setRuns([]);
+    onChange(null);
+    records
+      .getCourseRuns(courseId)
+      .then(found => alive && setRuns(found.slice(0, 3)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [courseId, records, onChange]);
+  if (runs.length === 0) {
+    return null;
+  }
+  const chip = (
+    key: string,
+    label: string,
+    a11y: string,
+    selected: boolean,
+    sessionId: string | null,
+  ) => (
+    <Pressable
+      key={key}
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
+      accessibilityState={{ selected }}
+      onPress={() => onChange(sessionId)}
+      hitSlop={4}
+      style={[
+        styles.chip,
+        {
+          backgroundColor: selected
+            ? night
+              ? colors.text
+              : ink
+            : night
+            ? colors.surfaceMuted
+            : 'rgba(2,5,14,0.06)',
+        },
+      ]}
+    >
+      <AppText
+        style={[
+          styles.chipText,
+          {
+            color: selected
+              ? night
+                ? colors.background
+                : '#FFFFFF'
+              : night
+              ? colors.text
+              : ink,
+          },
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </AppText>
+    </Pressable>
+  );
+  return (
+    <View style={styles.picker}>
+      <AppText style={styles.kickerSheet}>이 코스의 내 기록과 비교</AppText>
+      <View style={styles.chips}>
+        {chip('none', '비교 안 함', '기록 비교 안 함', value === null, null)}
+        {runs.map(run =>
+          chip(
+            run.id,
+            `${formatDotDate(run.startedAt)} · ${formatDuration(
+              run.durationSec,
+            )}`,
+            `${formatDotDate(run.startedAt)} ${formatDuration(
+              run.durationSec,
+            )} 기록과 비교`,
+            value === run.id,
+            run.id,
+          ),
+        )}
+      </View>
+    </View>
+  );
+}
+
 // 2.0 코스 러닝 (낮) and 2.0N (밤): the chosen course with a pace per km, ready to start. By day the
 // runway-course-handoff screen: a glass strategy bar, the legend, the hollow pace-colored course and a
 // glass strategy sheet.
@@ -69,33 +174,50 @@ export function CourseRunScreen() {
   const night = isNight(clock.now());
   const resource = useResource(useCallback(loadCourse, []));
   const [plan, place] = resource.status === 'ready' ? resource.data : [];
-  // A course run aims at the course distance and the plan's pace.
+  const [comparisonSessionId, setComparison] = useState<string | null>(null);
+  // 운동 목표 (S15P31E105-517): the course keeps its distance; 추천 전략 runs the plan's pace, or a time or a pace
+  // of the user's own.
+  const [goal, setGoal] = useState<RunGoal>({ kind: 'PLAN' });
+  const [choosing, setChoosing] = useState(false);
+  const [startSignal, setStartSignal] = useState(0);
+  const course = plan
+    ? { distanceM: plan.distanceM, plannedPace: plan.targetPaceSecPerKm }
+    : undefined;
   const courseConfig: RunConfig | null = plan
     ? {
         mode: 'COURSE',
         plan,
-        goalDistanceM: plan.distanceM,
-        goalPaceSecPerKm: plan.targetPaceSecPerKm,
+        ...goalConfig(goal, course),
+        comparisonSessionId,
       }
     : null;
+  const goalChip = {
+    label: goalLabel(goal, plan?.targetPaceSecPerKm),
+    onPress: () => setChoosing(true),
+  };
+  const picker = plan ? (
+    <ComparisonPicker
+      courseId={plan.courseId}
+      night={night}
+      value={comparisonSessionId}
+      onChange={setComparison}
+    />
+  ) : null;
 
   const title = plan
     ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
     : '';
   const top = !plan ? null : night && place ? (
-    <PlaceCard name={place.name} gps={place.gps} />
+    <View style={styles.nightTop}>
+      <BackButton tone="dark" onPress={navigation.goBack} />
+      <View style={styles.flex}>
+        <PlaceCard name={place.name} gps={place.gps} />
+      </View>
+    </View>
   ) : (
     <>
       <LightGlass radius={31} style={styles.topBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="뒤로"
-          onPress={navigation.goBack}
-          hitSlop={8}
-          style={styles.back}
-        >
-          <Icon name="back" color={ink} size={20} strokeWidth={2} />
-        </Pressable>
+        <BackButton onPress={navigation.goBack} />
         <View style={styles.flex}>
           <AppText style={styles.kicker}>오늘의 러닝 전략</AppText>
           <AppText style={styles.topTitle} numberOfLines={1}>
@@ -130,7 +252,14 @@ export function CourseRunScreen() {
         </View>
         <ChangeLink />
       </View>
-      <RunStartBar night config={courseConfig} />
+      {picker}
+      <RunStartBar
+        night
+        mode="COURSE"
+        config={courseConfig}
+        goal={goalChip}
+        startSignal={startSignal}
+      />
     </>
   ) : (
     <>
@@ -148,25 +277,53 @@ export function CourseRunScreen() {
           ) : null}
         </AppText>
       </View>
-      <RunStartBar night={false} config={courseConfig} />
+      {picker}
+      <RunStartBar
+        night={false}
+        mode="COURSE"
+        config={courseConfig}
+        goal={goalChip}
+        startSignal={startSignal}
+      />
     </>
   );
 
   return (
-    <MapScreenFrame
-      map={
-        <MockMap
-          k1Style
-          night={night}
-          route={plan?.route}
-          segmentPaces={plan?.segmentPacesSecPerKm}
-          showPaceLabels
-          formatLabel={(_, pace) => formatPace(pace)}
-        />
-      }
-      top={top}
-      bottom={bottom}
-    />
+    <>
+      <MapScreenFrame
+        renderMap={logo => (
+          <RunMap
+            route={plan?.route}
+            segmentPaces={plan?.segmentPacesSecPerKm}
+            // The km paces are labelled by day; after sunset the course is a plain white line.
+            paceLabels={
+              night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
+            }
+            area={{ top: 0.19, bottom: 0.56 }}
+            logo={logo}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        top={top}
+        bottom={bottom}
+      />
+      <RunGoalSheet
+        visible={choosing}
+        onClose={() => setChoosing(false)}
+        mode="COURSE"
+        goal={goal}
+        course={course}
+        onSet={next => {
+          setGoal(next);
+          setChoosing(false);
+        }}
+        onStart={next => {
+          setGoal(next);
+          setChoosing(false);
+          setStartSignal(value => value + 1);
+        }}
+      />
+    </>
   );
 }
 
@@ -175,6 +332,7 @@ const grey = '#95969A';
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  nightTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   // The glass strategy bar: a bare back chevron, the course and 변경.
   topBar: {
     height: 62,
@@ -184,12 +342,7 @@ const styles = StyleSheet.create({
     paddingLeft: 8,
     paddingRight: 18,
   },
-  back: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
   kicker: {
     fontFamily: fontFamily.regular,
     fontSize: 12,
@@ -227,6 +380,15 @@ const styles = StyleSheet.create({
   legendStart: { marginRight: 2 },
   legendEnd: { marginLeft: 2 },
   legendBar: { width: 14, height: 5, borderRadius: 3 },
+  picker: { gap: 6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: {
+    height: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  chipText: { fontFamily: fontFamily.bold, fontSize: 12.5, lineHeight: 16 },
   kickerSheet: {
     fontFamily: fontFamily.regular,
     fontSize: 12,

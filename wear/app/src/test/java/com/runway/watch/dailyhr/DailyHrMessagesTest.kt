@@ -17,6 +17,7 @@ class DailyHrMessagesTest {
         method = METHOD,
         validSampleCount = 120,
         computedAt = Instant.parse("2026-10-31T01:02:03Z"),
+        collectionId = "collection-a",
     )
 
     private fun received(
@@ -49,6 +50,7 @@ class DailyHrMessagesTest {
         val p = json.getJSONObject("payload")
         assertEquals("2026-10-30", p.getString("metricDate"))
         assertEquals(2, p.getInt("revision"))
+        assertEquals("collection-a", p.getString("collectionId"))
         assertEquals(58.4, p.getDouble("estimatedRestingHrBpm"), 0.0)
         assertEquals("ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2", p.getString("method"))
         assertEquals(120, p.getInt("validSampleCount"))
@@ -58,9 +60,24 @@ class DailyHrMessagesTest {
     @Test
     fun decodeReceived_valid() {
         assertEquals(
-            LocalDate.parse("2026-10-30") to 2,
+            DailyHrReceipt(LocalDate.parse("2026-10-30"), 2, null),
             DailyHrMessages.decodeReceived(received()),
         )
+    }
+
+    @Test fun decodeReceiptCarriesCollectionId() {
+        val json = JSONObject(String(received()))
+        json.getJSONObject("payload").put("collectionId", "collection-a")
+        assertEquals(DailyHrReceipt(LocalDate.parse("2026-10-30"), 2, "collection-a"),
+            DailyHrMessages.decodeReceived(json.toString().toByteArray()))
+    }
+
+    @Test fun boundConsentRequiresCollectionStartToRejectQueuedSamples() {
+        val ts = "2026-10-30T01:00:00Z"
+        assertNull(HealthConsent.fromDataMap("AGREEE", ts, "collection-a", null))
+        assertNull(HealthConsent.fromDataMap("AGREEE", ts, "collection-a", "bad"))
+        assertEquals(HealthConsent(true, Instant.parse(ts), "collection-a", Instant.parse(ts)),
+            HealthConsent.fromDataMap("AGREEE", ts, "collection-a", ts))
     }
 
     @Test

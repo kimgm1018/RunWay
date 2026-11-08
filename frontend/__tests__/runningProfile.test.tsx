@@ -168,7 +168,7 @@ async function launch(signedIn = false) {
 // 1.2 로그인 with an account that still needs setup lands on 1.6.
 async function openRunningProfile() {
   const screen = await launch();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await type(screen, '아이디', 'minjun01');
   await type(screen, '비밀번호', 'runway123');
   await press(screen, '로그인');
@@ -185,9 +185,11 @@ beforeEach(async () => {
 test('distance and finish time save as DISTANCE_TIME in one PATCH', async () => {
   serve(notSet);
   const screen = await openRunningProfile();
-  expect(isDisabled(screen, '저장')).toBe(true);
+  // 1.6 waits for a level; 1.6b 평소 페이스 saves it with the pace.
+  expect(isDisabled(screen, '다음')).toBe(true);
 
   await press(screen, '중급, 5–10km 주 2–3회');
+  await press(screen, '다음');
   await type(screen, '거리', '5');
   await type(screen, '완주 시간', '30:00');
   expect(texts(screen)).toContain('6′00″/km');
@@ -211,6 +213,7 @@ test('the pace tab takes the pace alone and saves it as PACE', async () => {
   const screen = await openRunningProfile();
 
   await press(screen, '상급, 하프 이상 주 4회+');
+  await press(screen, '다음');
   await press(screen, '페이스');
   expect(fieldValue(screen, '거리')).toBeNull();
   expect(texts(screen)).not.toContain('자동 계산');
@@ -230,6 +233,7 @@ test('the pace tab takes the pace alone and saves it as PACE', async () => {
 test('a profile saved with distance and time fills the 완주 시간 tab', async () => {
   serve(profileResponse({ selfReportedLevel: 'BEGINNER' }));
   const screen = await openRunningProfile();
+  await press(screen, '다음');
 
   expect(fieldValue(screen, '거리')).toBe('5');
   expect(fieldValue(screen, '완주 시간')).toBe('30:00');
@@ -252,13 +256,14 @@ test('a profile saved as a pace fills the 페이스 tab', async () => {
     }),
   );
   const screen = await openRunningProfile();
+  await press(screen, '다음');
 
   expect(fieldValue(screen, '거리')).toBeNull();
   expect(fieldValue(screen, '페이스 (분:초/km)')).toBe('6:40');
   await act(async () => screen.unmount());
 });
 
-test('a rejected pace shows a notice and stays on 1.6', async () => {
+test('a rejected pace shows a notice and stays on 1.6b', async () => {
   serve(
     notSet,
     respond(422, {
@@ -269,12 +274,13 @@ test('a rejected pace shows a notice and stays on 1.6', async () => {
   );
   const screen = await openRunningProfile();
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  await press(screen, '다음');
   await press(screen, '페이스');
   await type(screen, '페이스 (분:초/km)', '6:00');
   await press(screen, '저장');
 
   expect(texts(screen)).toContain('평소 페이스를 확인하지 못했어요.');
-  expect(texts(screen)).toContain('평소 어떻게');
+  expect(texts(screen)).toContain('어느 정도예요?');
   await act(async () => screen.unmount());
 });
 
@@ -288,8 +294,8 @@ test('8.2 saves a level change with the level alone', async () => {
       : profileResponse({ selfReportedLevel: 'ADVANCED' }),
   );
   const screen = await launch(true);
-  await press(screen, '설정');
-  await press(screen, '내 프로필 보기');
+  // 8.1 has no profile card now (runway-settings), so 7.4b is the 프로필 tab.
+  await press(screen, '프로필');
   await settle(50);
   await press(screen, '프로필 수정');
   await settle(50);

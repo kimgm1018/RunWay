@@ -1,7 +1,10 @@
 import { NativeEventEmitter, NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import type {
+  CoachingGuide,
+  RecordComparison,
   Repositories,
   RunningSessionView,
+  SessionCommand,
   SessionGoalDraft,
   WatchSessionEvent,
 } from '../data/types';
@@ -13,12 +16,16 @@ type NativeWatchSession = {
   send(path: string, type: string, sessionId: string, payloadJson: string): Promise<string>;
   drainInbox(): Promise<string>;
   ackInbox(messageIds: string[]): Promise<void>;
-  setRunActive(active: boolean, sessionId: string | null): Promise<void>;
+  setRunActive(active: boolean, sessionId: string | null, location: boolean): Promise<void>;
   getActiveSessionId(): Promise<string | null>;
   // S15P31E105-311 워치 batch. pendingBatches는 아직 W07 저장 확인이 없는 batch 이벤트의 JSON 배열.
   pendingBatches(): Promise<string>;
   commitBatch(batchId: string, acceptedCount: number): Promise<boolean>;
   failBatch(batchId: string, code: string): Promise<boolean>;
+  // S15P31E105-464 폰 인계: 새 batch 수신을 멈추고 저장 확인이 없는 이 세션의 batch(JSON 배열)를 돌려준다.
+  blockBatches(sessionId: string): Promise<string>;
+  unblockBatches(sessionId: string): Promise<void>;
+  isWatchConnected(): Promise<boolean>;
 };
 
 type Subscription = { remove: () => void };
@@ -85,6 +92,52 @@ function goalJson(goal: SessionGoalDraft) {
   );
 }
 
+const COACHING_GUIDE_PATH = '/runway/v1/coaching/guide';
+
+const isBpm = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 60 && value <= 220;
+
+const nullableText = (value: unknown) => (typeof value === 'string' ? value : null);
+
+// COACHING_GUIDE payload = S02 coaching 객체(9.3). ID는 숫자 토큰 그대로 넣는다.
+function guideJson(guide: CoachingGuide) {
+  return (
+    `{"commandId":${idToken(guide.commandId)},"coachingId":${idToken(guide.coachingId)},` +
+    `"expectedVersion":${JSON.stringify(guide.expectedVersion)},"targetBpm":${JSON.stringify(guide.targetBpm)},` +
+    `"recommendedPaceSecPerKm":${JSON.stringify(guide.recommendedPaceSecPerKm)},` +
+    `"expiresAt":${JSON.stringify(guide.expiresAt)}}`
+  );
+}
+
+// STATE_RESULT comparison = S02 기록 비교 객체(sessions.md "기록 비교"). 알려진 필드만 옮긴다.
+function comparisonJson(comparison: RecordComparison | null) {
+  if (comparison === null) {
+    return 'null';
+  }
+  return JSON.stringify({
+    status: comparison.status,
+    targetStartedAt: comparison.targetStartedAt,
+    distanceM: comparison.distanceM,
+    currentElapsedSec: comparison.currentElapsedSec,
+    pastElapsedSec: comparison.pastElapsedSec,
+  });
+}
+
+// STATE_RESULT의 pendingCommand·lastCommand는 S02 명령 객체 모양이다(9.3).
+function commandJson(command: SessionCommand | null) {
+  if (command === null) {
+    return 'null';
+  }
+  return (
+    `{"commandId":${idToken(command.commandId)},"action":${JSON.stringify(command.action)},` +
+    `"targetBpm":${JSON.stringify(command.targetBpm ?? null)},` +
+    `"expectedVersion":${JSON.stringify(command.expectedVersion)},` +
+    `"coachingId":${idToken(command.coachingId ?? null)},"result":${JSON.stringify(command.result)},` +
+    `"appliedAt":${JSON.stringify(command.appliedAt)},"reasonCode":${JSON.stringify(command.reasonCode)},` +
+    `"coachingGuide":${command.coachingGuide ? guideJson(command.coachingGuide) : 'null'}}`
+  );
+}
+
 function toEvent(raw: NativeEvent): WatchSessionEvent | null {
   const payload = raw.payload;
   switch (raw.type) {
@@ -109,11 +162,50 @@ function toEvent(raw: NativeEvent): WatchSessionEvent | null {
       if (payload.phase !== 'REQUEST') {
         return null;
       }
+      if (payload.action === 'SET_BPM') {
+        // 범위를 벗어난 박자는 서버에 보내지 않는다(P07 60~220).
+        if (!isBpm(payload.targetBpm)) {
+          return null;
+        }
+        return {
+          type: 'COMMAND_REQUEST',
+          sessionId: raw.sessionId,
+          action: 'SET_BPM',
+          expectedVersion: payload.expectedVersion as number,
+          targetBpm: payload.targetBpm,
+        };
+      }
       return {
         type: 'COMMAND_REQUEST',
         sessionId: raw.sessionId,
         action: payload.action as 'PAUSE' | 'RESUME' | 'END' | 'CANCEL',
         expectedVersion: payload.expectedVersion as number,
+      };
+    case 'COACHING_RESULT':
+      if (!['APPLIED', 'IGNORED', 'UNKNOWN'].includes(payload.result as string)) {
+        return null;
+      }
+      return {
+        type: 'COACHING_RESULT',
+        sessionId: raw.sessionId,
+        commandId: String(payload.commandId),
+        coachingId:
+          payload.coachingId === null || payload.coachingId === undefined
+            ? null
+            : String(payload.coachingId),
+        result: payload.result as 'APPLIED' | 'IGNORED' | 'UNKNOWN',
+        appliedAt: nullableText(payload.appliedAt),
+        reasonCode: nullableText(payload.reasonCode),
+      };
+    case 'STATE_QUERY':
+      if (payload.scope !== 'WATCH' && payload.scope !== 'SERVER') {
+        return null;
+      }
+      return {
+        type: 'STATE_QUERY',
+        sessionId: raw.sessionId,
+        scope: payload.scope,
+        clientSendAt: nullableText(payload.clientSendAt),
       };
     default:
       return null;
@@ -161,7 +253,7 @@ export function createNativeWatchSession(
     if (event) {
       listeners.forEach(listener => listener(event));
     }
-    if (event?.type === 'COMMAND_RESULT') {
+    if (event?.type === 'COMMAND_RESULT' || event?.type === 'COACHING_RESULT') {
       unsavedResults.set(event.commandId, [
         ...(unsavedResults.get(event.commandId) ?? []),
         raw.messageId,
@@ -233,6 +325,19 @@ export function createNativeWatchSession(
               `"targetBpm":null,"commandId":${idToken(approval.commandId)},"coachingId":null}`,
           ),
 
+    sendBpmCommand: (sessionId, approval) =>
+      send(
+        'command',
+        'COMMAND_REQUEST',
+        sessionId,
+        `{"phase":"APPLY","action":"SET_BPM","expectedVersion":${approval.expectedVersion},` +
+          `"targetBpm":${JSON.stringify(approval.targetBpm)},"commandId":${idToken(approval.commandId)},` +
+          '"coachingId":null}',
+      ),
+
+    sendCoachingGuide: (sessionId, guide) =>
+      send(COACHING_GUIDE_PATH, 'COACHING_GUIDE', sessionId, guideJson(guide)),
+
     sendReceived: async (sessionId, { commandId, persisted, stateVersion }) => {
       if (persisted) {
         const saved = unsavedResults.get(commandId) ?? [];
@@ -256,28 +361,36 @@ export function createNativeWatchSession(
     failBatch: async (batchId, code) => {
       await native.failBatch(batchId, code);
     },
+    blockBatches: async sessionId => {
+      const raw = JSON.parse(await native.blockBatches(sessionId)) as NativeBatch[];
+      return raw
+        .map(toBatchEvent)
+        .filter((event): event is Extract<WatchSessionEvent, { type: 'BATCH_DATA' }> =>
+          event?.type === 'BATCH_DATA',
+        );
+    },
+    unblockBatches: sessionId => native.unblockBatches(sessionId),
+    isWatchConnected: () => native.isWatchConnected().catch(() => false),
 
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
 
-    sendServerState: (sessionId, session: RunningSessionView) =>
+    // S02/S10 스냅샷을 그대로 옮긴다. 서버 시각이 없는 상태(취소 응답 등)는 null로 보낸다.
+    sendServerState: (sessionId, session: RunningSessionView, clientSendAt = null) =>
       send(
         'state-result',
         'STATE_RESULT',
         sessionId,
-        JSON.stringify({
-          scope: 'SERVER',
-          recordingMode: session.recordingMode,
-          state: session.state,
-          stateVersion: session.stateVersion,
-          currentBpm: null,
-          pendingCommand: null,
-          lastCommand: null,
-          pendingBatchCount: 0,
-          clientSendAt: null,
-          serverReceiveAt: null,
-          serverSendAt: null,
-        }),
+        `{"scope":"SERVER","recordingMode":${JSON.stringify(session.recordingMode)},` +
+          `"state":${JSON.stringify(session.state)},"stateVersion":${JSON.stringify(session.stateVersion)},` +
+          `"currentBpm":${JSON.stringify(session.currentBpm ?? null)},` +
+          `"pendingCommand":${commandJson(session.pendingCommand)},` +
+          `"lastCommand":${commandJson(session.lastCommand)},"pendingBatchCount":0,` +
+          `"clientSendAt":${JSON.stringify(clientSendAt)},` +
+          `"serverReceiveAt":${JSON.stringify(session.serverReceiveAt ?? null)},` +
+          `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)},` +
+          // S02 기록 비교를 그대로 옮긴다(S15P31E105-422). 워치는 다시 계산하지 않는다.
+          `"comparison":${comparisonJson(session.comparison ?? null)}}`,
       ),
 
     subscribe: listener => {
@@ -301,13 +414,17 @@ export function createNativeWatchSession(
     },
 
     // Android 13+는 알림 권한이 있어야 "러닝 중" 알림이 보인다. 거절해도 서비스는 동작한다.
-    setRunActive: async (active, sessionId) => {
+    setRunActive: async (active, sessionId, run) => {
       if (active && Number(Platform.Version) >= 33) {
         await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as never).catch(
           () => undefined,
         );
       }
-      await native.setRunActive(active, active ? sessionId ?? null : null);
+      await native.setRunActive(
+        active,
+        active ? sessionId ?? null : null,
+        active && run?.location === true,
+      );
     },
     getActiveSessionId: () => native.getActiveSessionId().catch(() => null),
   };

@@ -5,6 +5,7 @@
 import logging
 import math
 import os
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -37,14 +38,20 @@ from app.models.ode.runtime import DEFAULT_VALIDATED_HORIZON_SEC, load_ode_runti
 from app.ode_schemas import PersonalizeRequest, PlanRequest
 from app.personalization import compute_personalization
 from app.planner import prerun_planner as planner_v1
-from app.personal_plan import OdeBalancedPaceOptimizer, PersonalPlanRequest, build_personal_plan
+from app.personal_plan import (OdeBalancedPaceOptimizer, PersonalPlanRequest, PersonalPlanResponse,
+                               build_personal_plan, personal_plan_enabled)
 from app.population_bundle import load_population_bundle, load_population_mode
-from app.db_lookup import DbCourseLookup, DbUserPersonalizationLookup, default_db_factory
+from app.db_lookup import (DbCourseLookup, DbUserPersonalizationLookup, ElevationProfileStoredGradeSource,
+                            default_db_factory)
+from app.runner_baseline import DbRunnerProfileLookup, load_blend_k
 from app.gru_personalization import (CachedDbGruPersonalizationLookup, GRU_PERSONALIZATION_SCHEMA_VERSION,
                                     UNAVAILABLE_WARNING, compute_gru_personalization,
                                     lookup_user_personalization)
 from app.hr_threshold_lookup import CachedDbHrThresholdLookup
 from app.policy.hr_reference import personal_hr_thresholds
+from app.bpm_cue import CueBpmCalculator, UnavailableCueBpm
+from app.bpm_lookup import CachedDbBpmLookup, UnavailableBpmLookup
+
 
 log = logging.getLogger("runway.ai")
 
@@ -82,6 +89,31 @@ async def _run_heavy(request: Request, endpoint: str, operation: Callable[[], ob
         return await anyio.to_thread.run_sync(operation)
     finally:
         limiter.release()
+
+
+DEADLINE_HEADER = "X-Request-Deadline"
+
+
+def _parse_request_deadline(request: Request) -> int | None:
+    """선택 헤더 X-Request-Deadline을 epoch milliseconds 정수로 읽는다(Route 연동과 같은 형식)."""
+    value = request.headers.get(DEADLINE_HEADER)
+    if value is None:
+        return None
+    if re.fullmatch(r"[+-]?[0-9]{1,19}", value.strip()) is None:
+        raise ApiError(400, "VALIDATION_ERROR", "요청 값이 유효하지 않습니다.",
+                       [{"name": DEADLINE_HEADER, "reason": "epoch milliseconds 정수 문자열이어야 합니다."}])
+    return int(value.strip())
+
+
+def _raise_if_deadline_exceeded(request: Request, deadline_ms: int | None, endpoint: str) -> None:
+    """마감이 지났으면 계산하지 않고 503 DEADLINE_EXCEEDED. 이미 시작한 계산은 중단하지 않는다."""
+    if deadline_ms is None:
+        return
+    now_ms = int(request.app.state.clock().timestamp() * 1000)
+    if deadline_ms <= now_ms:
+        log_ai_error("DEADLINE_EXCEEDED", endpoint, Warning(), level=logging.WARNING)
+        raise ApiError(503, "DEADLINE_EXCEEDED", "요청 마감 시각이 지나 계산을 시작하지 않았습니다.",
+                       [{"name": DEADLINE_HEADER, "reason": "계산 시작 전에 마감 시각이 지났습니다."}])
 
 
 def default_loader() -> HRModel:
@@ -139,7 +171,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                personal_plan_population_lookup=None,
                gru_personalization_lookup=None,
                db_factory: Callable[[str], object] = default_db_factory,
-               hr_threshold_lookup=None) -> FastAPI:
+               hr_threshold_lookup=None,
+               runner_profile_lookup=None,
+               cue_bpm_loader: Callable[[], object] | None = CueBpmCalculator, bpm_lookup=None) -> FastAPI:
     try:
         free_run_grade_policy = load_free_run_grade_policy()   # 잘못된 값이면 시작 시 실패
     except Exception as exc:
@@ -151,8 +185,14 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     except Exception as exc:
         log_ai_error("POPULATION_MODE_LOAD_FAILED", "startup", exc)
         raise
+    # S15P31E105-403 혼합 강도 k(env). 잘못된 값이면 시작 시 실패한다.
+    try:
+        runner_blend_k = load_blend_k()
+    except Exception as exc:
+        log_ai_error("RUNNER_BASELINE_K_LOAD_FAILED", "startup", exc)
+        raise
     population_bundle = None
-    bundle_path = os.getenv("ODEV21_POPULATION_BUNDLE_PATH", "").strip()
+    bundle_path =os.getenv("ODEV21_POPULATION_BUNDLE_PATH", "").strip()
     if population_mode != "off" and bundle_path:
         try:
             population_bundle = load_population_bundle(bundle_path, os.getenv("ODEV21_POPULATION_BUNDLE_SHA256", ""))
@@ -161,15 +201,21 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             raise
     ai_db = None
     db_url = os.getenv("AI_DB_URL", "").strip()
+    # health components.aiDb: 설정 여부와 시작 시 조회기 초기화 실패만 알린다(실제 DB probe 없음, URL 비노출).
+    ai_db_status = "CONFIGURED" if db_url else "NOT_CONFIGURED"
     needs_personal_plan_db = (personal_plan_course_lookup is None and personal_plan_user_lookup is None)
     needs_gru_personalization_db = gru_personalization_lookup is None
     needs_hr_threshold_db = hr_threshold_lookup is None
-    if db_url and (needs_personal_plan_db or needs_gru_personalization_db or needs_hr_threshold_db):
+    needs_runner_profile_db = runner_profile_lookup is None
+    needs_bpm_db = bpm_lookup is None
+    if db_url and (needs_personal_plan_db or needs_gru_personalization_db or needs_hr_threshold_db
+                   or needs_runner_profile_db or needs_bpm_db):
         # 읽기 전용 팀 DB 조회. URL·비밀번호는 로그에 남기지 않는다.
         try:
             ai_db = db_factory(db_url)
             if needs_personal_plan_db:
-                personal_plan_course_lookup = DbCourseLookup(ai_db)
+                personal_plan_course_lookup = DbCourseLookup(
+                    ai_db, stored_grade_source=ElevationProfileStoredGradeSource())
                 personal_plan_user_lookup = DbUserPersonalizationLookup(ai_db)
                 personal_plan_optimizer = personal_plan_optimizer or OdeBalancedPaceOptimizer()
             if needs_gru_personalization_db:
@@ -182,9 +228,18 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 )
             if needs_hr_threshold_db:
                 hr_threshold_lookup = CachedDbHrThresholdLookup(ai_db)
+            if needs_runner_profile_db:
+                # S15P31E105-403: AI09 신규 사용자 첫 계획 기준(user_profiles, 읽기 전용).
+                runner_profile_lookup = DbRunnerProfileLookup(ai_db)
+            if needs_bpm_db:
+                # S15P31E105-438: AI04 목표 BPM 개인 기록(측정값·BPM 변경 기록, 읽기 전용).
+                bpm_lookup = CachedDbBpmLookup(ai_db)
         except Exception as exc:
             log_ai_error("AI_DB_UNAVAILABLE", "startup", exc, level=logging.WARNING)
             ai_db = None
+            ai_db_status = "CONNECT_FAILED"
+    if db_url and bpm_lookup is None:
+        bpm_lookup = UnavailableBpmLookup()   # DB를 켰는데 연결 실패: 평균 BPM + BPM_RECORDS_UNAVAILABLE
     # v6_8_1: "설정상 꺼짐/없음"과 "켰는데 DB 연결·조회 실패"를 구분한다.
     #   - GRU 개인화 꺼짐: userId가 와도 조회·응답 경고·호출별 로그 없이 기본 GRU를 쓴다(시작 로그 한 번).
     #   - 학습 심박 기준: AI_DB_URL이 없고 주입된 조회기도 없으면 조용히 모집단 기준을 쓴다(시작 로그 한 번).
@@ -195,6 +250,15 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
         log.info("GRU 개인화 꺼짐(GRU_PERSONALIZATION_ENABLED=false): userId가 와도 기본 GRU로 예측한다")
     if not hr_threshold_lookup_configured:
         log.info("AI_DB_URL이 없어 학습 심박 기준을 조회하지 않고 모집단 기준을 쓴다")
+    # 목표 BPM(ai/bpm). 못 불러와도 서비스는 켜고, 응답마다 cueBpm=null + CUE_BPM_UNAVAILABLE을 붙인다.
+    cue_bpm_calc = None
+    if cue_bpm_loader is not None:
+        try:
+            cue_bpm_calc = cue_bpm_loader()
+        except Exception as exc:
+            log_ai_error("CUE_BPM_LOAD_FAILED", "startup", exc, level=logging.WARNING)
+            cue_bpm_calc = UnavailableCueBpm()
+
     demo_settings = demo_loader()
     demo_state = (new_demo_state(demo_settings, rate_per_sec=demo_rate_per_sec, now=clock)
                   if demo_settings.enabled else None)
@@ -259,7 +323,12 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     app.state.personal_plan_population_lookup = personal_plan_population_lookup
     app.state.gru_personalization_lookup = gru_personalization_lookup
     app.state.hr_threshold_lookup = hr_threshold_lookup
+    app.state.runner_profile_lookup = runner_profile_lookup
+    app.state.runner_blend_k = runner_blend_k
     app.state.hr_threshold_lookup_configured = hr_threshold_lookup_configured
+    app.state.cue_bpm_calc = cue_bpm_calc
+    app.state.ai_db_status = ai_db_status
+    app.state.bpm_lookup = bpm_lookup
     # requested = 설정 스위치만, enabled = 스위치와 AI_DB_URL이 모두 있음(조회기를 넘길 수 있음).
     app.state.gru_personalization_requested = gru_personalization_requested
     app.state.gru_personalization_enabled = gru_personalization_requested and bool(db_url)
@@ -306,7 +375,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             raise ApiError(503, "MODEL_NOT_READY", "모델이 로드되지 않았습니다.")
         return model
 
-    @app.get("/health", response_model=HealthResponse, responses={503: {"model": HealthResponse}})
+    @app.get("/health", response_model=HealthResponse, tags=["AI01"], summary="AI01 준비 상태",
+             responses={503: {"model": HealthResponse}})
     def health(request: Request):
         model = request.app.state.model
         ode = request.app.state.ode_model
@@ -316,12 +386,33 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             "ode": {"status": "UP" if ode is not None else "DOWN",
                     "modelVersion": ode.info.model_version if ode is not None else None},
         }
+        cue_bpm = request.app.state.cue_bpm_calc
+        if cue_bpm is None:
+            cue_bpm_status = "DISABLED"
+        elif isinstance(cue_bpm, UnavailableCueBpm):
+            cue_bpm_status = "DOWN"
+        else:
+            cue_bpm_status = "UP"
+        # 진단 전용. status·modelLoaded·HTTP 200/503 판정에는 쓰지 않는다.
+        components = {
+            "gru": models["gru"]["status"],
+            "ode": models["ode"]["status"],
+            "aiDb": request.app.state.ai_db_status,
+            "personalPlan": {
+                "enabled": personal_plan_enabled(),
+                "populationMode": request.app.state.population_mode,
+                "populationBundleLoaded": request.app.state.population_bundle is not None,
+            },
+            "cueBpm": cue_bpm_status,
+        }
         if model is None:
-            return JSONResponse(status_code=503, content=HealthResponse(status="DOWN", model_loaded=False,
-                                                                       models=models).model_dump(by_alias=True))
-        return HealthResponse(status="UP", model_loaded=True, model_version=model.info.model_version, models=models)
+            return JSONResponse(status_code=503, content=HealthResponse(
+                status="DOWN", model_loaded=False, models=models, components=components).model_dump(by_alias=True))
+        return HealthResponse(status="UP", model_loaded=True, model_version=model.info.model_version,
+                              models=models, components=components)
 
-    @app.get("/v1/model-info", response_model=ModelInfoResponse, responses={503: {"model": ErrorResponse}})
+    @app.get("/v1/model-info", response_model=ModelInfoResponse, tags=["AI02"], summary="AI02 모델 정보",
+             responses={503: {"model": ErrorResponse}})
     def model_info(request: Request):
         model = get_model(request)
         info = model.info
@@ -352,7 +443,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                                  policy_version=request.app.state.policy.policy_version if request.app.state.policy else None,
                                  models=models)
 
-    @app.post("/v1/pace/decide", response_model=DecideResponse,
+    @app.post("/v1/pace/decide", response_model=DecideResponse, tags=["AI04"], summary="AI04 러닝 중 페이스 결정",
               responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
                          503: {"model": ErrorResponse}, 500: {"model": ErrorResponse}})
     def decide(body: DecideRequest, request: Request):
@@ -367,7 +458,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                                                           if request.app.state.gru_personalization_enabled else None),
                              gru_personalization_enabled=request.app.state.gru_personalization_requested,
                              hr_threshold_lookup=request.app.state.hr_threshold_lookup,
-                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured)
+                             hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc,
+                             bpm_lookup=request.app.state.bpm_lookup)
         demo = request.app.state.demo
         if demo is not None:
             stage, _ = demo.profile_for(body.context.session_id)
@@ -381,8 +473,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             response.forecast = _running_forecast(body, response, request.app.state.ode_model)
         return response.model_dump(by_alias=True, mode="json")
 
-    @app.post("/v1/pace/plan", responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                                          500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+    @app.post("/v1/pace/plan", response_model=dict, tags=["AI05"], summary="AI05 출발 전 페이스 계획 미리보기",
+              responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                         500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
     async def plan(body: PlanRequest, request: Request):
         def run_plan():
             payload = body.model_dump(by_alias=True, exclude_none=True)
@@ -407,13 +500,21 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
 
         return await _run_heavy(request, "/v1/pace/plan", run_plan)
 
-    @app.post("/v1/pace/personal-plan", responses={400: {"model": ErrorResponse},
-                                                   404: {"model": ErrorResponse},
-                                                   422: {"model": ErrorResponse},
-                                                   503: {"model": ErrorResponse}})
+    @app.post("/v1/pace/personal-plan", response_model=PersonalPlanResponse, tags=["AI09"],
+              summary="AI09 개인 페이스 계획",
+              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
     async def personal_plan(body: PersonalPlanRequest, request: Request):
-        """개인 계획 요청을 공용 무거운 요청 대기열에서 처리한다."""
+        """개인 계획 요청을 공용 무거운 요청 대기열에서 처리한다.
+
+        X-Request-Deadline(epoch ms, 선택)이 대기열 진입 전이나 슬롯을 얻은 뒤 계산 시작 직전에 지났으면
+        계산하지 않고 503 DEADLINE_EXCEEDED. 시작한 계산은 중단하지 않는다.
+        """
+        deadline_ms = _parse_request_deadline(request)
+        _raise_if_deadline_exceeded(request, deadline_ms, "/v1/pace/personal-plan")
+
         def build_plan():
+            _raise_if_deadline_exceeded(request, deadline_ms, "/v1/pace/personal-plan")
             return build_personal_plan(
                 body,
                 course_lookup=request.app.state.personal_plan_course_lookup,
@@ -424,12 +525,33 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 free_run_grade_policy=request.app.state.free_run_grade_policy,
                 population_bundle=request.app.state.population_bundle,
                 population_mode=request.app.state.population_mode,
+                runner_profile_lookup=request.app.state.runner_profile_lookup,
+                runner_blend_k=request.app.state.runner_blend_k,
             )
 
         return await _run_heavy(request, "/v1/pace/personal-plan", build_plan)
 
-    @app.post("/v1/hr/personalize", responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                                               500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+    @app.post("/v1/hr/personalize", response_model=dict, tags=["AI06"], summary="AI06 HR 개인화 계산",
+              responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                         500: {
+                             "description": "예기치 못한 오류. 현재 본문은 detail과 AI06 진단 필드를 포함하며 공통 오류 형식과 다릅니다.",
+                             "content": {"application/json": {
+                                 "schema": {
+                                     "type": "object",
+                                     "properties": {
+                                         "detail": {"type": "string"},
+                                         "gruPersonalization": {"anyOf": [{"type": "object"}, {"type": "null"}]},
+                                         "warnings": {"type": "array", "items": {"type": "string"}},
+                                         "hrDangerBpm": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                                         "hrSustainBpm": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                                         "hrThresholdRunCount": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                                     },
+                                     "required": ["detail", "gruPersonalization", "warnings", "hrDangerBpm",
+                                                  "hrSustainBpm", "hrThresholdRunCount"],
+                                 },
+                             }},
+                         },
+                         503: {"model": ErrorResponse}})
     async def personalize(body: PersonalizeRequest, request: Request):
         def compute():
             learned_hr = personal_hr_thresholds(body.sessions)
@@ -486,8 +608,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
 
         return await _run_heavy(request, "/v1/hr/personalize", compute, pool="personalize")
 
-    @app.post("/v1/hr/predict", response_model=PredictResponse,
-              responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+    @app.post("/v1/hr/predict", response_model=PredictResponse, tags=["AI03"], summary="AI03 2분 HR 예측",
+              responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                         500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
     def predict(body: PredictRequest, request: Request, response: Response):
         model = get_model(request)
         free_run_policy = request.app.state.free_run_grade_policy
@@ -554,11 +677,22 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     else:
         disabled_demo = APIRouter()
 
-        @disabled_demo.get("/v1/demo/sessions/{session_ref}/events")
+        @disabled_demo.get(
+            "/v1/demo/sessions/{session_ref}/events", tags=["AI07"], summary="AI07 시연 이벤트 스트림",
+            responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+        )
         def demo_events_disabled(session_ref: str):
             raise ApiError(503, "DEMO_DISABLED", "AI 시연 기능이 비활성화되어 있습니다.")
 
-        @disabled_demo.post("/v1/demo/sessions/{session_id}/batches")
+        @disabled_demo.post(
+            "/v1/demo/sessions/{session_id}/batches", response_model=dict,
+            tags=["AI08"], summary="AI08 W07 시연 batch 수신",
+            responses={400: {"model": ErrorResponse}, 401: {"model": ErrorResponse},
+                       404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                       413: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+        )
         def demo_batches_disabled(session_id: int):
             raise ApiError(503, "DEMO_DISABLED", "AI 시연 기능이 비활성화되어 있습니다.")
 

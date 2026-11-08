@@ -49,7 +49,10 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  // Advance app time explicitly so worker/render delays cannot expire a toast.
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 async function press(screen: Screen, label: string) {
@@ -145,6 +148,10 @@ async function openCommunity() {
 }
 
 beforeEach(async () => {
+  // Keep React scheduling real; app timers advance only through settle().
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
@@ -157,8 +164,13 @@ beforeEach(async () => {
 afterEach(async () => {
   const screen = mounted;
   mounted = null;
-  if (screen) {
-    await act(async () => screen.unmount());
+  try {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
   }
 });
 
@@ -168,9 +180,8 @@ test('7.1 shows a server post without the counts the server does not give, and l
   expect(page).toContain('서윤');
   expect(page).toContain('광안리 한 바퀴');
   expect(page).toContain('5.0km 러닝');
-  // No place yet, so the line under the name is only the run type.
-  expect(page).toContain('자유 러닝');
-  expect(page).not.toContain(' · 자유 러닝');
+  // No place yet, and the run type is not shown, so there is no line under the name.
+  expect(page).not.toContain('자유 러닝');
   expect(page).not.toContain('모두 보기');
 
   await press(screen, '좋아요');
@@ -181,9 +192,10 @@ test('7.1 shows a server post without the counts the server does not give, and l
   expect(() => labelled(screen, '좋아요 취소')).not.toThrow();
 });
 
-test('7.2 shows the comments with what is known of their authors and adds mine', async () => {
+test('the 댓글 sheet shows the comments with what is known of their authors and adds mine', async () => {
   const screen = await openCommunity();
-  await press(screen, '서윤의 게시물');
+  // The server gives no count, so the sheet opens from the 댓글 icon.
+  await press(screen, '댓글');
   expect(texts(screen)).toContain('부럽다');
   expect(texts(screen)).toContain('러너');
 
@@ -199,7 +211,7 @@ test('7.2 shows the comments with what is known of their authors and adds mine',
   expect(page).toContain('나');
 });
 
-test('7.2 edits and deletes my comment through CMT08 · CMT09 and keeps it when that fails', async () => {
+test('the 댓글 sheet edits and deletes my comment through CMT08 · CMT09 and keeps it when that fails', async () => {
   // Each PATCH or DELETE /comments/2 takes the next answer.
   const answers = [
     () => respond(403, { code: 'NOT_AUTHOR', message: '' }),
@@ -218,7 +230,8 @@ test('7.2 edits and deletes my comment through CMT08 · CMT09 and keeps it when 
     url.endsWith('/comments/2') ? answers.shift()!() : base(url, init),
   );
   const screen = await openCommunity();
-  await press(screen, '서윤의 게시물');
+  // The server gives no count, so the sheet opens from the 댓글 icon.
+  await press(screen, '댓글');
   const menus = () =>
     screen.root.findAll(
       node =>
@@ -260,6 +273,11 @@ test('7.2 edits and deletes my comment through CMT08 · CMT09 and keeps it when 
   expect(JSON.parse(patch[patch.length - 1][1].body)).toEqual({
     body: '다음 주에 같이 달려요',
   });
+
+  // Verify the toast's lifetime explicitly without losing the saved comment.
+  await settle(3000);
+  expect(texts(screen)).not.toContain('댓글을 수정했어요');
+  expect(texts(screen)).toContain('다음 주에 같이 달려요');
 
   const remove = async () => {
     await press(screen, '댓글 메뉴');

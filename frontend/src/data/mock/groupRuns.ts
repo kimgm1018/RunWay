@@ -108,17 +108,24 @@ export function createGroupRunMock({
 
   // Only the members who entered gr-today's room are in it (지우 applied but stayed out).
   const waitingRoom = (run: Run): WaitingRoom => {
-    const inRoom = participants(run).filter(
+    const applied = participants(run);
+    const inRoom = applied.filter(
       member => member.isMe || ready.has(member.userId),
     );
+    const readyCount = inRoom.filter(
+      member => member.readyStatus === 'READY',
+    ).length;
     return {
       groupRunId: run.id,
       goalPaceSecPerKm: run.goalPaceSecPerKm,
+      recommendedPaceSecPerKm: run.goalPaceSecPerKm,
       comfortRange: [run.goalPaceSecPerKm - 20, run.goalPaceSecPerKm + 20],
       expectedDurationSec: run.targetDistanceM
         ? Math.round((run.targetDistanceM / 1000) * run.goalPaceSecPerKm)
         : run.targetDurationSec ?? 0,
-      appliedCount: participants(run).length,
+      appliedCount: applied.length,
+      participantCount: inRoom.length,
+      readyCount,
       participants: inRoom,
     };
   };
@@ -257,12 +264,13 @@ export function createGroupRunMock({
       });
       return respond(undefined);
     },
-    cancel: (groupRunId, reason: GroupRunCancelReason) => {
+    cancel: (groupRunId, reason: GroupRunCancelReason, message) => {
       const run = find(groupRunId);
       run.status = 'CANCELLED';
       run.cancellation = {
         reason,
-        message: null,
+        // The mock keeps the note so 6.4e can show it.
+        message: message?.trim() || null,
         byNickname: me.nickname,
         byRole: '그룹장',
       };
@@ -282,6 +290,15 @@ export function createGroupRunMock({
       myReady = value;
       scheduleStart(groupRunId);
       return respond(waitingRoom(find(groupRunId)));
+    },
+    start: async groupRunId => {
+      find(groupRunId).status = 'RUNNING';
+      if (startTimer) {
+        clearTimeout(startTimer);
+        startTimer = null;
+      }
+      starters.get(groupRunId)?.(new Date().toISOString());
+      return respond(undefined);
     },
     watchStart: (groupRunId, onStart) => {
       starters.set(groupRunId, onStart);
@@ -372,14 +389,14 @@ export function createGroupRunMock({
       ];
       const finished = rows.filter(row => row.goalAchieved);
       const paces = finished.map(
-        row => row.durationSec / (row.distanceM / 1000),
+        row => row.durationSec! / (row.distanceM! / 1000),
       );
       return respond({
         groupRunId,
         title: run.title,
         status: 'COMPLETED',
         targetDistanceM: target,
-        distanceM: target ?? Math.max(...rows.map(row => row.distanceM)),
+        distanceM: target ?? Math.max(...rows.map(row => row.distanceM ?? 0)),
         averagePaceSecPerKm: Math.round(
           paces.reduce((sum, pace) => sum + pace, 0) /
             Math.max(paces.length, 1),

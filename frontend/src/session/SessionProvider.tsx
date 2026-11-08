@@ -12,7 +12,7 @@ import { appConfig } from '../config';
 import { useRepositories } from '../data/DataProvider';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
-import { spotifyTokens } from '../data/spotify/auth';
+import { clearSpotifySession } from '../data/spotify/session';
 import { serverHealthConsentReader } from '../health/serverHealthConsent';
 import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
 import {
@@ -33,7 +33,7 @@ type SessionValue = {
   // For an account that still has to finish 1.6 러닝 프로필: requests can use the tokens, but a relaunch starts signed out
   // so the next U01 sends the user back to setup (users.md 초기 설정과 화면 분기).
   holdTokens: (tokens: AuthTokens) => void;
-  // Leaves on the phone only: a rejected token (401) and the end of 회원탈퇴 use it.
+  // Explicit local sign-out and completed withdrawal clear watch health records.
   signOut: () => void;
   // 설정 로그아웃: revokes the refresh token on the server (U03) first, then signs out on the phone.
   logOut: () => Promise<void>;
@@ -41,7 +41,7 @@ type SessionValue = {
 
 const SessionContext = createContext<SessionValue | null>(null);
 
-// Holds whether the user is signed in and keeps the server tokens. Token refresh (U02) comes with S15P31E105-194.
+// Holds the UI session; U02 rotation is shared by all HTTP callers.
 export function SessionProvider({
   children,
   initialSignedIn = false,
@@ -66,7 +66,12 @@ export function SessionProvider({
     let active = true;
     tokenStore.load().then(tokens => {
       if (active) {
-        setSignedIn(tokens !== null);
+        // Older installs cannot identify the owner of pending daily HR. Reauthenticate once.
+        const needsOwner =
+          tokens !== null && appConfig.dataSource === 'api' && !tokens.userId;
+        if (needsOwner) void tokenStore.clear().catch(() => {});
+        setSignedIn(tokens !== null && !needsOwner);
+        setLoginRequired(needsOwner);
         setRestoring(false);
       }
     });
@@ -126,7 +131,7 @@ export function SessionProvider({
     void setWatchHealthConsent('DISAGREE');
     tokenStore.clear().catch(() => {});
     // The next person on this phone should not inherit the Spotify account.
-    spotifyTokens.clear().catch(() => {});
+    clearSpotifySession().catch(() => {});
     setSignedIn(false);
   }, []);
 
@@ -134,10 +139,13 @@ export function SessionProvider({
   // still signs out here; revokeOnServer keeps the token for the next launch instead of calling it revoked.
   const logOut = useCallback(async () => {
     const refreshToken = tokenStore.current()?.refreshToken;
+    // Invalidate pending U02 before waiting for U03. Old refresh tokens can revoke their family.
+    void tokenStore.clear().catch(() => {});
+    const leaving = tokenStore.session();
     if (refreshToken) {
       await revokeOnServer(auth.logout, refreshToken);
     }
-    signOut();
+    if (tokenStore.session() === leaving) signOut();
   }, [auth, signOut]);
 
   // S15P31E105-313: a login or a restored session hands the server's current consent (W05) to the watch, since
@@ -160,8 +168,13 @@ export function SessionProvider({
   // S15P31E105-281: the watch daily heart-rate estimate goes to W06 while signed in.
   useWatchDailyHrUpload(signedIn);
 
-  // An expired or rejected access token sends the user back to 1.2 로그인 until refresh lands.
-  useEffect(() => onUnauthorized(signOut), [signOut]);
+  // Session expiry is not health-consent withdrawal. Pending watch records survive reauthentication.
+  const expireSession = useCallback(() => {
+    clearSpotifySession().catch(() => {});
+    setLoginRequired(true);
+    setSignedIn(false);
+  }, []);
+  useEffect(() => onUnauthorized(expireSession), [expireSession]);
 
   const value = useMemo(
     () => ({

@@ -10,15 +10,11 @@ import com.runway.backend.global.security.SecurityTestSupport;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** S15P31E105-250 AC-1~AC-6·AC-9. W04 건강정보 동의·철회와 W05 상태 조회. 회원·기록은 합성 데이터다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
 

@@ -1,7 +1,10 @@
 import type {
+  BpmApproval,
+  CoachingGuide,
   CommandApproval,
   ControlAction,
   ControlResultCode,
+  RecordComparison,
   Repositories,
   RunningSessionView,
   SessionCommand,
@@ -22,6 +25,15 @@ const ACTION_PATH: Record<ControlAction, string> = {
   END: 'finish',
 };
 
+type ServerGuide = {
+  commandId: number;
+  coachingId: number;
+  expectedVersion: number;
+  targetBpm: number;
+  recommendedPaceSecPerKm: number;
+  expiresAt: string;
+};
+
 type ServerCommand = {
   commandId: number;
   action: string;
@@ -29,9 +41,12 @@ type ServerCommand = {
   result: ControlResultCode;
   appliedAt: string | null;
   reasonCode: string | null;
+  targetBpm?: number | null;
+  coachingId?: number | null;
+  coachingGuide?: ServerGuide | null;
 };
 
-type ServerSession = {
+export type ServerSession = {
   sessionId: number;
   controlDeviceId: number | null;
   relayDeviceId: number | null;
@@ -43,13 +58,33 @@ type ServerSession = {
   pendingCommand: ServerCommand | null;
   lastCommand: ServerCommand | null;
   analysis: { status: string };
+  // S15P31E105-257. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  currentBpm?: number | null;
+  coaching?: ServerGuide | null;
+  // S15P31E105-422. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  comparison?: RecordComparison | null;
+  serverReceiveAt?: string | null;
+  serverSendAt?: string | null;
 };
 
 const id = (value: string) => Number(value);
 const text = (value: number | null) => (value === null ? null : String(value));
 
-function command(value: ServerCommand | null): SessionCommand | null {
-  return value === null
+function guide(value: ServerGuide | null | undefined): CoachingGuide | null {
+  return value === null || value === undefined
+    ? null
+    : {
+        commandId: String(value.commandId),
+        coachingId: String(value.coachingId),
+        expectedVersion: value.expectedVersion,
+        targetBpm: value.targetBpm,
+        recommendedPaceSecPerKm: value.recommendedPaceSecPerKm,
+        expiresAt: value.expiresAt,
+      };
+}
+
+function command(value: ServerCommand | null | undefined): SessionCommand | null {
+  return value === null || value === undefined
     ? null
     : {
         commandId: String(value.commandId),
@@ -58,10 +93,14 @@ function command(value: ServerCommand | null): SessionCommand | null {
         result: value.result,
         appliedAt: value.appliedAt,
         reasonCode: value.reasonCode,
+        targetBpm: value.targetBpm ?? null,
+        coachingId: value.coachingId === null || value.coachingId === undefined ? null : String(value.coachingId),
+        coachingGuide: guide(value.coachingGuide),
       };
 }
 
-function sessionView(value: ServerSession): RunningSessionView {
+// S02 응답과 S10 스냅샷(data)을 앱 모양으로 바꾼다.
+export function sessionView(value: ServerSession): RunningSessionView {
   return {
     sessionId: String(value.sessionId),
     controlDeviceId: text(value.controlDeviceId),
@@ -74,13 +113,18 @@ function sessionView(value: ServerSession): RunningSessionView {
     pendingCommand: command(value.pendingCommand),
     lastCommand: command(value.lastCommand),
     analysisStatus: value.analysis.status,
+    currentBpm: value.currentBpm ?? null,
+    coaching: guide(value.coaching),
+    comparison: value.comparison ?? null,
+    serverReceiveAt: value.serverReceiveAt ?? null,
+    serverSendAt: value.serverSendAt ?? null,
   };
 }
 
-// W07 업로드(uploadBatch)는 본문 원문을 보내야 해서 syncBatches.ts가 맡는다.
+// W07 업로드(uploadBatch)는 본문 원문을 보내야 해서 syncBatches.ts가, S10 구독은 sessionEvents.ts가 맡는다.
 export function createApiSessionRepository(
   request: ApiRequest,
-): Omit<Repositories['session'], 'uploadBatch'> {
+): Omit<Repositories['session'], 'uploadBatch' | 'subscribeEvents'> {
   return {
     create: async ({ controlDeviceId, relayDeviceId, goal }) =>
       sessionView(
@@ -160,6 +204,65 @@ export function createApiSessionRepository(
       );
       return { id: String(cancelled.id), status: cancelled.status };
     },
+
+    // P07 REQUEST. 앱은 SET_BPM만 요청하며 coachingId 키는 null로 보낸다(pace-coaching.md).
+    requestBpm: async (sessionId, { deviceId, expectedVersion, targetBpm }) => {
+      const approval = await request<{
+        commandId: number;
+        action: BpmApproval['action'];
+        expectedVersion: number;
+        targetBpm: number;
+        coachingId: number | null;
+        result: ControlResultCode;
+      }>('PUT', `${BASE}/${sessionId}/bpm`, {
+        phase: 'REQUEST',
+        operation: 'SET_BPM',
+        deviceId: id(deviceId),
+        expectedVersion,
+        targetBpm,
+        coachingId: null,
+      });
+      return {
+        commandId: String(approval.commandId),
+        action: approval.action,
+        expectedVersion: approval.expectedVersion,
+        targetBpm: approval.targetBpm,
+        coachingId: approval.coachingId === null ? null : String(approval.coachingId),
+        result: approval.result,
+      };
+    },
+
+    // P07 RESULT. SET_BPM과 서버가 승인한 COACHING 명령 모두 같은 본문이다. appliedAt·reasonCode 키는 null이어도 보낸다.
+    reportBpmResult: async (sessionId, report) => {
+      const saved = await request<ServerSession & { commandId: number; result: ControlResultCode }>(
+        'PUT',
+        `${BASE}/${sessionId}/bpm`,
+        {
+          phase: 'RESULT',
+          commandId: id(report.commandId),
+          deviceId: id(report.deviceId),
+          result: report.result,
+          appliedAt: report.appliedAt,
+          reasonCode: report.reasonCode,
+        },
+      );
+      return {
+        commandId: String(saved.commandId),
+        result: saved.result,
+        session: sessionView(saved),
+      };
+    },
+
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). 호출 쪽이 폰이 받은 워치 batch 전체의 COMMITTED를 확인한 뒤에만 부른다.
+    takeOverPhone: async (sessionId, { deviceId, expectedVersion }) =>
+      sessionView(
+        await request<ServerSession>('PATCH', `${BASE}/${sessionId}`, {
+          operation: 'TAKE_OVER_PHONE',
+          deviceId: id(deviceId),
+          expectedVersion,
+          receivedWatchBatchesUploaded: true,
+        }),
+      ),
 
     abortUnconfirmedStart: async (sessionId, { deviceId, expectedVersion }) =>
       sessionView(

@@ -19,14 +19,13 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.DriverManager;
 import java.time.Instant;
 
 @ExtendWith(OutputCaptureExtension.class)
 class RunningProfileFailureIntegrationTest extends AuthIntegrationSupport {
-    @MockitoSpyBean UserProfileRepository profiles;
+    @Autowired UserProfileRepository profiles;
     @Autowired OnboardingStatusService onboarding;
     @Autowired jakarta.persistence.EntityManager entities;
     @Autowired JwtAccessTokenService tokens;

@@ -7,10 +7,11 @@ import Svg, {
   LinearGradient,
   Path,
   Stop,
-  Text,
 } from 'react-native-svg';
+import { AppText, RevealX } from '../../components';
 import type { RunSplit } from '../../data';
-import { fontFamily, useTheme } from '../../theme';
+import { fontFamily } from '../../theme';
+import { recordsLook } from './look';
 
 export type SplitMetric = 'pace' | 'heartRate' | 'cadence';
 
@@ -20,10 +21,9 @@ const valueOf: Record<SplitMetric, (split: RunSplit) => number | null> = {
   cadence: split => split.averageCadence,
 };
 
-const height = 168;
+// Room for the best-point callout above and the km labels below.
 const top = 34;
 const bottom = 26;
-const side = 14;
 
 // A smooth line through the points (Catmull-Rom turned into cubic Béziers).
 function smooth(points: { x: number; y: number }[]) {
@@ -46,20 +46,22 @@ function smooth(points: { x: number; y: number }[]) {
   }, '');
 }
 
-// 5.2 구간 그래프: the chosen measure by distance, a dashed reference line (목표 for pace, 평균
-// otherwise) and the best point. Faster pace is drawn higher.
+// 5.1 · 5.2 구간 그래프 (runway-records): the chosen measure by distance as a thick navy line over a fading
+// fill, a dashed reference line (목표 for pace, 평균 otherwise) and the best point with a black callout. Faster
+// pace is drawn higher.
 export function SplitChart({
   splits,
   metric,
   reference,
   formatValue,
+  height,
 }: {
   splits: RunSplit[];
   metric: SplitMetric;
   reference: { value: number; label: string } | null;
   formatValue: (value: number) => string;
+  height: number;
 }) {
-  const { colors } = useTheme();
   const [width, setWidth] = useState(0);
   const values = splits
     .map(split => ({ split, value: valueOf[metric](split) }))
@@ -77,8 +79,7 @@ export function SplitChart({
   const [low, high] = [Math.min(...all), Math.max(...all)];
   const pad = Math.max((high - low) * 0.15, 2);
   const [min, max] = [low - pad, high + pad];
-  const x = (distance: number) =>
-    side + (distance / totalM) * (width - side * 2);
+  const x = (distance: number) => (distance / totalM) * width;
   const y = (value: number) => {
     const share = (value - min) / (max - min);
     return top + (higherIsBetter ? 1 - share : share) * (height - top - bottom);
@@ -106,98 +107,121 @@ export function SplitChart({
     { length: Math.floor(totalM / 1000) + 1 },
     (_, km) => km,
   );
+  const bestLabel = `최고 ${formatValue(best.value)}`;
+  // On the right half the callout sits left of the point, so a best last split stays inside the chart.
+  const calloutLeft = bestPoint.x <= width / 2;
   return (
     <View
-      style={styles.chart}
+      style={[styles.chart, { height }]}
       onLayout={event => setWidth(event.nativeEvent.layout.width)}
-      accessibilityLabel={`${formatValue(best.value)} 최고`}
+      accessibilityLabel={bestLabel}
     >
       {width > 0 ? (
-        <Svg width={width} height={height}>
-          <Defs>
-            <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-              <Stop
-                offset="0"
-                stopColor={colors.accentText}
-                stopOpacity={0.22}
+        <>
+          {/* The line draws in from the left once when the splits change (S15P31E105-478). */}
+          <RevealX appearKey={line} width={width} height={height}>
+            <Svg width={width} height={height}>
+              <Defs>
+                <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.32} />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.04} />
+                </LinearGradient>
+              </Defs>
+              <Path
+                d={`${line} L${points[points.length - 1].x},${baseline} L${
+                  points[0].x
+                },${baseline} Z`}
+                fill="url(#splitFill)"
               />
-              <Stop offset="1" stopColor={colors.accentText} stopOpacity={0} />
-            </LinearGradient>
-          </Defs>
-          <Path
-            d={`${line} L${points[points.length - 1].x},${baseline} L${
-              points[0].x
-            },${baseline} Z`}
-            fill="url(#splitFill)"
-          />
+              {reference ? (
+                <Line
+                  x1={0}
+                  x2={width}
+                  y1={y(reference.value)}
+                  y2={y(reference.value)}
+                  stroke={recordsLook.onCard}
+                  strokeOpacity={0.55}
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                />
+              ) : null}
+              <Path
+                d={line}
+                stroke={recordsLook.onCard}
+                strokeWidth={2.2}
+                strokeLinecap="round"
+                fill="none"
+              />
+              <Circle
+                cx={bestPoint.x}
+                cy={bestPoint.y}
+                r={4.5}
+                fill="#FFFFFF"
+              />
+            </Svg>
+          </RevealX>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.callout,
+              { top: Math.max(bestPoint.y - 12, 0) },
+              calloutLeft
+                ? { left: bestPoint.x + 12 }
+                : { right: width - bestPoint.x + 12 },
+            ]}
+          >
+            <AppText style={styles.calloutText}>{bestLabel}</AppText>
+          </View>
           {reference ? (
-            <Line
-              x1={side}
-              x2={width - side}
-              y1={y(reference.value)}
-              y2={y(reference.value)}
-              stroke={colors.textSecondary}
-              strokeOpacity={0.65}
-              strokeDasharray="4 4"
-              strokeWidth={1}
-            />
-          ) : null}
-          <Path
-            d={line}
-            stroke={colors.accentText}
-            strokeWidth={1.8}
-            fill="none"
-          />
-          {reference ? (
-            <Text
-              x={width - side}
-              y={y(reference.value) - 6}
-              fontSize={10}
-              fontFamily={fontFamily.medium}
-              fill={colors.textTertiary}
-              textAnchor="end"
+            <AppText
+              style={[styles.reference, { top: y(reference.value) + 6 }]}
             >
               {reference.label}
-            </Text>
+            </AppText>
           ) : null}
-          <Circle
-            cx={bestPoint.x}
-            cy={bestPoint.y}
-            r={5}
-            fill={colors.accentText}
-            stroke={colors.background}
-            strokeWidth={2}
-          />
-          {/* On the right half the label sits left of the point, so a best last split stays inside the card. */}
-          <Text
-            x={bestPoint.x > width / 2 ? bestPoint.x - 10 : bestPoint.x + 10}
-            y={bestPoint.y - 10}
-            fontSize={12}
-            fontFamily={fontFamily.bold}
-            fill={colors.text}
-            textAnchor={bestPoint.x > width / 2 ? 'end' : 'start'}
-          >
-            {`${formatValue(best.value)} 최고`}
-          </Text>
           {kms.map(km => (
-            <Text
+            <AppText
               key={km}
-              x={x(km * 1000)}
-              y={height - 6}
-              fontSize={10}
-              fontFamily={fontFamily.numberRegular}
-              fill={colors.textTertiary}
-              textAnchor="middle"
+              style={[styles.km, { top: height - 16, left: x(km * 1000) - 20 }]}
             >
               {`${km}km`}
-            </Text>
+            </AppText>
           ))}
-        </Svg>
+        </>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  chart: { height, alignSelf: 'stretch' },
+  chart: { alignSelf: 'stretch' },
+  // 최고 5′41″ as plain white text by the point (runway-records 2차).
+  callout: {
+    position: 'absolute',
+    height: 24,
+    justifyContent: 'center',
+  },
+  calloutText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: recordsLook.onCard,
+  },
+  reference: {
+    position: 'absolute',
+    right: 0,
+    fontFamily: fontFamily.medium,
+    fontSize: 11,
+    lineHeight: 14,
+    color: recordsLook.onCardLabel,
+  },
+  km: {
+    position: 'absolute',
+    width: 40,
+    textAlign: 'center',
+    fontFamily: fontFamily.medium,
+    fontSize: 10.5,
+    lineHeight: 16,
+    color: recordsLook.onCardMuted,
+  },
 });

@@ -4,15 +4,18 @@
 - SQL은 모두 바인딩 파라미터만 쓴다. URL·비밀번호·드라이버 오류 원문은 로그와 응답에 남기지 않는다.
 - 개인화 테이블은 팀 DB에 아직 없다. release 제안 `user_hr_personalization`(migration 번호는 V10 이상, 팀이 정함)
   기준이며 이름·컬럼은 아래 상수다. ERD가 오면 개인화 SQL과 변환을 함께 바꾼다.
-- 코스 경사 찾는 순서: ① 백엔드가 저장한 경사(StoredCourseGradeSource, 기본 꺼짐) ② courses.elevation_profile 계산
-  ③ RouteElevationSource ④ 0% 평지(MISSING). 저장 형식이 정해지면 StoredCourseGradeSource 구현을 만들어
-  DbCourseLookup(stored_grade_source=...)으로 넘긴다(app/main.py). 테이블 이름은 아직 정하지 않았다.
+- 코스 경사 찾는 순서: ① 백엔드가 저장한 경사(StoredCourseGradeSource) ② courses.elevation_profile 원시 고도 계산
+  ③ RouteElevationSource ④ 0% 평지(MISSING). 백엔드는 courses.elevation_profile에 100 m 경사 목록
+  `[{startDistanceM, endDistanceM, gradePercent}]`을 저장하므로(S15P31E105-319, courses.md) ①은
+  ElevationProfileStoredGradeSource가 같은 행에서 읽는다(S15P31E105-371, app/main.py에서 연결).
 """
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
+import math
 import logging
 from typing import Protocol
 
@@ -22,6 +25,9 @@ from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.personal_plan import CoursePlanSnapshot, UserPersonalizationSnapshot
 from app.planner import prerun_planner
+from app.speed_calibration import (SPEED_REF_MAX_DURATION_SEC, SPEED_REF_RECENT_RUNS, SPEED_REF_VALID_RANGE_MPS,
+                                   speed_ref_from_runs)
+from app.target_calibration import HISTORY_UNAVAILABLE_WARNING, history_from_rows, history_query_params
 
 log = logging.getLogger("runway.ai")
 
@@ -43,6 +49,38 @@ PERSONALIZATION_COLUMNS = ("user_id", "personalization_version", "schema_version
 PERSONALIZATION_SQL = (f"SELECT {', '.join(PERSONALIZATION_COLUMNS)}\nFROM {PERSONALIZATION_TABLE}\n"
                        "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1")
 
+# AI09 속도 보정 v_ref(S15P31E105-402): 계획 시각 이전에 끝난 완료 러닝 최근 20회의 이동 속도.
+# 범위는 app/speed_calibration.py(SPEED_REF_VALID_RANGE_MPS, SPEED_REF_MAX_DURATION_SEC)와 같다.
+SPEED_REF_SQL = """SELECT total_distance, moving_duration, elapsed_duration
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+  AND ended_at <= %(cutoff)s
+  AND total_distance > 0
+  AND moving_duration > 0
+  AND GREATEST(moving_duration, COALESCE(elapsed_duration, 0)) <= %(max_duration_sec)s
+  AND total_distance / moving_duration BETWEEN %(min_speed_mps)s AND %(max_speed_mps)s
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
+SPEED_REF_UNAVAILABLE_WARNING = "SPEED_REF_LOOKUP_UNAVAILABLE"
+
+# AI09 목표 심박 개인 비율(S15P31E105-377): 같은 완료 러닝의 평균 심박. 조건은 app/target_calibration.py
+# (HISTORY_ELAPSED_RANGE_SEC, HISTORY_MIN_DISTANCE_M, HISTORY_HR_RANGE_BPM)와 같다. 권한은 402 running_sessions SELECT.
+TARGET_HR_HISTORY_SQL = """SELECT average_heart_rate, elapsed_duration, total_distance
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+  AND ended_at <= %(cutoff)s
+  AND average_heart_rate BETWEEN %(min_hr)s AND %(max_hr)s
+  AND elapsed_duration BETWEEN %(min_elapsed_sec)s AND %(max_elapsed_sec)s
+  AND total_distance >= %(min_distance_m)s
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
+
 HR_THRESHOLD_COLUMNS = ("user_id", "personalization_version", "hr_danger_bpm", "hr_sustain_bpm",
                         "hr_threshold_run_count")
 HR_THRESHOLD_SQL = (f"SELECT {', '.join(HR_THRESHOLD_COLUMNS)}\nFROM {PERSONALIZATION_TABLE}\n"
@@ -58,6 +96,43 @@ GRU_PERSONALIZATION_SQL = (
     f"SELECT {', '.join(GRU_PERSONALIZATION_COLUMNS)}\nFROM {GRU_PERSONALIZATION_TABLE}\n"
     "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1"
 )
+
+# AI04 목표 BPM 개인 기록(S15P31E105-438). runway_ai는 아래 칸만 읽을 수 있다(infra/ai/grant-readonly.sh).
+BPM_SESSION_SQL = """SELECT user_id, current_bpm
+FROM running_sessions
+WHERE id = %(session_id)s"""
+
+BPM_RUNS_SQL = """SELECT id
+FROM running_sessions
+WHERE user_id = %(user_id)s
+  AND status = 'COMPLETED'
+  AND deleted_at IS NULL
+  AND ended_at IS NOT NULL
+ORDER BY ended_at DESC, id DESC
+LIMIT %(limit)s"""
+
+# 60초 칸별 평균·표준편차. 걷기·정지와 이상값은 먼저 뺀다(ai/bpm/convert_personal.py와 같은 기준).
+BPM_WINDOWS_SQL = """SELECT running_session_id AS session_id,
+       FLOOR(elapsed_duration / 60) AS bucket,
+       COUNT(*) AS n,
+       AVG(speed) AS speed_mps,
+       STDDEV_SAMP(speed) AS speed_sd,
+       AVG(cadence) AS cadence_spm,
+       STDDEV_SAMP(cadence) AS cadence_sd,
+       MIN(measured_at) AS start_at,
+       MAX(measured_at) AS end_at
+FROM running_metric_samples
+WHERE running_session_id = ANY(%(session_ids)s)
+  AND speed >= 1.5
+  AND cadence BETWEEN 120 AND 230
+GROUP BY running_session_id, FLOOR(elapsed_duration / 60)"""
+
+BPM_EVENTS_SQL = """SELECT session_id, target_bpm, applied_at
+FROM session_control_events
+WHERE session_id = ANY(%(session_ids)s)
+  AND result = 'APPLIED'
+  AND action IN ('SET_BPM', 'COACHING')
+ORDER BY session_id, applied_at"""
 
 # 개인화 테이블이 팀 DB에 아직 없을 때(ERD 전)의 SQLSTATE: 42P01 undefined_table, 42703 undefined_column.
 MISSING_RELATION_SQLSTATES = frozenset({"42P01", "42703"})
@@ -98,6 +173,45 @@ class StoredCourseGradeSource(Protocol):
     """
 
     def grade_profile_for(self, course_row: dict) -> Sequence[PlanGradeSegment] | None: ...
+
+
+STORED_GRADE_KEYS = frozenset({"startDistanceM", "endDistanceM", "gradePercent"})
+
+
+class ElevationProfileStoredGradeSource:
+    """courses.elevation_profile의 백엔드 저장 경사(courses.md 100m 경사 구조)를 PlanGradeSegment로 읽는다.
+
+    COURSE_SQL이 이미 읽은 행만 쓰며 추가 조회는 없다. 모든 원소가 정확히 세 키를 가진 객체이고 값이 숫자일 때만
+    변환한다. 아니면 None을 돌려 옛 원시 고도 형식(②)으로 넘긴다. 구간 연속·끝 거리 검사는 DbCourseLookup이 한다.
+    """
+
+    def grade_profile_for(self, course_row: dict) -> Sequence[PlanGradeSegment] | None:
+        raw = _json(course_row.get("elevation_profile"))
+        if not isinstance(raw, list) or not raw or len(raw) > MAX_STORED_GRADE_SEGMENTS:
+            return None
+        segments = []
+        for item in raw:
+            if not isinstance(item, dict) or set(item) != STORED_GRADE_KEYS:
+                return None
+            values = {key: _stored_number(item[key]) for key in STORED_GRADE_KEYS}
+            if any(value is None for value in values.values()):
+                return None
+            try:
+                segments.append(PlanGradeSegment.model_validate(values))
+            except ValueError:
+                return None
+        return tuple(segments)
+
+
+def _stored_number(value) -> float | None:
+    """JSON 숫자(int·float, 드라이버가 Decimal로 줄 때 포함)만 float로. bool·문자열·null은 None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 class PsycopgDatabase:
@@ -152,6 +266,9 @@ class PsycopgDatabase:
 
     def fetch_all(self, sql: str, params: dict) -> list[dict]:
         return list(self._run(sql, params, many=True) or [])
+
+    def fetch_all_with_timeout(self, sql: str, params: dict, timeout_ms: int) -> list[dict]:
+        return list(self._run(sql, params, many=True, timeout_ms=timeout_ms) or [])
 
     def close(self) -> None:
         try:
@@ -282,8 +399,31 @@ class DbUserPersonalizationLookup:
             hr_threshold_run_count=row.get("hr_threshold_run_count"),
         )
 
+    def get_speed_ref(self, user_id: int, *, cutoff: datetime) -> tuple[float | None, int, str | None]:
+        """(v_ref, 러닝 수, 경고). 조회 실패(권한 없음·테이블 없음 포함)는 계획을 막지 않고 Train 기본값으로 둔다."""
+        low, high = SPEED_REF_VALID_RANGE_MPS
+        params = {"user_id": int(user_id), "cutoff": cutoff, "max_duration_sec": SPEED_REF_MAX_DURATION_SEC,
+                  "min_speed_mps": low, "max_speed_mps": high, "limit": SPEED_REF_RECENT_RUNS}
+        try:
+            rows = self.db.fetch_all(SPEED_REF_SQL, params)
+        except DatabaseUnavailable:
+            return None, 0, SPEED_REF_UNAVAILABLE_WARNING
+        value, count = speed_ref_from_runs(rows or [])
+        return value, count, None
+
+    def get_target_hr_history(self, user_id: int, *, cutoff: datetime) -> tuple[float | None, int, str | None]:
+        """(평균 심박 중앙값, 러닝 수, 경고). 조회 실패는 계획을 막지 않고 n=0(일반화 비율)으로 둔다."""
+        try:
+            rows = self.db.fetch_all(TARGET_HR_HISTORY_SQL, history_query_params(user_id, cutoff))
+        except DatabaseUnavailable:
+            return None, 0, HISTORY_UNAVAILABLE_WARNING
+        median, count = history_from_rows(rows or [])
+        return median, count, None
+
+
 __all__ = ["MISSING_RELATION_SQLSTATES", "COURSE_SQL", "HR_THRESHOLD_COLUMNS", "HR_THRESHOLD_SQL",
-           "PERSONALIZATION_SQL", "PERSONALIZATION_TABLE",
+           "PERSONALIZATION_SQL", "PERSONALIZATION_TABLE", "SPEED_REF_SQL", "SPEED_REF_UNAVAILABLE_WARNING",
+           "TARGET_HR_HISTORY_SQL",
            "GRU_PERSONALIZATION_COLUMNS", "GRU_PERSONALIZATION_SQL", "GRU_PERSONALIZATION_TABLE",
            "Database", "DatabaseUnavailable", "DbCourseLookup", "DbUserPersonalizationLookup",
            "PsycopgDatabase", "RouteElevationSource", "StoredCourseGradeSource", "default_db_factory"]

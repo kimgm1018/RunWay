@@ -54,9 +54,14 @@ export type RunRecordSummary = {
   averagePaceSecPerKm: number;
   // Shape of the run for the small thumbnail, as [x, y] points in a 0–1 box.
   shape: [number, number][];
-  // H01 runType: group runs show their crew and how many finished (5.1 그룹런 표시).
+  // H01 runType: group runs show their crew and how many met the goal (5.1 그룹런 표시).
+  // group is null for solo runs and for runs without a group run link; groupRunId opens 6.7 (G14).
   runType: 'SOLO' | 'GROUP';
-  group: { crewName: string; finisherCount: number } | null;
+  group: {
+    crewName: string;
+    finisherCount: number;
+    groupRunId: string;
+  } | null;
   // H01 goalAchieved: false shows the run in coral (5.1); null when the run had no goal.
   goalAchieved: boolean | null;
 };
@@ -134,7 +139,7 @@ export type SavedCourse = {
   shape: [number, number][];
 };
 
-// U10 환경 코드 (3.1 환경 · 여러 개 선택).
+// 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
 export type EnvironmentType =
   | 'PARK'
   | 'RIVERSIDE'
@@ -144,6 +149,24 @@ export type EnvironmentType =
 
 export type Place = { name: string; position: [number, number] };
 
+// U11·U12: 좌표·거리·페이스를 포함하지 않는 추천 기본값.
+export type CourseShape = 'loop' | 'out_and_back' | 'point_to_point';
+export type RecommendationFilters = {
+  river: boolean;
+  beach: boolean;
+  park: boolean;
+  trail: boolean;
+  pedestrian: boolean;
+  flat: boolean;
+  avoid_major_road: boolean;
+  avoid_steps: boolean;
+  avoid_tunnel: boolean;
+};
+export type RecommendationPreferences = {
+  shape: CourseShape;
+  filters: RecommendationFilters;
+};
+
 // C01 코스 추천 request, from 3.1 오늘의 러닝.
 export type CourseSearch = {
   origin: Place;
@@ -152,6 +175,19 @@ export type CourseSearch = {
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
   environmentTypes: EnvironmentType[];
+  // 기존 호출은 순환·기존 환경을 사용하며, 추천 조건 화면은 아래 선택값을 명시한다.
+  shape?: CourseShape;
+  filters?: RecommendationFilters;
+  destination?: Place | null;
+  // C01 seed. Leaving it out asks for the first set (1); 다른 코스 sends the nextSeed of the last answer.
+  seed?: number;
+};
+
+// One C01 answer: the cards, notices about the whole answer and the seed for 다른 코스 (null when there is no more).
+export type CourseRecommendations = {
+  courses: RecommendedCourse[];
+  notices: string[];
+  nextSeed: number | null;
 };
 
 // One card of 3.1b 추천 코스; the back of the card is the course detail.
@@ -170,15 +206,20 @@ export type RecommendedCourse = {
   reason: string;
   route: [number, number][];
   saved: boolean;
+  // A route C01 made just now: it has no course id yet, so it cannot be saved or run until 371 saves it.
+  generated?: boolean;
 };
 
+// 2.9 알림 kinds, the server's notifications.notification_type (docs/design/api/notifications.md).
 export type NotificationKind =
-  | 'GROUP_RUN_STARTING'
+  | 'GROUP_RUN_PARTICIPATION_CANCELLED'
+  | 'GROUP_RUN_START_REMINDER'
   | 'CREW_JOIN_APPROVED'
   | 'CREW_JOIN_REJECTED'
   | 'POST_COMMENT'
-  | 'GROUP_RUN_CANCELED'
-  | 'FOLLOW_REQUEST';
+  | 'NEW_FOLLOWER'
+  | 'FOLLOW_REQUEST'
+  | 'FOLLOW_APPROVED';
 
 // 7.x 커뮤니티 (CMT01–CMT11). The 7.3 share card shows heart rate and cadence and the bookmark,
 // share and 코스도 함께 공유 controls follow the K1 sheets; the API has none of these yet.
@@ -233,14 +274,20 @@ export type RunnerProfile = {
   userId: string;
   handle: string;
   nickname: string;
-  level: SelfReportedLevel;
+  // U21 profileImageUrl: the runner's photo address, or null without one (7.4 · 7.4b draw it big).
+  profileImageUrl: string | null;
+  // U21 runningLevel; null before the running profile is set or while the profile is closed to me.
+  level: SelfReportedLevel | null;
   isMe: boolean;
-  followerCount: number;
-  followingCount: number;
+  // Approved followers and followings; null while the profile is closed to me.
+  followerCount: number | null;
+  followingCount: number | null;
   followStatus: 'NONE' | 'PENDING' | 'FOLLOWING';
-  isPrivate: boolean;
-  // 7.4b 팔로우 요청 N건; null on someone else's profile.
-  followRequestCount: number | null;
+  // U21 profileAccessible: me, a public account, or a private one that approved my follow.
+  accessible: boolean;
+  // 7.4b 팔로우 요청 N건 (U24): more when there are further pages past the count. null on someone else's
+  // profile, or when the requests could not be read.
+  followRequests: { count: number; more: boolean } | null;
   monthly: {
     runCount: number;
     totalDistanceM: number;
@@ -250,12 +297,37 @@ export type RunnerProfile = {
   records: { record: RunRecordSummary; postId: string | null }[];
 };
 
+// 7.4b 팔로우 요청 (U24): one request to my private account, waiting for my answer.
+export type FollowRequest = {
+  requesterId: string;
+  // U25 checks it is still the request I saw, not one sent again after a refusal or cancel.
+  requestId: string;
+  nickname: string;
+  requestedAt: string;
+};
+
+// U24 pages of 10, newest first; nextCursor is null on the last page.
+export type FollowRequestPage = {
+  items: FollowRequest[];
+  nextCursor: string | null;
+};
+
+export type FollowDecision = 'APPROVE' | 'REJECT';
+
 export type AppNotification = {
   id: string;
   kind: NotificationKind;
   message: string;
   createdAt: string;
   read: boolean;
+  // What the row opens: the group run, crew or post id, or the runner's user id for follow kinds.
+  targetId: string;
+};
+
+// N01: the newest page of the inbox and the unread count across all of it.
+export type NotificationList = {
+  items: AppNotification[];
+  unreadCount: number;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -278,8 +350,6 @@ export type CoursePlan = {
   targetPaceSecPerKm: number;
   expectedDurationSec: number;
   caution: string | null;
-  // 경쟁 모드: the earlier run on this course to race against (4.2 기록 차이, 4.5 비교 결과).
-  rival: { startedAt: string; durationSec: number } | null;
 };
 
 // One reading during a run, once a second (4.2 러닝 진행).
@@ -311,6 +381,23 @@ export type RunRecordDraft = {
   route: [number, number][] | null;
   goalDistanceM: number | null;
   goalPaceSecPerKm: number | null;
+  // The server session a personal run belongs to; its record has the same id (H02). null for group runs and
+  // the mock (S15P31E105-529).
+  sessionId: string | null;
+};
+
+// What saving a finished run gives back. recordId is null when the run has no record of its own to open (a group
+// run, whose result is 6.7). server holds the totals the server worked out (H02) when it has them; a null value
+// keeps what the phone counted.
+export type SavedRunRecord = {
+  recordId: string | null;
+  server: {
+    distanceM: number | null;
+    durationSec: number | null;
+    averagePaceSecPerKm: number | null;
+    averageHeartRate: number | null;
+    averageCadence: number | null;
+  } | null;
 };
 
 // G03 status (group_runs.status).
@@ -379,6 +466,8 @@ export type CrewDraft = {
   description: string | null;
   joinPolicy: CrewJoinPolicy;
   capacity: number;
+  // 6.3 대표 사진 (F01 CREW → M03 imageKey, S15P31E105-531); null without one.
+  photo: PhotoFile | null;
 };
 
 // 6.2a 대기 중인 신청 (M05). recent5kPaceSecPerKm is null before the applicant's first 5km.
@@ -443,8 +532,8 @@ export type GroupRunDetail = GroupRunSummary & {
   goalPaceSecPerKm: number;
   crewMemberCount: number;
   participants: GroupRunParticipant[];
-  // 내 페이스와 잘 맞아요: my recent 5km pace and today's readiness.
-  myFit: { recentPaceSecPerKm: number; readinessScore: number } | null;
+  // 최근 러닝 평균 페이스와 오늘 준비도.
+  myFit: { recentPaceSecPerKm: number; readinessScore: number | null } | null;
   // 6.4e 취소 완료.
   cancellation: {
     reason: GroupRunCancelReason;
@@ -458,10 +547,15 @@ export type GroupRunDetail = GroupRunSummary & {
 export type WaitingRoom = {
   groupRunId: string;
   goalPaceSecPerKm: number;
-  // 참가자 편한 범위.
-  comfortRange: [number, number];
+  // 추천값은 방장 목표와 분리한다. 서버가 제공하지 않으면 null이다.
+  recommendedPaceSecPerKm: number | null;
+  // 서버가 제공한 참가자 페이스 범위. 미산출이면 null이다.
+  comfortRange: [number, number] | null;
   expectedDurationSec: number;
   appliedCount: number;
+  // G07 집계(S15P31E105-499/511). session null 포함 대기방 인원·준비 수.
+  participantCount: number;
+  readyCount: number;
   participants: GroupRunParticipant[];
 };
 
@@ -471,35 +565,40 @@ export type GroupRunLive = {
     userId: string;
     nickname: string;
     isMe: boolean;
-    gapM: number;
-    paceSecPerKm: number;
+    gapM: number | null;
+    paceSecPerKm: number | null;
+    rank?: number | null;
+    stale?: boolean;
+    gapToAheadM?: number | null;
+    gapToBehindM?: number | null;
   }[];
-  // 선두–후미 간격.
-  spreadM: number;
-  inRange: boolean;
-  // 지금 안내 페이스; it differs from the start goal after a load alert.
-  guidePaceSecPerKm: number;
-  // 6.6b 멤버 부담 알림: how many members are strained and the pace the group slows to.
+  spreadM: number | null;
+  inRange: boolean | null;
+  guidePaceSecPerKm: number | null;
   loadAlert: { memberCount: number; nextPaceSecPerKm: number } | null;
+  status?: GroupRunStatus;
+  // 서버 현황은 GPS 좌표를 제공하지 않는다. 목업만 지도 위 예상 위치를 그린다.
+  locationsAvailable?: boolean;
 };
 
-// 6.7 그룹런 결과 (G14).
+// 서버에 없는 집계·미측정 값은 null로 유지한다.
 export type GroupRunResult = {
   groupRunId: string;
   title: string;
   status: GroupRunStatus;
   targetDistanceM: number | null;
-  // 함께 달린 거리 · 그룹 평균 · 최대 간격.
-  distanceM: number;
-  averagePaceSecPerKm: number;
-  maxGapM: number;
+  distanceM: number | null;
+  averagePaceSecPerKm: number | null;
+  maxGapM: number | null;
+  analysisStatus?: string;
+  hasUnconfirmedStarts?: boolean;
   participants: {
     userId: string;
     nickname: string;
     isMe: boolean;
-    state: 'FINISHED' | 'STOPPED' | 'RUNNING';
-    durationSec: number;
-    distanceM: number;
+    state: 'FINISHED' | 'STOPPED' | 'RUNNING' | 'NOT_STARTED' | 'UNCONFIRMED';
+    durationSec: number | null;
+    distanceM: number | null;
     goalAchieved: boolean | null;
   }[];
 };
@@ -544,7 +643,13 @@ export type Track = {
   artworkUrl?: string | null;
 };
 
-export type Playlist = { id: string; title: string };
+export type Playlist = {
+  id: string;
+  title: string;
+  // The playlist cover and its song count (Spotify Web API); the card draws a plain tile without a cover.
+  artworkUrl?: string | null;
+  trackCount?: number;
+};
 
 export type MusicLibrary = {
   likedCount: number;
@@ -682,12 +787,21 @@ export type ProfileDetail = BasicProfile & {
 };
 
 // 8.4 회원탈퇴 확인 (U17): what goes away and the crews I lead, handed to their oldest member.
+// U17 (users.md, S15P31E105-523). blockers are what must be cleared before U18 can go through: a crew I
+// lead (CREW_OWNER), a group run I host (GROUP_RUN_HOST), a run in progress and so on. The server's message
+// is shown as it is.
+export type WithdrawalBlocker = { code: string; message: string };
 export type WithdrawalSummary = {
   runningRecordCount: number;
   postCount: number;
   savedCourseCount: number;
+  // 워치 · 휴대폰 for each connected device.
   connectedDevices: string[];
   ownedCrews: string[];
+  // Group runs I host (cancel or end them first) and ones I only joined (cancelled on withdrawal).
+  ownedGroupRuns: string[];
+  scheduledGroupRuns: string[];
+  blockers: WithdrawalBlocker[];
 };
 
 // S01~S08 러닝 세션 제어 (docs/design/api/sessions.md). 서버 ID는 int64 정밀도를 지키기 위해 문자열로 다룬다.
@@ -715,6 +829,31 @@ export type SessionCommand = {
   result: ControlResultCode;
   appliedAt: string | null;
   reasonCode: string | null;
+  // P07 SET_BPM·COACHING의 적용 박자와 코칭 ID. 나머지 명령은 null이다(S02 명령 객체, S15P31E105-257).
+  targetBpm?: number | null;
+  coachingId?: string | null;
+  // 미확정 COACHING 명령의 원래 COACHING_GUIDE payload. 만료 후에도 결과 확인용으로 온다.
+  coachingGuide?: CoachingGuide | null;
+};
+
+// S02 coaching 객체 = COACHING_GUIDE payload (sessions.md "coaching 객체 필드", 9.3).
+export type CoachingGuide = {
+  commandId: string;
+  coachingId: string;
+  expectedVersion: number;
+  targetBpm: number;
+  recommendedPaceSecPerKm: number;
+  expiresAt: string;
+};
+
+// S02 comparison 객체(sessions.md "기록 비교", S15P31E105-422). 서버가 계산한 같은 거리 도달 운동시간이며 앱·워치는 다시 계산하지 않는다.
+// 거리·시간은 AVAILABLE에만 값이 있다. pastElapsedSec - currentElapsedSec가 양수면 앞선다.
+export type RecordComparison = {
+  status: 'WAITING' | 'AVAILABLE' | 'NO_RECORD' | 'UNAVAILABLE';
+  targetStartedAt: string | null;
+  distanceM: number | null;
+  currentElapsedSec: number | null;
+  pastElapsedSec: number | null;
 };
 
 export type SessionGoalDraft = {
@@ -737,6 +876,42 @@ export type RunningSessionView = {
   pendingCommand: SessionCommand | null;
   lastCommand: SessionCommand | null;
   analysisStatus: string;
+  // S02의 확정 BPM·현재 유효 코칭·서버 시각(S15P31E105-257). 목업 세션은 채우지 않는다.
+  currentBpm?: number | null;
+  coaching?: CoachingGuide | null;
+  // 비교 기록을 고르지 않았거나 목업 세션이면 null(S15P31E105-422).
+  comparison?: RecordComparison | null;
+  serverReceiveAt?: string | null;
+  serverSendAt?: string | null;
+};
+
+// P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
+export type BpmApproval = {
+  commandId: string;
+  action: 'SET_BPM' | 'COACHING';
+  expectedVersion: number;
+  targetBpm: number;
+  coachingId: string | null;
+  result: ControlResultCode;
+};
+
+// P07 RESULT 본문. SET_BPM·COACHING 모두 실행한 워치가 보고한 값을 그대로 옮긴다.
+export type BpmReport = {
+  commandId: string;
+  deviceId: string;
+  result: 'APPLIED' | 'REJECTED' | 'IGNORED' | 'UNKNOWN';
+  appliedAt: string | null;
+  reasonCode: string | null;
+};
+
+// S10 연결 상태. error는 45초 동안 서버 메시지가 없거나 연결이 끊긴 상태다.
+export type SessionEventsStatus = 'connecting' | 'connected' | 'error';
+
+// S10 스냅샷. reconnected는 (재)연결 뒤 첫 스냅샷이다(미확정 코칭 재전달 기준).
+export type SessionSnapshot = {
+  event: string;
+  session: RunningSessionView;
+  reconnected: boolean;
 };
 
 // S03~S06 REQUEST 응답. 같은 요청 슬롯의 재전송이면 저장된 결과가 온다.
@@ -779,6 +954,30 @@ export type WatchSessionEvent =
       action: 'PAUSE' | 'RESUME' | 'END' | 'CANCEL';
       expectedVersion: number;
     }
+  // 워치 BPM +/- (P07 SET_BPM 중계 요청, S15P31E105-257).
+  | {
+      type: 'COMMAND_REQUEST';
+      sessionId: string;
+      action: 'SET_BPM';
+      expectedVersion: number;
+      targetBpm: number;
+    }
+  | {
+      type: 'COACHING_RESULT';
+      sessionId: string;
+      commandId: string;
+      coachingId: string | null;
+      result: 'APPLIED' | 'IGNORED' | 'UNKNOWN';
+      appliedAt: string | null;
+      reasonCode: string | null;
+    }
+  // 워치의 상태 조회. SERVER면 폰이 S02로 답한다(clientSendAt은 그대로 돌려준다).
+  | {
+      type: 'STATE_QUERY';
+      sessionId: string;
+      scope: 'WATCH' | 'SERVER';
+      clientSendAt: string | null;
+    }
   // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
   | {
       type: 'BATCH_DATA';
@@ -789,8 +988,50 @@ export type WatchSessionEvent =
       body: string;
     };
 
+// 폰 GPS 한 점. time은 측정 시각(epoch ms), 좌표는 WGS84.
+export type PhoneFix = {
+  latitude: number;
+  longitude: number;
+  accuracyM: number | null;
+  altitudeM: number | null;
+  time: number;
+};
+
+export type PhoneLocation = {
+  start: () => Promise<boolean>;
+  stop: () => Promise<void>;
+  subscribe: (listener: (fix: PhoneFix) => void) => () => void;
+  // 위치 권한을 묻는다. 거절해도 인계는 이어가며 경로만 남지 않는다.
+  requestPermission: () => Promise<boolean>;
+  // 3.1 기준 위치의 현재 위치 한 번(S15P31E105-494). 권한을 묻고, 실패는 LOCATION_* DataError로 거절한다.
+  // 러닝 중 start/subscribe와 별개의 리스너를 쓴다.
+  current: () => Promise<PhoneFix>;
+};
+
 // W07 서버 저장 ACK (devices-health.md W07 Response).
-export type SyncBatchAck = { status: string; batchId: string; acceptedCount: number };
+export type SyncBatchAck = {
+  status: string;
+  batchId: string;
+  acceptedCount: number;
+};
+
+// 7.5 검색 (CMT13, docs/design/api/community.md). 전체 asks for both kinds, 러너 · 크루 for one.
+export type SearchType = 'ALL' | 'RUNNER' | 'CREW';
+
+export type SearchRequest = {
+  query: string;
+  type: SearchType;
+  // The cursor of the previous page; left out for the first one.
+  cursor?: string | null;
+};
+
+// Up to 20 of each kind per page. A kind not asked for, or used up, is an empty list.
+// cursor is null when nothing more is left.
+export type SearchPage = {
+  runners: { userId: string; nickname: string }[];
+  crews: { crewId: string; name: string }[];
+  cursor: string | null;
+};
 
 export type Repositories = {
   auth: {
@@ -829,6 +1070,12 @@ export type Repositories = {
     get: () => Promise<AppSettings>;
     update: (change: Partial<AppSettings>) => Promise<AppSettings>;
   };
+  // 8.1 건강정보 수집 (W04·W05): the server's HEALTH_DATA consent, true when given.
+  // setHealth resolves to the value the server applied.
+  consents: {
+    getHealth: () => Promise<boolean>;
+    setHealth: (granted: boolean) => Promise<boolean>;
+  };
   // 8.4–8.6 회원탈퇴 (U17·U18). A wrong password fails with INVALID_PASSWORD.
   account: {
     getWithdrawalSummary: () => Promise<WithdrawalSummary>;
@@ -852,13 +1099,18 @@ export type Repositories = {
     getPaceTrend: (months: number) => Promise<PaceTrend>;
     // S09: deletes my run and, on the server in the same call, my posts that share it.
     remove: (recordId: string) => Promise<void>;
+    // 2.0 경쟁 모드 '이 코스의 내 기록'(H01 courseId): my completed runs on this course, newest first (S15P31E105-422).
+    getCourseRuns: (courseId: string) => Promise<RunRecordSummary[]>;
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;
     // 2.0's plan for the course picked last with choose(); a default course until then.
     getTodayPlan: () => Promise<CoursePlan>;
-    getOrigins: () => Promise<Place[]>;
-    recommend: (search: CourseSearch) => Promise<RecommendedCourse[]>;
+    getPreferences: () => Promise<RecommendationPreferences>;
+    savePreferences: (
+      value: RecommendationPreferences,
+    ) => Promise<RecommendationPreferences>;
+    recommend: (search: CourseSearch) => Promise<CourseRecommendations>;
     save: (courseId: string) => Promise<void>;
     unsave: (courseId: string) => Promise<void>;
     choose: (courseId: string) => Promise<void>;
@@ -887,8 +1139,12 @@ export type Repositories = {
     listJoinRequests: (crewId: string) => Promise<CrewJoinRequest[]>;
     // M03: I become the leader and the only member.
     create: (draft: CrewDraft) => Promise<{ id: string }>;
-    // M08 크루 나가기. The leader cannot leave this way (OWNER_CANNOT_LEAVE).
-    leave: (crewId: string) => Promise<void>;
+    // M08: 크루장은 승인된 다른 멤버에게 이양한 뒤 탈퇴한다.
+    leave: (crewId: string, successorUserId?: string) => Promise<void>;
+    // M11: 크루장만 인원 수와 관계없이 해산할 수 있다.
+    dissolve: (crewId: string) => Promise<void>;
+    // M09: 크루장만 다른 일반 멤버를 내보낼 수 있다.
+    removeMember: (crewId: string, userId: string) => Promise<void>;
     // M06: approving a full crew fails with CREW_CAPACITY_EXCEEDED.
     decideJoinRequest: (
       crewId: string,
@@ -908,19 +1164,34 @@ export type Repositories = {
       groupRunId: string,
       draft: Omit<GroupRunDraft, 'crewId'>,
     ) => Promise<void>;
-    cancel: (groupRunId: string, reason: GroupRunCancelReason) => Promise<void>;
+    // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
+    cancel: (
+      groupRunId: string,
+      reason: GroupRunCancelReason,
+      message?: string | null,
+    ) => Promise<void>;
     searchPlaces: (query: string) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
     setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
-    // Calls onStart when the group leader starts; ready members' records start with it.
+    // G09는 명령 승인만 수행한다. 실제 기기 실행·결과 보고는 폰·워치 연동에서 처리한다.
+    start: (groupRunId: string) => Promise<void>;
+    // 서버 개인 세션의 실제 startedAt이 확인된 경우에만 호출한다.
     watchStart: (
       groupRunId: string,
       onStart: (startedAt: string) => void,
+      onError?: (error: unknown) => void,
+      onParticipants?: (
+        participants: GroupRunParticipant[],
+        recommendedPaceSecPerKm?: number | null,
+        comfortRange?: WaitingRoom['comfortRange'],
+        counts?: { participantCount: number; readyCount: number },
+      ) => void,
     ) => () => void;
-    // Calls onUpdate every second with where the other members are (G10).
+    // G10을 주기적으로 조회한다. 구독 해제 후 도착한 응답은 전달하지 않는다.
     watchLive: (
       groupRunId: string,
       onUpdate: (live: GroupRunLive) => void,
+      onError?: (error: unknown) => void,
     ) => () => void;
     forceFinish: (groupRunId: string) => Promise<void>;
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
@@ -947,9 +1218,19 @@ export type Repositories = {
       userId: string,
       following: boolean,
     ) => Promise<RunnerProfile>;
+    // 7.4b 팔로우 요청 (U24 · U25, S15P31E105-525). cursor null reads the first page.
+    listFollowRequests: (cursor: string | null) => Promise<FollowRequestPage>;
+    decideFollowRequest: (
+      request: FollowRequest,
+      decision: FollowDecision,
+    ) => Promise<void>;
+  };
+  // 7.5 검색 (CMT13): runners and crews whose name holds the query.
+  search: {
+    find: (request: SearchRequest) => Promise<SearchPage>;
   };
   notifications: {
-    list: () => Promise<AppNotification[]>;
+    list: () => Promise<NotificationList>;
     markAllRead: () => Promise<void>;
   };
   run: {
@@ -961,10 +1242,17 @@ export type Repositories = {
       route: [number, number][] | null,
       onSample: (sample: RunSample, guidance: RunGuidance | null) => void,
     ) => () => void;
-    // Saves the finished run (4.5 기록 저장 중 → 기록 저장됨 · 동기화 완료).
-    saveRecord: (record: RunRecordDraft) => Promise<{ recordId: string }>;
+    // Saves the finished run (4.5 기록 저장 중 → 기록 저장됨 · 동기화 완료). With the server the run is already stored
+    // when its session completes, so this confirms the record (H02) instead; a failure there is SAVE_UNCONFIRMED.
+    saveRecord: (record: RunRecordDraft) => Promise<SavedRunRecord>;
   };
   music: {
+    // Optional native player updates; older repositories continue using getState.
+    subscribe?: (listener: (state: MusicState) => void) => () => void;
+    canStartWithoutTrack?: boolean;
+    // Spotify's Web API sign-in for 내 재생 목록 · 최근 들은 곡 (and with their scopes), apart from the playback
+    // link: App Remote controls playback without it.
+    connectLibrary?: () => Promise<void>;
     getState: () => Promise<MusicState>;
     // null clears the pick (2.8: the picked row pressed again), back to 2.7a 미연결.
     selectSource: (source: MusicSource | null) => Promise<MusicState>;
@@ -976,6 +1264,14 @@ export type Repositories = {
     pause: () => Promise<MusicState>;
     next: () => Promise<MusicState>;
     previous: () => Promise<MusicState>;
+    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론 cannot
+    // start a chosen one). Playing one starts it from the top on the music app.
+    getPlaylists: () => Promise<Playlist[]>;
+    playPlaylist: (playlistId: string) => Promise<MusicState>;
+    // 2.7 최근 들은 곡 (담당자 요청): songs heard lately on the picked service, newest first, each once; [] where
+    // the service has none to offer (멜론). Playing one starts that song.
+    getRecentTracks: () => Promise<Track[]>;
+    playTrack: (trackId: string) => Promise<MusicState>;
   };
   // The current time; mock data pins it to the prototype's 12:45 so relative times and day/night match.
   clock: {
@@ -1020,16 +1316,48 @@ export type Repositories = {
       sessionId: string,
       request: { deviceId: string; expectedVersion: number },
     ) => Promise<RunningSessionView>;
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). deviceId는 세션의 중계 폰(relayDeviceId). receivedWatchBatchesUploaded=true는
+    // 저장소가 넣는다(폰이 받은 워치 batch 전체의 COMMITTED를 확인한 뒤에만 호출한다). 서버 연동 저장소만 구현한다.
+    takeOverPhone?: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number },
+    ) => Promise<RunningSessionView>;
+    // P07 SET_BPM REQUEST·SET_BPM/COACHING RESULT와 S10 구독(S15P31E105-257). 서버 연동 저장소만 구현한다.
+    requestBpm?: (
+      sessionId: string,
+      request: { deviceId: string; expectedVersion: number; targetBpm: number },
+    ) => Promise<BpmApproval>;
+    reportBpmResult?: (
+      sessionId: string,
+      report: BpmReport,
+    ) => Promise<{
+      commandId: string;
+      result: ControlResultCode;
+      session: RunningSessionView;
+    }>;
+    subscribeEvents?: (
+      sessionId: string,
+      handlers: {
+        onSnapshot: (snapshot: SessionSnapshot) => void;
+        onStatus?: (status: SessionEventsStatus) => void;
+      },
+    ) => () => void;
     // W07. 워치 batch 본문 원문을 바꾸지 않고 보낸다(S15P31E105-311).
     uploadBatch: (body: string) => Promise<SyncBatchAck>;
   };
+  // 폰 인계 뒤 폰 GPS(S15P31E105-464). start는 권한·GPS가 없으면 false로 답하고 기록은 시간만 이어간다.
+  phoneLocation?: PhoneLocation;
   // 워치 세션 메시지 중계 (watch-mobile-server-integration.md 9장).
   watchSession: {
     getLinkedDevices: () => Promise<LinkedDevices | null>;
     // SESSION_PREPARE를 보내고 같은 세션의 SESSION_PREPARED를 기다린다. deviceId는 워치 자신의 기기 ID(batch 생산 기기).
     prepare: (
       sessionId: string,
-      request: { stateVersion: number; deviceId: string; goal: SessionGoalDraft },
+      request: {
+        stateVersion: number;
+        deviceId: string;
+        goal: SessionGoalDraft;
+      },
     ) => Promise<{
       stateVersion: number;
       ready: boolean;
@@ -1048,10 +1376,18 @@ export type Repositories = {
         stateVersion: number | null;
       },
     ) => Promise<void>;
-    // STATE_RESULT(scope=SERVER).
+    // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
+    sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
+    // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.
+    sendCoachingGuide: (
+      sessionId: string,
+      guide: CoachingGuide,
+    ) => Promise<void>;
+    // STATE_RESULT(scope=SERVER). clientSendAt은 워치 STATE_QUERY의 값, 서버 스냅샷 전달이면 null.
     sendServerState: (
       sessionId: string,
       session: RunningSessionView,
+      clientSendAt?: string | null,
     ) => Promise<void>;
     // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
     sendError: (
@@ -1060,12 +1396,25 @@ export type Repositories = {
     ) => Promise<void>;
     // W07 COMMITTED를 폰에 기록하고 워치에 BATCH_COMMITTED를 보낸다. 기록과 맞지 않으면 실패한다.
     commitBatch: (batchId: string, acceptedCount: number) => Promise<void>;
+    // 폰 인계(S15P31E105-464) 1단계: 이 세션의 새 워치 batch 수신·수신 확인을 멈추고, 이미 저장했지만 W07 저장 확인이
+    // 없는 batch를 돌려준다. 인계를 요청하지 않았거나 WATCH 유지가 확인됐거나 운동이 끝났을 때만 unblockBatches로 연다.
+    blockBatches?: (
+      sessionId: string,
+    ) => Promise<Extract<WatchSessionEvent, { type: 'BATCH_DATA' }>[]>;
+    unblockBatches?: (sessionId: string) => Promise<void>;
+    // 워치와의 연결(MessageClient 노드) 여부. 워치 앱 상태까지 뜻하지는 않는다.
+    isWatchConnected?: () => Promise<boolean>;
     // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
     failBatch: (batchId: string, code: string) => Promise<void>;
     // 등록하면 수신함에 남은 이벤트부터 전달한다.
     subscribe: (listener: (event: WatchSessionEvent) => void) => () => void;
     // 러닝 중 포그라운드 서비스. 켜는 동안 활성 세션 ID를 기억해 앱 재실행 때 다시 붙는다.
-    setRunActive: (active: boolean, sessionId?: string) => Promise<void>;
+    // location은 폰 인계 뒤 폰 GPS를 화면이 꺼져도 받도록 위치 유형을 함께 켠다(S15P31E105-464).
+    setRunActive: (
+      active: boolean,
+      sessionId?: string,
+      options?: { location: boolean },
+    ) => Promise<void>;
     getActiveSessionId: () => Promise<string | null>;
     // 결과 대기 시간. 없으면 30초/120초.
     timing?: { resultWaitMs: number; endResultWaitMs: number };

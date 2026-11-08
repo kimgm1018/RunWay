@@ -159,7 +159,7 @@ public class GroupRunController {
         return groupRunService.getResults(userId, groupRunId);
     }
 
-    /** G10 스텁. 순위·격차 없이 그룹 상태와 참가자 ID만 반환한다. */
+    /** G10 실시간 순위·앞뒤 격차 조회. 읽기 전용. */
     @GetMapping("/{groupRunId}/live")
     public GroupRunLiveResponse live(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long groupRunId) {

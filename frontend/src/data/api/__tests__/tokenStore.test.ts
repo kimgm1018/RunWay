@@ -2,6 +2,7 @@ import * as Keychain from 'react-native-keychain';
 import { tokenStore } from '../tokenStore';
 
 const tokens = {
+  userId: 101,
   accessToken: 'access-1',
   refreshToken: 'refresh-1',
   refreshExpiresAt: '2026-12-02T01:00:00Z',

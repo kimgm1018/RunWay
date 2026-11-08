@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-03 · ERD ver.3 · **29개 테이블 / 270개 컬럼 / 52개 FK**
+기준: 2026-11-06 · ERD ver.3 · **32개 테이블 / 297개 컬럼 / 56개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -28,6 +28,7 @@
 | `users` | 회원·로그인 정보. 개인 활동의 기준 ID |
 | `user_profiles` | 회원의 러닝 수준·평소 페이스·기준 거리/시간. 이번 러닝 목표와 구분 |
 | `user_recommendation_preferences` | U11/U12 추천 기본값. 회원당 최대 1행, 명시적 저장 시 생성·전체 교체 |
+| `user_hr_personalization` | AI06 ODE 개인화 결과. 회원·버전별 append-only. 원본 HR/GPS 시계열은 저장하지 않음 |
 | `user_settings` | 코칭·알림 사용 여부, 위치 수집 모드, 계정의 기록 공개 범위 |
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
@@ -51,6 +52,25 @@
 - 조회·입력·오류·재요청 계약은 [U11·U12](../api/users.md#u11-추천-기본값-조회)를 따른다.
 - 기준 SQL만 반영한 상태다. 서비스용 Flyway 마이그레이션과 API 구현은 후속 구현 단계에서 추가한다. erd.png는 2026-11-04 기준 SQL의 29개 테이블·270개 컬럼·52개 FK를 반영했다. 온라인 ERD에는 이 테이블이 아직 반영되지 않았다.
 
+#### user_hr_personalization — AI06 ODE 개인화 (설계 S15P31E105-337 / 구현 S15P31E105-410, 2026-11-05)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 개인화 행 ID |
+| user_id | BIGINT NOT NULL, FK users.id ON DELETE CASCADE | 회원. 물리 삭제 시 함께 삭제 |
+| personalization_version | INTEGER NOT NULL, CHECK > 0 | 회원별 버전. `(user_id, personalization_version)` UNIQUE |
+| schema_version / model_version | VARCHAR(80/160) NOT NULL | JSON 스키마·ODE 모델 버전 |
+| support_run_count | INTEGER NOT NULL, CHECK >= 0 | 계산에 쓴 support 러닝 수 |
+| summary_u_json / history8_json / p4_json | JSONB NOT NULL | ODE 요약·History8·개인 적합 벡터. 원본 시계열 없음 |
+| hr0_sub_bpm | NUMERIC(7,2) NOT NULL, CHECK 35~220 | support 시작 HR 중앙값(기본 85) |
+| hr_ref_bpm / hr_danger_bpm / hr_sustain_bpm | NUMERIC(7,2) NULL, CHECK 35~220 | AI06 응답 기준값. danger는 +3 전 P98 원값 |
+| hr_threshold_run_count | INTEGER NULL, CHECK 0~20 | P98·P85 기준에 쓴 최근 러닝 수 |
+| created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 생성 시각. updated_at 없음(append-only) |
+
+- AI06 결과를 덮어쓰지 않고 새 버전 행을 추가한다. 최신 조회는 `WHERE user_id=? ORDER BY personalization_version DESC LIMIT 1`이며 UNIQUE 인덱스의 역방향 스캔으로 처리하므로 별도 인덱스를 두지 않는다.
+- 이번 migration 범위는 `user_hr_personalization`만이다. `user_gru_personalization`·코스 난이도·`coaching_decisions` 컬럼은 포함하지 않는다.
+- 기준 SQL·Flyway V12를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 저장·조회 계약은 [AI06](../api/ai-service.md)과 [개인화 ERD 요청](proposals/AI_PERSONALIZATION_ERD_REQUEST.md)을 따른다.
+
 #### daily_health_metrics — 날짜별 건강 요약
 
 `(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`뿐이다.
@@ -67,14 +87,14 @@
 | 테이블 | 역할과 주요 연결 |
 | --- | --- |
 | `running_sessions` | 한 회원의 한 번의 러닝. 초기 목표·상태·실제 결과. course_id가 없으면 자유러닝 |
-| `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등 |
+| `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등. 세션별 경과시간 순 조회(AI04 실시간 코칭 history)는 `(running_session_id, elapsed_duration)` 인덱스 `idx_running_metric_samples_session_elapsed`(V13)를 쓴다 |
 | `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도 |
 | `running_session_splits` | 종료 후 1km 단위 실측 구간 집계(H03). 원본 샘플에서 한 번 계산해 덮어써 저장 |
 | `sync_batches` | 기기에서 받은 배치의 식별·해시·수신/반영 상태 |
 | `session_control_events` | 시작·일시정지·재개·종료·수동/AI BPM 명령과 실제 결과, 명령 중복 판정 |
 | `pace_plans` | 세션의 초기 권장 페이스·BPM |
 | `pace_plan_segments` | 초기 페이스 계획의 거리 구간별 권장 페이스 |
-| `coaching_decisions` | 러닝 도중의 권장 페이스·BPM·미래 심박 예측 |
+| `coaching_decisions` | 러닝 도중의 권장 페이스·BPM·코칭 단계·미래 심박 예측 |
 
 #### running_session_splits — 종료 후 구간 집계
 
@@ -100,7 +120,7 @@
 | current_bpm | INTEGER/null, 60~220 | 실제 현재 BPM. READY/PAUSED에서는 값을 보존하되 소리를 재생하지 않음 |
 | analysis_status | running_sessions_analysis_status_enum NOT NULL, PENDING | 현재 결과 준비 상태만 표시. PENDING/PROCESSING/READY/FAILED/LEGACY |
 
-목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다.
+목표·상태·BPM은 하나의 `state_version`을 공유한다. 초기 페이스 계획은 `pace_plans`에 저장한다. 폰으로 기록을 인계하면 `control_device_id`를 `relay_device_id`로 바꾸며, API의 `recordingMode`는 두 ID의 일치 여부로 계산한다. 별도 모드·인계 컬럼은 두지 않는다. 회원별 활성 세션(READY/RUNNING/PAUSED, `state_version`≥1, 미삭제)은 하나만 허용하며 부분 UNIQUE `uq_running_sessions_active`(V8)로 보장한다. 기존 기록(`state_version`=0)은 제외한다. 사용자별 완료 러닝을 종료 시각 최근순으로 찾는 조회(AI09 속도 보정·AI04 BPM 이력 등, `ended_at IS NOT NULL ORDER BY ended_at DESC`)는 `(user_id, ended_at DESC)` 인덱스 `idx_running_sessions_user_ended`(V11)를 사용할 수 있다. `DESC`는 NULL(진행 중 세션)을 앞에 두므로 `NULLS LAST` 정렬은 이 인덱스 순서를 그대로 쓰지 못한다.
 
 #### session_control_events — 제어 명령과 실행 결과
 
@@ -126,6 +146,7 @@
 | --- | --- | --- |
 | based_on_state_version | BIGINT/null, 값이 있으면 ≥1 | 계산 기준 세션 버전 |
 | expires_at | TIMESTAMPTZ/null | 적용 만료 시각 |
+| coaching_level | VARCHAR(16)/null, OK·CAUTION·DANGER | AI04 코칭 단계(S15P31E105-503). AI가 단계를 주지 않았거나 이전 행이면 null |
 
 `created_at`은 생성 시각이고, `expires_at`은 적용 가능한 마지막 시각이다. 신규 코칭은 기준 버전과 만료 시각을 함께 채운다. 자동 적용 조건은 [페이스 코칭 API](../api/pace-coaching.md)를 따른다.
 
@@ -142,10 +163,26 @@
 | `courses` | 여러 러닝에서 재사용하는 공용 경로·출발점·거리·지역·상태 |
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
+| `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
 | `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태 |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
+
+#### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 비율 행 ID |
+| course_id | BIGINT NOT NULL UNIQUE, FK courses.id ON DELETE CASCADE | 코스. 코스당 1행 |
+| distance_m | NUMERIC(12,2) NOT NULL, CHECK > 0 | 계산 기준 코스 거리. 구간 수 = 거리 ÷ 1km 올림 |
+| ratios | JSONB NOT NULL, CHECK 배열·1~45개 | 0m부터 1km 구간 순서의 양수 상대 비율(마지막은 남은 거리) |
+| planner_version | VARCHAR(80) NOT NULL | 계산한 AI05 `plannerVersion` |
+| created_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장 시각. 갱신하지 않음 |
+
+- 생성 코스 저장 커밋 후 백엔드가 AI05를 호출해 한 번 저장한다(`INSERT ... ON CONFLICT DO NOTHING`). 세션 생성·목표 변경은 잠금 안에서 이 행만 읽는다. 비율의 개수·양수 검사는 서비스가, 배열 형식·개수 상한은 DB가 확인한다.
+- 비율은 사용자와 무관한 지형 값이다. 개인 비율(AI09)은 저장하지 않는다(S15P31E105-442 범위).
+- 기준 SQL·Flyway V15를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 계산·사용 규칙은 [sessions.md 초기 계획](../api/sessions.md)과 [ai-service.md 백엔드 호출 순서](../api/ai-service.md#백엔드-호출-순서)를 따른다.
 
 ### 지역·커뮤니티·알림
 
@@ -156,7 +193,8 @@
 | `comments` | 게시글 댓글. parent_comment_id가 없으면 일반 댓글, 있으면 대댓글 |
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
 | `user_follows` | 팔로우 요청/성립 관계와 승인 여부 |
-| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상 |
+| `follow_request_history` | 요청별 최종 처리 결과와 재전송 판별. 자동 삭제하지 않음 |
+| `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`) |
 
 ## 3. 핵심 관계와 데이터 흐름
 
@@ -196,19 +234,22 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 
 ## 5. 알림 종류와 화면 이동
 
-`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다.
+`notification_type VARCHAR(50) NOT NULL`과 `target_id BIGINT NOT NULL`를 함께 저장한다. 종류마다 대상이 정해져 있으므로 target_type과 화면 URL은 추가하지 않는다. 2026-11-06(S15P31E105-458): 앱 내 알림함용이며 `dedupe_key VARCHAR(200) NOT NULL UNIQUE`로 논리 사건 중복 삽입을 막는다. FCM 토큰 저장은 이 테이블 범위가 아니다.
 
 | 알림 종류 | notification_type | target_id | 클릭 시 이동 |
 | --- | --- | --- | --- |
-| 그룹런 참여 취소 | GROUP_RUN_PARTICIPATION_CANCELLED | group_runs.id | 그룹런 상세 |
+| 그룹런 취소(G13) | GROUP_RUN_PARTICIPATION_CANCELLED | group_runs.id | 그룹런 상세. 코드명은 기존 ERD 유지. 참가 취소(G06) 알림은 만들지 않음 |
 | 크루 가입 승인 | CREW_JOIN_APPROVED | crews.id | 크루 상세 |
 | 크루 가입 거절 | CREW_JOIN_REJECTED | crews.id | 크루 상세 |
 | 게시물 댓글 | POST_COMMENT | posts.id | 게시글 상세 |
-| 그룹런 시작 임박 | GROUP_RUN_START_REMINDER | group_runs.id | 그룹런 상세 |
+| 그룹런 시작 임박 | GROUP_RUN_START_REMINDER | group_runs.id | 그룹런 상세. 발송 시각·횟수는 미정 |
+| 새 팔로워 | NEW_FOLLOWER | 행위자 users.id | 러너 프로필 |
+| 팔로우 요청 | FOLLOW_REQUEST | 행위자 users.id | 러너 프로필·요청 목록 |
+| 팔로우 승인 | FOLLOW_APPROVED | 승인자 users.id | 러너 프로필 |
 
-앱은 푸시의 종류·대상 ID로 화면을 선택한다. target_id는 여러 테이블을 가리키므로 단일 FK를 두지 않는다. 서비스가 허용 코드와 종류별 대상 조합을 검증하고, 클릭 시 삭제 여부와 현재 열람 권한을 확인한다. 삭제된 대상은 이동 불가로 안내하며 알림 수신이 비공개 기록의 접근 권한을 부여하지는 않는다. 가입 거절 후 크루 상세 조회와 가입자 전용 기능 권한도 구분한다.
+앱은 종류·대상 ID로 화면을 선택한다. target_id는 여러 테이블을 가리키므로 단일 FK를 두지 않는다. 서비스가 허용 코드와 종류별 대상 조합을 검증하고, 클릭 시 삭제 여부와 현재 열람 권한을 확인한다. 삭제된 대상은 이동 불가로 안내하며 알림 수신이 비공개 기록의 접근 권한을 부여하지는 않는다. 가입 거절 후 크루 상세 조회와 가입자 전용 기능 권한도 구분한다.
 
-참여 취소 알림의 수신자, 시작 임박 알림의 발송 시점·수신 대상은 아직 미정이다. 실제 푸시 전송·화면 이동과 푸시 토큰 저장은 이 두 컬럼 추가만으로 구현되지 않는다.
+시작 임박의 발송 시점·횟수는 미정이다. 조회·읽음 API는 [notifications.md](../api/notifications.md)를 따른다.
 
 ## 6. 상태·NULL을 읽는 기준
 
@@ -244,9 +285,11 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | --- | --- |
 | users | login_id, nickname 각각 UNIQUE |
 | user_profiles / user_settings | 각각 user_id |
+| user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |
+| course_segment_difficulties | course_id |
 | post_likes | post_id, user_id |
 | user_follows | follower_id, followee_id |
 | course_environment_tags | course_id, environment_type |
@@ -261,6 +304,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | user_devices | user_id, device_type — unlinked_at이 NULL(연결 중)일 때만 |
 | regions | region_code |
 | comments | post_id, id (부모 복합 FK의 참조 키) |
+| notifications | dedupe_key |
 
 기기는 회원별·유형별로 연결 중인 행을 하나만 둔다. 해제 후 재등록은 새 행을 만들어 연결·해제 이력을 보존하며, 설치 식별자는 저장하지 않는다(기기 API W01~W03). 크루 재가입은 같은 `(crew_id,user_id)` 행을 갱신한다. 상태 전이 시 요청·가입·탈퇴 시각을 새 상태에 맞게 정리하는 책임은 서비스에 있다. 가입 이력 전체를 별도 행으로 누적하는 모델은 이번 범위가 아니다. 로그인 아이디의 대소문자 정규화·탈퇴 후 재사용 정책은 이 UNIQUE만으로 결정되지 않는다.
 
@@ -301,8 +345,24 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 가입과 동의 처리 (S15P31E105-222, 2026-10-29 사용자 확정)
 
-- users.nickname은 uq_users_nickname UNIQUE, 대소문자 구분·정규화 없음. 탈퇴 계정 포함 중복 불가. 기존 중복 데이터가 있으면 V4는 실패하며 임의 삭제·개명하지 않는다.
+- users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다.
+- users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
 - 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREEE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
 - V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png의 PK·FK·타입·NULL 표시는 기준 SQL을 반영하며 UNIQUE·CHECK·트리거의 정확한 정의와 온라인 ERD의 미갱신 제약은 schema.sql을 따른다.
+
+### 팔로우 요청 처리 이력 — S15P31E105-249
+
+2026-11-05 사용자 확정: 현재 관계와 별도로 `follow_request_history` 테이블 1개를 추가하며 자동 삭제하지 않는다. 내부 PK `id`는 자동 생성하며 `request_id`는 유일한 처리 대상 `user_follows.id`, `requester_id`와 `target_id`는 users 참조, `result`는 APPROVED/REJECTED/CANCELLED, `processed_at`은 마지막 처리 시각이다. 현재 관계를 취소하면 해당 요청의 최종 결과를 CANCELLED로 갱신하여 과거 승인 재전송으로 관계가 복원되지 않게 한다. 현재 관계가 없는 상태의 반복 취소는 이력을 새로 만들지 않는다. 취소·거절 후 새 관계는 새 request_id를 사용한다. 삭제될 관계 행에는 FK를 두지 않고 요청 ID를 보존한다. 사용자 FK는 참조 무결성을 유지하며 이 변경은 계정 하드 삭제를 새로 허용하지 않는다.
+
+인가·팔로워 수는 현재 `user_follows.is_approved`만 사용한다. 이력은 소유자와 요청 세대를 대조하는 재전송 판별용이며 알림 전달 저장소로 사용하지 않는다. 공개 전환 자동 승인은 수동 승인 이력을 만들지 않으므로 이후 수동 명령은 상태 충돌로 처리한다. 이력에 민감한 프로필·건강/GPS 본문은 저장하지 않는다. 물리 변경은 V14 후속 migration에 반영한다.
+
+
+### 회원탈퇴와 쓰기 경합 (S15P31E105-248)
+
+V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/좋아요/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
+
+탈퇴 시 users의 NOT NULL은 유지하고 고정 대체값/로그인 ID 해시를 사용한다. 개인 건강/GPS 및 파생 개인화는 실제 삭제하고, 세션 ID·공용 코스·확정 그룹 결과의 최소 사실은 보존한다. 구체 제거/보존 목록은 users.md U18을 따른다. 이미지 삭제 재시도는 기존 WITHDRAWN과 파일 존재로 처리한다.
+
+게시물 탈퇴 안내 구분: U18이 새로 숨기는 글은 body에 원문 대신 고정 문구 “탈퇴한 회원의 게시물입니다.”를 저장한다. 이미 deleted_at이 있던 글은 body=NULL로 원문만 지우고 계속404를 유지한다. 다른 필드/테이블 추가 없이 두 경우를 구분하며, 410은 고정 문구·삭제 상태·작성자 탈퇴 상태를 모두 확인한다.

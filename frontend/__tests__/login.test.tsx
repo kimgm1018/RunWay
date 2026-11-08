@@ -115,7 +115,7 @@ async function launch() {
 }
 
 async function login(screen: Screen, password = 'runway123') {
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await type(screen, '아이디', 'minjun01');
   await type(screen, '비밀번호', password);
   await press(screen, '로그인');
@@ -139,6 +139,7 @@ test('a completed account enters home and stays signed in after a relaunch', asy
   // S15P31E105-313: the login hands the consent to the watch again.
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(2);
   expect(tokenStore.current()).toEqual({
+    userId: 101,
     accessToken: 'access-1',
     refreshToken: 'refresh-1',
     refreshExpiresAt: '2026-12-02T01:00:00Z',
@@ -171,7 +172,7 @@ test('an account without a running profile goes to 1.6 and a relaunch starts sig
   await act(async () => first.unmount());
 
   const relaunch = await launch();
-  expect(texts(relaunch)).toContain('RUN YOUR WAY');
+  expect(texts(relaunch)).toContain('시작하기');
   await act(async () => relaunch.unmount());
 });
 

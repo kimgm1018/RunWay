@@ -11,11 +11,14 @@ type ConsentStatus = {
 export type ConsentReadDeps = {
   request: (path: string) => Promise<unknown>;
   accessToken: () => string | undefined;
+  sessionKey?: () => string | undefined;
 };
 
 const defaultDeps: ConsentReadDeps = {
   request: path => apiRequest<ConsentStatus>(path),
   accessToken: () => tokenStore.current()?.accessToken,
+  sessionKey: () =>
+    tokenStore.current() ? String(tokenStore.session()) : undefined,
 };
 
 // The server's current health consent, or null when it is not known. Never turned into a guessed value.
@@ -23,13 +26,14 @@ const defaultDeps: ConsentReadDeps = {
 export async function readServerHealthConsent(
   deps: ConsentReadDeps = defaultDeps,
 ): Promise<HealthDataAccess | null> {
-  const token = deps.accessToken();
+  const sessionKey = deps.sessionKey ?? deps.accessToken;
+  const token = sessionKey();
   if (!token) {
     return null;
   }
   const body = (await deps.request('/consents')) as ConsentStatus | null;
   // Signed out (or another account) while W05 was in flight: an AGREEE must not overwrite the withdrawal.
-  if (deps.accessToken() !== token) {
+  if (sessionKey() !== token) {
     return null;
   }
   const health = Array.isArray(body?.items)

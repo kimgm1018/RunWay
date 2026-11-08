@@ -291,6 +291,17 @@ export function createRecordsApi() {
         changeSecPerKm: roundPace(response.changeSecPerKm),
       };
     },
+    // H01 courseId: only my COMPLETED runs on the course come back (running-records.md 3.2 경쟁 모드).
+    getCourseRuns: async courseId => {
+      const lists = await Promise.all(
+        (['SOLO', 'GROUP'] as const).map(runType =>
+          listAll({ courseId, runType, sort: 'LATEST' }).then(items =>
+            items.map(item => toSummary(item, runType)),
+          ),
+        ),
+      );
+      return remember(lists.flat().sort(newestFirst));
+    },
     // S09 러닝 세션 삭제: the record ID is the session ID. The server also deletes my posts sharing it.
     remove: async recordId => {
       await apiRequest(`/running-sessions/${recordId}`, { method: 'DELETE' });

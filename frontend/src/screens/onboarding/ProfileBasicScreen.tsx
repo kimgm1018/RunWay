@@ -1,33 +1,38 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, IconButton, Screen, TextField } from '../../components';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { AppText, Screen, TextField, WheelPicker } from '../../components';
 import { errorCode, useRepositories, type Gender } from '../../data';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
-import { spacing } from '../../theme';
+import { fontFamily } from '../../theme';
 import {
   ErrorNotice,
   GoButton,
   OnboardingFooter,
   OnboardingHeader,
-  PageDots,
-  SelectField,
+  onboardingLook,
+  onboardingScreen,
+  RunnerArt,
   SelectionCard,
+  signUpSteps,
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
 import {
-  daysInMonth,
+  birthDateOptions,
+  clampBirthDate,
+  defaultBirthDate,
   isValidNickname,
   nicknameRule,
+  parseBirthDate,
   toBirthDate,
+  type BirthDate,
+  type BirthDateParts,
 } from './validation';
 
-// 1.5 lists 2010 down to 1950.
-const years = Array.from({ length: 61 }, (_, index) => 2010 - index);
-const months = Array.from({ length: 12 }, (_, index) => index + 1);
 const pad = (value: number) => String(value).padStart(2, '0');
 
 const genders: { value: Gender; label: string }[] = [
@@ -35,7 +40,7 @@ const genders: { value: Gender; label: string }[] = [
   { value: 'FEMALE', label: '여성' },
 ];
 
-// U15 errors other than a taken nickname, which shows under the nickname field instead.
+// U15 errors other than a taken nickname, which shows under the nickname field on 1.5 instead.
 function describeSignUpError(error: unknown) {
   switch (errorCode(error)) {
     case 'LOGIN_ID_DUPLICATED':
@@ -54,129 +59,114 @@ function describeSignUpError(error: unknown) {
   }
 }
 
-function splitDate(date: string | undefined) {
-  const [year, month, day] = (date ?? '').split('-').map(Number);
-  return year ? { year, month, day } : { year: null, month: null, day: null };
+function splitDate(date: string | undefined): BirthDateParts {
+  const [year = '', month = '', day = ''] = (date ?? '').split('-');
+  return { year, month, day };
 }
 
-// 1.5 초기 설정 1/2 — 기본 프로필. Finishing this step creates the account (U15).
+// A kept date opens the wheels where it was; nothing kept yet opens them on 2002-01-01.
+function initialBirthDate(parts: BirthDateParts): BirthDate {
+  return parseBirthDate(parts)
+    ? clampBirthDate({
+        year: Number(parts.year),
+        month: Number(parts.month),
+        day: Number(parts.day),
+      })
+    : defaultBirthDate;
+}
+
+// The handoff's filled figures for 남성 · 여성.
+function GenderIcon({ gender }: { gender: Gender }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24">
+      <Circle
+        cx={12}
+        cy={5.2}
+        r={2}
+        fill="none"
+        stroke={onboardingLook.ink}
+        strokeWidth={1.8}
+      />
+      <Path
+        d={
+          gender === 'MALE'
+            ? 'M9.5 9h5l-.7 6h-1.3l-.5 5.5h-1l-.5-5.5H9.5z'
+            : 'M10.2 9h3.6l2.2 7h-2.4l-.6 4.5h-2l-.6-4.5H8z'
+        }
+        fill={onboardingLook.ink}
+      />
+    </Svg>
+  );
+}
+
+// The 1.5 · 1.6 footer: one full-width main button; going back is the header's 뒤로 (담당자 결정).
+export function StepFooter({
+  title,
+  disabled,
+  onPress,
+}: {
+  title: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <OnboardingFooter>
+      <GoButton title={title} disabled={disabled} onPress={onPress} />
+    </OnboardingFooter>
+  );
+}
+
+// 1.5 초기 설정 — 닉네임 · 성별 (runway-onboarding-handoff 1.5). The birth date follows on 1.5b, which creates the
+// account (U15).
 export function ProfileBasicScreen() {
   const navigation = useNavigation();
-  const repositories = useRepositories();
-  const { holdTokens } = useSession();
   const { draft, update } = useSignUpDraft();
-  const initial = splitDate(draft.profile?.birthDate);
-  const [nickname, setNickname] = useState(draft.profile?.nickname ?? '');
+  const [nickname, setNickname] = useState(
+    draft.basic?.nickname ?? draft.profile?.nickname ?? '',
+  );
   const [touched, setTouched] = useState(false);
   const [gender, setGender] = useState<Gender | null>(
-    draft.profile?.gender ?? null,
+    draft.basic?.gender ?? draft.profile?.gender ?? null,
   );
-  const [year, setYear] = useState<number | null>(initial.year);
-  const [month, setMonth] = useState<number | null>(initial.month);
-  const [day, setDay] = useState<number | null>(initial.day);
-  const [saving, setSaving] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  // The nickname U15 rejected as taken; editing it clears the field error.
-  const [takenNickname, setTakenNickname] = useState<string | null>(null);
+  // The nickname U15 rejected as taken on 1.5b; editing it clears the field error.
   const nicknameTaken =
-    takenNickname !== null && takenNickname === nickname.trim();
-
-  const dayCount = year && month ? daysInMonth(year, month) : 31;
-  const days = Array.from({ length: dayCount }, (_, index) => index + 1);
-  // Moving to a shorter month pulls the day back to its last date.
-  const changeMonthOrYear = (
-    nextYear: number | null,
-    nextMonth: number | null,
-  ) => {
-    setYear(nextYear);
-    setMonth(nextMonth);
-    if (day && nextYear && nextMonth) {
-      setDay(Math.min(day, daysInMonth(nextYear, nextMonth)));
-    }
-  };
-
+    draft.takenNickname !== null && draft.takenNickname === nickname.trim();
   const nicknameValid = isValidNickname(nickname);
-  const ready =
-    nicknameValid && !nicknameTaken && gender && year && month && day;
+  const ready = nicknameValid && !nicknameTaken && gender;
 
-  const submit = async () => {
+  const next = () => {
     if (!ready) {
       return;
     }
-    const profile = {
-      nickname: nickname.trim(),
-      gender,
-      birthDate: toBirthDate(year, month, day),
-    };
-    setSaving(true);
-    setFailure(null);
-    try {
-      if (draft.accountCreated) {
-        await repositories.profile.updateBasic(profile);
-      } else {
-        const session = await repositories.auth.signUp({
-          loginId: draft.loginId,
-          password: draft.password,
-          phoneNumber: draft.phoneNumber,
-          healthDataAccess: draft.healthDataAccess,
-          ...profile,
-        });
-        // Setup is not finished yet, so the tokens stay in memory until 1.7 signs in (users.md 초기 설정과 화면 분기).
-        holdTokens({
-          accessToken: session.accessToken,
-          refreshToken: session.refreshToken,
-          refreshExpiresAt: session.refreshExpiresAt,
-        });
-        // Fire and forget: the watch sync must not delay navigation.
-        void setWatchHealthConsent(draft.healthDataAccess);
-      }
-      // The password is not kept once the account exists.
-      update({ profile, accountCreated: true, password: '' });
-      setSaving(false);
-      navigateTo(navigation, 'ProfileRunning');
-    } catch (error) {
-      setSaving(false);
-      if (errorCode(error) === 'NICKNAME_DUPLICATED') {
-        setTakenNickname(profile.nickname);
-      } else {
-        setFailure(describeSignUpError(error));
-      }
-    }
+    update({ basic: { nickname: nickname.trim(), gender } });
+    navigateTo(navigation, 'ProfileBirthday');
   };
 
   // Once the account exists there is no going back to 1.3·1.4.
   const back = draft.accountCreated ? undefined : navigation.goBack;
+
   return (
     <Screen
+      {...onboardingScreen}
       header={
-        <OnboardingHeader onBack={back} step={{ current: 1, total: 2 }} />
+        <OnboardingHeader
+          onBack={back}
+          progress={{ current: 3, total: signUpSteps }}
+        />
       }
-      footer={
-        <OnboardingFooter>
-          <View style={styles.cta}>
-            {back ? (
-              <IconButton
-                icon="back"
-                accessibilityLabel="이전"
-                diameter={54}
-                onPress={back}
-              />
-            ) : null}
-            <GoButton
-              title="다음"
-              disabled={!ready || saving}
-              onPress={submit}
-            />
-          </View>
-          <PageDots count={2} current={0} />
-        </OnboardingFooter>
-      }
+      footer={<StepFooter title="다음" disabled={!ready} onPress={next} />}
     >
-      <StepTitle title="어떻게 " muted="불러드릴까요?" />
-      {failure ? <ErrorNotice title={failure} /> : null}
+      <RunnerArt />
+      <StepTitle
+        title="어떻게 "
+        muted="불러드릴까요?"
+        description="닉네임은 그룹런과 커뮤니티에 표시돼요."
+      />
       <TextField
         labelInside
+        icon="tag"
         label="닉네임"
+        placeholder="2-10자"
         value={nickname}
         onChangeText={setNickname}
         onBlur={() => setTouched(true)}
@@ -194,65 +184,151 @@ export function ProfileBasicScreen() {
             : nicknameRule
         }
       />
-      <View style={styles.group}>
-        <AppText variant="label" tone="textTertiary" style={styles.label}>
-          성별
-        </AppText>
-        <View accessibilityRole="radiogroup" style={styles.row}>
-          {genders.map(option => {
-            const selected = gender === option.value;
-            return (
-              <SelectionCard
-                key={option.value}
-                selected={selected}
-                onPress={() => setGender(option.value)}
-                accessibilityLabel={option.label}
-                style={styles.gender}
-              >
-                <AppText variant={selected ? 'bodyMedium' : 'body'}>
-                  {option.label}
-                </AppText>
-              </SelectionCard>
-            );
-          })}
-        </View>
+      <AppText style={styles.label}>성별</AppText>
+      <View accessibilityRole="radiogroup" style={styles.choices}>
+        {genders.map(option => (
+          <SelectionCard
+            key={option.value}
+            selected={gender === option.value}
+            onPress={() => setGender(option.value)}
+            accessibilityLabel={option.label}
+            style={styles.choice}
+          >
+            <GenderIcon gender={option.value} />
+            <AppText style={styles.choiceText}>{option.label}</AppText>
+          </SelectionCard>
+        ))}
       </View>
-      <View style={styles.group}>
-        <AppText variant="label" tone="textTertiary" style={styles.label}>
-          생년월일
-        </AppText>
-        <View style={styles.row}>
-          <SelectField
-            label="연도"
-            placeholder="연도"
-            value={year}
-            options={years}
-            format={value => `${value}년`}
-            onChange={value => changeMonthOrYear(value, month)}
-            style={styles.year}
-          />
-          <SelectField
-            label="월"
-            placeholder="월"
-            value={month}
-            options={months}
-            format={value => `${pad(value)}월`}
-            onChange={value => changeMonthOrYear(year, value)}
-            style={styles.flex}
-          />
-          <SelectField
-            label="일"
-            placeholder="일"
-            value={day}
-            options={days}
-            format={value => `${pad(value)}일`}
-            onChange={setDay}
-            style={styles.flex}
-          />
-        </View>
-        <AppText variant="caption" tone="textSecondary" style={styles.note}>
-          성별·생년월일은 심박 구간과 권장 페이스 계산에 쓰여요
-        </AppText>
+    </Screen>
+  );
+}
+
+// 1.5b 초기 설정 — 생년월일 (runway-onboarding-handoff 1.5b). Finishing this step creates the account (U15).
+export function ProfileBirthdayScreen() {
+  const navigation = useNavigation();
+  const repositories = useRepositories();
+  const { holdTokens } = useSession();
+  const { draft, update } = useSignUpDraft();
+  // The date lives in the draft as it changes (S15P31E105-287), so going back to 1.5 keeps it.
+  const [birth, setBirth] = useState(() =>
+    initialBirthDate(
+      draft.birthDateParts ?? splitDate(draft.profile?.birthDate),
+    ),
+  );
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const { years, months, days } = birthDateOptions(birth);
+  const birthDate = toBirthDate(birth.year, birth.month, birth.day);
+  // A shorter month, or today's month in the latest year, pulls the later wheels back.
+  const changeBirth = (changes: Partial<BirthDate>) => {
+    const next = clampBirthDate({ ...birth, ...changes });
+    setBirth(next);
+    update({
+      birthDateParts: {
+        year: String(next.year),
+        month: pad(next.month),
+        day: pad(next.day),
+      },
+    });
+  };
+
+  // The wheels always hold a date, so 다음 waits only for 1.5's nickname and gender.
+  const basic = draft.basic;
+
+  const submit = async () => {
+    if (!basic) {
+      return;
+    }
+    const profile = { ...basic, birthDate };
+    setSaving(true);
+    setFailure(null);
+    try {
+      if (draft.accountCreated) {
+        await repositories.profile.updateBasic(profile);
+      } else {
+        const session = await repositories.auth.signUp({
+          loginId: draft.loginId,
+          password: draft.password,
+          phoneNumber: draft.phoneNumber,
+          healthDataAccess: draft.healthDataAccess,
+          ...profile,
+        });
+        // Setup is not finished yet, so the tokens stay in memory until 1.7 signs in (users.md 초기 설정과 화면 분기).
+        holdTokens({
+          userId: session.user.id,
+          accessToken: session.accessToken,
+          refreshToken: session.refreshToken,
+          refreshExpiresAt: session.refreshExpiresAt,
+        });
+        // Fire and forget: the watch sync must not delay navigation.
+        void setWatchHealthConsent(draft.healthDataAccess);
+      }
+      // The password is not kept once the account exists.
+      update({
+        profile,
+        accountCreated: true,
+        password: '',
+        takenNickname: null,
+      });
+      setSaving(false);
+      navigateTo(navigation, 'ProfileRunning');
+    } catch (error) {
+      setSaving(false);
+      if (errorCode(error) === 'NICKNAME_DUPLICATED') {
+        // The nickname is chosen on 1.5, so that is where it is shown as taken.
+        update({ takenNickname: profile.nickname });
+        navigation.goBack();
+      } else {
+        setFailure(describeSignUpError(error));
+      }
+    }
+  };
+
+  return (
+    <Screen
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: 4, total: signUpSteps }}
+        />
+      }
+      footer={
+        <StepFooter title="다음" disabled={!basic || saving} onPress={submit} />
+      }
+    >
+      <RunnerArt />
+      <StepTitle title="생일이 " muted="언제예요?" />
+      {failure ? <ErrorNotice title={failure} /> : null}
+      {/* Three wheels in 년 · 월 · 일 order, rolled in place like the reference (S15P31E105-520). */}
+      <View style={styles.wheels}>
+        <WheelPicker
+          label="연도"
+          options={years}
+          value={birth.year}
+          format={value => `${value}년`}
+          onChange={year => changeBirth({ year })}
+          color={onboardingLook.ink}
+          style={styles.year}
+        />
+        <WheelPicker
+          label="월"
+          options={months}
+          value={birth.month}
+          format={value => `${value}월`}
+          onChange={month => changeBirth({ month })}
+          color={onboardingLook.ink}
+          style={styles.flex}
+        />
+        <WheelPicker
+          label="일"
+          options={days}
+          value={birth.day}
+          format={value => `${value}일`}
+          onChange={day => changeBirth({ day })}
+          color={onboardingLook.ink}
+          style={styles.flex}
+        />
       </View>
     </Screen>
   );
@@ -260,19 +336,27 @@ export function ProfileBasicScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  group: { gap: spacing.md },
-  label: { letterSpacing: 1.4, paddingHorizontal: spacing.md },
-  row: { flexDirection: 'row', gap: spacing.md },
-  // 성별 is two light pills side by side; the chosen one turns ink (DESIGN.md 2-5).
-  gender: {
-    flex: 1,
-    height: 50,
-    padding: 0,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
+  label: {
+    marginTop: 4,
+    paddingHorizontal: 4,
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: onboardingLook.label,
   },
+  choices: { gap: 12 },
+  choice: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  choiceText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: onboardingLook.ink,
+  },
+  wheels: { flexDirection: 'row', gap: 8, marginTop: 12 },
   year: { flex: 1.4 },
-  note: { paddingHorizontal: spacing.md },
-  cta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
 });

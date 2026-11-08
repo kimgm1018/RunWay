@@ -86,6 +86,30 @@ public class SessionControlEvent {
         return event;
     }
 
+    /**
+     * P07 승인. SET_BPM(수동, coachingId=null) 또는 서버 내부 COACHING(추천 ID 필수)이며 targetBpm은 60~220이다. 결과 보고 전까지
+     * PENDING이다.
+     */
+    public static SessionControlEvent bpmRequest(
+            long sessionId,
+            long deviceId,
+            ControlAction action,
+            long expectedVersion,
+            int targetBpm,
+            Long coachingId,
+            Instant now) {
+        if (action != ControlAction.SET_BPM && action != ControlAction.COACHING) {
+            throw new IllegalArgumentException("not a BPM command: " + action);
+        }
+        if ((action == ControlAction.COACHING) != (coachingId != null)) {
+            throw new IllegalArgumentException("coachingId is required only for COACHING");
+        }
+        SessionControlEvent event = request(sessionId, deviceId, action, expectedVersion, now);
+        event.targetBpm = targetBpm;
+        event.coachingId = coachingId;
+        return event;
+    }
+
     /** 확정 결과. 확정 후에는 다른 결과로 바꾸지 않는다. */
     public boolean isConfirmed() {
         return result == ControlResult.APPLIED

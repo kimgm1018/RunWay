@@ -19,6 +19,10 @@ object MetricFormat {
     /** Same "no value" marker as the phone screens. */
     const val MISSING = "– –"
 
+    /** Visible labels that keep heart rate and rhythm BPM apart on the face (D-10). */
+    const val HEART_LABEL = "심박"
+    const val RHYTHM_LABEL = "리듬 BPM"
+
     private const val MAX_PACE_SECONDS = 3599
 
     fun pace(secondsPerKm: Int?): MetricText {

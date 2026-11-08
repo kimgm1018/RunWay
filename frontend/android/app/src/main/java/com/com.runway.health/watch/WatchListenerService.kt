@@ -17,7 +17,7 @@ class WatchListenerService : WearableListenerService() {
       onBatch(event)
       return
     }
-    if (event.path.startsWith(SESSION_PATH_PREFIX)) {
+    if (isSessionInboxPath(event.path)) {
       onSessionMessage(event)
       return
     }
@@ -27,7 +27,7 @@ class WatchListenerService : WearableListenerService() {
       // Persist before acking; equal or lower revisions keep the stored value but are acked the same way.
       // Without AGREEE consent nothing is stored and nothing is acked.
       prefs.upsertIfConsented(summary.record) ?: return
-      val reply = receivedReply(prefs.nextMessageId(), summary.messageId, summary.record.metricDate, summary.record.revision)
+      val reply = receivedReply(prefs.nextMessageId(), summary.messageId, summary.record.metricDate, summary.record.revision, summary.record.collectionId)
       Tasks.await(Wearable.getMessageClient(this).sendMessage(event.sourceNodeId, RECEIVED_PATH, reply), 10, TimeUnit.SECONDS)
     } catch (_: Exception) {
       // The watch retries an unacked summary later.
@@ -36,14 +36,14 @@ class WatchListenerService : WearableListenerService() {
 
   /**
    * Run-session message (S15P31E105-256): store first so a stopped JS still gets it, reply COMMAND_RECEIVED(persisted=false)
-   * to a COMMAND_RESULT, then hand it to JS if attached. JS reports to the server and sends persisted=true.
+   * to a COMMAND_RESULT or COACHING_RESULT (S15P31E105-257), then hand it to JS if attached. JS reports to the server and sends persisted=true.
    */
   private fun onSessionMessage(event: MessageEvent) {
     try {
       val message = sessionInbox.add(event.data) ?: return
       // JS first: a failed receipt below must not keep the result from reaching the server report.
       WatchSessionModule.emitter?.invoke(toJsEvent(message))
-      if (message.type == "COMMAND_RESULT") {
+      if (needsLocalReceipt(message.type)) {
         val receipt = localReceipt(message, sessionInbox.nextMessageId(), null)
         Tasks.await(Wearable.getMessageClient(this).sendMessage(event.sourceNodeId, COMMAND_RECEIVED_PATH, receipt), 10, TimeUnit.SECONDS)
       }
@@ -64,7 +64,8 @@ class WatchListenerService : WearableListenerService() {
         is BatchArrival.Stored -> arrival.batch
         is BatchArrival.Known -> arrival.batch
         // 같은 ID에 다른 내용이면 저장하지 않고, 64개 상한이면 받지 않는다. 워치는 ACK가 없으므로 저장 미확인으로 남긴다.
-        BatchArrival.Conflict, BatchArrival.Full -> return
+        // 폰 인계 중·인계 후(S15P31E105-464)에는 새 batch를 받지도 수신 확인하지도 않는다.
+        BatchArrival.Conflict, BatchArrival.Full, BatchArrival.Blocked -> return
       }
       val messages = Wearable.getMessageClient(this)
       when (batch.status) {

@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.support.SharedPostgres;
 import jakarta.persistence.EntityManagerFactory;
 
 import org.flywaydb.core.Flyway;
@@ -17,21 +18,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 class BackendApplicationIntegrationTest {
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.emptyDatabase(BackendApplicationIntegrationTest.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -53,8 +46,8 @@ class BackendApplicationIntegrationTest {
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(entityManagerFactory.getMetamodel().getEntities()).isNotEmpty();
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().applied()).hasSize(10);
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("10");
+        assertThat(flyway.info().applied()).hasSize(19);
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("19");
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND"
@@ -107,6 +100,7 @@ class BackendApplicationIntegrationTest {
                         "daily_readiness",
                         "users",
                         "user_recommendation_preferences",
+                        "user_hr_personalization",
                         "pace_plans",
                         "group_runs",
                         "crew_memberships",
@@ -128,9 +122,11 @@ class BackendApplicationIntegrationTest {
                         "user_devices",
                         "user_settings",
                         "user_follows",
+                        "follow_request_history",
                         "notifications",
                         "running_metric_samples",
-                        "running_session_splits");
+                        "running_session_splits",
+                        "course_segment_difficulties");
     }
 
     @Test

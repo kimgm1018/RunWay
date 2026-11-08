@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useNavigation,
+  type NavigationProp,
+} from '@react-navigation/native';
 import { AppText, Button, Icon, Logo, Screen } from '../../components';
 import {
   useRepositories,
@@ -11,18 +15,36 @@ import {
   type Repositories,
 } from '../../data';
 import { formatRelative, isSameDay } from '../../format';
-import { navigateTo } from '../../navigation/navigateTo';
-import type { RouteName } from '../../navigation/routes';
+import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, k1 } from '../../theme';
+import { BackButton } from '../../components/BackButton';
 
-// Each kind's title and the screen it opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
-const kinds: Record<NotificationKind, { title: string; route: RouteName }> = {
-  GROUP_RUN_STARTING: { title: '그룹런 곧 시작', route: 'GroupRunDetail' },
-  CREW_JOIN_APPROVED: { title: '크루 가입 승인', route: 'CrewDetail' },
-  CREW_JOIN_REJECTED: { title: '크루 가입 거절', route: 'CrewDetail' },
-  POST_COMMENT: { title: '새 댓글', route: 'PostDetail' },
-  GROUP_RUN_CANCELED: { title: '그룹런 취소', route: 'GroupRunDetail' },
-  FOLLOW_REQUEST: { title: '팔로우 요청', route: 'RunnerProfile' },
+type Navigation = NavigationProp<RootStackParamList>;
+type Open = (navigation: Navigation, targetId: string) => void;
+
+const openGroupRun: Open = (navigation, groupRunId) =>
+  navigation.navigate('GroupRunDetail', { groupRunId });
+const openCrew: Open = (navigation, crewId) =>
+  navigation.navigate('CrewDetail', { crewId });
+const openRunner: Open = (navigation, userId) =>
+  navigation.navigate('RunnerProfile', { userId });
+
+// Each kind's title and the screen its targetId opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
+const kinds: Record<NotificationKind, { title: string; open: Open }> = {
+  GROUP_RUN_PARTICIPATION_CANCELLED: {
+    title: '그룹런 취소',
+    open: openGroupRun,
+  },
+  GROUP_RUN_START_REMINDER: { title: '그룹런 곧 시작', open: openGroupRun },
+  CREW_JOIN_APPROVED: { title: '크루 가입 승인', open: openCrew },
+  CREW_JOIN_REJECTED: { title: '크루 가입 거절', open: openCrew },
+  POST_COMMENT: {
+    title: '새 댓글',
+    open: (navigation, postId) => navigation.navigate('PostDetail', { postId }),
+  },
+  NEW_FOLLOWER: { title: '새 팔로워', open: openRunner },
+  FOLLOW_REQUEST: { title: '팔로우 요청', open: openRunner },
+  FOLLOW_APPROVED: { title: '팔로우 승인', open: openRunner },
 };
 
 type Tab = 'today' | 'week';
@@ -135,25 +157,31 @@ function EmptyBell() {
 // 2.9 알림 (S15P31E105-374 핸드오프): no card behind the list, 오늘 · 이번 주 tabs, and no 모두 읽음
 // button. Everything shown here counts as read once the screen is left (담당자 결정). 2.9b 알림 없음 stays.
 export function NotificationsScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<Navigation>();
   const repositories = useRepositories();
   const resource = useResource(useCallback(loadNotifications, []));
   const [items, setItems] = useState<AppNotification[] | null>(null);
   const [tab, setTab] = useState<Tab>('today');
+  // N01's count also covers what this page leaves out (older pages, kinds the app does not know).
+  const unreadCount = useRef(0);
   useEffect(() => {
     if (resource.status === 'ready') {
-      setItems(resource.data);
+      setItems(resource.data.items);
+      unreadCount.current = resource.data.unreadCount;
     }
   }, [resource.status, resource.data]);
   const now = repositories.clock.now();
   // Leaving the screen marks everything read, so the dots stay while the list is open.
   const unread = useRef(false);
-  unread.current = items?.some(item => !item.read) ?? false;
+  unread.current =
+    unreadCount.current > 0 || (items?.some(item => !item.read) ?? false);
   const { notifications } = repositories;
   useFocusEffect(
     useCallback(
       () => () => {
         if (unread.current) {
+          unreadCount.current = 0;
+          unread.current = false;
           setItems(current =>
             current ? current.map(item => ({ ...item, read: true })) : null,
           );
@@ -173,15 +201,7 @@ export function NotificationsScreen() {
     <Screen
       header={
         <View style={styles.header}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="뒤로"
-            hitSlop={6}
-            onPress={navigation.goBack}
-            style={styles.back}
-          >
-            <Icon name="back" color="#02050E" size={18} />
-          </Pressable>
+          <BackButton onPress={navigation.goBack} style={styles.back} />
           <View style={styles.logo} pointerEvents="none">
             <Logo width={34} symbol />
           </View>
@@ -240,7 +260,9 @@ export function NotificationsScreen() {
                   item={item}
                   first={index === 0}
                   now={now}
-                  onPress={() => navigateTo(navigation, kinds[item.kind].route)}
+                  onPress={() =>
+                    kinds[item.kind].open(navigation, item.targetId)
+                  }
                 />
               ))
             ) : (
@@ -261,19 +283,9 @@ const ink = '#0A1631';
 
 const styles = StyleSheet.create({
   header: { height: 56 },
-  back: {
-    position: 'absolute',
-    left: 17,
-    top: 9,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: '#C6CBD2',
-    backgroundColor: '#E0E7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // 44 round glass 뒤로, centred on the 56 header.
+  back: { position: 'absolute', left: 16, top: 6 },
+
   logo: {
     position: 'absolute',
     top: 0,

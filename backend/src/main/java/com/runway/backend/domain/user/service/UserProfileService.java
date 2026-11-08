@@ -32,6 +32,8 @@ public class UserProfileService {
         UserAccountRow row =
                 accounts.findById(userId)
                         .orElseThrow(() -> new ApiException(ErrorCode.SERVICE_UNAVAILABLE));
+        if ("WITHDRAWN".equals(row.status()))
+            return new UserProfileResponse(row.id(),"탈퇴한 회원",null,null,null,"WITHDRAWN",null,false);
         return new UserProfileResponse(
                 row.id(),
                 row.nickname(),
@@ -51,6 +53,7 @@ public class UserProfileService {
                     accounts.lock(userId)
                             .orElseThrow(() -> new ApiException(ErrorCode.SERVICE_UNAVAILABLE));
 
+            if (!"ACTIVE".equals(current.status())) throw new ApiException(ErrorCode.UNAUTHORIZED);
             String nickname = current.nickname();
             if (patch.nicknamePresent()) {
                 if (accounts.nicknameTakenByOther(patch.nickname(), userId)) {

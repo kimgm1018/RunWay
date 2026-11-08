@@ -38,16 +38,20 @@ async function settle(ms = 20) {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
 }
 
+// Flush each timer-driven render before checking the next screen (S15P31E105-372).
+async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!texts(screen).includes(text)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+    }
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
-  });
-  await settle();
-}
-
-async function type(screen: Screen, label: string, text: string) {
-  await act(async () => {
-    labelled(screen, label, 'onChangeText').props.onChangeText(text);
   });
   await settle();
 }
@@ -107,6 +111,39 @@ test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async 
   await act(async () => screen.unmount());
 });
 
+test('the tab bar shows 홈·커뮤니티·러닝·그룹·프로필 in order with their names, and 프로필 without a photo is a line icon', async () => {
+  const screen = await render();
+  const tabs = screen.root.findAll(
+    node =>
+      node.props.accessibilityRole === 'tab' && typeof node.type !== 'string',
+  );
+  const names = [...new Set(tabs.map(node => node.props.accessibilityLabel))];
+  expect(names).toEqual(['홈', '커뮤니티', '러닝', '그룹', '프로필']);
+  // Each tab shows its name under its icon.
+  const bar = screen.root.find(
+    node =>
+      node.props.accessibilityRole === 'tablist' &&
+      typeof node.type === 'string',
+  );
+  expect(bar.findAllByType(Text).map(node => node.props.children)).toEqual([
+    '홈',
+    '커뮤니티',
+    '러닝',
+    '그룹',
+    '프로필',
+  ]);
+  // The mock profile has no photo, so 프로필 draws its icon instead of an image.
+  expect(
+    bar.findAll(
+      node =>
+        node.props.source?.uri !== undefined && typeof node.type === 'string',
+    ),
+  ).toHaveLength(0);
+  await press(screen, '커뮤니티');
+  await press(screen, '프로필');
+  await act(async () => screen.unmount());
+});
+
 test('the home has no background photo and keeps the profile photo as the avatar', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const getMe = repositories.profile.getMe;
@@ -125,8 +162,9 @@ test('the home has no background photo and keeps the profile photo as the avatar
     node =>
       node.props.source?.uri !== undefined && typeof node.type === 'string',
   );
-  // Only the avatar shows a photo; the background is the default backdrop.
+  // Only the avatar and the 프로필 tab show the photo (S15P31E105-522); the background is the default backdrop.
   expect(images.map(node => node.props.source.uri)).toEqual([
+    'file:///profile.jpg',
     'file:///profile.jpg',
   ]);
   await act(async () => screen!.unmount());
@@ -215,7 +253,13 @@ test('notifications split into 오늘 and 이번 주, count as read once left, a
     '그룹런 곧 시작, ‘토요일 아침, 함께 5km’ 그룹런이 곧 시작해요',
   );
   await settle();
-  expect(texts(screen)).toContain('예상 공동 페이스');
+  // 6.4 opens on the notification's run (its pace shows as a pill there), not the next one.
+  expect(texts(screen)).toContain('페이스 6′00″');
+  expect(
+    screen.root
+      .findAllByType(Text)
+      .some(node => node.props.children === '토요일 아침, 함께 5km'),
+  ).toBe(true);
   await act(async () => screen.unmount());
 });
 
@@ -232,6 +276,16 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(screen, '러닝 시작');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '코스 러닝');
+  // 2.0C first: the map with 코스 설정 in place of 목표 설정, and 러닝 시작 waits for a course (담당자 요청).
+  expect(texts(screen)).toContain('코스 설정');
+  expect(texts(screen)).not.toContain('목표 설정');
+  expect(labelled(screen, '러닝 시작').props.disabled).toBe(true);
+  // The round button left of 러닝 시작 turns it into a free run, and back again.
+  await press(screen, '자유 러닝으로 바꾸기');
+  expect(texts(screen)).toContain('목표 설정');
+  await press(screen, '코스 러닝으로 바꾸기');
+  expect(texts(screen)).toContain('코스 설정');
+  await press(screen, '코스 설정');
   expect(texts(screen)).toContain('환경 · 여러 개 선택');
   await act(async () => screen.unmount());
 
@@ -240,20 +294,35 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(free, '자유 러닝');
   expect(texts(free)).toContain('민락수변공원 입구');
   expect(texts(free)).toContain('GPS 양호');
-  expect(texts(free)).not.toContain('예상 완주 시간');
-  await type(free, '거리 목표', '5');
-  expect(texts(free)).not.toContain('예상 완주 시간');
-  await type(free, '페이스 목표', '6:00');
-  expect(texts(free)).toContain('예상 완주 시간 30:00');
+  // 운동 목표 (S15P31E105-517): the chip opens the goal cards; 페이서 works the pace out of a distance and a time.
+  expect(texts(free)).toContain('목표 설정');
+  await press(free, '목표 설정');
+  for (const text of ['운동 목표', '목표 없음', '거리', '시간', '페이서']) {
+    expect(texts(free)).toContain(text);
+  }
+  expect(texts(free)).not.toContain('칼로리');
+  await press(free, '페이서 목표');
+  expect(texts(free)).toContain('거리와 시간으로 계산한 페이스');
+  expect(texts(free)).toContain('6′00″/km');
+  // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.
+  await act(async () => {
+    labelled(
+      free,
+      '목표 거리',
+      'onAccessibilityAction',
+    ).props.onAccessibilityAction({
+      nativeEvent: { actionName: 'increment' },
+    });
+  });
+  expect(texts(free)).toContain('5.5km');
+  expect(texts(free)).toContain('5′27″/km');
+  await press(free, '목표만 설정');
+  expect(texts(free)).toContain('5.5km · 30분 · 5′27″/km');
   await press(free, '러닝 시작');
   expect(texts(free)).toContain('3');
-  // Each count renders before the next second starts, so wait a second at a time.
-  for (let second = 0; second < 3; second += 1) {
-    await settle(1050);
-  }
-  // 워치가 실제로 시작하고 서버가 확정한 뒤에 진행 화면으로 넘어간다(S15P31E105-256).
-  await settle(200);
-  expect(texts(free)).toContain('내 페이스');
+  // Countdown, watch execution and server confirmation must all finish.
+  await waitForText(free, '현재 페이스');
+  expect(texts(free)).toContain('현재 페이스');
   await act(async () => free.unmount());
 });
 
@@ -261,6 +330,7 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   const day = await render();
   await press(day, '저장한 코스');
   await press(day, '광안대교 루프, 5.0km 30분');
+  await waitForText(day, '오늘의 러닝 전략');
   const plan = texts(day);
   for (const text of [
     '오늘의 러닝 전략',
@@ -277,6 +347,7 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   const night = await render('night');
   await press(night, '저장한 코스');
   await press(night, '광안대교 루프, 5.0km 30분');
+  await waitForText(night, '광안대교 루프 · 5.0km');
   const dark = texts(night);
   expect(dark).toContain('코스 러닝');
   expect(dark).toContain('광안대교 루프 · 5.0km');
@@ -304,6 +375,8 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   // The 2.7 핸드오프 card has no lists and no shuffle or repeat.
   expect(card).not.toContain('좋아요한 곡');
   expect(() => labelled(screen, '셔플')).toThrow();
+  // 멜론 cannot start a chosen playlist, so 내 재생 목록 stays out.
+  expect(card).not.toContain('내 재생 목록');
   await press(screen, '일시정지');
   expect(() => labelled(screen, '재생')).not.toThrow();
   // 다음 곡 goes through the music repository and shows the song it reports.
@@ -343,6 +416,31 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   });
   await press(screen, '설정 완료');
   expect(texts(screen)).toContain('음악 서비스를 연결해 주세요');
+  await act(async () => screen.unmount());
+});
+
+test('the Spotify card lists my playlists and songs heard lately, and a tap plays one', async () => {
+  const screen = await openMusic('musicSpotify');
+  // The lists come in after the card.
+  await waitForText(screen, '내 재생 목록');
+  const card = texts(screen);
+  for (const text of [
+    '내 재생 목록',
+    '광안리 새벽',
+    '인터벌 데이',
+    'Spotify 열기',
+  ]) {
+    expect(card).toContain(text);
+  }
+  await press(screen, '인터벌 데이 재생 목록 재생');
+  expect(texts(screen)).toContain('재생 목록');
+  expect(() => labelled(screen, '일시정지')).not.toThrow();
+  // 최근 들은 곡 is the other tab over the same row, and a song plays on its own.
+  expect(texts(screen)).not.toContain('새벽 해변');
+  await press(screen, '최근 들은 곡');
+  expect(texts(screen)).not.toContain('광안리 새벽');
+  await press(screen, '케이던스 180 재생');
+  expect(texts(screen)).toContain('Run Crew');
   await act(async () => screen.unmount());
 });
 

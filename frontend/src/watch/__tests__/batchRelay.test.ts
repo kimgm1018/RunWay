@@ -99,3 +99,18 @@ test('a final refusal is not retried and tells the watch to stop resending', asy
   expect(upload).toHaveBeenCalledTimes(1);
   expect(watch.failBatch).toHaveBeenCalledWith(batchId, 'INVALID_BATCH');
 });
+
+// 폰 인계 전 저장 확인(S15P31E105-464): settle은 업로드 결과를 돌려주고, 진행 중인 같은 batch는 다시 올리지 않는다.
+test('settle reports COMMITTED, FAILED or UNCONFIRMED and joins an upload already running', async () => {
+  const upload = jest.fn().mockResolvedValue(ack);
+  const { relay } = setup(upload);
+  relay.handle(event);
+  expect(await relay.settle(event)).toBe('COMMITTED');
+  expect(upload).toHaveBeenCalledTimes(1);
+
+  const refused = setup(jest.fn().mockRejectedValue(new DataError('INVALID_BATCH', 'x')));
+  expect(await refused.relay.settle(event)).toBe('FAILED');
+
+  const silent = setup(jest.fn().mockRejectedValue(new DataError('NETWORK_ERROR', 'x')));
+  expect(await silent.relay.settle(event)).toBe('UNCONFIRMED');
+});

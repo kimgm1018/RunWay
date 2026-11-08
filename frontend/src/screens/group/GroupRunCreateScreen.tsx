@@ -15,13 +15,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
   BottomSheet,
   Button,
-  Card,
   Icon,
-  IconButton,
-  Segmented,
+  LightGlass,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -34,16 +32,18 @@ import {
 } from '../../data';
 import { formatDotDateWeekday, formatKm } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
-import {
-  fontFamily,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
-import { GlowButton } from '../course/TodayRunScreen';
+import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { RouteThumb } from '../home/parts';
+import {
+  GroupBackground,
+  GroupCta,
+  groupLook,
+  insetTrackLight,
+  Raised,
+  SectionLabel,
+} from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 type Mode = 'COURSE' | 'FREE';
 
@@ -51,7 +51,7 @@ const modes: { value: Mode; label: string }[] = [
   { value: 'COURSE', label: '코스 러닝' },
   { value: 'FREE', label: '자유 러닝' },
 ];
-const freeMinutes = [30, 40, 50, 60];
+const goalMinutes = [30, 40, 50, 60];
 // Start times offered on 6.8, every 30 minutes from 05:00 to 22:00.
 const times = Array.from({ length: 35 }, (_, index) => 5 * 60 + index * 30);
 const kstOffsetMs = 9 * 3600 * 1000;
@@ -89,28 +89,64 @@ const loadOptions = (repositories: Repositories) =>
     repositories.groupRuns.searchPlaces(''),
   ]);
 
-// The 6.8 boxes: white cards, and the vignette for 공동 페이스 (DESIGN.md 2-10 만들기).
+// A 6.8 group: a line-labelled title instead of a card (runway-group-handoff).
 function Section({
   title,
   right,
-  vignette = false,
   children,
 }: {
   title: string;
   right?: React.ReactNode;
-  vignette?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Card variant={vignette ? 'vignette' : 'solid'} style={styles.card}>
+    <View style={styles.card}>
       <View style={styles.rowBetween}>
-        <AppText variant="bodyMedium" style={styles.sectionTitle}>
-          {title}
-        </AppText>
+        <SectionLabel tone="light">{title}</SectionLabel>
         {right}
       </View>
       {children}
-    </Card>
+    </View>
+  );
+}
+
+// 코스 러닝 · 자유 러닝: a pressed-in track with the picked one a raised navy pill (6.8-CourseCard).
+function ModeSwitch({
+  value,
+  onChange,
+}: {
+  value: Mode;
+  onChange: (mode: Mode) => void;
+}) {
+  return (
+    <View accessibilityRole="radiogroup" style={styles.modes}>
+      {modes.map(option => {
+        const selected = option.value === value;
+        const text = (
+          <AppText style={selected ? styles.modeTextOn : styles.modeText}>
+            {option.label}
+          </AppText>
+        );
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option.value)}
+            style={styles.mode}
+          >
+            {selected ? (
+              <Raised tone="navy" style={styles.modeOn}>
+                {text}
+              </Raised>
+            ) : (
+              text
+            )}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -127,30 +163,25 @@ function ChangeRow({
   onChange: () => void;
   label: string;
 }) {
-  const { colors } = useTheme();
   return (
     <View style={styles.changeRow}>
-      <View style={[styles.tile, { backgroundColor: colors.surfaceMuted }]}>
-        {icon}
-      </View>
+      <View style={styles.tile}>{icon}</View>
       <View style={styles.flex}>
-        <AppText variant="bodyMedium" numberOfLines={1}>
+        <AppText style={styles.rowTitle} numberOfLines={1}>
           {title}
         </AppText>
-        <AppText variant="caption" tone="textSecondary" numberOfLines={1}>
+        <AppText style={styles.rowDetail} numberOfLines={1}>
           {detail}
         </AppText>
       </View>
-      {/* 변경 is an underlined text button (DESIGN.md 2-10 만들기). */}
+      {/* 변경 is a bold text button (6.8-CourseCard). */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={label}
         onPress={onChange}
         hitSlop={8}
       >
-        <AppText variant="captionStrong" style={styles.underline}>
-          변경
-        </AppText>
+        <AppText style={styles.change}>변경</AppText>
       </Pressable>
     </View>
   );
@@ -167,22 +198,19 @@ function PickChip({
   onPress: () => void;
   accessibilityLabel: string;
 }) {
-  const { colors } = useTheme();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      // A pill field with the icon on the right (DESIGN.md 2-10 날짜·시간).
-      style={({ pressed }) => [
-        styles.pick,
-        { borderColor: colors.borderStrong },
-        pressed && styles.pressed,
-      ]}
+      // A light glass pill with the icon on the right (6.8-DateTimeCard).
+      style={styles.flex}
     >
-      <AppText style={styles.pickLabel}>{label}</AppText>
-      <Icon name={icon} color={colors.textSecondary} size={16} />
-    </Pressable>
+      <LightGlass radius={24} style={styles.pick}>
+        <AppText style={styles.pickLabel}>{label}</AppText>
+        <Icon name={icon} color={groupLook.onLightSub} size={14} />
+      </LightGlass>
+    </PressableScale>
   );
 }
 
@@ -192,7 +220,6 @@ export function GroupRunCreateScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunCreate'>>();
   const editingId = route.params?.groupRunId;
-  const { colors } = useTheme();
   const { groupRuns, clock } = useRepositories();
   const toast = useToast();
   const { draft, setPlace, changed } = useGroupRunDraft();
@@ -228,6 +255,20 @@ export function GroupRunCreateScreen() {
     mine?.crews.find(item => item.crew.id === route.params?.crewId)?.crew ??
     mine?.crews.find(item => item.crew.membership === 'MEMBER')?.crew;
   const now = clock.now();
+  // Today (KST) is offered too, but only the start times still ahead of now.
+  const todayDay = dayAfter(now, 0);
+  const kstNow = new Date(now.getTime() + kstOffsetMs);
+  const nowMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
+  const timesOn = (value: string | null) =>
+    value === todayDay ? times.filter(item => item > nowMinutes) : times;
+  const days = Array.from({ length: 14 }, (_, index) =>
+    dayAfter(now, index),
+  ).filter(value => timesOn(value).length > 0);
+  const passed = day === todayDay && time <= nowMinutes;
+  // An edited run's saved minutes stay pickable even when not one of the usual chips.
+  const minuteOptions = goalMinutes.includes(minutes)
+    ? goalMinutes
+    : [...goalMinutes, minutes].sort((a, b) => a - b);
 
   // Editing starts from the run as it is: its course or minutes, place, day and time (KST).
   useEffect(() => {
@@ -337,7 +378,8 @@ export function GroupRunCreateScreen() {
         time % 60,
       )}:00+09:00`,
       targetDistanceM: mode === 'COURSE' ? course?.distanceM ?? null : null,
-      targetDurationSec: mode === 'FREE' ? minutes * 60 : null,
+      // Course runs send it as the TIME goal; a free run's minutes only name the run.
+      targetDurationSec: minutes * 60,
     };
     try {
       if (edited) {
@@ -356,7 +398,9 @@ export function GroupRunCreateScreen() {
       );
     } catch (error) {
       toast(
-        !edited
+        errorCode(error) === 'INVALID_GOAL'
+          ? '목표 시간을 저장하지 못했어요. 코스와 시간을 확인해 주세요'
+          : !edited
           ? '그룹런을 만들지 못했어요. 잠시 후 다시 시도해 주세요'
           : errorCode(error) === 'EDIT_NOT_ALLOWED'
           ? '출발 전 그룹런만 수정할 수 있어요'
@@ -367,94 +411,69 @@ export function GroupRunCreateScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <StatusBar barStyle="dark-content" />
+      <GroupBackground id="groupRunCreateBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText style={styles.title} accessibilityRole="header">
             {editingId ? '그룹런 수정' : '그룹런 만들기'}
           </AppText>
         </View>
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
-        <AppText variant="caption" tone="textSecondary" style={styles.crew}>
+        <AppText style={styles.crew}>
           {(edited ? edited.crewName : crew?.name) ?? ''}
         </AppText>
         <Section
           title="코스"
-          right={
-            <Segmented
-              compact
-              options={modes}
-              value={mode}
-              onChange={setMode}
-            />
-          }
+          right={<ModeSwitch value={mode} onChange={setMode} />}
         >
-          {mode === 'COURSE' ? (
-            course ? (
-              <ChangeRow
-                icon={<RouteThumb shape={course.shape} />}
-                title={course.name}
-                detail={`${formatKm(course.distanceM, 1)}km`}
-                label="코스 변경"
-                onChange={() => setSheet('course')}
-              />
-            ) : null
-          ) : (
-            <View style={styles.chips}>
-              {freeMinutes.map(value => {
-                const selected = value === minutes;
-                return (
-                  <Pressable
-                    key={value}
-                    accessibilityRole="radio"
-                    accessibilityLabel={`${value}분`}
-                    accessibilityState={{ selected }}
-                    onPress={() => setMinutes(value)}
-                    style={[
-                      styles.chip,
-                      selected
-                        ? {
-                            backgroundColor: colors.accent,
-                            borderColor: colors.accent,
-                          }
-                        : { borderColor: colors.borderStrong },
-                    ]}
-                  >
-                    <AppText
-                      variant="captionStrong"
-                      style={{
-                        color: selected ? colors.onAccent : colors.text,
-                      }}
-                    >
-                      {`${value}분`}
-                    </AppText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
+          {mode === 'COURSE' && course ? (
+            <ChangeRow
+              icon={<RouteThumb shape={course.shape} />}
+              title={course.name}
+              detail={`${formatKm(course.distanceM, 1)}km`}
+              label="코스 변경"
+              onChange={() => setSheet('course')}
+            />
+          ) : null}
+          {/* Both modes pick minutes: a course run's TIME goal, a free run's name. */}
+          <View style={styles.chips}>
+            {minuteOptions.map(value => {
+              const selected = value === minutes;
+              return (
+                <PressableScale
+                  key={value}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${value}분`}
+                  accessibilityState={{ selected }}
+                  onPress={() => setMinutes(value)}
+                >
+                  {selected ? (
+                    <Raised tone="navy" style={styles.chip}>
+                      <AppText
+                        style={styles.chipTextOn}
+                      >{`${value}분`}</AppText>
+                    </Raised>
+                  ) : (
+                    <LightGlass radius={18} style={styles.chip}>
+                      <AppText style={styles.chipText}>{`${value}분`}</AppText>
+                    </LightGlass>
+                  )}
+                </PressableScale>
+              );
+            })}
+          </View>
         </Section>
         <Section
           title="만나는 곳"
-          right={
-            <AppText variant="label" tone="textSecondary">
-              상세 위치
-            </AppText>
-          }
+          right={<AppText style={styles.note}>상세 위치</AppText>}
         >
           {draft.place ? (
             <ChangeRow
-              icon={<Icon name="mapPin" color={colors.text} size={18} />}
+              icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
               title={draft.place.name}
               detail={draft.place.address}
               label="만나는 곳 변경"
@@ -482,33 +501,31 @@ export function GroupRunCreateScreen() {
         </Section>
         <Section
           title="공동 페이스"
-          vignette
           right={
-            <AppText variant="label" tone="textSecondary">
-              예상값 · 직접 입력하지 않아요
-            </AppText>
+            <AppText style={styles.note}>예상값 · 직접 입력하지 않아요</AppText>
           }
         >
           <View style={styles.auto}>
             <AppText style={styles.autoTitle}>자동 산출</AppText>
-            <AppText variant="caption" tone="textSecondary" style={styles.flex}>
+            <AppText style={[styles.rowDetail, styles.flex]}>
               지금 참가자 기록으로 낸 예상값이에요 · 출발 직전 다시 계산해요
             </AppText>
           </View>
         </Section>
       </ScrollView>
-      {/* The glow pill with a white round + on the black lower part, as on 3.1. */}
+      {/* 6.8-CreateCTA: the raised white pill with a navy circle + on the navy foot. */}
       <ThemeProvider tone="dark">
         <SafeAreaView edges={['bottom']} style={styles.footer}>
           <BottomFade />
-          <GlowButton
+          <GroupCta
             title={editingId ? '저장' : '그룹런 만들기'}
             icon={editingId ? 'check' : 'plus'}
-            loading={saving}
             disabled={
+              saving ||
               (editingId ? !edited : !crew) ||
               !draft.place ||
               !day ||
+              passed ||
               (mode === 'COURSE' && !course)
             }
             onPress={create}
@@ -539,9 +556,7 @@ export function GroupRunCreateScreen() {
         title="날짜"
       >
         <ScrollView style={styles.sheetList}>
-          {Array.from({ length: 14 }, (_, index) =>
-            dayAfter(now, index + 1),
-          ).map(value => (
+          {days.map(value => (
             <Button
               key={value}
               title={formatDotDateWeekday(`${value}T12:00:00+09:00`)}
@@ -549,6 +564,11 @@ export function GroupRunCreateScreen() {
               size="medium"
               style={styles.sheetItem}
               onPress={() => {
+                // Today with a start time already gone moves to the next open slot.
+                const open = timesOn(value);
+                if (!open.includes(time)) {
+                  setTime(open[0]);
+                }
                 setDay(value);
                 setSheet(null);
               }}
@@ -562,7 +582,7 @@ export function GroupRunCreateScreen() {
         title="시간"
       >
         <ScrollView style={styles.sheetList}>
-          {times.map(value => (
+          {timesOn(day).map(value => (
             <Button
               key={value}
               title={timeLabel(value)}
@@ -591,52 +611,132 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 26,
+    color: groupLook.onLight,
+  },
   content: {
-    padding: 14,
+    paddingHorizontal: 16,
     paddingTop: 0,
-    gap: spacing.md,
+    gap: 28,
     paddingBottom: spacing.xxxl * 4,
   },
-  crew: { marginLeft: spacing.sm, marginBottom: spacing.xs },
+  crew: {
+    marginLeft: spacing.xs,
+    marginBottom: -spacing.md,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
   card: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  sectionTitle: { fontSize: 15 },
+  note: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  modes: {
+    flexDirection: 'row',
+    height: 32,
+    padding: 3,
+    gap: 2,
+    borderRadius: 16,
+    backgroundColor: 'rgba(2,5,14,0.05)',
+    boxShadow: insetTrackLight,
+  },
+  mode: { justifyContent: 'center' },
+  modeOn: {
+    flex: 1,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    justifyContent: 'center',
+  },
+  modeText: {
+    paddingHorizontal: 12,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
+  modeTextOn: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupLook.onDark,
+  },
   changeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   tile: {
     width: 44,
     height: 44,
     borderRadius: 22,
+    backgroundColor: 'rgba(2,5,14,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  underline: { textDecorationLine: 'underline' },
+  rowTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onLight,
+  },
+  rowDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupLook.onLightSub,
+  },
+  change: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLight,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
     height: 36,
     paddingHorizontal: spacing.xxl,
-    borderRadius: 999,
-    borderWidth: 1,
+    borderRadius: 18,
     justifyContent: 'center',
   },
+  chipText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub2,
+  },
+  chipTextOn: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onDark,
+  },
   pick: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     height: 48,
     paddingHorizontal: spacing.xl,
-    borderRadius: 24,
-    borderWidth: 1,
   },
-  pickLabel: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
-  pressed: { opacity: 0.8 },
+  pickLabel: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 16,
+    color: groupLook.onLight,
+  },
   auto: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  autoTitle: { fontFamily: fontFamily.medium, fontSize: 20, lineHeight: 28 },
+  autoTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 28,
+    color: groupLook.onLight,
+  },
   footer: {
     position: 'absolute',
     left: 0,

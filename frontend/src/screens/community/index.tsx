@@ -3,9 +3,16 @@ import type { RouteName } from '../../navigation/routes';
 import { CommunityScreen } from './CommunityScreen';
 import { PostDetailScreen } from './PostDetailScreen';
 import { PostEditScreen, PostWriteScreen } from './PostWriteScreen';
-import { MyProfileScreen, RunnerProfileScreen } from './ProfileScreen';
+import { SearchScreen } from './SearchScreen';
+import {
+  MyProfileScreen,
+  MyProfileTabScreen,
+  RunnerProfileScreen,
+} from './ProfileScreen';
 
-// 7.x 커뮤니티 · 프로필. The feed and posts sit on the K1 background; the profiles are dark.
+export { MyProfileTabScreen };
+
+// 7.x 커뮤니티 · 프로필, all on white (S15P31E105-426).
 export const communityScreens: Partial<Record<RouteName, React.ComponentType>> =
   {
     Community: CommunityScreen,
@@ -13,5 +20,6 @@ export const communityScreens: Partial<Record<RouteName, React.ComponentType>> =
     PostWrite: PostWriteScreen,
     PostEdit: PostEditScreen,
     RunnerProfile: RunnerProfileScreen,
+    CommunitySearch: SearchScreen,
     MyProfile: MyProfileScreen,
   };

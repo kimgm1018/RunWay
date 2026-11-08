@@ -1,6 +1,7 @@
 package com.runway.backend.domain.auth.repository;
 
 import com.runway.backend.domain.auth.validation.SignupValidator.Input;
+import com.runway.backend.domain.auth.service.RetiredLoginId;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -16,15 +17,15 @@ public class SignupRepository {
     public boolean loginIdExists(String loginId) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE login_id=?)",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE login_id=? OR (account_status='WITHDRAWN' AND login_id=?))",
                         Boolean.class,
-                        loginId));
+                        loginId, RetiredLoginId.digest(loginId)));
     }
 
     public boolean nicknameExists(String nickname) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname=?)",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname=? AND account_status='ACTIVE')",
                         Boolean.class,
                         nickname));
     }

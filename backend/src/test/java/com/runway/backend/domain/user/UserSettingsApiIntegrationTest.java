@@ -8,44 +8,21 @@ import com.runway.backend.domain.auth.repository.SignupRepository;
 import com.runway.backend.domain.user.service.UserSettingsService;
 import com.runway.backend.domain.user.validation.UserSettingsValidator;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.util.concurrent.*;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@Testcontainers
-class UserSettingsApiIntegrationTest {
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
-
+class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired SignupRepository signup;
@@ -58,8 +35,6 @@ class UserSettingsApiIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM users");
         a = user("settingsa");
         b = user("settingsb");
         signup.insertSettings(a);

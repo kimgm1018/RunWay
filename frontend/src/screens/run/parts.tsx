@@ -1,19 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import {
+  StackActions,
   useFocusEffect,
   useIsFocused,
   useNavigation,
 } from '@react-navigation/native';
-import Svg, {
-  Circle,
-  Defs,
-  Path,
-  RadialGradient,
-  Rect,
-  Stop,
-} from 'react-native-svg';
-import { AppText, glass, Icon, LightGlass } from '../../components';
+import Svg, { Circle, Path } from 'react-native-svg';
+import { AppText, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
   type GpsQuality,
@@ -36,46 +30,7 @@ import {
   typography,
   useTheme,
 } from '../../theme';
-
-// Round dark badge brightening toward the bottom right behind a white rim (runway-course-handoff 음악 원,
-// 자유 러닝 아바타): the music button and the 2.0F 자유 러닝 icon.
-export function K1Badge({
-  diameter,
-  children,
-}: {
-  diameter: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <View
-      style={[
-        styles.badge,
-        { width: diameter, height: diameter, borderRadius: diameter / 2 },
-      ]}
-    >
-      <Svg style={StyleSheet.absoluteFill} width={diameter} height={diameter}>
-        <Defs>
-          <RadialGradient
-            id="badge"
-            cx={0.82}
-            cy={0.86}
-            fx={0.82}
-            fy={0.86}
-            r={1.19}
-          >
-            <Stop offset={0} stopColor="#8096AF" />
-            <Stop offset={0.26} stopColor="#46596E" />
-            <Stop offset={0.52} stopColor="#1C2A3A" />
-            <Stop offset={0.78} stopColor="#0C131F" />
-            <Stop offset={1} stopColor="#09101B" />
-          </RadialGradient>
-        </Defs>
-        <Rect width={diameter} height={diameter} fill="url(#badge)" />
-      </Svg>
-      {children}
-    </View>
-  );
-}
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // Simplified marks for the two music services (2.0 음악 버튼, 2.8 음원 목록).
 // mono draws only the white mark, for a K1 badge.
@@ -149,50 +104,32 @@ export function useMusicSource() {
   return source;
 }
 
-function RoundButton({
-  label,
-  night,
-  onPress,
-  children,
-}: {
-  label: string;
-  night: boolean;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.round,
-        night ? { backgroundColor: colors.surfaceMuted } : styles.roundGlass,
-        pressed && styles.pressed,
-      ]}
-    >
-      {children}
-    </Pressable>
-  );
-}
-
 const countdownSeconds = 3;
 
-// 2.0·2.0F 하단: settings, 러닝 시작 (3초 카운트다운 후 4.2), music.
+// 2.0·2.0F 하단 (S15P31E105-517, the reference's start row made RunWay's): the goal chip, then 러닝 방식 ·
+// 러닝 시작 (3초 카운트다운 후 4.2) · 음악, each side button named under it.
 // By day a glass circle, the black pill with a dot in a grey ring and the dark music badge
 // (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
+  mode,
   config,
+  goal,
+  startSignal = 0,
 }: {
   night: boolean;
+  // Which run this screen starts: the round button left of 러닝 시작 switches to the other one (담당자 요청).
+  mode: 'FREE' | 'COURSE';
   // What the run starts with; the button stays disabled until it is known.
   config: RunConfig | null;
+  // The goal chip above the row: what the run aims at, opening the goal sheet.
+  // title names the chip for screen readers: 목표 설정, or 코스 설정 on 2.0C.
+  goal?: { label: string; title?: string; onPress: () => void } | null;
+  // Raised by the goal sheet's start buttons: starts the same countdown as 러닝 시작.
+  startSignal?: number;
 }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const source = useMusicSource();
   const { start: startRun, recheck, abortStart, cancel } = useRunActions();
   const { ensureRunLogin } = useSession();
   const control = useRunControlState();
@@ -216,7 +153,8 @@ export function RunStartBar({
       navigateTo(navigation, 'RunProgress');
     }
     previousStatus.current = status;
-    if (control?.problem) {
+    // 문제 표시, 또는 시작하려다 이미 진행·일시정지 중인 본인 세션에 붙어 그 화면으로 돌아간 경우(S01 409).
+    if (control?.problem || (status !== null && status !== 'READY')) {
       setRequested(false);
     }
   }, [control, focused, navigation]);
@@ -227,6 +165,16 @@ export function RunStartBar({
       ? startNotice(control?.problem ?? null)
       : null;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signalled = useRef(startSignal);
+  useEffect(() => {
+    if (startSignal === signalled.current) {
+      return;
+    }
+    signalled.current = startSignal;
+    if (ensureRunLogin()) {
+      setCount(countdownSeconds);
+    }
+  }, [ensureRunLogin, startSignal]);
   useEffect(() => {
     if (count === null) {
       return;
@@ -253,81 +201,93 @@ export function RunStartBar({
       }
     };
   }, [count, ensureRunLogin]);
+  const course = mode === 'COURSE';
+  // 코스 러닝 ↔ 자유 러닝 in place, so 뒤로 still goes to 러닝 방식 선택.
+  const switchMode = () =>
+    navigation.dispatch(
+      StackActions.replace(course ? 'FreeRun' : 'CourseStart'),
+    );
   return (
-    <View style={[styles.bar, !night && styles.barDay]}>
-      <RoundButton
-        label="설정"
-        night={night}
-        onPress={() => navigateTo(navigation, 'Settings')}
-      >
-        <Icon name="settings" color={colors.text} size={20} />
-      </RoundButton>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="러닝 시작"
-        accessibilityState={{ disabled: !config || confirming }}
-        disabled={!config || confirming}
-        onPress={() => {
-          if (ensureRunLogin()) {
-            setCount(countdownSeconds);
-          }
-        }}
-        style={({ pressed }) => [
-          styles.start,
-          { backgroundColor: night ? colors.accent : startInk },
-          (pressed || !config || confirming) && styles.pressed,
-        ]}
-      >
-        <AppText
-          style={
-            night
-              ? [typography.button, { color: colors.onAccent }]
-              : styles.startText
-          }
-        >
-          {confirming ? '시작 확인 중' : '러닝 시작'}
-        </AppText>
-        <View
-          style={[
-            styles.ring,
-            night
-              ? { borderColor: colors.onAccent }
-              : [styles.ringDay, { borderColor: startRing }],
-          ]}
-        >
-          <View
-            style={[
-              styles.ringDot,
-              { backgroundColor: night ? colors.onAccent : startRing },
-            ]}
-          />
-        </View>
-      </Pressable>
-      {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
-      {!night || source === 'MELON' || source === 'SPOTIFY' ? (
+    <View style={styles.startArea}>
+      {goal ? (
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={goal.title ?? '목표 설정'}
+          accessibilityHint={goal.label}
+          onPress={goal.onPress}
+          style={({ pressed }) => [
+            styles.goalChip,
+            { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Icon name="target" color={colors.text} size={16} />
+          <AppText variant="captionStrong" numberOfLines={1}>
+            {goal.label}
+          </AppText>
+        </Pressable>
+      ) : null}
+      {/* 러닝 방식 · 러닝 시작 · 음악, the two round buttons the same glass with no captions so the row sits evenly
+          (담당자 요청). */}
+      <View style={[styles.bar, !night && styles.barDay]}>
+        <GlassIconButton
+          icon={course ? 'route' : 'compass'}
+          tone={night ? 'dark' : 'light'}
+          diameter={52}
+          accessibilityLabel={
+            course ? '자유 러닝으로 바꾸기' : '코스 러닝으로 바꾸기'
+          }
+          onPress={switchMode}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="러닝 시작"
+          accessibilityState={{ disabled: !config || confirming }}
+          disabled={!config || confirming}
+          onPress={() => {
+            if (ensureRunLogin()) {
+              setCount(countdownSeconds);
+            }
+          }}
+          style={({ pressed }) => [
+            styles.start,
+            { backgroundColor: night ? colors.accent : startInk },
+            (pressed || !config || confirming) && styles.pressed,
+          ]}
+        >
+          <AppText
+            style={
+              night
+                ? [typography.button, { color: colors.onAccent }]
+                : styles.startText
+            }
+          >
+            {confirming ? '시작 확인 중' : '러닝 시작'}
+          </AppText>
+          <View
+            style={[
+              styles.ring,
+              night
+                ? { borderColor: colors.onAccent }
+                : [styles.ringDay, { borderColor: startRing }],
+            ]}
+          >
+            <View
+              style={[
+                styles.ringDot,
+                { backgroundColor: night ? colors.onAccent : startRing },
+              ]}
+            />
+          </View>
+        </Pressable>
+        <GlassIconButton
+          icon="music"
+          tone={night ? 'dark' : 'light'}
+          diameter={52}
           accessibilityLabel="음악"
           onPress={() => navigateTo(navigation, 'MusicCard')}
-          style={({ pressed }) => pressed && styles.pressed}
-        >
-          <K1Badge diameter={52}>
-            {source === 'MELON' || source === 'SPOTIFY' ? (
-              <ServiceMark service={source} size={30} mono />
-            ) : (
-              <Icon name="music" color={k1.ice} size={20} />
-            )}
-          </K1Badge>
-        </Pressable>
-      ) : (
-        <RoundButton
-          label="음악"
-          night={night}
-          onPress={() => navigateTo(navigation, 'MusicCard')}
-        >
-          <Icon name="music" color={colors.text} size={20} />
-        </RoundButton>
-      )}
+        />
+      </View>
       <Modal
         visible={count !== null}
         transparent
@@ -339,7 +299,7 @@ export function RunStartBar({
           accessibilityRole="button"
           accessibilityLabel="카운트다운 취소"
           onPress={() => setCount(null)}
-          style={[styles.countdown, { backgroundColor: colors.scrim }]}
+          style={styles.countdown}
         >
           <AppText style={styles.countText}>{count}</AppText>
           <AppText variant="caption" style={styles.countHint}>
@@ -428,7 +388,11 @@ function startNotice(problem: ControlProblem | null): {
         recheck: true,
         abort: true,
       };
+    // 종료 저장 미확인과 폰 인계는 실제 시작 뒤(RUNNING/PAUSED)에만 있어 시작 화면에는 나오지 않는다.
     case 'saveUnconfirmed':
+    case 'takeoverHeld':
+    case 'takeoverUnconfirmed':
+    case 'takeoverFailed':
       return null;
     case 'error':
       return { text: '러닝을 시작하지 못했어요', restart: true };
@@ -516,20 +480,20 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   barDay: { gap: 10 },
+  startArea: { gap: 12 },
+  goalChip: {
+    alignSelf: 'center',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
   notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
   noticeActions: { flexDirection: 'row', gap: spacing.lg },
-  round: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundGlass: {
-    backgroundColor: glass.circle,
-    borderWidth: 1,
-    borderColor: glass.circleRim,
-  },
+
   start: {
     flex: 1,
     height: 54,
@@ -558,15 +522,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     color: k1.ice,
   },
-  badge: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  // 3·2·1 on a solid dark screen, the same ground as the run screen that follows (S15P31E105-517).
   countdown: {
     flex: 1,
+    backgroundColor: k1.night,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xl,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import {
   Pressable,
   Share,
@@ -7,7 +7,7 @@ import {
   type LayoutChangeEvent,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, BottomSheet, Icon, Logo } from '../../components';
+import { AppText, Icon, Logo, MistFill } from '../../components';
 import { useRepositories, type Post, type PostRecord } from '../../data';
 import {
   formatClockTime,
@@ -18,51 +18,73 @@ import {
   formatRelative,
   isSameDay,
 } from '../../format';
-import {
-  fontFamily,
-  k1,
-  radius,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
+import { fontFamily, k1, spacing, ThemeProvider } from '../../theme';
 import { CourseGlyph } from '../course/SavedCoursesScreen';
-import { FooterButton } from '../group/GroupRunDetailScreen';
+import { CommunitySheet, communityLook, SheetButton } from './look';
 
-const avatarTones = ['#7F95AE', k1.mid, '#A5B6C8', '#5E7690'];
+// Svg gradient ids are global on Android, so every gradient gets its own.
+const useSvgId = (prefix: string) =>
+  `${prefix}${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
 
-// The first letter of the nickname on a steel circle; mine is the dark navy one (7.2b).
+// A number from a string id, so a person or a post keeps the same colours on every screen.
+const pick = (id: string, count: number) =>
+  [...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % count;
+
+// The run photos' gradient for a post or record id, so a run keeps one look everywhere (7.1 · 7.2 · 7.4 tiles).
+export const mediaFor = (seed: string) =>
+  communityLook.media[pick(seed, communityLook.media.length)];
+
+// The handoff's avatar fills, top to bottom; mine is the deep teal one (7.2 댓글 입력 · 7.3).
+const avatarFills = [
+  ['#8DACBA', '#5D8194'],
+  ['#A4BDC9', '#5D8194'],
+  ['#7DA0B2', '#3A5A6C'],
+  ['#3A5A6C', '#182E3D'],
+];
+const mineFill = ['#3A5A6C', '#182E3D', '#091019'];
+// 7.4's big avatar of someone else: pale mist with dark letters.
+const heroFill = ['#C4D4DC', '#8DACBA', '#5D8194'];
+
+// The first letter of the nickname on a mist circle, with no ring: the service has no stories (담당자 결정).
+// `hero` is the big 7.4 · 7.4b one.
 export function Avatar({
   nickname,
   userId,
   mine = false,
   size = 40,
+  hero = false,
 }: {
   nickname: string;
   userId: string;
   mine?: boolean;
   size?: number;
+  hero?: boolean;
 }) {
-  const tone =
-    avatarTones[
-      [...userId].reduce((sum, char) => sum + char.charCodeAt(0), 0) %
-        avatarTones.length
-    ];
+  const fillId = useSvgId('avatar');
+  const light = hero && !mine;
+  const fill = mine
+    ? mineFill
+    : light
+    ? heroFill
+    : avatarFills[pick(userId, avatarFills.length)];
   return (
     <View
       style={[
         styles.avatar,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: mine ? k1.deep : tone,
-        },
+        { width: size, height: size, borderRadius: size / 2 },
+        hero && styles.avatarHero,
       ]}
     >
+      <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
       <AppText
-        variant="bodyStrong"
-        style={{ color: k1.ice, fontSize: size * 0.38 }}
+        style={[
+          styles.avatarText,
+          light && styles.avatarTextDark,
+          {
+            fontSize: Math.round(size * 0.38),
+            lineHeight: Math.round(size * 0.5),
+          },
+        ]}
       >
         {nickname.slice(0, 1)}
       </AppText>
@@ -116,12 +138,9 @@ export function recordLabel(record: PostRecord, courseShared: boolean) {
     : `${formatKm(record.distanceM, 1)}km 러닝${finished}`;
 }
 
-// 민락수변공원 · 코스 러닝
-// A server post has no place yet, so only the run type shows.
-export const placeLine = (record: PostRecord) =>
-  [record.place, record.courseRun ? '코스 러닝' : '자유 러닝']
-    .filter(Boolean)
-    .join(' · ');
+// 민락수변공원 under the author's name, without the run type (담당자 요청). A server post has no place yet, so
+// the line is left out.
+export const placeLine = (record: PostRecord) => record.place || null;
 
 function Stat({
   value,
@@ -138,96 +157,111 @@ function Stat({
         {value}
         {unit ? <AppText style={styles.statUnit}>{` ${unit}`}</AppText> : null}
       </AppText>
-      <AppText variant="label" tone="textSecondary">
-        {label}
-      </AppText>
+      <AppText style={styles.statLabel}>{label}</AppText>
     </View>
   );
 }
 
-// The shared run as a black card brightening to steel at the lower right (7.1–7.3): the course
-// outline, the average pace and the run's numbers, signed with the RUNWAY wordmark.
-export function RecordCard({
-  record,
-  courseShared,
-}: {
-  record: PostRecord;
-  courseShared: boolean;
-}) {
+// 시간 · 거리 · 평균 심박 · 케이던스 on the photo.
+function RecordStats({ record }: { record: PostRecord }) {
+  return (
+    <View style={styles.stats}>
+      <Stat value={formatDuration(record.durationSec)} label="시간" />
+      <Stat value={formatKm(record.distanceM)} unit="km" label="거리" />
+      <Stat
+        value={record.averageHeartRate ? String(record.averageHeartRate) : '–'}
+        unit={record.averageHeartRate ? 'bpm' : undefined}
+        label="평균 심박"
+      />
+      <Stat
+        value={record.cadence ? String(record.cadence) : '–'}
+        unit={record.cadence ? 'spm' : undefined}
+        label="케이던스"
+      />
+    </View>
+  );
+}
+
+// --media-scrim: the photo darkens toward its foot. Alpha goes through stopOpacity, which Android keeps.
+export function Scrim() {
+  const id = useSvgId('scrim');
   const [box, setBox] = useState<{ width: number; height: number } | null>(
     null,
   );
   const measure = (event: LayoutChangeEvent) =>
     setBox(event.nativeEvent.layout);
   return (
+    <View style={styles.scrim} onLayout={measure} pointerEvents="none">
+      {box ? (
+        <Svg width={box.width} height={box.height}>
+          <Defs>
+            <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0" stopColor="#060606" stopOpacity={0} />
+              <Stop offset="1" stopColor="#060606" stopOpacity={0.55} />
+            </LinearGradient>
+          </Defs>
+          <Rect width={box.width} height={box.height} fill={`url(#${id})`} />
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
+
+// A shared run as a full-width 4:5 picture (7.1 · 7.2 · 7.3 · 7.3e, 담당자 요청: 카드 대신 사진처럼): one of
+// the handoff's three gradients picked by `seed`, the course outline in white, and the run's words in white
+// over the darkened foot (담당자 결정: 지금 정보 유지).
+export function RunPhoto({
+  record,
+  courseShared,
+  seed,
+}: {
+  record: PostRecord;
+  courseShared: boolean;
+  // The post's id, or the record's before it is posted, so a run keeps its gradient on every screen.
+  seed: string;
+}) {
+  const id = useSvgId('media');
+  const tone = pick(seed, communityLook.media.length);
+  const media = communityLook.media[tone];
+  return (
     <ThemeProvider tone="dark">
-      <View style={styles.record}>
-        <View style={StyleSheet.absoluteFill} onLayout={measure}>
-          {box ? (
-            <Svg width={box.width} height={box.height}>
-              <Defs>
-                <LinearGradient id="record" x1="0.15" y1="0" x2="0.95" y2="1">
-                  <Stop offset="0" stopColor={k1.black} />
-                  <Stop offset="0.45" stopColor={k1.night} />
-                  <Stop offset="0.78" stopColor={k1.deep} />
-                  <Stop offset="1" stopColor={k1.mid} />
-                </LinearGradient>
-              </Defs>
-              <Rect width={box.width} height={box.height} fill="url(#record)" />
-            </Svg>
-          ) : null}
-        </View>
-        <View style={styles.recordTop}>
-          <View style={styles.dot} />
-          <AppText
-            variant="captionStrong"
-            style={styles.flex}
-            numberOfLines={1}
-          >
-            {recordLabel(record, courseShared)}
-          </AppText>
-          {courseShared ? (
-            <AppText variant="label" tone="textSecondary">
+      <View style={styles.media}>
+        {/* 1 wider than the photo, so a rounded-down measure leaves no white line at the right edge. */}
+        <MistFill
+          id={id}
+          colors={[...media.colors]}
+          offsets={[...media.offsets]}
+          style={styles.mediaFill}
+        />
+        {courseShared ? (
+          <>
+            {/* --media-free starts near white, so its note is in teal there. */}
+            <AppText
+              style={[styles.mediaNote, tone === 0 && styles.mediaNoteOnLight]}
+            >
               예시 경로
             </AppText>
-          ) : null}
-        </View>
-        {courseShared ? (
-          <View style={styles.glyph}>
-            <CourseGlyph shape={record.shape} />
-          </View>
+            <View style={styles.mediaGlyph}>
+              <CourseGlyph shape={record.shape} thin />
+            </View>
+          </>
         ) : null}
-        <View style={styles.paceBlock}>
-          <AppText variant="caption" tone="textSecondary">
-            평균 페이스
+        <Scrim />
+        <View style={styles.mediaText}>
+          <AppText style={styles.mediaLabel} numberOfLines={1}>
+            {recordLabel(record, courseShared)}
           </AppText>
-          <AppText style={styles.pace}>
-            {formatPace(record.averagePaceSecPerKm)}
-            <AppText style={styles.paceUnit}> /km</AppText>
+          <AppText style={styles.mediaHeadline}>
+            {`평균 ${formatPace(record.averagePaceSecPerKm)}/km`}
           </AppText>
-        </View>
-        <View style={styles.stats}>
-          <Stat value={formatDuration(record.durationSec)} label="시간" />
-          <Stat value={formatKm(record.distanceM)} unit="km" label="거리" />
-          <Stat
-            value={
-              record.averageHeartRate ? String(record.averageHeartRate) : '–'
-            }
-            unit={record.averageHeartRate ? 'bpm' : undefined}
-            label="평균 심박"
-          />
-          <Stat
-            value={record.cadence ? String(record.cadence) : '–'}
-            unit={record.cadence ? 'spm' : undefined}
-            label="케이던스"
-          />
-        </View>
-        <View style={styles.recordBottom}>
-          <AppText variant="label" tone="textSecondary">
-            {stamp(record.startedAt)}
-          </AppText>
-          <View style={styles.mark}>
-            <Logo width={84} />
+          <RecordStats record={record} />
+          <View style={styles.recordBottom}>
+            <AppText style={styles.mediaStamp}>
+              {stamp(record.startedAt)}
+            </AppText>
+            <View style={styles.mark}>
+              <Logo width={64} />
+            </View>
           </View>
         </View>
       </View>
@@ -235,7 +269,7 @@ export function RecordCard({
   );
 }
 
-// ♥ 38 · 💬 15 · 공유, with the bookmark at the right end (7.1·7.2).
+// ♥ 38 · 💬 15 · 공유, with the bookmark at the right end: bare navy icons, no pills (7.1 · 7.2).
 export function PostActions({
   post,
   onLike,
@@ -247,7 +281,6 @@ export function PostActions({
   onComment: () => void;
   onBookmark: () => void;
 }) {
-  const { colors } = useTheme();
   const share = () =>
     Share.share({
       message: `${post.author.handle}님의 러닝 · ${recordLabel(
@@ -255,6 +288,7 @@ export function PostActions({
         post.courseShared,
       )} · 평균 페이스 ${formatPace(post.record.averagePaceSecPerKm)}/km`,
     }).catch(() => undefined);
+  const ink = communityLook.ink;
   return (
     <View style={styles.actions}>
       <Pressable
@@ -262,14 +296,14 @@ export function PostActions({
         accessibilityLabel={post.liked ? '좋아요 취소' : '좋아요'}
         accessibilityState={{ selected: post.liked }}
         onPress={onLike}
-        hitSlop={8}
-        style={styles.action}
+        hitSlop={6}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
       >
         <Icon
           name="heart"
-          color={post.liked ? k1.coral : colors.text}
+          color={post.liked ? communityLook.like : ink}
           solid={post.liked}
-          size={22}
+          size={24}
         />
         {post.likeCount === null ? null : (
           <AppText style={styles.count}>{post.likeCount}</AppText>
@@ -279,10 +313,10 @@ export function PostActions({
         accessibilityRole="button"
         accessibilityLabel="댓글"
         onPress={onComment}
-        hitSlop={8}
-        style={styles.action}
+        hitSlop={6}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
       >
-        <Icon name="community" color={colors.text} size={22} />
+        <Icon name="community" color={ink} size={24} />
         {post.commentCount === null ? null : (
           <AppText style={styles.count}>{post.commentCount}</AppText>
         )}
@@ -291,9 +325,10 @@ export function PostActions({
         accessibilityRole="button"
         accessibilityLabel="공유"
         onPress={share}
-        hitSlop={8}
+        hitSlop={6}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
       >
-        <Icon name="send" color={colors.text} size={22} />
+        <Icon name="send" color={ink} size={24} />
       </Pressable>
       <View style={styles.flex} />
       <Pressable
@@ -301,14 +336,10 @@ export function PostActions({
         accessibilityLabel={post.bookmarked ? '저장 취소' : '저장'}
         accessibilityState={{ selected: post.bookmarked }}
         onPress={onBookmark}
-        hitSlop={8}
+        hitSlop={6}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
       >
-        <Icon
-          name="bookmark"
-          color={colors.text}
-          solid={post.bookmarked}
-          size={22}
-        />
+        <Icon name="bookmark" color={ink} solid={post.bookmarked} size={24} />
       </Pressable>
     </View>
   );
@@ -342,7 +373,6 @@ export function PostMenu({
   onDelete: () => Promise<void>;
   subject?: 'post' | 'comment';
 }) {
-  const { colors } = useTheme();
   const copy = menuCopy[subject];
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -360,7 +390,7 @@ export function PostMenu({
     }
   };
   return (
-    <BottomSheet
+    <CommunitySheet
       visible={visible}
       onClose={close}
       title={confirming ? copy.confirm : undefined}
@@ -368,8 +398,8 @@ export function PostMenu({
     >
       {confirming ? (
         <View style={styles.sheetButtons}>
-          <FooterButton title="취소" onPress={close} />
-          <FooterButton title="삭제" danger disabled={busy} onPress={remove} />
+          <SheetButton title="취소" onPress={close} />
+          <SheetButton title="삭제" danger disabled={busy} onPress={remove} />
         </View>
       ) : (
         <View>
@@ -380,93 +410,170 @@ export function PostMenu({
               close();
               onEdit();
             }}
-            style={[styles.menuRow, { borderColor: colors.border }]}
+            style={({ pressed }) => [
+              styles.menuRow,
+              styles.menuRowDivider,
+              pressed && styles.pressed,
+            ]}
           >
-            <Icon name="pencil" color={colors.text} size={20} />
-            <AppText variant="body">{copy.edit}</AppText>
+            <Icon name="pencil" color={communityLook.ink} size={20} />
+            <AppText style={styles.menuText}>{copy.edit}</AppText>
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="삭제"
             onPress={() => setConfirming(true)}
-            style={styles.menuRow}
+            style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
           >
             <Icon name="trash" color={k1.coral} size={20} />
-            <AppText variant="body" style={{ color: k1.coralText }}>
-              삭제
-            </AppText>
+            <AppText style={[styles.menuText, styles.menuDanger]}>삭제</AppText>
           </Pressable>
           <View style={styles.sheetButtons}>
-            <FooterButton title="닫기" onPress={close} />
+            <SheetButton title="닫기" onPress={close} />
           </View>
         </View>
       )}
-    </BottomSheet>
+    </CommunitySheet>
   );
 }
 
+const whiteMuted = 'rgba(255,255,255,0.55)';
+const photoWhite = '#F9F9F9';
+const photoSub = 'rgba(249,249,249,0.85)';
+const photoMuted = 'rgba(249,249,249,0.7)';
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  avatar: { alignItems: 'center', justifyContent: 'center' },
-  record: {
-    borderRadius: radius.xl,
+  pressed: { opacity: 0.6 },
+  avatar: {
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
-    paddingHorizontal: spacing.xxl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.lg,
-    gap: spacing.md,
   },
-  recordTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: k1.ice },
-  glyph: { alignSelf: 'center', width: 130, height: 110 },
-  paceBlock: { alignItems: 'center', marginTop: spacing.xs },
-  pace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 48,
-    lineHeight: 54,
-    color: k1.ice,
+  avatarHero: { boxShadow: '0 8px 20px rgba(2,5,14,0.16)' },
+  avatarText: { fontFamily: fontFamily.bold, color: communityLook.onDark },
+  avatarTextDark: { color: '#091019' },
+  stats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 10,
   },
-  paceUnit: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 13,
-    color: 'rgba(232,238,244,0.6)',
-  },
-  stats: { flexDirection: 'row', justifyContent: 'space-around' },
-  stat: { alignItems: 'center', gap: 2 },
+  stat: { alignItems: 'center' },
   statValue: {
     fontFamily: fontFamily.numberRegular,
-    fontSize: 20,
-    lineHeight: 24,
-    color: k1.ice,
+    fontSize: 17,
+    lineHeight: 22,
+    color: photoWhite,
   },
   statUnit: {
     fontFamily: fontFamily.numberRegular,
-    fontSize: 11,
-    color: 'rgba(232,238,244,0.6)',
+    fontSize: 12,
+    color: whiteMuted,
+  },
+  statLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 18,
+    color: whiteMuted,
   },
   recordBottom: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 12,
   },
-  // The wordmark is drawn in the text color; on the card it is a faint ice.
-  mark: { opacity: 0.55 },
+  // The wordmark is drawn in the text color; on the card it is white 80%.
+  mark: { opacity: 0.8 },
+  // 7.1 photo: the full width at 4:5.
+  media: {
+    width: '100%',
+    aspectRatio: 4 / 5,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  mediaFill: { right: -1 },
+  // A rounded-down measure must not leave the circle a flat edge.
+  fillBleed: { right: -1, bottom: -1 },
+  mediaNoteOnLight: { color: '#3A5A6C' },
+  mediaNote: {
+    position: 'absolute',
+    top: 16,
+    right: 18,
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: photoMuted,
+  },
+  mediaGlyph: {
+    position: 'absolute',
+    top: '14%',
+    left: '25%',
+    width: '50%',
+    aspectRatio: 1,
+  },
+  scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%' },
+  mediaText: {
+    paddingHorizontal: 22,
+    paddingBottom: 22,
+    gap: 6,
+  },
+  mediaLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.2,
+    color: photoSub,
+  },
+  mediaHeadline: {
+    fontFamily: fontFamily.bold,
+    fontSize: 25,
+    lineHeight: 33,
+    letterSpacing: -0.6,
+    color: photoWhite,
+  },
+  mediaStamp: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: photoMuted,
+  },
+  // The action line: 44 high, navy outline icons 12 apart.
   actions: {
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.md,
+    gap: 12,
   },
-  action: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  count: { fontFamily: fontFamily.numberRegular, fontSize: 15 },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 2,
+  },
+  count: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: communityLook.ink,
+  },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.xl,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: 'transparent',
+    gap: 14,
+    height: 56,
+    paddingHorizontal: 4,
   },
+  menuRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2EAEE',
+  },
+  menuText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 16,
+    lineHeight: 21,
+    color: communityLook.ink,
+  },
+  menuDanger: { color: k1.coralText },
   sheetButtons: {
     flexDirection: 'row',
     gap: spacing.md,

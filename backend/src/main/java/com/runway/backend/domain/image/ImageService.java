@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -27,7 +28,9 @@ public class ImageService {
 
     private final ImageStorage imageStorage;
     private final ImageStorageProperties properties;
+    private final ImageAccessRepository access;
 
+    @Transactional
     public ImageUploadResponse upload(long userId, MultipartFile file, String purposeRaw) {
         ImagePurpose purpose = ImagePurpose.from(purposeRaw);
         if (file == null || file.isEmpty()) {
@@ -63,6 +66,7 @@ public class ImageService {
             throw new ApiException(ErrorCode.IMAGE_MEDIA_MISMATCH);
         }
 
+        if (!access.lockActiveUser(userId)) throw new ApiException(ErrorCode.UNAUTHORIZED);
         String imageId = UUID.randomUUID().toString();
         String extension = format.extension();
         String imageKey =
@@ -73,11 +77,47 @@ public class ImageService {
         return new ImageUploadResponse(imageId, publicUrl(imageId));
     }
 
-    public StoredImage load(String imageIdRaw) {
+    public StoredImage load(Long viewerId, String imageIdRaw) {
         UUID imageId = parseImageId(imageIdRaw);
-        return imageStorage
-                .findByImageId(imageId)
-                .orElseThrow(() -> new ApiException(ErrorCode.IMAGE_NOT_FOUND));
+        boolean ownUploadsVisible = viewerId != null && access.activeUserExists(viewerId);
+        for (String extension : new String[] {"jpg", "png"}) {
+            String fileName = imageId + "." + extension;
+            for (String key : access.findReadableKeys(viewerId, fileName)) {
+                // A DB reference is not proof that an upload exists. Open the exact
+                // canonical source, never an unrelated by-id copy with the same UUID.
+                if (isCanonicalKey(key, fileName)) {
+                    Optional<StoredImage> image = imageStorage.findByKey(key);
+                    if (image.isPresent()) {
+                        return image.get();
+                    }
+                }
+            }
+            if (ownUploadsVisible) {
+                for (ImagePurpose purpose : ImagePurpose.values()) {
+                    Optional<StoredImage> image = imageStorage.findByKey(
+                            "images/" + purpose.pathSegment() + "/" + viewerId + "/" + fileName);
+                    if (image.isPresent()) {
+                        return image.get();
+                    }
+                }
+            }
+        }
+        throw new ApiException(ErrorCode.IMAGE_NOT_FOUND);
+    }
+
+    private static boolean isCanonicalKey(String key, String fileName) {
+        String[] parts = key.split("/", -1);
+        if (parts.length != 4 || !"images".equals(parts[0])
+                || !Set.of("profile", "crew", "post").contains(parts[1])
+                || !fileName.equals(parts[3])) {
+            return false;
+        }
+        try {
+            long owner = Long.parseLong(parts[2]);
+            return owner > 0 && Long.toString(owner).equals(parts[2]);
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     public Optional<String> resolveProfileImageKey(long userId, String imageIdRaw) {
@@ -92,6 +132,31 @@ public class ImageService {
             return Optional.of(png);
         }
         return Optional.empty();
+    }
+
+    public String requireOwnedImageKey(long userId, ImagePurpose purpose, String key) {
+        String[] parts = key.split("/", -1);
+        if (parts.length != 4 || !"images".equals(parts[0])
+                || !purpose.pathSegment().equals(parts[1])
+                || !Long.toString(userId).equals(parts[2])) {
+            throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
+        }
+        String file = parts[3];
+        int dot = file.lastIndexOf('.');
+        if (dot <= 0 || !(file.endsWith(".jpg") || file.endsWith(".png"))) {
+            throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
+        }
+        try {
+            if (!UUID.fromString(file.substring(0, dot)).toString().equals(file.substring(0, dot))) {
+                throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
+            }
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
+        }
+        if (!imageStorage.exists(key)) {
+            throw new ApiException(ErrorCode.RESOURCE_NOT_OWNED);
+        }
+        return key;
     }
 
     public static String publicUrl(String imageId) {

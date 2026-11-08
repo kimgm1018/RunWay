@@ -3,6 +3,7 @@ import {
   routes,
   type AuthRouteName,
   type GroupTabRouteName,
+  type HomeTabRouteName,
   type MainRouteName,
   type RouteName,
   type RunTabRouteName,
@@ -17,8 +18,19 @@ export function navigateTo(navigation: Navigate, name: RouteName) {
   const toTabs = { pop: true };
   switch (routes[name].tab) {
     case 'HomeTab':
+      navigation.navigate(
+        'MainTabs',
+        name === 'Home'
+          ? { screen: 'HomeTab', params: { screen: 'Home' } }
+          : {
+              screen: 'HomeTab',
+              params: { screen: name as HomeTabRouteName },
+            },
+        toTabs,
+      );
+      return;
     case 'CommunityTab':
-      navigation.navigate('MainTabs', { screen: routes[name].tab }, toTabs);
+      navigation.navigate('MainTabs', { screen: 'CommunityTab' }, toTabs);
       return;
     case 'RunTab':
       navigation.navigate(

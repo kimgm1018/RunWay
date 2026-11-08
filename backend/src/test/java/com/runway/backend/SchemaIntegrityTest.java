@@ -3,6 +3,7 @@ package com.runway.backend;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.runway.backend.support.SharedPostgres;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,10 +11,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,14 +19,10 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /** Executes the reference schema in a disposable DB, without installing service migrations. */
-@Testcontainers
 class SchemaIntegrityTest {
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.emptyDatabase(SchemaIntegrityTest.class);
 
     private Connection connection;
     private long user;
@@ -273,13 +266,13 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM information_schema.tables WHERE"
                                     + " table_schema='public' AND table_type='BASE TABLE' AND"
                                     + " table_name<>'spatial_ref_sys'"))
-                .isEqualTo(29);
+                .isEqualTo(32);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND column_name='id' AND"
                                     + " is_identity='YES' AND identity_generation='ALWAYS'"))
-                .isEqualTo(29);
+                .isEqualTo(32);
         assertThat(user).isPositive();
         assertThat(otherUser).isGreaterThan(user);
         rejects(

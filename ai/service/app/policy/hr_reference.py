@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from app.models.ode.validation import pv_data
+from app.grade_fill import prepare_with_grade_fallback
 from app.policy.config import PolicyConfig
 
 _USABLE_WORKOUT_QUALITY = frozenset({"CLEAN", "USABLE_WITH_FLAGS"})
@@ -84,7 +85,8 @@ def personal_hr_thresholds(sessions: Iterable[object]) -> PersonalHrThresholds:
         if (frame.empty or frame.elapsed_s.duplicated().any() or not np.isclose(elapsed[0], 0.0)
                 or (len(elapsed) > 1 and not np.allclose(np.diff(elapsed), 5.0))):
             continue
-        if isinstance(pv_data.prepare_session(frame), str):
+        _frame, prepared, _fill_info = prepare_with_grade_fallback(frame)
+        if isinstance(prepared, str):
             continue
         values = []
         for sample in samples:

@@ -26,12 +26,25 @@ interface RunUploads {
     /** An END was applied: send what is left at once and wait for the server save ACKs. Returns what stays unconfirmed. */
     suspend fun finish(sessionId: String): Int
     suspend fun pendingCount(sessionId: String): Int
+    /**
+     * The phone asked again for an ended run's result (S15P31E105-446): batches of [sessionId] that hit the retry limit
+     * are sent once more with the same id and body, again at most [BatchUploader] maxAttempts tries. Batches stopped by
+     * a final phone error (400/401/403/409 content or permission errors) are not sent again.
+     */
+    suspend fun retryFailed(sessionId: String)
+    /**
+     * The run was handed to the phone (PHONE_FALLBACK, S08): stop making new batches for [sessionId]. Readings not yet
+     * in a batch are dropped, because the server refuses new watch batches after the take-over (W07 409
+     * CONTROL_DEVICE_CHANGED). Batches already stored are kept and sent as before.
+     */
+    suspend fun stop(sessionId: String) = Unit
 }
 
 object NoUploads : RunUploads {
     override suspend fun begin(sessionId: String, deviceId: String) = Unit
     override suspend fun finish(sessionId: String) = 0
     override suspend fun pendingCount(sessionId: String) = 0
+    override suspend fun retryFailed(sessionId: String) = Unit
 }
 
 /**
@@ -65,9 +78,16 @@ class BatchUploader(
     private var deviceId: String? = null
     private var accepting = false
     private var unconfirmed = false
+    /** Collection stopped by the 64-batch cap or an unsplittable reading; a retry of failed batches keeps it unconfirmed. */
+    private var capped = false
     private val backoff = mutableMapOf<String, Long>()
     // Last send (or BATCH_RECEIVED) time per batch, on [clock]. Not stored: after a restart every open batch is due.
     private val sentAt = mutableMapOf<String, Long>()
+    /**
+     * Marks stored before this process took the run over (S15P31E105-445). Fixed for the process: readings of a metric
+     * at or before its mark were batched before the restart and are dropped if Health Services hands them over again.
+     */
+    private var floor: Map<String, java.time.Instant> = emptyMap()
 
     private val _state = MutableStateFlow(UploadState())
     val state: StateFlow<UploadState> = _state
@@ -75,7 +95,7 @@ class BatchUploader(
     /** Readings from the exercise listener. Ignored outside a run or once collection stopped. */
     suspend fun offer(readings: List<Reading>) = mutex.withLock {
         if (!accepting || unconfirmed) return@withLock
-        val valid = readings.filter { it.hasValue }
+        val valid = readings.filter { r -> r.metrics.any { floor[it]?.isBefore(r.measuredAt) ?: true } }
         if (valid.isEmpty()) return@withLock
         if (buffer.isEmpty()) bufferSinceMs = clock()
         buffer += valid
@@ -88,6 +108,9 @@ class BatchUploader(
             buffer.clear()
             bufferSinceMs = null
             unconfirmed = store.all().any { it.failed }
+            capped = false
+            // 같은 운동을 재시작 후 이어 받으면 재시작 전에 batch로 만든 원본을 다시 넣지 않는다(S15P31E105-445).
+            floor = store.marks()?.takeIf { it.sessionId == sessionId }?.latest.orEmpty()
         }
         this.sessionId = sessionId
         this.deviceId = deviceId
@@ -110,8 +133,25 @@ class BatchUploader(
         }
     }
 
+    override suspend fun stop(sessionId: String) = mutex.withLock {
+        if (this.sessionId != sessionId) return@withLock
+        accepting = false
+        buffer.clear()
+        bufferSinceMs = null
+        publish()
+    }
+
     override suspend fun pendingCount(sessionId: String): Int = mutex.withLock {
         store.all().count { it.sessionId == sessionId }
+    }
+
+    override suspend fun retryFailed(sessionId: String) = mutex.withLock {
+        val failed = store.all().filter { it.sessionId == sessionId && it.failed && !it.rejected }
+        if (failed.isEmpty()) return@withLock
+        store.put(failed.map { it.copy(attempts = 0, received = false, failed = false) })
+        failed.forEach { sentAt.remove(it.id); backoff.remove(it.id) }
+        unconfirmed = capped || store.all().any { it.failed }
+        publish()
     }
 
     /** Called every second while the process runs: closes a due batch and resends what timed out. */
@@ -172,12 +212,12 @@ class BatchUploader(
     /** ERROR from the phone about a batch (replyTo = its messageId). Final errors stop the retries for it. */
     suspend fun onError(replyTo: String, retryable: Boolean) = mutex.withLock {
         if (retryable) return@withLock
-        store.all().firstOrNull { it.messageId == replyTo && !it.failed }?.let { fail(it) }
+        store.all().firstOrNull { it.messageId == replyTo && !it.failed }?.let { fail(it, rejected = true) }
         publish()
     }
 
-    private fun fail(batch: OutboxBatch) {
-        store.put(listOf(batch.copy(failed = true)))
+    private fun fail(batch: OutboxBatch, rejected: Boolean = false) {
+        store.put(listOf(batch.copy(failed = true, rejected = rejected)))
         unconfirmed = true
     }
 
@@ -195,12 +235,14 @@ class BatchUploader(
         val groups = try {
             BatchFormat.split(items) { part -> BatchFormat.envelope("x".repeat(200), sessionId, BatchFormat.body(SAMPLE_ID, deviceId, sessionId, part)).size }
         } catch (_: IllegalStateException) {
+            capped = true
             unconfirmed = true
             publish()
             return
         }
         if (open + groups.size > maxPending) {
             // 64개 상한: 미확인 batch를 버리지 않고 새 수집을 멈춘다.
+            capped = true
             unconfirmed = true
             publish()
             return
@@ -209,10 +251,23 @@ class BatchUploader(
             val id = newId()
             OutboxBatch(id, sessionId, nextMessageId(), BatchFormat.body(id, deviceId, sessionId, part), part.size)
         }
+        // 기준 시각을 batch보다 먼저 저장한다. 그 사이에 종료되면 원본이 빠질 수는 있어도 두 batch에 들어가지는 않는다.
+        store.saveMarks(nextMarks(sessionId))
         store.put(batches)
         buffer.clear()
         bufferSinceMs = null
         publish()
+    }
+
+    /** The stored marks of [sessionId] moved up to the readings now in the buffer. */
+    private fun nextMarks(sessionId: String): BatchMarks {
+        val latest = store.marks()?.takeIf { it.sessionId == sessionId }?.latest.orEmpty().toMutableMap()
+        for (reading in buffer) {
+            for (metric in reading.metrics) {
+                if (latest[metric]?.isBefore(reading.measuredAt) != false) latest[metric] = reading.measuredAt
+            }
+        }
+        return BatchMarks(sessionId, latest)
     }
 
     private fun publish() {

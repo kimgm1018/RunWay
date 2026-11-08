@@ -8,43 +8,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.math.BigDecimal;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@Testcontainers
-class RunningRecordStatisticsApiIntegrationTest {
-
+class RunningRecordStatisticsApiIntegrationTest extends SharedContextIntegrationSupport {
     private static final String LOGIN_PREFIX = "rr_stats_";
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
-
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
@@ -54,16 +30,6 @@ class RunningRecordStatisticsApiIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM running_metric_samples");
-        jdbc.update("DELETE FROM running_session_splits");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews WHERE name LIKE 'rr_stats_%'");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM daily_health_metrics");
-        jdbc.update("DELETE FROM users WHERE login_id LIKE ?", LOGIN_PREFIX + "%");
-
         ownerId = insertUser(LOGIN_PREFIX + "owner", "통계소유자", "01050001001");
         emptyUserId = insertUser(LOGIN_PREFIX + "empty", "빈통계", "01050001002");
     }

@@ -108,7 +108,7 @@ export function createMockSession(options: Options = {}): Repositories['session'
   };
 
   return {
-    create: ({ controlDeviceId, relayDeviceId }) =>
+    create: ({ controlDeviceId, relayDeviceId, goal }) =>
       later(() => {
         for (const [id, stored] of sessions) {
           if (ACTIVE.includes(stored.view.state)) {
@@ -129,6 +129,16 @@ export function createMockSession(options: Options = {}): Repositories['session'
             endedAt: null,
             recordingMode: 'WATCH',
             analysisStatus: 'PENDING',
+            // 목업은 측정값으로 비교를 계산하지 않는다. 비교 기록을 고르면 서버처럼 결과를 기다리는 상태만 보인다(S15P31E105-422).
+            comparison: goal.comparisonSessionId
+              ? {
+                  status: 'WAITING',
+                  targetStartedAt: null,
+                  distanceM: null,
+                  currentElapsedSec: null,
+                  pastElapsedSec: null,
+                }
+              : null,
           },
           commands: [],
         };
@@ -294,6 +304,39 @@ export function createMockSession(options: Options = {}): Repositories['session'
         }
         stored.view.state = 'INTERRUPTED';
         stored.view.analysisStatus = 'FAILED';
+        bump(stored);
+        return view(stored);
+      }),
+
+    // S08 TAKE_OVER_PHONE(S15P31E105-464). 같은 폰으로 이미 인계됐으면 현재 상태를 버전 증가 없이 돌려준다.
+    takeOverPhone: (sessionId, { deviceId, expectedVersion }) =>
+      later(() => {
+        const stored = find(sessionId);
+        if (deviceId !== stored.view.relayDeviceId) {
+          throw new DataError('DEVICE_FORBIDDEN', '본인 등록 기기가 아닙니다.');
+        }
+        if (
+          stored.view.recordingMode === 'PHONE_FALLBACK' &&
+          stored.view.controlDeviceId === deviceId
+        ) {
+          return view(stored);
+        }
+        if (
+          (stored.view.state !== 'RUNNING' && stored.view.state !== 'PAUSED') ||
+          stored.view.startedAt === null
+        ) {
+          throw new DataError('INVALID_SESSION_STATE', '현재 세션 상태에서 처리할 수 없습니다.');
+        }
+        if (expectedVersion !== stored.view.stateVersion) {
+          throw new DataError('STALE_STATE', '세션 상태가 변경되었습니다.');
+        }
+        // 이전 워치의 미확정 명령은 실제 적용 여부를 추측하지 않고 UNKNOWN으로 남긴다.
+        stored.commands
+          .filter(command => command.deviceId === stored.view.controlDeviceId && command.result === 'PENDING')
+          .forEach(command => Object.assign(command, { result: 'UNKNOWN', reasonCode: 'WATCH_DISCONNECTED' }));
+        stored.view.controlDeviceId = deviceId;
+        stored.view.recordingMode = 'PHONE_FALLBACK';
+        stored.view.currentBpm = null;
         bump(stored);
         return view(stored);
       }),

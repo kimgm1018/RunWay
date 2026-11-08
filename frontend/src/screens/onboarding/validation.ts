@@ -63,6 +63,99 @@ export function toBirthDate(year: number, month: number, day: number) {
   )}`;
 }
 
+// The app offers birth years 1950–2026 (S15P31E105-520); users.md only forbids dates after today (UTC).
+export const birthYearMin = 1950;
+export const birthYearMax = 2026;
+// 1.5b's wheels start here until a date is picked.
+export const defaultBirthDate: BirthDate = { year: 2002, month: 1, day: 1 };
+
+export type BirthDateParts = { year: string; month: string; day: string };
+export type BirthDate = { year: number; month: number; day: number };
+
+// U15 · U05 compare with today in UTC, so a date that is already today in Korea can still be "future" there.
+function utcToday(now: Date): BirthDate {
+  return {
+    year: now.getUTCFullYear(),
+    month: now.getUTCMonth() + 1,
+    day: now.getUTCDate(),
+  };
+}
+
+const range = (first: number, last: number) =>
+  Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => first + i);
+
+// The years, months and days the wheels list for a date: nothing before 1950, after 2026 or after today.
+export function birthDateOptions(
+  { year, month }: BirthDate,
+  now = new Date(),
+) {
+  const today = utcToday(now);
+  const lastMonth = year === today.year ? today.month : 12;
+  const lastDay =
+    year === today.year && month === today.month
+      ? today.day
+      : daysInMonth(year, month);
+  return {
+    years: range(birthYearMin, Math.min(birthYearMax, today.year)),
+    months: range(1, lastMonth),
+    days: range(1, lastDay),
+  };
+}
+
+// Pulls a date back inside those lists: a shorter month moves the 31st to its last day.
+export function clampBirthDate(date: BirthDate, now = new Date()): BirthDate {
+  const clamp = (value: number, list: number[]) =>
+    Math.min(Math.max(value, list[0]), list[list.length - 1]);
+  const year = clamp(date.year, birthDateOptions(date, now).years);
+  const month = clamp(
+    date.month,
+    birthDateOptions({ ...date, year }, now).months,
+  );
+  const day = clamp(
+    date.day,
+    birthDateOptions({ ...date, year, month }, now).days,
+  );
+  return { year, month, day };
+}
+
+export function birthDateError(
+  { year, month, day }: BirthDateParts,
+  now = new Date(),
+) {
+  if (
+    !/^\d{4}$/.test(year) ||
+    !/^\d{1,2}$/.test(month) ||
+    !/^\d{1,2}$/.test(day)
+  ) {
+    return '연도와 월·일을 모두 골라 주세요';
+  }
+  if (Number(year) < birthYearMin || Number(year) > birthYearMax) {
+    return `연도는 ${birthYearMin}~${birthYearMax}년 사이로 골라 주세요`;
+  }
+  if (
+    Number(month) < 1 ||
+    Number(month) > 12 ||
+    Number(day) < 1 ||
+    Number(day) > daysInMonth(Number(year), Number(month))
+  ) {
+    return '존재하는 날짜를 골라 주세요';
+  }
+  const today = utcToday(now);
+  if (
+    toBirthDate(Number(year), Number(month), Number(day)) >
+    toBirthDate(today.year, today.month, today.day)
+  ) {
+    return '오늘 이후 날짜는 고를 수 없어요';
+  }
+  return null;
+}
+
+export function parseBirthDate(parts: BirthDateParts, now = new Date()) {
+  return birthDateError(parts, now) === null
+    ? toBirthDate(Number(parts.year), Number(parts.month), Number(parts.day))
+    : null;
+}
+
 // "30:00" or "1:05:30" → seconds; "6:00" pace → seconds per km.
 export function parseClock(value: string) {
   const parts = value.trim().split(':');

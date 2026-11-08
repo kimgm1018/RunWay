@@ -24,7 +24,9 @@ from app.planner import prerun_planner as pp
 DEFAULT_VALIDATED_HORIZON_SEC = 5400
 DEFAULT_VALIDATION_REF = "ODE v2.1 1차 base pre-run H*90, C60 vs B_THS_pers 승"
 
-DEFAULT_CHECKPOINT_SHA256 = "ba767a645c2b1180a3ced3cbcc533142544d3e34cc69b23aed28eba134b14061"
+# S15P31E105-402: 속도 반응 미세조정(λ=1, V2 Train 전체, S15P31E105-406 최종) checkpoint.
+# 되돌리기: env ODEV21_CHECKPOINT_SHA256에 이전 base ba767a64… 지정.
+DEFAULT_CHECKPOINT_SHA256 = "737334a7d77a8481f0f22029cf24dd20310f6620766c65ca7f452083450dee3b"
 DEFAULT_STATS_SHA256 = "9251e04e3dc50ecb66cbd48faa7c6882b80f16a51af0746669cd5f0545b4e066"
 
 # v6_8_1: 기본 파일명을 배포 이름(infra/ai/.env.example, test-artifacts)과 하나로 맞춘다.
@@ -99,6 +101,8 @@ class ODEv21Runtime:
         self.fit_module = fit_module
         self.device = device
         self.hr0_head = bool(getattr(model, "hr0_head_enabled", False))
+        from .prerun_fast import PreRunFast
+        self._prerun_fast = PreRunFast(self.model, self.model_module)
         self.horizon_sec = max(0, int(validated_horizon_sec))
         self.info = ODEModelInfo(
             model_type="ODE-v2.1", model_version=f"{variant}:{checkpoint_sha256[:12]}",
@@ -208,17 +212,22 @@ class ODEv21Runtime:
             items.append(item)
         return items
 
-    def _predict_items(self, items, *, max_steps: int | None = None) -> np.ndarray:
+    def _predict_items(self, items, *, max_steps: int | None = None, fast: bool = False) -> np.ndarray:
         if not items:
             return np.empty((0, 0), np.float32)
         batch = self.batch.collate(items, self.stats, max_steps=max_steps)
         batch = {key: value.to(self.device) for key, value in batch.items()}
         with self.torch.inference_mode():
-            output = self.model(batch)
-        n_points = output["heart_rate"].shape[1] // 3
+            use_fast = (fast and type(self.model) is getattr(self.model_module, "V21ODE", None)
+                        and not self.hr0_head and self.torch.device(self.device).type == "cpu"
+                        and os.getenv("ODEV21_PRERUN_FAST", "true").strip().lower()
+                        not in {"false", "0", "no", "off"})
+            heart_rate = (self._prerun_fast.predict(batch) if use_fast
+                          else self.model(batch)["heart_rate"])
+        n_points = heart_rate.shape[1] // 3
         if n_points <= 0:
             return np.empty((len(items), 0), np.float32)
-        return self.model_module.points30(output["heart_rate"], n_points).detach().cpu().numpy()
+        return self.model_module.points30(heart_rate, n_points).detach().cpu().numpy()
 
     def pre_run_predictor(self, personalization: dict | None = None,
                           support_start_hr_median_bpm: float | None = None,
@@ -244,7 +253,7 @@ class ODEv21Runtime:
                 steps = max(3, max((len(row) for row in speeds), default=0) * 3) if speeds else 0
                 rows = runtime._predict_items(runtime._items(speeds, grades, personalization, fallback,
                                                              drop_personal_inputs=drop_personal_inputs),
-                                              max_steps=steps or None)
+                                              max_steps=steps or None, fast=True)
                 return pp.PreRunSimulationResult(
                     hr_bpm=tuple(tuple(float(v) for v in row[:len(speeds[index])])
                                  for index, row in enumerate(rows)), model_name="ODE-v2.1",

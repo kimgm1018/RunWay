@@ -9,13 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** 254 AC-5·AC-6. R02가 본인의 가장 늦은 날짜 결과만 반환하고, 조회가 평가를 실행하지 않으며, 오류 코드를 구분하는지 확인한다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class ReadinessLatestApiIntegrationTest extends ReadinessIntegrationSupport {
 

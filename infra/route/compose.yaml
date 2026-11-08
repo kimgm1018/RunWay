@@ -1,0 +1,39 @@
+name: runway-route
+
+services:
+  route:
+    image: ${ROUTE_IMAGE:?ROUTE_IMAGE 필요}
+    restart: unless-stopped
+    user: "10001:10001"
+    cpus: 1
+    mem_limit: 2g
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      RUNWAY_GRAPH_CACHE_SIZE: "2"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMBA_NUM_THREADS: "1"
+      ROUTE_DEBUG: "0"
+      ROUTE_WARMUP: "1"
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/v1/ready', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    internal: true

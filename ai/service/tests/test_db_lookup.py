@@ -468,3 +468,85 @@ def test_connection_failure_on_personalization_is_still_ai_db_unavailable(monkey
         response = client.post("/v1/pace/personal-plan", json={"userId": 73, "courseId": 297})
 
     assert response.status_code == 503 and response.json()["code"] == "AI_DB_UNAVAILABLE"
+
+
+# --- 백엔드 저장 경사(courses.elevation_profile 100m 목록, S15P31E105-371) ------------
+
+# 백엔드 GeneratedCourseSaveIntegrationTest가 저장하는 형식과 같다: 0부터 100m씩, 마지막은 남은 거리,
+# 경사는 i번째에 (i % 7 − 3) × 0.25. JSONB에서 읽으면 정수 거리는 int, 나머지는 float다.
+def backend_profile(distance=2450.5):
+    result, start, i = [], 0, 0
+    while start < distance:
+        end = min(start + 100, distance)
+        result.append({"startDistanceM": start, "endDistanceM": end, "gradePercent": ((i % 7) - 3) * 0.25})
+        start, i = start + 100, i + 1
+    return result
+
+
+def stored_lookup(profile, distance=Decimal("2450.50")):
+    from app.db_lookup import ElevationProfileStoredGradeSource
+    db = FakeDb({COURSE_SQL: course_row(distance=distance, elevation_profile=profile)})
+    return DbCourseLookup(db, stored_grade_source=ElevationProfileStoredGradeSource()).get_course(297)
+
+
+@pytest.mark.parametrize("as_text", [False, True])
+def test_backend_100m_grade_in_elevation_profile_is_used_as_stored_grade(as_text):
+    profile = backend_profile()
+    course = stored_lookup(json.dumps(profile) if as_text else profile)
+
+    assert course.grade_source == "COURSE_STORED_GRADE"
+    assert [(s.start_distance_m, s.end_distance_m, s.grade_percent) for s in course.grade_profile] \
+        == [(float(p["startDistanceM"]), float(p["endDistanceM"]), p["gradePercent"]) for p in profile]
+    assert resolve_selected_goal(None, course).distance_m == 2450.5
+
+
+def test_driver_decimal_numbers_are_accepted():
+    profile = [{"startDistanceM": Decimal("0"), "endDistanceM": Decimal("1000.00"), "gradePercent": Decimal("-1.25")}]
+    course = stored_lookup(profile, distance=Decimal("1000.00"))
+
+    assert course.grade_source == "COURSE_STORED_GRADE"
+    assert course.grade_profile[0].grade_percent == -1.25
+
+
+def test_legacy_raw_elevation_still_uses_the_elevation_profile_path():
+    assert stored_lookup([20.0] * 10, distance=Decimal("1000.00")).grade_source == "COURSE_ELEVATION_PROFILE"
+    points = [{"distanceM": 0, "elevationM": 1}, {"distanceM": 1000, "elevationM": 11}]
+    assert stored_lookup(points, distance=Decimal("1000.00")).grade_source == "COURSE_ELEVATION_PROFILE"
+
+
+@pytest.mark.parametrize("bad", [
+    [{"startDistanceM": 0, "endDistanceM": 1000}],                                          # 키 누락
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": 1.0, "extra": 1}],         # 키 추가
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": None}],                    # null
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": True}],                    # bool
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": "1.0"}],                   # 문자열
+    [{"startDistanceM": 0, "endDistanceM": 990, "gradePercent": 1.0}],                      # 끝 거리 불일치
+    [{"startDistanceM": 0, "endDistanceM": 500, "gradePercent": 1.0},
+     {"startDistanceM": 600, "endDistanceM": 1000, "gradePercent": 1.0}],                   # 틈
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": 1.0}] * 451,               # 개수 초과
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": 10 ** 400}],              # float 범위 초과
+    [{"startDistanceM": 0, "endDistanceM": 1000, "gradePercent": Decimal("NaN")}],         # 유한하지 않음
+])
+def test_invalid_stored_grade_falls_through_without_error(bad):
+    course = stored_lookup(bad, distance=Decimal("1000.00"))
+
+    assert course.grade_source == "MISSING"
+
+
+def test_course_version_matches_courses_updated_at():
+    course = stored_lookup(backend_profile())
+
+    assert course.version == f"courses:297:{UPDATED.isoformat()}"
+
+
+def test_personal_plan_uses_the_backend_stored_grade_without_missing_warnings(monkeypatch):
+    db = FakeDb({COURSE_SQL: course_row(distance=Decimal("2450.50"), elevation_profile=backend_profile()),
+                 PERSONALIZATION_SQL: personalization_row()})
+    with TestClient(_app(monkeypatch, db)) as client:
+        response = client.post("/v1/pace/personal-plan", json={"userId": 73, "courseId": 297})
+
+    assert response.status_code == 200, response.json()
+    warnings = response.json()["warnings"]
+    assert "COURSE_GRADE_PROFILE_MISSING" not in warnings
+    assert "ODE_GRADE_FILLED_0" not in warnings
+    assert response.json()["courseVersion"] == f"courses:297:{UPDATED.isoformat()}"

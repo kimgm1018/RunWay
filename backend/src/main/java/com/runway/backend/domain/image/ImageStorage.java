@@ -12,5 +12,10 @@ public interface ImageStorage {
 
     Optional<StoredImage> findByImageId(UUID imageId);
 
+    Optional<StoredImage> findByKey(String imageKey);
+
+    /** Trusted server use only, after confirming a committed withdrawal. */
+    void deletePersonalImages(long userId);
+
     record StoredImage(String imageKey, String contentType, InputStream content, long contentLength) {}
 }

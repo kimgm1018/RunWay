@@ -19,7 +19,6 @@ import {
   AppText,
   Button,
   Icon,
-  IconButton,
   Screen,
   type IconName,
 } from '../../components';
@@ -33,16 +32,22 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import {
+  fontFamily,
   k1,
   palette,
-  radius,
-  size,
   spacing,
   ThemeProvider,
   useTheme,
 } from '../../theme';
-import { Logo, TextLink } from './parts';
-import { SlideToConfirm } from './SlideToConfirm';
+import {
+  GoButton,
+  Logo,
+  OnboardingFooter,
+  OnboardingHeader,
+  onboardingLook,
+  onboardingScreen,
+  TextLink,
+} from './parts';
 import { useFinishOnboarding } from './SignUpDraft';
 
 const permissions: {
@@ -234,7 +239,7 @@ function PermissionCard({
   const { colors } = useTheme();
   const tint =
     state === 'connected'
-      ? colors.accentText
+      ? onboardingLook.ink
       : state === 'denied'
       ? colors.danger
       : colors.textDisabled;
@@ -242,20 +247,19 @@ function PermissionCard({
     <View
       accessible
       accessibilityLabel={`${title} ${stateLabels[state]}`}
-      style={[
-        styles.permission,
-        { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
-      ]}
+      style={styles.permission}
     >
-      <AppText variant="heading">{title}</AppText>
+      <AppText style={styles.permissionTitle}>{title}</AppText>
       <AppText
-        variant="bodyStrong"
-        tone={state === 'connected' ? 'accentText' : 'danger'}
+        style={[
+          styles.permissionState,
+          state !== 'connected' && { color: colors.danger },
+        ]}
       >
         {stateLabels[state]}
       </AppText>
       <View style={styles.permissionIcon}>
-        <Icon name={icon} color={tint} size={46} strokeWidth={1.4} />
+        <Icon name={icon} color={tint} size={40} strokeWidth={1.5} />
       </View>
     </View>
   );
@@ -297,21 +301,37 @@ export function WatchConnectScreen() {
   return (
     <Screen
       scroll={false}
+      background={onboardingScreen.background}
       contentStyle={styles.content}
       header={
         <View style={styles.header}>
           <View style={styles.headerSide}>
             {session.signedIn ? (
-              <IconButton
-                icon="back"
-                accessibilityLabel="뒤로"
-                onPress={navigation.goBack}
-              />
+              <OnboardingHeader onBack={navigation.goBack} />
             ) : null}
           </View>
-          <Logo width={96} />
+          <Logo width={124} />
           <View style={styles.headerSide} />
         </View>
+      }
+      footer={
+        // 1.7 ends in the same ink button as the other 1.x steps (담당자 결정: 밀어서 → 버튼).
+        connected && !busy ? (
+          <OnboardingFooter>
+            <GoButton title="시작하기" onPress={finish} />
+          </OnboardingFooter>
+        ) : !busy && (connection || error) ? (
+          <OnboardingFooter>
+            {connection ? (
+              <GoButton title="다시 연결" onPress={reconnect} />
+            ) : null}
+            <TextLink
+              title="나중에 연결하기"
+              onPress={finish}
+              style={styles.later}
+            />
+          </OnboardingFooter>
+        ) : undefined
       }
     >
       <View style={styles.faceArea}>
@@ -356,72 +376,51 @@ export function WatchConnectScreen() {
           </View>
         ) : null}
       </View>
-      {/* The cards and the slider reach the black lower part of K1, so they use the dark tone. */}
-      <ThemeProvider tone="dark">
-        {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
-        <View style={styles.cardsArea}>
-          {error ? (
-            <View style={styles.errorBox}>
-              <AppText variant="caption" tone="danger">
-                워치 상태를 확인하지 못했어요.
-              </AppText>
-              <Button
-                title="다시 시도"
-                variant="secondary"
-                size="small"
-                onPress={failed ? reconnect : loaded.reload}
-              />
-            </View>
-          ) : connection ? (
-            <View style={styles.permissions}>
-              {permissionRows.map(row => (
-                <View key={row[0].key} style={styles.permissionRow}>
-                  {row.map(item => (
-                    <PermissionCard
-                      key={item.key}
-                      title={item.title}
-                      icon={item.icon}
-                      state={connection.permissions[item.key]}
-                    />
-                  ))}
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </View>
-        {connected && !busy ? (
-          <SlideToConfirm action="시작하기" icon="watch" onConfirm={finish} />
-        ) : !busy && (connection || error) ? (
-          <View style={styles.retry}>
-            {connection ? (
-              <SlideToConfirm
-                action="다시 연결"
-                icon="refresh"
-                onConfirm={reconnect}
-              />
-            ) : null}
-            <TextLink
-              title="나중에 연결하기"
-              onPress={finish}
-              style={styles.later}
+      {/* The cards and the slider reach the lower part of the mist background, which stays light. */}
+      {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
+      <View style={styles.cardsArea}>
+        {error ? (
+          <View style={styles.errorBox}>
+            <AppText variant="caption" tone="danger">
+              워치 상태를 확인하지 못했어요.
+            </AppText>
+            <Button
+              title="다시 시도"
+              variant="secondary"
+              size="small"
+              onPress={failed ? reconnect : loaded.reload}
             />
           </View>
+        ) : connection ? (
+          <View style={styles.permissions}>
+            {permissionRows.map(row => (
+              <View key={row[0].key} style={styles.permissionRow}>
+                {row.map(item => (
+                  <PermissionCard
+                    key={item.key}
+                    title={item.title}
+                    icon={item.icon}
+                    state={connection.permissions[item.key]}
+                  />
+                ))}
+              </View>
+            ))}
+          </View>
         ) : null}
-      </ThemeProvider>
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
-    height: size.header,
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.screen,
   },
-  headerSide: { width: size.iconButton },
-  content: { alignItems: 'stretch', gap: 0 },
+  headerSide: { width: 76 },
+  content: { alignItems: 'stretch', gap: 0, paddingHorizontal: 24 },
   faceArea: { alignItems: 'center', paddingTop: spacing.xl },
   faceContent: {
     alignItems: 'center',
@@ -468,17 +467,31 @@ const styles = StyleSheet.create({
   // All four cards fit the width with the screen's side margins, instead of scrolling sideways.
   permissions: { gap: spacing.md },
   permissionRow: { flexDirection: 'row', gap: spacing.md },
-  // Each card is 4:3 (width:height) and takes half the row.
+  // Each glass card is 4:3 (width:height) and takes half the row (runway-onboarding-handoff 1.7).
   permission: {
     flex: 1,
     aspectRatio: 4 / 3,
-    borderRadius: radius.lg,
+    borderRadius: 18,
     borderWidth: 1,
-    padding: spacing.xl,
-    gap: spacing.xxs,
+    borderColor: onboardingLook.glassRim,
+    backgroundColor: onboardingLook.glass,
+    boxShadow: onboardingLook.glassShadow,
+    padding: 14,
+    gap: 2,
+  },
+  permissionTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: onboardingLook.ink,
+  },
+  permissionState: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: onboardingLook.label,
   },
   permissionIcon: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   errorBox: { alignItems: 'center', gap: spacing.md },
-  retry: { gap: spacing.xl },
   later: { alignSelf: 'center' },
 });

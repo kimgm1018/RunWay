@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from app.demo.auth import reject_query_token, require_bearer
 from app.demo.recorder import DemoState
 from app.inference import ApiError
+from app.schemas import ErrorResponse
 
 HEARTBEAT_SEC = 15.0
 POLL_SEC = 0.2
@@ -63,7 +64,17 @@ async def event_stream(buffer, session_id: int, *, snapshot: dict, sleep=asyncio
 def build_stream_router(state: DemoState) -> APIRouter:
     router = APIRouter()
 
-    @router.get("/v1/demo/sessions/{session_ref}/events")
+    @router.get(
+        "/v1/demo/sessions/{session_ref}/events", tags=["AI07"], summary="AI07 시연 이벤트 스트림",
+        responses={
+            200: {"description": "시연 이벤트 SSE", "content": {"text/event-stream": {"schema": {"type": "string"}}}},
+            400: {"model": ErrorResponse},
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            429: {"model": ErrorResponse},
+            503: {"model": ErrorResponse},
+        },
+    )
     async def events(session_ref: str, request: Request):
         reject_query_token(request)
         require_bearer(request, state.settings.view_token)

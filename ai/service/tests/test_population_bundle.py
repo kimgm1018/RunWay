@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.target_calibration import DEFAULT_GLOBAL_RATIO
 from app.db_lookup import COURSE_SQL, PERSONALIZATION_SQL, DbUserPersonalizationLookup
 from app.main import create_app
 from app.population_bundle import load_population_bundle
@@ -110,8 +111,8 @@ def test_new_user_hr_reference_uses_learned_population_sustain_threshold(monkeyp
     app, _, _ = _app(monkeypatch, tmp_path, db)
     body = _plan(app).json()
 
-    # 나이·RHR 계산을 없애고 모집단 P85 지속 심박 163을 쓴다.
-    assert body["hrReferenceBpm"] == 163.0
+    # 나이·RHR 계산을 없애고 모집단 P85 지속 심박 163을 쓴다(377: 이력 없으면 × 일반화 비율).
+    assert body["hrReferenceBpm"] == pytest.approx(DEFAULT_GLOBAL_RATIO * 163.0)
     assert body["hrReferenceSource"] == "LEARNED_POPULATION"
     assert all(sql not in {"SELECT birth_date FROM users WHERE id = %(user_id)s"} for sql, _ in db.calls)
     assert all("daily_health_metrics" not in sql for sql, _ in db.calls)
@@ -192,7 +193,7 @@ def test_personal_plan_blends_stored_learned_sustain_threshold(monkeypatch, tmp_
 
     body = _plan(app).json()
 
-    assert body["hrReferenceBpm"] == 171.5
+    assert body["hrReferenceBpm"] == pytest.approx(DEFAULT_GLOBAL_RATIO * 171.5)
     assert body["hrReferenceSource"] == "LEARNED_BLENDED"
 
 

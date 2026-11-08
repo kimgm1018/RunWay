@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {
+  errorCode,
   useRepositories,
   type CoursePlan,
   type RunGuidance,
@@ -19,6 +20,8 @@ import {
   type RunControl,
   type RunControlState,
 } from './runControl';
+import { useSession } from '../../session/SessionProvider';
+import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
   mode: 'FREE' | 'COURSE' | 'GROUP';
@@ -28,6 +31,11 @@ export type RunConfig = {
   // Goals are fixed once the run starts (4.3: 목표는 일시정지 중에도 바뀌지 않음).
   goalDistanceM: number | null;
   goalPaceSecPerKm: number | null;
+  // 목표 시간(S01 targetDurationSec, S15P31E105-517 목표 설정). 거리·시간·페이스 중 최대 2개만 보낸다(sessions.md).
+  goalDurationSec?: number | null;
+  // 2.0 경쟁 모드: my earlier run on this course to compare with (S01 comparisonSessionId, S15P31E105-422).
+  // Only a course run can compare; the server checks it is mine, completed and on the same course.
+  comparisonSessionId?: string | null;
 };
 
 export type RunSummary = {
@@ -38,8 +46,9 @@ export type RunSummary = {
   averageCadence: number | null;
 };
 
-// 4.5 위쪽 표시: 기록 저장 중 → 기록 저장됨 · 동기화 완료, or a failure with 다시 저장.
-export type SaveState = 'saving' | 'saved' | 'failed';
+// 4.5 위쪽 표시: 기록 저장 중 → 기록 저장됨 · 동기화 완료, or a failure with 다시 저장. unconfirmed: the server finished
+// the run but its record could not be read back yet, so it is not called lost (S15P31E105-529).
+export type SaveState = 'saving' | 'saved' | 'failed' | 'unconfirmed';
 
 type RunState = {
   config: RunConfig;
@@ -63,6 +72,8 @@ type RunActions = {
   cancel: () => void;
   recheck: () => void;
   abortStart: () => void;
+  // 워치 단절·측정 끊김 때 기록·제어를 폰으로 넘긴다(S08 TAKE_OVER_PHONE, S15P31E105-464).
+  takeOver: () => void;
 };
 
 const firstSample: RunSample = {
@@ -74,14 +85,32 @@ const firstSample: RunSample = {
   position: null,
 };
 
+// 실측값(워치 batch·폰 GPS)이 있으면 그 값을 화면 기록에 쓴다(S15P31E105-517). 운동 시간은 화면 기록의 일시정지 제외
+// 시계를 그대로 쓰고, 실측이 없는 값은 비워 둔다(이전 값이나 목업으로 채우지 않는다).
+export function withLive(sample: RunSample, live: LiveMetrics | null): RunSample {
+  if (!live) {
+    return sample;
+  }
+  return {
+    ...sample,
+    distanceM: live.distanceM ?? sample.distanceM,
+    paceSecPerKm: live.paceSecPerKm,
+    heartRate: live.heartRate,
+    cadence: live.cadence,
+    position:
+      live.route.length > 0 ? live.route[live.route.length - 1] : sample.position,
+  };
+}
+
 // Actions stay the same object for the whole session, so screens that only start a run (2.0's
 // 러닝 시작) do not re-render on every reading.
 const RunActionsContext = createContext<RunActions | null>(null);
 const RunStateContext = createContext<RunState | null>(null);
 // 개인 러닝의 서버·워치 확정 상태(요청 중·거절·미확인). 그룹 모드와 시작 전에는 null.
 const RunControlContext = createContext<RunControlState | null>(null);
-// 앱 재실행으로 진행 중인 개인 러닝에 다시 붙었을 때 열 화면. 한 번 열면 비운다.
-type ResumeTarget = 'RunProgress' | 'RunPause';
+// 앱 재실행·재로그인으로 진행 중인 개인 러닝에 다시 붙었을 때 열 화면. 한 번 열면 비운다.
+// 아직 시작하지 않은 준비 세션(READY)은 시작 화면에서 같은 세션으로 이어 시작한다.
+type ResumeTarget = 'RunProgress' | 'FreeRun';
 const RunResumeContext = createContext<{
   target: ResumeTarget | null;
   consume: () => void;
@@ -89,12 +118,40 @@ const RunResumeContext = createContext<{
 
 const TERMINAL = ['COMPLETED', 'CANCELLED', 'INTERRUPTED'];
 
+// 이 앱이 시작하지 않은(다시 붙은) 운동은 코스·목표를 알 수 없으므로 화면 기록은 자유 러닝으로 이어간다.
+const joinedConfig: RunConfig = {
+  mode: 'FREE',
+  plan: null,
+  goalDistanceM: null,
+  goalPaceSecPerKm: null,
+};
+
+const resumeTargetOf = (status: string | null): ResumeTarget | null =>
+  // 일시정지된 러닝도 4.2로 연다. 4.2가 재개 · 종료를 그 자리에서 보인다(S15P31E105-517).
+  status === 'RUNNING' || status === 'PAUSED'
+    ? 'RunProgress'
+    : status === 'READY'
+    ? 'FreeRun'
+    : null;
+
+// The pace the run aims at: the set pace, or the one a distance and a time together make (페이서).
+export function goalPaceOf(config: RunConfig): number | null {
+  if (config.goalPaceSecPerKm) {
+    return config.goalPaceSecPerKm;
+  }
+  return config.goalDistanceM && config.goalDurationSec
+    ? config.goalDurationSec / (config.goalDistanceM / 1000)
+    : null;
+}
+
 function goalOf(config: RunConfig): SessionGoalDraft {
   return {
     courseId: config.plan?.courseId ?? null,
-    comparisonSessionId: null,
+    comparisonSessionId: config.plan?.courseId
+      ? config.comparisonSessionId ?? null
+      : null,
     targetDistanceM: config.goalDistanceM,
-    targetDurationSec: null,
+    targetDurationSec: config.goalDurationSec ?? null,
     targetPaceSecPerKm: config.goalPaceSecPerKm,
   };
 }
@@ -111,13 +168,24 @@ export function RunSessionProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { run: tracker, clock, session, watchSession } = useRepositories();
+  const {
+    run: tracker,
+    clock,
+    session,
+    watchSession,
+    phoneLocation,
+  } = useRepositories();
+  const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
+  // 개인 러닝의 서버·워치 제어. 그룹 러닝과 시작 전에는 null.
+  const controlRef = useRef<RunControl | null>(null);
   const readings = useRef({
     heartRates: [] as number[],
     cadences: [] as number[],
   });
+  // The newest measured values from the run control; the tracker's ticks are drawn under them.
+  const liveRef = useRef<LiveMetrics | null>(null);
 
   const track = useCallback(
     (from: RunSample, route: [number, number][] | null) => {
@@ -125,11 +193,14 @@ export function RunSessionProvider({
       stopTracking.current = tracker.startTracking(
         from,
         route,
-        (sample, guidance) => {
-          if (sample.heartRate !== null) {
+        (tick, guidance) => {
+          const live = liveRef.current;
+          const sample = withLive(tick, live);
+          // With measured values the readings come in as they arrive (below), not once per tick.
+          if (!live && sample.heartRate !== null) {
             readings.current.heartRates.push(sample.heartRate);
           }
-          if (sample.cadence !== null) {
+          if (!live && sample.cadence !== null) {
             readings.current.cadences.push(sample.cadence);
           }
           setRun(current =>
@@ -138,9 +209,12 @@ export function RunSessionProvider({
                   ...current,
                   sample,
                   guidance,
-                  trail: sample.position
-                    ? [...current.trail, sample.position]
-                    : current.trail,
+                  trail:
+                    live && live.route.length > 0
+                      ? live.route
+                      : sample.position
+                      ? [...current.trail, sample.position]
+                      : current.trail,
                 }
               : current,
           );
@@ -153,12 +227,12 @@ export function RunSessionProvider({
   useEffect(() => () => stopTracking.current?.(), []);
 
   const save = useCallback(
-    async (state: RunState, summary: RunSummary) => {
+    async (state: RunState, summary: RunSummary, sessionId: string | null) => {
       setRun(current =>
         current ? { ...current, saveState: 'saving' } : current,
       );
       try {
-        const { recordId } = await tracker.saveRecord({
+        const { recordId, server } = await tracker.saveRecord({
           mode: state.config.mode,
           courseId: state.config.plan?.courseId ?? null,
           groupRunId: state.config.groupRunId ?? null,
@@ -167,17 +241,50 @@ export function RunSessionProvider({
           route: state.trail.length > 1 ? state.trail : null,
           goalDistanceM: state.config.goalDistanceM,
           goalPaceSecPerKm: state.config.goalPaceSecPerKm,
+          sessionId,
         });
         setRun(current =>
-          current ? { ...current, saveState: 'saved', recordId } : current,
+          current
+            ? {
+                ...current,
+                saveState: 'saved',
+                recordId,
+                // The result shows the server's totals where it has them, as 기록 보기 does.
+                summary:
+                  server && current.summary
+                    ? {
+                        durationSec:
+                          server.durationSec ?? current.summary.durationSec,
+                        distanceM: server.distanceM ?? current.summary.distanceM,
+                        averagePaceSecPerKm:
+                          server.averagePaceSecPerKm ??
+                          current.summary.averagePaceSecPerKm,
+                        averageHeartRate:
+                          server.averageHeartRate ??
+                          current.summary.averageHeartRate,
+                        averageCadence:
+                          server.averageCadence ??
+                          current.summary.averageCadence,
+                      }
+                    : current.summary,
+              }
+            : current,
         );
-      } catch {
-        setRun(current =>
-          current ? { ...current, saveState: 'failed' } : current,
-        );
+      } catch (error) {
+        const saveState: SaveState =
+          errorCode(error) === 'SAVE_UNCONFIRMED' ? 'unconfirmed' : 'failed';
+        setRun(current => (current ? { ...current, saveState } : current));
       }
     },
     [tracker],
+  );
+  // The server session of the personal run on screen; its record shares the id. null for a group run.
+  const sessionIdOf = useCallback(
+    (state: RunState) =>
+      state.config.mode === 'GROUP'
+        ? null
+        : controlRef.current?.getState().sessionId ?? null,
+    [],
   );
 
   const latest = useRef(run);
@@ -235,17 +342,41 @@ export function RunSessionProvider({
         };
         const finished: RunState = { ...run, status: 'finished', summary };
         setRun(finished);
-        save(finished, summary);
+        save(finished, summary, sessionIdOf(finished));
       },
     }),
-    [clock, save, track],
+    [clock, save, sessionIdOf, track],
   );
 
   const [control, setControl] = useState<RunControlState | null>(null);
-  const controlRef = useRef<RunControl | null>(null);
+  // 새 실측값이 오면 다음 시계 틱을 기다리지 않고 바로 보인다. 평균 심박·케이던스는 받은 값으로 모은다.
+  const live = control?.live ?? null;
+  useEffect(() => {
+    liveRef.current = live;
+    if (!live) {
+      return;
+    }
+    if (live.heartRate !== null) {
+      readings.current.heartRates.push(live.heartRate);
+    }
+    if (live.cadence !== null) {
+      readings.current.cadences.push(live.cadence);
+    }
+    setRun(current =>
+      current && current.status === 'running'
+        ? {
+            ...current,
+            sample: withLive(current.sample, live),
+            trail: live.route.length > 0 ? live.route : current.trail,
+          }
+        : current,
+    );
+  }, [live]);
   const stopListening = useRef<(() => void) | null>(null);
   const pendingConfig = useRef<RunConfig | null>(null);
   const [resumeTarget, setResumeTarget] = useState<ResumeTarget | null>(null);
+  // 다시 붙은 세션 중 복원 여부를 이미 판단한 세션 ID. 같은 세션을 두 번 복원하지 않는다.
+  const judged = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -260,17 +391,31 @@ export function RunSessionProvider({
     if (!control) {
       return;
     }
+    // 새 러닝을 시작하려다 이미 진행 중인 본인 세션에 붙었다(S01 409 → S02). 새 러닝 대신 그 운동 화면을 연다.
+    // 처음 붙었을 때 READY였다면 지금 시작하는 운동이므로 고른 설정 그대로 이어 시작한다.
+    if (control.joined && control.sessionId && judged.current !== control.sessionId) {
+      judged.current = control.sessionId;
+      if (control.status === 'RUNNING' || control.status === 'PAUSED') {
+        pendingConfig.current = joinedConfig;
+        setResumeTarget(resumeTargetOf(control.status));
+      }
+    }
     const current = latest.current;
+    const config = pendingConfig.current;
     if (control.status === 'RUNNING') {
       if (!current || current.status === 'finished') {
-        if (pendingConfig.current) {
-          local.start(pendingConfig.current, control.startedAt);
+        if (config) {
+          local.start(config, control.startedAt);
         }
       } else if (current.status === 'paused') {
         local.resume();
       }
     } else if (control.status === 'PAUSED') {
       if (current?.status === 'running') {
+        local.pause();
+      } else if ((!current || current.status === 'finished') && config) {
+        // 일시정지 중인 운동에 다시 붙었다. 화면 기록을 세션 시작 시각으로 만들고 바로 멈춘다.
+        local.start(config, control.startedAt);
         local.pause();
       }
     } else if (control.status === 'COMPLETED') {
@@ -283,16 +428,52 @@ export function RunSessionProvider({
   const newControl = useCallback(() => {
     stopListening.current?.();
     controlRef.current?.dispose();
-    const next = createRunControl({ session, watch: watchSession });
+    const next = createRunControl({
+      session,
+      watch: watchSession,
+      location: phoneLocation,
+    });
     controlRef.current = next;
     stopListening.current = next.subscribe(setControl);
     setControl(next.getState());
     return next;
-  }, [session, watchSession]);
+  }, [phoneLocation, session, watchSession]);
 
-  // 앱 재실행: 러닝 서비스가 기억한 활성 세션에 다시 붙어 수신함에 남은 워치 결과를 서버에 보고한다.
-  // 화면 기록은 설정을 알 수 없으므로 자유 러닝으로 이어간다.
+  // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
+  // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
+  const reset = useCallback(() => {
+    stopListening.current?.();
+    stopListening.current = null;
+    controlRef.current?.dispose();
+    controlRef.current = null;
+    stopTracking.current?.();
+    stopTracking.current = null;
+    pendingConfig.current = null;
+    judged.current = null;
+    setControl(null);
+    setRun(null);
+    setResumeTarget(null);
+  }, []);
+
+  const drop = useCallback((target: RunControl) => {
+    if (controlRef.current !== target) {
+      return;
+    }
+    stopListening.current?.();
+    stopListening.current = null;
+    target.dispose();
+    controlRef.current = null;
+    setControl(null);
+  }, []);
+
+  // 앱 재실행·재로그인: 러닝 서비스가 기억한 활성 세션을 S02로 확인해 본인의 READY/RUNNING/PAUSED 세션이면 그 화면으로
+  // 돌아가고, 수신함에 남은 워치 결과를 서버에 보고한다. 화면 기록은 설정을 알 수 없으므로 자유 러닝으로 이어간다.
+  // 다른 계정(403)·삭제(404)·종료된 세션과 조회 실패는 복원하지 않는다. 이때는 새 러닝 시작의 S01 409로 다시 붙는다.
   useEffect(() => {
+    if (!signedIn) {
+      reset();
+      return;
+    }
     let active = true;
     watchSession
       .getActiveSessionId()
@@ -300,27 +481,33 @@ export function RunSessionProvider({
         if (!active || !sessionId || controlRef.current) {
           return;
         }
-        pendingConfig.current = {
-          mode: 'FREE',
-          plan: null,
-          goalDistanceM: null,
-          goalPaceSecPerKm: null,
-        };
+        pendingConfig.current = joinedConfig;
         const attached = newControl();
         return attached.attach(sessionId).then(() => {
-          const status = attached.getState().status;
-          if (active && controlRef.current === attached) {
-            setResumeTarget(
-              status === 'RUNNING' ? 'RunProgress' : status === 'PAUSED' ? 'RunPause' : null,
-            );
+          if (!active || controlRef.current !== attached) {
+            return;
           }
+          const state = attached.getState();
+          const target =
+            state.sessionId === sessionId ? resumeTargetOf(state.status) : null;
+          if (!target) {
+            drop(attached);
+            pendingConfig.current = null;
+            // 서버에 없는 세션은 러닝 서비스가 더 기억하지 않게 한다. 종료 세션은 attach가 이미 정리한다.
+            if (state.problem?.kind === 'error' && state.problem.code === 'SESSION_NOT_FOUND') {
+              watchSession.setRunActive(false).catch(() => undefined);
+            }
+            return;
+          }
+          judged.current = sessionId;
+          setResumeTarget(target);
         });
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [newControl, watchSession]);
+  }, [drop, newControl, reset, signedIn, watchSession]);
 
   const actions = useMemo<RunActions>(() => {
     const personal = () =>
@@ -372,7 +559,7 @@ export function RunSessionProvider({
       retrySave: () => {
         const run = latest.current;
         if (run?.summary) {
-          save(run, run.summary);
+          save(run, run.summary, sessionIdOf(run));
         }
       },
       cancel: () => {
@@ -384,8 +571,11 @@ export function RunSessionProvider({
       abortStart: () => {
         controlRef.current?.abortUnconfirmedStart();
       },
+      takeOver: () => {
+        controlRef.current?.takeOver();
+      },
     };
-  }, [local, newControl, save]);
+  }, [local, newControl, save, sessionIdOf]);
 
   const resume = useMemo(
     () => ({ target: resumeTarget, consume: () => setResumeTarget(null) }),

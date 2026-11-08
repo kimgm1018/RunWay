@@ -78,7 +78,7 @@ private fun WatchScreen(
             PillButton("다시 연결", { navigator.send(RunIntent.RECONNECT_PHONE) }, enabled = !snapshot.pendingCommand)
         }
         WatchRoute.NOT_READY -> ReadinessScreen(ReadinessRules.issue(readiness), actions)
-        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage) { navigator.send(RunIntent.PAUSE) }
+        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage, navigator::send) { navigator.send(RunIntent.PAUSE) }
         WatchRoute.PAUSED -> PausedScreen(snapshot, onEnd = navigator::openEndConfirm) { navigator.send(RunIntent.RESUME) }
         WatchRoute.END_CONFIRM -> EndConfirmScreen(snapshot, onCancel = { navigator.back() }) { navigator.send(RunIntent.END) }
         WatchRoute.RESULT -> ResultScreen(snapshot)
@@ -89,7 +89,7 @@ private fun WatchScreen(
 private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel: () -> Unit = {}, onStart: () -> Unit) {
     RoundScreen {
         StandbyStatus(readiness)
-        if (snapshot.state == null) {
+        if (!StandbyDisplay.hasPreparedRun(snapshot)) {
             Text("휴대폰에서 러닝을 준비해 주세요", style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
             return@RoundScreen
         }
@@ -100,12 +100,47 @@ private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel:
             MetricValue(MetricFormat.pace(snapshot.metrics.guidePaceSecondsPerKm), 12, emphasized = false)
             MetricValue(MetricFormat.rhythm(snapshot.metrics.rhythm), 12, emphasized = false)
         }
-        RoundButton(if (snapshot.pendingCommand) "시작 확인 중" else "시작", onStart, Modifier.padding(top = 4.dp),
-            enabled = !snapshot.pendingCommand, size = 60, caption = snapshot.pendingCommand) { Icon(WatchIcon.PLAY, it, 22) }
+        val view = StandbyDisplay.from(snapshot)
+        RoundButton(view.startLabel, onStart, Modifier.padding(top = 4.dp),
+            enabled = view.startEnabled, size = 60, caption = view.startCaption) { Icon(WatchIcon.PLAY, it, 22) }
         ControlNotice(snapshot.notice.takeUnless { snapshot.pendingCommand })
+        view.cancelLabel?.let { PillButton(it, onCancel, enabled = view.cancelEnabled) }
+    }
+}
+
+/** What the personal standby buttons show; [cancelLabel] is null when there is no cancel button. */
+data class StandbyView(
+    val startLabel: String,
+    val startEnabled: Boolean,
+    val startCaption: Boolean,
+    val cancelLabel: String?,
+    val cancelEnabled: Boolean,
+)
+
+/**
+ * Standby buttons by the request in flight (S15P31E105-436): only a pending start reads 시작 확인 중, a pending
+ * cancel keeps the cancel button as 취소 확인 중, and while anything is pending neither button can be pressed.
+ * A refusal or error ends the pending state, so the buttons come back and the notice line explains it.
+ *
+ * Only a READY run can start (S15P31E105-457). 9.1 shows just the run the phone prepared and the watch has no
+ * cancelled screen of its own, so a run the server cancelled (S07) goes back to the no-run prompt
+ * '휴대폰에서 러닝을 준비해 주세요' instead of keeping its title and start button. The phone's next
+ * SESSION_PREPARE makes the new session READY, which brings the start button back.
+ */
+object StandbyDisplay {
+    /** False with no session or a finished one (CANCELLED): standby then asks for a run from the phone. */
+    fun hasPreparedRun(snapshot: RunSnapshot): Boolean = snapshot.state == RunState.READY
+
+    fun from(snapshot: RunSnapshot): StandbyView {
+        if (!hasPreparedRun(snapshot)) return StandbyView("시작", false, false, null, false)
         // 준비된 개인 러닝은 시작 전에 취소할 수 있다(S07, 휴대폰이 서버에 요청).
-        if (snapshot.state == RunState.READY && !snapshot.pendingCommand) {
-            PillButton("취소", onCancel)
+        if (!snapshot.pendingCommand) {
+            return StandbyView("시작", true, false, "취소", true)
+        }
+        return when (snapshot.pendingIntent) {
+            RunIntent.CANCEL -> StandbyView("시작", false, false, "취소 확인 중", false)
+            RunIntent.START -> StandbyView("시작 확인 중", false, true, null, false)
+            else -> StandbyView("확인 중", false, true, null, false)
         }
     }
 }
@@ -174,7 +209,9 @@ private fun GroupStandby(snapshot: RunSnapshot) {
 }
 
 @Composable
-private fun RunPager(snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onPause: () -> Unit) {
+private fun RunPager(
+    snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onIntent: (RunIntent) -> Unit, onPause: () -> Unit,
+) {
     val pages = WatchNavigation.pages(snapshot)
     val pager = rememberPagerState(initialPage = page) { pages.size }
     LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
@@ -186,18 +223,8 @@ private fun RunPager(snapshot: RunSnapshot, online: CheckState, page: Int, onPag
             RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible)
             RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible)
-            RunPage.PACE_COACHING -> PaceCoachingPage(pages.size, index, visible)
+            RunPage.PACE_COACHING -> PaceCoachingPage(snapshot, pages.size, index, visible, onIntent)
         }
-    }
-}
-
-/** Page frame kept so swipe order is fixed now; 257 replaces the body. */
-@Composable
-private fun PaceCoachingPage(count: Int, index: Int, visible: Boolean) {
-    RoundScreen(focused = visible) {
-        Text("페이스 코칭", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        Text(MetricFormat.MISSING, style = RunwayType.number(40), color = RunwayColors.ContentDim)
-        PageIndicator(count, index)
     }
 }
 
@@ -212,8 +239,10 @@ private fun PausedScreen(snapshot: RunSnapshot, onEnd: () -> Unit, onResume: () 
             MetricValue(MetricFormat.pace(m.paceSecondsPerKm), 13, emphasized = false)
         }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.STOP, it, 16) }
-            RoundButton("재개", onResume, enabled = !snapshot.pendingCommand, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
+            // 폰으로 넘긴 운동은 폰에서만 재개·종료한다(S15P31E105-464).
+            val controllable = !snapshot.pendingCommand && !snapshot.phoneRecording
+            RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = controllable, caption = true) { Icon(WatchIcon.STOP, it, 16) }
+            RoundButton("재개", onResume, enabled = controllable, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
         }
         ControlNotice(snapshot.notice)
     }
@@ -231,7 +260,7 @@ private fun EndConfirmScreen(snapshot: RunSnapshot, onCancel: () -> Unit, onEnd:
         }
         Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             RoundButton("취소", onCancel, kind = ButtonKind.SECONDARY) { Icon(WatchIcon.CLOSE, it, 18) }
-            RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand) { Icon(WatchIcon.CHECK, it, 20) }
+            RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand && !snapshot.phoneRecording) { Icon(WatchIcon.CHECK, it, 20) }
         }
         ControlNotice(snapshot.notice)
     }

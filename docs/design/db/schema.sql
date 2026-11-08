@@ -60,7 +60,7 @@ COMMENT ON COLUMN "daily_readiness"."updated_at" IS '수정일시';
 
 CREATE TABLE "users" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
-	"login_id"	VARCHAR(16)		NOT NULL,
+	"login_id"	VARCHAR(64)		NOT NULL,
 	"password"	VARCHAR(255)		NOT NULL,
 	"nickname"	VARCHAR(10)		NOT NULL,
 	"birth_date"	DATE		NOT NULL,
@@ -94,6 +94,57 @@ CREATE TABLE "user_recommendation_preferences" (
 );
 
 COMMENT ON TABLE "user_recommendation_preferences" IS 'U11/U12 추천 기본값. 명시적 저장 시에만 생성·전체 교체. false는 고려하지 않음. 논리 탈퇴 시 서비스에서 삭제';
+
+CREATE TABLE "user_hr_personalization" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "user_id" BIGINT NOT NULL,
+    "personalization_version" INTEGER NOT NULL,
+    "schema_version" VARCHAR(80) NOT NULL,
+    "model_version" VARCHAR(160) NOT NULL,
+    "support_run_count" INTEGER NOT NULL,
+    "summary_u_json" JSONB NOT NULL,
+    "history8_json" JSONB NOT NULL,
+    "p4_json" JSONB NOT NULL,
+    "hr0_sub_bpm" NUMERIC(7,2) NOT NULL,
+    "hr_ref_bpm" NUMERIC(7,2) NULL,
+    "hr_danger_bpm" NUMERIC(7,2) NULL,
+    "hr_sustain_bpm" NUMERIC(7,2) NULL,
+    "hr_threshold_run_count" INTEGER NULL,
+    "created_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    CONSTRAINT "PK_USER_HR_PERSONALIZATION" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_user_hr_personalization_user_version"
+        UNIQUE ("user_id", "personalization_version"),
+    CONSTRAINT "ck_user_hr_personalization_version_positive"
+        CHECK ("personalization_version" > 0),
+    CONSTRAINT "ck_user_hr_personalization_support_count_nonnegative"
+        CHECK ("support_run_count" >= 0),
+    CONSTRAINT "ck_user_hr_personalization_hr0_sub_range"
+        CHECK ("hr0_sub_bpm" BETWEEN 35 AND 220),
+    CONSTRAINT "ck_user_hr_personalization_hr_ref_range"
+        CHECK ("hr_ref_bpm" IS NULL OR "hr_ref_bpm" BETWEEN 35 AND 220),
+    CONSTRAINT "ck_user_hr_personalization_hr_danger_range"
+        CHECK ("hr_danger_bpm" IS NULL OR "hr_danger_bpm" BETWEEN 35 AND 220),
+    CONSTRAINT "ck_user_hr_personalization_hr_sustain_range"
+        CHECK ("hr_sustain_bpm" IS NULL OR "hr_sustain_bpm" BETWEEN 35 AND 220),
+    CONSTRAINT "ck_user_hr_personalization_hr_threshold_run_count_range"
+        CHECK ("hr_threshold_run_count" IS NULL OR "hr_threshold_run_count" BETWEEN 0 AND 20)
+);
+
+COMMENT ON TABLE "user_hr_personalization" IS 'AI06 ODE 개인화 요약. 원본 HR/GPS 시계열은 저장하지 않는다.';
+COMMENT ON COLUMN "user_hr_personalization"."user_id" IS '회원 ID';
+COMMENT ON COLUMN "user_hr_personalization"."personalization_version" IS '회원별 개인화 버전. 모델 교체 시 과거 버전을 보존한다.';
+COMMENT ON COLUMN "user_hr_personalization"."schema_version" IS '개인화 JSON 스키마 버전';
+COMMENT ON COLUMN "user_hr_personalization"."model_version" IS '개인화 계산에 사용한 ODE 모델 버전';
+COMMENT ON COLUMN "user_hr_personalization"."support_run_count" IS '계산에 사용한 support 러닝 수';
+COMMENT ON COLUMN "user_hr_personalization"."summary_u_json" IS 'ODE 요약 묶음 u. 측정 원본 시계열은 포함하지 않는다.';
+COMMENT ON COLUMN "user_hr_personalization"."history8_json" IS 'History8 개인 맥락 벡터';
+COMMENT ON COLUMN "user_hr_personalization"."p4_json" IS 'support 기록에 맞춘 4차원 개인 적합 벡터';
+COMMENT ON COLUMN "user_hr_personalization"."hr0_sub_bpm" IS 'HR0 head가 없는 모델에 쓰는 support 시작 HR 중앙값(없으면 85 bpm)';
+COMMENT ON COLUMN "user_hr_personalization"."hr_ref_bpm" IS 'AI06 응답 hrRefBpm. 산출할 수 없으면 NULL';
+COMMENT ON COLUMN "user_hr_personalization"."hr_danger_bpm" IS 'GOOD 심박 분포 개인 P98 원값(+3 전). AI04가 모집단 값과 섞은 뒤 +3 bpm을 더해 위험 기준으로 씀. 없으면 NULL';
+COMMENT ON COLUMN "user_hr_personalization"."hr_sustain_bpm" IS 'GOOD 심박 분포 P85 학습 지속 기준. 없으면 NULL';
+COMMENT ON COLUMN "user_hr_personalization"."hr_threshold_run_count" IS 'P98·P85 기준에 사용한 최근 러닝 수(최대 20)';
+COMMENT ON COLUMN "user_hr_personalization"."created_at" IS '생성일시';
 
 CREATE TABLE "pace_plans" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -301,7 +352,8 @@ CREATE TABLE "coaching_decisions" (
 	"route_progress"	NUMERIC(12,2)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
     "based_on_state_version" BIGINT NULL,
-    "expires_at" TIMESTAMPTZ NULL
+    "expires_at" TIMESTAMPTZ NULL,
+    "coaching_level" VARCHAR(16) NULL
 );
 
 COMMENT ON COLUMN "coaching_decisions"."elapsed_duration" IS '러닝 경과시간(초)';
@@ -317,6 +369,8 @@ COMMENT ON COLUMN "coaching_decisions"."predicted_hr_60_bpm" IS '60초 뒤 예�
 COMMENT ON COLUMN "coaching_decisions"."predicted_hr_120_bpm" IS '120초 뒤 예측 심박수(bpm)';
 
 COMMENT ON COLUMN "coaching_decisions"."route_progress" IS '코스 진행거리(m)';
+
+COMMENT ON COLUMN "coaching_decisions"."coaching_level" IS 'AI04 코칭 단계 OK/CAUTION/DANGER(S15P31E105-503). AI가 단계를 주지 않았거나 이전 행이면 null.';
 
 COMMENT ON COLUMN "coaching_decisions"."created_at" IS '생성일시';
 
@@ -433,12 +487,15 @@ CREATE TABLE "notifications" (
 	"message"	VARCHAR(100)		NOT NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
 	"notification_type"	VARCHAR(50)		NOT NULL,
-	"target_id"	BIGINT		NOT NULL
+	"target_id"	BIGINT		NOT NULL,
+	"dedupe_key"	VARCHAR(200)		NOT NULL
 );
 
-COMMENT ON COLUMN "notifications"."notification_type" IS '알림 종류 코드. GROUP_RUN_PARTICIPATION_CANCELLED: 그룹런 참여 취소, CREW_JOIN_APPROVED: 크루 가입 승인, CREW_JOIN_REJECTED: 크루 가입 거절, POST_COMMENT: 게시물 댓글, GROUP_RUN_START_REMINDER: 그룹런 시작 임박. 알림 종류로 target_id의 대상과 이동 화면을 결정하며 별도 target_type은 두지 않는다.';
+COMMENT ON COLUMN "notifications"."notification_type" IS '알림 종류 코드. GROUP_RUN_PARTICIPATION_CANCELLED: G13 그룹런 취소(코드명 유지, 참가 취소 알림 아님), CREW_JOIN_APPROVED: 크루 가입 승인, CREW_JOIN_REJECTED: 크루 가입 거절, POST_COMMENT: 게시물 댓글, GROUP_RUN_START_REMINDER: 그룹런 시작 임박, NEW_FOLLOWER: 공개 계정 새 팔로워, FOLLOW_REQUEST: 비공개 팔로우 요청, FOLLOW_APPROVED: 수동 팔로우 승인. 알림 종류로 target_id의 대상과 이동 화면을 결정하며 별도 target_type은 두지 않는다.';
 
-COMMENT ON COLUMN "notifications"."target_id" IS '알림 클릭 시 이동 대상 ID. GROUP_RUN_PARTICIPATION_CANCELLED/GROUP_RUN_START_REMINDER는 group_runs.id(그룹런 상세), CREW_JOIN_APPROVED/CREW_JOIN_REJECTED는 crews.id(크루 상세), POST_COMMENT는 posts.id(게시글 상세). 여러 테이블을 가리키므로 단일 FK는 두지 않고 서비스에서 종류별 대상 존재와 현재 열람 권한을 검증한다. 삭제된 대상은 이동 불가로 안내한다.';
+COMMENT ON COLUMN "notifications"."target_id" IS '알림 클릭 시 이동 대상 ID. GROUP_RUN_PARTICIPATION_CANCELLED/GROUP_RUN_START_REMINDER는 group_runs.id(그룹런 상세), CREW_JOIN_APPROVED/CREW_JOIN_REJECTED는 crews.id(크루 상세), POST_COMMENT는 posts.id(게시글 상세), NEW_FOLLOWER/FOLLOW_REQUEST는 행위자 users.id, FOLLOW_APPROVED는 승인자 users.id. 여러 테이블을 가리키므로 단일 FK는 두지 않고 서비스에서 종류별 대상 존재와 현재 열람 권한을 검증한다. 삭제된 대상은 이동 불가로 안내한다.';
+
+COMMENT ON COLUMN "notifications"."dedupe_key" IS '논리 사건 중복 방지 키(S15P31E105-458). 동일 키 재삽입을 허용하지 않는다. 형식은 종류별 서비스 규칙(예: FOLLOW_REQUEST:{requestId}).';
 
 CREATE TABLE "running_metric_samples" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -611,6 +668,10 @@ ALTER TABLE "user_follows" ADD CONSTRAINT "PK_USER_FOLLOWS" PRIMARY KEY (
 
 ALTER TABLE "notifications" ADD CONSTRAINT "PK_NOTIFICATIONS" PRIMARY KEY (
 	"id"
+);
+
+ALTER TABLE "notifications" ADD CONSTRAINT "UK_NOTIFICATIONS_DEDUPE_KEY" UNIQUE (
+	"dedupe_key"
 );
 
 ALTER TABLE "running_metric_samples" ADD CONSTRAINT "PK_RUNNING_METRIC_SAMPLES" PRIMARY KEY (
@@ -1061,6 +1122,9 @@ ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_values"
         AND "route_progress" <> 'NaN'::numeric
     );
 
+ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_coaching_level"
+    CHECK ("coaching_level" IS NULL OR "coaching_level" IN ('OK', 'CAUTION', 'DANGER'));
+
 ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_revision"
     CHECK ("rhr_revision" IS NULL OR "rhr_revision" >= 1);
 
@@ -1176,7 +1240,7 @@ CREATE UNIQUE INDEX uq_control_pending ON session_control_events(session_id,devi
 CREATE INDEX ix_control_session_time ON session_control_events(session_id,created_at);
 
 -- S15P31E105-222 nickname uniqueness (V4).
-ALTER TABLE "users" ADD CONSTRAINT "uq_users_nickname" UNIQUE ("nickname");
+CREATE UNIQUE INDEX "uq_users_nickname" ON "users" ("nickname") WHERE account_status='ACTIVE';
 
 -- S15P31E105-251 (V5): 회원별·유형별 연결 중(unlinked_at IS NULL) 기기는 하나만 허용한다.
 CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
@@ -1187,7 +1251,167 @@ CREATE UNIQUE INDEX uq_user_devices_active ON user_devices(user_id,device_type)
 CREATE UNIQUE INDEX uq_running_sessions_active ON running_sessions(user_id)
     WHERE status IN ('READY','RUNNING','PAUSED') AND state_version >= 1 AND deleted_at IS NULL;
 
+-- S15P31E105-409 (V11): FK는 인덱스를 자동 생성하지 않는다. 사용자별 완료 러닝의 종료 시각 최근순 조회(AI09·AI04 등)용.
+CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended_at DESC);
+
+-- S15P31E105-421 (V13): 세션별 경과시간 순 측정값 조회(AI04 실시간 코칭 history, 세션당 15초마다)용. FK 인덱스가 없어 전체 스캔하던 조회다.
+CREATE INDEX idx_running_metric_samples_session_elapsed ON running_metric_samples (running_session_id, elapsed_duration);
+
 -- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
 ALTER TABLE "user_recommendation_preferences"
     ADD CONSTRAINT "FK_users_TO_user_recommendation_preferences"
     FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE;
+
+-- S15P31E105-410 (V12): AI06 개인화 결과. users PK 정의 이후 FK.
+ALTER TABLE "user_hr_personalization"
+    ADD CONSTRAINT "FK_users_TO_user_hr_personalization_1"
+    FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE;
+CREATE TABLE follow_request_history (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    request_id BIGINT NOT NULL UNIQUE,
+    requester_id BIGINT NOT NULL REFERENCES users(id),
+    target_id BIGINT NOT NULL REFERENCES users(id),
+    result VARCHAR(16) NOT NULL CHECK (result IN ('APPROVED','REJECTED','CANCELLED')),
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (requester_id <> target_id)
+);
+
+COMMENT ON TABLE follow_request_history IS 'U25 재전송 판별용 처리 이력. 자동 삭제하지 않으며 현재 관계의 집계·인가에는 사용하지 않는다. request_id는 삭제될 수 있는 user_follows.id이므로 해당 행 FK를 두지 않는다.';
+
+-- S15P31E105-297 (V15): 코스 지형 기준 1km 구간 난이도 비율(AI05 segmentDifficultyRatios). 코스당 1행. courses PK 정의 이후 FK.
+CREATE TABLE "course_segment_difficulties" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "course_id" BIGINT NOT NULL,
+    "distance_m" NUMERIC(12,2) NOT NULL,
+    "ratios" JSONB NOT NULL,
+    "planner_version" VARCHAR(80) NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    CONSTRAINT "PK_COURSE_SEGMENT_DIFFICULTIES" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_course_segment_difficulties_course" UNIQUE ("course_id"),
+    CONSTRAINT "FK_courses_TO_course_segment_difficulties_1"
+        FOREIGN KEY ("course_id") REFERENCES "courses" ("id") ON DELETE CASCADE,
+    CONSTRAINT "ck_course_segment_difficulties_distance_positive"
+        CHECK ("distance_m" > 0),
+    CONSTRAINT "ck_course_segment_difficulties_ratios_array"
+        CHECK (jsonb_typeof("ratios") = 'array' AND jsonb_array_length("ratios") BETWEEN 1 AND 45)
+);
+
+COMMENT ON TABLE "course_segment_difficulties" IS '코스 지형 기준 1km 구간 난이도 비율(AI05 segmentDifficultyRatios). 코스당 1행이며 사용자와 무관하다.';
+COMMENT ON COLUMN "course_segment_difficulties"."course_id" IS '코스 ID. 코스당 1행(UNIQUE)';
+COMMENT ON COLUMN "course_segment_difficulties"."distance_m" IS '비율 계산 기준 코스 거리(m). 구간 수는 이 거리를 1km로 나눈 올림이다.';
+COMMENT ON COLUMN "course_segment_difficulties"."ratios" IS '0m부터 1km 구간 순서의 양수 상대 비율 배열(마지막은 남은 거리). 클수록 힘든 구간이며 절대 크기는 의미가 없다.';
+COMMENT ON COLUMN "course_segment_difficulties"."planner_version" IS '계산한 AI05 plannerVersion. 계산 방식이 바뀐 뒤 재계산 대상을 찾는 데 쓴다.';
+COMMENT ON COLUMN "course_segment_difficulties"."created_at" IS '저장일시';
+
+
+-- S15P31E105-248: serialize resource writes with withdrawal, without new tables.
+CREATE FUNCTION runway_guard_active_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    owner_id bigint;
+    second_owner bigint;
+    related_id bigint;
+    account record;
+    parent_deleted timestamptz;
+    session_owned boolean;
+BEGIN
+    related_id := (to_jsonb(NEW)->>TG_ARGV[1])::bigint;
+    IF TG_ARGV[0] = 'user' THEN owner_id := related_id;
+    ELSIF TG_ARGV[0] = 'session' THEN
+        SELECT user_id INTO owner_id FROM running_sessions WHERE id=related_id FOR SHARE;
+    ELSIF TG_ARGV[0] = 'device' THEN
+        SELECT user_id INTO owner_id FROM user_devices WHERE id=related_id;
+    ELSIF TG_ARGV[0] = 'plan' THEN
+        SELECT s.user_id INTO owner_id FROM pace_plans p
+            JOIN running_sessions s ON s.id=p.session_id WHERE p.id=related_id FOR SHARE OF s;
+    END IF;
+    IF TG_TABLE_NAME = 'user_follows' THEN
+        second_owner := (to_jsonb(NEW)->>'followee_id')::bigint;
+    ELSIF TG_TABLE_NAME = 'follow_request_history' THEN
+        second_owner := (to_jsonb(NEW)->>'target_id')::bigint;
+    END IF;
+    -- Session writers serialize on their parent session, which withdrawal locks before scrubbing.
+    -- They must not lock users after sessions: W04 and existing W07 have a different lock order.
+    session_owned := TG_ARGV[0] IN ('session','plan')
+        OR (TG_TABLE_NAME='running_sessions' AND TG_OP='UPDATE');
+    IF TG_TABLE_NAME='sync_batches' AND related_id IS NULL THEN
+        SELECT user_id INTO owner_id FROM user_devices
+            WHERE id=(to_jsonb(NEW)->>'device_id')::bigint;
+        session_owned := false;
+    END IF;
+    IF session_owned THEN
+        FOR account IN SELECT account_status::text AS state,withdrawn_at FROM users
+            WHERE id=owner_id
+        LOOP
+            IF account.state <> 'ACTIVE' OR account.withdrawn_at IS NOT NULL THEN
+                RAISE EXCEPTION 'Resource owner is not active'
+                    USING ERRCODE='23514',CONSTRAINT='rw_active_owner';
+            END IF;
+        END LOOP;
+    ELSE
+        -- A missing owner remains the original FK violation. Never wait in reverse lock order.
+        FOR account IN SELECT account_status::text AS state,withdrawn_at FROM users
+            WHERE id=ANY(ARRAY[owner_id,second_owner]) ORDER BY id FOR KEY SHARE NOWAIT
+        LOOP
+            IF account.state <> 'ACTIVE' OR account.withdrawn_at IS NOT NULL THEN
+                RAISE EXCEPTION 'Resource owner is not active'
+                    USING ERRCODE='23514',CONSTRAINT='rw_active_owner';
+            END IF;
+        END LOOP;
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        related_id := NULL;
+        IF TG_TABLE_NAME IN ('comments','post_likes') THEN related_id := (to_jsonb(NEW)->>'post_id')::bigint;
+        ELSIF TG_TABLE_NAME = 'notifications' AND to_jsonb(NEW)->>'notification_type'='POST_COMMENT' THEN
+            related_id := (to_jsonb(NEW)->>'target_id')::bigint;
+        END IF;
+        IF related_id IS NOT NULL THEN
+            SELECT deleted_at INTO parent_deleted FROM posts WHERE id=related_id FOR SHARE;
+            IF FOUND AND parent_deleted IS NOT NULL THEN
+                RAISE EXCEPTION 'Parent post is unavailable'
+                    USING ERRCODE='23514',CONSTRAINT='rw_active_post';
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+DECLARE spec record;
+BEGIN
+    FOR spec IN SELECT * FROM (VALUES
+        ('user_profiles','user','user_id'),
+        ('user_settings','user','user_id'),
+        ('user_recommendation_preferences','user','user_id'),
+        ('user_hr_personalization','user','user_id'),
+        ('daily_health_metrics','user','user_id'),
+        ('daily_readiness','user','user_id'),
+        ('course_bookmarks','user','user_id'),
+        ('post_likes','user','user_id'),
+        ('user_follows','user','follower_id'),
+        ('follow_request_history','user','requester_id'),
+        ('notifications','user','user_id'),
+        ('user_devices','user','user_id'),
+        ('crew_memberships','user','user_id'),
+        ('crews','user','owner_id'),
+        ('group_runs','user','host_id'),
+        ('group_run_participants','user','user_id'),
+        ('posts','user','author_id'),
+        ('comments','user','author_id'),
+        ('running_sessions','user','user_id'),
+        ('running_metric_samples','session','running_session_id'),
+        ('running_route_points','session','running_session_id'),
+        ('running_session_splits','session','running_session_id'),
+        ('session_control_events','session','session_id'),
+        ('coaching_decisions','session','session_id'),
+        ('pace_plans','session','session_id'),
+        ('pace_plan_segments','plan','pace_plan_id'),
+        ('sync_batches','session','session_id')
+    ) AS guards(table_name,owner_kind,owner_column)
+    LOOP
+        EXECUTE format('CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON %I '
+            || 'FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner(%L,%L)',
+            spec.table_name,spec.owner_kind,spec.owner_column);
+    END LOOP;
+END;
+$$;

@@ -1,5 +1,9 @@
 import { routeLengthM, walkAlong } from '../../geo';
 import { DataError } from '../errors';
+import {
+  copyCoursePreferences,
+  defaultCoursePreferences,
+} from '../coursePreferences';
 import type {
   AuthSession,
   CoursePlan,
@@ -20,6 +24,7 @@ import { createCommunityMock } from './community';
 import { createCrewMock } from './crews';
 import * as fixtures from './fixtures';
 import { createGroupRunMock } from './groupRuns';
+import { createSearchMock } from './search';
 import { createMockSession } from './mockSession';
 import {
   createMockWatchSession,
@@ -186,6 +191,23 @@ function stepTrack(state: MusicState, delta: number): MusicState {
   };
 }
 
+// A playlist starts on its first song: the first liked one, or one named after the list when there are none.
+function withPlaylist(state: MusicState, playlistId: string): MusicState {
+  const playlist = state.library?.playlists.find(
+    item => item.id === playlistId,
+  );
+  if (!playlist) {
+    return state;
+  }
+  const first = state.library?.liked[0] ?? {
+    id: `${playlist.id}-1`,
+    title: playlist.title,
+    subtitle: '재생 목록',
+    durationSec: 200,
+  };
+  return { ...state, nowPlaying: { ...first, positionSec: 0, playing: true } };
+}
+
 function withPlaying(state: MusicState, playing: boolean): MusicState {
   return state.nowPlaying
     ? { ...state, nowPlaying: { ...state.nowPlaying, playing } }
@@ -308,6 +330,7 @@ export function createMockRepositories(
   );
   let notifications = fixtures.notifications;
   let saved = fixtures.savedCourses;
+  let coursePreferences = defaultCoursePreferences();
   let profile: ProfileDetail = { ...fixtures.profileDetail };
   // 8.2 사진 바꾸기 shows the picked photo from the phone itself.
   let photo = fixtures.me.profileImageUrl;
@@ -322,6 +345,8 @@ export function createMockRepositories(
     ...fixtures.appSettings,
     notifications: { ...fixtures.appSettings.notifications },
   };
+  // HEALTH_DATA consent (W04·W05): the demo account gave it; a new account keeps what 1.4 picked.
+  let healthConsent = true;
   // 1.8 starts with the watch off; 8.1 연결 해제 turns it off until 1.7 or 실행 취소 reconnects.
   let watchConnected = options.scenario !== 'watchDisconnected';
   const watchState = () =>
@@ -334,6 +359,7 @@ export function createMockRepositories(
     respond: value => respond(value, options),
     fail: error => fail(error, options),
     records: () => records,
+    myPhoto: () => photo,
   });
   let music = musicFor(options.scenario);
   const loginFailures = new Map<
@@ -477,6 +503,7 @@ export function createMockRepositories(
         };
         accounts.set(request.loginId, account);
         runningProfileSaved = false;
+        healthConsent = request.healthDataAccess === 'AGREEE';
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {
@@ -564,22 +591,46 @@ export function createMockRepositories(
         return respond(settings, options);
       },
     },
+    consents: {
+      getHealth: () => respond(healthConsent, options),
+      setHealth: granted => {
+        healthConsent = granted;
+        return respond(healthConsent, options);
+      },
+    },
     account: {
+      // U17: like the server, a crew I lead blocks withdrawal until it is handed over or dissolved (users.md,
+      // 2026-11-05 확정 정책: 자동 후임 선정 없음).
       getWithdrawalSummary: () =>
         respond(
           {
             runningRecordCount: records.length,
             postCount: social.myPostCount(),
             savedCourseCount: saved.length,
-            connectedDevices: watchConnected
-              ? [fixtures.connectedWatch.deviceName]
-              : [],
+            connectedDevices: watchConnected ? ['워치'] : [],
             ownedCrews: crews.owned(),
+            ownedGroupRuns: [],
+            scheduledGroupRuns: [],
+            blockers: crews.owned().length
+              ? [
+                  {
+                    code: 'CREW_OWNER',
+                    message:
+                      '크루장을 다른 멤버에게 넘기거나 크루를 해산한 뒤 탈퇴할 수 있어요.',
+                  },
+                ]
+              : [],
           },
           options,
         ),
       // U18: the mock account is gone afterwards, so 1.2 can no longer sign in with it.
       withdraw: password => {
+        if (crews.owned().length) {
+          return fail(
+            new DataError('WITHDRAWAL_CONFLICT', '먼저 정리할 항목이 있어요'),
+            options,
+          );
+        }
         if (password !== fixtures.account.password) {
           return fail(
             new DataError('INVALID_PASSWORD', '비밀번호가 맞지 않아요'),
@@ -606,6 +657,16 @@ export function createMockRepositories(
         ),
       getMonth: (month, filter) =>
         respond(monthOf(records, month, filter), options),
+      // 목업 기록에는 코스가 없으므로 최근 개인 기록 몇 개를 이 코스의 기록으로 보여 준다.
+      getCourseRuns: () =>
+        respond(
+          records
+            .filter(run => run.runType === 'SOLO')
+            .map(toSummary)
+            .sort(recordOrder.recent)
+            .slice(0, 3),
+          options,
+        ),
       getDetail: recordId => {
         const record = records.find(run => run.id === recordId);
         return record
@@ -633,32 +694,55 @@ export function createMockRepositories(
       },
     },
     courses: {
+      getPreferences: () =>
+        respond(copyCoursePreferences(coursePreferences), options),
+      savePreferences: async value => {
+        const result = await respond(copyCoursePreferences(value), options);
+        coursePreferences = copyCoursePreferences(result);
+        return copyCoursePreferences(result);
+      },
       getSaved: () => respond(saved, options),
       getTodayPlan: () => respond(planFor(chosen, saved), options),
-      getOrigins: () => respond(fixtures.origins, options),
-      recommend: () => {
+      recommend: search => {
         if (options.scenario === 'courseError') {
           return fail(new DataError('UNKNOWN', '추천 실패'), options);
         }
+        // The next page asks with the next seed (S15P31E105-474). The mock has one set, so a later page
+        // is the same courses under ids of their own (…-p2), turned round by a course so it reads as new.
+        const seed = search.seed ?? 1;
+        const set = fixtures.recommendedCourses;
+        const shift = (seed - 1) % Math.max(set.length, 1);
+        const page = [...set.slice(shift), ...set.slice(0, shift)].map(
+          course => ({
+            ...course,
+            id: seed === 1 ? course.id : `${course.id}-p${seed}`,
+          }),
+        );
         return respond(
-          options.scenario === 'noCourses'
-            ? []
-            : fixtures.recommendedCourses.map(course => ({
-                ...course,
-                saved: saved.some(item => item.id === course.id),
-              })),
+          {
+            courses:
+              options.scenario === 'noCourses'
+                ? []
+                : page.map(course => ({
+                    ...course,
+                    saved: saved.some(item => item.id === course.id),
+                  })),
+            notices: [],
+            nextSeed: seed + 1,
+          },
           options,
         );
       },
       save: courseId => {
+        // A later page's course (…-p2) is a fixture under another id.
         const course = fixtures.recommendedCourses.find(
-          item => item.id === courseId,
+          item => item.id === courseId.replace(/-p\d+$/, ''),
         );
         if (course && !saved.some(item => item.id === courseId)) {
           saved = [
             ...saved,
             {
-              id: course.id,
+              id: courseId,
               name: course.name,
               myAlias: null,
               distanceM: course.distanceM,
@@ -696,6 +780,10 @@ export function createMockRepositories(
     crews: crews.repository,
     community: social.community,
     runners: social.runners,
+    search: createSearchMock({
+      respond: value => respond(value, options),
+      fail: error => fail(error, options),
+    }),
     groupRuns: createGroupRunMock({
       respond: value => respond(value, options),
       tickMs: options.tickMs ?? 1000,
@@ -704,11 +792,17 @@ export function createMockRepositories(
         records.find(record => record.groupRunId === groupRunId) ?? null,
     }),
     notifications: {
-      list: () =>
-        respond(
-          options.scenario === 'noNotifications' ? [] : notifications,
+      list: () => {
+        const items =
+          options.scenario === 'noNotifications' ? [] : notifications;
+        return respond(
+          {
+            items,
+            unreadCount: items.filter(item => !item.read).length,
+          },
           options,
-        ),
+        );
+      },
       markAllRead: () => {
         notifications = notifications.map(item => ({ ...item, read: true }));
         return respond(undefined, options);
@@ -766,12 +860,13 @@ export function createMockRepositories(
                     crew => crew.id === groupRun.crewId,
                   )!.name,
                   finisherCount: fixtures.groupResults.length + 1,
+                  groupRunId: groupRun.id,
                 }
               : null,
           ),
           ...records,
         ];
-        return respond({ recordId: id }, options);
+        return respond({ recordId: id, server: null }, options);
       },
     },
     music: {
@@ -805,6 +900,33 @@ export function createMockRepositories(
       },
       previous: () => {
         music = stepTrack(music, -1);
+        return respond(music, options);
+      },
+      // Like the app: 멜론 cannot start a chosen playlist, so only Spotify lists them.
+      getPlaylists: () =>
+        respond(
+          music.source === 'SPOTIFY' ? music.library?.playlists ?? [] : [],
+          options,
+        ),
+      playPlaylist: playlistId => {
+        music = withPlaylist(music, playlistId);
+        return respond(music, options);
+      },
+      getRecentTracks: () =>
+        respond(
+          music.source === 'SPOTIFY' ? fixtures.spotifyRecentTracks : [],
+          options,
+        ),
+      playTrack: trackId => {
+        const track = fixtures.spotifyRecentTracks.find(
+          item => item.id === trackId,
+        );
+        if (track) {
+          music = {
+            ...music,
+            nowPlaying: { ...track, positionSec: 0, playing: true },
+          };
+        }
         return respond(music, options);
       },
     },

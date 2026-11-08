@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -20,7 +17,7 @@ import {
   AppText,
   Backdrop,
   EmptyState,
-  Toggle,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -33,8 +30,10 @@ import {
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, spacing, typography, useTheme } from '../../theme';
-import { Avatar, RecordCard } from './parts';
+import { fontFamily, typography } from '../../theme';
+import { communityLook, CourseToggle } from './look';
+import { Avatar, RunPhoto } from './parts';
+import { KeyboardLift } from '../../components/KeyboardLift';
 
 const bodyLimit = 500;
 
@@ -55,7 +54,6 @@ function Composer({
   onSubmit: (draft: PostDraft) => Promise<void>;
 }) {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const [body, setBody] = useState(initial.body ?? '');
   const [courseShared, setCourseShared] = useState(initial.courseShared);
   const [busy, setBusy] = useState(false);
@@ -70,86 +68,98 @@ function Composer({
   return (
     <>
       <SafeAreaView edges={['top']}>
-        <View style={[styles.header, { borderColor: colors.border }]}>
-          <Pressable
+        <View style={styles.header}>
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="취소"
             onPress={() => navigation.goBack()}
-            hitSlop={8}
-            style={styles.side}
+            hitSlop={6}
           >
-            <AppText variant="body">취소</AppText>
-          </Pressable>
-          <AppText style={styles.title} accessibilityRole="header">
-            {title}
-          </AppText>
-          <Pressable
+            <View style={styles.cancel}>
+              <AppText style={styles.cancelText}>취소</AppText>
+            </View>
+          </PressableScale>
+          <View style={styles.titleBox} pointerEvents="none">
+            <AppText style={styles.title} accessibilityRole="header">
+              {title}
+            </AppText>
+          </View>
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={action}
             accessibilityState={{ disabled: busy }}
             disabled={busy}
             onPress={submit}
-            hitSlop={8}
-            style={[styles.side, styles.sideEnd]}
+            hitSlop={6}
           >
-            <AppText style={styles.action}>{action}</AppText>
-          </Pressable>
+            <View style={styles.submit}>
+              <AppText style={[styles.submitText, busy && styles.busy]}>
+                {action}
+              </AppText>
+            </View>
+          </PressableScale>
         </View>
       </SafeAreaView>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardLift style={styles.flex}>
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
           <View style={styles.writer}>
             <Avatar nickname={me.nickname} userId={me.userId} mine />
-            <View style={styles.flex}>
-              <AppText style={styles.handle}>{me.handle}</AppText>
-              <TextInput
-                accessibilityLabel="글 내용"
-                placeholder="오늘 러닝은 어땠나요?"
-                placeholderTextColor={colors.textTertiary}
-                selectionColor={colors.accent}
-                value={body}
-                onChangeText={setBody}
-                maxLength={bodyLimit}
-                multiline
-                style={[styles.bodyInput, { color: colors.text }]}
-              />
-              <RecordCard record={record} courseShared={courseShared} />
-            </View>
+            <AppText style={styles.handle}>{me.handle}</AppText>
           </View>
-          <View style={[styles.share, { borderColor: colors.border }]}>
+          <View style={styles.bodyField}>
+            <TextInput
+              accessibilityLabel="글 내용"
+              placeholder="오늘 러닝은 어땠나요?"
+              placeholderTextColor={communityLook.meta}
+              selectionColor={communityLook.ink}
+              value={body}
+              onChangeText={setBody}
+              maxLength={bodyLimit}
+              multiline
+              style={styles.bodyInput}
+            />
+          </View>
+          <View style={styles.card}>
+            <RunPhoto
+              record={record}
+              courseShared={courseShared}
+              seed={record.id}
+            />
+          </View>
+          <View style={styles.share}>
             <View style={styles.flex}>
-              <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
-              <AppText variant="caption" tone="textSecondary">
+              <View style={styles.shareLabel}>
+                <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
+              </View>
+              <AppText style={styles.shareNote}>
                 이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이
                 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이
                 내 코스에 저장할 수 있어요
               </AppText>
             </View>
-            <Toggle
+            <CourseToggle
               label="코스도 함께 공유"
               value={courseShared}
               onChange={setCourseShared}
             />
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardLift>
     </>
   );
 }
 
+// 7.3 · 7.3e sit on the mist like the other community screens (S15P31E105-483).
 function Frame({ children }: { children: React.ReactNode }) {
-  const { colors } = useTheme();
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
+        <Backdrop tail />
       </View>
       {children}
     </View>
@@ -192,7 +202,7 @@ export function PostWriteScreen() {
   if (me.status !== 'ready' || record.status !== 'ready') {
     return (
       <Frame>
-        <ActivityIndicator style={styles.loading} />
+        <ActivityIndicator style={styles.loading} color={communityLook.ink} />
       </Frame>
     );
   }
@@ -257,7 +267,7 @@ export function PostEditScreen() {
   if (!ready || me.status !== 'ready' || post.status !== 'ready') {
     return (
       <Frame>
-        <ActivityIndicator style={styles.loading} />
+        <ActivityIndicator style={styles.loading} color={communityLook.ink} />
       </Frame>
     );
   }
@@ -283,50 +293,101 @@ export function PostEditScreen() {
   );
 }
 
+// runway-community-handoff 7.3 · 7.3e: no cards or dividers, the toggle under a line label.
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: communityLook.background },
   flex: { flex: 1 },
-  loading: { marginTop: spacing.xxxl },
+  loading: { marginTop: 48 },
+  // 상단 56: 취소 and 게시 as words, the title in the middle.
   header: {
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.screen,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
   },
-  side: { width: 56 },
-  sideEnd: { alignItems: 'flex-end' },
+  cancel: { height: 40, justifyContent: 'center', paddingHorizontal: 4 },
+  cancelText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: communityLook.ink,
+  },
+  titleBox: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: {
-    flex: 1,
-    textAlign: 'center',
     fontFamily: fontFamily.bold,
     fontSize: 18,
     lineHeight: 24,
+    letterSpacing: -0.3,
+    color: communityLook.ink,
   },
-  action: { fontFamily: fontFamily.bold, fontSize: 16, lineHeight: 22 },
-  content: { padding: spacing.screen, gap: spacing.xxl, paddingBottom: 48 },
-  writer: { flexDirection: 'row', gap: spacing.xl },
-  handle: { fontFamily: fontFamily.bold, fontSize: 16, lineHeight: 22 },
+  submit: { height: 40, justifyContent: 'center', paddingHorizontal: 4 },
+  submitText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: communityLook.ink,
+  },
+  busy: { opacity: 0.45 },
+  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 48 },
+  writer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  handle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: communityLook.ink,
+  },
+  // 본문: a flat mist field.
+  bodyField: {
+    marginTop: 12,
+    minHeight: 56,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    backgroundColor: communityLook.field,
+  },
+  // No lineHeight: on Android it clips the top of the placeholder (as in group/look's search field).
   bodyInput: {
-    minHeight: 48,
+    minHeight: 26,
     padding: 0,
-    marginTop: spacing.xs,
-    marginBottom: spacing.xl,
     fontFamily: typography.input.fontFamily,
     fontSize: 16,
+    includeFontPadding: false,
+    color: communityLook.ink,
     textAlignVertical: 'top',
   },
+  // The photo runs edge to edge past the screen's 16 sides.
+  card: { marginTop: 16, marginHorizontal: -16 },
   share: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingTop: spacing.xxl,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    alignItems: 'flex-start',
+    gap: 20,
+    marginTop: 20,
+  },
+  shareLabel: {
+    borderLeftWidth: 1.5,
+    borderLeftColor: communityLook.ink,
+    paddingLeft: 8,
   },
   shareTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.medium,
     fontSize: 16,
-    lineHeight: 22,
-    marginBottom: spacing.xs,
+    lineHeight: 20,
+    color: communityLook.ink,
+  },
+  shareNote: {
+    marginTop: 8,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: communityLook.sub,
   },
 });

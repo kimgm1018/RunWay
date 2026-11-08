@@ -21,8 +21,12 @@ services:
       BACKEND_REDIS_PORT: "6379"
       BACKEND_REDIS_USERNAME: runway_app
       BACKEND_REDIS_SSL_ENABLED: "false"
+      BACKEND_ROUTE_MODE: http
+      BACKEND_ROUTE_BASE_URL: http://route:8000
       BACKEND_DOCS_ACCESS_MODE: password
       BACKEND_DOCS_USERNAME: runway105
+      # HR 추론 AI 서버(runway-ai 내부 네트워크의 ai 서비스). AI04 실시간 코칭(421)과 AI06 개인화(410)가 함께 쓴다.
+      BACKEND_AI_BASE_URL: http://ai:8000
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -65,11 +69,16 @@ services:
     ports:
       - "127.0.0.1:18081:8080"
     networks:
+      - route
       - redis
       - database
       - service
+      - ai
 
 networks:
+  route:
+    external: true
+    name: runway-route_default
   redis:
     external: true
     name: runway_redis
@@ -79,3 +88,7 @@ networks:
   service:
     external: true
     name: runway_service
+  # AI 서버의 외부 포트 없는 내부 네트워크(infra/ai/compose.yaml). AI Compose를 먼저 실행해 네트워크를 만든다.
+  ai:
+    external: true
+    name: runway-ai_default

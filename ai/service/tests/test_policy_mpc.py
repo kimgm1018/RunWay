@@ -33,7 +33,7 @@ def test_t3_safety():
         assert (o.status, o.action, o.chosen_index, pace(o), o.reason) == ("SAFETY", "EASE_OFF", None, 390, "SAFETY")
         assert all(v.reject_reason == "SAFETY" for v in o.verdicts) and o.publish_suggested is True
     assert run(hr_now=177.9).status == "OK"                     # 위험 기준 178 바로 아래는 SAFETY가 아니다
-    assert "WALK_ADVISED" in run(hr_now=178, currentGuidePaceSecPerKm=390).warnings
+    assert "WALK_ADVISED" not in run(hr_now=178, currentGuidePaceSecPerKm=390).warnings   # 504에서 걷기 권고를 없앰
 
 
 def test_t4_sprint_only_near_finish_and_ignores_after_finish():
@@ -55,7 +55,7 @@ def test_t1_less_remaining_same_or_faster():
     # 예측 158 + margin 4 = 162는 옛 허용선 161.6(HRR 80%)을 넘었지만 새 허용선(모집단 P85 163)보다 낮다.
     # "상한 ≥ 허용 → SLOW_ONLY" 상황을 유지하려고 예측을 159(상한 163)로 올린다.
     hot = {i: (150, 152, 159) for i in range(5)}
-    assert pace(run(goal=dist_only, pred=hot)) == 365
+    assert pace(run(goal=dist_only, pred=hot)) == 370          # 심박 감속은 한 번에 10초(S15P31E105-506)
     assert pace(run(goal=dist_only, distanceM=4550, pred=hot)) <= 365
 
 
@@ -64,17 +64,19 @@ def test_t2_preference_order():
     assert paces == [360, 355, 355] and paces[2] <= paces[1] <= paces[0]
 
 
-def test_t6_t9_stale_and_hold_block_accel_only():
+def test_t6_t9_stale_and_hold_block_accel():
     behind = dict(activeSec=925)
     assert pace(run(**behind)) == 350
-    o = run(input_age_sec=17, **behind)
+    o = run(input_age_sec=21, **behind)
     assert o.status == "HR_STALE" and pace(o) >= 360 and o.verdicts[0].reject_reason == "HR_STALE"
     assert run(guidePaceSetAt=T0 - timedelta(seconds=30), **behind).verdicts[0].reject_reason == "ACCEL_IN_HOLD"
     assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=61), **behind)) == 350
     assert run(resumedAt=T0 - timedelta(seconds=10), **behind).verdicts[0].reject_reason == "ACCEL_IN_HOLD"
     # 옛 허용선 161.6 기준의 158(상한 162)을 새 허용선 163 기준의 159(상한 163)로 바꾼다. 위험 기준은 178.
-    hold_hot = run(guidePaceSetAt=T0 - timedelta(seconds=30), pred={i: (150, 152, 159) for i in range(5)})
-    assert pace(hold_hot) == 365
+    # 안내 변경 뒤 120초(감속 쿨다운) 안에는 심박 감속도 기다린다(S15P31E105-506). 지나면 늦춘다.
+    hot = {i: (150, 152, 159) for i in range(5)}
+    assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=61), pred=hot)) == 360
+    assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=121), pred=hot)) == 370
     assert run(guidePaceSetAt=T0 - timedelta(seconds=30), hr_now=178).action == "EASE_OFF"
 
 
@@ -124,7 +126,11 @@ def test_t15_publish():
 
 
 def test_t16_stale_window_and_not_running():
-    assert run(input_age_sec=15).status == "OK" and run(input_age_sec=17).status == "HR_STALE"
+    # 팀 명세 20초 정렬(S15P31E105-413): 15~20초는 HR_STALE가 아니고, 20초를 넘으면 HR_STALE다.
+    for age in (15, 17, 19.9, 20):
+        assert run(input_age_sec=age).status == "OK", age
+    for age in (20.1, 25):
+        assert run(input_age_sec=age).status == "HR_STALE", age
     o = run(speed_now=1.4); assert (o.status, o.action, o.chosen_index, o.verdicts) == ("NOT_RUNNING", "NOT_RUNNING", None, ())
 
 
@@ -144,5 +150,5 @@ def test_t11_decel_downhill_raises_upper():
 def test_build_policy(tmp_path):
     with pytest.raises(FileNotFoundError): build_policy(None, "gru")
     path = write_margin_table(tmp_path, model="GRU")
-    assert build_policy(path, "gru").policy_version == "mpc-v0.4.0"
+    assert build_policy(path, "gru").policy_version == "mpc-v0.4.3"
     with pytest.raises(ValueError): build_policy(path, "tf")

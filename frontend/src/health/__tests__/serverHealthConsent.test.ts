@@ -78,3 +78,33 @@ test('the reader is only used against the server', () => {
     (appConfig as { dataSource: string }).dataSource = original;
   }
 });
+
+test.each([true, false])(
+  'W05 preserves a %s consent answer after successful U02 rotation',
+  async granted => {
+    const { tokenStore } = require('../../data/api/tokenStore');
+    await tokenStore.clear();
+    tokenStore.hold({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+    const respond = (status: number, body: unknown) => ({
+      ok: status === 200,
+      status,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    });
+    globalThis.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(
+        respond(200, {
+          accessToken: 'access-2',
+          refreshToken: 'refresh-2',
+          expiresInSec: 599,
+          refreshExpiresAt: '2026-12-01T00:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(respond(200, items(granted)));
+    await expect(readServerHealthConsent()).resolves.toBe(
+      granted ? 'AGREEE' : 'DISAGREE',
+    );
+  },
+);

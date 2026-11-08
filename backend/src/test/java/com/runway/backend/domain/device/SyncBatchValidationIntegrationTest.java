@@ -13,16 +13,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.node.ObjectNode;
 
 /** AC-2·AC-3·AC-4·AC-16·AC-17. 거절된 요청은 어떤 행도 남기지 않고, 오류 응답에 측정값·좌표·해시를 담지 않는다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class SyncBatchValidationIntegrationTest extends SyncBatchIntegrationSupport {
 

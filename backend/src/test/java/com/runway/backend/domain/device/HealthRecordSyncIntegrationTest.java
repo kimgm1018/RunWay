@@ -9,13 +9,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** W06 AC-1·AC-3·AC-4·AC-7. 저장·revision 갱신·재전송·부분 거절을 응답과 DB 행으로 판정한다. */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class HealthRecordSyncIntegrationTest extends HealthRecordSyncIntegrationSupport {
 

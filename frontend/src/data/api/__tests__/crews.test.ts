@@ -307,6 +307,7 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     description: null,
     joinPolicy: 'INSTANT',
     capacity: 21,
+    photo: null,
   });
 
   expect(id).toBe('50');
@@ -317,6 +318,103 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     regionCode: '26500',
   });
   expect((await crews.get('50')).joinPolicy).toBe('INSTANT');
+});
+
+// 6.3 대표 사진 (S15P31E105-531): F01 with purpose CREW, then its stored path as M03 imageKey.
+const crewPhotoDraft = {
+  name: '광안리 주말 러너스',
+  area: '광안리해수욕장 입구',
+  address: '부산 수영구 광안해변로 219',
+  description: null,
+  joinPolicy: 'APPROVAL' as const,
+  capacity: 20,
+  photo: {
+    uri: 'file:///photos/crew.png',
+    type: 'image/png' as const,
+    name: 'crew.png',
+  },
+};
+const imageId = '550e8400-e29b-41d4-a716-446655440000';
+
+const uploads = () =>
+  fetchMock.mock.calls.filter(([address]) =>
+    new URL(address).pathname.endsWith('/images'),
+  );
+const crewPosts = () =>
+  fetchMock.mock.calls
+    .filter(
+      ([address, init]) =>
+        init.method === 'POST' && new URL(address).pathname.endsWith('/crews'),
+    )
+    .map(([, init]) => JSON.parse(init.body));
+
+test('M03 sends the photo F01 stored for the crew as imageKey', async () => {
+  serve((path, init) => {
+    if (path === '/images' && init.method === 'POST') {
+      return respond(201, { imageId, url: null });
+    }
+    if (path === '/crews' && init.method === 'POST') {
+      return respond(201, { id: 50, ownerId: 101 });
+    }
+    return undefined;
+  });
+  const { crews } = api();
+
+  await expect(crews.create(crewPhotoDraft)).resolves.toEqual({ id: '50' });
+
+  const [[, upload]] = uploads();
+  // The test runtime's FormData can be read back; React Native's type has no get().
+  const form = upload.body as { get: (name: string) => unknown };
+  expect(form.get('purpose')).toBe('CREW');
+  expect(crewPosts()).toEqual([
+    {
+      name: '광안리 주말 러너스',
+      description: null,
+      capacity: 20,
+      regionCode: '26500',
+      imageKey: `images/crew/101/${imageId}.png`,
+    },
+  ]);
+});
+
+test('a crew retried after M03 fails keeps the photo it uploaded, and a refused photo reaches the screen', async () => {
+  let crewAnswer = respond(503, {
+    code: 'SERVICE_UNAVAILABLE',
+    message: '',
+    details: {},
+  });
+  let uploadAnswer = respond(201, { imageId, url: null });
+  serve((path, init) => {
+    if (path === '/images' && init.method === 'POST') {
+      return uploadAnswer;
+    }
+    if (path === '/crews' && init.method === 'POST') {
+      return crewAnswer;
+    }
+    return undefined;
+  });
+  const { crews } = api();
+
+  await expect(crews.create(crewPhotoDraft)).rejects.toMatchObject({
+    code: 'SERVER_ERROR',
+  });
+  crewAnswer = respond(201, { id: 51, ownerId: 101 });
+  await expect(crews.create(crewPhotoDraft)).resolves.toEqual({ id: '51' });
+  expect(uploads()).toHaveLength(1);
+
+  // A new photo that F01 turns down stops before M03.
+  uploadAnswer = respond(413, {
+    code: 'FILE_TOO_LARGE',
+    message: '',
+    details: {},
+  });
+  await expect(
+    crews.create({
+      ...crewPhotoDraft,
+      photo: { ...crewPhotoDraft.photo, uri: 'file:///photos/big.png' },
+    }),
+  ).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+  expect(crewPosts()).toHaveLength(2);
 });
 
 test('a place in an unknown or ambiguous region is sent without a region', async () => {
@@ -415,5 +513,134 @@ test('the mock lets a member leave but not the leader', async () => {
   expect((await crews.get('crew-gwangalli')).myMembership).toBeNull();
   await expect(crews.leave('crew-minrak-night')).rejects.toMatchObject({
     code: 'OWNER_CANNOT_LEAVE',
+  });
+});
+
+test('M09는 본문 없이 해당 멤버에게 DELETE 요청을 보낸다', async () => {
+  serve((path, init) =>
+    path === '/crews/41/members/9' && init.method === 'DELETE'
+      ? respond(200, { status: 'LEFT', leftAt: '2026-11-06T00:00:00Z' })
+      : undefined,
+  );
+  await api().crews.removeMember('41', '9');
+  expect(sent('DELETE')).toEqual([
+    { path: '/crews/41/members/9', body: undefined },
+  ]);
+});
+
+test.each([
+  [403, 'NOT_ADMIN'],
+  [409, 'CANNOT_REMOVE_OWNER'],
+  [404, 'MEMBER_NOT_FOUND'],
+] as const)('M09 %s 오류 코드를 화면에 전달한다', async (status, code) => {
+  serve(() => respond(status, { code, message: '', details: {} }));
+  await expect(api().crews.removeMember('41', '9')).rejects.toMatchObject({
+    code,
+    status,
+  });
+});
+
+test('목업도 크루장만 내보낼 수 있고 재조회 후 구성원과 인원이 유지된다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  const ownerCrew = await crews.get('crew-minrak-night');
+  const target = ownerCrew.members.find(
+    member => !member.isOwner && !member.isMe,
+  )!;
+  await crews.removeMember(ownerCrew.id, target.userId);
+  const after = await crews.get(ownerCrew.id);
+  expect(after.memberCount).toBe(ownerCrew.memberCount - 1);
+  expect(after.members).toHaveLength(ownerCrew.members.length - 1);
+  expect(after.members.some(member => member.userId === target.userId)).toBe(
+    false,
+  );
+  await expect(
+    crews.removeMember(ownerCrew.id, target.userId),
+  ).rejects.toMatchObject({ code: 'MEMBER_NOT_FOUND' });
+  await expect(
+    crews.removeMember(ownerCrew.id, after.members[0].userId),
+  ).rejects.toMatchObject({ code: 'CANNOT_REMOVE_OWNER' });
+  const regularCrew = await crews.get('crew-gwangalli');
+  await expect(
+    crews.removeMember(regularCrew.id, regularCrew.members[1].userId),
+  ).rejects.toMatchObject({ code: 'NOT_ADMIN' });
+});
+
+test('M08 크루장 이양 탈퇴는 선택한 후임 ID만 본문에 보낸다', async () => {
+  serve((path, init) =>
+    path === '/crews/41/members/me' && init.method === 'DELETE'
+      ? respond(200, { status: 'LEFT' })
+      : undefined,
+  );
+  await api().crews.leave('41', '9');
+  expect(sent('DELETE')).toEqual([
+    { path: '/crews/41/members/me', body: { successorUserId: 9 } },
+  ]);
+});
+
+test('M11 해산은 본문 없이 크루 DELETE를 호출한다', async () => {
+  serve((path, init) =>
+    path === '/crews/41' && init.method === 'DELETE'
+      ? respond(200, { id: 41, status: 'INACTIVE' })
+      : undefined,
+  );
+  await api().crews.dissolve('41');
+  expect(sent('DELETE')).toEqual([{ path: '/crews/41', body: undefined }]);
+});
+
+test('M08 후임 부적합 코드를 전달한다', async () => {
+  serve(() =>
+    respond(422, { code: 'INVALID_SUCCESSOR', message: '', details: {} }),
+  );
+  await expect(api().crews.leave('41', '9')).rejects.toMatchObject({
+    code: 'INVALID_SUCCESSOR',
+    status: 422,
+  });
+});
+
+test('목업 이양 탈퇴는 후임만 크루장으로 바꾸고 본인만 목록에서 제외한다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  const before = await crews.get('crew-minrak-night');
+  const successor = before.members.find(member => !member.isMe)!;
+  await expect(crews.leave(before.id, 'missing')).rejects.toMatchObject({
+    code: 'INVALID_SUCCESSOR',
+  });
+  expect((await crews.get(before.id)).memberCount).toBe(before.memberCount);
+  await crews.leave(before.id, successor.userId);
+  const after = await crews.get(before.id);
+  expect(after.myMembership).toBeNull();
+  expect(after.amOwner).toBe(false);
+  expect(after.memberCount).toBe(before.memberCount - 1);
+  expect(after.members.some(member => member.isMe)).toBe(false);
+  expect(
+    after.members.filter(member => member.isOwner).map(member => member.userId),
+  ).toEqual([successor.userId]);
+});
+
+test('목업 해산은 비소유자를 거부하고 소유자 해산 후 검색에서 제외한다', async () => {
+  const { crews } = createMockRepositories({ latencyMs: 0 });
+  await expect(crews.dissolve('crew-gwangalli')).rejects.toMatchObject({
+    code: 'NOT_ADMIN',
+  });
+  const { id } = await crews.create({
+    name: '혼자 크루',
+    description: null,
+    area: '부산',
+    address: '부산',
+    capacity: 20,
+    joinPolicy: 'APPROVAL',
+    photo: null,
+  });
+  await expect(crews.leave(id)).rejects.toMatchObject({
+    code: 'OWNER_CANNOT_LEAVE',
+  });
+  await crews.dissolve(id);
+  await crews.dissolve(id);
+  expect(
+    (await crews.search({ query: '', nearby: false })).some(
+      item => item.id === id,
+    ),
+  ).toBe(false);
+  await expect(async () => crews.get(id)).rejects.toMatchObject({
+    code: 'CREW_NOT_FOUND',
   });
 });

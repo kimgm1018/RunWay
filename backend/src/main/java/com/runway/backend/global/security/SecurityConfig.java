@@ -166,13 +166,32 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    SecurityFilterChain publicSecurity(HttpSecurity http) throws Exception {
+    SecurityFilterChain publicSecurity(HttpSecurity http, JwtDecoder decoder, JsonMapper mapper)
+            throws Exception {
         http.securityMatcher(SecurityConfig::isPublicRequest)
                 .sessionManagement(
                         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .csrf(csrf -> csrf.disable())
                 .requestCache(cache -> cache.disable())
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .oauth2ResourceServer(resource -> {
+                    // F02 accepts optional member authentication. Other public APIs keep
+                    // their existing authentication behavior (including logout/refresh).
+                    resource.bearerTokenResolver(request -> {
+                        String path = request.getRequestURI()
+                                .substring(request.getContextPath().length());
+                        return isPublicImagePath(path) ? resolveBearer(request) : null;
+                    });
+                    resource.authenticationEntryPoint((request, response, exception) ->
+                            unauthorized(response, mapper));
+                    resource.jwt(jwt -> {
+                        jwt.decoder(decoder);
+                        jwt.jwtAuthenticationConverter(token ->
+                                UsernamePasswordAuthenticationToken.authenticated(
+                                        new AuthenticatedUser(Long.parseLong(token.getSubject())),
+                                        null, List.of()));
+                    });
+                });
         return http.build();
     }
 
@@ -186,7 +205,10 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(
                         auth ->
-                                auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                                // ASYNC는 이미 인증을 통과한 요청의 비동기 재디스패치다(S10 SSE). 상태 비저장 체인에서는 재디스패치 때
+                                // 인증 정보가 다시 만들어지지 않으므로 허용한다.
+                                auth.dispatcherTypeMatchers(
+                                                DispatcherType.ERROR, DispatcherType.ASYNC)
                                         .permitAll()
                                         .anyRequest()
                                         .authenticated())

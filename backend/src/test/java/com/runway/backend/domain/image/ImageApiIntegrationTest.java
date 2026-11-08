@@ -11,9 +11,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,14 +27,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
-@Testcontainers
 class ImageApiIntegrationTest {
 
     // 1x1 PNG
@@ -114,11 +112,8 @@ class ImageApiIntegrationTest {
 
     @TempDir static Path imageVolume;
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(ImageApiIntegrationTest.class);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -130,6 +125,20 @@ class ImageApiIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ImageStorage imageStorage;
+    @Autowired private JdbcTemplate jdbc;
+
+    @BeforeEach
+    void activeImageOwners() {
+        for (long id : new long[] {1, 7, 42}) {
+            jdbc.update("""
+                    INSERT INTO users(id,login_id,password,nickname,birth_date,gender,
+                        phone_number,health_data_access)
+                    OVERRIDING SYSTEM VALUE
+                    VALUES (?,?,'synthetic','이미지' || ?,'2000-01-01','MALE','00000000000','DISAGREE')
+                    ON CONFLICT (id) DO NOTHING
+                    """, id, "imageuser" + id, id);
+        }
+    }
 
     @Test
     void png업로드_201_imageId와_볼륨저장_url은_F02경로() throws Exception {
@@ -156,7 +165,7 @@ class ImageApiIntegrationTest {
     }
 
     @Test
-    void 이미지조회_공개GET_바이너리() throws Exception {
+    void 미연결이미지조회_본인GET_바이너리() throws Exception {
         MockMultipartFile file =
                 new MockMultipartFile("file", "a.png", MediaType.IMAGE_PNG_VALUE, PNG);
         MvcResult uploaded =
@@ -169,7 +178,8 @@ class ImageApiIntegrationTest {
                         .andReturn();
         String imageId = JsonPath.read(uploaded.getResponse().getContentAsString(), "$.imageId");
 
-        mockMvc.perform(get("/api/v1/images/" + imageId))
+        mockMvc.perform(get("/api/v1/images/" + imageId)
+                        .header("Authorization", SecurityTestSupport.bearer(42)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", MediaType.IMAGE_PNG_VALUE))
                 .andExpect(content().bytes(PNG));

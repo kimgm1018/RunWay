@@ -83,16 +83,18 @@ class CachedDbHrThresholdLookup:
                 self._cache.move_to_end(user_id)
                 return cached[1]
             self._cache.pop(user_id, None)
-            result = self._read(user_id)
-            cacheable = result.warning is None and self.max_users > 0
-            has_thresholds = result.has_thresholds and result.hr_threshold_run_count > 0
-            ttl = self.ttl_sec if has_thresholds else self.empty_ttl_sec
-            if cacheable and ttl > 0:
+        # DB는 lock 밖에서 읽는다. lock을 잡은 채 읽으면 느린 DB 한 번에 모든 러너의 AI04가 줄을 선다(S15P31E105-500).
+        result = self._read(user_id)
+        cacheable = result.warning is None and self.max_users > 0
+        has_thresholds = result.has_thresholds and result.hr_threshold_run_count > 0
+        ttl = self.ttl_sec if has_thresholds else self.empty_ttl_sec
+        if cacheable and ttl > 0:
+            with self._lock:
                 self._cache[user_id] = (now + ttl, result)
                 self._cache.move_to_end(user_id)
                 while len(self._cache) > self.max_users:
                     self._cache.popitem(last=False)
-            return result
+        return result
 
 
 __all__ = ["CachedDbHrThresholdLookup", "HrThresholdLookupResult", "HR_THRESHOLD_SQL",

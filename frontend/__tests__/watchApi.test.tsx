@@ -104,6 +104,24 @@ function serve() {
           onboardingCompleted: true,
         });
       }
+      // W05 for the 8.1 건강정보 수집 tile (S15P31E105-396).
+      if (path === '/consents' && init.method === 'GET') {
+        return respond(200, {
+          items: [{ consentType: 'HEALTH_DATA', granted: true }],
+        });
+      }
+      // U19·U13 for the 8.1 setting tiles (S15P31E105-460).
+      if (path === '/users/me/settings' && init.method === 'GET') {
+        return respond(200, {
+          voiceCoachingEnabled: true,
+          bpmGuideEnabled: true,
+          locationRecordingMode: 'RUNNING_ONLY',
+          notifications: { groupRun: true, community: true },
+        });
+      }
+      if (path === '/users/me/privacy-settings' && init.method === 'GET') {
+        return respond(200, { isPrivate: false });
+      }
       throw new Error(`unexpected request ${init.method} ${address}`);
     },
   );
@@ -175,11 +193,12 @@ async function launch(signedIn = false) {
 // An account still in setup logs in, saves 1.6 and reaches 1.6w with 네 picked.
 async function openWatchChoice() {
   const screen = await launch();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await type(screen, '아이디', 'minjun01');
   await type(screen, '비밀번호', 'runway123');
   await press(screen, '로그인');
   await press(screen, '중급, 5–10km 주 2–3회');
+  await press(screen, '다음');
   await type(screen, '거리', '5');
   await type(screen, '완주 시간', '30:00');
   await press(screen, '저장');
@@ -227,12 +246,15 @@ test('8.1 shows the linked watch and unlinks it with W03', async () => {
   await press(screen, '설정');
   expect(texts(screen)).toContain('Galaxy Watch7');
 
-  await press(screen, '연결 해제');
+  // The watch tile lets go of a connected watch (runway-settings).
+  await press(screen, 'Galaxy Watch7');
 
   expect(sent()).toContain('DELETE /devices/31');
   const page = texts(screen);
   expect(page).toContain('Galaxy Watch7 연결을 해제했어요');
-  expect(() => last(screen, '연결', 'onPress')).not.toThrow();
+  expect(
+    last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
+  ).toBe('연결 해제됨');
   await act(async () => screen.unmount());
 });
 
@@ -243,11 +265,13 @@ test('8.1 keeps the watch and says so when W03 fails', async () => {
   const screen = await launch(true);
   await press(screen, '설정');
 
-  await press(screen, '연결 해제');
+  await press(screen, 'Galaxy Watch7');
 
   expect(texts(screen)).toContain(
     '연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요',
   );
-  expect(() => last(screen, '연결 해제', 'onPress')).not.toThrow();
+  expect(
+    last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
+  ).toBe('연결됨');
   await act(async () => screen.unmount());
 });

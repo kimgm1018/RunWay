@@ -40,7 +40,7 @@ public class UserAccountRepository {
     public boolean nicknameTakenByOther(String nickname, long userId) {
         Boolean exists =
                 jdbc.queryForObject(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname = ? AND id <> ?)",
+                        "SELECT EXISTS(SELECT 1 FROM users WHERE nickname = ? AND id <> ? AND account_status = 'ACTIVE')",
                         Boolean.class,
                         nickname,
                         userId);

@@ -11,6 +11,7 @@ import androidx.health.services.client.data.ExerciseTypeCapabilities
 import com.google.common.util.concurrent.Futures
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,6 +30,8 @@ import java.lang.reflect.Proxy
 class HealthServicesExerciseGatewayTest {
     private val calls = mutableListOf<String>()
     private val registered = mutableListOf<ExerciseUpdateCallback>()
+    // ExerciseTrackedStatus: 2 = this app's exercise in progress, 3 = no exercise.
+    private var trackedStatus = 3
 
     private fun client(): ExerciseClient {
         val capabilities = ExerciseCapabilities(
@@ -37,7 +40,7 @@ class HealthServicesExerciseGatewayTest {
         return Proxy.newProxyInstance(ExerciseClient::class.java.classLoader, arrayOf(ExerciseClient::class.java)) { _, method, args ->
             calls.add(method.name)
             when (method.name) {
-                "getCurrentExerciseInfoAsync" -> Futures.immediateFuture(ExerciseInfo(3, ExerciseType.UNKNOWN))
+                "getCurrentExerciseInfoAsync" -> Futures.immediateFuture(ExerciseInfo(trackedStatus, ExerciseType.UNKNOWN))
                 "getCapabilitiesAsync" -> Futures.immediateFuture(capabilities)
                 "setUpdateCallback" -> { registered.add(args!![0] as ExerciseUpdateCallback); null }
                 else -> Futures.immediateFuture(null)
@@ -82,5 +85,22 @@ class HealthServicesExerciseGatewayTest {
         assertTrue(calls.indexOf("endExerciseAsync") < calls.lastIndexOf("clearUpdateCallbackAsync"))
         gateway.resume()
         assertEquals(2, registered.size)
+    }
+
+    // S15P31E105-445: after a process restart the kept exercise is listened to again; a gone one is not restarted.
+    @Test
+    fun reattachListensAgainToTheExerciseThisAppStillOwns() = runBlocking {
+        trackedStatus = 2
+        assertTrue(gateway().reattach())
+        assertEquals(1, registered.size)
+        assertFalse(calls.contains("startExerciseAsync"))
+    }
+
+    @Test
+    fun reattachWithoutAnOwnedExerciseStartsNothing() = runBlocking {
+        trackedStatus = 3
+        assertFalse(gateway().reattach())
+        assertTrue(registered.isEmpty())
+        assertFalse(calls.contains("startExerciseAsync"))
     }
 }

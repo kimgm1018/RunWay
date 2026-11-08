@@ -1,10 +1,12 @@
 package com.runway.backend.domain.session.mapper;
 
+import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import com.runway.backend.domain.session.entity.PacePlan;
 import com.runway.backend.domain.session.entity.PacePlanSegment;
 import com.runway.backend.domain.session.entity.RunningSession;
 import com.runway.backend.domain.session.entity.SessionControlEvent;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.CoachingGuideRow;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -16,7 +18,8 @@ public record SessionSnapshot(
         SessionControlEvent pendingCommand,
         CoachingGuideRow coachingGuide,
         SessionControlEvent lastCommand,
-        Instant groupEndedAt) {
+        Instant groupEndedAt,
+        RunningSessionResponse.RecordComparison comparison) {
 
     public SessionSnapshot {
         segments = List.copyOf(segments);

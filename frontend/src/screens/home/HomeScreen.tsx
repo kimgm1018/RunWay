@@ -14,13 +14,13 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { AppText, Backdrop, Button, Icon, Logo } from '../../components';
+import { AppText, Backdrop, Button, Logo } from '../../components';
 import { useResource, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import {
   fontFamily,
   homePalette,
-  k1Gradient,
+  mistGradient,
   size,
   spacing,
   useTheme,
@@ -34,6 +34,7 @@ import {
   gutter,
   HomeGrid,
 } from './widgets';
+import { GlassIconButton } from '../../components/GlassIconButton';
 
 // S15P31E105-382 (in -391): no greeting, so 오늘 컨디션 sits 4 under the header and the last cards keep
 // 14 clear of the floating tab bar.
@@ -64,16 +65,12 @@ function HeaderButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <GlassIconButton
+      icon={icon}
       accessibilityLabel={label}
-      hitSlop={4}
       onPress={onPress}
-      style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-    >
-      <Icon name={icon} color={homePalette.header} size={20} />
-      {dot ? <View style={styles.unread} /> : null}
-    </Pressable>
+      dot={dot}
+    />
   );
 }
 
@@ -128,7 +125,7 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const photo = me.data?.profileImageUrl ?? null;
   // Notifications that did not load only leave the bell without its dot.
-  const unread = notifications.data?.some(item => !item.read) ?? false;
+  const unread = (notifications.data?.unreadCount ?? 0) > 0;
   // Pull to refresh: the spinner stays until every section that reloads has settled.
   const [pull, setPull] = useState(0);
   const [pending, setPending] = useState(0);
@@ -263,14 +260,14 @@ export function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
-  // Behind the status bar and the header row, the same colour as the top of the K1 background.
+  // Behind the status bar and the header row, the same colour as the top of the mist background.
   headerFill: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: k1Gradient.colors[0],
+    backgroundColor: mistGradient.colors[0],
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   header: {
@@ -281,28 +278,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   logo: { flex: 1 },
-  pressed: { opacity: 0.7 },
-  headerButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: homePalette.headerButton,
-  },
-  unread: {
-    position: 'absolute',
-    top: 9,
-    right: 10,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: homePalette.unread,
-  },
+  // 44 like the GlassIconButtons beside it (S15P31E105-473).
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     overflow: 'hidden',

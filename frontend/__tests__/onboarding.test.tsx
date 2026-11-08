@@ -65,15 +65,6 @@ async function type(screen: Screen, label: string, text: string) {
   await settle();
 }
 
-async function slide(screen: Screen, label: string) {
-  await act(async () => {
-    last(screen, label, 'onAccessibilityAction').props.onAccessibilityAction({
-      nativeEvent: { actionName: 'activate' },
-    });
-  });
-  await settle();
-}
-
 async function render(
   props: React.ComponentProps<typeof App> = {},
   scenario: MockScenario = 'default',
@@ -98,8 +89,8 @@ async function login(screen: Screen, loginId: string, password: string) {
 
 test('login shows the failure count, then enters home with the right password', async () => {
   const screen = await render();
-  expect(texts(screen)).toContain('RUN YOUR WAY');
-  await press(screen, '로그인');
+  expect(texts(screen)).toContain('시작하기');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   expect(isDisabled(screen, '로그인')).toBe(true);
   await login(screen, fixtures.account.loginId, 'wrong-pass1');
   expect(texts(screen)).toContain('아이디 또는 비밀번호가 맞지 않아요.');
@@ -111,7 +102,7 @@ test('login shows the failure count, then enters home with the right password', 
 
 test('five failed logins lock the account for ten minutes', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await login(screen, fixtures.account.loginId, 'wrong-pass1');
   }
@@ -124,6 +115,7 @@ test('five failed logins lock the account for ten minutes', async () => {
 test('sign-up validates each field and reaches home through the watch connection', async () => {
   const screen = await render();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
   expect(texts(screen)).toContain('만들어요');
 
   await type(screen, '아이디', 'runner01');
@@ -171,19 +163,30 @@ test('sign-up validates each field and reaches home through the watch connection
   expect(texts(screen)).toContain('불러드릴까요?');
   await type(screen, '닉네임', '러너');
   await press(screen, '남성');
-  await press(screen, '연도 연도');
-  await press(screen, '1991년');
-  await press(screen, '일 일');
-  await press(screen, '31일');
-  expect(isDisabled(screen, '다음')).toBe(true);
-  await press(screen, '월 월');
-  await press(screen, '02월');
-  // February 1991 has 28 days, so the 31st moves back to the 28th.
-  expect(isDisabled(screen, '일 28일')).toBe(false);
+  await press(screen, '다음');
+
+  // 1.5b 생년월일 creates the account.
+  expect(texts(screen)).toContain('언제예요?');
+  await press(screen, '연도 1991년');
+  await press(screen, '일 31일');
+  await press(screen, '월 2월');
+  // February 1991 has 28 days, so the 31st rolls back to the 28th.
+  expect(
+    screen.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '일' &&
+          typeof node.props.onAccessibilityAction === 'function',
+      )
+      .pop()?.props.accessibilityValue.text,
+  ).toBe('28일');
   await press(screen, '다음');
 
   expect(texts(screen)).toContain('평소 어떻게');
   await press(screen, '중급, 5–10km 주 2–3회');
+  await press(screen, '다음');
+  // 1.6b 평소 페이스 saves the level and the pace together.
+  expect(texts(screen)).toContain('어느 정도예요?');
   await type(screen, '거리', '5');
   await type(screen, '완주 시간', '30:00');
   expect(texts(screen)).toContain('6′00″/km');
@@ -197,7 +200,7 @@ test('sign-up validates each field and reaches home through the watch connection
   await press(screen, '다음');
   expect(texts(screen)).toContain('82%');
   expect(texts(screen)).toContain('심박수');
-  await slide(screen, '밀어서 시작하기');
+  await press(screen, '시작하기');
   expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
@@ -214,10 +217,11 @@ test('an account that never saved its running profile resumes at 1.6 and can ski
     healthDataAccess: 'DISAGREE',
   });
   const screen = await render({ repositories });
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await login(screen, 'halfway1', 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  await press(screen, '다음');
   // The pace tab takes the pace alone (U07 PACE).
   await press(screen, '페이스');
   expect(texts(screen)).not.toContain('자동 계산');
@@ -242,7 +246,7 @@ async function resumeAtRunningProfile(loginId: string) {
   });
   const save = jest.spyOn(repositories.profile, 'saveRunningProfile');
   const screen = await render({ repositories });
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await login(screen, loginId, 'runway123');
   expect(texts(screen)).toContain('평소 어떻게');
   return { screen, save };
@@ -255,10 +259,13 @@ function field(screen: Screen, label: string) {
 test('picking a level fills its recommended values, which save as the same U07 request', async () => {
   const { screen, save } = await resumeAtRunningProfile('preset01');
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  await press(screen, '다음');
   expect(field(screen, '거리')).toBe('3');
   expect(field(screen, '완주 시간')).toBe('20:00');
-  // Values the level filled in follow a new level.
+  // Values the level filled in follow a new level picked back on 1.6.
+  await press(screen, '뒤로');
   await press(screen, '상급, 하프 이상 주 4회+');
+  await press(screen, '다음');
   expect(field(screen, '거리')).toBe('10');
   expect(field(screen, '완주 시간')).toBe('55:00');
   expect(texts(screen)).toContain('5′30″/km');
@@ -279,6 +286,7 @@ test('picking a level fills its recommended values, which save as the same U07 r
 test('a level resets typed values and digits alone get the colons', async () => {
   const { screen, save } = await resumeAtRunningProfile('preset02');
   await press(screen, '중급, 5–10km 주 2–3회');
+  await press(screen, '다음');
   await type(screen, '거리', '7');
   await type(screen, '완주 시간', '4000');
   expect(field(screen, '완주 시간')).toBe('40:00');
@@ -286,8 +294,10 @@ test('a level resets typed values and digits alone get the colons', async () => 
   await press(screen, '페이스');
   expect(field(screen, '페이스 (분:초/km)')).toBe('');
   await press(screen, '완주 시간');
-  // Picking a level always brings back its recommendation.
+  // Picking a level (back on 1.6) always brings back its recommendation.
+  await press(screen, '뒤로');
   await press(screen, '초급, 5km 미만 주 1회 이하');
+  await press(screen, '다음');
   expect(field(screen, '거리')).toBe('3');
   expect(field(screen, '완주 시간')).toBe('20:00');
   // The pace tab also takes digits only (number pad).
@@ -308,7 +318,7 @@ test('a level resets typed values and digits alone get the colons', async () => 
 
 test('password reset handles unknown numbers and wrong codes, then logs in with the new password', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await press(screen, '비밀번호를 잊으셨나요?');
   expect(texts(screen)).toContain('가입한 전화번호 입력');
   await press(screen, '전화번호로 찾기');
@@ -340,7 +350,7 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
 
 test('five wrong codes require a new code', async () => {
   const screen = await render();
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await press(screen, '비밀번호를 잊으셨나요?');
   await press(screen, '전화번호로 찾기');
   await type(screen, '전화번호', fixtures.account.phoneNumber);
@@ -361,13 +371,14 @@ test('a disconnected watch shows the 1.8 state and can be skipped from settings'
   const screen = await render({ initialSignedIn: true }, 'watchDisconnected');
   await press(screen, '설정');
   await settle(400);
-  await press(screen, '연결');
+  // The let-go watch tile opens 1.7 (runway-settings).
+  await press(screen, 'Galaxy Watch7');
   await settle(400);
   const text = texts(screen);
   expect(text).toContain('연결 끊김');
   expect(text).toContain('권한 거부');
   expect(text).toContain('– –');
-  await slide(screen, '밀어서 다시 연결');
+  await press(screen, '다시 연결');
   expect(texts(screen)).toContain('연결 끊김');
   await press(screen, '나중에 연결하기');
   expect(texts(screen)).toContain('오늘 준비도');

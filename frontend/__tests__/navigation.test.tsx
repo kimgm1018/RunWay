@@ -7,6 +7,7 @@ import * as fixtures from '../src/data/mock/fixtures';
 import {
   authRoutes,
   groupTabRoutes,
+  homeTabRoutes,
   mainRoutes,
   routes,
   runTabRoutes,
@@ -65,6 +66,7 @@ test('every prototype link points at a registered screen', () => {
     ...authRoutes,
     ...mainRoutes,
     ...runTabRoutes,
+    ...homeTabRoutes,
     ...groupTabRoutes,
     'Home',
     'Community',
@@ -79,11 +81,11 @@ test('every prototype link points at a registered screen', () => {
 
 test('signed-out users move from start through login into the home tab', async () => {
   const screen = await render();
-  expect(texts(screen)).toContain('RUN YOUR WAY');
+  expect(texts(screen)).toContain('시작하기');
   expect(
     screen.root.findAll(node => node.props.accessibilityRole === 'tablist'),
   ).toHaveLength(0);
-  await press(screen, '로그인');
+  await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   expect(texts(screen)).toContain('비밀번호를 잊으셨나요?');
   await act(async () => {
     for (const [label, text] of [
@@ -107,7 +109,7 @@ test('signed-out users move from start through login into the home tab', async (
   expect(home).toContain('민');
   expect(home).toContain('오늘 준비도');
   expect(home).toContain('82');
-  for (const tab of ['홈', '러닝', '그룹', '커뮤니티']) {
+  for (const tab of ['홈', '러닝', '그룹', '커뮤니티', '프로필']) {
     expect(pressable(screen, tab).props.accessibilityRole).toBe('tab');
   }
   expect(() => pressable(screen, '뒤로')).toThrow();
@@ -118,24 +120,17 @@ test('watch connection opened from settings returns home instead of signing in',
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  // 8.3: once disconnected, 연결 opens 1.7, which reconnects the watch.
-  await press(screen, '연결 해제');
+  // 8.3: the watch tile lets go of the watch; once let go, it opens 1.7, which reconnects it.
+  await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('연결 해제됨');
-  await press(screen, '연결');
+  await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  await act(async () => {
-    screen.root
-      .findAll(node => node.props.accessibilityLabel === '밀어서 다시 연결')[0]
-      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
-  });
+  // 1.7 ends in buttons now (S15P31E105-447): 다시 연결, then 시작하기.
+  await press(screen, '다시 연결');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('82%');
-  await act(async () => {
-    screen.root
-      .findAll(node => node.props.accessibilityLabel === '밀어서 시작하기')[0]
-      .props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } });
-  });
+  await press(screen, '시작하기');
   expect(texts(screen)).toContain('오늘 준비도');
   await act(async () => screen.unmount());
 });
@@ -145,7 +140,11 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await press(screen, '러닝');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '자유 러닝');
-  expect(texts(screen)).toContain('코스 없이 기록만 남겨요');
+  // 2.0F has no tab bar (S15P31E105-517): the goal chip and the start row, and 뒤로 to leave.
+  expect(texts(screen)).toContain('목표 설정');
+  expect(() => pressable(screen, '그룹')).toThrow();
+  await press(screen, '뒤로');
+  expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '그룹');
   // The group list loads after the tab opens.
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
@@ -155,6 +154,18 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await press(screen, '커뮤니티');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('seoyun.run');
+  // 7.4b is the fifth tab (S15P31E105-428), opened without a 뒤로 of its own.
+  const backs = () =>
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === '뒤로' &&
+        typeof node.props.onPress === 'function',
+    ).length;
+  const before = backs();
+  await press(screen, '프로필');
+  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
+  expect(texts(screen)).toContain('팔로워');
+  expect(backs()).toBe(before);
   await act(async () => screen.unmount());
 });
 
@@ -163,14 +174,14 @@ test('settings signs out', async () => {
   await press(screen, '설정');
   expect(texts(screen)).not.toContain('화면 모드');
   await press(screen, '로그아웃');
-  expect(texts(screen)).toContain('RUN YOUR WAY');
+  expect(texts(screen)).toContain('시작하기');
   await act(async () => screen.unmount());
 });
 
 test('developer menu opens the component gallery with sheet and toast', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
-  await press(screen, '공통 컴포넌트 미리보기');
+  await press(screen, '공통 컴포넌트');
   const gallery = texts(screen);
   for (const text of [
     '러닝 시작',

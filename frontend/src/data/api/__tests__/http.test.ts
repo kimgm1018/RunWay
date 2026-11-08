@@ -210,8 +210,270 @@ test('the error details are kept for recovery', async () => {
     }),
   );
 
-  const error = await failure(apiRequest('/running-sessions', { method: 'POST', body: {} }));
+  const error = await failure(
+    apiRequest('/running-sessions', { method: 'POST', body: {} }),
+  );
 
   expect(error.code).toBe('ACTIVE_SESSION_EXISTS');
   expect(error.details).toEqual({ sessionId: 201 });
+});
+
+const rotated = {
+  accessToken: 'access-2',
+  refreshToken: 'refresh-2',
+  expiresInSec: 599,
+  refreshExpiresAt: '2026-12-01T00:00:00Z',
+};
+
+test('refreshes a rejected member request once and persists both rotated tokens before replay', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(200, { id: 7 }));
+  await expect(apiRequest('/users/me')).resolves.toEqual({ id: 7 });
+  expect(fetchMock.mock.calls[1][0]).toBe(
+    `${appConfig.apiBaseUrl}/auth/refresh`,
+  );
+  expect(fetchMock.mock.calls[1][1].headers.Authorization).toBeUndefined();
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+    refreshToken: 'refresh-1',
+  });
+  expect(fetchMock.mock.calls[2][1].headers.Authorization).toBe(
+    'Bearer access-2',
+  );
+  expect(tokenStore.current()?.refreshToken).toBe('refresh-2');
+  await expect(tokenStore.load()).resolves.toMatchObject({
+    accessToken: 'access-2',
+    refreshToken: 'refresh-2',
+  });
+});
+
+test('concurrent and delayed 401 responses share one rotation and each replay once', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  let late!: (response: ReturnType<typeof respond>) => void;
+  fetchMock.mockImplementation(
+    async (url: string, init: { headers: Record<string, string> }) => {
+      if (url.endsWith('/auth/refresh')) return respond(200, rotated);
+      if (init.headers.Authorization === 'Bearer access-2')
+        return respond(200, { ok: true });
+      if (url.endsWith('/late'))
+        return new Promise(resolve => {
+          late = resolve;
+        });
+      return respond(401, { code: 'UNAUTHORIZED' });
+    },
+  );
+  const delayed = apiRequest('/late');
+  await expect(
+    Promise.all([apiRequest('/one'), apiRequest('/two')]),
+  ).resolves.toEqual([{ ok: true }, { ok: true }]);
+  late(respond(401, { code: 'UNAUTHORIZED' }));
+  await expect(delayed).resolves.toEqual({ ok: true });
+  expect(
+    fetchMock.mock.calls.filter(([url]) => url.endsWith('/auth/refresh')),
+  ).toHaveLength(1);
+  expect(fetchMock.mock.calls).toHaveLength(7);
+});
+
+test.each([401, 503])(
+  'a failed refresh (%i) expires once without replay or exposing its body',
+  async status => {
+    await tokenStore.save({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    });
+    const expired = jest.fn();
+    const unsubscribe = onUnauthorized(expired);
+    try {
+      fetchMock
+        .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+        .mockResolvedValueOnce(
+          respond(status, {
+            message: 'secret-refresh-value',
+            details: { token: 'secret' },
+          }),
+        );
+      const error = await failure(apiRequest('/users/me'));
+      expect(error.code).toBe('UNAUTHORIZED');
+      expect(JSON.stringify(error)).not.toContain('secret');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(tokenStore.current()).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+  },
+);
+
+test('a replay rejected again expires without a second refresh', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(401));
+  expect((await failure(apiRequest('/users/me'))).code).toBe('UNAUTHORIZED');
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(tokenStore.current()).toBeNull();
+});
+
+test('logout and a new login discard an old refresh response without replaying into the new account', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  let finish!: (response: ReturnType<typeof respond>) => void;
+  fetchMock.mockResolvedValueOnce(respond(401)).mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+  );
+  const pending = failure(apiRequest('/users/me'));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  await tokenStore.clear();
+  await tokenStore.save({
+    accessToken: 'other-access',
+    refreshToken: 'other-refresh',
+  });
+  finish(respond(200, rotated));
+  await pending;
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()?.accessToken).toBe('other-access');
+  await expect(tokenStore.load()).resolves.toMatchObject({
+    refreshToken: 'other-refresh',
+  });
+});
+
+test('a member 401 with a non-token code reaches the caller without rotation or sign-out', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock.mockResolvedValueOnce(
+      respond(401, {
+        code: 'INVALID_PASSWORD',
+        message: '비밀번호가 일치하지 않습니다.',
+        details: {},
+      }),
+    );
+    const error = await failure(
+      apiRequest('/users/me', { method: 'DELETE', body: { password: 'x' } }),
+    );
+    expect(error.code).toBe('INVALID_PASSWORD');
+    expect(error.status).toBe(401);
+    expect(error.message).toBe('비밀번호가 일치하지 않습니다.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-1');
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a replay answered with a non-token 401 code keeps the rotated session', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(respond(200, rotated))
+      .mockResolvedValueOnce(respond(401, { code: 'INVALID_PASSWORD' }));
+    const error = await failure(
+      apiRequest('/users/me', { method: 'DELETE', body: { password: 'x' } }),
+    );
+    expect(error.code).toBe('INVALID_PASSWORD');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-2');
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a member 401 with a code the app cannot read is treated as token failure', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401, { code: 'SOMETHING_NEW' }))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(200, { id: 7 }));
+  await expect(apiRequest('/users/me')).resolves.toEqual({ id: 7 });
+  expect(fetchMock.mock.calls[1][0]).toBe(
+    `${appConfig.apiBaseUrl}/auth/refresh`,
+  );
+});
+
+test('403 and public 401 never attempt token rotation', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(403))
+    .mockResolvedValueOnce(respond(401));
+  await failure(apiRequest('/users/me'));
+  await failure(apiRequest('/auth/login', { auth: false }));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()?.accessToken).toBe('access-1');
+});
+
+test('a lost refresh response is not resent and clears the session', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockRejectedValueOnce(new Error('secret transport body'));
+  const error = await failure(apiRequest('/users/me'));
+  expect(error.code).toBe('UNAUTHORIZED');
+  expect(error.message).not.toContain('secret');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()).toBeNull();
+});
+
+test('a keystore rotation failure ends the session without replay', async () => {
+  const keychain = require('react-native-keychain');
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  keychain.setGenericPassword.mockRejectedValueOnce(
+    new Error('storage locked'),
+  );
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockResolvedValueOnce(respond(200, rotated));
+  await failure(apiRequest('/users/me'));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()).toBeNull();
+  await expect(tokenStore.load()).resolves.toBeNull();
+});
+
+test('rotating held onboarding credentials does not persist an unfinished login', async () => {
+  tokenStore.hold({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+  });
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(200, {}));
+  await apiRequest('/users/me/running-profile');
+  expect(tokenStore.current()).toMatchObject({
+    accessToken: 'access-2',
+  });
+  await expect(tokenStore.load()).resolves.toBeNull();
+});
+
+test('a malformed successful refresh response fails closed', async () => {
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockResolvedValueOnce(respond(200, { ...rotated, refreshToken: '' }));
+  expect((await failure(apiRequest('/users/me'))).code).toBe('UNAUTHORIZED');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()).toBeNull();
+});
+
+test('a keystore false result cannot be mistaken for persisted rotated tokens', async () => {
+  const keychain = require('react-native-keychain');
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  keychain.setGenericPassword.mockResolvedValueOnce(false);
+  fetchMock
+    .mockResolvedValueOnce(respond(401))
+    .mockResolvedValueOnce(respond(200, rotated))
+    .mockResolvedValueOnce(respond(200, {}));
+  expect((await failure(apiRequest('/users/me'))).code).toBe('UNAUTHORIZED');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(tokenStore.current()).toBeNull();
 });

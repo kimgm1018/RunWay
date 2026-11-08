@@ -1,38 +1,31 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, IconButton, Screen } from '../../components';
-import {
-  errorCode,
-  useRepositories,
-  type PaceEntry,
-  type SelfReportedLevel,
-} from '../../data';
+import Svg, { Rect } from 'react-native-svg';
+import { AppText, Screen } from '../../components';
+import { useRepositories, type SelfReportedLevel } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { spacing, typography, useTheme } from '../../theme';
+import { fontFamily } from '../../theme';
+import { StepFooter } from './ProfileBasicScreen';
 import {
   ErrorNotice,
-  GoButton,
-  OnboardingFooter,
   OnboardingHeader,
-  PageDots,
-  Segmented,
+  onboardingLook,
+  onboardingScreen,
+  RunnerArt,
   SelectionCard,
+  signUpSteps,
   StepTitle,
 } from './parts';
+import { useSignUpDraft } from './SignUpDraft';
+import { applyLevelPreset } from './runningPresets';
 import {
-  applyLevelPreset,
-  switchPaceInput,
-  type PaceForm,
-  type PaceInput,
-} from './runningPresets';
-import {
-  editClock,
-  formatClock,
-  formatPace,
-  parseClock,
-  parseDistanceKm,
-} from './validation';
+  describeRunningSaveError,
+  emptyPaceForm,
+  PaceCard,
+  paceEntryFrom,
+  paceFormFrom,
+} from './PaceCard';
 
 const levels: { value: SelfReportedLevel; title: string; detail: string }[] = [
   { value: 'BEGINNER', title: '초급', detail: '5km 미만\n주 1회 이하' },
@@ -40,193 +33,40 @@ const levels: { value: SelfReportedLevel; title: string; detail: string }[] = [
   { value: 'ADVANCED', title: '상급', detail: '하프 이상\n주 4회+' },
 ];
 
-const paceInputs: { value: PaceInput; label: string }[] = [
-  { value: 'duration', label: '완주 시간' },
-  { value: 'pace', label: '페이스' },
-];
-
-// Time inputs take h:mm:ss for the finish time and mm:ss for the pace.
-const clockDigits: Record<PaceInput, number> = { duration: 6, pace: 4 };
-
-const emptyForm: PaceForm = {
-  input: 'duration',
-  distance: '',
-  clock: '',
-  auto: false,
-};
-
-// How long after a reformat the keyboard's own cursor report is still the stale one.
-const STALE_SELECTION_MS = 300;
-
-// Paces outside 2–20 min/km are almost certainly typos.
-const isLikelyPace = (secondsPerKm: number) =>
-  secondsPerKm >= 120 && secondsPerKm <= 1200;
-
-// U07 inputType: distance plus finish time works out the pace (DISTANCE_TIME); the pace tab sends the pace alone (PACE).
-function paceEntryFrom(
-  input: PaceInput,
-  distance: string,
-  clock: string,
-): PaceEntry | null {
-  const seconds = parseClock(clock);
-  if (!seconds) {
-    return null;
-  }
-  if (input === 'pace') {
-    return isLikelyPace(seconds)
-      ? { inputType: 'PACE', usualPaceSecPerKm: seconds }
-      : null;
-  }
-  const km = parseDistanceKm(distance);
-  if (!km || !isLikelyPace(seconds / km)) {
-    return null;
-  }
-  return {
-    inputType: 'DISTANCE_TIME',
-    baselineDistanceM: Math.round(km * 1000),
-    baselineDurationSec: seconds,
-    usualPaceSecPerKm: Math.round(seconds / km),
-  };
-}
-
-function describeSaveError(error: unknown) {
-  switch (errorCode(error)) {
-    case 'INVALID_LEVEL':
-      return {
-        title: '러닝 수준을 확인하지 못했어요.',
-        detail: '수준을 다시 골라 주세요.',
-      };
-    case 'INVALID_RUNNING_BASELINE':
-    case 'VALIDATION_ERROR':
-      return {
-        title: '평소 페이스를 확인하지 못했어요.',
-        detail: '입력한 값을 다시 확인해 주세요.',
-      };
-    case 'NETWORK_ERROR':
-      return {
-        title: '저장하지 못했어요.',
-        detail: '네트워크 연결을 확인하고 다시 시도해 주세요.',
-      };
-    default:
-      return {
-        title: '저장하지 못했어요.',
-        detail: '잠시 후 다시 시도해 주세요.',
-      };
-  }
-}
-
-function MetricInput({
-  label,
-  unit,
-  value,
-  onChangeText,
-  placeholder,
-  keyboardType,
-  maxClockDigits,
-}: {
-  label: string;
-  unit?: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  placeholder: string;
-  keyboardType: 'decimal-pad' | 'number-pad';
-  // Set for time inputs: digits only, with the colons put in as you type.
-  maxClockDigits?: number;
-}) {
-  const { colors } = useTheme();
-  const [focused, setFocused] = useState(false);
-  // The cursor is held only for the text it was worked out for; a value filled in from outside keeps the native cursor.
-  const [cursor, setCursor] = useState<{ text: string; at: number } | null>(
-    null,
-  );
-  const reformatted = useRef<{ at: number; until: number } | null>(null);
-  const selection =
-    maxClockDigits && cursor && cursor.text === value
-      ? { start: cursor.at, end: cursor.at }
-      : undefined;
-  const change = (raw: string) => {
-    if (!maxClockDigits) {
-      onChangeText(raw);
-      return;
-    }
-    const edit = editClock(value, raw, maxClockDigits);
-    reformatted.current = {
-      at: edit.cursor,
-      until: Date.now() + STALE_SELECTION_MS,
-    };
-    setCursor({ text: edit.text, at: edit.cursor });
-    onChangeText(edit.text);
-  };
-  const selectionChange = (at: number) => {
-    // Android reports the cursor of the raw keystroke after the change; once a colon moved the digits it is stale.
-    const pending = reformatted.current;
-    reformatted.current = null;
-    if (pending && pending.at !== at && Date.now() < pending.until) {
-      return;
-    }
-    setCursor({ text: value, at });
-  };
-  // A small label over an underlined number; the line darkens while typing.
+// The handoff's level icon: three rising bars, as many filled as the level.
+function LevelBars({ filled }: { filled: number }) {
   return (
-    <View style={styles.metric}>
-      <AppText variant="label" tone="textTertiary">
-        {label}
-      </AppText>
-      <View
-        style={[
-          styles.metricRow,
-          { borderBottomColor: focused ? colors.text : colors.border },
-        ]}
-      >
-        <TextInput
-          accessibilityLabel={label}
-          value={value}
-          onChangeText={change}
-          selection={selection}
-          onSelectionChange={
-            maxClockDigits
-              ? event => selectionChange(event.nativeEvent.selection.end)
-              : undefined
-          }
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={placeholder}
-          placeholderTextColor={colors.textDisabled}
-          keyboardType={keyboardType}
-          selectionColor={colors.accent}
-          style={[
-            typography.metricLarge,
-            styles.metricInput,
-            { color: colors.text },
-          ]}
+    <Svg width={20} height={20} viewBox="0 0 24 24">
+      {[
+        { x: 4, y: 14, h: 6 },
+        { x: 10, y: 10, h: 10 },
+        { x: 16, y: 5, h: 15 },
+      ].map((bar, index) => (
+        <Rect
+          key={bar.x}
+          x={bar.x}
+          y={bar.y}
+          width={4}
+          height={bar.h}
+          rx={1}
+          stroke={onboardingLook.ink}
+          strokeWidth={1.8}
+          fill={index < filled ? onboardingLook.ink : 'none'}
         />
-        {unit ? (
-          <AppText variant="caption" tone="textSecondary">
-            {unit}
-          </AppText>
-        ) : null}
-      </View>
-    </View>
+      ))}
+    </Svg>
   );
 }
 
-// 1.6 초기 설정 2/2 — 러닝 프로필
+// 1.6 초기 설정 — 러닝 수준 (runway-onboarding-handoff 1.6). The pace follows on 1.6b, which saves both (U07).
 export function ProfileRunningScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { profile } = useRepositories();
-  const [level, setLevel] = useState<SelfReportedLevel | null>(null);
-  const [form, setForm] = useState<PaceForm>(emptyForm);
-  const { input, distance, clock } = form;
-  const [saving, setSaving] = useState(false);
-  const [failure, setFailure] = useState<{
-    title: string;
-    detail: string;
-  } | null>(null);
-  const entry = paceEntryFrom(input, distance, clock);
-  const typed = clock !== '' && (input === 'pace' || distance !== '');
+  const { draft, update } = useSignUpDraft();
+  const level = draft.level;
+  const form = draft.paceForm ?? emptyPaceForm;
 
-  // A profile saved earlier (U06) fills the form; both ways of entering the pace stay available.
+  // A profile saved earlier (U06) fills the level and the pace; both ways of entering the pace stay available.
   useEffect(() => {
     let active = true;
     profile.getRunningProfile().then(
@@ -234,23 +74,11 @@ export function ProfileRunningScreen() {
         if (!active || !saved) {
           return;
         }
-        setLevel(saved.selfReportedLevel);
         // Saved values show as they are; picking a level replaces them with its recommendation.
-        if (saved.baselineDistanceM && saved.baselineDurationSec) {
-          setForm({
-            input: 'duration',
-            distance: String(saved.baselineDistanceM / 1000),
-            clock: formatClock(saved.baselineDurationSec),
-            auto: false,
-          });
-        } else {
-          setForm({
-            input: 'pace',
-            distance: '',
-            clock: formatClock(saved.usualPaceSecPerKm),
-            auto: false,
-          });
-        }
+        update({
+          level: saved.selfReportedLevel,
+          paceForm: paceFormFrom(saved),
+        });
       },
       // Without the saved values the form simply starts empty.
       () => {},
@@ -258,7 +86,72 @@ export function ProfileRunningScreen() {
     return () => {
       active = false;
     };
-  }, [profile]);
+  }, [profile, update]);
+
+  return (
+    <Screen
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: 5, total: signUpSteps }}
+        />
+      }
+      footer={
+        <StepFooter
+          title="다음"
+          disabled={!level}
+          onPress={() => navigateTo(navigation, 'ProfilePace')}
+        />
+      }
+    >
+      <RunnerArt />
+      <StepTitle title="평소 어떻게 " muted="달리나요?" />
+      <View accessibilityRole="radiogroup" style={styles.levels}>
+        {levels.map((option, index) => (
+          <SelectionCard
+            key={option.value}
+            selected={level === option.value}
+            onPress={() =>
+              update({
+                level: option.value,
+                paceForm: applyLevelPreset(form, option.value),
+              })
+            }
+            accessibilityLabel={`${option.title}, ${option.detail.replace(
+              '\n',
+              ' ',
+            )}`}
+            style={styles.level}
+          >
+            <LevelBars filled={index + 1} />
+            <View style={styles.flex}>
+              <AppText style={styles.levelTitle}>{option.title}</AppText>
+              <AppText style={styles.levelDetail}>
+                {option.detail.replace('\n', ' · ')}
+              </AppText>
+            </View>
+          </SelectionCard>
+        ))}
+      </View>
+    </Screen>
+  );
+}
+
+// 1.6b 초기 설정 — 평소 페이스 (runway-onboarding-handoff 1.6b). Both ways of entering it stay (담당자 결정): 완주 시간
+// (distance and time) or the pace itself, now a − / + number.
+export function ProfilePaceScreen() {
+  const navigation = useNavigation();
+  const { profile } = useRepositories();
+  const { draft, update } = useSignUpDraft();
+  const level = draft.level;
+  const form = draft.paceForm ?? emptyPaceForm;
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<{
+    title: string;
+    detail: string;
+  } | null>(null);
+  const entry = paceEntryFrom(form);
 
   const save = async () => {
     if (!level || !entry) {
@@ -276,177 +169,60 @@ export function ProfileRunningScreen() {
       navigateTo(navigation, 'WatchChoice');
     } catch (error) {
       setSaving(false);
-      setFailure(describeSaveError(error));
+      setFailure(describeRunningSaveError(error));
     }
   };
 
   return (
     <Screen
+      {...onboardingScreen}
       header={
         <OnboardingHeader
           onBack={navigation.goBack}
-          step={{ current: 2, total: 2 }}
+          progress={{ current: 6, total: signUpSteps }}
         />
       }
       footer={
-        <OnboardingFooter>
-          <View style={styles.cta}>
-            <IconButton
-              icon="back"
-              accessibilityLabel="이전"
-              diameter={54}
-              onPress={navigation.goBack}
-            />
-            <GoButton
-              title="저장"
-              disabled={!level || !entry || saving}
-              onPress={save}
-            />
-          </View>
-          <PageDots count={2} current={1} />
-        </OnboardingFooter>
+        <StepFooter
+          title="저장"
+          disabled={!level || !entry || saving}
+          onPress={save}
+        />
       }
     >
-      <StepTitle
-        title="평소 어떻게 "
-        muted="달리나요?"
-        description="거리와 횟수가 둘 다 맞지 않아도 괜찮아요 · 더 가까운 쪽을 골라 주세요"
-      />
+      <RunnerArt />
+      <StepTitle title="평소 페이스는 " muted="어느 정도예요?" />
       {failure ? (
         <ErrorNotice title={failure.title} detail={failure.detail} />
       ) : null}
-      <View accessibilityRole="radiogroup" style={styles.levels}>
-        {levels.map(option => (
-          <SelectionCard
-            key={option.value}
-            selected={level === option.value}
-            onPress={() => {
-              setLevel(option.value);
-              setForm(current => applyLevelPreset(current, option.value));
-            }}
-            accessibilityLabel={`${option.title}, ${option.detail.replace(
-              '\n',
-              ' ',
-            )}`}
-            style={styles.level}
-          >
-            <AppText variant="bodyMedium">{option.title}</AppText>
-            <AppText variant="label" tone="textSecondary">
-              {option.detail}
-            </AppText>
-          </SelectionCard>
-        ))}
-      </View>
-      <View
-        style={[
-          styles.pace,
-          {
-            backgroundColor: colors.inputBackground,
-            borderColor: colors.inputEdge,
-          },
-        ]}
-      >
-        <View style={styles.paceHeader}>
-          <AppText variant="bodyMedium">평소 페이스</AppText>
-          <Segmented
-            compact
-            options={paceInputs}
-            value={input}
-            onChange={value =>
-              setForm(current => switchPaceInput(current, value, level))
-            }
-          />
-        </View>
-        {/* The pace tab takes the pace alone (U07 PACE), so distance and the worked-out line only show for 완주 시간. */}
-        <View style={styles.inputs}>
-          {input === 'duration' ? (
-            <MetricInput
-              label="거리"
-              unit="km"
-              value={distance}
-              onChangeText={text =>
-                setForm(current => ({
-                  ...current,
-                  distance: text,
-                  auto: false,
-                }))
-              }
-              placeholder="5"
-              keyboardType="decimal-pad"
-            />
-          ) : null}
-          <MetricInput
-            label={input === 'duration' ? '완주 시간' : '페이스 (분:초/km)'}
-            value={clock}
-            onChangeText={text =>
-              setForm(current => ({ ...current, clock: text, auto: false }))
-            }
-            placeholder={input === 'duration' ? '30:00' : '6:00'}
-            keyboardType="number-pad"
-            maxClockDigits={clockDigits[input]}
-          />
-        </View>
-        {input === 'duration' ? (
-          <View style={[styles.auto, { borderTopColor: colors.border }]}>
-            <AppText variant="caption" tone="textSecondary" style={styles.flex}>
-              자동 계산 · 페이스
-            </AppText>
-            <AppText variant="metric">
-              {entry ? formatPace(entry.usualPaceSecPerKm) : '– –'}
-            </AppText>
-          </View>
-        ) : null}
-        {typed && !entry ? (
-          <AppText variant="caption" tone="danger">
-            {input === 'duration'
-              ? '거리는 km, 완주 시간은 30:00처럼 입력해 주세요'
-              : '페이스는 6:00처럼 입력해 주세요'}
-          </AppText>
-        ) : null}
-      </View>
+      <PaceCard
+        form={form}
+        onChange={paceForm => update({ paceForm })}
+        level={level}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  levels: { flexDirection: 'row', gap: spacing.md },
-  // Level cards keep the title at the top and the distance·frequency at the bottom.
+  levels: { gap: 12 },
   level: {
-    flex: 1,
-    minHeight: 104,
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: spacing.xl,
-  },
-  // 평소 페이스 sits on the same light card as the 1.x fields (DESIGN.md 2-5).
-  pace: {
-    gap: spacing.lg,
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: spacing.xxl,
-  },
-  paceHeader: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 14,
   },
-  inputs: { flexDirection: 'row', gap: spacing.xl },
-  metric: { flex: 1, gap: spacing.xxs },
-  metricRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: spacing.xs,
-    borderBottomWidth: 1,
+  levelTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: onboardingLook.ink,
   },
-  metricInput: { flex: 1, padding: 0 },
-  auto: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingTop: spacing.lg,
-    borderTopWidth: 1,
+  levelDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: onboardingLook.sub,
   },
-  cta: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
 });

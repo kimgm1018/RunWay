@@ -14,6 +14,7 @@ import com.runway.backend.domain.session.entity.SessionControlEvent;
 import com.runway.backend.domain.session.entity.SessionGoal;
 import com.runway.backend.domain.session.repository.RunningSessionRepository;
 import com.runway.backend.domain.session.repository.SessionControlEventRepository;
+import com.runway.backend.domain.session.stream.SessionStreamChanged;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -83,6 +84,7 @@ public class RunningSessionControlService {
                 throw new ApiException(ErrorCode.SESSION_INVALID_STATE, "취소");
             }
             session.cancel(now());
+            events.publishEvent(SessionStreamChanged.state(session.getId()));
         }
         return new CancelledSessionResponse(session.getId(), session.getStatus().name());
     }
@@ -135,6 +137,7 @@ public class RunningSessionControlService {
                                 ControlAction.START,
                                 expectedVersion,
                                 now()));
+        events.publishEvent(SessionStreamChanged.state(session.getId()));
         return Optional.of(GroupStartCommand.of(approved, session));
     }
 
@@ -207,6 +210,7 @@ public class RunningSessionControlService {
             start.get().markUnknownIfPending(SessionControlEvent.START_UNCONFIRMED_ABORTED);
             session.abortUnconfirmedStart(now());
             controlEventRepository.flush();
+            events.publishEvent(SessionStreamChanged.state(session.getId()));
             return GroupFinishOutcome.START_ABORTED;
         }
         boolean started =
@@ -218,9 +222,13 @@ public class RunningSessionControlService {
         }
         SessionControlEvent pending = access.pendingCommand(session);
         if (pending != null) {
-            return pending.getAction() == ControlAction.END
-                    ? GroupFinishOutcome.END_REUSED
-                    : GroupFinishOutcome.END_DEFERRED;
+            if (pending.getAction() == ControlAction.END) {
+                events.publishEvent(SessionStreamChanged.serverEnd(session.getId(), pending.getId()));
+                return GroupFinishOutcome.END_REUSED;
+            }
+            // 그룹 종료(groupEndedAt)만 바뀌었다. 폰은 미확정 명령의 결과 확인 뒤 S06으로 종료한다.
+            events.publishEvent(SessionStreamChanged.state(session.getId()));
+            return GroupFinishOutcome.END_DEFERRED;
         }
         Long controlDeviceId = session.getControlDeviceId();
         long expectedVersion = session.getStateVersion();
@@ -228,11 +236,18 @@ public class RunningSessionControlService {
                 || controlEventRepository
                         .findBySessionIdAndExpectedVersion(session.getId(), expectedVersion)
                         .isPresent()) {
+            events.publishEvent(SessionStreamChanged.state(session.getId()));
             return GroupFinishOutcome.END_DEFERRED;
         }
-        controlEventRepository.saveAndFlush(
-                SessionControlEvent.request(
-                        session.getId(), controlDeviceId, ControlAction.END, expectedVersion, now()));
+        SessionControlEvent end =
+                controlEventRepository.saveAndFlush(
+                        SessionControlEvent.request(
+                                session.getId(),
+                                controlDeviceId,
+                                ControlAction.END,
+                                expectedVersion,
+                                now()));
+        events.publishEvent(SessionStreamChanged.serverEnd(session.getId(), end.getId()));
         return GroupFinishOutcome.END_REQUESTED;
     }
 
@@ -318,6 +333,7 @@ public class RunningSessionControlService {
             default -> throw new IllegalArgumentException("unsupported result " + result);
         }
         controlEventRepository.flush();
+        events.publishEvent(SessionStreamChanged.state(session.getId()));
         return resultResponse(event, session, serverReceiveAt);
     }
 
@@ -395,6 +411,7 @@ public class RunningSessionControlService {
                                 action,
                                 expectedVersion,
                                 now()));
+        events.publishEvent(SessionStreamChanged.state(session.getId()));
         return ControlApprovalResponse.of(approved);
     }
 

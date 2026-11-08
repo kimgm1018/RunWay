@@ -10,28 +10,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@Testcontainers
-class CommentApiIntegrationTest {
-
+class CommentApiIntegrationTest extends SharedContextIntegrationSupport {
     @Test
     void 헤더단독과_상충헤더로_댓글작성자를_가장할수없다() throws Exception {
         long comment = insertComment(publicPostId, viewerId, "keep-body", null);
@@ -61,19 +52,6 @@ class CommentApiIntegrationTest {
                 .andExpect(jsonPath("$.code").value("ACCOUNT_ACCESS_DENIED"));
     }
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
-
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
 
@@ -87,14 +65,6 @@ class CommentApiIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM post_likes");
-        jdbc.update("DELETE FROM comments");
-        jdbc.update("DELETE FROM posts");
-        jdbc.update("DELETE FROM user_follows");
-        jdbc.update("DELETE FROM user_settings");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM users");
-
         viewerId = insertUser("cmt_viewer", "뷰어", "01020001001");
         publicAuthorId = insertUser("cmt_public", "공개작성", "01020001002");
         privateAuthorId = insertUser("cmt_private", "비공개작", "01020001003");
@@ -356,6 +326,60 @@ class CommentApiIntegrationTest {
     }
 
     @Test
+    void 타인댓글은_게시물작성자_알림행_본인댓글은_알림없음() throws Exception {
+        jdbc.update(
+                "UPDATE user_settings SET community_notifications_enabled=TRUE WHERE user_id=?",
+                publicAuthorId);
+
+        MvcResult created =
+                mockMvc.perform(
+                                post("/api/v1/posts/{postId}/comments", publicPostId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(viewerId))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"body":"알림용 타인 댓글"}
+                                                """))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+        long commentId =
+                Long.parseLong(
+                        created
+                                .getResponse()
+                                .getContentAsString()
+                                .replaceAll("(?s).*\"id\"\\s*:\\s*(\\d+).*", "$1"));
+
+        var row =
+                jdbc.queryForMap(
+                        """
+                        SELECT notification_type, target_id, dedupe_key, message
+                        FROM notifications
+                        WHERE user_id=?
+                        """,
+                        publicAuthorId);
+        assertThat(row.get("notification_type")).isEqualTo("POST_COMMENT");
+        assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(publicPostId);
+        assertThat(row.get("dedupe_key")).isEqualTo("POST_COMMENT:" + commentId);
+        assertThat((String) row.get("message")).isNotBlank().hasSizeLessThanOrEqualTo(100);
+        assertThat(countNotifications(publicAuthorId)).isEqualTo(1);
+        assertThat(countNotifications(viewerId)).isZero();
+
+        mockMvc.perform(
+                        post("/api/v1/posts/{postId}/comments", publicPostId)
+                                .header("Authorization", SecurityTestSupport.bearer(publicAuthorId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"body":"작성자 본인 댓글"}
+                                        """))
+                .andExpect(status().isCreated());
+
+        assertThat(countNotifications(publicAuthorId)).isEqualTo(1);
+    }
+
+    @Test
     void 헤더없으면_401_UNAUTHORIZED() throws Exception {
         mockMvc.perform(get("/api/v1/posts/{postId}/comments", publicPostId))
                 .andExpect(status().isUnauthorized())
@@ -384,6 +408,11 @@ class CommentApiIntegrationTest {
         mockMvc.perform(delete("/api/v1/comments/{commentId}", 1L))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    private long countNotifications(long userId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM notifications WHERE user_id=?", Long.class, userId);
     }
 
     private long insertUser(String loginId, String nickname, String phone) {

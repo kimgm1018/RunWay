@@ -1,5 +1,5 @@
 {
-  "policy_version": "mpc-v0.4.0",
+  "policy_version": "mpc-v0.4.3",
   "validated": false,
   "provisional": false,
   "hr_threshold_population_danger_bpm": 175.0,
@@ -15,7 +15,7 @@
   "hold_sec": 60.0,
   "publish_delta_sec_per_km": 5.0,
   "walk_speed_mps": 1.5,
-  "hr_stale_sec": 15.0,
+  "hr_stale_sec": 20.0,
   "input_insufficient_sec": 20.0,
   "margin_quantile": "P90",
   "w_t_base": 0.5,
@@ -28,5 +28,14 @@
   "overpace_faster_sec_per_km": 10.0,
   "detector_window_cells": 12,
   "detector_min_valid_cells": 6,
-  "overpace_hr_rise_bpm_per_min": 10.0
+  "overpace_hr_rise_bpm_per_min": 10.0,
+  "actual_pace_check_enabled": true,
+  "hr_slow_steps_sec_per_km": [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0],
+  "hr_slow_cooldown_sec": 120.0,
+  "hr_slow_margin_120_bpm": {"FLAT": 4.89, "UP": 5.98, "DOWN": 6.65, "UNKNOWN": 7.46},
+  "speed_up_steps_sec_per_km": [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0],
+  "early_slow_cap_sec": 180.0,
+  "early_slow_cap_sec_per_km": 10.0,
+  "not_following_sec_per_km": 10.0,
+  "not_following_grace_sec": 60.0
 }

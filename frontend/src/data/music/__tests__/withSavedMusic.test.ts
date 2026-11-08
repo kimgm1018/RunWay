@@ -24,6 +24,10 @@ function reshaped(base: Music, change: (state: MusicState) => MusicState) {
     pause: wrap(base.pause),
     next: wrap(base.next),
     previous: wrap(base.previous),
+    getPlaylists: base.getPlaylists,
+    playPlaylist: wrap(base.playPlaylist),
+    getRecentTracks: base.getRecentTracks,
+    playTrack: wrap(base.playTrack),
   };
 }
 
@@ -138,4 +142,12 @@ describe('withSavedMusic', () => {
     }));
     expect((await launch(broken).getState()).nowPlaying).toBeNull();
   });
+});
+
+test('disabling Spotify track restoration still restores the last Melon track', async () => {
+  const heard = await heardOnMelon();
+  const state = await withSavedMusic(silent(), {
+    restoreSpotifyTrack: false,
+  }).getState();
+  expect(state.nowPlaying).toEqual({ ...heard, playing: false });
 });

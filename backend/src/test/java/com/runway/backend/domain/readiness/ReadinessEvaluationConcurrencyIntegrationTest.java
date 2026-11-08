@@ -23,21 +23,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * 254 AC-8. 같은 회원·날짜 평가를 실제 DB 트랜잭션에서 겹치게 실행한다. 단일 서버·단일 DB 범위의 확인이다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class ReadinessEvaluationConcurrencyIntegrationTest extends ReadinessIntegrationSupport {
 
     @Autowired private ReadinessEvaluationService evaluationService;
-    @MockitoSpyBean private ReadinessJdbcRepository repository;
+    @Autowired private ReadinessJdbcRepository repository;
 
     @RepeatedTest(5)
     void 같은_날짜_동시_평가는_행_하나로_끝난다() throws Exception {
@@ -125,7 +120,9 @@ class ReadinessEvaluationConcurrencyIntegrationTest extends ReadinessIntegration
         while (System.nanoTime() < deadline) {
             Integer waiting =
                     jdbc.queryForObject(
-                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=254001 AND NOT granted",
+                            "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND classid=254001 AND NOT granted"
+                                    + " AND database = (SELECT oid FROM pg_database"
+                                    + " WHERE datname = current_database())",
                             Integer.class);
             if (waiting != null && waiting > 0) {
                 return true;

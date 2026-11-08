@@ -38,7 +38,7 @@
 
   function setHeader(modelLabel, policyVersion) {
     put('model-label', modelLabel || '예측기 대기');
-    put('policy-label', '정책 ' + (policyVersion || 'mpc-v0.4.0') + ' · 같은 정책, 예측기만 다름');
+    put('policy-label', '정책 ' + (policyVersion || 'mpc-v0.4.1') + ' · 같은 정책, 예측기만 다름');
   }
 
   function setStage(stage, speed) { put('stage-badge', stageText(stage, speed)); }
@@ -234,7 +234,7 @@
     put('metric-latency', lag + ' · ' + decide);
     var modelLabel = options.modelLabel || trace.modelVersion || '대기';
     if (String(modelLabel).indexOf('예측기') !== 0) modelLabel = '예측기: ' + modelLabel;
-    setHeader(modelLabel, options.policyVersion || trace.policyVersion || 'mpc-v0.4.0');
+    setHeader(modelLabel, options.policyVersion || trace.policyVersion || 'mpc-v0.4.1');
     put('runner-label', latestSnapshot && latestSnapshot.label || '러너');
     var cards = candidateCards(trace, options.animate === true);
     drawChart(trace);

@@ -16,19 +16,22 @@ class PassiveHrService : PassiveListenerService() {
 
     override fun onNewDataPointsReceived(dataPoints: DataPointContainer) {
         if (!consentHolds()) return
+        val consent = store.consent() ?: return
         val bootInstant = Instant.ofEpochMilli(System.currentTimeMillis() - SystemClock.elapsedRealtime())
         val valid = mutableListOf<Pair<Long, Double>>()
         val drops = mutableMapOf<DropReason, Int>()
         dataPoints.getData(DataType.HEART_RATE_BPM).forEach { point ->
+            val epochMs = point.getTimeInstant(bootInstant).toEpochMilli()
+            if (consent.collectionStartedAt?.isAfter(Instant.ofEpochMilli(epochMs)) == true) return@forEach
             val bpm = point.value
             val accuracy = (point.accuracy as? HeartRateAccuracy)?.sensorStatus?.let(::toHrAccuracy)
             when (val reason = validate(bpm, accuracy)) {
-                null -> valid += point.getTimeInstant(bootInstant).toEpochMilli() to bpm
+                null -> valid += epochMs to bpm
                 else -> drops[reason] = (drops[reason] ?: 0) + 1
             }
         }
-        if (valid.isNotEmpty()) store.addSamples(valid)
-        drops.forEach { (reason, count) -> store.addDrops(reason, count) }
+        if (valid.isNotEmpty()) store.addSamples(valid, consent.collectionId)
+        drops.forEach { (reason, count) -> store.addDrops(reason, count, consent.collectionId) }
         // Below the battery floor: the registrar unregisters and pauses collection.
         val battery = readBattery(this)
         if (decide(true, true, true, battery.pct, battery.charging) == CollectionState.PAUSED_LOW_BATTERY) {
@@ -38,11 +41,13 @@ class PassiveHrService : PassiveListenerService() {
 
     override fun onUserActivityInfoReceived(info: UserActivityInfo) {
         if (!consentHolds()) return
+        val collectionId = store.consent()?.collectionId
         store.addTransition(
             ActivityTransition(
                 info.stateChangeTime.toEpochMilli(),
                 info.userActivityState == UserActivityState.USER_ACTIVITY_EXERCISE,
             ),
+            collectionId,
         )
     }
 

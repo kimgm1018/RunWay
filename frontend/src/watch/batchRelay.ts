@@ -16,8 +16,13 @@ type Deps = {
   sleep?: (ms: number) => Promise<void>;
 };
 
+// 한 batch의 업로드 결과. FAILED는 같은 본문으로 다시 보내도 소용없는 거절, UNCONFIRMED는 저장 미확인이다.
+export type BatchOutcome = 'COMMITTED' | 'FAILED' | 'UNCONFIRMED';
+
 export type BatchRelay = {
   handle: (event: BatchEvent) => void;
+  // 업로드하고(진행 중이면 그 결과를 기다리고) 결과를 돌려준다. 폰 인계 전 저장 확인에 쓴다(S15P31E105-464).
+  settle: (event: BatchEvent) => Promise<BatchOutcome>;
   // 업로드 중인 batch 수. 테스트·화면 표시에 쓴다.
   inflight: () => number;
 };
@@ -46,9 +51,9 @@ export function createBatchRelay({
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 }: Deps): BatchRelay {
   // 같은 batch가 재전송·수신함 복구로 여러 번 와도 동시에 한 번만 올린다.
-  const uploading = new Set<string>();
+  const uploading = new Map<string, Promise<BatchOutcome>>();
 
-  async function send(event: BatchEvent) {
+  async function send(event: BatchEvent): Promise<BatchOutcome> {
     let lastCode: DataErrorCode = 'UNKNOWN';
     for (const delay of retryDelaysMs) {
       if (delay > 0) {
@@ -62,10 +67,11 @@ export function createBatchRelay({
           ack.batchId !== event.batchId ||
           ack.acceptedCount !== event.itemCount
         ) {
-          return;
+          return 'UNCONFIRMED';
         }
+        // 폰 기록에 저장 확인을 남긴 뒤에만 확정으로 본다. 기록하지 못하면 다시 보내 같은 ACK를 받는다.
         await watch.commitBatch(event.batchId, ack.acceptedCount);
-        return;
+        return 'COMMITTED';
       } catch (error) {
         lastCode = errorCode(error);
         if (!RETRYABLE.includes(lastCode)) {
@@ -75,20 +81,31 @@ export function createBatchRelay({
     }
     if (FINAL.includes(lastCode)) {
       await watch.failBatch(event.batchId, lastCode);
+      return 'FAILED';
     }
     // 그 밖(시간 초과·반복 장애)은 저장 미확인으로 남긴다. 워치가 같은 batch를 다시 보내면 다시 올린다.
+    return 'UNCONFIRMED';
   }
+
+  const settle = (event: BatchEvent) => {
+    const running = uploading.get(event.batchId);
+    if (running) {
+      return running;
+    }
+    const next = send(event)
+      .catch((): BatchOutcome => 'UNCONFIRMED')
+      .finally(() => uploading.delete(event.batchId));
+    uploading.set(event.batchId, next);
+    return next;
+  };
 
   return {
     handle: event => {
-      if (uploading.has(event.batchId)) {
-        return;
+      if (!uploading.has(event.batchId)) {
+        settle(event).catch(() => undefined);
       }
-      uploading.add(event.batchId);
-      send(event)
-        .catch(() => undefined)
-        .finally(() => uploading.delete(event.batchId));
     },
+    settle,
     inflight: () => uploading.size,
   };
 }

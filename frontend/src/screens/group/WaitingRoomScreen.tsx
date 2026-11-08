@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -11,6 +10,7 @@ import {
 import {
   CommonActions,
   useNavigation,
+  useFocusEffect,
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
@@ -18,36 +18,42 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../session/SessionProvider';
 import {
   AppText,
-  Backdrop,
-  Card,
   EmptyState,
   Icon,
-  IconButton,
+  PressableScale,
+  useToast,
 } from '../../components';
 import {
   useRepositories,
   useResource,
+  DataError,
   type CoursePlan,
   type GroupRunDetail,
   type Repositories,
   type WaitingRoom,
 } from '../../data';
-import { formatDuration, formatPace } from '../../format';
+import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import {
   fontFamily,
-  k1,
   size,
   spacing,
   ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
-import { GlowButton } from '../course/TodayRunScreen';
 import { ServiceMark, useMusicSource } from '../run/parts';
 import { useRunActions, type RunConfig } from '../run/RunSession';
+import {
+  GroupBackground,
+  GroupCta,
+  groupLook,
+  Raised,
+  SectionLabel,
+} from './look';
 import { BottomFade, Initial } from './parts';
+import { BackButton } from '../../components/BackButton';
 
 const countdownSeconds = 3;
 
@@ -70,7 +76,6 @@ export function groupRunConfig(
             (run.targetDistanceM / 1000) * goalPaceSecPerKm,
           ),
           caution: null,
-          rival: null,
         }
       : null;
   return {
@@ -117,84 +122,50 @@ function useCountdown(target: string | null, now: Date) {
 }
 
 function PaceCard({ room }: { room: WaitingRoom }) {
-  const [slow, fast] = [room.comfortRange[1], room.comfortRange[0]];
-  const share = (slow - room.goalPaceSecPerKm) / Math.max(slow - fast, 1);
-  // The vignette card: 공동 페이스 in large Barlow and the comfort range with a white handle
-  // (DESIGN.md 2-10 대기방).
+  const pace = room.recommendedPaceSecPerKm;
+  const range = room.comfortRange;
+  const share =
+    range && pace !== null
+      ? Math.max(
+          0,
+          Math.min(1, (range[1] - pace) / Math.max(range[1] - range[0], 1)),
+        )
+      : null;
   return (
-    <Card variant="vignette" style={styles.card}>
-      <PaceCardContent room={room} share={share} slow={slow} fast={fast} />
-    </Card>
+    <View style={styles.card}>
+      <View style={styles.rowBetween}>
+        <SectionLabel tone="light">추천 공동 페이스</SectionLabel>
+        <AppText style={styles.noteStrong}>참가자 기록 기준</AppText>
+      </View>
+      {pace === null ? (
+        <AppText style={styles.noteText}>추천 정보 부족</AppText>
+      ) : (
+        <AppText style={styles.pace}>
+          {formatPace(pace)}
+          <AppText style={styles.paceUnit}> /km</AppText>
+        </AppText>
+      )}
+      {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
+      {range && share !== null ? (
+        <>
+          <View style={styles.range}>
+            <View style={styles.rangeFill} />
+            <View style={[styles.rangeMarker, { left: `${share * 100}%` }]} />
+          </View>
+          <View style={styles.rowBetween}>
+            <AppText style={styles.rangeEnd}>{formatPace(range[0])}</AppText>
+            <AppText style={styles.rangeLabel}>참가자 편한 범위</AppText>
+            <AppText style={styles.rangeEnd}>{formatPace(range[1])}</AppText>
+          </View>
+        </>
+      ) : null}
+    </View>
   );
 }
 
-function PaceCardContent({
-  room,
-  share,
-  slow,
-  fast,
-}: {
-  room: WaitingRoom;
-  share: number;
-  slow: number;
-  fast: number;
-}) {
-  const { colors } = useTheme();
-  return (
-    <>
-      <View style={styles.rowBetween}>
-        <AppText variant="bodyMedium">공동 페이스</AppText>
-        <AppText variant="label" tone="textSecondary">
-          AI 제안 · 참가자 기록 기준
-        </AppText>
-      </View>
-      <AppText style={styles.pace}>
-        {formatPace(room.goalPaceSecPerKm)}
-        <AppText variant="caption" tone="textSecondary">
-          {`  /km · 예상 ${formatDuration(room.expectedDurationSec)}`}
-        </AppText>
-      </AppText>
-      <View style={[styles.range, { backgroundColor: colors.border }]}>
-        <View
-          style={[styles.rangeFill, { backgroundColor: colors.accentSoft }]}
-        />
-        <View
-          style={[
-            styles.rangeMarker,
-            { left: `${share * 100}%`, backgroundColor: colors.accent },
-          ]}
-        />
-      </View>
-      <View style={styles.rowBetween}>
-        <AppText variant="label" tone="textSecondary">
-          {formatPace(fast)}
-        </AppText>
-        <AppText variant="labelStrong">참가자 편한 범위</AppText>
-        <AppText variant="label" tone="textSecondary">
-          {formatPace(slow)}
-        </AppText>
-      </View>
-    </>
-  );
-}
-
-// After 준비 완료 the button turns into an outlined 준비 취소 on the black part.
+// After 준비 완료 the button turns into a dark glass 준비 취소 on the navy foot.
 function ReadyCancel({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="준비 취소"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.ready,
-        { borderColor: colors.borderStrong },
-        pressed && styles.pressed,
-      ]}
-    >
-      <AppText variant="button">준비 취소</AppText>
-    </Pressable>
-  );
+  return <GroupCta title="준비 취소" primary={false} onPress={onPress} />;
 }
 
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
@@ -215,6 +186,12 @@ export function WaitingRoomScreen() {
     ),
   );
   const [room, setRoom] = useState<WaitingRoom | null>(null);
+  const toast = useToast();
+  const [starting, setStarting] = useState(false);
+  const [startRequested, setStartRequested] = useState(false);
+  const [watchError, setWatchError] = useState<string | null>(null);
+  const readyBusy = useRef(false);
+  const startBusy = useRef(false);
   const [count, setCount] = useState<number | null>(null);
   const run = data.status === 'ready' ? data.data[0] : null;
   const [now] = useState(() => clock.now());
@@ -227,15 +204,66 @@ export function WaitingRoomScreen() {
     }
   }, [loadedRoom]);
 
-  // The leader's start reaches every member; ready ones count down 3·2·1 and start.
-  useEffect(
-    () =>
-      groupRuns.watchStart(groupRunId, () => {
-        if (ensureRunLogin()) {
-          setCount(countdownSeconds);
-        }
-      }),
-    [groupRunId, groupRuns, ensureRunLogin],
+  const observeError = useCallback(
+    (error: unknown) =>
+      setWatchError(
+        error instanceof DataError && error.status === 409
+          ? '그룹런이 취소되었거나 종료되었어요. 상세에서 상태를 확인해 주세요.'
+          : '대기방 상태를 확인하지 못했어요. 연결되면 다시 조회해요.',
+      ),
+    [],
+  );
+  const updateParticipants = useCallback(
+    (
+      participants: WaitingRoom['participants'],
+      recommendedPaceSecPerKm?: number | null,
+      comfortRange?: WaitingRoom['comfortRange'],
+      counts?: { participantCount: number; readyCount: number },
+    ) => {
+      const participantCount = counts?.participantCount ?? participants.length;
+      const readyCount =
+        counts?.readyCount ??
+        participants.filter(member => member.readyStatus === 'READY').length;
+      setWatchError(null);
+      setRoom(current =>
+        current
+          ? {
+              ...current,
+              participants,
+              // presence 없음: 참가 신청·대기방 인원 모두 G07 participantCount.
+              appliedCount: participantCount,
+              participantCount,
+              readyCount,
+              comfortRange:
+                comfortRange === undefined
+                  ? current.comfortRange
+                  : comfortRange,
+              recommendedPaceSecPerKm:
+                recommendedPaceSecPerKm === undefined
+                  ? current.recommendedPaceSecPerKm
+                  : recommendedPaceSecPerKm,
+            }
+          : current,
+      );
+    },
+    [],
+  );
+  useFocusEffect(
+    useCallback(
+      () =>
+        groupRuns.watchStart(
+          groupRunId,
+          () => {
+            if (ensureRunLogin()) {
+              // 실서버는 기기 시작이 이미 확인됐다. 목업에만 기존 카운트다운을 유지한다.
+              setCount(/^\d+$/.test(groupRunId) ? 0 : countdownSeconds);
+            }
+          },
+          observeError,
+          updateParticipants,
+        ),
+      [groupRunId, groupRuns, ensureRunLogin, observeError, updateParticipants],
+    ),
   );
   const latest = useRef({ run, room, start, navigation });
   latest.current = { run, room, start, navigation };
@@ -244,6 +272,7 @@ export function WaitingRoomScreen() {
       return;
     }
     if (count === 0) {
+      if (!run || !room) return;
       setCount(null);
       if (!ensureRunLogin()) {
         return;
@@ -267,7 +296,7 @@ export function WaitingRoomScreen() {
     }
     const timer = setTimeout(() => setCount(count - 1), 1000);
     return () => clearTimeout(timer);
-  }, [count, ensureRunLogin]);
+  }, [count, ensureRunLogin, run, room]);
 
   if (!run || !room) {
     return (
@@ -275,11 +304,7 @@ export function WaitingRoomScreen() {
         style={[styles.root, { backgroundColor: colors.background }]}
       >
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
         </View>
         {data.status === 'error' ? (
           <EmptyState
@@ -297,29 +322,44 @@ export function WaitingRoomScreen() {
 
   const me = room.participants.find(member => member.isMe);
   const isReady = me?.readyStatus === 'READY';
-  const readyCount = room.participants.filter(
-    member => member.readyStatus === 'READY',
-  ).length;
   const toggleReady = async () => {
-    if (!isReady && !ensureRunLogin()) {
+    if (readyBusy.current || startRequested || (!isReady && !ensureRunLogin()))
       return;
+    readyBusy.current = true;
+    try {
+      setRoom(await groupRuns.setReady(groupRunId, !isReady));
+    } catch {
+      toast(
+        '준비 상태를 변경하지 못했어요. 대기방 상태를 확인한 뒤 다시 시도해 주세요',
+      );
+    } finally {
+      readyBusy.current = false;
     }
-    setRoom(await groupRuns.setReady(groupRunId, !isReady));
+  };
+  const requestStart = async () => {
+    if (startBusy.current || startRequested || !ensureRunLogin()) return;
+    startBusy.current = true;
+    setStarting(true);
+    try {
+      await groupRuns.start(groupRunId);
+      setStartRequested(true);
+    } catch {
+      toast(
+        '시작 응답을 확인하지 못했어요. 실제 출발 상태를 확인한 뒤 다시 시도해 주세요',
+      );
+    } finally {
+      startBusy.current = false;
+      setStarting(false);
+    }
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
+    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+      <StatusBar barStyle="dark-content" />
+      <GroupBackground id="waitingRoomBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <IconButton
-            icon="back"
-            accessibilityLabel="뒤로"
-            onPress={() => navigation.goBack()}
-          />
+          <BackButton onPress={() => navigation.goBack()} />
           <AppText
             accessibilityRole="header"
             style={[styles.flex, styles.title]}
@@ -333,72 +373,74 @@ export function WaitingRoomScreen() {
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
-        <Card variant="solid" style={styles.card}>
+        {watchError ? (
+          <AppText accessibilityLiveRegion="polite">{watchError}</AppText>
+        ) : null}
+        {startRequested ? (
+          <AppText accessibilityLiveRegion="polite">
+            출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
+          </AppText>
+        ) : null}
+        {run.isHost && !startRequested ? (
+          <GroupCta
+            title={starting ? '출발 요청 중…' : '그룹런 시작'}
+            icon="check"
+            onPress={requestStart}
+          />
+        ) : null}
+        {/* 6.5-MemberList: a line-labelled list without dividers. */}
+        <View style={styles.card}>
           <View style={styles.rowBetween}>
-            <AppText variant="bodyMedium">
-              {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participants.length}명`}
-            </AppText>
-            <AppText variant="label" tone="textSecondary">
-              {`${readyCount}명 준비 완료`}
+            <SectionLabel tone="light">
+              {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
+            </SectionLabel>
+            <AppText style={styles.noteText}>
+              {`${room.readyCount}명 준비 완료`}
             </AppText>
           </View>
-          {room.participants.map((member, index) => (
-            <View key={member.userId}>
-              {index > 0 ? (
-                <View
-                  style={[styles.divider, { backgroundColor: colors.border }]}
-                />
-              ) : null}
-              <View style={styles.member}>
+          <View>
+            {room.participants.map((member, index) => (
+              <View key={member.userId} style={styles.member}>
                 <Initial name={member.nickname} index={index} size={36} />
                 <View style={styles.flex}>
                   <View style={styles.nameLine}>
-                    <AppText variant="bodyMedium">{member.nickname}</AppText>
+                    <AppText style={styles.memberName}>
+                      {member.nickname}
+                    </AppText>
                     {member.isHost ? (
                       <Icon
                         name="crown"
-                        color={colors.textSecondary}
+                        color={groupLook.onLightSub}
                         size={13}
                       />
                     ) : null}
                     {member.isMe ? (
-                      <View
-                        style={[
-                          styles.meBadge,
-                          { backgroundColor: colors.accent },
-                        ]}
-                      >
-                        <AppText
-                          variant="labelStrong"
-                          style={{ color: colors.onAccent }}
-                        >
-                          나
-                        </AppText>
-                      </View>
+                      <Raised tone="navy" style={styles.meBadge}>
+                        <AppText style={styles.meText}>나</AppText>
+                      </Raised>
                     ) : null}
                   </View>
                   {member.isMe && member.readinessScore !== null ? (
-                    <AppText variant="label" tone="textSecondary">
+                    <AppText style={styles.readiness}>
                       {`준비도 ${member.readinessScore}`}
                     </AppText>
                   ) : null}
                 </View>
                 <AppText
-                  variant={
-                    member.readyStatus === 'READY' ? 'captionStrong' : 'caption'
-                  }
-                  tone={
-                    member.readyStatus === 'READY' ? 'text' : 'textSecondary'
+                  style={
+                    member.readyStatus === 'READY'
+                      ? styles.statusReady
+                      : styles.statusWaiting
                   }
                 >
                   {member.readyStatus === 'READY' ? '준비 완료' : '대기 중'}
                 </AppText>
               </View>
-            </View>
-          ))}
-        </Card>
-        <AppText variant="caption" tone="textSecondary" style={styles.note}>
-          그룹장이 출발하면 준비 완료한 멤버의 기록이 3초 뒤 함께 시작돼요
+            ))}
+          </View>
+        </View>
+        <AppText style={[styles.noteText, styles.note]}>
+          그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
         </AppText>
       </ScrollView>
       <ThemeProvider tone="dark">
@@ -408,26 +450,23 @@ export function WaitingRoomScreen() {
             {isReady ? (
               <ReadyCancel onPress={toggleReady} />
             ) : (
-              <GlowButton
-                title="준비 완료"
-                icon="check"
-                onPress={toggleReady}
-              />
+              <GroupCta title="준비 완료" icon="check" onPress={toggleReady} />
             )}
           </View>
-          {/* The music button is a white circle on the black part (DESIGN.md 2-10 대기방). */}
-          <Pressable
+          {/* 6.5-ReadyBar: the music button is a raised navy circle beside it. */}
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="음악"
             onPress={() => navigateTo(navigation, 'MusicCard')}
-            style={({ pressed }) => [styles.music, pressed && styles.pressed]}
           >
-            {source && source !== 'NONE' ? (
-              <ServiceMark service={source} size={30} />
-            ) : (
-              <Icon name="music" color={k1.night} size={20} />
-            )}
-          </Pressable>
+            <Raised tone="navy" style={styles.music}>
+              {source && source !== 'NONE' ? (
+                <ServiceMark service={source} size={30} />
+              ) : (
+                <Icon name="music" color={groupLook.onDark} size={20} />
+              )}
+            </Raised>
+          </PressableScale>
         </SafeAreaView>
       </ThemeProvider>
       <Modal visible={count !== null} transparent animationType="fade">
@@ -456,22 +495,59 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingHorizontal: spacing.screen,
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 19, lineHeight: 26 },
-  timeLeft: { fontFamily: fontFamily.numberRegular, fontSize: 16 },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 26,
+    color: groupLook.onLight,
+  },
+  timeLeft: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 16,
+    color: groupLook.onLight,
+  },
   content: {
-    padding: 14,
-    gap: spacing.lg,
+    paddingHorizontal: 16,
+    paddingTop: spacing.md,
+    gap: 32,
     paddingBottom: spacing.xxxl * 4,
   },
   card: { gap: spacing.lg },
+  noteStrong: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  noteText: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupLook.onLightSub,
+  },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   // Big numbers stay Barlow Regular at the sheet's 60.
-  pace: { fontFamily: fontFamily.numberRegular, fontSize: 60, lineHeight: 66 },
-  range: { height: 8, borderRadius: 4, justifyContent: 'center' },
+  pace: {
+    fontFamily: fontFamily.numberRegular,
+    fontSize: 60,
+    lineHeight: 66,
+    color: groupLook.onLight,
+  },
+  paceUnit: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    color: groupLook.onLightSub,
+  },
+  range: {
+    height: 8,
+    borderRadius: 4,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2,5,14,0.08)',
+  },
   rangeFill: {
     position: 'absolute',
     left: '25%',
@@ -479,23 +555,72 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRadius: 4,
+    backgroundColor: '#7DA0B2',
   },
   rangeMarker: {
     position: 'absolute',
-    width: 4,
+    width: 3,
     height: 22,
-    borderRadius: 2,
-    marginLeft: -2,
+    borderRadius: 1.5,
+    marginLeft: -1.5,
+    backgroundColor: groupLook.onLight,
   },
-  divider: { height: StyleSheet.hairlineWidth },
+  rangeEnd: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub2,
+  },
+  rangeLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLight,
+  },
+  // 6.5-MemberList rows.
   member: {
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.md,
+    gap: 12,
   },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  meBadge: { paddingHorizontal: spacing.sm, borderRadius: 999 },
+  memberName: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupLook.onLight,
+  },
+  meBadge: {
+    height: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    justifyContent: 'center',
+  },
+  meText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 11,
+    lineHeight: 14,
+    color: groupLook.onDark,
+  },
+  readiness: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupLook.onLightSub,
+  },
+  statusReady: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLight,
+  },
+  statusWaiting: {
+    fontFamily: fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupLook.onLightSub,
+  },
   note: { textAlign: 'center' },
   footer: {
     position: 'absolute',
@@ -509,22 +634,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
-  ready: {
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   music: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: k1.ice,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: { opacity: 0.8 },
   overlay: {
     flex: 1,
     alignItems: 'center',

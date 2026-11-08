@@ -3,6 +3,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -15,7 +16,12 @@
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
-    <queries><package android:name="com.google.android.apps.healthdata" /></queries>
+    <queries>
+      <package android:name="com.spotify.music" />
+      <package android:name="com.google.android.apps.healthdata" />
+      <!-- S15P31E105-398: 멜론 설치 확인·MediaBrowser 연결·앱 열기. -->
+      <package android:name="com.iloen.melon" />
+    </queries>
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
@@ -58,9 +64,21 @@
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/session/" />
           <!-- S15P31E105-311: BATCH_DATA measurement batches from the watch. -->
           <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/data/" />
+          <!-- S15P31E105-257: COACHING_RESULT from the watch. -->
+          <data android:scheme="wear" android:host="*" android:pathPrefix="/runway/v1/coaching/" />
         </intent-filter>
       </service>
       <!-- S15P31E105-256: keeps watch relay alive during a run (connectedDevice; CHANGE_NETWORK_STATE is the prerequisite). -->
-      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice" />
+      <!-- S15P31E105-398: 멜론 재생 제어를 위한 알림 접근 권한. 알림 내용은 읽지 않는다. -->
+      <service
+        android:name=".music.MelonListenerService"
+        android:label="멜론 재생 제어"
+        android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+        android:exported="true">
+        <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        <meta-data android:name="android.service.notification.default_filter_types" android:value="ongoing" />
+        <meta-data android:name="android.service.notification.disabled_filter_types" android:value="conversations|alerting|silent" />
+      </service>
+      <service android:name=".watch.RunForegroundService" android:exported="false" android:foregroundServiceType="connectedDevice|location" />
     </application>
 </manifest>

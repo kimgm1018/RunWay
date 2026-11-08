@@ -10,6 +10,8 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
       reasonCode: 'WATCH_UNAVAILABLE',
     }),
     sendCommand: async () => undefined,
+    sendBpmCommand: async () => undefined,
+    sendCoachingGuide: async () => undefined,
     sendReceived: async () => undefined,
     sendServerState: async () => undefined,
     sendError: async () => undefined,

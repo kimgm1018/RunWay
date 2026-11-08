@@ -13,15 +13,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /** S01 — AC-1~AC-6. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
 @Testcontainers
 class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSupport {
 
@@ -55,8 +51,9 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
 
         assertThat(
                         count(
-                                "SELECT count(*) FROM running_sessions WHERE user_id=? AND status='READY'"
-                                        + " AND state_version=1 AND analysis_status='PENDING'",
+                                "SELECT count(*) FROM running_sessions WHERE user_id=? AND"
+                                        + " status='READY' AND state_version=1 AND"
+                                        + " analysis_status='PENDING'",
                                 userId))
                 .isEqualTo(1);
         assertThat(count("SELECT count(*) FROM pace_plans")).isZero();
@@ -99,7 +96,11 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"courseId\":" + courseId + ",\"targetDurationSec\":1500}"))
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + courseId
+                                        + ",\"targetDurationSec\":1500}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.goal.courseId").value(courseId))
                 .andExpect(jsonPath("$.plan.planId").isNumber())
@@ -111,25 +112,128 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
                 .andExpect(jsonPath("$.plan.segments[4].sequence").value(5))
                 .andExpect(jsonPath("$.plan.segments[4].startDistanceM").value(4000.0))
                 .andExpect(jsonPath("$.plan.segments[4].endDistanceM").value(5000.0))
-                .andExpect(jsonPath("$.plan.segments[*].recommendedPaceSecPerKm", everyItem(is(300.0))));
-        assertThat(count("SELECT count(*) FROM pace_plans WHERE cue_bpm IS NULL AND route_progress IS NULL"))
+                .andExpect(
+                        jsonPath(
+                                "$.plan.segments[*].recommendedPaceSecPerKm",
+                                everyItem(is(300.0))));
+        assertThat(
+                        count(
+                                "SELECT count(*) FROM pace_plans WHERE cue_bpm IS NULL AND"
+                                        + " route_progress IS NULL"))
                 .isEqualTo(1);
         assertThat(count("SELECT count(*) FROM pace_plan_segments")).isEqualTo(5);
     }
 
+    /** 코스에 미리 저장된 AI05 지형 난이도 비율(297). */
+    private void storeDifficulty(long courseId, String distance, String ratiosJson) {
+        jdbc.update(
+                "INSERT INTO"
+                    + " course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
+                    + " VALUES (?,?::numeric,?::jsonb,'planner-test')",
+                courseId,
+                distance,
+                ratiosJson);
+    }
+
     @Test
-    void 끝거리가_1km로_나누어지지_않으면_마지막_구간이_짧다() throws Exception {
+    void 코스_난이도_비율이_저장돼_있으면_구간_페이스를_비율로_나누고_전체시간은_유지한다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "3000.00");
+        storeDifficulty(courseId, "3000.00", "[1.2,0.8,1.0]");
+
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"targetDistanceM\":2500,\"targetDurationSec\":750}"))
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + courseId
+                                        + ",\"targetDurationSec\":900}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(300.0))
                 .andExpect(jsonPath("$.plan.segments", hasSize(3)))
-                .andExpect(jsonPath("$.plan.segments[2].startDistanceM").value(2000.0))
-                .andExpect(jsonPath("$.plan.segments[2].endDistanceM").value(2500.0))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0))
                 .andExpect(jsonPath("$.plan.segments[2].recommendedPaceSecPerKm").value(300.0));
-        assertThat(count("SELECT count(*) FROM pace_plan_segments")).isEqualTo(3);
+        // 구간 시간 합 = Σ 페이스 × 길이(km) = 900초(목표 시간).
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT sum(recommended_pace * (end_distance - start_distance) /"
+                                        + " 1000) FROM pace_plan_segments",
+                                java.math.BigDecimal.class))
+                .isEqualByComparingTo("900");
+    }
+
+    @Test
+    void 목표거리가_코스보다_짧으면_앞_구간_비율을_쓴다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "5000.00");
+        storeDifficulty(courseId, "5000.00", "[1.2,0.8,2.0,2.0,2.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + courseId
+                                        + ",\"targetDistanceM\":2000,\"targetPaceSecPerKm\":300}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(2)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0));
+    }
+
+    @Test
+    void 정수_목표거리가_소수_코스거리보다_조금_길어도_구간수가_같으면_비율을_쓴다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "2999.60");
+        storeDifficulty(courseId, "2999.60", "[1.2,0.8,1.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + courseId
+                                        + ",\"targetDistanceM\":3000,\"targetPaceSecPerKm\":300}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(jsonPath("$.plan.segments[0].recommendedPaceSecPerKm").value(360.0))
+                .andExpect(jsonPath("$.plan.segments[1].recommendedPaceSecPerKm").value(240.0));
+    }
+
+    @Test
+    void 코스_비율이_없으면_모든_구간이_추천_페이스다() throws Exception {
+        long courseId = insertCourse("ACTIVE", "3000.00");
+        storeDifficulty(insertCourse("ACTIVE", "3000.00"), "3000.00", "[1.2,0.8,1.0]");
+
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + courseId
+                                        + ",\"targetDurationSec\":900}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
+                .andExpect(
+                        jsonPath(
+                                "$.plan.segments[*].recommendedPaceSecPerKm",
+                                everyItem(is(300.0))));
+    }
+
+    @Test
+    void 자유러닝_거리와_시간은_잔여거리에도_고정페이스만_저장한다() throws Exception {
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{"
+                                        + devices()
+                                        + ",\"targetDistanceM\":2500,\"targetDurationSec\":750}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(300.0))
+                .andExpect(jsonPath("$.plan.segments", hasSize(0)));
+        assertThat(count("SELECT count(*) FROM pace_plan_segments")).isZero();
     }
 
     @Test
@@ -164,7 +268,10 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"courseId\":" + zeroCourse
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + zeroCourse
                                         + ",\"targetPaceSecPerKm\":330}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(330.0))
@@ -177,20 +284,21 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"targetDistanceM\":3000,\"targetDurationSec\":1000}"))
+                                "{"
+                                        + devices()
+                                        + ",\"targetDistanceM\":3000,\"targetDurationSec\":1000}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(333.33))
-                .andExpect(jsonPath("$.plan.segments", hasSize(3)))
-                .andExpect(jsonPath("$.plan.segments[2].endDistanceM").value(3000.0));
+                .andExpect(jsonPath("$.plan.segments", hasSize(0)));
     }
 
     @Test
-    void 거리만_있으면_계획이_없다() throws Exception {
+    void 거리만_있으면_AI09_계획을_저장한다() throws Exception {
         mockMvc.perform(createRequest(userId, "{" + devices() + ",\"targetDistanceM\":5000}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.goal.targetDistanceM").value(5000))
-                .andExpect(jsonPath("$.plan").value(nullValue()));
-        assertThat(count("SELECT count(*) FROM pace_plans")).isZero();
+                .andExpect(jsonPath("$.plan.segments", hasSize(5)));
+        assertThat(count("SELECT count(*) FROM pace_plans")).isEqualTo(1);
     }
 
     @ParameterizedTest
@@ -211,15 +319,16 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
     }
 
     @Test
-    void 목표거리_상한_45km는_허용하고_45개_구간으로_계획한다() throws Exception {
+    void 자유러닝_45km_고정목표는_구간추천없이_허용한다() throws Exception {
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"targetDistanceM\":45000,\"targetDurationSec\":13500}"))
+                                "{"
+                                        + devices()
+                                        + ",\"targetDistanceM\":45000,\"targetDurationSec\":13500}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.plan.recommendedPaceSecPerKm").value(300.0))
-                .andExpect(jsonPath("$.plan.segments", hasSize(45)))
-                .andExpect(jsonPath("$.plan.segments[44].endDistanceM").value(45000.0));
+                .andExpect(jsonPath("$.plan.segments", hasSize(0)));
     }
 
     @Test
@@ -228,7 +337,11 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"courseId\":" + huge + ",\"targetDurationSec\":1}"))
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + huge
+                                        + ",\"targetDurationSec\":1}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_GOAL"));
         assertThat(sessionCount()).isZero();
@@ -255,7 +368,9 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         long course = insertCourse("ACTIVE", "5000");
         long otherCourse = insertCourse("ACTIVE", "3000");
         long valid = insertSession(userId, "COMPLETED", 1, watchId, phoneId, "READY", course);
-        long others = insertSession(otherUserId, "COMPLETED", 1, otherWatchId, otherPhoneId, "READY", course);
+        long others =
+                insertSession(
+                        otherUserId, "COMPLETED", 1, otherWatchId, otherPhoneId, "READY", course);
         long deleted = insertSession(userId, "COMPLETED", 1, watchId, phoneId, "READY", course);
         jdbc.update("UPDATE running_sessions SET deleted_at=now() WHERE id=?", deleted);
         long cancelled = insertSession(userId, "CANCELLED", 1, watchId, phoneId, "PENDING", course);
@@ -266,13 +381,21 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
             mockMvc.perform(
                             createRequest(
                                     userId,
-                                    "{" + devices() + ",\"courseId\":" + course
-                                            + ",\"comparisonSessionId\":" + invalid + "}"))
+                                    "{"
+                                            + devices()
+                                            + ",\"courseId\":"
+                                            + course
+                                            + ",\"comparisonSessionId\":"
+                                            + invalid
+                                            + "}"))
                     .andExpect(status().isUnprocessableContent())
                     .andExpect(jsonPath("$.code").value("INVALID_COMPARISON_SESSION"));
         }
         // 자유러닝에는 비교 모드가 없다.
-        mockMvc.perform(createRequest(userId, "{" + devices() + ",\"comparisonSessionId\":" + valid + "}"))
+        mockMvc.perform(
+                        createRequest(
+                                userId,
+                                "{" + devices() + ",\"comparisonSessionId\":" + valid + "}"))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("INVALID_COMPARISON_SESSION"));
         assertThat(count("SELECT count(*) FROM running_sessions WHERE status='READY'")).isZero();
@@ -280,8 +403,13 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 userId,
-                                "{" + devices() + ",\"courseId\":" + course
-                                        + ",\"comparisonSessionId\":" + valid + "}"))
+                                "{"
+                                        + devices()
+                                        + ",\"courseId\":"
+                                        + course
+                                        + ",\"comparisonSessionId\":"
+                                        + valid
+                                        + "}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.goal.comparisonSessionId").value(valid));
     }
@@ -289,7 +417,9 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
     @Test
     void 활성_세션이_있으면_409로_기존ID를_알려주고_목표를_덮어쓰지_않는다() throws Exception {
         String first =
-                mockMvc.perform(createRequest(userId, "{" + devices() + ",\"targetDistanceM\":3000}"))
+                mockMvc.perform(
+                                createRequest(
+                                        userId, "{" + devices() + ",\"targetDistanceM\":3000}"))
                         .andExpect(status().isCreated())
                         .andReturn()
                         .getResponse()
@@ -315,7 +445,8 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         insertSession(userId, "INTERRUPTED", 2, watchId, phoneId, "FAILED", null);
         insertSession(otherUserId, "READY", 1, otherWatchId, otherPhoneId, "PENDING", null);
 
-        mockMvc.perform(createRequest(userId, "{" + devices() + "}")).andExpect(status().isCreated());
+        mockMvc.perform(createRequest(userId, "{" + devices() + "}"))
+                .andExpect(status().isCreated());
     }
 
     @Test
@@ -326,7 +457,8 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         jdbc.update("UPDATE running_sessions SET deleted_at=now() WHERE id=?", deleted);
         insertSession(userId, "RUNNING", 2, watchId, phoneId, "PENDING", null);
 
-        assertThatThrownBy(() -> insertSession(userId, "READY", 1, watchId, phoneId, "PENDING", null))
+        assertThatThrownBy(
+                        () -> insertSession(userId, "READY", 1, watchId, phoneId, "PENDING", null))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uq_running_sessions_active");
     }
@@ -357,7 +489,11 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
         mockMvc.perform(
                         createRequest(
                                 disagree,
-                                "{\"controlDeviceId\":" + watch + ",\"relayDeviceId\":" + phone + "}"))
+                                "{\"controlDeviceId\":"
+                                        + watch
+                                        + ",\"relayDeviceId\":"
+                                        + phone
+                                        + "}"))
                 .andExpect(status().isCreated());
     }
 
@@ -369,7 +505,8 @@ class RunningSessionCreateIntegrationTest extends RunningSessionIntegrationSuppo
                                 .content("{" + devices() + "}"))
                 .andExpect(status().isUnauthorized());
         jdbc.update(
-                "UPDATE users SET account_status='WITHDRAWN', withdrawn_at=now() WHERE id=?", userId);
+                "UPDATE users SET account_status='WITHDRAWN', withdrawn_at=now() WHERE id=?",
+                userId);
         mockMvc.perform(createRequest(userId, "{" + devices() + "}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));

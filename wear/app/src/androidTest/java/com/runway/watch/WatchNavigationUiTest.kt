@@ -5,6 +5,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.runway.watch.run.*
 import com.runway.watch.ui.WatchApp
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -72,8 +74,40 @@ class WatchNavigationUiTest {
     }
 
     @Test fun pendingStartStaysOnStandbyAndBlocksRepeatTaps() {
-        launch(RunSnapshot(state = RunState.READY, pendingCommand = true))
+        launch(RunSnapshot(state = RunState.READY, pendingCommand = true, pendingIntent = RunIntent.START))
         compose.onNodeWithContentDescription("시작 확인 중").assertIsNotEnabled()
+        compose.onNodeWithText("취소").assertDoesNotExist()
+    }
+
+    @Test fun pendingCancelShowsCancelCheckAndBlocksBothButtons() {
+        val control = launch(RunSnapshot(state = RunState.READY, pendingCommand = true, pendingIntent = RunIntent.CANCEL))
+        compose.onNodeWithText("취소 확인 중").assertIsDisplayed()
+        compose.onNodeWithContentDescription("시작 확인 중").assertDoesNotExist()
+        compose.onNodeWithContentDescription("시작").assertIsNotEnabled()
+        compose.onNodeWithText("취소 확인 중").performClick()
+        assertEquals(emptyList<RunIntent>(), control.sent)
+    }
+
+    /** S15P31E105-457: after a confirmed cancel the old run and its start button are gone until the phone prepares a new one. */
+    @Test fun cancelledRunShowsThePreparePromptUntilANewRunArrives() {
+        val title = "민락수변공원 출발 5.0km"
+        val state = MutableStateFlow(RunSnapshot(state = RunState.CANCELLED, title = title))
+        val sent = mutableListOf<RunIntent>()
+        val control = object : RunControl {
+            override val snapshot: StateFlow<RunSnapshot> = state
+            override fun send(intent: RunIntent) { sent += intent }
+        }
+        compose.setContent { WatchApp(control) }
+
+        compose.onNodeWithText("휴대폰에서 러닝을 준비해 주세요").assertIsDisplayed()
+        compose.onNodeWithText(title).assertDoesNotExist()
+        compose.onNodeWithContentDescription("시작").assertDoesNotExist()
+        compose.onNodeWithText("취소").assertDoesNotExist()
+
+        state.value = RunSnapshot(state = RunState.READY, title = "새 러닝")
+        compose.onNodeWithText("새 러닝").assertIsDisplayed()
+        compose.onNodeWithContentDescription("시작").assertIsEnabled().performClick()
+        assertEquals(listOf(RunIntent.START), sent)
     }
 
     @Test fun phoneDisconnectBeforeTheRunShowsTheNotice() {

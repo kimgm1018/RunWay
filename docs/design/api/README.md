@@ -21,12 +21,13 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [크루](./crews.md) | 크루 | 11 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
+| [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **93개 공개 API 설계**. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류는 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
+총 **95개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
-알림 발생 계기·수신자와 추가 후보는 [알림 정책](../requirements.md#알림-정책)에 정리했다. 미확정 제안은 해당 절에서 구분하며 알림함·조회 API를 자동으로 추가하지 않는다.
+알림 발생 계기·수신자와 추가 후보는 [알림 정책](../requirements.md#알림-정책)에 정리했다. 앱 내 알림함 조회·전체 읽음은 [notifications.md](./notifications.md)(S15P31E105-458)다. 미확정 제안만으로 종류·채널을 자동 추가하지 않는다. S10 SSE는 알림함과 별개다.
 
 ## 공통 규약
 
@@ -188,6 +189,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | W07 | [워치 운동 배치 동기화](./devices-health.md#w07-워치-운동-배치-동기화) | POST | `/sync/batches` | [devices-health.md](./devices-health.md) |
 | R02 | [최신 준비도 조회](./readiness.md#r02-최신-준비도-조회) | GET | `/readiness-assessments/latest` | [readiness.md](./readiness.md) |
 | C01 | [코스 추천(AI 경로 후보 생성)](./courses.md#c01-코스-추천) | POST | `/courses/recommendations` | [courses.md](./courses.md) |
+| C10 | [생성 코스 선택 저장](./courses.md#c10-생성-코스-선택-저장) | POST | `/courses/generated` | [courses.md](./courses.md) |
 | C03 | [코스 상세 조회](./courses.md#c03-코스-상세-조회) | GET | `/courses/{courseId}` | [courses.md](./courses.md) |
 | C07 | [코스 저장](./courses.md#c07-코스-저장) | PUT | `/courses/{courseId}/bookmark` | [courses.md](./courses.md) |
 | C08 | [코스 저장 해제](./courses.md#c08-코스-저장-해제) | DELETE | `/courses/{courseId}/bookmark` | [courses.md](./courses.md) |

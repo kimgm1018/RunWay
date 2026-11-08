@@ -17,6 +17,15 @@ const icons = {
       <Path d="M4 13h4" />
     </>
   ),
+  // A running figure (5.3 러닝 tile), after Tabler's run (MIT).
+  runner: (
+    <>
+      <Circle cx="13" cy="4" r="1.6" />
+      <Path d="M4 17l5 1 .75-1.5" />
+      <Path d="M15 21v-4l-4-3 1-6" />
+      <Path d="M7 12V9l5-1 3 3 3 1" />
+    </>
+  ),
   group: (
     <>
       <Circle cx="8" cy="4.5" r="2" />
@@ -49,6 +58,13 @@ const icons = {
   ),
   back: <Path d="m15 18-6-6 6-6" />,
   forward: <Path d="m9 18 6-6-6-6" />,
+  // → in the navy circle of the 6 그룹 bottom buttons (runway-group-handoff).
+  arrowRight: (
+    <>
+      <Path d="M5 12h14" />
+      <Path d="m12 5 7 7-7 7" />
+    </>
+  ),
   // ↗ on the round button of 2.x cards (DESIGN.md 2-6 원 버튼).
   arrowUpRight: (
     <>
@@ -309,6 +325,99 @@ const icons = {
   ),
   // 3.1b 오르막.
   mountain: <Path d="M3 19l6.5-10 4 6 2.5-3.5L21 19z" />,
+  // 7.1 게시물 메뉴 (runway-community-handoff): two bars.
+  menu: <Path d="M4 9h16M4 15h16" />,
+  // runway-onboarding-handoff field icons (1.2~1.7).
+  person: (
+    <>
+      <Circle cx="12" cy="8" r="3.6" />
+      <Path d="M5 20c.8-3.8 3.6-5.6 7-5.6s6.2 1.8 7 5.6" />
+    </>
+  ),
+  padlock: (
+    <>
+      <Rect x="5" y="10.5" width="14" height="10" rx="2.5" />
+      <Path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
+      <Path d="M12 14.5v2.2" />
+    </>
+  ),
+  shieldCheck: (
+    <>
+      <Path d="M12 3.5l7 2.6v5.4c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6.1z" />
+      <Path d="M9 12l2.2 2.2L15.2 10" />
+    </>
+  ),
+  handset: (
+    <>
+      <Rect x="7" y="3" width="10" height="18" rx="2.5" />
+      <Path d="M10.5 18h3" />
+    </>
+  ),
+  message: <Path d="M4.5 6.5h15v9h-8l-4 3v-3h-3z" />,
+  key: (
+    <>
+      <Circle cx="8" cy="12" r="3.5" />
+      <Path d="M11.5 12H20M17 12v3M20 12v2.5" />
+    </>
+  ),
+  tag: (
+    <>
+      <Path d="M4 6.5v5.2l8.3 8.3 7.2-7.2L11.2 4.5H6A2 2 0 0 0 4 6.5z" />
+      <Circle cx="8.3" cy="8.8" r="1.3" />
+    </>
+  ),
+  smartwatch: (
+    <>
+      <Rect x="6.5" y="6.5" width="11" height="11" rx="3" />
+      <Path d="M9 6.5l.6-3h4.8l.6 3M9 17.5l.6 3h4.8l.6-3M12 9.5V12l1.6 1.2" />
+    </>
+  ),
+  // 8.1 설정 tiles (runway-settings).
+  mic: (
+    <>
+      <Rect x="9" y="3" width="6" height="11" rx="3" />
+      <Path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <Path d="M12 17.5V21" />
+    </>
+  ),
+  pulse: <Path d="M3 12h3.5l2.5-6 4 12 2.5-6H21" />,
+  globe: (
+    <>
+      <Circle cx="12" cy="12" r="8.5" />
+      <Path d="M3.5 12h17" />
+      <Path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5c-2.4-2.3-3.6-5.1-3.6-8.5S9.6 5.8 12 3.5z" />
+    </>
+  ),
+  users: (
+    <>
+      <Path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <Circle cx="9" cy="7" r="4" />
+      <Path d="M22 21v-2a4 4 0 0 0-3-3.9" />
+      <Path d="M16 3.1a4 4 0 0 1 0 7.8" />
+    </>
+  ),
+  code: <Path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />,
+  heartbeat: <Path d="M3 12h4l2-4 4 8 2-4h6" />,
+  // 8.4 지워지는 정보: records and posts.
+  trend: (
+    <>
+      <Path d="M5 19l5-6 3 2 5-8" />
+      <Circle cx="18" cy="5" r="1.6" />
+    </>
+  ),
+  note: (
+    <>
+      <Rect x="4" y="4" width="16" height="16" rx="3" />
+      <Path d="M8 9h8M8 13h8M8 17h5" />
+    </>
+  ),
+  target: (
+    <>
+      <Circle cx="12" cy="12" r="8" />
+      <Circle cx="12" cy="12" r="4" />
+      <Circle cx="12" cy="12" r="0.8" />
+    </>
+  ),
 } as const;
 
 export type IconName = keyof typeof icons;

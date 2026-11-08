@@ -33,6 +33,9 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>DB를 멈추거나 중지하므로 다른 테스트와 공유하지 않는 전용 컨테이너와 컨텍스트를 쓰고, 끝나면 컨텍스트를 닫는다. 무응답(일시정지)을 먼저
  * 확인하고 복구를 본 뒤, 되돌릴 수 없는 중지(연결 거부)를 마지막에 확인한다.
+ *
+ * <p>운영 기본값(연결 5초·생존 검사 2초·소켓 15초)을 그대로 기다리지 않도록 같은 설정 키에 짧은 테스트 값을 넣어 상한이 동작하는지만 본다.
+ * 기본값이 연결 풀에 적용되는지는 {@code RunningSessionDbTimeoutDefaultsIntegrationTest}가 확인한다(S15P31E105-482).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,9 +44,11 @@ import org.testcontainers.utility.DockerImageName;
 @Timeout(value = 60, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class DatabaseUnavailableIntegrationTest {
 
-    static final long CONNECTION_TIMEOUT_MS = 5_000;
-    static final long VALIDATION_TIMEOUT_MS = 2_000;
-    static final long SOCKET_TIMEOUT_MS = 15_000;
+    // HikariCP는 생존 검사 상한이 연결 획득 상한보다 작아야 한다. 소켓 상한은 쿼리 상한보다 길어야 서버가 먼저 끊는다.
+    static final long CONNECTION_TIMEOUT_MS = 2_000;
+    static final long VALIDATION_TIMEOUT_MS = 1_000;
+    static final long STATEMENT_TIMEOUT_MS = 2_000;
+    static final long SOCKET_TIMEOUT_MS = 3_000;
     /** 예외 변환·응답 작성과 CI 지연을 고려한 여유. */
     static final long MARGIN_MS = 3_000;
 
@@ -61,6 +66,10 @@ class DatabaseUnavailableIntegrationTest {
         registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
         registry.add("spring.datasource.username", DATABASE::getUsername);
         registry.add("spring.datasource.password", DATABASE::getPassword);
+        registry.add("BACKEND_DB_CONNECTION_TIMEOUT_MS", () -> CONNECTION_TIMEOUT_MS);
+        registry.add("spring.datasource.hikari.validation-timeout", () -> VALIDATION_TIMEOUT_MS);
+        registry.add("BACKEND_DB_STATEMENT_TIMEOUT_MS", () -> STATEMENT_TIMEOUT_MS);
+        registry.add("BACKEND_DB_SOCKET_TIMEOUT_S", () -> SOCKET_TIMEOUT_MS / 1_000);
     }
 
     @Autowired MockMvc mockMvc;
@@ -100,8 +109,8 @@ class DatabaseUnavailableIntegrationTest {
     }
 
     /**
-     * 방금 반환된 연결은 Hikari가 생존 검사 없이 다시 빌려준다(500ms 이내). 이 연결의 쿼리는 서버가 응답하지 않으므로 소켓 읽기 상한(기본
-     * 15초)에서 끊긴다.
+     * 방금 반환된 연결은 Hikari가 생존 검사 없이 다시 빌려준다(500ms 이내). 이 연결의 쿼리는 서버가 응답하지 않으므로 소켓 읽기 상한에서
+     * 끊긴다.
      */
     @Test
     @Order(1)
@@ -115,7 +124,7 @@ class DatabaseUnavailableIntegrationTest {
     }
 
     /**
-     * 잠시 쉰 유휴 연결은 생존 검사(2초)에서 걸러지고, 새 연결도 얻지 못해 연결 획득 상한(기본 5초)에서 끝난다. 마지막 검사가 상한 직전에
+     * 잠시 쉰 유휴 연결은 생존 검사에서 걸러지고, 새 연결도 얻지 못해 연결 획득 상한에서 끝난다. 마지막 검사가 상한 직전에
      * 시작되면 검사 시간만큼 늦어질 수 있어 상한에 검사 시간을 더한다.
      */
     @Test

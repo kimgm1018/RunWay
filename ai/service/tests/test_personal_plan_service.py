@@ -4,6 +4,7 @@ import json
 from fastapi.testclient import TestClient
 import pytest
 
+from app.target_calibration import DEFAULT_GLOBAL_RATIO
 from app.main import create_app
 from app.personal_plan import (
     CoursePlanSnapshot,
@@ -96,8 +97,9 @@ def test_external_request_with_only_user_and_course_runs_personal_ode_plan(monke
     assert body["hr0Used"] is False
     assert [segment["endDistanceM"] for segment in body["segments"]] == [1000, 2000, 2345.678]
     weighted_mean = sum(s["lengthM"] * s["paceSecPerKm"] for s in body["segments"]) / 2345.678
-    assert all(abs(s["paceRatio"] - round(s["paceSecPerKm"] / weighted_mean, 2)) < 1e-9
-               for s in body["segments"])
+    # paceRatio는 반올림 전 페이스 기준 소수 여섯째 자리(S15P31E105-487). 두 자리 페이스와는 반올림 차이만 난다.
+    assert all(abs(s["paceRatio"] - s["paceSecPerKm"] / weighted_mean) < 1e-4 for s in body["segments"])
+    assert abs(sum(s["lengthM"] * s["paceRatio"] for s in body["segments"]) / 2345.678 - 1) <= 1e-6
 
 
 def test_person_without_ode_bundle_uses_explicit_average_fixture_and_is_not_personalized():
@@ -151,7 +153,8 @@ def test_personal_plan_without_user_id_uses_average_bundle_without_personal_look
     assert "USER_ID_NOT_PROVIDED" in body["warnings"]
     assert "AVERAGE_BASED_RECOMMENDATION" in body["warnings"]
     assert "PERSONALIZED=false" in body["warnings"]
-    assert body["hrReferenceBpm"] == 163.0
+    # S15P31E105-377: 이력 없는 사용자는 일반화 비율 × 모집단 P85.
+    assert body["hrReferenceBpm"] == pytest.approx(DEFAULT_GLOBAL_RATIO * 163.0)
     assert lookup.calls == []
 
 

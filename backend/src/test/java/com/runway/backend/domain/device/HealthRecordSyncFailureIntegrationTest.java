@@ -7,17 +7,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * W06 AC-9. 두 번째 쓰기에서 DB가 실패하면 앞 레코드도 롤백되고, 오류 본문·로그에 건강 값이 남지 않으며, 같은 요청 재전송으로 복구된다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class HealthRecordSyncFailureIntegrationTest extends HealthRecordSyncIntegrationSupport {
 

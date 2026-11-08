@@ -11,14 +11,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.concurrent.*;
 
 class SignupConcurrencyIntegrationTest extends AuthIntegrationSupport {
-    @MockitoSpyBean SignupRepository repository;
+    @Autowired SignupRepository repository;
     @Autowired JsonMapper mapper;
 
     @ParameterizedTest

@@ -65,6 +65,7 @@ docker compose --env-file .env ps
 | `BACKEND_DB_LOCK_TIMEOUT_MS` | 서버 선택, 기본 5000. 잠금 1회의 대기 상한(PostgreSQL `lock_timeout`, 밀리초 정수). 행 잠금뿐 아니라 advisory lock·DDL의 테이블 잠금 대기에도 적용된다. 넘으면 503 |
 | `BACKEND_DB_STATEMENT_TIMEOUT_MS` | 서버 선택, 기본 10000. 쿼리 1건의 실행 상한(PostgreSQL `statement_timeout`, 밀리초 정수, 잠금 대기 포함). 소켓 상한보다 작아야 한다. 넘으면 503 |
 | `BACKEND_DB_SOCKET_TIMEOUT_S` | 서버 선택, 기본 15. DB 무응답·네트워크 단절 시 응답을 기다리는 소켓 읽기 상한(초 정수). 쿼리 실행 상한보다 길게 둔다 |
+| `BACKEND_AI_BASE_URL` | 서버 선택, 기본 빈 값. HR 추론 AI 서버 origin(예: `http://ai:8000`). AI04 실시간 코칭, AI06 심박 개인화, AI05 코스 구간 난이도 비율 계산(S15P31E105-297)이 함께 쓴다(아래 AI06 설명 참조). 경로·쿼리·사용자 정보는 넣지 않으며 잘못된 값이면 기동을 거부한다. 비면 기동은 하고 자동 코칭과 코스 구간 비율 계산을 하지 않는다 |
 
 DB 대기 상한(S15P31E105-294)은 DB 장애·잠금 경합에서 요청 스레드가 무한히 쌓이지 않고 `503 SERVICE_UNAVAILABLE`을
 돌려주기 위한 값이다. 연결 획득 5초·잠금 대기 5초·쿼리 10초·소켓 15초가 기본이다.
@@ -163,6 +164,23 @@ Spotless 플러그인과 포맷 검사·자동 수정 태스크는 제거했다.
 `build/libs/runway-backend-0.0.1-SNAPSHOT.jar`에서 확인한다. Docker가 없을 때 DB 테스트를
 자동으로 건너뛰지 않는다. 실패·미실행은 완료가 아니다.
 
+`test`는 테스트 JVM 2개(`maxParallelForks = 2`, JVM당 힙 1536MiB)로 클래스를 나눠 실행한다. 각 JVM은
+PostGIS 서버 하나(`support.SharedPostgres`)를 띄우고, 테스트 그룹마다 그 안의 전용 DB를 쓴다. 다른 JVM과 DB를 함께 쓰지 않는다.
+전용 DB는 JVM마다 Flyway 마이그레이션을 한 번 적용해 만든 템플릿에서 복제하므로 컨텍스트 기동 시 Flyway는 적용 상태만 확인한다.
+템플릿은 실행마다 새 컨테이너에 현재 마이그레이션으로 다시 만든다. 빈 DB부터 마이그레이션·스키마를 검증하는 테스트는
+`SharedPostgres.emptyDatabase`로 빈 DB를 쓴다.
+
+Spring 컨텍스트는 설정(속성·Mock·Spy·`@Import`·웹 환경)이 같은 테스트끼리만 재사용되므로 다음 규칙으로 기동 횟수를 줄인다.
+
+- 별도 설정이 필요 없는 통합 테스트는 `support.SharedContextIntegrationSupport`를 상속한다. 컨텍스트와 DB를 함께 쓰며 매 테스트 전
+  `flyway_schema_history`, 시드 테이블 `regions`, PostGIS 확장 테이블을 뺀 모든 테이블을 비운다. 시드를 넣는 마이그레이션을 추가하면
+  보존 목록도 함께 고친다. 하위 클래스는 속성·Mock·`@Import`를 따로 선언하지 않으며, 필요하면 이 기반을 쓰지 않는다.
+- 도메인별 `*IntegrationSupport`는 그룹에서 쓰는 `@MockitoSpyBean`을 모두 선언하고, 하위 클래스는 같은 빈을 `@Autowired`로 받아 스텁한다.
+  Spy는 스텁하지 않으면 실제 빈과 같게 동작하고 테스트마다 초기화된다. 동작을 대체하는 `@MockitoBean`은 해당 클래스에만 둔다.
+- DB 대기 상한(연결·잠금·쿼리·소켓)의 동작 테스트는 같은 설정 키에 짧은 테스트 값을 넣어 실제 대기를 줄이고, 원인은 SQLState 등 결과로
+  확인한다. 운영 기본값의 적용은 `RunningSessionDbTimeoutDefaultsIntegrationTest`가 확인한다.
+컨테이너를 멈추는 장애 테스트와 Redis 테스트는 자체 컨테이너를 쓴다. 테스트 클래스 안의 병렬 실행은 쓰지 않는다.
+
 DB와 무관한 부분만 개발 중 확인할 때:
 
 ```powershell
@@ -171,8 +189,8 @@ DB와 무관한 부분만 개발 중 확인할 때:
 
 Bash에서는 실행 부분을 `./gradlew`로 바꾼다. 이 부분 테스트 성공을 전체 완료 검증으로
 보고하지 않는다. DB 테스트는 `BackendApplicationIntegrationTest`, `SchemaIntegrityTest`,
-`FlywayMigrationTest`이며 Testcontainers가
-일회성 DB를 만들고 정리한다. 개발 `.env`는 읽지 않고 컨테이너 연결을 테스트에 주입한다.
+`FlywayMigrationTest`이며 Testcontainers 서버 안의
+빈 전용 DB를 쓴다. 개발 `.env`는 읽지 않고 컨테이너 연결을 테스트에 주입한다.
 
 테스트는 설정 누락·Lombok 생성·MVC JSON 및 입력 검증·DB/PostGIS 연결을 확인한다.
 업무 로직·소유권·러닝 저장·동시성·공간 Entity 매핑 검증은 기능 구현 시 추가한다.
@@ -290,6 +308,81 @@ Argon2id의 합의된 비용(64MiB·반복 3회·병렬도 1)은 유지한다. �
 
 비용을 다시 측정할 필요가 있을 때만 자원 조건을 정한 환경에서 `./gradlew passwordPerformanceTest`(PowerShell: `.\gradlew.bat passwordPerformanceTest`)를 명시적으로 실행한다. 이 태스크는 일반 `build`에 연결하지 않는다. 기존 단일 30회 p95 1초 이하·8개 동시 40건 p95 2초 미만 조건은 유지하며 결과는 `build/reports/tests/passwordPerformanceTest/index.html`에 생성한다. 로컬 비용 측정을 실제 배포 부하 검증으로 대신하지 않는다.
 
+## 9. 코스 DEM 고도와 경사 계산
+
+[ADR-0019](../docs/adr/0019-course-generation-backend.md)에 따라 경사는 백엔드에서 계산한다.
+`CourseGradeService`는 GeoJSON LineString과 코스 거리(m)를 받아 `GradeSegment` 목록을 반환하는
+내부 계산 서비스다. 20m 재표본 → 중앙값 5칸 → 평균 3칸 → 100m 경사를 계산하고,
+45km 초과 시 폭을 넓혀 최대 450개로 맞춘 뒤 기존 `GradeProfileValidator`를 통과시킨다.
+
+운영 DEM을 준비한 호출부는 다음처럼 생성/주입한다. `demPath`는 서버 로컬 파일,
+`expectedSha256`은 신뢰하는 manifest의 SHA-256이다. 외부 DEM API를 호출하지 않는다.
+
+```java
+var source = GeoTiffElevationSource.load(demPath, expectedSha256);
+var calculator = new CourseGradeService(source);
+var grades = calculator.calculate(route, distanceM);
+```
+
+- 읽기 라이브러리는 순수 Java `mil.nga:tiff:3.0.0`(MIT)이다. 단일 밴드·EPSG:4326·북쪽이 위인
+  GeoTIFF clip을 지원하며 strip/tile, DEFLATE, float predictor와 PixelIsArea/Point를 테스트한다.
+  회전·투영 좌표계·해시 불일치·깨진 파일은 `SERVICE_UNAVAILABLE`로 거절한다.
+- 범위 밖·NoData·비유한 고도는 거리 기준으로 보간하고, 양 끝의 결측은 가장 가까운 유효 고도를
+  사용한다. 유효 고도 2개 미만 또는 유효 경사 부재는 오류이며 평지 0%로 대체하지 않는다.
+  ±100% 밖 경사는 인접 유효 경사로 보간한다. 경사는 소수 4자리로 반올림한다.
+- 다리·터널을 경로 좌표만으로 식별할 수는 없다. 해당 정보가 있는 호출부는
+  `calculate(route, distanceM, List<UnmeasuredSection>)`에 미확인 거리 구간을 전달한다.
+  겹치거나 맞닿는 구간은 합치고 양 끝 고도 사이를 보간한다.
+- 계산 소스는 불변 배열이며 동시 조회 시 TIFF reader를 공유하지 않는다. 경로 조회는 요청당
+  최대 1,000,000개 DEM 표본으로 작업량을 보호하고 초과 시 `SERVICE_UNAVAILABLE`로 거절한다.
+  이는 공개 API의 거리 상한을 정하는 정책이 아니다. 순수 고도→경사 계산은 전체 20m 격자를
+  할당하지 않아 스키마의 최대 거리도 계산할 수 있다.
+- 기동 시 파일 연결과 준비 상태 처리는 아래 "C01 코스 생성 설정"(S15P31E105-423)을 따른다.
+  DEM 원본 배포(볼륨·manifest·준비 스크립트)는 인프라 후속 업무다.
+  고도 데이터는 Copernicus DEM 라이선스와 출처 표기 기준을 따른다.
+
+### C01 코스 생성 설정 (S15P31E105-423)
+
+C01은 Route 서버를 HTTP로 호출해 후보를 받고, 후보마다 위 계산으로 100m 경사를 붙인다.
+계약은 [courses.md C01·코스 생성 후속](../docs/design/api/courses.md#코스-생성-후속-필요-사항)과
+[ai-service.md Route 내부 계약](../docs/design/api/ai-service.md#route-코스-생성-내부-http-계약-초안)이다.
+설정이 비어 있어도 서버는 기동하며, C01만 `503 SERVICE_UNAVAILABLE`과 `details.reason`으로 실패한다.
+
+| 환경변수 | 설명 |
+| --- | --- |
+| `BACKEND_ROUTE_MODE` | `http`(기본) 또는 `stub`. stub은 개발자가 Route 없이 화면을 확인할 때만 쓰는 가짜 경로이며 응답 `notices`에 개발용임을 표시한다. 서버에는 쓰지 않는다. 다른 값은 기동 실패 |
+| `BACKEND_ROUTE_BASE_URL` | Route 전용 내부 origin(예: `http://route:8000`). 경로·쿼리·사용자 정보가 있거나 호스트 이름에 밑줄(`_`)이 있으면 기동 실패(Compose 서비스 이름은 하이픈 사용). 비우면 C01이 `ROUTE_UNAVAILABLE` |
+| `BACKEND_COURSE_DEM_PATH` | 서버 로컬 DEM 파일 경로. 비우면 C01이 `GRADE_NOT_READY`(stub 모드는 합성 고도). 파일 없음·검증 실패는 기동 로그로 구분하며, 파일을 넣은 뒤에는 재기동해야 반영된다 |
+| `BACKEND_COURSE_DEM_SHA256` | 선택. 기본값은 아래 공유 DEM의 SHA-256. 해시가 다르면 기동은 하고 `GRADE_NOT_READY` |
+| `BACKEND_AI_BASE_URL` | HR 추론 AI 서버(`ai/service`) 내부 origin(예: `http://ai:8000`). AI06 심박 개인화(`POST /v1/hr/personalize`), AI04 실시간 코칭(`POST /v1/pace/decide`), 생성 코스 저장 후 AI05 코스 구간 난이도 비율 계산(`POST /v1/pace/plan`, S15P31E105-297)이 함께 쓴다. 코스 추천 Route는 별도 컨테이너로 `BACKEND_ROUTE_BASE_URL`을 쓴다. 경로·쿼리·사용자 정보가 있으면 기동 실패. 비우면 기동은 하고 개인화 호출이 실패해 저장하지 않으며 자동 코칭과 코스 구간 비율 계산을 하지 않는다(세션 계획은 균등 분배) |
+
+시간 상한은 Route 연결 1초·전체 호출 15초, C01 전체 20초이며 자동 재시도·스텁 전환은 하지 않는다. Route에는 `X-Request-Deadline`(마감 − 6초, epoch ms)을 보내 늦게 끝날 계산을 시작하지 않게 한다. Route 서비스 API는 `ai/route_service/API.md`(381)이다.
+Route 응답 본문은 256KB까지만 읽는다. 로그에는 상태·지연·후보 수·사유만 남기고 좌표·문구 원문은 남기지 않는다.
+
+**공유 DEM(2026-11-05 AI 팀 공유, Route 엔진과 같은 파일)**
+
+| 항목 | 값 |
+| --- | --- |
+| 위치 | HF 비공개 저장소 `AnSeongYun/runway-hr-models`, revision `4952478476ce2d76579e1b6ba16363214e6a6914`, `route_data_v2/reports/_route_canonical_work/dem/copernicus_glo30_canonical_clip.tif` (접근 권한 필요) |
+| SHA-256·크기 | `45faaa5e36c710a235658e1172183279007ac3b3fdcc29a14246222fdabb3a1f`, 8,266,122 bytes |
+| 범위·형식 | 부산 전역(경도 128.73~129.35, 위도 34.85~35.42). GeoTIFF 1밴드 float32(m), EPSG:4326, 1초(약 30m), 2232×2052, deflate, nodata 없음(바다 0m) |
+| 원본 | Copernicus DEM GLO-30 4타일 병합 |
+| 출처 표기 | "Copernicus DEM GLO-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA." |
+
+바다를 nodata가 아닌 0m로 두므로, 해안·교량 구간의 0m 표본은 결측으로 보간되지 않고 실제 0m로 계산된다.
+출처 표기의 앱 노출 위치는 FE와 후속으로 정한다.
+
+공유 DEM을 받은 경우 실제 파일 검증은 `BACKEND_COURSE_DEM_PATH`를 지정하고
+`.\gradlew.bat test --tests "*SharedBusanDemTest"`로 실행한다. 변수가 없으면 이 테스트는 건너뛰며,
+기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다. 운영 배포는 인프라가 HR 모델처럼 HF에서 받아
+DEM 볼륨에 넣는다(AI 팀 요청 예정).
+
+테스트는 실제 DEM 없이 `src/test/resources/course-grade/dem/`의 작은 합성 파일을 사용한다.
+`generate_dem_fixtures.py`에 독립 재생성 명령이 있으며 실제 좌표·건강 데이터는 포함하지 않는다.
+`python-grade.json`은 실제 AI `course_grade.py`에서 생성한 24개 사례로, 동일 고도 입력의 경사
+차이를 0.0001%p 이하로 비교한다. `generate_fixture.py`의 명령으로 재생성하며 원본 코드의
+SHA-256과 사용한 numpy/pydantic 버전을 기록한다.
+
 ## 관련 기준
 
 - [백엔드 작업 지침](AGENTS.md)
@@ -340,3 +433,20 @@ Actuator의 `GET http://127.0.0.1:8082/actuator/health/readiness`는 백엔드 �
 앱 준비 상태·DB 연결·인증 Redis PING이 모두 정상이면 `200 {"status":"UP"}`, 장애 시 `503`을 반환한다.
 응답에 연결 정보나 오류 상세는 포함하지 않는다. 업무 API 포트·Swagger·Nginx에는 공개하지 않는다.
 DB 데이터·Redis 키를 쓰지 않으며 INFO 권한을 추가하지 않는다. 배포 검사는 이 주소와 업무 HTTP 포트 응답을 함께 확인한다.
+
+### 팔로우 요청 이력 스키마 (V14, S15P31E105-249)
+
+`V14__follow_request_history.sql`은 요청별 처리 결과를 별도 테이블에 보관한다. 기존 `user_follows`의 현재 관계·승인 여부와 구분하며 이력을 집계·열람 권한으로 사용하지 않는다. 취소·거절 후 재요청은 새 관계 ID로 구별하고, 이력은 자동 삭제하지 않는다. 새 DB는 Flyway가 순서대로 적용하며 기존 V1~V13은 수정하지 않는다. 기준 SQL은 빈 격리 DB 검증용이며 운영 DB에 직접 실행하지 않는다.
+
+U21은 기존 계정 접근 판정과 작성자별 전체 게시물 조회를 재사용한다. U22/U23/U25의 대상 사용자 행은 `FOR NO KEY UPDATE`로 잠그고 대상 설정→관계 순서로 처리하여 공개 전환과 직렬화하면서 외래키 검사에 따른 상호 팔로우 교착을 피한다.
+
+알림은 `FollowNotificationEvent`를 트랜잭션 내에서 발행하는 연계 지점만 제공한다. S15P31E105-458에서 사건을 같은 트랜잭션의 동기 처리 또는 BEFORE_COMMIT에서 내구성 있게 저장하고, 수신자의 community 설정 적용·중복 제거·푸시 전달을 구현해야 한다. 현재 사건 발행만으로 실제 저장·전달·재시작 복구가 완료된 것이 아니며 458 통합 전 관련 완료 검증은 미실행이다.
+
+
+## 회원탈퇴 개인 이미지 정리 (S15P31E105-248)
+
+정리 테이블을 추가하지 않고 커밋된 WITHDRAWN·withdrawn_at과 잔여 이미지 파일을 기준으로 재시도한다. 최초 작업은 기동 후 scheduler에서 실행하며, 완료 뒤 60초마다 최대 100명씩 ID 순서로 순회한다. 각 순회 시작에 최대 탈퇴 ID를 고정하고 그 상한까지 확인한 뒤 처음부터 재검사한다. 새 탈퇴가 계속 유입돼도 기존 실패 회원을 다시 확인하며 재시작 시에도 처음부터 시작한다. 삭제 실패는 다음 전체 순회에서 재시도하며 경고에는 파일명·원문 예외·개인정보를 넣지 않는다.
+
+profile/post의 개인 원본과 by-id 사본만 정리하고 crew 및 다른 회원의 경로는 보존한다. 사용자 원본보다 by-id 사본을 먼저 지워 중단 후 재시도 단서를 유지한다. 업로드는 사용자 행 잠금 아래 ACTIVE를 검사하므로 후속 탈퇴와 같은 사용자 잠금 순서를 사용해야 한다. 자세한 계약은 [이미지 API](../docs/design/api/files.md)의 회원탈퇴 정리 절을 따른다.
+
+`runway.images.cleanup-enabled`의 기본값은 true다. 테스트 기본 설정은 false로 두고 전용 파일/DB 테스트에서 임시 볼륨·격리 DB만 사용한다. U17/U18은 회원탈퇴 서비스에서 처리하며 DB 커밋 후 즉시 개인 이미지 정리를 호출한다. worker는 정리 실패·응답 유실·서버 재시작 뒤 남은 파일의 재처리를 담당한다.

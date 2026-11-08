@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Screen, type IconName } from '../../components';
+import { AppText, Icon, Screen, type IconName } from '../../components';
 import { errorCode, useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { spacing } from '../../theme';
+import { fontFamily } from '../../theme';
 import {
   ErrorNotice,
   GoButton,
   IconBadge,
   OnboardingFooter,
   OnboardingHeader,
+  onboardingLook,
+  onboardingScreen,
+  RunnerArt,
   SelectionCard,
+  signUpSteps,
   StepTitle,
 } from './parts';
 import { useFinishOnboarding } from './SignUpDraft';
@@ -26,13 +30,13 @@ const choices: {
 }[] = [
   {
     value: 'watch',
-    icon: 'watch',
+    icon: 'smartwatch',
     title: '네, 워치와 함께 쓸게요',
     detail: '다음 단계에서 워치를 연결해요',
   },
   {
     value: 'phone',
-    icon: 'phone',
+    icon: 'handset',
     title: '아니요, 휴대폰만 쓸게요',
     detail: '준비도 없이 기록해요 · 나중에 설정에서 연결할 수 있어요',
   },
@@ -66,7 +70,13 @@ export function WatchChoiceScreen() {
   };
   return (
     <Screen
-      header={<OnboardingHeader onBack={navigation.goBack} />}
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: signUpSteps, total: signUpSteps }}
+        />
+      }
       footer={
         <OnboardingFooter>
           <GoButton
@@ -77,8 +87,9 @@ export function WatchChoiceScreen() {
         </OnboardingFooter>
       }
     >
+      <RunnerArt />
       <StepTitle
-        title={'갤럭시 워치를\n'}
+        title={'갤럭시 워치를 '}
         muted="함께 쓰나요?"
         description="워치를 연결하면 심박·수면 기록으로 준비도와 러닝 코칭이 더 정확해져요."
       />
@@ -96,11 +107,15 @@ export function WatchChoiceScreen() {
           >
             <IconBadge icon={option.icon} />
             <View style={styles.flex}>
-              <AppText variant="bodyMedium">{option.title}</AppText>
-              <AppText variant="caption" tone="textSecondary">
-                {option.detail}
-              </AppText>
+              <AppText style={styles.title}>{option.title}</AppText>
+              <AppText style={styles.detail}>{option.detail}</AppText>
             </View>
+            {/* The picked card ends in an ink check (runway-onboarding-handoff 1.6w). */}
+            {choice === option.value ? (
+              <View style={styles.check}>
+                <Icon name="check" color="#FFFFFF" size={12} strokeWidth={3} />
+              </View>
+            ) : null}
           </SelectionCard>
         ))}
       </View>
@@ -110,13 +125,31 @@ export function WatchChoiceScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  choices: { gap: spacing.lg, paddingTop: spacing.md },
+  choices: { gap: 12 },
   choice: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    borderRadius: 26,
-    paddingVertical: spacing.xxl,
-    paddingHorizontal: 18,
+  },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: onboardingLook.ink,
+  },
+  detail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: onboardingLook.sub,
+  },
+  check: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: onboardingLook.ink,
   },
 });

@@ -62,7 +62,7 @@
   - DEM clip: 백엔드 컨테이너(경사 계산). 예: `~/runway/data/dem`.
   - OSM extract·환경 레이어·환경 거리 캐시: 코스 생성을 맡은 쪽 컨테이너. AI 유지 시 Route 컨테이너, 전환 시 백엔드. Route도 고도 feature("평지" 점수)에 DEM을 쓰므로 같은 파일을 공유한다.
 - 파일 목록·출처·생성일·sha256을 담은 manifest를 저장소에 두고(AI 모델의 `infra/ai/models.json`과 같은 방식), 배포 전 준비 스크립트가 파일을 받아 sha256을 검증한다. 백엔드는 시작 시 manifest와 DEM 파일을 대조해 맞지 않으면 경사 계산을 준비되지 않음으로 보고한다.
-- 데이터 생성(Geofabrik extract 자르기, DEM clip 받기, 환경 레이어 받기)은 오프라인 작업이라 기존 Python 도구(`ai/workspace/seongyun/route/tools/data`, `ai/workspace/seongyun/route/analysis/runway_busan_graph.py extract`)를 그대로 쓴다. 백엔드로 전환하면 환경 거리 캐시는 Python 코드 해시에 묶여 있으므로 Java 계산으로 다시 만들거나 시작 시 직접 계산한다.
+- 데이터 생성(Geofabrik extract 자르기, DEM clip 받기, 환경 레이어 받기)은 오프라인 작업이라 기존 Python 도구(`ai/route_service/tools/data`, `ai/route_service/analysis/runway_busan_graph.py extract`)를 그대로 쓴다. 백엔드로 전환하면 환경 거리 캐시는 Python 코드 해시에 묶여 있으므로 Java 계산으로 다시 만들거나 시작 시 직접 계산한다.
 - 라이선스 표기: OSM은 ODbL, Copernicus GLO-30은 Copernicus DEM 라이선스를 따르며 출처 표기 위치를 정한다.
 - 로컬·CI 테스트는 실제 데이터 없이 작은 합성 DEM(전환 시 합성 그래프 포함)으로 실행하고, 실제 데이터 검증은 별도 명령으로 분리한다.
 
@@ -111,4 +111,4 @@ AI 유지 시 배포 형태:
   - DEM manifest·준비 스크립트와 EC2 볼륨 연결(인프라 변경은 별도 업무로 제안), 백엔드 컨테이너 메모리 측정.
   - [S15P31E105-320](https://ssafy.atlassian.net/browse/S15P31E105-320)(AI 1km 경사)은 경사 백엔드 이관으로 범위 조정 종료됐다.
 
-참고: Route 구조·데이터·성능 수치는 [ROUTE_TECHNICAL_GUIDE.md](../../ai/workspace/seongyun/route/ROUTE_TECHNICAL_GUIDE.md) 15·17·20·24절(2026-10-29 측정)을 따랐다.
+참고: Route 구조·데이터·성능 수치는 [ROUTE_TECHNICAL_GUIDE.md](../../ai/route_service/ROUTE_TECHNICAL_GUIDE.md) 15·17·20·24절(2026-10-29 측정)을 따랐다.

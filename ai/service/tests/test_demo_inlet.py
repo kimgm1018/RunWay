@@ -45,13 +45,14 @@ def test_replay_uses_data_clock_and_speed(tmp_path):
     assert t["stage"] == "L3" and t["replaySpeed"] == 4 and t["latency"]["inputLagMs"] is None and t["status"] == "OK"
 
 
-def test_replay_hr_gap_stale_then_insufficient(tmp_path):
+def test_replay_hr_gap_goes_insufficient_without_stale(tmp_path):
     with demo_client(tmp_path) as c:
         post_run(c, 900000001, range(5, 155, 5))
         post_run(c, 900000001, (155, 160, 165, 167, 170, 175), hr=None)
         post_run(c, 900000001, range(180, 200, 5))
         st = [t["status"] for t in c.app.state.demo.buffer.traces(900000001)]
-    assert st.index("HR_STALE") < st.index("INPUT_INSUFFICIENT") and st[-1] == "OK"
+    # 20초 정렬(S15P31E105-413) 뒤에는 서비스가 20초 이상을 먼저 막으므로 HR_STALE 없이 바로 입력 부족이 된다.
+    assert "HR_STALE" not in st and "INPUT_INSUFFICIENT" in st and st[-1] == "OK"
 
 
 def test_gps_only_then_metrics(tmp_path):

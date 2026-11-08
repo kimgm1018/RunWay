@@ -19,6 +19,13 @@ data class Reading(
     val totalDistanceM: Double? = null,
 ) {
     val hasValue: Boolean get() = heartRateBpm != null || cadenceSpm != null || speedMps != null || totalDistanceM != null
+
+    /** Names of the values this reading carries, the keys of [BatchMarks.latest]. */
+    val metrics: List<String>
+        get() = listOfNotNull(
+            heartRateBpm?.let { "heartRate" }, cadenceSpm?.let { "cadence" },
+            speedMps?.let { "speed" }, totalDistanceM?.let { "totalDistance" },
+        )
 }
 
 /**

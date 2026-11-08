@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
@@ -12,250 +12,36 @@ import {
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
-  BottomSheet,
-  Card,
   EmptyState,
   Icon,
-  IconButton,
-  Segmented,
   useToast,
+  type IconName,
 } from '../../components';
 import {
   DataError,
   useRepositories,
   useResource,
   type Repositories,
-  type RunRecordDetail,
 } from '../../data';
 import { recordsChanged } from '../../data/recordsChanged';
-import {
-  formatDotDateWeekday,
-  formatDuration,
-  formatKm,
-  formatPace,
-} from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
+import { fontFamily, spacing } from '../../theme';
 import {
-  fontFamily,
-  k1,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
-import { FooterButton } from '../group/GroupRunDetailScreen';
-import { MockMap } from '../run/MockMap';
-import { SplitChart, type SplitMetric } from './SplitChart';
+  glassCard,
+  PillTabs,
+  recordsLook,
+  RecordsShell,
+  RoundGlassButton,
+} from './look';
+import type { SplitMetric } from './SplitChart';
+import { metricOptions, metrics, RecordView } from './RecordView';
 
-const mapHeight = 400;
+const danger = '#D44A4A';
 
-// 19초 or 1분 50초.
-export function formatGap(seconds: number) {
-  const rounded = Math.round(Math.abs(seconds));
-  return rounded >= 60
-    ? `${Math.floor(rounded / 60)}분 ${rounded % 60}초`
-    : `${rounded}초`;
-}
-
-const metrics: { value: SplitMetric; label: string }[] = [
-  { value: 'pace', label: '페이스' },
-  { value: 'heartRate', label: '심박' },
-  { value: 'cadence', label: '케이던스' },
-];
-
-function average(values: (number | null)[]) {
-  const known = values.filter((value): value is number => value !== null);
-  return known.length
-    ? Math.round(known.reduce((sum, value) => sum + value, 0) / known.length)
-    : null;
-}
-
-function GoalPill({ record }: { record: RunRecordDetail }) {
-  const { colors } = useTheme();
-  if (record.targetDurationSec === null) {
-    return null;
-  }
-  const gap = record.targetDurationSec - record.durationSec;
-  const achieved = gap >= 0;
-  return (
-    <View
-      style={[
-        styles.goal,
-        {
-          backgroundColor: achieved ? colors.accent : colors.dangerSurface,
-          borderColor: achieved ? colors.accent : colors.dangerBorder,
-        },
-      ]}
-    >
-      <AppText
-        variant="captionStrong"
-        style={{ color: achieved ? colors.onAccent : colors.danger }}
-      >
-        {achieved
-          ? `목표 ${formatDuration(
-              record.targetDurationSec,
-            )} 달성 · ${formatGap(gap)} 단축`
-          : `목표 ${formatDuration(
-              record.targetDurationSec,
-            )} 미달성 · ${formatGap(gap)} 늦음`}
-      </AppText>
-    </View>
-  );
-}
-
-function Splits({ record }: { record: RunRecordDetail }) {
-  // 심박·케이던스 탭 appear only when the run measured them.
-  const available = metrics.filter(
-    metric =>
-      metric.value === 'pace' ||
-      record.splits.some(split =>
-        metric.value === 'heartRate'
-          ? split.averageHeartRate !== null
-          : split.averageCadence !== null,
-      ),
-  );
-  const [metric, setMetric] = useState<SplitMetric>('pace');
-  const reference =
-    metric === 'pace'
-      ? record.targetPaceSecPerKm
-        ? {
-            value: record.targetPaceSecPerKm,
-            label: `목표 ${formatPace(record.targetPaceSecPerKm)}`,
-          }
-        : null
-      : (() => {
-          const mean = average(
-            record.splits.map(split =>
-              metric === 'heartRate'
-                ? split.averageHeartRate
-                : split.averageCadence,
-            ),
-          );
-          return mean === null ? null : { value: mean, label: `평균 ${mean}` };
-        })();
-  return (
-    <Card variant="deep" style={styles.card}>
-      {available.length > 1 ? (
-        <Segmented options={available} value={metric} onChange={setMetric} />
-      ) : null}
-      <SplitChart
-        key={metric}
-        splits={record.splits}
-        metric={metric}
-        reference={reference}
-        formatValue={value =>
-          metric === 'pace' ? formatPace(value) : String(value)
-        }
-      />
-    </Card>
-  );
-}
-
-function DetailButton({
-  title,
-  onPress,
-  primary = false,
-  selected = false,
-  disabled = false,
-}: {
-  title: string;
-  onPress: () => void;
-  primary?: boolean;
-  selected?: boolean;
-  disabled?: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ disabled, selected }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        primary
-          ? { backgroundColor: colors.accent, borderColor: colors.accent }
-          : { borderColor: colors.borderStrong },
-        (pressed || disabled) && styles.dim,
-      ]}
-    >
-      {selected ? <Icon name="check" color={colors.text} size={14} /> : null}
-      <AppText
-        variant="bodyStrong"
-        style={{ color: primary ? colors.onAccent : colors.text }}
-      >
-        {title}
-      </AppText>
-    </Pressable>
-  );
-}
-
-// The top of 5.2 on the K1 dark map (DESIGN.md 2-8 5.2 지도·거리), read in the dark tone.
-function MapHead({ record }: { record: RunRecordDetail }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.map}>
-      {record.route ? (
-        <MockMap
-          k1Style
-          night
-          route={record.route}
-          // Between the header and the distance: about 95–245dp down the 430 map.
-          routeArea={{ top: 288, bottom: 410 }}
-        />
-      ) : (
-        <View style={[styles.noRoute, { backgroundColor: colors.background }]}>
-          <Icon name="mapPin" color={colors.textSecondary} size={22} />
-          <AppText variant="caption" tone="textSecondary">
-            위치 없이 기록한 러닝이라 경로가 없어요
-          </AppText>
-        </View>
-      )}
-      {/* The map darkens under the status bar and melts into the K1 background at the bottom. */}
-      <Svg
-        style={StyleSheet.absoluteFill}
-        width="100%"
-        height="100%"
-        pointerEvents="none"
-      >
-        <Defs>
-          <LinearGradient id="mapFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={k1.night} stopOpacity={0.6} />
-            <Stop offset="0.2" stopColor={k1.night} stopOpacity={0} />
-            <Stop offset="0.9" stopColor="#C3D1DD" stopOpacity={0} />
-            <Stop offset="1" stopColor="#C3D1DD" stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#mapFade)" />
-      </Svg>
-      <View style={styles.headline}>
-        <AppText style={styles.distance} accessibilityLabel="거리">
-          {formatKm(record.distanceM)}
-          <AppText style={styles.distanceUnit} tone="textSecondary">
-            {' km'}
-          </AppText>
-        </AppText>
-        <View style={styles.headlineSide}>
-          <AppText style={styles.time}>
-            {formatDuration(record.durationSec)}
-          </AppText>
-          <AppText style={styles.pace} tone="textSecondary">
-            {`${formatPace(record.averagePaceSecPerKm)}/km`}
-          </AppText>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// 5.2 기록 상세: one run's route, result against its goal, AI advice and split graphs.
 // S09 failures stay on 5.2 with a toast (sessions.md S09 오류 응답).
 function deleteFailure(error: unknown) {
   const code = error instanceof DataError ? error.code : null;
@@ -272,13 +58,17 @@ function deleteFailure(error: unknown) {
   return '기록을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요';
 }
 
-// 5.2 기록 메뉴 and its 삭제 확인 (S15P31E105-394): the light sheet of 7.2b 게시물 메뉴, with S09's own wording.
+// 5.2 기록 메뉴 and its 삭제 확인 (S15P31E105-394) as the records glass cards (담당자 결정): ⋮ opens a small glass
+// card under it, 기록 삭제 opens a glass card in the middle of the dimmed screen, with S09's own wording.
 function RecordMenu({
   visible,
+  top,
   onClose,
   onDelete,
 }: {
   visible: boolean;
+  // Where the menu card sits: just under the ⋮ button.
+  top: number;
   onClose: () => void;
   onDelete: () => Promise<void>;
 }) {
@@ -298,49 +88,131 @@ function RecordMenu({
     }
   };
   return (
-    <BottomSheet
+    <Modal
       visible={visible}
-      onClose={close}
-      title={confirming ? '이 운동 기록을 삭제할까요?' : undefined}
-      description={
-        confirming ? '이 기록을 공유한 게시물도 함께 삭제됩니다.' : undefined
-      }
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={close}
     >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="닫기"
+        onPress={close}
+        style={[styles.scrim, confirming && styles.scrimDim]}
+      />
       {confirming ? (
-        <View style={styles.sheetButtons}>
-          <FooterButton title="취소" onPress={close} />
-          <FooterButton title="삭제" danger disabled={busy} onPress={remove} />
+        <View style={styles.center} pointerEvents="box-none">
+          <View accessibilityViewIsModal style={[glassCard, styles.confirm]}>
+            <View style={styles.confirmIcon}>
+              <Icon name="trash" color={danger} size={22} strokeWidth={2} />
+            </View>
+            <AppText accessibilityRole="header" style={styles.confirmTitle}>
+              이 운동 기록을 삭제할까요?
+            </AppText>
+            <AppText style={styles.confirmNote}>
+              이 기록을 공유한 게시물도 함께 삭제됩니다.
+            </AppText>
+            <View style={styles.confirmButtons}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="취소"
+                onPress={close}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.cancel,
+                  pressed && styles.dim,
+                ]}
+              >
+                <AppText style={styles.cancelText}>취소</AppText>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="삭제"
+                accessibilityState={{ disabled: busy }}
+                disabled={busy}
+                onPress={remove}
+                style={({ pressed }) => [
+                  styles.confirmButton,
+                  styles.delete,
+                  (pressed || busy) && styles.dim,
+                ]}
+              >
+                <AppText style={styles.deleteText}>삭제</AppText>
+              </Pressable>
+            </View>
+          </View>
         </View>
       ) : (
-        <View>
+        <View style={[glassCard, styles.menu, { top }]}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="기록 삭제"
             onPress={() => setConfirming(true)}
-            style={styles.menuRow}
+            style={({ pressed }) => [styles.menuRow, pressed && styles.dim]}
           >
-            <Icon name="trash" color={k1.coral} size={20} />
-            <AppText variant="body" style={{ color: k1.coralText }}>
-              기록 삭제
-            </AppText>
+            <Icon name="trash" color={danger} size={18} strokeWidth={2} />
+            <AppText style={styles.menuText}>기록 삭제</AppText>
           </Pressable>
-          <View style={styles.sheetButtons}>
-            <FooterButton title="닫기" onPress={close} />
-          </View>
         </View>
       )}
-    </BottomSheet>
+    </Modal>
   );
 }
 
+// The two 58-high buttons at the foot: glass 내 코스에 저장, navy 기록 공유.
+function ActionButton({
+  title,
+  icon,
+  onPress,
+  primary = false,
+  selected = false,
+  disabled = false,
+}: {
+  title: string;
+  icon: IconName;
+  onPress: () => void;
+  primary?: boolean;
+  selected?: boolean;
+  disabled?: boolean;
+}) {
+  const color = primary ? '#FFFFFF' : recordsLook.ink;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.action,
+        primary ? styles.actionPrimary : glassCard,
+        (pressed || disabled) && styles.dim,
+      ]}
+    >
+      <Icon
+        name={selected ? 'check' : icon}
+        color={color}
+        size={18}
+        strokeWidth={1.9}
+      />
+      <AppText style={[styles.actionText, { color }]}>{title}</AppText>
+    </Pressable>
+  );
+}
+
+// 5.2 기록 상세 (runway-records): one run's figures and split graph on the mist, with 내 코스에 저장 and 기록
+// 공유 at the foot. The ⋮ menu keeps 기록 삭제 (담당자 결정).
 export function RecordDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'RecordDetail'>>();
   const recordId = route.params?.recordId;
-  const { colors } = useTheme();
   const { courses, records } = useRepositories();
   const toast = useToast();
+  const insets = useSafeAreaInsets();
   const [menu, setMenu] = useState(false);
+  // 5.2's 페이스 · 심박 · 케이던스 tabs sit in the frame's top tabs (runway-records 2차).
+  const [metric, setMetric] = useState<SplitMetric>('pace');
   const detail = useResource(
     useCallback(
       async (repositories: Repositories) => {
@@ -411,15 +283,55 @@ export function RecordDetailScreen() {
     }
   };
 
-  if (!record) {
-    return (
-      <SafeAreaView
-        style={[styles.root, { backgroundColor: colors.background }]}
-      >
-        <View style={styles.headerRow}>
-          <IconButton icon="back" accessibilityLabel="뒤로" onPress={close} />
-        </View>
-        {detail.status === 'error' ? (
+  const options = record ? metricOptions(record) : metrics.slice(0, 1);
+  return (
+    <RecordsShell
+      title="기록 상세"
+      onBack={close}
+      right={
+        record ? (
+          <RoundGlassButton
+            icon="moreVertical"
+            label="기록 메뉴"
+            onPress={() => setMenu(true)}
+          />
+        ) : undefined
+      }
+      tabs={<PillTabs options={options} value={metric} onChange={setMetric} />}
+      footer={
+        record ? (
+          <View style={styles.actions}>
+            <ActionButton
+              title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
+              icon="bookmark"
+              selected={myCourseId !== null}
+              // A run without location has no path to save as a course.
+              disabled={busy || (!record.route && !myCourseId)}
+              onPress={toggleSaved}
+            />
+            <ActionButton
+              primary
+              title="기록 공유"
+              icon="share"
+              onPress={() =>
+                navigation.navigate('PostWrite', { recordId: record.id })
+              }
+            />
+          </View>
+        ) : undefined
+      }
+      after={
+        <RecordMenu
+          visible={menu}
+          // The title row is 52 high from 10 under the safe area; the card starts just under the ⋮ button.
+          top={insets.top + 10 + 52}
+          onClose={() => setMenu(false)}
+          onDelete={deleteRecord}
+        />
+      }
+    >
+      {!record ? (
+        detail.status === 'error' ? (
           <EmptyState
             icon="alert"
             title="기록을 불러오지 못했어요"
@@ -428,184 +340,152 @@ export function RecordDetailScreen() {
           />
         ) : (
           <ActivityIndicator style={styles.loading} />
-        )}
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <ScrollView contentContainerStyle={styles.scroll} bounces={false}>
-        <ThemeProvider tone="dark">
-          <MapHead record={record} />
-        </ThemeProvider>
-        <View style={styles.body}>
-          <GoalPill record={record} />
-          {record.aiAdvice ? (
-            <Card variant="deep" style={styles.card}>
-              <AppText style={styles.advice}>
-                <AppText style={styles.advice} variant="bodyStrong">
-                  {'AI 조언 '}
-                </AppText>
-                {record.aiAdvice}
-              </AppText>
-            </Card>
-          ) : null}
-          <Splits record={record} />
-        </View>
-      </ScrollView>
-      <ThemeProvider tone="dark">
-        <SafeAreaView
-          edges={['top']}
-          style={styles.header}
-          pointerEvents="box-none"
+        )
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.card}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.headerRow}>
-            <IconButton icon="back" accessibilityLabel="뒤로" onPress={close} />
-            <AppText
-              variant="heading"
-              accessibilityRole="header"
-              style={styles.title}
-            >
-              {`${formatDotDateWeekday(record.startedAt)} 러닝`}
-            </AppText>
-            <IconButton
-              icon="share"
-              accessibilityLabel="공유"
-              onPress={() =>
-                navigation.navigate('PostWrite', { recordId: record.id })
-              }
-            />
-            <IconButton
-              icon="moreVertical"
-              accessibilityLabel="기록 메뉴"
-              onPress={() => setMenu(true)}
-            />
-          </View>
-        </SafeAreaView>
-        {/* The three buttons sit on the black lower part (DESIGN.md 2-8 5.2 버튼, 1.4 : 1 : 1). */}
-        <SafeAreaView edges={['bottom']} style={styles.buttons}>
-          <View style={styles.wide}>
-            <DetailButton
-              title={myCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-              selected={myCourseId !== null}
-              // A run without location has no path to save as a course.
-              disabled={busy || (!record.route && !myCourseId)}
-              onPress={toggleSaved}
-            />
-          </View>
-          <View style={styles.narrow}>
-            <DetailButton
-              title="기록 공유"
-              onPress={() =>
-                navigation.navigate('PostWrite', { recordId: record.id })
-              }
-            />
-          </View>
-          <View style={styles.narrow}>
-            <DetailButton title="닫기" primary onPress={close} />
-          </View>
-        </SafeAreaView>
-      </ThemeProvider>
-      <RecordMenu
-        visible={menu}
-        onClose={() => setMenu(false)}
-        onDelete={deleteRecord}
-      />
-    </View>
+          <RecordView
+            layout="detail"
+            record={record}
+            chartHeight={260}
+            metric={metric}
+          />
+        </ScrollView>
+      )}
+    </RecordsShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.xl,
-  },
-  sheetButtons: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.md,
-  },
   loading: { marginTop: spacing.xxxl },
-  scroll: { paddingBottom: spacing.xxl },
-  map: { height: mapHeight, overflow: 'hidden' },
-  noRoute: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-  },
-  header: { position: 'absolute', top: 0, left: 0, right: 0 },
-  headerRow: {
-    height: size.header,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingHorizontal: spacing.screen,
-  },
-  title: { flex: 1 },
-  headline: {
-    position: 'absolute',
-    left: spacing.screen,
-    right: spacing.screen,
-    bottom: 40,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-  },
-  // Big numbers stay Barlow Regular at the sheet's 96.
-  distance: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 96,
-    lineHeight: 100,
-  },
-  distanceUnit: { fontFamily: fontFamily.numberRegular, fontSize: 20 },
-  headlineSide: { alignItems: 'flex-end', paddingBottom: spacing.lg },
-  time: { fontFamily: fontFamily.numberRegular, fontSize: 24, lineHeight: 30 },
-  pace: { fontFamily: fontFamily.numberRegular, fontSize: 18, lineHeight: 24 },
-  body: {
-    paddingHorizontal: 14,
-    gap: spacing.lg,
-    marginTop: -spacing.xl,
-  },
-  goal: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  card: { gap: spacing.xl },
-  advice: { fontSize: 13.5, lineHeight: 21 },
-  buttons: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    paddingHorizontal: 14,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xl,
-  },
-  wide: { flex: 1.4 },
-  narrow: { flex: 1 },
-  // Each button fills the box that sets its share of the row.
-  button: {
-    height: 50,
-    borderRadius: 999,
-    borderWidth: 1,
+  // Where the tab bar sits on 5.1 and 5.3, as high as it (담당자 결정).
+  actions: { flex: 1, flexDirection: 'row', gap: 8 },
+  card: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 },
+  action: {
+    flex: 1,
+    height: 64,
+    borderRadius: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: 7,
+  },
+  actionPrimary: { backgroundColor: '#02050D' },
+  actionText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15.5,
+    lineHeight: 20,
+    letterSpacing: -0.3,
   },
   dim: { opacity: 0.55 },
+  scrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  scrimDim: { backgroundColor: 'rgba(9,17,26,0.32)' },
+  // ⋮ 메뉴: a small glass card under the button.
+  menu: {
+    position: 'absolute',
+    right: recordsLook.side,
+    minWidth: 160,
+    borderRadius: 18,
+    padding: 6,
+    // Solid, so the tabs under it do not show through.
+    backgroundColor: '#F6F8FA',
+  },
+  menuRow: {
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  menuText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 20,
+    letterSpacing: -0.3,
+    color: danger,
+  },
+  // 삭제 확인: a glass card in the middle of the dimmed screen.
+  center: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    justifyContent: 'center',
+    paddingHorizontal: recordsLook.side,
+  },
+  confirm: {
+    borderRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: 'center',
+    backgroundColor: '#F6F8FA',
+  },
+  confirmIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,74,74,0.12)',
+  },
+  confirmTitle: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 25,
+    letterSpacing: -0.4,
+    color: recordsLook.ink,
+  },
+  confirmNote: {
+    marginTop: 6,
+    textAlign: 'center',
+    fontFamily: fontFamily.regular,
+    fontSize: 13.5,
+    lineHeight: 20,
+    letterSpacing: -0.3,
+    color: recordsLook.sub,
+  },
+  confirmButtons: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 22,
+  },
+  confirmButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancel: {
+    borderWidth: 1,
+    borderColor: recordsLook.glassRim,
+    backgroundColor: 'rgba(2,5,14,0.06)',
+  },
+  cancelText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15.5,
+    lineHeight: 20,
+    color: recordsLook.ink,
+  },
+  delete: { backgroundColor: danger },
+  deleteText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15.5,
+    lineHeight: 20,
+    color: '#FFFFFF',
+  },
 });

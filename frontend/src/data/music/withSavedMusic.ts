@@ -1,4 +1,5 @@
 import * as Keychain from 'react-native-keychain';
+import { SpotifyStateError } from '../spotify/music';
 import type { MusicSource, MusicState, Repositories } from '../types';
 
 type Music = Repositories['music'];
@@ -33,10 +34,16 @@ function parse(saved: string): Saved | null {
 // Keeps what 2.7 shows across a relaunch (S15P31E105-397): a first launch opens on Spotify, the source picked on
 // 2.8 comes back, and when the service reports nothing playing, the card shows the last song, paused. Spotify's
 // own report wins.
-export function withSavedMusic(base: Music): Music {
+export function withSavedMusic(
+  base: Music,
+  { restoreSpotifyTrack = true } = {},
+): Music {
   // Read once on launch.
   let memo: Saved | null = null;
   let restoring: Promise<void> | null = null;
+  let restoreFailure: SpotifyStateError | undefined;
+
+  let saving = Promise.resolve();
 
   async function write() {
     try {
@@ -56,11 +63,20 @@ export function withSavedMusic(base: Music): Music {
       memo = null;
     }
     memo ??= { source: firstSource, track: null };
-    const state = await base.getState();
+    const state = await base.getState().catch(error => {
+      if (error instanceof SpotifyStateError) {
+        restoreFailure = error;
+        return error.state;
+      }
+      throw error;
+    });
     if (state.source !== memo.source) {
       try {
         await base.selectSource(memo.source);
-      } catch {
+      } catch (error) {
+        if (error instanceof SpotifyStateError) {
+          restoreFailure = error;
+        }
         // The pick is made before Spotify reads back what is playing, so a failed read still leaves the source
         // restored; the call that follows reports that failure itself.
       }
@@ -76,12 +92,17 @@ export function withSavedMusic(base: Music): Music {
         heard.playing !== memo.track.playing
       ) {
         memo = { source: state.source, track: heard };
-        await write();
+        // 키체인 저장은 0.2초쯤 걸려 곡 전환 표시를 늦추므로 기다리지 않는다. 저장은 순서대로 이어 붙인다
+        // (S15P31E105-398).
+        saving = saving.then(write);
       }
       return state;
     }
     const track = memo?.track;
-    return track && state.linked && memo?.source === state.source
+    return (restoreSpotifyTrack || state.source !== 'SPOTIFY') &&
+      track &&
+      state.linked &&
+      memo?.source === state.source
       ? { ...state, nowPlaying: { ...track, playing: false } }
       : state;
   }
@@ -96,16 +117,55 @@ export function withSavedMusic(base: Music): Music {
         throw error;
       });
       await restoring;
-      return view(await call(...args));
+      const failure = restoreFailure;
+      restoreFailure = undefined;
+      const state = await call(...args);
+      // Restore may already have invalidated an unregistered token. Report its reason once instead of
+      // losing the dashboard instruction when the next read simply sees a signed-out account.
+      if (failure && !state.linked && state.source === failure.state.source) {
+        throw failure;
+      }
+      return view(state);
     };
 
   return {
+    canStartWithoutTrack: base.canStartWithoutTrack,
+    connectLibrary: base.connectLibrary,
+    subscribe: base.subscribe
+      ? listener => {
+          let active = true;
+          const stop = base.subscribe!(state => {
+            void view(state).then(next => {
+              if (active) {
+                listener(next);
+              }
+            });
+          });
+          return () => {
+            active = false;
+            stop();
+          };
+        }
+      : undefined,
     getState: after(base.getState),
     selectSource: after(async (source: MusicSource | null) => {
-      const state = await base.selectSource(source);
+      let state: MusicState;
+      let failure: SpotifyStateError | undefined;
+      try {
+        state = await base.selectSource(source);
+      } catch (error) {
+        if (!(error instanceof SpotifyStateError)) {
+          throw error;
+        }
+        state = error.state;
+        failure = error;
+      }
       // A song belongs to the source it played on, so a new pick starts without one.
       memo = { source, track: null };
       await write();
+      if (failure) {
+        throw failure;
+      }
       return state;
     }),
     resolveService: after(base.resolveService),
@@ -114,5 +174,23 @@ export function withSavedMusic(base: Music): Music {
     pause: after(base.pause),
     next: after(base.next),
     previous: after(base.previous),
+    getPlaylists: async () => {
+      restoring ??= restore().catch(error => {
+        restoring = null;
+        throw error;
+      });
+      await restoring;
+      return base.getPlaylists();
+    },
+    playPlaylist: after(base.playPlaylist),
+    getRecentTracks: async () => {
+      restoring ??= restore().catch(error => {
+        restoring = null;
+        throw error;
+      });
+      await restoring;
+      return base.getRecentTracks();
+    },
+    playTrack: after(base.playTrack),
   };
 }

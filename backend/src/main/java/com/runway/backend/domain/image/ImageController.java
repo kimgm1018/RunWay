@@ -39,11 +39,15 @@ public class ImageController {
     }
 
     @GetMapping("/{imageId}")
-    public ResponseEntity<InputStreamResource> get(@PathVariable String imageId)
+    public ResponseEntity<InputStreamResource> get(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable String imageId)
             throws IOException {
-        StoredImage image = imageService.load(imageId);
+        Long viewerId = user == null ? null : CurrentUserIdResolver.requireUserId(user);
+        StoredImage image = imageService.load(viewerId, imageId);
         InputStreamResource body = new InputStreamResource(image.content());
         return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
                 .header(HttpHeaders.CONTENT_TYPE, image.contentType())
                 .contentLength(image.contentLength())
                 .body(body);

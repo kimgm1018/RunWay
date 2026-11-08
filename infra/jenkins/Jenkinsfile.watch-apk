@@ -1,4 +1,37 @@
 // master Push 후 제품 워치 앱을 검사하고 팀 테스트용 debug APK를 보관한다.
+
+// 통합 CI 워치 검사와 같은 참조 저장소를 사용한다. 작업 폴더는 매번 비우고 Git 객체만 재사용한다.
+def watchGitReference() {
+    return '/home/jenkins/agent/caches/runway-git-reference.git'
+}
+
+// 워치 앱·CI 스크립트·공통 debug 서명만 풀고, 받은 객체는 참조 저장소에서 재사용한다.
+def checkoutMaster(boolean useReference) {
+    def extensions = [[
+        $class: 'SparseCheckoutPaths',
+        sparseCheckoutPaths: [
+            [$class: 'SparseCheckoutPath', path: '/wear/'],
+            [$class: 'SparseCheckoutPath', path: '/infra/jenkins/'],
+            [$class: 'SparseCheckoutPath', path: '/frontend/android/app/debug.keystore']
+        ]
+    ]]
+    if (useReference) {
+        // 경로가 아직 없으면 Git 플러그인이 참조 없이 전체를 받는다.
+        extensions << [$class: 'CloneOption', reference: watchGitReference(), shallow: false, noTags: false]
+    }
+    deleteDir()
+    checkout([
+        $class: 'GitSCM',
+        branches: [[name: 'refs/remotes/origin/master']],
+        extensions: extensions,
+        userRemoteConfigs: [[
+            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
+            credentialsId: 'runway-gitlab-repo',
+            refspec: '+refs/heads/master:refs/remotes/origin/master'
+        ]]
+    ])
+}
+
 pipeline {
     agent { label 'watch' }
     options {
@@ -19,22 +52,24 @@ pipeline {
                         (env.gitlabActionType != 'PUSH' || env.gitlabBranch != 'master')) {
                         error('자동 APK 배포는 master Push만 허용합니다.')
                     }
-                    deleteDir()
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: 'refs/remotes/origin/master']],
-                        userRemoteConfigs: [[
-                            url: 'https://lab.ssafy.com/s15-final/S15P31E105.git',
-                            credentialsId: 'runway-gitlab-repo',
-                            refspec: '+refs/heads/master:refs/remotes/origin/master'
-                        ]]
-                    ])
+                    try {
+                        checkoutMaster(true)
+                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException err) {
+                        throw err
+                    } catch (err) {
+                        // 참조 저장소가 손상됐을 수 있으므로 지우고 원격에서 한 번 더 받는다.
+                        echo "참조 저장소 없이 master 코드를 다시 받습니다: ${err}"
+                        sh "rm -rf '${watchGitReference()}'"
+                        checkoutMaster(false)
+                    }
+                    sh "sh infra/jenkins/update-git-reference.sh '${watchGitReference()}'"
                     env.APK_COMMIT = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
                     currentBuild.description = "master ${env.APK_COMMIT}"
                 }
             }
         }
         // MR과 같은 검사이며, 실패 위치를 볼 수 있도록 단계를 나눈다.
+        // 세 단계는 같은 Gradle 데몬을 재사용하고 post에서 데몬을 종료한다.
         stage('Watch Tests') {
             steps {
                 sh 'sh infra/jenkins/build-watch-apk.sh --stage test'
@@ -64,9 +99,11 @@ pipeline {
             }
         }
     }
-    // 실패해도 생성된 테스트 결과·Lint·시간 보고서는 남긴다.
+    // 실패해도 데몬을 종료하고, 생성된 테스트 결과·Lint·시간 보고서는 남긴다.
     post {
         always {
+            // Checkout 실패 시 스크립트가 없으므로 데몬도 시작되지 않았다.
+            sh 'if [ -f infra/jenkins/build-watch-apk.sh ]; then sh infra/jenkins/build-watch-apk.sh --stage stop; fi'
             junit allowEmptyResults: true,
                 testResults: 'wear/app/build/test-results/testDebugUnitTest/*.xml'
             archiveArtifacts allowEmptyArchive: true,

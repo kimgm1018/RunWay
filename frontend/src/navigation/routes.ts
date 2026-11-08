@@ -2,7 +2,12 @@
 // (1.2r, 2.1La, 4.5F, 6.2f …) are not routes but states of the screen they belong to.
 export type SessionAction = 'signIn' | 'signOut';
 
-export type TabName = 'HomeTab' | 'RunTab' | 'GroupTab' | 'CommunityTab';
+export type TabName =
+  | 'HomeTab'
+  | 'RunTab'
+  | 'GroupTab'
+  | 'CommunityTab'
+  | 'ProfileTab';
 
 type RouteInfo = {
   code: string;
@@ -18,14 +23,23 @@ export const authRoutes = [
   'SignUp',
   'Consent',
   'ProfileBasic',
+  'ProfileBirthday',
   'ProfileRunning',
+  'ProfilePace',
   'WatchChoice',
   'WatchConnect',
   'PasswordFind',
   'PasswordPhone',
 ] as const;
 
-export const runTabRoutes = ['RunMode', 'FreeRun', 'CourseRun'] as const;
+export const runTabRoutes = [
+  'RunMode',
+  'FreeRun',
+  'CourseStart',
+  'CourseRun',
+] as const;
+// 5.1 · 5.3 sit in the home tab, under its tab bar (runway-records, S15P31E105-465).
+export const homeTabRoutes = ['Records', 'Analysis'] as const;
 export const groupTabRoutes = ['MyCrews', 'CrewRecruit'] as const;
 
 // Screens pushed over the tabs. The prototype hides the tab bar on all of them.
@@ -37,16 +51,12 @@ export const mainRoutes = [
   'SavedCourses',
   'RecommendedCourses',
   'RunProgress',
-  'RunPause',
   'RunResult',
-  'Records',
   'RecordDetail',
-  'Analysis',
   'GroupRunDetail',
   'WaitingRoom',
   'GroupRunProgress',
   'GroupRunPosition',
-  'GroupRunPause',
   'GroupRunResult',
   'GroupRunCreate',
   'GroupRunCancel',
@@ -58,9 +68,12 @@ export const mainRoutes = [
   'PostWrite',
   'PostEdit',
   'RunnerProfile',
+  'CommunitySearch',
   'MyProfile',
   'ProfileEdit',
+  'RunningBaselineEdit',
   'Settings',
+  'LocationSetting',
   'WatchConnect',
   'Withdraw',
   'WithdrawPassword',
@@ -69,12 +82,14 @@ export const mainRoutes = [
 
 export type AuthRouteName = (typeof authRoutes)[number];
 export type RunTabRouteName = (typeof runTabRoutes)[number];
+export type HomeTabRouteName = (typeof homeTabRoutes)[number];
 export type GroupTabRouteName = (typeof groupTabRoutes)[number];
 export type MainRouteName = (typeof mainRoutes)[number];
 export type RouteName =
   | AuthRouteName
   | MainRouteName
   | RunTabRouteName
+  | HomeTabRouteName
   | GroupTabRouteName
   | 'Home'
   | 'Community';
@@ -118,11 +133,23 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '1.5',
     title: '기본 프로필',
     task: ONBOARDING,
+    links: ['ProfileBirthday'],
+  },
+  ProfileBirthday: {
+    code: '1.5b',
+    title: '생년월일',
+    task: ONBOARDING,
     links: ['ProfileRunning'],
   },
   ProfileRunning: {
     code: '1.6',
     title: '러닝 프로필',
+    task: ONBOARDING,
+    links: ['ProfilePace'],
+  },
+  ProfilePace: {
+    code: '1.6b',
+    title: '평소 페이스',
     task: ONBOARDING,
     links: ['WatchChoice'],
   },
@@ -179,7 +206,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '러닝 방식 선택',
     task: HOME,
     tab: 'RunTab',
-    links: ['FreeRun', 'TodayRun'],
+    links: ['FreeRun', 'CourseStart'],
   },
   FreeRun: {
     code: '2.0F',
@@ -187,6 +214,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     task: HOME,
     tab: 'RunTab',
     links: ['RunMode', 'MusicCard', 'RunProgress'],
+  },
+  // 코스 러닝 opens on the map like 2.0F, with 코스 설정 in place of 목표 설정 (담당자 요청).
+  CourseStart: {
+    code: '2.0C',
+    title: '코스 러닝 시작',
+    task: HOME,
+    tab: 'RunTab',
+    links: ['TodayRun', 'FreeRun', 'MusicCard'],
   },
   CourseRun: {
     code: '2.0',
@@ -233,13 +268,8 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '4.2',
     title: '러닝 진행',
     task: RUN,
-    links: ['RunPause'],
-  },
-  RunPause: {
-    code: '4.3',
-    title: '일시정지·종료',
-    task: RUN,
-    links: ['RunProgress', 'RunResult', 'Settings'],
+    // 4.3 일시정지 is part of 4.2 now (S15P31E105-517): the foot turns into 재개 · 종료.
+    links: ['RunResult'],
   },
   RunResult: {
     code: '4.5',
@@ -252,12 +282,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '5.3',
     title: '러닝 분석',
     task: RECORD,
+    tab: 'HomeTab',
     links: ['Records'],
   },
   Records: {
     code: '5.1',
     title: '전체 기록',
     task: RECORD,
+    tab: 'HomeTab',
     links: ['RecordDetail', 'GroupRunResult'],
   },
   RecordDetail: {
@@ -296,19 +328,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '6.6',
     title: '그룹런 진행',
     task: GROUP_RUN,
-    links: ['GroupRunPosition', 'GroupRunPause'],
+    // 6.6c 일시정지 is part of 6.6 now (S15P31E105-517).
+    links: ['GroupRunPosition', 'GroupRunResult'],
   },
   GroupRunPosition: {
     code: '6.6r',
     title: '그룹런 위치·간격',
     task: GROUP_RUN,
-    links: ['GroupRunPause'],
-  },
-  GroupRunPause: {
-    code: '6.6c',
-    title: '그룹런 일시정지·종료',
-    task: GROUP_RUN,
-    links: ['GroupRunProgress', 'GroupRunResult'],
+    links: ['GroupRunResult'],
   },
   GroupRunResult: {
     code: '6.7',
@@ -366,7 +393,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '커뮤니티',
     task: COMMUNITY,
     tab: 'CommunityTab',
-    links: ['PostDetail', 'RunnerProfile', 'SavedCourses'],
+    links: ['PostDetail', 'RunnerProfile', 'SavedCourses', 'CommunitySearch'],
   },
   PostDetail: {
     code: '7.2',
@@ -392,6 +419,13 @@ export const routes: Record<RouteName, RouteInfo> = {
     task: COMMUNITY,
     links: [],
   },
+  // runway-search (S15P31E105-390): runners and crews by name (CMT13).
+  CommunitySearch: {
+    code: '7.5',
+    title: '검색',
+    task: COMMUNITY,
+    links: ['RunnerProfile', 'CrewDetail'],
+  },
   MyProfile: {
     code: '7.4b',
     title: '내 프로필',
@@ -403,13 +437,26 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '8.2',
     title: '프로필 수정',
     task: SETTINGS,
-    links: ['MyProfile'],
+    links: ['MyProfile', 'RunningBaselineEdit'],
+  },
+  // S15P31E105-551: 평소 거리·완주 시간 또는 페이스 수정 (U06·U07).
+  RunningBaselineEdit: {
+    code: '8.2b',
+    title: '평소 러닝 정보',
+    task: SETTINGS,
+    links: ['ProfileEdit'],
   },
   Settings: {
     code: '8.1',
     title: '설정',
     task: SETTINGS,
-    links: ['MyProfile', 'WatchConnect', 'Withdraw', 'signOut'],
+    links: ['LocationSetting', 'WatchConnect', 'Withdraw', 'signOut'],
+  },
+  LocationSetting: {
+    code: '8.1b',
+    title: '위치 기록',
+    task: SETTINGS,
+    links: ['Settings'],
   },
   Withdraw: {
     code: '8.4',

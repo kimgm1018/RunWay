@@ -1,14 +1,19 @@
 import React from 'react';
 import {
   Image,
-  Pressable,
   StyleSheet,
   useWindowDimensions,
   View,
   type ImageSourcePropType,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Logo, MistFill, Screen } from '../../components';
+import {
+  AppText,
+  Logo,
+  MistFill,
+  PressableScale,
+  Screen,
+} from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
@@ -38,8 +43,8 @@ const modes: Mode[] = [
     rise: 0.62,
   },
   {
-    // 코스 러닝 goes through 3.1 코스 추천 before 2.0.
-    route: 'TodayRun',
+    // 코스 러닝 opens on the map first (2.0C); 코스 설정 there leads to 3.1 코스 추천 and then 2.0 (담당자 요청).
+    route: 'CourseStart',
     title: '코스 러닝',
     note: '추천 코스 따라 달리기',
     flipped: true,
@@ -66,15 +71,14 @@ function ModeCard({
 }) {
   const imageHeight = mode.imageWidth * mode.imageAspect;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={mode.title}
       onPress={onPress}
-      style={({ pressed }) => [
+      style={[
         styles.card,
         mode.flipped ? styles.cardLight : styles.cardDark,
         { width },
-        pressed && styles.pressed,
       ]}
     >
       <MistFill id={`mode${mode.route}`} flipped={mode.flipped} />
@@ -106,7 +110,7 @@ function ModeCard({
           {mode.note}
         </AppText>
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -167,7 +171,6 @@ const styles = StyleSheet.create({
       'inset 0 0 0 1px rgba(255,255,255,0.06), 0 12px 30px rgba(0,0,0,0.2)',
   },
   cardLight: { boxShadow: '0 12px 30px rgba(0,0,0,0.12)' },
-  pressed: { transform: [{ scale: 0.98 }] },
   picture: { position: 'absolute', left: '50%' },
   text: { position: 'absolute', left: 16, right: 16, bottom: 18 },
   title: {

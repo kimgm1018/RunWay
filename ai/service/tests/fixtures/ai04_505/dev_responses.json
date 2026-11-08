@@ -1,0 +1,1127 @@
+{
+ "paused_walking": {
+  "error": null,
+  "predict_calls": 0,
+  "response": {
+   "candidates": [],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": null,
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "PAUSED",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "PAUSED"
+ },
+ "running": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": true,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      154.06060600280762,
+      154.12121200561523,
+      154.24242401123047
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": true,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.970148563385,
+      153.94029712677002,
+      153.88059425354004
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": true,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": 0.0,
+     "upperHrBpm": [
+      153.8823528289795,
+      153.76470565795898,
+      153.52941131591797
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": true,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.79710149765015,
+      153.5942029953003,
+      153.1884059906006
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": true,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      153.71428537368774,
+      153.4285707473755,
+      152.85714149475098
+     ]
+    }
+   ],
+   "decision": {
+    "action": "GUIDE_PACE",
+    "basedOnStateVersion": 7,
+    "chosenIndex": 2,
+    "coachingLevel": "OK",
+    "cueBpm": null,
+    "expiresAt": "2026-11-05T05:16:55Z",
+    "predictedHr120Bpm": 149.52941131591797,
+    "predictedHr30Bpm": 149.8823528289795,
+    "predictedHr60Bpm": 149.76470565795898,
+    "reason": "GOAL_UNREACHABLE",
+    "reasonText": "목표 시간 달성이 어려워 무리하지 않음",
+    "recommendedPaceSecPerKm": 340.0,
+    "routeProgressM": 2310.0
+   },
+   "forecast": null,
+   "gate": "ALL",
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": -6.666666666666686,
+    "etaMinusGoalSec": 91.66666666666652,
+    "etaSec": 1891.6666666666665,
+    "handoverPhase": "MPC",
+    "hrDangerBpm": 178.0,
+    "hrSustainBpm": 163.0,
+    "hrThresholdSource": "POPULATION",
+    "hrThresholdWeight": 0.0,
+    "planWeight": 0.0
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "OK",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "OK"
+ },
+ "running_safety": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      186.06060600280762,
+      186.12121200561523,
+      186.24242401123047
+     ],
+     "rejectReason": "SAFETY",
+     "score": null,
+     "upperHrBpm": [
+      190.06060600280762,
+      190.12121200561523,
+      190.24242401123047
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      185.970148563385,
+      185.94029712677002,
+      185.88059425354004
+     ],
+     "rejectReason": "SAFETY",
+     "score": null,
+     "upperHrBpm": [
+      189.970148563385,
+      189.94029712677002,
+      189.88059425354004
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      185.8823528289795,
+      185.76470565795898,
+      185.52941131591797
+     ],
+     "rejectReason": "SAFETY",
+     "score": null,
+     "upperHrBpm": [
+      189.8823528289795,
+      189.76470565795898,
+      189.52941131591797
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      185.79710149765015,
+      185.5942029953003,
+      185.1884059906006
+     ],
+     "rejectReason": "SAFETY",
+     "score": null,
+     "upperHrBpm": [
+      189.79710149765015,
+      189.5942029953003,
+      189.1884059906006
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      185.71428537368774,
+      185.4285707473755,
+      184.85714149475098
+     ],
+     "rejectReason": "SAFETY",
+     "score": null,
+     "upperHrBpm": [
+      189.71428537368774,
+      189.4285707473755,
+      188.85714149475098
+     ]
+    }
+   ],
+   "decision": {
+    "action": "EASE_OFF",
+    "basedOnStateVersion": 7,
+    "chosenIndex": null,
+    "coachingLevel": "DANGER",
+    "cueBpm": null,
+    "expiresAt": "2026-11-05T05:16:55Z",
+    "predictedHr120Bpm": null,
+    "predictedHr30Bpm": null,
+    "predictedHr60Bpm": null,
+    "reason": "SAFETY",
+    "reasonText": "심박 상한 190 ≥ 힘든 선 178. 30초 느리게",
+    "recommendedPaceSecPerKm": 370.0,
+    "routeProgressM": 2310.0
+   },
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": -6.666666666666686,
+    "etaMinusGoalSec": 91.66666666666652,
+    "etaSec": 1891.6666666666665,
+    "handoverPhase": "MPC",
+    "hrDangerBpm": 178.0,
+    "hrSustainBpm": 163.0,
+    "hrThresholdSource": "POPULATION",
+    "hrThresholdWeight": 0.0,
+    "planWeight": 0.0
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": true,
+   "status": "SAFETY",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "SAFETY"
+ },
+ "running_user": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": true,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      154.06060600280762,
+      154.12121200561523,
+      154.24242401123047
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": true,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.970148563385,
+      153.94029712677002,
+      153.88059425354004
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": true,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": 0.0,
+     "upperHrBpm": [
+      153.8823528289795,
+      153.76470565795898,
+      153.52941131591797
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": true,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.79710149765015,
+      153.5942029953003,
+      153.1884059906006
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": true,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      153.71428537368774,
+      153.4285707473755,
+      152.85714149475098
+     ]
+    }
+   ],
+   "decision": {
+    "action": "GUIDE_PACE",
+    "basedOnStateVersion": 7,
+    "chosenIndex": 2,
+    "coachingLevel": "OK",
+    "cueBpm": null,
+    "expiresAt": "2026-11-05T05:16:55Z",
+    "predictedHr120Bpm": 149.52941131591797,
+    "predictedHr30Bpm": 149.8823528289795,
+    "predictedHr60Bpm": 149.76470565795898,
+    "reason": "GOAL_UNREACHABLE",
+    "reasonText": "목표 시간 달성이 어려워 무리하지 않음",
+    "recommendedPaceSecPerKm": 340.0,
+    "routeProgressM": 2310.0
+   },
+   "forecast": null,
+   "gate": "ALL",
+   "hrPersonalizationVersion": null,
+   "hrPersonalized": false,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": -6.666666666666686,
+    "etaMinusGoalSec": 91.66666666666652,
+    "etaSec": 1891.6666666666665,
+    "handoverPhase": "MPC",
+    "hrDangerBpm": 178.0,
+    "hrSustainBpm": 163.0,
+    "hrThresholdSource": "POPULATION",
+    "hrThresholdWeight": 0.0,
+    "planWeight": 0.0
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "OK",
+   "traceId": null,
+   "warnings": [
+    "HR_THRESHOLD_LOOKUP_UNAVAILABLE",
+    "GRU_PERSONALIZATION_UNAVAILABLE"
+   ]
+  },
+  "status": "OK"
+ },
+ "single_cell_plan_walking": {
+  "error": null,
+  "predict_calls": 0,
+  "response": {
+   "candidates": [],
+   "decision": {
+    "action": "GUIDE_PACE",
+    "basedOnStateVersion": 7,
+    "chosenIndex": null,
+    "coachingLevel": "OK",
+    "cueBpm": null,
+    "expiresAt": "2026-11-05T05:16:55Z",
+    "predictedHr120Bpm": null,
+    "predictedHr30Bpm": null,
+    "predictedHr60Bpm": null,
+    "reason": "PLAN_HOLD",
+    "reasonText": "기록이 한 칸뿐이라 예측을 건너뛰고 계획 페이스를 안내합니다.",
+    "recommendedPaceSecPerKm": 657.992565055762,
+    "routeProgressM": 2310.0
+   },
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": 493.33333333333337,
+    "etaMinusGoalSec": 471.6666666666665,
+    "etaSec": 2271.6666666666665,
+    "handoverPhase": "PLAN_HOLD",
+    "hrDangerBpm": 178.0,
+    "hrSustainBpm": 163.0,
+    "hrThresholdSource": "POPULATION",
+    "hrThresholdWeight": 0.0,
+    "planWeight": 1.0
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": true,
+   "status": "OK",
+   "traceId": null,
+   "warnings": [
+    "HISTORY_TOO_SHORT_PLAN_HOLD"
+   ]
+  },
+  "status": "OK"
+ },
+ "speed_exactly_1_5": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": true,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      154.06060600280762,
+      154.12121200561523,
+      154.24242401123047
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": true,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.970148563385,
+      153.94029712677002,
+      153.88059425354004
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": true,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": 0.0,
+     "upperHrBpm": [
+      153.8823528289795,
+      153.76470565795898,
+      153.52941131591797
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": true,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": 0.15,
+     "upperHrBpm": [
+      153.79710149765015,
+      153.5942029953003,
+      153.1884059906006
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": true,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": 0.3,
+     "upperHrBpm": [
+      153.71428537368774,
+      153.4285707473755,
+      152.85714149475098
+     ]
+    }
+   ],
+   "decision": {
+    "action": "GUIDE_PACE",
+    "basedOnStateVersion": 7,
+    "chosenIndex": 2,
+    "coachingLevel": "OK",
+    "cueBpm": null,
+    "expiresAt": "2026-11-05T05:16:55Z",
+    "predictedHr120Bpm": 149.52941131591797,
+    "predictedHr30Bpm": 149.8823528289795,
+    "predictedHr60Bpm": 149.76470565795898,
+    "reason": "GOAL_UNREACHABLE",
+    "reasonText": "목표 시간 달성이 어려워 무리하지 않음",
+    "recommendedPaceSecPerKm": 340.0,
+    "routeProgressM": 2310.0
+   },
+   "forecast": null,
+   "gate": "ALL",
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": 326.66666666666663,
+    "etaMinusGoalSec": 988.333333333333,
+    "etaSec": 2788.333333333333,
+    "handoverPhase": "MPC",
+    "hrDangerBpm": 178.0,
+    "hrSustainBpm": 163.0,
+    "hrThresholdSource": "POPULATION",
+    "hrThresholdWeight": 0.0,
+    "planWeight": 0.0
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "OK",
+   "traceId": null,
+   "warnings": [
+    "PACE_DROP"
+   ]
+  },
+  "status": "OK"
+ },
+ "speed_just_below_1_5": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": null,
+    "etaMinusGoalSec": null,
+    "etaSec": null
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "NOT_RUNNING",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "NOT_RUNNING"
+ },
+ "speed_none_recent": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": null,
+    "etaMinusGoalSec": null,
+    "etaSec": null
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "NOT_RUNNING",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "NOT_RUNNING"
+ },
+ "stale_walking": {
+  "error": [
+   422,
+   "INPUT_INSUFFICIENT"
+  ],
+  "predict_calls": 0,
+  "response": {
+   "candidates": [],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": null,
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "INPUT_INSUFFICIENT",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "INPUT_INSUFFICIENT"
+ },
+ "t0_hr_missing_walking": {
+  "error": [
+   422,
+   "INPUT_INSUFFICIENT"
+  ],
+  "predict_calls": 0,
+  "response": {
+   "candidates": [],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": null,
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "INPUT_INSUFFICIENT",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "INPUT_INSUFFICIENT"
+ },
+ "walk_1_2": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": null,
+    "etaMinusGoalSec": null,
+    "etaSec": null
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "NOT_RUNNING",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "NOT_RUNNING"
+ },
+ "walk_user_no_personalization": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "hrPersonalizationVersion": null,
+   "hrPersonalized": false,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": null,
+    "etaMinusGoalSec": null,
+    "etaSec": null
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "NOT_RUNNING",
+   "traceId": null,
+   "warnings": []
+  },
+  "status": "NOT_RUNNING"
+ },
+ "walk_user_personalization": {
+  "error": null,
+  "predict_calls": 1,
+  "response": {
+   "candidates": [
+    {
+     "paceSecPerKm": 330.0,
+     "passed": false,
+     "predHrBpm": [
+      150.06060600280762,
+      150.12121200561523,
+      150.24242401123047
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 335.0,
+     "passed": false,
+     "predHrBpm": [
+      149.970148563385,
+      149.94029712677002,
+      149.88059425354004
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 340.0,
+     "passed": false,
+     "predHrBpm": [
+      149.8823528289795,
+      149.76470565795898,
+      149.52941131591797
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 345.0,
+     "passed": false,
+     "predHrBpm": [
+      149.79710149765015,
+      149.5942029953003,
+      149.1884059906006
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "paceSecPerKm": 350.0,
+     "passed": false,
+     "predHrBpm": [
+      149.71428537368774,
+      149.4285707473755,
+      148.85714149475098
+     ],
+     "rejectReason": null,
+     "score": null,
+     "upperHrBpm": [
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "decision": null,
+   "forecast": null,
+   "gate": null,
+   "hrPersonalizationVersion": null,
+   "hrPersonalized": false,
+   "modelVersion": "fake-1",
+   "pacing": {
+    "actualMinusGuideSecPerKm": null,
+    "etaMinusGoalSec": null,
+    "etaSec": null
+   },
+   "policyVersion": "mpc-v0.4.2",
+   "publishSuggested": false,
+   "status": "NOT_RUNNING",
+   "traceId": null,
+   "warnings": [
+    "HR_THRESHOLD_LOOKUP_UNAVAILABLE",
+    "GRU_PERSONALIZATION_UNAVAILABLE"
+   ]
+  },
+  "status": "NOT_RUNNING"
+ }
+}

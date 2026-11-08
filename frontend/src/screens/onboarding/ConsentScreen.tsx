@@ -1,52 +1,28 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, BottomSheet, Button, Screen } from '../../components';
+import { AppText, Screen } from '../../components';
 import { navigateTo } from '../../navigation/navigateTo';
-import { spacing, useTheme } from '../../theme';
+import { fontFamily } from '../../theme';
 import {
   CheckCircle,
   GoButton,
   OnboardingFooter,
   OnboardingHeader,
+  onboardingLook,
+  onboardingScreen,
+  RunnerArt,
+  signUpSteps,
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
+import { ConsentTermsModal } from './ConsentTermsModal';
+import { consentDocuments as consents, type ConsentKey } from './consentTerms';
 
-type ConsentKey = 'terms' | 'personal' | 'location' | 'health';
-
-// The four W04 consent types. Health data is optional: refusing it only hides readiness.
-const consents: {
-  key: ConsentKey;
-  required: boolean;
-  title: string;
-  detail?: string;
-}[] = [
-  { key: 'terms', required: true, title: '서비스 이용약관' },
-  {
-    key: 'personal',
-    required: true,
-    title: '개인정보 수집·이용',
-    detail: '아이디·닉네임·성별·생년월일·전화번호 · 계정 관리',
-  },
-  {
-    key: 'location',
-    required: true,
-    title: '위치 정보 수집·이용',
-    detail: '현재 위치·러닝 경로 · 코스 추천, 기록',
-  },
-  {
-    key: 'health',
-    required: false,
-    title: '건강 데이터 이용',
-    detail: '수면·심박·활동량 · 준비도, 페이스 전략',
-  },
-];
-
-// 1.4 개인정보·데이터 이용 동의. 전체 동의 is the first row of one light card (DESIGN.md 2-5).
+// 1.4 개인정보·데이터 이용 동의 (runway-onboarding-handoff): each agreement is its own glass card that turns
+// white with an ink rim once checked; 전체 동의 comes first.
 export function ConsentScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { draft, update } = useSignUpDraft();
   const [agreed, setAgreed] = useState<Record<ConsentKey, boolean>>({
     terms: false,
@@ -66,7 +42,13 @@ export function ConsentScreen() {
 
   return (
     <Screen
-      header={<OnboardingHeader onBack={navigation.goBack} />}
+      {...onboardingScreen}
+      header={
+        <OnboardingHeader
+          onBack={navigation.goBack}
+          progress={{ current: 2, total: signUpSteps }}
+        />
+      }
       footer={
         <OnboardingFooter>
           <GoButton
@@ -82,113 +64,122 @@ export function ConsentScreen() {
         </OnboardingFooter>
       }
     >
+      <RunnerArt />
       <StepTitle
-        title={'데이터 이용에\n'}
+        title={'데이터 이용에 '}
         muted="동의해 주세요"
         description="위치와 건강 데이터는 코스 추천, 준비도 분석, 페이스 전략에만 써요. 선택 항목은 설정에서 언제든 바꿀 수 있어요."
       />
-      <View
-        style={[
-          styles.list,
-          {
-            backgroundColor: colors.inputBackground,
-            borderColor: colors.inputEdge,
-          },
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityLabel="전체 동의"
+        accessibilityState={{ checked: all }}
+        onPress={toggleAll}
+        style={({ pressed }) => [
+          styles.card,
+          all && styles.cardChecked,
+          pressed && styles.pressed,
         ]}
       >
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityLabel="전체 동의"
-          accessibilityState={{ checked: all }}
-          onPress={toggleAll}
-          style={styles.all}
-        >
-          <CheckCircle checked={all} />
-          <AppText variant="bodyMedium">전체 동의</AppText>
-        </Pressable>
-        {consents.map(item => {
-          const label = `[${item.required ? '필수' : '선택'}] ${item.title}`;
-          return (
-            <View
-              key={item.key}
-              style={[styles.row, { borderTopColor: colors.border }]}
+        <CheckCircle checked={all} />
+        <AppText style={styles.allText}>전체 동의</AppText>
+      </Pressable>
+      {consents.map(item => {
+        const label = `[${item.required ? '필수' : '선택'}] ${item.title}`;
+        const checked = agreed[item.key];
+        return (
+          <View
+            key={item.key}
+            style={[styles.card, checked && styles.cardChecked]}
+          >
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel={label}
+              accessibilityState={{ checked }}
+              onPress={() =>
+                setAgreed(current => ({
+                  ...current,
+                  [item.key]: !current[item.key],
+                }))
+              }
+              style={({ pressed }) => [
+                styles.rowMain,
+                pressed && styles.pressed,
+              ]}
             >
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityLabel={label}
-                accessibilityState={{ checked: agreed[item.key] }}
-                onPress={() =>
-                  setAgreed(current => ({
-                    ...current,
-                    [item.key]: !current[item.key],
-                  }))
-                }
-                style={styles.rowMain}
-              >
-                <CheckCircle checked={agreed[item.key]} />
-                <View style={styles.flex}>
-                  <AppText>{label}</AppText>
-                  {item.detail ? (
-                    <AppText variant="caption" tone="textTertiary">
-                      {item.detail}
-                    </AppText>
-                  ) : null}
-                </View>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${item.title} 보기`}
-                hitSlop={8}
-                onPress={() => setViewing(item)}
-              >
-                <AppText variant="caption" tone="textTertiary">
-                  보기 ›
-                </AppText>
-              </Pressable>
-            </View>
-          );
-        })}
-      </View>
-      <BottomSheet
-        visible={viewing !== null}
-        onClose={() => setViewing(null)}
-        title={viewing?.title}
-        description={viewing?.detail}
-      >
-        <AppText variant="caption" tone="textTertiary">
-          약관 전문은 정책이 확정되면 이곳에 연결해요.
-        </AppText>
-        <Button
-          title="확인"
-          variant="secondary"
-          size="medium"
-          onPress={() => setViewing(null)}
+              <CheckCircle checked={checked} />
+              <View style={styles.flex}>
+                <AppText style={styles.rowTitle}>{label}</AppText>
+                {item.detail ? (
+                  <AppText style={styles.rowDetail}>{item.detail}</AppText>
+                ) : null}
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${item.title} 보기`}
+              hitSlop={8}
+              onPress={() => setViewing(item)}
+            >
+              <AppText style={styles.view}>보기 ›</AppText>
+            </Pressable>
+          </View>
+        );
+      })}
+      {viewing ? (
+        <ConsentTermsModal
+          document={viewing}
+          onClose={() => setViewing(null)}
         />
-      </BottomSheet>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  list: {
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: spacing.xxl,
-    paddingVertical: spacing.xs,
-  },
-  all: {
+  pressed: { opacity: 0.7 },
+  card: {
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
-    paddingVertical: spacing.xl,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: onboardingLook.glassRim,
+    backgroundColor: onboardingLook.glass,
+    boxShadow: onboardingLook.glassShadow,
   },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-    paddingVertical: spacing.xl,
-    borderTopWidth: 1,
+  cardChecked: {
+    backgroundColor: onboardingLook.picked,
+    borderColor: onboardingLook.ink,
+    borderWidth: 1.5,
   },
-  rowMain: { flex: 1, flexDirection: 'row', gap: spacing.xl },
+  allText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: onboardingLook.ink,
+  },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  rowTitle: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14.5,
+    lineHeight: 20,
+    color: onboardingLook.ink,
+  },
+  rowDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: onboardingLook.sub,
+  },
+  view: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: onboardingLook.label,
+  },
 });

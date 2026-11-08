@@ -1,5 +1,6 @@
 package com.runway.backend.domain.grouprun.repository;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -129,6 +130,53 @@ public class GroupRunParticipantJdbcRepository {
                         Integer.class,
                         groupRunId);
         return count == null ? 0 : count;
+    }
+
+    /** 참가자 온보딩 평균 페이스(sec/km). 양수만. 프로필 없으면 제외. */
+    public List<BigDecimal> findParticipantProfilePaces(long groupRunId) {
+        return jdbcTemplate.query(
+                """
+                SELECT up.average_pace
+                FROM group_run_participants p
+                INNER JOIN user_profiles up ON up.user_id = p.user_id
+                WHERE p.group_run_id = ?
+                  AND up.average_pace IS NOT NULL
+                  AND up.average_pace > 0
+                  AND up.average_pace NOT IN ('NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                ORDER BY p.joined_at ASC, p.id ASC
+                """,
+                (rs, rowNum) -> rs.getBigDecimal("average_pace"),
+                groupRunId);
+    }
+
+    /**
+     * RUNNING 세션 참가자의 추천/실측 페이스. AI04 coaching 최신 recommended_pace 우선, 없으면
+     * session.average_pace. 일시정지·종료·미시작은 제외.
+     */
+    public List<BigDecimal> findRunningParticipantGuidePaces(long groupRunId) {
+        return jdbcTemplate.query(
+                """
+                SELECT COALESCE(c.recommended_pace, s.average_pace) AS pace
+                FROM group_run_participants p
+                INNER JOIN running_sessions s
+                  ON s.id = p.session_id AND s.deleted_at IS NULL
+                LEFT JOIN LATERAL (
+                    SELECT cd.recommended_pace
+                    FROM coaching_decisions cd
+                    WHERE cd.session_id = s.id
+                      AND cd.recommended_pace IS NOT NULL
+                      AND cd.recommended_pace > 0
+                    ORDER BY cd.id DESC
+                    LIMIT 1
+                ) c ON TRUE
+                WHERE p.group_run_id = ?
+                  AND s.status = 'RUNNING'::running_sessions_status_enum
+                  AND COALESCE(c.recommended_pace, s.average_pace) IS NOT NULL
+                  AND COALESCE(c.recommended_pace, s.average_pace) > 0
+                ORDER BY p.joined_at ASC, p.id ASC
+                """,
+                (rs, rowNum) -> rs.getBigDecimal("pace"),
+                groupRunId);
     }
 
     private static GroupRunParticipantRow mapRow(ResultSet rs) throws SQLException {

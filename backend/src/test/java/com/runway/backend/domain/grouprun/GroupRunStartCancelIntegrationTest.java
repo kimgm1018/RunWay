@@ -3,55 +3,33 @@ package com.runway.backend.domain.grouprun;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /** S15P31E105-261 slice 2. G13 그룹런 취소와 G09 그룹런 시작 승인. */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Testcontainers
-class GroupRunStartCancelIntegrationTest {
-
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
-    }
-
+class GroupRunStartCancelIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private JsonMapper mapper;
 
     private long hostId;
     private long memberId;
+    private long crewOnlyId;
     private long outsiderId;
     private long crewId;
     private long hostWatchId;
@@ -59,20 +37,9 @@ class GroupRunStartCancelIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM pace_plan_segments");
-        jdbc.update("DELETE FROM pace_plans");
-        jdbc.update("DELETE FROM session_control_events");
-        jdbc.update("DELETE FROM group_run_participants");
-        jdbc.update("DELETE FROM group_runs");
-        jdbc.update("DELETE FROM crew_memberships");
-        jdbc.update("DELETE FROM crews");
-        jdbc.update("UPDATE running_sessions SET comparison_session_id = NULL");
-        jdbc.update("DELETE FROM running_sessions");
-        jdbc.update("DELETE FROM user_devices");
-        jdbc.update("DELETE FROM users");
-
         hostId = insertUser("gr_sc_host", "호스트", "01033330001");
         memberId = insertUser("gr_sc_member", "멤버", "01033330002");
+        crewOnlyId = insertUser("gr_sc_crew", "크루만", "01033330004");
         outsiderId = insertUser("gr_sc_out", "외부인", "01033330003");
         hostWatchId = insertDevice(hostId, "WATCH");
         insertDevice(hostId, "PHONE");
@@ -81,6 +48,10 @@ class GroupRunStartCancelIntegrationTest {
         crewId = insertCrew(hostId, "시작취소 크루");
         approveMember(crewId, hostId);
         approveMember(crewId, memberId);
+        approveMember(crewId, crewOnlyId);
+        enableGroupNotifications(hostId);
+        enableGroupNotifications(memberId);
+        enableGroupNotifications(crewOnlyId);
     }
 
     // ---------------------------------------------------------------- G13
@@ -108,6 +79,34 @@ class GroupRunStartCancelIntegrationTest {
                                 "SELECT count(*) FROM session_control_events",
                                 Integer.class))
                 .isZero();
+    }
+
+    @Test
+    void detail_cancelled_exposesCancellation_withNullMessage_andHostIdentity() throws Exception {
+        long groupRunId = createGroupRun();
+        joinAndReady(groupRunId, memberId);
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"WEATHER\",\"cancelMessage\":\"비가 와요\"}")
+                .andExpect(status().isOk());
+
+        // 남긴 말은 알림 전용이라 저장·노출하지 않는다. 멤버도 취소된 그룹 상세를 계속 열 수 있다.
+        detail(groupRunId, memberId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.cancellation.reason").value("WEATHER"))
+                .andExpect(jsonPath("$.cancellation.message").value(nullValue()))
+                .andExpect(jsonPath("$.cancellation.byNickname").value("호스트"))
+                .andExpect(jsonPath("$.cancellation.byRole").value("HOST"));
+    }
+
+    @Test
+    void detail_notCancelled_cancellationIsNull() throws Exception {
+        long groupRunId = createGroupRun();
+
+        detail(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                .andExpect(jsonPath("$.cancellation").value(nullValue()));
     }
 
     @Test
@@ -146,6 +145,60 @@ class GroupRunStartCancelIntegrationTest {
 
         assertThat(cancelReason(groupRunId)).isEqualTo("WEATHER");
         assertThat(sessionVersion(hostSession)).isEqualTo(versionAfterFirst);
+    }
+
+    @Test
+    void cancel_notifiesApprovedCrewMembers_excludesCanceller_andDedupeOnRepeat()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        joinAndReady(groupRunId, memberId);
+        disableGroupNotifications(crewOnlyId);
+
+        cancel(
+                        groupRunId,
+                        hostId,
+                        "{\"cancelReason\":\"WEATHER\",\"cancelMessage\":\"비가 와요\"}")
+                .andExpect(status().isOk());
+
+        assertThat(notificationCount(hostId)).isZero();
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(crewOnlyId)).isZero();
+        assertThat(notificationCount(outsiderId)).isZero();
+
+        var row =
+                jdbc.queryForMap(
+                        """
+                        SELECT notification_type, target_id, message, dedupe_key
+                        FROM notifications WHERE user_id=?
+                        """,
+                        memberId);
+        assertThat(row.get("notification_type")).isEqualTo("GROUP_RUN_PARTICIPATION_CANCELLED");
+        assertThat(((Number) row.get("target_id")).longValue()).isEqualTo(groupRunId);
+        assertThat(row.get("message")).isEqualTo("비가 와요");
+        assertThat(row.get("dedupe_key"))
+                .isEqualTo("GROUP_RUN_PARTICIPATION_CANCELLED:" + groupRunId + ":" + memberId);
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"PERSONAL\",\"cancelMessage\":\"다시\"}")
+                .andExpect(status().isOk());
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(hostId)).isZero();
+    }
+
+    @Test
+    void cancel_notifiesNonParticipantCrewMember_andUsesDefaultMessage() throws Exception {
+        long groupRunId = createGroupRun();
+
+        cancel(groupRunId, hostId, "{\"cancelReason\":\"OTHER\"}").andExpect(status().isOk());
+
+        assertThat(notificationCount(hostId)).isZero();
+        assertThat(notificationCount(memberId)).isEqualTo(1);
+        assertThat(notificationCount(crewOnlyId)).isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT message FROM notifications WHERE user_id=?",
+                                String.class,
+                                crewOnlyId))
+                .isEqualTo("그룹런이 취소되었습니다.");
     }
 
     @Test
@@ -421,6 +474,13 @@ class GroupRunStartCancelIntegrationTest {
 
     // ---------------------------------------------------------------- helpers
 
+    private org.springframework.test.web.servlet.ResultActions detail(long groupRunId, long userId)
+            throws Exception {
+        return mockMvc.perform(
+                get("/api/v1/group-runs/{id}", groupRunId)
+                        .header("Authorization", SecurityTestSupport.bearer(userId)));
+    }
+
     private org.springframework.test.web.servlet.ResultActions cancel(
             long groupRunId, long userId, String json) throws Exception {
         return mockMvc.perform(
@@ -596,6 +656,30 @@ class GroupRunStartCancelIntegrationTest {
                 """,
                 crewId,
                 userId);
+    }
+
+    private void enableGroupNotifications(long userId) {
+        jdbc.update(
+                """
+                INSERT INTO user_settings(
+                    user_id, voice_coaching_enabled, bpm_guide_enabled,
+                    group_notifications_enabled, community_notifications_enabled,
+                    location_collection_mode, account_visibility)
+                VALUES (?, false, false, true, false, 'OFF', 'PRIVATE')
+                ON CONFLICT (user_id) DO UPDATE SET group_notifications_enabled=true
+                """,
+                userId);
+    }
+
+    private void disableGroupNotifications(long userId) {
+        jdbc.update(
+                "UPDATE user_settings SET group_notifications_enabled=false WHERE user_id=?",
+                userId);
+    }
+
+    private long notificationCount(long userId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM notifications WHERE user_id=?", Long.class, userId);
     }
 
     private long insertDevice(long userId, String type) {

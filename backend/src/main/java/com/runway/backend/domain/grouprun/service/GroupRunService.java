@@ -15,12 +15,12 @@ import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.response.CancelGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.CreateGroupRunResponse;
-import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
 import com.runway.backend.domain.grouprun.dto.response.ForceFinishGroupRunResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunListResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunLiveResponse;
-import com.runway.backend.domain.grouprun.dto.response.GroupRunResultsResponse;
 import com.runway.backend.domain.grouprun.dto.response.GroupRunParticipantsResponse;
+import com.runway.backend.domain.grouprun.dto.response.GroupRunResultsResponse;
 import com.runway.backend.domain.grouprun.dto.response.JoinGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.PatchGroupRunResponse;
 import com.runway.backend.domain.grouprun.dto.response.ReadyGroupRunResponse;
@@ -28,18 +28,29 @@ import com.runway.backend.domain.grouprun.dto.response.StartGroupRunResponse;
 import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
+import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
+import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
+import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
+import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
+import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
+import com.runway.backend.domain.grouprun.live.ParticipantLive;
+import com.runway.backend.domain.grouprun.live.ParticipantSample;
+import com.runway.backend.domain.grouprun.repository.GroupRunFitJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantJdbcRepository;
 import com.runway.backend.domain.grouprun.repository.GroupRunParticipantRow;
 import com.runway.backend.domain.grouprun.repository.GroupRunRow;
+import com.runway.backend.domain.notification.NotificationType;
+import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.domain.session.dto.response.GroupStartCommand;
 import com.runway.backend.domain.session.entity.SessionGoal;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository;
 import com.runway.backend.domain.session.repository.SessionReferenceRepository.GroupResultRow;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.domain.session.service.RunningSessionService;
+import com.runway.backend.domain.session.service.SessionPlanPreparation;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 import com.runway.backend.global.geo.GeoJsonPoint;
@@ -48,17 +59,26 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -69,6 +89,7 @@ public class GroupRunService {
 
     private final GroupRunJdbcRepository groupRunJdbcRepository;
     private final GroupRunParticipantJdbcRepository participantJdbcRepository;
+    private final GroupRunFitJdbcRepository fitJdbcRepository;
     private final CrewRepository crewRepository;
     private final CrewMembershipRepository crewMembershipRepository;
     private final CourseJdbcRepository courseJdbcRepository;
@@ -76,7 +97,10 @@ public class GroupRunService {
     private final SessionReferenceRepository sessionReferenceRepository;
     private final RunningSessionService runningSessionService;
     private final RunningSessionControlService runningSessionControlService;
+    private final NotificationService notificationService;
     private final JsonMapper jsonMapper;
+    private final SessionPlanPreparation planPreparation;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public CreateGroupRunResponse create(long userId, CreateGroupRunRequest request) {
@@ -181,8 +205,44 @@ public class GroupRunService {
     public GroupRunDetailResponse getDetail(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireApprovedActiveCrewMember(row.crewId(), userId);
-        int participantCount = participantJdbcRepository.countByGroupRunId(groupRunId);
-        return toDetail(row, participantCount);
+        List<GroupRunParticipantRow> participants =
+                participantJdbcRepository.findByGroupRunId(groupRunId);
+        int participantCount = participants.size();
+
+        // 참가자와 요청자의 최근 완료 세션 페이스를 한 번에 읽는다(요청자는 참가 전일 수 있다).
+        Set<Long> fitUserIds = new LinkedHashSet<>();
+        participants.forEach(p -> fitUserIds.add(p.userId()));
+        fitUserIds.add(userId);
+        Map<Long, List<BigDecimal>> recentPaces =
+                fitJdbcRepository.findRecentCompletedPaces(fitUserIds);
+
+        List<Integer> participantPaces =
+                participants.stream()
+                        .map(
+                                p ->
+                                        GroupRunFitCalculator.recentPaceSecPerKm(
+                                                recentPaces.get(p.userId())))
+                        .filter(Objects::nonNull)
+                        .toList();
+        GroupRunDetailResponse.ComfortRange comfortRange =
+                GroupRunFitCalculator.comfortRange(participantPaces, resolveGroupGuidePace(row));
+
+        GroupRunDetailResponse.MyFit myFit = null;
+        Integer myPace = GroupRunFitCalculator.recentPaceSecPerKm(recentPaces.get(userId));
+        if (myPace != null) {
+            myFit =
+                    new GroupRunDetailResponse.MyFit(
+                            myPace,
+                            toScore(
+                                    fitJdbcRepository
+                                            .findLatestReadinessScores(List.of(userId))
+                                            .get(userId)));
+        }
+        return toDetail(row, participantCount, comfortRange, myFit);
+    }
+
+    private static Integer toScore(BigDecimal score) {
+        return score == null ? null : score.setScale(0, RoundingMode.HALF_UP).intValue();
     }
 
     @Transactional
@@ -336,6 +396,10 @@ public class GroupRunService {
         Map<Long, String> nicknames =
                 userExistsRepository.findNicknamesByIds(
                         participants.stream().map(GroupRunParticipantRow::userId).toList());
+        // readyStatus(대기방 준비 버튼)와 별개로 각 참가자의 최신 준비도를 붙인다. 미산출·미동의는 null.
+        Map<Long, BigDecimal> readiness =
+                fitJdbcRepository.findLatestReadinessScores(
+                        participants.stream().map(GroupRunParticipantRow::userId).toList());
         List<GroupRunParticipantsResponse.Item> items =
                 participants.stream()
                         .map(
@@ -346,18 +410,43 @@ public class GroupRunService {
                                                 p.joinedAt(),
                                                 nicknames.getOrDefault(p.userId(), ""),
                                                 p.userId() == row.hostId(),
-                                                ReadyStatus.fromReady(p.ready()).name()))
+                                                ReadyStatus.fromReady(p.ready()).name(),
+                                                toScore(readiness.get(p.userId()))))
                         .toList();
-        return new GroupRunParticipantsResponse(items);
+        // 대기방 인원 = 참가 행 전체(session null 포함). readyCount는 그중 준비 완료(S15P31E105-499).
+        int readyCount = (int) participants.stream().filter(GroupRunParticipantRow::ready).count();
+        return new GroupRunParticipantsResponse(items, participants.size(), readyCount);
     }
 
     /**
-     * G16. ready=true면 그룹 목표로 READY 세션을 만들어 참가 관계에 연결하고, ready=false면 연결을 끊은 뒤 미시작 세션을 취소한다.
-     * 대기방 ready 표시와 세션 확보는 같이 두고, G09 START 승인 근거는 연결 세션 상태로 본다.
+     * G16. ready=true면 그룹 목표로 READY 세션을 만들어 참가 관계에 연결하고, ready=false면 연결을 끊은 뒤 미시작 세션을 취소한다. 대기방
+     * ready 표시와 세션 확보는 같이 두고, G09 START 승인 근거는 연결 세션 상태로 본다.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReadyGroupRunResponse setReady(
             long userId, long groupRunId, ReadyGroupRunRequest request) {
+        var row = requireGroupRun(groupRunId);
+        requireApprovedActiveCrewMember(row.crewId(), userId);
+        var participant =
+                participantJdbcRepository
+                        .find(groupRunId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.NOT_PARTICIPANT));
+        boolean ready = request == null || request.resolvedReady();
+        var prepared =
+                ready && participant.sessionId() == null
+                        ? planPreparation.prepare(userId, goalFromGroup(row))
+                        : null;
+        var tx = new TransactionTemplate(transactionManager);
+        tx.setIsolationLevel(
+                org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        return tx.execute(status -> setReadyStored(userId, groupRunId, request, prepared));
+    }
+
+    private ReadyGroupRunResponse setReadyStored(
+            long userId,
+            long groupRunId,
+            ReadyGroupRunRequest request,
+            SessionPlanPreparation.Prepared prepared) {
         sessionReferenceRepository
                 .lockGroupRun(groupRunId)
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
@@ -375,7 +464,7 @@ public class GroupRunService {
             if (sessionId == null) {
                 sessionId =
                         runningSessionService.createReadyForGroupParticipant(
-                                userId, goalFromGroup(row));
+                                userId, goalFromGroup(row), prepared);
             }
             participantJdbcRepository.updateSessionAndReady(groupRunId, userId, sessionId, true);
         } else {
@@ -394,7 +483,8 @@ public class GroupRunService {
 
     /**
      * G13. 시작 전 호스트 취소. 그룹 행을 잠근 뒤 SCHEDULED만 CANCELLED로 바꾸고 연결된 READY 세션을 세션 ID 순서로 취소한다. 이미 취소된 그룹은 200으로
-     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증하고 저장하지 않는다.
+     * 재응답한다. 참가 행의 session_id는 유지한다. {@code cancelMessage}는 길이만 검증하며, 최초 취소 시 크루 APPROVED 멤버(취소자 제외)에게
+     * 인박스 알림 본문으로 전달한다.
      */
     @Transactional
     public CancelGroupRunResponse cancel(
@@ -416,6 +506,7 @@ public class GroupRunService {
             throw new ApiException(ErrorCode.INVALID_GROUP_STATE_GROUPRUN_CANCEL);
         }
         groupRunJdbcRepository.markCancelled(groupRunId, reason.name());
+        notifyParticipationCancelled(userId, groupRunId, row.crewId(), request.cancelMessage());
         // 그룹을 이미 잠갔으므로 S07 cancel의 그룹 재잠금은 같은 트랜잭션에서 통과한다. 참가 행의 session_id는 유지한다.
         participantJdbcRepository.findByGroupRunId(groupRunId).stream()
                 .filter(p -> p.sessionId() != null)
@@ -424,9 +515,34 @@ public class GroupRunService {
         return new CancelGroupRunResponse(groupRunId, GroupRunStatus.CANCELLED.name());
     }
 
+    private void notifyParticipationCancelled(
+            long cancellerUserId, long groupRunId, long crewId, String cancelMessage) {
+        String message =
+                cancelMessage == null || cancelMessage.isBlank()
+                        ? "그룹런이 취소되었습니다."
+                        : cancelMessage;
+        crewMembershipRepository
+                .findByCrewIdAndStatus(crewId, CrewMembershipStatus.APPROVED)
+                .stream()
+                .map(CrewMembership::getUserId)
+                .filter(recipientId -> recipientId != cancellerUserId)
+                .forEach(
+                        recipientId ->
+                                notificationService.create(
+                                        recipientId,
+                                        NotificationType.GROUP_RUN_PARTICIPATION_CANCELLED,
+                                        groupRunId,
+                                        message,
+                                        NotificationType.GROUP_RUN_PARTICIPATION_CANCELLED.name()
+                                                + ":"
+                                                + groupRunId
+                                                + ":"
+                                                + recipientId));
+    }
+
     /**
-     * G09. 호스트만 본문 없이 호출한다. 이미 승인한 시작이 있으면 최초 START 명령을 그대로 돌려주고, 새 승인은 SCHEDULED 그룹의 연결된 READY 세션 전체를 한
-     * 트랜잭션으로 승인한 뒤 그룹을 RUNNING으로 바꾼다. 하나라도 실패하면 전체 롤백한다. 새 개인 세션을 자동 생성하지 않는다.
+     * G09. 호스트만 본문 없이 호출한다. 이미 승인한 시작이 있으면 최초 START 명령을 그대로 돌려주고, 새 승인은 SCHEDULED 그룹의 연결된 READY 세션
+     * 전체를 한 트랜잭션으로 승인한 뒤 그룹을 RUNNING으로 바꾼다. 하나라도 실패하면 전체 롤백한다. 새 개인 세션을 자동 생성하지 않는다.
      */
     @Transactional
     public StartGroupRunResponse start(long userId, long groupRunId) {
@@ -472,9 +588,9 @@ public class GroupRunService {
     }
 
     /**
-     * G12. 호스트만 호출한다. 그룹 행을 잠근 뒤 RUNNING 그룹을 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 이미 종료 시각이 있는 그룹은 같은 시각을
-     * 200으로 재응답하며 세션을 다시 건드리지 않는다. 연결 세션은 세션 ID 오름차순으로 처리한다: 미확정 START는 중단하고, 시작된 세션에는 현재 제어기기의 END를
-     * 승인한다(다른 미확정 제어가 있으면 보류하되 그룹 종료는 막지 않는다).
+     * G12. 호스트만 호출한다. 그룹 행을 잠근 뒤 RUNNING 그룹을 COMPLETED로 바꾸고 종료 기준시각을 한 번 저장한다. 이미 종료 시각이 있는 그룹은 같은
+     * 시각을 200으로 재응답하며 세션을 다시 건드리지 않는다. 연결 세션은 세션 ID 오름차순으로 처리한다: 미확정 START는 중단하고, 시작된 세션에는 현재 제어기기의
+     * END를 승인한다(다른 미확정 제어가 있으면 보류하되 그룹 종료는 막지 않는다).
      */
     @Transactional
     public ForceFinishGroupRunResponse forceFinish(long userId, long groupRunId) {
@@ -511,8 +627,8 @@ public class GroupRunService {
     }
 
     /**
-     * G14. 참가자만 읽는다. 종료·분석을 실행하지 않고 현재 저장된 값만 돌려준다. 시작이 확인되지 않은 참가자의 측정값은 null이다. 그룹 분석 상태는 저장하지 않고 참가자
-     * 상태에서 파생한다.
+     * G14. 참가자만 읽는다. 종료·분석을 실행하지 않고 현재 저장된 값만 돌려준다. 시작이 확인되지 않은 참가자의 측정값은 null이다. 그룹 분석 상태는 저장하지 않고
+     * 참가자 상태에서 파생한다.
      */
     @Transactional(readOnly = true)
     public GroupRunResultsResponse getResults(long userId, long groupRunId) {
@@ -572,28 +688,145 @@ public class GroupRunService {
         } else {
             analysisStatus = "PROCESSING";
         }
+        // 집계 대상: 시작 확인(startedAt) + 실제 거리 있음. 참가자 목록은 시작·거리가 없으면 거리 null이므로 그 값으로 거른다.
+        List<Double> eligibleDistances = new ArrayList<>();
+        List<Double> eligiblePaces = new ArrayList<>();
+        for (GroupRunResultsResponse.Participant p : participants) {
+            if (p.actualDistanceM() != null) {
+                eligibleDistances.add(p.actualDistanceM());
+                eligiblePaces.add(p.averagePaceSecPerKm());
+            }
+        }
+        GroupResultAggregates.Result aggregates =
+                GroupResultAggregates.of(
+                        "READY".equals(analysisStatus), eligibleDistances, eligiblePaces);
         return new GroupRunResultsResponse(
                 groupRunId,
                 row.goalDistance(),
                 row.goalDuration(),
                 new GroupRunResultsResponse.Analysis(analysisStatus),
                 hasUnconfirmedStarts,
+                aggregates.distanceM(),
+                aggregates.averagePaceSecPerKm(),
+                aggregates.maxGapM(),
                 participants);
     }
 
     /**
-     * G10 스텁. 순위·격차·안내 페이스 계약이 확정되기 전이라 그룹 상태와 참가자 ID만 읽어 돌려준다. 계산·알림 같은 부수 효과가 없다.
+     * G10 실시간 순위·앞뒤 격차 조회(MVP). 요청 시점의 최신 스냅샷을 읽어 파생 계산만 하며 상태 변경·이벤트·알림 같은 부수 효과가 없다. RUNNING이 아닌
+     * 그룹은 순위·격차를 모두 null로 돌려준다.
      */
     @Transactional(readOnly = true)
     public GroupRunLiveResponse getLive(long userId, long groupRunId) {
         GroupRunRow row = requireGroupRun(groupRunId);
         requireParticipant(groupRunId, userId);
-        List<GroupRunLiveResponse.Participant> participants =
-                participantJdbcRepository.findByGroupRunId(groupRunId).stream()
-                        .map(p -> new GroupRunLiveResponse.Participant(p.userId()))
-                        .toList();
+        Integer guidePace = resolveGroupGuidePace(row);
+        List<GroupRunLiveResponse.Participant> participants;
+        GroupRunLiveResponse.LoadAlert loadAlert = null;
+        if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            participants = computeLiveParticipants(row);
+            loadAlert =
+                    GroupRunLoadAlertCalculator.evaluate(
+                            guidePace,
+                            participants.stream()
+                                    .filter(p -> !p.stale())
+                                    .map(GroupRunLiveResponse.Participant::paceSecPerKm)
+                                    .toList());
+        } else {
+            participants =
+                    participantJdbcRepository.findByGroupRunId(groupRunId).stream()
+                            .map(p -> unrankedParticipant(p.userId()))
+                            .toList();
+        }
         return new GroupRunLiveResponse(
-                groupRunId, row.status(), row.courseId(), row.updatedAt(), participants);
+                groupRunId,
+                row.status(),
+                guidePace,
+                row.courseId(),
+                row.updatedAt(),
+                loadAlert,
+                participants);
+    }
+
+    /** 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자 프로필 평균 페이스 중앙값. */
+    private Integer resolveGroupGuidePace(GroupRunRow row) {
+        if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            Integer running =
+                    GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
+                            participantJdbcRepository.findRunningParticipantGuidePaces(row.id()));
+            if (running != null) {
+                return running;
+            }
+        }
+        return GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
+                participantJdbcRepository.findParticipantProfilePaces(row.id()));
+    }
+
+    private List<GroupRunLiveResponse.Participant> computeLiveParticipants(GroupRunRow row) {
+        Instant now = Instant.now();
+        Instant measuredAtCeiling =
+                now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
+        // MVP: GPS 궤적은 읽지 않고 빈 목록을 넘긴다. 자유 그룹도 누적 거리만으로 순위를 매긴다(선두 궤적 투영은 확장).
+        // 미래 시각 표본은 ceiling 이하만 고르므로 이후 정상 표본을 가리지 않는다.
+        List<SessionReferenceRepository.GroupLiveRow> liveRows =
+                sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling);
+        Map<Long, Integer> paceByUser = new HashMap<>();
+        for (SessionReferenceRepository.GroupLiveRow r : liveRows) {
+            paceByUser.put(
+                    r.userId(),
+                    GroupRunLoadAlertCalculator.toPaceSecPerKm(r.averagePaceSecPerKm()));
+        }
+        List<ParticipantSample> samples =
+                liveRows.stream()
+                        .map(
+                                r ->
+                                        new ParticipantSample(
+                                                r.userId(),
+                                                r.startedAt() != null
+                                                        && "RUNNING".equals(r.sessionStatus()),
+                                                r.totalDistance() == null
+                                                        ? null
+                                                        : r.totalDistance().doubleValue(),
+                                                r.measuredAt(),
+                                                List.of()))
+                        .toList();
+        Double courseDistanceM = null;
+        if (row.courseId() != null) {
+            courseDistanceM =
+                    courseJdbcRepository
+                            .findById(row.courseId())
+                            .map(CourseRow::distanceM)
+                            .map(BigDecimal::doubleValue)
+                            .orElse(null);
+        }
+        return GroupRunLiveRanking.compute(now, row.courseId() != null, courseDistanceM, samples)
+                .stream()
+                .map(live -> toLiveParticipant(live, paceByUser.get(live.userId())))
+                .toList();
+    }
+
+    /**
+     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 연결 세션 평균
+     * 페이스이며 stale이면 null이다.
+     */
+    private static GroupRunLiveResponse.Participant toLiveParticipant(
+            ParticipantLive live, Integer sessionAveragePace) {
+        return new GroupRunLiveResponse.Participant(
+                live.userId(),
+                live.rank(),
+                live.aheadCount(),
+                live.behindCount(),
+                live.gapToAheadM(),
+                live.gapToBehindM(),
+                live.progressM(),
+                live.stale() ? null : sessionAveragePace,
+                live.measuredAt(),
+                live.stale());
+    }
+
+    private static GroupRunLiveResponse.Participant unrankedParticipant(long userId) {
+        return new GroupRunLiveResponse.Participant(
+                userId, null, null, null, null, null, null, null, null, true);
     }
 
     private void requireParticipant(long groupRunId, long userId) {
@@ -631,8 +864,7 @@ public class GroupRunService {
     }
 
     private static SessionGoal goalFromGroup(GroupRunRow row) {
-        return new SessionGoal(
-                row.courseId(), null, row.goalDistance(), row.goalDuration(), null);
+        return new SessionGoal(row.courseId(), null, row.goalDistance(), row.goalDuration(), null);
     }
 
     private void requireApprovedActiveCrewMember(long crewId, long userId) {
@@ -674,7 +906,11 @@ public class GroupRunService {
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
     }
 
-    private GroupRunDetailResponse toDetail(GroupRunRow row, int participantCount) {
+    private GroupRunDetailResponse toDetail(
+            GroupRunRow row,
+            int participantCount,
+            GroupRunDetailResponse.ComfortRange comfortRange,
+            GroupRunDetailResponse.MyFit myFit) {
         return new GroupRunDetailResponse(
                 row.id(),
                 row.title(),
@@ -690,7 +926,21 @@ public class GroupRunService {
                 row.goalDuration(),
                 row.meetingName(),
                 row.meetingAddress(),
-                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()));
+                GroupRunGoalCalculator.derivePaceSecPerKm(row.goalDistance(), row.goalDuration()),
+                resolveGroupGuidePace(row),
+                toCancellation(row),
+                comfortRange,
+                myFit);
+    }
+
+    /** CANCELLED 그룹만 취소 정보를 만든다. 남긴 말은 저장하지 않으므로 null, 취소자는 host_id 기준 HOST다. */
+    private GroupRunDetailResponse.Cancellation toCancellation(GroupRunRow row) {
+        if (!GroupRunStatus.CANCELLED.name().equals(row.status()) || row.cancelReason() == null) {
+            return null;
+        }
+        String hostNickname = userExistsRepository.findNickname(row.hostId()).orElse(null);
+        return new GroupRunDetailResponse.Cancellation(
+                row.cancelReason(), null, hostNickname, "HOST");
     }
 
     private GeoJsonPoint parseMeetingPosition(String geoJson) {

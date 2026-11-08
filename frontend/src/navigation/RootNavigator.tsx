@@ -1,5 +1,4 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
@@ -15,7 +14,8 @@ import { CourseSearchProvider, courseScreens } from '../screens/course';
 import { homeScreens } from '../screens/home';
 import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
-import { communityScreens } from '../screens/community';
+import { SplashScreen } from '../screens/SplashScreen';
+import { communityScreens, MyProfileTabScreen } from '../screens/community';
 import { settingsScreens } from '../screens/settings';
 import {
   groupScreens,
@@ -32,11 +32,13 @@ import { PillTabBar } from './PillTabBar';
 import {
   authRoutes,
   groupTabRoutes,
+  homeTabRoutes,
   mainRoutes,
   runTabRoutes,
   type RouteName,
 } from './routes';
 import type {
+  HomeStackParamList,
   MainTabParamList,
   RootStackParamList,
   RunStackParamList,
@@ -45,6 +47,7 @@ import type {
 const Root = createNativeStackNavigator<RootStackParamList>();
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const RunStack = createNativeStackNavigator<RunStackParamList>();
+const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
 // Built once per route so React Navigation always receives the same component.
 const placeholders = Object.fromEntries(
@@ -53,6 +56,7 @@ const placeholders = Object.fromEntries(
       ...authRoutes,
       ...mainRoutes,
       ...runTabRoutes,
+      ...homeTabRoutes,
       ...groupTabRoutes,
       'Home',
       'Community',
@@ -95,11 +99,9 @@ const runScreen = { gestureEnabled: false, animation: 'fade' } as const;
 
 const runRoutes: ReadonlySet<RouteName> = new Set<RouteName>([
   'RunProgress',
-  'RunPause',
   'RunResult',
   'GroupRunProgress',
   'GroupRunPosition',
-  'GroupRunPause',
   'GroupRunResult',
 ]);
 
@@ -113,6 +115,18 @@ function loadHealthPoc() {
 // The map check pulls in the Naver Map native module the same way.
 function loadMapPoc() {
   return require('../screens/MapPocScreen').MapPocScreen;
+}
+
+// 2.1 with 5.1 · 5.3 on top, all under the tab bar (runway-records).
+function HomeTab() {
+  return (
+    <HomeStack.Navigator screenOptions={noHeader}>
+      <HomeStack.Screen name="Home" component={screens.Home} />
+      {homeTabRoutes.map(name => (
+        <HomeStack.Screen key={name} name={name} component={screens[name]} />
+      ))}
+    </HomeStack.Navigator>
+  );
 }
 
 function RunTab() {
@@ -133,10 +147,12 @@ function MainTabs() {
   useResumeRun();
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
-      <Tabs.Screen name="HomeTab" component={screens.Home} />
+      {/* The tab bar draws the tabs in this order: 홈·커뮤니티·러닝·그룹·프로필 (S15P31E105-522). */}
+      <Tabs.Screen name="HomeTab" component={HomeTab} />
+      <Tabs.Screen name="CommunityTab" component={screens.Community} />
       <Tabs.Screen name="RunTab" component={RunTab} />
       <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
-      <Tabs.Screen name="CommunityTab" component={screens.Community} />
+      <Tabs.Screen name="ProfileTab" component={MyProfileTabScreen} />
     </Tabs.Navigator>
   );
 }
@@ -160,15 +176,8 @@ export function RootNavigator() {
     : authRoutes;
   const { name, colors } = useTheme();
   if (restoring) {
-    // A blank background while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
-    return (
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: colors.background },
-        ]}
-      />
-    );
+    // The splash while the saved tokens load, so a signed-in user never sees 1.2 로그인 flash by.
+    return <SplashScreen />;
   }
   const base = name === 'dark' ? DarkTheme : DefaultTheme;
   const navigationTheme: NavigationTheme = {

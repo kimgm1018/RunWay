@@ -97,19 +97,13 @@ public class PostService {
         }
 
         Set<Long> authorIds = posts.stream().map(Post::getAuthorId).collect(Collectors.toSet());
-        Map<Long, String> visibilityByAuthor = accountVisibilityRepository.findByUserIds(authorIds);
-        Set<Long> approvedFollowees =
-                userFollowLookupRepository.findApprovedFolloweeIdsAmong(userId, authorIds);
+        Set<Long> accessibleAuthors = accountVisibilityRepository.accessibleAmong(userId, authorIds);
 
         List<Post> visible =
                 posts.stream()
                         .filter(
                                 post ->
-                                        canView(
-                                                userId,
-                                                post.getAuthorId(),
-                                                visibilityByAuthor.get(post.getAuthorId()),
-                                                approvedFollowees))
+                                        accessibleAuthors.contains(post.getAuthorId()))
                         .toList();
         if (visible.isEmpty()) {
             return new PostListResponse(List.of());
@@ -137,6 +131,10 @@ public class PostService {
     @Transactional(readOnly = true)
     public PostDetailResponse getDetail(long userId, long postId) {
         requireExistingUser(userId);
+        Post candidate=postRepository.findById(postId).orElseThrow(PostService::postNotFound);
+        if (candidate.isDeleted() && "탈퇴한 회원의 게시물입니다.".equals(candidate.getBody())
+                && communityUserQueryRepository.withdrawn(candidate.getAuthorId()))
+            throw new ApiException(ErrorCode.WITHDRAWN_POST);
         Post post = requireReadablePost(userId, postId);
 
         String nickname =
@@ -184,32 +182,10 @@ public class PostService {
     }
 
     private void requireAccountAccess(long viewerId, long authorId) {
-        if (viewerId == authorId) {
-            return;
-        }
-        String visibility =
-                accountVisibilityRepository
-                        .findByUserId(authorId)
-                        .orElse(AccountVisibilityRepository.PRIVATE);
-        if (AccountVisibilityRepository.PUBLIC.equals(visibility)) {
-            return;
-        }
-        if (userFollowLookupRepository.isApprovedFollower(viewerId, authorId)) {
+        if (accountVisibilityRepository.canAccess(viewerId, authorId)) {
             return;
         }
         throw new ApiException(ErrorCode.ACCOUNT_ACCESS_DENIED);
-    }
-
-    private static boolean canView(
-            long viewerId, long authorId, String visibility, Set<Long> approvedFollowees) {
-        if (viewerId == authorId) {
-            return true;
-        }
-        String resolved = visibility == null ? AccountVisibilityRepository.PRIVATE : visibility;
-        if (AccountVisibilityRepository.PUBLIC.equals(resolved)) {
-            return true;
-        }
-        return approvedFollowees.contains(authorId);
     }
 
     private static String resolveScope(String scope) {

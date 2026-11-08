@@ -40,8 +40,8 @@ function detail(id: number, fields: Record<string, unknown> = {}) {
   };
 }
 
-const participants = (id: number) => ({
-  items:
+const participants = (id: number) => {
+  const items =
     id === 61
       ? [
           { userId: 9, nickname: '하린', isHost: false, readyStatus: 'READY' },
@@ -52,8 +52,13 @@ const participants = (id: number) => ({
             readyStatus: 'WAITING',
           },
         ]
-      : [{ userId: 7, nickname: '성윤', isHost: true, readyStatus: 'WAITING' }],
-});
+      : [{ userId: 7, nickname: '성윤', isHost: true, readyStatus: 'WAITING' }];
+  return {
+    items,
+    participantCount: items.length,
+    readyCount: items.filter(item => item.readyStatus === 'READY').length,
+  };
+};
 
 type Route = (
   path: string,
@@ -331,6 +336,108 @@ test('G04 sends the edit and keeps the saved note when none is typed', async () 
   });
 });
 
+const place = {
+  meetingPlaceName: '광안리해수욕장 입구',
+  meetingAddress: '부산 수영구 광안해변로 219',
+  meetingPosition: [129.118, 35.153] as [number, number],
+  meetingNote: null,
+  scheduledAt: '2026-11-08T07:00:00+09:00',
+};
+const goalFields = [
+  'goalInputType',
+  'targetDistanceM',
+  'targetDurationSec',
+  'targetPaceSecPerKm',
+];
+
+test('G01 sends a course run TIME goal with the course distance', async () => {
+  serve((path, init) =>
+    path === '/group-runs' && init.method === 'POST'
+      ? respond(201, { id: 71 })
+      : undefined,
+  );
+
+  await api().groupRuns.create({
+    ...place,
+    crewId: '41',
+    courseId: '301',
+    targetDistanceM: 5000.4,
+    targetDurationSec: 2400,
+  });
+
+  const { body } = sent('POST')[0];
+  expect(body).toMatchObject({
+    courseId: 301,
+    title: '일요일, 함께 5km',
+    goalInputType: 'TIME',
+    targetDistanceM: 5000,
+    targetDurationSec: 2400,
+  });
+  expect(body).not.toHaveProperty('targetPaceSecPerKm');
+});
+
+test('G01 sends no goal fields for a free run', async () => {
+  serve((path, init) =>
+    path === '/group-runs' && init.method === 'POST'
+      ? respond(201, { id: 72 })
+      : undefined,
+  );
+
+  await api().groupRuns.create({
+    ...place,
+    crewId: '41',
+    courseId: null,
+    targetDistanceM: null,
+    targetDurationSec: 1800,
+  });
+
+  const { body } = sent('POST')[0];
+  expect(body.title).toBe('일요일, 함께 30분');
+  goalFields.forEach(field => expect(body).not.toHaveProperty(field));
+});
+
+test('G04 sends the new course distance with the TIME goal', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'PATCH'
+      ? respond(200, { id: 61 })
+      : undefined,
+  );
+
+  await api().groupRuns.update('61', {
+    ...place,
+    courseId: '302',
+    targetDistanceM: 7200,
+    targetDurationSec: 3000,
+  });
+
+  expect(sent('PATCH')[0].body).toMatchObject({
+    courseId: 302,
+    goalInputType: 'TIME',
+    targetDistanceM: 7200,
+    targetDurationSec: 3000,
+  });
+});
+
+// G04 rejects null goal fields (부분 목표 해제 미지원), so a run made free omits them instead.
+test('G04 to a free run clears the course and omits goal fields', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'PATCH'
+      ? respond(200, { id: 61 })
+      : undefined,
+  );
+
+  await api().groupRuns.update('61', {
+    ...place,
+    courseId: null,
+    targetDistanceM: null,
+    targetDurationSec: 2400,
+  });
+
+  const { body } = sent('PATCH')[0];
+  expect(body.courseId).toBeNull();
+  goalFields.forEach(field => expect(body).not.toHaveProperty(field));
+});
+
 test('G05 joins, G06 leaves and errors reach the screen', async () => {
   serve((path, init) => {
     if (path === '/group-runs/62/join') {
@@ -383,25 +490,328 @@ test('6.5 reads the room from G07 and G16 marks me ready', async () => {
   expect(room).toMatchObject({
     groupRunId: '61',
     goalPaceSecPerKm: 380,
-    comfortRange: [360, 400],
+    comfortRange: null,
+    recommendedPaceSecPerKm: null,
     // 5km of course at 6′20″.
     expectedDurationSec: 1900,
     appliedCount: 2,
+    participantCount: 2,
+    readyCount: 1,
   });
 });
 
-test('start, live, cancel and results wait for their API on server runs', async () => {
+test('511 waiting room uses G07 participantCount and readyCount', async () => {
+  serve(path =>
+    path.endsWith('/participants')
+      ? respond(200, {
+          items: [
+            {
+              userId: 101,
+              nickname: '민준',
+              isHost: true,
+              readyStatus: 'WAITING',
+            },
+            {
+              userId: 9,
+              nickname: '하린',
+              isHost: false,
+              readyStatus: 'READY',
+            },
+            {
+              userId: 8,
+              nickname: '서연',
+              isHost: false,
+              readyStatus: 'READY',
+            },
+          ],
+          // items보다 큰 집계(목록 일부만 온 경우에도 서버 집계를 씀).
+          participantCount: 5,
+          readyCount: 3,
+        })
+      : undefined,
+  );
+  const room = await api().groupRuns.getWaitingRoom('61');
+  expect(room).toMatchObject({
+    appliedCount: 5,
+    participantCount: 5,
+    readyCount: 3,
+  });
+  expect(room.participants).toHaveLength(3);
+});
+
+test('G09 sends no body; G13 and G12 use the actual endpoints', async () => {
+  serve((path, init) =>
+    init.method === 'POST' && /\/(start|cancel|force-finish)$/.test(path)
+      ? respond(200, {})
+      : undefined,
+  );
   const { groupRuns } = api();
+  await groupRuns.start('61');
+  await groupRuns.cancel('61', 'WEATHER');
+  await groupRuns.forceFinish('61');
+  expect(sent('POST')).toEqual([
+    { path: '/group-runs/61/start', body: undefined },
+    { path: '/group-runs/61/cancel', body: { cancelReason: 'WEATHER' } },
+    { path: '/group-runs/61/force-finish', body: {} },
+  ]);
+});
+
+test('G13 sends the trimmed cancelMessage and leaves a blank one out', async () => {
+  serve((path, init) =>
+    init.method === 'POST' && path.endsWith('/cancel')
+      ? respond(200, {})
+      : undefined,
+  );
+  const { groupRuns } = api();
+  await groupRuns.cancel('61', 'WEATHER', '  비가 많이 와요  ');
+  await groupRuns.cancel('62', 'PERSONAL', '   ');
+  await groupRuns.cancel('63', 'OTHER', null);
+  expect(sent('POST')).toEqual([
+    {
+      path: '/group-runs/61/cancel',
+      body: { cancelReason: 'WEATHER', cancelMessage: '비가 많이 와요' },
+    },
+    { path: '/group-runs/62/cancel', body: { cancelReason: 'PERSONAL' } },
+    { path: '/group-runs/63/cancel', body: { cancelReason: 'OTHER' } },
+  ]);
+});
+
+test('G09 approval does not imply a start; watchStart waits for my confirmed session', async () => {
+  let started = false;
+  serve(path => {
+    if (path === '/group-runs/61')
+      return respond(200, detail(61, { status: 'RUNNING' }));
+    if (path === '/group-runs/61/participants')
+      return respond(200, {
+        items: [
+          {
+            userId: 101,
+            nickname: '나',
+            isHost: true,
+            readyStatus: 'READY',
+            sessionId: 900,
+          },
+        ],
+      });
+    if (path === '/running-sessions/900')
+      return respond(200, {
+        state: started ? 'RUNNING' : 'READY',
+        startedAt: started ? '2026-11-02T03:00:00Z' : null,
+      });
+    return undefined;
+  });
   const onStart = jest.fn();
+  const stop = api().groupRuns.watchStart('61', onStart);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onStart).not.toHaveBeenCalled();
+    started = true;
+    await jest.advanceTimersByTimeAsync(3100);
+    expect(onStart).toHaveBeenCalledWith('2026-11-02T03:00:00Z');
+    await jest.advanceTimersByTimeAsync(6000);
+    expect(onStart).toHaveBeenCalledTimes(1);
+  } finally {
+    stop();
+  }
+});
 
-  groupRuns.watchStart('61', onStart)();
-  groupRuns.watchLive('61', jest.fn())();
-  await expect(groupRuns.cancel('61', 'WEATHER')).rejects.toBeTruthy();
-  await expect(groupRuns.getResult('61')).rejects.toBeTruthy();
-  await expect(groupRuns.forceFinish('61')).rejects.toBeTruthy();
+test('an unready participant never enters a running group as started', async () => {
+  serve(path =>
+    path === '/group-runs/61'
+      ? respond(200, detail(61, { status: 'RUNNING' }))
+      : undefined,
+  );
+  const onStart = jest.fn();
+  const stop = api().groupRuns.watchStart('61', onStart);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onStart).not.toHaveBeenCalled();
+    expect(
+      sent('GET').some(item => item.path.startsWith('/running-sessions/')),
+    ).toBe(false);
+  } finally {
+    stop();
+  }
+});
 
-  expect(onStart).not.toHaveBeenCalled();
-  expect(fetchMock).not.toHaveBeenCalled();
+const liveResponse = {
+  status: 'RUNNING',
+  groupGuidePaceSecPerKm: 375,
+  participants: [
+    {
+      userId: 9,
+      rank: 1,
+      progressM: 1125,
+      stale: false,
+      gapToAheadM: null,
+      gapToBehindM: 125,
+    },
+    {
+      userId: 101,
+      rank: 2,
+      progressM: 1000,
+      stale: false,
+      gapToAheadM: 125,
+      gapToBehindM: null,
+    },
+    {
+      userId: 8,
+      rank: null,
+      progressM: null,
+      stale: true,
+      gapToAheadM: null,
+      gapToBehindM: null,
+    },
+  ],
+};
+
+test('G10 preserves measured ranks, gaps and missing data without inventing GPS or pace', async () => {
+  serve(path =>
+    path.endsWith('/live') ? respond(200, liveResponse) : undefined,
+  );
+  const onUpdate = jest.fn();
+  const stop = api().groupRuns.watchLive('61', onUpdate);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spreadM: null,
+        inRange: null,
+        guidePaceSecPerKm: 375,
+        locationsAvailable: false,
+        members: expect.arrayContaining([
+          expect.objectContaining({
+            userId: '9',
+            rank: 1,
+            gapM: 125,
+            paceSecPerKm: null,
+          }),
+          expect.objectContaining({ userId: '8', stale: true, gapM: null }),
+        ]),
+      }),
+    );
+    stop();
+    const count = fetchMock.mock.calls.length;
+    await jest.advanceTimersByTimeAsync(10000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+  } finally {
+    stop();
+  }
+});
+
+test('G10 exposes the whole-group spread only when every participant is current', async () => {
+  serve(path =>
+    path.endsWith('/live')
+      ? respond(200, {
+          ...liveResponse,
+          participants: liveResponse.participants.filter(item => !item.stale),
+        })
+      : undefined,
+  );
+  const onUpdate = jest.fn();
+  const stop = api().groupRuns.watchLive('61', onUpdate);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ spreadM: 125 }),
+    );
+  } finally {
+    stop();
+  }
+});
+
+test('G10 reports a 503, retries later and never substitutes mock data', async () => {
+  let fail = true;
+  serve(path =>
+    path.endsWith('/live')
+      ? fail
+        ? respond(503, { message: '잠시 후 다시 시도해 주세요' })
+        : respond(200, liveResponse)
+      : undefined,
+  );
+  const onUpdate = jest.fn();
+  const onError = jest.fn();
+  const stop = api().groupRuns.watchLive('61', onUpdate, onError);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onUpdate).not.toHaveBeenCalled();
+    fail = false;
+    await jest.advanceTimersByTimeAsync(10100);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  } finally {
+    stop();
+  }
+});
+
+test('unsubscribing ignores an in-flight response', async () => {
+  let release!: (value: ReturnType<typeof respond>) => void;
+  serve();
+  const previous = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url, init) =>
+    String(url).includes('/live')
+      ? new Promise(resolve => {
+          release = resolve;
+        })
+      : previous(url, init),
+  );
+  const onUpdate = jest.fn();
+  const stop = api().groupRuns.watchLive('61', onUpdate);
+  await jest.advanceTimersByTimeAsync(20);
+  stop();
+  release(respond(200, liveResponse));
+  await jest.advanceTimersByTimeAsync(20);
+  expect(onUpdate).not.toHaveBeenCalled();
+});
+
+test('G14 maps completed, pending and missing records without synthetic group totals', async () => {
+  serve(path =>
+    path.endsWith('/results')
+      ? respond(200, {
+          targetDistanceM: 5000,
+          analysis: { status: 'PROCESSING' },
+          hasUnconfirmedStarts: true,
+          participants: [
+            {
+              userId: 101,
+              state: 'COMPLETED',
+              startResult: 'APPLIED',
+              actualDistanceM: 5000,
+              movingDurationSec: 1800,
+              averagePaceSecPerKm: 360,
+              goalAchieved: true,
+            },
+            {
+              userId: 9,
+              state: 'READY',
+              startResult: 'PENDING',
+              actualDistanceM: null,
+              movingDurationSec: null,
+              averagePaceSecPerKm: null,
+              goalAchieved: null,
+            },
+          ],
+        })
+      : undefined,
+  );
+  const result = await api().groupRuns.getResult('61');
+  expect(result).toMatchObject({
+    distanceM: null,
+    averagePaceSecPerKm: null,
+    maxGapM: null,
+    analysisStatus: 'PROCESSING',
+    hasUnconfirmedStarts: true,
+    participants: [
+      { userId: '101', state: 'FINISHED', isMe: true, durationSec: 1800 },
+      {
+        userId: '9',
+        state: 'UNCONFIRMED',
+        distanceM: null,
+        durationSec: null,
+        goalAchieved: null,
+      },
+    ],
+  });
 });
 
 test('mock runs stay on the mock', async () => {
@@ -422,4 +832,155 @@ test('mock runs stay on the mock', async () => {
     '민락수변공원',
   );
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('419 waiting-room recommendation is separate from the host goal', async () => {
+  serve(path =>
+    path === '/group-runs/61'
+      ? respond(
+          200,
+          detail(61, { goalPaceSecPerKm: 420, groupGuidePaceSecPerKm: 350 }),
+        )
+      : undefined,
+  );
+  const { groupRuns } = api();
+  expect(await groupRuns.getWaitingRoom('61')).toMatchObject({
+    goalPaceSecPerKm: 420,
+    recommendedPaceSecPerKm: 350,
+    expectedDurationSec: 2100,
+    comfortRange: null,
+  });
+  expect((await groupRuns.get('61')).goalPaceSecPerKm).toBe(420);
+});
+
+test('419 missing recommendation never falls back to the host goal or my usual pace', async () => {
+  serve(path =>
+    path === '/group-runs/61'
+      ? respond(
+          200,
+          detail(61, { goalPaceSecPerKm: 420, groupGuidePaceSecPerKm: null }),
+        )
+      : undefined,
+  );
+  expect(
+    (await api().groupRuns.getWaitingRoom('61')).recommendedPaceSecPerKm,
+  ).toBeNull();
+});
+
+test('419 waiting-room polling refreshes the recommendation when participants change', async () => {
+  let pace = 350;
+  serve(path =>
+    path === '/group-runs/61'
+      ? respond(200, detail(61, { groupGuidePaceSecPerKm: pace }))
+      : undefined,
+  );
+  const onParticipants = jest.fn();
+  const stop = api().groupRuns.watchStart(
+    '61',
+    jest.fn(),
+    undefined,
+    onParticipants,
+  );
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(onParticipants).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      350,
+      null,
+      { participantCount: 2, readyCount: 1 },
+    );
+    pace = 370;
+    await jest.advanceTimersByTimeAsync(3100);
+    expect(onParticipants).toHaveBeenLastCalledWith(
+      expect.any(Array),
+      370,
+      null,
+      { participantCount: 2, readyCount: 1 },
+    );
+  } finally {
+    stop();
+  }
+});
+
+test('서버의 준비도·추천 범위·내 적합도·취소 정보를 연결한다', async () => {
+  const cancellation = {
+    reason: 'OTHER',
+    message: null,
+    byNickname: '민준',
+    byRole: 'HOST',
+  };
+  const myFit = { recentPaceSecPerKm: 365, readinessScore: null };
+  serve(path => {
+    if (path === '/group-runs/61')
+      return respond(
+        200,
+        detail(61, {
+          comfortRange: { fastSecPerKm: 340, slowSecPerKm: 390 },
+          myFit,
+          cancellation,
+        }),
+      );
+    if (path.endsWith('/participants'))
+      return respond(200, {
+        items: participants(61).items.map(item => ({
+          ...item,
+          readinessScore: item.userId === 101 ? 0 : null,
+        })),
+      });
+    return undefined;
+  });
+  const { groupRuns } = api();
+  const room = await groupRuns.getWaitingRoom('61');
+  expect(room.comfortRange).toEqual([340, 390]);
+  expect(room.participants.find(item => item.isMe)?.readinessScore).toBe(0);
+  expect(await groupRuns.get('61')).toMatchObject({ myFit, cancellation });
+});
+
+test('결과 집계는 서버 값을 사용하고 최대 간격 연결은 보류한다', async () => {
+  serve(path =>
+    path.endsWith('/results')
+      ? respond(200, {
+          targetDistanceM: 5000,
+          distanceM: 0,
+          averagePaceSecPerKm: 367,
+          maxGapM: 799.5,
+          analysis: { status: 'READY' },
+          hasUnconfirmedStarts: false,
+          participants: [],
+        })
+      : undefined,
+  );
+  expect(await api().groupRuns.getResult('61')).toMatchObject({
+    distanceM: 0,
+    averagePaceSecPerKm: 367,
+    maxGapM: null,
+  });
+});
+
+test('진행 현황의 페이스와 감속 권고를 연결하고 오래된 페이스는 숨긴다', async () => {
+  const loadAlert = { memberCount: 2, nextPaceSecPerKm: 375 };
+  serve(path =>
+    path.endsWith('/live')
+      ? respond(200, {
+          ...liveResponse,
+          loadAlert,
+          participants: liveResponse.participants.map(item => ({
+            ...item,
+            paceSecPerKm: 350,
+          })),
+        })
+      : undefined,
+  );
+  const update = jest.fn();
+  const stop = api().groupRuns.watchLive('61', update);
+  try {
+    await jest.advanceTimersByTimeAsync(20);
+    expect(update).toHaveBeenCalled();
+    const live = update.mock.calls[0][0];
+    expect(live.loadAlert).toEqual(loadAlert);
+    for (const member of live.members)
+      expect(member.paceSecPerKm).toBe(member.stale ? null : 350);
+  } finally {
+    stop();
+  }
 });

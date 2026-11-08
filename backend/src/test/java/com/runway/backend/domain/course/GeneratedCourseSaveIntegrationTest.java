@@ -10,54 +10,43 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
 import com.runway.backend.domain.course.dto.request.GradeSegment;
+import com.runway.backend.domain.course.dto.response.GeneratedCourseSaveResult;
 import com.runway.backend.domain.course.service.CourseService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.global.geo.GeoJsonGeographyMapper;
 import com.runway.backend.global.geo.GeoJsonLineString;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@Testcontainers
-class GeneratedCourseSaveIntegrationTest {
-
+class GeneratedCourseSaveIntegrationTest extends SharedContextIntegrationSupport {
     private static final BigDecimal DISTANCE_M = new BigDecimal("2450.50");
     private static final GeoJsonLineString ROUTE =
             GeoJsonLineString.of(
                     List.of(List.of(129.0, 35.0), List.of(129.01, 35.01), List.of(129.02, 35.0)));
 
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::getJdbcUrl);
-        registry.add("spring.datasource.username", DATABASE::getUsername);
-        registry.add("spring.datasource.password", DATABASE::getPassword);
+    /** 마지막 좌표만 다른 경로. 같은 경로는 재사용되므로 행을 따로 만들 때 쓴다. */
+    private static GeoJsonLineString routeEndingAt(double lon) {
+        return GeoJsonLineString.of(
+                List.of(List.of(129.0, 35.0), List.of(129.01, 35.01), List.of(lon, 35.0)));
     }
 
     @Autowired private MockMvc mockMvc;
@@ -70,7 +59,6 @@ class GeneratedCourseSaveIntegrationTest {
 
     @BeforeEach
     void seed() {
-        jdbc.update("DELETE FROM users WHERE login_id = 'gen_course_user'");
         userId =
                 jdbc.queryForObject(
                         """
@@ -109,7 +97,7 @@ class GeneratedCourseSaveIntegrationTest {
     }
 
     private long save(GeneratedCourseSaveCommand command) {
-        long id = courseService.saveGeneratedCourse(command);
+        long id = courseService.saveGeneratedCourse(command).courseId();
         createdCourseIds.add(id);
         return id;
     }
@@ -332,14 +320,17 @@ class GeneratedCourseSaveIntegrationTest {
         long maxGainId =
                 save(
                         new GeneratedCourseSaveCommand(
-                                ROUTE, DISTANCE_M, new BigDecimal("99999999.99"), sampleProfile()));
+                                routeEndingAt(129.021),
+                                DISTANCE_M,
+                                new BigDecimal("99999999.99"),
+                                sampleProfile()));
         long tinyGainId =
                 assertTimeoutPreemptively(
                         Duration.ofSeconds(5),
                         () ->
                                 save(
                                         new GeneratedCourseSaveCommand(
-                                                ROUTE,
+                                                routeEndingAt(129.022),
                                                 DISTANCE_M,
                                                 new BigDecimal("1E-100000000"),
                                                 sampleProfile())));
@@ -360,7 +351,7 @@ class GeneratedCourseSaveIntegrationTest {
         long id =
                 save(
                         new GeneratedCourseSaveCommand(
-                                ROUTE,
+                                routeEndingAt(129.023),
                                 new BigDecimal("2450.504"),
                                 new BigDecimal("10.105"),
                                 sampleProfile()));
@@ -409,5 +400,123 @@ class GeneratedCourseSaveIntegrationTest {
                 .isEqualTo(ErrorCode.VALIDATION_ERROR);
 
         assertThat(courseCount()).isEqualTo(before);
+    }
+
+    private GeneratedCourseSaveResult saveResult(GeneratedCourseSaveCommand command) {
+        GeneratedCourseSaveResult result = courseService.saveGeneratedCourse(command);
+        createdCourseIds.add(result.courseId());
+        return result;
+    }
+
+    private int countRoute(GeoJsonLineString route) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM courses WHERE ST_AsEWKB(route::geometry) = ST_AsEWKB(ST_GeogFromText(?)::geometry)",
+                Integer.class,
+                GeoJsonGeographyMapper.toEwkt(route));
+    }
+
+    @Test
+    void T5_같은_경로를_다시_저장하면_같은_ACTIVE_코스를_재사용한다() {
+        GeoJsonLineString route = routeEndingAt(129.031);
+        var first = saveResult(new GeneratedCourseSaveCommand(route, DISTANCE_M, null, sampleProfile()));
+        var second = saveResult(new GeneratedCourseSaveCommand(route, DISTANCE_M, null, sampleProfile()));
+
+        assertThat(first.reused()).isFalse();
+        assertThat(second.reused()).isTrue();
+        assertThat(second.courseId()).isEqualTo(first.courseId());
+        assertThat(countRoute(route)).isEqualTo(1);
+    }
+
+    @Test
+    void T6_같은_경로를_동시에_저장해도_한_행만_생긴다() throws Exception {
+        GeoJsonLineString route = routeEndingAt(129.032);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<GeneratedCourseSaveResult>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(
+                        pool.submit(
+                                () -> {
+                                    ready.countDown();
+                                    start.await();
+                                    return courseService.saveGeneratedCourse(
+                                            new GeneratedCourseSaveCommand(
+                                                    route, DISTANCE_M, null, sampleProfile()));
+                                }));
+            }
+            ready.await(10, TimeUnit.SECONDS);
+            start.countDown();
+            var a = futures.get(0).get(30, TimeUnit.SECONDS);
+            var b = futures.get(1).get(30, TimeUnit.SECONDS);
+            createdCourseIds.add(a.courseId());
+
+            assertThat(a.courseId()).isEqualTo(b.courseId());
+            assertThat(List.of(a.reused(), b.reused())).containsExactlyInAnyOrder(false, true);
+            assertThat(countRoute(route)).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void T7_좌표가_조금이라도_다르거나_역방향이면_별도_코스로_저장한다() {
+        GeoJsonLineString route = routeEndingAt(129.033);
+        GeoJsonLineString shifted = routeEndingAt(Math.nextUp(129.033));
+        List<List<Double>> reversedPoints = new ArrayList<>(route.coordinates()).reversed();
+        GeoJsonLineString reversed = GeoJsonLineString.of(reversedPoints);
+
+        long base = saveResult(new GeneratedCourseSaveCommand(route, DISTANCE_M, null, sampleProfile())).courseId();
+        var other = saveResult(new GeneratedCourseSaveCommand(shifted, DISTANCE_M, null, sampleProfile()));
+        var back = saveResult(new GeneratedCourseSaveCommand(reversed, DISTANCE_M, null, sampleProfile()));
+
+        assertThat(other.reused()).isFalse();
+        assertThat(back.reused()).isFalse();
+        assertThat(List.of(base, other.courseId(), back.courseId())).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void 리뷰A2_좌표가_같으면_거리값이_달라도_같은_경로로_본다() {
+        GeoJsonLineString active = routeEndingAt(129.036);
+        long id = save(new GeneratedCourseSaveCommand(active, DISTANCE_M, null, sampleProfile()));
+        var reused =
+                saveResult(
+                        new GeneratedCourseSaveCommand(
+                                active, new BigDecimal("2400.00"), null, profile("2400")));
+        assertThat(reused.reused()).isTrue();
+        assertThat(reused.courseId()).isEqualTo(id);
+
+        GeoJsonLineString blocked = routeEndingAt(129.037);
+        long blockedId = save(new GeneratedCourseSaveCommand(blocked, DISTANCE_M, null, sampleProfile()));
+        jdbc.update("UPDATE courses SET status = 'BLOCKED' WHERE id = ?", blockedId);
+        assertThatThrownBy(
+                        () ->
+                                courseService.saveGeneratedCourse(
+                                        new GeneratedCourseSaveCommand(
+                                                blocked, new BigDecimal("2400.00"), null, profile("2400"))))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.COURSE_INACCESSIBLE);
+        assertThat(countRoute(blocked)).isEqualTo(1);
+    }
+
+    @Test
+    void T7_완전_일치_경로가_BLOCKED나_MERGED면_새로_만들지_않고_COURSE_INACCESSIBLE() {
+        for (String status : List.of("BLOCKED", "MERGED")) {
+            GeoJsonLineString route = routeEndingAt(status.equals("BLOCKED") ? 129.034 : 129.035);
+            long id = save(new GeneratedCourseSaveCommand(route, DISTANCE_M, null, sampleProfile()));
+            jdbc.update("UPDATE courses SET status = ?::courses_status_enum WHERE id = ?", status, id);
+
+            assertThatThrownBy(
+                            () ->
+                                    courseService.saveGeneratedCourse(
+                                            new GeneratedCourseSaveCommand(
+                                                    route, DISTANCE_M, null, sampleProfile())))
+                    .isInstanceOf(ApiException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(ErrorCode.COURSE_INACCESSIBLE);
+            assertThat(countRoute(route)).as(status).isEqualTo(1);
+        }
     }
 }

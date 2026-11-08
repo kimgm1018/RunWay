@@ -133,6 +133,7 @@ async function launch() {
 // 1.3 with a free ID and a verified phone, then 1.4 with the three required consents.
 async function reachBasicProfile(screen: Screen) {
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
   await type(screen, '아이디', 'newrunner');
   await settle(550);
   await type(screen, '비밀번호', 'runway123');
@@ -147,15 +148,20 @@ async function reachBasicProfile(screen: Screen) {
   await press(screen, '동의하고 가입하기');
 }
 
+// 1.5 takes the nickname and gender, then 1.5b the birth date; its 다음 sends U15.
 async function fillBasicProfile(screen: Screen, nickname = '러너') {
   await type(screen, '닉네임', nickname);
   await press(screen, '남성');
-  await press(screen, '연도 연도');
-  await press(screen, '1991년');
-  await press(screen, '월 월');
-  await press(screen, '02월');
-  await press(screen, '일 일');
-  await press(screen, '28일');
+  await press(screen, '다음');
+  await press(screen, '연도 1991년');
+  await press(screen, '월 2월');
+  await press(screen, '일 28일');
+}
+
+// The value a 1.5b wheel rests on, as a screen reader hears it.
+function wheel(screen: Screen, label: string) {
+  return last(screen, label, 'onAccessibilityAction').props.accessibilityValue
+    .text;
 }
 
 beforeEach(async () => {
@@ -168,6 +174,7 @@ test('1.3 shows the server answer for the ID', async () => {
   serve([]);
   const screen = await launch();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
 
   await type(screen, '아이디', 'runner01');
   await settle(550);
@@ -186,6 +193,7 @@ test('1.3 reads a server format rejection as a format error', async () => {
   );
   const screen = await launch();
   await press(screen, '시작하기');
+  await press(screen, '회원가입');
 
   await type(screen, '아이디', 'newrunner');
   await settle(550);
@@ -222,7 +230,7 @@ test('signing up creates the account, holds the tokens and goes on to 1.6', asyn
   expect(tokenStore.current()?.accessToken).toBe('access-2');
   await act(async () => screen.unmount());
   const relaunch = await launch();
-  expect(texts(relaunch)).toContain('RUN YOUR WAY');
+  expect(texts(relaunch)).toContain('시작하기');
   await act(async () => relaunch.unmount());
 });
 
@@ -235,10 +243,14 @@ test('a taken nickname shows under the field until it changes', async () => {
   await fillBasicProfile(screen);
   await press(screen, '다음');
 
+  // U15 turns the nickname down on 1.5b, so 1.5 opens again with it marked.
   expect(texts(screen)).toContain('이미 사용 중인 닉네임이에요');
   expect(isDisabled(screen, '다음')).toBe(true);
   await type(screen, '닉네임', '새러너');
   expect(texts(screen)).not.toContain('이미 사용 중인 닉네임이에요');
+  await press(screen, '다음');
+  // 1.5b still holds the date picked before.
+  expect(isDisabled(screen, '다음')).toBe(false);
   await press(screen, '다음');
 
   expect(texts(screen)).toContain('평소 어떻게');
@@ -263,7 +275,7 @@ test.each([
     respond(503, { code: 'SERVICE_UNAVAILABLE', message: '', details: {} }),
     '가입하지 못했어요. 잠시 후 다시 시도해 주세요.',
   ],
-])('U15 errors show a notice on 1.5 (%#)', async (response, message) => {
+])('U15 errors show a notice on 1.5b (%#)', async (response, message) => {
   serve([response]);
   const screen = await launch();
   await reachBasicProfile(screen);
@@ -271,7 +283,54 @@ test.each([
   await press(screen, '다음');
 
   expect(texts(screen)).toContain(message);
-  expect(texts(screen)).toContain('불러드릴까요?');
+  expect(texts(screen)).toContain('언제예요?');
   expect(tokenStore.current()).toBeNull();
+  await act(async () => screen.unmount());
+});
+
+test('1.5b wheels start on 2002-01-01, keep days real, survive going back and reach U15', async () => {
+  serve([]);
+  const screen = await launch();
+  await reachBasicProfile(screen);
+  await type(screen, '닉네임', '러너');
+  await press(screen, '남성');
+  await press(screen, '다음');
+  // No typing and no 목록 선택 · 직접 입력 switch: three wheels in 년 · 월 · 일 order.
+  expect(texts(screen)).not.toContain('직접 입력');
+  expect(wheel(screen, '연도')).toBe('2002년');
+  expect(wheel(screen, '월')).toBe('1월');
+  expect(wheel(screen, '일')).toBe('1일');
+  expect(isDisabled(screen, '다음')).toBe(false);
+  // The wheels reach 2026 and stop at 1950.
+  await press(screen, '연도 2026년');
+  expect(wheel(screen, '연도')).toBe('2026년');
+  await press(screen, '연도 1950년');
+  expect(wheel(screen, '연도')).toBe('1950년');
+  // February 2000 has 29 days, so the 31st rolls back to the 29th.
+  await press(screen, '연도 2000년');
+  await press(screen, '일 31일');
+  await press(screen, '월 2월');
+  expect(wheel(screen, '일')).toBe('29일');
+  // A screen reader steps the wheel with increment and decrement.
+  await act(async () => {
+    last(screen, '월', 'onAccessibilityAction').props.onAccessibilityAction({
+      nativeEvent: { actionName: 'increment' },
+    });
+  });
+  await settle();
+  expect(wheel(screen, '월')).toBe('3월');
+  // Popping 1.5b and 1.5 keeps the date in the signup draft.
+  await press(screen, '뒤로');
+  await press(screen, '뒤로');
+  await press(screen, '동의하고 가입하기');
+  await type(screen, '닉네임', '러너');
+  await press(screen, '남성');
+  await press(screen, '다음');
+  expect(wheel(screen, '연도')).toBe('2000년');
+  expect(wheel(screen, '월')).toBe('3월');
+  expect(wheel(screen, '일')).toBe('29일');
+  await press(screen, '다음');
+  expect(signUpBodies()[0].birthDate).toBe('2000-03-29');
+  expect(texts(screen)).toContain('평소 어떻게');
   await act(async () => screen.unmount());
 });

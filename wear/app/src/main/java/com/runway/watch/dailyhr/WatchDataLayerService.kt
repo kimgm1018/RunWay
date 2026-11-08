@@ -18,14 +18,16 @@ class WatchDataLayerService : WearableListenerService() {
 
     override fun onMessageReceived(event: MessageEvent) {
         // Run-session messages (S15P31E105-256) go to the shared controller's queue; batch ACKs are applied at once.
-        // Batch receipts and save ACKs (S15P31E105-311) go to the same place.
-        if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) || event.path == SessionPaths.ERROR) {
+        // Batch receipts and save ACKs (S15P31E105-311) and coaching guides (S15P31E105-257) go to the same place.
+        if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) ||
+            event.path.startsWith(SessionPaths.COACHING_PREFIX) || event.path == SessionPaths.ERROR
+        ) {
             runBlocking { RunSessions.get(this@WatchDataLayerService).receive(event.data) }
             return
         }
         if (event.path != DailyHrMessages.RECEIVED_PATH) return
-        val (date, revision) = DailyHrMessages.decodeReceived(event.data) ?: return
-        store.markAcked(date, revision)
+        val (date, revision, collectionId) = DailyHrMessages.decodeReceived(event.data) ?: return
+        store.markAcked(date, revision, collectionId)
     }
 
     // play-services-wearable 18.0.0 marks the public DataEvent/DataMap accessors @VisibleForTesting; lint false positive.
@@ -37,7 +39,11 @@ class WatchDataLayerService : WearableListenerService() {
                 DataEvent.TYPE_CHANGED -> applyConsent(readConsent(event) ?: continue)
                 // A missing consent item means DISAGREE; deletion has no updatedAt, so it always applies.
                 DataEvent.TYPE_DELETED -> {
-                    store.saveConsent(HealthConsent(false, Instant.now()))
+                    synchronized(store) {
+                        val updatedAt = store.consent()?.updatedAt?.plusMillis(1)
+                            ?.let { maxOf(it, Instant.now()) } ?: Instant.now()
+                        store.saveConsent(HealthConsent(false, updatedAt))
+                    }
                     enqueueRegistration(this)
                 }
             }
@@ -47,7 +53,10 @@ class WatchDataLayerService : WearableListenerService() {
     @SuppressLint("VisibleForTests")
     private fun readConsent(event: DataEvent): HealthConsent? = try {
         val map = DataMapItem.fromDataItem(event.dataItem).dataMap
-        HealthConsent.fromDataMap(map.getString("healthDataAccess"), map.getString("updatedAt"))
+        HealthConsent.fromDataMap(
+            map.getString("healthDataAccess"), map.getString("updatedAt"),
+            map.getString("collectionId"), map.getString("collectionStartedAt"),
+        )
     } catch (_: Exception) {
         null
     }

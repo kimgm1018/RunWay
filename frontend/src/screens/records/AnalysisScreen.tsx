@@ -1,710 +1,815 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Line, Polyline, Text } from 'react-native-svg';
 import {
+  animateNextLayout,
   AppText,
-  Backdrop,
-  Card as KitCard,
   EmptyState,
-  IconButton,
-  Segmented,
+  FadeIn,
+  Icon,
 } from '../../components';
 import {
   useRepositories,
   useResource,
   type AnalysisPeriod,
-  type PaceTrend,
-  type PeriodSummary,
   type Repositories,
-  type RunStatistics,
+  type RunRecordSummary,
 } from '../../data';
-import { formatHours, formatKm, formatPace } from '../../format';
+import { onRecordsChanged } from '../../data/recordsChanged';
 import {
-  fontFamily,
-  palette,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
+  formatDotDate,
+  formatDotDateWeekday,
+  formatKm,
+  formatPace,
+} from '../../format';
+import { navigateTo } from '../../navigation/navigateTo';
+import { fontFamily } from '../../theme';
 import {
-  PeriodStepper,
+  MonthPicker,
+  weeksOf,
+  WeekPicker,
+  YearPicker,
+  PillTabs,
+  recordsLook,
+  RecordsShell,
+  usePickerTop,
+} from './look';
+import { PeriodFigures } from './PeriodFigures';
+import {
   addDays,
   kstDay,
+  kstMonth,
   mondayOf,
   shiftMonth,
   shortDay,
 } from './parts';
 
-const periods: { value: AnalysisPeriod; label: string }[] = [
-  { value: 'WEEK', label: '주' },
-  { value: 'MONTH', label: '월' },
-  { value: 'YEAR', label: '년' },
-];
+type Mode = 'WEEK' | 'MONTH' | 'YEAR' | 'ALL';
 
-// The first day of the period that holds the day.
-function startOf(period: AnalysisPeriod, day: string) {
-  if (period === 'WEEK') {
-    return mondayOf(day);
-  }
-  return period === 'MONTH'
-    ? `${day.slice(0, 7)}-01`
-    : `${day.slice(0, 4)}-01-01`;
-}
-
-function shift(period: AnalysisPeriod, start: string, steps: number) {
-  if (period === 'WEEK') {
-    return addDays(start, steps * 7);
-  }
-  return period === 'MONTH'
-    ? `${shiftMonth(start.slice(0, 7), steps)}-01`
-    : `${Number(start.slice(0, 4)) + steps}-01-01`;
-}
-
-function labelOf(period: AnalysisPeriod, start: string) {
-  if (period === 'WEEK') {
-    return `${shortDay(start)} – ${shortDay(addDays(start, 6))}`;
-  }
-  return period === 'MONTH'
-    ? `${start.slice(0, 4)}년 ${Number(start.slice(5, 7))}월`
-    : `${start.slice(0, 4)}년`;
-}
-
-const copy = {
-  WEEK: {
-    bars: '요일별 거리',
-    compare: '지난주와 비교',
-    labels: ['월', '화', '수', '목', '금', '토', '일'],
-  },
-  MONTH: {
-    bars: '주별 거리',
-    compare: '지난달과 비교',
-    labels: [] as string[],
-  },
-  YEAR: { bars: '월별 거리', compare: '지난해와 비교', labels: [] as string[] },
+// One bar of the daily chart: a day (주·월), a month (년) or a year (전체).
+type Bucket = {
+  key: string;
+  // 10.15 · 10월 · 2026년, for the callout and the range chip.
+  name: string;
+  // The x-axis text under the bar (월, 15, 10, 2026).
+  axis: string;
+  distanceM: number;
+  runCount: number;
+  durationSec: number;
+  future: boolean;
+  records: RunRecordSummary[];
 };
 
-function barLabels(period: AnalysisPeriod, count: number) {
-  if (period === 'WEEK') {
-    return copy.WEEK.labels;
-  }
-  return Array.from({ length: count }, (_, index) =>
-    period === 'MONTH' ? `${index + 1}주` : `${index + 1}`,
-  );
+type Period = {
+  buckets: Bucket[];
+  // Which axis texts to print (all for 주·년·전체, every fifth day for 월).
+  axisAt: (index: number) => boolean;
+  // 9월 · 지난주 · 2025년; null for 전체.
+  previousName: string | null;
+  previous: {
+    runCount: number;
+    totalDistanceM: number;
+    averagePaceSecPerKm: number | null;
+  } | null;
+  // 10월 · 이번 주 · 2026년 · 전체, for 총 시간's "… 누적".
+  name: string;
+  // The range chip: 10.1 – 10.15.
+  rangeTo: (index: number) => string;
+  // 일별 거리 · 월별 거리 · 연도별 거리 over the bars.
+  barsLabel: string;
+};
+
+const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
+// 전체 goes back year by year until a year without runs, at most this many years.
+const allYears = 5;
+
+const monthNumber = (month: string) => Number(month.slice(5));
+// The month the 주 tab counts a week in after a move: the one it already counts in when the week is one of its
+// calendar rows, else the month it moved into (its Monday's going back, its Sunday's going forward). A week
+// across two months is a row of both (9.28–10.04 is 9월 5주차 and 10월 1주차).
+function weekMonthAfter(monday: string, current: string, direction: 1 | -1) {
+  return weeksOf(current).some(week => week.start === monday)
+    ? current
+    : kstMonth(direction > 0 ? addDays(monday, 6) : monday);
 }
+const daysInMonth = (month: string) =>
+  new Date(
+    Date.UTC(Number(month.slice(0, 4)), monthNumber(month), 0),
+  ).getUTCDate();
 
-// Every 5.3 box is the dark glass card; the totals use the vignette (DESIGN.md 2-8 5.3).
-function Card({
-  title,
-  note,
-  vignette = false,
-  children,
-}: {
-  title?: string;
-  note?: string;
-  vignette?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <KitCard variant={vignette ? 'vignette' : 'deep'} style={styles.card}>
-      {title ? (
-        <View style={styles.cardTitle}>
-          <AppText variant="heading" style={styles.cardHeading}>
-            {title}
-          </AppText>
-          {note ? (
-            <AppText variant="label" tone="textSecondary">
-              {note}
-            </AppText>
-          ) : null}
-        </View>
-      ) : null}
-      {children}
-    </KitCard>
-  );
-}
-
-// A 14% line inside a card, read in the card's dark tone.
-function Rule({ vertical = false }: { vertical?: boolean }) {
-  const { colors } = useTheme();
-  return (
-    <View
-      style={[
-        vertical ? styles.ruleVertical : styles.rule,
-        { backgroundColor: colors.border },
-      ]}
-    />
-  );
-}
-
-function SummaryGrid({ summary }: { summary: PeriodSummary }) {
-  const cell = (value: string, unit: string, label: string) => (
-    <View style={styles.summaryCell}>
-      <AppText style={styles.summaryValue}>
-        {value}
-        <AppText variant="label" tone="textSecondary">
-          {unit}
-        </AppText>
-      </AppText>
-      <AppText variant="labelStrong" tone="textSecondary">
-        {label}
-      </AppText>
-    </View>
-  );
-  // 2 × 2 split by 14% lines, like the 4.5 metrics (DESIGN.md 2-8 5.3 요약).
-  return (
-    <Card vignette>
-      <View style={styles.summaryRow}>
-        {cell(String(summary.runCount), '회', '러닝')}
-        <Rule vertical />
-        {cell(formatKm(summary.totalDistanceM, 1), 'km', '누적 거리')}
-      </View>
-      <Rule />
-      <View style={styles.summaryRow}>
-        {cell(
-          summary.averagePaceSecPerKm === null
-            ? '– –'
-            : formatPace(summary.averagePaceSecPerKm),
-          '',
-          '평균 페이스',
-        )}
-        <Rule vertical />
-        {cell(formatHours(summary.totalDurationSec), 'h', '총 시간')}
-      </View>
-    </Card>
-  );
-}
-
-const barArea = 96;
-
-function DistanceBars({
-  period,
-  breakdown,
-}: {
-  period: AnalysisPeriod;
-  breakdown: number[];
-}) {
-  const { colors } = useTheme();
-  const labels = barLabels(period, breakdown.length);
-  const top = Math.max(...breakdown, 1);
-  const best = breakdown.indexOf(Math.max(...breakdown));
-  return (
-    <Card title={copy[period].bars} note="km">
-      <View style={styles.bars}>
-        {breakdown.map((distanceM, index) => {
-          const highlighted = distanceM > 0 && index === best;
-          return (
-            <View key={labels[index]} style={styles.barColumn}>
-              <AppText
-                tone={highlighted ? 'text' : 'textSecondary'}
-                style={[styles.barValue, period === 'YEAR' && styles.small]}
-              >
-                {distanceM > 0 ? String(Math.round(distanceM / 100) / 10) : ''}
-              </AppText>
-              <View
-                style={[
-                  styles.bar,
-                  {
-                    height: Math.max(
-                      (distanceM / top) * barArea,
-                      distanceM > 0 ? 6 : 2,
-                    ),
-                    // The longest bar is white; the rest are the faint white of the dark tone (DESIGN.md 2-8 주별 거리).
-                    backgroundColor: highlighted
-                      ? colors.accent
-                      : colors.accentSoft,
-                  },
-                ]}
-              />
-              <AppText variant="label" tone="textSecondary">
-                {labels[index]}
-              </AppText>
-            </View>
-          );
-        })}
-      </View>
-    </Card>
-  );
-}
-
-const trendHeight = 110;
-
-function PaceTrendCard({ trend }: { trend: PaceTrend }) {
-  const { colors } = useTheme();
-  const [width, setWidth] = useState(0);
-  const known = trend.items.filter(item => item.averagePaceSecPerKm !== null);
-  const paces = known.map(item => item.averagePaceSecPerKm as number);
-  const [fast, slow] = [Math.min(...paces), Math.max(...paces)];
-  const step = width / trend.items.length;
-  const x = (index: number) => step * index + step / 2;
-  // As on 5.3, a slower month sits higher, so getting faster reads as a falling line.
-  const y = (pace: number) =>
-    12 + ((slow - pace) / Math.max(slow - fast, 1)) * (trendHeight - 34);
-  const points = trend.items
-    .map((item, index) =>
-      item.averagePaceSecPerKm === null
-        ? null
-        : { x: x(index), y: y(item.averagePaceSecPerKm) },
-    )
-    .filter((point): point is { x: number; y: number } => point !== null);
-  const first = known[0]?.averagePaceSecPerKm ?? null;
-  const last = known[known.length - 1]?.averagePaceSecPerKm ?? null;
-  const change = trend.changeSecPerKm;
-  return (
-    <Card title="평균 페이스 추이" note={`최근 ${trend.items.length}개월`}>
-      <View
-        style={styles.trend}
-        onLayout={event => setWidth(event.nativeEvent.layout.width)}
-      >
-        {width > 0 && points.length > 0 ? (
-          <Svg width={width} height={trendHeight}>
-            {[0, 0.5, 1].map(share => (
-              <Line
-                key={share}
-                x1={0}
-                x2={width}
-                y1={12 + share * (trendHeight - 34)}
-                y2={12 + share * (trendHeight - 34)}
-                stroke={colors.border}
-                strokeWidth={1}
-              />
-            ))}
-            <Polyline
-              points={points.map(point => `${point.x},${point.y}`).join(' ')}
-              stroke={colors.accentText}
-              strokeWidth={1.8}
-              fill="none"
-              strokeLinejoin="round"
-            />
-            {points.map((point, index) => {
-              const latest = index === points.length - 1;
-              return (
-                <Circle
-                  key={`${point.x}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r={latest ? 4.5 : 0}
-                  fill={palette.white}
-                />
-              );
-            })}
-            {trend.items.map((item, index) => {
-              const latest = index === trend.items.length - 1;
-              return (
-                <Text
-                  key={item.month}
-                  x={x(index)}
-                  y={trendHeight - 4}
-                  fontSize={11}
-                  fontFamily={latest ? fontFamily.bold : fontFamily.regular}
-                  fill={latest ? colors.text : colors.textSecondary}
-                  textAnchor="middle"
-                >
-                  {`${Number(item.month.slice(5))}월`}
-                </Text>
-              );
-            })}
-          </Svg>
-        ) : null}
-      </View>
-      {first !== null && last !== null && change !== null && change !== 0 ? (
-        <AppText variant="caption" tone="textSecondary">
-          {`${formatPace(first)}에서 ${formatPace(last)}까지 `}
-          <AppText variant="captionStrong">
-            {change < 0 ? `${-change}초 빨라졌어요` : `${change}초 느려졌어요`}
-          </AppText>
-        </AppText>
-      ) : null}
-    </Card>
-  );
-}
-
-// Zones 1–5 in white at 20 · 42 · 62 · 82 · 100% (DESIGN.md 2-8 심박 구간).
-const zones = [
-  { name: '회복', color: 'rgba(232,238,244,0.2)' },
-  { name: '유산소', color: 'rgba(232,238,244,0.42)' },
-  { name: '템포', color: 'rgba(232,238,244,0.62)' },
-  { name: '역치', color: 'rgba(232,238,244,0.82)' },
-  { name: '최대', color: '#E8EEF4' },
-];
-
-function HeartZones({ shares }: { shares: number[] }) {
-  return (
-    <Card title="심박 구간">
-      {shares.length === 0 ? (
-        <AppText variant="caption" tone="textSecondary">
-          이 기간에는 심박 기록이 없어요
-        </AppText>
-      ) : (
-        <>
-          <View style={styles.zoneBar}>
-            {shares.map((share, index) => (
-              <View
-                key={zones[index].name}
-                style={{ flex: share, backgroundColor: zones[index].color }}
-              />
-            ))}
-          </View>
-          {shares.map((share, index) => (
-            <View key={zones[index].name} style={styles.zoneRow}>
-              <View
-                style={[
-                  styles.zoneDot,
-                  { backgroundColor: zones[index].color },
-                ]}
-              />
-              <AppText
-                variant="caption"
-                tone="textSecondary"
-                style={styles.flex}
-              >
-                {`${index + 1} ${zones[index].name}`}
-              </AppText>
-              <AppText style={styles.zoneShare}>{`${Math.round(
-                share * 100,
-              )}%`}</AppText>
-            </View>
-          ))}
-        </>
-      )}
-    </Card>
-  );
-}
-
-function Comparison({
-  period,
-  start,
-  current,
-  previous,
-  isCurrent,
-}: {
-  period: AnalysisPeriod;
-  start: string;
-  current: PeriodSummary;
-  previous: RunStatistics['previousPeriod'];
-  isCurrent: boolean;
-}) {
-  const before = shift(period, start, -1);
-  const [previousLabel, currentLabel] =
-    period === 'WEEK'
-      ? isCurrent
-        ? ['지난주', '이번 주']
-        : [`${shortDay(before)}주`, `${shortDay(start)}주`]
-      : period === 'MONTH'
-      ? [`${Number(before.slice(5, 7))}월`, `${Number(start.slice(5, 7))}월`]
-      : [`${before.slice(0, 4)}년`, `${start.slice(0, 4)}년`];
-  const earlier = previous ?? {
-    runCount: 0,
-    totalDistanceM: 0,
-    averagePaceSecPerKm: null,
+function bucketOf(
+  key: string,
+  name: string,
+  axis: string,
+  records: RunRecordSummary[],
+  future: boolean,
+): Bucket {
+  return {
+    key,
+    name,
+    axis,
+    records,
+    future,
+    runCount: records.length,
+    distanceM: records.reduce((sum, record) => sum + record.distanceM, 0),
+    durationSec: records.reduce((sum, record) => sum + record.durationSec, 0),
   };
-  const countGap = current.runCount - earlier.runCount;
-  const distanceGap = current.totalDistanceM - earlier.totalDistanceM;
-  const paceGap =
-    current.averagePaceSecPerKm !== null && earlier.averagePaceSecPerKm !== null
-      ? current.averagePaceSecPerKm - earlier.averagePaceSecPerKm
-      : null;
-  const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '−' : '');
-  const rows = [
-    {
-      label: '러닝 횟수',
-      before: `${earlier.runCount}회`,
-      now: `${current.runCount}회`,
-      gap: `${sign(countGap)}${Math.abs(countGap)}회`,
-      better: countGap >= 0,
-    },
-    {
-      label: '누적 거리',
-      before: `${formatKm(earlier.totalDistanceM, 1)}km`,
-      now: `${formatKm(current.totalDistanceM, 1)}km`,
-      gap: `${sign(distanceGap)}${formatKm(Math.abs(distanceGap), 1)}km`,
-      better: distanceGap >= 0,
-    },
-    {
-      label: '평균 페이스',
-      before:
-        earlier.averagePaceSecPerKm === null
-          ? '– –'
-          : formatPace(earlier.averagePaceSecPerKm),
-      now:
-        current.averagePaceSecPerKm === null
-          ? '– –'
-          : formatPace(current.averagePaceSecPerKm),
-      gap:
-        paceGap === null
-          ? ''
-          : paceGap <= 0
-          ? `${-paceGap}초 단축`
-          : `${paceGap}초 늘어남`,
-      better: paceGap === null || paceGap <= 0,
-    },
+}
+
+async function monthRecords(repositories: Repositories, months: string[]) {
+  const lists = await Promise.all(
+    months.map(month => repositories.records.getMonth(month, 'ALL')),
+  );
+  // Each run once, even if two months' answers both carry it.
+  return [
+    ...new Map(
+      lists.flatMap(list => list.records).map(record => [record.id, record]),
+    ).values(),
   ];
-  return (
-    <Card>
-      <View style={styles.compareRow}>
-        <AppText
-          variant="heading"
-          style={[styles.compareLabel, styles.cardHeading]}
-        >
-          {copy[period].compare}
-        </AppText>
-        <AppText
-          variant="label"
-          tone="textSecondary"
-          style={styles.compareValue}
-        >
-          {previousLabel}
-        </AppText>
-        <AppText variant="labelStrong" style={styles.compareValue}>
-          {currentLabel}
-        </AppText>
-        <View style={styles.compareGap} />
-      </View>
-      {rows.map(row => (
-        <View key={row.label} style={styles.compareRow}>
-          <AppText
-            variant="caption"
-            tone="textSecondary"
-            style={styles.compareLabel}
-          >
-            {row.label}
-          </AppText>
-          <AppText
-            variant="metricSmall"
-            tone="textTertiary"
-            style={styles.compareValue}
-          >
-            {row.before}
-          </AppText>
-          <AppText variant="metricSmall" style={styles.compareValue}>
-            {row.now}
-          </AppText>
-          {/* The difference is bold white either way (DESIGN.md 2-8 지난달과 비교). */}
-          <AppText variant="labelStrong" style={styles.compareGap}>
-            {row.gap}
-          </AppText>
-        </View>
-      ))}
-    </Card>
-  );
 }
 
-// The outlined link's border and text, read in the dark tone.
-function LinkLabel({ title }: { title: string }) {
-  const { colors } = useTheme();
-  return (
-    <View style={[styles.linkInner, { borderColor: colors.borderStrong }]}>
-      <AppText variant="bodyStrong">{title}</AppText>
-    </View>
-  );
+// H06 previousPeriod for 주 · 월 · 년; the totals are summed from the runs so a picked day adds up the same way.
+async function previousOf(
+  repositories: Repositories,
+  period: AnalysisPeriod,
+  baseDate: string,
+) {
+  const stats = await repositories.records.getStatistics(period, baseDate);
+  return stats.previousPeriod;
 }
 
-// 5.3 러닝 분석: totals, distance by week, pace trend, heart rate zones and the period before.
+async function loadPeriod(
+  repositories: Repositories,
+  mode: Mode,
+  anchor: { week: string; month: string; year: number },
+  today: string,
+): Promise<Period> {
+  if (mode === 'WEEK') {
+    const monday = anchor.week;
+    const sunday = addDays(monday, 6);
+    const records = await monthRecords(repositories, [
+      ...new Set([kstMonth(monday), kstMonth(sunday)]),
+    ]);
+    const days = weekdays.map((weekday, index) => addDays(monday, index));
+    const thisWeek = monday === mondayOf(today);
+    return {
+      buckets: days.map((day, index) =>
+        bucketOf(
+          day,
+          shortDay(day),
+          weekdays[index],
+          records.filter(record => kstDay(record.startedAt) === day),
+          day > today,
+        ),
+      ),
+      axisAt: () => true,
+      previousName: thisWeek ? '지난주' : '전주',
+      previous: await previousOf(repositories, 'WEEK', monday),
+      name: thisWeek ? '이번 주' : `${shortDay(monday)} 주`,
+      rangeTo: index => `${shortDay(monday)} – ${shortDay(days[index])}`,
+      barsLabel: '일별 거리',
+    };
+  }
+  if (mode === 'MONTH') {
+    const { month } = anchor;
+    const records = await monthRecords(repositories, [month]);
+    const count = daysInMonth(month);
+    const m = monthNumber(month);
+    return {
+      buckets: Array.from({ length: count }, (_, index) => {
+        const day = `${month}-${String(index + 1).padStart(2, '0')}`;
+        return bucketOf(
+          day,
+          `${m}.${index + 1}`,
+          String(index + 1),
+          records.filter(record => kstDay(record.startedAt) === day),
+          day > today,
+        );
+      }),
+      // 1, 5, 10, … and the last day, leaving out a fifth too close to it (30 next to 31).
+      axisAt: index =>
+        index === 0 ||
+        index === count - 1 ||
+        ((index + 1) % 5 === 0 && index < count - 3),
+      previousName: `${monthNumber(shiftMonth(month, -1))}월`,
+      previous: await previousOf(repositories, 'MONTH', `${month}-01`),
+      name: `${m}월`,
+      rangeTo: index => `${m}.1 – ${m}.${index + 1}`,
+      barsLabel: '일별 거리',
+    };
+  }
+  if (mode === 'YEAR') {
+    const { year } = anchor;
+    const months = Array.from(
+      { length: 12 },
+      (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`,
+    );
+    const past = months.filter(month => month <= kstMonth(today));
+    const records = await monthRecords(repositories, past);
+    return {
+      buckets: months.map((month, index) =>
+        bucketOf(
+          month,
+          `${index + 1}월`,
+          String(index + 1),
+          records.filter(record => kstMonth(record.startedAt) === month),
+          month > kstMonth(today),
+        ),
+      ),
+      axisAt: () => true,
+      previousName: `${year - 1}년`,
+      previous: await previousOf(repositories, 'YEAR', `${year}-01-01`),
+      name: `${year}년`,
+      rangeTo: index => `1월 – ${index + 1}월`,
+      barsLabel: '월별 거리',
+    };
+  }
+  // 전체 has no H06 period: each year's H06 totals, back to the first year without runs.
+  const thisYear = Number(today.slice(0, 4));
+  const years: {
+    year: number;
+    runCount: number;
+    distanceM: number;
+    durationSec: number;
+  }[] = [];
+  for (let year = thisYear; year > thisYear - allYears; year -= 1) {
+    const stats = await repositories.records.getStatistics(
+      'YEAR',
+      `${year}-01-01`,
+    );
+    if (stats.runCount === 0 && year !== thisYear) {
+      break;
+    }
+    years.unshift({
+      year,
+      runCount: stats.runCount,
+      distanceM: stats.totalDistanceM,
+      durationSec: stats.totalDurationSec,
+    });
+  }
+  return {
+    buckets: years.map(item => ({
+      key: String(item.year),
+      name: `${item.year}년`,
+      axis: String(item.year),
+      distanceM: item.distanceM,
+      runCount: item.runCount,
+      durationSec: item.durationSec,
+      future: false,
+      records: [],
+    })),
+    axisAt: () => true,
+    previousName: null,
+    previous: null,
+    name: '전체',
+    rangeTo: index => `${years[0].year} – ${years[index].year}`,
+    barsLabel: '연도별 거리',
+  };
+}
+
+// 5.3 러닝 분석 (runway-records 2차): 주 · N월 ▾ · 년 · 전체, and one card with 평균 페이스 · 누적 거리 · 총 시간
+// that ↻ turns over to the period's records.
+// A swipe across the chart moves the period; the month tab opens the month picker.
+// 29분 41초 under a record on the card back (runway-records 2차).
+function minutesSeconds(totalSeconds: number) {
+  const seconds = Math.round(totalSeconds);
+  return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
+}
+
 export function AnalysisScreen() {
   const navigation = useNavigation();
-  const { colors } = useTheme();
+  const pickerTop = usePickerTop(true);
   const { clock } = useRepositories();
   const today = kstDay(clock.now());
-  const [period, setPeriod] = useState<AnalysisPeriod>('MONTH');
-  const [start, setStart] = useState(startOf('MONTH', today));
+  const [mode, setMode] = useState<Mode>('MONTH');
+  const [anchor, setAnchor] = useState({
+    week: mondayOf(today),
+    month: kstMonth(today),
+    year: Number(today.slice(0, 4)),
+  });
+  // Which tab's picker is open (주 · 월 · 년; 전체 has none).
+  const [picking, setPicking] = useState<Exclude<Mode, 'ALL'> | null>(null);
+  const [pickerYear, setPickerYear] = useState(anchor.year);
+  // The month the 주 tab counts its weeks in (1주 · 2주 …), and the one its picker shows.
+  const [weekMonth, setWeekMonth] = useState(kstMonth(today));
+  const [pickerMonth, setPickerMonth] = useState(weekMonth);
+  const thisYear = Number(today.slice(0, 4));
+  const years = Array.from({ length: 5 }, (_, index) => thisYear - 4 + index);
+  const [view, setView] = useState<'tiles' | 'list'>('tiles');
+  const turn = useRef(new Animated.Value(0)).current;
+  const flipping = useRef(false);
+
   const data = useResource(
     useCallback(
       (repositories: Repositories) =>
-        Promise.all([
-          repositories.records.getStatistics(period, start),
-          repositories.records.getPaceTrend(6),
-        ]) as Promise<[RunStatistics, PaceTrend]>,
-      [period, start],
+        loadPeriod(repositories, mode, anchor, today),
+      [mode, anchor, today],
     ),
   );
-  const isCurrent = start === startOf(period, today);
-  const [statistics, trend] = data.status === 'ready' ? data.data : [];
+  const period = data.status === 'ready' ? data.data : null;
+  const refresh = data.refresh;
+  useEffect(
+    () =>
+      onRecordsChanged(() => {
+        void refresh();
+      }),
+    [refresh],
+  );
+
+  // The dots of the open picker: months with runs (월), weeks with runs (주) or years with runs (년).
+  const marks = useResource(
+    useCallback(
+      async (repositories: Repositories): Promise<Set<string>> => {
+        if (picking === 'WEEK') {
+          const rows = weeksOf(pickerMonth);
+          const months = [
+            ...new Set([
+              kstMonth(rows[0].start),
+              pickerMonth,
+              kstMonth(rows[rows.length - 1].end),
+            ]),
+          ];
+          const lists = await Promise.all(
+            months.map(month => repositories.records.getMonth(month, 'ALL')),
+          );
+          const days = lists
+            .flatMap(list => list.records)
+            .map(record => kstDay(record.startedAt));
+          return new Set(
+            weeksOf(pickerMonth)
+              .filter(week =>
+                days.some(day => day >= week.start && day <= week.end),
+              )
+              .map(week => week.start),
+          );
+        }
+        if (picking === 'YEAR') {
+          const counts = await Promise.all(
+            years.map(year =>
+              repositories.records.getStatistics('YEAR', `${year}-01-01`),
+            ),
+          );
+          return new Set(
+            years.filter((_, index) => counts[index].runCount > 0).map(String),
+          );
+        }
+        const stats = await repositories.records.getStatistics(
+          'YEAR',
+          `${pickerYear}-01-01`,
+        );
+        return new Set(
+          stats.breakdown.flatMap((distance, index) =>
+            distance > 0
+              ? [`${pickerYear}-${String(index + 1).padStart(2, '0')}`]
+              : [],
+          ),
+        );
+      },
+      // years follows thisYear.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [picking, pickerMonth, pickerYear, thisYear],
+    ),
+  );
+  const marked = marks.status === 'ready' ? marks.data : new Set<string>();
+
+  const swipe = (direction: 1 | -1) => {
+    setAnchor(current => {
+      if (mode === 'WEEK') {
+        const week = addDays(current.week, direction * 7);
+        if (week > mondayOf(today)) {
+          return current;
+        }
+        setWeekMonth(month => weekMonthAfter(week, month, direction));
+        return { ...current, week };
+      }
+      if (mode === 'MONTH') {
+        const month = shiftMonth(current.month, direction);
+        return month > kstMonth(today) ? current : { ...current, month };
+      }
+      if (mode === 'YEAR') {
+        const year = current.year + direction;
+        return year > Number(today.slice(0, 4))
+          ? current
+          : { ...current, year };
+      }
+      return current;
+    });
+  };
+
+  // 3주차 ▾: the chosen week's row in weekMonth's calendar.
+  const weekIndex = weeksOf(weekMonth).findIndex(
+    week => week.start === anchor.week,
+  );
+  const weekStart = weeksOf(weekMonth)[weekIndex]?.start ?? null;
+  // 전체 · 년 · 월 · 주, the big range first as dates read in Korean (담당자 요청).
+  const tabs: { value: Mode; label: string; accessibilityLabel: string }[] = [
+    { value: 'ALL', label: '전체', accessibilityLabel: '전체' },
+    { value: 'YEAR', label: `${anchor.year}년 ▾`, accessibilityLabel: '년' },
+    {
+      value: 'MONTH',
+      label: `${monthNumber(anchor.month)}월 ▾`,
+      accessibilityLabel: '월',
+    },
+    {
+      value: 'WEEK',
+      label: `${weekIndex + 1}주차 ▾`,
+      accessibilityLabel: '주',
+    },
+  ];
+  // The chosen tab again opens (or closes) its picker; 전체 has none.
+  const changeMode = (next: Mode) => {
+    if (next === mode && next !== 'ALL') {
+      setPickerYear(Number(anchor.month.slice(0, 4)));
+      setPickerMonth(weekMonth);
+      setPicking(current => (current === next ? null : next));
+      return;
+    }
+    setPicking(null);
+    animateNextLayout();
+    setMode(next);
+  };
+
+  const range = period?.buckets ?? [];
+  const runCount = range.reduce((sum, bucket) => sum + bucket.runCount, 0);
+  const distanceM = range.reduce((sum, bucket) => sum + bucket.distanceM, 0);
+  const records = range.flatMap(bucket => bucket.records);
+
+  const open = (record: RunRecordSummary) =>
+    record.runType === 'GROUP'
+      ? navigateTo(navigation, 'GroupRunResult')
+      : navigation.navigate('RecordDetail', { recordId: record.id });
+
+  // ↻ turns the card over (runway-records 2차, 담당자 결정): a quarter turn away, the other face swapped in
+  // while the card stands on its edge, then a quarter turn back. A tap during the turn waits for it.
+  const flip = () => {
+    if (flipping.current) {
+      return;
+    }
+    flipping.current = true;
+    Animated.timing(turn, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => {
+      setView(current => (current === 'list' ? 'tiles' : 'list'));
+      turn.setValue(-1);
+      Animated.timing(turn, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start(() => {
+        flipping.current = false;
+      });
+    });
+  };
+  const cardTurn = {
+    transform: [
+      { perspective: 1200 },
+      {
+        rotateY: turn.interpolate({
+          inputRange: [-1, 0, 1],
+          outputRange: ['-90deg', '0deg', '90deg'],
+        }),
+      },
+    ],
+  };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop />
-      </View>
-      <View style={styles.header}>
-        <IconButton
-          icon="back"
-          accessibilityLabel="뒤로"
-          onPress={() => navigation.goBack()}
-        />
-        <AppText style={styles.title} accessibilityRole="header">
-          러닝 분석
-        </AppText>
-      </View>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.periodRow}>
-          <PeriodStepper
-            label={labelOf(period, start)}
-            onPrevious={() => setStart(shift(period, start, -1))}
-            onNext={
-              isCurrent ? undefined : () => setStart(shift(period, start, 1))
-            }
-          />
-          <Segmented
-            compact
-            options={periods}
-            value={period}
-            onChange={next => {
-              setPeriod(next);
-              setStart(startOf(next, today));
-            }}
-          />
-        </View>
-        {data.status === 'loading' ? (
-          <ActivityIndicator style={styles.loading} />
-        ) : data.status === 'error' || !statistics || !trend ? (
+    <RecordsShell
+      cardStyle={cardTurn}
+      title="러닝 분석"
+      onBack={() =>
+        navigation.canGoBack()
+          ? navigation.goBack()
+          : navigateTo(navigation, 'Home')
+      }
+      tabs={
+        <PillTabs glass options={tabs} value={mode} onChange={changeMode} />
+      }
+      after={
+        picking ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="선택 닫기"
+              onPress={() => setPicking(null)}
+              style={styles.scrim}
+            />
+            {picking === 'WEEK' ? (
+              <WeekPicker
+                month={pickerMonth}
+                selected={pickerMonth === weekMonth ? weekStart : null}
+                today={today}
+                marked={marked}
+                onMonth={step => setPickerMonth(shiftMonth(pickerMonth, step))}
+                onPick={week => {
+                  setPicking(null);
+                  setWeekMonth(pickerMonth);
+                  setAnchor(current => ({
+                    ...current,
+                    week: mondayOf(week.start),
+                  }));
+                }}
+                style={{ ...styles.picker, top: pickerTop }}
+              />
+            ) : picking === 'YEAR' ? (
+              <YearPicker
+                years={years}
+                selected={anchor.year}
+                marked={new Set([...marked].map(Number))}
+                onPick={year => {
+                  setPicking(null);
+                  setAnchor(current => ({ ...current, year }));
+                }}
+                style={{ ...styles.picker, top: pickerTop }}
+              />
+            ) : (
+              <MonthPicker
+                year={pickerYear}
+                selected={anchor.month}
+                latest={kstMonth(today)}
+                marked={marked}
+                onYear={setPickerYear}
+                onPick={month => {
+                  setPicking(null);
+                  setAnchor(current => ({ ...current, month }));
+                }}
+                style={{ ...styles.picker, top: pickerTop }}
+              />
+            )}
+          </>
+        ) : null
+      }
+    >
+      <ScrollView
+        contentContainerStyle={styles.card}
+        showsVerticalScrollIndicator={false}
+      >
+        {data.status === 'error' ? (
           <EmptyState
             icon="alert"
             title="분석을 불러오지 못했어요"
             actionLabel="다시 시도"
-            onAction={data.status === 'error' ? data.reload : undefined}
+            onAction={data.reload}
           />
+        ) : !period ? (
+          <ActivityIndicator style={styles.loading} />
         ) : (
           <>
-            <SummaryGrid summary={statistics} />
-            {statistics.runCount === 0 ? (
-              <EmptyState
-                title="이 기간에는 기록이 없어요"
-                description="다른 기간을 골라 보세요."
-              />
-            ) : (
-              // The charts pick their colors before the card is drawn, so they read the
-              // card's dark tone from here.
-              <ThemeProvider tone="dark">
-                <DistanceBars
-                  period={period}
-                  breakdown={statistics.breakdown}
-                />
-                <PaceTrendCard trend={trend} />
-                <HeartZones shares={statistics.heartRateZones} />
-              </ThemeProvider>
-            )}
-            <Comparison
-              period={period}
-              start={start}
-              current={statistics}
-              previous={statistics.previousPeriod}
-              isCurrent={isCurrent}
-            />
-            {/* It ends the scroll on the black lower part: an outlined pill (DESIGN.md 2-8 5.3 버튼). */}
-            <ThemeProvider tone="dark">
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  period === 'MONTH' && isCurrent
-                    ? '이번 달 기록 보기'
-                    : '기록 보기'
-                }
-                onPress={() =>
-                  navigation.navigate('Records', {
-                    month: (period === 'YEAR' && isCurrent
-                      ? today
-                      : start
-                    ).slice(0, 7),
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.link,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <LinkLabel
-                  title={
-                    period === 'MONTH' && isCurrent
-                      ? '이번 달 기록 보기'
-                      : '기록 보기'
-                  }
-                />
-              </Pressable>
-            </ThemeProvider>
+            {/* runway-records 2차: one frost card. ↻ turns it over to the period's records (담당자 결정:
+                목록은 카드 뒤집기); the front keeps the distance graph and its bars. */}
+            <View>
+              <View style={styles.cardHead}>
+                <View style={styles.cardChip}>
+                  <AppText style={styles.cardChipText}>
+                    {`${view === 'list' ? '러닝 기록' : '러닝 분석'} | ${
+                      period.name
+                    }`}
+                  </AppText>
+                </View>
+                <View style={styles.cardBrand}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      view === 'list' ? '요약으로 보기' : '목록으로 보기'
+                    }
+                    hitSlop={10}
+                    onPress={flip}
+                    style={({ pressed }) => pressed && styles.pressed}
+                  >
+                    <Icon
+                      name="refresh"
+                      color={recordsLook.onCardSub}
+                      size={15}
+                      strokeWidth={2}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+              {/* The front has no title: the tab above already says the period (담당자 결정). */}
+              {view === 'list' ? (
+                <AppText
+                  style={styles.cardTitle}
+                >{`${period.name} 기록`}</AppText>
+              ) : null}
+              {view === 'list' ? (
+                <AppText style={styles.cardSub}>
+                  {`${runCount}번 · ${formatKm(distanceM, 1)}km`}
+                </AppText>
+              ) : null}
+              {view === 'list' ? (
+                mode === 'ALL' ? (
+                  <View style={styles.list}>
+                    {range.map(bucket => (
+                      <View key={bucket.key} style={styles.row}>
+                        <AppText style={styles.rowTitle}>{bucket.name}</AppText>
+                        <AppText style={styles.rowMeta}>
+                          {`${bucket.runCount}회 · ${formatKm(
+                            bucket.distanceM,
+                            1,
+                          )}km`}
+                        </AppText>
+                      </View>
+                    ))}
+                  </View>
+                ) : records.length === 0 ? (
+                  <AppText style={styles.none}>
+                    이 기간에는 기록이 없어요
+                  </AppText>
+                ) : (
+                  <View style={styles.list}>
+                    {[...records]
+                      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+                      .map(record => (
+                        <Pressable
+                          key={record.id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${
+                            record.title
+                          }, ${formatDotDateWeekday(record.startedAt)}`}
+                          onPress={() => open(record)}
+                          style={({ pressed }) => [
+                            styles.row,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          {/* runway-records 2차 card back: date · weekday, name · distance · time, pace. */}
+                          <View style={styles.rowDay}>
+                            <AppText style={styles.rowDayNumber}>
+                              {formatDotDate(record.startedAt)}
+                            </AppText>
+                            <AppText style={styles.rowWeekday}>
+                              {`${formatDotDateWeekday(record.startedAt).slice(
+                                -1,
+                              )}요일`}
+                            </AppText>
+                          </View>
+                          <View style={styles.flex}>
+                            <AppText numberOfLines={1} style={styles.rowTitle}>
+                              {record.title}
+                            </AppText>
+                            <AppText style={styles.rowDate}>
+                              {`${formatKm(
+                                record.distanceM,
+                              )}km · ${minutesSeconds(record.durationSec)}`}
+                            </AppText>
+                          </View>
+                          <AppText style={styles.rowPace}>
+                            {formatPace(record.averagePaceSecPerKm)}
+                            <AppText style={styles.rowPaceUnit}>/km</AppText>
+                          </AppText>
+                        </Pressable>
+                      ))}
+                  </View>
+                )
+              ) : (
+                // A new period's figures fade in rather than swap at once (S15P31E105-478).
+                <FadeIn
+                  appearKey={`${mode}:${anchor.week}:${anchor.month}:${anchor.year}`}
+                  style={styles.cardChart}
+                >
+                  <PeriodFigures
+                    buckets={period.buckets}
+                    previousName={period.previousName}
+                    previousDistanceM={period.previous?.totalDistanceM ?? null}
+                    onSwipe={swipe}
+                  />
+                </FadeIn>
+              )}
+              {view !== 'list' &&
+              period.buckets.every(bucket => bucket.runCount === 0) ? (
+                <AppText style={styles.none}>이 기간에는 기록이 없어요</AppText>
+              ) : null}
+            </View>
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </RecordsShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
   flex: { flex: 1 },
-  header: {
-    height: size.header,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xl,
-    paddingHorizontal: spacing.screen,
+  pressed: { opacity: 0.6 },
+  loading: { marginTop: 120 },
+  none: {
+    marginTop: 12,
+    textAlign: 'center',
+    fontFamily: fontFamily.medium,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: recordsLook.sub,
   },
-  title: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 30 },
-  content: {
-    paddingHorizontal: 14,
-    paddingBottom: spacing.xxxl,
-    gap: spacing.lg,
-  },
-  periodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.md,
-  },
-  loading: { marginTop: spacing.xxxl },
-  card: { gap: spacing.xl },
-  cardTitle: {
+  list: { marginTop: 14 },
+  // The card back's rows, large enough to read at a glance (담당자 결정).
+  row: {
+    minHeight: 66,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: recordsLook.onCardLine,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
   },
-  cardHeading: { fontSize: 15, fontFamily: fontFamily.medium },
-  rule: { height: 1 },
-  ruleVertical: { width: 1, alignSelf: 'stretch' },
-  summaryRow: { flexDirection: 'row' },
-  summaryCell: { flex: 1, alignItems: 'center', gap: 2 },
-  // Big numbers stay Barlow Regular at the sheet's 30.
-  summaryValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 30,
-    lineHeight: 36,
+  rowTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 16,
+    lineHeight: 22,
+    color: recordsLook.onCard,
   },
-  bars: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.md },
-  barColumn: { flex: 1, alignItems: 'center', gap: spacing.sm },
-  bar: { alignSelf: 'stretch', borderRadius: 14 },
-  barValue: { fontFamily: fontFamily.numberMedium, fontSize: 14 },
-  small: { fontSize: 9 },
-  trend: { height: trendHeight },
-  zoneBar: {
+  rowDate: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: recordsLook.onCardSub,
+  },
+  rowDay: { width: 54 },
+  rowDayNumber: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: recordsLook.onCard,
+  },
+  rowWeekday: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: recordsLook.onCardMuted,
+  },
+  rowPace: {
+    fontFamily: fontFamily.bold,
+    fontSize: 21,
+    lineHeight: 26,
+    letterSpacing: -0.4,
+    color: recordsLook.onCard,
+  },
+  rowPaceUnit: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12.5,
+    color: recordsLook.onCardSub,
+  },
+  rowMeta: {
+    fontFamily: fontFamily.monoMedium,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: recordsLook.onCard,
+  },
+  // runway-records 2차 card: 16 from the sides like the tabs, the head chip and ↻ (no RUNWAY, 담당자 결정), a 22 title.
+  card: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 20 },
+  cardHead: {
     flexDirection: 'row',
-    height: 12,
-    borderRadius: 6,
-    overflow: 'hidden',
-    gap: 3,
-  },
-  zoneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  zoneDot: { width: 9, height: 9, borderRadius: 2 },
-  zoneShare: { fontFamily: fontFamily.numberMedium, fontSize: 14 },
-  compareRow: { flexDirection: 'row', alignItems: 'center' },
-  compareLabel: { flex: 1.4 },
-  compareValue: { flex: 1, textAlign: 'right' },
-  compareGap: { flex: 1.1, textAlign: 'right' },
-  link: { marginTop: spacing.md },
-  linkInner: {
-    height: 50,
-    borderRadius: 999,
-    borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardChip: {
+    height: 24,
+    paddingHorizontal: 10,
+    borderRadius: 12,
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
-  pressed: { opacity: 0.7 },
+  cardChipText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: 'rgba(255,255,255,0.92)',
+  },
+  cardBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardTitle: {
+    marginTop: 14,
+    fontFamily: fontFamily.bold,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.5,
+    color: recordsLook.onCard,
+  },
+  cardSub: {
+    marginTop: 1,
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    color: recordsLook.onCardSub,
+  },
+  cardChart: { marginTop: 18 },
+  scrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(9,17,26,0.18)',
+  },
+  picker: { position: 'absolute', left: 24, right: 24 },
 });

@@ -8,9 +8,16 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, useToast, type IconName } from '../../components';
+import {
+  AppText,
+  Icon,
+  type IconName,
+  PressableScale,
+  useToast,
+} from '../../components';
 import {
   spotifyFailureMessage,
+  SpotifyStateError,
   useRepositories,
   type MusicService,
   type MusicServiceStatus,
@@ -19,6 +26,7 @@ import {
 } from '../../data';
 import { fontFamily } from '../../theme';
 import { MusicOverlay } from './musicParts';
+import { ServiceMark } from './parts';
 
 // The button that fixes each unconnected service (2.8 로그인, 2.8b 허용·설치).
 const fixLabels: Record<Exclude<MusicServiceStatus, 'CONNECTED'>, string> = {
@@ -76,7 +84,7 @@ function ConfirmButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="설정 완료"
       accessibilityState={{ busy }}
@@ -85,7 +93,7 @@ function ConfirmButton({
       style={({ pressed }) => [styles.confirm, pressed && styles.pressed]}
     >
       <Icon name="check" color="#FFFFFF" size={22} strokeWidth={2.6} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -119,7 +127,24 @@ export function MusicSourceScreen() {
             );
           }
         },
-        () => active && toast('음원 정보를 불러오지 못했어요'),
+        error => {
+          if (!active) {
+            return;
+          }
+          if (error instanceof SpotifyStateError) {
+            setState(error.state);
+            setPicked(current =>
+              current === undefined ? error.state.source : current,
+            );
+          }
+          const message = spotifyFailureMessage(
+            error,
+            '음원 정보를 불러오지 못했어요',
+          );
+          if (message) {
+            toast(message);
+          }
+        },
       );
       return () => {
         active = false;
@@ -141,7 +166,12 @@ export function MusicSourceScreen() {
       navigation.goBack();
     } catch (error) {
       say(spotifyFailureMessage(error, '음원을 바꾸지 못했어요'));
-      setSaving(false);
+      if (error instanceof SpotifyStateError) {
+        // The source was saved; only Spotify's read-back failed.
+        navigation.goBack();
+      } else {
+        setSaving(false);
+      }
     }
   };
   // Spotify 로그인 opens Spotify's sign-in page and comes back here.
@@ -149,6 +179,9 @@ export function MusicSourceScreen() {
     try {
       setState(await music.resolveService(service));
     } catch (error) {
+      if (error instanceof SpotifyStateError) {
+        setState(error.state);
+      }
       say(spotifyFailureMessage(error, '연결하지 못했어요'));
     }
   };
@@ -162,6 +195,11 @@ export function MusicSourceScreen() {
             음원
           </AppText>
         </View>
+        {music.canStartWithoutTrack ? (
+          <AppText style={styles.accountHint}>
+            휴대폰 Spotify 앱의 계정으로 연결해요
+          </AppText>
+        ) : null}
         {!state ? (
           <ActivityIndicator style={styles.loading} color={ink} />
         ) : (
@@ -183,14 +221,19 @@ export function MusicSourceScreen() {
                   onPress={() => choose(row.source)}
                   style={styles.row}
                 >
-                  <View style={[styles.icon, on && styles.iconOn]}>
-                    <Icon
-                      name={row.icon}
-                      color={on ? '#FFFFFF' : ink}
-                      size={19}
-                      strokeWidth={1.9}
-                    />
-                  </View>
+                  {/* 멜론 · Spotify show their own marks (담당자 요청); 음악 없음 keeps the plain icon. */}
+                  {row.source === 'MELON' || row.source === 'SPOTIFY' ? (
+                    <ServiceMark service={row.source} size={44} />
+                  ) : (
+                    <View style={[styles.icon, on && styles.iconOn]}>
+                      <Icon
+                        name={row.icon}
+                        color={on ? '#FFFFFF' : ink}
+                        size={19}
+                        strokeWidth={1.9}
+                      />
+                    </View>
+                  )}
                   <AppText style={styles.name}>{row.name}</AppText>
                   {ready ? (
                     <Toggle on={on} />
@@ -220,6 +263,7 @@ export function MusicSourceScreen() {
 }
 
 const styles = StyleSheet.create({
+  accountHint: { marginTop: 8, color: ink, fontSize: 12 },
   card: {
     padding: 20,
     borderRadius: 30,
@@ -305,7 +349,6 @@ const styles = StyleSheet.create({
     boxShadow: '0 10px 24px rgba(2,5,14,0.22)',
   },
   pressed: {
-    transform: [{ scale: 0.94 }],
     boxShadow: '0 4px 12px rgba(2,5,14,0.22)',
   },
 });

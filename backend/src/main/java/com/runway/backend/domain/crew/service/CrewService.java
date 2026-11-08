@@ -24,6 +24,10 @@ import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.RegionExistsRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.image.ImagePurpose;
+import com.runway.backend.domain.image.ImageService;
+import com.runway.backend.domain.notification.NotificationType;
+import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -52,6 +56,8 @@ public class CrewService {
     private final UserExistsRepository userExistsRepository;
     private final RegionExistsRepository regionExistsRepository;
     private final EntityManager entityManager;
+    private final ImageService images;
+    private final NotificationService notifications;
 
     @Transactional
     public CrewCreateResponse create(long userId, CreateCrewRequest request) {
@@ -61,12 +67,17 @@ public class CrewService {
             throw new ApiException(ErrorCode.INVALID_CREW);
         }
 
+        String imageKey = blankToNull(request.imageKey());
+        if (imageKey != null) {
+            imageKey = images.requireOwnedImageKey(userId, ImagePurpose.CREW, imageKey);
+        }
+
         Crew crew =
                 Crew.create(
                         userId,
                         request.name().trim(),
                         blankToNull(request.description()),
-                        blankToNull(request.imageKey()),
+                        imageKey,
                         request.capacity(),
                         regionCode);
         crewRepository.save(crew);
@@ -243,8 +254,20 @@ public class CrewService {
                 throw new ApiException(ErrorCode.CREW_CAPACITY_EXCEEDED);
             }
             membership.approve();
+            notifications.create(
+                    targetUserId,
+                    NotificationType.CREW_JOIN_APPROVED,
+                    crewId,
+                    "「" + crew.getName() + "」크루 가입이 승인되었습니다.",
+                    "CREW_JOIN_APPROVED:" + crewId + ":" + targetUserId);
         } else {
             membership.reject();
+            notifications.create(
+                    targetUserId,
+                    NotificationType.CREW_JOIN_REJECTED,
+                    crewId,
+                    "「" + crew.getName() + "」크루 가입이 거절되었습니다.",
+                    "CREW_JOIN_REJECTED:" + crewId + ":" + targetUserId);
         }
         return DecideJoinResponse.from(membership);
     }

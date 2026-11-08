@@ -31,13 +31,23 @@ export type SyncResponse = {
 
 export type UploadDeps = {
   read: () => Promise<WatchDailyHr[]>;
-  mark: (date: string, revision: number) => Promise<void>;
+  mark: (
+    date: string,
+    revision: number,
+    collectionId?: string,
+  ) => Promise<void>;
   // Persists a rejection on the phone so the same revision is not resent after a restart.
-  reject: (date: string, revision: number) => Promise<void>;
+  reject: (
+    date: string,
+    revision: number,
+    collectionId?: string,
+  ) => Promise<void>;
   send: (body: SyncRequest) => Promise<SyncResponse>;
   // Server says consent is withdrawn: clear the phone records the same way sign-out does.
   withdraw: () => Promise<void>;
   accessToken: () => string | undefined;
+  // Login generation survives U02 rotation and changes on logout or another login.
+  sessionKey?: () => string | undefined;
   wait: (ms: number) => Promise<void>;
 };
 
@@ -57,7 +67,8 @@ export const retryDelaysMs = [2_000, 10_000];
 // keeps the rejection across restarts, and this set still skips them in this run if that write fails.
 const rejected = new Set<string>();
 
-const recordKey = (date: string, revision: number) => `${date}#${revision}`;
+const recordKey = (date: string, revision: number, collectionId?: string) =>
+  `${collectionId ?? 'legacy'}#${date}#${revision}`;
 
 export function resetWatchDailyHrUploadState() {
   rejected.clear();
@@ -71,8 +82,14 @@ const defaultDeps: UploadDeps = {
     apiRequest<SyncResponse>('/health-records/sync', { method: 'POST', body }),
   withdraw: () => setWatchHealthConsent('DISAGREE'),
   accessToken: () => tokenStore.current()?.accessToken,
+  sessionKey: () =>
+    tokenStore.current() ? String(tokenStore.session()) : undefined,
   wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
 };
+
+function sessionKey(deps: UploadDeps) {
+  return deps.sessionKey ? deps.sessionKey() : deps.accessToken();
+}
 
 function toSyncRecord(record: WatchDailyHr): SyncRecord {
   return {
@@ -123,8 +140,12 @@ const permanent = (error: unknown) =>
   (error.status === 400 || error.status === 413 || error.status === 422);
 
 async function skip(deps: UploadDeps, record: WatchDailyHr) {
-  rejected.add(recordKey(record.metricDate, record.revision));
-  await deps.reject(record.metricDate, record.revision);
+  rejected.add(
+    recordKey(record.metricDate, record.revision, record.collectionId),
+  );
+  if (record.collectionId)
+    await deps.reject(record.metricDate, record.revision, record.collectionId);
+  else await deps.reject(record.metricDate, record.revision);
 }
 
 type BatchResult = 'sent' | Exclude<UploadResult, 'done' | 'nothing'>;
@@ -140,7 +161,7 @@ async function uploadBatch(
   };
   for (let attempt = 0; ; attempt++) {
     // Never send one account's records with another account's token.
-    if (deps.accessToken() !== token) {
+    if (sessionKey(deps) !== token) {
       return 'signed-out';
     }
     let response: SyncResponse;
@@ -148,7 +169,7 @@ async function uploadBatch(
       response = await deps.send(body);
     } catch (error) {
       // The answer belongs to the previous session: no retry, skip or consent change for the current one.
-      if (deps.accessToken() !== token) {
+      if (sessionKey(deps) !== token) {
         return 'signed-out';
       }
       if (transient(error) && attempt < retryDelaysMs.length) {
@@ -177,14 +198,20 @@ async function uploadBatch(
     if (!failed) {
       return 'retry-later';
     }
-    if (deps.accessToken() !== token) {
+    if (sessionKey(deps) !== token) {
       return 'signed-out';
     }
     for (const [index, record] of batch.entries()) {
       if (failed.has(index)) {
         await skip(deps, record);
       } else {
-        await deps.mark(record.metricDate, record.revision);
+        if (record.collectionId)
+          await deps.mark(
+            record.metricDate,
+            record.revision,
+            record.collectionId,
+          );
+        else await deps.mark(record.metricDate, record.revision);
       }
     }
     return 'sent';
@@ -192,7 +219,7 @@ async function uploadBatch(
 }
 
 async function run(deps: UploadDeps): Promise<UploadResult> {
-  const token = deps.accessToken();
+  const token = sessionKey(deps);
   if (!token) {
     return 'signed-out';
   }
@@ -201,7 +228,7 @@ async function run(deps: UploadDeps): Promise<UploadResult> {
       r =>
         !r.uploaded &&
         !r.rejected &&
-        !rejected.has(recordKey(r.metricDate, r.revision)),
+        !rejected.has(recordKey(r.metricDate, r.revision, r.collectionId)),
     )
     .sort((a, b) => a.metricDate.localeCompare(b.metricDate));
   if (pending.length === 0) {
@@ -231,7 +258,7 @@ let inFlight: {
 export function uploadWatchDailyHr(
   deps: UploadDeps = defaultDeps,
 ): Promise<UploadResult> {
-  const token = deps.accessToken();
+  const token = sessionKey(deps);
   if (inFlight && inFlight.token === token) {
     return inFlight.promise;
   }

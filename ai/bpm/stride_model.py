@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import statsmodels.formula.api as smf
+
 
 V_REF = 3.0     # 속도 기준(m/s). 절편 = 3 m/s에서의 보폭
 H_REF = 175.0   # 키 기준(cm)
@@ -67,6 +67,9 @@ def height_shift(prior: StridePrior, height_cm) -> float:
 
 def fit_prior(table: pd.DataFrame, use_height: bool = False) -> StridePrior:
     """subject_id, speed_mps, stride_m(, height_cm) 표로 혼합효과 모델을 맞춘다."""
+
+    import statsmodels.formula.api as smf   # 학습할 때만 필요하다(AI 서비스에는 설치하지 않는다)
+
     data = table.assign(v=table["speed_mps"] - V_REF)
     formula = "stride_m ~ v"
     if use_height:

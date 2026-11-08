@@ -1,14 +1,18 @@
 import type {
   CoursePlan,
+  CourseRecommendations,
   EnvironmentType,
   RecommendedCourse,
   Repositories,
   SavedCourse,
 } from '../types';
 import { apiRequest } from './http';
+import { DataError } from '../errors';
+import { courseShapeOptions } from '../coursePreferences';
+import { getCoursePreferences, saveCoursePreferences } from './preferences';
 import type { Regions } from './regions';
 
-// C01·C03·C07·C08·C09 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
+// C01·C03·C07·C08·C09·C10 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
 
 type LineString = { type: 'LineString'; coordinates: [number, number][] };
@@ -35,32 +39,55 @@ type BookmarkItem = {
   distanceM: number;
 };
 
-type RecommendationItem = {
-  id: number;
-  regionCode: string | null;
+// C01 (courses.md 코스 생성 후속): routes made for this search, not stored courses. index is not a course id.
+type GradeSegment = {
+  startDistanceM: number;
+  endDistanceM: number;
+  gradePercent: number;
+};
+
+type GeneratedItem = {
+  index: number;
   distanceM: number;
-  environmentTags: EnvironmentType[];
-  estimatedDurationSec: number;
+  route: LineString;
+  elevationProfile: GradeSegment[];
+  summary: string;
+  reasons: string[];
+  caveats: string[];
+  // C10 signs the route, distance and grades with it; valid for 30 minutes after C01.
+  candidateToken: string;
+};
+
+// What C10 needs to store a C01 route: the values exactly as C01 sent them.
+type Candidate = Pick<
+  GeneratedItem,
+  'candidateToken' | 'route' | 'distanceM' | 'elevationProfile'
+> & { name: string };
+
+type RecommendationResponse = {
+  courses: GeneratedItem[];
+  notices: string[];
+  nextSeed: number;
 };
 
 const pageLimit = 50;
-// C01 also needs a C03 per card for the route, so the list stays short.
-const recommendLimit = 10;
+// C01 seed range; a nextSeed past it means there is no more to ask for.
+const maxSeed = 10_000_000;
+// The 3.1 environments C01 can ask for. 도심 and 트랙 have no Route preference, so they are left out.
+const filterOf: Partial<Record<EnvironmentType, string>> = {
+  PARK: 'park',
+  RIVERSIDE: 'river',
+  BEACH: 'beach',
+};
 // The pace for expected times when no running profile is saved, as in the mock (6′00″).
 const defaultPaceSecPerKm = 360;
 // Start and finish this close (m) make a loop.
 const loopGapM = 100;
 
-const environmentLabels: Record<EnvironmentType, string> = {
-  PARK: '공원',
-  RIVERSIDE: '강변',
-  URBAN: '도심',
-  BEACH: '해변',
-  TRACK: '트랙',
-};
-
 // Only server courses have numeric ids; mock ones (a free run saved as a course) stay on the mock.
 const isServerId = (courseId: string) => /^\d+$/.test(courseId);
+// A C01 route on 3.1b, stored by C10 when it is picked or saved.
+const isGeneratedId = (courseId: string) => courseId.startsWith('generated:');
 
 // The same 0–1 box as the mock thumbnails (y grows downward).
 function shapeOf(route: [number, number][]): [number, number][] {
@@ -112,6 +139,27 @@ function profileOf(raw: unknown): number[] {
   });
 }
 
+// C01 gives 100m grades; adding up rise × length gives the heights along the course, from 0 at the start.
+function heightsOf(grades: GradeSegment[]): number[] {
+  const heights = [0];
+  for (const { startDistanceM, endDistanceM, gradePercent } of grades) {
+    heights.push(
+      heights[heights.length - 1] +
+        (gradePercent / 100) * (endDistanceM - startDistanceM),
+    );
+  }
+  return heights;
+}
+
+// Total climb: only the rises count.
+function climbOf(heights: number[]): number {
+  let climb = 0;
+  for (let index = 1; index < heights.length; index++) {
+    climb += Math.max(0, heights[index] - heights[index - 1]);
+  }
+  return climb;
+}
+
 const kmLabel = (distanceM: number) => `${(distanceM / 1000).toFixed(1)}km`;
 
 export function createCoursesApi({
@@ -119,7 +167,7 @@ export function createCoursesApi({
   usualPace,
   regions,
 }: {
-  // Saving a free run as a course (4.5F) and the 2.0 pace plan have no API yet.
+  // The 2.0 pace plan has no API yet; saving a free run as a course (4.5F) answers NOT_AVAILABLE.
   mock: Repositories['courses'];
   usualPace: () => Promise<number | null>;
   regions: Regions;
@@ -128,6 +176,37 @@ export function createCoursesApi({
   let chosen: string | null = null;
   // C03 has no region, so names worked out for the 3.1b and 3.1c lists are kept for 2.0.
   const named = new Map<string, string>();
+  // C01 routes by card id, and the course id C10 gave each one stored so far.
+  const candidates = new Map<string, Candidate>();
+  const stored = new Map<string, Promise<string>>();
+
+  // C10 stores the picked route, or hands back the course with exactly the same points (reused). Asking again
+  // for the same card reuses the answer; a failure lets the next tap ask again.
+  function serverIdOf(courseId: string): Promise<string> {
+    if (!isGeneratedId(courseId)) {
+      return Promise.resolve(courseId);
+    }
+    const candidate = candidates.get(courseId);
+    if (!candidate) {
+      return Promise.reject(
+        new DataError('COURSE_CANDIDATE_INVALID', '추천 후보 없음'),
+      );
+    }
+    let answer = stored.get(courseId);
+    if (!answer) {
+      const { name, ...body } = candidate;
+      answer = apiRequest<{ courseId: number; reused: boolean }>(
+        '/courses/generated',
+        { method: 'POST', body },
+      ).then(({ courseId: id }) => {
+        named.set(String(id), name);
+        return String(id);
+      });
+      stored.set(courseId, answer);
+      answer.catch(() => stored.delete(courseId));
+    }
+    return answer;
+  }
 
   // Without a region name a course is named by its distance.
   async function nameOf(
@@ -186,66 +265,107 @@ export function createCoursesApi({
     );
   };
 
+  // C01 makes new routes; each card is shown from the answer itself (no C03, no saved flag) because the
+  // routes are not stored until one is picked or saved (C10).
   const recommend: Repositories['courses']['recommend'] = async search => {
     const [longitude, latitude] = search.origin.position;
-    const [{ courses }, saved] = await Promise.all([
-      apiRequest<{ courses: RecommendationItem[] }>(
-        '/courses/recommendations',
-        {
-          method: 'POST',
-          body: {
-            latitude,
-            longitude,
-            targetDistanceM: search.targetDistanceM,
-            goalInputType: search.goalInputType,
-            targetDurationSec:
-              search.goalInputType === 'TIME'
-                ? search.targetDurationSec
-                : undefined,
-            targetPaceSecPerKm:
-              search.goalInputType === 'PACE'
-                ? search.targetPaceSecPerKm
-                : undefined,
-            environmentTypes: search.environmentTypes,
-            limit: recommendLimit,
-          },
-        },
-      ),
-      bookmarks(),
-    ]);
-    const savedIds = new Set(saved.map(item => item.id));
-    return Promise.all(
-      courses.map(async (item): Promise<RecommendedCourse> => {
-        const [course, name] = await Promise.all([
-          detail(item.id),
-          nameOf(item.id, item.regionCode, item.distanceM),
-        ]);
-        const route = course.route.coordinates;
-        return {
-          id: String(item.id),
-          name,
-          distanceM: item.distanceM,
-          estimatedDurationSec: item.estimatedDurationSec,
-          shapeKind: shapeKindOf(route),
-          environmentLabels: item.environmentTags.map(
-            tag => environmentLabels[tag],
+    const seed = search.seed ?? 1;
+    if (search.shape === 'point_to_point' && !search.destination)
+      throw new DataError('VALIDATION_ERROR', '편도 도착지를 선택해 주세요');
+    // U11·U12는 snake_case, C01은 camelCase 회피 키를 사용한다.
+    const filters = search.filters
+      ? {
+          river: search.filters.river,
+          beach: search.filters.beach,
+          park: search.filters.park,
+          trail: search.filters.trail,
+          pedestrian: search.filters.pedestrian,
+          flat: search.filters.flat,
+          avoidMajorRoad: search.filters.avoid_major_road,
+          avoidSteps: search.filters.avoid_steps,
+          avoidTunnel: search.filters.avoid_tunnel,
+        }
+      : Object.fromEntries(
+          search.environmentTypes.flatMap(type =>
+            filterOf[type] ? [[filterOf[type], true]] : [],
           ),
-          elevationGainM:
-            course.elevationGainM === null
-              ? null
-              : Math.round(course.elevationGainM),
-          elevationProfile: profileOf(course.elevationProfile),
-          // C01 gives no reason; this is the rule it picks courses by.
-          reason:
-            course.description ??
-            `목표 ${kmLabel(
-              search.targetDistanceM,
-            )}에 가까운 코스 중 출발점이 가까운 순서예요.`,
-          route,
-          saved: savedIds.has(item.id),
-        };
-      }),
+        );
+    const answer = await apiRequest<RecommendationResponse>(
+      '/courses/recommendations',
+      {
+        method: 'POST',
+        // The backend may take up to 20s to make the routes; the phone waits 30s (courses.md 시간 예산).
+        timeoutMs: 30_000,
+        body: {
+          latitude,
+          longitude,
+          distanceKm: search.targetDistanceM / 1000,
+          shape: search.shape ?? 'loop',
+          ...(search.shape === 'point_to_point' && search.destination
+            ? {
+                endLongitude: search.destination.position[0],
+                endLatitude: search.destination.position[1],
+              }
+            : {}),
+          filters,
+          seed,
+        },
+      },
     );
+    // The goal pace from 3.1, or my usual pace, for the expected time on each card.
+    const paceSecPerKm =
+      search.goalInputType === 'PACE' && search.targetPaceSecPerKm
+        ? search.targetPaceSecPerKm
+        : search.targetDurationSec
+        ? search.targetDurationSec / (search.targetDistanceM / 1000)
+        : await pace();
+    const courses = answer.courses.map((item): RecommendedCourse => {
+      const route = item.route.coordinates;
+      const heights = heightsOf(item.elevationProfile);
+      const id = `generated:${seed}:${item.index}`;
+      const name = `${kmLabel(item.distanceM)} 코스`;
+      candidates.set(id, {
+        candidateToken: item.candidateToken,
+        route: item.route,
+        distanceM: item.distanceM,
+        elevationProfile: item.elevationProfile,
+        name,
+      });
+      return {
+        id,
+        name,
+        distanceM: item.distanceM,
+        estimatedDurationSec: Math.round(
+          (item.distanceM / 1000) * paceSecPerKm,
+        ),
+        // 왕복도 시작·끝 좌표가 같으므로 선택한 형태가 있으면 그 의미를 사용한다.
+        shapeKind:
+          courseShapeOptions.find(option => option.value === search.shape)
+            ?.label ?? shapeKindOf(route),
+        // The preferences are weights, not what the route really passes, so no tags are claimed.
+        environmentLabels: [],
+        elevationGainM:
+          item.elevationProfile.length > 0
+            ? Math.round(climbOf(heights))
+            : null,
+        elevationProfile: profileOf(heights),
+        // Route's own words, shown as plain text.
+        reason: [
+          item.summary,
+          ...item.reasons.map(text => `· ${text}`),
+          ...item.caveats.map(text => `주의: ${text}`),
+        ].join('\n'),
+        route,
+        saved: false,
+        generated: true,
+      };
+    });
+    const result: CourseRecommendations = {
+      courses,
+      notices: answer.notices,
+      nextSeed: answer.nextSeed <= maxSeed ? answer.nextSeed : null,
+    };
+    return result;
   };
 
   // 2.0 keeps the mock's pace plan; a server course brings its own name, distance and route.
@@ -280,26 +400,38 @@ export function createCoursesApi({
 
   const courses: Repositories['courses'] = {
     ...mock,
+    getPreferences: getCoursePreferences,
+    savePreferences: saveCoursePreferences,
     getSaved,
     recommend,
     getTodayPlan,
-    // C07 with no body keeps any alias already set.
+    // C07 with no body keeps any alias already set. A C01 route is stored by C10 first.
     save: async courseId => {
-      if (!isServerId(courseId)) {
-        return mock.save(courseId);
+      const id = await serverIdOf(courseId);
+      if (!isServerId(id)) {
+        return mock.save(id);
       }
-      await apiRequest(`/courses/${courseId}/bookmark`, { method: 'PUT' });
+      await apiRequest(`/courses/${id}/bookmark`, { method: 'PUT' });
     },
     // C08 succeeds even when the course was not saved.
     unsave: async courseId => {
-      if (!isServerId(courseId)) {
-        return mock.unsave(courseId);
+      const id = await serverIdOf(courseId);
+      if (!isServerId(id)) {
+        return mock.unsave(id);
       }
-      await apiRequest(`/courses/${courseId}/bookmark`, { method: 'DELETE' });
+      await apiRequest(`/courses/${id}/bookmark`, { method: 'DELETE' });
     },
+    // A C01 route runs as the course C10 stores, so 2.0 and S01 get its id and route.
+    // A free run becomes a course on the server by itself (courses.md 러닝 경로 자동 코스 반영), which the server does
+    // not do yet and H02 has no course id for, so it cannot be saved as my course here (S15P31E105-529).
+    saveFromRun: () =>
+      Promise.reject(
+        new DataError('NOT_AVAILABLE', '자유 러닝 코스 저장 API 없음'),
+      ),
     choose: async courseId => {
-      chosen = courseId;
-      await mock.choose(courseId);
+      const id = await serverIdOf(courseId);
+      chosen = id;
+      await mock.choose(id);
     },
   };
   return courses;

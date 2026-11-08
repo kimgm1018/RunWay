@@ -58,6 +58,38 @@ public class CourseJdbcRepository {
     }
 
     /**
+     * 같은 경로의 생성 코스 저장을 트랜잭션 끝까지 직렬화한다. 호출부 트랜잭션 안에서만 의미가 있다. 해시 충돌은 서로 다른 경로를 함께
+     * 기다리게 할 뿐 결과를 바꾸지 않는다.
+     */
+    public void lockGeneratedRoute(String routeEwkt) {
+        jdbcTemplate.query(
+                "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+                rs -> null,
+                routeEwkt);
+    }
+
+    /**
+     * 좌표 값·순서·방향이 완전히 같은 코스(EWKB 바이트 일치, courses.md 정확히 동일한 경로 기준). ACTIVE가 있으면 그 중 가장
+     * 작은 ID, 없으면 다른 상태 중 가장 작은 ID. 거리 등 다른 컬럼은 비교하지 않는다.
+     */
+    public Optional<ExactRouteRow> findExactRoute(String routeEwkt) {
+        List<ExactRouteRow> rows =
+                jdbcTemplate.query(
+                        """
+                        SELECT id, status::text AS status
+                        FROM courses
+                        WHERE ST_AsEWKB(route::geometry) = ST_AsEWKB(ST_GeogFromText(?)::geometry)
+                        ORDER BY (status = 'ACTIVE') DESC, id
+                        LIMIT 1
+                        """,
+                        (rs, rowNum) -> new ExactRouteRow(rs.getLong("id"), rs.getString("status")),
+                        routeEwkt);
+        return rows.stream().findFirst();
+    }
+
+    public record ExactRouteRow(long id, String status) {}
+
+    /**
      * AI 생성 코스 저장. creator_id·source_session_id·region_code·description은 NULL, status는 기본값
      * ACTIVE.
      *

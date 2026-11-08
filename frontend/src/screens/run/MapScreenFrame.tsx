@@ -1,52 +1,85 @@
-import React from 'react';
-import { StatusBar, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LightGlass } from '../../components';
+import React, { useState } from 'react';
+import {
+  StatusBar,
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+} from 'react-native';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { KeyboardLift, LightGlass } from '../../components';
+import type { RunMapLogo } from '../../components/RunMap';
 import { k1, size, spacing, useTheme } from '../../theme';
 
 // Layout shared by 2.0 and 2.0F: a full-screen map, a bar pinned to the top and a sheet that sits just
-// above the floating tab bar. By day the sheet is light glass (runway-course-handoff); after sunset it
-// stays the dark sheet of DESIGN.md 2-6.
+// above the floating tab bar. The map is the K1 day map at any hour (S15P31E105-527). By day the sheet is
+// light glass (runway-course-handoff); after sunset it stays the dark sheet of DESIGN.md 2-6. The map gets where the NAVER logo goes: just over the sheet, as
+// measured, since the sheet's height changes with day, night and what it holds (S15P31E105-429).
 export function MapScreenFrame({
-  map,
+  renderMap,
   top,
   bottom,
 }: {
-  map: React.ReactNode;
+  renderMap: (logo: RunMapLogo | undefined) => React.ReactNode;
   top: React.ReactNode;
   bottom: React.ReactNode;
 }) {
   const { name, colors } = useTheme();
   const night = name === 'dark';
+  const [screen, setScreen] = useState(0);
+  const [sheet, setSheet] = useState(0);
+  // No tab bar here (S15P31E105-517): the sheet sits on the safe area, covering its height and the room under it.
+  const insets = useSafeAreaInsets();
+  const foot = Math.max(insets.bottom, size.tabBarInset);
+  const logo = screen && sheet ? { above: (sheet + foot) / screen } : undefined;
+  const measureSheet = (event: LayoutChangeEvent) =>
+    setSheet(event.nativeEvent.layout.height);
   return (
-    <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.statusBar} />
-      {map}
+    <View
+      style={[styles.root, { backgroundColor: colors.background }]}
+      onLayout={event => setScreen(event.nativeEvent.layout.height)}
+    >
+      {/* The map behind the status bar is the K1 day map after sunset too (S15P31E105-527), so dark icons. */}
+      <StatusBar barStyle="dark-content" />
+      {renderMap(logo)}
       <SafeAreaView
         edges={['top']}
         style={[styles.top, !night && styles.topDay]}
       >
         {top}
       </SafeAreaView>
-      {night ? (
-        // After sunset the sheet matches the dark map, so a faint rim keeps it apart.
-        <View
-          style={[
-            styles.sheet,
-            styles.sheetNight,
-            {
-              backgroundColor: colors.surfaceRaised,
-              borderColor: colors.border,
-            },
-          ]}
-        >
-          {bottom}
-        </View>
-      ) : (
-        <LightGlass radius={34} style={[styles.sheet, styles.sheetDay]}>
-          {bottom}
-        </LightGlass>
-      )}
+      {/* The sheet's box ends above the tab bar, so the keyboard lifts the sheet by what it covers (S15P31E105-473). */}
+      <KeyboardLift
+        style={[styles.lift, { bottom: foot }]}
+        pointerEvents="box-none"
+      >
+        {night ? (
+          // After sunset the sheet stays dark, with a faint rim.
+          <View
+            onLayout={measureSheet}
+            style={[
+              styles.sheet,
+              styles.sheetNight,
+              {
+                backgroundColor: colors.surfaceRaised,
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            {bottom}
+          </View>
+        ) : (
+          <LightGlass
+            radius={34}
+            onLayout={measureSheet}
+            style={[styles.sheet, styles.sheetDay]}
+          >
+            {bottom}
+          </LightGlass>
+        )}
+      </KeyboardLift>
     </View>
   );
 }
@@ -60,11 +93,17 @@ const styles = StyleSheet.create({
   },
   // The 358-wide bars sit 16 from the edges, the legend 8 under them.
   topDay: { paddingHorizontal: 16, paddingTop: 8, gap: 8 },
+  lift: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   sheet: {
     position: 'absolute',
     left: spacing.md,
     right: spacing.md,
-    bottom: size.tabBar + size.tabBarInset * 2,
+    bottom: 0,
     padding: 18,
   },
   sheetNight: {

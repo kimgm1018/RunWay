@@ -3,9 +3,13 @@ package com.runway.backend.domain.device;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import org.springframework.context.annotation.Import;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import com.runway.backend.domain.device.service.BatchPayloadHasher;
 import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
+import com.runway.backend.support.SharedPostgres;
 import java.time.Duration;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -17,8 +21,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -27,18 +29,15 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * W07 통합 테스트 공통 준비. 모든 측정값·좌표·시각은 합성 데이터이며 실제 건강·GPS 정보를 쓰지 않는다.
  *
- * <p>하위 클래스들이 Spring 컨텍스트를 공유하므로 컨테이너는 한 번만 띄운다.
+ * <p>하위 클래스들이 Spring 컨텍스트와 공유 서버({@link SharedPostgres})의 전용 DB를 함께 쓴다.
  */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@Import(HealthEventRecorder.class)
 abstract class SyncBatchIntegrationSupport {
 
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
-
-    static {
-        DATABASE.start();
-    }
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.database(SyncBatchIntegrationSupport.class);
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -62,7 +61,7 @@ abstract class SyncBatchIntegrationSupport {
 
     @Autowired private ReadinessEvaluationDispatcher readinessDispatcher;
 
-    /** 다른 컨텍스트의 테스트가 같은 컨테이너를 쓰므로, 이 테스트가 남긴 평가도 끝내고 넘긴다. */
+    /** 다른 컨텍스트의 테스트가 같은 DB를 쓰므로, 이 테스트가 남긴 평가도 끝내고 넘긴다. */
     @AfterEach
     void awaitReadinessEvaluations() throws InterruptedException {
         assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
@@ -76,6 +75,8 @@ abstract class SyncBatchIntegrationSupport {
         jdbc.update("DELETE FROM running_route_points");
         jdbc.update("DELETE FROM sync_batches");
         jdbc.update("DELETE FROM session_control_events");
+        // W07 저장 뒤 코칭 발행(257)이 남긴 추천. 세션 FK가 있으므로 세션보다 먼저 지운다.
+        jdbc.update("DELETE FROM coaching_decisions");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM daily_health_metrics");

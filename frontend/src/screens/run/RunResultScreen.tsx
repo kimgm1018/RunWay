@@ -17,13 +17,22 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon, Logo, mistColors, useToast } from '../../components';
-import { useRepositories } from '../../data';
+import {
+  AppText,
+  Icon,
+  Logo,
+  mistColors,
+  Pop,
+  useCountUp,
+  useToast,
+} from '../../components';
+import { errorCode, useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1, palette, spacing, ThemeProvider } from '../../theme';
-import { useRunSession } from './RunSession';
+import { comparisonResult, useFinalComparison } from './recordComparison';
+import { useRunControlState, useRunSession } from './RunSession';
 
 // A course counts as 완주 once almost all of it is run; GPS rarely lands on the exact finish.
 const finishShare = 0.98;
@@ -218,6 +227,11 @@ export function RunResultScreen() {
   const { courses } = useRepositories();
   const toast = useToast();
   const { run, retrySave } = useRunSession();
+  const control = useRunControlState();
+  const finalComparison = useFinalComparison(
+    control?.sessionId ?? null,
+    control?.comparison ?? null,
+  );
   // The saved course this result is bookmarked as: the planned course, or one made from a free run.
   const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -258,6 +272,9 @@ export function RunResultScreen() {
     }, [navigation]),
   );
 
+  // Hooks come before the early return below; the count is used only for an achieved goal.
+  const countedDistance = useCountUp(run?.summary?.distanceM ?? 0);
+
   if (!run?.summary) {
     return <View style={styles.root} />;
   }
@@ -266,10 +283,14 @@ export function RunResultScreen() {
     ? summary.distanceM >= plan.distanceM * finishShare
     : false;
   const shape = plan ? plan.route : trail;
-  const rivalDiff =
-    plan?.rival && finished
-      ? plan.rival.durationSec - summary.durationSec
-      : null;
+  // 4.5 비교 결과: 서버가 계산한 같은 지점 도달 시간 차이(S15P31E105-422).
+  const rivalResult = comparisonResult(finalComparison);
+  // 목표 달성: the course finished within its planned time. Then the distance counts up and 달성 pops in, once
+  // (완료 하이라이트, S15P31E105-478).
+  const achieved =
+    plan !== null &&
+    finished &&
+    summary.durationSec <= plan.expectedDurationSec;
 
   const toggleSaved = async () => {
     setBusy(true);
@@ -292,8 +313,12 @@ export function RunResultScreen() {
         setSavedCourseId(courseId);
         toast('내 코스에 저장했어요');
       }
-    } catch {
-      toast('내 코스를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        errorCode(error) === 'NOT_AVAILABLE'
+          ? '자유 러닝 코스 저장은 준비 중이에요'
+          : '내 코스를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
     } finally {
       setBusy(false);
     }
@@ -346,7 +371,11 @@ export function RunResultScreen() {
                 : '평균 페이스 /km'}
             </AppText>
           </View>
-          <Metric label="거리" value={formatKm(summary.distanceM)} unit="km" />
+          <Metric
+            label="거리"
+            value={formatKm(achieved ? countedDistance : summary.distanceM)}
+            unit="km"
+          />
           <Metric label="시간" value={formatDuration(summary.durationSec)} />
           <View
             style={styles.outline}
@@ -389,36 +418,39 @@ export function RunResultScreen() {
             />
           </View>
           {plan && finished ? (
-            <AppText style={styles.goalNote}>
-              {`목표 ${formatDuration(plan.expectedDurationSec)} `}
-              {summary.durationSec <= plan.expectedDurationSec ? (
-                '달성'
-              ) : (
-                <AppText style={styles.missed}>미달성</AppText>
-              )}
-              {rivalDiff !== null && plan.rival
-                ? ` · ${Number(
-                    plan.rival.startedAt.slice(5, 7),
-                  )}.${plan.rival.startedAt.slice(8, 10)} 기록보다 ${Math.abs(
-                    rivalDiff,
-                  )}초 ${rivalDiff >= 0 ? '빨랐어요' : '느렸어요'}`
-                : ''}
-            </AppText>
+            <Pop active={achieved}>
+              <AppText style={styles.goalNote}>
+                {`목표 ${formatDuration(plan.expectedDurationSec)} `}
+                {achieved ? (
+                  '달성'
+                ) : (
+                  <AppText style={styles.missed}>미달성</AppText>
+                )}
+                {rivalResult ? ` · ${rivalResult}` : ''}
+              </AppText>
+            </Pop>
           ) : null}
-          {/* Only a failed save is shown (README 알려진 문제); saving and saved stay quiet. */}
-          {saveState === 'failed' ? (
+          {/* Only a failed or unconfirmed save is shown (README 알려진 문제); saving and saved stay quiet. With the
+              server the run is already stored, so a record not read back yet is 확인 못 함, not 저장 못 함. */}
+          {saveState === 'failed' || saveState === 'unconfirmed' ? (
             <View style={styles.saveRow}>
               <Icon name="alert" color={k1.coralText} size={14} />
               <AppText style={styles.saveFailed}>
-                기록을 저장하지 못했어요
+                {saveState === 'failed'
+                  ? '기록을 저장하지 못했어요'
+                  : '기록 저장을 확인하지 못했어요'}
               </AppText>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="다시 저장"
+                accessibilityLabel={
+                  saveState === 'failed' ? '다시 저장' : '다시 확인'
+                }
                 onPress={retrySave}
                 hitSlop={8}
               >
-                <AppText style={styles.retry}>다시 저장</AppText>
+                <AppText style={styles.retry}>
+                  {saveState === 'failed' ? '다시 저장' : '다시 확인'}
+                </AppText>
               </Pressable>
             </View>
           ) : null}
@@ -436,8 +468,13 @@ export function RunResultScreen() {
             />
             <ResultButton
               title="기록 공유"
-              disabled={saveState !== 'saved'}
-              onPress={() => navigateTo(navigation, 'PostWrite')}
+              disabled={saveState !== 'saved' || !recordId}
+              // 7.3 shares this run's record, not just the newest one.
+              onPress={() =>
+                recordId
+                  ? navigation.navigate('PostWrite', { recordId })
+                  : undefined
+              }
             />
           </View>
           <View style={styles.buttonRow}>

@@ -1,8 +1,14 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories } from '../src/data';
+import { Backdrop } from '../src/components';
+import { createMockRepositories, DataError } from '../src/data';
+import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
+import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
+import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
+import { ThemeProvider } from '../src/theme';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -35,7 +41,10 @@ function labelled(screen: Screen, label: string, prop = 'onPress') {
 }
 
 async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  // Advance app time explicitly so worker/render delays cannot expire a toast.
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(ms);
+  });
 }
 
 async function press(screen: Screen, label: string) {
@@ -53,16 +62,38 @@ async function type(screen: Screen, label: string, text: string) {
   await settle();
 }
 
-async function openCommunity() {
+let mounted: Screen | null = null;
+
+beforeEach(() => {
+  // Keep React scheduling real; app timers advance only through settle().
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
+  });
+});
+
+afterEach(async () => {
+  const screen = mounted;
+  mounted = null;
+  try {
+    if (screen) {
+      await act(async () => screen.unmount());
+    }
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  }
+});
+
+async function openCommunity(
+  repositories = createMockRepositories({ latencyMs: 0 }),
+) {
   let screen: Screen;
   await act(async () => {
     screen = TestRenderer.create(
-      <App
-        repositories={createMockRepositories({ latencyMs: 0 })}
-        initialSignedIn
-      />,
+      <App repositories={repositories} initialSignedIn />,
     );
   });
+  mounted = screen!;
   await settle();
   await press(screen!, '커뮤니티');
   await settle();
@@ -93,10 +124,10 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(1);
   await press(screen, '좋아요');
   expect(liked()).toBe(2);
-  await act(async () => screen.unmount());
 });
 
-test('7.2 shows the comments, adds one and replies by handle', async () => {
+// 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
+test('the 댓글 sheet shows the comments, adds one and replies by handle', async () => {
   const screen = await openCommunity();
   await press(screen, '댓글 3개 모두 보기');
   let page = texts(screen);
@@ -109,10 +140,12 @@ test('7.2 shows the comments, adds one and replies by handle', async () => {
   await type(screen, '댓글 입력', '진동으로 와요!');
   await press(screen, '게시');
   expect(texts(screen)).toContain('진동으로 와요!');
-  await act(async () => screen.unmount());
+  // The feed line under the post counts the new comment once the sheet closes.
+  await press(screen, '댓글 닫기');
+  expect(texts(screen)).toContain('댓글 4개 모두 보기');
 });
 
-test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
+test('the 댓글 sheet edits and deletes only my own comment (S15P31E105-389)', async () => {
   const screen = await openCommunity();
   await press(screen, '댓글 3개 모두 보기');
   const menus = () =>
@@ -156,13 +189,12 @@ test('7.2 edits and deletes only my own comment (S15P31E105-389)', async () => {
   expect(page).toContain('댓글을 삭제했어요');
   expect(page).not.toContain('진동 알림으로 와요');
   expect(menus()).toBe(0);
-  await act(async () => screen.unmount());
 });
 
 test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async () => {
   const screen = await openCommunity();
-  await press(screen, 'minjun.run의 게시물');
-  await press(screen, '게시물 메뉴 열기');
+  // The feed photo opens nothing; my post's menu is the ≡ beside my name.
+  await press(screen, '게시물 메뉴');
   expect(texts(screen)).toContain('게시물 수정');
   await press(screen, '게시물 수정');
   await settle(50);
@@ -176,7 +208,7 @@ test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async ()
   // Without the course the card shows only the distance.
   expect(page).toContain('5.0km 러닝 · 완주');
 
-  await press(screen, '게시물 메뉴 열기');
+  await press(screen, '게시물 메뉴');
   await press(screen, '삭제');
   expect(texts(screen)).toContain('게시물을 삭제할까요?');
   await press(screen, '삭제');
@@ -184,7 +216,153 @@ test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async ()
   page = texts(screen);
   expect(page).toContain('게시물을 삭제했어요');
   expect(page).not.toContain('남천 언덕길은 다음 주에!');
-  await act(async () => screen.unmount());
+});
+
+// U21 profileImageUrl: my photo lies behind 7.4b; a runner without one (sungyoon.k) gets the big letter instead.
+test('7.4b draws my profile photo behind the page and 7.4 falls back to the letter', async () => {
+  // Asset photos have no address under Jest, so 8.2 sets one first.
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const changed = repositories.profile.changePhoto({
+    uri: 'file:///photos/minjun.jpg',
+    type: 'image/jpeg',
+    name: 'minjun.jpg',
+  });
+  // The mock answers on a timer, which these tests advance by hand.
+  await jest.advanceTimersByTimeAsync(10);
+  await changed;
+  const screen = await openCommunity(repositories);
+  // 2.1's avatar shows the same photo, so count the blurred copy only 7.4 · 7.4b draw.
+  const blurredPhotos = () =>
+    screen.root
+      .findAllByType(Image)
+      .filter(
+        node =>
+          node.props.source?.uri === 'file:///photos/minjun.jpg' &&
+          node.props.blurRadius > 0,
+      ).length;
+  await press(screen, 'minjun.run 프로필');
+  await settle(50);
+  expect(blurredPhotos()).toBe(1);
+  await press(screen, '뒤로');
+  await press(screen, 'sungyoon.k 프로필');
+  await settle(50);
+  expect(blurredPhotos()).toBe(0);
+  expect(texts(screen)).toContain('성');
+});
+
+test('7.4 of a private runner shows only the name until the request is approved, and takes it back', async () => {
+  const screen = await openCommunity();
+  // Their posts stay out of the feed, so the profile opens from 7.5 검색.
+  await press(screen, '검색');
+  await settle(50);
+  await type(screen, '러너·크루 검색 검색', 'jiwoo');
+  await settle(400);
+  await press(screen, 'jiwoo.runs 러너 프로필');
+  await settle(50);
+  let page = texts(screen);
+  expect(page).toContain('jiwoo.runs');
+  expect(page).toContain('비공개 계정이에요');
+  // No counts, level or shared runs before approval (U21 제한 프로필).
+  expect(page).not.toContain('120');
+  expect(page).not.toContain('중급');
+  expect(page).not.toContain('공유한 러닝 결과');
+  await press(screen, '팔로우');
+  page = texts(screen);
+  expect(page).toContain('요청됨');
+  expect(page).toContain('비공개 계정이에요');
+  await press(screen, '요청됨');
+  expect(texts(screen)).toContain('팔로우');
+});
+
+test('그룹 · 커뮤니티 · 프로필 sit on the mist like 홈, and only the crew cards stay navy (S15P31E105-483)', async () => {
+  const screen = await openCommunity();
+  const onMist = (component: React.ElementType) =>
+    screen.root.findByType(component).findAllByType(Backdrop).length > 0;
+  expect(onMist(CommunityScreen)).toBe(true);
+
+  await press(screen, '그룹');
+  await settle(50);
+  expect(onMist(GroupTabScreen)).toBe(true);
+  // 6.0's navy crew cards keep the dark theme inside them, so their run lines stay white.
+  expect(
+    screen.root
+      .findByType(GroupTabScreen)
+      .findAll(
+        node => node.type === ThemeProvider && node.props.tone === 'dark',
+      ).length,
+  ).toBeGreaterThan(0);
+
+  await press(screen, '민락 야경 러너스 크루 상세');
+  await settle(50);
+  expect(onMist(CrewDetailScreen)).toBe(true);
+  await press(screen, '뒤로');
+
+  await press(screen, '프로필');
+  await settle(50);
+  expect(onMist(MyProfileTabScreen)).toBe(true);
+});
+
+test('7.4b answers follow requests in the sheet and the counts follow', async () => {
+  const screen = await openCommunity();
+  await press(screen, '프로필');
+  await settle(50);
+  let page = texts(screen);
+  expect(page).toContain('2건');
+  expect(page).toContain('86');
+
+  await press(screen, '팔로우 요청 2건');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.');
+  expect(page).toContain('dohyun_r');
+  expect(page).toContain('jiwoo.runs');
+
+  await press(screen, 'dohyun_r 승인');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('dohyun_r님을 승인했어요');
+  expect(page).not.toContain('dohyun_r 승인');
+  // My profile reads again behind the sheet: one more follower, one request left.
+  expect(page).toContain('87');
+  expect(page).toContain('1건');
+
+  await press(screen, 'jiwoo.runs 거절');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('jiwoo.runs님의 요청을 거절했어요');
+  expect(page).toContain('대기 중인 요청이 없어요.');
+  expect(page).toContain('0건');
+  expect(page).toContain('87');
+});
+
+test('a request answered elsewhere leaves the sheet with a note, and a failed list can be retried', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const { listFollowRequests, decideFollowRequest } = repositories.runners;
+  let listFails = true;
+  repositories.runners.listFollowRequests = cursor =>
+    listFails
+      ? Promise.reject(new DataError('NETWORK_ERROR', '응답 없음'))
+      : listFollowRequests(cursor);
+  repositories.runners.decideFollowRequest = (request, decision) =>
+    request.nickname === 'dohyun_r'
+      ? Promise.reject(new DataError('REQUEST_STATE_CONFLICT', '이미 처리됨'))
+      : decideFollowRequest(request, decision);
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  await press(screen, '팔로우 요청 2건');
+  await settle(50);
+  expect(texts(screen)).toContain('요청을 불러오지 못했어요');
+
+  listFails = false;
+  await press(screen, '다시 시도');
+  await settle(50);
+  await press(screen, 'dohyun_r 승인');
+  await settle(50);
+  const page = texts(screen);
+  expect(page).toContain('이미 처리됐거나 취소된 요청이에요');
+  expect(page).not.toContain('dohyun_r 승인');
+  expect(page).toContain('jiwoo.runs');
 });
 
 test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {
@@ -205,7 +383,8 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   await settle(50);
   page = texts(screen);
   expect(page).toContain('최근 기록');
-  expect(page).toContain('공개 계정');
+  // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
+  expect(page).not.toContain('공개 계정');
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
   await settle(50);
   await press(screen, '기록 공유');
@@ -217,5 +396,9 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   page = texts(screen);
   expect(page).toContain('러닝 기록을 공유했어요');
   expect(page).toContain('새벽 공기 최고');
-  await act(async () => screen.unmount());
+
+  // The notification expires; the shared record remains in the feed.
+  await settle(3000);
+  expect(texts(screen)).not.toContain('러닝 기록을 공유했어요');
+  expect(texts(screen)).toContain('새벽 공기 최고');
 });

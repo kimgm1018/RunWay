@@ -1,20 +1,19 @@
 package com.runway.backend.domain.course.service;
 
+import com.runway.backend.domain.course.candidate.CourseCandidateSigner;
 import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
 import com.runway.backend.domain.course.dto.request.GradeSegment;
 import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
-import com.runway.backend.domain.course.dto.request.RecommendCoursesRequest;
+import com.runway.backend.domain.course.dto.request.SaveGeneratedCourseRequest;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
-import com.runway.backend.domain.course.dto.response.RecommendCoursesResponse;
+import com.runway.backend.domain.course.dto.response.GeneratedCourseSaveResult;
+import com.runway.backend.domain.course.dto.response.SaveGeneratedCourseResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
 import com.runway.backend.domain.course.entity.CourseBookmark;
-import com.runway.backend.domain.course.recommend.CourseRecommendCommand;
-import com.runway.backend.domain.course.recommend.CourseRecommendFilters;
-import com.runway.backend.domain.course.recommend.CourseRecommendPort;
-import com.runway.backend.domain.course.recommend.CourseRecommendShape;
+import com.runway.backend.domain.course.event.GeneratedCourseSavedEvent;
 import com.runway.backend.domain.course.repository.CourseBookmarkRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.course.repository.CourseJdbcRepository.BookmarkUpsertRow;
@@ -28,6 +27,7 @@ import com.runway.backend.global.geo.GeoJsonPoint;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +38,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -47,37 +46,19 @@ public class CourseService {
     private static final int ALIAS_MAX_LENGTH = 50;
     private static final int DEFAULT_BOOKMARK_LIMIT = 20;
     private static final int MAX_BOOKMARK_LIMIT = 50;
-    private static final double MIN_DISTANCE_KM = 1.0d;
-    private static final double MAX_DISTANCE_KM = 15.0d;
-    private static final int MIN_SEED = 1;
-    private static final int MAX_SEED = 10_000_000;
-    /** 부산 서비스 박스(스텁·1차 검증용). */
-    private static final double BUSAN_MIN_LAT = 35.02d;
-
-    private static final double BUSAN_MAX_LAT = 35.40d;
-    private static final double BUSAN_MIN_LON = 128.75d;
-    private static final double BUSAN_MAX_LON = 129.30d;
-    /** point_to_point 출발–도착 직선거리 상한(m). */
-    private static final double MAX_P2P_STRAIGHT_M = 17_000d;
-
-    private static final double METERS_PER_DEG_LAT = 111_320d;
     /** courses.distance NUMERIC(12,2) 상한. */
     private static final BigDecimal MAX_COURSE_DISTANCE_M = new BigDecimal("9999999999.99");
     /** courses.elevation_gain NUMERIC(10,2) 상한. */
     private static final BigDecimal MAX_ELEVATION_GAIN_M = new BigDecimal("99999999.99");
     private static final BigDecimal HALF_CENT = new BigDecimal("0.005");
+    /** Route 내부 계약 좌표 상한(RouteResponseParser.MAX_COORDINATES와 같은 값). */
+    private static final int MAX_ROUTE_POSITIONS = 3_000;
 
     private final CourseJdbcRepository courseJdbcRepository;
     private final CourseBookmarkRepository courseBookmarkRepository;
-    private final CourseRecommendPort courseRecommendPort;
     private final JsonMapper jsonMapper;
-
-    @Transactional(readOnly = true)
-    public RecommendCoursesResponse recommend(long userId, RecommendCoursesRequest request) {
-        requireExistingUser(userId);
-        CourseRecommendCommand command = validateRecommendCommand(request);
-        return courseRecommendPort.recommend(command);
-    }
+    private final CourseCandidateSigner candidateSigner;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -113,16 +94,60 @@ public class CourseService {
      * AI 생성 코스를 courses에 저장한다. 경로·거리·누적 상승과 100m 경사 목록(elevation_profile)을 함께 기록하며,
      * 입력이 계약을 위반하면 아무것도 쓰지 않고 {@code VALIDATION_ERROR}(400) {@link ApiException}을 던진다.
      *
-     * @return 생성된 코스 ID
+     * <p>좌표 값·순서·방향이 완전히 같은 코스가 있으면 새로 만들지 않는다. ACTIVE이면 그 ID를 재사용하고, MERGED·BLOCKED이면
+     * {@code 403 COURSE_INACCESSIBLE}을 던진다. 같은 경로의 동시 저장은 advisory lock으로 직렬화한다.
+     *
+     * @return 저장 또는 재사용한 코스 ID와 재사용 여부
      */
     @Transactional
-    public long saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+    public GeneratedCourseSaveResult saveGeneratedCourse(GeneratedCourseSaveCommand command) {
+        return persistGenerated(validateGenerated(command));
+    }
+
+    /**
+     * C10 선택 코스 저장. 입력 형식·범위를 먼저 검증해(400) 서명 계산이 거대한 입력을 다루지 않게 한 뒤, C01이 이 사용자에게 발급한
+     * 후보와 값이 같은지 서명으로 확인하고(422) 저장하거나 완전 일치 ACTIVE 코스를 재사용한다.
+     */
+    @Transactional
+    public SaveGeneratedCourseResponse saveSelectedCandidate(
+            long userId, SaveGeneratedCourseRequest request) {
+        requireExistingUser(userId);
+        ValidatedGeneratedCourse validated =
+                validateGenerated(
+                        new GeneratedCourseSaveCommand(
+                                request.route(),
+                                request.distanceM(),
+                                null,
+                                request.elevationProfile()));
+        candidateSigner.verify(
+                userId,
+                request.candidateToken(),
+                request.route(),
+                request.distanceM(),
+                request.elevationProfile());
+        GeneratedCourseSaveResult result = persistGenerated(validated);
+        return new SaveGeneratedCourseResponse(result.courseId(), result.reused());
+    }
+
+    /** 검증·정규화를 마친 생성 코스 저장 값. */
+    private record ValidatedGeneratedCourse(
+            GeoJsonLineString route,
+            BigDecimal distanceM,
+            BigDecimal elevationGainM,
+            List<GradeSegment> gradeProfile) {}
+
+    private static ValidatedGeneratedCourse validateGenerated(GeneratedCourseSaveCommand command) {
         if (command == null) {
             throw GradeProfileValidator.invalid("body", "필수입니다.");
         }
         GeoJsonLineString route = command.route();
         if (route == null) {
             throw GradeProfileValidator.invalid("route", "필수입니다.");
+        }
+        // Route 내부 계약의 좌표 상한과 같다. 서명·DB 작업 전에 작업량을 제한한다.
+        if (route.positionCount() > MAX_ROUTE_POSITIONS) {
+            throw GradeProfileValidator.invalid(
+                    "route", "좌표는 " + MAX_ROUTE_POSITIONS + "개 이하여야 합니다.");
         }
         // DB(NUMERIC(12,2)·(10,2))와 같은 반올림을 먼저 적용해, 검증한 값과 저장되는 값을 일치시킨다.
         BigDecimal distanceM = toStoredScale(command.distanceM());
@@ -143,16 +168,38 @@ public class CourseService {
         // 검증한 값과 저장하는 값이 같도록 정규화된 목록을 저장한다.
         List<GradeSegment> gradeProfile =
                 GradeProfileValidator.validate(command.gradeProfile(), distanceM);
+        return new ValidatedGeneratedCourse(route, distanceM, elevationGainM, gradeProfile);
+    }
 
-        List<Double> first = route.coordinates().get(0);
+    /** 같은 트랜잭션 안에서 경로 잠금 → 완전 일치 조회 → 없으면 INSERT. */
+    private GeneratedCourseSaveResult persistGenerated(ValidatedGeneratedCourse course) {
+        String routeEwkt = GeoJsonGeographyMapper.toEwkt(course.route());
+        // 같은 경로의 동시 저장을 직렬화한 뒤 완전 일치 코스를 찾는다(courses.md 선택 저장·중복).
+        courseJdbcRepository.lockGeneratedRoute(routeEwkt);
+        var existing = courseJdbcRepository.findExactRoute(routeEwkt);
+        if (existing.isPresent()) {
+            if (!"ACTIVE".equals(existing.get().status())) {
+                // MERGED·BLOCKED를 우회하는 새 활성 복제본을 만들지 않는다.
+                throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
+            }
+            // 이전 계산이 실패했을 수 있으므로 재사용에도 비율 계산을 요청한다(이미 있으면 받는 쪽이 건너뜀, S15P31E105-297).
+            eventPublisher.publishEvent(new GeneratedCourseSavedEvent(existing.get().id()));
+            return new GeneratedCourseSaveResult(existing.get().id(), true);
+        }
+
+        List<Double> first = course.route().coordinates().get(0);
         String startEwkt =
                 GeoJsonGeographyMapper.toEwkt(GeoJsonPoint.of(first.get(0), first.get(1)));
-        return courseJdbcRepository.insertGeneratedCourse(
-                GeoJsonGeographyMapper.toEwkt(route),
-                startEwkt,
-                distanceM,
-                elevationGainM,
-                jsonMapper.writeValueAsString(gradeProfile));
+        long id =
+                courseJdbcRepository.insertGeneratedCourse(
+                        routeEwkt,
+                        startEwkt,
+                        course.distanceM(),
+                        course.elevationGainM(),
+                        jsonMapper.writeValueAsString(course.gradeProfile()));
+        // 커밋 후 코스 지형 구간 난이도 비율을 계산·저장한다(S15P31E105-297).
+        eventPublisher.publishEvent(new GeneratedCourseSavedEvent(id));
+        return new GeneratedCourseSaveResult(id, false);
     }
 
     @Transactional
@@ -257,122 +304,6 @@ public class CourseService {
         } catch (NumberFormatException ex) {
             throw invalidCursor();
         }
-    }
-
-    private static CourseRecommendCommand validateRecommendCommand(RecommendCoursesRequest request) {
-        if (request == null) {
-            throw new ApiException(ErrorCode.SEARCH_CONDITIONS_REQUIRED);
-        }
-        double latitude = requireFinite(request.latitude(), "latitude");
-        double longitude = requireFinite(request.longitude(), "longitude");
-        if (latitude < -90 || latitude > 90) {
-            throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
-        }
-        if (longitude < -180 || longitude > 180) {
-            throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
-        }
-        if (latitude < BUSAN_MIN_LAT
-                || latitude > BUSAN_MAX_LAT
-                || longitude < BUSAN_MIN_LON
-                || longitude > BUSAN_MAX_LON) {
-            throw new ApiException(ErrorCode.SEARCH_OUT_OF_AREA);
-        }
-
-        double distanceKm = requireFinite(request.distanceKm(), "distanceKm");
-        if (distanceKm < MIN_DISTANCE_KM || distanceKm > MAX_DISTANCE_KM) {
-            throw new ApiException(ErrorCode.SEARCH_DISTANCE_KM_RANGE);
-        }
-
-        CourseRecommendShape shape = parseShape(request.shape());
-        Double endLat = request.endLatitude();
-        Double endLon = request.endLongitude();
-        if (shape == CourseRecommendShape.POINT_TO_POINT) {
-            if (endLat == null || endLon == null) {
-                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
-            }
-            double endLatitude = requireFinite(endLat, "endLatitude");
-            double endLongitude = requireFinite(endLon, "endLongitude");
-            if (endLatitude < -90 || endLatitude > 90) {
-                throw new ApiException(ErrorCode.SEARCH_LATITUDE_INVALID);
-            }
-            if (endLongitude < -180 || endLongitude > 180) {
-                throw new ApiException(ErrorCode.SEARCH_LONGITUDE_INVALID);
-            }
-            if (straightDistanceM(latitude, longitude, endLatitude, endLongitude)
-                    > MAX_P2P_STRAIGHT_M) {
-                throw new ApiException(ErrorCode.SEARCH_OUT_OF_APP_RANGE);
-            }
-            endLat = endLatitude;
-            endLon = endLongitude;
-        } else if (endLat != null || endLon != null) {
-            // 편도가 아니면 도착 좌표 한쪽만 오면 형식 오류로 본다.
-            if (endLat == null || endLon == null) {
-                throw new ApiException(ErrorCode.SEARCH_DESTINATION_REQUIRED);
-            }
-            endLat = requireFinite(endLat, "endLatitude");
-            endLon = requireFinite(endLon, "endLongitude");
-        }
-
-        int seed = request.seed() == null ? MIN_SEED : request.seed();
-        if (seed < MIN_SEED || seed > MAX_SEED) {
-            throw new ApiException(ErrorCode.SEARCH_SEED_INVALID);
-        }
-
-        return new CourseRecommendCommand(
-                latitude,
-                longitude,
-                distanceKm,
-                shape,
-                endLat,
-                endLon,
-                normalizeFilters(request.filters()),
-                seed);
-    }
-
-    private static CourseRecommendShape parseShape(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return CourseRecommendShape.LOOP;
-        }
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "loop" -> CourseRecommendShape.LOOP;
-            case "out_and_back" -> CourseRecommendShape.OUT_AND_BACK;
-            case "point_to_point" -> CourseRecommendShape.POINT_TO_POINT;
-            default -> throw new ApiException(ErrorCode.SEARCH_SHAPE_INVALID);
-        };
-    }
-
-    private static CourseRecommendFilters normalizeFilters(
-            RecommendCoursesRequest.RecommendCourseFilters raw) {
-        if (raw == null) {
-            return CourseRecommendFilters.allOff();
-        }
-        return new CourseRecommendFilters(
-                Boolean.TRUE.equals(raw.river()),
-                Boolean.TRUE.equals(raw.beach()),
-                Boolean.TRUE.equals(raw.park()),
-                Boolean.TRUE.equals(raw.trail()),
-                Boolean.TRUE.equals(raw.pedestrian()),
-                Boolean.TRUE.equals(raw.avoidMajorRoad()),
-                Boolean.TRUE.equals(raw.avoidSteps()),
-                Boolean.TRUE.equals(raw.avoidTunnel()),
-                Boolean.TRUE.equals(raw.flat()));
-    }
-
-    private static double straightDistanceM(
-            double lat1, double lon1, double lat2, double lon2) {
-        double meanLat = Math.toRadians((lat1 + lat2) / 2d);
-        double dLatM = (lat2 - lat1) * METERS_PER_DEG_LAT;
-        double dLonM = (lon2 - lon1) * METERS_PER_DEG_LAT * Math.cos(meanLat);
-        return Math.hypot(dLatM, dLonM);
-    }
-
-    private static double requireFinite(Double value, String field) {
-        if (value == null || value.isNaN() || value.isInfinite()) {
-            throw new ApiException(
-                    ErrorCode.INVALID_SEARCH_COURSE_REQUIRE_FINITE, String.valueOf(field));
-        }
-        return value;
     }
 
     private static Integer estimateDurationSec(BigDecimal distanceM, Double targetPaceSecPerKm) {

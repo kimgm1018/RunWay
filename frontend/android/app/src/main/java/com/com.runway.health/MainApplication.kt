@@ -6,6 +6,8 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.runway.health.music.SpotifyRemotePackage
+import com.runway.health.music.MelonMediaPackage
 import com.runway.health.watch.WatchHealthPackage
 import com.runway.health.watch.WatchSessionPackage
 
@@ -20,6 +22,9 @@ class MainApplication : Application(), ReactApplication {
           add(SamsungHealthPackage())
           add(WatchHealthPackage())
           add(WatchSessionPackage())
+          add(MelonMediaPackage())
+          add(PlaceNamePackage())
+          add(SpotifyRemotePackage())
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
         },

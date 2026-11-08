@@ -100,4 +100,26 @@ class WatchBatchesTest {
     }
     assertEquals(BatchArrival.Full, store.arrive(decodeBatchMessage(envelope())!!))
   }
+
+  @Test
+  fun `takeover block freezes the stored batches and refuses new ones until opened again`() {
+    val dir = Files.createTempDirectory("batches").toFile()
+    val store = WatchBatchStore(dir)
+    val first = decodeBatchMessage(envelope())!!
+    store.arrive(first)
+
+    val frozen = store.block("5001")
+    assertEquals(listOf(id), frozen.map { it.batchId })
+    // A resend of a frozen batch is still answered from the store.
+    assertTrue(store.arrive(first) is BatchArrival.Known)
+    val later = "00000000-0000-4000-8000-000000000102"
+    val next = decodeBatchMessage(envelope(body.replace(id, later)))!!
+    assertEquals(BatchArrival.Blocked, store.arrive(next))
+    assertNull(store.get(later))
+    // The block survives a restart (a new store on the same directory).
+    assertTrue(WatchBatchStore(dir).isBlocked("5001"))
+
+    store.unblock("5001")
+    assertTrue(store.arrive(next) is BatchArrival.Stored)
+  }
 }

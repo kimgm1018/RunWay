@@ -3,15 +3,12 @@ package com.runway.backend;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.runway.backend.support.SharedPostgres;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,13 +19,9 @@ import java.util.List;
 import java.util.UUID;
 
 /** Uses only disposable databases; never reads the developer's environment file. */
-@Testcontainers
 class FlywayMigrationTest {
-    @Container
-    static final PostgreSQLContainer DATABASE =
-            new PostgreSQLContainer(
-                    DockerImageName.parse("postgis/postgis:17-3.6")
-                            .asCompatibleSubstituteFor("postgres"));
+    static final SharedPostgres.Database DATABASE =
+            SharedPostgres.emptyDatabase(FlywayMigrationTest.class);
 
     private String databaseUrl;
 
@@ -88,7 +81,7 @@ class FlywayMigrationTest {
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
                 VALUES ('prefs_migrate','synthetic','prefmig','2000-01-01','MALE','00000000000','DISAGREE')
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(10);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='prefs_migrate'"))
                 .isEqualTo(1);
         assertThat(number("SELECT count(*) FROM user_recommendation_preferences")).isZero();
@@ -126,8 +119,358 @@ class FlywayMigrationTest {
     }
 
     @Test
+    void v11AddsRunningSessionUserEndedIndexAndPreservesData() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("10")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('v10_runner','synthetic','v10run','2000-01-01','MALE','00000000000','AGREEE');
+                INSERT INTO running_sessions(user_id,status,started_at,ended_at,total_distance,elapsed_duration,moving_duration)
+                SELECT id,'COMPLETED','2026-10-28T01:00:00Z','2026-10-28T01:10:00Z',2000,600,600
+                FROM users WHERE login_id='v10_runner';
+                INSERT INTO running_sessions(user_id,status,started_at)
+                SELECT id,'RUNNING','2026-10-29T01:00:00Z' FROM users WHERE login_id='v10_runner';
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM pg_indexes WHERE"
+                                    + " indexname='idx_running_sessions_user_ended'"))
+                .isZero();
+        assertThat(
+                        Flyway.configure()
+                                .dataSource(
+                                        databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                                .locations("classpath:db/migration")
+                                .target("11")
+                                .load()
+                                .migrate()
+                                .migrationsExecuted)
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM running_sessions s JOIN users u ON"
+                                    + " s.user_id=u.id WHERE u.login_id='v10_runner' AND"
+                                    + " ((s.status='COMPLETED' AND"
+                                    + " s.ended_at='2026-10-28T01:10:00Z') OR (s.status='RUNNING'"
+                                    + " AND s.ended_at IS NULL))"))
+                .isEqualTo(2);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND"
+                                    + " tablename='running_sessions' AND"
+                                    + " indexname='idx_running_sessions_user_ended' AND indexdef ="
+                                    + " 'CREATE INDEX idx_running_sessions_user_ended ON"
+                                    + " public.running_sessions USING btree (user_id, ended_at"
+                                    + " DESC)'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='11' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(8);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void v12AddsUserHrPersonalizationAndPreservesExistingData() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("11")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('hr_pers_migrate','synthetic','hrpers','2000-01-01','MALE','00000000000','AGREEE')
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.tables WHERE"
+                                    + " table_schema='public' AND"
+                                    + " table_name='user_hr_personalization'"))
+                .isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(8);
+        assertThat(number("SELECT count(*) FROM users WHERE login_id='hr_pers_migrate'"))
+                .isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM user_hr_personalization")).isZero();
+        execute(
+                """
+                INSERT INTO user_hr_personalization(
+                    user_id, personalization_version, schema_version, model_version,
+                    support_run_count, summary_u_json, history8_json, p4_json, hr0_sub_bpm,
+                    hr_danger_bpm, hr_sustain_bpm, hr_threshold_run_count)
+                SELECT id, 1, 'runway.ode.personalization.v1', 'ode_test',
+                       2, '{}'::jsonb, '[]'::jsonb, '[1,2,3,4]'::jsonb, 85.0,
+                       170.0, 150.0, 2
+                FROM users WHERE login_id='hr_pers_migrate'
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM user_hr_personalization WHERE"
+                                    + " personalization_version=1 AND hr0_sub_bpm=85"))
+                .isEqualTo(1);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        """
+                                        INSERT INTO user_hr_personalization(
+                                            user_id, personalization_version, schema_version,
+                                            model_version, support_run_count, summary_u_json,
+                                            history8_json, p4_json, hr0_sub_bpm)
+                                        SELECT id, 1, 'runway.ode.personalization.v1', 'ode_test',
+                                               1, '{}'::jsonb, '[]'::jsonb, '[1,2,3,4]'::jsonb, 85
+                                        FROM users WHERE login_id='hr_pers_migrate'
+                                        """))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        "UPDATE user_hr_personalization SET hr0_sub_bpm=10 WHERE"
+                                            + " personalization_version=1"))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        "UPDATE user_hr_personalization SET"
+                                            + " hr_threshold_run_count=21 WHERE"
+                                            + " personalization_version=1"))
+                .isInstanceOf(java.sql.SQLException.class);
+        execute("DELETE FROM users WHERE login_id='hr_pers_migrate'");
+        assertThat(number("SELECT count(*) FROM user_hr_personalization")).isZero();
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='12' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void v14PreservesV13IndexAndExistingFollowRelations() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration").target("13").load().migrate();
+        execute("""
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('follow_mig_a','synthetic','fmiga','2000-01-01','MALE','00000000000','DISAGREE'),
+                       ('follow_mig_b','synthetic','fmigb','2000-01-01','MALE','00000000000','DISAGREE');
+                INSERT INTO user_follows(follower_id,followee_id,is_approved)
+                SELECT a.id,b.id,TRUE FROM users a CROSS JOIN users b
+                WHERE a.login_id='follow_mig_a' AND b.login_id='follow_mig_b';
+                """);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM user_follows WHERE is_approved=TRUE")).isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM follow_request_history")).isZero();
+        execute("""
+                INSERT INTO follow_request_history(request_id,requester_id,target_id,result)
+                SELECT id,follower_id,followee_id,'APPROVED' FROM user_follows;
+                """);
+        assertThat(number("SELECT count(*) FROM follow_request_history WHERE result='APPROVED'")).isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    /** V13 인덱스가 정의대로 있는지(S15P31E105-421). */
+    private static final String METRIC_SAMPLES_INDEX =
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND"
+                    + " tablename='running_metric_samples' AND"
+                    + " indexname='idx_running_metric_samples_session_elapsed' AND indexdef ="
+                    + " 'CREATE INDEX idx_running_metric_samples_session_elapsed ON"
+                    + " public.running_metric_samples USING btree (running_session_id,"
+                    + " elapsed_duration)'";
+
+    @Test
+    void v13AddsRunningMetricSamplesSessionElapsedIndexAndPreservesData() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("12")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('v12_runner','synthetic','v12run','2000-01-01','MALE','00000000000','AGREEE');
+                INSERT INTO running_sessions(user_id,status,started_at)
+                SELECT id,'RUNNING','2026-10-29T01:00:00Z' FROM users WHERE login_id='v12_runner';
+                INSERT INTO running_metric_samples(running_session_id,measured_at,elapsed_duration,heart_rate,speed,is_hr_measured)
+                SELECT s.id,'2026-10-29T01:00:05Z',5,140,2.5,true
+                FROM running_sessions s JOIN users u ON s.user_id=u.id WHERE u.login_id='v12_runner';
+                """);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM running_metric_samples m JOIN running_sessions s ON"
+                                    + " m.running_session_id=s.id JOIN users u ON s.user_id=u.id"
+                                    + " WHERE u.login_id='v12_runner' AND m.elapsed_duration=5 AND"
+                                    + " m.heart_rate=140"))
+                .isEqualTo(1);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='13' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void v15AddsCourseSegmentDifficultiesAndPreservesCourses() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("14")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO courses(route,start_position,distance,elevation_profile)
+                VALUES (ST_GeogFromText('LINESTRING(129.0 35.0, 129.01 35.01)'),
+                        ST_GeogFromText('POINT(129.0 35.0)'), 2500.00,
+                        '[{"startDistanceM":0.0,"endDistanceM":2500.0,"gradePercent":1.0}]'::jsonb)
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND"
+                                    + " tablename='course_segment_difficulties'"))
+                .isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(number("SELECT count(*) FROM courses WHERE distance=2500.00")).isEqualTo(1);
+        assertThat(number("SELECT count(*) FROM course_segment_difficulties")).isZero();
+        execute(
+                "INSERT INTO course_segment_difficulties(course_id,distance_m,ratios,planner_version)"
+                        + " SELECT id,2500.00,'[1.2,0.8,1.0]'::jsonb,'planner-v1' FROM courses");
+        assertThat(number("SELECT count(*) FROM course_segment_difficulties")).isEqualTo(1);
+        // 코스당 1행, 있는 코스, 양수 거리, 1~45개 배열, 버전 필수만 허용한다.
+        for (String invalid :
+                new String[] {
+                    "SELECT id,2500.00,'[1.0]'::jsonb,'v' FROM courses",
+                    "SELECT id+1000,2500.00,'[1.0]'::jsonb,'v' FROM courses",
+                    "SELECT id,0,'[1.0]'::jsonb,'v' FROM courses",
+                    "SELECT id,2500.00,'[]'::jsonb,'v' FROM courses",
+                    "SELECT id,2500.00,'{\"a\":1}'::jsonb,'v' FROM courses",
+                    "SELECT id,2500.00,(SELECT jsonb_agg(1) FROM generate_series(1,46)),'v' FROM courses",
+                    "SELECT id,2500.00,'[1.0]'::jsonb,NULL FROM courses"
+                }) {
+            assertThatThrownBy(
+                            () ->
+                                    execute(
+                                            "INSERT INTO course_segment_difficulties(course_id,distance_m,"
+                                                    + "ratios,planner_version) "
+                                                    + invalid))
+                    .as(invalid)
+                    .isInstanceOf(java.sql.SQLException.class);
+        }
+        execute("DELETE FROM courses");
+        assertThat(number("SELECT count(*) FROM course_segment_difficulties")).isZero();
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='15' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void v18AddsDedupeKeyAndPreservesExistingNotifications() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("17")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('notif_mig','synthetic','nmig','2000-01-01','MALE','00000000000','DISAGREE');
+                INSERT INTO notifications(user_id,delivery_status,message,notification_type,target_id)
+                SELECT id,'SENT'::notifications_delivery_status_enum,'hello','NEW_FOLLOWER',id
+                FROM users WHERE login_id='notif_mig';
+                """);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.columns WHERE"
+                                    + " table_schema='public' AND table_name='notifications' AND"
+                                    + " column_name='dedupe_key'"))
+                .isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM notifications n JOIN users u ON n.user_id=u.id"
+                                    + " WHERE u.login_id='notif_mig' AND n.message='hello'"
+                                    + " AND n.dedupe_key LIKE 'LEGACY:%'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.columns WHERE"
+                                    + " table_schema='public' AND table_name='notifications' AND"
+                                    + " column_name='dedupe_key' AND is_nullable='NO'"))
+                .isEqualTo(1);
+        assertThatThrownBy(
+                        () ->
+                                execute(
+                                        """
+                                        INSERT INTO notifications(
+                                            user_id,delivery_status,message,notification_type,target_id,dedupe_key)
+                                        SELECT user_id,'SENT'::notifications_delivery_status_enum,
+                                            'dup','NEW_FOLLOWER',target_id,dedupe_key
+                                        FROM notifications LIMIT 1
+                                        """))
+                .isInstanceOf(java.sql.SQLException.class);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='18' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void v19AddsCoachingLevelToCoachingDecisions() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("18")
+                .load()
+                .migrate();
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.columns WHERE"
+                                    + " table_schema='public' AND table_name='coaching_decisions' AND"
+                                    + " column_name='coaching_level'"))
+                .isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.columns WHERE"
+                                    + " table_schema='public' AND table_name='coaching_decisions' AND"
+                                    + " column_name='coaching_level' AND is_nullable='YES'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM pg_constraint WHERE conname="
+                                    + " 'ck_coaching_decisions_coaching_level'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='19' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
     void firstMigrationAndReapplicationPreserveData() throws Exception {
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(10);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(19);
         execute(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
@@ -137,7 +480,7 @@ class FlywayMigrationTest {
         assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
         assertThat(number("SELECT count(*) FROM users WHERE login_id='migration_runner'"))
                 .isEqualTo(1);
-        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(10);
+        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(19);
         assertThat(
                         number(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='1' AND"
@@ -180,6 +523,31 @@ class FlywayMigrationTest {
                 .isEqualTo(1);
         assertThat(
                         number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='11' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='12' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='13' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND"
+                                    + " tablename='running_sessions' AND"
+                                    + " indexname='idx_running_sessions_user_ended' AND indexdef ="
+                                    + " 'CREATE INDEX idx_running_sessions_user_ended ON"
+                                    + " public.running_sessions USING btree (user_id, ended_at"
+                                    + " DESC)'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
                                 "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND"
                                     + " tablename='running_session_splits'"))
                 .isEqualTo(1);
@@ -188,6 +556,17 @@ class FlywayMigrationTest {
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND table_name='group_run_participants'"
                                     + " AND column_name='ready' AND data_type='boolean'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM information_schema.columns WHERE"
+                                    + " table_schema='public' AND table_name='coaching_decisions' AND"
+                                    + " column_name='coaching_level'"))
+                .isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='19' AND"
+                                    + " success"))
                 .isEqualTo(1);
         assertThat(number("SELECT count(*) FROM regions")).isGreaterThan(0);
     }
@@ -284,7 +663,7 @@ class FlywayMigrationTest {
     @Test
     void v3ConvertsExistingBatchUuidWithoutLosingData() throws Exception {
         installV1WithBatch("ABCDEFAB-0000-4000-8000-000000000101");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(18);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
@@ -385,7 +764,7 @@ class FlywayMigrationTest {
                 INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm)
                 SELECT id,10,300,160 FROM running_sessions;
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(18);
         assertThat(
                         number(
                                 "SELECT count(*) FROM coaching_decisions WHERE cue_bpm=160 AND"
@@ -465,7 +844,7 @@ class FlywayMigrationTest {
                 INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,sleep_duration_min)
                 SELECT id,'2026-10-30',58.4,420 FROM users WHERE login_id='v8_health';
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(11);
         assertThat(
                         number(
                                 "SELECT count(*) FROM daily_health_metrics WHERE rhr_bpm=58.4 AND"
@@ -499,7 +878,7 @@ class FlywayMigrationTest {
                     + " users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)"
                     + " VALUES"
                     + " ('before_signup','hash','before','2000-01-01','MALE','01012345678','DISAGREE')");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(16);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='before_signup'"))
                 .isEqualTo(1);
         assertThat(

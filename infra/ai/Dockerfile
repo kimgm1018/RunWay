@@ -17,6 +17,8 @@ COPY ai/service/app/ ./app/
 COPY ai/workspace/doyeon/gru/src/data.py \
      ai/workspace/doyeon/gru/src/model.py \
      ai/workspace/doyeon/gru/src/predictor.py /app/ai/workspace/doyeon/gru/src/
+# 목표 BPM 계산(ai/bpm). 서비스는 BPM_SRC_DIR 기본값 ../bpm으로 이 폴더를 읽는다.
+COPY ai/bpm/target_bpm.py ai/bpm/stride_model.py ai/bpm/stride_prior.json /app/ai/bpm/
 
 # 모델은 이미지에 포함하지 않고 실행 시 읽기 전용 파일로 연결한다.
 RUN mkdir -p models && chown -R 10001:10001 /app

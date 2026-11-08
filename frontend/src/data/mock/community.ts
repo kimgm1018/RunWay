@@ -14,6 +14,8 @@ type Respond = <T>(value: T) => Promise<T>;
 type Fail = (error: DataError) => Promise<never>;
 
 const me = fixtures.communityUsers.me;
+// U24 reads 10 requests a page.
+const requestPage = 10;
 
 // My run as a post card. The mock has no heart rate or cadence totals, so a watch run gets
 // the 7.3 sheet's values.
@@ -32,11 +34,14 @@ export function createCommunityMock({
   respond,
   fail,
   records,
+  myPhoto,
 }: {
   respond: Respond;
   fail: Fail;
   // My runs as the records mock keeps them, newest first.
   records: () => RecordFixture[];
+  // My photo as 8.2 last set it; the other runners' come from fixtures.runnerPhotos.
+  myPhoto: () => string | null;
 }): {
   community: Repositories['community'];
   runners: Repositories['runners'];
@@ -68,6 +73,20 @@ export function createCommunityMock({
     ]),
   );
   let nextId = 1;
+  // 7.4b 팔로우 요청: answered ones leave the list (U24 lists PENDING only).
+  let followRequests = fixtures.myFollowRequests.map(request => ({
+    ...request,
+  }));
+  // A request that is no longer waiting answers 404 like U25.
+  const settle = (requesterId: string, approved: boolean) => {
+    followRequests = followRequests.filter(
+      request => request.requesterId !== requesterId,
+    );
+    const mine = profiles.get(me.userId);
+    if (approved && mine) {
+      mine.followerCount += 1;
+    }
+  };
 
   const find = (postId: string) => {
     const post = posts.find(item => item.id === postId);
@@ -105,6 +124,9 @@ export function createCommunityMock({
       throw new Error(`러너 없음: ${userId}`);
     }
     const isMe = userId === me.userId;
+    // As U21: a private account shows only the name, photo and follow state until it approves me.
+    const accessible =
+      isMe || !profile.isPrivate || profile.followStatus === 'FOLLOWING';
     const user = Object.values(fixtures.communityUsers).find(
       item => item.userId === userId,
     );
@@ -132,21 +154,29 @@ export function createCommunityMock({
       userId,
       handle: user?.handle ?? userId,
       nickname: user?.nickname ?? userId,
-      level: profile.level,
+      profileImageUrl: isMe ? myPhoto() : fixtures.runnerPhotos[userId] ?? null,
+      level: accessible ? profile.level : null,
       isMe,
-      followerCount: profile.followerCount,
-      followingCount: profile.followingCount,
+      followerCount: accessible ? profile.followerCount : null,
+      followingCount: accessible ? profile.followingCount : null,
       followStatus: profile.followStatus,
-      isPrivate: profile.isPrivate,
-      followRequestCount: isMe ? fixtures.myFollowRequestCount : null,
-      monthly: {
-        runCount: summary?.runCount ?? thisMonth.length,
-        totalDistanceM: summary?.totalDistanceM ?? distance,
-        averagePaceSecPerKm:
-          summary?.averagePaceSecPerKm ??
-          (distance ? Math.round(duration / (distance / 1000)) : null),
-      },
-      records: runs.slice(0, 3),
+      accessible,
+      followRequests: isMe
+        ? {
+            count: Math.min(followRequests.length, requestPage),
+            more: followRequests.length > requestPage,
+          }
+        : null,
+      monthly: accessible
+        ? {
+            runCount: summary?.runCount ?? thisMonth.length,
+            totalDistanceM: summary?.totalDistanceM ?? distance,
+            averagePaceSecPerKm:
+              summary?.averagePaceSecPerKm ??
+              (distance ? Math.round(duration / (distance / 1000)) : null),
+          }
+        : { runCount: 0, totalDistanceM: 0, averagePaceSecPerKm: null },
+      records: accessible ? runs.slice(0, 3) : [],
     };
   };
 
@@ -280,6 +310,27 @@ export function createCommunityMock({
       }
       return respond(profileOf(userId));
     },
+    // U24 pages of 10; the cursor is where the next page starts.
+    listFollowRequests: cursor => {
+      const start = cursor ? Number(cursor) : 0;
+      const end = start + requestPage;
+      return respond({
+        items: followRequests.slice(start, end),
+        nextCursor: end < followRequests.length ? String(end) : null,
+      });
+    },
+    decideFollowRequest: (request, decision) => {
+      const waiting = followRequests.find(
+        item =>
+          item.requesterId === request.requesterId &&
+          item.requestId === request.requestId,
+      );
+      if (!waiting) {
+        return fail(new DataError('REQUEST_NOT_FOUND', '요청 없음'));
+      }
+      settle(request.requesterId, decision === 'APPROVE');
+      return respond(undefined);
+    },
   };
 
   return {
@@ -293,6 +344,10 @@ export function createCommunityMock({
       const profile = profiles.get(me.userId);
       if (profile) {
         profile.isPrivate = isPrivate;
+      }
+      // Going public approves every waiting request (U14).
+      if (!isPrivate) {
+        followRequests.forEach(request => settle(request.requesterId, true));
       }
     },
     // S09 기록 삭제 takes my posts sharing that run with it.

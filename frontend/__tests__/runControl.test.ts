@@ -207,7 +207,70 @@ test('finish without upload confirmation shows saveUnconfirmed', async () => {
 
   await control.finish();
 
-  expect(control.getState()).toMatchObject({ status: 'RUNNING', problem: { kind: 'saveUnconfirmed' } });
+  expect(control.getState()).toMatchObject({
+    status: 'RUNNING',
+    problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' },
+  });
+  control.dispose();
+});
+
+// S15P31E105-446: 마지막 batch 저장이 늦어 409 UPLOAD_PENDING을 받은 뒤, 워치가 저장을 확인하고 같은 END 결과를
+// pendingBatchCount=0으로 다시 보내면 '다시 확인' 없이 COMPLETED가 된다.
+test('an END result sent again after its batches were saved completes the run', async () => {
+  const { control, calls, repositories } = setup();
+  await started(control);
+  const watch = repositories.watchSession as unknown as { emit: (event: unknown) => void };
+  const original = repositories.watchSession.sendCommand;
+  let endCommand: { sessionId: string; commandId: string } | null = null;
+  const endResult = (pending: number) => ({
+    type: 'COMMAND_RESULT',
+    sessionId: endCommand!.sessionId,
+    commandId: endCommand!.commandId,
+    result: 'APPLIED',
+    appliedAt: new Date(Date.now() + 1_000).toISOString(),
+    reasonCode: null,
+    pendingBatchCount: pending,
+    uploadComplete: pending === 0,
+  });
+  repositories.watchSession.sendCommand = async (sessionId, approval) => {
+    if (approval.action !== 'END') {
+      return original(sessionId, approval);
+    }
+    endCommand = { sessionId, commandId: approval.commandId };
+    setTimeout(() => watch.emit(endResult(2)), 0);
+  };
+
+  await control.finish();
+  expect(control.getState()).toMatchObject({
+    problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' },
+  });
+  expect(calls.request.filter(action => action === 'END')).toHaveLength(1);
+
+  watch.emit(endResult(0));
+  await wait(50);
+
+  expect(control.getState()).toMatchObject({ status: 'COMPLETED', pending: null, problem: null });
+  expect(calls.request.filter(action => action === 'END')).toHaveLength(1);
+  expect(calls.report).toBe(3);
+  control.dispose();
+});
+
+test('no END result from the watch shows saveUnconfirmed for the missing result', async () => {
+  const { control, repositories } = setup();
+  await started(control);
+  const original = repositories.watchSession.sendCommand;
+  repositories.watchSession.sendCommand = async (sessionId, approval) => {
+    if (approval.action !== 'END') {
+      return original(sessionId, approval);
+    }
+  };
+
+  await control.finish();
+
+  expect(control.getState()).toMatchObject({
+    status: 'RUNNING',
+    problem: { kind: 'saveUnconfirmed', reason: 'NO_RESULT' },
+  });
   control.dispose();
 });
 
@@ -456,4 +519,55 @@ test('attaching to a session that already ended stops the run service', async ()
 
   expect(after.active).toEqual([false]);
   relaunched.dispose();
+});
+
+// S15P31E105-517: 폰이 받은 워치 batch를 W07로 그대로 올리면서, 화면용으로 한 번 더 읽어 실측값을 보인다.
+test('a watch batch for the running session shows its measured values, and another session’s batch does not', async () => {
+  const { control, repositories } = setup();
+  await started(control);
+  const sessionId = control.getState().sessionId!;
+  expect(control.getState().live).toBeNull();
+  const watch = repositories.watchSession as unknown as { emit: (event: unknown) => void };
+  const batch = (session: string, n: number, heartRateBpm: number) => {
+    const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    return {
+      type: 'BATCH_DATA',
+      sessionId: session,
+      batchId: id,
+      deviceId: '101',
+      itemCount: 1,
+      body: JSON.stringify({
+        id,
+        deviceId: 101,
+        sessionId: Number(session),
+        schemaVersion: '1',
+        items: [
+          {
+            type: 'METRIC_SAMPLE',
+            measuredAt: `2026-11-07T01:00:0${n}Z`,
+            elapsedDurationSec: n,
+            heartRateBpm,
+            cadenceSpm: 172,
+            speedMps: 3.2,
+            gradePercent: null,
+            totalDistanceM: 640,
+            routeProgressM: null,
+            isHrMeasured: true,
+          },
+        ],
+        payloadHash: '0'.repeat(64),
+      }),
+    };
+  };
+  watch.emit(batch(sessionId, 1, 148));
+  await wait();
+  expect(control.getState().live).toMatchObject({
+    source: 'WATCH',
+    heartRate: 148,
+    cadence: 172,
+    distanceM: 640,
+  });
+  watch.emit(batch(`${sessionId}9`, 2, 99));
+  await wait();
+  expect(control.getState().live?.heartRate).toBe(148);
 });

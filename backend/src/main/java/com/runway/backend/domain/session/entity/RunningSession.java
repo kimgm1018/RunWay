@@ -171,15 +171,27 @@ public class RunningSession {
         bumpVersion(now);
     }
 
-    /** 세션 제어 공통 계약 "작업별 승인 조건". START·PAUSE·RESUME·END만 상태를 바꾼다. */
+    /** 세션 제어 공통 계약 "작업별 승인 조건". START·PAUSE·RESUME·END만 상태를 바꾸며 SET_BPM·COACHING은 상태를 유지한다. */
     public static boolean canApprove(ControlAction action, RunningSessionStatus status) {
         return switch (action) {
             case START -> status == RunningSessionStatus.READY;
             case PAUSE -> status == RunningSessionStatus.RUNNING;
             case RESUME -> status == RunningSessionStatus.PAUSED;
             case END -> status == RunningSessionStatus.RUNNING || status == RunningSessionStatus.PAUSED;
-            case SET_BPM, COACHING -> false;
+            case SET_BPM ->
+                    status == RunningSessionStatus.READY
+                            || status == RunningSessionStatus.RUNNING
+                            || status == RunningSessionStatus.PAUSED;
+            case COACHING -> status == RunningSessionStatus.RUNNING;
         };
+    }
+
+    /**
+     * P07 RESULT/APPLIED. 확정된 BPM을 저장하고 버전을 1 올린다. 같은 BPM이어도 새 명령의 확정이므로 버전은 증가한다. 운동 상태는 바꾸지 않는다.
+     */
+    public void applyBpm(int bpm, Instant now) {
+        currentBpm = bpm;
+        bumpVersion(now);
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.runway.backend.domain.session.repository;
 
+import com.runway.backend.domain.coaching.decide.CoachingLevel;
+
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -245,21 +247,66 @@ public class SessionReferenceRepository {
                 groupRunId);
     }
 
+    /**
+     * G10 실시간 순위용 읽기 전용 조회. 모든 참가자를 가입 순서로 돌려주고, 세션별로 누적 거리가 있는 가장 최근 <b>허용 시각
+     * 이하</b> 측정 표본(W07) 하나만 읽는다. {@code measuredAtCeiling}보다 미래인 표본은 고르지 않아 이후 정상 표본이 가려지지
+     * 않게 한다. 연결 세션이 없거나 삭제 표시된 세션, 유효 표본이 없는 세션의 값은 null이다. 쓰기·잠금을 하지 않는다.
+     *
+     * @param measuredAtCeiling 보통 {@code now + MEASURED_AT_FUTURE_SKEW}
+     */
+    public List<GroupLiveRow> findGroupLiveRows(long groupRunId, Instant measuredAtCeiling) {
+        return jdbc.query(
+                """
+                SELECT p.user_id, s.status::text AS session_status, s.started_at,
+                       s.average_pace, m.total_distance, m.measured_at
+                FROM group_run_participants p
+                LEFT JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
+                LEFT JOIN LATERAL (
+                    SELECT rms.total_distance, rms.measured_at
+                    FROM running_metric_samples rms
+                    WHERE rms.running_session_id = s.id
+                      AND rms.total_distance IS NOT NULL
+                      AND rms.measured_at <= ?
+                    ORDER BY rms.measured_at DESC, rms.id DESC
+                    LIMIT 1) m ON TRUE
+                WHERE p.group_run_id = ?
+                ORDER BY p.joined_at, p.id
+                """,
+                (rs, n) ->
+                        new GroupLiveRow(
+                                rs.getLong("user_id"),
+                                rs.getString("session_status"),
+                                toInstant(rs, "started_at"),
+                                rs.getBigDecimal("total_distance"),
+                                toInstant(rs, "measured_at"),
+                                rs.getBigDecimal("average_pace")),
+                Timestamp.from(measuredAtCeiling),
+                groupRunId);
+    }
+
     public Optional<CoachingGuideRow> findCoachingGuide(long sessionId, long coachingId) {
         return jdbc
                 .query(
                         """
-                        SELECT recommended_pace, expires_at FROM coaching_decisions
+                        SELECT recommended_pace, expires_at, coaching_level FROM coaching_decisions
                         WHERE session_id = ? AND id = ?
                         """,
                         (rs, n) ->
                                 new CoachingGuideRow(
                                         rs.getBigDecimal("recommended_pace"),
-                                        toInstant(rs, "expires_at")),
+                                        toInstant(rs, "expires_at"),
+                                        coachingLevel(rs.getString("coaching_level"))),
                         sessionId,
                         coachingId)
                 .stream()
                 .findFirst();
+    }
+
+    private static CoachingLevel coachingLevel(String value) {
+        if (value == null) {
+            return null;
+        }
+        return CoachingLevel.valueOf(value);
     }
 
     /** 세션에 연결된 게시물을 ID 순서로 잠근다. 세션 → 게시물 순서는 공유 게시물 생성(CMT01)과 같다. */
@@ -321,7 +368,16 @@ public class SessionReferenceRepository {
             Boolean goalAchieved,
             String startResult) {}
 
-    public record CoachingGuideRow(BigDecimal recommendedPace, Instant expiresAt) {}
+    public record GroupLiveRow(
+            long userId,
+            String sessionStatus,
+            Instant startedAt,
+            BigDecimal totalDistance,
+            Instant measuredAt,
+            BigDecimal averagePaceSecPerKm) {}
+
+    public record CoachingGuideRow(
+            BigDecimal recommendedPace, Instant expiresAt, CoachingLevel coachingLevel) {}
 
     public record PostRef(long id, long authorId) {}
 }

@@ -27,10 +27,8 @@ import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -39,8 +37,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * AC-11·AC-12·AC-14. 동시에 출발시킨 요청이 실제 DB 트랜잭션에서 겹치도록 실행하고 응답 코드와 최종 DB 행으로 판정한다. 단일 서버·단일 DB 범위의
  * 확인이다.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
 @Testcontainers
 class SyncBatchConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
 
@@ -456,7 +452,10 @@ class SyncBatchConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
         while (System.nanoTime() < deadline) {
             Integer waiting =
                     jdbc.queryForObject(
-                            "SELECT count(DISTINCT pid) FROM pg_locks WHERE NOT granted", Integer.class);
+                            "SELECT count(DISTINCT l.pid) FROM pg_locks l"
+                                    + " JOIN pg_stat_activity a ON a.pid = l.pid"
+                                    + " WHERE NOT l.granted AND a.datname = current_database()",
+                            Integer.class);
             if (waiting != null && waiting >= expected) {
                 return;
             }

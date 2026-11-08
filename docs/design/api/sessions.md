@@ -37,8 +37,14 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 
 - **목표 조합:** 거리·시간·페이스는 각각 양수이며 **최대 2개**까지 지정한다. 목표 거리는 **45km(45000m) 이하**이며 넘으면 `422 INVALID_GOAL`이다(2026-10-30 확정). 세 값을 모두 지정하면 `422 INVALID_GOAL`이다. 모두 생략한 무목표 자유러닝은 허용한다. 페이스는 소수 둘째 자리까지 허용하며 그 이상의 정밀도는 `400 VALIDATION_ERROR`다.
 - **비교 기록:** 자유러닝(courseId=null)에는 비교 모드가 없다. 비교 기록은 코스가 있을 때만 지정할 수 있고, 본인·미삭제·COMPLETED이며 `course_id`가 선택 코스와 같아야 한다. 아니면 `422 INVALID_COMPARISON_SESSION`이다. 검증과 참조 저장은 대상 세션 행을 잠근 상태에서 한다.
-- **초기 계획(단순 규칙):** 추천 페이스(초/km)는 ① 목표 페이스, ② 없으면 목표 시간 ÷ (목표 거리 km), ③ 둘 다 없으면 목표 시간 ÷ (코스 거리 km) 순으로 정한다. 계산 근거가 없으면 계획 없이 생성하며 `plan=null`이다. 소수 셋째 자리에서 반올림한다. 반올림한 추천 페이스가 0 이하이거나 저장 범위(NUMERIC(10,2))를 넘는 비현실적인 목표 조합은 `422 INVALID_GOAL`이다. 끝 거리(목표 거리, 없으면 코스 거리)가 양수이면 0m부터 1km 단위 구간으로 나누어 저장하고 마지막 구간은 남은 거리만큼 짧게 둔다. 끝 거리가 없거나 0(거리 0인 코스)이면 구간 없이 저장한다. 목표 거리 없이 45km를 넘는 코스를 고르면 구간이 45개를 넘으므로 전체를 구간 1개로 저장한다. 구간 추천 페이스는 AI가 제공하는 1km 구간별 상대 난이도 비율로 배분한다(구간 페이스 = 추천 페이스 × 구간 비율 ÷ 구간 길이로 가중한 평균 비율). 평균보다 힘든 구간은 느리게, 쉬운 구간은 빠르게 배분하며 전체 소요 시간은 추천 페이스 기준과 같다(구간별 반올림 오차 제외). 비율이 없거나(AI 연동 전) 구간 수와 맞지 않거나 양수가 아니거나 계산한 구간 페이스가 저장 범위를 벗어나면 요청을 거절하지 않고 모든 구간에 추천 페이스를 쓴다(2026-10-30 확정, AI 비율 연동은 후속). `pace_plans.cue_bpm`·`route_progress`는 null이다. 목표가 바뀌면 기존 계획·구간을 지우고 새로 저장한다. AI 기반 계획은 후속 업무에서 이 규칙을 대체한다.
-- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정).
+- **초기 계획(S15P31E105-442, 2026-11-06 사용자 승인):** 세션 생성(S01)과 READY 목표 변경(S08) 시 원격 계산은 DB 트랜잭션·회원/세션/그룹 잠금 밖에서 수행한다. 저장 단계에서 권한·동의·코스·목표·상태/버전을 재검사하고 세션/목표와 계획·구간을 함께 저장한다. START에서는 저장한 계획만 쓴다.
+  - 자유러닝의 거리+페이스, 거리+시간, 페이스만은 AI09를 호출하지 않고 고정 목표 페이스를 쓴다(시간÷거리 km). 기존 `plan` 객체에 추천 페이스를 저장하되 `segments=[]`이며 AI 구간 추천은 없다. 무목표 자유러닝은 `plan=null`이고 AI04 런타임 판단을 이 사유로 차단하지 않는다.
+  - 거리만 있는 자유러닝은 AI09에 courseId·경사 없이 selectedGoal.targetDistanceM을 보내 평지 구간 계획을 받아 저장한다. 코스 러닝은 목표가 있으면 사용자 평균 목표를 유지하며 AI09 paceRatio → 미리 저장된 AI05 코스 비율(297) → 균등 순서로 적용하고, 속도/시간 목표가 없으면 AI09 계획을 그대로 저장한다.
+  - 1회 AI 전체 호출 상한은 60초이며 일시 장애만 1회 재시도한다. 기준 페이스가 필요한 경로에서 계획을 얻지 못하면 `503 SERVICE_UNAVAILABLE`, 부분 세션·계획 없이 실패한다. 기존 선택 코스는 지우지 않으며 클라이언트는 코스·목표를 유지해 세션 생성만 재요청한다. 고정 목표가 있는 코스는 위 비율 대체로 계획을 만들 수 있다. 이미 활성 세션이 있는 재요청은 기존 `409 ACTIVE_SESSION_EXISTS`와 sessionId로 복구한다.
+  - READY 목표 변경은 계산·저장 성공 시에만 목표와 계획을 교체하고, 실패 시 기존 목표·계획·버전을 유지한다. 최종 페이스는 소수 둘째 자리 HALF_UP으로 저장하며 중간 계산은 정밀도를 유지한다. 구간 최종 반올림에 따른 시간 오차는 0.005×거리(km)초 이내다.
+  - 응답 plan 구조와 DB 컬럼은 유지한다. 새 출처·modelVersion·예상시간 필드는 추가하지 않으며 예상시간은 저장 구간에서 계산 가능하다. 건강정보 미동의는 userId/개인화 없이 AI05 경로를 사용한다. 목표 평균을 얻을 수 없는 AI05 요청은 실제 계획 실패로 처리하며 임의 기본 페이스를 넣지 않는다.
+
+- **동의:** 위치정보 동의는 가입(U15) 필수이므로 세션 API에서 다시 검사하지 않는다. 건강정보 동의(`users.health_data_access`)를 거부해도 세션 생성·변경·인계·중단·삭제는 허용한다(GPS 기록 가능). 건강정보가 필요한 AI 코칭만 P07에서 막는다. 따라서 S01~S09에서 `403 CONSENT_REQUIRED`는 발생하지 않는다(S03~S07은 2026-11-02 S15P31E105-256에서 확정). S10도 건강정보 동의로 구독을 거절하지 않으며, 미동의 세션에는 서버가 자동 코칭을 발행하지 않는다(2026-11-05 S15P31E105-257 확정).
 
 `plan` 객체 필드(객체가 null이면 내부 필드를 보내지 않음):
 
@@ -52,7 +58,40 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `segments[].endDistanceM` | number | O | 구간 종료거리(m) |
 | `segments[].recommendedPaceSecPerKm` | number | O | 구간 추천 페이스(초/km) |
 
-`coaching` 객체의 필드는 P07 업무에서 정한다. 그 전까지 S01·S02·S08 응답의 `coaching`은 항상 `null`이다. 만료된 미확인 코칭 명령은 이미 정의된 `pendingCommand.coachingGuide`로 확인한다.
+`coaching` 객체 필드(2026-11-05 S15P31E105-257 확정). [COACHING_GUIDE payload](../watch-mobile-server-integration.md#93-타입별-필수-payload)와 같은 필드를 사용한다. 현재 제어기기의 미확정 COACHING 명령이 있고, 그 추천의 기준 버전이 현재 `stateVersion`과 같으며 `expiresAt`이 지나지 않았을 때만 채운다. 그 외에는 `null`이다. 만료된 미확인 코칭 명령은 `pendingCommand.coachingGuide`로 확인한다. 세션 생성 직후(S01)와 목표 변경(S08) 응답은 미확정 COACHING 명령이 없으므로 항상 `null`이다.
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `commandId` | integer (int64) | O | 코칭 적용 명령 번호(session_control_events.id) |
+| `coachingId` | integer (int64) | O | 코칭 추천 ID(coaching_decisions.id) |
+| `expectedVersion` | integer (int64) | O | 명령 승인 기준 stateVersion(= based_on_state_version) |
+| `targetBpm` | integer | O | 적용할 박자(60~220, = cue_bpm) |
+| `recommendedPaceSecPerKm` | number | O | 권장 페이스(초/km) |
+| `expiresAt` | string (date-time, UTC) | O | 새로 적용할 수 있는 만료시각 |
+| `coachingLevel` | string (enum) / null | O | AI04 코칭 단계 `OK`/`CAUTION`/`DANGER`. 저장된 값이 없으면 null(S15P31E105-503) |
+
+## 기록 비교 (S15P31E105-422 확정, 2026-11-05)
+
+REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계산해 S02·S10의 `comparison`으로 전달한다(P05는 공개 API가 아니다). 클라이언트 조회가 계산 조건이 아니며 결과를 저장하지 않는다. 비교 대상 선택·검증은 S01/S08 `comparisonSessionId` 규칙을 따른다.
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `status` | string (enum) | O | WAITING(아직 비교할 현재 거리 없음) / AVAILABLE(결과 있음) / NO_RECORD(비교 기록에 거리 측정값이 없어 비교 불가) / UNAVAILABLE(비교 기록이 삭제됐거나 본인 완료 기록이 아님) |
+| `targetStartedAt` | string (date-time, UTC) / null | O | 비교 기록의 실제 시작시각(화면 라벨용). UNAVAILABLE이면 null |
+| `distanceM` | integer / null | O | 비교 지점 거리(m, 소수점 버림). 두 운동시간은 버리기 전 거리로 계산한다. AVAILABLE에만 값 |
+| `currentElapsedSec` | integer / null | O | 이번 러닝이 비교 지점에 도달한 운동시간(초, 반올림). AVAILABLE에만 값 |
+| `pastElapsedSec` | integer / null | O | 비교 기록이 비교 지점에 처음 도달한 운동시간(초, 반올림). AVAILABLE에만 값 |
+
+`pastElapsedSec - currentElapsedSec`가 양수면 이번 러닝이 앞서고 음수면 뒤처진다.
+
+계산 규칙:
+
+- 운동시간은 [종료 후 분석](#준비코칭종료-후-분석-상태)과 같이 실제 시작부터의 경과시간에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 계산 시점(종료 세션은 종료시각)까지 일시정지로 본다.
+- 이번 러닝의 비교 지점은 누적거리(`total_distance`)가 있는 마지막 샘플의 거리이고, 그 샘플 측정시각까지의 운동시간을 쓴다.
+- 비교 기록은 누적거리가 있는 샘플을 측정시각 순으로 이어 (누적거리, 운동시간) 곡선을 만들고, 거리는 감소하지 않게 하며 총거리를 넘지 않게 자른다. 비교 지점에 처음 도달한 운동시간을 앞뒤 샘플 사이 선형 보간으로 구한다.
+- 이번 러닝 거리가 비교 기록 총거리를 넘으면 비교 지점을 비교 기록 총거리로 고정하고 이번 러닝이 그 거리에 도달한 운동시간을 같은 방식으로 보간한다.
+- 시작 전이거나 이번 러닝에 누적거리 샘플이 없거나 0이면 WAITING이다. 비교 기록이 S09로 삭제되면 진행 중 비교는 UNAVAILABLE로 바뀌고 러닝·목표는 그대로 유지한다.
+- 측정 원본 값은 로그에 남기지 않는다.
 
 ## S01 러닝 세션 생성
 
@@ -115,6 +154,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `analysis` | object | O | 분석 준비 상태 객체 |
 | `analysis.status` | string (enum) | O | PENDING(대기) / PROCESSING(분석 중) / READY(준비 완료) / FAILED(실패) / LEGACY(기존 기록) |
 | `coaching` | object / null | O | 현재 유효한 최신 코칭. 없으면 null. 코칭·만료 규칙은 [P07](pace-coaching.md) 참조 |
+| `comparison` | object / null | O | 과거 기록 대비 동일 거리 도달 시간 비교(REC-005). `goal.comparisonSessionId`가 null이면 null. 필드·계산 규칙은 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 참조 |
 | `pendingCommand` | object / null | O | 현재 제어기기의 PENDING 또는 UNKNOWN 명령. 만료된 미확인 코칭도 결과 확인 전까지 포함. 없으면 null |
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
@@ -144,6 +184,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
     "status": "PENDING"
   },
   "coaching": null,
+  "comparison": null,
   "pendingCommand": null,
   "lastCommand": null,
   "serverReceiveAt": "2026-10-28T01:00:00Z",
@@ -173,7 +214,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 
 1. 본인 회원·등록된 워치와 폰을 확인한다. 코스·비교 기록의 권한, 목표 조합과 SQL 정밀도를 검사한다. 기기·코스 행은 확인할 때 잠가(FOR SHARE) W03 연결 해제나 코스 상태 변경과 겹쳐도 해제된 기기·ACTIVE가 아닌 코스로 저장하지 않는다.
 2. 본인에게 `stateVersion≥1`인 READY/RUNNING/PAUSED 세션이 있으면 `409 ACTIVE_SESSION_EXISTS`로 거절한다. 기존 기록인 `stateVersion=0` 세션은 이 검사에서 제외한다.
-3. 코스·목표가 있으면 `pace_plans`에 초기 계획을 저장한다. 무목표 자유러닝은 사전 계획 없이 생성한다. 계획 저장 등 준비 처리가 실패하면 `503`을 반환하고 성공한 계획처럼 표시하지 않는다. 목표 조합으로 계산한 추천 페이스가 범위를 벗어나는 경우는 장애가 아닌 입력 문제이므로 [목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29) 절의 `422 INVALID_GOAL`이다.
+3. 코스·목표가 있으면 `pace_plans`에 초기 계획을 저장한다. 코스 없는 무목표 자유러닝은 사전 계획 없이 생성한다. 거리만 있는 자유러닝과 무목표 코스는 위 AI09 규칙으로 계획을 준비한다. 계획 저장 등 준비 처리가 실패하면 `503`을 반환하고 성공한 계획처럼 표시하지 않는다. 목표 조합으로 계산한 추천 페이스가 범위를 벗어나는 경우는 장애가 아닌 입력 문제이므로 [목표 검증·초기 계획·동의](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29) 절의 `422 INVALID_GOAL`이다.
 4. 위 Response의 초기 상태로 세션을 생성하고 S02 형식으로 반환한다.
 
 ### 생성 응답 유실 복구
@@ -247,6 +288,7 @@ S01과 S08 UPDATE_GOAL에 공통으로 적용한다.
 | `analysis` | object | O | 분석 준비 상태 객체 |
 | `analysis.status` | string (enum) | O | PENDING(대기) / PROCESSING(분석 중) / READY(준비 완료) / FAILED(실패) / LEGACY(기존 기록) |
 | `coaching` | object / null | O | 현재 유효한 최신 코칭. 없으면 null. 코칭·만료 규칙은 [P07](pace-coaching.md) 참조 |
+| `comparison` | object / null | O | 과거 기록 대비 동일 거리 도달 시간 비교(REC-005). `goal.comparisonSessionId`가 null이면 null. 필드·계산 규칙은 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 참조 |
 | `pendingCommand` | object / null | O | 현재 제어기기의 PENDING 또는 UNKNOWN 명령. 만료된 미확인 코칭도 결과 확인 전까지 포함. 없으면 null |
 | `lastCommand` | object / null | O | 마지막 명령. 없으면 null. 명령 객체 필드는 아래 표 참조 |
 | `serverReceiveAt` | string (date-time, UTC) | O | 서버가 상태 조회 요청을 받은 시각. 서버와 기기의 시각 차이 추정에 사용 |
@@ -290,6 +332,7 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
     "status": "PENDING"
   },
   "coaching": null,
+  "comparison": null,
   "pendingCommand": null,
   "lastCommand": null,
   "serverReceiveAt": "2026-10-28T01:00:00Z",
@@ -1341,7 +1384,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 
 ### 인증 및 권한
 
-JWT·본인 세션·필요한 수집 동의를 확인한다. 인증정보는 URL·로그에 넣지 않는다.
+JWT·본인 세션을 확인한다. 건강정보 동의로 구독을 거절하지 않으며, 미동의 세션에는 자동 코칭만 발행하지 않는다(2026-11-05 S15P31E105-257 확정). 인증정보는 URL·로그에 넣지 않는다.
 
 ### Path Parameters
 
@@ -1363,7 +1406,7 @@ JWT·본인 세션·필요한 수집 동의를 확인한다. 인증정보는 URL
 | `data` | object | O | JSON 형식의 S02 전체 세션 상태. 아래 필드는 이벤트별 추가 정보 |
 | `data.commandId` | integer (int64) | 조건부 | SERVER_END의 현재 실행기기 END 명령 번호. 워치·폰 모두 서버가 발급한 양의 정수 |
 | `data.groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 폰은 SERVER_END를 받으면 종료·저장 |
-| `data.coaching` | object / null | O | 코칭이 있으면 현재 유효 추천. 적용 payload는 [MessageClient 명세](../watch-mobile-server-integration.md#93-타입별-필수-payload)를 따름 |
+| `data.coaching` | object / null | O | 코칭이 있으면 현재 유효 추천. 필드는 [S02 `coaching` 객체](#목표-검증초기-계획동의-s15p31e105-255-확정-2026-10-29)이며 [COACHING_GUIDE payload](../watch-mobile-server-integration.md#93-타입별-필수-payload)와 같다 |
 
 SSE 형식 예시(상태 필드는 일부 발췌):
 
@@ -1378,7 +1421,7 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 | --- | --- |
 | `400 VALIDATION_ERROR` | 필수값·타입·ID 범위·단계별 필드 오류 |
 | `401 UNAUTHORIZED` | 인증 실패 |
-| `403 SESSION_FORBIDDEN / CONSENT_REQUIRED` | 본인 세션·필요한 수집 동의 조건 위반 |
+| `403 SESSION_FORBIDDEN` | 본인 세션이 아님 |
 | `404 SESSION_NOT_FOUND` | 구독할 본인 세션이 없음 |
 | `503 SERVICE_UNAVAILABLE` | 저장·필수 처리 장애. 결과를 확인하고 같은 요청으로 제한 재시도 |
 
@@ -1390,8 +1433,9 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 
 **상태 전달**
 
-- JWT·본인 세션·수집 동의를 확인한 뒤 세션별 SSE 연결을 연다.
+- JWT·본인 세션을 확인한 뒤 세션별 SSE 연결을 연다. 각 전송 전에 세션 삭제·회원 탈퇴를 다시 확인하고, 연결 시 토큰의 만료시각에 스트림을 닫는다.
 - 연결 직후 S02 전체 상태를 보내며, 이후 상태·BPM·코칭·분석 상태가 바뀔 때도 전체 상태를 보낸다. 이 시점의 전체 상태를 **스냅샷**이라고 한다.
+- 비교 기록이 설정된 세션은 W07 batch 저장이 커밋될 때마다 SESSION_STATE 스냅샷을 보내 [기록 비교](#기록-비교-s15p31e105-422-확정-2026-11-05) 결과를 갱신한다. 이 전송은 `stateVersion`을 바꾸지 않는다.
 - 클라이언트는 오래된 `stateVersion`을 버린다. 같은 버전의 코칭은 더 큰 `coachingId`만 처리한다. 새 코칭 생성 자체는 세션 버전을 바꾸지 않는다.
 
 **연결 유지와 재접속**
@@ -1482,7 +1526,8 @@ REQUEST의 `action`은 엔드포인트로 정한다. P07만 `operation=SET_BPM` 
       "expectedVersion": 3,
       "targetBpm": 165,
       "recommendedPaceSecPerKm": 360,
-      "expiresAt": "2026-10-29T01:00:20Z"
+      "expiresAt": "2026-10-29T01:00:20Z",
+      "coachingLevel": "CAUTION"
     }
   }
 }
