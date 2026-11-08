@@ -2,7 +2,11 @@ import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories, type Repositories } from '../src/data';
+import {
+  createMockRepositories,
+  tokenStore,
+  type Repositories,
+} from '../src/data';
 import { DataError } from '../src/data/errors';
 import { setWatchHealthConsent } from '../src/health/watchHealth';
 
@@ -169,6 +173,47 @@ test('8.1 asks W05 again when W04 fails and shows what the server holds', async 
   expect(texts(screen)).toContain(
     '저장하지 못했어요. 잠시 후 다시 시도해 주세요',
   );
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-555: a failed U19·U13 read still leaves 로그아웃 and 회원탈퇴 on 8.1, next to 다시 시도.
+test('8.1 keeps 로그아웃 and 회원탈퇴 when the settings cannot be read', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let reads = 0;
+  repositories.settings.get = async () => {
+    reads += 1;
+    throw new DataError('SERVER_ERROR', '503');
+  };
+  const logout = jest.fn(async (_refreshToken: string) => undefined);
+  repositories.auth.logout = logout;
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const screen = await openSettings(repositories);
+  expect(texts(screen)).toContain('설정을 불러오지 못했어요');
+  expect(labelled(screen, '회원탈퇴')).toBeTruthy();
+  expect(labelled(screen, '뒤로')).toBeTruthy();
+
+  const before = reads;
+  await press(screen, '다시 시도');
+  expect(reads).toBeGreaterThan(before);
+  expect(texts(screen)).toContain('설정을 불러오지 못했어요');
+
+  await press(screen, '로그아웃');
+  await settle(50);
+  expect(logout).toHaveBeenCalledWith('refresh-1');
+  expect(texts(screen)).toContain('시작하기');
+  await act(async () => screen.unmount());
+});
+
+test('8.1 opens 회원탈퇴 when the settings cannot be read', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.settings.get = async () => {
+    throw new DataError('NETWORK_ERROR', '응답 없음');
+  };
+  const screen = await openSettings(repositories);
+  expect(texts(screen)).toContain('설정을 불러오지 못했어요');
+  await press(screen, '회원탈퇴');
+  await settle(50);
+  expect(texts(screen)).toContain('정말 탈퇴할까요?');
   await act(async () => screen.unmount());
 });
 
