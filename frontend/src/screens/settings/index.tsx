@@ -2,6 +2,7 @@ import type React from 'react';
 import type { RouteName } from '../../navigation/routes';
 import { LocationSettingScreen } from './LocationSettingScreen';
 import { ProfileEditScreen } from './ProfileEditScreen';
+import { RunningBaselineEditScreen } from './RunningBaselineEditScreen';
 import { SettingsScreen } from './SettingsScreen';
 import {
   WithdrawDoneScreen,
@@ -15,6 +16,7 @@ export const settingsScreens: Partial<Record<RouteName, React.ComponentType>> =
     Settings: SettingsScreen,
     LocationSetting: LocationSettingScreen,
     ProfileEdit: ProfileEditScreen,
+    RunningBaselineEdit: RunningBaselineEditScreen,
     Withdraw: WithdrawScreen,
     WithdrawPassword: WithdrawPasswordScreen,
     WithdrawDone: WithdrawDoneScreen,
