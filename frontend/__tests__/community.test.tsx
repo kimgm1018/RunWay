@@ -8,6 +8,7 @@ import { CommunityScreen } from '../src/screens/community/CommunityScreen';
 import { FeedPage } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
+import { CourseGlyph } from '../src/screens/course/SavedCoursesScreen';
 import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
 import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
 import { ThemeProvider } from '../src/theme';
@@ -126,6 +127,48 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(1);
   await press(screen, '좋아요');
   expect(liked()).toBe(2);
+});
+
+// S15P31E105-567: H01 · CMT02 summaries carry no route (shape []); 7.1 · 7.4 · 7.4b open and the run tiles draw no made-up line.
+test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getProfile = repositories.runners.getProfile;
+  repositories.runners.getProfile = async userId => {
+    const profile = await getProfile(userId);
+    return {
+      ...profile,
+      records: profile.records.map(item => ({
+        ...item,
+        record: { ...item.record, shape: [] },
+      })),
+    };
+  };
+  const listFeed = repositories.community.listFeed;
+  repositories.community.listFeed = async scope =>
+    (await listFeed(scope)).map(post => ({
+      ...post,
+      courseShared: true,
+      record: { ...post.record, shape: [] },
+    }));
+  // Every run tile gets a CourseGlyph, and with no route each draws nothing.
+  const outlines = () => {
+    const glyphs = screen.root.findAllByType(CourseGlyph);
+    expect(glyphs.length).toBeGreaterThan(0);
+    return glyphs.filter(glyph => glyph.children.length > 0).length;
+  };
+  const screen = await openCommunity(repositories);
+  expect(texts(screen)).toContain('minjun.run');
+  // 홈 → 프로필 and the 프로필 tab, entered more than once as on the Galaxy.
+  for (let round = 0; round < 3; round += 1) {
+    await press(screen, 'minjun.run 프로필');
+    await settle(50);
+    expect(outlines()).toBe(0);
+    await press(screen, '뒤로');
+    await press(screen, '프로필');
+    await settle(50);
+    expect(outlines()).toBe(0);
+    await press(screen, '커뮤니티');
+  }
 });
 
 // 7.1 (S15P31E105-561, 담당자 시안): one full-screen page per post, the run's numbers at the foot, the actions down

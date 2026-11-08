@@ -33,8 +33,23 @@ import { CourseTabs } from './CourseTabs';
 const loadSaved = (repositories: Repositories) =>
   repositories.courses.getSaved();
 
+const isPoint = (point: unknown): point is [number, number] =>
+  Array.isArray(point) &&
+  point.length >= 2 &&
+  Number.isFinite(point[0]) &&
+  Number.isFinite(point[1]);
+
+// Only the points that can be drawn. H01 · CMT02 summaries carry no route (shape []), and a broken point
+// is dropped rather than guessed, so an unknown route draws nothing (S15P31E105-567).
+export function drawableShape(
+  shape: readonly [number, number][] | null | undefined,
+): [number, number][] {
+  return Array.isArray(shape) ? shape.filter(isPoint) : [];
+}
+
 // The course's outline as a white line with a faint white halo (DESIGN.md 2-7 코스 카드).
 // thin: runway-course-handoff 3.1c, a bare thin white line.
+// No drawable point draws nothing; a single point draws only the start dot.
 export function CourseGlyph({
   shape,
   thin = false,
@@ -42,11 +57,16 @@ export function CourseGlyph({
   shape: [number, number][];
   thin?: boolean;
 }) {
-  const points = shape.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
-  const [startX, startY] = shape[0];
+  const route = drawableShape(shape);
+  if (route.length === 0) {
+    return null;
+  }
+  const points = route.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
+  const [startX, startY] = route[0];
+  const line = route.length > 1;
   return (
     <Svg width="100%" height="100%" viewBox="0 0 100 100">
-      {thin ? null : (
+      {thin || !line ? null : (
         <Polyline
           points={points}
           fill="none"
@@ -57,14 +77,16 @@ export function CourseGlyph({
           strokeLinecap="round"
         />
       )}
-      <Polyline
-        points={points}
-        fill="none"
-        stroke={palette.white}
-        strokeWidth={thin ? 1.6 : 3}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+      {line ? (
+        <Polyline
+          points={points}
+          fill="none"
+          stroke={palette.white}
+          strokeWidth={thin ? 1.6 : 3}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ) : null}
       <Circle
         cx={startX * 100}
         cy={startY * 100}

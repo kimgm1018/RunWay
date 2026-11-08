@@ -19,7 +19,7 @@ import {
   isSameDay,
 } from '../../format';
 import { fontFamily, k1, spacing, ThemeProvider } from '../../theme';
-import { CourseGlyph } from '../course/SavedCoursesScreen';
+import { CourseGlyph, drawableShape } from '../course/SavedCoursesScreen';
 import { CommunitySheet, communityLook, SheetButton } from './look';
 
 // Svg gradient ids are global on Android, so every gradient gets its own.
@@ -233,7 +233,8 @@ export function RunPhoto({
           offsets={[...media.offsets]}
           style={styles.mediaFill}
         />
-        {courseShared ? (
+        {/* A post summary carries no route; an unknown one shows neither the outline nor its note (S15P31E105-567). */}
+        {courseShared && drawableShape(record.shape).length > 0 ? (
           <>
             {/* --media-free starts near white, so its note is in teal there. */}
             <AppText
