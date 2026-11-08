@@ -41,14 +41,17 @@ let nicknameTaken = false;
 let upload: { status: number; code?: string } = { status: 201 };
 const imageId = '550e8400-e29b-41d4-a716-446655440000';
 
-const runningProfile = {
+const savedRunningProfile = {
   selfReportedLevel: 'INTERMEDIATE',
-  baselineDistanceM: 5000,
-  baselineDurationSec: 1800,
+  baselineDistanceM: 5000 as number | null,
+  baselineDurationSec: 1800 as number | null,
   usualPaceSecPerKm: 360,
   onboardingCompleted: true,
   updatedAt: '2026-11-02T03:00:00Z',
 };
+let runningProfile = { ...savedRunningProfile };
+// U07's answer for the 8.2b tests: null saves, a code fails with 422.
+let runningSaveFailure: string | null = null;
 
 // U04·U05, U06·U07 and W02 for 8.1; the other sections fail on their own and are not under test.
 function serve() {
@@ -84,6 +87,25 @@ function serve() {
               message: '',
               details: {},
             });
+      }
+      if (path === '/users/me/running-profile' && init.method === 'PATCH') {
+        if (runningSaveFailure) {
+          return respond(422, {
+            code: runningSaveFailure,
+            message: '',
+            details: {},
+          });
+        }
+        // U07 keeps what is left out; PACE clears the saved distance and time.
+        const { inputType, ...fields } = JSON.parse(init.body!);
+        runningProfile = {
+          ...runningProfile,
+          ...(inputType === 'PACE'
+            ? { baselineDistanceM: null, baselineDurationSec: null }
+            : {}),
+          ...fields,
+        };
+        return respond(200, runningProfile);
       }
       if (path === '/users/me/running-profile') {
         return respond(200, runningProfile);
@@ -200,6 +222,8 @@ async function openProfileEdit() {
 beforeEach(async () => {
   me = { ...me, nickname: '새벽러너', profileImageUrl: null };
   nicknameTaken = false;
+  runningProfile = { ...savedRunningProfile };
+  runningSaveFailure = null;
   upload = { status: 201 };
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -330,5 +354,167 @@ test('8.2 says the photo is too large when F01 refuses it and saves nothing else
   expect(labelled(screen, '저장').props.accessibilityState.disabled).toBe(
     false,
   );
+  await act(async () => screen.unmount());
+});
+
+// 8.2b 평소 러닝 정보 (S15P31E105-551): U06 fills it, U07 saves the pace part only.
+
+const runningGets = () =>
+  fetchMock.mock.calls.filter(
+    ([address, init]) =>
+      init.method === 'GET' &&
+      new URL(address).pathname.endsWith('/users/me/running-profile'),
+  );
+
+function inputValue(screen: Screen, label: string) {
+  const inputs = screen.root.findAll(
+    node => node.type === TextInput && node.props.accessibilityLabel === label,
+  );
+  return inputs[inputs.length - 1].props.value;
+}
+
+const saveDisabled = (screen: Screen) =>
+  labelled(screen, '저장').props.accessibilityState.disabled;
+
+async function openBaselineEdit() {
+  const screen = await openProfileEdit();
+  await press(screen, `기본 목표 · 평소 페이스 5km · 30:00 · 6′00″/km`);
+  return screen;
+}
+
+test('8.2b opens with the saved distance and time and saves only the pace part with U07', async () => {
+  const screen = await openProfileEdit();
+  // Unsaved answers on 8.2 stay as typed and are not sent by 8.2b.
+  await type(screen, '닉네임', '한강러너');
+  await press(screen, `기본 목표 · 평소 페이스 5km · 30:00 · 6′00″/km`);
+
+  expect(inputValue(screen, '거리')).toBe('5');
+  expect(inputValue(screen, '완주 시간')).toBe('30:00');
+  // Nothing changed yet, so there is nothing to save.
+  expect(saveDisabled(screen)).toBe(true);
+
+  await type(screen, '완주 시간', '25:00');
+  expect(texts(screen)).toContain('5′00″');
+  const readsBefore = runningGets().length;
+  await press(screen, '저장');
+
+  expect(patches()).toEqual([
+    [
+      '/users/me/running-profile',
+      {
+        inputType: 'DISTANCE_TIME',
+        baselineDistanceM: 5000,
+        baselineDurationSec: 1500,
+        usualPaceSecPerKm: 300,
+      },
+    ],
+  ]);
+  // Back on 8.2 the line is read again from U06; the nickname typed earlier is still there, unsaved.
+  expect(runningGets().length).toBeGreaterThan(readsBefore);
+  expect(texts(screen)).toContain('5km · 25:00 · 5′00″/km');
+  expect(texts(screen)).toContain('평소 러닝 정보를 저장했어요');
+  expect(inputValue(screen, '닉네임')).toBe('한강러너');
+  // Only the profile is touched: no run session or goal call.
+  expect(
+    fetchMock.mock.calls.filter(([address]) =>
+      /\/sessions|\/goals/.test(new URL(address).pathname),
+    ),
+  ).toEqual([]);
+
+  // 8.2 저장 then still sends the level alone, so the new pace stays.
+  await press(screen, '저장');
+  expect(patches()[2]).toEqual([
+    '/users/me/running-profile',
+    { selfReportedLevel: 'INTERMEDIATE' },
+  ]);
+  expect(runningProfile.usualPaceSecPerKm).toBe(300);
+  await act(async () => screen.unmount());
+});
+
+test('8.2b saves a pace typed on the 페이스 tab as U07 PACE', async () => {
+  const screen = await openBaselineEdit();
+  await press(screen, '페이스');
+  // Loaded values do not follow the tab; the time is cleared as on 1.6b.
+  expect(inputValue(screen, '페이스 (분:초/km)')).toBe('');
+  await type(screen, '페이스 (분:초/km)', '530');
+  await press(screen, '저장');
+
+  expect(patches()).toEqual([
+    [
+      '/users/me/running-profile',
+      { inputType: 'PACE', usualPaceSecPerKm: 330 },
+    ],
+  ]);
+  expect(texts(screen)).toContain('5′30″/km');
+  expect(texts(screen)).not.toContain('5km · ');
+  await act(async () => screen.unmount());
+});
+
+test('8.2b opens a pace saved without distance on the 페이스 tab', async () => {
+  runningProfile = {
+    ...runningProfile,
+    baselineDistanceM: null,
+    baselineDurationSec: null,
+    usualPaceSecPerKm: 400,
+  };
+  const screen = await openProfileEdit();
+  await press(screen, '기본 목표 · 평소 페이스 6′40″/km');
+
+  expect(inputValue(screen, '페이스 (분:초/km)')).toBe('6:40');
+  expect(saveDisabled(screen)).toBe(true);
+  await act(async () => screen.unmount());
+});
+
+test('8.2b keeps 저장 off for a pace that cannot be right', async () => {
+  const screen = await openBaselineEdit();
+  // 5km in one minute is 12 seconds a km.
+  await type(screen, '완주 시간', '1:00');
+
+  expect(saveDisabled(screen)).toBe(true);
+  expect(texts(screen)).toContain(
+    '거리는 km, 완주 시간은 30:00처럼 입력해 주세요',
+  );
+  await press(screen, '저장');
+  expect(patches()).toEqual([]);
+  await act(async () => screen.unmount());
+});
+
+test('8.2b stays open with the typed values when U07 turns the pace down', async () => {
+  runningSaveFailure = 'INVALID_RUNNING_BASELINE';
+  const screen = await openBaselineEdit();
+  await type(screen, '완주 시간', '25:00');
+  await press(screen, '저장');
+
+  expect(texts(screen)).toContain(
+    '평소 페이스를 확인하지 못했어요. 입력한 값을 다시 확인해 주세요.',
+  );
+  expect(inputValue(screen, '완주 시간')).toBe('25:00');
+  expect(saveDisabled(screen)).toBe(false);
+  expect(runningProfile.baselineDurationSec).toBe(1800);
+  await act(async () => screen.unmount());
+});
+
+test('8.2b sends one U07 for a double tap on 저장', async () => {
+  const screen = await openBaselineEdit();
+  await type(screen, '완주 시간', '25:00');
+  await act(async () => {
+    const save = labelled(screen, '저장');
+    save.props.onPress();
+    save.props.onPress();
+  });
+  await settle();
+  await settle();
+
+  expect(patches()).toHaveLength(1);
+  await act(async () => screen.unmount());
+});
+
+test('8.2b back leaves without saving and 8.2 shows the saved values', async () => {
+  const screen = await openBaselineEdit();
+  await type(screen, '완주 시간', '25:00');
+  await press(screen, '뒤로');
+
+  expect(patches()).toEqual([]);
+  expect(texts(screen)).toContain('5km · 30:00 · 6′00″/km');
   await act(async () => screen.unmount());
 });

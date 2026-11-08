@@ -71,6 +71,7 @@ export const mainRoutes = [
   'CommunitySearch',
   'MyProfile',
   'ProfileEdit',
+  'RunningBaselineEdit',
   'Settings',
   'LocationSetting',
   'WatchConnect',
@@ -436,7 +437,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '8.2',
     title: '프로필 수정',
     task: SETTINGS,
-    links: ['MyProfile'],
+    links: ['MyProfile', 'RunningBaselineEdit'],
+  },
+  // S15P31E105-551: 평소 거리·완주 시간 또는 페이스 수정 (U06·U07).
+  RunningBaselineEdit: {
+    code: '8.2b',
+    title: '평소 러닝 정보',
+    task: SETTINGS,
+    links: ['ProfileEdit'],
   },
   Settings: {
     code: '8.1',

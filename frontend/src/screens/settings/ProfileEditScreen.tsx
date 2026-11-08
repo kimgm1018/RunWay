@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
@@ -26,9 +26,11 @@ import {
   type PhotoFile,
   type ProfileDetail,
   type Repositories,
+  type RunningBaseline,
   type SelfReportedLevel,
 } from '../../data';
 import { formatDuration, formatPace } from '../../format';
+import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, k1 } from '../../theme';
 import { SelectField } from '../onboarding/parts';
 import {
@@ -63,7 +65,7 @@ const levels: { value: SelfReportedLevel; label: string }[] = [
 ];
 
 // 5km · 30:00 · 6′00″/km
-function baselineLine({ baseline }: ProfileDetail) {
+function baselineLine(baseline: RunningBaseline) {
   const parts = [
     baseline.baselineDistanceM
       ? `${baseline.baselineDistanceM / 1000}km`
@@ -100,6 +102,38 @@ function Form({
   const [month, setMonth] = useState(birthMonth);
   const [day, setDay] = useState(birthDay);
   const [level, setLevel] = useState<SelfReportedLevel>(detail.runningLevel);
+  // 8.2b saves the usual pace on its own (S15P31E105-551); coming back reads U06 again for this line only, so
+  // the answers typed here are kept and not saved.
+  const [baseline, setBaseline] = useState(detail.baseline);
+  const returned = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!returned.current) {
+        returned.current = true;
+        return;
+      }
+      let active = true;
+      profile.getRunningProfile().then(
+        saved => {
+          if (active && saved) {
+            setBaseline({
+              baselineDistanceM: saved.baselineDistanceM,
+              baselineDurationSec: saved.baselineDurationSec,
+              usualPaceSecPerKm: saved.usualPaceSecPerKm,
+            });
+          }
+        },
+        () => {
+          if (active) {
+            toast('평소 러닝 정보를 다시 불러오지 못했어요');
+          }
+        },
+      );
+      return () => {
+        active = false;
+      };
+    }, [profile, toast]),
+  );
   // The 연도 · 월 · 일 fields show under the date once it is tapped.
   const [dateOpen, setDateOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -152,7 +186,7 @@ function Form({
         gender,
         birthDate: toBirthDate(year, month, day),
       });
-      // U07 with the level alone keeps the saved pace.
+      // U07 with the level alone keeps the saved pace (8.2b changes that one).
       await profile.saveRunningProfile({ selfReportedLevel: level });
       toast('프로필을 저장했어요');
       navigation.goBack();
@@ -317,8 +351,11 @@ function Form({
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`기본 목표 · 평소 페이스 ${baselineLine(detail)}`}
-          onPress={() => toast('기본 목표와 평소 페이스 수정은 준비 중이에요')}
+          accessibilityLabel={`기본 목표 · 평소 페이스 ${baselineLine(
+            baseline,
+          )}`}
+          accessibilityHint="평소 거리·완주 시간 또는 페이스를 수정해요"
+          onPress={() => navigateTo(navigation, 'RunningBaselineEdit')}
           style={({ pressed }) => [styles.field, pressed && styles.pressed]}
         >
           <Icon
@@ -329,7 +366,9 @@ function Form({
           />
           <View style={styles.flex}>
             <AppText style={styles.fieldLabel}>기본 목표 · 평소 페이스</AppText>
-            <AppText style={styles.fieldValue}>{baselineLine(detail)}</AppText>
+            <AppText style={styles.fieldValue}>
+              {baselineLine(baseline)}
+            </AppText>
           </View>
           <Icon name="forward" color={settingsLook.label} size={16} />
         </Pressable>
@@ -400,7 +439,7 @@ function Choices<T extends string>({
 const loadAll = (repositories: Repositories) =>
   Promise.all([repositories.profile.getDetail(), repositories.profile.getMe()]);
 
-// 8.2 프로필 수정 (U05 and the running level of U07) on the mist (runway-settings, 담당자 결정: 시안대로).
+// 8.2 프로필 수정 (U05, the running level of U07 and the way into 8.2b) on the mist (runway-settings, 담당자 결정: 시안대로).
 export function ProfileEditScreen() {
   const loaded = useResource(loadAll);
   // The form keeps its own answers once shown, so it mounts only after the profile loads.
