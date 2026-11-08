@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -21,6 +20,7 @@ import {
   Icon,
   KeyboardLift,
   LightGlass,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -56,13 +56,12 @@ function CancelButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="그룹런 취소하기"
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => pressed && styles.ctaPressed}
     >
       <Raised tone="white" style={styles.cta}>
         {/* Disabled dims the label only, so the pill stays solid over the background. */}
@@ -73,7 +72,7 @@ function CancelButton({
           </View>
         </View>
       </Raised>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -161,13 +160,12 @@ export function GroupRunCancelScreen() {
                 {cancelReasons.map(item => {
                   const selected = item.value === reason;
                   return (
-                    <Pressable
+                    <PressableScale
                       key={item.value}
                       accessibilityRole="radio"
                       accessibilityLabel={item.label}
                       accessibilityState={{ selected }}
                       onPress={() => setReason(item.value)}
-                      style={({ pressed }) => pressed && styles.chipPressed}
                     >
                       {selected ? (
                         <Raised tone="navy" style={styles.chip}>
@@ -182,7 +180,7 @@ export function GroupRunCancelScreen() {
                           </AppText>
                         </LightGlass>
                       )}
-                    </Pressable>
+                    </PressableScale>
                   );
                 })}
               </View>
@@ -343,7 +341,6 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     justifyContent: 'center',
   },
-  chipPressed: { transform: [{ scale: 0.97 }] },
   chipText: {
     fontFamily: fontFamily.regular,
     fontSize: 14,
@@ -396,7 +393,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaPressed: { transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.45 },
   footer: {
     position: 'absolute',

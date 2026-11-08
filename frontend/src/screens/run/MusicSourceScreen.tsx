@@ -8,7 +8,13 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import { AppText, Icon, useToast, type IconName } from '../../components';
+import {
+  AppText,
+  Icon,
+  type IconName,
+  PressableScale,
+  useToast,
+} from '../../components';
 import {
   spotifyFailureMessage,
   SpotifyStateError,
@@ -20,6 +26,7 @@ import {
 } from '../../data';
 import { fontFamily } from '../../theme';
 import { MusicOverlay } from './musicParts';
+import { ServiceMark } from './parts';
 
 // The button that fixes each unconnected service (2.8 로그인, 2.8b 허용·설치).
 const fixLabels: Record<Exclude<MusicServiceStatus, 'CONNECTED'>, string> = {
@@ -77,7 +84,7 @@ function ConfirmButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="설정 완료"
       accessibilityState={{ busy }}
@@ -86,7 +93,7 @@ function ConfirmButton({
       style={({ pressed }) => [styles.confirm, pressed && styles.pressed]}
     >
       <Icon name="check" color="#FFFFFF" size={22} strokeWidth={2.6} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -214,14 +221,19 @@ export function MusicSourceScreen() {
                   onPress={() => choose(row.source)}
                   style={styles.row}
                 >
-                  <View style={[styles.icon, on && styles.iconOn]}>
-                    <Icon
-                      name={row.icon}
-                      color={on ? '#FFFFFF' : ink}
-                      size={19}
-                      strokeWidth={1.9}
-                    />
-                  </View>
+                  {/* 멜론 · Spotify show their own marks (담당자 요청); 음악 없음 keeps the plain icon. */}
+                  {row.source === 'MELON' || row.source === 'SPOTIFY' ? (
+                    <ServiceMark service={row.source} size={44} />
+                  ) : (
+                    <View style={[styles.icon, on && styles.iconOn]}>
+                      <Icon
+                        name={row.icon}
+                        color={on ? '#FFFFFF' : ink}
+                        size={19}
+                        strokeWidth={1.9}
+                      />
+                    </View>
+                  )}
                   <AppText style={styles.name}>{row.name}</AppText>
                   {ready ? (
                     <Toggle on={on} />
@@ -337,7 +349,6 @@ const styles = StyleSheet.create({
     boxShadow: '0 10px 24px rgba(2,5,14,0.22)',
   },
   pressed: {
-    transform: [{ scale: 0.94 }],
     boxShadow: '0 4px 12px rgba(2,5,14,0.22)',
   },
 });

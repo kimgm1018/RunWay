@@ -255,6 +255,7 @@ export function CourseRunScreen() {
       {picker}
       <RunStartBar
         night
+        mode="COURSE"
         config={courseConfig}
         goal={goalChip}
         startSignal={startSignal}
@@ -279,6 +280,7 @@ export function CourseRunScreen() {
       {picker}
       <RunStartBar
         night={false}
+        mode="COURSE"
         config={courseConfig}
         goal={goalChip}
         startSignal={startSignal}

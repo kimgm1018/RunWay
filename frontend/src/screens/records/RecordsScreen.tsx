@@ -11,7 +11,7 @@ import {
   useRoute,
   type RouteProp,
 } from '@react-navigation/native';
-import { AppText, EmptyState } from '../../components';
+import { AppText, EmptyState, FadeIn } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -381,13 +381,16 @@ export function RecordsScreen() {
               </View>
             ) : null}
             {detail.status === 'ready' && detail.data ? (
-              <RecordView
-                key={detail.data.id}
-                record={detail.data}
-                chartHeight={300}
-                onOpen={open}
-                openLabel={rowLabel(run)}
-              />
+              // Another day's run fades in rather than swap at once (S15P31E105-478).
+              <FadeIn appearKey={detail.data.id}>
+                <RecordView
+                  key={detail.data.id}
+                  record={detail.data}
+                  chartHeight={300}
+                  onOpen={open}
+                  openLabel={rowLabel(run)}
+                />
+              </FadeIn>
             ) : detail.status === 'error' ? (
               <EmptyState
                 icon="alert"

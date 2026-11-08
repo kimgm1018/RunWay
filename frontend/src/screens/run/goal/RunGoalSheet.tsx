@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewProps,
+  type ViewStyle,
+} from 'react-native';
 import {
   AppText,
   BottomSheet,
@@ -8,7 +15,7 @@ import {
   type IconName,
 } from '../../../components';
 import { formatDuration, formatPace } from '../../../format';
-import { fontFamily, useTheme } from '../../../theme';
+import { fontFamily, k1, ThemeProvider, useTheme } from '../../../theme';
 import {
   formatGoalDistance,
   formatGoalDuration,
@@ -159,91 +166,106 @@ export function RunGoalSheet({
     onClose();
   };
 
+  // Like 3.1 코스 조건 (담당자 요청): a deep navy sheet read in the dark tone, its goal cards white.
   return (
-    <BottomSheet
-      visible={visible}
-      onClose={close}
-      title={detail ? titles[detail.kind] : '운동 목표'}
-    >
-      {detail ? (
-        <GoalDetail
-          draft={detail}
-          course={course}
-          onChange={setDetail}
-          onBack={() => setDetail(null)}
-          onSet={() => onSet(detail)}
-          onStart={() => onStart(detail)}
-        />
-      ) : (
-        <View style={styles.list}>
-          {kinds.map(kind => {
-            const row = rowOf(kind);
-            const selected = goal.kind === kind;
-            const simple = kind === 'NONE' || kind === 'PLAN';
-            return (
-              <View
-                key={kind}
-                style={[
-                  styles.card,
-                  { backgroundColor: colors.surfaceMuted },
-                  selected && { borderColor: colors.text },
-                ]}
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${titles[kind]} 목표`}
-                  accessibilityState={{ selected }}
-                  onPress={() =>
-                    simple
-                      ? onSet(draftOf(kind, goal))
-                      : setDetail(draftOf(kind, goal))
-                  }
-                  style={styles.cardBody}
-                >
+    <ThemeProvider tone="dark">
+      <BottomSheet
+        visible={visible}
+        onClose={close}
+        title={detail ? titles[detail.kind] : '운동 목표'}
+        background={k1.night}
+      >
+        {detail ? (
+          <GoalDetail
+            draft={detail}
+            course={course}
+            onChange={setDetail}
+            onBack={() => setDetail(null)}
+            onSet={() => onSet(detail)}
+            onStart={() => onStart(detail)}
+          />
+        ) : (
+          <ThemeProvider tone="light">
+            <View style={styles.list}>
+              {kinds.map(kind => {
+                const row = rowOf(kind);
+                const selected = goal.kind === kind;
+                const simple = kind === 'NONE' || kind === 'PLAN';
+                return (
                   <View
-                    style={[styles.badge, { backgroundColor: colors.surface }]}
+                    key={kind}
+                    style={[styles.card, selected && styles.cardSelected]}
                   >
-                    <Icon name={row.icon} color={colors.text} size={18} />
-                    {selected ? (
-                      <View
-                        style={[
-                          styles.check,
-                          { backgroundColor: colors.accent },
-                        ]}
-                      >
-                        <Icon name="check" color={colors.onAccent} size={10} />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${titles[kind]} 목표`}
+                      accessibilityState={{ selected }}
+                      onPress={() =>
+                        simple
+                          ? onSet(draftOf(kind, goal))
+                          : setDetail(draftOf(kind, goal))
+                      }
+                      style={styles.cardBody}
+                    >
+                      <View style={styles.badge}>
+                        <Icon name={row.icon} color={k1.ice} size={18} />
+                        {selected ? (
+                          <View style={styles.check}>
+                            <Icon name="check" color="#FFFFFF" size={10} />
+                          </View>
+                        ) : null}
                       </View>
-                    ) : null}
+                      <View style={styles.flex}>
+                        <AppText variant="label" tone="textTertiary">
+                          {row.kicker}
+                        </AppText>
+                        <AppText style={styles.cardValue} numberOfLines={1}>
+                          {row.value}
+                        </AppText>
+                        {row.note ? (
+                          <AppText variant="label" tone="textSecondary">
+                            {row.note}
+                          </AppText>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${titles[kind]} 목표로 바로 시작`}
+                      onPress={() => onStart(draftOf(kind, goal))}
+                      hitSlop={6}
+                      style={[styles.play, { backgroundColor: colors.accent }]}
+                    >
+                      <Icon
+                        name="play"
+                        color={colors.onAccent}
+                        size={18}
+                        solid
+                      />
+                    </Pressable>
                   </View>
-                  <View style={styles.flex}>
-                    <AppText variant="label" tone="textTertiary">
-                      {row.kicker}
-                    </AppText>
-                    <AppText style={styles.cardValue} numberOfLines={1}>
-                      {row.value}
-                    </AppText>
-                    {row.note ? (
-                      <AppText variant="label" tone="textSecondary">
-                        {row.note}
-                      </AppText>
-                    ) : null}
-                  </View>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${titles[kind]} 목표로 바로 시작`}
-                  onPress={() => onStart(draftOf(kind, goal))}
-                  hitSlop={6}
-                  style={[styles.play, { backgroundColor: colors.accent }]}
-                >
-                  <Icon name="play" color={colors.onAccent} size={18} solid />
-                </Pressable>
-              </View>
-            );
-          })}
-        </View>
-      )}
-    </BottomSheet>
+                );
+              })}
+            </View>
+          </ThemeProvider>
+        )}
+      </BottomSheet>
+    </ThemeProvider>
+  );
+}
+
+// A white box on the navy sheet read in the light tone, so its labels and ruler are navy (담당자 요청).
+function WhiteBox({
+  style,
+  children,
+  ...rest
+}: ViewProps & { style: StyleProp<ViewStyle> }) {
+  return (
+    <ThemeProvider tone="light">
+      <View {...rest} style={[style, styles.white]}>
+        {children}
+      </View>
+    </ThemeProvider>
   );
 }
 
@@ -263,9 +285,9 @@ function GoalDetail({
   onStart: () => void;
 }) {
   const { colors } = useTheme();
-  const ruler = { color: colors.text, mutedColor: colors.textTertiary };
+  const ruler = whiteRuler;
   const distanceRuler = (distanceM: number, set: (metres: number) => void) => (
-    <View style={[styles.field, { backgroundColor: colors.surfaceMuted }]}>
+    <WhiteBox style={styles.field}>
       <AppText variant="label" tone="textSecondary">
         거리
       </AppText>
@@ -277,13 +299,13 @@ function GoalDetail({
         onChange={value => set(Math.round(value * 1000))}
         {...ruler}
       />
-    </View>
+    </WhiteBox>
   );
   const durationRuler = (
     durationSec: number,
     set: (seconds: number) => void,
   ) => (
-    <View style={[styles.field, { backgroundColor: colors.surfaceMuted }]}>
+    <WhiteBox style={styles.field}>
       <AppText variant="label" tone="textSecondary">
         시간
       </AppText>
@@ -295,7 +317,7 @@ function GoalDetail({
         onChange={value => set(Math.round(value * 60))}
         {...ruler}
       />
-    </View>
+    </WhiteBox>
   );
   // The pace the distance and the time make, or the course distance and the time.
   const derived =
@@ -344,7 +366,7 @@ function GoalDetail({
         </>
       ) : null}
       {draft.kind === 'PACE' ? (
-        <View style={[styles.field, { backgroundColor: colors.surfaceMuted }]}>
+        <WhiteBox style={styles.field}>
           <AppText variant="label" tone="textSecondary">
             페이스
           </AppText>
@@ -356,13 +378,10 @@ function GoalDetail({
             onChange={paceSecPerKm => onChange({ ...draft, paceSecPerKm })}
             {...ruler}
           />
-        </View>
+        </WhiteBox>
       ) : null}
       {derived !== null ? (
-        <View
-          style={[styles.derived, { backgroundColor: colors.surfaceMuted }]}
-          accessibilityLabel="계산한 페이스"
-        >
+        <WhiteBox style={styles.derived} accessibilityLabel="계산한 페이스">
           <AppText style={styles.derivedValue}>{`${formatPace(
             derived,
           )}/km`}</AppText>
@@ -371,7 +390,7 @@ function GoalDetail({
               ? '코스 거리로 계산한 페이스'
               : '거리와 시간으로 계산한 페이스'}
           </AppText>
-        </View>
+        </WhiteBox>
       ) : null}
       {unrealistic ? (
         <AppText
@@ -400,11 +419,11 @@ function GoalDetail({
         onPress={onStart}
         style={({ pressed }) => [
           styles.start,
-          { backgroundColor: colors.accent },
+          styles.white,
           (pressed || unrealistic) && styles.pressed,
         ]}
       >
-        <AppText style={[styles.startText, { color: colors.onAccent }]}>
+        <AppText style={[styles.startText, { color: k1.night }]}>
           러닝 시작
         </AppText>
       </Pressable>
@@ -425,8 +444,12 @@ function GoalDetail({
   );
 }
 
+// Navy value and ticks on the white boxes.
+const whiteRuler = { color: k1.night, mutedColor: 'rgba(2,5,14,0.32)' };
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  white: { backgroundColor: '#FFFFFF' },
   list: { gap: 10 },
   card: {
     flexDirection: 'row',
@@ -438,7 +461,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: 'transparent',
+    backgroundColor: '#FFFFFF',
   },
+  // The chosen goal: a blue-grey rim that shows on the white card and the navy sheet.
+  cardSelected: { borderColor: k1.mid },
   cardBody: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
   badge: {
     width: 40,
@@ -446,6 +472,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: k1.night,
   },
   check: {
     position: 'absolute',
@@ -456,6 +483,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: k1.mid,
   },
   cardValue: {
     fontFamily: fontFamily.numberBold,

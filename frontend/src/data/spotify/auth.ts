@@ -6,12 +6,16 @@ import * as Keychain from 'react-native-keychain';
 
 export const spotifyRedirectUri = 'runway://spotify-callback';
 
-// 지금 곡·표지 (playback state), Premium 여부 (product), 재생 제어.
+// 지금 곡·표지 (playback state), Premium 여부 (product), 재생 제어, 2.7 내 재생 목록 (비공개 목록 포함)과 최근 들은 곡.
+// An account signed in before these scopes gets 403 for them until it signs in again (SCOPE_REQUIRED).
 const scopes = [
   'user-read-private',
   'user-read-playback-state',
   'user-read-currently-playing',
   'user-modify-playback-state',
+  'playlist-read-private',
+  'playlist-read-collaborative',
+  'user-read-recently-played',
 ];
 
 export type SpotifyTokens = {
@@ -29,6 +33,8 @@ export type SpotifyFailure =
   | 'PREMIUM_REQUIRED'
   | 'NO_HISTORY'
   | 'NO_ACTIVE_DEVICE'
+  // Signed in before 내 재생 목록 · 최근 들은 곡 asked for their scopes: Spotify answers 403 until a new sign-in.
+  | 'SCOPE_REQUIRED'
   | 'FAILED';
 
 export class SpotifyError extends Error {

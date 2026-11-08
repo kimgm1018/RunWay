@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import {
-  Pressable,
   StyleSheet,
   View,
   type LayoutChangeEvent,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { PressableScale } from './Motion';
 import Svg, {
   Defs,
   LinearGradient,
@@ -128,20 +128,14 @@ export function Card({
     );
   }
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.card,
-        look,
-        dark && styles.clip,
-        pressed && styles.pressed,
-        style,
-      ]}
+      style={[styles.card, look, dark && styles.clip, style]}
     >
       {content}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -159,5 +153,4 @@ const styles = StyleSheet.create({
   // The gradient is a square layer; clipping keeps it inside the rounded corners.
   clip: { overflow: 'hidden' },
   // DESIGN.md 2-1: a pressed box shrinks to 96%.
-  pressed: { transform: [{ scale: 0.96 }] },
 });

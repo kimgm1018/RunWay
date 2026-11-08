@@ -4,7 +4,7 @@ import { isNight } from '../../format';
 import type { RouteName } from '../../navigation/routes';
 import { ThemeProvider, type ThemeName } from '../../theme';
 import { CourseRunScreen } from './CourseRunScreen';
-import { FreeRunScreen } from './FreeRunScreen';
+import { CourseStartScreen, FreeRunScreen } from './FreeRunScreen';
 import { MusicCardScreen } from './MusicCardScreen';
 import { MusicSourceScreen } from './MusicSourceScreen';
 import { RunModeScreen } from './RunModeScreen';
@@ -37,6 +37,7 @@ export const dark = (): ThemeName => 'dark';
 export const runScreens: Partial<Record<RouteName, React.ComponentType>> = {
   RunMode: RunModeScreen,
   FreeRun: themed(FreeRunScreen, 'FreeRunScreen', dayNight),
+  CourseStart: themed(CourseStartScreen, 'CourseStartScreen', dayNight),
   CourseRun: themed(CourseRunScreen, 'CourseRunScreen', dayNight),
   MusicCard: MusicCardScreen,
   MusicSource: MusicSourceScreen,

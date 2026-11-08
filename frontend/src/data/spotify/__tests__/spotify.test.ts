@@ -9,7 +9,13 @@ import {
   spotifyRedirectUri,
   spotifyTokens,
 } from '../auth';
-import { spotifyFailureMessage, trackOf, withSpotify } from '../music';
+import {
+  playlistOf,
+  recentTracksOf,
+  spotifyFailureMessage,
+  trackOf,
+  withSpotify,
+} from '../music';
 
 type Reply = { status: number; body?: unknown; text?: string };
 
@@ -260,6 +266,170 @@ test('a revoked refresh token signs Spotify out', async () => {
   const state = await music().selectSource('SPOTIFY');
   expect(state).toMatchObject({ linked: false, nowPlaying: null });
   expect(await spotifyTokens.load()).toBe(null);
+});
+
+test('a playlist keeps its widest cover and its song count under either name', () => {
+  expect(
+    playlistOf({
+      id: 'pl1',
+      name: 'Long Run',
+      images: [{ url: 'https://i.scdn.co/image/640' }],
+      tracks: { total: 42 },
+    }),
+  ).toEqual({
+    id: 'pl1',
+    title: 'Long Run',
+    artworkUrl: 'https://i.scdn.co/image/640',
+    trackCount: 42,
+  });
+  expect(
+    playlistOf({ id: 'pl2', name: 'Easy', images: null, items: { total: 7 } }),
+  ).toMatchObject({ artworkUrl: null, trackCount: 7 });
+});
+
+test('signed in, 내 재생 목록 reads the account playlists', async () => {
+  await signedIn();
+  const calls = fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 200, body: playback },
+    {
+      status: 200,
+      body: {
+        items: [
+          { id: 'pl1', name: 'Long Run', images: [], tracks: { total: 3 } },
+          null,
+        ],
+      },
+    },
+  ]);
+  const repo = music();
+  await repo.selectSource('SPOTIFY');
+  expect(await repo.getPlaylists()).toEqual([
+    { id: 'pl1', title: 'Long Run', artworkUrl: null, trackCount: 3 },
+  ]);
+  expect(calls[2].url).toBe('https://api.spotify.com/v1/me/playlists?limit=20');
+});
+
+test('a playlist starts on the player with its context and the card shows what plays', async () => {
+  await signedIn();
+  const calls = fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 204 },
+    { status: 204 },
+    { status: 200, body: playback },
+  ]);
+  const repo = music();
+  await repo.selectSource('SPOTIFY');
+  const state = await repo.playPlaylist('pl1');
+  expect(calls[2]).toMatchObject({
+    url: 'https://api.spotify.com/v1/me/player/play',
+    init: {
+      method: 'PUT',
+      body: JSON.stringify({ context_uri: 'spotify:playlist:pl1' }),
+      headers: {
+        Authorization: 'Bearer access-1',
+        'Content-Type': 'application/json',
+      },
+    },
+  });
+  expect(state.nowPlaying).toMatchObject({ title: 'Ocean Run', playing: true });
+});
+
+test('a sign-in from before the playlist scopes asks to sign in again', async () => {
+  await signedIn();
+  fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 204 },
+    { status: 403 },
+  ]);
+  const repo = music();
+  await repo.selectSource('SPOTIFY');
+  const error = await repo.getPlaylists().catch(caught => caught);
+  expect(error).toMatchObject({ reason: 'SCOPE_REQUIRED' });
+  expect(spotifyFailureMessage(error, '')).toBe(
+    '목록을 보려면 Spotify에 다시 로그인해 주세요',
+  );
+});
+
+test('최근 들은 곡 keeps each song once, where it was heard last', () => {
+  const song = (id: string, name: string) => ({
+    track: {
+      id,
+      name,
+      duration_ms: 200_400,
+      artists: [{ name: 'A' }],
+      album: { images: [{ url: `https://i.scdn.co/${id}` }] },
+    },
+  });
+  expect(
+    recentTracksOf([
+      song('t1', 'One'),
+      song('t2', 'Two'),
+      song('t1', 'One'),
+      { track: null },
+    ]),
+  ).toEqual([
+    {
+      id: 't1',
+      title: 'One',
+      subtitle: 'A',
+      durationSec: 200,
+      artworkUrl: 'https://i.scdn.co/t1',
+    },
+    {
+      id: 't2',
+      title: 'Two',
+      subtitle: 'A',
+      durationSec: 200,
+      artworkUrl: 'https://i.scdn.co/t2',
+    },
+  ]);
+});
+
+test('최근 들은 곡 reads the recently played list and a song starts by its uri', async () => {
+  await signedIn();
+  const calls = fakeFetch([
+    { status: 200, body: { product: 'premium' } },
+    { status: 204 },
+    {
+      status: 200,
+      body: {
+        items: [
+          { track: { id: 'trk1', name: 'Ocean Run', duration_ms: 221_000 } },
+        ],
+      },
+    },
+    { status: 204 },
+    { status: 200, body: playback },
+  ]);
+  const repo = music();
+  await repo.selectSource('SPOTIFY');
+  expect(await repo.getRecentTracks()).toMatchObject([
+    { id: 'trk1', title: 'Ocean Run' },
+  ]);
+  expect(calls[2].url).toBe(
+    'https://api.spotify.com/v1/me/player/recently-played?limit=20',
+  );
+  const state = await repo.playTrack('trk1');
+  expect(calls[3]).toMatchObject({
+    url: 'https://api.spotify.com/v1/me/player/play',
+    init: {
+      method: 'PUT',
+      body: JSON.stringify({ uris: ['spotify:track:trk1'] }),
+    },
+  });
+  expect(state.nowPlaying?.playing).toBe(true);
+});
+
+test('signed out or on 멜론, 내 재생 목록 is empty without asking Spotify', async () => {
+  const calls = fakeFetch([]);
+  const repo = music();
+  expect(await repo.getPlaylists()).toEqual([]);
+  expect(await repo.getRecentTracks()).toEqual([]);
+  await repo.selectSource('SPOTIFY');
+  expect(await repo.getPlaylists()).toEqual([]);
+  expect(await repo.getRecentTracks()).toEqual([]);
+  expect(calls).toHaveLength(0);
 });
 
 test('멜론 commands stay with the mock player', async () => {

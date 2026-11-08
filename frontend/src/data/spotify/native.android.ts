@@ -14,6 +14,7 @@ type NativeRemote = {
   ): Promise<void>;
   getState(): Promise<string>;
   command(command: RemoteCommand): Promise<void>;
+  playUri(uri: string): Promise<void>;
   disconnect(): Promise<void>;
   addListener(eventName: string): void;
   removeListeners(count: number): void;
@@ -31,6 +32,7 @@ export function createSpotifyRemoteBridge(): SpotifyRemoteBridge | undefined {
       native.connect(clientId, 'runway://spotify-callback', interactive),
     getState: async () => parseRemotePlayback(await native.getState()),
     send: command => native.command(command),
+    playUri: uri => native.playUri(uri),
     disconnect: () => native.disconnect(),
     subscribe: listener => {
       const subscription = events.addListener(

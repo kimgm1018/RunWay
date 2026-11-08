@@ -16,6 +16,7 @@ import {
   Icon,
   KeyboardLift,
   LightGlass,
+  PressableScale,
   TextField,
 } from '../../components';
 import { RunMap, type RunMapRef } from '../../components/RunMap';
@@ -71,13 +72,12 @@ function ConfirmButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel="이 위치로 정하기"
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => pressed && styles.pressed}
     >
       <Raised tone="navy" style={styles.confirm}>
         <View style={[styles.confirmContent, disabled && styles.dimmed]}>
@@ -87,7 +87,7 @@ function ConfirmButton({
           </View>
         </View>
       </Raised>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -314,13 +314,12 @@ export function MeetingPlaceScreen() {
                         {results.map(place => {
                           const selected = place.name === picked?.name;
                           return (
-                            <Pressable
+                            <PressableScale
                               key={place.name}
                               accessibilityRole="radio"
                               accessibilityLabel={place.name}
                               accessibilityState={{ selected }}
                               onPress={() => setPicked(place)}
-                              style={({ pressed }) => pressed && styles.pressed}
                             >
                               <Raised
                                 tone={selected ? 'navy' : 'white'}
@@ -335,7 +334,7 @@ export function MeetingPlaceScreen() {
                                   {place.name}
                                 </AppText>
                               </Raised>
-                            </Pressable>
+                            </PressableScale>
                           );
                         })}
                       </ScrollView>
@@ -382,7 +381,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   ground: { backgroundColor: groupLook.mapBackground },
-  pressed: { transform: [{ scale: 0.97 }] },
   dimmed: { opacity: 0.45 },
   pinLayer: {
     position: 'absolute',

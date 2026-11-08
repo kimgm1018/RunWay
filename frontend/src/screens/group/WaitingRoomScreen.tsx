@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -17,7 +16,13 @@ import {
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '../../session/SessionProvider';
-import { AppText, EmptyState, Icon, useToast } from '../../components';
+import {
+  AppText,
+  EmptyState,
+  Icon,
+  PressableScale,
+  useToast,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -449,11 +454,10 @@ export function WaitingRoomScreen() {
             )}
           </View>
           {/* 6.5-ReadyBar: the music button is a raised navy circle beside it. */}
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="음악"
             onPress={() => navigateTo(navigation, 'MusicCard')}
-            style={({ pressed }) => pressed && styles.pressed}
           >
             <Raised tone="navy" style={styles.music}>
               {source && source !== 'NONE' ? (
@@ -462,7 +466,7 @@ export function WaitingRoomScreen() {
                 <Icon name="music" color={groupLook.onDark} size={20} />
               )}
             </Raised>
-          </Pressable>
+          </PressableScale>
         </SafeAreaView>
       </ThemeProvider>
       <Modal visible={count !== null} transparent animationType="fade">
@@ -637,7 +641,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: { transform: [{ scale: 0.97 }] },
   overlay: {
     flex: 1,
     alignItems: 'center',

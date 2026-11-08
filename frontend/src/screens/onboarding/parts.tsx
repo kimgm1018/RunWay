@@ -7,7 +7,13 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { AppText, BottomSheet, Icon, type IconName } from '../../components';
+import {
+  AppText,
+  BottomSheet,
+  Icon,
+  type IconName,
+  PressableScale,
+} from '../../components';
 import {
   fontFamily,
   radius,
@@ -162,20 +168,16 @@ export function GoButton({
   disabled?: boolean;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.go,
-        disabled && styles.goDisabled,
-        pressed && styles.goPressed,
-      ]}
+      style={[styles.go, disabled && styles.goDisabled]}
     >
       <AppText style={styles.goLabel}>{title}</AppText>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -319,20 +321,15 @@ export function SelectionCard({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="radio"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.selection,
-        selected && styles.selectionPicked,
-        pressed && styles.selectionPressed,
-        style,
-      ]}
+      style={[styles.selection, selected && styles.selectionPicked, style]}
     >
       {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -502,7 +499,6 @@ const styles = StyleSheet.create({
     backgroundColor: onboardingLook.ink,
   },
   goDisabled: { backgroundColor: 'rgba(2,5,14,0.28)' },
-  goPressed: { transform: [{ scale: 0.98 }] },
   goLabel: {
     fontFamily: fontFamily.bold,
     fontSize: 16.5,
@@ -563,7 +559,6 @@ const styles = StyleSheet.create({
     borderColor: onboardingLook.ink,
     borderWidth: 1.5,
   },
-  selectionPressed: { transform: [{ scale: 0.98 }] },
   select: {
     height: size.input,
     borderRadius: radius.pill,

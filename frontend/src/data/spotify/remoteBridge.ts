@@ -18,6 +18,8 @@ export type SpotifyRemoteBridge = {
   connect(clientId: string, interactive: boolean): Promise<void>;
   getState(): Promise<RemotePlayback>;
   send(command: RemoteCommand): Promise<void>;
+  // A playlist or a song (spotify:playlist:… · spotify:track:…) started on this phone.
+  playUri(uri: string): Promise<void>;
   disconnect(): Promise<void>;
   subscribe(listener: (state: RemotePlayback) => void): () => void;
 };

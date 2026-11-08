@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -14,7 +13,13 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, Backdrop, EmptyState, useToast } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  EmptyState,
+  PressableScale,
+  useToast,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -64,37 +69,35 @@ function Composer({
     <>
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="취소"
             onPress={() => navigation.goBack()}
             hitSlop={6}
-            style={({ pressed }) => pressed && styles.pressed}
           >
             <View style={styles.cancel}>
               <AppText style={styles.cancelText}>취소</AppText>
             </View>
-          </Pressable>
+          </PressableScale>
           <View style={styles.titleBox} pointerEvents="none">
             <AppText style={styles.title} accessibilityRole="header">
               {title}
             </AppText>
           </View>
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel={action}
             accessibilityState={{ disabled: busy }}
             disabled={busy}
             onPress={submit}
             hitSlop={6}
-            style={({ pressed }) => pressed && styles.pressed}
           >
             <View style={styles.submit}>
               <AppText style={[styles.submitText, busy && styles.busy]}>
                 {action}
               </AppText>
             </View>
-          </Pressable>
+          </PressableScale>
         </View>
       </SafeAreaView>
       <KeyboardLift style={styles.flex}>
@@ -294,7 +297,6 @@ export function PostEditScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: communityLook.background },
   flex: { flex: 1 },
-  pressed: { transform: [{ scale: 0.96 }] },
   loading: { marginTop: 48 },
   // 상단 56: 취소 and 게시 as words, the title in the middle.
   header: {

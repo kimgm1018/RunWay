@@ -30,6 +30,7 @@ import {
   EmptyState,
   Icon,
   MistFill,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -342,17 +343,17 @@ function MainButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled: busy }}
       disabled={busy}
       onPress={onPress}
-      style={({ pressed }) => [styles.main, pressed && styles.mainPressed]}
+      style={styles.main}
     >
       <AppText style={[styles.mainText, busy && styles.busy]}>{label}</AppText>
       <Icon name={icon} color={look.white} size={16} strokeWidth={2.4} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -451,7 +452,9 @@ function Profile({
   const [requestsOpen, setRequestsOpen] = useState(false);
   // 팔로우 요청 N건, or N건+ when U24 has more pages.
   const requestText = profile.followRequests
-    ? `${profile.followRequests.count}건${profile.followRequests.more ? '+' : ''}`
+    ? `${profile.followRequests.count}건${
+        profile.followRequests.more ? '+' : ''
+      }`
     : null;
   const followLabel =
     profile.followStatus === 'FOLLOWING'
@@ -778,7 +781,6 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: look.ink,
   },
-  mainPressed: { transform: [{ scale: 0.98 }] },
   mainText: {
     fontFamily: fontFamily.bold,
     fontSize: 16,

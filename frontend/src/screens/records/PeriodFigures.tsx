@@ -5,10 +5,9 @@ import Svg, {
   LinearGradient,
   Path,
   Polyline,
-  Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText } from '../../components';
+import { AppText, GrowBar, RevealX } from '../../components';
 import type { RunRecordSummary } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { fontFamily } from '../../theme';
@@ -157,6 +156,10 @@ export function PeriodFigures({
     : 0;
 
   const gap = previousDistanceM === null ? null : distanceM - previousDistanceM;
+  // The graphs draw in once when the period's numbers change (S15P31E105-478): lines from the left, bars in turn.
+  const appearKey = buckets
+    .map(bucket => `${bucket.key}:${bucket.distanceM}:${bucket.durationSec}`)
+    .join('|');
   return (
     <View
       onLayout={event => setWidth(event.nativeEvent.layout.width)}
@@ -180,18 +183,20 @@ export function PeriodFigures({
         value={pace ? `${formatPace(pace)}/km` : '– –'}
         note={fastest ? `최고: ${formatPace(fastest)}/km` : null}
       >
-        <Svg width={width} height={paceHeight}>
-          {paceLine ? (
-            <Polyline
-              points={paceLine}
-              fill="none"
-              stroke="#FFFFFF"
-              strokeWidth={1.8}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          ) : null}
-        </Svg>
+        <RevealX appearKey={appearKey} width={width} height={paceHeight}>
+          <Svg width={width} height={paceHeight}>
+            {paceLine ? (
+              <Polyline
+                points={paceLine}
+                fill="none"
+                stroke="#FFFFFF"
+                strokeWidth={1.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ) : null}
+          </Svg>
+        </RevealX>
       </Section>
       <Section
         label="누적 거리"
@@ -205,56 +210,57 @@ export function PeriodFigures({
             : null
         }
       >
-        <Svg width={width} height={distanceHeight}>
-          <Defs>
-            <LinearGradient id="periodDistance" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.22} />
-              <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.06} />
-            </LinearGradient>
-          </Defs>
-          {distanceLine ? (
-            <>
-              <Path
-                d={`${distanceLine} L${
-                  distancePoints[distancePoints.length - 1].x
-                },${distanceHeight} L0,${distanceHeight} Z`}
-                fill="url(#periodDistance)"
-              />
-              <Path
-                d={distanceLine}
-                fill="none"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          ) : null}
-        </Svg>
+        <RevealX appearKey={appearKey} width={width} height={distanceHeight}>
+          <Svg width={width} height={distanceHeight}>
+            <Defs>
+              <LinearGradient id="periodDistance" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.22} />
+                <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.06} />
+              </LinearGradient>
+            </Defs>
+            {distanceLine ? (
+              <>
+                <Path
+                  d={`${distanceLine} L${
+                    distancePoints[distancePoints.length - 1].x
+                  },${distanceHeight} L0,${distanceHeight} Z`}
+                  fill="url(#periodDistance)"
+                />
+                <Path
+                  d={distanceLine}
+                  fill="none"
+                  stroke="#FFFFFF"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </>
+            ) : null}
+          </Svg>
+        </RevealX>
       </Section>
       <Section
         label="총 시간"
         value={durationSec > 0 ? formatDuration(durationSec) : '– –'}
         note={`러닝 ${runCount}회`}
       >
-        <Svg width={width} height={timeHeight}>
+        <View style={{ width, height: timeHeight }}>
           {runDays.map((bucket, index) => {
             const share = bucket.durationSec / longest;
-            const height = Math.max(share * timeHeight, 6);
             return (
-              <Rect
+              <GrowBar
                 key={bucket.key}
-                x={index * (barWidth + barGap)}
-                y={timeHeight - height}
+                appearKey={appearKey}
+                index={index}
+                left={index * (barWidth + barGap)}
                 width={barWidth}
-                height={height}
-                rx={Math.min(6, barWidth / 2)}
-                fill="#FFFFFF"
-                fillOpacity={0.62 + share * 0.3}
+                height={Math.max(share * timeHeight, 6)}
+                radius={Math.min(6, barWidth / 2)}
+                color={`rgba(255,255,255,${0.62 + share * 0.3})`}
               />
             );
           })}
-        </Svg>
+        </View>
       </Section>
     </View>
   );

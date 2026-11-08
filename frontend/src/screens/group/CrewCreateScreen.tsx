@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, Icon, useToast } from '../../components';
+import { AppText, Icon, PressableScale, useToast } from '../../components';
 import {
   errorCode,
   useRepositories,
@@ -170,21 +170,17 @@ function StepButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [
-        styles.step,
-        disabled && styles.dim,
-        pressed && styles.pressed,
-      ]}
+      style={[styles.step, disabled && styles.dim]}
     >
       <Icon name={icon} color={groupLook.onLight} size={20} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -265,18 +261,14 @@ export function CrewCreateScreen() {
           >
             {/* 대표 사진: the picked photo fills the box; tapping it picks another, × takes it out. */}
             <View>
-              <Pressable
+              <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel={
                   photo ? '대표 사진 바꾸기' : '대표 사진 추가'
                 }
                 disabled={busy}
                 onPress={choosePhoto}
-                style={({ pressed }) => [
-                  styles.photo,
-                  photo && styles.photoPicked,
-                  pressed && styles.rowPressed,
-                ]}
+                style={[styles.photo, photo && styles.photoPicked]}
               >
                 {photo ? (
                   <Image
@@ -291,21 +283,18 @@ export function CrewCreateScreen() {
                     <AppText style={styles.photoText}>대표 사진 추가</AppText>
                   </>
                 )}
-              </Pressable>
+              </PressableScale>
               {photo ? (
-                <Pressable
+                <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel="대표 사진 빼기"
                   disabled={busy}
                   onPress={() => setPhoto(null)}
                   hitSlop={8}
-                  style={({ pressed }) => [
-                    styles.photoRemove,
-                    pressed && styles.pressed,
-                  ]}
+                  style={styles.photoRemove}
                 >
                   <Icon name="close" color={groupLook.onDark} size={14} />
-                </Pressable>
+                </PressableScale>
               ) : null}
             </View>
             <Field title="크루 이름" note="필수">
@@ -449,7 +438,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: groupLook.onLightSub,
   },
-  rowPressed: { transform: [{ scale: 0.985 }] },
   field: { gap: spacing.md },
   rowBetween: {
     flexDirection: 'row',
@@ -516,7 +504,6 @@ const styles = StyleSheet.create({
     ...inputDark,
   },
   dim: { opacity: 0.4 },
-  pressed: { transform: [{ scale: 0.97 }] },
   capacity: {
     minWidth: 56,
     textAlign: 'center',

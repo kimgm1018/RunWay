@@ -242,6 +242,16 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(screen, '러닝 시작');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '코스 러닝');
+  // 2.0C first: the map with 코스 설정 in place of 목표 설정, and 러닝 시작 waits for a course (담당자 요청).
+  expect(texts(screen)).toContain('코스 설정');
+  expect(texts(screen)).not.toContain('목표 설정');
+  expect(labelled(screen, '러닝 시작').props.disabled).toBe(true);
+  // The round button left of 러닝 시작 turns it into a free run, and back again.
+  await press(screen, '자유 러닝으로 바꾸기');
+  expect(texts(screen)).toContain('목표 설정');
+  await press(screen, '코스 러닝으로 바꾸기');
+  expect(texts(screen)).toContain('코스 설정');
+  await press(screen, '코스 설정');
   expect(texts(screen)).toContain('환경 · 여러 개 선택');
   await act(async () => screen.unmount());
 
@@ -262,7 +272,11 @@ test('run mode leads to course recommendations and a free run with a countdown',
   expect(texts(free)).toContain('6′00″/km');
   // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.
   await act(async () => {
-    labelled(free, '목표 거리', 'onAccessibilityAction').props.onAccessibilityAction({
+    labelled(
+      free,
+      '목표 거리',
+      'onAccessibilityAction',
+    ).props.onAccessibilityAction({
       nativeEvent: { actionName: 'increment' },
     });
   });
@@ -327,6 +341,8 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   // The 2.7 핸드오프 card has no lists and no shuffle or repeat.
   expect(card).not.toContain('좋아요한 곡');
   expect(() => labelled(screen, '셔플')).toThrow();
+  // 멜론 cannot start a chosen playlist, so 내 재생 목록 stays out.
+  expect(card).not.toContain('내 재생 목록');
   await press(screen, '일시정지');
   expect(() => labelled(screen, '재생')).not.toThrow();
   // 다음 곡 goes through the music repository and shows the song it reports.
@@ -366,6 +382,31 @@ test('the music card plays Melon, and 2.8 switches to Spotify or clears the pick
   });
   await press(screen, '설정 완료');
   expect(texts(screen)).toContain('음악 서비스를 연결해 주세요');
+  await act(async () => screen.unmount());
+});
+
+test('the Spotify card lists my playlists and songs heard lately, and a tap plays one', async () => {
+  const screen = await openMusic('musicSpotify');
+  // The lists come in after the card.
+  await waitForText(screen, '내 재생 목록');
+  const card = texts(screen);
+  for (const text of [
+    '내 재생 목록',
+    '광안리 새벽',
+    '인터벌 데이',
+    'Spotify 열기',
+  ]) {
+    expect(card).toContain(text);
+  }
+  await press(screen, '인터벌 데이 재생 목록 재생');
+  expect(texts(screen)).toContain('재생 목록');
+  expect(() => labelled(screen, '일시정지')).not.toThrow();
+  // 최근 들은 곡 is the other tab over the same row, and a song plays on its own.
+  expect(texts(screen)).not.toContain('새벽 해변');
+  await press(screen, '최근 들은 곡');
+  expect(texts(screen)).not.toContain('광안리 새벽');
+  await press(screen, '케이던스 180 재생');
+  expect(texts(screen)).toContain('Run Crew');
   await act(async () => screen.unmount());
 });
 

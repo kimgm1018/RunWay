@@ -219,5 +219,25 @@ export function withMelon(
     // 보이면 바로 돌려주고, 길이는 2.7 카드가 짧은 간격으로 다시 읽어 채운다.
     next: command('next', base.next, moved),
     previous: command('previous', base.previous, moved),
+    // 멜론 모듈은 고른 재생목록을 틀 수 없어서(기본 재생목록만) 2.7 내 재생 목록을 보이지 않는다.
+    getPlaylists: async () =>
+      (await baseState()).source === 'MELON' ? [] : base.getPlaylists(),
+    playPlaylist: async playlistId => {
+      if ((await baseState()).source === 'MELON') {
+        throw new MelonError('멜론에서는 재생 목록을 고를 수 없어요');
+      }
+      keep(await base.playPlaylist(playlistId));
+      return getState();
+    },
+    // 멜론 모듈은 들은 곡 기록을 알려 주지 않아 최근 들은 곡도 보이지 않는다.
+    getRecentTracks: async () =>
+      (await baseState()).source === 'MELON' ? [] : base.getRecentTracks(),
+    playTrack: async trackId => {
+      if ((await baseState()).source === 'MELON') {
+        throw new MelonError('멜론에서는 곡을 골라 틀 수 없어요');
+      }
+      keep(await base.playTrack(trackId));
+      return getState();
+    },
   };
 }

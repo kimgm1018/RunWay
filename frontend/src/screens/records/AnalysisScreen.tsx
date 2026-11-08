@@ -9,7 +9,13 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, EmptyState, Icon } from '../../components';
+import {
+  animateNextLayout,
+  AppText,
+  EmptyState,
+  FadeIn,
+  Icon,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -403,19 +409,20 @@ export function AnalysisScreen() {
     week => week.start === anchor.week,
   );
   const weekStart = weeksOf(weekMonth)[weekIndex]?.start ?? null;
+  // 전체 · 년 · 월 · 주, the big range first as dates read in Korean (담당자 요청).
   const tabs: { value: Mode; label: string; accessibilityLabel: string }[] = [
-    {
-      value: 'WEEK',
-      label: `${weekIndex + 1}주차 ▾`,
-      accessibilityLabel: '주',
-    },
+    { value: 'ALL', label: '전체', accessibilityLabel: '전체' },
+    { value: 'YEAR', label: `${anchor.year}년 ▾`, accessibilityLabel: '년' },
     {
       value: 'MONTH',
       label: `${monthNumber(anchor.month)}월 ▾`,
       accessibilityLabel: '월',
     },
-    { value: 'YEAR', label: `${anchor.year}년 ▾`, accessibilityLabel: '년' },
-    { value: 'ALL', label: '전체', accessibilityLabel: '전체' },
+    {
+      value: 'WEEK',
+      label: `${weekIndex + 1}주차 ▾`,
+      accessibilityLabel: '주',
+    },
   ];
   // The chosen tab again opens (or closes) its picker; 전체 has none.
   const changeMode = (next: Mode) => {
@@ -426,6 +433,7 @@ export function AnalysisScreen() {
       return;
     }
     setPicking(null);
+    animateNextLayout();
     setMode(next);
   };
 
@@ -665,14 +673,18 @@ export function AnalysisScreen() {
                   </View>
                 )
               ) : (
-                <View style={styles.cardChart}>
+                // A new period's figures fade in rather than swap at once (S15P31E105-478).
+                <FadeIn
+                  appearKey={`${mode}:${anchor.week}:${anchor.month}:${anchor.year}`}
+                  style={styles.cardChart}
+                >
                   <PeriodFigures
                     buckets={period.buckets}
                     previousName={period.previousName}
                     previousDistanceM={period.previous?.totalDistanceM ?? null}
                     onSwipe={swipe}
                   />
-                </View>
+                </FadeIn>
               )}
               {view !== 'list' &&
               period.buckets.every(bucket => bucket.runCount === 0) ? (

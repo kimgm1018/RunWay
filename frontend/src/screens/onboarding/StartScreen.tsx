@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   Image,
-  Pressable,
   StatusBar,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+import { PressableScale } from '../../components';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, {
@@ -170,18 +170,17 @@ export function StartScreen() {
   return (
     <View style={styles.root}>
       <StartArt />
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel="시작하기"
         onPress={() => navigateTo(navigation, 'Login')}
-        style={({ pressed }) => [
+        style={[
           styles.start,
           { bottom: Math.max(height * 0.05, insets.bottom + 16) },
-          pressed && styles.pressed,
         ]}
       >
         <Text style={styles.startText}>시작하기</Text>
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }
@@ -201,7 +200,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pressed: { transform: [{ scale: 0.98 }] },
   startText: {
     fontFamily: fontFamily.bold,
     fontSize: 16,

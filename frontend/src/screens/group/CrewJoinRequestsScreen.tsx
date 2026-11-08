@@ -13,7 +13,12 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, useToast } from '../../components';
+import {
+  AppText,
+  EmptyState,
+  PressableScale,
+  useToast,
+} from '../../components';
 import {
   errorCode,
   useRepositories,
@@ -145,32 +150,28 @@ function RequestRow({
           {requestLine(request, clock.now())}
         </AppText>
       </View>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`${request.nickname} 거절`}
         disabled={busy}
         onPress={() => onDecide(false)}
-        style={({ pressed }) => pressed && styles.pressed}
       >
         <Raised tone="navy" style={styles.decide}>
           <AppText style={styles.decideTextLight}>거절</AppText>
         </Raised>
-      </Pressable>
-      <Pressable
+      </PressableScale>
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`${request.nickname} 승인`}
         accessibilityState={{ disabled: !canApprove }}
         disabled={busy || !canApprove}
         onPress={() => onDecide(true)}
-        style={({ pressed }) => [
-          pressed && styles.pressed,
-          !canApprove && styles.locked,
-        ]}
+        style={[!canApprove && styles.locked]}
       >
         <Raised tone="white" style={styles.decide}>
           <AppText style={styles.decideTextDark}>승인</AppText>
         </Raised>
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }
@@ -500,7 +501,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: groupLook.navy,
   },
-  pressed: { transform: [{ scale: 0.97 }] },
   locked: { opacity: 0.5 },
   none: { paddingVertical: spacing.xl },
   // 6.2a-ApprovalNote.

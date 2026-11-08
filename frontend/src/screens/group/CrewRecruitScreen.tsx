@@ -1,14 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon } from '../../components';
+import { AppText, EmptyState, Icon, PressableScale } from '../../components';
 import { useResource, type CrewListItem, type Repositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing } from '../../theme';
@@ -23,17 +17,13 @@ function CrewCard({ crew }: { crew: CrewListItem }) {
   const full = crew.memberCount >= crew.capacity;
   const count = `${crew.memberCount}/${crew.capacity}명`;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`${crew.name}, ${
         full ? '정원 마감' : '모집 중'
       } ${count}`}
       onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-      style={({ pressed }) => [
-        crewCard.card,
-        styles.crew,
-        pressed && styles.rowPressed,
-      ]}
+      style={[crewCard.card, styles.crew]}
     >
       <View style={styles.flex}>
         {/* 모집 중 alone on top, the count right after the name (담당자 요청). Plain regular text, no
@@ -57,7 +47,7 @@ function CrewCard({ crew }: { crew: CrewListItem }) {
       >
         <Icon name="arrowRight" color={groupLook.onDark} size={16} />
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -72,16 +62,15 @@ function CreateBox() {
           직접 만들고 함께 달릴 멤버를 모아 보세요
         </AppText>
       </View>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel="크루 만들기"
         onPress={() => navigateTo(navigation, 'CrewCreate')}
-        style={({ pressed }) => pressed && styles.pressed}
       >
         <Raised tone="navy" style={styles.createButton}>
           <AppText style={styles.createButtonText}>크루 만들기</AppText>
         </Raised>
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }
@@ -191,7 +180,6 @@ const styles = StyleSheet.create({
   list: { gap: 12, marginTop: spacing.md },
   // 6.1-CrewCard on a navy card so each crew reads as something to tap (담당자 요청, S15P31E105-483).
   crew: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  rowPressed: { transform: [{ scale: 0.985 }] },
   // Regular weight, not bold (담당자 요청).
   countText: {
     fontFamily: fontFamily.regular,
@@ -241,5 +229,4 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: groupLook.onDark,
   },
-  pressed: { transform: [{ scale: 0.97 }] },
 });

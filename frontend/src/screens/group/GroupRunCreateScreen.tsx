@@ -19,6 +19,7 @@ import {
   Button,
   Icon,
   LightGlass,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -198,18 +199,18 @@ function PickChip({
   accessibilityLabel: string;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
       // A light glass pill with the icon on the right (6.8-DateTimeCard).
-      style={({ pressed }) => [styles.flex, pressed && styles.pressed]}
+      style={styles.flex}
     >
       <LightGlass radius={24} style={styles.pick}>
         <AppText style={styles.pickLabel}>{label}</AppText>
         <Icon name={icon} color={groupLook.onLightSub} size={14} />
       </LightGlass>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -443,13 +444,12 @@ export function GroupRunCreateScreen() {
             {minuteOptions.map(value => {
               const selected = value === minutes;
               return (
-                <Pressable
+                <PressableScale
                   key={value}
                   accessibilityRole="radio"
                   accessibilityLabel={`${value}분`}
                   accessibilityState={{ selected }}
                   onPress={() => setMinutes(value)}
-                  style={({ pressed }) => pressed && styles.pressed}
                 >
                   {selected ? (
                     <Raised tone="navy" style={styles.chip}>
@@ -462,7 +462,7 @@ export function GroupRunCreateScreen() {
                       <AppText style={styles.chipText}>{`${value}분`}</AppText>
                     </LightGlass>
                   )}
-                </Pressable>
+                </PressableScale>
               );
             })}
           </View>
@@ -730,7 +730,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: groupLook.onLight,
   },
-  pressed: { transform: [{ scale: 0.97 }] },
   auto: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
   autoTitle: {
     fontFamily: fontFamily.bold,

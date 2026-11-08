@@ -20,6 +20,7 @@ import {
   Backdrop,
   EmptyState,
   Icon,
+  PressableScale,
   useToast,
 } from '../../components';
 import {
@@ -222,7 +223,7 @@ export function PostDetailScreen() {
               contentContainerStyle={styles.scroll}
             >
               <View style={styles.authorRow}>
-                <Pressable
+                <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel={`${post.author.handle} 프로필`}
                   onPress={() => openAuthor(post)}
@@ -252,7 +253,7 @@ export function PostDetailScreen() {
                     size={14}
                     strokeWidth={2.4}
                   />
-                </Pressable>
+                </PressableScale>
                 {post.isMine ? (
                   <Pressable
                     accessibilityRole="button"
@@ -356,14 +357,13 @@ export function PostDetailScreen() {
                   />
                 </View>
                 {/* 저장 stays pressable on an emptied comment so it can say why it does not save. */}
-                <Pressable
+                <PressableScale
                   accessibilityRole="button"
                   accessibilityLabel={editing ? '댓글 수정 저장' : '게시'}
                   accessibilityState={{ disabled: !sendable || sending }}
                   disabled={!sendable || sending}
                   onPress={send}
                   hitSlop={6}
-                  style={({ pressed }) => pressed && styles.sendPressed}
                 >
                   <View style={styles.send}>
                     <AppText
@@ -372,7 +372,7 @@ export function PostDetailScreen() {
                       {editing ? '저장' : '게시'}
                     </AppText>
                   </View>
-                </Pressable>
+                </PressableScale>
               </View>
             </SafeAreaView>
           </KeyboardLift>
@@ -450,7 +450,6 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: communityLook.pressedRow,
-    transform: [{ scale: 0.985 }],
   },
   handle: {
     fontFamily: fontFamily.bold,
@@ -535,7 +534,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   send: { height: 44, paddingHorizontal: 4, justifyContent: 'center' },
-  sendPressed: { transform: [{ scale: 0.96 }] },
   sendText: {
     fontFamily: fontFamily.bold,
     fontSize: 14.5,

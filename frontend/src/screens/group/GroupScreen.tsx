@@ -8,7 +8,13 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon } from '../../components';
+import {
+  animateNextLayout,
+  AppText,
+  EmptyState,
+  Icon,
+  PressableScale,
+} from '../../components';
 import {
   useRepositories,
   useResource,
@@ -48,13 +54,12 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
   const { clock } = useRepositories();
   const now = clock.now();
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={`${run.title}, ${startsIn(run.scheduledAt, now)}`}
       onPress={() =>
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
-      style={({ pressed }) => pressed && styles.cardPressed}
     >
       <Raised tone="white" style={styles.upcoming}>
         <View style={styles.flex}>
@@ -68,21 +73,20 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
           </AppText>
         </View>
         {canEnterRoom(run, now) ? (
-          <Pressable
+          <PressableScale
             accessibilityRole="button"
             accessibilityLabel="대기방 입장"
             onPress={() =>
               navigation.navigate('WaitingRoom', { groupRunId: run.id })
             }
-            style={({ pressed }) => pressed && styles.pressed}
           >
             <Raised tone="navy" style={styles.enter}>
               <AppText style={styles.enterText}>대기방 입장</AppText>
             </Raised>
-          </Pressable>
+          </PressableScale>
         ) : null}
       </Raised>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -128,7 +132,7 @@ function RunCard({
         <AppText style={[styles.runTitle, styles.flex]} numberOfLines={1}>
           {run.title}
         </AppText>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={
             run.joined ? `${run.title} 참가 취소` : `${run.title} 참가하기`
@@ -136,7 +140,6 @@ function RunCard({
           accessibilityState={{ selected: run.joined }}
           onPress={onToggle}
           hitSlop={6}
-          style={({ pressed }) => pressed && styles.pressed}
         >
           <Raised
             tone={run.joined ? 'white' : 'darkGlass'}
@@ -151,7 +154,7 @@ function RunCard({
               {run.joined ? '참가 중' : '참가하기'}
             </AppText>
           </Raised>
-        </Pressable>
+        </PressableScale>
       </View>
       {/* When and where in one line; the course is on 6.4 (담당자 결정, S15P31E105-414). */}
       <View style={styles.lines}>
@@ -218,28 +221,32 @@ function CrewPanel({
             </AppText>
           </View>
         </Pressable>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={open ? `${crew.name} 접기` : `${crew.name} 펴기`}
-          onPress={() => setOpen(value => !value)}
-          style={({ pressed }) => [crewCard.round, pressed && styles.pressed]}
+          onPress={() => {
+            // The runs fold in and out instead of jumping (S15P31E105-478).
+            animateNextLayout();
+            setOpen(value => !value);
+          }}
+          style={crewCard.round}
         >
           <Icon
             name={open ? 'chevronDown' : 'forward'}
             color={groupLook.onDark}
             size={16}
           />
-        </Pressable>
-        <Pressable
+        </PressableScale>
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`${crew.name} 그룹런 만들기`}
           onPress={() =>
             navigation.navigate('GroupRunCreate', { crewId: crew.id })
           }
-          style={({ pressed }) => [crewCard.round, pressed && styles.pressed]}
+          style={crewCard.round}
         >
           <Icon name="plus" color={groupLook.onDark} size={16} />
-        </Pressable>
+        </PressableScale>
       </View>
       {open ? (
         runs.length ? (
@@ -295,20 +302,16 @@ function NoCrews({ data }: { data: MyGroupRuns }) {
             </AppText>
           </View>
         </View>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="크루 모집 보러 가기"
           onPress={() => navigateTo(navigation, 'CrewRecruit')}
-          style={({ pressed }) => [
-            styles.recruitButton,
-            { backgroundColor: colors.accent },
-            pressed && styles.pressed,
-          ]}
+          style={[styles.recruitButton, { backgroundColor: colors.accent }]}
         >
           <AppText variant="button" style={{ color: colors.onAccent }}>
             크루 모집 보러 가기 ›
           </AppText>
-        </Pressable>
+        </PressableScale>
       </View>
       <Pressable
         accessibilityRole="button"
@@ -488,7 +491,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 20,
   },
-  cardPressed: { transform: [{ scale: 0.985 }] },
   upcomingTitle: {
     fontFamily: fontFamily.bold,
     fontSize: 21,
@@ -612,7 +614,6 @@ const styles = StyleSheet.create({
     color: groupLook.onDark,
   },
   noRuns: { textAlign: 'center', paddingVertical: spacing.xl },
-  pressed: { transform: [{ scale: 0.97 }] },
   noCrews: {
     flex: 1,
     paddingHorizontal: spacing.screen,

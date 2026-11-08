@@ -130,6 +130,7 @@ export function withSavedMusic(
 
   return {
     canStartWithoutTrack: base.canStartWithoutTrack,
+    connectLibrary: base.connectLibrary,
     subscribe: base.subscribe
       ? listener => {
           let active = true;
@@ -173,5 +174,23 @@ export function withSavedMusic(
     pause: after(base.pause),
     next: after(base.next),
     previous: after(base.previous),
+    getPlaylists: async () => {
+      restoring ??= restore().catch(error => {
+        restoring = null;
+        throw error;
+      });
+      await restoring;
+      return base.getPlaylists();
+    },
+    playPlaylist: after(base.playPlaylist),
+    getRecentTracks: async () => {
+      restoring ??= restore().catch(error => {
+        restoring = null;
+        throw error;
+      });
+      await restoring;
+      return base.getRecentTracks();
+    },
+    playTrack: after(base.playTrack),
   };
 }
