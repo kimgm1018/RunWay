@@ -69,6 +69,15 @@ function people(count: number, from: number) {
   }));
 }
 
+const crewImageId = '550e8400-e29b-41d4-a716-446655440000';
+
+// What the phone's photo picker answers next (react-native-image-picker is mocked in jest.setup.js).
+function pickNext(asset: Record<string, unknown>) {
+  (
+    require('react-native-image-picker').launchImageLibrary as jest.Mock
+  ).mockResolvedValueOnce({ assets: [asset] });
+}
+
 function serve() {
   fetchMock.mockImplementation(
     async (address: string, init: { method: string; body?: string }) => {
@@ -111,6 +120,10 @@ function serve() {
               isOwner: crew.ownerId === meId,
             })),
         });
+      }
+      // F01 for 6.3 대표 사진 (S15P31E105-531).
+      if (path === '/images' && init.method === 'POST') {
+        return respond(201, { imageId: crewImageId, url: null });
       }
       if (path === '/crews' && init.method === 'POST') {
         const body = JSON.parse(init.body!);
@@ -426,6 +439,60 @@ test('6.3 creates a crew in the picked place’s region', async () => {
     },
   ]);
   expect(texts(screen)).toContain('광안리 주말 러너스');
+  await act(async () => screen.unmount());
+});
+
+test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with the crew', async () => {
+  const screen = await openGroup();
+  await press(screen, '크루 모집');
+  await press(screen, '크루 만들기');
+
+  // A photo F01 would turn down is not taken.
+  pickNext({ uri: 'file:///cache/run.gif', type: 'image/gif', fileSize: 1000 });
+  await press(screen, '대표 사진 추가');
+  expect(texts(screen)).toContain('JPG나 PNG 사진만 쓸 수 있어요');
+
+  pickNext({
+    uri: 'file:///cache/crew.jpg',
+    type: 'image/jpeg',
+    fileName: 'crew.jpg',
+    fileSize: 820_000,
+  });
+  await press(screen, '대표 사진 추가');
+  await press(screen, '대표 사진 빼기');
+  expect(
+    screen.root.findAll(
+      node => node.props.accessibilityLabel === '대표 사진 추가',
+    ).length,
+  ).toBeGreaterThan(0);
+
+  pickNext({
+    uri: 'file:///cache/crew.jpg',
+    type: 'image/jpeg',
+    fileName: 'crew.jpg',
+    fileSize: 820_000,
+  });
+  await press(screen, '대표 사진 추가');
+  expect(
+    screen.root.findAll(
+      node => node.props.source?.uri === 'file:///cache/crew.jpg',
+    ).length,
+  ).toBeGreaterThan(0);
+  await type(screen, '크루 이름', '광안리 주말 러너스');
+  await type(screen, '지역 검색', '광안리');
+  await press(screen, '광안리해수욕장 입구');
+  await press(screen, '크루 만들기');
+  await settle(100);
+
+  expect(created).toEqual([
+    {
+      name: '광안리 주말 러너스',
+      description: null,
+      capacity: 20,
+      regionCode: '26500',
+      imageKey: `images/crew/${meId}/${crewImageId}.jpg`,
+    },
+  ]);
   await act(async () => screen.unmount());
 });
 

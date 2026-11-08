@@ -9,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
@@ -41,6 +40,7 @@ import {
   toBirthDate,
 } from '../onboarding/validation';
 import { ProfilePhoto, settingsLook } from './SettingsScreen';
+import { photoFailure, pickPhoto } from '../photoPicker';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 // The same years as 1.5b (S15P31E105-520), newest first, so a date picked at sign-up always shows here.
@@ -76,21 +76,9 @@ function baselineLine({ baseline }: ProfileDetail) {
   return parts.filter(Boolean).join(' · ');
 }
 
-const photoLimitBytes = 5 * 1024 * 1024;
-
 // F01 and U05 failures for the photo; the rest of the form is not sent after one.
-function describePhotoError(error: unknown) {
-  switch (errorCode(error)) {
-    case 'FILE_TOO_LARGE':
-      return '사진이 너무 커요. 5MB 이하의 사진을 골라 주세요';
-    case 'UNSUPPORTED_MEDIA_TYPE':
-    case 'INVALID_FILE':
-    case 'INVALID_IMAGE':
-      return '이 사진은 쓸 수 없어요. 다른 JPG나 PNG 사진을 골라 주세요';
-    default:
-      return '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요';
-  }
-}
+const describePhotoError = (error: unknown) =>
+  photoFailure(error) ?? '사진을 올리지 못했어요. 잠시 후 다시 시도해 주세요';
 
 function Form({
   detail,
@@ -133,37 +121,14 @@ function Form({
   const [shownPhoto, setShownPhoto] = useState(photo);
   const [pendingPhoto, setPendingPhoto] = useState<PhotoFile | null>(null);
 
-  const pickPhoto = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      selectionLimit: 1,
-      maxWidth: 1080,
-      maxHeight: 1080,
-      quality: 0.8,
-    });
-    const asset = result.assets?.[0];
-    if (result.didCancel || !asset?.uri) {
-      return;
+  const choosePhoto = async () => {
+    const picked = await pickPhoto('profile');
+    if (picked.kind === 'refused') {
+      toast(picked.message);
+    } else if (picked.kind === 'picked') {
+      setShownPhoto(picked.photo.uri);
+      setPendingPhoto(picked.photo);
     }
-    const type =
-      asset.type === 'image/jpeg' || asset.type === 'image/png'
-        ? asset.type
-        : null;
-    // F01 takes jpeg or png up to 5MB.
-    if (!type) {
-      toast('JPG나 PNG 사진만 쓸 수 있어요');
-      return;
-    }
-    if ((asset.fileSize ?? 0) > photoLimitBytes) {
-      toast('5MB 이하의 사진을 골라 주세요');
-      return;
-    }
-    setShownPhoto(asset.uri);
-    setPendingPhoto({
-      uri: asset.uri,
-      type,
-      name: asset.fileName ?? `profile.${type === 'image/png' ? 'png' : 'jpg'}`,
-    });
   };
 
   const save = async () => {
@@ -233,7 +198,7 @@ function Form({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="프로필 사진 바꾸기"
-              onPress={pickPhoto}
+              onPress={choosePhoto}
               hitSlop={6}
               style={styles.camera}
             >
