@@ -147,10 +147,11 @@ function MainTabs() {
   useResumeRun();
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
+      {/* The tab bar draws the tabs in this order: 홈·커뮤니티·러닝·그룹·프로필 (S15P31E105-522). */}
       <Tabs.Screen name="HomeTab" component={HomeTab} />
+      <Tabs.Screen name="CommunityTab" component={screens.Community} />
       <Tabs.Screen name="RunTab" component={RunTab} />
       <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
-      <Tabs.Screen name="CommunityTab" component={screens.Community} />
       <Tabs.Screen name="ProfileTab" component={MyProfileTabScreen} />
     </Tabs.Navigator>
   );

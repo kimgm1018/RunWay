@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { AppText, PressableScale } from '../components';
-import { fontFamily, size } from '../theme';
+import { useResource, type Repositories } from '../data';
+import { fontFamily, k1, size } from '../theme';
 import type { MainTabParamList } from './types';
 
 type TabKey = keyof MainTabParamList;
@@ -23,7 +24,8 @@ const light = {
   bar: '#FFFFFF',
   barBorder: 'rgba(2,5,14,0.05)',
   barShadow: '0 12px 32px rgba(9,17,26,0.12), 0 2px 6px rgba(9,17,26,0.05)',
-  inactive: '#56646C',
+  // Icons and names on the white bar are the deep navy (S15P31E105-522, 담당자 요청).
+  inactive: k1.night,
   active: '#FFFFFF',
   // The chosen tab is a black textured tile.
   tile: '#0F1011',
@@ -37,7 +39,12 @@ const texture = require('../../assets/images/tab-active-texture.png');
 // The run start screens hide the tab bar: their own start row sits at the foot (S15P31E105-517, 담당자 결정).
 const hiddenOn = ['FreeRun', 'CourseStart', 'CourseRun'];
 
-// The handoff's 21px line icons; the chosen one is drawn a little heavier.
+const loadMe = (repositories: Repositories) => repositories.profile.getMe();
+
+const iconSize = 21;
+
+// The handoff's 21px line icons over the tab names; the chosen one is drawn a little heavier.
+// 커뮤니티 is a feed and 러닝 a runner (S15P31E105-522); 프로필 is drawn by ProfileIcon.
 function TabIcon({
   tab,
   color,
@@ -55,7 +62,7 @@ function TabIcon({
     strokeLinejoin: 'round' as const,
   };
   return (
-    <Svg width={21} height={21} viewBox="0 0 24 24">
+    <Svg width={iconSize} height={iconSize} viewBox="0 0 24 24">
       {tab === 'HomeTab' ? (
         <>
           <Path {...stroke} d="M15 21v-7a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v7" />
@@ -66,14 +73,10 @@ function TabIcon({
         </>
       ) : tab === 'RunTab' ? (
         <>
-          <Path
-            {...stroke}
-            d="M4 16v-2.4C4 11.5 3 10.5 3 8c0-2.7 1.5-6 4.5-6C9.4 2 10 3.8 10 5.5c0 3.1-2 5.7-2 8.7V16a2 2 0 1 1-4 0z"
-          />
-          <Path
-            {...stroke}
-            d="M20 20v-2.4c0-2.1 1-3.1 1-5.6 0-2.7-1.5-6-4.5-6C14.6 6 14 7.8 14 9.5c0 3.1 2 5.7 2 8.7V20a2 2 0 1 0 4 0z"
-          />
+          <Circle {...stroke} cx={13} cy={4} r={1.6} />
+          <Path {...stroke} d="M4 17l5 1 .75-1.5" />
+          <Path {...stroke} d="M15 21v-4l-4-3 1-6" />
+          <Path {...stroke} d="M7 12V9l5-1 3 3 3 1" />
         </>
       ) : tab === 'GroupTab' ? (
         <>
@@ -83,21 +86,70 @@ function TabIcon({
           <Path {...stroke} d="M16 3.1a4 4 0 0 1 0 7.8" />
         </>
       ) : tab === 'CommunityTab' ? (
-        <Path {...stroke} d="M7.9 20A9 9 0 1 0 4 16.1L2 22z" />
-      ) : (
+        // A feed of posts rather than a chat bubble (S15P31E105-522, 담당자 결정).
         <>
-          <Circle {...stroke} cx={12} cy={8} r={4.2} />
-          <Path {...stroke} d="M4.5 21c.8-4 3.8-6.3 7.5-6.3s6.7 2.3 7.5 6.3" />
+          <Rect {...stroke} x={3} y={3} width={18} height={7} rx={2} />
+          <Rect {...stroke} x={3} y={14} width={18} height={7} rx={2} />
+          <Path {...stroke} d="M7 6.5h6M7 17.5h6" />
+        </>
+      ) : (
+        // 프로필 without a photo: a person in a circle.
+        <>
+          <Circle {...stroke} cx={12} cy={12} r={9.5} />
+          <Circle {...stroke} cx={12} cy={10} r={3.2} />
+          <Path
+            {...stroke}
+            d="M6.3 18.6c1.1-2.4 3.2-3.7 5.7-3.7s4.6 1.3 5.7 3.7"
+          />
         </>
       )}
     </Svg>
   );
 }
 
-// 하단 탭 바 (runway-tabbar): a floating 64-high bar of five tabs, 16 in from the sides; the chosen tab fills a
-// 52-high tile (black texture on the light bar, white on the navy one).
+// 프로필 shows my profile photo in a circle (S15P31E105-522, 담당자 결정), ringed white when chosen; without a photo,
+// or until it loads, the line icon.
+function ProfileIcon({
+  photo,
+  color,
+  focused,
+}: {
+  photo: string | null;
+  color: string;
+  focused: boolean;
+}) {
+  if (!photo) {
+    return <TabIcon tab="ProfileTab" color={color} focused={focused} />;
+  }
+  return (
+    <View style={[styles.photoRing, focused && styles.photoRingOn]}>
+      <Image
+        source={{ uri: photo }}
+        style={styles.photo}
+        accessibilityIgnoresInvertColors
+      />
+    </View>
+  );
+}
+
+// 하단 탭 바 (runway-tabbar): a floating 64-high bar of five tabs (icon over name), 16 in from the sides; the chosen
+// tab fills a 52-high black textured tile.
 export function PillTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  // Read again on every tab change, so a photo changed on 8.2 shows when you come back.
+  const me = useResource(loadMe);
+  const refreshMe = me.refresh;
+  const firstIndex = useRef(state.index);
+  useEffect(() => {
+    // The first render has just loaded it.
+    if (firstIndex.current === state.index) {
+      firstIndex.current = -1;
+      return;
+    }
+    firstIndex.current = -1;
+    void refreshMe();
+  }, [refreshMe, state.index]);
+  const photo = me.data?.profileImageUrl ?? null;
   const shown = getFocusedRouteNameFromRoute(state.routes[state.index]);
   if (shown && hiddenOn.includes(shown)) {
     return null;
@@ -125,22 +177,23 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
           const focused = state.index === index;
           const key = route.name as TabKey;
           const color = focused ? light.active : light.inactive;
+          const open = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (!focused && !event.defaultPrevented) {
+              navigation.navigate(route.name, route.params);
+            }
+          };
           return (
             <PressableScale
               key={route.key}
               accessibilityRole="tab"
               accessibilityLabel={tabs[key].label}
               accessibilityState={{ selected: focused }}
-              onPress={() => {
-                const event = navigation.emit({
-                  type: 'tabPress',
-                  target: route.key,
-                  canPreventDefault: true,
-                });
-                if (!focused && !event.defaultPrevented) {
-                  navigation.navigate(route.name, route.params);
-                }
-              }}
+              onPress={open}
               style={[
                 styles.tab,
                 focused && {
@@ -158,9 +211,19 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
                   />
                 </View>
               ) : null}
-              <TabIcon tab={key} color={color} focused={focused} />
+              {key === 'ProfileTab' ? (
+                <ProfileIcon photo={photo} color={color} focused={focused} />
+              ) : (
+                <TabIcon tab={key} color={color} focused={focused} />
+              )}
+              {key === 'RunTab' ? (
+                // 러닝 alone is framed by one thick deep navy line (S15P31E105-522, 담당자 요청).
+                <View pointerEvents="none" style={styles.runFrame} />
+              ) : null}
               <AppText
                 numberOfLines={1}
+                // 10 whatever the phone's text size, so the five names fit the bar (담당자 결정).
+                allowFontScaling={false}
                 style={[styles.label, focused && styles.labelOn, { color }]}
               >
                 {tabs[key].label}
@@ -194,9 +257,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 3,
   },
-  // The handoff's press feedback (scale .96).
   // The texture is clipped in its own view, so the tile's shadow is not.
   textureClip: {
     position: 'absolute',
@@ -208,11 +270,34 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   texture: { width: '100%', height: '100%' },
+  runFrame: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 18,
+    borderWidth: 2.5,
+    borderColor: k1.night,
+  },
   label: {
     fontFamily: fontFamily.medium,
-    fontSize: 11.5,
-    lineHeight: 14,
+    fontSize: 10,
+    lineHeight: 13,
     letterSpacing: -0.1,
   },
   labelOn: { fontFamily: fontFamily.bold },
+  photoRing: {
+    width: iconSize + 4,
+    height: iconSize + 4,
+    borderRadius: (iconSize + 4) / 2,
+    // 4 taller than the other icons; the negative margin keeps 프로필's name in line with the rest.
+    marginVertical: -2,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoRingOn: { borderColor: light.active },
+  photo: { width: iconSize, height: iconSize, borderRadius: iconSize / 2 },
 });

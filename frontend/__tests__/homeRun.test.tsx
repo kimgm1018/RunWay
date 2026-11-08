@@ -111,6 +111,39 @@ test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async 
   await act(async () => screen.unmount());
 });
 
+test('the tab bar shows 홈·커뮤니티·러닝·그룹·프로필 in order with their names, and 프로필 without a photo is a line icon', async () => {
+  const screen = await render();
+  const tabs = screen.root.findAll(
+    node =>
+      node.props.accessibilityRole === 'tab' && typeof node.type !== 'string',
+  );
+  const names = [...new Set(tabs.map(node => node.props.accessibilityLabel))];
+  expect(names).toEqual(['홈', '커뮤니티', '러닝', '그룹', '프로필']);
+  // Each tab shows its name under its icon.
+  const bar = screen.root.find(
+    node =>
+      node.props.accessibilityRole === 'tablist' &&
+      typeof node.type === 'string',
+  );
+  expect(bar.findAllByType(Text).map(node => node.props.children)).toEqual([
+    '홈',
+    '커뮤니티',
+    '러닝',
+    '그룹',
+    '프로필',
+  ]);
+  // The mock profile has no photo, so 프로필 draws its icon instead of an image.
+  expect(
+    bar.findAll(
+      node =>
+        node.props.source?.uri !== undefined && typeof node.type === 'string',
+    ),
+  ).toHaveLength(0);
+  await press(screen, '커뮤니티');
+  await press(screen, '프로필');
+  await act(async () => screen.unmount());
+});
+
 test('the home has no background photo and keeps the profile photo as the avatar', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const getMe = repositories.profile.getMe;
@@ -129,8 +162,9 @@ test('the home has no background photo and keeps the profile photo as the avatar
     node =>
       node.props.source?.uri !== undefined && typeof node.type === 'string',
   );
-  // Only the avatar shows a photo; the background is the default backdrop.
+  // Only the avatar and the 프로필 tab show the photo (S15P31E105-522); the background is the default backdrop.
   expect(images.map(node => node.props.source.uri)).toEqual([
+    'file:///profile.jpg',
     'file:///profile.jpg',
   ]);
   await act(async () => screen!.unmount());
