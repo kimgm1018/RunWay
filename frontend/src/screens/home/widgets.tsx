@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Pressable,
   StyleSheet,
   useWindowDimensions,
   View,
@@ -18,7 +17,13 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon, mistColors } from '../../components';
+import {
+  AppText,
+  Icon,
+  mistColors,
+  PressableScale,
+  useCountUp,
+} from '../../components';
 import {
   useResource,
   type ReadinessState,
@@ -249,7 +254,7 @@ function CardFrame({
   const measure = (event: LayoutChangeEvent) =>
     setSize(event.nativeEvent.layout);
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled: !onPress }}
@@ -275,7 +280,7 @@ function CardFrame({
           />
         </View>
       ) : null}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -309,8 +314,10 @@ const conditionStates: Record<
 
 const discSize = 106;
 
-// The readiness disc: white mist in a white ring of four ticks, the score in dots at its centre.
+// The readiness disc: white mist in a white ring of four ticks, the score in dots at its centre. The score counts up
+// once when it arrives or changes (S15P31E105-478).
 function ReadinessDisc({ score }: { score: number | null }) {
+  const counted = Math.round(useCountUp(score ?? 0));
   return (
     <View style={styles.discBox}>
       {[
@@ -346,7 +353,7 @@ function ReadinessDisc({ score }: { score: number | null }) {
           style={styles.score}
           accessibilityLabel={`준비도 ${score ?? '없음'}`}
         >
-          {score ?? '--'}
+          {score === null ? '--' : counted}
         </AppText>
       </View>
     </View>
@@ -418,7 +425,7 @@ export function ConditionCard({ today }: { today: TodayCondition }) {
           <ConditionRow icon="moon" value={sleep} />
           <ConditionRow icon="heart" value={heart} />
         </View>
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel={action.title}
           onPress={() => navigateTo(navigation, action.route)}
@@ -428,7 +435,7 @@ export function ConditionCard({ today }: { today: TodayCondition }) {
             <Icon name="play" color="#FFFFFF" size={10} />
           </View>
           <AppText style={styles.ctaText}>{action.title}</AppText>
-        </Pressable>
+        </PressableScale>
       </View>
     </Painted>
   );
@@ -850,7 +857,7 @@ const styles = StyleSheet.create({
   shadowDark: { boxShadow: palette.shadowDark },
   shadowGraphite: { boxShadow: palette.shadowGraphite },
   shadowMist: { boxShadow: palette.shadowMist },
-  pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
+  pressed: { opacity: 0.85 },
   // Card label: 16 bold, 14 from the corner like the ↗ circle and as tall as it; no line beside it
   // (담당자 결정), so it lines up with the 지난 러닝 figures under it.
   label: {

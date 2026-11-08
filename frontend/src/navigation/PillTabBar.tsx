@@ -1,10 +1,10 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { AppText } from '../components';
+import { AppText, PressableScale } from '../components';
 import { fontFamily, size } from '../theme';
 import type { MainTabParamList } from './types';
 
@@ -35,7 +35,7 @@ const light = {
 const texture = require('../../assets/images/tab-active-texture.png');
 
 // The run start screens hide the tab bar: their own start row sits at the foot (S15P31E105-517, 담당자 결정).
-const hiddenOn = ['FreeRun', 'CourseRun'];
+const hiddenOn = ['FreeRun', 'CourseStart', 'CourseRun'];
 
 // The handoff's 21px line icons; the chosen one is drawn a little heavier.
 function TabIcon({
@@ -126,7 +126,7 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
           const key = route.name as TabKey;
           const color = focused ? light.active : light.inactive;
           return (
-            <Pressable
+            <PressableScale
               key={route.key}
               accessibilityRole="tab"
               accessibilityLabel={tabs[key].label}
@@ -141,13 +141,12 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
                   navigation.navigate(route.name, route.params);
                 }
               }}
-              style={({ pressed }) => [
+              style={[
                 styles.tab,
                 focused && {
                   backgroundColor: light.tile,
                   boxShadow: light.tileShadow,
                 },
-                pressed && styles.pressed,
               ]}
             >
               {focused && light.texture ? (
@@ -166,7 +165,7 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
               >
                 {tabs[key].label}
               </AppText>
-            </Pressable>
+            </PressableScale>
           );
         })}
       </View>
@@ -198,7 +197,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   // The handoff's press feedback (scale .96).
-  pressed: { transform: [{ scale: 0.96 }] },
   // The texture is clipped in its own view, so the tile's shadow is not.
   textureClip: {
     position: 'absolute',

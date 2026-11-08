@@ -1,13 +1,13 @@
 import React from 'react';
 import {
   type AccessibilityState,
-  Pressable,
   StyleSheet,
   View,
   type ViewStyle,
 } from 'react-native';
 import { k1 } from '../theme';
 import { Icon, type IconName } from './Icon';
+import { PressableScale } from './Motion';
 
 // The one round icon button of the app (S15P31E105-466, 담당자 결정: 버튼 디자인 통일): a 44 glass circle with a
 // navy icon, the records screens' look. On dark screens (crew, a photo, the night bar) the same circle is a dim
@@ -37,14 +37,14 @@ export function GlassIconButton({
 }) {
   const dark = tone === 'dark';
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={accessibilityState ?? { disabled }}
       disabled={disabled}
       onPress={onPress}
       hitSlop={6}
-      style={({ pressed }) => [
+      style={[
         styles.button,
         {
           width: diameter,
@@ -52,7 +52,6 @@ export function GlassIconButton({
           borderRadius: diameter / 2,
         },
         dark ? styles.dark : styles.light,
-        pressed && styles.pressed,
         style,
       ]}
     >
@@ -63,7 +62,7 @@ export function GlassIconButton({
         strokeWidth={1.9}
       />
       {dot ? <View style={styles.dot} /> : null}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -84,7 +83,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.14)',
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
   },
-  pressed: { opacity: 0.6 },
   dot: {
     position: 'absolute',
     top: 10,

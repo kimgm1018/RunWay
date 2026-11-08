@@ -21,6 +21,7 @@ import {
   EmptyState,
   Icon,
   type IconName,
+  PressableScale,
   Toggle,
   useToast,
 } from '../../components';
@@ -295,11 +296,11 @@ function RequestsLink({
   const navigation = useNavigation();
   return (
     <ThemeProvider tone="light">
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`가입 신청 ${count}건`}
         onPress={() => navigation.navigate('CrewJoinRequests', { crewId })}
-        style={({ pressed }) => [styles.requests, pressed && styles.rowPressed]}
+        style={styles.requests}
       >
         <View style={styles.flex}>
           <AppText variant="heading">{`가입 신청 ${count}건`}</AppText>
@@ -310,7 +311,7 @@ function RequestsLink({
         <View style={styles.round}>
           <Icon name="forward" color={groupLook.onLight} size={16} />
         </View>
-      </Pressable>
+      </PressableScale>
     </ThemeProvider>
   );
 }
@@ -940,9 +941,7 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     paddingVertical: spacing.md,
   },
-  rowPressed: { transform: [{ scale: 0.985 }] },
   // DESIGN.md 2-1: a pressed box shrinks to 96%.
-  pressed: { transform: [{ scale: 0.96 }] },
   round: {
     width: 40,
     height: 40,

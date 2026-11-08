@@ -137,6 +137,19 @@ class SpotifyRemoteModule(private val app: ReactApplicationContext) : ReactConte
     }
   } }
 
+  // 2.7 내 재생 목록 · 최근 들은 곡 (S15P31E105-478): a playlist or a song starts on this phone, switched to it first
+  // like 재생, so it never plays on another Connect device. Only playlist and track URIs are taken.
+  @ReactMethod fun playUri(uri: String, promise: Promise) { main.post {
+    val connected = remote
+    if (connected?.isConnected != true) { promise.reject("CONNECTION_LOST", "Reconnect Spotify"); return@post }
+    if (!SpotifyRemotePolicy.playableUri(uri)) { promise.reject("FAILED", "Unsupported Spotify URI"); return@post }
+    val switched = connected.connectApi.connectSwitchToLocalDevice()
+    result(switched, promise, complete = false) {
+      result(connected.playerApi.play(uri), promise) { null }
+      null
+    }
+  } }
+
   private fun <T> result(call: CallResult<T>, promise: Promise, complete: Boolean = true, consume: (T) -> Any?) {
     val attempt = generation
     val settled = AtomicBoolean(false)

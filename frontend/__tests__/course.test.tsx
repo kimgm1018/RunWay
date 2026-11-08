@@ -128,12 +128,15 @@ async function openTodayRun(
   await settle();
   await press(screen!, '러닝');
   await press(screen!, '코스 러닝');
+  // 코스 러닝 opens on the map (2.0C); 코스 설정 leads to 3.1 (담당자 요청).
+  await press(screen!, '코스 설정');
   return screen!;
 }
 
 test('today’s run works out pace and finish time from the distance', async () => {
   const screen = await openTodayRun();
   let page = texts(screen);
+  // Each condition is a card (운동 목표 sheet, 담당자 요청); the list shows the values.
   for (const text of [
     '환경 · 여러 개 선택',
     '현재 위치',
@@ -142,10 +145,13 @@ test('today’s run works out pace and finish time from the distance', async () 
   ]) {
     expect(page).toContain(text);
   }
+  await press(screen, '환경 설정');
   expect(labelled(screen, '공원').props.accessibilityState).toMatchObject({
     checked: false,
   });
+  await press(screen, '조건 목록으로');
   // 3.1p: the pace goes in, the finish time comes out.
+  await press(screen, '목표 설정');
   await press(screen, '페이스');
   page = texts(screen);
   expect(page).toContain('목표 페이스');
@@ -155,20 +161,27 @@ test('today’s run works out pace and finish time from the distance', async () 
       .accessibilityValue.text,
   ).toBe('6′00″/km');
   expect(page).toContain('30:00');
+  await press(screen, '조건 목록으로');
+  await press(screen, '목표 거리 설정');
   await adjust(screen, '목표 거리', 'increment');
   expect(texts(screen)).toContain('5.5');
+  await press(screen, '조건 목록으로');
   expect(texts(screen)).toContain('33:00');
   // Six 5-second steps down: 6′00″ → 5′30″.
+  await press(screen, '목표 설정');
   for (let step = 0; step < 6; step += 1) {
     await adjust(screen, '목표 페이스', 'decrement');
   }
   expect(texts(screen)).toContain('30:15');
+  await press(screen, '조건 목록으로');
+  await press(screen, '환경 설정');
   await press(screen, '큰길 피하기');
   expect(
     labelled(screen, '큰길 피하기').props.accessibilityState,
   ).toMatchObject({
     checked: true,
   });
+  await press(screen, '조건 목록으로');
   await press(screen, '기준 위치 현재 위치');
   await search(screen, '민락수변공원');
   await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
@@ -187,7 +200,9 @@ test('장소 검색 결과가 없거나 검색이 실패하면 안내한다', as
   await search(screen, '없는장소');
   expect(texts(screen)).toContain('검색 결과가 없어요.');
 
-  searchPlaces.mockRejectedValueOnce(new DataError('NETWORK_ERROR', '연결 없음'));
+  searchPlaces.mockRejectedValueOnce(
+    new DataError('NETWORK_ERROR', '연결 없음'),
+  );
   await search(screen, '광안리');
   expect(texts(screen)).toContain('장소를 검색하지 못했어요.');
   // The origin stays as it was.
@@ -225,7 +240,7 @@ test('위치 권한이 없으면 안내하고 고정 장소를 현재 위치로 
     }),
   );
   expect(texts(screen)).toContain('위치 권한이 없어 현재 위치를 쓸 수 없어요.');
-  expect(texts(screen)).toContain('기준 위치를 선택해 주세요');
+  expect(texts(screen)).toContain('기준 위치 설정하기');
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
 
   // A place found by search still works.
@@ -237,6 +252,45 @@ test('위치 권한이 없으면 안내하고 고정 장소를 현재 위치로 
   );
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
   expect(texts(screen)).not.toContain('현재 위치를 찾는 중이에요');
+  await act(async () => screen.unmount());
+});
+
+test('기준 위치를 지도에서 눌러 고르고, 취소하면 그대로 둔다', async () => {
+  const screen = await openTodayRun(
+    'default',
+    withLocation(createMockRepositories({ latencyMs: 0 }), async () => {
+      throw new DataError('LOCATION_PERMISSION_DENIED', '권한 없음');
+    }),
+  );
+  // The top screen's map: 2.0C stays mounted under 3.1.
+  const map = () =>
+    screen.root.findAll(node => node.props.testID === 'naver-map').at(-1)!;
+  const tap = async (latitude: number, longitude: number) => {
+    await act(async () => {
+      map().props.onTapMap({ latitude, longitude });
+    });
+    await settle();
+  };
+  // The map takes no taps until 지도에서 선택.
+  expect(map().props.onTapMap).toBeUndefined();
+
+  await press(screen, '기준 위치 ');
+  await press(screen, '지도에서 선택');
+  expect(texts(screen)).toContain('기준 위치를 지도에서 눌러 주세요');
+  expect(labelled(screen, '이 위치로 설정').props.disabled).toBe(true);
+  await press(screen, '취소');
+  expect(texts(screen)).toContain('기준 위치 설정하기');
+
+  await press(screen, '기준 위치 ');
+  await press(screen, '지도에서 선택');
+  // No place name off Android (and none in the test), so it keeps the plain label instead of numbers.
+  await tap(35.1532, 129.1189);
+  expect(texts(screen)).toContain('지도에서 고른 위치');
+  expect(texts(screen)).not.toContain('35.15320, 129.11890');
+  await press(screen, '이 위치로 설정');
+  expect(() => labelled(screen, '기준 위치 지도에서 고른 위치')).not.toThrow();
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+  expect(map().props.onTapMap).toBeUndefined();
   await act(async () => screen.unmount());
 });
 

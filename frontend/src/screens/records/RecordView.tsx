@@ -214,7 +214,12 @@ export function RecordView({
             />
           </View>
           <View style={[styles.rule, styles.ruleGap]}>
-            <BarLabel label="구간 페이스" />
+            {/* 구간 페이스 · 구간 심박 · 구간 케이던스, after the tab chosen above. */}
+            <BarLabel
+              label={`구간 ${
+                metrics.find(item => item.value === metric)?.label ?? '페이스'
+              }`}
+            />
           </View>
           <View style={styles.chartGap}>{chart}</View>
         </View>

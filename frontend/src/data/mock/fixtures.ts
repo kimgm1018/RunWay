@@ -10,6 +10,7 @@ import type {
   MonthlyRunSummary,
   MusicLibrary,
   MusicState,
+  Track,
   MyCrew,
   Post,
   PostComment,
@@ -262,7 +263,6 @@ export const savedCourses: SavedCourse[] = [
     ],
   },
 ];
-
 
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],
@@ -539,6 +539,23 @@ const spotifyLibrary: MusicLibrary = {
 };
 
 export const musicLibraries = { MELON: melonLibrary, SPOTIFY: spotifyLibrary };
+
+// 2.7 최근 들은 곡 on Spotify, newest first.
+export const spotifyRecentTracks: Track[] = [
+  { id: 'sp-r1', title: '새벽 해변', subtitle: 'Ocean Club', durationSec: 214 },
+  {
+    id: 'sp-r2',
+    title: '케이던스 180',
+    subtitle: 'Run Crew',
+    durationSec: 198,
+  },
+  {
+    id: 'sp-r3',
+    title: '마지막 1km',
+    subtitle: 'Finish Line',
+    durationSec: 236,
+  },
+];
 
 // 2.7 멜론 연결됨, playing at 1:24 of 3:41.
 export const musicState: MusicState = {

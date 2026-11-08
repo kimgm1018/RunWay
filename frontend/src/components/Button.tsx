@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   type StyleProp,
   type ViewStyle,
@@ -9,6 +8,7 @@ import {
 import { k1, radius, size, spacing, typography, useTheme } from '../theme';
 import { AppText } from './AppText';
 import { Icon, type IconName } from './Icon';
+import { PressableScale } from './Motion';
 
 export type ButtonVariant =
   | 'primary'
@@ -84,7 +84,7 @@ export function Button({
   // A loading button keeps its colors at reduced opacity; a disabled one turns gray (1.2 로그인 중, 6.2f 정원 마감).
   const textColor = disabled ? colors.textTertiary : look.text;
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: inactive, busy: loading }}
@@ -121,7 +121,7 @@ export function Button({
       >
         {title}
       </AppText>
-    </Pressable>
+    </PressableScale>
   );
 }
 

@@ -22,4 +22,11 @@ class SpotifyRemotePolicyTest {
     assertEquals("PREMIUM_REQUIRED", SpotifyRemotePolicy.failure("RemoteClientException", "Premium required"))
     assertEquals("FAILED", SpotifyRemotePolicy.failure("RemoteClientException", "Forbidden"))
   }
+  @Test fun playsOnlyPlaylistAndTrackUris() {
+    assertEquals(true, SpotifyRemotePolicy.playableUri("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"))
+    assertEquals(true, SpotifyRemotePolicy.playableUri("spotify:track:4uLU6hMCjMI75M1A2tKUQC"))
+    assertEquals(false, SpotifyRemotePolicy.playableUri("spotify:album:4uLU6hMCjMI75M1A2tKUQC"))
+    assertEquals(false, SpotifyRemotePolicy.playableUri("https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"))
+    assertEquals(false, SpotifyRemotePolicy.playableUri("spotify:track:"))
+  }
 }

@@ -160,3 +160,9 @@ jest.mock('lottie-react-native', () => {
   ReactNative.Easing.bezier(0, 0, 1, 1);
   ReactNative.findNodeHandle(null);
 }
+
+// 동작 줄이기 on by default, so screens show their final state at once (S15P31E105-478). A test that checks a motion
+// turns it off with setReduceMotion(false).
+beforeEach(() => {
+  require('./src/components/Motion').setReduceMotion(true);
+});

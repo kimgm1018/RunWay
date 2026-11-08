@@ -24,6 +24,10 @@ function reshaped(base: Music, change: (state: MusicState) => MusicState) {
     pause: wrap(base.pause),
     next: wrap(base.next),
     previous: wrap(base.previous),
+    getPlaylists: base.getPlaylists,
+    playPlaylist: wrap(base.playPlaylist),
+    getRecentTracks: base.getRecentTracks,
+    playTrack: wrap(base.playTrack),
   };
 }
 

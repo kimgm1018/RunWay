@@ -1,5 +1,6 @@
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import { withSavedMusic } from '../../music/withSavedMusic';
+import { spotifyTokens } from '../auth';
 import { SpotifyStateError } from '../music';
 import { withSpotifyRemote } from '../remote';
 import { remoteConsent } from '../remoteConsent';
@@ -34,6 +35,19 @@ function bridge() {
           ...state.track,
           id: command === 'next' ? 'spotify:track:next' : state.track.id,
           positionMs: command === 'previous' ? 0 : state.track.positionMs,
+        },
+      };
+    }),
+    // A playlist starts on its first song; a song plays itself.
+    playUri: jest.fn(async (uri: string) => {
+      state = {
+        ...state,
+        connected: true,
+        playing: true,
+        track: {
+          ...track,
+          id: uri.startsWith('spotify:track:') ? uri : 'spotify:track:first',
+          positionMs: 0,
         },
       };
     }),
@@ -264,4 +278,95 @@ test('a connection approved after logout cannot save consent for the next sessio
   release();
   await connecting;
   expect(await remoteConsent.load()).toBe(false);
+});
+
+test('내 재생 목록 · 최근 들은 곡 ask for the Web API sign-in that App Remote does not give, then use it', async () => {
+  const { remote } = bridge();
+  const repo = withSpotifyRemote(base(), remote, 'client');
+  await repo.resolveService('SPOTIFY');
+  await repo.selectSource('SPOTIFY');
+  await spotifyTokens.clear();
+  await expect(repo.getPlaylists()).rejects.toMatchObject({
+    reason: 'SCOPE_REQUIRED',
+  });
+  await expect(repo.getRecentTracks()).rejects.toMatchObject({
+    reason: 'SCOPE_REQUIRED',
+  });
+
+  await spotifyTokens.save({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+    expiresAt: Date.now() + 3_600_000,
+  });
+  const realFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = jest.fn(async (url: string) => {
+    urls.push(url);
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          items: [{ id: 'pl1', name: 'Long Run', images: [] }],
+        }),
+    };
+  }) as unknown as typeof fetch;
+  try {
+    expect(await repo.getPlaylists()).toMatchObject([
+      { id: 'pl1', title: 'Long Run' },
+    ]);
+    expect(urls).toEqual(['https://api.spotify.com/v1/me/playlists?limit=20']);
+  } finally {
+    globalThis.fetch = realFetch;
+    await spotifyTokens.clear();
+  }
+});
+
+test('on 멜론 the lists stay with the base player', async () => {
+  const { remote } = bridge();
+  const repo = withSpotifyRemote(base(), remote, 'client');
+  await repo.selectSource('MELON');
+  expect(await repo.getPlaylists()).toEqual([]);
+  expect(await repo.getRecentTracks()).toEqual([]);
+});
+
+test('a playlist or a song from the lists starts on this phone through App Remote, without the Web API', async () => {
+  const { remote } = bridge();
+  const repo = withSpotifyRemote(base(), remote, 'client');
+  await repo.resolveService('SPOTIFY');
+  await repo.selectSource('SPOTIFY');
+  await spotifyTokens.clear();
+  const fetchSpy = jest.fn();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = fetchSpy as unknown as typeof fetch;
+  try {
+    const listed = await repo.playPlaylist('pl1');
+    expect(remote.playUri).toHaveBeenCalledWith('spotify:playlist:pl1');
+    expect(listed.nowPlaying).toMatchObject({
+      id: 'spotify:track:first',
+      playing: true,
+    });
+    const song = await repo.playTrack('trk9');
+    expect(remote.playUri).toHaveBeenCalledWith('spotify:track:trk9');
+    expect(song.nowPlaying).toMatchObject({
+      id: 'spotify:track:trk9',
+      playing: true,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a free account starting a list gets the Premium message and stays connected', async () => {
+  const { remote } = bridge();
+  const repo = withSpotifyRemote(base(), remote, 'client');
+  await repo.resolveService('SPOTIFY');
+  await repo.selectSource('SPOTIFY');
+  jest.mocked(remote.playUri).mockRejectedValue({ code: 'PREMIUM_REQUIRED' });
+  await expect(repo.playPlaylist('pl1')).rejects.toMatchObject({
+    reason: 'PREMIUM_REQUIRED',
+  });
+  expect(remote.disconnect).not.toHaveBeenCalled();
+  expect(await remoteConsent.load()).toBe(true);
 });

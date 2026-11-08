@@ -1,6 +1,11 @@
 import type { MusicState, Repositories } from '../types';
-import { SpotifyError, spotifyTokens, type SpotifyFailure } from './auth';
-import { SpotifyStateError } from './music';
+import {
+  signInToSpotify,
+  SpotifyError,
+  spotifyTokens,
+  type SpotifyFailure,
+} from './auth';
+import { SpotifyStateError, withSpotify } from './music';
 import { remoteConsent } from './remoteConsent';
 import type {
   RemoteCommand,
@@ -53,6 +58,18 @@ export function withSpotifyRemote(
   { settleMs = 100, settleTries = 25 } = {},
 ): Music {
   let connecting: Promise<void> | undefined;
+  // 내 재생 목록 · 최근 들은 곡 are read through the Web API, which App Remote does not cover; the reads need the Web
+  // API sign-in (connectLibrary), asked for as SCOPE_REQUIRED until it is there. Starting one goes through App
+  // Remote like 재생, switched to this phone first (ADR-0020), so it needs no Web API token or active device.
+  const web = withSpotify(base, clientId);
+  async function onSpotify() {
+    return (await base.getState()).source === 'SPOTIFY';
+  }
+  async function needWebSignIn() {
+    if (!(await spotifyTokens.load())) {
+      throw new SpotifyError('SCOPE_REQUIRED');
+    }
+  }
   async function connect(interactive: boolean) {
     if (!connecting) {
       connecting = remote.connect(clientId, interactive).finally(() => {
@@ -205,6 +222,47 @@ export function withSpotifyRemote(
       }
     };
   }
+  // Starts a playlist or a song on this phone and waits until Spotify reports a song playing that `applied`
+  // accepts; the observed state is returned either way, never a guess.
+  async function playOnPhone(
+    uri: string,
+    applied: (next: RemotePlayback, before: RemotePlayback) => boolean,
+  ) {
+    const epoch = remoteConsent.version();
+    const state = await base.getState();
+    if (!(await remoteConsent.load())) {
+      throw await broken(state, new SpotifyError('SIGNED_OUT'));
+    }
+    try {
+      await connect(false);
+      const before = await remote.getState();
+      if (epoch !== remoteConsent.version()) {
+        throw new SpotifyError('CANCELED');
+      }
+      await remote.playUri(uri);
+      let next = before;
+      for (let attempt = 0; attempt < settleTries; attempt++) {
+        if (attempt) {
+          await new Promise<void>(resolve => setTimeout(resolve, settleMs));
+        }
+        next = await remote.getState();
+        if (next.playing && next.track && applied(next, before)) {
+          break;
+        }
+      }
+      return view(state, next);
+    } catch (error) {
+      if (epoch !== remoteConsent.version()) {
+        throw new SpotifyError('CANCELED');
+      }
+      const problem = failure(error);
+      if (problem.reason === 'PREMIUM_REQUIRED') {
+        throw problem;
+      }
+      throw await broken(state, error);
+    }
+  }
+
   return {
     canStartWithoutTrack: true,
     getState,
@@ -230,6 +288,42 @@ export function withSpotifyRemote(
     pause: command('pause'),
     next: command('next'),
     previous: command('previous'),
+    connectLibrary: async () => {
+      await signInToSpotify(clientId);
+    },
+    getPlaylists: async () => {
+      if (!(await onSpotify())) {
+        return base.getPlaylists();
+      }
+      await needWebSignIn();
+      return web.getPlaylists();
+    },
+    getRecentTracks: async () => {
+      if (!(await onSpotify())) {
+        return base.getRecentTracks();
+      }
+      await needWebSignIn();
+      return web.getRecentTracks();
+    },
+    // A playlist counts as started once a different song plays (its first song may be the one already on).
+    playPlaylist: async playlistId => {
+      if (!(await onSpotify())) {
+        await base.playPlaylist(playlistId);
+        return getState();
+      }
+      return playOnPhone(
+        `spotify:playlist:${playlistId}`,
+        (next, before) => next.track?.id !== before.track?.id,
+      );
+    },
+    playTrack: async trackId => {
+      if (!(await onSpotify())) {
+        await base.playTrack(trackId);
+        return getState();
+      }
+      const uri = `spotify:track:${trackId}`;
+      return playOnPhone(uri, next => next.track?.id === uri);
+    },
     subscribe: listener => {
       let active = true;
       const stop = remote.subscribe(playback => {

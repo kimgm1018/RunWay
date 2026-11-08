@@ -11,12 +11,15 @@ export function BottomSheet({
   onClose,
   title,
   description,
+  background,
   children,
 }: {
   visible: boolean;
   onClose: () => void;
   title?: string;
   description?: string;
+  // A fill of its own instead of the theme's raised surface (3.1 기준 위치: the 코스 조건 card's navy).
+  background?: string;
   children?: React.ReactNode;
 }) {
   const { colors } = useTheme();
@@ -52,7 +55,7 @@ export function BottomSheet({
           style={[
             styles.sheet,
             {
-              backgroundColor: colors.surfaceRaised,
+              backgroundColor: background ?? colors.surfaceRaised,
               marginBottom: sheetGap + insets.bottom,
               transform: [
                 {

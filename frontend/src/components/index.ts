@@ -18,3 +18,4 @@ export * from './Toggle';
 export * from './KeyboardLift';
 export * from './WheelPicker';
 export * from './RulerPicker';
+export * from './Motion';

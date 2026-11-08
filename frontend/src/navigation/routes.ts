@@ -32,7 +32,12 @@ export const authRoutes = [
   'PasswordPhone',
 ] as const;
 
-export const runTabRoutes = ['RunMode', 'FreeRun', 'CourseRun'] as const;
+export const runTabRoutes = [
+  'RunMode',
+  'FreeRun',
+  'CourseStart',
+  'CourseRun',
+] as const;
 // 5.1 · 5.3 sit in the home tab, under its tab bar (runway-records, S15P31E105-465).
 export const homeTabRoutes = ['Records', 'Analysis'] as const;
 export const groupTabRoutes = ['MyCrews', 'CrewRecruit'] as const;
@@ -200,7 +205,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '러닝 방식 선택',
     task: HOME,
     tab: 'RunTab',
-    links: ['FreeRun', 'TodayRun'],
+    links: ['FreeRun', 'CourseStart'],
   },
   FreeRun: {
     code: '2.0F',
@@ -208,6 +213,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     task: HOME,
     tab: 'RunTab',
     links: ['RunMode', 'MusicCard', 'RunProgress'],
+  },
+  // 코스 러닝 opens on the map like 2.0F, with 코스 설정 in place of 목표 설정 (담당자 요청).
+  CourseStart: {
+    code: '2.0C',
+    title: '코스 러닝 시작',
+    task: HOME,
+    tab: 'RunTab',
+    links: ['TodayRun', 'FreeRun', 'MusicCard'],
   },
   CourseRun: {
     code: '2.0',

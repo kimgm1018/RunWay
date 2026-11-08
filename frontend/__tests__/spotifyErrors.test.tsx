@@ -149,6 +149,7 @@ test('App Remote can resume without a current track and player events update the
     connect: async () => {},
     disconnect: async () => {},
     getState: async () => playback,
+    playUri: async () => {},
     send: async () => {
       playback = {
         ...playback,

@@ -8,6 +8,11 @@ internal object SpotifyRemotePolicy {
       flags or android.content.Context.BIND_ALLOW_ACTIVITY_STARTS
     else flags
 
+  private val playable = Regex("^spotify:(playlist|track):[A-Za-z0-9]+$")
+
+  // 2.7 내 재생 목록 · 최근 들은 곡 play a playlist or a song, nothing else.
+  fun playableUri(uri: String): Boolean = playable.matches(uri)
+
   fun failure(type: String, message: String): String = when {
     message.contains("user is not registered for this application", ignoreCase = true) -> "USER_NOT_REGISTERED"
     message.contains("premium required", ignoreCase = true) -> "PREMIUM_REQUIRED"

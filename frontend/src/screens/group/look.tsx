@@ -1,6 +1,5 @@
 import React, { useId } from 'react';
 import {
-  Pressable,
   StyleSheet,
   TextInput,
   View,
@@ -11,8 +10,9 @@ import {
   AppText,
   Backdrop,
   Icon,
-  MistFill,
   type IconName,
+  MistFill,
+  PressableScale,
 } from '../../components';
 import { fontFamily, typography } from '../../theme';
 
@@ -257,13 +257,12 @@ export function GroupCta({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => pressed && styles.ctaPressed}
     >
       <Raised
         tone={primary ? 'white' : onMist ? 'navy' : 'darkGlass'}
@@ -281,7 +280,7 @@ export function GroupCta({
           ) : null}
         </View>
       </Raised>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -348,18 +347,14 @@ export function SearchField({
           style={styles.searchInput}
         />
       </View>
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel="검색 닫기"
         onPress={onClose}
-        style={({ pressed }) => [
-          crewCard.round,
-          styles.roundOnLight,
-          pressed && styles.ctaPressed,
-        ]}
+        style={[crewCard.round, styles.roundOnLight]}
       >
         <Icon name="close" color={groupLook.onLight} size={16} />
-      </Pressable>
+      </PressableScale>
     </View>
   );
 }
@@ -409,7 +404,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaPressed: { transform: [{ scale: 0.98 }] },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   search: {
     flex: 1,

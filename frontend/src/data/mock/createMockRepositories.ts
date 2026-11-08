@@ -191,6 +191,23 @@ function stepTrack(state: MusicState, delta: number): MusicState {
   };
 }
 
+// A playlist starts on its first song: the first liked one, or one named after the list when there are none.
+function withPlaylist(state: MusicState, playlistId: string): MusicState {
+  const playlist = state.library?.playlists.find(
+    item => item.id === playlistId,
+  );
+  if (!playlist) {
+    return state;
+  }
+  const first = state.library?.liked[0] ?? {
+    id: `${playlist.id}-1`,
+    title: playlist.title,
+    subtitle: '재생 목록',
+    durationSec: 200,
+  };
+  return { ...state, nowPlaying: { ...first, positionSec: 0, playing: true } };
+}
+
 function withPlaying(state: MusicState, playing: boolean): MusicState {
   return state.nowPlaying
     ? { ...state, nowPlaying: { ...state.nowPlaying, playing } }
@@ -883,6 +900,33 @@ export function createMockRepositories(
       },
       previous: () => {
         music = stepTrack(music, -1);
+        return respond(music, options);
+      },
+      // Like the app: 멜론 cannot start a chosen playlist, so only Spotify lists them.
+      getPlaylists: () =>
+        respond(
+          music.source === 'SPOTIFY' ? music.library?.playlists ?? [] : [],
+          options,
+        ),
+      playPlaylist: playlistId => {
+        music = withPlaylist(music, playlistId);
+        return respond(music, options);
+      },
+      getRecentTracks: () =>
+        respond(
+          music.source === 'SPOTIFY' ? fixtures.spotifyRecentTracks : [],
+          options,
+        ),
+      playTrack: trackId => {
+        const track = fixtures.spotifyRecentTracks.find(
+          item => item.id === trackId,
+        );
+        if (track) {
+          music = {
+            ...music,
+            nowPlaying: { ...track, positionSec: 0, playing: true },
+          };
+        }
         return respond(music, options);
       },
     },

@@ -151,10 +151,15 @@ test('5.2 opens from 5.1 with the figures, split graphs and the two buttons', as
   expect(page).not.toContain('AI 조언');
   expect(hasLabel(screen, '닫기')).toBe(false);
   expect(hasLabel(screen, '최고 5′41″')).toBe(true);
+  expect(texts(screen)).toContain('구간 페이스');
+  // The split graph's title follows the tab (담당자 요청).
   await press(screen, '심박');
   expect(hasLabel(screen, '최고 171')).toBe(true);
+  expect(texts(screen)).toContain('구간 심박');
+  expect(texts(screen)).not.toContain('구간 페이스');
   await press(screen, '케이던스');
   expect(hasLabel(screen, '최고 178')).toBe(true);
+  expect(texts(screen)).toContain('구간 케이던스');
   await act(async () => screen.unmount());
 });
 
@@ -235,6 +240,17 @@ test('5.2 stays with a toast when S09 fails', async () => {
 test('5.3 shows the month figures, turns its card over, and switches periods', async () => {
   const screen = await render();
   await press(screen, '러닝 분석');
+  // 전체 · 년 · 월 · 주, the big range first as dates read in Korean (담당자 요청).
+  expect(
+    screen.root
+      .findAll(node => node.props.accessibilityRole === 'tab')
+      .map(node => node.props.accessibilityLabel)
+      .filter(
+        (label, index, all) =>
+          ['전체', '년', '월', '주'].includes(label) &&
+          all.indexOf(label) === index,
+      ),
+  ).toEqual(['전체', '년', '월', '주']);
   let page = texts(screen);
   for (const text of [
     '러닝 분석',

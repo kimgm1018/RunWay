@@ -17,7 +17,15 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Icon, Logo, mistColors, useToast } from '../../components';
+import {
+  AppText,
+  Icon,
+  Logo,
+  mistColors,
+  Pop,
+  useCountUp,
+  useToast,
+} from '../../components';
 import { errorCode, useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
@@ -264,6 +272,9 @@ export function RunResultScreen() {
     }, [navigation]),
   );
 
+  // Hooks come before the early return below; the count is used only for an achieved goal.
+  const countedDistance = useCountUp(run?.summary?.distanceM ?? 0);
+
   if (!run?.summary) {
     return <View style={styles.root} />;
   }
@@ -274,6 +285,12 @@ export function RunResultScreen() {
   const shape = plan ? plan.route : trail;
   // 4.5 비교 결과: 서버가 계산한 같은 지점 도달 시간 차이(S15P31E105-422).
   const rivalResult = comparisonResult(finalComparison);
+  // 목표 달성: the course finished within its planned time. Then the distance counts up and 달성 pops in, once
+  // (완료 하이라이트, S15P31E105-478).
+  const achieved =
+    plan !== null &&
+    finished &&
+    summary.durationSec <= plan.expectedDurationSec;
 
   const toggleSaved = async () => {
     setBusy(true);
@@ -354,7 +371,11 @@ export function RunResultScreen() {
                 : '평균 페이스 /km'}
             </AppText>
           </View>
-          <Metric label="거리" value={formatKm(summary.distanceM)} unit="km" />
+          <Metric
+            label="거리"
+            value={formatKm(achieved ? countedDistance : summary.distanceM)}
+            unit="km"
+          />
           <Metric label="시간" value={formatDuration(summary.durationSec)} />
           <View
             style={styles.outline}
@@ -397,15 +418,17 @@ export function RunResultScreen() {
             />
           </View>
           {plan && finished ? (
-            <AppText style={styles.goalNote}>
-              {`목표 ${formatDuration(plan.expectedDurationSec)} `}
-              {summary.durationSec <= plan.expectedDurationSec ? (
-                '달성'
-              ) : (
-                <AppText style={styles.missed}>미달성</AppText>
-              )}
-              {rivalResult ? ` · ${rivalResult}` : ''}
-            </AppText>
+            <Pop active={achieved}>
+              <AppText style={styles.goalNote}>
+                {`목표 ${formatDuration(plan.expectedDurationSec)} `}
+                {achieved ? (
+                  '달성'
+                ) : (
+                  <AppText style={styles.missed}>미달성</AppText>
+                )}
+                {rivalResult ? ` · ${rivalResult}` : ''}
+              </AppText>
+            </Pop>
           ) : null}
           {/* Only a failed or unconfirmed save is shown (README 알려진 문제); saving and saved stay quiet. With the
               server the run is already stored, so a record not read back yet is 확인 못 함, not 저장 못 함. */}

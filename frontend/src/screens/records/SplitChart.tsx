@@ -8,7 +8,7 @@ import Svg, {
   Path,
   Stop,
 } from 'react-native-svg';
-import { AppText } from '../../components';
+import { AppText, RevealX } from '../../components';
 import type { RunSplit } from '../../data';
 import { fontFamily } from '../../theme';
 import { recordsLook } from './look';
@@ -118,40 +118,48 @@ export function SplitChart({
     >
       {width > 0 ? (
         <>
-          <Svg width={width} height={height}>
-            <Defs>
-              <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.32} />
-                <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.04} />
-              </LinearGradient>
-            </Defs>
-            <Path
-              d={`${line} L${points[points.length - 1].x},${baseline} L${
-                points[0].x
-              },${baseline} Z`}
-              fill="url(#splitFill)"
-            />
-            {reference ? (
-              <Line
-                x1={0}
-                x2={width}
-                y1={y(reference.value)}
-                y2={y(reference.value)}
-                stroke={recordsLook.onCard}
-                strokeOpacity={0.55}
-                strokeDasharray="4 4"
-                strokeWidth={1}
+          {/* The line draws in from the left once when the splits change (S15P31E105-478). */}
+          <RevealX appearKey={line} width={width} height={height}>
+            <Svg width={width} height={height}>
+              <Defs>
+                <LinearGradient id="splitFill" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.32} />
+                  <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.04} />
+                </LinearGradient>
+              </Defs>
+              <Path
+                d={`${line} L${points[points.length - 1].x},${baseline} L${
+                  points[0].x
+                },${baseline} Z`}
+                fill="url(#splitFill)"
               />
-            ) : null}
-            <Path
-              d={line}
-              stroke={recordsLook.onCard}
-              strokeWidth={2.2}
-              strokeLinecap="round"
-              fill="none"
-            />
-            <Circle cx={bestPoint.x} cy={bestPoint.y} r={4.5} fill="#FFFFFF" />
-          </Svg>
+              {reference ? (
+                <Line
+                  x1={0}
+                  x2={width}
+                  y1={y(reference.value)}
+                  y2={y(reference.value)}
+                  stroke={recordsLook.onCard}
+                  strokeOpacity={0.55}
+                  strokeDasharray="4 4"
+                  strokeWidth={1}
+                />
+              ) : null}
+              <Path
+                d={line}
+                stroke={recordsLook.onCard}
+                strokeWidth={2.2}
+                strokeLinecap="round"
+                fill="none"
+              />
+              <Circle
+                cx={bestPoint.x}
+                cy={bestPoint.y}
+                r={4.5}
+                fill="#FFFFFF"
+              />
+            </Svg>
+          </RevealX>
           <View
             pointerEvents="none"
             style={[

@@ -23,6 +23,7 @@ class MainApplication : Application(), ReactApplication {
           add(WatchHealthPackage())
           add(WatchSessionPackage())
           add(MelonMediaPackage())
+          add(PlaceNamePackage())
           add(SpotifyRemotePackage())
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())

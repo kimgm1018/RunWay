@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,7 +14,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon } from '../../components';
+import { AppText, EmptyState, Icon, PressableScale } from '../../components';
 import { useRepositories, type GroupRunResult } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -108,7 +107,7 @@ function NavyButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityRole="button"
       accessibilityLabel={title}
       onPress={onPress}
@@ -118,7 +117,7 @@ function NavyButton({
       ]}
     >
       <AppText style={styles.navyText}>{title}</AppText>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -502,7 +501,6 @@ const styles = StyleSheet.create({
   // Pressed, it turns solid navy and sinks a little (6.7 .lg-btn:active).
   navyButtonPressed: {
     backgroundColor: groupLook.navy,
-    transform: [{ scale: 0.98 }],
   },
   navyText: {
     fontFamily: fontFamily.bold,

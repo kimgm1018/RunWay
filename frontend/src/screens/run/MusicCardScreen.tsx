@@ -5,6 +5,7 @@ import {
   Image,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   useWindowDimensions,
   View,
@@ -21,10 +22,13 @@ import Svg, {
 } from 'react-native-svg';
 import { AppText, Icon, useToast } from '../../components';
 import {
+  SpotifyError,
   spotifyFailureMessage,
   SpotifyStateError,
   useRepositories,
   type MusicState,
+  type Playlist,
+  type Track,
 } from '../../data';
 import { formatDuration } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
@@ -39,6 +43,8 @@ const appLinks = { MELON: 'melonapp://', SPOTIFY: 'spotify://' };
 
 // 2.7 핸드오프 (S15P31E105-374): the card is 370×500 on a 390 screen; a shorter phone gets a shorter card.
 const cardHeight = 500;
+// 내 재생 목록 (담당자 요청) makes the card this much taller.
+const playlistsHeight = 136;
 // A song without album art (멜론, mock data) takes the mockup's default 'ocean' cover.
 const ocean = ['#2F5174', '#22446A', '#1A3A5C', '#12304D'];
 
@@ -178,17 +184,22 @@ function Cover({ width, height }: { width: number; height: number }) {
   );
 }
 
-// The song's album cover over the card (2.7 핸드오프: art with a 10px blur over the bottom 300 that fades upward).
-// React Native cannot fade a blur with a mask, so stacked bands blur a little harder every 40 toward the foot,
-// and a dark tint over the bottom keeps the white text readable on any cover.
-const blurBands = [
-  { height: 300, radius: 1 },
-  { height: 260, radius: 2 },
-  { height: 220, radius: 4 },
-  { height: 180, radius: 6 },
-  { height: 140, radius: 8 },
-  { height: 100, radius: 10 },
-];
+// The song's album cover over the card (2.7 핸드오프: art with a 10px blur over the lower part that fades upward).
+// React Native cannot fade a blur with a mask, so the same blurred cover is laid on in faint bands, each a little
+// shorter than the last: the blur builds up softly toward the foot (담당자 요청: 끊김 없이 은은하게). The bands sit
+// closest together at the top, where the first ones would otherwise show an edge.
+const blurBandCount = 14;
+const blurBandOpacity = 0.24;
+const blurRadius = 10;
+// The faint blur starts this far up the card, at most 470.
+const blurReach = 0.64;
+
+function blurBands(boxHeight: number) {
+  const reach = Math.min(boxHeight * blurReach, 470);
+  return Array.from({ length: blurBandCount }, (_, index) =>
+    Math.round(reach * (1 - (index / blurBandCount) ** 1.5)),
+  );
+}
 
 function Artwork({
   uri,
@@ -210,19 +221,22 @@ function Artwork({
         onLoad={onLoad}
         style={StyleSheet.absoluteFill}
       />
-      {blurBands.map(band => (
+      {blurBands(height).map((bandHeight, index) => (
         <View
-          key={band.height}
+          key={index}
           pointerEvents="none"
-          style={[styles.band, { height: band.height }]}
+          style={[
+            styles.band,
+            { height: bandHeight, opacity: blurBandOpacity },
+          ]}
         >
           <Image
             source={{ uri }}
             resizeMode="cover"
-            blurRadius={band.radius}
+            blurRadius={blurRadius}
             style={[
               styles.bandImage,
-              { width, height, top: band.height - height },
+              { width, height, top: bandHeight - height },
             ]}
           />
         </View>
@@ -327,16 +341,10 @@ function Player({
     busy || (!track && state.source !== 'MELON' && !canStartWithoutTrack);
   return (
     <>
-      <View style={styles.titleRow}>
-        <AppText style={styles.title} numberOfLines={1}>
-          {track?.title ?? '재생 중인 곡이 없어요'}
-        </AppText>
-        {track ? (
-          <View style={styles.length}>
-            <AppText style={styles.lengthText}>{length}</AppText>
-          </View>
-        ) : null}
-      </View>
+      {/* No length badge beside the title (담당자 요청): the length shows at the end of the progress bar. */}
+      <AppText style={styles.title} numberOfLines={1}>
+        {track?.title ?? '재생 중인 곡이 없어요'}
+      </AppText>
       <AppText style={styles.subtitle} numberOfLines={1}>
         {track?.subtitle ??
           (state.source === 'SPOTIFY'
@@ -415,6 +423,179 @@ function Player({
   );
 }
 
+type Shelf = 'PLAYLISTS' | 'RECENT';
+
+// One cover in the sideways row: a playlist or a song heard lately.
+function ShelfItem({
+  title,
+  detail,
+  artworkUrl,
+  label,
+  busy,
+  onPress,
+}: {
+  title: string;
+  detail: string | null;
+  artworkUrl?: string | null;
+  label: string;
+  busy: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.playlist,
+        (pressed || busy) && styles.pressed,
+      ]}
+    >
+      {artworkUrl ? (
+        <Image
+          source={{ uri: artworkUrl }}
+          style={styles.playlistCover}
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <View style={[styles.playlistCover, styles.playlistBlank]}>
+          <Icon name="music" color="#FFFFFF" size={22} />
+        </View>
+      )}
+      <AppText style={styles.playlistName} numberOfLines={1}>
+        {title}
+      </AppText>
+      {detail ? (
+        <AppText style={styles.playlistCount} numberOfLines={1}>
+          {detail}
+        </AppText>
+      ) : null}
+    </Pressable>
+  );
+}
+
+// 내 재생 목록 and 최근 들은 곡 between the controls and the app button (담당자 요청): two tabs over one sideways
+// row of covers; a tap starts a list from the top, or a song, on the music app. A Spotify sign-in from before
+// their scopes gets 다시 로그인 instead.
+function Library({
+  playlists,
+  recent,
+  busy,
+  onPlayPlaylist,
+  onPlayTrack,
+  onSignIn,
+}: {
+  playlists: Playlist[];
+  recent: Track[];
+  busy: boolean;
+  onPlayPlaylist: (playlist: Playlist) => void;
+  onPlayTrack: (track: Track) => void;
+  onSignIn?: () => void;
+}) {
+  const shelves: { key: Shelf; label: string }[] = [
+    ...(playlists.length > 0
+      ? [{ key: 'PLAYLISTS' as const, label: '내 재생 목록' }]
+      : []),
+    ...(recent.length > 0
+      ? [{ key: 'RECENT' as const, label: '최근 들은 곡' }]
+      : []),
+  ];
+  const [picked, setPicked] = useState<Shelf>('PLAYLISTS');
+  const shelf =
+    shelves.find(item => item.key === picked)?.key ?? shelves[0]?.key;
+  return (
+    <View style={styles.playlists}>
+      {shelves.length > 0 ? (
+        <View style={styles.shelfTabs} accessibilityRole="tablist">
+          {shelves.map(item => {
+            const on = item.key === shelf;
+            return (
+              <Pressable
+                key={item.key}
+                accessibilityRole="tab"
+                accessibilityLabel={item.label}
+                accessibilityState={{ selected: on }}
+                onPress={() => setPicked(item.key)}
+                hitSlop={8}
+              >
+                <AppText
+                  style={[styles.playlistsTitle, !on && styles.shelfTabOff]}
+                >
+                  {item.label}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <AppText style={styles.playlistsTitle} accessibilityRole="header">
+          내 재생 목록
+        </AppText>
+      )}
+      {onSignIn ? (
+        <View style={styles.playlistSignIn}>
+          <AppText style={[styles.notice, styles.signInNote]}>
+            목록을 보려면 Spotify에 다시 로그인해 주세요
+          </AppText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Spotify 다시 로그인"
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
+            onPress={onSignIn}
+            style={({ pressed }) => [
+              styles.signInPill,
+              (pressed || busy) && styles.pressed,
+            ]}
+          >
+            <AppText style={styles.signInText}>다시 로그인</AppText>
+          </Pressable>
+        </View>
+      ) : null}
+      {shelf ? (
+        <ScrollView
+          // A new tab starts at its first cover.
+          key={shelf}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.playlistScroll}
+          contentContainerStyle={styles.playlistRow}
+        >
+          {shelf === 'PLAYLISTS'
+            ? playlists.map(playlist => (
+                <ShelfItem
+                  key={playlist.id}
+                  title={playlist.title}
+                  detail={
+                    playlist.trackCount === undefined
+                      ? null
+                      : `${playlist.trackCount}곡`
+                  }
+                  artworkUrl={playlist.artworkUrl}
+                  label={`${playlist.title} 재생 목록 재생`}
+                  busy={busy}
+                  onPress={() => onPlayPlaylist(playlist)}
+                />
+              ))
+            : recent.map(track => (
+                <ShelfItem
+                  key={track.id}
+                  title={track.title}
+                  detail={track.subtitle || null}
+                  artworkUrl={track.artworkUrl}
+                  label={`${track.title} 재생`}
+                  busy={busy}
+                  onPress={() => onPlayTrack(track)}
+                />
+              ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 // 2.7 음악 카드 — 멜론, 2.7S Spotify, 2.7a 미연결, 2.7b 연결 끊김, all on one cover card.
 export function MusicCardScreen() {
   const navigation = useNavigation();
@@ -469,6 +650,113 @@ export function MusicCardScreen() {
     }
     setBusy(false);
   };
+  // 내 재생 목록 and 최근 들은 곡, read again when the service or its link changes (and 최근 들은 곡 on a new
+  // song); a failed read just leaves its tab out.
+  const linked = state?.linked ?? false;
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [recent, setRecent] = useState<Track[]>([]);
+  const [playlistsNeedSignIn, setPlaylistsNeedSignIn] = useState(false);
+  const [recentNeedsSignIn, setRecentNeedsSignIn] = useState(false);
+  const needsSignIn = playlistsNeedSignIn || recentNeedsSignIn;
+  // Bumped after 다시 로그인 to read both again.
+  const [playlistRead, setPlaylistRead] = useState(0);
+  const songId = state?.nowPlaying?.id ?? null;
+  const scopeMissing = (error: unknown) =>
+    error instanceof SpotifyError && error.reason === 'SCOPE_REQUIRED';
+  useEffect(() => {
+    setPlaylistsNeedSignIn(false);
+    if (!service || !linked) {
+      setPlaylists([]);
+      return;
+    }
+    let live = true;
+    music.getPlaylists().then(
+      found => {
+        if (live) setPlaylists(found);
+      },
+      error => {
+        if (!live) return;
+        setPlaylists([]);
+        setPlaylistsNeedSignIn(scopeMissing(error));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [music, service, linked, playlistRead]);
+  useEffect(() => {
+    setRecentNeedsSignIn(false);
+    if (!service || !linked) {
+      setRecent([]);
+      return;
+    }
+    let live = true;
+    music.getRecentTracks().then(
+      found => {
+        if (live) setRecent(found);
+      },
+      error => {
+        if (!live) return;
+        setRecent([]);
+        setRecentNeedsSignIn(scopeMissing(error));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [music, service, linked, playlistRead, songId]);
+  const signInForPlaylists = async () => {
+    setBusy(true);
+    try {
+      if (music.connectLibrary) {
+        await music.connectLibrary();
+        setState(await music.getState());
+      } else {
+        setState(await music.resolveService('SPOTIFY'));
+      }
+      setPlaylistRead(count => count + 1);
+    } catch (error) {
+      say(spotifyFailureMessage(error, 'Spotify에 로그인하지 못했어요'));
+    }
+    setBusy(false);
+  };
+  const playPlaylist = async (playlist: Playlist) => {
+    setBusy(true);
+    try {
+      setState(await music.playPlaylist(playlist.id));
+    } catch (error) {
+      say(
+        spotifyFailureMessage(
+          error,
+          error instanceof Error && error.message
+            ? error.message
+            : '재생 목록을 틀지 못했어요',
+        ),
+      );
+    }
+    setBusy(false);
+  };
+  const playTrack = async (track: Track) => {
+    setBusy(true);
+    try {
+      setState(await music.playTrack(track.id));
+    } catch (error) {
+      say(
+        spotifyFailureMessage(
+          error,
+          error instanceof Error && error.message
+            ? error.message
+            : '곡을 틀지 못했어요',
+        ),
+      );
+    }
+    setBusy(false);
+  };
+  const showPlaylists = Boolean(
+    service &&
+      linked &&
+      (playlists.length > 0 || recent.length > 0 || needsSignIn),
+  );
   const artwork = service ? state?.nowPlaying?.artworkUrl : null;
   const [loadedArt, setLoadedArt] = useState<string | null>(null);
   return (
@@ -476,7 +764,12 @@ export function MusicCardScreen() {
       <View
         style={[
           styles.card,
-          { height: Math.min(cardHeight, screenHeight - 160) },
+          {
+            height: Math.min(
+              cardHeight + (showPlaylists ? playlistsHeight : 0),
+              screenHeight - 160,
+            ),
+          },
         ]}
         onLayout={measure}
       >
@@ -526,21 +819,22 @@ export function MusicCardScreen() {
             </>
           ) : (
             <>
-              {/* The page dots of the mockup: this card is the first of three. */}
-              <View
-                style={styles.dots}
-                importantForAccessibility="no-hide-descendants"
-              >
-                <View style={[styles.dot, styles.dotOn]} />
-                <View style={styles.dot} />
-                <View style={styles.dot} />
-              </View>
               <Player
                 state={state}
                 busy={busy}
                 onCommand={runCommand}
                 canStartWithoutTrack={music.canStartWithoutTrack}
               />
+              {showPlaylists ? (
+                <Library
+                  playlists={playlists}
+                  recent={recent}
+                  busy={busy}
+                  onPlayPlaylist={playPlaylist}
+                  onPlayTrack={playTrack}
+                  onSignIn={needsSignIn ? signInForPlaylists : undefined}
+                />
+              ) : null}
               <WideButton
                 label={`${serviceNames[service]} 열기`}
                 onPress={openApp}
@@ -580,47 +874,12 @@ const styles = StyleSheet.create({
   },
   // No border (핸드오프); the card's own blur stands in for the mockup's backdrop blur.
   settings: { position: 'absolute', top: 14, right: 14, zIndex: 1 },
-  dots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 5,
-    marginBottom: 16,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.4)',
-  },
-  dotOn: { backgroundColor: '#FFFFFF' },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
   title: {
     flexShrink: 1,
     fontFamily: fontFamily.bold,
     fontSize: 26,
     lineHeight: 31,
     letterSpacing: -0.6,
-    color: '#FFFFFF',
-  },
-  length: {
-    height: 32,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: 'rgba(0,0,0,0.12)',
-    justifyContent: 'center',
-  },
-  lengthText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 18,
-    fontVariant: ['tabular-nums'],
     color: '#FFFFFF',
   },
   subtitle: {
@@ -700,6 +959,61 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   bar: { width: 4, height: 17, borderRadius: 1, backgroundColor: '#FFFFFF' },
+  playlists: { marginTop: 12 },
+  shelfTabs: { flexDirection: 'row', gap: 16 },
+  shelfTabOff: { color: 'rgba(255,255,255,0.45)' },
+  playlistSignIn: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  signInNote: { flex: 1, marginTop: 0 },
+  signInPill: {
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+  },
+  signInText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: '#02050E',
+  },
+  playlistsTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: 'rgba(255,255,255,0.86)',
+  },
+  // Runs to the card's edges so a cover slides out under them.
+  playlistScroll: { marginTop: 8, marginHorizontal: -18 },
+  playlistRow: { gap: 10, paddingHorizontal: 18 },
+  playlist: { width: 72 },
+  playlistCover: { width: 72, height: 72, borderRadius: 14 },
+  playlistBlank: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playlistName: {
+    marginTop: 6,
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#FFFFFF',
+  },
+  playlistCount: {
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.6)',
+  },
   wide: {
     marginTop: 12,
     height: 56,

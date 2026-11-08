@@ -1,18 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import {
+  StackActions,
   useFocusEffect,
   useIsFocused,
   useNavigation,
 } from '@react-navigation/native';
-import Svg, {
-  Circle,
-  Defs,
-  Path,
-  RadialGradient,
-  Rect,
-  Stop,
-} from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { AppText, Icon, LightGlass } from '../../components';
 import {
   useRepositories,
@@ -37,46 +31,6 @@ import {
   useTheme,
 } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
-
-// Round dark badge brightening toward the bottom right behind a white rim (runway-course-handoff 음악 원,
-// 자유 러닝 아바타): the music button and the 2.0F 자유 러닝 icon.
-export function K1Badge({
-  diameter,
-  children,
-}: {
-  diameter: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <View
-      style={[
-        styles.badge,
-        { width: diameter, height: diameter, borderRadius: diameter / 2 },
-      ]}
-    >
-      <Svg style={StyleSheet.absoluteFill} width={diameter} height={diameter}>
-        <Defs>
-          <RadialGradient
-            id="badge"
-            cx={0.82}
-            cy={0.86}
-            fx={0.82}
-            fy={0.86}
-            r={1.19}
-          >
-            <Stop offset={0} stopColor="#8096AF" />
-            <Stop offset={0.26} stopColor="#46596E" />
-            <Stop offset={0.52} stopColor="#1C2A3A" />
-            <Stop offset={0.78} stopColor="#0C131F" />
-            <Stop offset={1} stopColor="#09101B" />
-          </RadialGradient>
-        </Defs>
-        <Rect width={diameter} height={diameter} fill="url(#badge)" />
-      </Svg>
-      {children}
-    </View>
-  );
-}
 
 // Simplified marks for the two music services (2.0 음악 버튼, 2.8 음원 목록).
 // mono draws only the white mark, for a K1 badge.
@@ -158,21 +112,24 @@ const countdownSeconds = 3;
 // (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
+  mode,
   config,
   goal,
   startSignal = 0,
 }: {
   night: boolean;
+  // Which run this screen starts: the round button left of 러닝 시작 switches to the other one (담당자 요청).
+  mode: 'FREE' | 'COURSE';
   // What the run starts with; the button stays disabled until it is known.
   config: RunConfig | null;
   // The goal chip above the row: what the run aims at, opening the goal sheet.
-  goal?: { label: string; onPress: () => void } | null;
+  // title names the chip for screen readers: 목표 설정, or 코스 설정 on 2.0C.
+  goal?: { label: string; title?: string; onPress: () => void } | null;
   // Raised by the goal sheet's start buttons: starts the same countdown as 러닝 시작.
   startSignal?: number;
 }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const source = useMusicSource();
   const { start: startRun, recheck, abortStart, cancel } = useRunActions();
   const { ensureRunLogin } = useSession();
   const control = useRunControlState();
@@ -244,13 +201,18 @@ export function RunStartBar({
       }
     };
   }, [count, ensureRunLogin]);
-  const course = config?.mode === 'COURSE';
+  const course = mode === 'COURSE';
+  // 코스 러닝 ↔ 자유 러닝 in place, so 뒤로 still goes to 러닝 방식 선택.
+  const switchMode = () =>
+    navigation.dispatch(
+      StackActions.replace(course ? 'FreeRun' : 'CourseStart'),
+    );
   return (
     <View style={styles.startArea}>
       {goal ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="목표 설정"
+          accessibilityLabel={goal.title ?? '목표 설정'}
           accessibilityHint={goal.label}
           onPress={goal.onPress}
           style={({ pressed }) => [
@@ -265,19 +227,18 @@ export function RunStartBar({
           </AppText>
         </Pressable>
       ) : null}
+      {/* 러닝 방식 · 러닝 시작 · 음악, the two round buttons the same glass with no captions so the row sits evenly
+          (담당자 요청). */}
       <View style={[styles.bar, !night && styles.barDay]}>
-        <View style={styles.side}>
-          <GlassIconButton
-            icon={course ? 'route' : 'compass'}
-            tone={night ? 'dark' : 'light'}
-            diameter={52}
-            accessibilityLabel="러닝 방식 변경"
-            onPress={() => navigateTo(navigation, 'RunMode')}
-          />
-          <AppText variant="label" tone="textSecondary" style={styles.caption}>
-            {course ? '코스 러닝' : '자유 러닝'}
-          </AppText>
-        </View>
+        <GlassIconButton
+          icon={course ? 'route' : 'compass'}
+          tone={night ? 'dark' : 'light'}
+          diameter={52}
+          accessibilityLabel={
+            course ? '자유 러닝으로 바꾸기' : '코스 러닝으로 바꾸기'
+          }
+          onPress={switchMode}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="러닝 시작"
@@ -319,36 +280,13 @@ export function RunStartBar({
             />
           </View>
         </Pressable>
-        <View style={styles.side}>
-          {/* By day the music button is always the dark badge, with the picked service's mark or a note on it. */}
-          {!night || source === 'MELON' || source === 'SPOTIFY' ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="음악"
-              onPress={() => navigateTo(navigation, 'MusicCard')}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <K1Badge diameter={52}>
-                {source === 'MELON' || source === 'SPOTIFY' ? (
-                  <ServiceMark service={source} size={30} mono />
-                ) : (
-                  <Icon name="music" color={k1.ice} size={20} />
-                )}
-              </K1Badge>
-            </Pressable>
-          ) : (
-            <GlassIconButton
-              icon="music"
-              tone={night ? 'dark' : 'light'}
-              diameter={52}
-              accessibilityLabel="음악"
-              onPress={() => navigateTo(navigation, 'MusicCard')}
-            />
-          )}
-          <AppText variant="label" tone="textSecondary" style={styles.caption}>
-            음악
-          </AppText>
-        </View>
+        <GlassIconButton
+          icon="music"
+          tone={night ? 'dark' : 'light'}
+          diameter={52}
+          accessibilityLabel="음악"
+          onPress={() => navigateTo(navigation, 'MusicCard')}
+        />
       </View>
       <Modal
         visible={count !== null}
@@ -553,8 +491,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
   },
-  side: { alignItems: 'center', gap: 4 },
-  caption: { textAlign: 'center' },
   notice: { width: '100%', alignItems: 'center', gap: spacing.xs },
   noticeActions: { flexDirection: 'row', gap: spacing.lg },
 
@@ -585,13 +521,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     letterSpacing: -0.3,
     color: k1.ice,
-  },
-  badge: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   // 3·2·1 on a solid dark screen, the same ground as the run screen that follows (S15P31E105-517).
   countdown: {

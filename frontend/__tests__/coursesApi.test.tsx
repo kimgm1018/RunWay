@@ -288,11 +288,12 @@ async function launch() {
   return screen!;
 }
 
-// 2.0M 코스 러닝 opens 3.1 오늘의 러닝.
+// 2.0M 코스 러닝 opens the map (2.0C), whose 코스 설정 opens 3.1 오늘의 러닝 (담당자 요청).
 async function openTodayRun() {
   const screen = await launch();
   await press(screen, '러닝');
   await press(screen, '코스 러닝');
+  await press(screen, '코스 설정');
   return screen;
 }
 
@@ -494,6 +495,8 @@ test('3.1b adds the next page twice per search and again after a new search', as
 
 test('3.1 offers distances only up to the 15km C01 makes', async () => {
   const screen = await openTodayRun();
+  // Each condition is a card that opens its ruler or chips (운동 목표 sheet, 담당자 요청).
+  await press(screen, '목표 거리 설정');
 
   const slider = screen.root.find(
     node => node.props.label === '목표 거리' && node.props.max !== undefined,
@@ -520,7 +523,10 @@ test('U11의 형태·환경 기본값을 표시하고 변경·추천만으로는
   preferences.filters.river = true;
   preferences.filters.avoid_steps = true;
   const screen = await openTodayRun();
+  await press(screen, '코스 형태 설정');
   expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
+  await press(screen, '조건 목록으로');
+  await press(screen, '환경 설정');
   expect(labelled(screen, '강변').props.accessibilityState.checked).toBe(true);
   expect(labelled(screen, '계단 피하기').props.accessibilityState.checked).toBe(
     true,
@@ -547,8 +553,11 @@ test('U11의 형태·환경 기본값을 표시하고 변경·추천만으로는
 
 test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 도착지를 골라야 한다', async () => {
   const screen = await openTodayRun();
+  await press(screen, '코스 형태 설정');
   await press(screen, '편도');
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+  await press(screen, '조건 목록으로');
+  await press(screen, '환경 설정');
   await press(screen, '큰길 피하기');
   await press(screen, '이 조건을 기본값으로 저장');
   const put = fetchMock.mock.calls.find(
@@ -562,6 +571,7 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
   });
   expect(texts(screen)).toContain('추천 기본값을 저장했어요');
   expect(recommendationBodies()).toEqual([]);
+  await press(screen, '조건 목록으로');
   await press(screen, '도착 위치 선택');
   // 장소 검색(searchPlaces) answers after typing stops (S15P31E105-494).
   await act(async () => {
@@ -585,15 +595,19 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
 
 test('기본값 저장 실패는 선택값을 유지하고 재시도할 수 있다', async () => {
   const screen = await openTodayRun();
+  await press(screen, '코스 형태 설정');
   await press(screen, '왕복');
+  await press(screen, '조건 목록으로');
+  await press(screen, '환경 설정');
   await press(screen, '트레일');
   failPreferenceSave = true;
   await press(screen, '이 조건을 기본값으로 저장');
   expect(texts(screen)).toContain('기본값을 저장하지 못했어요');
-  expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
   expect(labelled(screen, '트레일').props.accessibilityState.checked).toBe(
     true,
   );
+  await press(screen, '조건 목록으로');
+  expect(texts(screen)).toContain('왕복');
   expect(preferences).toEqual(defaultCoursePreferences());
   failPreferenceSave = false;
   await press(screen, '이 조건을 기본값으로 저장');
@@ -610,6 +624,7 @@ test('U11 실패를 기본값 없음으로 숨기지 않고 재조회한다', as
   expect(sent('PUT')).toEqual([]);
   failPreferenceRead = false;
   await press(screen, '기본값 다시 불러오기');
+  await press(screen, '코스 형태 설정');
   expect(labelled(screen, '왕복').props.accessibilityState.selected).toBe(true);
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
 });
@@ -617,6 +632,7 @@ test('U11 실패를 기본값 없음으로 숨기지 않고 재조회한다', as
 test('9개 조건을 모두 해제하면 false를 빠짐없이 저장한다', async () => {
   for (const { key } of courseFilterOptions) preferences.filters[key] = true;
   const screen = await openTodayRun();
+  await press(screen, '환경 설정');
   for (const { label } of courseFilterOptions) await press(screen, label);
   await press(screen, '이 조건을 기본값으로 저장');
   expect(preferences).toEqual(defaultCoursePreferences());

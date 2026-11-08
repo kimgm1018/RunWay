@@ -643,7 +643,13 @@ export type Track = {
   artworkUrl?: string | null;
 };
 
-export type Playlist = { id: string; title: string };
+export type Playlist = {
+  id: string;
+  title: string;
+  // The playlist cover and its song count (Spotify Web API); the card draws a plain tile without a cover.
+  artworkUrl?: string | null;
+  trackCount?: number;
+};
 
 export type MusicLibrary = {
   likedCount: number;
@@ -1244,6 +1250,9 @@ export type Repositories = {
     // Optional native player updates; older repositories continue using getState.
     subscribe?: (listener: (state: MusicState) => void) => () => void;
     canStartWithoutTrack?: boolean;
+    // Spotify's Web API sign-in for 내 재생 목록 · 최근 들은 곡 (and with their scopes), apart from the playback
+    // link: App Remote controls playback without it.
+    connectLibrary?: () => Promise<void>;
     getState: () => Promise<MusicState>;
     // null clears the pick (2.8: the picked row pressed again), back to 2.7a 미연결.
     selectSource: (source: MusicSource | null) => Promise<MusicState>;
@@ -1255,6 +1264,14 @@ export type Repositories = {
     pause: () => Promise<MusicState>;
     next: () => Promise<MusicState>;
     previous: () => Promise<MusicState>;
+    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론 cannot
+    // start a chosen one). Playing one starts it from the top on the music app.
+    getPlaylists: () => Promise<Playlist[]>;
+    playPlaylist: (playlistId: string) => Promise<MusicState>;
+    // 2.7 최근 들은 곡 (담당자 요청): songs heard lately on the picked service, newest first, each once; [] where
+    // the service has none to offer (멜론). Playing one starts that song.
+    getRecentTracks: () => Promise<Track[]>;
+    playTrack: (trackId: string) => Promise<MusicState>;
   };
   // The current time; mock data pins it to the prototype's 12:45 so relative times and day/night match.
   clock: {
@@ -1381,7 +1398,9 @@ export type Repositories = {
     commitBatch: (batchId: string, acceptedCount: number) => Promise<void>;
     // 폰 인계(S15P31E105-464) 1단계: 이 세션의 새 워치 batch 수신·수신 확인을 멈추고, 이미 저장했지만 W07 저장 확인이
     // 없는 batch를 돌려준다. 인계를 요청하지 않았거나 WATCH 유지가 확인됐거나 운동이 끝났을 때만 unblockBatches로 연다.
-    blockBatches?: (sessionId: string) => Promise<Extract<WatchSessionEvent, { type: 'BATCH_DATA' }>[]>;
+    blockBatches?: (
+      sessionId: string,
+    ) => Promise<Extract<WatchSessionEvent, { type: 'BATCH_DATA' }>[]>;
     unblockBatches?: (sessionId: string) => Promise<void>;
     // 워치와의 연결(MessageClient 노드) 여부. 워치 앱 상태까지 뜻하지는 않는다.
     isWatchConnected?: () => Promise<boolean>;
