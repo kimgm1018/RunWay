@@ -52,7 +52,6 @@ export const mainRoutes = [
   'RecommendedCourses',
   'RunProgress',
   'RunResult',
-  'RecordDetail',
   'GroupRunDetail',
   'WaitingRoom',
   'GroupRunProgress',
@@ -184,16 +183,14 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '홈',
     task: HOME,
     tab: 'HomeTab',
+    // S15P31E105-564: 준비도 · 과거 러닝 기록 · 기록 상세 · 러닝 분석 are on 2.1 itself (5.2 is gone, 담당자 결정);
+    // 기록 공유 opens 7.3, a group run 6.7, and a readiness state without a score its fix.
     links: [
       'Notifications',
-      'MyProfile',
       'Settings',
-      'RunMode',
-      'CourseRun',
-      'SavedCourses',
-      'Analysis',
-      'Records',
-      'RecordDetail',
+      'WatchConnect',
+      'PostWrite',
+      'GroupRunResult',
     ],
   },
   Notifications: {
@@ -222,7 +219,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '코스 러닝 시작',
     task: HOME,
     tab: 'RunTab',
-    links: ['TodayRun', 'FreeRun', 'MusicCard'],
+    links: ['TodayRun', 'FreeRun', 'MusicCard', 'SavedCourses'],
   },
   CourseRun: {
     code: '2.0',
@@ -276,7 +273,8 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '4.5',
     title: '러닝 결과',
     task: RUN,
-    links: ['Home', 'RecordDetail', 'Records', 'PostWrite'],
+    // 기록 보기 opens the run in 2.1 기록 상세 (S15P31E105-564).
+    links: ['Home', 'PostWrite'],
   },
 
   Analysis: {
@@ -291,13 +289,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '전체 기록',
     task: RECORD,
     tab: 'HomeTab',
-    links: ['RecordDetail', 'GroupRunResult'],
-  },
-  RecordDetail: {
-    code: '5.2',
-    title: '기록 상세',
-    task: RECORD,
-    links: ['PostWrite', 'Records'],
+    links: ['Home', 'GroupRunResult'],
   },
 
   MyCrews: {

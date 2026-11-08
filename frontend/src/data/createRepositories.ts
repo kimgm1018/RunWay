@@ -11,7 +11,8 @@ import type { Repositories } from './types';
 function forSource(source: DataSource): Repositories {
   switch (source) {
     case 'mock':
-      return createMockRepositories();
+      // The app's dates follow the phone's clock, so 2.1's calendar reaches today (S15P31E105-564).
+      return createMockRepositories({ now: () => new Date() });
     case 'api':
       return createApiRepositories();
   }

@@ -210,22 +210,42 @@ export function RunStartBar({
   return (
     <View style={styles.startArea}>
       {goal ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={goal.title ?? '목표 설정'}
-          accessibilityHint={goal.label}
-          onPress={goal.onPress}
-          style={({ pressed }) => [
-            styles.goalChip,
-            { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
-            pressed && styles.pressed,
-          ]}
-        >
-          <Icon name="target" color={colors.text} size={16} />
-          <AppText variant="captionStrong" numberOfLines={1}>
-            {goal.label}
-          </AppText>
-        </Pressable>
+        <View style={styles.chipRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={goal.title ?? '목표 설정'}
+            accessibilityHint={goal.label}
+            onPress={goal.onPress}
+            style={({ pressed }) => [
+              styles.goalChip,
+              { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Icon name="target" color={colors.text} size={16} />
+            <AppText variant="captionStrong" numberOfLines={1}>
+              {goal.label}
+            </AppText>
+          </Pressable>
+          {course ? (
+            // 2.0C: 저장한 코스 beside 코스 설정 opens the saved courses list (S15P31E105-564, 담당자 요청).
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="저장한 코스"
+              onPress={() => navigateTo(navigation, 'SavedCourses')}
+              style={({ pressed }) => [
+                styles.goalChip,
+                { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon name="bookmark" color={colors.text} size={16} />
+              <AppText variant="captionStrong" numberOfLines={1}>
+                저장한 코스
+              </AppText>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       {/* 러닝 방식 · 러닝 시작 · 음악, the two round buttons the same glass with no captions so the row sits evenly
           (담당자 요청). */}
@@ -481,8 +501,13 @@ const styles = StyleSheet.create({
   },
   barDay: { gap: 10 },
   startArea: { gap: 12 },
+  chipRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
   goalChip: {
-    alignSelf: 'center',
+    flexShrink: 1,
     maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',

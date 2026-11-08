@@ -101,7 +101,8 @@ test("2.1 shows today's R02 score and metrics without a made-up grade", async ()
   // No grade from R02, so the title names none.
   expect(page).toContain('오늘 준비도');
   expect(page).not.toContain('오늘 준비도 양호');
-  expect(page).toContain('러닝 시작');
+  // 러닝 시작 left 2.1 with the old card (S15P31E105-564).
+  expect(page).not.toContain('러닝 시작');
   expect(page).not.toContain('undefined');
   await act(async () => screen.unmount());
 });

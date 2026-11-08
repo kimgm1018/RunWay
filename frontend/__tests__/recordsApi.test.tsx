@@ -226,77 +226,73 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test('2.1 shows my recent runs from the server', async () => {
-  serve();
-  const screen = await launch();
-  const page = texts(screen);
-  for (const text of [
-    // 과거 러닝 기록: my runs by date (S15P31E105-367).
-    '과거 러닝 기록',
-    '11.01',
-    '5.0km',
-  ]) {
-    expect(page).toContain(text);
+async function waitForText(screen: Screen, text: string) {
+  for (let tries = 0; tries < 50 && !texts(screen).includes(text); tries++) {
+    await settle();
   }
-  await act(async () => screen.unmount());
-});
+  expect(texts(screen)).toContain(text);
+}
 
-test('5.1 shows the newest day from the server and 5.2 opens a run with its splits', async () => {
+test('2.1 과거 러닝 기록 shows a day from the server and 기록 상세 opens a run with its splits', async () => {
   serve();
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
+  // Today (Monday 11.02) has no run; Sunday 11.01 is on the week strip's page before.
+  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await press(screen, '11월 1일');
   // Sunday 11.01 has two runs; the card shows one at a time.
+  await waitForText(screen, '07:10 · 5.02km');
   await press(screen, '07:10 러닝');
+  await waitForText(screen, '29:55');
   let page = texts(screen);
   for (const text of [
-    '내 기록',
     '5′58″',
     '5.02',
-    '29:55',
     '목표 30:00 달성 · 5초 단축',
     '평균 페이스',
   ]) {
     expect(page).toContain(text);
   }
-  // 5.1 has no 페이스 · 심박 · 케이던스 tabs; they stay on 5.2 (담당자 결정).
+  // 과거 러닝 기록 has no 페이스 · 심박 · 케이던스 tabs; they stay on 기록 상세 (담당자 결정).
   expect(page).not.toContain('케이던스');
 
+  // The card turns over to the month's runs; the run opens in 기록 상세.
   await press(screen, '아침 러닝, 11.01 일 · 30:00, 5.02km');
+  await settle(600);
+  await waitForText(screen, '11월 기록');
+  await press(screen, '기록 상세');
+  await waitForText(screen, '심박');
   page = texts(screen);
-  for (const text of ['기록 상세', '5.02', '29:55', '5′58″', '심박']) {
+  for (const text of ['5.02', '29:55', '5′58″']) {
     expect(page).toContain(text);
   }
   expect(page).not.toContain('AI 조언');
+  expect(page).toContain('기록 공유');
   await act(async () => screen.unmount());
 });
 
-test('5.3 sums the server runs and compares them with H06 last month', async () => {
+test('2.1 러닝 분석 sums the day’s server runs', async () => {
   serve();
   const screen = await launch();
+  await press(screen, '11월 1일');
   await press(screen, '러닝 분석');
+  await waitForText(screen, '러닝 분석 | 11월 1일');
   const page = texts(screen);
-  for (const text of [
-    '11월 ▾',
-    '러닝 분석 | 11월',
-    '11.0km',
-    '10월보다 +7.0km',
-    '5′59″/km',
-    '러닝 2회',
-  ]) {
+  for (const text of ['11.0km', '5′59″/km', '러닝 2회']) {
     expect(page).toContain(text);
   }
   await act(async () => screen.unmount());
 });
 
-test('without any runs 5.1 and 5.3 show their empty states', async () => {
+test('without any runs 과거 러닝 기록 and 러닝 분석 show their empty states', async () => {
   serve(false);
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
-  expect(texts(screen)).toContain('이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '이 날은 러닝 기록이 없어요');
   await act(async () => screen.unmount());
 
   const analysis = await launch();
   await press(analysis, '러닝 분석');
-  expect(texts(analysis)).toContain('이 기간에는 기록이 없어요');
+  await waitForText(analysis, '이 날은 러닝 기록이 없어요');
   await act(async () => analysis.unmount());
 });

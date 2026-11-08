@@ -5,7 +5,7 @@ import App from '../App';
 import {
   createMockRepositories,
   DataError,
-  type RunStatistics,
+  type TodayCondition,
   type Repositories,
 } from '../src/data';
 
@@ -63,30 +63,26 @@ afterEach(async () => {
 
 test('2.1 pull to refresh loads every section again and keeps the cards on screen until it settles', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
+  const getToday = repositories.home.getTodayCondition;
   const today = jest.spyOn(repositories.home, 'getTodayCondition');
-  const getStatistics = repositories.records.getStatistics;
-  const statistics = jest.spyOn(repositories.records, 'getStatistics');
-  const recent = jest.spyOn(repositories.records, 'getRecent');
-  const saved = jest.spyOn(repositories.courses, 'getSaved');
+  const me = jest.spyOn(repositories.profile, 'getMe');
+  const notifications = jest.spyOn(repositories.notifications, 'list');
   const screen = await launch(repositories);
-  const before = [today, statistics, recent, saved].map(
-    spy => spy.mock.calls.length,
-  );
+  const before = [today, me, notifications].map(spy => spy.mock.calls.length);
 
-  // The analysis reload is held so the screen can be checked mid-refresh.
+  // The readiness reload is held so the screen can be checked mid-refresh.
   let release = () => {};
-  statistics.mockImplementationOnce(
-    (...args) =>
-      new Promise<RunStatistics>(resolve => {
-        release = () =>
-          getStatistics.apply(repositories.records, args).then(resolve);
+  today.mockImplementationOnce(
+    () =>
+      new Promise<TodayCondition>(resolve => {
+        release = () => getToday.apply(repositories.home).then(resolve);
       }),
   );
   await act(async () => refreshControl(screen).props.onRefresh());
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(true);
-  expect(texts(screen)).toContain('러닝 분석');
+  expect(texts(screen)).toContain('오늘 준비도 양호');
   expect(texts(screen)).toContain('과거 러닝 기록');
 
   await act(async () => release());
@@ -94,10 +90,10 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(false);
-  [today, statistics, recent, saved].forEach((spy, index) =>
+  [today, me, notifications].forEach((spy, index) =>
     expect(spy.mock.calls.length).toBeGreaterThan(before[index]),
   );
-  expect(texts(screen)).toContain('러닝 분석');
+  expect(texts(screen)).toContain('오늘 준비도 양호');
 });
 
 test('2.1 keeps the home on screen when only the notifications fail', async () => {
@@ -106,9 +102,9 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   const screen = await launch(repositories);
 
   const page = texts(screen);
-  expect(page).toContain('러닝 시작');
+  expect(page).toContain('오늘 준비도 양호');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('저장한 코스');
+  expect(page).toContain('과거 러닝 기록');
   expect(page).not.toContain('불러오지 못했어요');
 });
 

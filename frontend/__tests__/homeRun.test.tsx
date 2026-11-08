@@ -72,44 +72,82 @@ async function render(scenario: MockScenario = 'default') {
   return screen!;
 }
 
-test('home shows the prototype values on the 2.1 cards (S15P31E105-367)', async () => {
+test('home greets me, shows today’s readiness and swaps the card from the menu (S15P31E105-564)', async () => {
   const screen = await render();
   const home = texts(screen);
-  // S15P31E105-382: the greeting is gone, 오늘 컨디션 sits right under the header.
-  expect(home).not.toContain('오늘 달리기 좋은 날이에요');
-  // The disc shows the score alone, the records panel has no 누적 line, and the small cards carry
-  // their title only (담당자 결정).
-  for (const gone of [
-    '누적 34km · 7회',
-    '4일 전 · 30분',
-    '이번 주 강도',
-    '10월 · 7회',
-    '5개 코스',
-  ]) {
-    expect(home).not.toContain(gone);
-  }
+  // 인사말 in one line; the old logo row, its avatar button and 러닝 시작 are gone.
+  expect(home).toContain('반가워요 민준님 👋');
+  expect(() => labelled(screen, '내 프로필')).toThrow();
+  // The date line, then 준비도 first: the score, its grade, sleep, resting heart rate and the weekly load.
+  expect(home).toContain('10월 19일 월요일');
   for (const text of [
-    // 오늘 컨디션 with 러닝 시작: the score, its grade, sleep and resting heart rate.
     '82',
     '오늘 준비도 양호',
+    '계획한 강도로 달려도 좋아요',
     '7h 12m',
     '58 bpm',
-    '러닝 시작',
-    // 지난 러닝: the newest of my runs (10.15), its pace over its distance.
-    '5′55″',
-    '5.0 km',
-    // 과거 러닝 기록: my five newest runs; group runs (10.11) stay out.
-    '10.15',
-    '10.03',
-    '저장한 코스',
+    '적정',
+    '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
   ]) {
     expect(home).toContain(text);
   }
-  expect(home).not.toContain('10.11');
+  for (const gone of ['러닝 시작', '저장한 코스', '지난 러닝']) {
+    expect(home).not.toContain(gone);
+  }
+  // 과거 러닝 기록 shows the day on the date line: no run on 10.19, then 10.15's run.
   await press(screen, '과거 러닝 기록');
-  expect(texts(screen)).toContain('내 기록');
+  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  // The date line opens the calendar (2026년 10월), where a day picks it and closes it.
+  await press(screen, '달력 열기');
+  expect(texts(screen)).toContain('2026년 10월');
+  await press(screen, '10월 15일 선택');
+  expect(texts(screen)).toContain('10월 15일 목요일');
+  await waitForText(screen, '민락수변공원 출발');
+  // Its card turns over to the month's runs (담당자 결정), and a run there opens 기록 상세 on the same screen,
+  // with the 페이스 · 심박 · 케이던스 tabs and the run's buttons.
+  await press(screen, labelOf(screen, '민락수변공원 출발'));
+  await settle(600);
+  expect(texts(screen)).toContain('10월 기록');
+  expect(texts(screen)).toContain('7번 · 34.2km');
+  await press(screen, '민락수변공원 출발, 10.15 목');
+  await waitForText(screen, '내 코스에 저장');
+  for (const text of [
+    '페이스',
+    '심박',
+    '케이던스',
+    '평균 페이스',
+    '29:41',
+    '내 코스에 저장',
+    '기록 공유',
+    '기록 삭제',
+  ]) {
+    expect(texts(screen)).toContain(text);
+  }
+  expect(texts(screen)).not.toContain('내 기록');
+  // 러닝 분석 keeps the day.
+  await press(screen, '러닝 분석');
+  await waitForText(screen, '러닝 분석 | 10월 15일');
+  await press(screen, '준비도');
+  expect(texts(screen)).toContain('오늘 준비도 양호');
   await act(async () => screen.unmount());
 });
+
+// The run card's label starts with the run's name.
+function labelOf(screen: Screen, name: string) {
+  return screen.root.find(
+    node =>
+      typeof node.props.accessibilityLabel === 'string' &&
+      node.props.accessibilityLabel.startsWith(`${name}, `) &&
+      typeof node.props.onPress === 'function',
+  ).props.accessibilityLabel as string;
+}
+
+// 저장한 코스 left 2.1 for 2.0C, beside 코스 설정 (S15P31E105-564).
+async function openSaved(screen: Screen) {
+  await press(screen, '러닝');
+  await press(screen, '코스 러닝');
+  await press(screen, '저장한 코스');
+}
 
 test('the tab bar shows 홈·커뮤니티·러닝·그룹·프로필 in order with their names, and 프로필 without a photo is a line icon', async () => {
   const screen = await render();
@@ -162,7 +200,7 @@ test('the home has no background photo and keeps the profile photo as the avatar
     node =>
       node.props.source?.uri !== undefined && typeof node.type === 'string',
   );
-  // Only the avatar and the 프로필 tab show the photo (S15P31E105-522); the background is the default backdrop.
+  // Only the greeting and the 프로필 tab show the photo (S15P31E105-522·-564).
   expect(images.map(node => node.props.source.uri)).toEqual([
     'file:///profile.jpg',
     'file:///profile.jpg',
@@ -273,13 +311,17 @@ test('an empty inbox shows the 2.9b empty state', async () => {
 
 test('run mode leads to course recommendations and a free run with a countdown', async () => {
   const screen = await render();
-  await press(screen, '러닝 시작');
+  await press(screen, '러닝');
   expect(texts(screen)).toContain('달릴까요?');
   await press(screen, '코스 러닝');
   // 2.0C first: the map with 코스 설정 in place of 목표 설정, and 러닝 시작 waits for a course (담당자 요청).
   expect(texts(screen)).toContain('코스 설정');
   expect(texts(screen)).not.toContain('목표 설정');
   expect(labelled(screen, '러닝 시작').props.disabled).toBe(true);
+  // 저장한 코스 sits beside 코스 설정 and opens the saved list.
+  await press(screen, '저장한 코스');
+  expect(texts(screen)).toContain('광안대교 루프');
+  await press(screen, '뒤로');
   // The round button left of 러닝 시작 turns it into a free run, and back again.
   await press(screen, '자유 러닝으로 바꾸기');
   expect(texts(screen)).toContain('목표 설정');
@@ -328,7 +370,7 @@ test('run mode leads to course recommendations and a free run with a countdown',
 
 test('course run shows the pace plan by day and the night layout after sunset', async () => {
   const day = await render();
-  await press(day, '저장한 코스');
+  await openSaved(day);
   await press(day, '광안대교 루프, 5.0km 30분');
   await waitForText(day, '오늘의 러닝 전략');
   const plan = texts(day);
@@ -345,7 +387,7 @@ test('course run shows the pace plan by day and the night layout after sunset', 
   await act(async () => day.unmount());
 
   const night = await render('night');
-  await press(night, '저장한 코스');
+  await openSaved(night);
   await press(night, '광안대교 루프, 5.0km 30분');
   await waitForText(night, '광안대교 루프 · 5.0km');
   const dark = texts(night);
