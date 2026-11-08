@@ -14,7 +14,7 @@
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
 | `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
-| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드 명령 |
+| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh`, `jenkins/update-git-reference.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
 | `jenkins/Jenkinsfile.backend` | dev·master 대상 MR의 임시 병합 검사·테스트·JAR 생성 |
@@ -143,6 +143,13 @@ AI와 Route는 같은 노드를 사용하므로 executor 1에서는 두 검사�
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
   Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
   체크아웃 폴더를 삭제해도 캐시는 유지되며 검사 자체를 생략하지 않는다.
+- **타입 검사·린트 캐시:** MR·master 작업 모두 `infra/jenkins/check-mobile-static.sh`로 전체 타입 검사·린트를 실행하고
+  바뀌지 않은 파일의 결과만 재사용한다. TypeScript 증분 정보와 ESLint 내용 기반 캐시는
+  `/home/jenkins/agent/.cache/mobile-static/<키>/`에 둔다. 키는 `package.json`·`pnpm-lock.yaml`·`tsconfig.json`·
+  `.eslintrc.js`·`.eslintignore`·`babel.config.js` 해시이며, ESLint가 감지하지 않는 플러그인·파서 버전 변경도 새 캐시로 검사한다.
+  7일 넘게 쓰지 않은 이전 키는 다음 실행에서 정리한다. 콘솔의 `타입 검사 소요 시간`·`린트 소요 시간`으로 효과를 확인한다.
+  결과가 의심되면 모바일 에이전트에서 `rm -rf /home/jenkins/agent/.cache/mobile-static`으로 지운다.
+  다음 실행은 캐시 없이 전체 검사하며 결과는 같다.
 - **설정·주의:** `frontend/android/`·`package.json`·`pnpm-lock.yaml`·babel·metro·`react-native.config.js`·`app.json`·Jest 설정·`assets/`·
   알 수 없는 프론트엔드 경로가 함께 바뀌면 APK를 빌드한다. JS 번들은 네이티브 컴파일·Hermes 바이트코드 변환·APK 패키징을 검사하지 않으므로
   해당 오류는 APK를 생성하는 MR·수동 검사·master 작업에서 확인한다.

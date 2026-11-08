@@ -284,9 +284,9 @@ pipeline {
                                             }
                                         }
                                         stage('Mobile Typecheck and Lint') {
+                                            // 전체 타입 검사·린트를 실행하고 바뀌지 않은 파일의 결과만 영속 캐시에서 재사용한다.
                                             dir('frontend') {
-                                                sh 'pnpm typecheck'
-                                                sh 'pnpm lint'
+                                                sh 'sh ../infra/jenkins/check-mobile-static.sh'
                                             }
                                         }
                                         stage('Mobile Tests') {
