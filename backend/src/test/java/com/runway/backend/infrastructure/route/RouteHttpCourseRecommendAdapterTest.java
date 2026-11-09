@@ -395,6 +395,9 @@ class RouteHttpCourseRecommendAdapterTest {
         assertThat(failure.status().value()).isEqualTo(publicStatus);
         assertThat(failure.code()).isEqualTo(publicStatus == 422 ? "INVALID_SEARCH" : "SERVICE_UNAVAILABLE");
         assertThat(failure.details()).containsExactly(Map.entry("reason", reason));
+        if (reason.equals("OUT_OF_AREA")) {
+            assertThat(failure.getMessage()).isEqualTo("출발 위치가 서비스 지역 밖입니다.");
+        }
         assertThat(failure.getMessage()).doesNotContain("secret", "35.17", "traceback");
         assertThat(SERVER.received()).hasSize(1);
     }

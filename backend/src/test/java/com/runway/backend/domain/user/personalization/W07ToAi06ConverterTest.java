@@ -1,12 +1,15 @@
 package com.runway.backend.domain.user.personalization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.runway.backend.domain.course.elevation.ElevationSource;
 import com.runway.backend.domain.user.personalization.Ai06Sample.Quality;
 import com.runway.backend.domain.user.personalization.Ai06Session.WorkoutQuality;
 import com.runway.backend.domain.user.personalization.W07RoutePoint.DeviceType;
 import com.runway.backend.domain.user.personalization.W07ToAi06Converter.Reason;
+import com.runway.backend.global.exception.ApiException;
+import com.runway.backend.global.exception.ErrorCode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,6 +21,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
@@ -225,6 +231,70 @@ class W07ToAi06ConverterTest {
     void DEM이_없으면_경사는_MISSING이다() throws IOException {
         W07Session normal = sessions(load("normal", "w07")).get(0);
         assertAllGradeMissing(converter.convert(normal, null).orElseThrow());
+    }
+
+    @Test
+    void DEM_읽기_실패는_실행을_멈추지_않고_그_점만_DEM_밖처럼_뺀다() throws IOException {
+        JsonNode src = load("normal", "w07");
+        W07Session normal = sessions(src).get(0);
+        ElevationSource dem = demFor(src);
+        // 모든 점이 실패하면 DEM이 없을 때와 같이 경사가 전부 MISSING이다.
+        ElevationSource broken =
+                (lon, lat) -> {
+                    throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+                };
+        assertAllGradeMissing(converter.convert(normal, broken).orElseThrow());
+
+        // 일부 점만 실패하면 그 점을 NaN(DEM 밖)으로 준 결과와 같다.
+        java.util.concurrent.atomic.AtomicInteger failures =
+                new java.util.concurrent.atomic.AtomicInteger();
+        ElevationSource partlyBroken =
+                (lon, lat) -> {
+                    if (failsAt(lon, lat)) {
+                        failures.incrementAndGet();
+                        throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+                    }
+                    return dem.elevationAt(lon, lat);
+                };
+        ElevationSource partlyOutside =
+                (lon, lat) -> failsAt(lon, lat) ? Double.NaN : dem.elevationAt(lon, lat);
+        Ai06Session actual = converter.convert(normal, partlyBroken).orElseThrow();
+        assertThat(failures.get()).isPositive();
+        assertThat(actual).isEqualTo(converter.convert(normal, partlyOutside).orElseThrow());
+        assertThat(actual.samples()).anySatisfy(s -> assertThat(s.gradePercent()).isNotNull());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void DEM_경고는_여러_러닝을_포함한_개인화_실행마다_한번이다(CapturedOutput output) throws IOException {
+        W07Session session = sessions(load("normal", "w07")).get(0);
+        ElevationSource broken = (lon, lat) -> {
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE);
+        };
+        for (int run = 0; run < 2; run++) {
+            ElevationSource scoped = W07ToAi06Converter.demForRun(broken);
+            for (int workout = 0; workout < 3; workout++) {
+                assertAllGradeMissing(converter.convert(session, scoped).orElseThrow());
+            }
+        }
+        assertThat(output.getAll().lines().filter(line -> line.contains("DEM 고도 읽기 실패:")))
+                .hasSize(2);
+    }
+
+    @Test
+    void DEM_계산_불변식_오류는_삼키지_않는다() throws IOException {
+        W07Session normal = sessions(load("normal", "w07")).get(0);
+        ElevationSource bug =
+                (lon, lat) -> {
+                    throw new IllegalStateException("invariant");
+                };
+        assertThatThrownBy(() -> converter.convert(normal, bug))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** 경로점 약 3개 중 1개를 결정적으로 고른다. */
+    private static boolean failsAt(double lon, double lat) {
+        return Math.floorMod(Double.hashCode(lon) * 31 + Double.hashCode(lat), 3) == 0;
     }
 
     @Test

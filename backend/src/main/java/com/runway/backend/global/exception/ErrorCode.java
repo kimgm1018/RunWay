@@ -133,7 +133,7 @@ public enum ErrorCode {
     SEARCH_OUT_OF_AREA(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",
-            "출발 위치가 서비스 지역(부산) 밖입니다."),
+            "출발 위치가 서비스 지역 밖입니다."),
     SEARCH_OUT_OF_APP_RANGE(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",

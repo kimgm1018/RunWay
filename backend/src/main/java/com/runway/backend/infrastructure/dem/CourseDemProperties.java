@@ -11,6 +11,28 @@ public class CourseDemProperties {
 
     private String path = "";
     private String sha256 = "";
+    private long cacheBytes = IndexedGeoTiffReader.DEFAULT_CACHE_BYTES;
+
+    /** 해제 블록 캐시 바이트. 기본 32 MiB, 허용 1 MiB~256 MiB이며 기동 시 DEM 해제 블록 하나 이상인지도 확인한다. */
+    public long getCacheBytes() {
+        return cacheBytes;
+    }
+
+    /** 범위 밖 값과 숫자가 아닌 값은 설정 이름을 담은 바인딩 오류로 기동을 실패시킨다(해시·형식 실패와 구분). */
+    public void setCacheBytes(long cacheBytes) {
+        if (cacheBytes < IndexedGeoTiffReader.MIN_CACHE_BYTES
+                || cacheBytes > IndexedGeoTiffReader.MAX_CACHE_BYTES) {
+            throw new IllegalArgumentException(
+                    IndexedGeoTiffReader.CACHE_BYTES_PROPERTY
+                            + " must be "
+                            + IndexedGeoTiffReader.MIN_CACHE_BYTES
+                            + ".."
+                            + IndexedGeoTiffReader.MAX_CACHE_BYTES
+                            + " bytes (1 MiB..256 MiB): "
+                            + cacheBytes);
+        }
+        this.cacheBytes = cacheBytes;
+    }
 
     public String getPath() {
         return path;

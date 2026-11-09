@@ -4,6 +4,7 @@ import com.runway.backend.domain.course.elevation.ElevationSource;
 import com.runway.backend.domain.user.personalization.Ai06Sample.Quality;
 import com.runway.backend.domain.user.personalization.Ai06Session.WorkoutQuality;
 import com.runway.backend.domain.user.personalization.W07RoutePoint.DeviceType;
+import com.runway.backend.global.exception.ApiException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -15,6 +16,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -70,6 +74,8 @@ public class W07ToAi06Converter {
     /** 문서 값. {@code CourseGradeService}의 반지름과 다르다. */
     public static final double EARTH_RADIUS_M = 6_371_000.0;
 
+    private static final Logger log = LoggerFactory.getLogger(W07ToAi06Converter.class);
+
     /**
      * 러닝 하나를 AI06 {@code sessions[]} 원소로 바꾼다.
      *
@@ -83,6 +89,7 @@ public class W07ToAi06Converter {
 
     /** {@link #convert}와 같되 보낼 수 없는 사유와 2시간 초과 절단 여부를 함께 돌려준다. */
     public Result convertWithReason(W07Session session, ElevationSource elevation) {
+        elevation = demForRun(elevation);
         List<W07MetricSample> samples = session.samples() == null ? List.of() : session.samples();
         List<W07RoutePoint> routePoints =
                 session.routePoints() == null ? List.of() : session.routePoints();
@@ -196,7 +203,8 @@ public class W07ToAi06Converter {
             }
         }
 
-        // 경사: 워치 우선으로 고른 경로점의 DEM 고도. DEM 밖(NaN) 점은 뺀다
+        // 경사: 워치 우선으로 고른 경로점의 DEM 고도. DEM 밖(NaN) 점은 뺀다.
+        // 준비 후 DEM 읽기 실패(ApiException)도 그 점만 DEM 밖처럼 빼고 실행 전체를 실패시키지 않는다.
         List<Timed<W07RoutePoint>> pts = new ArrayList<>();
         DoubleList ptAlt = new DoubleList();
         if (elevation != null) {
@@ -358,6 +366,22 @@ public class W07ToAi06Converter {
     /** Python {@code round(x, digits)}와 같이 정확한 이진값 기준 half-even 반올림. */
     private static double round(double value, int digits) {
         return new BigDecimal(value).setScale(digits, RoundingMode.HALF_EVEN).doubleValue();
+    }
+
+    /** 개인화 실행마다 한 번 만들어 여러 러닝에 공유한다. 경로·좌표·예외 본문 없이 WARN을 한 번 남긴다. */
+    public static ElevationSource demForRun(ElevationSource source) {
+        if (source == null) return null;
+        AtomicBoolean warned = new AtomicBoolean();
+        return (lon, lat) -> {
+            try {
+                return source.elevationAt(lon, lat);
+            } catch (ApiException ex) {
+                if (warned.compareAndSet(false, true)) {
+                    log.warn("DEM 고도 읽기 실패: 실패한 경로점을 DEM 밖처럼 빼고 경사는 MISSING으로 둔다.");
+                }
+                return Double.NaN;
+            }
+        };
     }
 
     private static double haversineM(double lon1, double lat1, double lon2, double lat2) {
