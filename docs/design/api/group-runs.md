@@ -407,7 +407,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `targetDistanceM` | integer / null | O | group_runs.goal_distance의 적용값. |
 | `targetDurationSec` | integer / null | O | group_runs.goal_duration의 적용값. |
 | `goalPaceSecPerKm` | number / null | O | **방장 목표**(`targetDistanceM`·`targetDurationSec` 환산) 페이스. 환산 불가면 null. 추천 페이스와 별개이며 `groupGuidePaceSecPerKm`으로 대체하지 않는다. |
-| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, S15P31E105-419). `SCHEDULED`: 참가자 `user_profiles.average_pace`의 중앙값(유효값 없는 참가자 제외). 유효 참가자 0명이면 null. 방장 목표 환산값을 추천값으로 쓰지 않는다. DB 신규 컬럼 없음. |
+| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**. `BACKEND_GROUP_PACE_ENABLED=false`(기본값)는 기존 참가자 프로필 중앙값(유효 0명이면 null). ON의 `SCHEDULED`는 저장된 출발 추천 우선, 없으면 같은 중앙값으로 폴백. 아래 산출·저장 규칙 참고. |
 | `meetingPlaceName` | string / null | O | group_runs.meeting_name. 미지정은 null. |
 | `meetingAddress` | string / null | O | group_runs.meeting_address. 미지정은 null. |
 | `cancellation` | object / null | O | **CANCELLED일 때만** 채운다. 그 외 status는 null. S15P31E105-469. |
@@ -445,11 +445,12 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 
 ### 처리 규칙
 
-- 대기방 `groupGuidePaceSecPerKm`은 조회 시점의 참가자 `user_profiles.average_pace` 중앙값으로 **파생 계산**한다(목표 환산값 아님, 유효 0명이면 null). GET은 쓰기·알림·SSE 등 부수효과를 만들지 않는다.
+- 대기방 `groupGuidePaceSecPerKm`: 플래그 OFF는 기존 참가자 프로필 중앙값이다. ON은 `group_run_pace_state.start_recommended_pace_sec_per_km`을 읽고, 저장값이 없으면 기존 중앙값(유효 0명이면 null)이다. GET은 쓰기·AI 호출·알림·SSE를 하지 않는다.
+- ON에서 생성·참가·탈퇴·목표/코스 변경 커밋 후 비동기로 출발 추천을 계산한다. 최근 완료 세션 최대 5건 각각에 Riegel `T2=T1·(D2/D1)^1.06`을 적용하고 환산 페이스를 평균해 느린 3명과 유효 기록 없는 참가자를 고른다. 선택된 동의자의 AI09를 거리만으로 호출하고, 미동의자는 기존 개인 계획과 같은 익명 AI05 폴백을 쓴다. 추천 = max(방장 목표 페이스, 후보 중 가장 느린 AI 페이스). 어느 호출이든 실패하면 미저장 상태로 두고 중앙값을 사용한다. 일일 캐시는 적용하지 않는다. 변경 중 도착한 오래된 결과는 버린다.
 
 #### 페이스 적합도·편한 범위 계산 (S15P31E105-470)
 
-`myFit`·`comfortRange`와 G07 `readinessScore`는 DB 신규 컬럼·마이그레이션 없이 기존 `running_sessions`와 `daily_readiness`에서 조회 시점에 **파생 계산**한다. 온보딩 프로필(`user_profiles.average_pace`, 사용자 평소 페이스)은 이 값들의 근거로 쓰지 않는다(`comfortRange`의 폴백이 쓰는 `groupGuidePaceSecPerKm`만 기존 규칙대로 프로필 중앙값이다). GET은 쓰기·알림 같은 부수효과를 만들지 않는다.
+`myFit`·`comfortRange`와 G07 `readinessScore` 자체는 기존 `running_sessions`와 `daily_readiness`에서 조회 시점에 **파생 계산**한다. 온보딩 프로필은 이 값들의 직접 근거로 쓰지 않는다. 다만 `comfortRange` 폴백의 `groupGuidePaceSecPerKm`은 위 규칙에 따라 플래그 ON의 저장된 출발 추천 또는 프로필 중앙값이다. GET은 쓰기·알림 같은 부수효과를 만들지 않는다.
 
 - **최근 페이스(사용자별)**: 해당 사용자의 `running_sessions` 중 `status = COMPLETED`, 미삭제(`deleted_at IS NULL`), `average_pace`가 양수인 세션을 `ended_at`(없으면 `started_at`) 최신순으로 최대 5건 가져와 `average_pace`의 산술평균을 정수(sec/km)로 반올림한다(0.5는 올림). 조건에 맞는 세션이 없으면 null. 개인 러닝과 그룹런 세션을 구분하지 않는다.
 - **`myFit`**: 요청자의 최근 페이스가 null이면 `myFit`은 null이다. 아니면 `{ recentPaceSecPerKm: 요청자 최근 페이스, readinessScore: 요청자 최신 준비도 또는 null }`. 요청자가 아직 참가하지 않았어도 계산한다.
@@ -1175,11 +1176,11 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `groupRunId` | integer (int64) | O | `group_runs.id` |
 | `status` | string | O | `group_runs.status` (`SCHEDULED`\|`RUNNING`\|`COMPLETED`\|`CANCELLED`) |
 | `courseId` | integer (int64) / null | O | `group_runs.course_id` |
-| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(참가자 정보 기반 파생값, 중앙값 집계). 방장 목표 환산 `goalPaceSecPerKm`과 별개. 산출 규칙은 아래 `groupGuidePaceSecPerKm` 절. 산출 불가면 null |
+| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**(ON은 저장된 AI10 결과, OFF는 기존 중앙값). 방장 목표 환산 `goalPaceSecPerKm`과 별개. 산출 규칙은 아래 절. 산출 불가면 null |
 | `updatedAt` | string (ISO 8601 UTC) | O | `group_runs.updated_at` |
-| `loadAlert` | object / null | O | 멤버 부담 알림(파생). 부담 참가자가 없거나 `RUNNING`이 아니거나 `groupGuidePaceSecPerKm`이 null이면 null. 규칙은 아래 `loadAlert` 절 |
+| `loadAlert` | object / null | O | 멤버 부담 알림(ON·AI10 저장값 존재 시 저장된 부담 인원, OFF/미저장은 기존 파생값). 부담 참가자가 없거나 비`RUNNING` 또는 안내 페이스 null이면 null. 아래 절 참고 |
 | `loadAlert.memberCount` | integer | loadAlert 존재 시 O | 부담 참가자 수(1 이상) |
-| `loadAlert.nextPaceSecPerKm` | integer | loadAlert 존재 시 O | 그룹이 늦출 안내 페이스(sec/km). `groupGuidePaceSecPerKm + 15` |
+| `loadAlert.nextPaceSecPerKm` | integer | loadAlert 존재 시 O | 안내 페이스(sec/km). ON·AI10 저장값 존재 시 저장된 공동 페이스, OFF/미저장은 기존 `groupGuidePaceSecPerKm + 15` |
 | `participants` | array | O | 참가자별 현황. 저장 컬럼 직접 대응이 아닌 **파생 응답** |
 | `participants[].userId` | integer (int64) | O | 참가자 사용자 ID |
 | `participants[].rank` | integer / null | O | 1부터. 동률은 같은 값. 순위 집합 밖·그룹 비RUNNING이면 null |
@@ -1251,18 +1252,21 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 #### `groupGuidePaceSecPerKm`
 
-- **추천 공동 페이스**이며 방장 목표 환산값(`goalPaceSecPerKm`)이 아니다. 목표 환산값을 추천으로 쓰지 않는다. 집계는 **중앙값(median)**, 그룹 전용 AI API는 없다.
-- `SCHEDULED`: 참가자 `user_profiles.average_pace` 중앙값. 유효 0명이면 null.
-- `RUNNING`: 참가자별 개인 AI04 `recommendedPace`를 우선하고 없으면 **위와 같은 최근 60초 실측 페이스**를 입력으로 중앙값을 낸다(종료 후 `average_pace` 폴백 아님, S15P31E105-598). 뒤처진 참가자도 포함하며 일시정지·개인 종료 참가자는 제외한다. 유효 입력이 없으면 `SCHEDULED`와 같은 프로필 중앙값으로 폴백(이전 값 저장용 컬럼이 없음)하고, 그것도 없으면 null.
-- 개인 SAFETY는 개인 코칭 경로가 우선한다. 중앙값·제외 규칙으로 충분하므로 특정 참가자 때문에 그룹 추천을 따로 낮추지 않는다.
-- 파생 계산만 하며 DB 신규 컬럼·마이그레이션, GET 부수효과(쓰기·알림·SSE)는 없다. SSE·변경 이벤트 푸시는 이번 범위 밖(별도 Jira).
+- **추천 공동 페이스**이며 방장 목표 환산값(`goalPaceSecPerKm`)과 구분한다. 목표 환산값을 추천으로 쓰지 않는다. `BACKEND_GROUP_PACE_ENABLED` 기본값은 false이며 OFF의 응답·중앙값 규칙은 그대로 유지한다. OFF 기준 집계는 **중앙값(median)**이며 그룹 전용 AI API를 호출하지 않는다.
+- OFF 또는 저장값 없음: `SCHEDULED`는 참가자 `user_profiles.average_pace` 중앙값이며 유효 0명이면 null이다. `RUNNING`은 개인 AI04 `recommendedPace` 우선·없으면 **아래와 같은 최근 60초 실측 페이스**를 입력으로 중앙값을 낸다(종료 후 `running_sessions.average_pace` 폴백 아님, S15P31E105-598). 뒤처진 참가자도 포함하며 일시정지·개인 종료는 제외한다. 유효 입력이 없으면 프로필 중앙값, 그것도 없으면 null이다.
+- ON·`RUNNING`: 배치 저장 커밋 후 별도 비동기 실행기가 AI10 `POST /v1/group/pace`를 호출한다. 그룹별 DB 예약으로 호출 간격을 최소 30초로 제한한다. 현재 공동 페이스는 저장값 우선·없으면 위 중앙값이다. 5초 전체 타임아웃·오류·503이면 이전 저장값을 유지하며, 처음이면 중앙값으로 폴백한다.
+- AI10 입력은 시작 확인된 참가자의 최근 최대 360개 5초 칸(개인 AI04와 같은 조립 로직)이다. 일시정지·종료·stale은 `active=false`로 전달한다. 건강정보 미동의자는 `userId=null`, 심박 칸은 null이다. 코스는 현재 공동 페이스에서 앞 24칸 경사, 자유러닝은 null이다.
+- 개인 SAFETY는 기존 개인 코칭 경로가 우선한다. AI10은 참가자 전체의 부담을 고려하며, 한 참가자에 의해서도 그룹을 감속할 수 있다. 개인 AI04의 기준 페이스와 위험 경로는 변경하지 않는다.
+- OFF 기준으로는 중앙값·제외 규칙을 적용하며 특정 참가자 때문에 그룹 추천을 따로 낮추지 않는다. 파생 계산만 하며 공동 페이스 저장용 DB를 읽거나 쓰지 않는다.
+- V22의 `group_run_pace_state`(그룹별 UNIQUE, 그룹 삭제 시 CASCADE)에 현재 공동 페이스, 출발 추천, 마지막 변경 방향/시각, 부담 인원과 DB 갱신시각을 저장한다. `updated_at`은 호출 예약·오래된 결과 차단에도 사용한다. 숫자 페이스는 기존 응답과 같이 정수 sec/km로 반올림한다.
+- GET은 저장값 조회·기존 파생 계산만 수행한다. 공동 페이스 변경 전용 푸시 경로는 현재 없어 `changed=true`도 저장만 하며, SSE·변경 이벤트 푸시는 별도 업무다.
 
 #### `participants[].paceSecPerKm`와 `loadAlert` (MVP, S15P31E105-468 · 실측 갱신 S15P31E105-598)
 
 - 개인 페이스(실시간 실측): 순위용 최신 거리 표본의 `measuredAt`을 창 끝으로 두고, 그 시각 포함 이전 **60초** 동안의 `running_metric_samples.speed` 중 양수·유한 값만 산술평균한 뒤 `round(1000 / meanSpeedMps)`(sec/km). AI04 최근 60초 실측 평균과 같은 창·의미다. 순위 집합 밖(`stale=true`), speed 표본 없음, 평균 속도 비양수·비유한 값이면 null. `running_sessions.average_pace`(종료 후 분석값)·AI `recommended_pace`는 개인 페이스에 쓰지 않는다.
-- 부담 참가자: 그룹 `RUNNING`이고, `groupGuidePaceSecPerKm`이 있으며, `stale=false`이고 `paceSecPerKm`이 있으며, `paceSecPerKm <= groupGuidePaceSecPerKm - 30`(안내 페이스보다 30초/km 이상 빠름)인 참가자. 경계값 포함.
-- `loadAlert`: 부담 참가자가 1명 이상이면 `{ memberCount: 부담 참가자 수, nextPaceSecPerKm: groupGuidePaceSecPerKm + 15 }`, 아니면 null. 그룹이 `RUNNING`이 아니거나 안내 페이스가 null이어도 null. 입력 페이스는 위 실측 `paceSecPerKm`이다.
-- 매 GET마다 현재 값으로 파생 계산하며 알림 이력·해제 상태·푸시는 저장하지 않는다(상태·이벤트·알림 부수 효과 없음, DB 변경 없음).
+- OFF/AI10 미저장의 부담 참가자: 그룹 `RUNNING`이고, `groupGuidePaceSecPerKm`이 있으며, `stale=false`이고 `paceSecPerKm`이 있으며, `paceSecPerKm <= groupGuidePaceSecPerKm - 30`인 참가자. 경계값 포함.
+- OFF/미저장의 `loadAlert`: 부담 참가자가 1명 이상이면 `{ memberCount: 부담 참가자 수, nextPaceSecPerKm: groupGuidePaceSecPerKm + 15 }`, 아니면 null. 비`RUNNING` 또는 안내 페이스 null이면 null. 입력 페이스는 위 실측 `paceSecPerKm`이다. 매 GET마다 현재 값으로 파생 계산하며 알림 이력·해제 상태·푸시는 저장하지 않는다.
+- ON·RUNNING AI10 저장값이 있으면 `struggling_count > 0`일 때 `{ memberCount: struggling_count, nextPaceSecPerKm: 저장된 공동 페이스 }`, 아니면 null이다. 부담 인원은 AI10의 심박 허용선·페이스 판단 결과이며 개인 식별 정보는 공유하지 않는다. GET은 저장·AI 호출·알림 부수효과가 없다.
 
 #### 계산 시점·저장
 
@@ -1282,7 +1286,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 | `routeProgressM` 실측 | 워치가 W07 `routeProgressM`을 채우면 지정 코스 순위 키를 누적거리 대신 **코스 방향 진행**으로 교체. 왕복은 폴리라인(왕+복) 누적 길이로 정의하고 `/2` 접기 전제를 폐기 |
 | 코스 폴리라인 투영 | 표시·이탈 감지는 GPS→폴리라인 투영. 등수 키와 표시 좌표를 분리한 현재 구조를 유지한 채 투영기만 교체 |
 | 자유 그룹 궤적 품질 | 궤적 간소화·노이즈 제거·이탈 참가자 재부착 규칙 강화. bootstrap은 누적거리 유지 가능 |
-| 동적 `groupGuidePace` | S15P31E105-419에서 RUNNING 파생(위 `groupGuidePaceSecPerKm` 절)으로 포함됨. 같은 응답 필드로 FE 계약 유지. 변경 푸시(SSE)만 별도 Jira |
+| 동적 `groupGuidePace` | S15P31E105-585에서 플래그 ON의 AI10 저장값 우선으로 확장. 같은 응답 필드로 FE 계약 유지. 변경 푸시(SSE)는 별도 Jira |
 | 실시간 채널 | S10 또는 그룹 전용 SSE/WS로 `live` 스냅샷 push. GET 계약은 읽기 복구용으로 유지. 채널이 GET을 대체해 운동 필수 경로가 되지 않게 함 |
 | TTL·오차 | `GPS_TTL`, 동률 ε를 설정값화 |
 | COMPLETED 스냅샷 | 종료 직후 G10에 마지막 live를 잠시 노출할지 G14만 쓸지 제품 결정 |

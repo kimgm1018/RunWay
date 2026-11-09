@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-06 · ERD ver.3 · **32개 테이블 / 297개 컬럼 / 56개 FK**
+기준: 2026-11-09 · ERD ver.3 · **33개 테이블 / 305개 컬럼 / 57개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -168,6 +168,24 @@
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
+| `group_run_pace_state` | 그룹런별 AI10 공동 페이스·AI09 시작 추천 페이스와 마지막 변경 상태. 그룹런당 최대 1행 |
+
+#### group_run_pace_state — 그룹런 공동 페이스 상태 (S15P31E105-585, V22)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 상태 행 ID |
+| group_run_id | BIGINT NOT NULL UNIQUE, FK group_runs.id ON DELETE CASCADE | 그룹런당 최대 1행. 그룹런 삭제 시 함께 삭제 |
+| group_pace_sec_per_km | INTEGER NULL, CHECK > 0 | 마지막으로 성공한 AI10 공동 페이스(초/km). 성공 전 NULL |
+| start_recommended_pace_sec_per_km | INTEGER NULL, CHECK > 0 | AI09 시작 추천 페이스(초/km). 성공 전 NULL |
+| last_change_direction | VARCHAR(4) NULL, CHECK IN ('SLOW', 'FAST') | 마지막 페이스 변경 방향 |
+| last_change_at | TIMESTAMPTZ NULL | 마지막 페이스 변경 시각 |
+| struggling_count | INTEGER NOT NULL DEFAULT 0, CHECK >= 0 | 마지막 AI10 결과의 어려움을 겪는 참가자 수 |
+| updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 상태 갱신 시각 |
+
+- `last_change_direction`과 `last_change_at`은 모두 NULL이거나 모두 값이 있어야 한다.
+- `trg_group_run_pace_state_updated_at` BEFORE UPDATE 트리거가 공통 `set_updated_at()` 함수로 갱신 시각을 기록한다.
+- 기준 SQL은 Flyway V22와 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 #### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
 

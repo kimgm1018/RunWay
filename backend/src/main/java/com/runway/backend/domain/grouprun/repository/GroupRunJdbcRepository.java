@@ -44,7 +44,7 @@ public class GroupRunJdbcRepository {
                     goal_distance, goal_duration, status)
                 VALUES (
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE ST_GeogFromText(?) END,
+                    ?, ?, CASE WHEN CAST(? AS text) IS NULL THEN NULL ELSE ST_GeogFromText(?) END,
                     ?, ?, ?::group_runs_status_enum)
                 RETURNING id
                 """,
@@ -102,7 +102,7 @@ public class GroupRunJdbcRepository {
                     scheduled_at = ?,
                     meeting_name = ?,
                     meeting_address = ?,
-                    meeting_position = CASE WHEN ? IS NULL THEN NULL ELSE ST_GeogFromText(?) END,
+                    meeting_position = CASE WHEN CAST(? AS text) IS NULL THEN NULL ELSE ST_GeogFromText(?) END,
                     course_id = ?,
                     goal_distance = ?,
                     goal_duration = ?
