@@ -585,8 +585,17 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
 
             if ode is None:
                 return partial_error(ApiError(503, "MODEL_NOT_READY", "ODE 개인화 모델이 준비되지 않았습니다."))
+            previous = None
+            lookup = request.app.state.personal_plan_user_lookup
+            if lookup is not None:
+                try:
+                    snapshot = lookup.get_personalization(int(body.user_id))
+                    previous = snapshot.payload
+                except Exception as exc:
+                    log_ai_error("P4_WARM_START_LOOKUP_FAILED", "/v1/hr/personalize", exc,
+                                 level=logging.WARNING)
             try:
-                result = compute_personalization(body, ode, now=request.app.state.clock())
+                result = compute_personalization(body, ode, now=request.app.state.clock(), previous=previous)
             except ApiError as error:
                 return partial_error(error)
             except Exception as exc:

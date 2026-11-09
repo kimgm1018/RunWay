@@ -44,7 +44,9 @@ def fit_items(records, contexts, seed: int = 1729) -> list:
 
 
 def fit_p4(model, items_by_group: dict, stats: dict, lr: float, lam: float, steps=GRID_STEPS, per_step: int = PER_STEP,
-           seed: int = 1729, device='cpu', group_seeds: dict | None = None) -> dict:
+           seed: int = 1729, device='cpu', group_seeds: dict | None = None, *,
+           init: dict | None = None, early_stop_tol: float = 0.0, early_stop_patience: int = 5,
+           early_stop_min_steps: int = 10, info: dict | None = None) -> dict:
     """{step: {group: P4 (np.float32[4])}}. 모델 파라미터는 바꾸지 않는다."""
     groups = sorted(g for g, its in items_by_group.items() if its)
     prepared_by_group = {
@@ -58,14 +60,22 @@ def fit_p4(model, items_by_group: dict, stats: dict, lr: float, lam: float, step
               for _ in range(min(per_step, len(prepared_by_group[group])))]
     owner_index = torch.tensor(owners, dtype=torch.long, device=device)
     P = torch.zeros(len(groups), M.P4_DIM, device=device, requires_grad=True)
+    if init is not None:
+        with torch.no_grad():
+            for gi, group in enumerate(groups):
+                if group in init:
+                    P[gi].copy_(torch.as_tensor(init[group], dtype=P.dtype, device=device))
     opt = torch.optim.Adam([P], lr=lr)
     flags = [p.requires_grad for p in model.parameters()]
     for p in model.parameters():
         p.requires_grad_(False)
     model.eval()
     snaps = {}
+    steps_run = 0
+    stable_steps = 0
     try:
         for step in range(1, max(steps) + 1):
+            previous_p = P.detach().clone() if early_stop_tol > 0 else None
             items = []
             for gi, g in enumerate(groups):
                 its = prepared_by_group[g]
@@ -81,11 +91,25 @@ def fit_p4(model, items_by_group: dict, stats: dict, lr: float, lam: float, step
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
+            steps_run = step
             if step in steps:
                 snaps[step] = {g: P[gi].detach().cpu().numpy().astype(np.float32).copy() for gi, g in enumerate(groups)}
+            if early_stop_tol > 0 and step >= early_stop_min_steps:
+                change = float((P.detach() - previous_p).abs().max())
+                stable_steps = stable_steps + 1 if change < early_stop_tol else 0
+                if stable_steps >= early_stop_patience:
+                    for requested in steps:
+                        if requested not in snaps:
+                            snaps[requested] = {
+                                g: P[gi].detach().cpu().numpy().astype(np.float32).copy()
+                                for gi, g in enumerate(groups)
+                            }
+                    break
     finally:
         for p, f in zip(model.parameters(), flags):
             p.requires_grad_(f)
+    if info is not None:
+        info["steps_run"] = steps_run
     return snaps
 
 

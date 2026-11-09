@@ -99,3 +99,79 @@ def test_fit_p4_same_seed_produces_identical_snapshot_bytes(variant):
 
     assert expected[100]["user"].tobytes() == first[100]["user"].tobytes()
     assert first[100]["user"].tobytes() == second[100]["user"].tobytes()
+
+
+@pytest.fixture
+def fit_problem():
+    package = "app.models.ode.odev21_legacy"
+    batch = importlib.import_module(package + ".batch")
+    history = importlib.import_module(package + ".history")
+    summary = importlib.import_module(package + ".summary")
+    fit = importlib.import_module(package + ".fit")
+    return fit, _items(batch, history, summary), summary.identity_stats()
+
+
+def test_fit_p4_init_is_first_model_input_and_unchanged_at_zero_lr(fit_problem):
+    fit, items, stats = fit_problem
+    initial = np.asarray([1.0, -2.0, 3.0, -4.0], np.float32)
+    seen = []
+
+    class RecordingModel(TinyP4Model):
+        def forward(self, value):
+            seen.append(value["p4"].detach().cpu().numpy().copy())
+            return super().forward(value)
+
+    info = {}
+    snapshots = fit.fit_p4(RecordingModel(), items, stats, lr=0, lam=0.1, steps=(1,),
+                           init={"user": initial}, info=info)
+    np.testing.assert_array_equal(seen[0][0], initial)
+    np.testing.assert_array_equal(snapshots[1]["user"], initial)
+    assert info == {"steps_run": 1}
+
+
+def test_fit_p4_missing_init_group_starts_at_zero(fit_problem):
+    fit, items, stats = fit_problem
+    snapshots = fit.fit_p4(TinyP4Model(), items, stats, lr=0, lam=0, steps=(1,), init={})
+    np.testing.assert_array_equal(snapshots[1]["user"], np.zeros(4, np.float32))
+
+
+def test_fit_p4_early_stop_fills_remaining_snapshots(fit_problem):
+    fit, items, stats = fit_problem
+
+    class FlatModel(TinyP4Model):
+        def forward(self, value):
+            prediction = value["p4"][:, :1].expand_as(value["y"]) * 0
+            return {"heart_rate": prediction, "z": torch.zeros_like(prediction)}
+
+    info = {}
+    snapshots = fit.fit_p4(FlatModel(), items, stats, lr=0.03, lam=0, steps=(1, 10, 30),
+                           early_stop_tol=1e-6, early_stop_min_steps=3,
+                           early_stop_patience=2, info=info)
+    assert info["steps_run"] == 4
+    assert set(snapshots) == {1, 10, 30}
+    for snapshot in snapshots.values():
+        np.testing.assert_array_equal(snapshot["user"], np.zeros(4, np.float32))
+    assert snapshots[10]["user"] is not snapshots[30]["user"]
+
+
+def test_fit_p4_early_stop_checks_all_groups(fit_problem):
+    fit, items, stats = fit_problem
+    items["other"] = items["user"]
+
+    class OneMovingGroup(TinyP4Model):
+        def forward(self, value):
+            prediction = value["p4"][:, :1].expand_as(value["y"])
+            prediction = prediction * torch.tensor([[0.0], [1.0]])
+            return {"heart_rate": prediction, "z": torch.zeros_like(prediction)}
+
+    info = {}
+    fit.fit_p4(OneMovingGroup(), items, stats, lr=0.03, lam=0, steps=(5,),
+               early_stop_tol=1e-6, early_stop_min_steps=1, early_stop_patience=1, info=info)
+    assert info["steps_run"] == 5
+
+
+def test_fit_p4_info_reports_full_run_with_early_stop_disabled(fit_problem):
+    fit, items, stats = fit_problem
+    info = {}
+    fit.fit_p4(TinyP4Model(), items, stats, lr=0, lam=0, steps=(7,), info=info)
+    assert info["steps_run"] == 7
