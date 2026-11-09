@@ -83,7 +83,7 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
 
   expect(refreshControl(screen).props.refreshing).toBe(true);
   expect(texts(screen)).toContain('오늘 준비도 양호');
-  expect(texts(screen)).toContain('과거 러닝 기록');
+  expect(texts(screen)).toContain('러닝 기록');
 
   await act(async () => release());
   await settle();
@@ -104,7 +104,7 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   const page = texts(screen);
   expect(page).toContain('오늘 준비도 양호');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('과거 러닝 기록');
+  expect(page).toContain('러닝 기록');
   expect(page).not.toContain('불러오지 못했어요');
 });
 
@@ -118,5 +118,5 @@ test('2.1 says when today’s condition did not load, with the other sections st
   const page = texts(screen);
   expect(page).toContain('오늘 컨디션을 불러오지 못했어요');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('과거 러닝 기록');
+  expect(page).toContain('러닝 기록');
 });

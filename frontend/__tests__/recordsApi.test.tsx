@@ -233,10 +233,10 @@ async function waitForText(screen: Screen, text: string) {
   expect(texts(screen)).toContain(text);
 }
 
-test('2.1 과거 러닝 기록 shows a day from the server and 기록 상세 opens a run with its splits', async () => {
+test('2.1 러닝 기록 shows a day from the server and a run opens its detail with its splits', async () => {
   serve();
   const screen = await launch();
-  await press(screen, '과거 러닝 기록');
+  await press(screen, '러닝 기록');
   // Today (Monday 11.02) has no run; Sunday 11.01 is on the week strip's page before.
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await press(screen, '11월 1일');
@@ -253,14 +253,11 @@ test('2.1 과거 러닝 기록 shows a day from the server and 기록 상세 ope
   ]) {
     expect(page).toContain(text);
   }
-  // 과거 러닝 기록 has no 페이스 · 심박 · 케이던스 tabs; they stay on 기록 상세 (담당자 결정).
+  // 러닝 기록 has no 페이스 · 심박 · 케이던스 tabs; they stay on the detail (담당자 결정).
   expect(page).not.toContain('케이던스');
 
-  // The card turns over to the month's runs; the run opens in 기록 상세.
+  // The card opens the run it shows, the one picked of the day's two (S15P31E105-574).
   await press(screen, '아침 러닝, 11.01 일 · 30:00, 5.02km');
-  await settle(600);
-  await waitForText(screen, '11월 기록');
-  await press(screen, '기록 상세');
   await waitForText(screen, '심박');
   page = texts(screen);
   for (const text of ['5.02', '29:55', '5′58″']) {
@@ -274,6 +271,8 @@ test('2.1 과거 러닝 기록 shows a day from the server and 기록 상세 ope
 test('2.1 러닝 분석 sums the day’s server runs', async () => {
   serve();
   const screen = await launch();
+  // The date is picked on 러닝 기록 and kept on 러닝 분석.
+  await press(screen, '러닝 기록');
   await press(screen, '11월 1일');
   await press(screen, '러닝 분석');
   await waitForText(screen, '러닝 분석 | 11월 1일');
@@ -284,10 +283,10 @@ test('2.1 러닝 분석 sums the day’s server runs', async () => {
   await act(async () => screen.unmount());
 });
 
-test('without any runs 과거 러닝 기록 and 러닝 분석 show their empty states', async () => {
+test('without any runs 러닝 기록 and 러닝 분석 show their empty states', async () => {
   serve(false);
   const screen = await launch();
-  await press(screen, '과거 러닝 기록');
+  await press(screen, '러닝 기록');
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await act(async () => screen.unmount());
 

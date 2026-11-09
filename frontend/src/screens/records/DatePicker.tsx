@@ -17,7 +17,7 @@ import {
   type NativeSyntheticEvent,
   type ViewStyle,
 } from 'react-native';
-import { AppText, Icon } from '../../components';
+import { AppText, Icon, useReduceMotion } from '../../components';
 import { useRepositories } from '../../data';
 import { onRecordsChanged } from '../../data/recordsChanged';
 import { fontFamily } from '../../theme';
@@ -162,52 +162,168 @@ function Day({
   );
 }
 
-// Text that eases in when it changes (담당자 레퍼런스의 숫자 바뀌는 모션): the new text rises a little out of a fade.
-// The first text shows at once.
-export function MorphText({
-  text,
+type TextStyle = React.ComponentProps<typeof AppText>['style'];
+
+// A run of digits that rolls to its new value (담당자 요청: 글자는 그대로, 숫자만 바뀌는 모션): a larger number comes up
+// from below and a smaller one down from above, the old one leaving the other way, inside its own line. The first
+// value shows at once, and so does every value with 동작 줄이기.
+// Each change mounts a fresh Roll with its own animated value, so the pair and the start of the roll reach the
+// screen together; resetting one shared value could land a frame early and flash the old number.
+function RollingNumber({
+  value,
+  up,
   style,
 }: {
-  text: string;
-  style: React.ComponentProps<typeof AppText>['style'];
+  value: string;
+  // Which way the whole text moved, so every number in it rolls the same way.
+  up: boolean;
+  style: TextStyle;
 }) {
-  const progress = useRef(new Animated.Value(1)).current;
-  const first = useRef(true);
+  const reduce = useReduceMotion();
+  const [shown, setShown] = useState({
+    value,
+    previous: value,
+    up: true,
+    turn: 0,
+  });
+  if (shown.value !== value) {
+    setShown({
+      value,
+      previous: shown.value,
+      up,
+      turn: shown.turn + 1,
+    });
+  }
+  return (
+    <Roll
+      key={shown.turn}
+      value={shown.value}
+      previous={shown.turn === 0 ? null : shown.previous}
+      up={shown.up}
+      still={reduce || shown.turn === 0}
+      style={style}
+    />
+  );
+}
+
+function Roll({
+  value,
+  previous,
+  up,
+  still,
+  style,
+}: {
+  value: string;
+  previous: string | null;
+  up: boolean;
+  still: boolean;
+  style: TextStyle;
+}) {
+  const line = StyleSheet.flatten(style)?.lineHeight ?? 20;
+  const progress = useRef(new Animated.Value(still ? 1 : 0)).current;
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
+    if (still) {
       return;
     }
-    progress.setValue(0);
     Animated.timing(progress, {
       toValue: 1,
       duration: 320,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [progress, text]);
+  }, [still, progress]);
+  const from = up ? line : -line;
   return (
-    <Animated.View
-      style={{
-        opacity: progress,
-        transform: [
-          {
-            translateY: progress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [7, 0],
-            }),
-          },
-          {
-            scale: progress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.96, 1],
-            }),
-          },
-        ],
-      }}
-    >
-      <AppText style={style}>{text}</AppText>
-    </Animated.View>
+    <View style={[styles.rolling, { height: line }]}>
+      {previous !== null && !still ? (
+        <Animated.View
+          style={[
+            styles.rollingOld,
+            {
+              opacity: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0],
+              }),
+              transform: [
+                {
+                  translateY: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -from],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <AppText style={style}>{previous}</AppText>
+        </Animated.View>
+      ) : null}
+      <Animated.View
+        style={{
+          opacity: progress,
+          transform: [
+            {
+              translateY: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [from, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <AppText style={style}>{value}</AppText>
+      </Animated.View>
+    </View>
+  );
+}
+
+// The date line's text, where only the numbers move when it changes (RollingNumber); the words around them stay
+// put. The whole text is laid down once, unseen, for its width and for screen readers; the moving copy lies over it
+// and is hidden from them.
+// Whether the numbers in `next` come after those in `previous`, read left to right as the date line writes them
+// (year, month, day): the first number that differs decides.
+function movesUp(previous: string, next: string) {
+  const before = previous.match(/\d+/g)?.map(Number) ?? [];
+  const after = next.match(/\d+/g)?.map(Number) ?? [];
+  const index = after.findIndex((number, at) => number !== before[at]);
+  return (
+    index < 0 || before[index] === undefined || after[index] > before[index]
+  );
+}
+
+export function MorphText({ text, style }: { text: string; style: TextStyle }) {
+  const parts = text.split(/(\d+)/);
+  // The month and the day turn the same way (담당자 요청): a later date comes up from below, an earlier one down
+  // from above, even when 10월 31일 → 11월 1일 takes the day down.
+  const [last, setLast] = useState({ text, up: true });
+  if (last.text !== text) {
+    setLast({ text, up: movesUp(last.text, text) });
+  }
+  return (
+    <View>
+      <AppText style={[style, styles.unseen]}>{text}</AppText>
+      <View
+        style={styles.morphParts}
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {parts.map((part, index) =>
+          /^\d+$/.test(part) ? (
+            <RollingNumber
+              key={index}
+              value={part}
+              up={last.up}
+              style={style}
+            />
+          ) : part ? (
+            <AppText key={index} style={style}>
+              {part}
+            </AppText>
+          ) : null,
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -398,7 +514,33 @@ export function CalendarPanel({
   useEffect(() => {
     report.current?.(month);
   }, [month]);
-  const chips = [-1, 0, 1].map(step => shiftMonth(month, step));
+  // Every month the calendar can show, and the next one dimmed, in a row that scrolls sideways three at a time
+  // (담당자 요청); the month on show sits in the middle.
+  const chips = useMemo(() => {
+    const all: string[] = [];
+    for (
+      let chip = earliest;
+      chip <= shiftMonth(latest, 1);
+      chip = shiftMonth(chip, 1)
+    ) {
+      all.push(chip);
+    }
+    return all;
+  }, [earliest, latest]);
+  const chipGap = 8;
+  const chipWidth = Math.max(0, (width - chipGap * 2) / 3);
+  const chipRow = useRef<ScrollView>(null);
+  const chipX = (chip: string) =>
+    Math.max(0, (chips.indexOf(chip) - 1) * (chipWidth + chipGap));
+  const placed = useRef(false);
+  useEffect(() => {
+    if (chipWidth > 0) {
+      chipRow.current?.scrollTo({ x: chipX(month), animated: placed.current });
+      placed.current = true;
+    }
+    // chipX reads chips and chipWidth, both listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, chipWidth, chips]);
   const grid = (shown: string) => (
     <View style={styles.grid}>
       {monthCells(shown).map(day => {
@@ -441,7 +583,13 @@ export function CalendarPanel({
   );
   return (
     <View style={[flat ? styles.flatPanel : styles.panel, style]}>
-      <View style={styles.chips}>
+      <ScrollView
+        ref={chipRow}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentOffset={{ x: chipX(month), y: 0 }}
+        contentContainerStyle={styles.chips}
+      >
         {chips.map(chip => {
           const unavailable = chip > latest || chip < earliest;
           const selected = chip === month;
@@ -457,6 +605,7 @@ export function CalendarPanel({
               onPress={() => setMonth(chip)}
               style={[
                 styles.chip,
+                { width: chipWidth },
                 flat && styles.chipFlat,
                 selected && styles.chipOn,
               ]}
@@ -473,7 +622,7 @@ export function CalendarPanel({
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
       <View style={styles.weekdays}>
         {weekdays.map(weekday => (
           <AppText key={weekday} style={styles.weekdayHead}>
@@ -541,6 +690,18 @@ export function DateLine({
 }
 
 const styles = StyleSheet.create({
+  unseen: { opacity: 0 },
+  morphParts: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rolling: { overflow: 'hidden' },
+  rollingOld: { position: 'absolute', left: 0, top: 0 },
   strip: {
     height: recordsFrame.tabsHeight,
     borderRadius: 20,
@@ -588,7 +749,6 @@ const styles = StyleSheet.create({
   },
   chips: { flexDirection: 'row', gap: 8 },
   chip: {
-    flex: 1,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',

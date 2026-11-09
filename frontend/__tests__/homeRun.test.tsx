@@ -72,14 +72,25 @@ async function render(scenario: MockScenario = 'default') {
   return screen!;
 }
 
-test('home greets me, shows today’s readiness and swaps the card from the menu (S15P31E105-564)', async () => {
+test('home greets me, shows today’s readiness and swaps the card from the menu (S15P31E105-564 · 574)', async () => {
   const screen = await render();
   const home = texts(screen);
   // 인사말 in one line; the old logo row, its avatar button and 러닝 시작 are gone.
   expect(home).toContain('반가워요 민준님 👋');
   expect(() => labelled(screen, '내 프로필')).toThrow();
-  // The date line, then 준비도 first: the score, its grade, sleep, resting heart rate and the weekly load.
+  // 준비도 first, about today only: 오늘 · the date with no calendar to open (S15P31E105-574), and the week held
+  // on today; then the score, its grade, sleep, resting heart rate and the weekly load.
   expect(home).toContain('10월 19일 월요일');
+  expect(home).toContain('오늘 · 10월 19일 월요일');
+  expect(() => labelled(screen, '달력 열기')).toThrow();
+  expect(stateOf(screen, '10월 19일')?.selected).toBe(true);
+  // The menu: three pills, each its name with an icon; 기록 상세 is no longer one of them.
+  for (const menu of ['준비도', '러닝 기록', '러닝 분석']) {
+    expect(labelled(screen, menu).props.accessibilityRole).toBe('button');
+  }
+  expect(stateOf(screen, '준비도')?.selected).toBe(true);
+  expect(() => labelled(screen, '기록 상세')).toThrow();
+  expect(() => labelled(screen, '과거 러닝 기록')).toThrow();
   for (const text of [
     '82',
     '오늘 준비도 양호',
@@ -94,23 +105,25 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   for (const gone of ['러닝 시작', '저장한 코스', '지난 러닝']) {
     expect(home).not.toContain(gone);
   }
-  // 과거 러닝 기록 shows the day on the date line: no run on 10.19, then 10.15's run.
-  await press(screen, '과거 러닝 기록');
+  // 러닝 기록 shows the day on the date line: no run on 10.19, then 10.15's run.
+  await press(screen, '러닝 기록');
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
+  // Today needs no 오늘 button.
+  expect(() => labelled(screen, '오늘로 이동')).toThrow();
   // The date line opens the calendar (2026년 10월), where a day picks it and closes it.
   await press(screen, '달력 열기');
   expect(texts(screen)).toContain('2026년 10월');
   await press(screen, '10월 15일 선택');
   expect(texts(screen)).toContain('10월 15일 목요일');
   await waitForText(screen, '민락수변공원 출발');
-  // Its card turns over to the month's runs (담당자 결정), and a run there opens 기록 상세 on the same screen,
-  // with the 페이스 · 심박 · 케이던스 tabs and the run's buttons.
+  // A past day offers 오늘.
+  expect(labelled(screen, '오늘로 이동')).toBeTruthy();
+  // The card opens that run's detail on the same screen (no more turning over), with the 페이스 · 심박 · 케이던스
+  // tabs and the run's buttons, while the menu stays on 러닝 기록.
   await press(screen, labelOf(screen, '민락수변공원 출발'));
-  await settle(600);
-  expect(texts(screen)).toContain('10월 기록');
-  expect(texts(screen)).toContain('7번 · 34.2km');
-  await press(screen, '민락수변공원 출발, 10.15 목');
   await waitForText(screen, '내 코스에 저장');
+  expect(texts(screen)).not.toContain('10월 기록');
+  expect(stateOf(screen, '러닝 기록')?.selected).toBe(true);
   for (const text of [
     '페이스',
     '심박',
@@ -124,13 +137,34 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
     expect(texts(screen)).toContain(text);
   }
   expect(texts(screen)).not.toContain('내 기록');
-  // 러닝 분석 keeps the day.
+  // 기록으로 돌아가기 goes back to the day as it was.
+  await press(screen, '기록으로 돌아가기');
+  expect(texts(screen)).toContain('10월 15일 목요일');
+  expect(texts(screen)).not.toContain('기록 삭제');
+  expect(labelled(screen, '이 달 기록 전체 보기')).toBeTruthy();
+  // 러닝 분석 keeps the day, and 준비도 in between does not reset it.
   await press(screen, '러닝 분석');
   await waitForText(screen, '러닝 분석 | 10월 15일');
   await press(screen, '준비도');
   expect(texts(screen)).toContain('오늘 준비도 양호');
+  expect(texts(screen)).toContain('오늘 · 10월 19일 월요일');
+  await press(screen, '러닝 기록');
+  expect(texts(screen)).toContain('10월 15일 목요일');
+  // 오늘 brings the date back to today.
+  await press(screen, '오늘로 이동');
+  expect(texts(screen)).toContain('10월 19일 월요일');
+  expect(() => labelled(screen, '오늘로 이동')).toThrow();
   await act(async () => screen.unmount());
 });
+
+function stateOf(screen: Screen, label: string) {
+  const matches = screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === label &&
+      node.props.accessibilityState !== undefined,
+  );
+  return matches[matches.length - 1]?.props.accessibilityState;
+}
 
 // The run card's label starts with the run's name.
 function labelOf(screen: Screen, name: string) {
@@ -249,20 +283,23 @@ test.each([
   },
 );
 
-test('notifications split into 오늘 and 이번 주, count as read once left, and open the related screen', async () => {
+test('notifications come in one list, count as read once left, and open the related screen', async () => {
   const screen = await render();
   await press(screen, '알림');
-  let list = texts(screen);
+  const list = texts(screen);
+  // One list, newest first, with no 오늘 · 이번 주 tabs and no 지우기 (담당자 레퍼런스: 알림 페이지 영상).
   for (const text of [
-    '오늘',
-    '이번 주',
     '그룹런 곧 시작',
     '3분 전',
     '12분 전',
     '1시간 전',
+    '2일 전',
+    '3일 전',
   ]) {
     expect(list).toContain(text);
   }
+  expect(() => labelled(screen, '이번 주')).toThrow();
+  expect(() => labelled(screen, '지우기')).toThrow();
   // The 2.9 핸드오프 has no 모두 읽음; the unread dots stay while the list is open.
   expect(() => labelled(screen, '모두 읽음')).toThrow();
   expect(() =>
@@ -271,11 +308,6 @@ test('notifications split into 오늘 and 이번 주, count as read once left, a
       '읽지 않음, 크루 가입 승인, ‘민락 야경 러너스’ 가입이 승인됐어요',
     ),
   ).not.toThrow();
-  await press(screen, '이번 주');
-  list = texts(screen);
-  expect(list).toContain('2일 전');
-  expect(list).toContain('3일 전');
-  expect(list).not.toContain('3분 전');
 
   // Leaving marks everything read.
   await press(screen, '뒤로');
@@ -507,4 +539,37 @@ test('the music card shows the not-connected and disconnected states', async () 
     expect(sources).toContain(text);
   }
   await act(async () => setup.unmount());
+});
+
+test('2.1 준비도 does not call an older score today’s and shows a value not collected as a dash (S15P31E105-574)', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getToday = repositories.home.getTodayCondition.bind(repositories.home);
+  jest
+    .spyOn(repositories.home, 'getTodayCondition')
+    .mockImplementation(async () => ({
+      ...(await getToday()),
+      // Made the day before, without a sleep value but with a real 0 elsewhere untouched.
+      date: '2026-10-18',
+      sleepMinutes: null,
+    }));
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  const page = texts(screen!);
+  // Today stays on the date line; the card names the score's own day.
+  expect(page).toContain('오늘 10월 19일 월요일');
+  expect(page).toContain('10월 18일 일요일 기준');
+  expect(page).not.toContain('오늘 준비도');
+  expect(page).toContain('준비도 양호');
+  // The missing value is a dash; why it is missing is each metric's own line (S15P31E105-572).
+  expect(page).toContain('– –');
+  // No label under a value that is not there.
+  expect(page).not.toContain('충분');
+  expect(page).toContain('58 bpm');
+  await act(async () => screen!.unmount());
 });

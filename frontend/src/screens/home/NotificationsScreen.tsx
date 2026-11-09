@@ -1,12 +1,28 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Svg, { Line } from 'react-native-svg';
 import {
   useFocusEffect,
   useNavigation,
   type NavigationProp,
 } from '@react-navigation/native';
-import { AppText, Button, Icon, Logo, Screen } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  Button,
+  Icon,
+  Screen,
+  useReduceMotion,
+} from '../../components';
+import type { IconName } from '../../components/Icon';
 import {
   useRepositories,
   useResource,
@@ -14,7 +30,7 @@ import {
   type NotificationKind,
   type Repositories,
 } from '../../data';
-import { formatRelative, isSameDay } from '../../format';
+import { formatRelative } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, k1 } from '../../theme';
 import { BackButton } from '../../components/BackButton';
@@ -29,29 +45,45 @@ const openCrew: Open = (navigation, crewId) =>
 const openRunner: Open = (navigation, userId) =>
   navigation.navigate('RunnerProfile', { userId });
 
-// Each kind's title and the screen its targetId opens (6.4 그룹런, 6.2 크루, 7.2 게시물, 7.4 러너).
-const kinds: Record<NotificationKind, { title: string; open: Open }> = {
+// Each kind's title, its icon on the row's tile, and the screen its targetId opens (6.4 그룹런, 6.2 크루, 7.2 게시물,
+// 7.4 러너).
+const kinds: Record<
+  NotificationKind,
+  { title: string; icon: IconName; open: Open }
+> = {
   GROUP_RUN_PARTICIPATION_CANCELLED: {
     title: '그룹런 취소',
+    icon: 'circleX',
     open: openGroupRun,
   },
-  GROUP_RUN_START_REMINDER: { title: '그룹런 곧 시작', open: openGroupRun },
-  CREW_JOIN_APPROVED: { title: '크루 가입 승인', open: openCrew },
-  CREW_JOIN_REJECTED: { title: '크루 가입 거절', open: openCrew },
+  GROUP_RUN_START_REMINDER: {
+    title: '그룹런 곧 시작',
+    icon: 'clock',
+    open: openGroupRun,
+  },
+  CREW_JOIN_APPROVED: {
+    title: '크루 가입 승인',
+    icon: 'userCheck',
+    open: openCrew,
+  },
+  CREW_JOIN_REJECTED: {
+    title: '크루 가입 거절',
+    icon: 'userX',
+    open: openCrew,
+  },
   POST_COMMENT: {
     title: '새 댓글',
+    icon: 'message',
     open: (navigation, postId) => navigation.navigate('PostDetail', { postId }),
   },
-  NEW_FOLLOWER: { title: '새 팔로워', open: openRunner },
-  FOLLOW_REQUEST: { title: '팔로우 요청', open: openRunner },
-  FOLLOW_APPROVED: { title: '팔로우 승인', open: openRunner },
+  NEW_FOLLOWER: { title: '새 팔로워', icon: 'userPlus', open: openRunner },
+  FOLLOW_REQUEST: { title: '팔로우 요청', icon: 'userPlus', open: openRunner },
+  FOLLOW_APPROVED: {
+    title: '팔로우 승인',
+    icon: 'userCheck',
+    open: openRunner,
+  },
 };
-
-type Tab = 'today' | 'week';
-const tabs: { value: Tab; label: string }[] = [
-  { value: 'today', label: '오늘' },
-  { value: 'week', label: '이번 주' },
-];
 
 // The part of a message the 2.9 핸드오프 sets in bold: the ‘quoted’ name, or the runner's 님 at the start.
 function splitEmphasis(message: string) {
@@ -77,18 +109,51 @@ const ticks = Array.from({ length: 60 }, (_, index) => {
   return { from: at(80), to: at(92) };
 });
 
+// The page rises from the bottom over 홈, which stays where it is under it, and slows to a stop (레퍼런스 영상:
+// about a third of a second). 동작 줄이기 shows it in place.
+const riseDuration = 350;
+
+function useRise() {
+  const { height } = useWindowDimensions();
+  const reduce = useReduceMotion();
+  const rise = useRef(new Animated.Value(reduce ? 0 : 1)).current;
+  useEffect(() => {
+    if (reduce) {
+      rise.setValue(0);
+      return;
+    }
+    Animated.timing(rise, {
+      toValue: 0,
+      duration: riseDuration,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    // Once, as the page opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return {
+    transform: [
+      {
+        translateY: rise.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, height],
+        }),
+      },
+    ],
+  };
+}
+
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
 
-// Title with the blue unread dot and the time, then the message with its name in bold.
+// A tile with the kind's icon, then the title with the blue unread dot and the time, and the message with its name
+// in bold under it (담당자 레퍼런스: 알림 페이지 영상).
 function NotificationRow({
   item,
-  first,
   now,
   onPress,
 }: {
   item: AppNotification;
-  first: boolean;
   now: Date;
   onPress: () => void;
 }) {
@@ -100,26 +165,32 @@ function NotificationRow({
         kinds[item.kind].title
       }, ${item.message}`}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.row,
-        !first && styles.divided,
-        pressed && styles.pressed,
-      ]}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <View style={styles.rowHead}>
-        {item.read ? null : <View style={styles.unread} />}
-        <AppText style={styles.rowTitle} numberOfLines={1}>
-          {kinds[item.kind].title}
-        </AppText>
-        <AppText style={styles.time}>
-          {formatRelative(item.createdAt, now)}
+      <View style={styles.tile}>
+        <Icon
+          name={kinds[item.kind].icon}
+          color={ink}
+          size={20}
+          strokeWidth={1.8}
+        />
+      </View>
+      <View style={styles.rowText}>
+        <View style={styles.rowHead}>
+          {item.read ? null : <View style={styles.unread} />}
+          <AppText style={styles.rowTitle} numberOfLines={1}>
+            {kinds[item.kind].title}
+          </AppText>
+          <AppText style={styles.time}>
+            {formatRelative(item.createdAt, now)}
+          </AppText>
+        </View>
+        <AppText style={styles.body}>
+          {before}
+          {bold ? <AppText style={styles.bold}>{bold}</AppText> : null}
+          {after}
         </AppText>
       </View>
-      <AppText style={styles.body}>
-        {before}
-        {bold ? <AppText style={styles.bold}>{bold}</AppText> : null}
-        {after}
-      </AppText>
     </Pressable>
   );
 }
@@ -154,14 +225,16 @@ function EmptyBell() {
   );
 }
 
-// 2.9 알림 (S15P31E105-374 핸드오프): no card behind the list, 오늘 · 이번 주 tabs, and no 모두 읽음
-// button. Everything shown here counts as read once the screen is left (담당자 결정). 2.9b 알림 없음 stays.
+// 2.9 알림 (담당자 레퍼런스: 알림 페이지 영상): a mist page (담당자 요청) that rises over 홈, 뒤로 and a large 알림 on one
+// line, then every notification in one list, newest first (담당자 결정: 오늘 · 이번 주 탭 없이, 지우기 없이 - the
+// server has no delete). No 모두 읽음: everything shown here counts as read once the screen is left (담당자 결정).
+// 2.9b 알림 없음 stays.
 export function NotificationsScreen() {
   const navigation = useNavigation<Navigation>();
+  const rise = useRise();
   const repositories = useRepositories();
   const resource = useResource(useCallback(loadNotifications, []));
   const [items, setItems] = useState<AppNotification[] | null>(null);
-  const [tab, setTab] = useState<Tab>('today');
   // N01's count also covers what this page leaves out (older pages, kinds the app does not know).
   const unreadCount = useRef(0);
   useEffect(() => {
@@ -191,150 +264,93 @@ export function NotificationsScreen() {
       [notifications],
     ),
   );
-  const shown = (items ?? []).filter(item =>
-    tab === 'today'
-      ? isSameDay(item.createdAt, now)
-      : !isSameDay(item.createdAt, now),
-  );
 
   return (
-    <Screen
-      header={
-        <View style={styles.header}>
-          <BackButton onPress={navigation.goBack} style={styles.back} />
-          <View style={styles.logo} pointerEvents="none">
-            <Logo width={34} symbol />
-          </View>
-        </View>
-      }
-      contentStyle={[
-        styles.content,
-        items?.length === 0 && styles.emptyContent,
-      ]}
-    >
-      {resource.status === 'loading' ? (
-        <ActivityIndicator />
-      ) : resource.status === 'error' ? (
-        <View style={styles.error}>
-          <AppText tone="danger">알림을 불러오지 못했어요</AppText>
-          <Button
-            title="다시 시도"
-            variant="secondary"
-            size="small"
-            onPress={resource.reload}
-          />
-        </View>
-      ) : items?.length === 0 ? (
-        <EmptyBell />
-      ) : (
-        <>
-          <View style={styles.titleRow}>
+    <Animated.View style={[styles.rise, rise]}>
+      <Screen
+        background={<Backdrop tail />}
+        header={
+          <View style={styles.header}>
+            <BackButton onPress={navigation.goBack} />
             <AppText accessibilityRole="header" style={styles.title}>
               알림
             </AppText>
           </View>
-          <View accessibilityRole="tablist" style={styles.tabs}>
-            {tabs.map(item => {
-              const on = tab === item.value;
-              return (
-                <Pressable
-                  key={item.value}
-                  accessibilityRole="tab"
-                  accessibilityLabel={item.label}
-                  accessibilityState={{ selected: on }}
-                  onPress={() => setTab(item.value)}
-                  style={[styles.tab, on && styles.tabOn]}
-                >
-                  <AppText style={[styles.tabText, on && styles.tabTextOn]}>
-                    {item.label}
-                  </AppText>
-                </Pressable>
-              );
-            })}
+        }
+        contentStyle={[
+          styles.content,
+          items?.length === 0 && styles.emptyContent,
+        ]}
+      >
+        {resource.status === 'loading' ? (
+          <ActivityIndicator />
+        ) : resource.status === 'error' ? (
+          <View style={styles.error}>
+            <AppText tone="danger">알림을 불러오지 못했어요</AppText>
+            <Button
+              title="다시 시도"
+              variant="secondary"
+              size="small"
+              onPress={resource.reload}
+            />
           </View>
+        ) : items?.length === 0 ? (
+          <EmptyBell />
+        ) : (
           <View style={styles.list}>
-            {shown.length ? (
-              shown.map((item, index) => (
-                <NotificationRow
-                  key={item.id}
-                  item={item}
-                  first={index === 0}
-                  now={now}
-                  onPress={() =>
-                    kinds[item.kind].open(navigation, item.targetId)
-                  }
-                />
-              ))
-            ) : (
-              <AppText style={styles.none}>
-                {tab === 'today'
-                  ? '오늘 받은 알림이 없어요'
-                  : '이번 주에 받은 알림이 없어요'}
-              </AppText>
-            )}
+            {(items ?? []).map(item => (
+              <NotificationRow
+                key={item.id}
+                item={item}
+                now={now}
+                onPress={() => kinds[item.kind].open(navigation, item.targetId)}
+              />
+            ))}
           </View>
-        </>
-      )}
-    </Screen>
+        )}
+      </Screen>
+    </Animated.View>
   );
 }
 
 const ink = '#0A1631';
 
 const styles = StyleSheet.create({
-  header: { height: 56 },
-  // 44 round glass 뒤로, centred on the 56 header.
-  back: { position: 'absolute', left: 16, top: 6 },
-
-  logo: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  rise: { flex: 1 },
+  // 뒤로 and the large title on one line, 16 from the side.
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 12,
+    height: 64,
+    paddingHorizontal: 16,
   },
-  // The mockup's list sits 12 + 6 + 18 from the edges, without the old glass card.
-  content: { paddingHorizontal: 36, paddingTop: 34 },
-  titleRow: { height: 38, justifyContent: 'center' },
   title: {
     fontFamily: fontFamily.bold,
-    fontSize: 21,
-    lineHeight: 27,
-    letterSpacing: -0.5,
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.6,
     color: '#02050E',
   },
-  tabs: {
+  content: { paddingHorizontal: 20, paddingTop: 12 },
+  list: { gap: 6 },
+  // No lines between rows: the tiles keep them apart.
+  row: {
     flexDirection: 'row',
-    gap: 4,
-    marginTop: 16,
-    padding: 4,
-    borderRadius: 14,
-    backgroundColor: 'rgba(10,22,49,0.05)',
+    alignItems: 'flex-start',
+    gap: 14,
+    paddingVertical: 12,
   },
-  tab: {
-    flex: 1,
-    height: 36,
-    borderRadius: 10,
+  pressed: { opacity: 0.6 },
+  tile: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(10,22,49,0.06)',
   },
-  tabOn: {
-    backgroundColor: ink,
-    boxShadow: '0 2px 6px rgba(10,22,49,0.3)',
-  },
-  tabText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: ink,
-  },
-  tabTextOn: { fontFamily: fontFamily.bold, color: '#FFFFFF' },
-  list: { marginTop: 6 },
-  row: { paddingVertical: 16, paddingHorizontal: 2, gap: 5 },
-  divided: { borderTopWidth: 1, borderTopColor: 'rgba(27,30,34,0.1)' },
-  pressed: { opacity: 0.6 },
+  rowText: { flex: 1, gap: 3 },
   rowHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   unread: {
     width: 7,
@@ -361,17 +377,9 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 14,
     lineHeight: 20,
-    color: '#3F4851',
-  },
-  bold: { fontFamily: fontFamily.bold, color: '#02050E' },
-  none: {
-    marginTop: 24,
-    textAlign: 'center',
-    fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 20,
     color: '#56606A',
   },
+  bold: { fontFamily: fontFamily.bold, color: '#02050E' },
   emptyContent: { flexGrow: 1, justifyContent: 'center' },
   empty: { alignItems: 'center', paddingBottom: 60 },
   ring: {
