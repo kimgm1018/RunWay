@@ -92,7 +92,18 @@ data class RunSnapshot(
     val measurementLost: Boolean = false,
     /** The run was handed to the phone (PHONE_FALLBACK): the watch no longer records or controls it (S15P31E105-464). */
     val phoneRecording: Boolean = false,
+    /**
+     * The controller's last refusal or unconfirmed request, as already kept for [notice] (S15P31E105-613). Screens use it
+     * to tell a failed start (9.1d) from an unconfirmed one (9.1e, 9.3e); it never changes [state].
+     */
+    val problem: ControlProblem? = null,
 )
+
+/** How the last request ended when it did not simply apply. UNCONFIRMED is never shown as success or failure. */
+enum class ControlProblemKind { REJECTED, REFUSED, UNCONFIRMED }
+
+/** [intent] is the request it was about; null for a phone ERROR or an action without a run intent. */
+data class ControlProblem(val kind: ControlProblemKind, val intent: RunIntent?)
 
 /** Where a rhythm BPM change stands. Only APPLIED means the beat really changed. */
 enum class BpmChangeStatus { REQUESTING, APPLIED, REJECTED, UNKNOWN }

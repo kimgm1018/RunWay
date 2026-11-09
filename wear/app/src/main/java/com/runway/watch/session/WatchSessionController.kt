@@ -32,8 +32,8 @@ sealed interface WatchProblem {
     data class Rejected(val action: String, val reasonCode: String?) : WatchProblem
     /** Execution or its save could not be confirmed. Never shown as success or failure. */
     data class Unconfirmed(val action: String) : WatchProblem
-    /** The phone could not process a watch request (ERROR message). */
-    data class Refused(val code: String) : WatchProblem
+    /** The phone could not process a watch request (ERROR message). [action] is the request it answered, when one was waiting. */
+    data class Refused(val code: String, val action: String? = null) : WatchProblem
     data object PhoneUnreachable : WatchProblem
 }
 
@@ -196,7 +196,7 @@ class WatchSessionController(
                 val bpm = current.bpmRequest?.takeIf { current.pending?.action == SET_BPM && it.status == BpmRequestStatus.REQUESTING }
                 _state.value = current.copy(
                     pending = null,
-                    problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN")),
+                    problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN"), current.pending?.action),
                     bpmRequest = bpm?.copy(status = BpmRequestStatus.REJECTED) ?: current.bpmRequest,
                 )
             }

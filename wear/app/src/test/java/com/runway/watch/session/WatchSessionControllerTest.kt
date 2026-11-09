@@ -233,7 +233,7 @@ class WatchSessionControllerTest {
         c.onMessage(prepare())
         assertTrue(c.request(WatchRequest.CANCEL))
         c.onMessage(message("ERROR", """{"code":"COMMAND_PENDING","retryable":false,"failedType":"COMMAND_REQUEST"}"""))
-        assertEquals(WatchProblem.Refused("COMMAND_PENDING"), c.state.value.problem)
+        assertEquals(WatchProblem.Refused("COMMAND_PENDING", "CANCEL"), c.state.value.problem)
         assertNull(c.state.value.pending)
 
         assertTrue(c.request(WatchRequest.CANCEL))

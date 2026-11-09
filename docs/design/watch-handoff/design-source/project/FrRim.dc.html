@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>테두리 게이지 부품</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&amp;family=Noto+Sans+KR:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 454px; height: 454px; border-radius: 50%; overflow: hidden; position: relative; background: #050D14; font-family: 'Rajdhani', 'Noto Sans KR', sans-serif; color: #FFFFFF;">
+  <svg width="454" height="454" viewBox="0 0 454 454" aria-hidden="true" style="position: absolute; top: 0; left: 0;">
+    <circle cx="227" cy="227" r="190" fill="{{disk}}" stroke="rgba(255,255,255,0.10)" stroke-width="2"></circle>
+    <path d="{{tickOff}}" fill="none" stroke="{{ink}}" stroke-opacity="0.14" stroke-width="4" stroke-linecap="round"></path>
+    <path d="{{tickOn}}" fill="none" stroke="{{tickColor}}" stroke-opacity="0.8" stroke-width="5" stroke-linecap="round"></path>
+    <path d="M23.6 183.8 A208 208 0 0 1 149.1 34.1" fill="none" stroke="rgba(77,196,255,0.2)" stroke-width="8" stroke-linecap="round"></path>
+    <path d="M304.9 34.1 A208 208 0 0 1 430.4 183.8" fill="none" stroke="rgba(77,196,255,0.2)" stroke-width="8" stroke-linecap="round"></path>
+    <path d="M430.4 270.2 A208 208 0 0 1 304.9 419.9" fill="none" stroke="rgba(77,196,255,0.2)" stroke-width="8" stroke-linecap="round"></path>
+    <path d="M149.1 419.9 A208 208 0 0 1 23.6 270.2" fill="none" stroke="rgba(77,196,255,0.2)" stroke-width="8" stroke-linecap="round"></path>
+    <path d="{{tl.d}}" fill="none" stroke="#4DC4FF" stroke-opacity="{{tl.op}}" stroke-width="8" stroke-linecap="round"></path>
+    <path d="{{tr.d}}" fill="none" stroke="#4DC4FF" stroke-opacity="{{tr.op}}" stroke-width="8" stroke-linecap="round"></path>
+    <path d="{{br.d}}" fill="none" stroke="#4DC4FF" stroke-opacity="{{br.op}}" stroke-width="8" stroke-linecap="round"></path>
+    <path d="{{bl.d}}" fill="none" stroke="#4DC4FF" stroke-opacity="{{bl.op}}" stroke-width="8" stroke-linecap="round"></path>
+    <circle cx="{{tl.kx}}" cy="{{tl.ky}}" r="7" fill="#4DC4FF" stroke="#050D14" stroke-width="3" opacity="{{tl.op}}"></circle>
+    <circle cx="{{tr.kx}}" cy="{{tr.ky}}" r="7" fill="#4DC4FF" stroke="#050D14" stroke-width="3" opacity="{{tr.op}}"></circle>
+    <circle cx="{{br.kx}}" cy="{{br.ky}}" r="7" fill="#4DC4FF" stroke="#050D14" stroke-width="3" opacity="{{br.op}}"></circle>
+    <circle cx="{{bl.kx}}" cy="{{bl.ky}}" r="7" fill="#4DC4FF" stroke="#050D14" stroke-width="3" opacity="{{bl.op}}"></circle>
+  </svg>
+
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 15px; top: 196px;"><path d="M6 21 V4 M6 4 H17 L15 8 L17 12 H6" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 15px; top: 240px;"><path d="M12 20 C12 20 4.5 15.5 4.5 9.8 A4 4 0 0 1 12 7.6 A4 4 0 0 1 19.5 9.8 C19.5 15.5 12 20 12 20 Z" fill="none" stroke="{{heartColor}}" stroke-opacity="0.6" stroke-width="2" stroke-linejoin="round"></path></svg>
+  <sc-if value="{{showRight}}" hint-placeholder-val="{{true}}">
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 421px; top: 196px;"><circle cx="12" cy="12" r="8.5" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"></circle><path d="M12 7.5 V12 L15 14" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round"></path></svg>
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 421px; top: 240px;"><ellipse cx="8.5" cy="8.5" rx="3" ry="4.6" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"></ellipse><ellipse cx="15.5" cy="15.5" rx="3" ry="4.6" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2"></ellipse></svg>
+  </sc-if>
+
+
+
+  <sc-if value="{{hasPages}}" hint-placeholder-val="{{true}}">
+    <div role="img" aria-label="{{pageLabel}}" style="position: absolute; left: 0; top: 0; width: 454px; height: 60px;">
+      <sc-for list="{{dots}}" as="dot" hint-placeholder-count="3">
+        <span style="position: absolute; left: {{dot.x}}px; top: {{dot.y}}px; width: {{dot.s}}px; height: {{dot.s}}px; border-radius: 50%; background: {{dot.c}};"></span>
+      </sc-for>
+    </div>
+  </sc-if>
+        <sc-if value="{{dot.off}}" hint-placeholder-val="{{true}}"><span style="width: 7px; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.35);"></span></sc-if>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"tl":{"editor":null},"tr":{"editor":null},"bl":{"editor":null},"br":{"editor":null},"ticks":{"editor":null},"tickMin":{"editor":null},"tickMax":{"editor":null},"pages":{"editor":null},"page":{"editor":null},"disk":{"editor":null},"ink":{"editor":null},"tickColor":{"editor":null},"more":{"editor":null},"heartColor":{"editor":null},"$preview":{"width":454,"height":454}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = 227;
+    const pt = (r, deg) => {
+      const a = deg * Math.PI / 180;
+      return [(C + r * Math.sin(a)).toFixed(1), (C - r * Math.cos(a)).toFixed(1)];
+    };
+    const arc = (r, a0, a1) => {
+      const p0 = pt(r, a0);
+      const p1 = pt(r, a1);
+      const large = (a1 - a0) > 180 ? 1 : 0;
+      return 'M' + p0[0] + ' ' + p0[1] + ' A' + r + ' ' + r + ' 0 ' + large + ' 1 ' + p1[0] + ' ' + p1[1];
+    };
+    const R = 208;
+    const SPAN = 56;
+    const quad = (q, start, dflt) => {
+      const v = q || dflt;
+      const f = Math.max(0, Math.min(1, Number(v.f) || 0));
+      const end = start + SPAN * Math.max(f, 0.002);
+      const k = pt(R, end);
+      return { label: v.label || '', d: arc(R, start, end), kx: k[0], ky: k[1], op: f > 0.001 ? (v.dim ? 0.4 : 0.85) : 0 };
+    };
+    const p = this.props;
+    const ticks = (p.ticks === undefined || p.ticks === null) ? 0.52 : Number(p.ticks);
+    let on = '';
+    let off = '';
+    if (ticks >= 0) {
+      const n = 41;
+      for (let i = 0; i < n; i++) {
+        const a = -130 + 260 * i / (n - 1);
+        const q = pt(172, a);
+        const seg = 'M' + q[0] + ' ' + q[1] + ' l0.01 0 ';
+        if (i / (n - 1) <= ticks) on += seg; else off += seg;
+      }
+    }
+    const pages = (p.pages === undefined || p.pages === null) ? 3 : Number(p.pages);
+    const page = (p.page === undefined || p.page === null) ? 0 : Number(p.page);
+    const dots = [];
+    for (let i = 0; i < pages; i++) {
+      const a = (i - (pages - 1) / 2) * 7;
+      const q = pt(208, a);
+      const sz = i === page ? 12 : 8;
+      dots.push({ x: (Number(q[0]) - sz / 2).toFixed(1), y: (Number(q[1]) - sz / 2).toFixed(1), s: sz, c: i === page ? '#FFFFFF' : 'rgba(255,255,255,0.4)' });
+    }
+    return {
+      tl: quad(p.tl, -78, { f: 0.68, label: '3.42 KM' }),
+      tr: quad(p.tr, 22, { f: 0.68, label: '20:14' }),
+      br: quad(p.br, 102, { f: 0.86, label: '172 SPM' }),
+      bl: quad(p.bl, 202, { f: 0.8, label: '152 BPM' }),
+      tickOn: on,
+      tickOff: off,
+      showTickLabels: ticks >= 0,
+      tickMin: p.tickMin || '8’00”',
+      tickMax: p.tickMax || '4’00”',
+      hasPages: pages > 0,
+      dots: dots,
+      pageLabel: pages + '쪽 중 ' + (page + 1) + '쪽',
+      showRight: !p.more,
+      disk: p.disk || '#050D14',
+      ink: p.ink || '#FFFFFF',
+      tickColor: p.tickColor || '#4DC4FF',
+      heartColor: p.heartColor || '#FF5C7A'
+    };
+  }
+}
+</script>
+</body>
+</html>

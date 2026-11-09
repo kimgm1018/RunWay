@@ -64,10 +64,13 @@ class WatchNavigationTest {
         assertEquals(NavState(), WatchNavigation.reconcile(snapshot(RunState.RUNNING), open))
     }
 
-    @Test fun leavingRunningResetsThePager() {
+    // flows.md 복귀: resuming returns to the page the runner was on before the pause; the run's end resets it.
+    @Test fun pauseKeepsTheLastPageAndTheEndResetsIt() {
         val paged = NavState(page = 2)
         assertEquals(2, WatchNavigation.reconcile(snapshot(RunState.RUNNING), paged).page)
-        assertEquals(0, WatchNavigation.reconcile(snapshot(RunState.PAUSED), paged).page)
+        assertEquals(2, WatchNavigation.reconcile(snapshot(RunState.PAUSED), paged).page)
+        assertEquals(0, WatchNavigation.reconcile(snapshot(RunState.COMPLETED), paged).page)
+        assertEquals(0, WatchNavigation.reconcile(snapshot(RunState.READY), paged).page)
     }
 
     @Test fun pagesDifferOnlyByModeAfterTheStatusPage() {

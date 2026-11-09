@@ -38,8 +38,9 @@ class GroupRunPageUiTest {
         compose.onNodeWithContentDescription("3쪽 중 ${page}쪽").assertIsDisplayed()
     }
 
-    @Test fun statusPageShowsTheSharedPace() {
+    @Test fun paceDetailShowsTheSharedPace() {
         launch()
+        compose.onNodeWithContentDescription("페이스 킬로미터당 5분 42초").performClick()
         compose.onNodeWithText("공동").assertIsDisplayed()
         compose.onNodeWithText("안내").assertDoesNotExist()
         compose.onNodeWithContentDescription("페이스 킬로미터당 5분 40초").assertIsDisplayed()
@@ -49,17 +50,17 @@ class GroupRunPageUiTest {
         val control = launch()
         openPage(2)
         compose.onNodeWithContentDescription("공동 페이스 킬로미터당 5분 40초").assertIsDisplayed()
-        compose.onNodeWithText("내 5′42″ · +2″").assertIsDisplayed()
+        compose.onNodeWithText("내 5’42” · +2”").assertIsDisplayed()
 
         control.update(running.copy(guidePaceSecondsPerKm = 355, notice = GroupNotice.PaceChanged(340, 355)))
         compose.onNodeWithContentDescription("공동 페이스 킬로미터당 5분 55초").assertIsDisplayed()
-        compose.onNodeWithText("5′40″ → 5′55″ 변경").assertIsDisplayed()
+        compose.onNodeWithText("이전 5’40” → 새 5’55”").assertIsDisplayed()
     }
 
     @Test fun positionPageShowsRankCountsAndGaps() {
         val control = launch()
         openPage(3)
-        compose.onNodeWithContentDescription("현재 2위").assertIsDisplayed()
+        compose.onNodeWithContentDescription("현재 2위", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("앞서 달리는 1명, 바로 앞 사람과 35미터").assertIsDisplayed()
         compose.onNodeWithContentDescription("뒤따르는 2명, 바로 뒤 사람과 20미터").assertIsDisplayed()
 
@@ -71,23 +72,23 @@ class GroupRunPageUiTest {
         val control = launch()
         openPage(3)
         control.update(running.copy(position = GroupPosition.Unavailable))
-        compose.onNodeWithText("순위를 알 수 없어요").assertIsDisplayed()
-        compose.onNodeWithText("2위").assertDoesNotExist()
+        compose.onNodeWithText("순위를 계산할 수\n없어요").assertIsDisplayed()
+        compose.onNodeWithContentDescription("현재 2위", substring = true).assertDoesNotExist()
 
         control.update(running.copy(position = GroupPosition.Known(standing, delayed = true)))
-        compose.onNodeWithText("순위 지연").assertIsDisplayed()
-        compose.onNodeWithContentDescription("현재 2위, 지연").assertIsDisplayed()
+        compose.onNodeWithText("순위 갱신 지연").assertIsDisplayed()
+        compose.onNodeWithContentDescription("현재 2위, 지연", substring = true).assertIsDisplayed()
 
         control.snapshot.value = control.snapshot.value.copy(group = running,
             metrics = RunMetrics(feeds = MetricFeeds(location = FeedStatus.NO_SIGNAL)))
-        compose.onNodeWithText("위치를 받지 못하고 있어요").assertIsDisplayed()
-        compose.onNodeWithText("2위").assertDoesNotExist()
+        compose.onNodeWithText("내 진행 데이터가\n없어요").assertIsDisplayed()
+        compose.onNodeWithContentDescription("현재 2위", substring = true).assertDoesNotExist()
     }
 
     @Test fun waitingGroupHasNoStartButton() {
         val control = launch(RunState.READY, GroupStatus(GroupPhase.WAITING, 340))
-        compose.onNodeWithText("그룹장이 출발하면\n함께 시작해요").assertIsDisplayed()
-        compose.onNodeWithContentDescription("시작").assertDoesNotExist()
+        compose.onNodeWithText("그룹장 출발을 기다려요").assertIsDisplayed()
+        compose.onNodeWithContentDescription("러닝 시작").assertDoesNotExist()
 
         control.update(GroupStatus(GroupPhase.RUNNING, 340))
         compose.onNodeWithText("그룹이 이미 출발했어요").assertIsDisplayed()
@@ -96,8 +97,9 @@ class GroupRunPageUiTest {
 
     @Test fun forcedEndIsToldApartAndNotShownAsAFinish() {
         val control = launch()
-        openPage(3)
         control.update(running.copy(phase = GroupPhase.FORCE_FINISHED))
+        // 9.7b: the group's end takes over the screen; the runner's own end path stays on the handle.
+        compose.onNodeWithContentDescription("일시정지").assertIsDisplayed()
         compose.onNodeWithText("그룹장이 그룹런을\n종료했어요").assertIsDisplayed()
 
         control.snapshot.value = control.snapshot.value.copy(state = RunState.COMPLETED)
@@ -113,7 +115,7 @@ class GroupRunPageUiTest {
 
     @Test fun personalControlsStayTheSame() {
         val control = launch()
-        compose.onNodeWithText("실제 페이스").performClick()
+        compose.onNodeWithContentDescription("일시정지").performClick()
         assertEquals(listOf(RunIntent.PAUSE), control.sent)
     }
 }

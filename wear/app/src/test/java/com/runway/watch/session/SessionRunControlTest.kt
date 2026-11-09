@@ -4,6 +4,8 @@ import com.runway.watch.run.AnalysisStatus
 import com.runway.watch.run.BpmChange
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
+import com.runway.watch.run.ControlProblem
+import com.runway.watch.run.ControlProblemKind
 import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.CoachingGuide
 import com.runway.watch.run.RhythmBpm
@@ -94,6 +96,17 @@ class SessionRunControlTest {
         assertFalse(control.snapshot.value.pendingCommand)
         assertNull(control.snapshot.value.pendingIntent)
         assertEquals("휴대폰에서 처리하지 못했어요", control.snapshot.value.notice)
+        // The screens also get which request the phone refused (S15P31E105-613).
+        assertEquals(ControlProblem(ControlProblemKind.REFUSED, RunIntent.CANCEL), control.snapshot.value.problem)
+        assertEquals(
+            ControlProblem(ControlProblemKind.UNCONFIRMED, RunIntent.PAUSE),
+            SessionRunControl.problem(WatchSessionState(problem = WatchProblem.Unconfirmed("PAUSE"))),
+        )
+        assertEquals(
+            ControlProblem(ControlProblemKind.REJECTED, RunIntent.START),
+            SessionRunControl.problem(WatchSessionState(problem = WatchProblem.Rejected("START", null))),
+        )
+        assertNull(SessionRunControl.problem(WatchSessionState(problem = WatchProblem.PhoneUnreachable)))
         assertEquals(RunState.READY, control.snapshot.value.state)
 
         control.send(RunIntent.CANCEL)

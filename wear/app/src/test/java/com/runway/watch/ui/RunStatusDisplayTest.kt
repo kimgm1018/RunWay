@@ -17,7 +17,7 @@ class RunStatusDisplayTest {
 
     @Test fun liveValuesShowWithUnitsAndNoIssues() {
         val v = view()
-        assertEquals("5′56″", v.pace.text.value)
+        assertEquals("5’56”", v.pace.text.value)
         assertEquals("2.38", v.distance.text.value)
         assertEquals("km", v.distance.text.unit)
         assertEquals("14:12", v.elapsed.text.value)

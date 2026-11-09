@@ -3,23 +3,17 @@ package com.runway.watch.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.wear.compose.material3.Text
 import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.RunSnapshot
 import com.runway.watch.ui.component.*
 import com.runway.watch.ui.format.MetricFormat
 import com.runway.watch.ui.theme.RunwayColors
-import com.runway.watch.ui.theme.RunwayType
+import com.runway.watch.ui.theme.HeroSize
+import com.runway.watch.ui.theme.px
 import kotlin.math.abs
 
 enum class CompareTrend { AHEAD, EVEN, BEHIND }
@@ -38,6 +32,10 @@ sealed interface RecordCompareView {
         val detail: String,
         val detailDescription: String,
         val marker: Float,
+        /** Elapsed times now and in the past run at the same distance, shown as two cells. */
+        val now: String = "",
+        val past: String = "",
+        val distance: String = "",
     ) : RecordCompareView
 
     /** No gap to show (9.6b and the other states); never a made-up value. */
@@ -77,7 +75,7 @@ object RecordCompareDisplay {
             diffMs < 0 -> CompareTrend.AHEAD
             else -> CompareTrend.BEHIND
         }
-        val amount = if (seconds < 60) "${seconds}″" else "%d′%02d″".format(seconds / 60, seconds % 60)
+        val amount = if (seconds < 60) "${seconds}”" else "%d’%02d”".format(seconds / 60, seconds % 60)
         val spoken = (if (seconds >= 60) "${seconds / 60}분 " else "") + "${seconds % 60}초"
         val now = MetricFormat.duration(c.currentElapsedMs)
         val past = MetricFormat.duration(c.pastElapsedMs)
@@ -107,70 +105,62 @@ object RecordCompareDisplay {
             detailDescription = "${distance.value} 킬로미터 도달, 지금 ${now.description.removePrefix("경과 시간 ")}, " +
                 "지난 기록 ${past.description.removePrefix("경과 시간 ")}",
             marker = .5f + offset,
+            now = now.value,
+            past = past.value,
+            distance = distance.value,
         )
     }
 }
 
 /**
- * 9.6 / 9.6b: once a comparison is chosen the page stays in every state and the run goes on even if
- * it stops. Without a comparison the pager leaves this page out.
+ * 9.6 / 9.6b: once a comparison is chosen the page stays in every state and the run goes on even if it stops. Without
+ * a comparison the pager leaves this page out.
  */
 @Composable
-internal fun RecordComparePage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean) {
-    RoundScreen(spacing = 4.dp, focused = visible) {
+internal fun RecordComparePage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit = {}) {
+    val status = RunStatusDisplay.from(snapshot)
+    WatchFace(rim = RunStatusDisplay.rim(status), pages = PageDots(count, index), handle = pauseHandle(status, onPause), focused = visible) {
         when (val view = RecordCompareDisplay.from(snapshot)) {
             is RecordCompareView.Gap -> GapBody(view)
-            is RecordCompareView.Message -> MessageBody(view)
+            is RecordCompareView.Message -> MessageBody(view, waiting = snapshot.comparison == RecordComparison.Waiting ||
+                snapshot.comparison is RecordComparison.Result)
             // Only for the frame in which a comparison is dropped, before the pager loses this page.
             null -> {}
         }
-        PageIndicator(count, index)
     }
-}
-
-/** Ahead is the bright content color, behind the warning coral (no mint, DESIGN.md 1-1); sign and words say it too. */
-private fun CompareTrend.color(): Color = when (this) {
-    CompareTrend.AHEAD -> RunwayColors.Content
-    CompareTrend.EVEN -> RunwayColors.ContentSecondary
-    CompareTrend.BEHIND -> RunwayColors.Warning
 }
 
 @Composable
-private fun ColumnScope.GapBody(view: RecordCompareView.Gap) {
-    val color = view.trend.color()
-    Text(view.caption, style = RunwayType.Caption, color = color, maxLines = 1)
-    Column(
-        Modifier.clearAndSetSemantics { contentDescription = view.description },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(view.gap, style = RunwayType.number(46), color = color, maxLines = 1)
-        Text(view.headline, style = RunwayType.Title, color = RunwayColors.Content, maxLines = 1)
+private fun GapBody(view: RecordCompareView.Gap) {
+    Caption(if (view.distance.isNotEmpty()) "${view.distance} km 지점 · ${view.caption.removeSuffix(" 기록과 비교")} 기록과" else view.caption)
+    // The gap is the key number; ahead/behind is said by the sign and the words, not by color.
+    HeroNumber(view.gap, HeroSize.PACE, view.description)
+    BodyText(view.description.removePrefix("지난 기록보다 "), RunwayColors.Content, strong = true)
+    GapBar(view.marker)
+    CellRow {
+        ValueCell(view.now, "지금", view.detailDescription)
+        ValueCell(view.past, "지난 기록", "")
     }
-    GapBar(view.marker, color, Modifier.padding(vertical = 4.dp))
-    Text(
-        view.detail, Modifier.semantics { contentDescription = view.detailDescription },
-        style = RunwayType.number(10), color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center,
-    )
 }
 
 /** The past run is the dim dot in the middle; "now" moves right when ahead, left when behind. */
 @Composable
-private fun GapBar(marker: Float, color: Color, modifier: Modifier = Modifier) {
-    Canvas(modifier.fillMaxWidth(.85f).height(14.dp)) {
+private fun GapBar(marker: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier.width(px(170)).height(px(12)).clearAndSetSemantics { }) {
         val y = size.height / 2
-        drawLine(RunwayColors.Line, Offset(y, y), Offset(size.width - y, y), size.height * .43f, StrokeCap.Round)
+        drawLine(RunwayColors.Line, Offset(y, y), Offset(size.width - y, y), size.height * .5f, StrokeCap.Round)
         drawCircle(RunwayColors.ContentDim, size.height * .43f, Offset(size.width / 2, y))
         val x = (size.width * marker).coerceIn(y, size.width - y)
-        drawCircle(RunwayColors.Background, size.height / 2, Offset(x, y))
-        drawCircle(color, size.height * .36f, Offset(x, y))
+        drawCircle(RunwayColors.Background, size.height * .62f, Offset(x, y))
+        drawCircle(RunwayColors.Content, size.height * .5f, Offset(x, y))
     }
 }
 
+/** 9.6b waits with the request steps; the other states say why there is no gap. */
 @Composable
-private fun MessageBody(view: RecordCompareView.Message) {
-    Text("기록 비교", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-    Icon(WatchIcon.CLOCK, if (view.warning) RunwayColors.Warning else RunwayColors.ContentSecondary, 26)
-    Text(view.title, style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
-    // Korean wraps per syllable by default, so the copy breaks between words explicitly.
-    Text(view.description, style = RunwayType.Body, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
+private fun MessageBody(view: RecordCompareView.Message, waiting: Boolean) {
+    Caption("기록 비교")
+    Title(view.title, if (view.warning) RunwayColors.Warning else RunwayColors.Content, announce = true)
+    if (waiting) StepIndicator(listOf(Step("요청", StepState.DONE), Step("서버 계산", StepState.ACTIVE), Step("표시", StepState.WAITING)))
+    else BodyText(view.description)
 }

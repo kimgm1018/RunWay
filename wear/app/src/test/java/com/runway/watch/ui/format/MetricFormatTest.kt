@@ -7,8 +7,8 @@ import org.junit.Test
 
 class MetricFormatTest {
     @Test fun paceUsesPrimeMarks() {
-        assertEquals("5′56″", MetricFormat.pace(356).value)
-        assertEquals("10′05″", MetricFormat.pace(605).value)
+        assertEquals("5’56”", MetricFormat.pace(356).value)
+        assertEquals("10’05”", MetricFormat.pace(605).value)
         assertNull(MetricFormat.pace(356).unit)
     }
 

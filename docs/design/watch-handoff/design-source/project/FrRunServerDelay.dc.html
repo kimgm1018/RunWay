@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>9.2e 기록 중 · 서버 연결 지연 (추가)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&amp;family=Noto+Sans+KR:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 620px; height: 620px; position: relative; font-family: 'Rajdhani', 'Noto Sans KR', sans-serif; color: #FFFFFF;">
+  <div aria-hidden="true" style="position: absolute; left: 548px; top: 133px; width: 26px; height: 64px; border-radius: 9px; background: linear-gradient(90deg, #4f545a 0%, #d6dadf 45%, #6d7279 100%); transform: rotate(-30deg); box-shadow: 0 4px 8px rgba(0,0,0,0.4);"></div>
+  <div aria-hidden="true" style="position: absolute; left: 548px; top: 423px; width: 26px; height: 64px; border-radius: 9px; background: linear-gradient(90deg, #4f545a 0%, #d6dadf 45%, #6d7279 100%); transform: rotate(30deg); box-shadow: 0 4px 8px rgba(0,0,0,0.4);"></div>
+  <div aria-hidden="true" style="position: absolute; left: 30px; top: 30px; width: 560px; height: 560px; border-radius: 50%; background: conic-gradient(from 200deg, #6f747b, #c9cdd2 10%, #f4f6f8 16%, #8d9299 28%, #3f4349 42%, #5a5f66 52%, #b8bcc1 64%, #eef0f2 70%, #7a7f86 82%, #6f747b 100%); box-shadow: 0 40px 70px rgba(0,0,0,0.45), 0 12px 24px rgba(0,0,0,0.35), inset 0 2px 2px rgba(255,255,255,0.6), inset 0 -3px 6px rgba(0,0,0,0.5);"></div>
+  <div aria-hidden="true" style="position: absolute; left: 52px; top: 52px; width: 516px; height: 516px; border-radius: 50%; background: radial-gradient(circle at 50% 50%, #050505 0%, #050505 88%, #1d1f23 94%, #0a0b0c 100%); box-shadow: inset 0 3px 6px rgba(0,0,0,0.9), inset 0 -2px 3px rgba(255,255,255,0.14), 0 0 0 2px rgba(0,0,0,0.6);"></div>
+  <div aria-hidden="true" style="position: absolute; left: 52px; top: 52px; width: 516px; height: 516px; border-radius: 50%; background: repeating-conic-gradient(rgba(255,255,255,0.16) 0deg 0.7deg, rgba(255,255,255,0) 0.7deg 6deg); -webkit-mask: radial-gradient(circle, rgba(0,0,0,0) 0 236px, #000 238px 250px, rgba(0,0,0,0) 252px); mask: radial-gradient(circle, rgba(0,0,0,0) 0 236px, #000 238px 250px, rgba(0,0,0,0) 252px);"></div>
+<div style="position: absolute; left: 83px; top: 83px; width: 454px; height: 454px; border-radius: 50%; overflow: hidden; background: #050D14; font-family: 'Rajdhani', 'Noto Sans KR', sans-serif; color: #FFFFFF;">
+  <div style="position: absolute; top: 0; left: 0; width: 454px; height: 454px;">
+    <dc-import name="FrRim" tl="{{rim.tl}}" tr="{{rim.tr}}" bl="{{rim.bl}}" br="{{rim.br}}" ticks="{{rim.ticks}}" pages="{{rim.pages}}" page="{{rim.page}}" more="{{rim.more}}" hint-size="454px,454px"></dc-import>
+  </div>
+  <div style="position: absolute; top: 72px; bottom: 84px; left: 70px; right: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;">
+    <div role="img" aria-label="휴대폰 정상 · 서버 확인 중 · GPS 정상 · 심박 센서 정상" style="display: flex; gap: 14px; align-items: center; flex-shrink: 0;"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18 H17 A4 4 0 0 0 17 10 A5.5 5.5 0 0 0 6.5 11 A3.5 3.5 0 0 0 7 18 Z" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2.4"></path></svg></div>
+    <div style="display: flex; gap: 6px; align-items: flex-end; justify-content: center;"><span style="font-size: 104px; line-height: 100px; font-weight: 500; color: #4DFFD2; font-variant-numeric: tabular-nums; letter-spacing: -0.01em;">5’55”</span></div>
+    <div style="font-family: 'Noto Sans KR', sans-serif; font-size: 16px; line-height: 21px; font-weight: 500; color: rgba(255,255,255,0.62); word-break: keep-all; ">기록 비교·그룹 정보가 멈췄어요</div>
+  </div>
+  <button type="button" aria-label="일시정지" style="position: absolute; right: 0; top: 179px; width: 96px; height: 96px; border: none; background: transparent; padding: 0; cursor: pointer;"><span style="position: absolute; right: 0; top: 4px; width: 44px; height: 88px; border-radius: 44px 0 0 44px; background: #111D27; box-shadow: inset 2px 0 0 rgba(255,255,255,0.22); display: flex; align-items: center; justify-content: center; padding-left: 4px; box-sizing: border-box;"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="#FFFFFF"></rect><rect x="14" y="5" width="4" height="14" rx="1.2" fill="#FFFFFF"></rect></svg></span></button>
+</div>
+  <div aria-hidden="true" style="position: absolute; left: 83px; top: 83px; width: 454px; height: 454px; border-radius: 50%; pointer-events: none; background: linear-gradient(145deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.05) 26%, rgba(255,255,255,0) 40%), radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 82%, rgba(0,0,0,0.35) 100%); box-shadow: inset 0 0 0 2px rgba(0,0,0,0.8), inset 0 6px 14px rgba(0,0,0,0.55);"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":620,"height":620}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { rim: {"tl": {"f": 0.68, "label": "3.42 KM"}, "tr": {"f": 0.68, "label": "20:14"}, "bl": {"f": 0.8, "label": "152 BPM"}, "br": {"f": 0.86, "label": "172 SPM"}, "ticks": -1, "pages": 3, "page": 0, "more": true} };
+  }
+}
+</script>
+</body>
+</html>

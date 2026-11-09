@@ -28,7 +28,7 @@ class ReadinessScreenUiTest {
     @Test fun eachMissingItemHasItsOwnGuidance() {
         val flow = launch(ready.copy(consent = MISSING))
         compose.onNodeWithText("동의가 필요해요").assertIsDisplayed()
-        compose.onNodeWithContentDescription("시작").assertDoesNotExist()
+        compose.onNodeWithContentDescription("러닝 시작").assertDoesNotExist()
 
         flow.value = ready.copy(permission = MISSING)
         compose.onNodeWithText("센서 권한이 필요해요").assertIsDisplayed()
@@ -41,7 +41,7 @@ class ReadinessScreenUiTest {
         compose.onNodeWithText("연결 전에는 러닝을\n시작할 수 없어요").assertIsDisplayed()
 
         flow.value = ready
-        compose.onNodeWithContentDescription("시작").assertIsEnabled()
+        compose.onNodeWithContentDescription("러닝 시작").assertIsEnabled()
     }
 
     @Test fun permissionButtonAsksAgainAndRecheckRereads() {
@@ -52,9 +52,9 @@ class ReadinessScreenUiTest {
             WatchApp(SimulatedRunControl(RunSnapshot(state = RunState.READY)), flow,
                 ReadinessActions(requestPermission = { asked++ }, recheck = { rechecked++ }))
         }
-        compose.onNodeWithText("권한 허용").performClick()
+        compose.onNodeWithContentDescription("권한 허용").performClick()
         flow.value = ready.copy(online = MISSING)
-        compose.onNodeWithText("다시 확인").performClick()
+        compose.onNodeWithContentDescription("다시 확인").performClick()
         compose.runOnIdle {
             assertEquals(1, asked)
             assertEquals(1, rechecked)
@@ -63,23 +63,23 @@ class ReadinessScreenUiTest {
 
     @Test fun registeredWatchWithoutThePhoneIsNotShownAsConnected() {
         launch(ready, RunSnapshot(state = RunState.READY, phoneConnected = false))
-        compose.onNodeWithText("휴대폰 연결이 없어요").assertIsDisplayed()
-        compose.onNodeWithText("휴대폰 연결됨").assertDoesNotExist()
+        compose.onNodeWithText("휴대폰과 연결되지\n않았어요").assertIsDisplayed()
+        compose.onNodeWithText("연결됨", substring = true).assertDoesNotExist()
     }
 
-    @Test fun standbyNamesTheInternetOnlyWhenKnown() {
+    /** Normal sources are hidden (handoff StatusIcons): standby never claims a link it has not checked. */
+    @Test fun standbyShowsNoLinkClaim() {
         val flow = launch(ready.copy(online = CHECKING))
-        compose.onNodeWithText("● 인터넷 확인 중").assertIsDisplayed()
-        flow.value = ready
-        compose.onNodeWithText("● 인터넷").assertIsDisplayed()
+        compose.onNodeWithContentDescription("러닝 시작").assertIsDisplayed()
+        compose.onNodeWithText("연결됨", substring = true).assertDoesNotExist()
         flow.value = ready.copy(online = UNKNOWN)
-        compose.onNodeWithText("● 휴대폰 연결됨").assertIsDisplayed()
-        compose.onNodeWithText("● 인터넷", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("인터넷", substring = true).assertDoesNotExist()
     }
 
     @Test fun losingTheInternetMidRunKeepsTheRunAndSaysSavingIsUnconfirmed() {
         launch(ready.copy(online = MISSING), RunSnapshot(state = RunState.RUNNING))
-        compose.onNodeWithText("실제 페이스").assertIsDisplayed()
-        compose.onNodeWithText("● 오프라인 · 저장 미확인").assertIsDisplayed()
+        compose.onNodeWithContentDescription("쪽 중 1쪽", substring = true).assertExists()
+        compose.onNodeWithText("오프라인 · 저장 미확인").assertIsDisplayed()
+        compose.onNodeWithContentDescription("인터넷 연결 없음").assertIsDisplayed()
     }
 }

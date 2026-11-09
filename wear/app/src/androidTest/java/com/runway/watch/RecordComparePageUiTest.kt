@@ -36,14 +36,15 @@ class RecordComparePageUiTest {
     @Test fun showsTheGapAndFollowsUpdates() {
         val control = launch(ahead)
         openComparePage()
-        compose.onNodeWithText("10.13 기록과 비교").assertIsDisplayed()
+        compose.onNodeWithText("2.38 km 지점 · 10.13 기록과").assertIsDisplayed()
         compose.onNodeWithContentDescription("지난 기록보다 21초 빠름").assertIsDisplayed()
 
         control.snapshot.value = control.snapshot.value.copy(
             comparison = ahead.copy(distanceMeters = 2500.0, currentElapsedMs = 940_000, pastElapsedMs = 905_000),
         )
         compose.onNodeWithContentDescription("지난 기록보다 35초 느림").assertIsDisplayed()
-        compose.onNodeWithText("2.50km 도달\n지금 15:40 · 지난 15:05").assertIsDisplayed()
+        compose.onNodeWithText("15:40").assertIsDisplayed()
+        compose.onNodeWithText("15:05").assertIsDisplayed()
     }
 
     @Test fun runWithoutAComparisonHasNoComparisonPage() {
@@ -66,7 +67,7 @@ class RecordComparePageUiTest {
         launch(RecordComparison.NoRecord)
         openComparePage()
         compose.onNodeWithText("비교할 기록이 없어요").assertIsDisplayed()
-        compose.onNodeWithText("″", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("”", substring = true).assertDoesNotExist()
     }
 
     @Test fun waitingDropsTheLastGap() {
@@ -85,7 +86,7 @@ class RecordComparePageUiTest {
         compose.onNodeWithContentDescription("지난 기록보다 21초 빠름").assertDoesNotExist()
 
         repeat(2) { compose.onRoot().performTouchInput { swipeRight() } }
-        compose.onNodeWithText("실제 페이스").assertIsDisplayed()
+        compose.onNodeWithContentDescription("3쪽 중 1쪽").assertIsDisplayed()
         compose.onNodeWithContentDescription("거리 2.38 킬로미터").assertIsDisplayed()
     }
 }
