@@ -4,8 +4,9 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * G10 실시간 순위·앞뒤 격차 응답. 순위 대상이 아닌 참가자의 rank·gap·progressM·paceSecPerKm은 null이며 stale=true다. 위치·건강 원본은
- * 담지 않는다. loadAlert는 RUNNING에서 앞서 달리는 참가자가 있을 때만 채운다.
+ * G10 실시간 순위·앞뒤 격차 응답. 순위 대상이 아닌 참가자의 rank·gap·progressM·paceSecPerKm은 null이며 stale=true다.
+ * paceSecPerKm은 최근 60초 W07 speed 실측 페이스다. 위치·건강 원본은 담지 않는다. loadAlert는 RUNNING에서 앞서 달리는
+ * 참가자가 있을 때만 채운다.
  */
 public record GroupRunLiveResponse(
         long groupRunId,

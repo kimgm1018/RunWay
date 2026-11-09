@@ -33,6 +33,7 @@ import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
 import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunGoalCalculator.ResolvedGoals;
+import com.runway.backend.domain.grouprun.helper.GroupRunLivePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupRunLoadAlertCalculator;
 import com.runway.backend.domain.grouprun.live.GroupRunLiveRanking;
 import com.runway.backend.domain.grouprun.live.ParticipantLive;
@@ -751,9 +752,13 @@ public class GroupRunService {
     /** 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자 프로필 평균 페이스 중앙값. */
     private Integer resolveGroupGuidePace(GroupRunRow row) {
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
+            Instant measuredAtCeiling =
+                    Instant.now()
+                            .plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
             Integer running =
                     GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
-                            participantJdbcRepository.findRunningParticipantGuidePaces(row.id()));
+                            participantJdbcRepository.findRunningParticipantGuidePaces(
+                                    row.id(), measuredAtCeiling));
             if (running != null) {
                 return running;
             }
@@ -774,7 +779,7 @@ public class GroupRunService {
         for (SessionReferenceRepository.GroupLiveRow r : liveRows) {
             paceByUser.put(
                     r.userId(),
-                    GroupRunLoadAlertCalculator.toPaceSecPerKm(r.averagePaceSecPerKm()));
+                    GroupRunLivePaceCalculator.fromAverageSpeedMps(r.averageSpeedMps()));
         }
         List<ParticipantSample> samples =
                 liveRows.stream()
@@ -806,11 +811,11 @@ public class GroupRunService {
     }
 
     /**
-     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 연결 세션 평균
-     * 페이스이며 stale이면 null이다.
+     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 최근
+     * 60초 실측 페이스이며 stale이면 null이다.
      */
     private static GroupRunLiveResponse.Participant toLiveParticipant(
-            ParticipantLive live, Integer sessionAveragePace) {
+            ParticipantLive live, Integer livePaceSecPerKm) {
         return new GroupRunLiveResponse.Participant(
                 live.userId(),
                 live.rank(),
@@ -819,7 +824,7 @@ public class GroupRunService {
                 live.gapToAheadM(),
                 live.gapToBehindM(),
                 live.progressM(),
-                live.stale() ? null : sessionAveragePace,
+                live.stale() ? null : livePaceSecPerKm,
                 live.measuredAt(),
                 live.stale());
     }
