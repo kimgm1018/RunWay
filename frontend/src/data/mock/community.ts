@@ -232,6 +232,10 @@ export function createCommunityMock({
       };
       return respond(detail);
     },
+    getRoute: postId => {
+      const post = find(postId);
+      return respond(post.courseShared ? post.record.route : null);
+    },
     getShareable: recordId => respond(shareableOf(record(recordId))),
     create: (recordId, draft) => {
       const id = `post-mine-${nextId++}`;

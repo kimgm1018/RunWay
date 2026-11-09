@@ -116,9 +116,26 @@ export function createCommunityApi({
   // Likes I made or took back in this session: the server does not say whether I liked a post.
   const likes = new Map<string, boolean>();
   const bookmarks = new Set<string>();
+  // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
+  // post does not ask again.
+  const courseIds = new Map<string, number | null>();
+  const routes = new Map<string, Promise<[number, number][] | null>>();
+  const readRoute = async (postId: string) => {
+    const courseId = courseIds.has(postId)
+      ? courseIds.get(postId)
+      : (await apiRequest<PostResponse>(`/posts/${postId}`)).courseId;
+    if (courseId == null) {
+      return null;
+    }
+    const course = await apiRequest<CourseRouteResponse>(
+      `/courses/${courseId}`,
+    );
+    return course.route.coordinates;
+  };
 
   const toPost = (response: PostResponse): Post => {
     const id = String(response.id);
+    courseIds.set(id, response.courseId ?? null);
     return {
       id,
       author: authorOf(response.author.userId, response.author.nickname),
@@ -189,6 +206,20 @@ export function createCommunityApi({
         comments: items.map(item => toComment(item, post.author)),
       };
       return detail;
+    },
+    // 7.1 draws the post on screen on the real map. A course that cannot be read leaves the drawn map, and is
+    // asked for again next time rather than remembered as missing.
+    getRoute: postId => {
+      const known = routes.get(postId);
+      if (known) {
+        return known;
+      }
+      const route = readRoute(postId).catch(() => {
+        routes.delete(postId);
+        return null;
+      });
+      routes.set(postId, route);
+      return route;
     },
     // 7.3 shares one of my runs: the given one, or the newest.
     getShareable: async recordId => {

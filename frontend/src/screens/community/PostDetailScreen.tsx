@@ -155,6 +155,7 @@ export function PostDetailScreen() {
           route={post.record.route}
           interactive={false}
           area={{ top: 0.14, bottom: mapShare - 0.04 }}
+          view="lean"
           style={StyleSheet.absoluteFill}
         />
       ) : post ? (

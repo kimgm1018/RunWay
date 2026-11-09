@@ -14,7 +14,7 @@ import type { RunMapLogo } from '../../components/RunMap';
 import { k1, size, spacing, useTheme } from '../../theme';
 
 // Layout shared by 2.0 and 2.0F: a full-screen map, a bar pinned to the top and a sheet that sits just
-// above the floating tab bar. The map is the K1 day map at any hour (S15P31E105-527). By day the sheet is
+// above the floating tab bar. The map is the plain Naver day map at any hour (S15P31E105-527, -521). By day the sheet is
 // light glass (runway-course-handoff); after sunset it stays the dark sheet of DESIGN.md 2-6. The map gets where the NAVER logo goes: just over the sheet, as
 // measured, since the sheet's height changes with day, night and what it holds (S15P31E105-429).
 // sheetColor paints the day sheet one solid colour with a drop shadow instead of glass (6.4 white,
@@ -45,7 +45,7 @@ export function MapScreenFrame({
       style={[styles.root, { backgroundColor: colors.background }]}
       onLayout={event => setScreen(event.nativeEvent.layout.height)}
     >
-      {/* The map behind the status bar is the K1 day map after sunset too (S15P31E105-527), so dark icons. */}
+      {/* The map behind the status bar is the light Naver day map after sunset too (S15P31E105-527), so dark icons. */}
       <StatusBar barStyle="dark-content" />
       {renderMap(logo)}
       <SafeAreaView

@@ -28,6 +28,7 @@ function MapStart({ bottom }: { bottom: React.ReactNode }) {
           position={place.status === 'ready' ? place.data.position : undefined}
           area={{ top: 0.36, bottom: 0.36 }}
           logo={logo}
+          view="lean"
           style={StyleSheet.absoluteFill}
         />
       )}

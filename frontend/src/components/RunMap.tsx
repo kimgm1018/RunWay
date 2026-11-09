@@ -12,9 +12,9 @@ import {
   NaverMapPathOverlay,
   NaverMapView,
   NaverMapViewRef,
+  type Camera,
 } from '@mj-studio/react-native-naver-map';
-import { appConfig } from '../config';
-import type { LngLat } from '../geo';
+import { bearingOf, distanceM, type LngLat } from '../geo';
 import { fontFamily, k1, palette } from '../theme';
 import { coursePaceColors, paceColor, splitRoute } from './mapRoute';
 
@@ -35,6 +35,13 @@ export type RunMapArea = { top: number; bottom: number };
 // cut down to the sheet and the camera region widened to match, so what is shown keeps its place and zoom.
 export type RunMapLogo = { above: number; side?: 'left' | 'right' };
 
+// How the camera looks at the map (S15P31E105-521).
+// flat: straight down, north up (the pickers, records and group details).
+// lean: tilted back a little, north up, still fitting all that is shown, with buildings standing up (the
+//   course screens and the community post).
+// heading: closer and tilted further, turned so the way the runner is going points up (4.2 following me).
+export type RunMapView = 'flat' | 'lean' | 'heading';
+
 type RunMapProps = {
   // A course or record as GeoJSON [longitude, latitude] points (코스 API route).
   route?: LngLat[];
@@ -54,8 +61,9 @@ type RunMapProps = {
   muted?: boolean;
   // Shows the GPS location dot. Turn it on with location tracking, after the permission is granted.
   showLocation?: boolean;
-  // A style from the NAVER Cloud Style Editor (ADR-0018). Left out, the map takes runway-k1-day
-  // (S15P31E105-325) by day and after sunset alike (S15P31E105-527).
+  // A style from the NAVER Cloud Style Editor (ADR-0018). Left out, the map is the plain Naver day map, by day
+  // and after sunset alike (S15P31E105-527). It replaced runway-k1-day (S15P31E105-325), which kept the
+  // buildings flat on the tilted views (S15P31E105-521, 담당자 요청: K1 대신 기본 지도).
   customStyleId?: string;
   area?: RunMapArea;
   logo?: RunMapLogo;
@@ -74,6 +82,8 @@ type RunMapProps = {
   cameraLocked?: boolean;
   // Two-finger rotation. Off where the screen has no way to turn the map back north.
   rotatable?: boolean;
+  // Flat unless the screen asks for the tilted view (S15P31E105-521).
+  view?: RunMapView;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -83,7 +93,7 @@ const toCoord = ([longitude, latitude]: LngLat) => ({ latitude, longitude });
 const core = '#F9F9F9';
 const ink = '#060606';
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
-const layerGroups = {
+const flatLayers = {
   BUILDING: false,
   TRAFFIC: false,
   TRANSIT: false,
@@ -91,6 +101,23 @@ const layerGroups = {
   MOUNTAIN: false,
   CADASTRAL: false,
 };
+// A tilted map shows the buildings, which stand up once it leans (S15P31E105-521).
+const tiltedLayers = { ...flatLayers, BUILDING: true };
+// How tall the buildings stand, 0–1 (1 is the Naver default).
+const buildingHeight = 1;
+
+// The tilted views (S15P31E105-521), in degrees.
+const leanTilt = 30;
+const headingTilt = 60;
+// 4.2 following me: close enough to see the next corner and the buildings round it.
+const headingZoom = 17;
+// A tilted map draws its far half smaller, so the lean view steps back a little to keep the far end in.
+const leanZoomOut = 0.3;
+const maxZoom = 17;
+// The way ahead is taken over the last stretch of the run at least this long, so GPS jitter while standing
+// does not spin the map. It turns in steps of 5° for the same reason.
+const headingStretchM = 15;
+const headingStep = 5;
 // The GPS location is a white dot (18) in a 12% white circle (DESIGN.md 2-7 지도).
 // The Android side reads isVisible as required, so it is always passed with these.
 const locationLook = {
@@ -192,6 +219,43 @@ export function lowerToLogo(
     },
     padding: { top: padding.top, bottom: sheet },
   };
+}
+
+// The zoom at which the region just fills the padded part of the map. The tilted views set the camera
+// themselves, since the fit (fitBounds) always lays the map flat. Same formula as RouteReplay: metres per
+// screen point at zoom 0, the Naver zoom being one level above the 256-point web tiles.
+export function zoomFor(
+  region: Region,
+  padding: Padding | undefined,
+  width: number,
+  height: number,
+) {
+  const middle = region.latitude + region.latitudeDelta / 2;
+  const cos = Math.cos((middle * Math.PI) / 180);
+  const base = (156543.03 / 2) * cos;
+  const metresPerDegree = 111320;
+  const box = Math.max(
+    1,
+    height - (padding?.top ?? 0) - (padding?.bottom ?? 0),
+  );
+  const spanX = region.longitudeDelta * metresPerDegree * cos;
+  const spanY = region.latitudeDelta * metresPerDegree;
+  return Math.min(
+    Math.log2((width * base) / spanX),
+    Math.log2((box * base) / spanY),
+  );
+}
+
+// Where the runner is heading: from the last point at least headingStretchM back to the end of the run.
+// Until they have gone that far, the heading they had stays.
+export function headingOf(trail: LngLat[], previous: number) {
+  const end = trail[trail.length - 1];
+  for (let index = trail.length - 2; index >= 0; index -= 1) {
+    if (distanceM(trail[index], end) >= headingStretchM) {
+      return bearingOf(trail[index], end);
+    }
+  }
+  return previous;
 }
 
 // The logo's corner and margin. The margin counts from the padded area's bottom, so it is the gap between
@@ -304,6 +368,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     onUserMove,
     cameraLocked = false,
     rotatable = true,
+    view = 'flat',
     style,
   },
   ref,
@@ -333,26 +398,71 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     height,
   );
   const logoAt = logoFor(logo, padding, height);
+
+  // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
+  const tilted = view !== 'flat';
+  const me = running ? trail[trail.length - 1] : null;
+  const heading = useRef(0);
+  if (view === 'heading' && running) {
+    heading.current = headingOf(trail, heading.current);
+  }
+  const bearing =
+    view === 'heading' && me
+      ? (Math.round(heading.current / headingStep) * headingStep) % 360
+      : 0;
+  const target: Camera | undefined = !tilted
+    ? undefined
+    : view === 'heading' && me
+    ? {
+        latitude: me[1],
+        longitude: me[0],
+        zoom: headingZoom,
+        tilt: headingTilt,
+        bearing,
+      }
+    : {
+        latitude: region.latitude + region.latitudeDelta / 2,
+        longitude: region.longitude + region.longitudeDelta / 2,
+        zoom: Math.min(
+          zoomFor(region, padding, mapWidth, height) - leanZoomOut,
+          maxZoom,
+        ),
+        tilt: leanTilt,
+        bearing: 0,
+      };
+
   // The padding is known only after layout, so it moves the camera as well.
   const key = `${regionKey(region)}|${padding?.top ?? 0},${
     padding?.bottom ?? 0
-  }`;
+  }|${view}|${bearing}`;
   const shownKey = useRef('');
   // Camera calls sent before the native map is ready are dropped, so they wait for it.
   const [ready, setReady] = useState(false);
+  // The tilted views move the camera through the camera prop: the fit command lays the map flat.
+  const [camera, setCamera] = useState<Camera>();
   useEffect(() => {
-    if (!ready || !height || cameraLocked || shownKey.current === key) {
+    if (
+      !ready ||
+      !height ||
+      !mapWidth ||
+      cameraLocked ||
+      shownKey.current === key
+    ) {
       return;
     }
     // One frame later, so the new padding reaches the native map before the camera moves.
     const frame = requestAnimationFrame(() => {
       shownKey.current = key;
-      map.current?.animateRegionTo({ ...region, duration: 300 });
+      if (target) {
+        setCamera(target);
+      } else {
+        map.current?.animateRegionTo({ ...region, duration: 300 });
+      }
     });
     return () => cancelAnimationFrame(frame);
-    // region is rebuilt every render; key says when it really changed.
+    // region and target are rebuilt every render; key says when they really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, ready, height, cameraLocked]);
+  }, [key, ready, height, mapWidth, cameraLocked]);
   // Once the user moves the map the shown view is theirs; following again fits it afresh.
   useEffect(() => {
     if (cameraLocked) {
@@ -377,8 +487,6 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
       : coursePaceColors[1];
 
-  // The K1 day map by day and after sunset alike (S15P31E105-527: 낮·밤 구분 없이 낮 스타일).
-  const styleId = customStyleId ?? (appConfig.naverMapDayStyleId || undefined);
   return (
     <NaverMapView
       ref={map}
@@ -391,9 +499,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       }
       onInitialized={() => setReady(true)}
       initialRegion={fitted}
-      customStyleId={styleId}
+      // While the user holds the camera (지도 보기 moved by hand) the map leaves it where they put it.
+      camera={tilted && !cameraLocked ? camera : undefined}
+      animationDuration={300}
+      customStyleId={customStyleId}
       mapType="Basic"
-      layerGroups={layerGroups}
+      layerGroups={tilted ? tiltedLayers : flatLayers}
+      buildingHeight={buildingHeight}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
       mapPadding={padding}
       logoAlign={logoAt?.align}

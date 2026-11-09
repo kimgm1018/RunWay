@@ -1254,6 +1254,9 @@ export type Repositories = {
   community: {
     listFeed: (scope: FeedScope) => Promise<Post[]>;
     get: (postId: string) => Promise<PostDetail>;
+    // The shared course's points for the post on screen in 7.1, drawn on the real map (C03 by the post's course,
+    // S15P31E105-521); null without a course or when it cannot be read.
+    getRoute: (postId: string) => Promise<[number, number][] | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
     create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;

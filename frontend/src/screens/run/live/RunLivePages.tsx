@@ -544,7 +544,8 @@ export function CoachingPage({
 }
 
 // 지도 보기: the whole screen under the top and the foot, following me as I run, the whole course, or wherever
-// the user moved the map. Rotation stays off so the map never needs turning back north.
+// the user moved the map. Following me, the map leans and turns to the way I run (S15P31E105-521); the whole
+// course leans north up. The rotation gesture stays off, so there is never a hand-turned map to set back.
 export function LiveMapPanel({
   route,
   trail,
@@ -578,6 +579,7 @@ export function LiveMapPanel({
         cameraLocked={shown === 'free'}
         onUserMove={() => setCamera('free')}
         rotatable={false}
+        view={shown === 'follow' ? 'heading' : 'lean'}
         area={area}
         logo={logo}
         style={StyleSheet.absoluteFill}

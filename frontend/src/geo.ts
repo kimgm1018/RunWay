@@ -16,6 +16,17 @@ export function distanceM([lng1, lat1]: LngLat, [lng2, lat2]: LngLat) {
   return 2 * earthM * Math.asin(Math.sqrt(h));
 }
 
+// Compass bearing (0 north, clockwise) from one point to another.
+export function bearingOf([lng1, lat1]: LngLat, [lng2, lat2]: LngLat) {
+  const y = Math.sin(toRadians(lng2 - lng1)) * Math.cos(toRadians(lat2));
+  const x =
+    Math.cos(toRadians(lat1)) * Math.sin(toRadians(lat2)) -
+    Math.sin(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.cos(toRadians(lng2 - lng1));
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 export function routeLengthM(route: LngLat[]) {
   return route
     .slice(1)

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleSheet, View } from 'react-native';
 import Svg, {
   Circle,
@@ -13,7 +13,9 @@ import Svg, {
 } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon } from '../../components';
+import { RunMap } from '../../components/RunMap';
 import { useRepositories, type Post } from '../../data';
+import type { LngLat } from '../../geo';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
@@ -29,7 +31,8 @@ import {
 
 // 7.1 피드 한 장 (S15P31E105-561, 담당자 시안): one post fills the screen and the feed pages up and down. The run
 // lies on a dark map with its route in neon; the author sits at the top, the actions down the right and the run's
-// words at the bottom left. Every piece of the old feed stays (담당자 요청: 지금 정보 유지).
+// words at the bottom left. Every piece of the old feed stays (담당자 요청: 지금 정보 유지). The page on screen that
+// shares its course shows it on the real map instead, tilted with the buildings standing (S15P31E105-521).
 export const feedLook = {
   ground: '#14171C',
   street: '#20242B',
@@ -247,8 +250,17 @@ export function RouteLine({
 }
 
 // Dark bands under the top and the foot, so the white words stay readable over any part of the map.
-// 7.3 · 7.3e use it too.
-export function Shade({ width, height }: { width: number; height: number }) {
+// 7.3 · 7.3e use it too. `strong` is for the light real map (S15P31E105-521, 담당자 요청: 진하게): the top band reaches
+// past the author row and is darker, so the tabs, the handle and its line stay readable.
+export function Shade({
+  width,
+  height,
+  strong = false,
+}: {
+  width: number;
+  height: number;
+  strong?: boolean;
+}) {
   return (
     <Svg
       width={width}
@@ -258,7 +270,17 @@ export function Shade({ width, height }: { width: number; height: number }) {
     >
       <Defs>
         <LinearGradient id="feedTop" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset={0} stopColor="#000000" stopOpacity={0.55} />
+          <Stop
+            offset={0}
+            stopColor="#000000"
+            stopOpacity={strong ? 0.6 : 0.55}
+          />
+          {/* Plain, the middle stop lies on the straight fade (0.55 → 0); strong, it holds darker for longer. */}
+          <Stop
+            offset={0.6}
+            stopColor="#000000"
+            stopOpacity={strong ? 0.25 : 0.22}
+          />
           <Stop offset={1} stopColor="#000000" stopOpacity={0} />
         </LinearGradient>
         <LinearGradient id="feedFoot" x1="0" y1="0" x2="0" y2="1">
@@ -266,7 +288,7 @@ export function Shade({ width, height }: { width: number; height: number }) {
           <Stop offset={1} stopColor="#000000" stopOpacity={0.7} />
         </LinearGradient>
       </Defs>
-      <Rect width={width} height={180} fill="url(#feedTop)" />
+      <Rect width={width} height={strong ? 260 : 180} fill="url(#feedTop)" />
       <Rect
         y={height * 0.5}
         width={width}
@@ -341,6 +363,7 @@ export function FeedPage({
   onChange,
   onMenu,
   onComments,
+  active = false,
 }: {
   post: Post;
   width: number;
@@ -352,11 +375,39 @@ export function FeedPage({
   onMenu: () => void;
   // 댓글 and 댓글 N개 모두 보기 open the 댓글 sheet over the feed (담당자 요청).
   onComments: () => void;
+  // The page on screen. Only it draws the real map, so the feed never holds more than one native map.
+  active?: boolean;
 }) {
   const navigation = useNavigation();
-  const { clock } = useRepositories();
+  const { clock, community } = useRepositories();
   const { like, bookmark } = usePostChanges(onChange);
   const record = post.record;
+  // The shared course on the real map, leaning back with the buildings standing (S15P31E105-521, 담당자 요청). The
+  // list carries no points, so the page on screen asks for them; until they come, and for a post without a
+  // course, the drawn map stays.
+  const [route, setRoute] = useState<LngLat[] | null>(record.route);
+  const wantsRoute = active && post.courseShared && !route;
+  useEffect(() => {
+    if (!wantsRoute) {
+      return;
+    }
+    let live = true;
+    community
+      .getRoute(post.id)
+      .then(points => {
+        if (live) {
+          setRoute(points);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [wantsRoute, community, post.id]);
+  const realMap =
+    active && post.courseShared && route !== null && route.length >= 2
+      ? route
+      : null;
   const openAuthor = () =>
     post.isMine
       ? navigateTo(navigation, 'MyProfile')
@@ -376,11 +427,27 @@ export function FeedPage({
   ].filter(Boolean);
   return (
     <View style={[styles.page, { width, height }]}>
-      <MapBackdrop seed={post.id} width={width} height={height} />
-      {post.courseShared ? (
-        <RouteLine shape={record.shape} width={width} height={height} />
-      ) : null}
-      <Shade width={width} height={height} />
+      {realMap ? (
+        // The native map would keep the swipe for itself, so it takes no touches and the feed pages on.
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <RunMap
+            route={realMap}
+            view="lean"
+            interactive={false}
+            // The course between the author row and the run's words; the NAVER logo sits just over the words.
+            area={{ top: (top + 80) / height, bottom: 0.6 }}
+            style={[StyleSheet.absoluteFill, styles.mapGround]}
+          />
+        </View>
+      ) : (
+        <>
+          <MapBackdrop seed={post.id} width={width} height={height} />
+          {post.courseShared ? (
+            <RouteLine shape={record.shape} width={width} height={height} />
+          ) : null}
+        </>
+      )}
+      <Shade width={width} height={height} strong={realMap !== null} />
       {/* The page itself opens 7.2 (담당자 요청); the buttons over it keep their own actions. */}
       <Pressable
         accessibilityRole="button"
@@ -424,8 +491,8 @@ export function FeedPage({
           </Pressable>
         ) : null}
       </View>
-      {post.courseShared ? (
-        // The mock routes are examples, so the page says so (기존 화면과 같음).
+      {post.courseShared && !realMap ? (
+        // The drawn map is only the route's shape, so the page says so (기존 화면과 같음). The real map is the place.
         <AppText style={[styles.example, { top: top + 56 }]}>예시 경로</AppText>
       ) : null}
       <View style={[styles.sideColumn, { bottom: bottom + 8 }]}>
@@ -499,6 +566,8 @@ export function FeedPage({
 
 const styles = StyleSheet.create({
   page: { overflow: 'hidden', backgroundColor: feedLook.ground },
+  // Dark until the map's tiles draw, like the page under it.
+  mapGround: { backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
   authorRow: {

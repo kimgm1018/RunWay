@@ -8,7 +8,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
@@ -63,6 +67,11 @@ export function CommunityScreen() {
       setPosts(loaded);
     }
   }, [loaded]);
+  // The page on screen, back to the first with a new scope. Away from 7.1 (7.2 over it, another tab) no page
+  // keeps a map up.
+  const [shownPage, setShownPage] = useState(0);
+  useEffect(() => setShownPage(0), [scope]);
+  const focused = useIsFocused();
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
 
@@ -133,7 +142,13 @@ export function CommunityScreen() {
             offset: pageSize.height * index,
             index,
           })}
-          renderItem={({ item }) => (
+          // The page the feed settles on is the one that draws the real map (S15P31E105-521).
+          onMomentumScrollEnd={event =>
+            setShownPage(
+              Math.round(event.nativeEvent.contentOffset.y / pageSize.height),
+            )
+          }
+          renderItem={({ item, index }) => (
             <FeedPage
               post={item}
               width={pageSize.width}
@@ -143,6 +158,7 @@ export function CommunityScreen() {
               onChange={replace}
               onMenu={() => setMenuFor(item)}
               onComments={() => setCommentsFor(item)}
+              active={focused && index === shownPage}
             />
           )}
         />
