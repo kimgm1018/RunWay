@@ -39,30 +39,32 @@ async function settle(ms = 20) {
 }
 
 // Flush each timer-driven render before checking the next screen (S15P31E105-372).
-async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!texts(screen).includes(text)) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+// Cap by poll count, not wall clock, so suite load does not trip Date.now budgets (S15P31E105-565).
+async function waitForText(screen: Screen, text: string, maxPolls = 300) {
+  for (let i = 0; i < maxPolls; i++) {
+    if (texts(screen).includes(text)) {
+      return;
     }
     await settle(50);
   }
+  throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
 }
 
 // 이전 스택 화면에도 장소 이름이 남아 있을 수 있어 검색 결과는 선택 버튼이 생길 때까지 기다린다.
-async function waitForAction(screen: Screen, label: string, timeoutMs = 15000) {
-  const deadline = Date.now() + timeoutMs;
-  while (
-    !screen.root.findAll(
-      node =>
-        node.props.accessibilityLabel === label &&
-        typeof node.props.onPress === 'function',
-    ).length
-  ) {
-    if (Date.now() > deadline)
-      throw new Error(`Timed out waiting for ${label}`);
+async function waitForAction(screen: Screen, label: string, maxPolls = 300) {
+  for (let i = 0; i < maxPolls; i++) {
+    if (
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === label &&
+          typeof node.props.onPress === 'function',
+      ).length
+    ) {
+      return;
+    }
     await settle(50);
   }
+  throw new Error(`Timed out waiting for ${label}`);
 }
 
 async function press(screen: Screen, label: string) {

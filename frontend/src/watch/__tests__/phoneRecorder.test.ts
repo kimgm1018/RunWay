@@ -18,6 +18,11 @@ function harness(upload: (body: string) => Promise<unknown>) {
       throw new DataError('LOCATION_UNAVAILABLE', '현재 위치 없음');
     },
   };
+  // Drive finishWait/retry from a test clock so suite load cannot burn the 50ms budget (S15P31E105-565).
+  let fakeNow = 0;
+  const sleep = async (ms: number) => {
+    fakeNow += ms;
+  };
   let n = 1;
   const bodies: string[] = [];
   const recorder = createPhoneRecorder({
@@ -33,6 +38,8 @@ function harness(upload: (body: string) => Promise<unknown>) {
     retryDelaysMs: [0],
     finishWaitMs: 50,
     finishRetryMs: 10,
+    sleep,
+    now: () => fakeNow,
   });
   const fix = (latitude: number, longitude: number, time = Date.UTC(2026, 10, 6, 1, 0, 0)) =>
     listeners.forEach(listener =>
