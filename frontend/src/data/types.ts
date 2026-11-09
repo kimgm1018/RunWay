@@ -627,7 +627,7 @@ export type MeetingPlace = {
   address: string;
   position: [number, number];
   // From my current position.
-  distanceM: number;
+  distanceM: number | null;
 };
 
 // G01 그룹런 생성 (6.8).
@@ -1188,7 +1188,10 @@ export type Repositories = {
       reason: GroupRunCancelReason,
       message?: string | null,
     ) => Promise<void>;
-    searchPlaces: (query: string) => Promise<MeetingPlace[]>;
+    searchPlaces: (
+      query: string,
+      reference?: [number, number] | null,
+    ) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
     setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
     // G09는 명령 승인만 수행한다. 실제 기기 실행·결과 보고는 폰·워치 연동에서 처리한다.

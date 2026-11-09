@@ -91,6 +91,18 @@ function serve() {
     async (address: string, init: { method: string; body?: string }) => {
       const url = new URL(address);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/places/search') {
+        return respond(200, {
+          items: [
+            {
+              name: '민락수변공원 주차장 입구',
+              address: '부산 수영구 민락수변로 7',
+              position: [129.1318, 35.1543],
+              distanceM: null,
+            },
+          ],
+        });
+      }
       if (path === '/users/me/preferences') {
         if (init.method === 'PUT') {
           if (failPreferenceSave)
@@ -554,6 +566,61 @@ test('U11의 형태·환경 기본값을 표시하고 변경·추천만으로는
   expect(preferences.filters.flat).toBe(false);
 });
 
+test('지도 출발·도착 좌표를 확정한 뒤 C01에 전달하고 취소는 기존 위치를 유지한다', async () => {
+  const screen = await openTodayRun();
+  const tap = async (latitude: number, longitude: number) => {
+    await act(async () =>
+      screen.root
+        .findAll(node => typeof node.props.onTapMap === 'function')
+        .pop()!
+        .props.onTapMap({ latitude, longitude }),
+    );
+  };
+  await press(screen, '기준 위치 현재 위치');
+  await tap(35.152, 129.119);
+  await press(screen, '취소');
+  expect(hasButton(screen, '기준 위치 현재 위치')).toBe(true);
+  await press(screen, '기준 위치 현재 위치');
+  await tap(35.152, 129.119);
+  await press(screen, '이 위치로 확정');
+  await press(screen, '코스 형태 설정');
+  await press(screen, '편도');
+  await press(screen, '조건 목록으로');
+  await press(screen, '도착 위치 선택');
+  await act(async () =>
+    screen.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '장소·주소 검색' &&
+          typeof node.props.onChangeText === 'function',
+      )
+      .pop()!
+      .props.onChangeText('민락수변공원'),
+  );
+  await settle(400);
+  await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(true);
+  await tap(35.16, 129.14);
+  await press(screen, '이 위치로 확정');
+  await press(screen, '이 조건을 기본값으로 저장');
+  const saved = fetchMock.mock.calls.find(
+    ([address, init]) =>
+      address.endsWith('/users/me/preferences') && init.method === 'PUT',
+  );
+  expect(Object.keys(JSON.parse(saved![1].body)).sort()).toEqual([
+    'filters',
+    'shape',
+  ]);
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies()[0]).toMatchObject({
+    latitude: 35.152,
+    longitude: 129.119,
+    shape: 'point_to_point',
+    endLatitude: 35.16,
+    endLongitude: 129.14,
+  });
+});
+
 test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 도착지를 골라야 한다', async () => {
   const screen = await openTodayRun();
   await press(screen, '코스 형태 설정');
@@ -587,6 +654,7 @@ test('편도 도착지 없이도 기본값은 저장할 수 있지만 추천은 
   });
   await settle(400);
   await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
+  await press(screen, '이 위치로 확정');
   await press(screen, '코스 추천 받기');
   expect(recommendationBodies()[0]).toMatchObject({
     shape: 'point_to_point',

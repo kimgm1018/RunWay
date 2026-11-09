@@ -40,6 +40,12 @@ server:
     include-exception: false
 
 runway:
+  places:
+    enabled: ${BACKEND_PLACE_SEARCH_ENABLED:false}
+    search-client-id: ${BACKEND_NAVER_SEARCH_CLIENT_ID:}
+    search-client-secret: ${BACKEND_NAVER_SEARCH_CLIENT_SECRET:}
+    maps-key-id: ${BACKEND_NAVER_MAPS_KEY_ID:}
+    maps-key: ${BACKEND_NAVER_MAPS_KEY:}
   auth:
     trusted-proxies: ${BACKEND_AUTH_TRUSTED_PROXIES:}
     redis:

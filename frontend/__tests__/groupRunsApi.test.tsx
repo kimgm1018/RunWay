@@ -68,6 +68,20 @@ function serve() {
     async (address: string, init: { method: string; body?: string }) => {
       const url = new URL(address);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/places/search') {
+        return respond(200, {
+          items: url.searchParams.get('query')
+            ? [
+                {
+                  name: '광안리해수욕장 입구',
+                  address: '부산 수영구 광안해변로 219',
+                  position: [129.118, 35.153],
+                  distanceM: null,
+                },
+              ]
+            : [],
+        });
+      }
       const find = (id: string) => runs.find(run => run.id === Number(id))!;
       const body = init.body ? JSON.parse(init.body) : {};
       if (path === '/users/me') {
@@ -391,6 +405,21 @@ test('6.8 makes a free run with G01 and opens its 6.4', async () => {
   await press(screen, '광안리 새벽 크루 그룹런 만들기');
   await settle(50);
   await press(screen, '자유 러닝');
+  await press(screen, '만나는 곳 변경');
+  await act(async () => {
+    screen.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '장소·주소 검색' &&
+          typeof node.props.onChangeText === 'function',
+      )
+      .pop()!
+      .props.onChangeText('광안리');
+  });
+  await settle(400);
+  await press(screen, '광안리해수욕장 입구');
+  await press(screen, '이 위치로 정하기');
+  await press(screen, '확정');
   await press(screen, '그룹런 만들기');
   await settle(100);
 

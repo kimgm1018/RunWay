@@ -11,8 +11,9 @@ import type {
   WaitingRoom,
 } from '../types';
 import { apiRequest } from './http';
+import { searchPlaces } from './places';
 
-// 그룹런 서버 API. 장소 검색은 기존 목업을 유지하며, 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
+// 그룹런 서버 API와 PLS01 장소 검색. 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
 
 type Point = { type: 'Point'; coordinates: [number, number] };
 
@@ -283,6 +284,7 @@ export function createGroupRunsApi({
 
   const groupRuns: Repositories['groupRuns'] = {
     ...mock,
+    searchPlaces,
     // 6.0: my crews (M10) with their open runs (G02), each filled from G03·G07.
     listMine: async () => {
       const mine = await myCrews();

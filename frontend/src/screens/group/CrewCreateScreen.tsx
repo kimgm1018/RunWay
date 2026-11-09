@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -84,7 +84,7 @@ function InputBox({
 }
 
 // 지역: type to search the places and pick one; the picked place shows with a pin.
-function AreaPicker({
+export function AreaPicker({
   area,
   onPick,
 }: {
@@ -94,18 +94,34 @@ function AreaPicker({
   const { groupRuns } = useRepositories();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MeetingPlace[]>([]);
-  const search = async (text: string) => {
-    setQuery(text);
-    if (!text.trim()) {
-      setResults([]);
-      return;
-    }
-    try {
-      setResults((await groupRuns.searchPlaces(text)).slice(0, 4));
-    } catch {
-      setResults([]);
-    }
-  };
+  const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setResults([]);
+    setFailed(false);
+    setSearching(Boolean(query.trim()) && !area);
+    if (!query.trim() || area) return;
+    const timer = setTimeout(() => {
+      groupRuns.searchPlaces(query).then(
+        found => {
+          if (!active) return;
+          setResults(found.slice(0, 4));
+          setSearching(false);
+        },
+        () => {
+          if (!active) return;
+          setFailed(true);
+          setSearching(false);
+        },
+      );
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [groupRuns, query, area, attempt]);
   if (area) {
     return (
       <Pressable
@@ -131,13 +147,32 @@ function AreaPicker({
           placeholderTextColor={groupLook.onLightMuted}
           selectionColor={groupLook.onLight}
           value={query}
-          onChangeText={search}
+          onChangeText={text => {
+            setQuery(text);
+            setResults([]);
+            setFailed(false);
+            setSearching(Boolean(text.trim()));
+          }}
           style={styles.input}
         />
       </InputBox>
+      {searching ? <AppText style={styles.sub}>검색 중이에요</AppText> : null}
+      {failed ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="지역 검색 다시 시도"
+          onPress={() => setAttempt(value => value + 1)}
+        >
+          <AppText style={styles.sub}>
+            검색하지 못했어요. 눌러서 다시 시도해 주세요
+          </AppText>
+        </Pressable>
+      ) : !searching && query.trim() && results.length === 0 ? (
+        <AppText style={styles.sub}>찾는 장소가 없어요</AppText>
+      ) : null}
       {results.map(place => (
         <Pressable
-          key={place.name}
+          key={`${place.name}:${place.address}:${place.position.join(',')}`}
           accessibilityRole="button"
           accessibilityLabel={place.name}
           onPress={() => {
