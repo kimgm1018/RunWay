@@ -14,6 +14,12 @@ from runway_routing.national.store import OutOfArea
 from test_api import BODY, P2P, URL, READY, FakePipeline, settings, loop_out, issue, SHAPE_CFG
 
 
+@pytest.fixture(autouse=True)
+def no_host_memory_pressure(monkeypatch):
+    # 메모리 해제 시험만 사용량을 지정한다. 나머지는 실행 환경의 RSS에 좌우되지 않는다.
+    monkeypatch.setattr('app.national._anon_mib', lambda: None)
+
+
 class FakeStore:
     def contains(self, lat, lon):
         return lat is not None and lon is not None and 32 <= lat <= 39 and 124 <= lon <= 132
@@ -30,10 +36,88 @@ def adapter(tmp_path, outputs, size=1):
     def builder(store, prep, spec, **kw):
         p = FakePipeline(outputs(spec))
         p.gate = SimpleNamespace(files={})
+        p.gen = SimpleNamespace(_cache={})
+        p.graphs = SimpleNamespace(_graphs={})
+        p.substrate = SimpleNamespace(_masks={})
         built.append((spec, p))
         return p
 
     return NationalPipeline(cfg, store=FakeStore(), prep=object(), builder=builder), cfg, built
+
+
+@pytest.mark.parametrize('value', ['-1', 'abc', 'nan', 'inf', '-inf', ''])
+def test_invalid_release_anon_settings(monkeypatch, value):
+    monkeypatch.setenv('ROUTE_RELEASE_ANON_MIB', value)
+    with pytest.raises(ValueError, match='ROUTE_RELEASE_ANON_MIB'):
+        load_settings()
+
+
+def test_release_anon_default_and_override(monkeypatch):
+    monkeypatch.delenv('ROUTE_RELEASE_ANON_MIB', raising=False)
+    assert load_settings().release_anon_mib == 1024.0
+    monkeypatch.setenv('ROUTE_RELEASE_ANON_MIB', '12.5')
+    assert load_settings().release_anon_mib == 12.5
+    monkeypatch.setenv('ROUTE_RELEASE_ANON_MIB', '0')
+    assert load_settings().release_anon_mib == 0.0
+
+
+@pytest.mark.parametrize('value', [-1, float('nan'), float('inf'), 'abc', None, True])
+def test_direct_release_anon_settings_validation(tmp_path, value):
+    with pytest.raises(ValueError, match='ROUTE_RELEASE_ANON_MIB'):
+        replace(settings(tmp_path), release_anon_mib=value)
+
+
+@pytest.mark.parametrize('same,anon,threshold,substrate,cleared', [
+    (True, 1700, 1024, True, False),
+    (False, 1700, 1024, True, True),
+    (False, 1023, 1024, True, False),
+    (False, 1024, 1024, True, False),
+    (False, None, 1024, True, False),
+    (False, 1700, 1024, False, True),
+    (False, 0, 0, True, True),
+    (True, 1700, 0, True, False),
+    (False, None, 0, True, False),
+])
+def test_release_request_caches(tmp_path, monkeypatch, same, anon, threshold, substrate, cleared):
+    import app.national as N
+    pipe, cfg, _ = adapter(tmp_path, lambda s: loop_out())
+    pipe.settings = replace(cfg, release_anon_mib=threshold)
+    p = pipe.active
+    p.gen._cache['graph'] = object()
+    p.graphs._graphs['request'] = object()
+    if substrate:
+        p.substrate._masks['p2p'] = object()
+    else:
+        p.substrate = None
+    signature = (37.5, 127.0, 21100, 'loop', None, None)
+    pipe._last_signature = signature if same else (37.5, 127.0, 5000, 'loop', None, None)
+    monkeypatch.setattr(N, '_anon_mib', lambda: anon)
+    monkeypatch.setattr(N, '_malloc_trim', lambda: None)
+
+    pipe._release_if_new(signature)
+
+    assert bool(p.gen._cache) is (not cleared)
+    assert bool(p.graphs._graphs) is (not cleared)
+    if substrate:
+        assert bool(p.substrate._masks) is (not cleared)
+
+
+def test_seed_only_reroll_keeps_graph_caches(tmp_path, monkeypatch):
+    import app.national as N
+    monkeypatch.setattr(N, '_anon_mib', lambda: 1700)
+    monkeypatch.setattr(N, '_malloc_trim', lambda: None)
+    pipe, _, _ = adapter(tmp_path, lambda s: loop_out())
+    pipe.run(37.5, 127.0, 21100, seed=1)
+    p = pipe.active
+    p.gen._cache['graph'] = object()
+    p.graphs._graphs['request'] = object()
+    p.substrate._masks['p2p'] = object()
+
+    pipe.run(37.5, 127.0, 21100, seed=25)
+
+    assert pipe.active is p
+    assert p.gen._cache and p.graphs._graphs and p.substrate._masks
+    assert [call[1]['seed'] for call in p.calls] == [1, 25]
 
 
 @pytest.mark.parametrize('name,value', [('ROUTE_DATA_MODE', 'off'), ('ROUTE_DATA_MODE', ''),

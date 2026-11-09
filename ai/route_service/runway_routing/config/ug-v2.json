@@ -43,19 +43,19 @@
       "POINT_TO_POINT": {
         "accepted_length_window_of_target": [0.90, 1.10],
         "d_min": "shortest RUNNABLE network distance snap(start) -> snap(destination), computed on the app-maximum midpoint disk (see d_min_graph)",
-        "d_min_graph": {"centre": "midpoint(snap start, snap destination)", "radius_m": "1.1 * 15 km / 2 + 250 m = 8500 m, independent of T",
+        "d_min_graph": {"centre": "midpoint(snap start, snap destination)", "radius_m": "1.1 * 21.1 km / 2 + 250 m = 11855 m, independent of T",
                         "no_path_inside": "OUT_OF_APP_RANGE",
-                        "_basis": "N1 (env-terrain E-I1, accepted by lead): a T-sized disk cannot contain the infeasible shortest path (> 1.1 T); every d_min <= 16.5 km (largest giving min_target <= 15) lies inside the 8.5 km disk. Existing constants only: MAX_KM 15, tolerance 1.1, WORK_BUFFER_M 250"},
+                        "_basis": "N1 (env-terrain E-I1, accepted by lead): a T-sized disk cannot contain the infeasible shortest path (> 1.1 T); every d_min <= 23.21 km (= 1.1 x 21.1 km) lies inside the 11.855 km disk. Existing constants only: MAX_KM 21.1, tolerance 1.1, WORK_BUFFER_M 250"},
         "infeasible_if": "d_min > 1.10 * T",
         "infeasible_response": {"code": "DESTINATION_TOO_FAR", "min_target_km": "ceil to 0.5 km of (d_min_km / 1.10)"},
-        "out_of_app_range_if": "min_target_km > 15.0",
+        "out_of_app_range_if": "min_target_km > 21.1",
         "out_of_app_range_response": {"code": "OUT_OF_APP_RANGE"},
-        "app_target_km_range": [1.0, 15.0],
+        "app_target_km_range": [1.0, 21.1],
         "target_step_km": 0.5,
         "shortest_only_mode": false
       },
       "level": "FAIL",
-      "_basis": "TOLERANCE 0.10 (code constant); P2P = user decision 3 (IMPL1_PLAN); 15 km / 1 km = app_runway.py:43 MAX_KM / MIN_KM; 0.5 km = runway.html:35 input step"
+      "_basis": "TOLERANCE 0.10 (code constant); P2P = user decision 3 (IMPL1_PLAN); 21.1 km / 1 km = MAX_KM / MIN_KM (user decision 2026-11-09, S15P31E105-607); 0.5 km = runway.html:35 input step"
     },
     "F6": {
       "MIXED": {"min_out_and_back_ratio": 0.15, "max_out_and_back_ratio_exclusive": 0.60, "max_repeated_edge_ratio": 0.30, "max_immediate_uturns": 0,

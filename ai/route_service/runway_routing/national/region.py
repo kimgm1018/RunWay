@@ -41,7 +41,7 @@ def make_pipeline(store, prep, spec, *, mode='enforce', fast=True):
     # 부산 고정 self-test는 다른 지역 창에서 실행할 수 없다. 요청 알고리즘은 동일하다.
     pipeline = RoutePipeline('wide', mode=mode, fast=fast, self_test=False, region=region)
     if pipeline.shape_cfg['app_km']['max']*1000 != APP_MAX_M:
-        raise ValueError('fitted radius requires frozen app max 15 km')
+        raise ValueError('fitted radius requires frozen app max 21.1 km')
     if pipeline.ug2['end_point_rules']['PE1']['max_destination_snap_m'] != MAX_END_SNAP_M:
         raise ValueError('fitted radius requires frozen destination snap 250 m')
     return pipeline

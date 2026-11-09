@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from runway_routing.national.fit import half_size_m, window_geometry, window_spec
+from runway_routing.national.fit import CAP_M, half_size_m, window_geometry, window_spec
 from runway_routing.national.store import NationalStore, select_window
 from runway_routing.national.prep import slice_arrays, way_indices
 
@@ -33,8 +33,8 @@ def test_whole_ways_and_determinism(tiny):
 @pytest.mark.parametrize('shape,target,expected', [
     ('loop', 3000, 3000), ('loop', 5000, 5000), ('loop', 10000, 7000),
     ('loop', 15000, 10000), ('out_and_back', 10000, 7000),
-    ('loop', 21100, 13000),
-    ('point_to_point', 5000, 10000), ('loop', 100000, 20000),
+    ('loop', 21100, 13000), ('out_and_back', 21100, 13000),
+    ('point_to_point', 5000, 14000), ('loop', 100000, 20000),
 ])
 def test_fitted_size(shape, target, expected):
     assert half_size_m(shape, target, (3000, 0)) == expected
@@ -42,11 +42,19 @@ def test_fitted_size(shape, target, expected):
 
 def test_midpoint_containment_and_anchor():
     assert half_size_m('point_to_point', 5000) == 20000
-    assert window_geometry((702500, 1302500), 'point_to_point', 5000, (3000, 0)) == ((704000, 1302500), 10000)
+    assert half_size_m('point_to_point', 21100) == CAP_M
+    assert window_geometry((702500, 1302500), 'point_to_point', 5000, (3000, 0)) == ((704000, 1302500), 14000)
     small = window_spec((702500, 1302500), 'loop', 5000)
     assert small.small and small.bounds == (697500, 1297500, 707500, 1307500)
-    large = window_spec((702500, 1302500), 'point_to_point', 5000, (30000, 0))
-    assert not large.small and large.bounds == (682500, 1282500, 722500, 1322500)
+    # 607: 편도는 중점 칸 기준. 직선 30 km 편도도 중점 창(반쪽 16 km)으로 끝점을 담는다.
+    far = window_spec((702500, 1302500), 'point_to_point', 5000, (30000, 0))
+    assert far.small and far.bounds == (701500, 1286500, 733500, 1318500)
+    assert far.anchor_spec().bounds == (697500, 1282500, 737500, 1322500)
+    # 21.1 km 상한의 가장 먼 편도(직선 23.71 km)도 창 안에 두 끝점이 있다.
+    for end in ((23710, 0), (0, -23710), (16766, 16766)):
+        w, s, e, n = window_spec((702500, 1302500), 'point_to_point', 21100, end).bounds
+        for px, py in ((702500, 1302500), (702500+end[0], 1302500+end[1])):
+            assert w + 250 < px < e - 250 and s + 250 < py < n - 250
     assert window_spec((702500, 1302500), 'loop', 5000, anchor=True) == small.anchor_spec()
 
 
