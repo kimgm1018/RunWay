@@ -102,6 +102,12 @@ const GROUP_STATUS_PATH = '/runway/v1/group/status';
 const finiteOrNull = (value: number | null) =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
+function paceChangedJson(change: WatchGroupStatus['paceChanged']) {
+  const from = finiteOrNull(change?.from ?? null);
+  const to = finiteOrNull(change?.to ?? null);
+  return from !== null && to !== null ? JSON.stringify({ from, to }) : 'null';
+}
+
 // GROUP_STATUS payload(9.3). 그룹런 ID는 숫자 토큰 그대로 넣고, 값은 받은 그대로 옮긴다.
 function groupStatusJson(status: WatchGroupStatus) {
   const standing = status.standing
@@ -119,7 +125,9 @@ function groupStatusJson(status: WatchGroupStatus) {
     `"standing":${standing},"stale":${status.stale},` +
     `"leaderToLastGapM":${JSON.stringify(finiteOrNull(status.leaderToLastGapM))},` +
     `"updatedAt":${JSON.stringify(status.updatedAt)},` +
-    `"rankedCount":${JSON.stringify(finiteOrNull(status.rankedCount))}}`
+    `"rankedCount":${JSON.stringify(finiteOrNull(status.rankedCount))},` +
+    // S15P31E105-604: 폰이 본 공동 페이스 변경. 워치는 이 값이 있을 때만 진동한다.
+    `"paceChanged":${paceChangedJson(status.paceChanged)}}`
   );
 }
 

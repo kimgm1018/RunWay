@@ -937,6 +937,8 @@ export type WatchGroupStatus = {
   updatedAt: string | null;
   // 지금 G10이 순위를 낸 참가자 수. 같은 거리(동순위)는 앞·뒤 인원에 들지 않아 그 합으로 총인원을 알 수 없다.
   rankedCount: number | null;
+  // 폰이 연속 조회에서 본 공동 페이스 변경(S15P31E105-604). 워치는 이 값이 있을 때만 알림·진동한다. 없으면 null.
+  paceChanged?: { from: number; to: number } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.

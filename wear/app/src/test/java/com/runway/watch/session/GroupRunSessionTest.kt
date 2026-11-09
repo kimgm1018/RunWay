@@ -44,10 +44,11 @@ class GroupRunSessionTest {
     private val gateway = FakeGateway()
     private val sender = FakeSender()
     private var clockMs = 0L
+    private var buzzes = 0
 
     private fun controller() = WatchSessionController(
         store, gateway, sender, now = { Instant.parse("2026-11-09T01:00:00Z") }, sleep = {}, jitter = { 0 },
-        callTimeoutMs = 1_000, elapsedMs = { clockMs },
+        callTimeoutMs = 1_000, elapsedMs = { clockMs }, paceAlert = { buzzes++ },
     )
 
     private fun message(type: String, payload: String, sessionId: String = "201", messageId: String = "phone:1") =
@@ -81,11 +82,15 @@ class GroupRunSessionTest {
         updatedAt: String = "2026-11-09T01:05:00Z",
         groupRunId: String = "77",
         sessionId: String = "201",
+        changedFrom: Int? = null,
+        messageId: String = "phone:1",
     ) = message(
         "GROUP_STATUS",
         """{"groupRunId":$groupRunId,"phase":"$phase","guidePaceSecPerKm":${pace ?: "null"},"standing":${standing ?: "null"},""" +
-            """"stale":$stale,"leaderToLastGapM":85.0,"updatedAt":"$updatedAt"}""",
+            """"stale":$stale,"leaderToLastGapM":85.0,"updatedAt":"$updatedAt",""" +
+            """"paceChanged":${if (changedFrom != null) """{"from":$changedFrom,"to":$pace}""" else "null"}}""",
         sessionId = sessionId,
+        messageId = messageId,
     )
 
     private suspend fun WatchSessionController.groupRunning() {
@@ -204,14 +209,64 @@ class GroupRunSessionTest {
     }
 
     @Test
-    fun `a changed shared pace is shown as the server's change notice`() = runBlocking {
+    fun `a shared pace change the phone relays is shown and buzzes once`() = runBlocking {
         val c = controller()
         c.groupRunning()
         c.onMessage(status(pace = 360, updatedAt = "2026-11-09T01:05:00Z"))
         assertNull(c.state.value.group!!.notice)
+        assertEquals(0, buzzes)
 
-        c.onMessage(status(pace = 380, updatedAt = "2026-11-09T01:05:03Z"))
-        assertEquals(GroupNotice.PaceChanged(360, 380), c.state.value.group!!.notice)
+        c.onMessage(status(pace = 370, changedFrom = 360, updatedAt = "2026-11-09T01:05:03Z"))
+        assertEquals(370, c.state.value.group!!.guidePaceSecondsPerKm)
+        assertEquals(GroupNotice.PaceChanged(360, 370), c.state.value.group!!.notice)
+        assertEquals(1, buzzes)
+
+        // 같은 현황의 재전달·같은 값 반복은 다시 울리지 않는다. 알림 표시는 유지한다.
+        c.onMessage(status(pace = 370, changedFrom = 360, updatedAt = "2026-11-09T01:05:03Z", messageId = "phone:2"))
+        c.onMessage(status(pace = 370, updatedAt = "2026-11-09T01:05:06Z"))
+        assertEquals(GroupNotice.PaceChanged(360, 370), c.state.value.group!!.notice)
+        assertEquals(1, buzzes)
+
+        c.onMessage(status(pace = 360, changedFrom = 370, updatedAt = "2026-11-09T01:05:09Z"))
+        assertEquals(GroupNotice.PaceChanged(370, 360), c.state.value.group!!.notice)
+        assertEquals(2, buzzes)
+
+        // 재연결 뒤 폰이 변경을 보지 못한 새 값: 조용히 반영하고 지난 변경 표시도 지운다.
+        c.onMessage(status(pace = 390, updatedAt = "2026-11-09T01:06:00Z"))
+        assertEquals(390, c.state.value.group!!.guidePaceSecondsPerKm)
+        assertNull(c.state.value.group!!.notice)
+        assertEquals(2, buzzes)
+    }
+
+    @Test
+    fun `the first pace and a value that differs without the phone's change stay quiet`() = runBlocking {
+        val c = controller()
+        c.groupRunning()
+        // 첫 수신(null→값)
+        c.onMessage(status(pace = null, updatedAt = "2026-11-09T01:05:00Z"))
+        c.onMessage(status(pace = 360, updatedAt = "2026-11-09T01:05:03Z"))
+        // 재연결·폰 앱 재진입 뒤 첫 조회: 값은 바뀌었지만 폰이 변경을 보지 못했다.
+        c.onMessage(status(pace = 380, updatedAt = "2026-11-09T01:06:00Z"))
+
+        assertEquals(380, c.state.value.group!!.guidePaceSecondsPerKm)
+        assertNull(c.state.value.group!!.notice)
+        assertEquals(0, buzzes)
+    }
+
+    @Test
+    fun `a late or mismatched pace change does not buzz`() = runBlocking {
+        val c = controller()
+        c.groupRunning()
+        c.onMessage(status(pace = 380, updatedAt = "2026-11-09T01:05:10Z"))
+        // 늦게 온(이전) 현황은 버린다.
+        c.onMessage(status(pace = 370, changedFrom = 360, updatedAt = "2026-11-09T01:05:03Z"))
+        // to가 현재 공동 페이스와 다르면 잘못된 변경으로 보고 알리지 않는다.
+        c.onMessage(status(pace = 390, updatedAt = "2026-11-09T01:05:13Z").let {
+            message("GROUP_STATUS", it.payload.put("paceChanged", JSONObject("""{"from":380,"to":400}""")).toString())
+        })
+        assertEquals(390, c.state.value.group!!.guidePaceSecondsPerKm)
+        assertNull(c.state.value.group!!.notice)
+        assertEquals(0, buzzes)
     }
 
     @Test
