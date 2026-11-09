@@ -10,14 +10,25 @@ export function isValidLoginId(value: string) {
 // 1.3 shows each password condition as its own chip.
 export function passwordChecks(value: string) {
   return {
-    length: value.length >= 8,
+    length: [...value].length >= 8,
     letter: /[A-Za-z]/.test(value),
     digit: /\d/.test(value),
   };
 }
 
+// The server's shared password policy (users.md U15·U30): at most 20 characters and no spaces. Checked here so a
+// password the server would turn down with 422 is never sent (S15P31E105-560 review R-3).
+export const passwordLimitRule = '공백 없이 8~20자로 입력해 주세요';
+
+export function passwordWithinLimit(value: string) {
+  return [...value].length <= 20 && !/\s/.test(value);
+}
+
 export function isValidPassword(value: string) {
-  return Object.values(passwordChecks(value)).every(Boolean);
+  return (
+    Object.values(passwordChecks(value)).every(Boolean) &&
+    passwordWithinLimit(value)
+  );
 }
 
 export function digitsOnly(value: string) {

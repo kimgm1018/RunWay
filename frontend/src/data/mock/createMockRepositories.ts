@@ -419,20 +419,8 @@ export function createMockRepositories(
           },
           options,
         ),
+      // Like U28, a code goes out whether or not the number is registered; U29 tells after a correct code.
       requestPhoneCode: request => {
-        const registered = isRegistered(request.phoneNumber);
-        if (request.purpose === 'PASSWORD_RESET' && !registered) {
-          return fail(
-            new DataError('PHONE_NOT_REGISTERED', '가입되지 않은 전화번호'),
-            options,
-          );
-        }
-        if (request.purpose === 'SIGN_UP' && registered) {
-          return fail(
-            new DataError('PHONE_ALREADY_REGISTERED', '이미 가입된 전화번호'),
-            options,
-          );
-        }
         pendingCodes.set(codeKey(request), {
           expiresAt: Date.now() + fixtures.verificationExpiresInSec * 1000,
           failures: 0,
@@ -473,6 +461,19 @@ export function createMockRepositories(
           );
         }
         pendingCodes.delete(codeKey(request));
+        const registered = isRegistered(request.phoneNumber);
+        if (request.purpose === 'PASSWORD_RESET' && !registered) {
+          return fail(
+            new DataError('PHONE_NOT_REGISTERED', '가입되지 않은 전화번호'),
+            options,
+          );
+        }
+        if (request.purpose === 'SIGN_UP' && registered) {
+          return fail(
+            new DataError('PHONE_ALREADY_REGISTERED', '이미 가입된 전화번호'),
+            options,
+          );
+        }
         const verificationToken = `mock-verified-${codeKey(request)}`;
         verifiedPhones.set(verificationToken, request.phoneNumber);
         return respond({ verificationToken }, options);

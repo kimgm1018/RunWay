@@ -62,6 +62,24 @@ public enum ErrorCode {
     INVALID_PROFILE(HttpStatus.BAD_REQUEST, "INVALID_PROFILE", "요청 값이 유효하지 않습니다."),
     INVALID_PASSWORD_POLICY(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PASSWORD_POLICY", "요청 값이 유효하지 않습니다."),
+    // 휴대전화 인증·비밀번호 재설정(users.md U15·U28~U30, S15P31E105-560). 전화번호·인증번호를 메시지에 넣지 않는다.
+    PHONE_ALREADY_REGISTERED(HttpStatus.CONFLICT, "PHONE_ALREADY_REGISTERED", "이미 가입된 전화번호입니다."),
+    PHONE_NOT_REGISTERED(HttpStatus.NOT_FOUND, "PHONE_NOT_REGISTERED", "가입되지 않은 전화번호입니다."),
+    PHONE_ACCOUNT_AMBIGUOUS(
+            HttpStatus.CONFLICT, "PHONE_ACCOUNT_AMBIGUOUS", "이 전화번호로 가입한 계정을 하나로 정할 수 없습니다."),
+    VERIFICATION_RESEND_TOO_SOON(
+            HttpStatus.TOO_MANY_REQUESTS, "VERIFICATION_RESEND_TOO_SOON", "잠시 후 다시 요청해 주세요."),
+    VERIFICATION_SEND_LIMIT_EXCEEDED(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "VERIFICATION_SEND_LIMIT_EXCEEDED",
+            "인증번호 요청 횟수를 초과했습니다. 나중에 다시 시도해 주세요."),
+    VERIFICATION_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "VERIFICATION_CODE_MISMATCH", "인증번호가 맞지 않습니다."),
+    VERIFICATION_ATTEMPTS_EXCEEDED(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "VERIFICATION_ATTEMPTS_EXCEEDED",
+            "인증번호 입력 횟수를 초과했습니다. 인증번호를 다시 받아 주세요."),
+    VERIFICATION_EXPIRED(HttpStatus.GONE, "VERIFICATION_EXPIRED", "인증이 만료되었습니다. 다시 인증해 주세요."),
+    SMS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "SMS_UNAVAILABLE", "인증번호를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요."),
     COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다."),
     INVALID_PARENT_COMMENT(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PARENT_COMMENT", "유효하지 않은 부모 댓글입니다."),

@@ -31,6 +31,9 @@
 | [U25](#u25-팔로우-요청-승인거절) | 팔로우 요청 승인·거절 | PATCH | `/users/me/follow-requests/{requesterId}` | 1차 MVP | 회원 |
 | [U26](#u26-팔로워-목록) | 팔로워 목록 | GET | `/users/{userId}/followers` | 1차 MVP | 회원 |
 | [U27](#u27-팔로잉-목록) | 팔로잉 목록 | GET | `/users/{userId}/following` | 1차 MVP | 회원 |
+| [U28](#u28-휴대전화-인증번호-요청) | 휴대전화 인증번호 요청 | POST | `/auth/phone-verifications` | 1차 MVP | 공개 |
+| [U29](#u29-휴대전화-인증번호-확인) | 휴대전화 인증번호 확인 | POST | `/auth/phone-verifications/confirm` | 1차 MVP | 공개 |
+| [U30](#u30-비밀번호-재설정) | 비밀번호 재설정 | POST | `/auth/password-reset` | 1차 MVP | 공개 |
 
 ## ERD 응답 대응 기준
 
@@ -1021,7 +1024,8 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 | nickname | string | O | Unicode 코드포인트 2~10자, 공백·고립 surrogate 불가. 대소문자 구분·정규화 없음, ACTIVE 회원 대상 부분 UNIQUE로 중복 불가. 탈퇴한 회원의 기존 닉네임은 재사용 허용 |
 | birthDate | string | O | YYYY-MM-DD의 유효한 날짜, 미래 불가. 나이 제한 없음 |
 | gender | string | O | MALE 또는 FEMALE |
-| phoneNumber | string | O | 국내 휴대전화 010으로 시작하는 숫자 11자리. 하이픈·공백 거절, 인증 절차 없음 |
+| phoneNumber | string | O | 국내 휴대전화 010으로 시작하는 숫자 11자리. 하이픈·공백 거절. U28·U29로 인증한 번호여야 하며 ACTIVE 회원이 쓰는 번호는 가입 불가(S15P31E105-560) |
+| phoneVerificationToken | string | 조건부 | U29가 `SIGN_UP` 목적으로 발급한 인증 증명. 운영에서는 필수. 개발·테스트 환경에서 서버 설정 `BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED=true`일 때만 생략할 수 있다 |
 | consents | array | O | 아래 네 유형을 각각 정확히 한 번 제출. 누락·중복·알 수 없는 유형 거절 |
 
 각 동의는 consentType과 granted(JSON boolean)을 포함한다. 필수3종 중 하나라도 false이면 가입을 거절한다. 약관 버전·동의 시각은 받거나 저장하지 않는다.
@@ -1041,6 +1045,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
   "birthDate": "2000-01-01",
   "gender": "MALE",
   "phoneNumber": "01000000000",
+  "phoneVerificationToken": "<U29 verificationToken>",
   "consents": [
     {"consentType":"TERMS_OF_SERVICE","granted":true},
     {"consentType":"PERSONAL_INFO","granted":true},
@@ -1076,18 +1081,28 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 - DB 커밋 결과나 성공 응답 전달이 불명확하면 계정이 존재할 수 있다. 같은 아이디 재요청은 409이며 클라이언트는 로그인을 안내한다. 멱등 성공 재응답은 제공하지 않는다.
 - 아이디·닉네임은 사전 확인과 별개로 DB UNIQUE가 최종 경합을 판정한다. 다른 무결성 오류를 중복 오류로 바꾸지 않는다.
 
+#### 휴대전화 인증 (S15P31E105-560, 2026-11-09 확정)
+
+- 처리 순서: 요청 값·동의 검증 → 아이디·닉네임 사전 중복 확인 → 인증 증명 소비 → 전화번호 중복 확인 → 저장 트랜잭션. 아이디·닉네임 사전 확인에서 실패하면 증명을 소비하지 않는다. 전화번호 중복은 증명을 확인한 뒤에 판정한다. 증명이 없거나 틀리면 번호 가입 여부와 관계없이 410이다(증명 없이 가입 여부를 알 수 없게 함, 2026-11-09 리뷰 R-1).
+- 인증 증명은 U29에서 발급한 번호·목적(`SIGN_UP`)에 묶인 일회용 값이다. 다른 번호, `PASSWORD_RESET` 목적, 만료·이미 사용한 증명은 `410 VERIFICATION_EXPIRED`이며 원인을 구분해 알려 주지 않는다. 증명은 원자적으로 한 번만 소비한다.
+- 같은 번호의 동시 가입은 저장 트랜잭션 안에서 전화번호 단위 잠금(PostgreSQL 트랜잭션 advisory lock)을 잡고 ACTIVE 회원 번호를 다시 확인해 한 건만 성공시킨다. 나머지는 `409 PHONE_ALREADY_REGISTERED`다. `users.phone_number`에는 UNIQUE 제약을 두지 않는다(기존 데이터 중복 가능).
+- 증명을 소비한 뒤 저장·발급이 실패하면 증명을 되살리지 않는다. 앱은 다시 인증하도록 안내한다. 기존 실패 처리와 Redis 미전달 계열 폐기는 그대로다.
+- 증명 없는 가입(`phoneVerificationToken` 생략)은 `BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED=true`인 개발·테스트 환경에서만 허용한다. 기본값과 운영은 false이며 생략하면 `400 VALIDATION_ERROR`다. 증명을 보냈다면 이 설정과 관계없이 검증·소비한다. 전화번호 중복 거절은 두 경우 모두 적용한다.
+
 ### 오류 응답
 
 공통 `{code,message,details}` 형식. 원문 입력은 에코하지 않는다.
 
 | HTTP | code | 조건 |
 | --- | --- | --- |
-| 400 | VALIDATION_ERROR | JSON·필수 필드·자료형·날짜 형식·아이디 형식 오류 |
+| 400 | VALIDATION_ERROR | JSON·필수 필드·자료형·날짜 형식·아이디 형식 오류, 운영 설정에서 `phoneVerificationToken` 누락 |
 | 400 | INVALID_PROFILE | 닉네임·전화번호·성별·미래 생일 값 오류 |
 | 422 | INVALID_PASSWORD_POLICY | 문자열 비밀번호 정책 위반 |
 | 422 | INVALID_CONSENT | 네 유형의 누락·중복·미지원 값, 잘못된 granted, 필수 동의 거절 |
 | 409 | LOGIN_ID_DUPLICATED | 기존·탈퇴 아이디 또는 동일 아이디 동시 가입 |
 | 409 | NICKNAME_DUPLICATED | 현재 ACTIVE 회원의 닉네임 또는 동일 닉네임 동시 가입 |
+| 409 | PHONE_ALREADY_REGISTERED | ACTIVE 회원이 쓰는 전화번호 또는 같은 번호 동시 가입 |
+| 410 | VERIFICATION_EXPIRED | 보낸 인증 증명이 발급되지 않은 값이거나 만료·사용됨·다른 번호·다른 목적. 필드를 생략하면 운영 설정에서 400 `VALIDATION_ERROR` |
 | 503 | SERVICE_UNAVAILABLE | 저장·발급·DB/Redis 처리 결과를 확인할 수 없음 |
 
 ## U16 아이디 사용 가능 여부 확인
@@ -2016,6 +2031,141 @@ PENDING → 승인 FOLLOWING / 거절 NONE. 내부 요청 이력 상태는 ERD �
 - `user_follows.follower_id=대상`, `is_approved=true`인 관계의 `followee_id` 회원만 포함한다. 대상이 보낸 PENDING 요청과 탈퇴·비활성 회원은 제외한다.
 - 목록의 러너가 비공개 계정이어도 최소 정보(`userId`·`nickname`·`profileImageUrl`)만 노출하며 그 계정의 보호 프로필 내용은 U21 권한을 따른다.
 - 2026-11-08 사용자 확정(S15P31E105-534): 공개 계정의 U26·U27에는 그 계정과 승인 관계인 비공개 계정도 최소 정보로 포함한다. 여러 공개 계정의 목록을 모으면 비공개 계정의 관계 일부를 알 수 있으나 이 노출을 수용한다. 비공개 계정 자신의 목록은 본인·승인된 팔로워만 조회한다.
+
+## 휴대전화 인증 공통 규칙 (U28~U30)
+
+S15P31E105-560(2026-11-09 사용자 결정, BE-A 확인)으로 확정한다. 목적은 휴대전화 수신 가능 여부 확인이며 명의 기반 본인확인이 아니다.
+
+- 문자는 서버가 SOLAPI SMS로 보낸다. 인증번호는 서버가 보안 난수로 만든 숫자 6자리다. 문구: `[Runway] 본인확인 인증번호 [123456]`. 통신사가 앞에 붙이는 `[Web발신]`은 본문에 넣지 않는다.
+- 정책 값: 인증번호 유효 180초, 오입력 5회째에 해당 인증번호 무효, 같은 번호·목적 재발송은 직전 발송 60초 뒤부터, 번호당 최근 24시간 5회, IP당 최근 24시간 20회, 인증 증명 유효 600초·일회용.
+- 목적(`purpose`)은 `SIGN_UP`(U15 가입)과 `PASSWORD_RESET`(U30) 두 가지다. 인증번호·증명은 번호·목적에 묶이며 다른 목적에 쓸 수 없다.
+- 상태는 기존 인증용 Redis에 저장한다. 전화번호·IP는 SHA-256 해시로만 키에 쓰고, 인증번호·증명은 해시만 저장한다. 증명 값에는 가입 대조·재설정 대상 조회를 위해 목적과 전화번호를 함께 둔다(최대 600초). 시각 판단은 Redis 서버 시간 기준이다. 전화번호 해시는 번호 공간이 작아 익명성을 보장하지 않는다.
+- IP는 U16과 같은 방식(직접 연결 IP, 신뢰 프록시만 전달 헤더 해석)으로 정한다.
+- 전화번호·인증번호·증명·SMS 공급자 응답 본문은 로그·오류 `message`·`details`에 넣지 않는다.
+- 인증 상태 저장소(Redis) 장애는 `503 SERVICE_UNAVAILABLE`이며 인증 성공이나 제한 없음으로 처리하지 않는다.
+- 응답에는 `Cache-Control: no-store`를 붙인다.
+- 번호의 가입 여부는 인증번호를 맞힌 사람(U29 성공 직전)에게만 알려 준다. U28은 가입 여부와 관계없이 같은 규칙으로 보낸다. 휴대전화를 갖지 않은 사람이 번호 가입 여부를 대량으로 알아내지 못하게 하기 위해서다(2026-11-09 리뷰 R-1 사용자 결정).
+
+## U28 휴대전화 인증번호 요청
+
+`POST` `/api/v1/auth/phone-verifications` · 공개 · USR-001
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 규칙 |
+| --- | --- | --- | --- |
+| phoneNumber | string | O | 010으로 시작하는 숫자 11자리. 하이픈·공백 거절 |
+| purpose | string | O | `SIGN_UP` 또는 `PASSWORD_RESET` |
+
+```json
+{"phoneNumber": "01000000000", "purpose": "SIGN_UP"}
+```
+
+### Response
+
+`200 OK`
+
+| 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| expiresInSec | integer | 인증번호 유효 초(180) |
+| resendAvailableInSec | integer | 다시 요청할 수 있을 때까지 초(60) |
+
+### 처리 규칙
+
+- 번호의 가입 여부를 확인하지 않는다. 두 목적 모두 가입된 번호든 아니든 같은 규칙으로 보낸다. 가입 여부는 U29에서 알려 준다.
+- 재발송 대기·번호/IP 한도 확인과 새 인증번호 저장을 한 번에 처리한다. 새 인증번호를 저장하면 같은 번호·목적의 이전 인증번호와 오입력 횟수는 무효가 된다. 형식 오류는 발송 한도에 세지 않는다.
+- 공급자가 발송을 명확히 거절하면 저장한 인증번호를 지우고 `503 SMS_UNAVAILABLE`. 시간 초과·응답 유실이면 실제 발송됐을 수 있어 인증번호를 남기고 `503 SMS_UNAVAILABLE`. 서버는 자동으로 다시 보내지 않는다(공급자에 중복 방지 키가 없어 중복 발송·과금 위험). 두 경우 모두 한도 사용량은 되돌리지 않는다.
+- 서버 설정 `BACKEND_SMS_VERIFICATION_ENABLED=false`면 보내지 않고 `503 SMS_UNAVAILABLE`.
+- 공급자 접수 이후 통신사 단계 실패는 확인하지 않는다. 문자를 받지 못하면 재발송 대기 뒤 다시 요청한다.
+
+### 오류 응답
+
+| HTTP | code | 조건 |
+| --- | --- | --- |
+| 400 | VALIDATION_ERROR | JSON·필수 필드·자료형·전화번호 형식·알 수 없는 목적 |
+| 429 | VERIFICATION_RESEND_TOO_SOON | 같은 번호·목적의 직전 발송 60초 안. `details.retryAfterSec` |
+| 429 | VERIFICATION_SEND_LIMIT_EXCEEDED | 번호 또는 IP의 최근 24시간 한도 초과. `details.retryAfterSec` |
+| 503 | SMS_UNAVAILABLE | SMS 기능 꺼짐, 공급자 거절·시간 초과·응답 유실 |
+| 503 | SERVICE_UNAVAILABLE | 인증 상태 저장소 장애 |
+
+## U29 휴대전화 인증번호 확인
+
+`POST` `/api/v1/auth/phone-verifications/confirm` · 공개 · USR-001
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 규칙 |
+| --- | --- | --- | --- |
+| phoneNumber | string | O | U28과 같음 |
+| purpose | string | O | U28과 같음 |
+| code | string | O | 숫자 6자리 |
+
+### Response
+
+`200 OK`
+
+| 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| verificationToken | string | 일회용 인증 증명(불투명 문자열). U15 `phoneVerificationToken` 또는 U30 `verificationToken`에 쓴다 |
+| expiresInSec | integer | 증명 유효 초(600) |
+
+### 처리 규칙
+
+- 인증번호 확인·오입력 횟수 증가·성공 시 인증번호 삭제와 증명 저장을 한 번에 처리한다. 같은 인증번호로 동시에 확인해도 증명은 하나만 발급된다.
+- 1~4회째 오입력은 400과 `details.failedCount`(1~4), `details.maxAttempts`(5). 5회째 오입력은 인증번호를 지우고 429. 그 뒤 같은 인증번호는 410이다.
+- 인증번호가 없거나(보낸 적 없음·만료·이미 사용·잠금) 시간이 지나면 410. 원인을 구분해 알려 주지 않는다. 재발송하면 이전 인증번호는 새 인증번호와 맞지 않는 번호로 처리된다(400, 오입력 횟수에 셈).
+- 형식 오류(6자리 숫자가 아님)는 400 `VALIDATION_ERROR`이며 오입력 횟수에 세지 않는다.
+- 인증번호가 맞으면 그 번호의 ACTIVE 회원을 확인한다. `SIGN_UP`인데 ACTIVE 회원이 쓰는 번호면 409 `PHONE_ALREADY_REGISTERED`, `PASSWORD_RESET`인데 ACTIVE 회원이 없으면 404 `PHONE_NOT_REGISTERED`, 2명 이상이면 409 `PHONE_ACCOUNT_AMBIGUOUS`다. 이때는 증명을 돌려주지 않고 지우며, 인증번호도 사용된 것으로 처리한다(다시 하려면 새 인증번호). 확인 중 DB 장애도 증명을 지우고 503이다.
+- 가입 상태는 U15·U30에서 다시 확인한다(증명 발급 뒤 바뀔 수 있음).
+
+### 오류 응답
+
+| HTTP | code | 조건 |
+| --- | --- | --- |
+| 400 | VALIDATION_ERROR | JSON·필수 필드·자료형·형식 |
+| 400 | VERIFICATION_CODE_MISMATCH | 인증번호 불일치(1~4회째). `details.failedCount`, `details.maxAttempts` |
+| 429 | VERIFICATION_ATTEMPTS_EXCEEDED | 5회째 불일치. 인증번호 무효. `details.failedCount`(5), `details.maxAttempts`(5) |
+| 410 | VERIFICATION_EXPIRED | 유효한 인증번호 없음 |
+| 404 | PHONE_NOT_REGISTERED | 인증번호는 맞지만 `PASSWORD_RESET`인데 그 번호의 ACTIVE 회원 없음 |
+| 409 | PHONE_ALREADY_REGISTERED | 인증번호는 맞지만 `SIGN_UP`인데 ACTIVE 회원이 쓰는 번호 |
+| 409 | PHONE_ACCOUNT_AMBIGUOUS | 인증번호는 맞지만 `PASSWORD_RESET`인데 그 번호의 ACTIVE 회원이 2명 이상 |
+| 503 | SERVICE_UNAVAILABLE | 인증 상태 저장소·DB 장애 |
+
+## U30 비밀번호 재설정
+
+`POST` `/api/v1/auth/password-reset` · 공개 · USR-001
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 규칙 |
+| --- | --- | --- | --- |
+| verificationToken | string | O | U29가 `PASSWORD_RESET` 목적으로 발급한 증명 |
+| newPassword | string | O | U15와 같은 공통 비밀번호 정책. 기존 비밀번호와 같아도 허용 |
+
+### Response
+
+`204 No Content`, `Cache-Control: no-store`
+
+### 처리 규칙
+
+- 처리 순서: 요청 값·비밀번호 정책 검증 → 증명 소비(번호·`PASSWORD_RESET` 대조) → 그 번호의 ACTIVE 회원 확인 → 로그인·갱신과 같은 사용자 잠금 → 비밀번호 해시 갱신 → 같은 잠금 안에서 그 회원의 모든 갱신 권한(로그인 계열) 폐기 → 커밋.
+- 비밀번호 정책 위반은 증명을 소비하지 않는다(다시 입력 가능). 증명을 소비한 뒤의 실패는 증명을 되살리지 않으며 앱은 다시 인증하도록 안내한다.
+- 갱신 권한 폐기에 실패하면 트랜잭션을 롤백해 비밀번호를 바꾸지 않고 503. 커밋이 실패하면 갱신 권한은 이미 폐기됐을 수 있으나 비밀번호는 그대로다.
+- 기존 Access Token은 공통 정책대로 남은 유효기간(최대 10분) 동안 유효하다.
+- 로그인 연속 실패 잠금은 초기화하지 않는다(정해진 잠금 시간 뒤 풀린다).
+- 비밀번호 변경 알림은 보내지 않는다(후속 업무).
+- 비밀번호는 기존 Argon2id 형식으로 저장하고 원문·해시·증명을 로그·오류에 넣지 않는다.
+
+### 오류 응답
+
+| HTTP | code | 조건 |
+| --- | --- | --- |
+| 400 | VALIDATION_ERROR | JSON·필수 필드·자료형 |
+| 422 | INVALID_PASSWORD_POLICY | 비밀번호 정책 위반 |
+| 410 | VERIFICATION_EXPIRED | 보낸 증명이 발급되지 않은 값이거나 만료·사용됨·다른 목적. 필드를 생략하면 400 `VALIDATION_ERROR` |
+| 404 | PHONE_NOT_REGISTERED | 증명 발급 뒤 그 번호의 ACTIVE 회원이 없어짐 |
+| 409 | PHONE_ACCOUNT_AMBIGUOUS | 그 번호의 ACTIVE 회원이 2명 이상 |
+| 503 | SERVICE_UNAVAILABLE | 사용자 잠금 시간 초과, DB·Redis 처리 결과 확인 불가, 갱신 권한 폐기 실패 |
 
 ## 계정 공개 정책의 공통 적용 범위
 

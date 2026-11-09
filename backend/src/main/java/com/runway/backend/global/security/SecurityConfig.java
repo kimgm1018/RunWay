@@ -266,7 +266,10 @@ public class SecurityConfig {
                                         "/api/v1/auth/login",
                                         "/api/v1/auth/signup",
                                         "/api/v1/auth/refresh",
-                                        "/api/v1/auth/logout")
+                                        "/api/v1/auth/logout",
+                                        "/api/v1/auth/phone-verifications",
+                                        "/api/v1/auth/phone-verifications/confirm",
+                                        "/api/v1/auth/password-reset")
                                 .contains(path))
                 || (method.equals("GET") && path.equals("/api/v1/auth/login-id/availability"))
                 || (List.of("GET", "HEAD").contains(method) && isPublicImagePath(path));

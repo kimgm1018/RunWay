@@ -24,6 +24,24 @@
 `frontend/src/config.ts`의 `dataSource`를 `api`로 설정한 빌드와 이 API가 배포된 서버 주소를 사용한다.
 샘플 데이터 모드의 검색 결과는 외부 검색 연결 성공을 뜻하지 않는다.
 
+## 휴대전화 인증 SMS 설정 (S15P31E105-560)
+
+U28·U29 휴대전화 인증과 U30 비밀번호 재설정은 서버가 SOLAPI SMS로 6자리 인증번호를 보낸다. 계약은 [users.md U28~U30](../docs/design/api/users.md#휴대전화-인증-공통-규칙-u28u30)을 따른다.
+기본 `BACKEND_SMS_VERIFICATION_ENABLED=false`에서는 문자를 보내지 않고 U28이 `503 SMS_UNAVAILABLE`이다.
+
+| 변수 | 용도 |
+| --- | --- |
+| `BACKEND_SMS_VERIFICATION_ENABLED` | SMS 인증 켜기 |
+| `BACKEND_SOLAPI_API_KEY` | SOLAPI API Key(허용 IP 지정) |
+| `BACKEND_SOLAPI_API_SECRET` | 위 키의 Secret |
+| `BACKEND_SOLAPI_SENDER_NUMBER` | 콘솔에 등록한 발신번호(숫자만) |
+| `BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED` | 개발·테스트 전용. true면 인증 증명 없이 가입 허용. 운영은 false |
+
+- SOLAPI 가입·발신번호 등록·충전·키 발급은 사용자가 직접 한다. 키는 허용 IP를 지정해 로컬용·서버용으로 따로 발급한다.
+- 켰는데 키·발신번호가 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다. 실제 값은 로컬 실행 환경 또는 인프라 Secret으로 주입하며 Git·로그·채팅에 남기지 않는다.
+- 운영 Compose/Secret 주입은 인프라 담당자와 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
+- 공급자에 중복 방지 키가 없어 자동 재시도는 하지 않는다. 자동 테스트는 가짜 HTTP 서버를 쓰며 실제 문자를 보내지 않는다. 실제 수신은 실기기에서 따로 검증한다.
+
 Java 21·Spring MVC 기반의 실행·테스트 초기 구성과 서비스용 Flyway 마이그레이션 V1을 포함한다.
 크루·게시글·댓글 API는 공통 JWT 인증을 사용한다. 문서 접속 인증과 회원 API 인증은 구분한다.
 

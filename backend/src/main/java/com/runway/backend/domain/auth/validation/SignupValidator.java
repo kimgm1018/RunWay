@@ -65,6 +65,15 @@ public class SignupValidator {
         return new Input(loginId, password, nickname, birth, gender, phone, consents);
     }
 
+    /** 인증 증명(users.md U15, S15P31E105-560). 없으면 비어 있고, 문자열이 아니거나 비정상 길이면 400이다. */
+    public static java.util.Optional<String> verificationToken(SignupRequest request) {
+        Object value = request.phoneVerificationToken();
+        if (value == null) return java.util.Optional.empty();
+        if (!(value instanceof String token) || token.isEmpty() || token.length() > 128)
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        return java.util.Optional.of(token);
+    }
+
     public static void validateLoginId(String loginId) {
         if (loginId == null || !loginId.matches("[A-Za-z0-9]{4,16}"))
             throw new ApiException(ErrorCode.VALIDATION_ERROR);

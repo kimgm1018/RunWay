@@ -49,6 +49,11 @@ function describeSignUpError(error: unknown) {
       return '비밀번호가 규칙에 맞지 않아요. 회원가입에서 공백 없이 8~20자로 바꿔 주세요.';
     case 'INVALID_CONSENT':
       return '필수 약관 동의가 확인되지 않았어요. 약관 동의를 다시 해 주세요.';
+    // U15 휴대전화 인증 (users.md, S15P31E105-560): the 10-minute proof ran out, or the number got taken meanwhile.
+    case 'VERIFICATION_EXPIRED':
+      return '휴대폰 인증 시간이 지났어요. 회원가입에서 전화번호를 다시 인증해 주세요.';
+    case 'PHONE_ALREADY_REGISTERED':
+      return '이미 가입된 전화번호예요. 로그인하거나 비밀번호를 찾아 주세요.';
     case 'INVALID_PROFILE':
     case 'VALIDATION_ERROR':
       return '입력한 정보를 확인하지 못했어요. 닉네임·생년월일·전화번호를 다시 확인해 주세요.';
@@ -250,6 +255,9 @@ export function ProfileBirthdayScreen() {
           loginId: draft.loginId,
           password: draft.password,
           phoneNumber: draft.phoneNumber,
+          ...(draft.phoneVerificationToken
+            ? { phoneVerificationToken: draft.phoneVerificationToken }
+            : {}),
           healthDataAccess: draft.healthDataAccess,
           ...profile,
         });

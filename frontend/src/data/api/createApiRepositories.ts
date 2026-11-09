@@ -3,7 +3,15 @@ import {
   type MockOptions,
 } from '../mock/createMockRepositories';
 import type { Repositories } from '../types';
-import { checkLoginId, login, logout, signUp } from './auth';
+import {
+  checkLoginId,
+  login,
+  logout,
+  requestPhoneCode,
+  resetPassword,
+  signUp,
+  verifyPhoneCode,
+} from './auth';
 import { createCommunityApi } from './community';
 import { createRunnersApi } from './runners';
 import { saveRunRecord } from './runRecords';
@@ -56,8 +64,16 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
   });
   return {
     ...mock,
-    // Phone verification has no API yet, so it stays on mock data.
-    auth: { ...mock.auth, login, checkLoginId, signUp, logout },
+    // U28~U30 휴대전화 인증·비밀번호 재설정 (S15P31E105-560): no auth call stays on mock data.
+    auth: {
+      login,
+      checkLoginId,
+      requestPhoneCode,
+      verifyPhoneCode,
+      signUp,
+      resetPassword,
+      logout,
+    },
     profile: {
       getMe,
       getDetail,

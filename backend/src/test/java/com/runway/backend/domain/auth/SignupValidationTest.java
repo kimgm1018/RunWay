@@ -24,7 +24,8 @@ class SignupValidationTest {
         body.put("nickname", nickname);
         body.put("birthDate", "2000-01-01");
         body.put("gender", "MALE");
-        body.put("phoneNumber", "01012345678");
+        // 가입마다 다른 번호(S15P31E105-560부터 ACTIVE 회원의 번호는 다시 가입할 수 없다).
+        body.put("phoneNumber", "010%08d".formatted(Math.floorMod(login.hashCode(), 100_000_000)));
         body.put(
                 "consents",
                 new ArrayList<>(
@@ -48,7 +49,8 @@ class SignupValidationTest {
                 body.get("birthDate"),
                 body.get("gender"),
                 body.get("phoneNumber"),
-                body.get("consents"));
+                body.get("consents"),
+                body.get("phoneVerificationToken"));
     }
 
     void rejects(Map<String, Object> body, String code, int status) {
