@@ -265,7 +265,7 @@ function planFor(courseId: string | null, saved: SavedCourse[]): CoursePlan {
     courseId: courseId!,
     name: mine?.myAlias ?? recommended?.name ?? mine!.name,
     distanceM,
-    route: recommended?.route ?? fixtures.todayPlan.route,
+    route: recommended?.route ?? mine?.route ?? fixtures.todayPlan.route,
     segmentPacesSecPerKm: Array.from(
       { length: km },
       (_, index) => base[index % base.length],
@@ -737,6 +737,7 @@ export function createMockRepositories(
               distanceM: course.distanceM,
               expectedMinutes: Math.round(course.estimatedDurationSec / 60),
               shape: shapeOf(course.route),
+              route: course.route,
             },
           ];
         }
@@ -757,6 +758,7 @@ export function createMockRepositories(
             distanceM: Math.round(distanceM),
             expectedMinutes: Math.round(durationSec / 60),
             shape: shapeOf(route),
+            route,
           },
         ];
         return respond({ courseId: id }, options);

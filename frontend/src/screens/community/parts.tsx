@@ -243,7 +243,12 @@ export function RunPhoto({
               예시 경로
             </AppText>
             <View style={styles.mediaGlyph}>
-              <CourseGlyph shape={record.shape} thin />
+              {/* --media-free is light where the outline sits, so it is drawn in ink there. */}
+              <CourseGlyph
+                shape={record.shape}
+                km={record.distanceM / 1000}
+                tone={tone === 0 ? 'ink' : 'white'}
+              />
             </View>
           </>
         ) : null}

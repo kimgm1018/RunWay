@@ -8,7 +8,10 @@ import { CommunityScreen } from '../src/screens/community/CommunityScreen';
 import { FeedPage } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
-import { CourseGlyph } from '../src/screens/course/SavedCoursesScreen';
+import {
+  CourseGlyph,
+  CourseMapThumb,
+} from '../src/screens/course/SavedCoursesScreen';
 import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
 import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
 import { Raised } from '../src/screens/group/look';
@@ -151,11 +154,13 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       courseShared: true,
       record: { ...post.record, shape: [] },
     }));
-  // Every run tile gets a CourseGlyph, and with no route each draws nothing.
+  // Every run tile gets its map (S15P31E105-562); with no shape, one still waiting for its points draws no
+  // made-up outline.
   const outlines = () => {
-    const glyphs = screen.root.findAllByType(CourseGlyph);
-    expect(glyphs.length).toBeGreaterThan(0);
-    return glyphs.filter(glyph => glyph.children.length > 0).length;
+    expect(screen.root.findAllByType(CourseMapThumb).length).toBeGreaterThan(0);
+    return screen.root
+      .findAllByType(CourseGlyph)
+      .filter(glyph => glyph.children.length > 0).length;
   };
   const screen = await openCommunity(repositories);
   expect(texts(screen)).toContain('minjun.run');

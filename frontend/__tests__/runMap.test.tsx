@@ -36,7 +36,17 @@ const texts = (root: ReactTestRenderer.ReactTestInstance) =>
     .findAll(node => typeof node.props.children === 'string')
     .map(node => node.props.children);
 
-test('a course with paces shows the start and one pace label per km', () => {
+// The props RunMap gave the mock overlays named `name` (their displayName in jest.setup.js).
+const overlays = (root: ReactTestRenderer.ReactTestInstance, name: string) =>
+  root
+    .findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        (node.type as { displayName?: string }).displayName === name,
+    )
+    .map(node => node.props);
+
+test('a course with paces shows its start, its finish and one pace label per km', () => {
   const root = render(
     <RunMap
       route={route}
@@ -45,9 +55,54 @@ test('a course with paces shows the start and one pace label per km', () => {
     />,
   );
   expect(texts(root)).toEqual(
-    expect.arrayContaining(['SF', '5\'30"', '5\'45"', '6\'00"']),
+    expect.arrayContaining(['S', 'F', '5\'30"', '5\'45"', '6\'00"']),
   );
+  expect(texts(root)).not.toContain('SF');
   expect(count(root, 'naver-map-multipath')).toBe(1);
+});
+
+test('a course that ends where it starts has one SF pole', () => {
+  const root = render(<RunMap route={[...route, [129.1302, 35.1501]]} />);
+  expect(texts(root)).toContain('SF');
+  expect(texts(root)).not.toContain('S');
+  expect(texts(root)).not.toContain('F');
+});
+
+test('the course is a white ribbon round a thin centre over a soft shadow, the part run in grey (S15P31E105-562)', () => {
+  const root = render(<RunMap route={route} progress={0.4} />);
+  const [ribbon] = overlays(root, 'naver-map-multipath');
+  expect(ribbon.width).toBe(2.2);
+  expect(ribbon.outlineWidth).toBe(2.4);
+  expect(ribbon.progress).toBe(0.4);
+  expect(ribbon.pathParts[0]).toEqual(
+    expect.objectContaining({
+      color: '#060606',
+      outlineColor: '#FFFFFF',
+      passedColor: '#B4BDC4',
+      passedOutlineColor: '#FFFFFF',
+    }),
+  );
+  // The shadow is one wide faint line under the ribbon.
+  expect(count(root, 'naver-map-path')).toBe(1);
+  const [shadow] = overlays(root, 'naver-map-path');
+  expect(shadow.width).toBe(10);
+  expect(shadow.zIndex).toBeLessThan(ribbon.zIndex);
+});
+
+test('a card map (compact) is a lite map with small poles; a screen map is not', () => {
+  const card = render(<RunMap route={route} compact />);
+  expect(
+    card.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
+  ).toBe(true);
+  const screen = render(<RunMap route={route} />);
+  expect(
+    screen.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
+  ).toBe(false);
+});
+
+test('a cancelled course is grey and casts no shadow', () => {
+  const root = render(<RunMap route={route} muted />);
+  expect(count(root, 'naver-map-path')).toBe(0);
 });
 
 test('while running the course is a guide: no start, no labels, the run on top', () => {
@@ -59,12 +114,13 @@ test('while running the course is a guide: no start, no labels, the run on top',
       segmentPaces={[330]}
     />,
   );
-  expect(texts(root)).not.toContain('SF');
+  expect(texts(root)).not.toContain('S');
+  expect(texts(root)).not.toContain('F');
   expect(texts(root)).not.toContain('5\'30"');
-  // The course stays a hollow line under the run, by day and after sunset alike.
+  // The course stays a guide ribbon under the run; the run is the ink ribbon over its shadow.
   expect(count(root, 'naver-map-multipath')).toBe(1);
   expect(count(root, 'naver-map-polyline')).toBe(0);
-  expect(count(root, 'naver-map-path')).toBe(1);
+  expect(count(root, 'naver-map-path')).toBe(2);
 });
 
 test('the map is the plain Naver day map, with no night map after sunset (S15P31E105-527, -521)', () => {

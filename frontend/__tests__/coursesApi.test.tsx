@@ -359,6 +359,19 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
 });
 
+test('3.1c draws each saved course on its own map from the C03 points (S15P31E105-562)', async () => {
+  const screen = await openTodayRun();
+  await press(screen, '저장한 코스');
+  const maps = screen.root.findAll(
+    node =>
+      typeof node.type !== 'string' &&
+      Array.isArray(node.props.route) &&
+      node.props.compact === true,
+  );
+  expect(maps.length).toBeGreaterThan(0);
+  expect(maps[0].props.route).toEqual(loop);
+});
+
 test('3.1c puts the course back when the server keeps it', async () => {
   failUnsave = true;
   const screen = await openTodayRun();

@@ -185,7 +185,7 @@ export const shapes: Record<string, [number, number][]> = {
 };
 
 // 3.1c 저장한 코스 (2.1 shows the first three). The title is my own nickname (myAlias).
-export const savedCourses: SavedCourse[] = [
+const savedCourseShapes: Omit<SavedCourse, 'route'>[] = [
   {
     id: 'course-gwangan-loop',
     name: '광안리해수욕장 출발 5.0km',
@@ -264,6 +264,26 @@ export const savedCourses: SavedCourse[] = [
     ],
   },
 ];
+// The mock has no stored points, so a saved course's map route is its outline laid round 민락수변공원, about as wide
+// as its length allows (S15P31E105-562). y grows downward in the outline and northward in latitude.
+const savedCourseOrigin: [number, number] = [129.1318, 35.1543];
+function routeFromShape(
+  shape: [number, number][],
+  distanceM: number,
+): [number, number][] {
+  const spanM = distanceM / 3.5;
+  const latSpan = spanM / 111320;
+  const lngSpan =
+    spanM / (111320 * Math.cos((savedCourseOrigin[1] * Math.PI) / 180));
+  return shape.map(([x, y]) => [
+    Number((savedCourseOrigin[0] + (x - 0.5) * lngSpan).toFixed(6)),
+    Number((savedCourseOrigin[1] - (y - 0.5) * latSpan).toFixed(6)),
+  ]);
+}
+export const savedCourses: SavedCourse[] = savedCourseShapes.map(course => ({
+  ...course,
+  route: routeFromShape(course.shape, course.distanceM),
+}));
 
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],

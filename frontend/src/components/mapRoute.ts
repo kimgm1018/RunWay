@@ -5,6 +5,30 @@ import { distanceM, type LngLat } from '../geo';
 // 2.0 구간 색 (runway-course-handoff): 빠름 black, 보통 navy, 느림 steel blue.
 export const coursePaceColors = ['#060606', '#3A5A6C', '#8DACBA'];
 
+// How a course is drawn, on the map and in its thumbnail (S15P31E105-562 G안 · 떠 있는 리본): a white ribbon
+// with a thin centre line over a soft shadow, the start and finish standing on a pole.
+export const routeLook = {
+  // The centre line of a course without paces, and of the run so far.
+  ink: '#060606',
+  ribbon: '#FFFFFF',
+  // The part of the course already run.
+  passed: '#B4BDC4',
+  // The course under the run, as a guide.
+  guide: '#8DACBA',
+  // Opaque: the Naver path overlay on Android drew rgba(2,5,14,0.16) as solid black (emulator, S15P31E105-562),
+  // so the shadow is the light grey that colour would make over the day map.
+  shadow: '#C5CCD3',
+  // Map widths in dp: the centre, the ribbon on each side of it, the shadow under the whole ribbon.
+  centre: 2.2,
+  edge: 2.4,
+  shadowWidth: 10,
+};
+
+// A course that ends where it starts carries one SF mark; otherwise S at the start and F at the end.
+export const loopWithinM = 60;
+export const isLoop = (route: LngLat[]) =>
+  route.length >= 2 && distanceM(route[0], route[route.length - 1]) <= loopWithinM;
+
 // Picks the colour of one km from where its pace sits between the fastest and the slowest km.
 export function paceColor(
   pace: number,

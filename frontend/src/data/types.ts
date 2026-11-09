@@ -137,6 +137,8 @@ export type SavedCourse = {
   distanceM: number;
   expectedMinutes: number;
   shape: [number, number][];
+  // The course as GeoJSON [longitude, latitude] points (C03 route), for the card's map (S15P31E105-562).
+  route: [number, number][];
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
