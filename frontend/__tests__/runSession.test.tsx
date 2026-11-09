@@ -78,21 +78,22 @@ function startReady(screen: Screen) {
 }
 
 // 앱 타이머가 낸 갱신은 act가 끝날 때 반영되므로 짧게 나눠 기다리며 조건을 확인한다.
+// Poll count (not Date.now) so suite CPU load does not expire the wait early (S15P31E105-565).
 async function settleUntil(
   screen: Screen,
   ready: () => boolean,
   what: string,
-  timeoutMs = 15000,
+  maxPolls = 300,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  while (!ready()) {
-    if (Date.now() > deadline) {
-      throw new Error(
-        `${what} 화면이 ${timeoutMs}ms 안에 열리지 않음: ${texts(screen)}`,
-      );
+  for (let i = 0; i < maxPolls; i++) {
+    if (ready()) {
+      return;
     }
     await settle(50);
   }
+  throw new Error(
+    `${what} 화면이 ${maxPolls}회 대기 안에 열리지 않음: ${texts(screen)}`,
+  );
 }
 
 async function press(screen: Screen, label: string) {

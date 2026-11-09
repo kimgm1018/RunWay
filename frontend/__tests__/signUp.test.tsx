@@ -101,8 +101,15 @@ function isDisabled(screen: Screen, label: string) {
   );
 }
 
-async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+// Prefer a microtask flush over wall-clock sleep so full-suite load does not burn the test budget (S15P31E105-565).
+async function settle(ms = 0) {
+  if (ms > 0) {
+    await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    return;
+  }
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 async function press(screen: Screen, label: string) {
