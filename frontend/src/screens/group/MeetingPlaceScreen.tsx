@@ -30,7 +30,7 @@ import {
   typography,
 } from '../../theme';
 import { FooterButton } from './GroupRunDetailScreen';
-import { groupLook, Raised } from './look';
+import { groupLook } from './look';
 import { Tag, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -67,7 +67,8 @@ async function locationAllowed() {
   return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-// 이 위치로 정하기 (6.9-PlaceSheet): a raised navy pill with a white circle ✓ at its end.
+// 이 위치로 정하기 (6.9-PlaceSheet): a flat navy pill with a white circle ✓ at its end, like the other group
+// buttons (S15P31E105-563).
 function ConfirmButton({
   disabled,
   onPress,
@@ -83,14 +84,14 @@ function ConfirmButton({
       disabled={disabled}
       onPress={onPress}
     >
-      <Raised tone="navy" style={styles.confirm}>
+      <View style={styles.confirm}>
         <View style={[styles.confirmContent, disabled && styles.dimmed]}>
           <AppText style={styles.confirmText}>이 위치로 정하기</AppText>
           <View style={styles.confirmIcon}>
             <Icon name="check" color={groupLook.onLight} size={18} />
           </View>
         </View>
-      </Raised>
+      </View>
     </PressableScale>
   );
 }
@@ -300,7 +301,12 @@ export function MeetingPlaceScreen() {
         {/* 6.9-PlaceSheet: a light glass sheet with corners of 32. The keyboard lifts it (S15P31E105-473). */}
         <KeyboardLift style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={styles.sheet}>
-            <LightGlass radius={32} style={styles.sheetGlass}>
+            {/* A white sheet like 6.4's (S15P31E105-563). */}
+            <LightGlass
+              radius={32}
+              solid="#FFFFFF"
+              style={[styles.sheetGlass, styles.sheetSolid]}
+            >
               <SafeAreaView edges={['bottom']}>
                 <View style={styles.handle} />
                 {confirming && picked ? (
@@ -363,9 +369,11 @@ export function MeetingPlaceScreen() {
                               accessibilityState={{ selected }}
                               onPress={() => setPicked(place)}
                             >
-                              <Raised
-                                tone={selected ? 'navy' : 'white'}
-                                style={styles.nearbyChip}
+                              <View
+                                style={[
+                                  styles.nearbyChip,
+                                  selected && styles.nearbyChipOn,
+                                ]}
                               >
                                 <AppText
                                   style={[
@@ -375,7 +383,7 @@ export function MeetingPlaceScreen() {
                                 >
                                   {place.name}
                                 </AppText>
-                              </Raised>
+                              </View>
                             </PressableScale>
                           );
                         })}
@@ -538,7 +546,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     borderRadius: 16,
     justifyContent: 'center',
+    backgroundColor: groupLook.lightFill,
   },
+  nearbyChipOn: { backgroundColor: groupLook.navy },
   chipText: {
     fontFamily: fontFamily.bold,
     fontSize: 12.5,
@@ -570,7 +580,10 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
+    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
   },
+  sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.18)' },
   confirmContent: {
     flexDirection: 'row',
     alignItems: 'center',

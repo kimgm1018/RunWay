@@ -5,6 +5,7 @@ import {
   StatusBar,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {
@@ -15,8 +16,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  Backdrop,
   EmptyState,
+  Icon,
   PressableScale,
   useToast,
 } from '../../components';
@@ -28,16 +29,20 @@ import {
   type Repositories,
   type RunnerProfile,
 } from '../../data';
+import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, typography } from '../../theme';
-import { communityLook, CourseToggle } from './look';
-import { Avatar, RunPhoto } from './parts';
+import { fontFamily, ThemeProvider, typography } from '../../theme';
+import { feedLook, MapBackdrop, RouteLine, Shade, Stat } from './FeedPage';
+import { CourseToggle } from './look';
+import { Avatar, recordLabel, stamp } from './parts';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 const bodyLimit = 500;
 
-// 7.3 and 7.3e: what I write over the run card, and whether the course goes with it.
+// 7.3 and 7.3e: what I write, laid over the run as it will show in the 7.1 feed (S15P31E105-563, 담당자 요청: 지금
+// 커뮤니티 화면처럼): the dark map with the route in neon when the course goes along, the run's numbers and title at
+// the foot, and whether the course goes with it under them.
 function Composer({
   title,
   action,
@@ -54,6 +59,7 @@ function Composer({
   onSubmit: (draft: PostDraft) => Promise<void>;
 }) {
   const navigation = useNavigation();
+  const { width, height } = useWindowDimensions();
   const [body, setBody] = useState(initial.body ?? '');
   const [courseShared, setCourseShared] = useState(initial.courseShared);
   const [busy, setBusy] = useState(false);
@@ -65,8 +71,18 @@ function Composer({
       setBusy(false);
     }
   };
+  const extra = [
+    stamp(record.startedAt),
+    record.averageHeartRate ? `평균 심박 ${record.averageHeartRate} bpm` : null,
+    record.cadence ? `케이던스 ${record.cadence} spm` : null,
+  ].filter(Boolean);
   return (
     <>
+      <MapBackdrop seed={record.id} width={width} height={height} />
+      {courseShared ? (
+        <RouteLine shape={record.shape} width={width} height={height} />
+      ) : null}
+      <Shade width={width} height={height} />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <PressableScale
@@ -105,46 +121,65 @@ function Composer({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.content}
         >
-          <View style={styles.writer}>
-            <Avatar nickname={me.nickname} userId={me.userId} mine />
-            <AppText style={styles.handle}>{me.handle}</AppText>
+          <View>
+            <View style={styles.writer}>
+              <Avatar nickname={me.nickname} userId={me.userId} mine />
+              <AppText style={styles.handle}>{me.handle}</AppText>
+            </View>
+            <View style={styles.bodyField}>
+              <TextInput
+                accessibilityLabel="글 내용"
+                placeholder="오늘 러닝은 어땠나요?"
+                placeholderTextColor={feedLook.faint}
+                selectionColor={feedLook.route}
+                value={body}
+                onChangeText={setBody}
+                maxLength={bodyLimit}
+                multiline
+                style={styles.bodyInput}
+              />
+            </View>
+            {courseShared ? (
+              // The mock routes are examples, so the page says so (as on 7.1).
+              <AppText style={styles.example}>예시 경로</AppText>
+            ) : null}
           </View>
-          <View style={styles.bodyField}>
-            <TextInput
-              accessibilityLabel="글 내용"
-              placeholder="오늘 러닝은 어땠나요?"
-              placeholderTextColor={communityLook.meta}
-              selectionColor={communityLook.ink}
-              value={body}
-              onChangeText={setBody}
-              maxLength={bodyLimit}
-              multiline
-              style={styles.bodyInput}
-            />
-          </View>
-          <View style={styles.card}>
-            <RunPhoto
-              record={record}
-              courseShared={courseShared}
-              seed={record.id}
-            />
-          </View>
-          <View style={styles.share}>
-            <View style={styles.flex}>
-              <View style={styles.shareLabel}>
-                <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
-              </View>
-              <AppText style={styles.shareNote}>
-                이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이
-                보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이
-                내 코스에 저장할 수 있어요
+          {/* The run's words as the feed shows them, then the course switch. */}
+          <View>
+            <View style={styles.stats}>
+              <Stat value={formatKm(record.distanceM)} unit="km" label="거리" />
+              <Stat value={formatDuration(record.durationSec)} label="시간" />
+              <Stat
+                value={formatPace(record.averagePaceSecPerKm)}
+                unit="/km"
+                label="평균 페이스"
+              />
+            </View>
+            <AppText style={styles.extra} numberOfLines={2}>
+              {extra.join(' · ')}
+            </AppText>
+            <View style={styles.recordTitle}>
+              <Icon name="runner" color={feedLook.route} size={18} />
+              <AppText style={styles.recordText} numberOfLines={1}>
+                {recordLabel(record, courseShared)}
               </AppText>
             </View>
-            <CourseToggle
-              label="코스도 함께 공유"
-              value={courseShared}
-              onChange={setCourseShared}
-            />
+            <View style={styles.share}>
+              <View style={styles.flex}>
+                <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
+                <AppText style={styles.shareNote}>
+                  이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이
+                  보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는
+                  사람이 내 코스에 저장할 수 있어요
+                </AppText>
+              </View>
+              <CourseToggle
+                label="코스도 함께 공유"
+                value={courseShared}
+                onChange={setCourseShared}
+                dark
+              />
+            </View>
           </View>
         </ScrollView>
       </KeyboardLift>
@@ -152,17 +187,15 @@ function Composer({
   );
 }
 
-// 7.3 · 7.3e sit on the mist like the other community screens (S15P31E105-483).
+// 7.3 · 7.3e on the feed's dark ground (S15P31E105-563), in the dark theme so loading and errors read white.
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop tail />
+    <ThemeProvider tone="dark">
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+        {children}
       </View>
-      {children}
-    </View>
+    </ThemeProvider>
   );
 }
 
@@ -202,7 +235,7 @@ export function PostWriteScreen() {
   if (me.status !== 'ready' || record.status !== 'ready') {
     return (
       <Frame>
-        <ActivityIndicator style={styles.loading} color={communityLook.ink} />
+        <ActivityIndicator style={styles.loading} color={feedLook.white} />
       </Frame>
     );
   }
@@ -267,7 +300,7 @@ export function PostEditScreen() {
   if (!ready || me.status !== 'ready' || post.status !== 'ready') {
     return (
       <Frame>
-        <ActivityIndicator style={styles.loading} color={communityLook.ink} />
+        <ActivityIndicator style={styles.loading} color={feedLook.white} />
       </Frame>
     );
   }
@@ -293,9 +326,9 @@ export function PostEditScreen() {
   );
 }
 
-// runway-community-handoff 7.3 · 7.3e: no cards or dividers, the toggle under a line label.
+// 7.3 · 7.3e over the feed's dark map: white words, a see-through dark field, no cards or dividers.
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: communityLook.background },
+  root: { flex: 1, backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   loading: { marginTop: 48 },
   // 상단 56: 취소 and 게시 as words, the title in the middle.
@@ -311,7 +344,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
-    color: communityLook.ink,
+    color: feedLook.white,
   },
   titleBox: {
     position: 'absolute',
@@ -327,32 +360,40 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 24,
     letterSpacing: -0.3,
-    color: communityLook.ink,
+    color: feedLook.white,
   },
   submit: { height: 40, justifyContent: 'center', paddingHorizontal: 4 },
   submitText: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: communityLook.ink,
+    color: feedLook.route,
   },
   busy: { opacity: 0.45 },
-  content: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 48 },
+  // The writing at the top, the run's words at the foot, as on a 7.1 page.
+  content: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 28,
+    gap: 32,
+  },
   writer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   handle: {
     fontFamily: fontFamily.bold,
     fontSize: 17,
     lineHeight: 22,
-    color: communityLook.ink,
+    color: feedLook.white,
   },
-  // 본문: a flat mist field.
+  // 본문: a see-through dark field over the map.
   bodyField: {
     marginTop: 12,
     minHeight: 56,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 15,
-    backgroundColor: communityLook.field,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   // No lineHeight: on Android it clips the top of the placeholder (as in group/look's search field).
   bodyInput: {
@@ -361,33 +402,55 @@ const styles = StyleSheet.create({
     fontFamily: typography.input.fontFamily,
     fontSize: 16,
     includeFontPadding: false,
-    color: communityLook.ink,
+    color: feedLook.white,
     textAlignVertical: 'top',
   },
-  // The photo runs edge to edge past the screen's 16 sides.
-  card: { marginTop: 16, marginHorizontal: -16 },
+  example: {
+    marginTop: 10,
+    fontFamily: fontFamily.medium,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: feedLook.faint,
+  },
+  // 7.1's numbers, extra line and title.
+  stats: { flexDirection: 'row', gap: 20 },
+  extra: {
+    marginTop: 8,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: feedLook.sub,
+  },
+  recordTitle: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  recordText: {
+    flexShrink: 1,
+    fontFamily: fontFamily.medium,
+    fontSize: 17,
+    lineHeight: 22,
+    color: feedLook.white,
+  },
   share: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 20,
-    marginTop: 20,
-  },
-  shareLabel: {
-    borderLeftWidth: 1.5,
-    borderLeftColor: communityLook.ink,
-    paddingLeft: 8,
+    marginTop: 24,
   },
   shareTitle: {
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 20,
-    color: communityLook.ink,
+    color: feedLook.white,
   },
   shareNote: {
     marginTop: 8,
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: communityLook.sub,
+    color: feedLook.sub,
   },
 });

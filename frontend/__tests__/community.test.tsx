@@ -11,6 +11,7 @@ import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
 import { CourseGlyph } from '../src/screens/course/SavedCoursesScreen';
 import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
 import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
+import { Raised } from '../src/screens/group/look';
 import { ThemeProvider } from '../src/theme';
 
 jest.mock(
@@ -440,7 +441,7 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(texts(screen)).toContain('팔로우');
 });
 
-test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark map feed, only the crew cards staying navy (S15P31E105-483·561)', async () => {
+test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark map feed, 6.0 crew cards white like 곧 출발 (S15P31E105-483·561·563)', async () => {
   const screen = await openCommunity();
   const onMist = (component: React.ElementType) =>
     screen.root.findByType(component).findAllByType(Backdrop).length > 0;
@@ -450,18 +451,22 @@ test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark 
   await press(screen, '그룹');
   await settle(50);
   expect(onMist(GroupTabScreen)).toBe(true);
-  // 6.0's navy crew cards keep the dark theme inside them, so their run lines stay white.
+  // 6.0's crew cards are the raised white card 곧 출발 uses, in the light theme (S15P31E105-563).
+  const group = screen.root.findByType(GroupTabScreen);
   expect(
-    screen.root
-      .findByType(GroupTabScreen)
-      .findAll(
-        node => node.type === ThemeProvider && node.props.tone === 'dark',
-      ).length,
-  ).toBeGreaterThan(0);
+    group.findAll(
+      node => node.type === ThemeProvider && node.props.tone === 'dark',
+    ),
+  ).toHaveLength(0);
+  expect(
+    group.findAll(node => node.type === Raised && node.props.tone === 'card')
+      .length,
+  ).toBeGreaterThan(1);
 
   await press(screen, '민락 야경 러너스 크루 상세');
   await settle(50);
-  expect(onMist(CrewDetailScreen)).toBe(true);
+  // 6.2 is a plain white page split by grey bands (S15P31E105-563), not the mist.
+  expect(onMist(CrewDetailScreen)).toBe(false);
   await press(screen, '뒤로');
 
   await press(screen, '프로필');

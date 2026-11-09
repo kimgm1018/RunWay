@@ -247,7 +247,8 @@ export function RouteLine({
 }
 
 // Dark bands under the top and the foot, so the white words stay readable over any part of the map.
-function Shade({ width, height }: { width: number; height: number }) {
+// 7.3 · 7.3e use it too.
+export function Shade({ width, height }: { width: number; height: number }) {
   return (
     <Svg
       width={width}
@@ -276,7 +277,7 @@ function Shade({ width, height }: { width: number; height: number }) {
   );
 }
 
-function Stat({
+export function Stat({
   value,
   unit,
   label,

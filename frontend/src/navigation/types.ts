@@ -16,8 +16,9 @@ export type HomeStackParamList = {
 } & Record<Exclude<HomeTabRouteName, 'Records'>, undefined> & {
     Records: { day: string } | undefined;
   };
-// The group tab is one pager screen; screen picks the page to show (GroupTabScreen).
-export type GroupTabParams = { screen?: GroupTabRouteName };
+// The group tab is one pager screen; screen picks the page to show (GroupTabScreen). intro is set while its
+// first screen (GroupIntro) shows, so the tab bar turns see-through over it (S15P31E105-563).
+export type GroupTabParams = { screen?: GroupTabRouteName; intro?: boolean };
 
 export type MainTabParamList = {
   HomeTab: NavigatorScreenParams<HomeStackParamList> | undefined;
