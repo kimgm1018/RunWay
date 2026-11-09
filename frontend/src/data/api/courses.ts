@@ -260,6 +260,7 @@ export function createCoursesApi({
               (item.distanceM / 1000) * paceSecPerKm) / 60,
           ),
           shape: shapeOf(course.route.coordinates),
+          route: course.route.coordinates,
         };
       }),
     );

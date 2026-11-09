@@ -54,9 +54,8 @@ import { FollowRequestSheet } from './FollowRequestSheet';
 import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
-import { CourseGlyph } from '../course/SavedCoursesScreen';
+import { CourseMapThumb } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
-import { mediaFor, Scrim } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
@@ -380,13 +379,14 @@ const tileGap = 12;
 function RunTile({
   record,
   width,
+  loadRoute,
   onPress,
 }: {
   record: RunRecordSummary;
   width: number;
+  loadRoute?: () => Promise<[number, number][] | null>;
   onPress: () => void;
 }) {
-  const media = mediaFor(record.id);
   const detail = record.group
     ? `${formatDotDateWeekday(record.startedAt)} · ${record.group.crewName} · ${
         record.group.finisherCount
@@ -407,16 +407,14 @@ function RunTile({
         pressed && styles.tilePressed,
       ]}
     >
-      <MistFill
-        id={`tile${record.id.replace(/[^a-zA-Z0-9]/g, '')}`}
-        colors={[...media.colors]}
-        offsets={[...media.offsets]}
-        style={styles.fillBleed}
+      {/* The run on the real map (S15P31E105-562), the words over its dark foot. */}
+      <CourseMapThumb
+        load={loadRoute}
+        shape={record.shape}
+        km={record.distanceM / 1000}
+        area={{ top: 0.08, bottom: 0.5 }}
+        shadeFrom={0.42}
       />
-      <View style={styles.tileGlyph}>
-        <CourseGlyph shape={record.shape} thin />
-      </View>
-      <Scrim />
       <View style={styles.tileText}>
         {record.runType === 'GROUP' ? (
           <View style={styles.badge}>
@@ -459,6 +457,7 @@ function Profile({
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { records: recordsRepo, community } = useRepositories();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const locked = !profile.accessible;
   const heroHeight = Math.round(screenHeight * 0.48);
@@ -630,6 +629,17 @@ function Profile({
                       key={record.id}
                       record={record}
                       width={tileWidth}
+                      // H01 carries no points: a shared run asks its post (CMT), my own run its record (H02).
+                      loadRoute={
+                        postId
+                          ? () => community.getRoute(postId)
+                          : profile.isMe
+                          ? () =>
+                              recordsRepo
+                                .getDetail(record.id)
+                                .then(detail => detail.route)
+                          : undefined
+                      }
                       onPress={() =>
                         postId
                           ? navigation.navigate('PostDetail', { postId })
@@ -899,13 +909,6 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: tileGap },
   tile: { borderRadius: 16, overflow: 'hidden', justifyContent: 'flex-end' },
   tilePressed: { opacity: 0.8 },
-  tileGlyph: {
-    position: 'absolute',
-    top: '12%',
-    left: '22%',
-    width: '56%',
-    aspectRatio: 1,
-  },
   tileText: { paddingHorizontal: 12, paddingBottom: 12, gap: 2 },
   badge: {
     alignSelf: 'flex-start',
