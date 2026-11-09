@@ -233,10 +233,11 @@ async function waitForText(screen: Screen, text: string) {
   expect(texts(screen)).toContain(text);
 }
 
-test('2.1 러닝 기록 shows a day from the server and a run opens its detail with its splits', async () => {
+test('2.1 러닝 분석 shows a day from the server and a run opens its detail with its splits', async () => {
   serve();
   const screen = await launch();
-  await press(screen, '러닝 기록');
+  // The day's run card is on 러닝 분석 (S15P31E105-615, 담당자 요청).
+  await press(screen, '러닝 분석');
   // Today (Monday 11.02) has no run; Sunday 11.01 is on the week strip's page before.
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await press(screen, '11월 1일');
@@ -248,12 +249,14 @@ test('2.1 러닝 기록 shows a day from the server and a run opens its detail w
   for (const text of [
     '5′58″',
     '5.02',
-    '목표 30:00 달성 · 5초 단축',
+    '목표 시간 30:00보다 5초 빨리 마쳤어요.',
     '평균 페이스',
+    // H02 averageHeartRate beside the pace (S15P31E105-615).
+    '평균 심박 150',
   ]) {
     expect(page).toContain(text);
   }
-  // 러닝 기록 has no 페이스 · 심박 · 케이던스 tabs; they stay on the detail (담당자 결정).
+  // The card has no 페이스 · 심박 · 케이던스 tabs; they stay on the detail (담당자 결정).
   expect(page).not.toContain('케이던스');
 
   // The card opens the run it shows, the one picked of the day's two (S15P31E105-574).
@@ -268,30 +271,30 @@ test('2.1 러닝 기록 shows a day from the server and a run opens its detail w
   await act(async () => screen.unmount());
 });
 
-test('2.1 러닝 분석 sums the day’s server runs', async () => {
+test('2.1 러닝 기록 lists the month’s server runs (S15P31E105-615)', async () => {
   serve();
   const screen = await launch();
-  // The date is picked on 러닝 기록 and kept on 러닝 분석.
   await press(screen, '러닝 기록');
-  await press(screen, '11월 1일');
-  await press(screen, '러닝 분석');
-  await waitForText(screen, '러닝 분석 | 11월 1일');
-  const page = texts(screen);
-  for (const text of ['11.0km', '5′59″/km', '러닝 2회']) {
-    expect(page).toContain(text);
-  }
+  await waitForText(screen, '11월 기록');
+  expect(texts(screen)).toContain('11.01');
   await act(async () => screen.unmount());
 });
 
-test('without any runs 러닝 기록 and 러닝 분석 show their empty states', async () => {
+test('without any runs 러닝 분석 asks to start and 러닝 기록 shows its empty month', async () => {
   serve(false);
   const screen = await launch();
-  await press(screen, '러닝 기록');
-  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
+  await press(screen, '러닝 분석');
+  // Someone who has never run is asked to start (S15P31E105-615 요청서 5: 러닝 기록 없음).
+  await waitForText(
+    screen,
+    '첫 러닝을 기록하고 페이스와 심박수의 변화를 확인해보세요.',
+  );
+  expect(texts(screen)).toContain('러닝 시작하기');
   await act(async () => screen.unmount());
 
-  const analysis = await launch();
-  await press(analysis, '러닝 분석');
-  await waitForText(analysis, '아직 이 날의 러닝 기록이 없어요');
-  await act(async () => analysis.unmount());
+  const records = await launch();
+  await press(records, '러닝 기록');
+  await waitForText(records, '아직 이 기간의 기록이 없어요');
+  expect(texts(records)).toContain('0번 · 0.0km');
+  await act(async () => records.unmount());
 });

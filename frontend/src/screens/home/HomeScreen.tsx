@@ -65,10 +65,11 @@ import { RecordsPanel } from './RecordsPanel';
 type Menu = 'readiness' | 'records' | 'analysis';
 
 // Every menu is its icon on the left and its name (S15P31E105-574): one size and stroke for the three icons.
+// 준비도 · 러닝 분석 · 러닝 기록 (S15P31E105-615, 담당자 요청).
 const menus: { value: Menu; label: string; icon: IconName }[] = [
   { value: 'readiness', label: '준비도', icon: 'heartPulse' },
-  { value: 'records', label: '러닝 기록', icon: 'clock' },
   { value: 'analysis', label: '러닝 분석', icon: 'activity' },
+  { value: 'records', label: '러닝 기록', icon: 'clock' },
 ];
 
 const menuHeight = 54;
@@ -277,8 +278,6 @@ export function HomeScreen() {
   // The date of 러닝 기록 and 러닝 분석; 준비도 does not change it.
   const [day, setDay] = useState(today);
   const [runId, setRunId] = useState<string | null>(null);
-  // 러닝 기록's month list, kept while a detail is open.
-  const [monthList, setMonthList] = useState(false);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [calendar, setCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(kstMonth(today));
@@ -552,17 +551,10 @@ export function HomeScreen() {
           >
             {menu === 'records' ? (
               <>
-                {/* Kept mounted under an open detail, so coming back finds the same date, run, list and place. */}
+                {/* Kept mounted under an open detail, so coming back finds the same month and place. */}
                 <View style={detail ? styles.hidden : null}>
-                  <FadeIn appearKey={monthList ? 'month' : 'day'}>
-                    <RecordsPanel
-                      day={day}
-                      runId={runId}
-                      list={monthList}
-                      onRun={setRunId}
-                      onList={setMonthList}
-                      onOpen={openRun}
-                    />
+                  <FadeIn appearKey="month">
+                    <RecordsPanel day={day} onOpen={openRun} />
                   </FadeIn>
                 </View>
                 {detail ? (
@@ -580,7 +572,13 @@ export function HomeScreen() {
                 {menu === 'readiness' ? (
                   readiness
                 ) : (
-                  <AnalysisPanel day={day} onDay={choose} onOpen={openRun} />
+                  <AnalysisPanel
+                    day={day}
+                    runId={runId}
+                    onRun={setRunId}
+                    onOpen={openRun}
+                    onShowList={() => pickMenu('records')}
+                  />
                 )}
               </FadeIn>
             )}

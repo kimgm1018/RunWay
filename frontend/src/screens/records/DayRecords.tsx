@@ -129,6 +129,45 @@ function NoRun({ onList }: { onList?: () => void }) {
   );
 }
 
+// 2.1 홈 with no run on the day (S15P31E105-615): someone who has never run is asked to start; anyone else gets the
+// day's empty card. The check asks H01 for one run only while the day is empty.
+const loadNewest = (repositories: Repositories) =>
+  repositories.records.getRecent('recent', 1);
+
+function HomeNoRun({
+  onList,
+  onStartRun,
+}: {
+  onList?: () => void;
+  onStartRun?: () => void;
+}) {
+  const newest = useResource(loadNewest);
+  if (newest.status === 'loading') {
+    return <ActivityIndicator style={styles.loading} />;
+  }
+  if (newest.status === 'ready' && newest.data.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <AppText style={[styles.emptyTitle, styles.center]}>
+          첫 러닝을 기록하고 페이스와 심박수의 변화를 확인해보세요.
+        </AppText>
+        {onStartRun ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="러닝 시작하기"
+            hitSlop={8}
+            onPress={onStartRun}
+            style={({ pressed }) => [styles.listLink, pressed && styles.dim]}
+          >
+            <AppText style={styles.listLinkText}>러닝 시작하기</AppText>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+  return <NoRun onList={onList} />;
+}
+
 // The run the card shows: the chosen one when it is that day's, else the newest.
 const pickRun = (runs: RunRecordSummary[], runId: string | null) =>
   runs.find(item => item.id === runId) ?? runs[0] ?? null;
@@ -141,6 +180,8 @@ export function DayRecords({
   onRun,
   onOpen,
   onList,
+  home = false,
+  onStartRun,
 }: {
   day: string;
   runId: string | null;
@@ -148,16 +189,20 @@ export function DayRecords({
   onOpen: (run: RunRecordSummary) => void;
   // 2.1: a day without a run can still turn the card over to the month's runs.
   onList?: () => void;
+  // 2.1 홈 최근 러닝 (S15P31E105-615): the pace · heart rate card, and the first-run invitation.
+  home?: boolean;
+  onStartRun?: () => void;
 }) {
   const runs = useDayRuns(day);
   const list = runs.status === 'ready' ? runs.data : [];
   const run = pickRun(list, runId);
   const detail = useRunDetail(run);
+  const failed = home ? '러닝 기록을 불러오지 못했어요.' : '기록을 불러오지 못했어요';
   if (runs.status === 'error') {
     return (
       <EmptyState
         icon="alert"
-        title="기록을 불러오지 못했어요"
+        title={failed}
         actionLabel="다시 시도"
         onAction={runs.reload}
       />
@@ -167,7 +212,11 @@ export function DayRecords({
     return <ActivityIndicator style={styles.loading} />;
   }
   if (!run) {
-    return <NoRun onList={onList} />;
+    return home ? (
+      <HomeNoRun onList={onList} onStartRun={onStartRun} />
+    ) : (
+      <NoRun onList={onList} />
+    );
   }
   return (
     <>
@@ -181,12 +230,13 @@ export function DayRecords({
             chartHeight={300}
             onOpen={() => onOpen(run)}
             openLabel={rowLabel(run)}
+            layout={home ? 'home' : 'records'}
           />
         </FadeIn>
       ) : detail.status === 'error' ? (
         <EmptyState
           icon="alert"
-          title="기록을 불러오지 못했어요"
+          title={failed}
           actionLabel="다시 시도"
           onAction={detail.reload}
         />
@@ -269,6 +319,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: recordsLook.onCard,
   },
+  center: { textAlign: 'center', paddingHorizontal: 24 },
   emptyText: {
     fontFamily: fontFamily.regular,
     fontSize: 12.5,

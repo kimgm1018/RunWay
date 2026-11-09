@@ -99,6 +99,8 @@ export type RunRecordDetail = RunRecordSummary & {
   route: [number, number][] | null;
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
+  // H02 averageHeartRate (bpm, rounded); null when the run measured no heart rate (S15P31E105-615).
+  averageHeartRate: number | null;
   aiAdvice: string | null;
   splits: RunSplit[];
   // The planned course, if the run followed one.

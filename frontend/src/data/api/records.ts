@@ -251,6 +251,10 @@ export function createRecordsApi() {
         route: null,
         targetDurationSec: detail.targetDurationSec,
         targetPaceSecPerKm: roundPace(detail.targetPaceSecPerKm),
+        averageHeartRate:
+          detail.averageHeartRate === null
+            ? null
+            : Math.round(detail.averageHeartRate),
         aiAdvice: null,
         splits: splits.map(split => ({
           ...split,

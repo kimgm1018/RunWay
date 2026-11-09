@@ -74,7 +74,7 @@ async function launch(music?: Repositories['music']) {
     );
   });
   const screen = mounted!;
-  await waitFor(() => texts(screen).includes('오늘 준비도 양호'));
+  await waitFor(() => texts(screen).includes('러닝 시작하기'));
   await press(screen, '러닝');
   await press(screen, '자유 러닝');
   await press(screen, '음악');
