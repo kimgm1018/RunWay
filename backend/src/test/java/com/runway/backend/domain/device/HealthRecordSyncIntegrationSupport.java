@@ -67,9 +67,27 @@ abstract class HealthRecordSyncIntegrationSupport extends SyncBatchIntegrationSu
         return record;
     }
 
+    /** 유효한 합성 삼성 헬스 기상일 수면 합계 레코드(S15P31E105-572). */
+    protected static ObjectNode sleep(LocalDate date, String minutes) {
+        ObjectNode record = JSON.createObjectNode();
+        record.put("type", "DAILY_SLEEP_SUMMARY");
+        record.put("metricDate", date.toString());
+        record.set("sleepDurationMin", JSON.valueToTree(new BigDecimal(minutes)));
+        record.put("computedAt", date + "T00:30:00Z");
+        return record;
+    }
+
     protected static String healthBody(ObjectNode... records) {
+        return healthBody("RUNWAY_WATCH", records);
+    }
+
+    protected static String sleepBody(ObjectNode... records) {
+        return healthBody("SAMSUNG_HEALTH", records);
+    }
+
+    protected static String healthBody(String provider, ObjectNode... records) {
         ObjectNode body = JSON.createObjectNode();
-        body.put("provider", "RUNWAY_WATCH");
+        body.put("provider", provider);
         var array = body.putArray("records");
         for (ObjectNode record : records) {
             array.add(record);

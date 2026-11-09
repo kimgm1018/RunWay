@@ -27,7 +27,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 1. W06이 `daily_health_metrics`를 저장·갱신한 날짜 목록을 `DailyHealthMetricsChangedEvent`로 알린다([W06 6항](devices-health.md)). 준비도 평가는 W06 트랜잭션 **커밋 후** 리스너가 받는다. 전부 duplicate·거절·롤백된 요청은 평가하지 않는다.
 2. 리스너는 DB를 쓰지 않고 평가를 준비도 전용 실행기(스레드 2개, 대기열 1,000건)에 넘긴 뒤 바로 돌아온다. W06 응답은 평가를 기다리지 않고, W06 요청은 자기 커넥션만 쓴다. 대기열이 차면 그 이벤트의 평가를 건너뛴다.
 3. 평가 대상 날짜는 바뀐 날짜 D 전부와, D+1~D+7 중 건강 행이 있는 날짜다. D가 이후 날짜의 평소 RHR(이전 7일)에 들어가므로, 과거 값이 늦게 도착해도 이후 날짜 결과에 반영된다.
-4. 날짜마다 별도 트랜잭션에서 평가한다. 평가 날짜는 W06 `metricDate`(워치 시간대 날짜)다.
+4. 날짜마다 별도 트랜잭션에서 평가한다. 평가 날짜는 W06 `metricDate`다(심박은 워치 시간대 날짜, 수면은 폰 시간대 기상일, S15P31E105-572).
    1. 같은 회원 평가를 회원별 advisory lock으로 한 줄로 세운다. 겹친 평가 중 나중 평가는 앞 평가 커밋 뒤의 최신 건강값을 읽으므로 오래된 값으로 계산한 결과가 최신 결과를 덮어쓰지 않는다.
    2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREEE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
    3. D-27~D의 일별 건강값으로 [산식](../readiness-formula.md)을 계산한다. 계산 가능한 항목이 없으면 저장하지 않고 기존 결과를 그대로 둔다.
@@ -96,7 +96,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | `readinessDate` | string (YYYY-MM-DD) | O | `daily_readiness.readiness_date`. 워치 시간대 날짜다. 서버는 회원 시간대를 모르므로 오늘 결과인지는 클라이언트가 이 값으로 판단한다. |
 | `readinessConfidence` | string / null | O | `daily_readiness.readiness_confidence`. 계산에 쓴 항목 수: HIGH 3 / MEDIUM 2 / LOW 1. 미산출은 null이며 키는 항상 포함한다. 준비도 등급이 아니다. |
 | `restingHrBpm` | number / null | O | `readinessDate`와 같은 날짜의 본인 `daily_health_metrics.rhr_bpm`(bpm, 소수 둘째 자리). 행이나 값이 없으면 null |
-| `sleepDurationMin` | number / null | O | 같은 행의 `sleep_duration_min`(분, 소수 둘째 자리). 행이나 값이 없으면 null. 현재 W06은 수면을 저장하지 않으므로 항상 null이다 |
+| `sleepDurationMin` | number / null | O | 같은 행의 `sleep_duration_min`(분, 소수 둘째 자리). 행이나 값이 없으면 null. W06 `SAMSUNG_HEALTH` 수면(폰 시간대 기상일, S15P31E105-572)이 저장한 값이다 |
 | `healthUpdatedAt` | string (ISO 8601 UTC) / null | O | 같은 행의 `updated_at`. 그 날짜 건강 행이 마지막으로 바뀐 시각이며 준비도 평가 시각(`assessedAt`, 후속)이 아니다. 행이 없으면 null |
 
 - "최신"은 본인 결과 중 `readinessDate`가 가장 늦은 1건이다. 오늘 날짜 필터를 두지 않는다.

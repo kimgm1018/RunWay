@@ -45,6 +45,26 @@ class SamsungHealthModule(private val app: ReactApplicationContext) : ReactConte
     val available = try { app.packageManager.getApplicationInfo("com.sec.android.app.shealth", 0).enabled } catch (_: Exception) { false }
     promise.resolve(if (available) "available" else "unavailable")
   }
+  private val sleepPermission get() = Permission.of(DataTypes.SLEEP, AccessType.READ)
+  private val sleepPrefs by lazy { app.getSharedPreferences("samsung_sleep", android.content.Context.MODE_PRIVATE) }
+  private fun installed() = try { app.packageManager.getApplicationInfo("com.sec.android.app.shealth", 0).enabled } catch (_: Exception) { false }
+
+  /** S15P31E105-572: sleep-only read permission state for the product flow (granted / required / unavailable). */
+  @ReactMethod fun sleepAccessStatus(promise: Promise) {
+    if (!installed()) { promise.resolve("unavailable"); return }
+    run(promise) { if (store.getGrantedPermissions(setOf(sleepPermission)).contains(sleepPermission)) "granted" else "required" }
+  }
+  /** Asks for sleep read only. Resolves whether it is granted afterwards. */
+  @ReactMethod fun requestSleepAccess(promise: Promise) = run(promise) {
+    val activity = app.currentActivity ?: throw IllegalStateException()
+    store.requestPermissions(setOf(sleepPermission), activity).contains(sleepPermission)
+  }
+  /** Small app-private JSON state for sleep upload bookkeeping. Holds dates and minutes only, never logged. */
+  @ReactMethod fun loadSleepState(promise: Promise) { promise.resolve(sleepPrefs.getString("state", null)) }
+  @ReactMethod fun saveSleepState(json: String?, promise: Promise) {
+    val ok = sleepPrefs.edit().apply { if (json == null) remove("state") else putString("state", json) }.commit()
+    promise.resolve(ok)
+  }
   @ReactMethod fun requestReadAccess(promise: Promise) = run(promise) {
     val activity = app.currentActivity ?: throw IllegalStateException()
     store.requestPermissions(permissions, activity)

@@ -2,6 +2,7 @@ package com.runway.backend.domain.device.service;
 
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.DailyHrEstimate;
+import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.DailySleepSummary;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.ParsedRecord;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.Rejected;
 import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse;
@@ -24,7 +25,8 @@ import java.util.List;
 import java.util.TreeSet;
 
 /**
- * W06 Samsung Health 데이터 동기화(devices-health.md W06). 현재 지원 레코드는 RunWay 워치 일상 심박 하루 추정값 하나다.
+ * W06 Samsung Health 데이터 동기화(devices-health.md W06). 지원 레코드는 RunWay 워치 일상 심박 하루 추정값과 삼성 헬스 기상일별
+ * 수면 합계(S15P31E105-572)다.
  *
  * <p>검사 순서: 회원 행 FOR SHARE(활성 회원·건강 동의) → 유효 레코드를 날짜 오름차순(같은 날짜는 요청 순서)으로 조건부 upsert → 변경 날짜 이벤트
  * 발행. 동의가 없으면 아무것도 저장하지 않는다. 거절 레코드는 파싱 단계에서 이미 판정됐고 저장하지 않는다.
@@ -70,6 +72,15 @@ public class HealthRecordSyncService {
                         duplicate++;
                     }
                 }
+                case DailySleepSummary sleep -> {
+                    if (repository.upsertSleep(
+                            userId, sleep.metricDate(), sleep.sleepDurationMin())) {
+                        accepted++;
+                        changed.add(sleep.metricDate());
+                    } else {
+                        duplicate++;
+                    }
+                }
             }
         }
         if (!changed.isEmpty()) {
@@ -85,7 +96,7 @@ public class HealthRecordSyncService {
         List<ParsedRecord> ordered = new ArrayList<>(records);
         ordered.sort(
                 Comparator.comparing(
-                        r -> r instanceof DailyHrEstimate e ? e.metricDate() : LocalDate.MIN));
+                        r -> r.lockDate() == null ? LocalDate.MIN : r.lockDate()));
         return ordered;
     }
 }
