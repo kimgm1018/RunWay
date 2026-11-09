@@ -27,7 +27,7 @@ object MetricFormat {
 
     fun pace(secondsPerKm: Int?): MetricText {
         if (secondsPerKm == null || secondsPerKm !in 1..MAX_PACE_SECONDS) return missing(description = "페이스 측정값 없음")
-        val text = "%d′%02d″".format(secondsPerKm / 60, secondsPerKm % 60)
+        val text = "%d’%02d”".format(secondsPerKm / 60, secondsPerKm % 60)
         return MetricText(text, description = "페이스 킬로미터당 ${secondsPerKm / 60}분 ${secondsPerKm % 60}초")
     }
 

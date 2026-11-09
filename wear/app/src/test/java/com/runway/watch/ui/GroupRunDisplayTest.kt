@@ -52,14 +52,15 @@ class GroupRunDisplayTest {
         assertEquals("순위를 기다려요", message(snapshot(GroupStatus(GroupPhase.RUNNING, 340))).title)
         assertEquals("순위를 기다려요", message(snapshot(group = null)).title)
         val unavailable = message(snapshot(GroupStatus(GroupPhase.RUNNING, 340, GroupPosition.Unavailable)))
-        assertEquals("순위를 알 수 없어요", unavailable.title)
-        assertTrue(unavailable.warning)
+        assertEquals("순위를 계산할 수\n없어요", unavailable.title)
+        // 9.8d: a server that cannot rank is not the runner's fault, so it is not a warning.
+        assertFalse(unavailable.warning)
     }
 
     @Test fun lostLocationDropsTheLastStanding() {
         for (feed in listOf(FeedStatus.NO_SIGNAL, FeedStatus.STOPPED)) {
             val m = message(snapshot(metrics = RunMetrics(feeds = MetricFeeds(location = feed))))
-            assertEquals(feed.name, "위치를 받지 못하고 있어요", m.title)
+            assertEquals(feed.name, "내 진행 데이터가\n없어요", m.title)
         }
     }
 
@@ -79,11 +80,11 @@ class GroupRunDisplayTest {
 
     @Test fun sharedPaceComparesWithOwnLivePace() {
         val v = GroupRunDisplay.pace(snapshot()) as GroupPaceView.Pace
-        assertEquals("5′40″", v.pace.value)
+        assertEquals("5’40”", v.pace.value)
         assertEquals("공동 페이스 킬로미터당 5분 40초", v.pace.description)
-        assertEquals("내 5′42″ · +2″", v.mine!!.text)
+        assertEquals("내 5’42” · +2”", v.mine!!.text)
         assertEquals("내 페이스 킬로미터당 5분 42초, 공동 페이스보다 2초 느림", v.mine!!.description)
-        assertEquals("내 5′30″ · −10″", (GroupRunDisplay.pace(snapshot(metrics = RunMetrics(paceSecondsPerKm = 330))) as GroupPaceView.Pace).mine!!.text)
+        assertEquals("내 5’30” · −10”", (GroupRunDisplay.pace(snapshot(metrics = RunMetrics(paceSecondsPerKm = 330))) as GroupPaceView.Pace).mine!!.text)
         assertNull(v.change)
     }
 
@@ -101,7 +102,7 @@ class GroupRunDisplayTest {
 
     @Test fun paceChangeShowsOnThePacePage() {
         val changed = snapshot(GroupStatus(GroupPhase.RUNNING, 355, GroupPosition.Known(standing), notice = GroupNotice.PaceChanged(340, 355)))
-        assertEquals("5′40″ → 5′55″ 변경", (GroupRunDisplay.pace(changed) as GroupPaceView.Pace).change!!.text)
+        assertEquals("이전 5’40” → 새 5’55”", (GroupRunDisplay.pace(changed) as GroupPaceView.Pace).change!!.text)
         assertNull("no spread without the group value", standing(changed).spread)
     }
 

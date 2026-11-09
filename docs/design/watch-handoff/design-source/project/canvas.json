@@ -1,0 +1,604 @@
+{
+ "v": 3,
+ "attachments": {},
+ "boards": {
+  "FrCommon.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1120,
+   "h": 760,
+   "title": "R 9.0 공통 요소 · 영상 스타일 (기능 문구만 수정)",
+   "page": "rajdhani"
+  },
+  "FrRim.dc.html": {
+   "x": 1200,
+   "y": 0,
+   "w": 454,
+   "h": 454,
+   "title": "R 부품 · 테두리 게이지 (단색 블루 #4DC4FF · 페이스 점 눈금)",
+   "page": "rajdhani",
+   "radius": 227
+  },
+  "FrStandbyEta.dc.html": {
+   "x": 0,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1 대기 · 개인 러닝 (예상 완주 시간)",
+   "page": "rajdhani"
+  },
+  "FrStandby.dc.html": {
+   "x": 700,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1 대기 · 개인 러닝",
+   "page": "rajdhani"
+  },
+  "FrStartRequest.dc.html": {
+   "x": 1400,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1c 시작 요청 중 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrStartFailed.dc.html": {
+   "x": 2100,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1d 시작 실패 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrStartUnknown.dc.html": {
+   "x": 2800,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1e 시작 확인 안 됨 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrStandbyGroup.dc.html": {
+   "x": 3500,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1 대기 · 그룹런",
+   "page": "rajdhani"
+  },
+  "FrStandbyEmpty.dc.html": {
+   "x": 4200,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1 대기 · 준비된 러닝 없음",
+   "page": "rajdhani"
+  },
+  "FrConnectionIssue.dc.html": {
+   "x": 4900,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1b 휴대폰 연결 없음",
+   "page": "rajdhani"
+  },
+  "FrNotReady.dc.html": {
+   "x": 5600,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1b 준비 안 됨 · 센서 권한",
+   "page": "rajdhani"
+  },
+  "FrLocationWait.dc.html": {
+   "x": 6300,
+   "y": 1700,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.1f 위치 확인 중 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRunStatus.dc.html": {
+   "x": 0,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2 운동 현황 (1/3) · 색 테마 조절 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrPaceCoaching.dc.html": {
+   "x": 700,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5 페이스 코칭 (2/3) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRecordCompare.dc.html": {
+   "x": 1400,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.6 기록 비교 (3/3) · 같은 거리 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRecordCompareWaiting.dc.html": {
+   "x": 2100,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.6b 기록 비교 · 계산 중",
+   "page": "rajdhani"
+  },
+  "FrRunStatusFree.dc.html": {
+   "x": 2800,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2a 운동 현황 · 자유 러닝·비교 없음 (1/2, 추가)",
+   "page": "rajdhani"
+  },
+  "FrRunStatusRange.dc.html": {
+   "x": 3500,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2c 운동 현황 · 눈금 범위 밖 페이스 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRunStatusDegraded.dc.html": {
+   "x": 4200,
+   "y": 2720,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2b 운동 현황 · 위치 지연·심박 오래된 값 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrMetricPace.dc.html": {
+   "x": 0,
+   "y": 3740,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2-1 상세 · 현재 페이스",
+   "page": "rajdhani"
+  },
+  "FrMetricDistance.dc.html": {
+   "x": 700,
+   "y": 3740,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2-2 상세 · 거리",
+   "page": "rajdhani"
+  },
+  "FrMetricTime.dc.html": {
+   "x": 1400,
+   "y": 3740,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2-3 상세 · 운동 시간",
+   "page": "rajdhani"
+  },
+  "FrMetricBody.dc.html": {
+   "x": 2100,
+   "y": 3740,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2-4 상세 · 심박·케이던스",
+   "page": "rajdhani"
+  },
+  "FrCoachingManual.dc.html": {
+   "x": 0,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5b 리듬 BPM 직접 조절 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrCoachingRequest.dc.html": {
+   "x": 700,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5d 리듬 변경 요청 중 (추가)",
+   "page": "rajdhani"
+  },
+  "FrCoachingRejected.dc.html": {
+   "x": 1400,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5e 리듬 변경 거절 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrCoachingUnknown.dc.html": {
+   "x": 2100,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5g 리듬 적용 확인 불가 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrCoachingManualAlt.dc.html": {
+   "x": 2800,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5f 직접 조절 · 자동 복귀 대안 (확인 필요) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrCoachingPaused.dc.html": {
+   "x": 3500,
+   "y": 4760,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.5c 코칭 중단 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrGroupPace.dc.html": {
+   "x": 0,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.7 그룹 공동 페이스 (그룹 2/3) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrGroupPosition.dc.html": {
+   "x": 700,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.8 진행 순서·간격 (그룹 3/3) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrGroupOrderTie.dc.html": {
+   "x": 1400,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.8b 진행 순서 · 공동 순위 (추가)",
+   "page": "rajdhani"
+  },
+  "FrGroupOrderStale.dc.html": {
+   "x": 2100,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.8c 진행 순서 · 데이터 지연 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrGroupOrderUnavailable.dc.html": {
+   "x": 2800,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.8d 진행 순서 · 순위 산정 불가 (추가)",
+   "page": "rajdhani"
+  },
+  "FrGroupOrderNoMe.dc.html": {
+   "x": 3500,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.8e 진행 순서 · 내 데이터 없음 (추가)",
+   "page": "rajdhani"
+  },
+  "FrGroupStartRequest.dc.html": {
+   "x": 4200,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.7a 그룹 출발 · 내 기록 시작 확인 중 (추가)",
+   "page": "rajdhani"
+  },
+  "FrGroupEnded.dc.html": {
+   "x": 4900,
+   "y": 5780,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.7b 그룹 전체 종료 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrPauseRequest.dc.html": {
+   "x": 0,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3a 일시정지 요청 중 · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrPaused.dc.html": {
+   "x": 700,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3 일시정지됨",
+   "page": "rajdhani"
+  },
+  "FrResumeRequest.dc.html": {
+   "x": 1400,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3c 재개 요청 중 (추가)",
+   "page": "rajdhani"
+  },
+  "FrEndConfirm.dc.html": {
+   "x": 2100,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3b 종료 확인",
+   "page": "rajdhani"
+  },
+  "FrEndRequest.dc.html": {
+   "x": 2800,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3d 종료 요청 중 (추가)",
+   "page": "rajdhani"
+  },
+  "FrControlUnknown.dc.html": {
+   "x": 3500,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3e 제어 실행 미확인 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRunPhoneLost.dc.html": {
+   "x": 4200,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2d 기록 중 · 휴대폰 연결 끊김 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrRunServerDelay.dc.html": {
+   "x": 4900,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.2e 기록 중 · 서버 연결 지연 (추가)",
+   "page": "rajdhani"
+  },
+  "FrTakeOverPhone.dc.html": {
+   "x": 5600,
+   "y": 6800,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.3f 휴대폰 인계 완료 (추가) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrSaving.dc.html": {
+   "x": 0,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4a 저장 확인 중 (최대 2분) · 확인 필요",
+   "page": "rajdhani"
+  },
+  "FrAnalyzing.dc.html": {
+   "x": 700,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4b 분석 중",
+   "page": "rajdhani"
+  },
+  "FrResultReady.dc.html": {
+   "x": 1400,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4 결과 · 목표 달성",
+   "page": "rajdhani"
+  },
+  "FrResultMissed.dc.html": {
+   "x": 2100,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4c 결과 · 목표 미달 (추가)",
+   "page": "rajdhani"
+  },
+  "FrResultNoGoal.dc.html": {
+   "x": 2800,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4d 결과 · 목표 없음 (추가)",
+   "page": "rajdhani"
+  },
+  "FrResultGoalUnknown.dc.html": {
+   "x": 3500,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4e 결과 · 목표 평가 미확인 (추가)",
+   "page": "rajdhani"
+  },
+  "FrResultPartial.dc.html": {
+   "x": 4200,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4f 결과 · 일부 지표 부족 (추가)",
+   "page": "rajdhani"
+  },
+  "FrResultAnalysisFailed.dc.html": {
+   "x": 4900,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4g 결과 · 저장됨, 분석 실패 (추가)",
+   "page": "rajdhani"
+  },
+  "FrResultUnconfirmed.dc.html": {
+   "x": 5600,
+   "y": 7820,
+   "w": 620,
+   "h": 620,
+   "title": "R 9.4 결과 · 저장 미확인 (2분 초과)",
+   "page": "rajdhani"
+  }
+ },
+ "createdOnFiles": {
+  "at": "2026-11-06T00:40:00Z",
+  "v": 1
+ },
+ "designSystems": [],
+ "launch": {
+  "view": "canvas",
+  "page": "rajdhani"
+ },
+ "noteOrder": [
+  "r_t0",
+  "r_s0",
+  "r_s1",
+  "r_s2",
+  "r_s3",
+  "r_s4",
+  "r_s5",
+  "r_s6"
+ ],
+ "notes": {
+  "r_t0": {
+   "x": 0,
+   "y": -300,
+   "text": "Rajdhani 버전 · 기능 수정 페이지와 같은 화면, 숫자·영문 폰트만 Rajdhani (한글 Noto Sans KR)",
+   "kind": "title1",
+   "maxW": 8900,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s0": {
+   "x": 0,
+   "y": 1460,
+   "text": "러닝 전 · 시작",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s1": {
+   "x": 0,
+   "y": 2480,
+   "text": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s2": {
+   "x": 0,
+   "y": 3500,
+   "text": "지표 상세 · 현황 수치를 누르면 열림 (페이지 아님 · 뒤로 = 현황)",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s3": {
+   "x": 0,
+   "y": 4520,
+   "text": "코칭 · 리듬 BPM 상태",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s4": {
+   "x": 0,
+   "y": 5540,
+   "text": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s5": {
+   "x": 0,
+   "y": 6560,
+   "text": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  },
+  "r_s6": {
+   "x": 0,
+   "y": 7580,
+   "text": "기록 마무리 · 분석 · 결과",
+   "kind": "title1",
+   "maxW": 9000,
+   "w": 240,
+   "page": "rajdhani"
+  }
+ },
+ "order": [
+  "FrCommon.dc.html",
+  "FrRim.dc.html",
+  "FrStandbyEta.dc.html",
+  "FrStandby.dc.html",
+  "FrStartRequest.dc.html",
+  "FrStartFailed.dc.html",
+  "FrStartUnknown.dc.html",
+  "FrStandbyGroup.dc.html",
+  "FrStandbyEmpty.dc.html",
+  "FrConnectionIssue.dc.html",
+  "FrNotReady.dc.html",
+  "FrLocationWait.dc.html",
+  "FrRunStatus.dc.html",
+  "FrPaceCoaching.dc.html",
+  "FrRecordCompare.dc.html",
+  "FrRecordCompareWaiting.dc.html",
+  "FrRunStatusFree.dc.html",
+  "FrRunStatusRange.dc.html",
+  "FrRunStatusDegraded.dc.html",
+  "FrMetricPace.dc.html",
+  "FrMetricDistance.dc.html",
+  "FrMetricTime.dc.html",
+  "FrMetricBody.dc.html",
+  "FrCoachingManual.dc.html",
+  "FrCoachingRequest.dc.html",
+  "FrCoachingRejected.dc.html",
+  "FrCoachingUnknown.dc.html",
+  "FrCoachingManualAlt.dc.html",
+  "FrCoachingPaused.dc.html",
+  "FrGroupPace.dc.html",
+  "FrGroupPosition.dc.html",
+  "FrGroupOrderTie.dc.html",
+  "FrGroupOrderStale.dc.html",
+  "FrGroupOrderUnavailable.dc.html",
+  "FrGroupOrderNoMe.dc.html",
+  "FrGroupStartRequest.dc.html",
+  "FrGroupEnded.dc.html",
+  "FrPauseRequest.dc.html",
+  "FrPaused.dc.html",
+  "FrResumeRequest.dc.html",
+  "FrEndConfirm.dc.html",
+  "FrEndRequest.dc.html",
+  "FrControlUnknown.dc.html",
+  "FrRunPhoneLost.dc.html",
+  "FrRunServerDelay.dc.html",
+  "FrTakeOverPhone.dc.html",
+  "FrSaving.dc.html",
+  "FrAnalyzing.dc.html",
+  "FrResultReady.dc.html",
+  "FrResultMissed.dc.html",
+  "FrResultNoGoal.dc.html",
+  "FrResultGoalUnknown.dc.html",
+  "FrResultPartial.dc.html",
+  "FrResultAnalysisFailed.dc.html",
+  "FrResultUnconfirmed.dc.html"
+ ],
+ "pages": [
+  {
+   "id": "rajdhani",
+   "name": "Rajdhani 버전 (숫자 폰트)"
+  }
+ ],
+ "title": "RunWay 워치 현재 화면"
+}

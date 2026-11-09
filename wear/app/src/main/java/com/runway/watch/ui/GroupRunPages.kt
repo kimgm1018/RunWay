@@ -10,8 +10,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
 import com.runway.watch.run.*
 import com.runway.watch.ui.component.*
@@ -19,6 +19,8 @@ import com.runway.watch.ui.format.MetricFormat
 import com.runway.watch.ui.format.MetricText
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
+import com.runway.watch.ui.theme.HeroSize
+import com.runway.watch.ui.theme.px
 import kotlin.math.abs
 
 /** A line of text with what TalkBack reads for it. */
@@ -49,6 +51,8 @@ sealed interface GroupPositionView {
         val behind: GroupSide,
         val delayed: Boolean,
         val spread: GroupLine?,
+        /** Runners sharing this rank, this runner included (9.8b); null when not tied or unknown. */
+        val tie: Int? = null,
     ) : GroupPositionView
     data class Message(val message: GroupMessage, val spread: GroupLine? = null) : GroupPositionView
 }
@@ -74,11 +78,11 @@ object GroupRunDisplay {
         ended(group)?.let { return GroupPositionView.Message(it) }
         val location = snapshot.metrics.feeds.location
         if (location == FeedStatus.NO_SIGNAL || location == FeedStatus.STOPPED) return GroupPositionView.Message(
-            GroupMessage("위치를 받지 못하고 있어요", "순위와 거리 차이를\n잠시 표시하지 않아요", warning = true), spread(group, !snapshot.phoneConnected))
+            GroupMessage("내 진행 데이터가\n없어요", "지금은 순위에서 빠져 있어요", warning = true), spread(group, !snapshot.phoneConnected))
         return when (val p = group.position) {
             GroupPosition.Waiting -> GroupPositionView.Message(GroupMessage("순위를 기다려요", "받는 대로\n바로 보여 드려요"), spread(group, !snapshot.phoneConnected))
             GroupPosition.Unavailable ->
-                GroupPositionView.Message(GroupMessage("순위를 알 수 없어요", "러닝은 계속 기록돼요", warning = true), spread(group, !snapshot.phoneConnected))
+                GroupPositionView.Message(GroupMessage("순위를 계산할 수\n없어요", "순위·간격 정보를 받지 못했어요"), spread(group, !snapshot.phoneConnected))
             is GroupPosition.Known -> {
                 // Own location only dims this runner's standing; the spread is the server's group value.
                 val late = p.delayed || !snapshot.phoneConnected
@@ -102,7 +106,7 @@ object GroupRunDisplay {
         if (own.missing) return null
         val diff = snapshot.metrics.paceSecondsPerKm!! - shared
         val seconds = abs(diff)
-        val amount = if (seconds < 60) "${seconds}″" else "%d′%02d″".format(seconds / 60, seconds % 60)
+        val amount = if (seconds < 60) "${seconds}”" else "%d’%02d”".format(seconds / 60, seconds % 60)
         val spoken = (if (seconds >= 60) "${seconds / 60}분 " else "") + "${seconds % 60}초"
         return when {
             diff > 0 -> GroupLine("내 ${own.value} · +$amount", "내 ${own.description}, 공동 페이스보다 $spoken 느림")
@@ -115,7 +119,7 @@ object GroupRunDisplay {
         val from = MetricFormat.pace(notice.fromSecondsPerKm)
         val to = MetricFormat.pace(notice.toSecondsPerKm)
         if (from.missing || to.missing) return null
-        return GroupLine("${from.value} → ${to.value} 변경", "공동 페이스 변경, ${from.description}에서 ${to.description}로")
+        return GroupLine("이전 ${from.value} → 새 ${to.value}", "공동 페이스 변경, ${from.description}에서 ${to.description}로")
     }
 
     /** First-to-last distance of the whole group; shown in every running state since it is not this runner's. */
@@ -143,6 +147,10 @@ object GroupRunDisplay {
             behind = side("뒤", "뒤따르는", "↓", behind, s.gapToBehindMeters, late),
             delayed = delayed,
             spread = spread,
+            // Runners at one distance share a rank and count neither ahead nor behind (G10), so the ones left over
+            // from the ranked count are this runner's tie.
+            tie = if (rank != null && ahead != null && behind != null && rankedCount != null)
+                (rankedCount - ahead - behind).takeIf { it > 1 } else null,
         )
     }
 
@@ -164,85 +172,97 @@ object GroupRunDisplay {
         if (value < 1000) "${value.toLong()}미터" else "${MetricFormat.distance(value).value}킬로미터"
 }
 
-/** 9.7: the shared guide pace is the same for everyone; the rhythm BPM fits the runner's own stride. */
+/**
+ * 9.7 공동 페이스: the group's shared guide pace as the key number and the server's change notice. The runner's own
+ * rhythm BPM fits their stride and lives on the status page; the update time is left out until the server sends one.
+ */
 @Composable
-internal fun GroupPacePage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean) {
-    RoundScreen(spacing = 3.dp, focused = visible) {
-        Text("그룹 공동 페이스", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+internal fun GroupPacePage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit = {}) {
+    val status = RunStatusDisplay.from(snapshot)
+    WatchFace(rim = RunStatusDisplay.rim(status), pages = PageDots(count, index), handle = pauseHandle(status, onPause), focused = visible) {
         when (val view = GroupRunDisplay.pace(snapshot)) {
             is GroupPaceView.Pace -> {
-                MetricValue(view.pace, 40)
+                Caption("공동 페이스")
+                HeroMetric(view.pace, HeroSize.PACE, unit = null)
+                view.change?.let { Line(it, RunwayColors.Content, announce = true, strong = true) }
                 view.mine?.let { Line(it, RunwayColors.ContentSecondary) }
-                view.change?.let { Line(it, RunwayColors.Content, announce = true) }
-                val rhythm = MetricFormat.rhythm(snapshot.metrics.rhythm)
-                Chip("${rhythm.symbol}︎ ${rhythm.value} ${rhythm.unit} · 내 보폭 맞춤", description = "${rhythm.description}, 내 보폭 맞춤")
             }
-            is GroupPaceView.Message -> MessageBody(view.message)
+            is GroupPaceView.Message -> MessageBody(view.message, "공동 페이스")
         }
-        PageIndicator(count, index)
     }
 }
 
-/** 9.8: rank and the runners just ahead and behind, as the server ranked them (GRP-008). */
+/**
+ * 9.8 진행 순서·간격: rank and the gaps to the runners just ahead and behind, as the server ranked them (GRP-008). A gap
+ * is the difference in course progress, not a straight-line or map distance.
+ */
 @Composable
-internal fun GroupPositionPage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean) {
-    RoundScreen(spacing = 3.dp, focused = visible) {
-        Text("그룹 위치", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
+internal fun GroupPositionPage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit = {}) {
+    val status = RunStatusDisplay.from(snapshot)
+    WatchFace(rim = RunStatusDisplay.rim(status), pages = PageDots(count, index), handle = pauseHandle(status, onPause), focused = visible) {
         when (val view = GroupRunDisplay.position(snapshot)) {
             is GroupPositionView.Standing -> StandingBody(view)
             is GroupPositionView.Message -> {
-                MessageBody(view.message)
+                val location = snapshot.metrics.feeds.location
+                val ended = GroupRunDisplay.status(snapshot).phase.let { it == GroupPhase.FINISHED || it == GroupPhase.FORCE_FINISHED }
+                val noMe = !ended && (location == FeedStatus.NO_SIGNAL || location == FeedStatus.STOPPED)
+                if (noMe) StatusIcons(listOf(StatusItem(StatusKind.GPS, StatusLevel.PROBLEM, "위치 수신 없음")))
+                MessageBody(view.message, if (noMe) null else "진행 순서")
                 view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
             }
         }
-        PageIndicator(count, index)
     }
 }
 
 @Composable
-private fun ColumnScope.StandingBody(view: GroupPositionView.Standing) {
-    val color = if (view.delayed) RunwayColors.ContentSecondary else RunwayColors.Content
+private fun StandingBody(view: GroupPositionView.Standing) {
+    // A late standing is the last one received: marked and grey, never shown as current (9.8c). The time it was
+    // last confirmed needs a server timestamp, which G10 does not carry yet.
+    if (view.delayed) StatusChip("순위 갱신 지연")
     Row(
-        Modifier.clearAndSetSemantics { contentDescription = view.rankDescription },
-        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom,
+        Modifier.clearAndSetSemantics { contentDescription = view.rankDescription + (view.total?.let { ", 전체 ${it.removePrefix("/ ")}" } ?: "") },
+        verticalAlignment = Alignment.Bottom,
     ) {
-        Text(view.rank, style = RunwayType.number(40), color = if (view.rank == MetricFormat.MISSING) RunwayColors.ContentDim else color)
-        view.total?.let { Text(it, Modifier.padding(bottom = 6.dp), style = RunwayType.Body, color = RunwayColors.ContentSecondary) }
+        val number = view.rank.removeSuffix("위")
+        // One step smaller when a chip has to fit above or below it (9.8b, 9.8c).
+        HeroNumber(number, if (view.delayed || view.tie != null) HeroSize.PACE else HeroSize.forText(number).coerceAtMost(HeroSize.SHORT), view.rankDescription,
+            color = if (view.delayed || view.rank == MetricFormat.MISSING) RunwayColors.ContentDim else RunwayColors.Primary)
+        Text((if (view.rank == MetricFormat.MISSING) "" else "위 ") + (view.total ?: ""), Modifier.padding(start = px(6), bottom = px(16)),
+            style = RunwayType.number(36), color = RunwayColors.ContentSecondary, maxLines = 1)
     }
-    if (view.delayed) Text("순위 지연", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Side(view.ahead, color)
-        Side(view.behind, color)
+    view.tie?.let { StatusChip("공동 순위 · ${it}명") }
+    CellRow {
+        SideCell(view.ahead, "바로 앞", view.delayed)
+        SideCell(view.behind, "바로 뒤", view.delayed)
     }
     view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
 }
 
+/** Gap to the nearest runner on one side; nobody there reads 없음, someone without a delivered gap "– –". */
 @Composable
-private fun Side(side: GroupSide, color: Color) {
-    Column(Modifier.clearAndSetSemantics { contentDescription = side.description }, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(side.count, style = RunwayType.Body, color = color, maxLines = 1)
-        side.gap?.let { Text(it, style = RunwayType.number(13), color = color, maxLines = 1) }
-    }
+private fun SideCell(side: GroupSide, label: String, delayed: Boolean) {
+    val value = side.gap?.substringAfter(' ') ?: if (side.count.endsWith(" 0명")) "없음" else MetricFormat.MISSING
+    ValueCell(value, label, side.description, valueColor = if (delayed) RunwayColors.ContentDim else RunwayColors.Content)
 }
 
 /** Notices are read out once by TalkBack when they change; they stay in the page, not a separate inbox. */
 @Composable
-private fun Line(line: GroupLine, color: Color, announce: Boolean = false) {
+private fun Line(line: GroupLine, color: Color, announce: Boolean = false, strong: Boolean = false) {
     Text(
         line.text,
         Modifier.semantics {
             contentDescription = line.description
             if (announce) liveRegion = LiveRegionMode.Polite
         },
-        style = RunwayType.number(12), color = color,
-        textAlign = TextAlign.Center, maxLines = 1,
+        style = RunwayType.number(if (strong) 32 else 28, if (strong) FontWeight.Bold else FontWeight.SemiBold), color = color,
+        textAlign = TextAlign.Center,
     )
 }
 
 @Composable
-private fun MessageBody(message: GroupMessage) {
-    Text(message.title, style = RunwayType.Title, color = if (message.warning) RunwayColors.Warning else RunwayColors.Content,
-        textAlign = TextAlign.Center)
+private fun MessageBody(message: GroupMessage, caption: String?) {
+    caption?.let { Caption(it) }
+    Title(message.title, if (message.warning) RunwayColors.Warning else RunwayColors.Content, announce = true)
     // Korean wraps per syllable by default, so the copy breaks between words explicitly.
-    Text(message.description, style = RunwayType.Body, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
+    BodyText(message.description)
 }

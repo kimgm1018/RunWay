@@ -6,6 +6,8 @@ import com.runway.watch.run.BpmChange
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
 import com.runway.watch.run.CoachingGuide
+import com.runway.watch.run.ControlProblem
+import com.runway.watch.run.ControlProblemKind
 import com.runway.watch.run.RhythmBpm
 import com.runway.watch.run.GroupStatus
 import com.runway.watch.run.RunMetrics
@@ -133,7 +135,16 @@ class SessionRunControl(
             measurementLost = session.measurementLost,
             phoneRecording = session.phoneRecording,
             comparison = session.comparison,
+            problem = problem(session),
         )
+
+        /** The same problem the notice line names, for screens that show it as a state (S15P31E105-613). */
+        fun problem(session: WatchSessionState): ControlProblem? = when (val p = session.problem) {
+            is WatchProblem.Rejected -> ControlProblem(ControlProblemKind.REJECTED, intentOf(p.action))
+            is WatchProblem.Unconfirmed -> ControlProblem(ControlProblemKind.UNCONFIRMED, intentOf(p.action))
+            is WatchProblem.Refused -> ControlProblem(ControlProblemKind.REFUSED, p.action?.let(::intentOf))
+            WatchProblem.PhoneUnreachable, null -> null
+        }
 
         /** The run intent a pending request action stands for; null for actions without one (BPM change, coaching). */
         private fun intentOf(action: String): RunIntent? = when (action) {
