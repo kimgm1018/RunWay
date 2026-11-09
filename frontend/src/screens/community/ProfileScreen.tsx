@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import {
+  StackActions,
   useFocusEffect,
   useNavigation,
   useRoute,
@@ -36,6 +37,7 @@ import {
 import {
   DataError,
   useRepositories,
+  type FollowListKind,
   useResource,
   type Repositories,
   type RunnerProfile,
@@ -49,12 +51,11 @@ import {
   formatPace,
 } from '../../format';
 import { FollowRequestSheet } from './FollowRequestSheet';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, ThemeProvider } from '../../theme';
-import { CourseGlyph } from '../course/SavedCoursesScreen';
+import { CourseMapThumb } from '../course/SavedCoursesScreen';
 import { communityLook } from './look';
-import { mediaFor, Scrim } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
@@ -309,24 +310,38 @@ function HeroBackdrop({
   );
 }
 
-// One of the three numbers under the button.
+// One of the three numbers under the button. 팔로워 · 팔로잉 open 7.4c when the profile is open to me.
 function Count({
   value,
   unit,
   label,
+  onPress,
 }: {
   value: string;
   unit?: string;
   label: string;
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.count}>
+  const content = (
+    <>
       <AppText style={styles.countValue}>
         {value}
         {unit ? <AppText style={styles.countUnit}>{unit}</AppText> : null}
       </AppText>
       <AppText style={styles.countLabel}>{label}</AppText>
-    </View>
+    </>
+  );
+  return onPress ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} ${value}명 목록`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.count, pressed && styles.countPressed]}
+    >
+      {content}
+    </Pressable>
+  ) : (
+    <View style={styles.count}>{content}</View>
   );
 }
 
@@ -364,13 +379,14 @@ const tileGap = 12;
 function RunTile({
   record,
   width,
+  loadRoute,
   onPress,
 }: {
   record: RunRecordSummary;
   width: number;
+  loadRoute?: () => Promise<[number, number][] | null>;
   onPress: () => void;
 }) {
-  const media = mediaFor(record.id);
   const detail = record.group
     ? `${formatDotDateWeekday(record.startedAt)} · ${record.group.crewName} · ${
         record.group.finisherCount
@@ -391,16 +407,14 @@ function RunTile({
         pressed && styles.tilePressed,
       ]}
     >
-      <MistFill
-        id={`tile${record.id.replace(/[^a-zA-Z0-9]/g, '')}`}
-        colors={[...media.colors]}
-        offsets={[...media.offsets]}
-        style={styles.fillBleed}
+      {/* The run on the real map (S15P31E105-562), the words over its dark foot. */}
+      <CourseMapThumb
+        load={loadRoute}
+        shape={record.shape}
+        km={record.distanceM / 1000}
+        area={{ top: 0.08, bottom: 0.5 }}
+        shadeFrom={0.42}
       />
-      <View style={styles.tileGlyph}>
-        <CourseGlyph shape={record.shape} thin />
-      </View>
-      <Scrim />
       <View style={styles.tileText}>
         {record.runType === 'GROUP' ? (
           <View style={styles.badge}>
@@ -443,6 +457,7 @@ function Profile({
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { records: recordsRepo, community } = useRepositories();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const locked = !profile.accessible;
   const heroHeight = Math.round(screenHeight * 0.48);
@@ -456,6 +471,19 @@ function Profile({
         profile.followRequests.more ? '+' : ''
       }`
     : null;
+  // A closed private profile hides its lists as it hides the counts (U26 · U27 answer 403).
+  const openList = (kind: FollowListKind) =>
+    locked
+      ? undefined
+      : () =>
+          // Pushed, so a list opened from a profile reached through another list stacks on top.
+          navigation.dispatch(
+            StackActions.push('FollowList', {
+              userId: profile.userId,
+              kind,
+              nickname: profile.nickname,
+            }),
+          );
   const followLabel =
     profile.followStatus === 'FOLLOWING'
       ? '팔로잉'
@@ -526,8 +554,16 @@ function Profile({
             />
           )}
           <View style={styles.counts}>
-            <Count value={countText(profile.followerCount)} label="팔로워" />
-            <Count value={countText(profile.followingCount)} label="팔로잉" />
+            <Count
+              value={countText(profile.followerCount)}
+              label="팔로워"
+              onPress={openList('followers')}
+            />
+            <Count
+              value={countText(profile.followingCount)}
+              label="팔로잉"
+              onPress={openList('following')}
+            />
             <Count
               value={locked ? '–' : String(profile.monthly.runCount)}
               unit={locked ? undefined : '회'}
@@ -593,12 +629,24 @@ function Profile({
                       key={record.id}
                       record={record}
                       width={tileWidth}
+                      // H01 carries no points: a shared run asks its post (CMT), my own run its record (H02).
+                      loadRoute={
+                        postId
+                          ? () => community.getRoute(postId)
+                          : profile.isMe
+                          ? () =>
+                              recordsRepo
+                                .getDetail(record.id)
+                                .then(detail => detail.route)
+                          : undefined
+                      }
                       onPress={() =>
                         postId
                           ? navigation.navigate('PostDetail', { postId })
-                          : navigation.navigate('RecordDetail', {
-                              recordId: record.id,
-                            })
+                          : // My own run opens in 2.1 기록 상세 (S15P31E105-564).
+                          profile.isMe
+                          ? openRecord(navigation, record.id)
+                          : undefined
                       }
                     />
                   ))}
@@ -790,6 +838,7 @@ const styles = StyleSheet.create({
   // 팔로워 · 팔로잉 · 이번 달 러닝, each centred in a third.
   counts: { flexDirection: 'row', marginTop: 20 },
   count: { flex: 1, alignItems: 'center' },
+  countPressed: { opacity: 0.6 },
   countValue: {
     fontFamily: fontFamily.numberMedium,
     fontSize: 26,
@@ -860,13 +909,6 @@ const styles = StyleSheet.create({
   tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: tileGap },
   tile: { borderRadius: 16, overflow: 'hidden', justifyContent: 'flex-end' },
   tilePressed: { opacity: 0.8 },
-  tileGlyph: {
-    position: 'absolute',
-    top: '12%',
-    left: '22%',
-    width: '56%',
-    aspectRatio: 1,
-  },
   tileText: { paddingHorizontal: 12, paddingBottom: 12, gap: 2 },
   badge: {
     alignSelf: 'flex-start',

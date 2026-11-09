@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import { DataError } from '../errors';
 import { apiRequest } from './http';
+import { listItems } from './listItems';
 
 // H01·H02·H03·H06·H07 러닝 기록 (docs/design/api/running-records.md). Numbers the server keeps as decimals
 // (distance, pace) arrive as JSON numbers; paces are rounded to whole seconds for display.
@@ -157,11 +158,11 @@ async function listAll(query: Record<string, string>) {
   const items: ListItem[] = [];
   let cursor: string | undefined;
   do {
-    const page: ListResponse = await apiRequest<ListResponse>(path, {
+    const page = await apiRequest<ListResponse>(path, {
       query: { ...query, limit: pageLimit, cursor },
     });
-    items.push(...page.items);
-    cursor = page.page;
+    items.push(...listItems(page));
+    cursor = page?.page;
   } while (cursor);
   return started(items);
 }
@@ -193,16 +194,16 @@ export function createRecordsApi() {
     for (const runType of ['SOLO', 'GROUP'] as const) {
       let cursor: string | undefined;
       do {
-        const page: ListResponse = await apiRequest<ListResponse>(path, {
+        const page = await apiRequest<ListResponse>(path, {
           query: { runType, sort: 'LATEST', limit: pageLimit, cursor },
         });
-        const match = started(page.items).find(
+        const match = started(listItems(page)).find(
           item => String(item.id) === recordId,
         );
         if (match) {
           return remember([toSummary(match, runType)])[0];
         }
-        cursor = page.page;
+        cursor = page?.page;
       } while (cursor);
     }
     return null;
@@ -214,7 +215,9 @@ export function createRecordsApi() {
       const page = await apiRequest<ListResponse>(path, {
         query: { runType: 'SOLO', sort: sortParam[sort], limit },
       });
-      return remember(started(page.items).map(item => toSummary(item, 'SOLO')));
+      return remember(
+        started(listItems(page)).map(item => toSummary(item, 'SOLO')),
+      );
     },
     getMonth: async (month, filter) => {
       const [summary, runs] = await Promise.all([
@@ -284,7 +287,7 @@ export function createRecordsApi() {
         { query: { months } },
       );
       return {
-        items: response.items.map(item => ({
+        items: listItems(response).map(item => ({
           ...item,
           averagePaceSecPerKm: roundPace(item.averagePaceSecPerKm),
         })),

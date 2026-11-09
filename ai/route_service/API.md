@@ -220,3 +220,24 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 엔진 되돌리기 스위치(`RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_PAIR_FAST`,
 `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`,
 `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_FAST_GRAPH`)는 결과를 바꾸지 않고 느린 검증 경로로 돌아가는 비상용이다(README 7절).
+# 데이터 모드 (S15P31E105-586)
+
+요청·성공 응답·오류 구조는 모드와 관계없이 같다. 거리 상한은 15 km다.
+기본 `ROUTE_DATA_MODE=busan`은 기존 부산 경로와 문구를 유지한다.
+`ROUTE_DATA_MODE=national`은 `ROUTE_NATIONAL_DIR`의 전국 자료에서 요청별 창을 선택한다.
+`ROUTE_WINDOW_CACHE_SIZE`는 준비된 창 LRU 크기(기본 1, 양의 정수)다.
+`ROUTE_NATIONAL_DIR`는 `store/`, `store_prep/`, env 메타데이터가 있는 읽기 전용 마운트 폴더여야 한다.
+설정 오류는 시작 시 실패하며, store/prep 불일치 또는 엔진/예열 실패는 ready 503 및 추천 `UNAVAILABLE`이다.
+기본 예열은 전국 모드에서 서울 SSAFY 인근 `37.5013,127.0396`, LOOP 5 km다.
+
+`OUT_OF_AREA`는 양쪽 모드 모두 HTTP 422다. 전국 모드에서는 출발점 또는 P2P 도착점이
+전국 자료 bbox 밖인 경우, 최종 anchor 창에도 작업 영역이 들어가지 않는 경우에 반환한다.
+작은 창의 `OUTSIDE_CANONICAL_EXTRACT`는 anchor ±20 km 창에서 같은 입력으로 한 번 재시도한 뒤 판정한다.
+
+| 모드 | OUT_OF_AREA message |
+|---|---|
+| busan (기본) | 현재 위치는 아직 추천 지역(부산) 밖이에요. 지도에서 부산 안의 출발 위치를 골라 주세요. |
+| national | 출발 위치나 도착 위치가 전국 도로 자료의 추천 범위 밖이에요. 자료 범위 안의 위치를 골라 주세요. |
+
+재추천의 next_seed, lookback, cache, 엔진 잠금과 deadline 계약은 기존과 같다.
+데이터 마운트·설정·검토 명령은 [README](README.md)의 전국 도로 자료 및 배포 안내를 따른다.

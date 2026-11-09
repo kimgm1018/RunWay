@@ -1,4 +1,4 @@
-// Error codes the screens react to. Auth codes follow docs/design/api/users.md; phone codes have no spec yet.
+// Error codes the screens react to. Auth and phone verification codes follow docs/design/api/users.md (U28~U30).
 // A list rather than a bare union so server responses can be checked against it (src/data/api/http.ts).
 export const dataErrorCodes = [
   'INVALID_CREDENTIALS',
@@ -15,15 +15,22 @@ export const dataErrorCodes = [
   'PROFILE_NOT_SET',
   'INVALID_LEVEL',
   'INVALID_RUNNING_BASELINE',
+  // U28~U30 휴대전화 인증·비밀번호 재설정 (users.md, S15P31E105-560).
   'PHONE_NOT_REGISTERED',
   'PHONE_ALREADY_REGISTERED',
+  'PHONE_ACCOUNT_AMBIGUOUS',
   'VERIFICATION_CODE_MISMATCH',
   'VERIFICATION_ATTEMPTS_EXCEEDED',
   'VERIFICATION_EXPIRED',
+  'VERIFICATION_RESEND_TOO_SOON',
+  'VERIFICATION_SEND_LIMIT_EXCEEDED',
+  'SMS_UNAVAILABLE',
   // H02 러닝 기록 상세 (docs/design/api/running-records.md).
   'RECORD_NOT_FOUND',
   // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
   'CREW_CAPACITY_EXCEEDED',
+  // M12 크루 설정 변경: the new capacity is under the current member count (S15P31E105-570).
+  'CREW_CAPACITY_BELOW_MEMBERS',
   // M02–M08 크루.
   'CREW_NOT_FOUND',
   // CMT13 통합 검색: the query is under the server's minimum length.
@@ -34,6 +41,8 @@ export const dataErrorCodes = [
   // U25 팔로우 요청 승인·거절: the request is gone, or was cancelled or answered meanwhile.
   'REQUEST_NOT_FOUND',
   'REQUEST_STATE_CONFLICT',
+  // U26 · U27 팔로워 · 팔로잉: a private account I am not an approved follower of (S15P31E105-534).
+  'ACCOUNT_ACCESS_DENIED',
   // C10 생성 코스 저장: the C01 route is older than 30 minutes or was changed (COURSE_INACCESSIBLE is listed above).
   'COURSE_CANDIDATE_INVALID',
   // M03 크루 대표 사진: the imageKey is not a CREW photo I uploaded myself.

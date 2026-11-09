@@ -45,6 +45,54 @@ class SamsungHealthModule(private val app: ReactApplicationContext) : ReactConte
     val available = try { app.packageManager.getApplicationInfo("com.sec.android.app.shealth", 0).enabled } catch (_: Exception) { false }
     promise.resolve(if (available) "available" else "unavailable")
   }
+  private val sleepPermission get() = Permission.of(DataTypes.SLEEP, AccessType.READ)
+  private val sleepPrefs by lazy { app.getSharedPreferences("samsung_sleep", android.content.Context.MODE_PRIVATE) }
+  private fun installed() = try { app.packageManager.getApplicationInfo("com.sec.android.app.shealth", 0).enabled } catch (_: Exception) { false }
+
+  /** S15P31E105-572: sleep-only read permission state for the product flow (granted / required / unavailable). */
+  @ReactMethod fun sleepAccessStatus(promise: Promise) {
+    if (!installed()) { promise.resolve("unavailable"); return }
+    run(promise) { if (store.getGrantedPermissions(setOf(sleepPermission)).contains(sleepPermission)) "granted" else "required" }
+  }
+  /** Asks for sleep read only. Resolves whether it is granted afterwards. */
+  @ReactMethod fun requestSleepAccess(promise: Promise) = run(promise) {
+    val activity = app.currentActivity ?: throw IllegalStateException()
+    store.requestPermissions(setOf(sleepPermission), activity).contains(sleepPermission)
+  }
+  /** Small app-private JSON state for sleep upload bookkeeping. Holds dates and minutes only, never logged. */
+  @ReactMethod fun loadSleepState(promise: Promise) { promise.resolve(sleepPrefs.getString("state", null)) }
+  @ReactMethod fun saveSleepState(json: String?, promise: Promise) {
+    val ok = sleepPrefs.edit().apply { if (json == null) remove("state") else putString("state", json) }.commit()
+    promise.resolve(ok)
+  }
+  private val heartRatePermission get() = Permission.of(DataTypes.HEART_RATE, AccessType.READ)
+
+  /** S15P31E105-600: heart rate read permission state for the resting heart rate flow (granted / required / unavailable). */
+  @ReactMethod fun heartRateAccessStatus(promise: Promise) {
+    if (!installed()) { promise.resolve("unavailable"); return }
+    run(promise) { if (store.getGrantedPermissions(setOf(heartRatePermission)).contains(heartRatePermission)) "granted" else "required" }
+  }
+  /** Asks for sleep and/or heart rate read in one dialog. Resolves which of them are granted afterwards. */
+  @ReactMethod fun requestHealthAccess(metrics: ReadableArray, promise: Promise) = run(promise) {
+    val activity = app.currentActivity ?: throw IllegalStateException()
+    val wanted = (0 until metrics.size()).mapNotNull { metrics.getString(it) }.toSet()
+    val asked = buildSet {
+      if ("sleep" in wanted) add(sleepPermission)
+      if ("heartRate" in wanted) add(heartRatePermission)
+    }
+    if (asked.isEmpty()) throw IllegalArgumentException()
+    val granted = store.requestPermissions(asked, activity)
+    Arguments.createMap().apply {
+      if ("sleep" in wanted) putBoolean("sleep", granted.contains(sleepPermission))
+      if ("heartRate" in wanted) putBoolean("heartRate", granted.contains(heartRatePermission))
+    }
+  }
+  /** App-private JSON state for resting heart rate upload bookkeeping. Holds dates and bpm only, never logged. */
+  @ReactMethod fun loadRestingHrState(promise: Promise) { promise.resolve(sleepPrefs.getString("restingHrState", null)) }
+  @ReactMethod fun saveRestingHrState(json: String?, promise: Promise) {
+    val ok = sleepPrefs.edit().apply { if (json == null) remove("restingHrState") else putString("restingHrState", json) }.commit()
+    promise.resolve(ok)
+  }
   @ReactMethod fun requestReadAccess(promise: Promise) = run(promise) {
     val activity = app.currentActivity ?: throw IllegalStateException()
     store.requestPermissions(permissions, activity)

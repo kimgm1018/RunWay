@@ -130,4 +130,87 @@ class CourseGenerationConfigTest {
         runner.withPropertyValues("runway.course.dem.path=" + AREA_DEM.toAbsolutePath())
                 .run(context -> assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isEmpty());
     }
+
+    @Test
+    void closesDemOnContextShutdownAndBindsCacheBudget() throws Exception {
+        var source = new java.util.concurrent.atomic.AtomicReference<GeoTiffElevationSource>();
+        runner.withPropertyValues("runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
+                        "runway.course.dem.sha256=" + sha256(AREA_DEM),
+                        "runway.course.dem.cache-bytes=1048576")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var dem = (GeoTiffElevationSource) context.getBean(PreparedCourseGrade.class)
+                            .elevationSource().orElseThrow();
+                    assertThat(dem.elevationAt(11, 49)).isEqualTo(5.5);
+                    source.set(dem);
+                });
+        assertThatThrownBy(() -> source.get().elevationAt(11, 49)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void 캐시_예산이_범위_밖이거나_숫자가_아니면_설정_이름을_담아_기동을_실패시킨다() throws Exception {
+        for (String budget :
+                new String[] {"0", "-1", "1048575", "268435457", "32MB", "lots"}) {
+            runner.withPropertyValues("runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
+                            "runway.course.dem.sha256=" + sha256(AREA_DEM),
+                            "runway.course.dem.cache-bytes=" + budget)
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure())
+                                .hasStackTraceContaining("runway.course.dem.cache-bytes")
+                                .hasStackTraceContaining(budget);
+                    });
+            // DEM을 설정하지 않은 환경에서도 잘못된 값은 숨기지 않는다.
+            runner.withPropertyValues("runway.course.dem.cache-bytes=" + budget)
+                    .run(context -> assertThat(context).hasFailed());
+        }
+        for (String budget : new String[] {"1048576", "33554433", "268435456"}) {
+            runner.withPropertyValues("runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
+                            "runway.course.dem.sha256=" + sha256(AREA_DEM),
+                            "runway.course.dem.cache-bytes=" + budget)
+                    .run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.getBean(PreparedCourseGrade.class).gradeService()).isPresent();
+                    });
+        }
+    }
+
+    /** B-1: DEM은 소유 Bean의 해제 콜백으로 닫혀, 이 Bean에 의존하는 Bean의 종료 작업이 끝난 뒤에 닫힌다. */
+    @Test
+    void DEM은_의존하는_Bean의_종료_작업이_끝난_뒤에_닫힌다() throws Exception {
+        ELEVATION_AT_SHUTDOWN.set(null);
+        var source = new java.util.concurrent.atomic.AtomicReference<GeoTiffElevationSource>();
+        // 소비자 설정을 먼저 등록해 해제 등록 순서상 DEM 정리보다 늦게 정리될 수 있는 조건을 만든다.
+        new ApplicationContextRunner()
+                .withUserConfiguration(DemConsumerConfig.class, RouteConfig.class, CourseDemConfig.class)
+                .withBean(JsonMapper.class, () -> JsonMapper.builder().build())
+                .withBean(Clock.class, Clock::systemUTC)
+                .withPropertyValues("runway.course.dem.path=" + AREA_DEM.toAbsolutePath(),
+                        "runway.course.dem.sha256=" + sha256(AREA_DEM))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    source.set((GeoTiffElevationSource) context.getBean(PreparedCourseGrade.class)
+                            .elevationSource().orElseThrow());
+                });
+        assertThat(ELEVATION_AT_SHUTDOWN.get()).isEqualTo(5.5);
+        assertThatThrownBy(() -> source.get().elevationAt(11, 49)).isInstanceOf(ApiException.class);
+    }
+
+    private static final java.util.concurrent.atomic.AtomicReference<Object> ELEVATION_AT_SHUTDOWN =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    /** 개인화 디스패처처럼 종료 시 남은 작업이 DEM을 읽는 소비자. */
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    static class DemConsumerConfig {
+        @org.springframework.context.annotation.Bean
+        org.springframework.beans.factory.DisposableBean demConsumer(CourseElevationSource elevation) {
+            return () -> {
+                try {
+                    ELEVATION_AT_SHUTDOWN.set(elevation.source().orElseThrow().elevationAt(11, 49));
+                } catch (RuntimeException ex) {
+                    ELEVATION_AT_SHUTDOWN.set(ex);
+                }
+            };
+        }
+    }
 }

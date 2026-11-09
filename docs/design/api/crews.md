@@ -15,12 +15,13 @@
 | [M09](#m09-크루-멤버-내보내기) | 크루 멤버 내보내기 | DELETE | `/crews/{crewId}/members/{userId}` | 선택 기능 | 회원 |
 | [M10](#m10-내-크루-목록) | 내 크루 목록 | GET | `/users/me/crews` | 1차 MVP | 회원 |
 | [M11](#m11-크루-해산) | 크루 해산 | DELETE | `/crews/{crewId}` | 1차 MVP | 회원 |
+| [M12](#m12-크루-설정-변경) | 크루 설정 변경(정원·가입 방식) | PATCH | `/crews/{crewId}` | 1차 MVP | 회원 |
 
 ## ERD 응답 대응 기준
 
 **응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. 저장·전송 정책이 미정인 보완 필드는 구현 완료 계약을 뜻하지 않는다. 확인 필요 필드의 생략은 기능 삭제나 최종 선택 필드 확정을 뜻하지 않는다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
 
-crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가입 상태는 PENDING/APPROVED/REJECTED/LEFT다. myMembershipStatus는 본인의 가입 관계가 없으면 null이며 가입 상태와 크루 상태를 혼용하지 않는다.
+crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가입 방식(`joinPolicy`)은 APPROVAL/INSTANT, 가입 상태는 PENDING/APPROVED/REJECTED/LEFT다. myMembershipStatus는 본인의 가입 관계가 없으면 null이며 가입 상태와 크루 상태를 혼용하지 않는다.
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
@@ -84,6 +85,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
       "capacity": 20,
       "status": "ACTIVE",
       "regionCode": null,
+      "joinPolicy": "APPROVAL",
       "memberCount": 10,
       "myMembershipStatus": "PENDING"
     }
@@ -108,6 +110,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 | `items[].capacity` | integer | O | `crews.capacity` (INTEGER). 저장 값은 NULL 불가. |
 | `items[].status` | string | O | `crews.status` (ENUM('ACTIVE', 'INACTIVE')). 저장 값은 NULL 불가. 허용값: ACTIVE, INACTIVE. |
 | `items[].regionCode` | string / null | O | `crews.region_code` (VARCHAR(40)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `items[].joinPolicy` | string | O | `crews.join_policy` (ENUM('APPROVAL', 'INSTANT')). NULL 불가. APPROVAL=크루장 승인, INSTANT=바로 가입(S15P31E105-570). |
 
 
 **사용 흐름과 응답 판단**
@@ -206,6 +209,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
   "memberCount": 10,
   "capacity": 20,
   "regionCode": null,
+  "joinPolicy": "APPROVAL",
   "myMembershipStatus": "PENDING"
 }
 ```
@@ -232,6 +236,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 |---|---|:---:|---|
 | `capacity` | integer | O | crews.capacity. 크루 정원. |
 | `regionCode` | string / null | O | crews.region_code. |
+| `joinPolicy` | string | O | crews.join_policy. APPROVAL/INSTANT. 가입 버튼 문구(가입 신청/바로 가입하기)와 크루장 관리 표시에 쓴다(S15P31E105-570). |
 
 ### 오류 응답
 
@@ -281,7 +286,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 ### 설명
 
-생성자는 OWNER 구성원으로 등록한다(`crews.owner_id` + `crew_memberships` APPROVED). 가입 방식은 크루장 승인으로 고정이므로 `joinPolicy`를 받지 않는다. 실제 저장은 [schema.sql](../db/schema.sql) `crews` 컬럼(`name`, `description`, `image_key`, `capacity`, `region_code`)에 대응한다. 스키마에 없는 요청 필드(`level`, `regionName`, `regionPosition`, `imageId`)는 **요청에서 받을 수 있으나(nullable) 현재는 저장하지 않는다(미구현)**.
+생성자는 OWNER 구성원으로 등록한다(`crews.owner_id` + `crew_memberships` APPROVED). 가입 방식 `joinPolicy`는 선택이며 생략하면 APPROVAL이다(2026-11-09 S15P31E105-570 사용자 확정). 실제 저장은 [schema.sql](../db/schema.sql) `crews` 컬럼(`name`, `description`, `image_key`, `capacity`, `region_code`, `join_policy`)에 대응한다. 스키마에 없는 요청 필드(`level`, `regionName`, `regionPosition`, `imageId`)는 **요청에서 받을 수 있으나(nullable) 현재는 저장하지 않는다(미구현)**.
 
 ### 인증 및 권한
 
@@ -306,6 +311,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 | `imageKey` | string | X | `crews.image_key` (VARCHAR(1024)). 생략 또는 null 허용. 본인이 CREW 용도로 올린 실제 정규 원본 경로만 연결(246번 후속 확정) |
 | `regionCode` | string | X | `crews.region_code` (VARCHAR(40)). `regions.region_code` 참조. 생략 또는 null 허용. 저장됨 |
 | `capacity` | integer | O | `crews.capacity`. 1~200의 정수. 자동 기본값은 두지 않는다 |
+| `joinPolicy` | string | X | `crews.join_policy`. `APPROVAL`(크루장 승인) 또는 `INSTANT`(바로 가입). 생략·null이면 APPROVAL. 그 밖의 값은 422 INVALID_CREW |
 | `imageId` | string (UUID) | X | 대표 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 `crews`에 저장하지 않음. `imageKey`와 병행 시 저장은 `imageKey`만 |
 | `regionName` | string | X | 활동 지역 이름. **미구현** — 받아도 저장하지 않음. 저장용은 `regionCode` |
 | `regionPosition` | GeoJSON / object | X | 활동 지역 좌표. **미구현** — 받아도 저장하지 않음 |
@@ -321,7 +327,8 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
   "regionPosition": null,
   "level": null,
   "imageId": null,
-  "capacity": 10
+  "capacity": 10,
+  "joinPolicy": "APPROVAL"
 }
 ```
 
@@ -358,7 +365,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `422 INVALID_CREW` | 입력 값 | 크루 이름·지역·정원 등 생성 값이 확정 규칙/ERD 형식과 맞지 않음. 크루 정원은 1~200명으로 확정 |
+| `422 INVALID_CREW` | 입력 값 | 크루 이름·지역·정원·가입 방식 등 생성 값이 확정 규칙/ERD 형식과 맞지 않음. 크루 정원은 1~200명으로 확정. `joinPolicy`가 APPROVAL/INSTANT가 아님 |
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
 | `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
@@ -368,8 +375,8 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 ### 처리 규칙
 
-- 생성자는 `crews.owner_id`에 기록되고 `crew_memberships`에 APPROVED로 등록된다. 가입 방식은 크루장 승인으로 고정이므로 `joinPolicy`를 받지 않는다.
-- 저장하는 필드: `name`, `description`, `imageKey`→`image_key`, `regionCode`→`region_code`, `capacity`. `status`는 ACTIVE.
+- 생성자는 `crews.owner_id`에 기록되고 `crew_memberships`에 APPROVED로 등록된다.
+- 저장하는 필드: `name`, `description`, `imageKey`→`image_key`, `regionCode`→`region_code`, `capacity`, `joinPolicy`→`join_policy`(생략 시 APPROVAL). `status`는 ACTIVE.
 - 2026-11-05 사용자 추가 승인(S15P31E105-246): imageKey가 있으면 인증된 생성자가 업로드한 CREW 용도 정규 경로와 실제 파일 존재를 확인한다. 타인 이미지·다른 용도·없는 파일·비정규 경로는 `403 RESOURCE_NOT_OWNED`로 거절하며 크루·구성원을 저장하지 않는다. imageKey 생략/null은 허용한다. imageId 수신만 하는 기존 범위는 유지한다. 이 검사는 타인의 미연결 CREW 이미지를 자신의 크루에 붙여 공개하는 우회를 방지한다. 정상 크루장 이양은 이미 검증해 연결한 image_key를 유지한다.
 - `regionCode`를 보낸 경우 `regions.region_code`에 존재해야 한다. 없으면 422 INVALID_CREW.
 - `imageId`, `regionName`, `regionPosition`, `level`은 요청에 포함해도 되며 null/생략 가능하나 **현재 저장·검증하지 않는다**(스키마 반영·매핑 후속).
@@ -403,7 +410,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 
 ### 설명
 
-ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한다. 승인 전에는 내 크루에 '승인 대기'로 보인다(6.0, 6.2b). 요청 body는 없다.
+ACTIVE 크루에 대해 본인 가입 신청을 생성·반환한다. 가입 방식이 APPROVAL이면 PENDING으로 저장되어 승인 전에는 내 크루에 '승인 대기'로 보인다(6.0, 6.2b). INSTANT(바로 가입)면 정원 안에서 즉시 APPROVED가 된다(S15P31E105-570). 요청 body는 없다.
 
 ### 인증 및 권한
 
@@ -439,6 +446,8 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 }
 ```
 
+INSTANT 크루에서는 같은 형태로 `"status": "APPROVED"`를 반환한다.
+
 응답 필드 정의(저장 필드는 ERD ver.3에 대응, 파생·미정 값은 설명에 구분):
 
 | 필드 | 타입 | 필수 | 설명 |
@@ -451,7 +460,7 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 
 **사용 흐름과 응답 판단**
 
-신청 성공은 PENDING이며 가입 완료가 아니다. 이미 PENDING 또는 APPROVED면 409다. REJECTED/LEFT는 동일 행을 PENDING으로 갱신해 재신청한다.
+APPROVAL 크루의 신청 성공은 PENDING이며 가입 완료가 아니다. INSTANT 크루는 `status: APPROVED`로 응답하며 가입 완료다. 이미 PENDING 또는 APPROVED면 409다. 가입 방식과 관계없이 현재 APPROVED 인원이 `crews.capacity` 이상이면 신청을 받지 않고 `409 CREW_CAPACITY_EXCEEDED`다. REJECTED/LEFT는 동일 행을 갱신해 재신청한다(재신청 시에도 정원 검사를 한다).
 
 ### 오류 응답
 
@@ -460,6 +469,8 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
 | `409 ALREADY_MEMBER_OR_PENDING` | 중복 관계 | 이미 PENDING 또는 APPROVED 관계가 있는데 가입 신청을 다시 보냄 |
+| `409 CREW_CAPACITY_EXCEEDED` | 정원 초과 | 현재 APPROVED 인원이 `crews.capacity` 이상인데 가입 신청(또는 REJECTED/LEFT 재신청)을 보냄. 가입 방식과 관계없다. PENDING 인원은 정원에 포함하지 않으며 관계 행을 만들거나 바꾸지 않는다 |
+| `404 CREW_NOT_FOUND` | 대상 없음 | 크루가 없거나 INACTIVE |
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
 | `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
@@ -471,10 +482,13 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 
 ### 처리 규칙
 
-- ACTIVE 크루에만 신청 가능. 요청 body 없음. 성공 시 PENDING 행을 생성하거나 반환한다.
+- ACTIVE 크루에만 신청 가능. 요청 body 없음. 성공 시 가입 방식이 APPROVAL이면 PENDING, INSTANT면 APPROVED 행을 생성하거나 갱신해 반환한다.
 - 이미 PENDING 또는 APPROVED → `409 ALREADY_MEMBER_OR_PENDING`.
-- REJECTED 또는 LEFT → 동일 `crew_memberships` 행을 PENDING으로 갱신해 재신청한다(`requested_at` 갱신, `joined_at` null).
-- 승인 전에는 내 크루에 '승인 대기'로 보인다(6.0, 6.2b). 크루장 승인(M06) 후 멤버가 된다.
+- 가입 방식과 관계없이 먼저 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M11 해산과 겹쳐도 해산된 크루에 PENDING·APPROVED 행이 남지 않는다(S15P31E105-570).
+- 잠금 아래에서 현재 APPROVED 인원이 `capacity` 이상 → `409 CREW_CAPACITY_EXCEEDED`. 행을 만들거나 바꾸지 않는다. 정원 판정은 승인(M06)과 같이 APPROVED만 센다(S15P31E105-582).
+- REJECTED 또는 LEFT → 동일 `crew_memberships` 행을 갱신해 재신청한다(`requested_at` 갱신). 재신청 직전에도 위 정원 검사를 한다. APPROVAL이면 PENDING(`joined_at` null), INSTANT면 APPROVED(`joined_at` 설정). 크루장이 거절·내보낸 회원도 INSTANT 크루에서는 즉시 다시 가입된다(2026-11-09 사용자 확인).
+- INSTANT(바로 가입) 크루: 새 행 또는 재신청 행을 바로 APPROVED로 저장한다(`requested_at`·`joined_at` 설정). 크루장 승인 알림은 만들지 않는다(S15P31E105-570).
+- APPROVAL 크루는 승인 전에는 내 크루에 '승인 대기'로 보이며(6.0, 6.2b) 크루장 승인(M06) 후 멤버가 된다. INSTANT 크루는 응답 즉시 멤버다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
@@ -700,6 +714,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 - body `status`는 `APPROVED`|`REJECTED`만 허용. OWNER만 처리; 비소유자 → `403 NOT_ADMIN`.
 - 대상이 PENDING이 아니면 → `409 NOT_PENDING`.
 - APPROVED 시 현재 APPROVED 인원이 `capacity` 이상이면 → `409 CREW_CAPACITY_EXCEEDED`. 승인 성공 시 `joined_at` 설정.
+- 인원 계산 전에 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M04 가입 신청·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경과 같은 잠금을 써서 동시 승인·정원 축소가 겹쳐도 APPROVED 인원이 정원을 넘지 않는다(S15P31E105-570). 동시 승인 경합에서 한쪽만 성공하고 다른 쪽은 `409 CREW_CAPACITY_EXCEEDED`(또는 이미 처리된 경우 `409 NOT_PENDING`)다(S15P31E105-593).
 - 승인·거절 확정 후 신청자 알림함 연계는 S15P31E105-458([notifications.md](notifications.md)). 종류는 `CREW_JOIN_APPROVED`/`CREW_JOIN_REJECTED`. 수신자 설정은 잠정 `notifications.community`(별도 확정 전까지). false이면 행 없음.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -925,6 +940,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 - 일반 APPROVED: `LEFT` + `left_at`.
 - OWNER + APPROVED ≥ 2: `successorUserId` 필수 → `owner_id` 이양 후 OWNER `LEFT` (한 트랜잭션).
 - OWNER + APPROVED = 1: M08 거부(`OWNER_CANNOT_LEAVE`). 자동 해산하지 않음.
+- 크루장·일반 멤버 모두 먼저 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). 크루장 이양이 같은 순간의 M12 정원·가입 방식 변경을 이전 값으로 덮어쓰지 않는다(S15P31E105-570).
 - 비ACTIVE 크루 탈퇴는 `404 CREW_NOT_FOUND`.
 
 ### 상태값
@@ -1001,6 +1017,7 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
 ### 처리 규칙
 
 - `crews.status` → `INACTIVE`.
+- 먼저 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M04 바로 가입과 겹쳐도 해산 뒤 APPROVED 멤버가 남지 않는다(S15P31E105-570).
 - 해당 크루 `APPROVED` 멤버십 → `LEFT` + `left_at`.
 - 해당 크루 `PENDING` → `REJECTED`.
 - `owner_id`는 이력으로 유지(변경하지 않음).
@@ -1011,6 +1028,87 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
 - [ ] 해산 시 진행·예정 그룹런 취소·보존 정책
 - [ ] 해산 알림
 
+
+## M12 크루 설정 변경
+
+`PATCH` `/api/v1/crews/{crewId}`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | MAT-003 |
+| 관련 화면 | 6.2m 크루 관리(정원), 6.2a 가입 신청 관리(가입 방식) |
+| 미정 사항 | 없음 |
+| 비고 | 2026-11-09 S15P31E105-570 사용자 확정 |
+
+### 설명
+
+크루장이 정원과 가입 방식을 바꾼다. 보낸 필드만 바꾸며, 크루 이름·소개·사진·지역은 이 API로 바꾸지 않는다.
+
+### 인증 및 권한
+
+- OWNER(`crews.owner_id`)만. 비소유자 → `403 NOT_ADMIN`.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `crewId` | integer (int64) | O | 대상 크루 |
+
+### Request Body
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `capacity` | integer | X | `crews.capacity`. 1~200의 정수이며 현재 APPROVED 인원 이상 |
+| `joinPolicy` | string | X | `crews.join_policy`. `APPROVAL` 또는 `INSTANT` |
+
+두 필드 중 하나 이상을 보낸다. 생략하거나 null인 필드는 바꾸지 않는다.
+
+```json
+{
+  "capacity": 21,
+  "joinPolicy": "INSTANT"
+}
+```
+
+### Response
+
+`200 OK` — [M02](#m02-크루-상세)와 같은 크루 상세 본문. `myMembershipStatus`는 크루장 본인이므로 `APPROVED`다.
+
+```json
+{
+  "id": 101,
+  "name": "러닝 크루",
+  "description": null,
+  "ownerId": 101,
+  "memberCount": 10,
+  "capacity": 21,
+  "regionCode": null,
+  "joinPolicy": "INSTANT",
+  "myMembershipStatus": "APPROVED"
+}
+```
+
+### 오류 응답
+
+| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+|---|---|---|
+| `422 INVALID_CREW` | 입력 값 | 두 필드가 모두 없음, `capacity`가 1~200 밖, `joinPolicy`가 APPROVAL/INSTANT가 아님 |
+| `409 CREW_CAPACITY_BELOW_MEMBERS` | 정원 경계 | `capacity`가 현재 APPROVED 인원보다 작음. 현재 인원과 같은 값은 허용 |
+| `403 NOT_ADMIN` | 역할 권한 | 호출자가 OWNER가 아님 |
+| `404 CREW_NOT_FOUND` | 대상 없음 | 크루가 없거나 INACTIVE(해산) |
+| `401 UNAUTHORIZED` | 인증 | 토큰 없음·만료·위변조 |
+| `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·자료형 또는 Path 식별자 형식이 맞지 않음 |
+
+- 오류 시 어떤 필드도 저장하지 않는다. 클라이언트는 실패를 저장 성공으로 표시하지 않는다.
+
+### 처리 규칙
+
+- 검사 순서: 회원 확인 → `crews` 행 잠금(`SELECT … FOR UPDATE`)과 ACTIVE 확인(404) → OWNER 확인(403) → 입력 값(422) → APPROVED 인원과 정원 비교(409).
+- 정원 비교와 저장은 같은 잠금 안에서 한다. M04 가입 신청·M06 승인·M08 탈퇴·M09 내보내기·M11 해산도 같은 잠금을 쓰므로 승인과 정원 축소가 겹쳐도 한쪽만 성공하고, 이양·해산이 M12 변경을 이전 값으로 덮어쓰지 않는다.
+- APPROVAL → INSTANT로 바꿔도 기존 PENDING 신청은 그대로 두며 크루장이 M06으로 처리한다. 이후 신청부터 바로 가입이 적용된다.
+- INSTANT → APPROVAL로 바꿔도 기존 멤버는 그대로다.
 
 ## M09 크루 멤버 내보내기
 
@@ -1094,6 +1192,7 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
 ### 처리 규칙
 
 - OWNER만 가능하고 OWNER 본인은 내보낼 수 없다. 대상 APPROVED 멤버를 `LEFT`로 전이하고 `left_at`을 기록한다.
+- 먼저 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). 같은 크루장의 M08 이양과 겹쳐도 내보낸 회원이 크루장이 되거나 APPROVED 0명인 ACTIVE 크루가 남지 않는다(S15P31E105-570).
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 

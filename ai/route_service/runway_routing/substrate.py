@@ -62,8 +62,12 @@ class Substrate:
     pipeline이 시작할 때 한 번 만든다(부산 extract 기준 약 30 MB). 요청마다 disk()로 DiskMask를 얻고, p2p_endpoints가
     snap.p2p_endpoints와 같은 info와 반환값을 만든다. mask LRU(MASK_CACHE_SIZE)는 반복 요청용이며 결과에 영향이 없다."""
 
-    def __init__(self, gen, ug2: dict):
+    def __init__(self, gen, ug2: dict, *, prepared=None):
         t0 = time.perf_counter()
+        if prepared is not None:
+            prepared.substrate(self, gen, ug2)
+            self.build_s = round(time.perf_counter() - t0, 2)
+            return
         src = gen.source
         sc = gen.sidecar if gen.sidecar is not None else Sidecar(src)   # RUNWAY_FAST_GRAPH=0 has no sidecar
         self.gen, self.src, self.sc = gen, src, sc

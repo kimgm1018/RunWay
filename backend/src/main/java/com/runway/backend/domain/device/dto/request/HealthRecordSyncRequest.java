@@ -28,13 +28,26 @@ import java.util.regex.Pattern;
  * 거절한다. 지원하지 않는 provider는 422 UNSUPPORTED_RECORD_TYPE로 전체 거절한다. 그 밖의 레코드 안 위반은 해당 레코드만 거절하고 응답
  * errors에 index·code·field·reason을 담는다. 오류에는 값 원문을 넣지 않는다.
  *
- * @param records 요청 순서의 레코드 판정 결과. 유효하면 {@link DailyHrEstimate}, 아니면 {@link Rejected}
+ * <p>provider별 허용 type: {@code RUNWAY_WATCH} → {@code DAILY_HR_ESTIMATE}, {@code SAMSUNG_HEALTH} → {@code
+ * DAILY_SLEEP_SUMMARY}(S15P31E105-572)·{@code DAILY_RESTING_HR}(S15P31E105-600, 한 요청에 섞을 수 있음). provider와 맞지 않는
+ * type은 레코드 오류 UNSUPPORTED_RECORD_TYPE이다. {@code SAMSUNG_HEALTH}는 type이 문자열 {@code DAILY_RESTING_HR}일 때만 안정 심박
+ * 형식으로, 그 밖에는 수면 형식으로 검증한다(572의 기존 판정 유지).
+ *
+ * @param records 요청 순서의 레코드 판정 결과. 유효하면 {@link DailyHrEstimate}·{@link DailySleepSummary}·{@link
+ *     SamsungRestingHr}, 아니면 {@link Rejected}
  */
 public record HealthRecordSyncRequest(String provider, List<ParsedRecord> records) {
 
     public static final String PROVIDER_RUNWAY_WATCH = "RUNWAY_WATCH";
     public static final String TYPE_DAILY_HR_ESTIMATE = "DAILY_HR_ESTIMATE";
     public static final String METHOD_ROLLING24H_V2 = "ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2";
+    public static final String PROVIDER_SAMSUNG_HEALTH = "SAMSUNG_HEALTH";
+    public static final String TYPE_DAILY_SLEEP_SUMMARY = "DAILY_SLEEP_SUMMARY";
+    public static final String TYPE_DAILY_RESTING_HR = "DAILY_RESTING_HR";
+    public static final String METHOD_DAILY_LOWER_10PCT_V1 = "DAILY_LOWER_10PCT_MINUTE_MEAN_V1";
+
+    /** 폰 안정 심박 계산에 필요한 최소 유효 분 수(S15P31E105-600 D-4). */
+    static final int MIN_VALID_MINUTE_COUNT = 30;
 
     /** 폰은 미업로드 값을 7일까지 보관한다(63번). 한 요청은 한 달 분량을 넘지 않는다. */
     public static final int MAX_RECORDS = 31;
@@ -50,6 +63,9 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
     /** 24시간의 분 수. validSampleCount는 1분 평균 개수다. */
     static final int MAX_VALID_SAMPLE_COUNT = 1440;
 
+    /** 하루 수면 시간(분) 상한. 0 초과 1440 이하이며 NUMERIC(7,2)에 맞춰 소수 둘째 자리까지 받는다. */
+    static final BigDecimal MAX_SLEEP_MIN = BigDecimal.valueOf(1440);
+
     private static final Set<String> TOP_LEVEL_KEYS = Set.of("provider", "records");
     private static final List<String> RECORD_KEYS =
             List.of(
@@ -59,6 +75,18 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
                     "estimatedRestingHrBpm",
                     "method",
                     "validSampleCount",
+                    "computedAt");
+
+    private static final List<String> SLEEP_RECORD_KEYS =
+            List.of("type", "metricDate", "sleepDurationMin", "computedAt");
+
+    private static final List<String> RESTING_HR_RECORD_KEYS =
+            List.of(
+                    "type",
+                    "metricDate",
+                    "restingHrBpm",
+                    "method",
+                    "validMinuteCount",
                     "computedAt");
 
     private static final Pattern LOCAL_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
@@ -75,11 +103,40 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
                     .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                     .build();
 
-    public sealed interface ParsedRecord permits DailyHrEstimate, Rejected {}
+    public sealed interface ParsedRecord
+            permits DailyHrEstimate, DailySleepSummary, SamsungRestingHr, Rejected {
+        /** 저장 대상 날짜. 거절 레코드는 저장하지 않으므로 null이다. */
+        default LocalDate lockDate() {
+            return null;
+        }
+    }
 
     /** 저장 대상 추정값. validSampleCount·computedAt·method는 검증만 하고 저장하지 않는다. */
     public record DailyHrEstimate(LocalDate metricDate, int revision, BigDecimal restingHrBpm)
-            implements ParsedRecord {}
+            implements ParsedRecord {
+        @Override
+        public LocalDate lockDate() {
+            return metricDate;
+        }
+    }
+
+    /** 삼성 헬스 기상일별 수면 합계(분). computedAt은 검증만 하고 저장하지 않는다. */
+    public record DailySleepSummary(LocalDate metricDate, BigDecimal sleepDurationMin)
+            implements ParsedRecord {
+        @Override
+        public LocalDate lockDate() {
+            return metricDate;
+        }
+    }
+
+    /** 삼성 헬스 심박으로 폰이 계산한 날짜별 안정 심박. method·validMinuteCount·computedAt은 검증만 하고 저장하지 않는다. */
+    public record SamsungRestingHr(LocalDate metricDate, BigDecimal restingHrBpm)
+            implements ParsedRecord {
+        @Override
+        public LocalDate lockDate() {
+            return metricDate;
+        }
+    }
 
     public record Rejected(RecordError error) implements ParsedRecord {}
 
@@ -163,7 +220,8 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
                                                 "객체여야 합니다."))));
             }
         }
-        if (!PROVIDER_RUNWAY_WATCH.equals(provider.stringValue())) {
+        boolean watch = PROVIDER_RUNWAY_WATCH.equals(provider.stringValue());
+        if (!watch && !PROVIDER_SAMSUNG_HEALTH.equals(provider.stringValue())) {
             throw new ApiException(
                     ErrorCode.UNSUPPORTED_RECORD_TYPE,
                     Map.of(
@@ -176,7 +234,13 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
         List<ParsedRecord> records = new ArrayList<>(recordsNode.size());
         for (int i = 0; i < recordsNode.size(); i++) {
             try {
-                records.add(parseRecord(recordsNode.get(i), earliest, latest));
+                JsonNode node = recordsNode.get(i);
+                records.add(
+                        watch
+                                ? parseRecord(node, earliest, latest)
+                                : isRestingHr(node)
+                                        ? parseRestingHrRecord(node, earliest, latest)
+                                        : parseSleepRecord(node, earliest, latest));
             } catch (RecordViolation v) {
                 records.add(new Rejected(new RecordError(i, v.code, v.field, v.reason)));
             }
@@ -202,7 +266,7 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
         }
         LocalDate metricDate = metricDate(record.get("metricDate"), earliest, latest);
         int revision = intIn(record.get("revision"), "revision", 1, Integer.MAX_VALUE);
-        BigDecimal bpm = restingHr(record.get("estimatedRestingHrBpm"));
+        BigDecimal bpm = restingHr(record.get("estimatedRestingHrBpm"), "estimatedRestingHrBpm");
         JsonNode method = record.get("method");
         if (!method.isString() || !METHOD_ROLLING24H_V2.equals(method.stringValue())) {
             throw unsupported("method");
@@ -210,6 +274,81 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
         intIn(record.get("validSampleCount"), "validSampleCount", 1, MAX_VALID_SAMPLE_COUNT);
         computedAt(record.get("computedAt"));
         return new DailyHrEstimate(metricDate, revision, bpm);
+    }
+
+    private static DailySleepSummary parseSleepRecord(
+            JsonNode record, LocalDate earliest, LocalDate latest) {
+        for (String name : record.propertyNames()) {
+            if (!SLEEP_RECORD_KEYS.contains(name)) {
+                throw invalid(null, "UNKNOWN_FIELD");
+            }
+        }
+        for (String key : SLEEP_RECORD_KEYS) {
+            if (!record.has(key)) {
+                throw invalid(key, "REQUIRED");
+            }
+        }
+        JsonNode type = record.get("type");
+        if (!type.isString() || !TYPE_DAILY_SLEEP_SUMMARY.equals(type.stringValue())) {
+            throw unsupported("type");
+        }
+        LocalDate metricDate = metricDate(record.get("metricDate"), earliest, latest);
+        BigDecimal minutes = sleepMinutes(record.get("sleepDurationMin"));
+        computedAt(record.get("computedAt"));
+        return new DailySleepSummary(metricDate, minutes);
+    }
+
+    private static boolean isRestingHr(JsonNode record) {
+        JsonNode type = record.get("type");
+        return type != null && type.isString() && TYPE_DAILY_RESTING_HR.equals(type.stringValue());
+    }
+
+    private static SamsungRestingHr parseRestingHrRecord(
+            JsonNode record, LocalDate earliest, LocalDate latest) {
+        for (String name : record.propertyNames()) {
+            if (!RESTING_HR_RECORD_KEYS.contains(name)) {
+                throw invalid(null, "UNKNOWN_FIELD");
+            }
+        }
+        for (String key : RESTING_HR_RECORD_KEYS) {
+            if (!record.has(key)) {
+                throw invalid(key, "REQUIRED");
+            }
+        }
+        LocalDate metricDate = metricDate(record.get("metricDate"), earliest, latest);
+        BigDecimal bpm = restingHr(record.get("restingHrBpm"), "restingHrBpm");
+        JsonNode method = record.get("method");
+        if (!method.isString() || !METHOD_DAILY_LOWER_10PCT_V1.equals(method.stringValue())) {
+            throw unsupported("method");
+        }
+        intIn(
+                record.get("validMinuteCount"),
+                "validMinuteCount",
+                MIN_VALID_MINUTE_COUNT,
+                MAX_VALID_SAMPLE_COUNT);
+        computedAt(record.get("computedAt"));
+        return new SamsungRestingHr(metricDate, bpm);
+    }
+
+    /** 0 초과 1440분 이하, 소수 둘째 자리까지. 0은 미측정과 구분할 수 없으므로 받지 않는다. */
+    private static BigDecimal sleepMinutes(JsonNode node) {
+        String field = "sleepDurationMin";
+        if (!node.isNumber()) {
+            throw invalid(field, "INVALID_TYPE");
+        }
+        BigDecimal value;
+        try {
+            value = node.decimalValue();
+        } catch (RuntimeException e) {
+            throw invalid(field, "INVALID_TYPE");
+        }
+        if (value.signum() <= 0 || value.compareTo(MAX_SLEEP_MIN) > 0) {
+            throw invalid(field, "OUT_OF_RANGE");
+        }
+        if (Math.max(value.stripTrailingZeros().scale(), 0) > 2) {
+            throw invalid(field, "TOO_MANY_DECIMALS");
+        }
+        return value;
     }
 
     private static LocalDate metricDate(JsonNode node, LocalDate earliest, LocalDate latest) {
@@ -239,8 +378,7 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
     }
 
     /** 30~220bpm, 소수 둘째 자리까지(NUMERIC(7,2)). 반올림하지 않고 거절한다. */
-    private static BigDecimal restingHr(JsonNode node) {
-        String field = "estimatedRestingHrBpm";
+    private static BigDecimal restingHr(JsonNode node, String field) {
         if (!node.isNumber()) {
             throw invalid(field, "INVALID_TYPE");
         }

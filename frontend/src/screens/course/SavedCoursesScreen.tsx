@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useId, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,14 +9,23 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle, Polyline } from 'react-native-svg';
+import Svg, {
+  Circle,
+  Defs,
+  LinearGradient,
+  Polyline,
+  Rect,
+  Stop,
+  Text as SvgText,
+} from 'react-native-svg';
+// Kept out of components/index.ts: RunMap loads the Naver Map native module.
+import { RunMap, type RunMapArea } from '../../components/RunMap';
 import {
   AppText,
   Backdrop,
   Button,
   EmptyState,
   Icon,
-  MistFill,
   useToast,
 } from '../../components';
 import {
@@ -26,6 +35,7 @@ import {
   type SavedCourse,
 } from '../../data';
 import { formatKm } from '../../format';
+import type { LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, palette, spacing } from '../../theme';
 import { CourseTabs } from './CourseTabs';
@@ -33,63 +43,285 @@ import { CourseTabs } from './CourseTabs';
 const loadSaved = (repositories: Repositories) =>
   repositories.courses.getSaved();
 
-// The course's outline as a white line with a faint white halo (DESIGN.md 2-7 코스 카드).
-// thin: runway-course-handoff 3.1c, a bare thin white line.
+const isPoint = (point: unknown): point is [number, number] =>
+  Array.isArray(point) &&
+  point.length >= 2 &&
+  Number.isFinite(point[0]) &&
+  Number.isFinite(point[1]);
+
+// Only the points that can be drawn. H01 · CMT02 summaries carry no route (shape []), and a broken point
+// is dropped rather than guessed, so an unknown route draws nothing (S15P31E105-567).
+export function drawableShape(
+  shape: readonly [number, number][] | null | undefined,
+): [number, number][] {
+  return Array.isArray(shape) ? shape.filter(isPoint) : [];
+}
+
+// The whole kms along a course, as shares of its length: every km, or every 5 km past 10 km so a long
+// course does not turn into a row of dots. A mark too close to the finish is left out.
+export function kmMarks(km: number | undefined) {
+  if (!km || !(km > 1)) {
+    return [];
+  }
+  const step = km > 10 ? 5 : 1;
+  const marks: number[] = [];
+  for (let at = step; at < km - step / 4; at += step) {
+    marks.push(at / km);
+  }
+  return marks;
+}
+
+// The point a share of the way along a line of points.
+function pointAlong(route: [number, number][], share: number) {
+  const lengths = route
+    .slice(1)
+    .map((point, index) =>
+      Math.hypot(point[0] - route[index][0], point[1] - route[index][1]),
+    );
+  let left = share * lengths.reduce((sum, value) => sum + value, 0);
+  for (let index = 0; index < lengths.length; index += 1) {
+    if (left <= lengths[index] && lengths[index] > 0) {
+      const t = left / lengths[index];
+      const [from, to] = [route[index], route[index + 1]];
+      return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+    }
+    left -= lengths[index];
+  }
+  return route[route.length - 1];
+}
+
+// A start and finish closer than this (of the box) count as one place: a loop or an out-and-back.
+const sameSpot = 0.06;
+
+// The way the line leaves route[from], stepping by `step` (1 forward, -1 back) to the first point far enough
+// to give a direction, as a unit vector; none when every point sits on top of it.
+export function towards(
+  route: [number, number][],
+  from: number,
+  step: 1 | -1,
+): [number, number] {
+  const [x, y] = route[from];
+  for (let at = from + step; at >= 0 && at < route.length; at += step) {
+    const dx = route[at][0] - x;
+    const dy = route[at][1] - y;
+    const length = Math.hypot(dx, dy);
+    if (length > 0.02) {
+      return [dx / length, dy / length];
+    }
+  }
+  return [0, 0];
+}
+
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(Math.max(value, low), high);
+// How far from its point a label sits, and the half height that centres it there, in the 100 box.
+const labelGap = 10;
+const labelHalf = 3;
+
+// The S · F · SF label on the side away from the line, so it never sits on it: opposite the ways the line
+// leaves the point, or beside the line where it runs straight through. Kept inside the box.
+export function labelAt(
+  [x, y]: [number, number],
+  ways: [number, number][],
+) {
+  let [awayX, awayY] = ways.reduce(
+    ([sumX, sumY], [wayX, wayY]) => [sumX - wayX, sumY - wayY],
+    [0, 0],
+  );
+  if (Math.hypot(awayX, awayY) < 0.3) {
+    // Straight through (or no way at all): the side to the left of the line, or below a lone point.
+    const [wayX, wayY] = ways[0] ?? [0, 0];
+    [awayX, awayY] = wayX || wayY ? [wayY, -wayX] : [0, 1];
+  }
+  const length = Math.hypot(awayX, awayY);
+  return {
+    x: clamp(x * 100 + (awayX / length) * labelGap, 7, 93),
+    y: clamp(y * 100 + (awayY / length) * labelGap + labelHalf, 9, 97),
+  };
+}
+
+const glyphInk = { ink: '#060606', white: palette.white };
+const glyphHalo = { ink: palette.white, white: '#060606' };
+
+// The course's outline (S15P31E105-562 G안): a thin line with a dot on each whole km, the start dot and its
+// S · F labels — one SF where the course ends where it started. `tone` follows what the outline sits on: ink
+// on the light top of a card (3.1c, the light post photo), white on a dark one.
+// No drawable point draws nothing; a single point draws only the start dot.
 export function CourseGlyph({
   shape,
-  thin = false,
+  km,
+  tone = 'white',
 }: {
   shape: [number, number][];
-  thin?: boolean;
+  // The course's length, for the km dots. Left out, none are drawn.
+  km?: number;
+  tone?: keyof typeof glyphInk;
 }) {
-  const points = shape.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
-  const [startX, startY] = shape[0];
+  const route = drawableShape(shape);
+  if (route.length === 0) {
+    return null;
+  }
+  const color = glyphInk[tone];
+  const points = route.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
+  const [startX, startY] = route[0];
+  const line = route.length > 1;
+  const end = route[route.length - 1];
+  const loop =
+    Math.hypot(end[0] - startX, end[1] - startY) <= sameSpot;
+  const last = route.length - 1;
+  // A loop's SF has the line leaving and coming back; S and F each have one side of it.
+  const start = labelAt(
+    route[0],
+    loop ? [towards(route, 0, 1), towards(route, last, -1)] : [towards(route, 0, 1)],
+  );
+  const finish = labelAt(end, [towards(route, last, -1)]);
+  const label = (at: { x: number; y: number }, text: string) => (
+    <SvgText
+      key={text}
+      x={at.x}
+      y={at.y}
+      fontSize={9}
+      fontWeight="700"
+      textAnchor="middle"
+      fill={color}
+    >
+      {text}
+    </SvgText>
+  );
   return (
     <Svg width="100%" height="100%" viewBox="0 0 100 100">
-      {thin ? null : (
+      {/* A faint halo in the other tone keeps the line clear where the card turns dark under it. */}
+      {line ? (
         <Polyline
           points={points}
           fill="none"
-          stroke={palette.white}
-          strokeOpacity={0.18}
-          strokeWidth={9}
+          stroke={glyphHalo[tone]}
+          strokeOpacity={0.35}
+          strokeWidth={4.5}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-      )}
-      <Polyline
-        points={points}
-        fill="none"
-        stroke={palette.white}
-        strokeWidth={thin ? 1.6 : 3}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      <Circle
-        cx={startX * 100}
-        cy={startY * 100}
-        r={thin ? 3 : 3.5}
-        fill={palette.white}
-      />
+      ) : null}
+      {line ? (
+        <Polyline
+          points={points}
+          fill="none"
+          stroke={color}
+          strokeWidth={1.8}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ) : null}
+      {line
+        ? kmMarks(km).map(share => {
+            const [x, y] = pointAlong(route, share);
+            return (
+              <Circle
+                key={share}
+                cx={x * 100}
+                cy={y * 100}
+                r={2}
+                fill={color}
+              />
+            );
+          })
+        : null}
+      <Circle cx={startX * 100} cy={startY * 100} r={3.5} fill={color} />
+      {line
+        ? loop
+          ? label(start, 'S·F')
+          : [label(start, 'S'), label(finish, 'F')]
+        : null}
     </Svg>
   );
 }
 
-// 3.1c card colors (runway-course-handoff CourseGrid): blue grey at the top, black from two thirds down.
-const cardColors = [
-  '#E2EAEE',
-  '#C4D4DC',
-  '#A4BDC9',
-  '#8DACBA',
-  '#7DA0B2',
-  '#5D8194',
-  '#3A5A6C',
-  '#182E3D',
-  '#091019',
-  '#060606',
-  '#060606',
-];
-const cardStops = [0, 0.1, 0.18, 0.25, 0.32, 0.4, 0.47, 0.54, 0.61, 0.68, 1];
+// The plain day map's ground, under the card while the map or its points load.
+const mapGround = '#F3F5F6';
+
+// A course card on the real Naver map (S15P31E105-562, 담당자 요청: 썸네일의 색을 빼고 지도로): the course as the
+// map's ribbon with small S · F poles, in `area` (fractions of the card's height, between the card's chips and its
+// words), and a dark fade from `shadeFrom` down so the white words below stay readable over any map. It takes no
+// touches, so the card keeps them. Until there are points (H01 records carry none, so `load` asks for them) the
+// ground shows the outline drawn from `shape`.
+export function CourseMapThumb({
+  route,
+  load,
+  shape,
+  km,
+  area,
+  shadeFrom,
+}: {
+  route?: LngLat[] | null;
+  load?: () => Promise<LngLat[] | null>;
+  shape: [number, number][];
+  km?: number;
+  area: RunMapArea;
+  shadeFrom: number;
+}) {
+  const given = route && route.length >= 2 ? route : null;
+  const [loaded, setLoaded] = useState<LngLat[] | null>(null);
+  const wants = !given && !!load;
+  useEffect(() => {
+    if (!wants || !load) {
+      return;
+    }
+    let live = true;
+    load()
+      .then(points => {
+        if (live) {
+          setLoaded(points);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+    // load is rebuilt every render; the card asks once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wants]);
+  const points = given ?? (loaded && loaded.length >= 2 ? loaded : null);
+  const shadeId = `mapShade${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+  return (
+    <View pointerEvents="none" style={styles.mapThumb}>
+      {points ? (
+        <RunMap
+          route={points}
+          compact
+          interactive={false}
+          rotatable={false}
+          area={area}
+          // The NAVER logo sits just over the dark fade, where it can be seen.
+          logo={{ above: 1 - shadeFrom, side: 'right' }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <View
+          style={[
+            styles.mapThumbGlyph,
+            { top: `${area.top * 100}%`, bottom: `${(1 - area.bottom) * 100}%` },
+          ]}
+        >
+          <CourseGlyph shape={shape} km={km} tone="ink" />
+        </View>
+      )}
+      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
+        <Defs>
+          <LinearGradient id={shadeId} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset={shadeFrom} stopColor="#060606" stopOpacity={0} />
+            <Stop
+              offset={Math.min(shadeFrom + 0.22, 1)}
+              stopColor="#060606"
+              stopOpacity={0.82}
+            />
+            <Stop offset={1} stopColor="#060606" stopOpacity={0.94} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill={`url(#${shadeId})`} />
+      </Svg>
+    </View>
+  );
+}
 
 // Android breaks Korean between any two letters, so a title too long for one line (about 8 letters on the
 // 175 card) is split at the space nearest its middle, as in the mockup's APEC / 나루공원 루프.
@@ -107,7 +339,7 @@ export function splitTitle(title: string) {
   return best < 0 ? title : `${title.slice(0, best)}\n${title.slice(best + 1)}`;
 }
 
-// One saved course: its small outline, the title, distance and time, and 이 코스로 달리기. The whole card
+// One saved course: the course on its small map, the title, distance and time, and 이 코스로 달리기. The whole card
 // opens the course run; the mockup has no unsave control, so a small glass bookmark keeps that action.
 function SavedCard({
   course,
@@ -134,14 +366,15 @@ function SavedCard({
         pressed && styles.pressed,
       ]}
     >
-      <MistFill
-        id={`saved${course.id}`}
-        colors={cardColors}
-        offsets={cardStops}
+      {/* The course on the real map (S15P31E105-562) between the bookmark and the words, the fade under the
+          words starting 140 above the foot. */}
+      <CourseMapThumb
+        route={course.route}
+        shape={course.shape}
+        km={course.distanceM / 1000}
+        area={{ top: 44 / height, bottom: (height - 128) / height }}
+        shadeFrom={(height - 150) / height}
       />
-      <View style={styles.glyph}>
-        <CourseGlyph shape={course.shape} thin />
-      </View>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title} 저장 해제`}
@@ -268,7 +501,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     boxShadow: '0 14px 30px rgba(2,5,14,0.22)',
   },
-  glyph: { position: 'absolute', top: 18, left: 36, right: 36, bottom: 112 },
+  mapThumb: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: mapGround,
+  },
+  mapThumbGlyph: { position: 'absolute', left: '20%', right: '20%' },
   bookmark: {
     position: 'absolute',
     top: 10,

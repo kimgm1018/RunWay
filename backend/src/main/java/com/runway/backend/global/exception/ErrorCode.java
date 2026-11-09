@@ -10,6 +10,10 @@ public enum ErrorCode {
     REQUEST_STATE_CONFLICT(HttpStatus.CONFLICT, "REQUEST_STATE_CONFLICT", "팔로우 요청 상태가 변경되었습니다."),
     FOLLOW_INVALID_DECISION(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_DECISION", "APPROVE 또는 REJECT를 지정해 주세요."),
     FOLLOW_INVALID_FILTER(HttpStatus.BAD_REQUEST, "INVALID_FILTER", "요청 목록 조회 조건이 올바르지 않습니다."),
+    FOLLOW_LIST_INVALID_FILTER(
+            HttpStatus.BAD_REQUEST, "INVALID_FILTER", "팔로우 목록 조회 조건이 올바르지 않습니다."),
+    FOLLOW_LIST_ACCESS_DENIED(
+            HttpStatus.FORBIDDEN, "ACCOUNT_ACCESS_DENIED", "비공개 계정의 팔로우 목록은 볼 수 없습니다."),
     NOTIFICATION_INVALID_FILTER(
             HttpStatus.BAD_REQUEST, "INVALID_FILTER", "알림 목록 조회 조건이 올바르지 않습니다."),
 
@@ -58,6 +62,24 @@ public enum ErrorCode {
     INVALID_PROFILE(HttpStatus.BAD_REQUEST, "INVALID_PROFILE", "요청 값이 유효하지 않습니다."),
     INVALID_PASSWORD_POLICY(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PASSWORD_POLICY", "요청 값이 유효하지 않습니다."),
+    // 휴대전화 인증·비밀번호 재설정(users.md U15·U28~U30, S15P31E105-560). 전화번호·인증번호를 메시지에 넣지 않는다.
+    PHONE_ALREADY_REGISTERED(HttpStatus.CONFLICT, "PHONE_ALREADY_REGISTERED", "이미 가입된 전화번호입니다."),
+    PHONE_NOT_REGISTERED(HttpStatus.NOT_FOUND, "PHONE_NOT_REGISTERED", "가입되지 않은 전화번호입니다."),
+    PHONE_ACCOUNT_AMBIGUOUS(
+            HttpStatus.CONFLICT, "PHONE_ACCOUNT_AMBIGUOUS", "이 전화번호로 가입한 계정을 하나로 정할 수 없습니다."),
+    VERIFICATION_RESEND_TOO_SOON(
+            HttpStatus.TOO_MANY_REQUESTS, "VERIFICATION_RESEND_TOO_SOON", "잠시 후 다시 요청해 주세요."),
+    VERIFICATION_SEND_LIMIT_EXCEEDED(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "VERIFICATION_SEND_LIMIT_EXCEEDED",
+            "인증번호 요청 횟수를 초과했습니다. 나중에 다시 시도해 주세요."),
+    VERIFICATION_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "VERIFICATION_CODE_MISMATCH", "인증번호가 맞지 않습니다."),
+    VERIFICATION_ATTEMPTS_EXCEEDED(
+            HttpStatus.TOO_MANY_REQUESTS,
+            "VERIFICATION_ATTEMPTS_EXCEEDED",
+            "인증번호 입력 횟수를 초과했습니다. 인증번호를 다시 받아 주세요."),
+    VERIFICATION_EXPIRED(HttpStatus.GONE, "VERIFICATION_EXPIRED", "인증이 만료되었습니다. 다시 인증해 주세요."),
+    SMS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "SMS_UNAVAILABLE", "인증번호를 보낼 수 없습니다. 잠시 후 다시 시도해 주세요."),
     COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "COMMENT_NOT_FOUND", "댓글을 찾을 수 없습니다."),
     INVALID_PARENT_COMMENT(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_PARENT_COMMENT", "유효하지 않은 부모 댓글입니다."),
@@ -129,7 +151,7 @@ public enum ErrorCode {
     SEARCH_OUT_OF_AREA(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",
-            "출발 위치가 서비스 지역(부산) 밖입니다."),
+            "출발 위치가 서비스 지역 밖입니다."),
     SEARCH_OUT_OF_APP_RANGE(
             HttpStatus.UNPROCESSABLE_CONTENT,
             "INVALID_SEARCH",
@@ -208,9 +230,15 @@ public enum ErrorCode {
     VALIDATION_ERROR_CREW_LEAVE(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "후임 지정은 크루장 탈퇴에만 사용할 수 있습니다."),
     CREW_CAPACITY_EXCEEDED(HttpStatus.CONFLICT, "CREW_CAPACITY_EXCEEDED", "크루 정원이 가득 찼습니다."),
+    CREW_CAPACITY_BELOW_MEMBERS(
+            HttpStatus.CONFLICT, "CREW_CAPACITY_BELOW_MEMBERS", "정원은 현재 멤버 수보다 작게 정할 수 없습니다."),
     ALREADY_MEMBER_OR_PENDING(
             HttpStatus.CONFLICT, "ALREADY_MEMBER_OR_PENDING", "이미 멤버이거나 가입 신청 대기 중입니다."),
     INVALID_CREW(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CREW", "유효하지 않은 지역 코드입니다."),
+    INVALID_CREW_SETTINGS(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_CREW",
+            "정원은 1~200명, 가입 방식은 APPROVAL 또는 INSTANT로 지정해 주세요."),
     INVALID_BATCH(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_BATCH", "배치 내용이 유효하지 않습니다."),
     INVALID_CONSENT_CONSENT_CHANGE(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CONSENT", "변경할 수 없는 동의 유형입니다."),

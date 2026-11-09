@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-06 · ERD ver.3 · **32개 테이블 / 297개 컬럼 / 56개 FK**
+기준: 2026-11-09 · ERD ver.3 · **33개 테이블 / 305개 컬럼 / 57개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -73,21 +73,22 @@
 
 #### daily_health_metrics — 날짜별 건강 요약
 
-`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`뿐이다.
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이다.
 
 | 컬럼 | 타입·NULL | 용도 |
 | --- | --- | --- |
-| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). W06은 삼성 헬스 공식 안정 시 심박이 아니라 RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)를 저장한다 |
-| rhr_revision | INTEGER NULL | `rhr_bpm` 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이면 NULL(S15P31E105-252, V9) |
+| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). 삼성 헬스 공식 안정 시 심박이 아니다. RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`) 또는 삼성 헬스 심박으로 폰이 계산한 일별 값(`DAILY_LOWER_10PCT_MINUTE_MEAN_V1`, S15P31E105-600)이며 출처는 `rhr_source`다 |
+| rhr_revision | INTEGER NULL | `rhr_bpm` 워치 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이거나 삼성 헬스 값이면 NULL(S15P31E105-252, V9) |
+| rhr_source | VARCHAR(20) NULL | `rhr_bpm` 출처. `RUNWAY_WATCH`·`SAMSUNG_HEALTH`(CHECK). W06은 값과 함께 항상 채운다. 출처가 NULL인 값(W06 밖에서 넣은 값)은 워치 값처럼 삼성 헬스 값이 덮어쓰지 않는다. 같은 날짜는 워치 값이 우선한다. V25 이전 값은 `RUNWAY_WATCH`로 채웠다(S15P31E105-600, V25) |
 
-수면·운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
 
 ### 러닝·페이스 코칭
 
 | 테이블 | 역할과 주요 연결 |
 | --- | --- |
 | `running_sessions` | 한 회원의 한 번의 러닝. 초기 목표·상태·실제 결과. course_id가 없으면 자유러닝 |
-| `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등. 세션별 경과시간 순 조회(AI04 실시간 코칭 history)는 `(running_session_id, elapsed_duration)` 인덱스 `idx_running_metric_samples_session_elapsed`(V13)를 쓴다 |
+| `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등. 세션별 경과시간 순 조회(AI04 실시간 코칭 history)는 `(running_session_id, elapsed_duration)` 인덱스 `idx_running_metric_samples_session_elapsed`(V13)를 쓴다. 세션별 측정 시각 역순 최신 표본 조회(G10 그룹런 실시간 순위)는 `(running_session_id, measured_at DESC, id DESC)` 인덱스 `idx_running_metric_samples_session_measured`(V23)를 쓴다 |
 | `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도 |
 | `running_session_splits` | 종료 후 1km 단위 실측 구간 집계(H03). 원본 샘플에서 한 번 계산해 덮어써 저장 |
 | `sync_batches` | 기기에서 받은 배치의 식별·해시·수신/반영 상태 |
@@ -164,10 +165,28 @@
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
 | `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
-| `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태 |
+| `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태·가입 방식(`join_policy` APPROVAL/INSTANT, 기본 APPROVAL) |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
+| `group_run_pace_state` | 그룹런별 AI10 공동 페이스·AI09 시작 추천 페이스와 마지막 변경 상태. 그룹런당 최대 1행 |
+
+#### group_run_pace_state — 그룹런 공동 페이스 상태 (S15P31E105-585, V22)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 상태 행 ID |
+| group_run_id | BIGINT NOT NULL UNIQUE, FK group_runs.id ON DELETE CASCADE | 그룹런당 최대 1행. 그룹런 삭제 시 함께 삭제 |
+| group_pace_sec_per_km | INTEGER NULL, CHECK > 0 | 마지막으로 성공한 AI10 공동 페이스(초/km). 성공 전 NULL |
+| start_recommended_pace_sec_per_km | INTEGER NULL, CHECK > 0 | AI09 시작 추천 페이스(초/km). 성공 전 NULL |
+| last_change_direction | VARCHAR(4) NULL, CHECK IN ('SLOW', 'FAST') | 마지막 페이스 변경 방향 |
+| last_change_at | TIMESTAMPTZ NULL | 마지막 페이스 변경 시각 |
+| struggling_count | INTEGER NOT NULL DEFAULT 0, CHECK >= 0 | 마지막 AI10 결과의 어려움을 겪는 참가자 수 |
+| updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 상태 갱신 시각 |
+
+- `last_change_direction`과 `last_change_at`은 모두 NULL이거나 모두 값이 있어야 한다.
+- `trg_group_run_pace_state_updated_at` BEFORE UPDATE 트리거가 공통 `set_updated_at()` 함수로 갱신 시각을 기록한다.
+- 기준 SQL은 Flyway V22와 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 #### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
 
@@ -219,6 +238,8 @@
 
 `user_follows.follower_id`는 팔로우하는 회원, `followee_id`는 팔로우받는 회원이다. `is_approved BOOLEAN NOT NULL DEFAULT FALSE`를 사용한다.
 
+팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청 목록·팔로워 수)는 `(followee_id, is_approved, created_at DESC, id DESC)` 인덱스 `idx_user_follows_followee_created`(V20, S15P31E105-534)를 사용한다. `is_approved`가 키에 있어 승인·대기 중 드문 쪽 목록도 해당 행만 읽고, 승인 UPDATE는 HOT 업데이트 대상에서 빠진다. 팔로우하는 회원 기준 조회(U27 팔로잉 목록)는 기존 UNIQUE `(follower_id, followee_id)`로 그 회원의 행을 찾고 정렬은 별도로 수행한다(회원별 팔로잉 수가 작아 별도 인덱스를 두지 않음).
+
 | 팔로우받는 회원의 account_visibility | 요청 처리 |
 | --- | --- |
 | PUBLIC | 별도 승인 없이 is_approved=TRUE로 생성하여 즉시 성립 |
@@ -231,6 +252,8 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 ### 크루 정원
 
 **크루 최대 정원은 200명이다.** 각 크루의 `capacity`는 1~200명 범위에서 명시하며, DB의 `CHECK (capacity BETWEEN 1 AND 200)`과 기존 NOT NULL로 보장한다. 모든 크루의 정원을 자동 200명으로 설정하거나 기본값을 추가하지 않는다. 실제 승인 인원이 해당 크루 정원을 넘지 않도록 하는 검증과 동시성 처리는 서비스 책임이다. 그룹런 참가 정원과는 별개이며 현재 group_runs에는 capacity가 없다.
+
+**정원·가입 방식 변경과 동시성 (S15P31E105-570, 2026-11-09 사용자 확정).** 크루장은 M12로 `capacity`와 `join_policy`를 바꾼다. `capacity`는 현재 APPROVED 인원 미만으로 줄일 수 없다. M04 가입 신청·M06 승인·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경은 같은 `crews` 행을 `SELECT … FOR UPDATE`로 먼저 잠근다. 인원을 세는 M04 바로 가입·M06 승인·M12는 잠금 아래에서 세므로 동시에 실행돼도 APPROVED 인원이 `capacity`를 넘지 않고, M08 이양·M11 해산은 M12 변경을 덮어쓰거나 해산 뒤 멤버를 남기지 않는다. INSTANT로 바꿔도 기존 PENDING 행은 그대로 둔다. 기준 SQL·Flyway V21을 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 ## 5. 알림 종류와 화면 이동
 
@@ -339,7 +362,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - 배치 UNIQUE는 같은 기기의 같은 배치 ID 재저장을 거부한다. 서비스는 기존 해시가 같으면 기존 결과, 다르면 충돌로 처리해야 한다. 서로 다른 배치에 겹친 원본 측정·GPS, 스트림 sequence·누락 구간·재설치 경계는 W07의 저장 보장 범위를 넘는 후속 저장 설계에서 검토한다. 이 작업에서 원본 식별 컬럼을 임의 추가하지 않았다.
 - 게시글 작성자와 세션 소유자 일치, 그룹 참가자와 연결 세션 회원 일치, 기기·세션 소유권, 호스트/참가 자격, 정원 동시 승인과 상태 전이는 서비스 검증이 필요하다. 단순 FK와 범위 CHECK가 대신하지 않는다.
 - 크루 정원 1~200명은 사용자 확정에 따라 DB CHECK로 보장한다. 생리 지표의 허용 범위, 상태별 필수값, 삭제·탈퇴 후 보존 정책은 이번 제약 보완에서 새로 확정하지 않았다.
-- 원본 오타 `users.health_data_access`의 `AGREEE`, `user_profiles.duraction`은 유지했다.
+- 원본 오타 `user_profiles.duraction`은 유지했다. `users.health_data_access`의 동의 값 오타 `AGREEE`는 S15P31E105-314에서 Flyway V24(`ALTER TYPE ... RENAME VALUE`)로 `AGREE`로 바로잡았다. V1은 수정하지 않았고 기존 동의 회원 행은 라벨 변경으로 그대로 `AGREE`가 된다.
 - 기준 SQL의 실행·정상/거부 동작은 `backend`의 `SchemaIntegrityTest`로 검증한다. 실제 실행 결과와 미실행 여부는 해당 업무 검증 기록에 남긴다. 서비스 Entity 매핑·첫 Flyway 이력 검증과 구분한다.
 
 
@@ -349,7 +372,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
-- 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREEE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
+- 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
 - V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png의 PK·FK·타입·NULL 표시는 기준 SQL을 반영하며 UNIQUE·CHECK·트리거의 정확한 정의와 온라인 ERD의 미갱신 제약은 schema.sql을 따른다.
 
 ### 팔로우 요청 처리 이력 — S15P31E105-249

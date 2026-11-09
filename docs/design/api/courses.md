@@ -217,7 +217,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | (형식) | `latitude`/`longitude`/`distanceKm`/`endLatitude`/`endLongitude`가 null·NaN·무한대 | `{필드}이(가) 올바르지 않습니다.` |
 | (범위) | `latitude`가 -90~90 밖 | latitude는 -90~90이어야 합니다. |
 | (범위) | `longitude`가 -180~180 밖 | longitude는 -180~180이어야 합니다. |
-| `OUT_OF_AREA` | Route가 출발 좌표를 서비스 지역 밖으로 판정(`details.reason=OUT_OF_AREA`) | 출발 위치가 서비스 지역(부산) 밖입니다. |
+| `OUT_OF_AREA` | Route가 출발 좌표를 서비스 지역 밖으로 판정(`details.reason=OUT_OF_AREA`) | 출발 위치가 서비스 지역 밖입니다. |
 | `DISTANCE_RANGE` | `distanceKm`가 1.0 미만 또는 15.0 초과 | distanceKm는 1.0 이상 15.0 이하여야 합니다. |
 | (shape) | `shape`가 허용 값이 아님 | shape는 loop, out_and_back, point_to_point 중 하나여야 합니다. |
 | `DESTINATION_REQUIRED` | `point_to_point`인데 도착 좌표 누락, 또는 다른 shape에서 도착 좌표를 한쪽만 전달 | point_to_point에는 endLatitude와 endLongitude가 필요합니다. |

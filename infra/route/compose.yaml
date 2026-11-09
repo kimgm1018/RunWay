@@ -21,6 +21,17 @@ services:
       NUMBA_NUM_THREADS: "1"
       ROUTE_DEBUG: "0"
       ROUTE_WARMUP: "1"
+      # 전국 코스 생성(S15P31E105-601). 되돌리기: ROUTE_DATA_MODE를 busan으로 바꾼다(부산 데이터는 이미지 안에 있다).
+      ROUTE_DATA_MODE: national
+      ROUTE_NATIONAL_DIR: /data/national
+      ROUTE_WINDOW_CACHE_SIZE: "1"
+    volumes:
+      - type: bind
+        source: /home/ubuntu/runway/data/route_national
+        target: /data/national
+        read_only: true
+        bind:
+          create_host_path: false
     expose: ["8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/v1/ready', timeout=4)"]

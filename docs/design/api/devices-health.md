@@ -312,7 +312,7 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 
 `POST` `/api/v1/consents`
 
-> **S15P31E105-250 확정 계약 · 2026-11-02.** 가입 후 건강정보 동의를 켜거나 끈다. 동의 값의 단일 원천은 `users.health_data_access`(AGREEE/DISAGREE)이며 동의 이력·약관 버전·동의 시각은 저장하지 않는다(U15 2026-10-29 확정과 같다).
+> **S15P31E105-250 확정 계약 · 2026-11-02.** 가입 후 건강정보 동의를 켜거나 끈다. 동의 값의 단일 원천은 `users.health_data_access`(AGREE/DISAGREE)이며 동의 이력·약관 버전·동의 시각은 저장하지 않는다(U15 2026-10-29 확정과 같다).
 
 | 항목 | 값 |
 |---|---|
@@ -401,7 +401,8 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 ### 상태값
 
-- HEALTH_DATA: 동의(AGREEE) ↔ 철회(DISAGREE) 양방향. 가입 시 값은 U15에서 정한다.
+- HEALTH_DATA: 동의(AGREE) ↔ 철회(DISAGREE) 양방향. 가입 시 값은 U15에서 정한다.
+- 저장값 표기(S15P31E105-314 사용자 확정 · 2026-11-09): V1의 오타 `AGREEE`를 V24에서 `AGREE`로 바꿨다. W04와 U15는 동의 여부를 `granted` boolean으로만 받으므로 요청에 `AGREEE`/`AGREE` 문자열이 오는 경로가 없고 서버 호환 처리는 두지 않는다. 폰↔워치 동의 DataItem도 `AGREE`/`DISAGREE`만 인정하며 이전 값 `AGREEE`는 수용하지 않는다(완전 전환). 기기에 이미 저장된 `AGREEE`는 워치 로컬 DB 업그레이드와 폰의 W05 재반영으로 `AGREE`가 된다. 상세는 [워치·모바일·서버 연동](../watch-mobile-server-integration.md)을 따른다.
 
 ### 미정 사항
 
@@ -495,19 +496,23 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 `POST` `/api/v1/health-records/sync`
 
-> **S15P31E105-252 확정 계약 · 2026-11-02.** 현재 지원 레코드는 RunWay 워치 일상 심박 하루 추정값 하나다. 수면·활동량·삼성 헬스 과거 운동 등 다른 레코드는 실제 SDK 지표를 확인한 뒤 별도 업무에서 `type`을 추가한다. 이름의 "Samsung Health"는 기존 API 이름을 유지한 것이며 현재 레코드의 출처는 삼성 헬스가 아니다.
+> **S15P31E105-252 확정 계약 · 2026-11-02, S15P31E105-572 수면 추가 · 2026-11-09, S15P31E105-600 삼성 헬스 안정 심박 추가 · 2026-11-09.** 지원 레코드는 RunWay 워치 일상 심박 하루 추정값(`provider: RUNWAY_WATCH`), 삼성 헬스 기상일별 수면 합계와 삼성 헬스 심박으로 폰이 계산한 일별 안정 심박(`provider: SAMSUNG_HEALTH`) 세 가지다. 활동량·삼성 헬스 과거 운동 등 다른 레코드는 실제 SDK 지표를 확인한 뒤 별도 업무에서 `type`을 추가한다. 이름의 "Samsung Health"는 기존 API 이름을 유지한 것이며 `RUNWAY_WATCH` 심박 레코드의 출처는 삼성 헬스가 아니다.
 
 | 항목 | 값 |
 |---|---|
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | WAT-001~008 / SYS-001 / RDY-001 |
-| 관련 업무 | 서버 S15P31E105-252, 워치 계산 S15P31E105-63, 폰 업로드 S15P31E105-281, 준비도 S15P31E105-254 |
+| 관련 업무 | 서버 S15P31E105-252, 워치 계산 S15P31E105-63, 폰 업로드 S15P31E105-281, 준비도 S15P31E105-254, 삼성 헬스 수면 S15P31E105-572, 삼성 헬스 안정 심박 S15P31E105-600 |
 | 미정 사항 | 다른 레코드 종류(아래 "후속 확정 사항") |
 
 ### 설명
 
 휴대폰 앱의 서비스가 워치에서 받은 날짜별 일상 심박 추정값을 서버에 올린다. 서버는 회원·건강정보 동의를 확인하고 `daily_health_metrics.rhr_bpm`에 날짜별 1개 값으로 저장한다. 같은 날짜는 더 큰 revision만 갱신한다.
+
+휴대폰 앱은 삼성 헬스에서 직접 읽은 수면을 폰 시간대 기상일별로 합산해 같은 API로 올린다(`provider: SAMSUNG_HEALTH`). 서버는 `daily_health_metrics.sleep_duration_min`에 날짜별 1개 값으로 저장하며 마지막 값이 우선한다.
+
+휴대폰 앱은 삼성 헬스 심박 샘플로 폰 시간대 날짜별 안정 심박을 계산해 같은 요청으로 올린다(`type: DAILY_RESTING_HR`, S15P31E105-600). 서버는 `rhr_bpm`에 저장하고 출처를 `rhr_source`에 남긴다. 같은 날짜에 RunWay 워치 추정값이 있으면 워치 값이 우선한다(처리 규칙 3).
 
 **값의 의미와 출처:** `estimatedRestingHrBpm`은 삼성 헬스 공식 안정 시 심박이 아니다. **RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)** 로, 워치가 최근 24시간 1분 평균 HR 중 운동 구간을 뺀 하위 10%의 평균을 매시간 다시 계산한 값이다. 계산·보관 규칙은 [63번 구현 설계](../watch-passive-health-validation.md#63번-구현-설계-2026-10-30)와 [워치→폰 메시지 9.9](../watch-mobile-server-integration.md#99-일상-심박-하루-추정값과-건강-동의-공유-s15p31e105-63)를 따른다.
 
@@ -515,19 +520,19 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 - 로그인 회원 본인의 행에만 저장한다. 요청에 회원·기기 식별자를 받지 않는다.
 - 탈퇴 등 활성 회원이 아니면 401 `UNAUTHORIZED`.
-- `users.health_data_access`가 동의(`AGREEE`)가 아니면 403 `CONSENT_REQUIRED`로 요청 전체를 거절하고 아무것도 저장하지 않는다.
+- `users.health_data_access`가 동의(`AGREE`)가 아니면 403 `CONSENT_REQUIRED`로 요청 전체를 거절하고 아무것도 저장하지 않는다.
 - 기기(`deviceId`)는 받지 않는다. `daily_health_metrics`에 기기가 저장되지 않으며, 워치를 해제·교체한 뒤 폰에 남은 값도 올릴 수 있어야 하기 때문이다.
 
 ### Request Body
 
 | 필드 | 타입 | 필수 | 의미·제약 |
 |---|---|:---:|---|
-| `provider` | string | O | 레코드 출처. 현재 `RUNWAY_WATCH`만 지원 |
+| `provider` | string | O | 레코드 출처. `RUNWAY_WATCH`(type `DAILY_HR_ESTIMATE`만) 또는 `SAMSUNG_HEALTH`(type `DAILY_SLEEP_SUMMARY`·`DAILY_RESTING_HR`, 한 요청에 섞을 수 있음). 한 요청은 한 provider의 레코드만 담는다 |
 | `records` | object[] | O | 길이 1~31. 각 원소는 객체 |
 
-최상위에는 위 두 필드만 둔다. 레코드 필드 이름은 워치→폰 `DAILY_HR_SUMMARY`와 같아 폰이 변환 없이 중계한다.
+최상위에는 위 두 필드만 둔다. 심박 레코드 필드 이름은 워치→폰 `DAILY_HR_SUMMARY`와 같아 폰이 변환 없이 중계한다.
 
-레코드 검증은 정의되지 않은 키 → 필수 키 누락 → 아래 표의 필드 순서로 진행하고 첫 위반 하나만 `errors`에 담는다. 자료형이 틀리거나 null이면 `type`·`method`는 `UNSUPPORTED`, `metricDate`·`computedAt`은 `INVALID_FORMAT`, 숫자 필드는 `INVALID_TYPE`이다.
+`SAMSUNG_HEALTH` 레코드는 `type`이 문자열 `DAILY_RESTING_HR`이면 안정 심박 형식, 그 밖에는(없음·다른 값 포함) 수면 형식으로 검증한다(572의 기존 판정 유지). 레코드 검증은 provider(삼성 헬스는 type)가 정한 레코드 형식으로 정의되지 않은 키 → 필수 키 누락 → 아래 표의 필드 순서로 진행하고 첫 위반 하나만 `errors`에 담는다. 따라서 다른 provider의 레코드는 키 차이로 `UNKNOWN_FIELD`가 되거나, 키가 맞아도 type이 provider와 맞지 않으면 `UNSUPPORTED_RECORD_TYPE`(field `type`)이다. 자료형이 틀리거나 null이면 `type`·`method`는 `UNSUPPORTED`, `metricDate`·`computedAt`은 `INVALID_FORMAT`, 숫자 필드는 `INVALID_TYPE`이다.
 
 **`type: DAILY_HR_ESTIMATE` 레코드** — 모든 키 필수, 정의되지 않은 키 금지, null 불가.
 
@@ -558,6 +563,62 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 }
 ```
 
+**`type: DAILY_SLEEP_SUMMARY` 레코드** (`provider: SAMSUNG_HEALTH`, S15P31E105-572) — 모든 키 필수, 정의되지 않은 키 금지, null 불가.
+
+| 필드 | 타입 | 의미·제약 | 저장 |
+|---|---|---|---|
+| `type` | string | `DAILY_SLEEP_SUMMARY` | — |
+| `metricDate` | string(`YYYY-MM-DD`) | 폰 시간대 기상일(수면 세션 종료 시각의 로컬 날짜). 범위는 심박과 같은 서버 UTC 오늘 −8일 ~ +1일 | `metric_date` |
+| `sleepDurationMin` | number | 그 기상일에 끝난 수면의 실제 수면 시간 합(분). 0 초과 1440 이하, 소수 둘째 자리까지. 반올림하지 않고 넘으면 거절. 0은 미측정과 구분되지 않으므로 받지 않는다 | `sleep_duration_min` |
+| `computedAt` | string | 폰 집계 시각. `Z`로 끝나는 ISO 8601 UTC | 저장 안 함 |
+
+폰 집계 규칙(S15P31E105-572): 삼성 헬스 직접 읽기 결과만 쓴다(Health Connect 대체 경로 제외). 종료된 세션만 기상일에 넣고, 같은 원본의 중복과 겹친 세션은 합쳐 한 번만 센다. 삼성 헬스가 수면 시간을 주지 않고 단계도 세션 전체를 덮지 않아 시간을 확정할 수 없는 날은 보내지 않는다(0으로 채우지 않음). 출처 기기·앱은 저장하지 않는다.
+
+```json
+{
+  "provider": "SAMSUNG_HEALTH",
+  "records": [
+    {
+      "type": "DAILY_SLEEP_SUMMARY",
+      "metricDate": "2026-11-08",
+      "sleepDurationMin": 412.5,
+      "computedAt": "2026-11-08T00:30:00Z"
+    }
+  ]
+}
+```
+
+예시는 합성 값이다.
+
+**`type: DAILY_RESTING_HR` 레코드** (`provider: SAMSUNG_HEALTH`, S15P31E105-600) — 모든 키 필수, 정의되지 않은 키 금지, null 불가.
+
+| 필드 | 타입 | 의미·제약 | 저장 |
+|---|---|---|---|
+| `type` | string | `DAILY_RESTING_HR` | — |
+| `metricDate` | string(`YYYY-MM-DD`) | 폰 시간대 로컬 날짜(심박 샘플 시작 시각 기준). 범위는 심박과 같은 서버 UTC 오늘 −8일 ~ +1일 | `metric_date` |
+| `restingHrBpm` | number | 30~220bpm, 소수 둘째 자리까지. 반올림하지 않고 넘으면 거절 | `rhr_bpm`(`rhr_source = SAMSUNG_HEALTH`, `rhr_revision = NULL`) |
+| `method` | string | `DAILY_LOWER_10PCT_MINUTE_MEAN_V1`만 지원 | 저장 안 함 |
+| `validMinuteCount` | integer | 계산에 쓴 유효 분 수. 30~1440 | 저장 안 함 |
+| `computedAt` | string | 폰 계산 시각. `Z`로 끝나는 ISO 8601 UTC | 저장 안 함 |
+
+폰 계산 규칙(`DAILY_LOWER_10PCT_MINUTE_MEAN_V1`, S15P31E105-600, 2026-11-09 사용자 결정): 삼성 헬스 직접 읽기 심박 샘플만 쓴다. 30~220bpm 샘플을 폰 시간대 1분 단위로 평균해 1분 값을 만들고, 그 날짜(0~24시)의 1분 값이 30개 이상이면 오름차순 하위 `ceil(n × 0.1)`개의 평균을 소수 첫째 자리로 반올림(half-up)한다. 30개 미만이면 보내지 않는다. 오늘은 진행 중 값이며 다시 계산할 때마다 갱신된다. 워치 추정(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)과 같은 하위 10% 방식이지만 하루 고정 창이고, 갤럭시 워치 기본 측정 간격(약 10분)으로는 하루 1분 값이 약 144개라 최소 분 수를 240 대신 30으로 두며, 운동 구간을 빼지 않는다(운동 권한을 요청하지 않음).
+
+```json
+{
+  "provider": "SAMSUNG_HEALTH",
+  "records": [
+    {
+      "type": "DAILY_RESTING_HR",
+      "metricDate": "2026-11-09",
+      "restingHrBpm": 57.3,
+      "method": "DAILY_LOWER_10PCT_MINUTE_MEAN_V1",
+      "validMinuteCount": 96,
+      "computedAt": "2026-11-09T03:10:00Z"
+    }
+  ]
+}
+```
+
 예시는 합성 값이다.
 
 ### Response
@@ -577,8 +638,8 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `acceptedCount` | integer | O | 새로 저장했거나 저장된 revision보다 큰 revision으로 갱신한 레코드 수 |
-| `duplicateCount` | integer | O | 저장된 revision이 같거나 더 커서 바꾸지 않은 레코드 수 |
+| `acceptedCount` | integer | O | 새로 저장했거나 갱신한 레코드 수. 워치 심박은 저장된 revision보다 큰 revision(또는 삼성 헬스 값 대체), 수면·삼성 헬스 안정 심박은 저장값과 다른 값 |
+| `duplicateCount` | integer | O | 바꾸지 않은 레코드 수. 워치 심박은 저장된 revision이 같거나 더 큼, 수면은 저장값과 같음, 삼성 헬스 안정 심박은 저장값과 같거나 그 날짜에 워치 값이 있음 |
 | `rejectedCount` | integer | O | 검증에서 거절한 레코드 수. `errors` 길이와 같음 |
 | `errors` | object[] | O | 거절 레코드마다 첫 위반 하나. 없으면 빈 배열 |
 | `errors[].index` | integer | O | 요청 `records` 배열 위치(0부터) |
@@ -600,7 +661,7 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 | `401 UNAUTHORIZED` | 토큰 없음·만료·위변조, 활성 회원이 아님 |
 | `403 CONSENT_REQUIRED` | 건강정보 동의가 없거나 철회됨 |
 | `413 FILE_TOO_LARGE` | 본문 32 KiB(32768바이트) 초과. 실제로 읽은 바이트로 판정 |
-| `422 UNSUPPORTED_RECORD_TYPE` | `provider`가 `RUNWAY_WATCH`가 아님(details.fields[0].name=`provider`) |
+| `422 UNSUPPORTED_RECORD_TYPE` | `provider`가 `RUNWAY_WATCH`·`SAMSUNG_HEALTH`가 아님(details.fields[0].name=`provider`) |
 | `500`/`503` | DB 처리 실패. 공통 오류 처리 기준을 따르며 유효 레코드도 모두 롤백된다 |
 
 레코드 하나의 위반은 위 표의 전체 오류가 아니라 200 응답의 `errors`로 돌려준다.
@@ -609,21 +670,30 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 1. 본문 크기 → 구문·최상위 형태 → provider 순으로 검사한다. 레코드 검증은 저장 전에 끝내며 위반 레코드는 저장하지 않는다.
 2. 한 트랜잭션에서 회원 행을 `FOR SHARE`로 읽어 활성 회원·동의를 확인한다. 동의 철회가 `users.health_data_access`를 바꾸는 회원 행 UPDATE라는 전제에서, 철회가 먼저 커밋됐으면 철회 값을 읽어 403이고, W06이 먼저 읽었으면 철회는 W06 커밋 뒤에 진행된다. 그 사이에 커밋된 W06 값은 철회 전에 확정된 것으로 본다. W04 철회는 기존 값을 삭제하지 않으며 회원 행 갱신을 첫 쓰기로 두어 이 순서를 유지한다(S15P31E105-250). W06이 같은 회원의 다른 W06을 기다리는 동안에도 회원 행 공유 잠금을 유지하므로, 같은 회원의 로그인·프로필 저장(회원 행 잠금 대기 상한 2초)이 그동안 503이 될 수 있다.
-3. 유효 레코드를 날짜 오름차순(같은 날짜는 요청 순서 유지)으로 `(user_id, metric_date)` 조건부 upsert로 저장한다. 같은 회원의 동시 요청이 날짜 행 잠금을 같은 순서로 잡아 교착이 생기지 않게 하기 위해서다. 응답 `errors[].index`는 요청 위치 그대로다. 행이 없으면 넣고, 있으면 `rhr_revision`이 NULL이거나 새 revision보다 작을 때만 `rhr_bpm`·`rhr_revision`을 바꾼다. 다른 건강 컬럼은 바꾸지 않는다. 비교는 저장 문장 안에서 하므로 같은 날짜 요청이 동시에 와도 최종값은 가장 큰 revision이다.
+3. 유효 레코드를 날짜 오름차순(같은 날짜는 요청 순서 유지)으로 `(user_id, metric_date)` 조건부 upsert로 저장한다. 같은 회원의 동시 요청이 날짜 행 잠금을 같은 순서로 잡아 교착이 생기지 않게 하기 위해서다. 응답 `errors[].index`는 요청 위치 그대로다. 워치 심박은 행이 없으면 넣고, 있으면 저장된 값이 삼성 헬스 값이거나 `rhr_revision`이 NULL이거나 새 revision보다 작을 때만 `rhr_bpm`·`rhr_revision`·`rhr_source`를 바꾼다(아래 첫 항목). 다른 건강 컬럼은 바꾸지 않는다. 비교는 저장 문장 안에서 하므로 같은 날짜 요청이 동시에 와도 최종값은 가장 큰 revision의 워치 값이다.
+   - 워치 심박(`DAILY_HR_ESTIMATE`)은 `rhr_source`를 `RUNWAY_WATCH`로 쓴다. 저장된 값이 삼성 헬스 값(`rhr_source = SAMSUNG_HEALTH`)이면 revision과 관계없이 워치 값으로 바꾼다(S15P31E105-600).
+   - 삼성 헬스 안정 심박(`DAILY_RESTING_HR`)은 행이 없거나 `rhr_bpm`이 NULL이면 넣고, 저장된 출처가 `SAMSUNG_HEALTH`이며 값이 다를 때만 `rhr_bpm`을 바꾼다(마지막 값 우선, revision 없음, `rhr_revision`은 NULL). 저장된 출처가 `RUNWAY_WATCH`이거나 출처 없이 값만 있으면(W06 밖에서 넣은 값) 바꾸지 않아 duplicate다(워치 우선, 2026-11-09 사용자 결정). 조건은 저장 문장 안에서 판정하므로 같은 날짜의 워치·삼성 요청이 동시에 와도 워치 값이 한 번 커밋되면 삼성 값이 그 값을 바꾸지 않는다.
+   - 수면은 행이 없으면 넣고, 있으면 `sleep_duration_min`이 새 값과 다를 때(NULL 포함)만 그 컬럼을 바꾼다(마지막 값 우선, revision 없음). 다른 건강 컬럼은 바꾸지 않는다. 같은 값이면 쓰지 않아 duplicate이고 `updated_at`도 그대로다.
 4. 어느 저장이든 실패하면 모두 롤백한다. 같은 요청을 다시 보내면 조건부 upsert라 같은 최종 상태가 되고 이미 반영된 레코드는 duplicate로 응답한다.
-5. 한 요청에 같은 날짜가 여러 번 있으면 요청 순서대로 처리하고, 각 레코드는 그 시점의 저장값과 비교해 accepted·duplicate로 센다. 최종값은 가장 큰 revision이다. 예: `[rev1, rev2]`는 둘 다 accepted, `[rev2, rev1]`은 accepted 1·duplicate 1. 따라서 `acceptedCount`는 바뀐 날짜 수와 다를 수 있다.
+5. 한 요청에 같은 날짜가 여러 번 있으면 요청 순서대로 처리하고, 각 레코드는 그 시점의 저장값과 비교해 accepted·duplicate로 센다. 최종값은 가장 큰 revision이다. 예: `[rev1, rev2]`는 둘 다 accepted, `[rev2, rev1]`은 accepted 1·duplicate 1. 따라서 `acceptedCount`는 바뀐 날짜 수와 다를 수 있다. 수면은 revision 없이 요청 순서상 마지막 값이 남으며, 같은 날짜의 같은 값은 duplicate로 센다.
 6. 값이 저장·갱신된 날짜가 있으면 같은 트랜잭션에서 내부 이벤트 `DailyHealthMetricsChangedEvent(userId, 날짜 목록)`을 발행한다. 준비도 자동 평가([R02 자동 평가](readiness.md#자동-평가--내부-필수-처리), S15P31E105-254)는 커밋 후 리스너(`@TransactionalEventListener`)로 구독한다. 전부 duplicate·거절·롤백이면 전달되지 않는다. 조회나 별도 평가 요청을 요구하지 않는다. 같은 트랜잭션의 동기 리스너(`@EventListener`)가 예외를 던지면 W06 저장이 롤백되므로 구독자는 커밋 후 리스너를 쓴다. 커밋 후 리스너가 실패하거나 서버가 중단되면 이벤트는 다시 전달되지 않으며, 같은 요청 재전송도 duplicate라 재발행되지 않는다. 254는 평가 실패를 W06 응답에 전파하지 않으며, 누락 복구(정기 재평가 등)는 후속 업무로 남겼다([자동 평가](readiness.md#자동-평가--내부-필수-처리)).
 7. 건강 값은 로그·오류 본문에 남기지 않는다. DB 오류는 SQLState만 기록한다.
 8. 호출 시점은 폰 업로드 업무(281)가 정한다. W07의 5초 전송 규칙을 적용하지 않는다. 폰은 날짜별 최신 revision을 업로드하고 성공 응답 뒤에만 완료로 표시한다.
 
 ### 알려진 한계
 
+- 수면은 revision이 없어 마지막으로 커밋된 요청의 값이 남는다. 폰은 요청을 하나씩 보내므로 한 기기에서는 순서가 바뀌지 않는다. 같은 회원이 여러 폰을 쓰면 동시가 아니어도 마지막으로 올린 폰의 값이 남고, 다른 폰은 자기 값이 바뀌지 않는 한 다시 보내지 않는다. 2026-11-09 사용자 결정으로 수용한다(S15P31E105-572).
+- 수면 값은 지우거나 비우는 레코드가 없다. 삼성 헬스에서 기록을 삭제하거나, 시간을 확정할 수 없는 날로 바뀌거나, 시간대가 바뀌어 기상일이 달라져도 서버에 이미 저장된 그 날짜 값은 그대로 남는다. 0분 이하로 집계된 날은 보내지 않는다(S15P31E105-572).
 - 같은 revision에 다른 값이 오면 duplicate로 저장값을 유지한다. 워치 앱 재설치 등으로 revision이 1부터 다시 시작하면, 그 날짜는 새 revision이 저장된 revision을 넘을 때까지 갱신되지 않는다. 다음 날짜부터는 영향이 없다.
+- 삼성 헬스 안정 심박은 워치 추정과 정의가 달라(하루 고정 창·최소 30분·운동 구간 미제외) 같은 회원의 7일 평소 RHR에 두 출처가 섞이면 R 점수가 출처 차이만큼 흔들릴 수 있다. 2026-11-09 사용자 결정으로 수용한다(S15P31E105-600).
+- 삼성 헬스 안정 심박도 수면처럼 지우는 레코드가 없다. 기록이 30분 미만으로 줄어도 저장된 값은 남는다. 워치 값이 있던 날짜에 삼성 값이 오면 저장하지 않으므로, 워치 값이 그 날짜에 한 번이라도 저장되면 그 날짜의 출처는 계속 워치다.
 - 레코드에 운동이 없으므로 W07 운동과의 중복 집계 문제는 현재 해당하지 않는다. 운동 레코드를 추가할 때 출처·원본 ID·시각 기반 식별 규칙을 함께 정한다.
 
 ### 후속 확정 사항
 
-- [ ] 수면·활동량·삼성 헬스 과거 운동 등 실제 SDK 지원 지표의 `type`·단위·측정 시각·출처와 저장 매핑
+- [x] 삼성 헬스 수면의 `type`·단위·기상일·출처와 저장 매핑 (2026-11-09, 572)
+- [x] 삼성 헬스 심박 기반 일별 안정 심박의 계산·출처 우선순위·저장 매핑 (2026-11-09, 600)
+- [ ] 활동량·삼성 헬스 과거 운동 등 다른 SDK 지원 지표의 `type`·단위·측정 시각·출처와 저장 매핑
 - [ ] 위 레코드의 외부 원본 ID·수정 기록·W07 운동과의 중복 집계 방지
 - [x] 부분 저장과 항목별 오류·건수 산정·재요청 규칙 (2026-11-02, 252)
 - [x] 일상 심박 추정값의 저장 매핑·순서 역전 처리 (2026-11-02, 252)

@@ -123,7 +123,7 @@ test('watch connection opened from settings returns home instead of signing in',
   // 8.3: the watch tile lets go of the watch; once let go, it opens 1.7, which reconnects it.
   await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  expect(texts(screen)).toContain('연결 해제됨');
+  expect(texts(screen)).toContain('등록/연결 끊김');
   await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   // 1.7 ends in buttons now (S15P31E105-447): 다시 연결, then 시작하기.

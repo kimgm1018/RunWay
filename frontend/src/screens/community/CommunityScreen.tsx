@@ -1,22 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  AppText,
-  Backdrop,
-  EmptyState,
-  Icon,
-  Logo,
-  useToast,
-} from '../../components';
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -25,144 +23,30 @@ import {
   type Repositories,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, size, spacing } from '../../theme';
+import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
-import { communityLook } from './look';
-import {
-  Avatar,
-  placeLine,
-  PostActions,
-  PostMenu,
-  postedAt,
-  RunPhoto,
-  usePostChanges,
-} from './parts';
+import { FeedPage, feedLook } from './FeedPage';
+import { PostMenu } from './parts';
 
 const scopes: { value: FeedScope; label: string }[] = [
   { value: 'ALL', label: '전체' },
   { value: 'FOLLOWING', label: '팔로잉' },
 ];
 
-function FeedItem({
-  post,
-  onChange,
-  onMenu,
-  onComments,
-}: {
-  post: Post;
-  onChange: (post: Post) => void;
-  onMenu: () => void;
-  // 댓글 and 댓글 N개 모두 보기 open the 댓글 sheet over the feed (담당자 요청).
-  onComments: () => void;
-}) {
-  const navigation = useNavigation();
-  const { clock } = useRepositories();
-  const { like, bookmark } = usePostChanges(onChange);
-  const openAuthor = () =>
-    post.isMine
-      ? navigateTo(navigation, 'MyProfile')
-      : navigation.navigate('RunnerProfile', { userId: post.author.userId });
-  return (
-    <View style={styles.item}>
-      <View style={styles.authorRow}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${post.author.handle} 프로필`}
-          onPress={openAuthor}
-          style={({ pressed }) => [styles.author, pressed && styles.pressed]}
-        >
-          <Avatar
-            nickname={post.author.nickname}
-            userId={post.author.userId}
-            mine={post.isMine}
-            size={38}
-          />
-          <View style={styles.flex}>
-            <AppText style={styles.handle} numberOfLines={1}>
-              {post.author.handle}
-            </AppText>
-            {placeLine(post.record) ? (
-              <View style={styles.place}>
-                <Icon
-                  name="mapPin"
-                  color={communityLook.sub}
-                  size={11}
-                  strokeWidth={2.2}
-                />
-                <AppText style={styles.placeText} numberOfLines={1}>
-                  {placeLine(post.record)}
-                </AppText>
-              </View>
-            ) : null}
-          </View>
-        </Pressable>
-        {post.isMine ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="게시물 메뉴"
-            onPress={onMenu}
-            hitSlop={8}
-            style={({ pressed }) => [styles.menu, pressed && styles.pressed]}
-          >
-            <Icon
-              name="menu"
-              color={communityLook.ink}
-              size={20}
-              strokeWidth={2}
-            />
-          </Pressable>
-        ) : null}
-      </View>
-      {/* The photo only shows the run; it opens nothing (담당자 결정). */}
-      <RunPhoto
-        record={post.record}
-        courseShared={post.courseShared}
-        seed={post.id}
-      />
-      <View style={styles.actions}>
-        <PostActions
-          post={post}
-          onLike={() => like(post)}
-          onComment={onComments}
-          onBookmark={() => bookmark(post)}
-        />
-      </View>
-      <View style={styles.words}>
-        {post.body ? (
-          <AppText style={styles.body}>
-            <AppText style={[styles.body, styles.bodyHandle]}>
-              {post.author.handle}{' '}
-            </AppText>
-            {post.body}
-          </AppText>
-        ) : null}
-        {post.commentCount ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`댓글 ${post.commentCount}개 모두 보기`}
-            onPress={onComments}
-            style={({ pressed }) => [
-              styles.comments,
-              pressed && styles.pressed,
-            ]}
-          >
-            <AppText style={styles.metaText}>
-              {`댓글 ${post.commentCount}개 모두 보기`}
-            </AppText>
-          </Pressable>
-        ) : null}
-        <AppText style={[styles.metaText, styles.time]}>
-          {postedAt(post.createdAt, clock.now())}
-        </AppText>
-      </View>
-    </View>
-  );
-}
+// The header row floats over the pages, under the status bar.
+const headerHeight = 48;
 
-// 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope).
+// 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope), one full-screen page per
+// post paged up and down (S15P31E105-561, 담당자 시안).
 export function CommunityScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
+  // The page is the screen's own size, measured once it lays out.
+  const [pageSize, setPageSize] = useState<{ width: number; height: number }>({
+    width: window.width,
+    height: window.height,
+  });
   const toast = useToast();
   const { community } = useRepositories();
   const [scope, setScope] = useState<FeedScope>('ALL');
@@ -183,6 +67,11 @@ export function CommunityScreen() {
       setPosts(loaded);
     }
   }, [loaded]);
+  // The page on screen, back to the first with a new scope. Away from 7.1 (7.2 over it, another tab) no page
+  // keeps a map up.
+  const [shownPage, setShownPage] = useState(0);
+  useEffect(() => setShownPage(0), [scope]);
+  const focused = useIsFocused();
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
 
@@ -193,30 +82,125 @@ export function CommunityScreen() {
         : current,
     );
 
+  const pageTop = insets.top + headerHeight + 8;
+  // Above the floating tab bar.
+  const pageBottom = insets.bottom + size.tabBar + size.tabBarInset * 2;
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      {/* On the mist like 홈 and 러닝 (S15P31E105-483); the long text keeps the light part to ~80%. */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <Backdrop tail />
-      </View>
-      <View style={[styles.header, { marginTop: insets.top }]}>
-        <Logo width={104} />
+    <View
+      style={styles.root}
+      onLayout={event => {
+        const { width, height } = event.nativeEvent.layout;
+        if (width && height) {
+          setPageSize({ width, height });
+        }
+      }}
+    >
+      <StatusBar barStyle="light-content" />
+      {feed.status === 'error' ? (
+        <ThemeProvider tone="dark">
+          <View style={[styles.state, { paddingTop: pageTop }]}>
+            <EmptyState
+              icon="alert"
+              title="게시물을 불러오지 못했어요"
+              actionLabel="다시 시도"
+              onAction={reload}
+            />
+          </View>
+        </ThemeProvider>
+      ) : !posts ? (
+        <ActivityIndicator
+          color={feedLook.white}
+          style={[styles.loading, { marginTop: pageTop + spacing.xxxl }]}
+        />
+      ) : posts.length === 0 ? (
+        <ThemeProvider tone="dark">
+          <View style={[styles.state, { paddingTop: pageTop }]}>
+            <EmptyState
+              icon="community"
+              title={
+                scope === 'FOLLOWING'
+                  ? '아직 팔로우한 러너의 게시물이 없어요'
+                  : '아직 공유된 러닝이 없어요'
+              }
+            />
+          </View>
+        </ThemeProvider>
+      ) : (
+        <FlatList
+          // A new scope starts at its first post.
+          key={scope}
+          data={posts}
+          keyExtractor={post => post.id}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          decelerationRate="fast"
+          // A few pages either side, so a quick swipe never lands on an empty page.
+          windowSize={5}
+          initialNumToRender={4}
+          getItemLayout={(_, index) => ({
+            length: pageSize.height,
+            offset: pageSize.height * index,
+            index,
+          })}
+          // The page the feed settles on is the one that draws the real map (S15P31E105-521).
+          onMomentumScrollEnd={event =>
+            setShownPage(
+              Math.round(event.nativeEvent.contentOffset.y / pageSize.height),
+            )
+          }
+          renderItem={({ item, index }) => (
+            <FeedPage
+              post={item}
+              width={pageSize.width}
+              height={pageSize.height}
+              top={pageTop}
+              bottom={pageBottom}
+              onChange={replace}
+              onMenu={() => setMenuFor(item)}
+              onComments={() => setCommentsFor(item)}
+              active={focused && index === shownPage}
+            />
+          )}
+        />
+      )}
+      {/* 시안 상단: 전체 · 팔로잉 on the left, 지역 · 알림 · 검색 on the right, white over the page. */}
+      <View
+        style={[styles.header, { top: insets.top }]}
+        pointerEvents="box-none"
+      >
+        <View style={styles.tabs}>
+          {scopes.map(option => {
+            const selected = option.value === scope;
+            return (
+              <Pressable
+                key={option.value}
+                accessibilityRole="tab"
+                accessibilityLabel={option.label}
+                accessibilityState={{ selected }}
+                onPress={() => setScope(option.value)}
+                hitSlop={6}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <AppText
+                  style={[styles.tabText, selected && styles.tabTextSelected]}
+                >
+                  {option.label}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.flex} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="지역 부산"
           onPress={() => toast('지역 고르기는 준비 중이에요')}
           style={({ pressed }) => [styles.region, pressed && styles.pressed]}
         >
+          <Icon name="mapPin" color={feedLook.white} size={14} />
           <AppText style={styles.regionText}>부산</AppText>
-          <Icon
-            name="chevronDown"
-            color={communityLook.ink}
-            size={14}
-            strokeWidth={2.2}
-          />
+          <Icon name="chevronDown" color={feedLook.white} size={13} />
         </Pressable>
-        <View style={styles.flex} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="알림"
@@ -226,7 +210,7 @@ export function CommunityScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Icon name="bell" color={communityLook.ink} size={24} />
+          <Icon name="bell" color={feedLook.white} size={24} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -237,67 +221,9 @@ export function CommunityScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Icon name="search" color={communityLook.ink} size={24} />
+          <Icon name="search" color={feedLook.white} size={24} />
         </Pressable>
       </View>
-      <View style={styles.tabs}>
-        {scopes.map(option => {
-          const selected = option.value === scope;
-          return (
-            <Pressable
-              key={option.value}
-              accessibilityRole="tab"
-              accessibilityLabel={option.label}
-              accessibilityState={{ selected }}
-              onPress={() => setScope(option.value)}
-              style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
-            >
-              <AppText
-                style={[styles.tabText, selected && styles.tabTextSelected]}
-              >
-                {option.label}
-              </AppText>
-              {selected ? <View style={styles.tabBar} /> : null}
-            </Pressable>
-          );
-        })}
-      </View>
-      {feed.status === 'error' ? (
-        <EmptyState
-          icon="alert"
-          title="게시물을 불러오지 못했어요"
-          actionLabel="다시 시도"
-          onAction={reload}
-        />
-      ) : !posts ? (
-        <ActivityIndicator style={styles.loading} />
-      ) : posts.length === 0 ? (
-        <EmptyState
-          icon="community"
-          title={
-            scope === 'FOLLOWING'
-              ? '팔로우한 러너의 게시물이 아직 없어요'
-              : '아직 공유된 러닝이 없어요'
-          }
-        />
-      ) : (
-        <ScrollView
-          contentContainerStyle={{
-            paddingBottom:
-              insets.bottom + size.tabBar + size.tabBarInset * 2 + spacing.xl,
-          }}
-        >
-          {posts.map(post => (
-            <FeedItem
-              key={post.id}
-              post={post}
-              onChange={replace}
-              onMenu={() => setMenuFor(post)}
-              onComments={() => setCommentsFor(post)}
-            />
-          ))}
-        </ScrollView>
-      )}
       <CommentSheet
         post={commentsFor}
         onClose={() => setCommentsFor(null)}
@@ -338,27 +264,48 @@ export function CommunityScreen() {
   );
 }
 
-// runway-community-handoff 7.1: a photo feed without cards, pills or dividers, on the mist (S15P31E105-483).
+// 7.1 (S15P31E105-561, 담당자 시안): full-screen pages on the dark map ground, the header floating over them.
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: communityLook.background },
+  root: { flex: 1, backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
-  loading: { marginTop: spacing.xxxl },
-  // 상단 44: the navy wordmark, 부산 ▾ and the outline icons in 40 squares.
+  loading: { alignSelf: 'center' },
+  state: { flex: 1 },
   header: {
-    height: 44,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: headerHeight,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 6,
     paddingLeft: 16,
     paddingRight: 8,
   },
-  region: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  // 시안의 For you · Following: the picked one bold white, the other faint, side by side.
+  tabs: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  tabText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    color: feedLook.faint,
+  },
+  tabTextSelected: { color: feedLook.white },
+  // A glass pill like the 시안's round icon buttons.
+  region: {
+    height: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
   regionText: {
     fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: communityLook.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    color: feedLook.white,
   },
   headerButton: {
     width: 40,
@@ -366,81 +313,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // 피드 탭 40: words 22 apart, the picked one bold navy over a 2px bar.
-  tabs: {
-    height: 40,
-    flexDirection: 'row',
-    gap: 22,
-    paddingHorizontal: 16,
-  },
-  tab: { justifyContent: 'center' },
-  tabText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: communityLook.meta,
-  },
-  tabTextSelected: { fontFamily: fontFamily.bold, color: communityLook.ink },
-  tabBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 4,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: communityLook.ink,
-  },
-  // Posts sit 16 apart; the photo runs edge to edge.
-  item: { marginBottom: 16 },
-  authorRow: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingLeft: 12,
-    paddingRight: 6,
-  },
-  author: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  handle: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: communityLook.ink,
-  },
-  place: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
-  placeText: {
-    flexShrink: 1,
-    fontFamily: fontFamily.regular,
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: communityLook.sub,
-  },
-  menu: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actions: { paddingLeft: 10, paddingRight: 8 },
-  words: { paddingHorizontal: 12 },
-  body: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13.5,
-    lineHeight: 20,
-    color: communityLook.ink,
-  },
-  bodyHandle: { fontFamily: fontFamily.medium },
-  comments: { alignSelf: 'flex-start', marginTop: 4 },
-  metaText: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 20,
-    color: communityLook.meta,
-  },
-  time: { marginTop: 4, fontSize: 11.5, lineHeight: 18 },
 });

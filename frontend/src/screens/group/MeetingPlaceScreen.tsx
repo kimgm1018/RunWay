@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   PermissionsAndroid,
   Platform,
@@ -30,13 +30,17 @@ import {
   typography,
 } from '../../theme';
 import { FooterButton } from './GroupRunDetailScreen';
-import { groupLook, Raised } from './look';
+import { groupLook } from './look';
 import { Tag, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
-const formatDistance = (meters: number) =>
-  meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
+const formatDistance = (meters: number | null) =>
+  meters === null || !Number.isFinite(meters)
+    ? ''
+    : meters >= 1000
+    ? `${(meters / 1000).toFixed(1)}km`
+    : `${Math.round(meters)}m`;
 
 // A point picked on the map has no place name or address yet (no reverse geocoding), so it shows its
 // coordinates; its distance is known only once my location is.
@@ -49,7 +53,7 @@ function mapPlace(
     name,
     address: `${position[1].toFixed(5)}, ${position[0].toFixed(5)}`,
     position,
-    distanceM: me ? distanceM(me, position) : Number.NaN,
+    distanceM: me ? distanceM(me, position) : null,
   };
 }
 
@@ -63,7 +67,8 @@ async function locationAllowed() {
   return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-// 이 위치로 정하기 (6.9-PlaceSheet): a raised navy pill with a white circle ✓ at its end.
+// 이 위치로 정하기 (6.9-PlaceSheet): a flat navy pill with a white circle ✓ at its end, like the other group
+// buttons (S15P31E105-563).
 function ConfirmButton({
   disabled,
   onPress,
@@ -79,14 +84,14 @@ function ConfirmButton({
       disabled={disabled}
       onPress={onPress}
     >
-      <Raised tone="navy" style={styles.confirm}>
+      <View style={styles.confirm}>
         <View style={[styles.confirmContent, disabled && styles.dimmed]}>
           <AppText style={styles.confirmText}>이 위치로 정하기</AppText>
           <View style={styles.confirmIcon}>
             <Icon name="check" color={groupLook.onLight} size={18} />
           </View>
         </View>
-      </Raised>
+      </View>
     </PressableScale>
   );
 }
@@ -102,6 +107,9 @@ export function MeetingPlaceScreen() {
   const { draft, setPlace } = useGroupRunDraft();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MeetingPlace[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [picked, setPicked] = useState<MeetingPlace | null>(draft.place);
   const [confirming, setConfirming] = useState(false);
   const [placeName, setPlaceName] = useState('');
@@ -113,21 +121,38 @@ export function MeetingPlaceScreen() {
   // True while the camera flies to my location; where it stops is the picked place.
   const locating = useRef(false);
 
-  const search = useCallback(
-    (text: string) => {
-      groupRuns.searchPlaces(text).then(found => {
-        setResults(found);
-        setPicked(current => current ?? found[0] ?? null);
-      });
-    },
-    [groupRuns],
-  );
-  useEffect(() => search(''), [search]);
+  useEffect(() => {
+    let active = true;
+    setResults([]);
+    setSearchFailed(false);
+    setSearching(Boolean(query.trim()));
+    // 빈 검색은 mock의 기존 주변 후보만 유지한다. API는 빈 배열을 반환한다.
+    const timer = setTimeout(
+      () => {
+        groupRuns.searchPlaces(query, me).then(
+          found => {
+            if (!active) return;
+            setResults(found);
+            setSearching(false);
+          },
+          () => {
+            if (!active) return;
+            setSearchFailed(true);
+            setSearching(false);
+          },
+        );
+      },
+      query.trim() ? 300 : 0,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [groupRuns, query, me, attempt]);
 
   const choose = (place: MeetingPlace) => {
     setPicked(place);
     setQuery('');
-    search('');
   };
 
   // 내 위치로: with the location permission the map follows me once; without it the nearest place.
@@ -206,8 +231,10 @@ export function MeetingPlaceScreen() {
                 value={query}
                 onChangeText={text => {
                   setQuery(text);
+                  setResults([]);
+                  setSearching(Boolean(text.trim()));
+                  setSearchFailed(false);
                   setConfirming(false);
-                  search(text);
                 }}
                 style={styles.searchInput}
               />
@@ -215,10 +242,26 @@ export function MeetingPlaceScreen() {
           </View>
           {query ? (
             <LightGlass radius={22} style={styles.results}>
-              {results.length ? (
+              {searching ? (
+                <AppText style={[styles.sub, styles.noResult]}>
+                  검색 중이에요
+                </AppText>
+              ) : searchFailed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="장소 검색 다시 시도"
+                  onPress={() => setAttempt(value => value + 1)}
+                >
+                  <AppText style={[styles.sub, styles.noResult]}>
+                    검색하지 못했어요. 눌러서 다시 시도해 주세요
+                  </AppText>
+                </Pressable>
+              ) : results.length ? (
                 results.map(place => (
                   <Pressable
-                    key={place.name}
+                    key={`${place.name}:${place.address}:${place.position.join(
+                      ',',
+                    )}`}
                     accessibilityRole="button"
                     accessibilityLabel={place.name}
                     onPress={() => choose(place)}
@@ -258,7 +301,12 @@ export function MeetingPlaceScreen() {
         {/* 6.9-PlaceSheet: a light glass sheet with corners of 32. The keyboard lifts it (S15P31E105-473). */}
         <KeyboardLift style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={styles.sheet}>
-            <LightGlass radius={32} style={styles.sheetGlass}>
+            {/* A white sheet like 6.4's (S15P31E105-563). */}
+            <LightGlass
+              radius={32}
+              solid="#FFFFFF"
+              style={[styles.sheetGlass, styles.sheetSolid]}
+            >
               <SafeAreaView edges={['bottom']}>
                 <View style={styles.handle} />
                 {confirming && picked ? (
@@ -321,9 +369,11 @@ export function MeetingPlaceScreen() {
                               accessibilityState={{ selected }}
                               onPress={() => setPicked(place)}
                             >
-                              <Raised
-                                tone={selected ? 'navy' : 'white'}
-                                style={styles.nearbyChip}
+                              <View
+                                style={[
+                                  styles.nearbyChip,
+                                  selected && styles.nearbyChipOn,
+                                ]}
                               >
                                 <AppText
                                   style={[
@@ -333,7 +383,7 @@ export function MeetingPlaceScreen() {
                                 >
                                   {place.name}
                                 </AppText>
-                              </Raised>
+                              </View>
                             </PressableScale>
                           );
                         })}
@@ -496,7 +546,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     borderRadius: 16,
     justifyContent: 'center',
+    backgroundColor: groupLook.lightFill,
   },
+  nearbyChipOn: { backgroundColor: groupLook.navy },
   chipText: {
     fontFamily: fontFamily.bold,
     fontSize: 12.5,
@@ -528,7 +580,10 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
+    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
   },
+  sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.18)' },
   confirmContent: {
     flexDirection: 'row',
     alignItems: 'center',

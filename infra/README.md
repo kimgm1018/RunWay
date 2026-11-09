@@ -8,13 +8,13 @@
 
 | 경로 | 역할 |
 | --- | --- |
-| `compose.yaml`, `nginx/default.conf` | Nginx·HTTPS·백엔드/Jenkins 라우팅 |
+| `compose.yaml`, `nginx/default.conf` | Nginx·HTTPS·백엔드/Jenkins 라우팅, 루트 `/` 소개 랜딩(`../frontend/landing/`) 서빙 |
 | `jenkins/compose.yaml`, `jenkins/backend-agent/` | Jenkins 컨트롤러·Java 21 빌드 에이전트 |
 | `jenkins/mobile-agent/` | Node·Java·Android 도구를 갖춘 모바일 빌드 에이전트 |
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
 | `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
-| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드 명령 |
+| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh`, `jenkins/update-git-reference.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
 | `jenkins/Jenkinsfile.backend` | dev·master 대상 MR의 임시 병합 검사·테스트·JAR 생성 |
@@ -96,6 +96,8 @@
    외부 포트 없이 `runway-route_default`에 연결한다. 백엔드 기동 전에 이 네트워크를 준비한다.
 6. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
    Route 연결은 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`을 사용한다.
+   C01 경사 계산 DEM은 Route 번들 v2의 검증된 파일을 읽기 전용으로 연결하므로 Route 데이터 준비 후 기동하며,
+   기동 로그 `코스 DEM 준비 완료`를 확인한다. Route 데이터 revision 변경 시 마운트 경로·SHA를 함께 바꾼다(S15P31E105-568).
 7. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
 
 ## Jenkins 공통 설정
@@ -143,6 +145,13 @@ AI와 Route는 같은 노드를 사용하므로 executor 1에서는 두 검사�
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
   Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
   체크아웃 폴더를 삭제해도 캐시는 유지되며 검사 자체를 생략하지 않는다.
+- **타입 검사·린트 캐시:** MR·master 작업 모두 `infra/jenkins/check-mobile-static.sh`로 전체 타입 검사·린트를 실행하고
+  바뀌지 않은 파일의 결과만 재사용한다. TypeScript 증분 정보와 ESLint 내용 기반 캐시는
+  `/home/jenkins/agent/.cache/mobile-static/<키>/`에 둔다. 키는 `package.json`·`pnpm-lock.yaml`·`tsconfig.json`·
+  `.eslintrc.js`·`.eslintignore`·`babel.config.js` 해시이며, ESLint가 감지하지 않는 플러그인·파서 버전 변경도 새 캐시로 검사한다.
+  7일 넘게 쓰지 않은 이전 키는 다음 실행에서 정리한다. 콘솔의 `타입 검사 소요 시간`·`린트 소요 시간`으로 효과를 확인한다.
+  결과가 의심되면 모바일 에이전트에서 `rm -rf /home/jenkins/agent/.cache/mobile-static`으로 지운다.
+  다음 실행은 캐시 없이 전체 검사하며 결과는 같다.
 - **설정·주의:** `frontend/android/`·`package.json`·`pnpm-lock.yaml`·babel·metro·`react-native.config.js`·`app.json`·Jest 설정·`assets/`·
   알 수 없는 프론트엔드 경로가 함께 바뀌면 APK를 빌드한다. JS 번들은 네이티브 컴파일·Hermes 바이트코드 변환·APK 패키징을 검사하지 않으므로
   해당 오류는 APK를 생성하는 MR·수동 검사·master 작업에서 확인한다.
@@ -184,6 +193,25 @@ GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09 검증에는 `PERSONA
 - **설정·주의:** 저장소 루트에서 `ROUTE_CI_TAG=<실행별 소문자 태그> sh infra/jenkins/check-route.sh`로 MR 검사를 재현한다.
   임시 컨테이너·이미지는 실행별로 정리한다. 운영 준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다.
   요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.
+
+### 소개 랜딩
+
+- **경로:** `https://k15e105.p.ssafy.io/`(정확히 루트만)에서 `frontend/landing/index.html`을 제공한다. 이미지·파비콘은 HTML에 내장되어 있다.
+  `/api/v1`·`/jenkins`·`/grafana`·인증서 갱신 경로는 기존 라우팅을 유지한다.
+- **서버 배치:** EC2의 `~/runway/frontend/landing/`을 Nginx `/usr/share/nginx/landing`에 읽기 전용 디렉터리로 연결한다.
+  응답은 `Cache-Control: no-cache`라 브라우저가 매번 ETag로 재검증하며, 파일 교체 후 Nginx 재시작 없이 반영된다.
+- **상태 검사:** 루트가 랜딩으로 바뀌어 blackbox 검사는 `/backend-probe`를 사용한다. Nginx가 이 경로를 백엔드 루트로 전달해 기존과 같은 공개 404(`NOT_FOUND`)를 확인한다.
+- **갱신(수동):** 랜딩 변경이 master에 반영되면 master 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
+
+```bash
+scp -i <SSH 키> frontend/landing/index.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.index.html.new
+ssh -i <SSH 키> ubuntu@k15e105.p.ssafy.io 'mv runway/frontend/landing/.index.html.new runway/frontend/landing/index.html'
+sha256sum frontend/landing/index.html
+curl -s https://k15e105.p.ssafy.io/ | sha256sum
+```
+
+두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
+`nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
 
 ## 폰·워치 연결 검증
 

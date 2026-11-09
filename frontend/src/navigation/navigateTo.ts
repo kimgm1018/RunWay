@@ -12,6 +12,15 @@ import type { RootStackParamList } from './types';
 
 type Navigate = Pick<NavigationProp<RootStackParamList>, 'navigate'>;
 
+// One of my runs in 2.1 기록 상세 (S15P31E105-564: 5.2 is part of 2.1).
+export function openRecord(navigation: Navigate, recordId: string) {
+  navigation.navigate(
+    'MainTabs',
+    { screen: 'HomeTab', params: { screen: 'Home', params: { recordId } } },
+    { pop: true },
+  );
+}
+
 // Tab screens live inside MainTabs, so a link to one goes through the tab instead of the root stack.
 // pop: React Navigation 7 otherwise leaves the screens stacked over the tabs (4.5 완료 → 홈, 6.4e 내 크루로).
 export function navigateTo(navigation: Navigate, name: RouteName) {

@@ -39,6 +39,22 @@ class ReadinessAutoEvaluationIntegrationTest extends ReadinessIntegrationSupport
         assertThat(readinessRows(otherUserId)).isEmpty();
     }
 
+    /** S15P31E105-600 AC-5. 워치 값 없이 삼성 헬스 안정 심박만 저장돼도 R 항목으로 평가한다. */
+    @Test
+    void 삼성_헬스_안정_심박만으로도_준비도가_자동_저장된다() throws Exception {
+        LocalDate date = today();
+        insertBaseline(userId, date, 7, "60");
+
+        mockMvc.perform(healthRequest(userId, samsungBody(samsungRestingHr(date, "66"))))
+                .andExpect(status().isOk());
+        awaitEvaluations();
+
+        List<Map<String, Object>> rows = readinessRows(userId);
+        assertThat(rows).hasSize(1);
+        assertThat((BigDecimal) rows.getFirst().get("readiness_score")).isEqualByComparingTo("65.00");
+        assertThat(rows.getFirst().get("confidence")).isEqualTo("LOW");
+    }
+
     @Test
     void 더_큰_revision으로_갱신하면_같은_행의_점수가_바뀐다() throws Exception {
         LocalDate date = today();

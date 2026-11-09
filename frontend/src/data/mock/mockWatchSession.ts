@@ -93,6 +93,23 @@ export function createMockWatchSession(options: Options): MockWatchSession {
 
   const after = (work: () => void) => setTimeout(work, options.latencyMs);
 
+  const sendCommand = (sessionId: string, approval: CommandApproval) => {
+    const firstDelivery = !delivered.has(approval.commandId);
+    delivered.add(approval.commandId);
+    if (options.behavior === 'noResult' && firstDelivery) {
+      return Promise.resolve();
+    }
+    after(() => {
+      const stored = results.get(approval.commandId) ?? execute(sessionId, approval);
+      results.set(approval.commandId, stored);
+      deliver(stored);
+      if (options.behavior === 'duplicateResult') {
+        deliver(stored);
+      }
+    });
+    return Promise.resolve();
+  };
+
   return {
     timing: options.timing,
     getLinkedDevices: () =>
@@ -110,22 +127,16 @@ export function createMockWatchSession(options: Options): MockWatchSession {
           resolve({ stateVersion, ready: true, reasonCode: null });
         }),
       ),
-    sendCommand: (sessionId, approval) => {
-      const firstDelivery = !delivered.has(approval.commandId);
-      delivered.add(approval.commandId);
-      if (options.behavior === 'noResult' && firstDelivery) {
-        return Promise.resolve();
-      }
-      after(() => {
-        const stored = results.get(approval.commandId) ?? execute(sessionId, approval);
-        results.set(approval.commandId, stored);
-        deliver(stored);
-        if (options.behavior === 'duplicateResult') {
-          deliver(stored);
-        }
-      });
-      return Promise.resolve();
-    },
+    sendCommand,
+    // SERVER_END(S15P31E105-420): 워치는 승인된 END와 똑같이 실행하고 COMMAND_RESULT로 답한다.
+    sendServerEnd: (sessionId, end) =>
+      sendCommand(sessionId, {
+        commandId: end.commandId,
+        action: 'END',
+        expectedVersion: end.expectedVersion,
+        result: 'PENDING',
+      }),
+    sendGroupStatus: () => Promise.resolve(),
     sendBpmCommand: () => Promise.resolve(),
     sendCoachingGuide: () => Promise.resolve(),
     sendReceived: () => Promise.resolve(),

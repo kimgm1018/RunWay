@@ -12,6 +12,9 @@ import {
   isValidVerificationCode,
 } from './validation';
 
+// How long a U28 code lives (users.md U28 expiresInSec), for a send whose answer was lost.
+const CODE_LIFETIME_SEC = 180;
+
 export type VerificationPhase =
   | 'idle'
   | 'requesting'
@@ -64,6 +67,29 @@ function describe(
       return {
         field: 'code',
         message: '인증 시간이 지났어요. 인증번호를 다시 받아 주세요.',
+      };
+    // U28·U29 (users.md, S15P31E105-560).
+    case 'PHONE_ACCOUNT_AMBIGUOUS':
+      return {
+        field: 'phone',
+        message:
+          '이 번호로 가입한 계정이 여러 개라 비밀번호를 찾을 수 없어요. 아이디로 로그인해 주세요.',
+      };
+    case 'VERIFICATION_RESEND_TOO_SOON':
+      return {
+        field: 'phone',
+        message: '인증번호는 잠시 후에 다시 받을 수 있어요.',
+      };
+    case 'VERIFICATION_SEND_LIMIT_EXCEEDED':
+      return {
+        field: 'phone',
+        message: '인증번호 요청 횟수를 넘었어요. 내일 다시 시도해 주세요.',
+      };
+    case 'SMS_UNAVAILABLE':
+      return {
+        field: 'phone',
+        message:
+          '인증번호를 보내지 못했을 수 있어요. 문자가 왔다면 입력하고, 오지 않았다면 잠시 후 다시 받아 주세요.',
       };
     default:
       return { field: 'phone', message: '잠시 후 다시 시도해 주세요.' };
@@ -118,26 +144,50 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
   );
 
   const request = useCallback(async () => {
+    // A code already on screen is still live on the server unless a new one replaces it (users.md U28).
+    const hadCode = phase === 'sent' || phase === 'verifying';
     setPhase('requesting');
     setError(null);
-    setCodeDigits('');
-    setLocked(false);
+    const startOver = (seconds: number) => {
+      setCodeDigits('');
+      setLocked(false);
+      setRemainingSec(seconds);
+      setPhase('sent');
+    };
     try {
       const { expiresInSec } = await auth.requestPhoneCode({
         phoneNumber,
         purpose,
       });
       if (mounted.current) {
-        setRemainingSec(expiresInSec);
-        setPhase('sent');
+        startOver(expiresInSec);
       }
     } catch (caught) {
-      if (mounted.current) {
-        setPhase('idle');
-        setError(messageFor(caught));
+      if (!mounted.current) {
+        return;
       }
+      setError(messageFor(caught));
+      const failure = errorCode(caught);
+      // An unclear send may still deliver a new code, which the server keeps (users.md U28), so the field opens
+      // for it instead of pushing another paid SMS (review R-2).
+      if (failure === 'SMS_UNAVAILABLE') {
+        startOver(CODE_LIFETIME_SEC);
+        return;
+      }
+      // Too soon or over the limit: nothing new was stored, so the code on screen still works.
+      if (
+        hadCode &&
+        (failure === 'VERIFICATION_RESEND_TOO_SOON' ||
+          failure === 'VERIFICATION_SEND_LIMIT_EXCEEDED')
+      ) {
+        setPhase('sent');
+        return;
+      }
+      setCodeDigits('');
+      setLocked(false);
+      setPhase('idle');
     }
-  }, [auth, phoneNumber, purpose]);
+  }, [auth, phase, phoneNumber, purpose]);
 
   const verify = useCallback(
     async (value: string) => {
@@ -155,9 +205,20 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
         }
       } catch (caught) {
         if (mounted.current) {
-          setPhase('sent');
-          setError(messageFor(caught));
           const failure = errorCode(caught);
+          setError(messageFor(caught));
+          // U29 tells the registration state only after a correct code. The server has used up the code,
+          // so the screen goes back to the number step (users.md U29, S15P31E105-560 review R-1).
+          if (
+            failure === 'PHONE_ALREADY_REGISTERED' ||
+            failure === 'PHONE_NOT_REGISTERED' ||
+            failure === 'PHONE_ACCOUNT_AMBIGUOUS'
+          ) {
+            setPhase('idle');
+            setCodeDigits('');
+            return;
+          }
+          setPhase('sent');
           if (
             failure === 'VERIFICATION_ATTEMPTS_EXCEEDED' ||
             failure === 'VERIFICATION_EXPIRED'
@@ -169,6 +230,26 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
     },
     [auth, phoneNumber, purpose],
   );
+
+  // The proof was used up or can no longer be trusted (U30 failed after taking it): back to the number step so a new
+  // code can be requested (S15P31E105-560 review R-3). Registration answers keep their own message.
+  const restart = useCallback((caught: unknown) => {
+    const failure = errorCode(caught);
+    setToken(null);
+    setCodeDigits('');
+    setLocked(false);
+    setPhase('idle');
+    setError(
+      failure === 'PHONE_NOT_REGISTERED' ||
+        failure === 'PHONE_ACCOUNT_AMBIGUOUS'
+        ? messageFor(caught)
+        : {
+            field: 'phone',
+            code: failure,
+            message: '비밀번호를 바꾸지 못했어요. 인증번호를 다시 받아 주세요.',
+          },
+    );
+  }, []);
 
   const setCode = useCallback(
     (text: string) => {
@@ -197,6 +278,7 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
       : error,
     token,
     request,
+    restart,
   };
 }
 

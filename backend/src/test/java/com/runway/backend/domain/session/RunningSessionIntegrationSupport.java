@@ -77,8 +77,8 @@ abstract class RunningSessionIntegrationSupport {
         jdbc.update("DELETE FROM courses");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM users");
-        userId = insertUser("AGREEE");
-        otherUserId = insertUser("AGREEE");
+        userId = insertUser("AGREE");
+        otherUserId = insertUser("AGREE");
         watchId = insertDevice(userId, "WATCH", false);
         phoneId = insertDevice(userId, "PHONE", false);
         otherWatchId = insertDevice(otherUserId, "WATCH", false);

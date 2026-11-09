@@ -7,6 +7,7 @@ import type {
   Repositories,
 } from '../types';
 import { apiRequest } from './http';
+import { listItems } from './listItems';
 import { tokenStore } from './tokenStore';
 
 // CMT01–CMT11 커뮤니티 (docs/design/api/community.md). The server has no like or comment counts, my
@@ -33,6 +34,9 @@ export type PostResponse = {
   author: AuthorResponse;
   recordSummary: RecordSummaryResponse | null;
 };
+
+// C03, only the route (GeoJSON [longitude, latitude]).
+type CourseRouteResponse = { route: { coordinates: [number, number][] } };
 
 type CommentResponse = {
   id: number;
@@ -97,6 +101,8 @@ export function recordOf(response: PostResponse): PostRecord {
     goalAchieved: null,
     place: '',
     courseRun: response.courseId != null,
+    // The route comes with 7.2 (C03 by the post's course), not with the list.
+    route: null,
     averageHeartRate: null,
     cadence: null,
   };
@@ -110,9 +116,26 @@ export function createCommunityApi({
   // Likes I made or took back in this session: the server does not say whether I liked a post.
   const likes = new Map<string, boolean>();
   const bookmarks = new Set<string>();
+  // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
+  // post does not ask again.
+  const courseIds = new Map<string, number | null>();
+  const routes = new Map<string, Promise<[number, number][] | null>>();
+  const readRoute = async (postId: string) => {
+    const courseId = courseIds.has(postId)
+      ? courseIds.get(postId)
+      : (await apiRequest<PostResponse>(`/posts/${postId}`)).courseId;
+    if (courseId == null) {
+      return null;
+    }
+    const course = await apiRequest<CourseRouteResponse>(
+      `/courses/${courseId}`,
+    );
+    return course.route.coordinates;
+  };
 
   const toPost = (response: PostResponse): Post => {
     const id = String(response.id);
+    courseIds.set(id, response.courseId ?? null);
     return {
       id,
       author: authorOf(response.author.userId, response.author.nickname),
@@ -154,22 +177,49 @@ export function createCommunityApi({
 
   return {
     listFeed: async scope => {
-      const { items } = await apiRequest<{ items: PostResponse[] }>('/posts', {
-        query: { scope },
-      });
+      const items = listItems(
+        await apiRequest<{ items: PostResponse[] }>('/posts', {
+          query: { scope },
+        }),
+      );
       return items.map(toPost);
     },
     get: async postId => {
-      const [post, { items }] = await Promise.all([
+      const [post, commentsPage] = await Promise.all([
         apiRequest<PostResponse>(`/posts/${postId}`),
         apiRequest<{ items: CommentResponse[] }>(`/posts/${postId}/comments`),
       ]);
+      const items = listItems(commentsPage);
+      const base = toPost(post);
+      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. A course that cannot
+      // be read leaves the post without a route rather than failing the page.
+      const route =
+        post.courseId == null
+          ? null
+          : await apiRequest<CourseRouteResponse>(`/courses/${post.courseId}`)
+              .then(course => course.route.coordinates)
+              .catch(() => null);
       const detail: PostDetail = {
-        ...toPost(post),
+        ...base,
+        record: { ...base.record, route },
         commentCount: items.length,
         comments: items.map(item => toComment(item, post.author)),
       };
       return detail;
+    },
+    // 7.1 draws the post on screen on the real map. A course that cannot be read leaves the drawn map, and is
+    // asked for again next time rather than remembered as missing.
+    getRoute: postId => {
+      const known = routes.get(postId);
+      if (known) {
+        return known;
+      }
+      const route = readRoute(postId).catch(() => {
+        routes.delete(postId);
+        return null;
+      });
+      routes.set(postId, route);
+      return route;
     },
     // 7.3 shares one of my runs: the given one, or the newest.
     getShareable: async recordId => {
@@ -182,6 +232,7 @@ export function createCommunityApi({
         ...detail,
         place: '',
         courseRun: detail.courseId !== null,
+        route: detail.route,
         averageHeartRate: null,
         cadence: null,
       };

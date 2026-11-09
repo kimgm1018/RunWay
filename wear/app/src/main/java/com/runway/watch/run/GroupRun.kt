@@ -36,8 +36,8 @@ sealed interface GroupPosition {
 }
 
 /**
- * GRP-006 notices decided and sent by the server; the watch only shows them in the run pages.
- * The delivery contract is not agreed yet.
+ * GRP-006 notices; the watch only shows them in the run pages. A shared pace change comes as
+ * GROUP_STATUS.paceChanged, the change the phone saw between two G10 reads (S15P31E105-604).
  */
 sealed interface GroupNotice {
     data class PaceChanged(val fromSecondsPerKm: Int, val toSecondsPerKm: Int) : GroupNotice
@@ -54,4 +54,9 @@ data class GroupStatus(
      */
     val leaderToLastGapMeters: Double? = null,
     val notice: GroupNotice? = null,
+    /**
+     * GROUP_STATUS.rankedCount: how many runners G10 ranked now (S15P31E105-420). Runners at the same distance share a
+     * rank and count neither ahead nor behind, so the total cannot come from those counts alone.
+     */
+    val rankedCount: Int? = null,
 )

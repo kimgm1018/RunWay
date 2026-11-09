@@ -1,5 +1,47 @@
 # RunWay 백엔드
 
+## 만남 장소 검색 설정 (S15P31E105-471)
+
+`GET /api/v1/places/search`는 장소명(네이버 지역 검색)과 주소(Maps Geocoding)를 함께 검색한다.
+기본 `BACKEND_PLACE_SEARCH_ENABLED=false`에서는 비어 있지 않은 검색 요청에 503을 반환한다.
+활성화하려면 서버 실행 환경에 `BACKEND_PLACE_SEARCH_ENABLED=true`와 아래 네 값을 모두 주입한다.
+
+| 변수 | 용도 |
+| --- | --- |
+| `BACKEND_NAVER_SEARCH_CLIENT_ID` | 네이버 개발자센터 검색 API 애플리케이션 ID |
+| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 애플리케이션 Secret |
+| `BACKEND_NAVER_MAPS_KEY_ID` | 네이버 클라우드 Maps Geocoding API Key ID |
+| `BACKEND_NAVER_MAPS_KEY` | 위 애플리케이션 API Key |
+
+검색 API와 Maps API의 인증은 별개다. Maps 애플리케이션에는 Geocoding 사용 권한이 필요하다.
+활성화했는데 필수 값이 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다.
+실제 값은 사용자가 로컬 실행 환경 또는 인프라 Secret으로 주입하며 앱 번들·Git에 넣지 않는다.
+`.env.example`은 설정 이름만 제공하고 Spring Boot가 실제 `.env`를 자동으로 읽지는 않는다.
+운영 Compose/CI 주입은 인프라 담당자가 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
+외부 호출의 연결 상한은 1초, 전체는 5초, 소스별 본문 상한은 128 KiB다. 자동 재시도는 없다.
+로컬 합성 HTTP 테스트에는 실제 인증정보가 필요 없다. 실제 외부 API 연결과 기기 UI는 별도로 검증한다.
+프론트의 기본 데이터 소스는 이번 작업에서 바꾸지 않았다. 실제 앱 검색을 확인하려면
+`frontend/src/config.ts`의 `dataSource`를 `api`로 설정한 빌드와 이 API가 배포된 서버 주소를 사용한다.
+샘플 데이터 모드의 검색 결과는 외부 검색 연결 성공을 뜻하지 않는다.
+
+## 휴대전화 인증 SMS 설정 (S15P31E105-560)
+
+U28·U29 휴대전화 인증과 U30 비밀번호 재설정은 서버가 SOLAPI SMS로 6자리 인증번호를 보낸다. 계약은 [users.md U28~U30](../docs/design/api/users.md#휴대전화-인증-공통-규칙-u28u30)을 따른다.
+기본 `BACKEND_SMS_VERIFICATION_ENABLED=false`에서는 문자를 보내지 않고 U28이 `503 SMS_UNAVAILABLE`이다.
+
+| 변수 | 용도 |
+| --- | --- |
+| `BACKEND_SMS_VERIFICATION_ENABLED` | SMS 인증 켜기 |
+| `BACKEND_SOLAPI_API_KEY` | SOLAPI API Key(허용 IP 지정) |
+| `BACKEND_SOLAPI_API_SECRET` | 위 키의 Secret |
+| `BACKEND_SOLAPI_SENDER_NUMBER` | 콘솔에 등록한 발신번호(숫자만) |
+| `BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED` | 개발·테스트 전용. true면 인증 증명 없이 가입 허용. 운영은 false |
+
+- SOLAPI 가입·발신번호 등록·충전·키 발급은 사용자가 직접 한다. 키는 허용 IP를 지정해 로컬용·서버용으로 따로 발급한다.
+- 켰는데 키·발신번호가 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다. 실제 값은 로컬 실행 환경 또는 인프라 Secret으로 주입하며 Git·로그·채팅에 남기지 않는다.
+- 운영 Compose/Secret 주입은 인프라 담당자와 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
+- 공급자에 중복 방지 키가 없어 자동 재시도는 하지 않는다. 자동 테스트는 가짜 HTTP 서버를 쓰며 실제 문자를 보내지 않는다. 실제 수신은 실기기에서 따로 검증한다.
+
 Java 21·Spring MVC 기반의 실행·테스트 초기 구성과 서비스용 Flyway 마이그레이션 V1을 포함한다.
 크루·게시글·댓글 API는 공통 JWT 인증을 사용한다. 문서 접속 인증과 회원 API 인증은 구분한다.
 
@@ -333,12 +375,26 @@ var grades = calculator.calculate(route, distanceM);
 - 다리·터널을 경로 좌표만으로 식별할 수는 없다. 해당 정보가 있는 호출부는
   `calculate(route, distanceM, List<UnmeasuredSection>)`에 미확인 거리 구간을 전달한다.
   겹치거나 맞닿는 구간은 합치고 양 끝 고도 사이를 보간한다.
-- 계산 소스는 불변 배열이며 동시 조회 시 TIFF reader를 공유하지 않는다. 경로 조회는 요청당
+- 계산 소스는 파일을 한 번 열어 스트리밍 SHA-256을 검증한 뒤 필요한 타일/스트립만 읽는다.
+  해제 블록은 기본 32 MiB LRU 캐시에 보관하며 `runway.course.dem.cache-bytes`로 1048576~268435456바이트
+  (1~256 MiB) 범위에서 조절한다. 값은 불러온 파일의 해제 블록 하나 이상이어야 한다. 범위 밖·숫자가 아닌 값·블록보다
+  작은 값은 설정 이름을 담은 오류로 기동을 실패시킨다(해시·형식 실패의 미준비와 구분). 블록 입력·출력은 각각 최대
+  8 MiB, 메타데이터는 최대 8 MiB다. 경사 계산에 쓰지 않는 바이트형 태그(ImageDescription·XMP 등)는 바이트 수로 세고
+  읽지 않는다. 기동 시 해시 검증 뒤 첫 블록과 끝 블록을 한 번 풀어 보며, 실패하면 `GRADE_NOT_READY`다. 요청 중 블록
+  읽기·해제 실패는 경로 없이 블록 번호만 WARN으로 남기고 `GRADE_UNAVAILABLE`이다.
+  지원 입력: classic TIFF, 단일 밴드, 압축 없음·LZW·DEFLATE(8·32946)·PackBits, Predictor 1~3. 기존 NGA 전체 읽기와 달리
+  다음은 거절한다: 해제 크기가 기대 블록 크기와 다른 블록(크기를 채워 쓴 마지막 strip 포함), EOI가 없거나 출력이 찬 뒤
+  코드가 남은 LZW, IFD 항목 256개 초과·알 수 없는 필드 타입(13 이상), INT_MAX 초과 RowsPerStrip, 바이트 수 0인 희소
+  블록, 8 MiB 초과 블록.
+  읽기·해제·캐시·종료를 잠금으로 보호한다. 읽기는 스레드 인터럽트로 공유 파일이 닫히지 않는 방식을 쓴다.
+  기동 중 파일은 읽기 전용·불변이어야 하며 교체 후 재기동한다(같은 파일의 제자리 수정은 감지하지 않는다).
+  Spring이 종료 시 `PreparedCourseGrade` Bean 해제 콜백으로 파일을 닫는다(의존 Bean 정리 뒤). 직접 생성한 소스는
+  사용자가 `close()`로 닫는다. 경로 조회는 요청당
   최대 1,000,000개 DEM 표본으로 작업량을 보호하고 초과 시 `SERVICE_UNAVAILABLE`로 거절한다.
   이는 공개 API의 거리 상한을 정하는 정책이 아니다. 순수 고도→경사 계산은 전체 20m 격자를
   할당하지 않아 스키마의 최대 거리도 계산할 수 있다.
 - 기동 시 파일 연결과 준비 상태 처리는 아래 "C01 코스 생성 설정"(S15P31E105-423)을 따른다.
-  DEM 원본 배포(볼륨·manifest·준비 스크립트)는 인프라 후속 업무다.
+  운영 DEM 연결은 아래 "공유 DEM"의 운영 배포 문단(S15P31E105-568)을 따른다.
   고도 데이터는 Copernicus DEM 라이선스와 출처 표기 기준을 따른다.
 
 ### C01 코스 생성 설정 (S15P31E105-423)
@@ -374,8 +430,12 @@ Route 응답 본문은 256KB까지만 읽는다. 로그에는 상태·지연·�
 
 공유 DEM을 받은 경우 실제 파일 검증은 `BACKEND_COURSE_DEM_PATH`를 지정하고
 `.\gradlew.bat test --tests "*SharedBusanDemTest"`로 실행한다. 변수가 없으면 이 테스트는 건너뛰며,
-기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다. 운영 배포는 인프라가 HR 모델처럼 HF에서 받아
-DEM 볼륨에 넣는다(AI 팀 요청 예정).
+기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다.
+
+운영 배포(S15P31E105-568)는 별도 복사본을 두지 않고, Route CD(`infra/route/prepare-data.sh`)가 같은 revision을
+받아 SHA를 검증한 번들의 이 파일을 `infra/backend/compose.yaml`에서 `/data/dem/`에 읽기 전용으로 연결한다.
+Route 데이터 revision을 바꾸면 백엔드 Compose의 마운트 경로·`BACKEND_COURSE_DEM_SHA256`을 함께 바꾸고 재기동한다.
+기동 로그 `코스 DEM 준비 완료`로 연결을 확인한다(`파일 없음`·`해시·형식 검증 실패`·`미설정`은 C01 503).
 
 테스트는 실제 DEM 없이 `src/test/resources/course-grade/dem/`의 작은 합성 파일을 사용한다.
 `generate_dem_fixtures.py`에 독립 재생성 명령이 있으며 실제 좌표·건강 데이터는 포함하지 않는다.

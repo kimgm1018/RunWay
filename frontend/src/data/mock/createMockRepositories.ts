@@ -1,4 +1,4 @@
-import { routeLengthM, walkAlong } from '../../geo';
+import { shapeOfRoute, routeLengthM, walkAlong } from '../../geo';
 import { DataError } from '../errors';
 import {
   copyCoursePreferences,
@@ -87,6 +87,9 @@ export type MockOptions = {
   // 워치 결과 대기 시간(기본 30초/120초). 화면 테스트가 실제로 기다리지 않게 줄인다.
   resultWaitMs?: number;
   endResultWaitMs?: number;
+  // The clock. Tests keep the fixtures' 2026-10-19 morning (or evening for night); the app passes the phone's clock
+  // so its dates reach today (S15P31E105-564).
+  now?: () => Date;
 };
 
 function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
@@ -243,22 +246,7 @@ function musicFor(scenario: MockScenario = 'default'): MusicState {
   }
 }
 
-// Fits a GeoJSON route into the 0–1 box used by list thumbnails.
-function shapeOf(route: [number, number][]): [number, number][] {
-  const xs = route.map(point => point[0]);
-  const ys = route.map(point => point[1]);
-  const [minX, maxX, minY, maxY] = [
-    Math.min(...xs),
-    Math.max(...xs),
-    Math.min(...ys),
-    Math.max(...ys),
-  ];
-  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  return route.map(([x, y]) => [
-    0.1 + ((x - minX) / span) * 0.8,
-    0.9 - ((y - minY) / span) * 0.8,
-  ]);
-}
+const shapeOf = shapeOfRoute;
 
 // 2.0 shows the course chosen on 3.1b or 3.1c; the paces spread around the 6′00″ goal.
 function planFor(courseId: string | null, saved: SavedCourse[]): CoursePlan {
@@ -277,7 +265,7 @@ function planFor(courseId: string | null, saved: SavedCourse[]): CoursePlan {
     courseId: courseId!,
     name: mine?.myAlias ?? recommended?.name ?? mine!.name,
     distanceM,
-    route: recommended?.route ?? fixtures.todayPlan.route,
+    route: recommended?.route ?? mine?.route ?? fixtures.todayPlan.route,
     segmentPacesSecPerKm: Array.from(
       { length: km },
       (_, index) => base[index % base.length],
@@ -431,20 +419,8 @@ export function createMockRepositories(
           },
           options,
         ),
+      // Like U28, a code goes out whether or not the number is registered; U29 tells after a correct code.
       requestPhoneCode: request => {
-        const registered = isRegistered(request.phoneNumber);
-        if (request.purpose === 'PASSWORD_RESET' && !registered) {
-          return fail(
-            new DataError('PHONE_NOT_REGISTERED', '가입되지 않은 전화번호'),
-            options,
-          );
-        }
-        if (request.purpose === 'SIGN_UP' && registered) {
-          return fail(
-            new DataError('PHONE_ALREADY_REGISTERED', '이미 가입된 전화번호'),
-            options,
-          );
-        }
         pendingCodes.set(codeKey(request), {
           expiresAt: Date.now() + fixtures.verificationExpiresInSec * 1000,
           failures: 0,
@@ -485,6 +461,19 @@ export function createMockRepositories(
           );
         }
         pendingCodes.delete(codeKey(request));
+        const registered = isRegistered(request.phoneNumber);
+        if (request.purpose === 'PASSWORD_RESET' && !registered) {
+          return fail(
+            new DataError('PHONE_NOT_REGISTERED', '가입되지 않은 전화번호'),
+            options,
+          );
+        }
+        if (request.purpose === 'SIGN_UP' && registered) {
+          return fail(
+            new DataError('PHONE_ALREADY_REGISTERED', '이미 가입된 전화번호'),
+            options,
+          );
+        }
         const verificationToken = `mock-verified-${codeKey(request)}`;
         verifiedPhones.set(verificationToken, request.phoneNumber);
         return respond({ verificationToken }, options);
@@ -503,7 +492,7 @@ export function createMockRepositories(
         };
         accounts.set(request.loginId, account);
         runningProfileSaved = false;
-        healthConsent = request.healthDataAccess === 'AGREEE';
+        healthConsent = request.healthDataAccess === 'AGREE';
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {
@@ -748,6 +737,7 @@ export function createMockRepositories(
               distanceM: course.distanceM,
               expectedMinutes: Math.round(course.estimatedDurationSec / 60),
               shape: shapeOf(course.route),
+              route: course.route,
             },
           ];
         }
@@ -768,6 +758,7 @@ export function createMockRepositories(
             distanceM: Math.round(distanceM),
             expectedMinutes: Math.round(durationSec / 60),
             shape: shapeOf(route),
+            route,
           },
         ];
         return respond({ courseId: id }, options);
@@ -952,10 +943,12 @@ export function createMockRepositories(
             },
     }),
     clock: {
-      now: () =>
-        new Date(
-          options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
-        ),
+      now:
+        options.now ??
+        (() =>
+          new Date(
+            options.scenario === 'night' ? fixtures.nightNow : fixtures.now,
+          )),
     },
     watch: {
       getConnection: () => respond(watchState(), options),

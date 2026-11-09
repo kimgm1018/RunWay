@@ -104,8 +104,7 @@ def scenarios = [
 scenarios.each { name, files, manual, apk, bundle ->
     def result = executePipeline(files, manual)
     assert result.stages.contains('Mobile Typecheck and Lint'): name
-    assert result.commands.contains('pnpm typecheck'): name
-    assert result.commands.contains('pnpm lint'): name
+    assert result.commands.contains('sh ../infra/jenkins/check-mobile-static.sh'): name
     assert result.stages.contains('Mobile Tests'): name
     assert result.commands.contains('pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'): name
     assert result.stages.contains('Mobile APK Build') == apk: name

@@ -16,14 +16,18 @@ import java.nio.file.Path;
 
 /**
  * 기동 시 DEM을 한 번 읽어 SHA-256을 대조한다. 없거나 맞지 않아도 서버는 기동하며 C01만 {@code GRADE_NOT_READY}가 된다.
- * 개발용 스텁 모드에서 DEM이 없을 때만 합성 고도를 쓴다(S15P31E105-423 D-5).
+ * 개발용 스텁 모드에서 DEM이 없을 때만 합성 고도를 쓴다(S15P31E105-423 D-5). {@code runway.course.dem.cache-bytes}가
+ * 범위 밖이거나 해제 블록 하나보다 작으면 설정 오류로 기동을 실패시킨다(S15P31E105-590).
+ *
+ * <p>DEM 파일은 {@link PreparedCourseGrade} Bean의 해제 콜백으로 닫는다. Spring은 이 Bean에 의존하는 Bean(코스 추천,
+ * 개인화 변환·디스패처)을 먼저 정리하므로 종료 중 남은 작업이 닫힌 DEM을 읽지 않는다.
  */
 @Slf4j
 @Configuration
 @EnableConfigurationProperties({CourseDemProperties.class, RouteProperties.class})
 public class CourseDemConfig {
 
-    @Bean
+    @Bean(destroyMethod = "close")
     PreparedCourseGrade preparedCourseGrade(
             CourseDemProperties demProperties, RouteProperties routeProperties) {
         String path = demProperties.getPath();
@@ -39,7 +43,8 @@ public class CourseDemConfig {
                     return PreparedCourseGrade.notReady();
                 }
                 PreparedCourseGrade prepared =
-                        PreparedCourseGrade.of(GeoTiffElevationSource.load(file, sha256.trim()));
+                        PreparedCourseGrade.of(GeoTiffElevationSource.load(
+                                file, sha256.trim(), demProperties.getCacheBytes()));
                 log.info("코스 DEM 준비 완료");
                 return prepared;
             } catch (ApiException | IllegalArgumentException ex) {

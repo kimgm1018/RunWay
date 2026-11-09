@@ -29,6 +29,8 @@ from app.decide.loader import load_policy
 from app.decide.policy_port import PacePolicy
 from app.decide.schemas import DecideRequest, DecideResponse
 from app.decide.service import run_decide
+from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
+from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
 from app.demo.recorder import new_demo_state, record_trace
@@ -56,8 +58,8 @@ from app.bpm_lookup import CachedDbBpmLookup, UnavailableBpmLookup
 log = logging.getLogger("runway.ai")
 
 
-# 무거운 요청 대기열은 두 줄이다. 개인화(AI06, 약 25초)가 앞에 있어도 계획(AI05·AI09)이 기다리지 않게 나눈다.
-#   plan        : AI05 /v1/pace/plan, AI09 /v1/pace/personal-plan  → HEAVY_MAX_CONCURRENCY(기본 1)
+# 무거운 요청 대기열은 두 줄이다. 개인화(AI06, 약 25초)가 앞에 있어도 계획·그룹(AI05·AI09·AI10)이 기다리지 않게 나눈다.
+#   plan        : AI05 /v1/pace/plan, AI09 /v1/pace/personal-plan, AI10 /v1/group/pace → HEAVY_MAX_CONCURRENCY(기본 1)
 #   personalize : AI06 /v1/hr/personalize                           → HEAVY_PERSONALIZE_MAX_CONCURRENCY(기본 1)
 # 대기 한도(HEAVY_QUEUE_WAIT_SEC)와 넘으면 503 AI_BUSY + Retry-After는 두 줄 모두 같다.
 _HEAVY_POOLS = {
@@ -404,6 +406,7 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                 "populationBundleLoaded": request.app.state.population_bundle is not None,
             },
             "cueBpm": cue_bpm_status,
+            "groupPace": {"enabled": group_pace_enabled()},
         }
         if model is None:
             return JSONResponse(status_code=503, content=HealthResponse(
@@ -442,6 +445,24 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                                  missing_policy=info.missing_policy,
                                  policy_version=request.app.state.policy.policy_version if request.app.state.policy else None,
                                  models=models)
+
+    @app.post("/v1/group/pace", response_model=GroupPaceResponse, tags=["AI10"], summary="AI10 그룹 공동 페이스",
+              responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                         500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+    async def group_pace(body: GroupPaceRequest, request: Request):
+        if not group_pace_enabled():
+            raise ApiError(503, "GROUP_PACE_DISABLED", "그룹 공동 페이스 기능이 비활성화되어 있습니다.")
+
+        def recommend():
+            model = get_model(request)
+            policy = request.app.state.policy
+            if policy is None:
+                raise ApiError(503, "MODEL_NOT_READY", "정책이 로드되지 않았습니다.")
+            return recommend_group_pace(
+                body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
+                hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured)
+
+        return await _run_heavy(request, "/v1/group/pace", recommend)
 
     @app.post("/v1/pace/decide", response_model=DecideResponse, tags=["AI04"], summary="AI04 러닝 중 페이스 결정",
               responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
@@ -585,8 +606,17 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
 
             if ode is None:
                 return partial_error(ApiError(503, "MODEL_NOT_READY", "ODE 개인화 모델이 준비되지 않았습니다."))
+            previous = None
+            lookup = request.app.state.personal_plan_user_lookup
+            if lookup is not None:
+                try:
+                    snapshot = lookup.get_personalization(int(body.user_id))
+                    previous = snapshot.payload
+                except Exception as exc:
+                    log_ai_error("P4_WARM_START_LOOKUP_FAILED", "/v1/hr/personalize", exc,
+                                 level=logging.WARNING)
             try:
-                result = compute_personalization(body, ode, now=request.app.state.clock())
+                result = compute_personalization(body, ode, now=request.app.state.clock(), previous=previous)
             except ApiError as error:
                 return partial_error(error)
             except Exception as exc:

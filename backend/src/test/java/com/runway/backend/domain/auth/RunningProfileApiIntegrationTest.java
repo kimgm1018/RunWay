@@ -252,7 +252,7 @@ class RunningProfileApiIntegrationTest extends AuthIntegrationSupport {
                                 "SELECT health_data_access::text FROM users WHERE id=?",
                                 String.class,
                                 newUser))
-                .isEqualTo(health ? "AGREEE" : "DISAGREE");
+                .isEqualTo(health ? "AGREE" : "DISAGREE");
     }
 
     @Test

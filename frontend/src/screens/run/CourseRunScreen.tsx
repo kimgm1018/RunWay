@@ -301,6 +301,7 @@ export function CourseRunScreen() {
             }
             area={{ top: 0.19, bottom: 0.56 }}
             logo={logo}
+            view="lean"
             style={StyleSheet.absoluteFill}
           />
         )}

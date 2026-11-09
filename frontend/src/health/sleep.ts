@@ -31,12 +31,19 @@ function sleepIdentity(record: HealthRecord): string {
   ]);
 }
 
-// Bucket completed sleep by local wake date. Missing duration is not zero sleep.
-export function sleepSummaryByDay(
-  records: HealthRecord[],
-  window: ReadWindow,
-): MetricResult['summary'] {
-  const completed = [
+const pad = (value: number) => String(value).padStart(2, '0');
+// Local calendar date (YYYY-MM-DD) of a wake time.
+export function localWakeDate(time: number): string {
+  const end = new Date(time);
+  return `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(
+    end.getDate(),
+  )}`;
+}
+
+export type SleepDay = { date: string; ms: number | null };
+
+function completedSleep(records: HealthRecord[], window: ReadWindow) {
+  return [
     ...new Map(
       records
         .filter(
@@ -49,10 +56,16 @@ export function sleepSummaryByDay(
         .map(record => [sleepIdentity(record), record]),
     ).values(),
   ];
-  const wakeDate = (time: number) => {
-    const end = new Date(time);
-    return `${end.getFullYear()}-${end.getMonth() + 1}-${end.getDate()}`;
-  };
+}
+
+// Completed sleep per local wake date. ms is null when any episode ending that day cannot be resolved:
+// a missing duration is not zero sleep, and a partial total is not that day's sleep.
+export function sleepByWakeDate(
+  records: HealthRecord[],
+  window: ReadWindow,
+): SleepDay[] {
+  const completed = completedSleep(records, window);
+  const wakeDate = localWakeDate;
   // Resolve overlap over the entire interval set before assigning any wake date.
   const components: HealthRecord[][] = [];
   let componentEnd = -Infinity;
@@ -94,9 +107,20 @@ export function sleepSummaryByDay(
       ).total += value;
     }
   }
-  const durations = [...days.values()]
-    .filter(day => !day.unknown)
-    .map(day => day.total);
+  return [...days.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, day]) => ({ date, ms: day.unknown ? null : day.total }));
+}
+
+// Bucket completed sleep by local wake date. Missing duration is not zero sleep.
+export function sleepSummaryByDay(
+  records: HealthRecord[],
+  window: ReadWindow,
+): MetricResult['summary'] {
+  const completed = completedSleep(records, window);
+  const durations = sleepByWakeDate(records, window).flatMap(day =>
+    day.ms === null ? [] : [day.ms],
+  );
   const latest = [...completed].sort(
     (a, b) => Date.parse(b.startTime) - Date.parse(a.startTime),
   )[0];

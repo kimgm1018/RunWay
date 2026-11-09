@@ -15,6 +15,7 @@ import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
 import { clearSpotifySession } from '../data/spotify/session';
 import { serverHealthConsentReader } from '../health/serverHealthConsent';
 import { useWatchDailyHrUpload } from '../health/useWatchDailyHrUpload';
+import { useSamsungSleepUpload } from '../health/useSamsungSleep';
 import {
   refreshWatchHealthConsent,
   setWatchHealthConsent,
@@ -167,6 +168,8 @@ export function SessionProvider({
 
   // S15P31E105-281: the watch daily heart-rate estimate goes to W06 while signed in.
   useWatchDailyHrUpload(signedIn);
+  // S15P31E105-572: Samsung Health sleep goes to W06 while signed in.
+  useSamsungSleepUpload(signedIn);
 
   // Session expiry is not health-consent withdrawal. Pending watch records survive reauthentication.
   const expireSession = useCallback(() => {

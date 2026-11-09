@@ -10,20 +10,20 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 
 | 문서 | 도메인 | API 수 |
 |---|---|---:|
-| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 25 |
+| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 30 |
 | [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
 | [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
 | [러닝 세션](./sessions.md) | 러닝 세션 | 10 |
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
 | [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 5 |
-| [그룹런](./group-runs.md) | 그룹런 | 13 |
-| [크루](./crews.md) | 크루 | 11 |
+| [그룹런](./group-runs.md) | 그룹런·만남 장소 검색 | 14 |
+| [크루](./crews.md) | 크루 | 12 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **95개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다.
+총 **98개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -49,7 +49,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 탈퇴·향후 정지 후 기존 JWT는 원래 만료시각까지 최대 10분 유효하다. 즉시 차단용 요청별 상태 조회·차단 목록은 두지 않으며 기존 자원 권한·동의 검사는 유지한다.
 
 
-토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
+토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인·U28~U30 휴대전화 인증과 비밀번호 재설정은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
 
 U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그인 계열의 갱신 권한을 폐기한다. U03은 해당 계열만 폐기하고 `204 No Content`를 반환한다. 앱은 갱신을 한 번으로 모으고 결과가 불확실한 갱신을 무조건 재시도하지 않는다. 오류 응답·로그아웃 반복·갱신 경합의 정확한 결과는 [U01~U03](users.md#인증-정책-적용-범위)을 따른다. 이 절과 U01~U03에서 확정한 항목은 문서 전체의 일반적인 초안 표시와 구분한다.
 
@@ -180,6 +180,11 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | U23 | [러너 팔로우·요청 취소](./users.md#u23-러너-팔로우요청-취소) | DELETE | `/users/{userId}/follow` | [users.md](./users.md) |
 | U24 | [받은 팔로우 요청 목록](./users.md#u24-받은-팔로우-요청-목록) | GET | `/users/me/follow-requests` | [users.md](./users.md) |
 | U25 | [팔로우 요청 승인·거절](./users.md#u25-팔로우-요청-승인거절) | PATCH | `/users/me/follow-requests/{requesterId}` | [users.md](./users.md) |
+| U26 | [팔로워 목록](./users.md#u26-팔로워-목록) | GET | `/users/{userId}/followers` | [users.md](./users.md) |
+| U27 | [팔로잉 목록](./users.md#u27-팔로잉-목록) | GET | `/users/{userId}/following` | [users.md](./users.md) |
+| U28 | [휴대전화 인증번호 요청](./users.md#u28-휴대전화-인증번호-요청) | POST | `/auth/phone-verifications` | [users.md](./users.md) |
+| U29 | [휴대전화 인증번호 확인](./users.md#u29-휴대전화-인증번호-확인) | POST | `/auth/phone-verifications/confirm` | [users.md](./users.md) |
+| U30 | [비밀번호 재설정](./users.md#u30-비밀번호-재설정) | POST | `/auth/password-reset` | [users.md](./users.md) |
 | W01 | [기기 등록](./devices-health.md#w01-기기-등록) | POST | `/devices` | [devices-health.md](./devices-health.md) |
 | W02 | [등록 기기 조회](./devices-health.md#w02-등록-기기-조회) | GET | `/devices` | [devices-health.md](./devices-health.md) |
 | W03 | [기기 연결 해제](./devices-health.md#w03-기기-연결-해제) | DELETE | `/devices/{deviceId}` | [devices-health.md](./devices-health.md) |
@@ -211,6 +216,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | H06 | [러닝 통계 요약](./running-records.md#h06-러닝-통계-요약) | GET | `/running-records/statistics` | [running-records.md](./running-records.md) |
 | H07 | [평균 페이스 추이](./running-records.md#h07-평균-페이스-추이) | GET | `/running-records/statistics/pace-trend` | [running-records.md](./running-records.md) |
 | G01 | [그룹런 생성](./group-runs.md#g01-그룹런-생성) | POST | `/group-runs` | [group-runs.md](./group-runs.md) |
+| PLS01 | [만남 장소 검색](./group-runs.md#pls01-만남-장소-검색) | GET | `/places/search` | [group-runs.md](./group-runs.md) |
 | G02 | [그룹런 검색](./group-runs.md#g02-그룹런-검색) | GET | `/group-runs` | [group-runs.md](./group-runs.md) |
 | G03 | [그룹런 상세](./group-runs.md#g03-그룹런-상세) | GET | `/group-runs/{groupRunId}` | [group-runs.md](./group-runs.md) |
 | G04 | [그룹런 정보 수정](./group-runs.md#g04-그룹런-정보-수정) | PATCH | `/group-runs/{groupRunId}` | [group-runs.md](./group-runs.md) |
@@ -234,6 +240,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | M09 | [크루 멤버 내보내기](./crews.md#m09-크루-멤버-내보내기) | DELETE | `/crews/{crewId}/members/{userId}` | [crews.md](./crews.md) |
 | M10 | [내 크루 목록](./crews.md#m10-내-크루-목록) | GET | `/users/me/crews` | [crews.md](./crews.md) |
 | M11 | [크루 해산](./crews.md#m11-크루-해산) | DELETE | `/crews/{crewId}` | [crews.md](./crews.md) |
+| M12 | [크루 설정 변경](./crews.md#m12-크루-설정-변경) | PATCH | `/crews/{crewId}` | [crews.md](./crews.md) |
 | CMT01 | [게시물 작성](./community.md#cmt01-게시물-작성) | POST | `/posts` | [community.md](./community.md) |
 | CMT02 | [게시물 목록](./community.md#cmt02-게시물-목록) | GET | `/posts` | [community.md](./community.md) |
 | CMT03 | [게시물 상세](./community.md#cmt03-게시물-상세) | GET | `/posts/{postId}` | [community.md](./community.md) |
@@ -275,7 +282,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 
 - [x] C04 수동 코스 등록 제외. 러닝 경로 자동 등록으로 변경, 개인 코스 저장 유지
 - [ ] 8.2 프로필 수정 '연령대' UI ↔ 생년월일 입력 (U05)
-- [x] 크루 가입 방식 — 크루장 승인 필수로 확정 (M03·M04)
+- [x] 크루 가입 방식 — 크루장 승인(APPROVAL)과 바로 가입(INSTANT) 중 크루장이 선택. 기본 APPROVAL. 2026-11-09 S15P31E105-570에서 기존 "크루장 승인 필수" 확정을 변경 (M03·M04·M12)
 - [x] 그룹런은 참가·참가 취소만 제공. 별도 불참 응답 제외
 - [ ] 7.1 검색창 유지 여부 (CMT13)
 
@@ -334,6 +341,7 @@ P07은 세션 BPM 조절, G12는 그룹장 전용 전체 강제 종료로 변경
 | U13·U14 | 계정 공개 여부로 통일. 공개는 전체, 비공개는 본인·승인된 팔로워. 공개 전환 시 유효한 대기 요청 전부 자동 승인 |
 | U22·U23 | 공개 계정 즉시 팔로우 / 비공개 계정 요청 생성, 팔로우·대기 요청 취소 |
 | U24·U25 | 받은 요청 목록, 본인에게 들어온 요청 승인·거절 추가 |
+| U26·U27 | 승인된 팔로워·팔로잉 목록 추가. 비공개 계정은 본인·승인된 팔로워만 조회(S15P31E105-534) |
 | CMT13 | 공용 코스 이름 검색 제외. 러너·크루 검색만 유지 |
 
 계정 정책은 [계정 공개·팔로우 명세](./users.md)를 따른다. 기존 ERD와 화면 맵의 이름·공개 필드·조회 전제는 해당 사용자 결정에 맞춰 후속 정리가 필요하다.

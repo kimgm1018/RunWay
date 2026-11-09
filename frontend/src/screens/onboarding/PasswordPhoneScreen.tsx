@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon, Screen, TextField, useToast } from '../../components';
-import { useRepositories } from '../../data';
+import { errorCode, useRepositories } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { spacing, useTheme } from '../../theme';
 import {
@@ -18,7 +18,21 @@ import {
   TextLink,
 } from './parts';
 import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
-import { formatPhoneNumber, isValidPassword } from './validation';
+import {
+  formatPhoneNumber,
+  isValidPassword,
+  passwordLimitRule,
+  passwordWithinLimit,
+} from './validation';
+
+// U30 failures that used up the proof or leave it in doubt: verify the number again (users.md U30). A 5xx such as
+// 503 SERVICE_UNAVAILABLE reaches the app as SERVER_ERROR.
+const reverify = new Set([
+  'VERIFICATION_EXPIRED',
+  'PHONE_NOT_REGISTERED',
+  'PHONE_ACCOUNT_AMBIGUOUS',
+  'SERVER_ERROR',
+]);
 
 function StepLabel({
   index,
@@ -53,29 +67,38 @@ export function PasswordPhoneScreen() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // 'policy': the server turned the password down and the proof still holds; 'retry': the answer was lost.
+  const [failed, setFailed] = useState<'policy' | 'retry' | null>(null);
 
   const verified = phone.phase === 'verified';
   const sent = phone.phase !== 'idle' && phone.phase !== 'requesting';
   const phoneError = phone.error?.field === 'phone' ? phone.error : null;
   const codeError = phone.error?.field === 'code' ? phone.error : null;
   const passwordOk = isValidPassword(password) && confirm === password;
+  const tooLong = password !== '' && !passwordWithinLimit(password);
   const passwordHelper =
     confirm && confirm !== password
       ? { status: 'error' as const, text: '비밀번호가 일치하지 않아요' }
       : passwordOk
       ? {
           status: 'success' as const,
-          text: '8자 이상 · 영문·숫자 포함 · 비밀번호가 일치해요',
+          text: '8~20자 · 영문·숫자 포함 · 비밀번호가 일치해요',
         }
-      : { status: 'default' as const, text: '8자 이상 · 영문·숫자 포함' };
+      : { status: 'default' as const, text: '8~20자 · 영문·숫자 포함' };
+
+  const changePassword = (text: string) => {
+    setPassword(text);
+    if (failed === 'policy') {
+      setFailed(null);
+    }
+  };
 
   const submit = async () => {
     if (!phone.token) {
       return;
     }
     setSaving(true);
-    setFailed(false);
+    setFailed(null);
     try {
       await auth.resetPassword({
         verificationToken: phone.token,
@@ -84,9 +107,17 @@ export function PasswordPhoneScreen() {
       setSaving(false);
       toast('비밀번호를 바꿨어요. 새 비밀번호로 로그인해 주세요');
       navigateTo(navigation, 'Login');
-    } catch {
+    } catch (caught) {
       setSaving(false);
-      setFailed(true);
+      const failure = errorCode(caught);
+      if (failure === 'INVALID_PASSWORD_POLICY') {
+        // The proof was not used (users.md U30), so only the password needs to change.
+        setFailed('policy');
+      } else if (reverify.has(failure)) {
+        phone.restart(caught);
+      } else {
+        setFailed('retry');
+      }
     }
   };
 
@@ -223,10 +254,19 @@ export function PasswordPhoneScreen() {
               icon="padlock"
               label="새 비밀번호"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={changePassword}
               secureTextEntry
               textContentType="newPassword"
-              status={isValidPassword(password) ? 'success' : 'default'}
+              status={
+                tooLong || failed === 'policy'
+                  ? 'error'
+                  : isValidPassword(password)
+                  ? 'success'
+                  : 'default'
+              }
+              helper={
+                tooLong || failed === 'policy' ? passwordLimitRule : undefined
+              }
             />
             <TextField
               labelInside
@@ -240,9 +280,9 @@ export function PasswordPhoneScreen() {
               status={passwordHelper.status}
               helper={passwordHelper.text}
             />
-            {failed ? (
+            {failed === 'retry' ? (
               <InlineError>
-                비밀번호를 바꾸지 못했어요. 인증번호를 다시 받아 주세요.
+                비밀번호를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.
               </InlineError>
             ) : null}
           </>

@@ -1,3 +1,4 @@
+import { DataError } from '../../errors';
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import type { MyCrew, Repositories } from '../../types';
 import { createGroupRunsApi } from '../groupRuns';
@@ -190,6 +191,24 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
 });
 
+test('place search in API mode uses the real endpoint instead of mock places', async () => {
+  const place = {
+    name: '검색된 공원',
+    address: '도로 1',
+    position: [129.118, 35.153],
+    distanceM: null,
+  };
+  serve(path =>
+    path === '/places/search' ? respond(200, { items: [place] }) : undefined,
+  );
+  expect(await api().groupRuns.searchPlaces('공원')).toEqual([place]);
+  expect(
+    fetchMock.mock.calls.some(([address]) =>
+      new URL(address).pathname.endsWith('/places/search'),
+    ),
+  ).toBe(true);
+});
+
 afterEach(() => {
   jest.useRealTimers();
 });
@@ -240,6 +259,28 @@ test('6.0b without crews counts open crews and their areas', async () => {
     upcoming: null,
     crews: [],
     nearbyRecruiting: { count: 2, areas: ['부산 수영구'] },
+  });
+});
+
+test('6.0b without crews stays empty when nearby recruiting search fails', async () => {
+  const mock = createMockRepositories({ latencyMs: 0 });
+  const groupRuns = createGroupRunsApi({
+    mock: mock.groupRuns,
+    crews: {
+      ...mock.crews,
+      search: async () => {
+        throw new DataError('NETWORK_ERROR', '크루 검색 실패');
+      },
+    } as unknown as Repositories['crews'],
+    myCrews: async () => [],
+    myId: async () => '101',
+    usualPace: async () => 380,
+  });
+
+  await expect(groupRuns.listMine()).resolves.toEqual({
+    upcoming: null,
+    crews: [],
+    nearbyRecruiting: { count: 0, areas: [] },
   });
 });
 
@@ -615,6 +656,32 @@ test('G09 approval does not imply a start; watchStart waits for my confirmed ses
   }
 });
 
+test('watchStart reports cancel and finish with separate 409 messages', async () => {
+  for (const [status, phrase] of [
+    ['CANCELLED', '취소되었어요'],
+    ['COMPLETED', '종료되었어요'],
+  ] as const) {
+    serve(path =>
+      path === '/group-runs/61'
+        ? respond(200, detail(61, { status }))
+        : undefined,
+    );
+    const onError = jest.fn();
+    const stop = api().groupRuns.watchStart('61', jest.fn(), onError);
+    try {
+      await jest.advanceTimersByTimeAsync(20);
+      expect(onError).toHaveBeenCalled();
+      const error = onError.mock.calls[0][0] as DataError;
+      expect(error).toBeInstanceOf(DataError);
+      expect(error.status).toBe(409);
+      expect(error.message).toContain(phrase);
+      expect(error.message).not.toContain('취소되었거나 종료');
+    } finally {
+      stop();
+    }
+  }
+});
+
 test('an unready participant never enters a running group as started', async () => {
   serve(path =>
     path === '/group-runs/61'
@@ -801,6 +868,8 @@ test('G14 maps completed, pending and missing records without synthetic group to
     maxGapM: null,
     analysisStatus: 'PROCESSING',
     hasUnconfirmedStarts: true,
+    // G07 본인 항목에 세션이 없으면 공유할 기록을 짐작하지 않는다.
+    mySessionId: null,
     participants: [
       { userId: '101', state: 'FINISHED', isMe: true, durationSec: 1800 },
       {
@@ -812,6 +881,30 @@ test('G14 maps completed, pending and missing records without synthetic group to
       },
     ],
   });
+});
+
+test('G14 result carries my session so sharing opens my own group run record', async () => {
+  // 실기기 E2E: 그룹원의 기록 공유가 "최근 기록"을 짐작해 불러오다 실패했다(S15P31E105-420).
+  serve(path =>
+    path === '/group-runs/61/participants'
+      ? respond(200, {
+          items: [
+            { userId: 9, nickname: '하린', isHost: false, readyStatus: 'READY', sessionId: 31 },
+            { userId: 101, nickname: '민준', isHost: true, readyStatus: 'READY', sessionId: 900 },
+          ],
+          participantCount: 2,
+          readyCount: 2,
+        })
+      : path.endsWith('/results')
+      ? respond(200, {
+          targetDistanceM: null,
+          analysis: { status: 'PENDING' },
+          hasUnconfirmedStarts: false,
+          participants: [],
+        })
+      : undefined,
+  );
+  expect((await api().groupRuns.getResult('61')).mySessionId).toBe('900');
 });
 
 test('mock runs stay on the mock', async () => {

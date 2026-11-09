@@ -63,11 +63,28 @@ const runDetail = (run: Run) => ({
   goalPaceSecPerKm: null,
 });
 
+// W02의 연결 워치 여부. 테스트마다 기본은 연결됨.
+let watchLinked = true;
+
 function serve() {
   fetchMock.mockImplementation(
     async (address: string, init: { method: string; body?: string }) => {
       const url = new URL(address);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/places/search') {
+        return respond(200, {
+          items: url.searchParams.get('query')
+            ? [
+                {
+                  name: '광안리해수욕장 입구',
+                  address: '부산 수영구 광안해변로 219',
+                  position: [129.118, 35.153],
+                  distanceM: null,
+                },
+              ]
+            : [],
+        });
+      }
       const find = (id: string) => runs.find(run => run.id === Number(id))!;
       const body = init.body ? JSON.parse(init.body) : {};
       if (path === '/users/me') {
@@ -83,6 +100,17 @@ function serve() {
       // 6.8 offers my saved courses (C09); none are saved here.
       if (path === '/users/me/bookmarked-courses') {
         return respond(200, { items: [] });
+      }
+      // W02: 준비 완료(G16) 전에 연결 워치·폰을 확인한다(S15P31E105-420).
+      if (path === '/devices' && init.method === 'GET') {
+        return respond(200, {
+          items: watchLinked
+            ? [
+                { id: 501, deviceType: 'WATCH' },
+                { id: 502, deviceType: 'PHONE' },
+              ]
+            : [{ id: 502, deviceType: 'PHONE' }],
+        });
       }
       if (path === '/regions') {
         return respond(200, { items: [], currentRegionCode: null });
@@ -287,6 +315,7 @@ beforeEach(async () => {
   ];
   posted = [];
   patched = [];
+  watchLinked = true;
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
@@ -316,6 +345,22 @@ test('6.0 pins my run that starts soon and 6.5 marks me ready with G16', async (
 
   expect(calls('POST')).toEqual(['/group-runs/61/participants/me/ready']);
   expect(texts(screen)).toContain('2명 준비 완료');
+  await act(async () => screen.unmount());
+});
+
+test('6.5 does not mark me ready without a linked watch and says so', async () => {
+  // G16은 연결 워치·폰으로 세션을 만든다. 워치가 없으면 서버 오류 대신 연결 안내를 보인다(S15P31E105-420).
+  watchLinked = false;
+  const screen = await openGroup();
+  await press(screen, '대기방 입장');
+  await press(screen, '준비 완료');
+  await settle(50);
+
+  expect(calls('POST')).toEqual([]);
+  expect(texts(screen)).toContain(
+    '워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요',
+  );
+  expect(texts(screen)).toContain('1명 준비 완료');
   await act(async () => screen.unmount());
 });
 
@@ -391,6 +436,21 @@ test('6.8 makes a free run with G01 and opens its 6.4', async () => {
   await press(screen, '광안리 새벽 크루 그룹런 만들기');
   await settle(50);
   await press(screen, '자유 러닝');
+  await press(screen, '만나는 곳 변경');
+  await act(async () => {
+    screen.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '장소·주소 검색' &&
+          typeof node.props.onChangeText === 'function',
+      )
+      .pop()!
+      .props.onChangeText('광안리');
+  });
+  await settle(400);
+  await press(screen, '광안리해수욕장 입구');
+  await press(screen, '이 위치로 정하기');
+  await press(screen, '확정');
   await press(screen, '그룹런 만들기');
   await settle(100);
 

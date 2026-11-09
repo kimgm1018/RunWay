@@ -40,8 +40,27 @@ server:
     include-exception: false
 
 runway:
+  group-pace:
+    enabled: ${BACKEND_GROUP_PACE_ENABLED:false}
+    base-url: ${BACKEND_AI_BASE_URL:}
+  places:
+    enabled: ${BACKEND_PLACE_SEARCH_ENABLED:false}
+    search-client-id: ${BACKEND_NAVER_SEARCH_CLIENT_ID:}
+    search-client-secret: ${BACKEND_NAVER_SEARCH_CLIENT_SECRET:}
+    maps-key-id: ${BACKEND_NAVER_MAPS_KEY_ID:}
+    maps-key: ${BACKEND_NAVER_MAPS_KEY:}
+  sms:
+    # 휴대전화 인증 SMS(SOLAPI, users.md U28). 끄면 발송하지 않고 503 SMS_UNAVAILABLE.
+    enabled: ${BACKEND_SMS_VERIFICATION_ENABLED:false}
+    solapi:
+      api-key: ${BACKEND_SOLAPI_API_KEY:}
+      api-secret: ${BACKEND_SOLAPI_API_SECRET:}
+      sender-number: ${BACKEND_SOLAPI_SENDER_NUMBER:}
   auth:
     trusted-proxies: ${BACKEND_AUTH_TRUSTED_PROXIES:}
+    signup:
+      # 개발·테스트 전용. true일 때만 휴대전화 인증 증명 없이 가입을 허용한다(users.md U15). 운영은 false.
+      unverified-phone-allowed: ${BACKEND_SIGNUP_UNVERIFIED_PHONE_ALLOWED:false}
     redis:
       host: ${BACKEND_REDIS_HOST:}
       port: ${BACKEND_REDIS_PORT:}

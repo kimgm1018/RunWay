@@ -1,4 +1,5 @@
 import { Image } from 'react-native';
+import { shapeOfRoute } from '../../geo';
 import type {
   AppNotification,
   AppSettings,
@@ -184,7 +185,7 @@ export const shapes: Record<string, [number, number][]> = {
 };
 
 // 3.1c 저장한 코스 (2.1 shows the first three). The title is my own nickname (myAlias).
-export const savedCourses: SavedCourse[] = [
+const savedCourseShapes: Omit<SavedCourse, 'route'>[] = [
   {
     id: 'course-gwangan-loop',
     name: '광안리해수욕장 출발 5.0km',
@@ -263,6 +264,26 @@ export const savedCourses: SavedCourse[] = [
     ],
   },
 ];
+// The mock has no stored points, so a saved course's map route is its outline laid round 민락수변공원, about as wide
+// as its length allows (S15P31E105-562). y grows downward in the outline and northward in latitude.
+const savedCourseOrigin: [number, number] = [129.1318, 35.1543];
+function routeFromShape(
+  shape: [number, number][],
+  distanceM: number,
+): [number, number][] {
+  const spanM = distanceM / 3.5;
+  const latSpan = spanM / 111320;
+  const lngSpan =
+    spanM / (111320 * Math.cos((savedCourseOrigin[1] * Math.PI) / 180));
+  return shape.map(([x, y]) => [
+    Number((savedCourseOrigin[0] + (x - 0.5) * lngSpan).toFixed(6)),
+    Number((savedCourseOrigin[1] - (y - 0.5) * latSpan).toFixed(6)),
+  ]);
+}
+export const savedCourses: SavedCourse[] = savedCourseShapes.map(course => ({
+  ...course,
+  route: routeFromShape(course.shape, course.distanceM),
+}));
 
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],
@@ -1210,7 +1231,8 @@ const sharedRun = (
   startedAt: string,
   distanceM: number,
   durationSec: number,
-  shape: [number, number][],
+  // The course run, on the real map (7.2 · 코스 재생); the thumbnail shape comes from it.
+  route: [number, number][],
   heart: [number, number],
   goalAchieved: boolean | null = true,
 ): PostRecord => ({
@@ -1220,7 +1242,8 @@ const sharedRun = (
   distanceM,
   durationSec,
   averagePaceSecPerKm: Math.round(durationSec / (distanceM / 1000)),
-  shape,
+  shape: shapeOfRoute(route),
+  route,
   runType: 'SOLO',
   group: null,
   goalAchieved,
@@ -1248,7 +1271,7 @@ export const posts: PostFixture[] = [
       '2026-10-19T07:12:00+09:00',
       5020,
       1781,
-      shapes.loop,
+      minrakLoop,
       [158, 170],
     ),
     courseShared: true,
@@ -1294,7 +1317,7 @@ export const posts: PostFixture[] = [
       '2026-10-18T07:04:00+09:00',
       5000,
       1850,
-      shapes.coast,
+      courseRoute('course-gwangalli'),
       [149, 164],
     ),
     courseShared: true,
@@ -1315,7 +1338,7 @@ export const posts: PostFixture[] = [
       '2026-10-17T19:30:00+09:00',
       4040,
       1623,
-      shapes.hill,
+      courseRoute('course-apec-river'),
       [167, 161],
     ),
     courseShared: false,
@@ -1345,7 +1368,7 @@ export const posts: PostFixture[] = [
       '2026-10-16T06:40:00+09:00',
       5400,
       1880,
-      shapes.coast,
+      courseRoute('course-gwangalli'),
       [155, 168],
     ),
     courseShared: true,
@@ -1366,7 +1389,7 @@ export const posts: PostFixture[] = [
       '2026-10-12T06:30:00+09:00',
       5200,
       2020,
-      shapes.hill,
+      courseRoute('course-apec-river'),
       [163, 166],
       false,
     ),
@@ -1435,6 +1458,19 @@ export const runnerProfiles: Record<
     isPrivate: true,
     followStatus: 'NONE',
   },
+};
+
+// 7.4c 팔로워 (U26): who follows each runner, newest first, besides my own follows.
+export const runnerFollowers: Record<string, string[]> = {
+  [communityUsers.me.userId]: [
+    communityUsers.seoyun.userId,
+    communityUsers.sungyoon.userId,
+  ],
+  [communityUsers.seoyun.userId]: [
+    communityUsers.eunseo.userId,
+    communityUsers.jiwoo.userId,
+  ],
+  [communityUsers.sungyoon.userId]: [communityUsers.seoyun.userId],
 };
 
 // 7.4 러너 프로필 photos (U21 profileImageUrl); runners left out have none.

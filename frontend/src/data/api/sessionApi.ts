@@ -65,6 +65,8 @@ export type ServerSession = {
   comparison?: RecordComparison | null;
   serverReceiveAt?: string | null;
   serverSendAt?: string | null;
+  // S15P31E105-420에서 읽는다. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  groupEndedAt?: string | null;
 };
 
 const id = (value: string) => Number(value);
@@ -118,6 +120,7 @@ export function sessionView(value: ServerSession): RunningSessionView {
     comparison: value.comparison ?? null,
     serverReceiveAt: value.serverReceiveAt ?? null,
     serverSendAt: value.serverSendAt ?? null,
+    groupEndedAt: value.groupEndedAt ?? null,
   };
 }
 

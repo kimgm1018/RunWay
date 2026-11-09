@@ -5,6 +5,8 @@ import android.os.SystemClock
 import android.util.Log
 import com.runway.watch.batch.BatchUploader
 import com.runway.watch.batch.FileBatchStore
+import com.runway.watch.cue.HapticQuiet
+import com.runway.watch.cue.WatchGroupPaceAlert
 import com.runway.watch.cue.WatchRhythmPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +24,12 @@ class RunSessions private constructor(context: Context) {
     private val store = PrefsSessionStore(context)
     private val sender = MessageClientSessionSender(context)
 
+    /** The latest measured values for the watch screen (S15P31E105-420). */
+    private val live = LiveReadings()
+
+    /** The group pace alert holds the vibrator from the rhythm beat while it plays (S15P31E105-604). */
+    private val haptics = HapticQuiet(SystemClock::elapsedRealtime)
+
     /** Measurement batches of the run (S15P31E105-311); its own loop closes and resends them. */
     val uploader = BatchUploader(
         store = FileBatchStore(context),
@@ -31,15 +39,21 @@ class RunSessions private constructor(context: Context) {
     )
     val controller = WatchSessionController(
         store = store,
-        gateway = HealthServicesExerciseGateway(context, onReadings = { readings -> scope.launch { uploader.offer(readings) } }),
+        gateway = HealthServicesExerciseGateway(context, onReadings = { readings ->
+            // 같은 측정값을 화면에도 보인다(S15P31E105-420). 업로드 본문은 바꾸지 않는다.
+            live.offer(readings)
+            scope.launch { uploader.offer(readings) }
+        }),
         sender = sender,
         uploads = uploader,
         keepAlive = ServiceKeepAlive(context),
         // S15P31E105-257: the approved rhythm BPM plays as a click and vibration while running (D-4).
-        player = WatchRhythmPlayer(context),
+        player = WatchRhythmPlayer(context, haptics),
         log = { Log.i(TAG, it) },
+        // S15P31E105-604: one buzz when the phone relays a shared pace change.
+        paceAlert = WatchGroupPaceAlert(context, haptics),
     )
-    val control = SessionRunControl(controller, scope, uploader.state)
+    val control = SessionRunControl(controller, scope, uploader.state, live)
 
     /**
      * Controller messages run one at a time in arrival order, off the listener thread: an END waits up to 90 s for the

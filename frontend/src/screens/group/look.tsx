@@ -48,8 +48,12 @@ export const groupLook = {
   // Initial tiles and round buttons on the mist screens (6.0~6.3).
   lightFill: 'rgba(2,5,14,0.07)',
   lightButton: 'rgba(255,255,255,0.55)',
-  // The crew cards stay navy on the mist (S15P31E105-483 탭 색 흐름 리뷰).
-  crewCardNavy: '#0C1822',
+  // A run's left line on 6.0's white crew cards (S15P31E105-563): today in navy, later runs faint.
+  lineTodayOnLight: '#02050E',
+  lineLaterOnLight: 'rgba(2,5,14,0.2)',
+  // The white page of 6.2 · 6.4c · 6.5 · 6.8 and the grey band between its parts (S15P31E105-563, 담당자 결정).
+  page: '#FFFFFF',
+  band: '#EEF1F4',
   // --bg-common (6.4 · 6.4c · 6.5 · 6.8 · 6.6c): white for the top third, then down to navy.
   commonBackground: [
     '#FFFFFF',
@@ -116,6 +120,23 @@ const recipes = {
     boxShadow:
       'inset 0 1px 0 rgba(255,255,255,1), inset 0 -1.5px 3px rgba(93,129,148,0.16), 0 4px 12px rgba(0,0,0,0.18)',
   },
+  // The cards of 6.0 and 6.1 (S15P31E105-563): a softer white than the pills, so they lift off the mist
+  // without looking like buttons (담당자 요청): an almost flat white, a faint top light, no inner shade and a
+  // low, light drop.
+  card: {
+    colors: ['#FFFFFF', '#FCFDFD', '#F4F7F9'],
+    offsets: [0, 0.55, 1],
+    fill: '#FCFDFD',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,45,60,0.08)',
+  },
+  // The navy bottom button of 6.2 and 6.4 (GroupCta navy, S15P31E105-563): plain navy, no gradient or edge
+  // light; GroupCta gives it a short drop.
+  navyFlat: {
+    colors: null,
+    fill: '#02050E',
+    boxShadow: 'none',
+  },
   // --raised-navy-*: navy pills and the picked segment on light screens.
   navy: {
     colors: ['#1A2E39', '#091019', '#02050E'],
@@ -123,6 +144,14 @@ const recipes = {
     fill: '#091019',
     boxShadow:
       'inset 0 1px 1px rgba(255,255,255,0.22), inset 0 -2px 4px rgba(0,0,0,0.3), 0 4px 12px rgba(2,5,14,0.25)',
+  },
+  // Mint accent pills on 6.2 (S15P31E105-563): K1 mint with navy text on it.
+  mint: {
+    colors: ['#C4FBF4', '#A7F6EC', '#8DE8DB'],
+    offsets: [0, 0.55, 1],
+    fill: '#A7F6EC',
+    boxShadow:
+      'inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -1.5px 3px rgba(20,128,111,0.18), 0 4px 12px rgba(20,128,111,0.2)',
   },
   // --raised-dark-glass-*: see-through pills on dark screens. An Svg stop drops an rgba colour's alpha on
   // Android (the pill came out solid white), so this one is the gradient's middle as a plain fill.
@@ -213,21 +242,30 @@ export function MistBackground() {
 export function SectionLabel({
   children,
   tone = 'dark',
+  large = false,
+  lineColor,
   style,
 }: {
   children: React.ReactNode;
   // mist: the 15px label of 6.0~6.3 in navy on the mist (S15P31E105-483).
   tone?: 'dark' | 'light' | 'lightOnDark' | 'mist';
+  // 18 instead of 15, for 6.2's bigger text (S15P31E105-563).
+  large?: boolean;
+  // The left line in another colour than the text (6.2's mint, S15P31E105-563).
+  lineColor?: string;
   style?: StyleProp<ViewStyle>;
 }) {
   const color =
     tone === 'light' || tone === 'mist' ? groupLook.onLight : groupLook.onDark;
   return (
-    <View style={[styles.label, { borderLeftColor: color }, style]}>
+    <View
+      style={[styles.label, { borderLeftColor: lineColor ?? color }, style]}
+    >
       <AppText
         style={[
           styles.labelText,
           tone !== 'dark' && tone !== 'mist' && styles.labelTextSmall,
+          large && styles.labelTextLarge,
           { color },
         ]}
         accessibilityRole="header"
@@ -240,13 +278,15 @@ export function SectionLabel({
 
 // The big bottom button (6.2 · 6.3 · 6.4 · 6.4c · 6.5 · 6.8): a raised white pill, 54 high, with a navy
 // circle icon after its label. A secondary one is dark glass without the circle, or navy on the mist screens
-// (6.2 · 6.3), where dark glass would not show.
+// (6.2 · 6.3), where dark glass would not show. navy (6.4 on the mist, S15P31E105-563) turns it round: the
+// primary is a navy pill with a white circle icon, like 6.0's 대기방 입장, and the secondary a white one.
 export function GroupCta({
   title,
   icon,
   primary = true,
   disabled = false,
   onMist = false,
+  navy = false,
   onPress,
 }: {
   title: string;
@@ -254,8 +294,21 @@ export function GroupCta({
   primary?: boolean;
   disabled?: boolean;
   onMist?: boolean;
+  navy?: boolean;
   onPress: () => void;
 }) {
+  // Navy fill with white text: a navy primary, or the old navy/glass secondary.
+  const navyFill = navy ? primary : !primary;
+  // navy: a plain navy primary and the soft card white secondary, flatter than the pills (담당자 요청).
+  const tone: RaisedTone = navy
+    ? primary
+      ? 'navyFlat'
+      : 'card'
+    : primary
+    ? 'white'
+    : onMist
+    ? 'navy'
+    : 'darkGlass';
   return (
     <PressableScale
       accessibilityRole="button"
@@ -265,17 +318,24 @@ export function GroupCta({
       onPress={onPress}
     >
       <Raised
-        tone={primary ? 'white' : onMist ? 'navy' : 'darkGlass'}
-        style={[styles.cta, primary && { boxShadow: ctaShadow }]}
+        tone={tone}
+        style={[
+          styles.cta,
+          primary && { boxShadow: navy ? ctaShadowNavy : ctaShadow },
+        ]}
       >
         {/* Disabled dims the label only: the button floats over the list, which must not show through. */}
         <View style={[styles.ctaContent, disabled && styles.disabled]}>
-          <AppText style={primary ? styles.ctaText : styles.ctaTextGlass}>
+          <AppText style={navyFill ? styles.ctaTextGlass : styles.ctaText}>
             {title}
           </AppText>
           {primary && icon ? (
-            <View style={styles.ctaIcon}>
-              <Icon name={icon} color={groupLook.onDark} size={14} />
+            <View style={[styles.ctaIcon, navy && styles.ctaIconOnNavy]}>
+              <Icon
+                name={icon}
+                color={navy ? groupLook.navy : groupLook.onDark}
+                size={14}
+              />
             </View>
           ) : null}
         </View>
@@ -284,23 +344,34 @@ export function GroupCta({
   );
 }
 
-// The crew card shared by 6.0 내 크루 and 6.1 크루 모집, so both read the same (담당자 요청): a navy card on
-// the mist (S15P31E105-483), a 21 name, 13 small lines 10 under or over it and 34 round buttons on the right.
+// The crew card shared by 6.0 내 크루 and 6.1 크루 모집, so both read the same (담당자 요청): the raised
+// white card of 6.0's 곧 출발 (S15P31E105-563; put card on <Raised tone="card">), a 21 navy name, 13 small
+// lines 10 under or over it and 34 dark navy round buttons with white icons on the right.
+// A full-width part of a white page under a 10 grey band (6.2 · 6.4c · 6.5 · 6.8): the band is its top border, so
+// there are no cards or lines, only the band and the part's label.
+export const groupPage = StyleSheet.create({
+  page: { backgroundColor: groupLook.page },
+  block: {
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    borderTopWidth: 10,
+    borderTopColor: groupLook.band,
+  },
+});
+
 export const crewCard = StyleSheet.create({
   card: {
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderRadius: 20,
-    backgroundColor: groupLook.crewCardNavy,
-    boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.3), 0 8px 20px rgba(2,5,14,0.2)',
   },
   name: {
     fontFamily: fontFamily.bold,
     fontSize: 21,
     lineHeight: 27,
     letterSpacing: -0.4,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   small: {
     fontFamily: fontFamily.regular,
@@ -312,7 +383,7 @@ export const crewCard = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: groupLook.darkButton,
+    backgroundColor: groupLook.navy,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -362,6 +433,9 @@ export function SearchField({
 // --cta-shadow: deeper than a small white pill.
 const ctaShadow =
   'inset 0 1px 0 rgba(255,255,255,1), inset 0 -2px 4px rgba(93,129,148,0.18), 0 12px 28px rgba(0,0,0,0.38)';
+// The navy primary's: the navy pill's inner light with a softer drop on the mist.
+// The navy primary's: a short, light drop only, no edge light (담당자 요청: 덜 입체적으로).
+const ctaShadowNavy = '0 4px 12px rgba(2,5,14,0.16)';
 
 const styles = StyleSheet.create({
   raised: { overflow: 'hidden' },
@@ -377,6 +451,7 @@ const styles = StyleSheet.create({
     color: groupLook.onDark,
   },
   labelTextSmall: { fontSize: 13, lineHeight: 17 },
+  labelTextLarge: { fontSize: 18, lineHeight: 23 },
   cta: {
     height: 54,
     borderRadius: 27,
@@ -404,6 +479,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  ctaIconOnNavy: { backgroundColor: groupLook.onDark },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   search: {
     flex: 1,

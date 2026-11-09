@@ -5,7 +5,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  TextInput,
   View,
   type StyleProp,
   type ViewProps,
@@ -15,7 +14,6 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
-  BottomSheet,
   Button,
   Icon,
   type IconName,
@@ -25,7 +23,6 @@ import {
 import {
   useRepositories,
   useResource,
-  type MeetingPlace,
   type RecommendationPreferences,
   type Place,
   type Repositories,
@@ -36,7 +33,7 @@ import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
 import { parseClock } from '../onboarding/validation';
 import { ErrorNotice } from '../onboarding/parts';
 import { RunMap } from '../../components/RunMap';
-import { placeNameOf } from '../../data/placeName';
+import { CoursePlacePicker } from './CoursePlacePicker';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
 import {
@@ -68,13 +65,6 @@ const goalInputs: { value: GoalInput; label: string }[] = [
 const loadPreferences = (repositories: Repositories) =>
   repositories.courses.getPreferences();
 
-// 기준·도착 위치는 현재 위치(폰) 또는 장소 검색 결과에서 고른다(S15P31E105-494). 장소 검색은 그룹런 만남 장소와
-// 같은 searchPlaces(백엔드 S15P31E105-471)를 쓴다. 입력이 멈춘 뒤에만 검색한다.
-// A point tapped on the map has no place name (no reverse geocoding), so it is called this.
-const MAP_PLACE_NAME = '지도에서 고른 위치';
-const SEARCH_DELAY_MS = 300;
-
-// 환경 chips as 2.0F's goal chip: light pills, the picked ones dark.
 function Chip({
   label,
   selected,
@@ -192,8 +182,7 @@ function StartPill({
 // 받기 sit on one deep navy card at the bottom with white condition cards (담당자 요청).
 export function TodayRunScreen() {
   const navigation = useNavigation();
-  const { courses, groupRuns, phoneLocation } = useRepositories();
-  const { colors } = useTheme();
+  const { courses, phoneLocation } = useRepositories();
   const toast = useToast();
   const { search, setSearch } = useCourseSearch();
   const defaults = useResource(useCallback(loadPreferences, []));
@@ -218,6 +207,7 @@ export function TodayRunScreen() {
   const [origin, setOrigin] = useState<Place | null>(search?.origin ?? null);
   // Coming back from 3.1b keeps the origin used there; a fresh 3.1 looks for where I am.
   const firstOrigin = useRef(search?.origin ?? null);
+  const locationVersion = useRef(0);
   const [locating, setLocating] = useState(false);
   const [locationNotice, setLocationNotice] = useState<RecommendNotice | null>(
     null,
@@ -229,17 +219,20 @@ export function TodayRunScreen() {
       return;
     }
     setLocating(true);
+    const version = ++locationVersion.current;
     setLocationNotice(null);
     try {
       const fix = await phoneLocation.current();
+      if (version !== locationVersion.current) return;
       setOrigin({
         name: CURRENT_PLACE_NAME,
         position: [fix.longitude, fix.latitude],
       });
     } catch (error) {
-      setLocationNotice(locationFailureNotice(error));
+      if (version === locationVersion.current)
+        setLocationNotice(locationFailureNotice(error));
     } finally {
-      setLocating(false);
+      if (version === locationVersion.current) setLocating(false);
     }
   }, [phoneLocation]);
   useEffect(() => {
@@ -248,93 +241,13 @@ export function TodayRunScreen() {
     }
   }, [locate]);
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
-  // 지도에서 선택 (담당자 요청): the sheet steps aside and a tap on the map sets the point, kept with 이 위치로 설정.
-  const [mapPicking, setMapPicking] = useState<'origin' | 'destination' | null>(
-    null,
-  );
-  const [mapPoint, setMapPoint] = useState<Place['position'] | null>(null);
-  // The places kept from the map (기준·도착), so 지도에서 선택 stays marked whatever the place is called.
-  const [mapPlaces, setMapPlaces] = useState<Place[]>([]);
-  // Where the tapped point is, from the phone's geocoder (담당자 요청: 좌표 대신 장소); undefined while it is looked up.
-  const [mapPointName, setMapPointName] = useState<string | null | undefined>(
-    undefined,
-  );
-  useEffect(() => {
-    if (!mapPoint) {
-      setMapPointName(undefined);
-      return;
-    }
-    let live = true;
-    setMapPointName(undefined);
-    placeNameOf(mapPoint).then(name => {
-      if (live) setMapPointName(name);
-    });
-    return () => {
-      live = false;
-    };
-  }, [mapPoint]);
-  const openMapPicking = () => {
-    setMapPoint(null);
-    setMapPicking(picking);
-    setPicking(null);
-  };
-  const keepMapPoint = () => {
-    if (!mapPoint) {
-      return;
-    }
-    const value: Place = {
-      name: mapPointName ?? MAP_PLACE_NAME,
-      position: mapPoint,
-    };
-    setMapPlaces(kept => [...kept.slice(-1), value]);
-    if (mapPicking === 'destination') {
-      setDestination(value);
-    } else {
-      setOrigin(value);
-      setLocationNotice(null);
-    }
-    setMapPicking(null);
-    setMapPoint(null);
-  };
-  const [query, setQuery] = useState('');
-  // null until a search answers; [] is 검색 결과 없음.
-  const [places, setPlaces] = useState<MeetingPlace[] | null>(null);
-  const [searchFailed, setSearchFailed] = useState(false);
-  useEffect(() => {
-    const text = query.trim();
-    setSearchFailed(false);
-    if (!picking || !text) {
-      setPlaces(null);
-      return;
-    }
-    // A later keystroke or closing the sheet drops this answer.
-    let live = true;
-    const timer = setTimeout(() => {
-      groupRuns.searchPlaces(text).then(
-        found => {
-          if (live) setPlaces(found);
-        },
-        () => {
-          if (!live) return;
-          setPlaces(null);
-          setSearchFailed(true);
-        },
-      );
-    }, SEARCH_DELAY_MS);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [groupRuns, picking, query]);
-  const openPicker = (kind: 'origin' | 'destination') => {
-    setQuery('');
-    setPicking(kind);
-  };
-  const pickPlace = (item: MeetingPlace) => {
-    const value: Place = { name: item.name, position: item.position };
+  const openPicker = (kind: 'origin' | 'destination') => setPicking(kind);
+  const pickPlace = (value: Place) => {
     if (picking === 'destination') {
       setDestination(value);
     } else {
+      locationVersion.current += 1;
+      setLocating(false);
       setOrigin(value);
       setLocationNotice(null);
     }
@@ -447,14 +360,12 @@ export function TodayRunScreen() {
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
       <RunMap
-        position={mapPicking ? mapPoint ?? place?.position : place?.position}
+        position={place?.position}
         // The place sits above the sheet, under the tabs (142 of 844).
         area={{ top: 0.17, bottom: 0.17 }}
-        // While picking on the map the camera stays where the user put it, so a tap drops the point right there.
-        cameraLocked={mapPicking !== null}
-        onTapMap={mapPicking ? point => setMapPoint(point) : undefined}
         // The NAVER logo just over the sheet, on the left (S15P31E105-429).
         logo={{ above: 0.715 }}
+        view="lean"
         style={StyleSheet.absoluteFill}
       />
       {/* Touches outside the tabs, the buttons and the sheet reach the map below (지도에서 선택). */}
@@ -473,245 +384,119 @@ export function TodayRunScreen() {
             style={styles.locate}
           />
         </View>
-        {mapPicking ? (
-          <View style={styles.mapPickArea} pointerEvents="box-none">
-            <View style={styles.mapPickBar}>
-              <AppText variant="bodyStrong">
-                {mapPicking === 'destination'
-                  ? '도착 위치를 지도에서 눌러 주세요'
-                  : '기준 위치를 지도에서 눌러 주세요'}
-              </AppText>
-              <AppText tone="textSecondary">
-                {!mapPoint
-                  ? '지도를 움직여 원하는 곳을 눌러요'
-                  : mapPointName === undefined
-                  ? '어디인지 찾는 중이에요'
-                  : mapPointName ?? MAP_PLACE_NAME}
-              </AppText>
-              <View style={styles.mapPickButtons}>
-                <Button
-                  title="취소"
-                  variant="secondary"
-                  size="medium"
-                  style={styles.flex}
-                  onPress={() => {
-                    setMapPicking(null);
-                    setMapPoint(null);
-                  }}
-                />
-                <Button
-                  title="이 위치로 설정"
-                  size="medium"
-                  style={styles.flex}
-                  disabled={!mapPoint}
-                  onPress={keepMapPoint}
-                />
-              </View>
-            </View>
-          </View>
-        ) : (
-          // The conditions and both buttons on one navy card floating over the map, laid out like 2.0F's bottom card
-          // (담당자 요청).
-          <SafeAreaView
-            edges={['bottom']}
-            style={styles.cardArea}
-            pointerEvents="box-none"
-          >
-            {/* A deep navy card (담당자 요청) read in the dark tone, its condition cards white. */}
-            <ThemeProvider tone="dark">
-              <View style={styles.panel}>
-                <AppText variant="title" style={styles.panelTitle}>
-                  코스 조건
-                </AppText>
-                <ScrollView
-                  style={styles.panelScroll}
-                  contentContainerStyle={styles.content}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {locationNotice ? (
-                    <View style={styles.optionsError}>
-                      <ErrorNotice
-                        title={locationNotice.title}
-                        detail={locationNotice.detail}
-                      />
-                      {phoneLocation ? (
-                        <Button
-                          title="현재 위치 다시 찾기"
-                          variant="secondary"
-                          size="small"
-                          disabled={locating}
-                          onPress={locate}
-                        />
-                      ) : null}
-                    </View>
-                  ) : null}
-                  {defaults.status === 'error' ? (
-                    <View style={styles.optionsError}>
-                      <ErrorNotice
-                        title="추천 기본값을 불러오지 못했어요"
-                        detail="저장된 조건을 확인한 뒤 추천받을 수 있어요."
-                      />
-                      <Button
-                        title="기본값 다시 불러오기"
-                        size="small"
-                        variant="secondary"
-                        onPress={defaults.reload}
-                      />
-                    </View>
-                  ) : !preferences ? (
-                    <ActivityIndicator accessibilityLabel="추천 기본값 불러오는 중" />
-                  ) : null}
-                  <PanelContent
-                    place={place}
-                    locating={locating}
-                    onPickOrigin={() => openPicker('origin')}
-                    destination={destination}
-                    onPickDestination={() => openPicker('destination')}
-                    distanceKm={distanceKm}
-                    setDistanceKm={setDistanceKm}
-                    goal={goal}
-                    switchGoal={switchGoal}
-                    setGoalText={setGoalText}
-                    seconds={seconds}
-                    derived={derived}
-                    preferences={preferences}
-                    setPreferences={setPreferences}
-                    conditionsDisabled={!preferences || saving || loading}
-                  />
-                  {preferences?.shape === 'point_to_point' && !destination ? (
-                    <AppText style={styles.hint}>
-                      편도 코스는 도착 위치를 선택해 주세요.
-                    </AppText>
-                  ) : null}
-                  {notice ? (
-                    <ErrorNotice title={notice.title} detail={notice.detail} />
-                  ) : null}
-                </ScrollView>
-                <View style={styles.actions}>
-                  <Button
-                    title={
-                      saving ? '기본값 저장 중…' : '이 조건을 기본값으로 저장'
-                    }
-                    accessibilityLabel="이 조건을 기본값으로 저장"
-                    size="medium"
-                    variant="secondary"
-                    icon="bookmark"
-                    disabled={!preferences || saving || loading}
-                    onPress={savePreferences}
-                  />
-                  <StartPill
-                    title="코스 추천 받기"
-                    loading={loading}
-                    disabled={
-                      !place ||
-                      !seconds ||
-                      !preferences ||
-                      saving ||
-                      (preferences.shape === 'point_to_point' && !destination)
-                    }
-                    onPress={recommend}
-                  />
-                </View>
-              </View>
-            </ThemeProvider>
-          </SafeAreaView>
-        )}
-      </SafeAreaView>
-      {/* The 기준 위치 sheet in the dark tone too (담당자 요청: 패널은 네이비), its cards white like the 코스 조건 card's. */}
-      <ThemeProvider tone="dark">
-        <BottomSheet
-          visible={picking !== null}
-          background={k1.night}
-          onClose={() => setPicking(null)}
-          title={picking === 'destination' ? '도착 위치' : '기준 위치'}
+        <SafeAreaView
+          edges={['bottom']}
+          style={styles.cardArea}
+          pointerEvents="box-none"
         >
-          {/* The same cards as 운동 목표 (담당자 요청): 현재 위치 and 지도에서 선택, then a search field and its results. */}
-          {/* White cards on the navy sheet (담당자 요청), read in the light tone so their text is dark. */}
-          <ThemeProvider tone="light">
-            <View style={styles.list}>
-              {picking === 'origin' ? (
-                <ConditionRow
-                  icon="locate"
-                  kicker="내 위치"
-                  value={locating ? '현재 위치 찾는 중…' : CURRENT_PLACE_NAME}
-                  accessibilityLabel={CURRENT_PLACE_NAME}
-                  selected={place?.name === CURRENT_PLACE_NAME}
-                  disabled={locating}
-                  onPress={() => {
-                    setPicking(null);
-                    locate();
-                  }}
+          {/* A deep navy card (담당자 요청) read in the dark tone, its condition cards white. */}
+          <ThemeProvider tone="dark">
+            <View style={styles.panel}>
+              <AppText variant="title" style={styles.panelTitle}>
+                코스 조건
+              </AppText>
+              <ScrollView
+                style={styles.panelScroll}
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+              >
+                {locationNotice ? (
+                  <View style={styles.optionsError}>
+                    <ErrorNotice
+                      title={locationNotice.title}
+                      detail={locationNotice.detail}
+                    />
+                    {phoneLocation ? (
+                      <Button
+                        title="현재 위치 다시 찾기"
+                        variant="secondary"
+                        size="small"
+                        disabled={locating}
+                        onPress={locate}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+                {defaults.status === 'error' ? (
+                  <View style={styles.optionsError}>
+                    <ErrorNotice
+                      title="추천 기본값을 불러오지 못했어요"
+                      detail="저장된 조건을 확인한 뒤 추천받을 수 있어요."
+                    />
+                    <Button
+                      title="기본값 다시 불러오기"
+                      size="small"
+                      variant="secondary"
+                      onPress={defaults.reload}
+                    />
+                  </View>
+                ) : !preferences ? (
+                  <ActivityIndicator accessibilityLabel="추천 기본값 불러오는 중" />
+                ) : null}
+                <PanelContent
+                  place={place}
+                  locating={locating}
+                  onPickOrigin={() => openPicker('origin')}
+                  destination={destination}
+                  onPickDestination={() => openPicker('destination')}
+                  distanceKm={distanceKm}
+                  setDistanceKm={setDistanceKm}
+                  goal={goal}
+                  switchGoal={switchGoal}
+                  setGoalText={setGoalText}
+                  seconds={seconds}
+                  derived={derived}
+                  preferences={preferences}
+                  setPreferences={setPreferences}
+                  conditionsDisabled={!preferences || saving || loading}
                 />
-              ) : null}
-              <ConditionRow
-                icon="mapPin"
-                kicker="직접 고르기"
-                value="지도에서 선택"
-                accessibilityLabel="지도에서 선택"
-                selected={mapPlaces.some(
-                  kept =>
-                    kept === (picking === 'destination' ? destination : place),
-                )}
-                onPress={openMapPicking}
-              />
-              <View style={[styles.searchField, styles.whiteCard]}>
-                <Icon name="search" color={colors.textSecondary} size={18} />
-                <TextInput
-                  accessibilityLabel="장소·주소 검색"
-                  placeholder="장소·주소 검색"
-                  placeholderTextColor={colors.textTertiary}
-                  value={query}
-                  onChangeText={setQuery}
-                  returnKeyType="search"
-                  style={[styles.searchInput, { color: colors.text }]}
+                {preferences?.shape === 'point_to_point' && !destination ? (
+                  <AppText style={styles.hint}>
+                    편도 코스는 도착 위치를 선택해 주세요.
+                  </AppText>
+                ) : null}
+                {notice ? (
+                  <ErrorNotice title={notice.title} detail={notice.detail} />
+                ) : null}
+              </ScrollView>
+              <View style={styles.actions}>
+                <Button
+                  title={
+                    saving ? '기본값 저장 중…' : '이 조건을 기본값으로 저장'
+                  }
+                  accessibilityLabel="이 조건을 기본값으로 저장"
+                  size="medium"
+                  variant="secondary"
+                  icon="bookmark"
+                  disabled={!preferences || saving || loading}
+                  onPress={savePreferences}
+                />
+                <StartPill
+                  title="코스 추천 받기"
+                  loading={loading}
+                  disabled={
+                    !place ||
+                    !seconds ||
+                    !preferences ||
+                    saving ||
+                    (preferences.shape === 'point_to_point' && !destination)
+                  }
+                  onPress={recommend}
                 />
               </View>
             </View>
           </ThemeProvider>
-          {searchFailed ? (
-            <AppText tone="textSecondary">
-              장소를 검색하지 못했어요. 잠시 후 다시 시도해 주세요.
-            </AppText>
-          ) : places && places.length === 0 ? (
-            <AppText tone="textSecondary">
-              검색 결과가 없어요. 다른 이름이나 주소로 찾아보세요.
-            </AppText>
-          ) : null}
-          <ThemeProvider tone="light">
-            <ScrollView
-              style={styles.places}
-              contentContainerStyle={styles.placeList}
-              keyboardShouldPersistTaps="handled"
-            >
-              {(places ?? []).map(item => (
-                <PressableScale
-                  key={`${item.name}|${item.address}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${item.name}, ${item.address}`}
-                  onPress={() => pickPlace(item)}
-                  style={[styles.placeRow, styles.whiteCard]}
-                >
-                  <View style={[styles.placeIcon, styles.badge]}>
-                    <Icon name="mapPin" color={k1.ice} size={15} />
-                  </View>
-                  <View style={styles.flex}>
-                    <AppText variant="bodyStrong" numberOfLines={1}>
-                      {item.name}
-                    </AppText>
-                    <AppText
-                      variant="caption"
-                      tone="textSecondary"
-                      numberOfLines={1}
-                    >
-                      {item.address}
-                    </AppText>
-                  </View>
-                </PressableScale>
-              ))}
-            </ScrollView>
-          </ThemeProvider>
-        </BottomSheet>
-      </ThemeProvider>
+        </SafeAreaView>
+      </SafeAreaView>
+      {picking ? (
+        <CoursePlacePicker
+          kind={picking}
+          selected={picking === 'destination' ? destination : origin}
+          reference={origin}
+          onConfirm={pickPlace}
+          onCancel={() => setPicking(null)}
+        />
+      ) : null}
     </View>
   );
 }

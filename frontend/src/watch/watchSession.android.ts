@@ -6,6 +6,7 @@ import type {
   RunningSessionView,
   SessionCommand,
   SessionGoalDraft,
+  WatchGroupStatus,
   WatchSessionEvent,
 } from '../data/types';
 
@@ -26,6 +27,8 @@ type NativeWatchSession = {
   blockBatches(sessionId: string): Promise<string>;
   unblockBatches(sessionId: string): Promise<void>;
   isWatchConnected(): Promise<boolean>;
+  // S15P31E105-571: OS Data Layer node (id · displayName). Null when nothing is reachable.
+  getConnectedWatch(): Promise<{ id: string; displayName: string; nearby: boolean } | null>;
 };
 
 type Subscription = { remove: () => void };
@@ -93,6 +96,40 @@ function goalJson(goal: SessionGoalDraft) {
 }
 
 const COACHING_GUIDE_PATH = '/runway/v1/coaching/guide';
+// S15P31E105-420: G10 그룹 현황(GROUP_STATUS). 세션 경로가 아니므로 전체 경로로 보낸다.
+const GROUP_STATUS_PATH = '/runway/v1/group/status';
+
+const finiteOrNull = (value: number | null) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+function paceChangedJson(change: WatchGroupStatus['paceChanged']) {
+  const from = finiteOrNull(change?.from ?? null);
+  const to = finiteOrNull(change?.to ?? null);
+  return from !== null && to !== null ? JSON.stringify({ from, to }) : 'null';
+}
+
+// GROUP_STATUS payload(9.3). 그룹런 ID는 숫자 토큰 그대로 넣고, 값은 받은 그대로 옮긴다.
+function groupStatusJson(status: WatchGroupStatus) {
+  const standing = status.standing
+    ? JSON.stringify({
+        rank: status.standing.rank,
+        aheadCount: finiteOrNull(status.standing.aheadCount),
+        behindCount: finiteOrNull(status.standing.behindCount),
+        gapToAheadM: finiteOrNull(status.standing.gapToAheadM),
+        gapToBehindM: finiteOrNull(status.standing.gapToBehindM),
+      })
+    : 'null';
+  return (
+    `{"groupRunId":${idToken(status.groupRunId)},"phase":${JSON.stringify(status.phase)},` +
+    `"guidePaceSecPerKm":${JSON.stringify(finiteOrNull(status.guidePaceSecPerKm))},` +
+    `"standing":${standing},"stale":${status.stale},` +
+    `"leaderToLastGapM":${JSON.stringify(finiteOrNull(status.leaderToLastGapM))},` +
+    `"updatedAt":${JSON.stringify(status.updatedAt)},` +
+    `"rankedCount":${JSON.stringify(finiteOrNull(status.rankedCount))},` +
+    // S15P31E105-604: 폰이 본 공동 페이스 변경. 워치는 이 값이 있을 때만 진동한다.
+    `"paceChanged":${paceChangedJson(status.paceChanged)}}`
+  );
+}
 
 const isBpm = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 60 && value <= 220;
@@ -279,7 +316,7 @@ export function createNativeWatchSession(
   return {
     getLinkedDevices: async () => null,
 
-    prepare: (sessionId, { stateVersion, deviceId, goal }) =>
+    prepare: (sessionId, { stateVersion, deviceId, goal, groupRunId = null }) =>
       new Promise(resolve => {
         // 워치 기기 ID가 없으면 batch 생산 기기를 정할 수 없어 보내지 않고 준비 실패로 답한다(9.3 SESSION_PREPARE).
         if (!/^[1-9]\d*$/.test(deviceId)) {
@@ -304,7 +341,9 @@ export function createNativeWatchSession(
           'SESSION_PREPARE',
           sessionId,
           `{"stateVersion":${stateVersion},"deviceId":${idToken(deviceId)},` +
-            `"goal":${goalJson(goal)},"initialBpm":null}`,
+            `"goal":${goalJson(goal)},"initialBpm":null,` +
+            // 그룹런 참가 세션이면 워치가 그룹 화면을 쓴다(S15P31E105-420). 개인 러닝은 null.
+            `"groupRunId":${idToken(groupRunId)}}`,
         ).catch(() => undefined);
       }),
 
@@ -337,6 +376,19 @@ export function createNativeWatchSession(
 
     sendCoachingGuide: (sessionId, guide) =>
       send(COACHING_GUIDE_PATH, 'COACHING_GUIDE', sessionId, guideJson(guide)),
+
+    // SERVER_END(9.3): G12로 서버가 승인한 참가자 END. 워치는 COMMAND_RESULT로 실제 결과를 보고한다.
+    sendServerEnd: (sessionId, { commandId, expectedVersion, endedAt, reason }) =>
+      send(
+        'server-end',
+        'SERVER_END',
+        sessionId,
+        `{"commandId":${idToken(commandId)},"expectedVersion":${expectedVersion},` +
+          `"endedAt":${JSON.stringify(endedAt)},"reason":${JSON.stringify(reason)}}`,
+      ),
+
+    sendGroupStatus: (sessionId, status) =>
+      send(GROUP_STATUS_PATH, 'GROUP_STATUS', sessionId, groupStatusJson(status)),
 
     sendReceived: async (sessionId, { commandId, persisted, stateVersion }) => {
       if (persisted) {
@@ -371,6 +423,25 @@ export function createNativeWatchSession(
     },
     unblockBatches: sessionId => native.unblockBatches(sessionId),
     isWatchConnected: () => native.isWatchConnected().catch(() => false),
+    getConnectedWatch: async () => {
+      try {
+        const node = await native.getConnectedWatch();
+        if (!node || typeof node.id !== 'string') {
+          return null;
+        }
+        const displayName =
+          typeof node.displayName === 'string' && node.displayName.trim()
+            ? node.displayName.trim()
+            : '워치';
+        return {
+          id: node.id,
+          displayName,
+          nearby: node.nearby === true,
+        };
+      } catch {
+        return null;
+      }
+    },
 
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),

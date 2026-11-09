@@ -7,12 +7,15 @@ import type {
   GroupRunParticipant,
   GroupRunSummary,
   MyCrew,
+  MyGroupRuns,
   Repositories,
   WaitingRoom,
 } from '../types';
 import { apiRequest } from './http';
+import { listItems } from './listItems';
+import { searchPlaces } from './places';
 
-// 그룹런 서버 API. 장소 검색은 기존 목업을 유지하며, 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
+// 그룹런 서버 API와 PLS01 장소 검색. 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
 
 type Point = { type: 'Point'; coordinates: [number, number] };
 
@@ -67,10 +70,13 @@ const isServerId = (id: string) => /^\d+$/.test(id);
 type LiveResponse = {
   status: GroupRunSummary['status'];
   groupGuidePaceSecPerKm: number | null;
+  updatedAt?: string | null;
   loadAlert?: GroupRunLive['loadAlert'];
   participants: {
     userId: number;
     rank: number | null;
+    aheadCount?: number | null;
+    behindCount?: number | null;
     paceSecPerKm?: number | null;
     progressM: number | null;
     stale: boolean;
@@ -167,6 +173,12 @@ const placeAndTime = (draft: Omit<GroupRunDraft, 'crewId'>) => ({
   ...goalOf(draft),
 });
 
+// G07 본인 항목의 세션 ID(내 그룹런 기록). 없으면 null.
+function mySessionIdOf(loaded: { items: ParticipantItem[]; me: string }) {
+  const sessionId = loaded.items.find(item => String(item.userId) === loaded.me)?.sessionId;
+  return sessionId == null ? null : String(sessionId);
+}
+
 export function createGroupRunsApi({
   mock,
   crews,
@@ -255,9 +267,9 @@ export function createGroupRunsApi({
     run.goalPaceSecPerKm ?? (await usualPace()) ?? defaultPaceSecPerKm;
 
   async function waitingRoom(groupRunId: string): Promise<WaitingRoom> {
-    const { run, participants, participantCount, readyCount } = await load(
-      groupRunId,
-    );
+    const { run, participants, participantCount, readyCount, items, me } =
+      await load(groupRunId);
+    const mine = items.find(item => String(item.userId) === me);
     const [pace, course] = await Promise.all([
       goalPace(run),
       courseOf(run.courseId),
@@ -278,26 +290,46 @@ export function createGroupRunsApi({
       participantCount,
       readyCount,
       participants,
+      // G16이 만든 내 READY 세션. 워치 준비와 그룹 출발 중계에 쓴다(S15P31E105-420).
+      mySessionId:
+        mine?.readyStatus === 'READY' && mine.sessionId != null
+          ? String(mine.sessionId)
+          : null,
     };
   }
 
   const groupRuns: Repositories['groupRuns'] = {
     ...mock,
+    searchPlaces,
     // 6.0: my crews (M10) with their open runs (G02), each filled from G03·G07.
     listMine: async () => {
       const mine = await myCrews();
       if (mine.length === 0) {
-        const open = (await crews.search({ query: '', nearby: true })).filter(
-          crew =>
-            crew.myMembership === null && crew.memberCount < crew.capacity,
-        );
+        // 6.0b empty guidance must still open when I have no crews. Nearby recruiting
+        // is only a hint — a failed /crews search must not look like a load error
+        // (S15P31E105-571 with S15P31E105-588 empty-list behavior).
+        let nearbyRecruiting: MyGroupRuns['nearbyRecruiting'] = {
+          count: 0,
+          areas: [],
+        };
+        try {
+          const open = (
+            await crews.search({ query: '', nearby: true })
+          ).filter(
+            crew =>
+              crew.myMembership === null && crew.memberCount < crew.capacity,
+          );
+          nearbyRecruiting = {
+            count: open.length,
+            areas: [...new Set(open.map(crew => crew.area))].slice(0, 3),
+          };
+        } catch {
+          // Keep zeros; NoCrews still shows the existing empty copy.
+        }
         return {
           upcoming: null,
           crews: [],
-          nearbyRecruiting: {
-            count: open.length,
-            areas: [...new Set(open.map(crew => crew.area))].slice(0, 3),
-          },
+          nearbyRecruiting,
         };
       }
       const names = new Map(mine.map(crew => [crew.id, crew.name]));
@@ -306,9 +338,10 @@ export function createGroupRunsApi({
           if (crew.membership !== 'MEMBER') {
             return { crew, groupRuns: [] };
           }
-          const { items } = await apiRequest<{ items: ListItem[] }>(
-            '/group-runs',
-            { query: { crewId: crew.id, limit: pageLimit } },
+          const items = listItems(
+            await apiRequest<{ items: ListItem[] }>('/group-runs', {
+              query: { crewId: crew.id, limit: pageLimit },
+            }),
           );
           const runs = await Promise.all(
             items
@@ -454,13 +487,19 @@ export function createGroupRunsApi({
           const own = loaded.items.find(
             item => String(item.userId) === loaded.me,
           );
-          if (
-            loaded.run.status === 'CANCELLED' ||
-            loaded.run.status === 'COMPLETED'
-          ) {
+          // Keep CANCELLED and COMPLETED copy separate: callers used to show one mixed 409 line.
+          if (loaded.run.status === 'CANCELLED') {
             throw new DataError(
               'INVALID_GROUP_STATE',
-              '그룹런이 취소되었거나 종료되었어요.',
+              '그룹런이 취소되었어요. 상세에서 확인해 주세요.',
+              null,
+              409,
+            );
+          }
+          if (loaded.run.status === 'COMPLETED') {
+            throw new DataError(
+              'INVALID_GROUP_STATE',
+              '그룹런이 종료되었어요. 상세에서 확인해 주세요.',
               null,
               409,
             );
@@ -538,7 +577,10 @@ export function createGroupRunsApi({
               stale: item.stale,
               gapToAheadM: item.gapToAheadM,
               gapToBehindM: item.gapToBehindM,
+              aheadCount: item.aheadCount ?? null,
+              behindCount: item.behindCount ?? null,
             })),
+            updatedAt: value.updatedAt ?? null,
             spreadM:
               positions.length >= 2 &&
               positions.length === value.participants.length
@@ -605,6 +647,8 @@ export function createGroupRunsApi({
         maxGapM: null,
         analysisStatus: result.analysis.status,
         hasUnconfirmedStarts: result.hasUnconfirmedStarts,
+        // 공유는 내 기록을 지정해 연다. 최근 기록으로 짐작하면 다른 기록이 붙거나 불러오지 못한다.
+        mySessionId: mySessionIdOf(loaded),
         participants: rows,
       };
     },

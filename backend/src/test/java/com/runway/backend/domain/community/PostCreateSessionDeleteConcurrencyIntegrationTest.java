@@ -141,7 +141,7 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
         return jdbc.queryForObject(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREEE')
+                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREE')
                 RETURNING id
                 """,
                 Long.class,

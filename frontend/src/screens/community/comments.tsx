@@ -134,6 +134,39 @@ const loadMe = (repositories: Repositories) => repositories.profile.getMe();
 // A pull of more than this closes the sheet.
 const closeDrag = 120;
 
+// The sheet's height and foot padding (S15P31E105-596). `open` is the sheet window's height with the keyboard
+// down, `frame` its height now (0 until laid out, then the screen stands in). On Android the Modal window may
+// shrink above the keyboard or stay full under it, by phone: a window that shrank already keeps the comment bar
+// clear, one that did not needs the bar lifted by the keyboard's height. Never both, or the bar floats above
+// the keyboard with a gap. Two thirds of the window (68%) at rest; up to just under the status bar while typing.
+export function sheetFit({
+  open,
+  frame,
+  screen,
+  keyboard,
+  top,
+  bottom,
+}: {
+  open: number;
+  frame: number;
+  screen: number;
+  keyboard: number;
+  top: number;
+  bottom: number;
+}) {
+  const full = open || frame || screen;
+  const now = frame || full;
+  if (!keyboard) {
+    return { full, height: Math.round(full * 0.68), paddingBottom: bottom };
+  }
+  const shrank = full - now > keyboard / 2;
+  return {
+    full,
+    height: now - top - 8,
+    paddingBottom: shrank ? 0 : keyboard,
+  };
+}
+
 // The 7.1 댓글 sheet (담당자 요청, 레퍼런스 영상): pressing 댓글 in the feed raises the post's comments from the
 // bottom over the dimmed feed, with my comment bar at its foot. It rises to two thirds of the screen and
 // to the top while the keyboard is up; pulling its handle down or tapping the dim closes it. The comment
@@ -164,9 +197,24 @@ export function CommentSheet({
   // The app's toasts sit under this sheet, so what happened shows above the comment bar instead.
   const [notice, setNotice] = useState<string | null>(null);
   const [keyboard, setKeyboard] = useState(0);
+  // The height the sheet's own window really has (S15P31E105-596): on Android the Modal window may or may
+  // not shrink when the keyboard comes up, and the phone's bars may take some of the screen. `open` is the
+  // window with the keyboard down; `frame` is what it is now.
+  const [frame, setFrame] = useState(0);
+  const [open, setOpen] = useState(0);
   const input = useRef<TextInput>(null);
   const drag = useRef(new Animated.Value(0)).current;
   const rise = useRef(new Animated.Value(1)).current;
+  // Whether the Modal's window is up. The rise starts only then: started as the window is still being
+  // made, a phone could drop it partway and leave the sheet hanging halfway up (S15P31E105-596).
+  const windowUp = useRef(false);
+  const riseUp = useCallback(() => {
+    Animated.timing(rise, {
+      toValue: 0,
+      duration: 240,
+      useNativeDriver: true,
+    }).start();
+  }, [rise]);
 
   const load = useCallback(async () => {
     if (!postId) {
@@ -189,14 +237,15 @@ export function CommentSheet({
     if (postId) {
       drag.setValue(0);
       rise.setValue(1);
-      Animated.timing(rise, {
-        toValue: 0,
-        duration: 240,
-        useNativeDriver: true,
-      }).start();
+      // Another post while the window is already up rises at once; a first opening waits for onShow.
+      if (windowUp.current) {
+        riseUp();
+      }
       load();
+    } else {
+      windowUp.current = false;
     }
-  }, [drag, load, postId, rise]);
+  }, [drag, load, postId, rise, riseUp]);
 
   useEffect(() => {
     if (!notice) {
@@ -322,10 +371,14 @@ export function CommentSheet({
   };
 
   const sendable = Boolean(editing) || Boolean(draft.trim());
-  // Two thirds of the screen; up to just under the status bar while typing.
-  const height = keyboard
-    ? screenHeight - insets.top - 8
-    : Math.round(screenHeight * 0.68);
+  const { full, height, paddingBottom } = sheetFit({
+    open,
+    frame,
+    screen: screenHeight,
+    keyboard,
+    top: insets.top,
+    bottom: insets.bottom,
+  });
 
   return (
     <Modal
@@ -334,8 +387,20 @@ export function CommentSheet({
       animationType="fade"
       statusBarTranslucent
       onRequestClose={onClose}
+      onShow={() => {
+        windowUp.current = true;
+        riseUp();
+      }}
     >
-      <View style={styles.root}>
+      <View
+        style={styles.root}
+        onLayout={event => {
+          const measured = Math.round(event.nativeEvent.layout.height);
+          setFrame(measured);
+          // The window can shrink before the keyboard's event arrives, so the open height only grows.
+          setOpen(current => Math.max(current, measured));
+        }}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="댓글 닫기"
@@ -348,14 +413,15 @@ export function CommentSheet({
             sheetLook.sheet,
             {
               height,
-              paddingBottom: Math.max(keyboard, insets.bottom),
+              paddingBottom,
               transform: [
                 {
+                  // Starts a whole window below, so no part of it shows before it rises.
                   translateY: Animated.add(
                     drag,
                     rise.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [0, 600],
+                      outputRange: [0, full],
                     }),
                   ),
                 },
@@ -382,7 +448,7 @@ export function CommentSheet({
                 style={styles.center}
               >
                 <AppText style={styles.empty}>
-                  댓글을 불러오지 못했어요. 눌러서 다시 시도해 주세요.
+                  {`댓글을 불러오지 못했어요\n눌러서 다시 시도해 주세요`}
                 </AppText>
               </Pressable>
             ) : !comments ? (
@@ -393,7 +459,7 @@ export function CommentSheet({
             ) : comments.length === 0 ? (
               <View style={styles.center}>
                 <AppText style={styles.emptyTitle}>아직 댓글이 없어요</AppText>
-                <AppText style={styles.empty}>첫 댓글을 남겨 보세요.</AppText>
+                <AppText style={styles.empty}>첫 댓글을 남겨 보세요</AppText>
               </View>
             ) : (
               comments.map(comment => (

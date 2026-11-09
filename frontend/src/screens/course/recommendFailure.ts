@@ -6,7 +6,7 @@ export type RecommendNotice = { title: string; detail: string };
 const byReason: Record<string, RecommendNotice> = {
   OUT_OF_AREA: {
     title: '출발 위치가 서비스 지역 밖이에요.',
-    detail: '부산 안에서 출발 위치를 골라 주세요.',
+    detail: '다른 출발 위치를 골라 주세요.',
   },
   OUT_OF_APP_RANGE: {
     title: '출발과 도착 위치가 너무 멀어요.',

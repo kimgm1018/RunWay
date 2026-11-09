@@ -5,8 +5,8 @@ import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 import * as fixtures from '../src/data/mock/fixtures';
 
-// 1.3–1.5 회원가입 against the server (dataSource 'api'): U16 and U15 go to the server,
-// phone verification has no API and stays on mock data.
+// 1.3–1.5 회원가입 against the server (dataSource 'api'): U16, U28·U29 휴대전화 인증 and U15 go to the server
+// (S15P31E105-560).
 
 jest.mock('../src/health/watchHealth', () => ({
   setWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
@@ -41,8 +41,11 @@ const created = respond(201, {
   onboardingCompleted: false,
 });
 
-// U16 answers from a fixed set of taken IDs; U15 answers with whatever the test queues.
-function serve(signUpResponses: ReturnType<typeof respond>[]) {
+// U16 answers from a fixed set of taken IDs; U28 and U15 answer with whatever the test queues.
+function serve(
+  signUpResponses: ReturnType<typeof respond>[],
+  codeResponses: ReturnType<typeof respond>[] = [],
+) {
   fetchMock.mockImplementation(async (url: string) => {
     if (url.includes('/auth/login-id/availability')) {
       const loginId = new URL(url).searchParams.get('loginId');
@@ -52,6 +55,16 @@ function serve(signUpResponses: ReturnType<typeof respond>[]) {
         available,
         reason: available ? null : 'DUPLICATED',
       });
+    }
+    // U28 sends the SMS; U29 accepts the fixture code and returns the proof U15 must carry.
+    if (url.endsWith('/auth/phone-verifications')) {
+      return (
+        codeResponses.shift() ??
+        respond(200, { expiresInSec: 180, resendAvailableInSec: 60 })
+      );
+    }
+    if (url.endsWith('/auth/phone-verifications/confirm')) {
+      return respond(200, { verificationToken: 'proof-1', expiresInSec: 600 });
     }
     if (url.endsWith('/auth/signup')) {
       return signUpResponses.shift() ?? created;
@@ -95,14 +108,31 @@ function last(screen: Screen, label: string, prop: string) {
   return matches[matches.length - 1];
 }
 
+function hasField(screen: Screen, label: string) {
+  return (
+    screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === label &&
+        typeof node.props.onChangeText === 'function',
+    ).length > 0
+  );
+}
+
 function isDisabled(screen: Screen, label: string) {
   return Boolean(
     last(screen, label, 'onPress').props.accessibilityState?.disabled,
   );
 }
 
-async function settle(ms = 20) {
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+// Prefer a microtask flush over wall-clock sleep so full-suite load does not burn the test budget (S15P31E105-565).
+async function settle(ms = 0) {
+  if (ms > 0) {
+    await act(() => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    return;
+  }
+  await act(async () => {
+    await Promise.resolve();
+  });
 }
 
 async function press(screen: Screen, label: string) {
@@ -218,6 +248,8 @@ test('signing up creates the account, holds the tokens and goes on to 1.6', asyn
       birthDate: '1991-02-28',
       gender: 'MALE',
       phoneNumber: '01055556666',
+      // U29's proof from 1.3 rides along with U15 (users.md U15, S15P31E105-560).
+      phoneVerificationToken: 'proof-1',
       consents: [
         { consentType: 'TERMS_OF_SERVICE', granted: true },
         { consentType: 'PERSONAL_INFO', granted: true },
@@ -332,5 +364,57 @@ test('1.5b wheels start on 2002-01-01, keep days real, survive going back and re
   await press(screen, '다음');
   expect(signUpBodies()[0].birthDate).toBe('2000-03-29');
   expect(texts(screen)).toContain('평소 어떻게');
+  await act(async () => screen.unmount());
+});
+
+// Review R-2: a failed U28 must not hide a code that can still arrive or still works.
+async function openSignUpPhone(screen: Screen) {
+  await press(screen, '시작하기');
+  await press(screen, '회원가입');
+  await type(screen, '전화번호', '010-5555-6666');
+}
+
+const failure = (status: number, code: string) =>
+  respond(status, { code, message: '', details: { retryAfterSec: 40 } });
+
+test('a resend that comes too soon keeps the code on screen usable', async () => {
+  serve([], [
+    respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }),
+    failure(429, 'VERIFICATION_RESEND_TOO_SOON'),
+  ]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+  await press(screen, '다시 받기');
+
+  expect(texts(screen)).toContain('인증번호는 잠시 후에 다시 받을 수 있어요.');
+  expect(hasField(screen, '인증번호')).toBe(true);
+  await type(screen, '인증번호', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+test('an unclear send opens the code field for an SMS that may still arrive', async () => {
+  serve([], [failure(503, 'SMS_UNAVAILABLE')]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+
+  expect(texts(screen)).toContain('문자가 왔다면 입력하고');
+  expect(hasField(screen, '인증번호')).toBe(true);
+  expect(texts(screen)).toContain('03:00');
+  await type(screen, '인증번호', fixtures.verificationCode);
+  expect(texts(screen)).toContain('본인 인증됐어요');
+  await act(async () => screen.unmount());
+});
+
+test('a first request over the limit leaves no code field', async () => {
+  serve([], [failure(429, 'VERIFICATION_SEND_LIMIT_EXCEEDED')]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+
+  expect(texts(screen)).toContain('인증번호 요청 횟수를 넘었어요');
+  expect(hasField(screen, '인증번호')).toBe(false);
   await act(async () => screen.unmount());
 });

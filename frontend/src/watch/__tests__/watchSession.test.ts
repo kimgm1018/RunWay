@@ -121,6 +121,7 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
     deviceId: 101,
     goal: { courseId: 7, comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: null },
     initialBpm: null,
+    groupRunId: null,
   });
 
   expect(await watch.prepare('201', { stateVersion: 4, deviceId: '101', goal })).toEqual({
@@ -128,6 +129,82 @@ test('prepare resolves on SESSION_PREPARED for the same session and times out', 
     ready: false,
     reasonCode: 'PREPARE_TIMEOUT',
   });
+});
+
+// S15P31E105-420: 그룹런 참가 세션 준비, 그룹 종료 SERVER_END, G10 GROUP_STATUS.
+test('a group session is prepared with its groupRunId as an exact number', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter(), prepareTimeoutMs: 10 });
+  const goal = { courseId: null, comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: 360 };
+
+  await watch.prepare('201', { stateVersion: 1, deviceId: '101', goal, groupRunId: '9007199254740993' });
+
+  const payload: string = native.send.mock.calls[0][3];
+  expect(payload).toContain('"groupRunId":9007199254740993}');
+});
+
+test('sendServerEnd relays the group end command on the server-end path', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  await watch.sendServerEnd!('201', {
+    commandId: '9007199254740993',
+    expectedVersion: 4,
+    endedAt: '2026-11-09T01:30:00Z',
+    reason: 'GROUP_FORCE_FINISHED',
+  });
+
+  expect(native.send).toHaveBeenCalledWith(
+    '/runway/v1/session/server-end',
+    'SERVER_END',
+    '201',
+    '{"commandId":9007199254740993,"expectedVersion":4,"endedAt":"2026-11-09T01:30:00Z","reason":"GROUP_FORCE_FINISHED"}',
+  );
+});
+
+test('sendGroupStatus relays G10 values unchanged and drops non-finite numbers', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  await watch.sendGroupStatus!('201', {
+    groupRunId: '77',
+    phase: 'RUNNING',
+    guidePaceSecPerKm: 370,
+    standing: { rank: 2, aheadCount: 1, behindCount: 0, gapToAheadM: 12.5, gapToBehindM: Number.NaN },
+    stale: false,
+    leaderToLastGapM: 13,
+    updatedAt: '2026-11-09T01:05:00Z',
+    rankedCount: 2,
+    paceChanged: { from: 360, to: 370 },
+  });
+
+  const [path, type, sessionId, payload] = native.send.mock.calls[0];
+  expect([path, type, sessionId]).toEqual(['/runway/v1/group/status', 'GROUP_STATUS', '201']);
+  expect(JSON.parse(payload)).toEqual({
+    groupRunId: 77,
+    phase: 'RUNNING',
+    guidePaceSecPerKm: 370,
+    standing: { rank: 2, aheadCount: 1, behindCount: 0, gapToAheadM: 12.5, gapToBehindM: null },
+    stale: false,
+    leaderToLastGapM: 13,
+    updatedAt: '2026-11-09T01:05:00Z',
+    rankedCount: 2,
+    paceChanged: { from: 360, to: 370 },
+  });
+});
+
+test('sendGroupStatus sends paceChanged as null when the phone saw no change', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  await watch.sendGroupStatus!('201', {
+    groupRunId: '77',
+    phase: 'RUNNING',
+    guidePaceSecPerKm: 370,
+    standing: null,
+    stale: true,
+    leaderToLastGapM: null,
+    updatedAt: null,
+    rankedCount: null,
+  });
+
+  expect(JSON.parse(native.send.mock.calls[0][3]).paceChanged).toBeNull();
 });
 
 test('prepare without a watch device id answers not ready and sends nothing', async () => {

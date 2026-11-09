@@ -9,6 +9,7 @@
   RUNWAY_USABILITY_LOG_DIR      Gate 검토 로그(JSONL) 폴더. 기본: <코드 root>/reports/_usability_gate_log
   ROUTE_REROLL_EXCLUDE=0        재추천에서 이전 코스 제외를 끈다(기본 1; 끄면 seed만 바꾸는 예전 재추천, S15P31E105-383)
   ROUTE_REROLL_CACHE_SIZE       재추천 제외용 코스 결과 cache 칸 수(기본 256, TTL 10분, 0이면 cache 없이 매번 다시 계산)
+  ROUTE_RELEASE_ANON_MIB        다른 조건 요청 전 graph 캐시를 비울 익명 메모리 기준(MiB, 기본 1024, 0이면 항상 비움)
 엔진이 읽는 값(참고): RUNWAY_DATA_DIR, RUNWAY_GRAPH_CACHE_SIZE, RUNWAY_MASK_CACHE_SIZE, RUNWAY_NETWORK_STORE,
   RUNWAY_SOURCE_SNAPSHOT, RUNWAY_SP_ENGINE, RUNWAY_SP_KERNEL, RUNWAY_ARRAY_LOOP, RUNWAY_ARRAY_SHAPES, RUNWAY_ARRAY_PAIR_FAST,
   RUNWAY_ENV_PREPARED, RUNWAY_ADAPTER_LEAN_ROUTING, RUNWAY_P2P_SUBSTRATE, NUMBA_CACHE_DIR.
@@ -44,6 +45,21 @@ class Settings:
     reroll_exclude: bool = True     # 재추천에서 이전 1~2개 응답의 코스 제외
     reroll_cache_size: int = 256    # 그 비교용 코스 결과 cache 칸 수
     lock_wait_s: float = 8.0        # 실행 슬롯 대기 상한(초)
+    data_mode: str = 'busan'
+    national_dir: Path | None = None
+    window_cache_size: int = 1
+    release_anon_mib: float = 1024.0
+
+    def __post_init__(self):
+        if self.data_mode not in ('busan', 'national'):
+            raise ValueError('ROUTE_DATA_MODE must be busan or national')
+        if not isinstance(self.window_cache_size, int) or isinstance(self.window_cache_size, bool) or self.window_cache_size < 1:
+            raise ValueError('ROUTE_WINDOW_CACHE_SIZE must be an integer >= 1')
+        if (not isinstance(self.release_anon_mib, (int, float)) or isinstance(self.release_anon_mib, bool)
+                or not math.isfinite(self.release_anon_mib) or self.release_anon_mib < 0):
+            raise ValueError('ROUTE_RELEASE_ANON_MIB must be a finite number >= 0')
+        if self.data_mode == 'national' and (self.national_dir is None or not self.national_dir.is_dir()):
+            raise ValueError('ROUTE_NATIONAL_DIR must be an existing directory in national mode')
 
 
 def load_settings() -> Settings:
@@ -55,6 +71,10 @@ def load_settings() -> Settings:
         raise ValueError("ROUTE_LOCK_WAIT_S must be a finite number > 0") from None
     if not math.isfinite(lock_wait_s) or lock_wait_s <= 0:
         raise ValueError("ROUTE_LOCK_WAIT_S must be a finite number > 0")
+    try:
+        release_anon_mib = float(os.getenv('ROUTE_RELEASE_ANON_MIB', '1024'))
+    except ValueError:
+        raise ValueError('ROUTE_RELEASE_ANON_MIB must be a finite number >= 0') from None
     return Settings(
         debug=_flag("ROUTE_DEBUG", False),
         warmup=_flag("ROUTE_WARMUP", True),
@@ -64,4 +84,8 @@ def load_settings() -> Settings:
         reroll_exclude=_flag("ROUTE_REROLL_EXCLUDE", True),
         reroll_cache_size=int(os.getenv("ROUTE_REROLL_CACHE_SIZE", "256")),
         lock_wait_s=lock_wait_s,
+        data_mode=os.getenv('ROUTE_DATA_MODE', 'busan'),
+        national_dir=Path(os.environ['ROUTE_NATIONAL_DIR']) if os.getenv('ROUTE_NATIONAL_DIR', '').strip() else None,
+        window_cache_size=int(os.getenv('ROUTE_WINDOW_CACHE_SIZE', '1')),
+        release_anon_mib=release_anon_mib,
     )

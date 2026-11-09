@@ -61,17 +61,25 @@ class DailyHrRecordsTest {
   @Test fun consentedMergeStoresOnlyWithAgreeConsent() {
     assertNull(consentedMerge(null, null, record(1)))
     assertNull(consentedMerge("DISAGREE", record(1), record(2)))
-    assertEquals(record(1), consentedMerge("AGREEE", null, record(1)))
+    assertEquals(record(1), consentedMerge("AGREE", null, record(1)))
     val existing = record(2, uploaded = 2)
-    assertSame(existing, consentedMerge("AGREEE", existing, record(1)))
-    assertEquals(2, consentedMerge("AGREEE", record(1, uploaded = 1), record(2))!!.revision)
+    assertSame(existing, consentedMerge("AGREE", existing, record(1)))
+    assertEquals(2, consentedMerge("AGREE", record(1, uploaded = 1), record(2))!!.revision)
   }
 
   @Test fun consentPublishesOnlyWhenChangedOrUndelivered() {
-    assertTrue(needsConsentPublish(null, false, "AGREEE"))
-    assertTrue(needsConsentPublish("DISAGREE", true, "AGREEE"))
-    assertTrue(needsConsentPublish("AGREEE", false, "AGREEE"))
-    assertFalse(needsConsentPublish("AGREEE", true, "AGREEE"))
+    assertTrue(needsConsentPublish(null, false, "AGREE"))
+    assertTrue(needsConsentPublish("DISAGREE", true, "AGREE"))
+    assertTrue(needsConsentPublish("AGREE", false, "AGREE"))
+    assertFalse(needsConsentPublish("AGREE", true, "AGREE"))
+  }
+
+  /** S15P31E105-314: a consent saved before the update is the old typo 'AGREEE'. */
+  @Test fun legacyStoredAgreeIsNotConsentButIsRepublishedAsAgree() {
+    // Not stored and not acked, so the watch keeps the summary and resends it after the republish.
+    assertNull(consentedMerge("AGREEE", null, record(1)))
+    // Even if the earlier publish was delivered, the server consent (AGREE) differs and is published again.
+    assertTrue(needsConsentPublish("AGREEE", true, "AGREE"))
   }
 
   @Test fun retainRecordKeepsUnuploadedUpToSevenDays() {

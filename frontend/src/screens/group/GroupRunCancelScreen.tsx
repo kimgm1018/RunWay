@@ -19,11 +19,11 @@ import {
   EmptyState,
   Icon,
   KeyboardLift,
-  LightGlass,
   PressableScale,
   useToast,
 } from '../../components';
 import {
+  DataError,
   useRepositories,
   useResource,
   type GroupRunCancelReason,
@@ -35,19 +35,18 @@ import {
   k1,
   size,
   spacing,
-  ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
 import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
-import { GroupBackground, groupLook, Raised, SectionLabel } from './look';
-import { formatSchedule, useGroupRunDraft } from './parts';
+import { groupLook, groupPage, SectionLabel } from './look';
+import { BottomFade, formatSchedule, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 
 // G13 cancelMessage: at most 100 characters, sent once as the members' notification body.
 const messageLimit = 100;
 
-// 6.4c-CancelButton: the raised white bottom pill of the 6 그룹 screens, its circle in --warn with a ×.
+// 6.4c-CancelButton: the flat navy bottom button of 6.2 · 6.4 · 6.8 (S15P31E105-563), its circle in --warn with a ×.
 function CancelButton({
   disabled,
   onPress,
@@ -63,7 +62,7 @@ function CancelButton({
       disabled={disabled}
       onPress={onPress}
     >
-      <Raised tone="white" style={styles.cta}>
+      <View style={styles.cta}>
         {/* Disabled dims the label only, so the pill stays solid over the background. */}
         <View style={[styles.ctaContent, disabled && styles.disabled]}>
           <AppText style={styles.ctaText}>그룹런 취소하기</AppText>
@@ -71,7 +70,7 @@ function CancelButton({
             <Icon name="close" color={groupLook.onDark} size={14} />
           </View>
         </View>
-      </Raised>
+      </View>
     </PressableScale>
   );
 }
@@ -109,16 +108,19 @@ export function GroupRunCancelScreen() {
       setConfirming(false);
       // Back to 6.4, which now shows the cancelled run (6.4e).
       navigation.goBack();
-    } catch {
-      toast('그룹런을 취소하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        error instanceof DataError && error.status === 409
+          ? '이미 취소되었거나 끝난 그룹런이에요. 상세에서 상태를 확인해 주세요'
+          : '그룹런을 취소하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
       setBusy(false);
     }
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+    <View style={[styles.root, groupPage.page]}>
       <StatusBar barStyle="dark-content" />
-      <GroupBackground id="groupRunCancelBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <BackButton onPress={() => navigation.goBack()} />
@@ -150,10 +152,10 @@ export function GroupRunCancelScreen() {
                 {`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
               </AppText>
             </View>
-            {/* 6.4c-CancelReason: a line-labelled section; the picked chip is navy, the rest light glass. */}
-            <View style={styles.reasons}>
+            {/* 6.4c-CancelReason: a block under a grey band; the picked chip is flat navy, the rest flat grey. */}
+            <View style={groupPage.block}>
               <View style={styles.rowBetween}>
-                <SectionLabel tone="light">취소 이유</SectionLabel>
+                <SectionLabel tone="mist">취소 이유</SectionLabel>
                 <AppText style={styles.note}>하나만 골라요</AppText>
               </View>
               <View style={styles.chips}>
@@ -167,36 +169,30 @@ export function GroupRunCancelScreen() {
                       accessibilityState={{ selected }}
                       onPress={() => setReason(item.value)}
                     >
-                      {selected ? (
-                        <Raised tone="navy" style={styles.chip}>
-                          <AppText style={styles.chipTextOn}>
-                            {item.label}
-                          </AppText>
-                        </Raised>
-                      ) : (
-                        <LightGlass radius={19} style={styles.chip}>
-                          <AppText style={styles.chipText}>
-                            {item.label}
-                          </AppText>
-                        </LightGlass>
-                      )}
+                      <View style={[styles.chip, selected && styles.chipOn]}>
+                        <AppText
+                          style={selected ? styles.chipTextOn : styles.chipText}
+                        >
+                          {item.label}
+                        </AppText>
+                      </View>
                     </PressableScale>
                   );
                 })}
               </View>
             </View>
-            {/* 6.4c-CancelMessage: an optional note; a blank one is not sent and the server's default text goes out. */}
-            <View style={styles.reasons}>
+            {/* 6.4c-CancelMessage: optional; blank is omitted. Sent once as the notification body, not stored on G03. */}
+            <View style={groupPage.block}>
               <View style={styles.rowBetween}>
-                <SectionLabel tone="light">남길 말</SectionLabel>
+                <SectionLabel tone="mist">남길 말</SectionLabel>
                 <AppText style={styles.note}>
                   {`선택 · ${message.length} / ${messageLimit}`}
                 </AppText>
               </View>
-              <LightGlass radius={20} style={styles.messageBox}>
+              <View style={styles.messageBox}>
                 <TextInput
                   accessibilityLabel="남길 말"
-                  placeholder="참가자에게 전할 말을 적어 주세요"
+                  placeholder="알림으로 전할 말을 적어 주세요"
                   placeholderTextColor={groupLook.onLightSub}
                   selectionColor={groupLook.navy}
                   value={message}
@@ -206,7 +202,10 @@ export function GroupRunCancelScreen() {
                   textAlignVertical="top"
                   style={styles.messageInput}
                 />
-              </LightGlass>
+              </View>
+              <AppText style={styles.note}>
+                상세 화면에는 남지 않고, 크루 멤버 알림 본문으로만 전달돼요
+              </AppText>
             </View>
             {/* 6.4c-CancelNotice: the coral bell and the line, no box. */}
             <View style={styles.warning}>
@@ -218,14 +217,10 @@ export function GroupRunCancelScreen() {
           </ScrollView>
         </KeyboardLift>
       )}
-      <ThemeProvider tone="dark">
-        <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <CancelButton
-            disabled={!reason}
-            onPress={() => setConfirming(true)}
-          />
-        </SafeAreaView>
-      </ThemeProvider>
+      <SafeAreaView edges={['bottom']} style={styles.footer}>
+        <BottomFade white />
+        <CancelButton disabled={!reason} onPress={() => setConfirming(true)} />
+      </SafeAreaView>
       <BottomSheet visible={confirming} onClose={() => setConfirming(false)}>
         {run ? (
           <View style={styles.sheet}>
@@ -296,13 +291,8 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   // paddingBottom keeps the last line clear of the pinned footer button.
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: spacing.md,
-    paddingBottom: 120,
-    gap: 28,
-  },
-  summary: { gap: spacing.xs },
+  content: { paddingTop: spacing.md, paddingBottom: 120 },
+  summary: { gap: spacing.xs, paddingHorizontal: 20, paddingBottom: 24 },
   crew: {
     fontFamily: fontFamily.bold,
     fontSize: 13,
@@ -322,7 +312,6 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: groupLook.onLightSub,
   },
-  reasons: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -340,7 +329,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 19,
     justifyContent: 'center',
+    backgroundColor: groupLook.lightFill,
   },
+  chipOn: { backgroundColor: groupLook.navy },
   chipText: {
     fontFamily: fontFamily.regular,
     fontSize: 14,
@@ -353,7 +344,12 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: groupLook.onDark,
   },
-  messageBox: { minHeight: 88, paddingHorizontal: 18, borderRadius: 20 },
+  messageBox: {
+    minHeight: 88,
+    paddingHorizontal: 18,
+    borderRadius: 20,
+    backgroundColor: groupLook.lightFill,
+  },
   // No lineHeight: on Android it clips the top of the input.
   messageInput: {
     height: 88,
@@ -363,7 +359,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: groupLook.onLight,
   },
-  warning: { flexDirection: 'row', gap: spacing.md },
+  warning: { flexDirection: 'row', gap: spacing.md, paddingHorizontal: 20 },
   warningText: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
@@ -375,15 +371,15 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow:
-      'inset 0 1px 0 rgba(255,255,255,1), inset 0 -2px 4px rgba(93,129,148,0.18), 0 12px 28px rgba(0,0,0,0.38)',
+    backgroundColor: groupLook.navy,
+    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
   },
   ctaContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   ctaText: {
     fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 21,
-    color: groupLook.navy,
+    color: groupLook.onDark,
   },
   ctaIcon: {
     width: 26,
@@ -400,6 +396,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 14,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
   sheet: { gap: spacing.xl },

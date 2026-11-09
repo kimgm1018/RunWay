@@ -214,6 +214,19 @@ class CourseRecommendServiceTest {
     }
 
     @Test
+    void 준비후_DEM읽기실패는_경로나원인노출없이_GRADE_UNAVAILABLE이다() {
+        ElevationSource broken = (lon, lat) -> {
+            throw new ApiException(com.runway.backend.global.exception.ErrorCode.SERVICE_UNAVAILABLE);
+        };
+        var service = service(port(generated(1)), PreparedCourseGrade.of(broken));
+        ApiException failure = failureOf(() -> service.recommend(USER_ID, request(START_LAT, START_LON)));
+        assertThat(failure.status().value()).isEqualTo(503);
+        assertThat(failure.code()).isEqualTo("SERVICE_UNAVAILABLE");
+        assertThat(failure.details()).containsOnlyKeys("reason").containsEntry("reason", "GRADE_UNAVAILABLE");
+        assertThat(failure.getCause()).isNull();
+    }
+
+    @Test
     void 경사계산중_전체예산이_끝나면_부분후보없이_GENERATION_TIMEOUT이다() {
         // 첫 후보 계산 중 시계가 21초 흐른다. 두 번째 후보를 계산하거나 첫 후보만 반환하지 않는다.
         ElevationSource slow =

@@ -25,12 +25,13 @@ import {
 } from '../../data';
 import { onRecordsChanged } from '../../data/recordsChanged';
 import {
+  formatClockTime,
   formatDotDate,
   formatDotDateWeekday,
   formatKm,
   formatPace,
 } from '../../format';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
 import {
   MonthPicker,
@@ -52,7 +53,8 @@ import {
   shortDay,
 } from './parts';
 
-type Mode = 'WEEK' | 'MONTH' | 'YEAR' | 'ALL';
+// DAY is 2.1 홈's 러닝 분석 (S15P31E105-564); 5.3 keeps 전체 · 년 · 월 · 주.
+export type Mode = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR' | 'ALL';
 
 // One bar of the daily chart: a day (주·월), a month (년) or a year (전체).
 type Bucket = {
@@ -68,7 +70,7 @@ type Bucket = {
   records: RunRecordSummary[];
 };
 
-type Period = {
+export type Period = {
   buckets: Bucket[];
   // Which axis texts to print (all for 주·년·전체, every fifth day for 월).
   axisAt: (index: number) => boolean;
@@ -146,12 +148,56 @@ async function previousOf(
   return stats.previousPeriod;
 }
 
-async function loadPeriod(
+export async function loadPeriod(
   repositories: Repositories,
   mode: Mode,
-  anchor: { week: string; month: string; year: number },
+  anchor: { day?: string; week: string; month: string; year: number },
   today: string,
 ): Promise<Period> {
+  if (mode === 'DAY') {
+    // One day: each of its runs is a bar, compared with the day before (담당자 결정: 하루치만).
+    const day = anchor.day ?? today;
+    const before = addDays(day, -1);
+    const records = await monthRecords(repositories, [
+      ...new Set([kstMonth(before), kstMonth(day)]),
+    ]);
+    const runs = records
+      .filter(record => kstDay(record.startedAt) === day)
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    const previous = records.filter(
+      record => kstDay(record.startedAt) === before,
+    );
+    const previousDistanceM = previous.reduce(
+      (sum, record) => sum + record.distanceM,
+      0,
+    );
+    const previousDurationSec = previous.reduce(
+      (sum, record) => sum + record.durationSec,
+      0,
+    );
+    const times = runs.map(record => formatClockTime(record.startedAt));
+    return {
+      // A day without a run still has one empty bar, so the figures show – –.
+      buckets: runs.length
+        ? runs.map((record, index) =>
+            bucketOf(record.id, times[index], times[index], [record], false),
+          )
+        : [bucketOf(day, shortDay(day), shortDay(day), [], false)],
+      axisAt: () => true,
+      previousName: '전날',
+      previous: {
+        runCount: previous.length,
+        totalDistanceM: previousDistanceM,
+        averagePaceSecPerKm:
+          previousDistanceM > 0
+            ? Math.round(previousDurationSec / (previousDistanceM / 1000))
+            : null,
+      },
+      name: `${Number(day.slice(5, 7))}월 ${Number(day.slice(8))}일`,
+      rangeTo: index => `${times[0] ?? ''} – ${times[index] ?? ''}`,
+      barsLabel: '러닝별 거리',
+    };
+  }
   if (mode === 'WEEK') {
     const monday = anchor.week;
     const sunday = addDays(monday, 6);
@@ -314,7 +360,6 @@ export function AnalysisScreen() {
       [mode, anchor, today],
     ),
   );
-  const period = data.status === 'ready' ? data.data : null;
   const refresh = data.refresh;
   useEffect(
     () =>
@@ -437,15 +482,10 @@ export function AnalysisScreen() {
     setMode(next);
   };
 
-  const range = period?.buckets ?? [];
-  const runCount = range.reduce((sum, bucket) => sum + bucket.runCount, 0);
-  const distanceM = range.reduce((sum, bucket) => sum + bucket.distanceM, 0);
-  const records = range.flatMap(bucket => bucket.records);
-
   const open = (record: RunRecordSummary) =>
     record.runType === 'GROUP'
       ? navigateTo(navigation, 'GroupRunResult')
-      : navigation.navigate('RecordDetail', { recordId: record.id });
+      : openRecord(navigation, record.id);
 
   // ↻ turns the card over (runway-records 2차, 담당자 결정): a quarter turn away, the other face swapped in
   // while the card stands on its edge, then a quarter turn back. A tap during the turn waits for it.
@@ -555,33 +595,85 @@ export function AnalysisScreen() {
         contentContainerStyle={styles.card}
         showsVerticalScrollIndicator={false}
       >
-        {data.status === 'error' ? (
-          <EmptyState
-            icon="alert"
-            title="분석을 불러오지 못했어요"
-            actionLabel="다시 시도"
-            onAction={data.reload}
-          />
-        ) : !period ? (
-          <ActivityIndicator style={styles.loading} />
-        ) : (
-          <>
-            {/* runway-records 2차: one frost card. ↻ turns it over to the period's records (담당자 결정:
-                목록은 카드 뒤집기); the front keeps the distance graph and its bars. */}
-            <View>
-              <View style={styles.cardHead}>
-                <View style={styles.cardChip}>
-                  <AppText style={styles.cardChipText}>
-                    {`${view === 'list' ? '러닝 기록' : '러닝 분석'} | ${
-                      period.name
-                    }`}
-                  </AppText>
-                </View>
+        <AnalysisContent
+          data={data}
+          mode={mode}
+          appearKey={`${mode}:${anchor.week}:${anchor.month}:${anchor.year}`}
+          view={view}
+          onFlip={flip}
+          onSwipe={swipe}
+          onOpen={open}
+        />
+      </ScrollView>
+    </RecordsShell>
+  );
+}
+
+// The 5.3 card's content (also 2.1 홈's 러닝 분석, S15P31E105-564): the period chip with ↻, then the distance graph
+// and its bars, or on the back the period's records.
+export function AnalysisContent({
+  data,
+  mode,
+  appearKey,
+  view,
+  onFlip,
+  backLabel = '요약으로 보기',
+  onSwipe,
+  onOpen,
+}: {
+  data: { status: string; data?: Period | null; reload: () => void };
+  mode: Mode;
+  appearKey: string;
+  view: 'tiles' | 'list';
+  // ↻ turns the card over; without it the card is single (2.1 러닝 분석, 담당자 결정).
+  onFlip?: () => void;
+  // What ↻ says on the back (요약으로 보기 on 5.3).
+  backLabel?: string;
+  onSwipe: (direction: 1 | -1) => void;
+  onOpen: (record: RunRecordSummary) => void;
+}) {
+  const period = data.status === 'ready' ? data.data ?? null : null;
+  const range = period?.buckets ?? [];
+  const runCount = range.reduce((sum, bucket) => sum + bucket.runCount, 0);
+  const distanceM = range.reduce((sum, bucket) => sum + bucket.distanceM, 0);
+  const records = range.flatMap(bucket => bucket.records);
+  const flip = onFlip;
+  const swipe = onSwipe;
+  const open = onOpen;
+  const none =
+    mode === 'DAY'
+      ? '아직 이 날의 러닝 기록이 없어요'
+      : '아직 이 기간의 기록이 없어요';
+  return (
+    <>
+      {data.status === 'error' ? (
+        <EmptyState
+          icon="alert"
+          title="분석을 불러오지 못했어요"
+          actionLabel="다시 시도"
+          onAction={data.reload}
+        />
+      ) : !period ? (
+        <ActivityIndicator style={styles.loading} />
+      ) : (
+        <>
+          {/* runway-records 2차: one frost card. ↻ turns it over to the period's records (담당자 결정:
+              목록은 카드 뒤집기); the front keeps the distance graph and its bars. */}
+          <View>
+            <View style={styles.cardHead}>
+              <View style={styles.cardChip}>
+                <AppText style={styles.cardChipText}>
+                  {`${view === 'list' ? '러닝 기록' : '러닝 분석'} | ${
+                    period.name
+                  }`}
+                </AppText>
+              </View>
+              {flip ? (
                 <View style={styles.cardBrand}>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={
-                      view === 'list' ? '요약으로 보기' : '목록으로 보기'
+                      view === 'list' ? backLabel : '목록으로 보기'
                     }
                     hitSlop={10}
                     onPress={flip}
@@ -595,106 +687,105 @@ export function AnalysisScreen() {
                     />
                   </Pressable>
                 </View>
-              </View>
-              {/* The front has no title: the tab above already says the period (담당자 결정). */}
-              {view === 'list' ? (
-                <AppText
-                  style={styles.cardTitle}
-                >{`${period.name} 기록`}</AppText>
-              ) : null}
-              {view === 'list' ? (
-                <AppText style={styles.cardSub}>
-                  {`${runCount}번 · ${formatKm(distanceM, 1)}km`}
-                </AppText>
-              ) : null}
-              {view === 'list' ? (
-                mode === 'ALL' ? (
-                  <View style={styles.list}>
-                    {range.map(bucket => (
-                      <View key={bucket.key} style={styles.row}>
-                        <AppText style={styles.rowTitle}>{bucket.name}</AppText>
-                        <AppText style={styles.rowMeta}>
-                          {`${bucket.runCount}회 · ${formatKm(
-                            bucket.distanceM,
-                            1,
-                          )}km`}
-                        </AppText>
-                      </View>
-                    ))}
-                  </View>
-                ) : records.length === 0 ? (
-                  <AppText style={styles.none}>
-                    이 기간에는 기록이 없어요
-                  </AppText>
-                ) : (
-                  <View style={styles.list}>
-                    {[...records]
-                      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-                      .map(record => (
-                        <Pressable
-                          key={record.id}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${
-                            record.title
-                          }, ${formatDotDateWeekday(record.startedAt)}`}
-                          onPress={() => open(record)}
-                          style={({ pressed }) => [
-                            styles.row,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          {/* runway-records 2차 card back: date · weekday, name · distance · time, pace. */}
-                          <View style={styles.rowDay}>
-                            <AppText style={styles.rowDayNumber}>
-                              {formatDotDate(record.startedAt)}
-                            </AppText>
-                            <AppText style={styles.rowWeekday}>
-                              {`${formatDotDateWeekday(record.startedAt).slice(
-                                -1,
-                              )}요일`}
-                            </AppText>
-                          </View>
-                          <View style={styles.flex}>
-                            <AppText numberOfLines={1} style={styles.rowTitle}>
-                              {record.title}
-                            </AppText>
-                            <AppText style={styles.rowDate}>
-                              {`${formatKm(
-                                record.distanceM,
-                              )}km · ${minutesSeconds(record.durationSec)}`}
-                            </AppText>
-                          </View>
-                          <AppText style={styles.rowPace}>
-                            {formatPace(record.averagePaceSecPerKm)}
-                            <AppText style={styles.rowPaceUnit}>/km</AppText>
-                          </AppText>
-                        </Pressable>
-                      ))}
-                  </View>
-                )
-              ) : (
-                // A new period's figures fade in rather than swap at once (S15P31E105-478).
-                <FadeIn
-                  appearKey={`${mode}:${anchor.week}:${anchor.month}:${anchor.year}`}
-                  style={styles.cardChart}
-                >
-                  <PeriodFigures
-                    buckets={period.buckets}
-                    previousName={period.previousName}
-                    previousDistanceM={period.previous?.totalDistanceM ?? null}
-                    onSwipe={swipe}
-                  />
-                </FadeIn>
-              )}
-              {view !== 'list' &&
-              period.buckets.every(bucket => bucket.runCount === 0) ? (
-                <AppText style={styles.none}>이 기간에는 기록이 없어요</AppText>
               ) : null}
             </View>
-          </>
-        )}
-      </ScrollView>
-    </RecordsShell>
+            {/* The front has no title: the tab above already says the period (담당자 결정). */}
+            {view === 'list' ? (
+              <AppText
+                style={styles.cardTitle}
+              >{`${period.name} 기록`}</AppText>
+            ) : null}
+            {view === 'list' ? (
+              <AppText style={styles.cardSub}>
+                {`${runCount}번 · ${formatKm(distanceM, 1)}km`}
+              </AppText>
+            ) : null}
+            {view === 'list' ? (
+              mode === 'ALL' ? (
+                <View style={styles.list}>
+                  {range.map(bucket => (
+                    <View key={bucket.key} style={styles.row}>
+                      <AppText style={styles.rowTitle}>{bucket.name}</AppText>
+                      <AppText style={styles.rowMeta}>
+                        {`${bucket.runCount}회 · ${formatKm(
+                          bucket.distanceM,
+                          1,
+                        )}km`}
+                      </AppText>
+                    </View>
+                  ))}
+                </View>
+              ) : records.length === 0 ? (
+                <AppText style={styles.none}>{none}</AppText>
+              ) : (
+                <View style={styles.list}>
+                  {[...records]
+                    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+                    .map(record => (
+                      <Pressable
+                        key={record.id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${
+                          record.title
+                        }, ${formatDotDateWeekday(record.startedAt)}`}
+                        onPress={() => open(record)}
+                        style={({ pressed }) => [
+                          styles.row,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        {/* runway-records 2차 card back: date · weekday, name · distance · time, pace. */}
+                        <View style={styles.rowDay}>
+                          <AppText
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            style={styles.rowDayNumber}
+                          >
+                            {formatDotDate(record.startedAt)}
+                          </AppText>
+                          <AppText style={styles.rowWeekday}>
+                            {`${formatDotDateWeekday(record.startedAt).slice(
+                              -1,
+                            )}요일`}
+                          </AppText>
+                        </View>
+                        <View style={styles.flex}>
+                          <AppText numberOfLines={1} style={styles.rowTitle}>
+                            {record.title}
+                          </AppText>
+                          <AppText style={styles.rowDate}>
+                            {`${formatKm(
+                              record.distanceM,
+                            )}km · ${minutesSeconds(record.durationSec)}`}
+                          </AppText>
+                        </View>
+                        <AppText style={styles.rowPace}>
+                          {formatPace(record.averagePaceSecPerKm)}
+                          <AppText style={styles.rowPaceUnit}>/km</AppText>
+                        </AppText>
+                      </Pressable>
+                    ))}
+                </View>
+              )
+            ) : (
+              // A new period's figures fade in rather than swap at once (S15P31E105-478).
+              <FadeIn appearKey={appearKey} style={styles.cardChart}>
+                <PeriodFigures
+                  buckets={period.buckets}
+                  previousName={period.previousName}
+                  previousDistanceM={period.previous?.totalDistanceM ?? null}
+                  onSwipe={swipe}
+                />
+              </FadeIn>
+            )}
+            {view !== 'list' &&
+            period.buckets.every(bucket => bucket.runCount === 0) ? (
+              <AppText style={styles.none}>{none}</AppText>
+            ) : null}
+          </View>
+        </>
+      )}
+    </>
   );
 }
 
@@ -734,7 +825,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: recordsLook.onCardSub,
   },
-  rowDay: { width: 54 },
+  // 10.15 on one line (S15P31E105-564: 좁아서 10.1 / 5로 끊기던 것).
+  rowDay: { width: 64 },
   rowDayNumber: {
     fontFamily: fontFamily.bold,
     fontSize: 17,

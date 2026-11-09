@@ -199,7 +199,8 @@ private fun GroupStandby(snapshot: RunSnapshot) {
         MetricValue(MetricFormat.pace(group.guidePaceSecondsPerKm), 12, emphasized = false)
     }
     val (title, detail) = when (group.phase) {
-        GroupPhase.WAITING -> "그룹장이 출발하면\n함께 시작해요" to "휴대폰에서 준비 완료를\n눌러 주세요"
+        // 워치는 폰에서 준비 완료한 뒤에만 그룹으로 준비된다(S15P31E105-420).
+        GroupPhase.WAITING -> "그룹장이 출발하면\n함께 시작해요" to "준비 완료됐어요\n출발을 기다려요"
         GroupPhase.RUNNING -> "그룹이 이미 출발했어요" to "내 기록은\n시작되지 않았어요"
         GroupPhase.FINISHED, GroupPhase.FORCE_FINISHED -> "그룹런이 끝났어요" to "내 기록은\n시작되지 않았어요"
     }

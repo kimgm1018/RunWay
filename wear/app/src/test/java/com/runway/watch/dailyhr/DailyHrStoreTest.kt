@@ -269,6 +269,32 @@ class DailyHrStoreTest {
         assertEquals(listOf(today.minusDays(5), today.minusDays(3)), store.pending().map { it.metricDate })
     }
 
+    /** S15P31E105-314: a v2 store saved 'AGREEE'; after the upgrade the member stays consented and nothing is wiped. */
+    @Test fun upgradeFromVersionTwoRenamesLegacyAgreeAndKeepsUnackedRecords() {
+        val start = Instant.parse("2026-10-01T00:00:00Z")
+        val consent = HealthConsent(true, start, "a", start)
+        store.saveConsent(consent)
+        store.addSamples(listOf(start.toEpochMilli() to 60.0))
+        store.addTransition(ActivityTransition(start.toEpochMilli(), true))
+        val summary = store.saveEstimate(d1, 55.0, 240, at)
+        store.close()
+        val app = RuntimeEnvironment.getApplication()
+        SQLiteDatabase.openDatabase(app.getDatabasePath("daily_hr.db").path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            db.execSQL("UPDATE meta SET value='AGREEE' WHERE key='consent_access'")
+            db.version = 2
+        }
+        store = DailyHrStore(app, utc)
+
+        assertEquals(consent, store.consent())
+        assertTrue(canStore(store.consent())) // PassiveHrRegistrar does not clearAll
+        assertEquals(listOf(summary), store.pending())
+        assertEquals(listOf(start.toEpochMilli() to 60.0), store.minuteMeansBetween(0, Long.MAX_VALUE))
+        assertEquals(listOf(ActivityTransition(start.toEpochMilli(), true)), store.transitions())
+        // The phone's next AGREE publish for the same collection keeps the records too.
+        store.saveConsent(HealthConsent(true, at, "a", start))
+        assertEquals(listOf(summary), store.pending())
+    }
+
     @Test fun upgradeFromVersionOneKeepsConsentAndContinuesRevisions() {
         store.close()
         val app = RuntimeEnvironment.getApplication()
@@ -285,6 +311,7 @@ class DailyHrStoreTest {
             db.execSQL("INSERT INTO samples VALUES(1000, 60.0)")
             db.execSQL("INSERT INTO transitions VALUES(1000, 1)")
             db.execSQL("INSERT INTO summaries VALUES('2026-10-01', 1, 55.0, 40, 'LOWER_10PCT_MEAN_V1', '$at', 0)")
+            // A real v1 store holds the pre-S15P31E105-314 label.
             db.execSQL("INSERT INTO meta VALUES('consent_access', 'AGREEE')")
             db.execSQL("INSERT INTO meta VALUES('consent_updated_at', '$at')")
             db.execSQL("INSERT INTO meta VALUES('message_counter', '4')")

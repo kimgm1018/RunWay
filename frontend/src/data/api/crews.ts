@@ -1,4 +1,3 @@
-import { DataError } from '../errors';
 import type {
   CrewJoinPolicy,
   CrewListItem,
@@ -9,10 +8,11 @@ import type {
 } from '../types';
 import { apiRequest } from './http';
 import { uploadImage } from './images';
+import { listItems } from './listItems';
 import type { Regions } from './regions';
 
-// M01–M11 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
-// edit and 바로 가입 have no API, so they are kept on this phone for the session only.
+// M01–M12 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
+// and the join policy (6.2m, 6.2a) are saved on the server with M12 (S15P31E105-570).
 
 type MembershipStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'LEFT';
 
@@ -23,6 +23,7 @@ type CrewResponse = {
   ownerId: number;
   capacity: number;
   regionCode: string | null;
+  joinPolicy: CrewJoinPolicy;
   memberCount: number;
   myMembershipStatus: MembershipStatus | null;
 };
@@ -48,8 +49,6 @@ type MyCrewItem = {
   memberCount: number;
 };
 
-// The 6.2m capacity limit (M03 allows 1–200).
-const maxCapacity = 200;
 // A withdrawn account keeps its rows but loses its nickname.
 const unknownNickname = '알 수 없음';
 const noArea = '지역 미정';
@@ -68,8 +67,6 @@ export function createCrewsApi({
   regions: Regions;
 }) {
   let me: Promise<string> | null = null;
-  const capacities = new Map<string, number>();
-  const policies = new Map<string, CrewJoinPolicy>();
 
   // U04 gives my user id, to find me among the members and the leader.
   const myId = () => {
@@ -110,7 +107,7 @@ export function createCrewsApi({
       name: crew.name,
       description: crew.description,
       area: await areaOf(crew.regionCode),
-      capacity: capacities.get(id) ?? crew.capacity,
+      capacity: crew.capacity,
       memberCount: crew.memberCount,
       myMembership: membershipOf(crew.myMembershipStatus),
     };
@@ -121,8 +118,10 @@ export function createCrewsApi({
       if (!isServerId(crewId)) {
         return mock.listJoinRequests(crewId);
       }
-      const { items } = await apiRequest<{ items: JoinRequestItem[] }>(
-        `/crews/${crewId}/join-requests`,
+      const items = listItems(
+        await apiRequest<{ items: JoinRequestItem[] }>(
+          `/crews/${crewId}/join-requests`,
+        ),
       );
       // M05 has only the nickname; level, pace and the first-crew mark are not shared.
       return items.map(item => ({
@@ -139,22 +138,24 @@ export function createCrewsApi({
   const crews: Repositories['crews'] = {
     // M01 has no location filter, so 내 근처 lists the same crews.
     search: async ({ query }) => {
-      const { items } = await apiRequest<{ items: CrewResponse[] }>('/crews', {
-        query: { q: query.trim() || undefined },
-      });
+      const items = listItems(
+        await apiRequest<{ items: CrewResponse[] }>('/crews', {
+          query: { q: query.trim() || undefined },
+        }),
+      );
       return Promise.all(items.map(toListItem));
     },
     get: async crewId => {
       if (!isServerId(crewId)) {
         return mock.get(crewId);
       }
-      const [crew, { items }, myUserId] = await Promise.all([
+      const [crew, membersPage, myUserId] = await Promise.all([
         apiRequest<CrewResponse>(`/crews/${crewId}`),
         apiRequest<{ items: MemberItem[] }>(`/crews/${crewId}/members`),
         myId(),
       ]);
       const amOwner = String(crew.ownerId) === myUserId;
-      const members: CrewMember[] = [...items]
+      const members: CrewMember[] = [...listItems(membersPage)]
         .sort((a, b) => Number(b.isOwner) - Number(a.isOwner))
         .map(member => ({
           userId: String(member.userId),
@@ -166,7 +167,7 @@ export function createCrewsApi({
         }));
       return {
         ...(await toListItem(crew)),
-        joinPolicy: policies.get(crewId) ?? 'APPROVAL',
+        joinPolicy: crew.joinPolicy,
         amOwner,
         members,
         pendingRequestCount: amOwner
@@ -174,7 +175,7 @@ export function createCrewsApi({
           : null,
       };
     },
-    // M04 waits for the leader: the server has no 바로 가입 yet.
+    // M04 waits for the leader, or makes me a member at once in a 바로 가입 crew.
     requestJoin: async crewId => {
       if (!isServerId(crewId)) {
         return mock.requestJoin(crewId);
@@ -189,17 +190,20 @@ export function createCrewsApi({
       if (!isServerId(crewId)) {
         return mock.updateCapacity(crewId, capacity);
       }
-      const crew = await apiRequest<CrewResponse>(`/crews/${crewId}`);
-      if (capacity < crew.memberCount || capacity > maxCapacity) {
-        throw new DataError('UNKNOWN', '정원은 현재 인원부터 200명까지예요');
-      }
-      capacities.set(crewId, capacity);
+      // M12: the server checks the 1–200 range and the current member count (CREW_CAPACITY_BELOW_MEMBERS).
+      await apiRequest(`/crews/${crewId}`, {
+        method: 'PATCH',
+        body: { capacity },
+      });
     },
     setJoinPolicy: async (crewId, policy) => {
       if (!isServerId(crewId)) {
         return mock.setJoinPolicy(crewId, policy);
       }
-      policies.set(crewId, policy);
+      await apiRequest(`/crews/${crewId}`, {
+        method: 'PATCH',
+        body: { joinPolicy: policy },
+      });
     },
     listJoinRequests,
     // M03 keeps the region the picked place is in; the place name itself is not stored.
@@ -212,10 +216,10 @@ export function createCrewsApi({
           description: draft.description,
           capacity: draft.capacity,
           regionCode: (await regions.codeOf(draft.address)) ?? undefined,
+          joinPolicy: draft.joinPolicy,
           ...(imageKey ? { imageKey } : {}),
         },
       });
-      policies.set(String(id), draft.joinPolicy);
       return { id: String(id) };
     },
     leave: async (crewId, successorUserId) => {
@@ -254,8 +258,8 @@ export function createCrewsApi({
 
   // M10 내 크루 for 6.0: members first, then requests still waiting.
   const listMine = async (): Promise<MyCrew[]> => {
-    const { items } = await apiRequest<{ items: MyCrewItem[] }>(
-      '/users/me/crews',
+    const items = listItems(
+      await apiRequest<{ items: MyCrewItem[] }>('/users/me/crews'),
     );
     const mine = await Promise.all(
       items.map(

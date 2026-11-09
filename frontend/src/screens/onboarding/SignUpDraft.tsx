@@ -20,6 +20,8 @@ export type SignUpDraft = {
   loginId: string;
   password: string;
   phoneNumber: string;
+  // 1.3's U29 proof, sent with U15. It expires 10 minutes after verification (users.md U29).
+  phoneVerificationToken: string | null;
   healthDataAccess: HealthDataAccess;
   profile: BasicProfile | null;
   // The birth date rolled on 1.5b's wheels, kept while 1.5 is open again so returning does not clear it.
@@ -39,6 +41,7 @@ const emptyDraft: SignUpDraft = {
   loginId: '',
   password: '',
   phoneNumber: '',
+  phoneVerificationToken: null,
   healthDataAccess: 'DISAGREE',
   profile: null,
   accountCreated: false,

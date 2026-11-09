@@ -137,6 +137,8 @@ export type SavedCourse = {
   distanceM: number;
   expectedMinutes: number;
   shape: [number, number][];
+  // The course as GeoJSON [longitude, latitude] points (C03 route), for the card's map (S15P31E105-562).
+  route: [number, number][];
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
@@ -228,6 +230,9 @@ export type NotificationKind =
 export type PostRecord = RunRecordSummary & {
   // 민락수변공원 in 민락수변공원 · 코스 러닝.
   place: string;
+  // The shared course as GeoJSON [longitude, latitude] points (C03 route), for 7.2's map and 코스 재생; null
+  // when the post has no course or the list (CMT02) does not carry it.
+  route: [number, number][] | null;
   courseRun: boolean;
   averageHeartRate: number | null;
   cadence: number | null;
@@ -313,6 +318,21 @@ export type FollowRequestPage = {
 };
 
 export type FollowDecision = 'APPROVE' | 'REJECT';
+
+// 7.4c 팔로워 · 팔로잉 (U26 · U27, S15P31E105-534): the runners approved on either side of a runner.
+export type FollowListKind = 'followers' | 'following';
+
+export type FollowListItem = {
+  userId: string;
+  nickname: string;
+  profileImageUrl: string | null;
+};
+
+// U26 · U27 pages of 20, newest relation first; nextCursor is null on the last page.
+export type FollowListPage = {
+  items: FollowListItem[];
+  nextCursor: string | null;
+};
 
 export type AppNotification = {
   id: string;
@@ -444,11 +464,11 @@ export type CrewMember = {
   recentPaceSecPerKm: number | null;
 };
 
-// 6.2a 가입 방식. M03 fixes it to APPROVAL; 바로 가입 follows the K1 sheet and has no API yet.
+// 6.2a 가입 방식, saved on the server (M03 on create, M12 on change; S15P31E105-570).
 export type CrewJoinPolicy = 'APPROVAL' | 'INSTANT';
 
-// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy follow
-// the K1 sheets and have no API yet (docs/design/api/crews.md).
+// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy are saved
+// with M12 (docs/design/api/crews.md).
 export type CrewDetail = CrewListItem & {
   joinPolicy: CrewJoinPolicy;
   amOwner: boolean;
@@ -557,6 +577,8 @@ export type WaitingRoom = {
   participantCount: number;
   readyCount: number;
   participants: GroupRunParticipant[];
+  // G07 본인 항목의 sessionId. 준비 완료(G16)로 서버가 만든 내 READY 세션이며, 준비 전·목업은 null(S15P31E105-420).
+  mySessionId?: string | null;
 };
 
 // G10 실시간 현황, seen from me. gapM is positive for members ahead of me.
@@ -571,7 +593,12 @@ export type GroupRunLive = {
     stale?: boolean;
     gapToAheadM?: number | null;
     gapToBehindM?: number | null;
+    // G10 앞·뒤 인원(S15P31E105-420 워치 전달). 서버가 주지 않으면 null.
+    aheadCount?: number | null;
+    behindCount?: number | null;
   }[];
+  // G10 updatedAt. 워치가 늦게 온 현황을 구분하는 기준이다(S15P31E105-420).
+  updatedAt?: string | null;
   spreadM: number | null;
   inRange: boolean | null;
   guidePaceSecPerKm: number | null;
@@ -592,6 +619,8 @@ export type GroupRunResult = {
   maxGapM: number | null;
   analysisStatus?: string;
   hasUnconfirmedStarts?: boolean;
+  // 내 참가 세션 = 내 그룹런 기록 ID(H02·CMT01). 시작하지 않았거나 목업이면 null(S15P31E105-420).
+  mySessionId?: string | null;
   participants: {
     userId: string;
     nickname: string;
@@ -609,7 +638,7 @@ export type MeetingPlace = {
   address: string;
   position: [number, number];
   // From my current position.
-  distanceM: number;
+  distanceM: number | null;
 };
 
 // G01 그룹런 생성 (6.8).
@@ -649,6 +678,8 @@ export type Playlist = {
   // The playlist cover and its song count (Spotify Web API); the card draws a plain tile without a cover.
   artworkUrl?: string | null;
   trackCount?: number;
+  // The icon on the plain tile when there is no cover (멜론 좋아요한 곡 · 최근들은 곡); a note otherwise.
+  icon?: 'heart' | 'clock';
 };
 
 export type MusicLibrary = {
@@ -684,7 +715,7 @@ export type AuthSession = {
 export type Gender = 'MALE' | 'FEMALE';
 
 // ERD code for users.health_data_access, spelled as in the API spec.
-export type HealthDataAccess = 'AGREEE' | 'DISAGREE';
+export type HealthDataAccess = 'AGREE' | 'DISAGREE';
 
 export type SignUpRequest = {
   loginId: string;
@@ -694,6 +725,8 @@ export type SignUpRequest = {
   gender: Gender;
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
+  // U29 SIGN_UP proof for phoneNumber (users.md U15). Only dev/test servers accept a sign-up without it.
+  phoneVerificationToken?: string;
 };
 
 // A photo picked on the phone, as React Native's FormData sends it. The server takes jpeg or png up to 5MB.
@@ -714,7 +747,7 @@ export type LoginIdAvailability = {
   reason: 'DUPLICATED' | null;
 };
 
-// Phone verification has no API spec yet; these shapes cover 1.3 and 1.2q until it does.
+// U28·U29 휴대전화 인증 (users.md), used by 1.3 회원가입 and 1.2q 전화번호로 찾기.
 export type PhoneVerificationPurpose = 'SIGN_UP' | 'PASSWORD_RESET';
 
 export type PhoneCodeRequest = {
@@ -883,6 +916,29 @@ export type RunningSessionView = {
   comparison?: RecordComparison | null;
   serverReceiveAt?: string | null;
   serverSendAt?: string | null;
+  // S02 groupEndedAt: 종료된 그룹런의 종료 기준시각. 개인런·진행 중 그룹런은 null(S15P31E105-420).
+  groupEndedAt?: string | null;
+};
+
+// GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
+export type WatchGroupStatus = {
+  groupRunId: string;
+  phase: 'WAITING' | 'RUNNING' | 'FINISHED' | 'FORCE_FINISHED';
+  guidePaceSecPerKm: number | null;
+  standing: {
+    rank: number;
+    aheadCount: number | null;
+    behindCount: number | null;
+    gapToAheadM: number | null;
+    gapToBehindM: number | null;
+  } | null;
+  stale: boolean;
+  leaderToLastGapM: number | null;
+  updatedAt: string | null;
+  // 지금 G10이 순위를 낸 참가자 수. 같은 거리(동순위)는 앞·뒤 인원에 들지 않아 그 합으로 총인원을 알 수 없다.
+  rankedCount: number | null;
+  // 폰이 연속 조회에서 본 공동 페이스 변경(S15P31E105-604). 워치는 이 값이 있을 때만 알림·진동한다. 없으면 null.
+  paceChanged?: { from: number; to: number } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
@@ -1170,7 +1226,10 @@ export type Repositories = {
       reason: GroupRunCancelReason,
       message?: string | null,
     ) => Promise<void>;
-    searchPlaces: (query: string) => Promise<MeetingPlace[]>;
+    searchPlaces: (
+      query: string,
+      reference?: [number, number] | null,
+    ) => Promise<MeetingPlace[]>;
     getWaitingRoom: (groupRunId: string) => Promise<WaitingRoom>;
     setReady: (groupRunId: string, ready: boolean) => Promise<WaitingRoom>;
     // G09는 명령 승인만 수행한다. 실제 기기 실행·결과 보고는 폰·워치 연동에서 처리한다.
@@ -1199,6 +1258,9 @@ export type Repositories = {
   community: {
     listFeed: (scope: FeedScope) => Promise<Post[]>;
     get: (postId: string) => Promise<PostDetail>;
+    // The shared course's points for the post on screen in 7.1, drawn on the real map (C03 by the post's course,
+    // S15P31E105-521); null without a course or when it cannot be read.
+    getRoute: (postId: string) => Promise<[number, number][] | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
     create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
@@ -1224,6 +1286,12 @@ export type Repositories = {
       request: FollowRequest,
       decision: FollowDecision,
     ) => Promise<void>;
+    // 7.4c (U26 · U27). A private account I may not see answers ACCOUNT_ACCESS_DENIED.
+    listFollows: (
+      userId: string,
+      kind: FollowListKind,
+      cursor: string | null,
+    ) => Promise<FollowListPage>;
   };
   // 7.5 검색 (CMT13): runners and crews whose name holds the query.
   search: {
@@ -1264,12 +1332,12 @@ export type Repositories = {
     pause: () => Promise<MusicState>;
     next: () => Promise<MusicState>;
     previous: () => Promise<MusicState>;
-    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론 cannot
-    // start a chosen one). Playing one starts it from the top on the music app.
+    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론: its 음악서랍
+    // lists — 좋아요한 곡, 최근들은 곡 and the user's own playlists). Playing one starts it from the top on the music app.
     getPlaylists: () => Promise<Playlist[]>;
     playPlaylist: (playlistId: string) => Promise<MusicState>;
     // 2.7 최근 들은 곡 (담당자 요청): songs heard lately on the picked service, newest first, each once; [] where
-    // the service has none to offer (멜론). Playing one starts that song.
+    // the service has none to offer (멜론 lists no song-by-song history). Playing one starts that song.
     getRecentTracks: () => Promise<Track[]>;
     playTrack: (trackId: string) => Promise<MusicState>;
   };
@@ -1357,6 +1425,8 @@ export type Repositories = {
         stateVersion: number;
         deviceId: string;
         goal: SessionGoalDraft;
+        // 그룹런 참가 세션이면 그 그룹런 ID. 워치가 그룹 화면을 쓴다(S15P31E105-420).
+        groupRunId?: string | null;
       },
     ) => Promise<{
       stateVersion: number;
@@ -1376,6 +1446,13 @@ export type Repositories = {
         stateVersion: number | null;
       },
     ) => Promise<void>;
+    // G12 그룹 종료로 서버가 승인한 개인 END를 SERVER_END로 전달만 한다(9.3, S15P31E105-420).
+    sendServerEnd?: (
+      sessionId: string,
+      end: { commandId: string; expectedVersion: number; endedAt: string; reason: string },
+    ) => Promise<void>;
+    // G10 현황을 GROUP_STATUS로 전달만 한다(9.3, S15P31E105-420).
+    sendGroupStatus?: (sessionId: string, status: WatchGroupStatus) => Promise<void>;
     // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
     sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
     // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.
@@ -1404,6 +1481,12 @@ export type Repositories = {
     unblockBatches?: (sessionId: string) => Promise<void>;
     // 워치와의 연결(MessageClient 노드) 여부. 워치 앱 상태까지 뜻하지는 않는다.
     isWatchConnected?: () => Promise<boolean>;
+    // S15P31E105-571: 실제 Data Layer 노드. 없으면 null이며 가짜 기기명을 만들지 않는다.
+    getConnectedWatch?: () => Promise<{
+      id: string;
+      displayName: string;
+      nearby?: boolean;
+    } | null>;
     // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
     failBatch: (batchId: string, code: string) => Promise<void>;
     // 등록하면 수신함에 남은 이벤트부터 전달한다.

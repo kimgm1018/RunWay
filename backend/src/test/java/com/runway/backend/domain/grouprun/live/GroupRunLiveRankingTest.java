@@ -273,4 +273,86 @@ class GroupRunLiveRankingTest {
 
     assertThat(result).extracting(ParticipantLive::userId).containsExactly(9L, 3L, 5L);
   }
+
+  private static ParticipantSample standing(
+      long userId, boolean eligible, Double d, long distanceAge, long lastSampleAge) {
+    return new ParticipantSample(
+        userId,
+        eligible,
+        d,
+        NOW.minusSeconds(distanceAge),
+        List.of(),
+        NOW.minusSeconds(lastSampleAge));
+  }
+
+  @Test
+  void 거리_표본이_오래돼도_최신_측정_표본이_신선하면_마지막_거리로_순위를_낸다() {
+    // 597: A는 걷고 B는 서 있다. B의 거리 표본은 90초 전에 멈췄지만 심박 표본은 5초 전까지 들어온다.
+    var result =
+        GroupRunLiveRanking.compute(
+            NOW, true, null, List.of(sample(1, 179.0, 3), standing(2, true, 46.0, 90, 5)));
+
+    var b = byUser(result, 2);
+    assertThat(b.stale()).isFalse();
+    assertThat(b.rank()).isEqualTo(2);
+    assertThat(b.progressM()).isEqualTo(46.0);
+    assertThat(b.gapToAheadM()).isCloseTo(133.0, within(1e-9));
+    assertThat(b.measuredAt()).isEqualTo(NOW.minusSeconds(5));
+    assertThat(byUser(result, 1).rank()).isEqualTo(1);
+    assertThat(byUser(result, 1).gapToBehindM()).isCloseTo(133.0, within(1e-9));
+  }
+
+  @Test
+  void 최신_측정_표본이_정확히_60초_전이면_순위에_남는다() {
+    var result =
+        GroupRunLiveRanking.compute(NOW, false, null, List.of(standing(1, true, 46.0, 300, 60)));
+
+    assertThat(byUser(result, 1).stale()).isFalse();
+    assertThat(byUser(result, 1).rank()).isEqualTo(1);
+  }
+
+  @Test
+  void 측정_표본이_60초_넘게_전혀_없으면_stale로_제외한다() {
+    var result =
+        GroupRunLiveRanking.compute(
+            NOW, true, null, List.of(sample(1, 179.0, 3), standing(2, true, 46.0, 90, 61)));
+
+    var b = byUser(result, 2);
+    assertThat(b.stale()).isTrue();
+    assertThat(b.rank()).isNull();
+    assertThat(b.progressM()).isNull();
+    assertThat(b.measuredAt()).isEqualTo(NOW.minusSeconds(61));
+    assertThat(byUser(result, 1).behindCount()).isZero();
+  }
+
+  @Test
+  void 거리_표본이_한_번도_없으면_신선한_측정_표본이_있어도_제외한다() {
+    var result =
+        GroupRunLiveRanking.compute(
+            NOW,
+            true,
+            null,
+            List.of(new ParticipantSample(1, true, null, null, List.of(), NOW.minusSeconds(5))));
+
+    assertThat(byUser(result, 1).stale()).isTrue();
+    assertThat(byUser(result, 1).rank()).isNull();
+  }
+
+  @Test
+  void 일시정지_참가자는_측정_표본이_신선해도_제외한다() {
+    var result =
+        GroupRunLiveRanking.compute(
+            NOW, true, null, List.of(sample(1, 179.0, 3), standing(2, false, 46.0, 2, 2)));
+
+    assertThat(byUser(result, 2).stale()).isTrue();
+    assertThat(byUser(result, 2).rank()).isNull();
+  }
+
+  @Test
+  void 최신_측정_표본이_허용_오차를_넘는_미래면_제외한다() {
+    var result =
+        GroupRunLiveRanking.compute(NOW, true, null, List.of(standing(1, true, 46.0, 10, -30)));
+
+    assertThat(byUser(result, 1).stale()).isTrue();
+  }
 }

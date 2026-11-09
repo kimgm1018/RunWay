@@ -2,7 +2,7 @@
 BE Route 내부 계약(MR !183)을 따른다.
 
 여기서 막는 것(400 VALIDATION_ERROR): 필수값, 타입, 유한수, 위도 -90~90·경도 -180~180, shape 값, seed 범위,
-filters의 모르는 key. 거리 1~15 km·편도 도착 위치는 데모와 같은 코드(422 DISTANCE_RANGE / DESTINATION_REQUIRED)로
+filters의 모르는 key. 거리 1~21.1 km·편도 도착 위치는 데모와 같은 코드(422 DISTANCE_RANGE / DESTINATION_REQUIRED)로
 main.py가 검사한다. 최상위의 모르는 필드는 무시한다.
 """
 from typing import Literal, Optional

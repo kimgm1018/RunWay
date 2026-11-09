@@ -18,7 +18,6 @@ import {
   BottomSheet,
   Button,
   Icon,
-  LightGlass,
   PressableScale,
   useToast,
 } from '../../components';
@@ -32,16 +31,9 @@ import {
 } from '../../data';
 import { formatDotDateWeekday, formatKm } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
+import { fontFamily, size, spacing } from '../../theme';
 import { RouteThumb } from '../home/parts';
-import {
-  GroupBackground,
-  GroupCta,
-  groupLook,
-  insetTrackLight,
-  Raised,
-  SectionLabel,
-} from './look';
+import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 
@@ -89,7 +81,7 @@ const loadOptions = (repositories: Repositories) =>
     repositories.groupRuns.searchPlaces(''),
   ]);
 
-// A 6.8 group: a line-labelled title instead of a card (runway-group-handoff).
+// A 6.8 group: a full-width block under a grey band on the white page (S15P31E105-563).
 function Section({
   title,
   right,
@@ -100,9 +92,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <View style={styles.card}>
+    <View style={groupPage.block}>
       <View style={styles.rowBetween}>
-        <SectionLabel tone="light">{title}</SectionLabel>
+        <SectionLabel tone="mist">{title}</SectionLabel>
         {right}
       </View>
       {children}
@@ -110,7 +102,7 @@ function Section({
   );
 }
 
-// 코스 러닝 · 자유 러닝: a pressed-in track with the picked one a raised navy pill (6.8-CourseCard).
+// 코스 러닝 · 자유 러닝: a flat light grey track with the picked one a flat navy pill (S15P31E105-563).
 function ModeSwitch({
   value,
   onChange,
@@ -136,13 +128,7 @@ function ModeSwitch({
             onPress={() => onChange(option.value)}
             style={styles.mode}
           >
-            {selected ? (
-              <Raised tone="navy" style={styles.modeOn}>
-                {text}
-              </Raised>
-            ) : (
-              text
-            )}
+            {selected ? <View style={styles.modeOn}>{text}</View> : text}
           </Pressable>
         );
       })}
@@ -203,13 +189,13 @@ function PickChip({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      // A light glass pill with the icon on the right (6.8-DateTimeCard).
+      // A flat light grey field with the icon on the right (S15P31E105-563).
       style={styles.flex}
     >
-      <LightGlass radius={24} style={styles.pick}>
+      <View style={styles.pick}>
         <AppText style={styles.pickLabel}>{label}</AppText>
         <Icon name={icon} color={groupLook.onLightSub} size={14} />
-      </LightGlass>
+      </View>
     </PressableScale>
   );
 }
@@ -411,9 +397,8 @@ export function GroupRunCreateScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+    <View style={[styles.root, groupPage.page]}>
       <StatusBar barStyle="dark-content" />
-      <GroupBackground id="groupRunCreateBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <BackButton onPress={() => navigation.goBack()} />
@@ -451,17 +436,13 @@ export function GroupRunCreateScreen() {
                   accessibilityState={{ selected }}
                   onPress={() => setMinutes(value)}
                 >
-                  {selected ? (
-                    <Raised tone="navy" style={styles.chip}>
-                      <AppText
-                        style={styles.chipTextOn}
-                      >{`${value}분`}</AppText>
-                    </Raised>
-                  ) : (
-                    <LightGlass radius={18} style={styles.chip}>
-                      <AppText style={styles.chipText}>{`${value}분`}</AppText>
-                    </LightGlass>
-                  )}
+                  <View style={[styles.chip, selected && styles.chipOn]}>
+                    <AppText
+                      style={selected ? styles.chipTextOn : styles.chipText}
+                    >
+                      {`${value}분`}
+                    </AppText>
+                  </View>
                 </PressableScale>
               );
             })}
@@ -471,15 +452,13 @@ export function GroupRunCreateScreen() {
           title="만나는 곳"
           right={<AppText style={styles.note}>상세 위치</AppText>}
         >
-          {draft.place ? (
-            <ChangeRow
-              icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
-              title={draft.place.name}
-              detail={draft.place.address}
-              label="만나는 곳 변경"
-              onChange={() => navigation.navigate('MeetingPlace')}
-            />
-          ) : null}
+          <ChangeRow
+            icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
+            title={draft.place?.name ?? '만나는 곳 선택'}
+            detail={draft.place?.address ?? '지도나 검색으로 위치를 골라 주세요'}
+            label="만나는 곳 변경"
+            onChange={() => navigation.navigate('MeetingPlace')}
+          />
         </Section>
         <Section title="날짜·시간">
           <View style={styles.chips}>
@@ -513,25 +492,24 @@ export function GroupRunCreateScreen() {
           </View>
         </Section>
       </ScrollView>
-      {/* 6.8-CreateCTA: the raised white pill with a navy circle + on the navy foot. */}
-      <ThemeProvider tone="dark">
-        <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <BottomFade />
-          <GroupCta
-            title={editingId ? '저장' : '그룹런 만들기'}
-            icon={editingId ? 'check' : 'plus'}
-            disabled={
-              saving ||
-              (editingId ? !edited : !crew) ||
-              !draft.place ||
-              !day ||
-              passed ||
-              (mode === 'COURSE' && !course)
-            }
-            onPress={create}
-          />
-        </SafeAreaView>
-      </ThemeProvider>
+      {/* 6.8-CreateCTA: the flat navy button over the white page's foot (S15P31E105-563). */}
+      <SafeAreaView edges={['bottom']} style={styles.footer}>
+        <BottomFade white />
+        <GroupCta
+          navy
+          title={editingId ? '저장' : '그룹런 만들기'}
+          icon={editingId ? 'check' : 'plus'}
+          disabled={
+            saving ||
+            (editingId ? !edited : !crew) ||
+            !draft.place ||
+            !day ||
+            passed ||
+            (mode === 'COURSE' && !course)
+          }
+          onPress={create}
+        />
+      </SafeAreaView>
       <BottomSheet
         visible={sheet === 'course'}
         onClose={() => setSheet(null)}
@@ -617,21 +595,15 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     color: groupLook.onLight,
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 0,
-    gap: 28,
-    paddingBottom: spacing.xxxl * 4,
-  },
+  content: { paddingBottom: spacing.xxxl * 4 },
   crew: {
-    marginLeft: spacing.xs,
-    marginBottom: -spacing.md,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 17,
     color: groupLook.onLightSub,
   },
-  card: { gap: spacing.lg },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -649,8 +621,7 @@ const styles = StyleSheet.create({
     padding: 3,
     gap: 2,
     borderRadius: 16,
-    backgroundColor: 'rgba(2,5,14,0.05)',
-    boxShadow: insetTrackLight,
+    backgroundColor: groupLook.lightFill,
   },
   mode: { justifyContent: 'center' },
   modeOn: {
@@ -658,6 +629,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 13,
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
   },
   modeText: {
     paddingHorizontal: 12,
@@ -705,7 +677,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xxl,
     borderRadius: 18,
     justifyContent: 'center',
+    backgroundColor: groupLook.lightFill,
   },
+  chipOn: { backgroundColor: groupLook.navy },
   chipText: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
@@ -724,6 +698,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     height: 48,
     paddingHorizontal: spacing.xl,
+    borderRadius: 24,
+    backgroundColor: groupLook.lightFill,
   },
   pickLabel: {
     fontFamily: fontFamily.numberRegular,

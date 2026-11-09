@@ -37,21 +37,19 @@ import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import {
   fontFamily,
+  palette,
   size,
   spacing,
-  ThemeProvider,
   typography,
   useTheme,
 } from '../../theme';
 import { ServiceMark, useMusicSource } from '../run/parts';
-import { useRunActions, type RunConfig } from '../run/RunSession';
 import {
-  GroupBackground,
-  GroupCta,
-  groupLook,
-  Raised,
-  SectionLabel,
-} from './look';
+  useRunActions,
+  useRunControlState,
+  type RunConfig,
+} from '../run/RunSession';
+import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
 import { BottomFade, Initial } from './parts';
 import { BackButton } from '../../components/BackButton';
 
@@ -132,9 +130,9 @@ function PaceCard({ room }: { room: WaitingRoom }) {
         )
       : null;
   return (
-    <View style={styles.card}>
+    <View style={groupPage.block}>
       <View style={styles.rowBetween}>
-        <SectionLabel tone="light">추천 공동 페이스</SectionLabel>
+        <SectionLabel tone="mist">추천 공동 페이스</SectionLabel>
         <AppText style={styles.noteStrong}>참가자 기록 기준</AppText>
       </View>
       {pace === null ? (
@@ -163,9 +161,9 @@ function PaceCard({ room }: { room: WaitingRoom }) {
   );
 }
 
-// After 준비 완료 the button turns into a dark glass 준비 취소 on the navy foot.
+// After 준비 완료 the button turns into a soft white 준비 취소 (GroupCta navy's secondary, S15P31E105-563).
 function ReadyCancel({ onPress }: { onPress: () => void }) {
-  return <GroupCta title="준비 취소" primary={false} onPress={onPress} />;
+  return <GroupCta navy title="준비 취소" primary={false} onPress={onPress} />;
 }
 
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
@@ -176,8 +174,9 @@ export function WaitingRoomScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
   const groupRunId = route.params?.groupRunId ?? 'gr-today';
   const { colors } = useTheme();
-  const { groupRuns, clock } = useRepositories();
-  const { start } = useRunActions();
+  const { groupRuns, clock, watchSession } = useRepositories();
+  const { start, joinGroup, leaveGroup } = useRunActions();
+  const control = useRunControlState();
   const source = useMusicSource();
   const data = useResource(
     useCallback(
@@ -204,11 +203,29 @@ export function WaitingRoomScreen() {
     }
   }, [loadedRoom]);
 
+  // 준비 완료로 서버가 만든 내 세션에 붙어 워치를 그룹 목표로 준비시킨다(S15P31E105-420). 출발은 그룹장의 G09가 승인하고
+  // 워치가 실제로 시작해야 확정된다. 다시 들어온 대기방도 같은 세션에 다시 붙는다.
+  const mySessionId = room?.mySessionId ?? null;
+  const goalPace = room?.goalPaceSecPerKm ?? null;
+  useEffect(() => {
+    if (run && mySessionId && goalPace !== null) {
+      joinGroup(groupRunConfig(run, goalPace), mySessionId);
+    }
+  }, [goalPace, joinGroup, mySessionId, run]);
+  const watchProblem =
+    control?.sessionId === mySessionId && mySessionId
+      ? control?.problem?.kind === 'watchRequired'
+        ? '워치가 연결되어 있지 않아요. 워치를 연결해야 함께 출발할 수 있어요.'
+        : control?.problem?.kind === 'watchNotReady'
+        ? '워치가 출발 준비를 하지 못했어요. 워치 앱을 열고 다시 준비해 주세요.'
+        : null
+      : null;
+
   const observeError = useCallback(
     (error: unknown) =>
       setWatchError(
-        error instanceof DataError && error.status === 409
-          ? '그룹런이 취소되었거나 종료되었어요. 상세에서 상태를 확인해 주세요.'
+        error instanceof DataError && error.status === 409 && error.message
+          ? error.message
           : '대기방 상태를 확인하지 못했어요. 연결되면 다시 조회해요.',
       ),
     [],
@@ -327,7 +344,21 @@ export function WaitingRoomScreen() {
       return;
     readyBusy.current = true;
     try {
-      setRoom(await groupRuns.setReady(groupRunId, !isReady));
+      // G16은 서버에 연결된 워치·폰 기기로 세션을 만든다(없으면 DEVICE_NOT_FOUND). 준비 전에 연결 워치를 확인하고,
+      // 아직 없는 폰 기기는 이 확인에서 등록한다(S15P31E105-420). 목업 그룹런은 기기가 필요 없다.
+      if (!isReady && /^\d+$/.test(groupRunId)) {
+        const linked = await watchSession.getLinkedDevices();
+        if (!linked) {
+          toast('워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요');
+          return;
+        }
+      }
+      const next = await groupRuns.setReady(groupRunId, !isReady);
+      setRoom(next);
+      if (isReady) {
+        // 준비 해제: 서버가 취소한 세션 상태를 워치에 알리고 놓는다.
+        leaveGroup();
+      }
     } catch {
       toast(
         '준비 상태를 변경하지 못했어요. 대기방 상태를 확인한 뒤 다시 시도해 주세요',
@@ -354,9 +385,8 @@ export function WaitingRoomScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
+    <View style={[styles.root, groupPage.page]}>
       <StatusBar barStyle="dark-content" />
-      <GroupBackground id="waitingRoomBackground" kind="common" />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <BackButton onPress={() => navigation.goBack()} />
@@ -373,25 +403,33 @@ export function WaitingRoomScreen() {
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
+        {watchProblem ? (
+          <AppText accessibilityLiveRegion="polite">{watchProblem}</AppText>
+        ) : null}
         {watchError ? (
-          <AppText accessibilityLiveRegion="polite">{watchError}</AppText>
+          <AppText accessibilityLiveRegion="polite" style={styles.inset}>
+            {watchError}
+          </AppText>
         ) : null}
         {startRequested ? (
-          <AppText accessibilityLiveRegion="polite">
+          <AppText accessibilityLiveRegion="polite" style={styles.inset}>
             출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
           </AppText>
         ) : null}
         {run.isHost && !startRequested ? (
-          <GroupCta
-            title={starting ? '출발 요청 중…' : '그룹런 시작'}
-            icon="check"
-            onPress={requestStart}
-          />
+          <View style={styles.hostStart}>
+            <GroupCta
+              navy
+              title={starting ? '출발 요청 중…' : '그룹런 시작'}
+              icon="check"
+              onPress={requestStart}
+            />
+          </View>
         ) : null}
-        {/* 6.5-MemberList: a line-labelled list without dividers. */}
-        <View style={styles.card}>
+        {/* 6.5-MemberList: a block under a grey band, rows without dividers. */}
+        <View style={groupPage.block}>
           <View style={styles.rowBetween}>
-            <SectionLabel tone="light">
+            <SectionLabel tone="mist">
               {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
             </SectionLabel>
             <AppText style={styles.noteText}>
@@ -401,7 +439,7 @@ export function WaitingRoomScreen() {
           <View>
             {room.participants.map((member, index) => (
               <View key={member.userId} style={styles.member}>
-                <Initial name={member.nickname} index={index} size={36} />
+                <Initial name={member.nickname} index={index} size={36} mint />
                 <View style={styles.flex}>
                   <View style={styles.nameLine}>
                     <AppText style={styles.memberName}>
@@ -415,9 +453,9 @@ export function WaitingRoomScreen() {
                       />
                     ) : null}
                     {member.isMe ? (
-                      <Raised tone="navy" style={styles.meBadge}>
+                      <View style={styles.meBadge}>
                         <AppText style={styles.meText}>나</AppText>
-                      </Raised>
+                      </View>
                     ) : null}
                   </View>
                   {member.isMe && member.readinessScore !== null ? (
@@ -443,32 +481,35 @@ export function WaitingRoomScreen() {
           그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
         </AppText>
       </ScrollView>
-      <ThemeProvider tone="dark">
-        <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <BottomFade />
-          <View style={styles.flex}>
-            {isReady ? (
-              <ReadyCancel onPress={toggleReady} />
+      <SafeAreaView edges={['bottom']} style={styles.footer}>
+        <BottomFade white />
+        <View style={styles.flex}>
+          {isReady ? (
+            <ReadyCancel onPress={toggleReady} />
+          ) : (
+            <GroupCta
+              navy
+              title="준비 완료"
+              icon="check"
+              onPress={toggleReady}
+            />
+          )}
+        </View>
+        {/* 6.5-ReadyBar: the music button is a flat navy circle beside it (S15P31E105-563). */}
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="음악"
+          onPress={() => navigateTo(navigation, 'MusicCard')}
+        >
+          <View style={styles.music}>
+            {source && source !== 'NONE' ? (
+              <ServiceMark service={source} size={30} />
             ) : (
-              <GroupCta title="준비 완료" icon="check" onPress={toggleReady} />
+              <Icon name="music" color={groupLook.onDark} size={20} />
             )}
           </View>
-          {/* 6.5-ReadyBar: the music button is a raised navy circle beside it. */}
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="음악"
-            onPress={() => navigateTo(navigation, 'MusicCard')}
-          >
-            <Raised tone="navy" style={styles.music}>
-              {source && source !== 'NONE' ? (
-                <ServiceMark service={source} size={30} />
-              ) : (
-                <Icon name="music" color={groupLook.onDark} size={20} />
-              )}
-            </Raised>
-          </PressableScale>
-        </SafeAreaView>
-      </ThemeProvider>
+        </PressableScale>
+      </SafeAreaView>
       <Modal visible={count !== null} transparent animationType="fade">
         <View style={[styles.overlay, { backgroundColor: colors.scrim }]}>
           <AppText variant="heading" tone="accentText">
@@ -506,13 +547,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: groupLook.onLight,
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: spacing.md,
-    gap: 32,
-    paddingBottom: spacing.xxxl * 4,
-  },
-  card: { gap: spacing.lg },
+  content: { paddingTop: spacing.md, paddingBottom: spacing.xxxl * 4 },
+  inset: { paddingHorizontal: 20, paddingBottom: spacing.lg },
+  // The leader's 그룹런 시작 between the pace and the members.
+  hostStart: { paddingHorizontal: 20, paddingBottom: 24 },
   noteStrong: {
     fontFamily: fontFamily.bold,
     fontSize: 12,
@@ -555,7 +593,8 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRadius: 4,
-    backgroundColor: '#7DA0B2',
+    // Mint like 6.2's accent lines (담당자 요청, S15P31E105-563).
+    backgroundColor: palette.mintDeep,
   },
   rangeMarker: {
     position: 'absolute',
@@ -596,6 +635,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     borderRadius: 9,
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
   },
   meText: {
     fontFamily: fontFamily.bold,
@@ -621,7 +661,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: groupLook.onLightSub,
   },
-  note: { textAlign: 'center' },
+  note: { textAlign: 'center', paddingHorizontal: 20 },
   footer: {
     position: 'absolute',
     left: 0,
@@ -640,6 +680,8 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
+    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
   },
   overlay: {
     flex: 1,

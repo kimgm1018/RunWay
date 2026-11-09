@@ -97,7 +97,7 @@ def _records(body, runtime):
     return records, start_hrs, package, fill_info
 
 
-def compute_personalization(body, runtime, *, now: datetime | None = None) -> dict:
+def compute_personalization(body, runtime, *, now: datetime | None = None, previous: dict | None = None) -> dict:
     records, start_hrs, package, fill_info = _records(body, runtime)
     model_user_key = str(body.user_id)
     user_seed = int(hashlib.sha256(model_user_key.encode()).hexdigest()[:8], 16)
@@ -110,14 +110,29 @@ def compute_personalization(body, runtime, *, now: datetime | None = None) -> di
     fit_items = runtime.fit_module.fit_items(records, contexts, seed=user_seed)
     p4 = np.zeros(4, np.float32)
     warnings = []
+    previous_p4 = previous.get("p4") if isinstance(previous, dict) else None
+    valid_previous = (
+        isinstance(previous, dict) and previous.get("modelVersion") == runtime.info.model_version
+        and isinstance(previous_p4, list) and len(previous_p4) == 4
+        and all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                and abs(value) <= 10 and np.isfinite(value) for value in previous_p4)
+    )
+    warm = valid_previous and os.getenv("ODEV21_P4_WARM_START", "1").strip().lower() in {"1", "true", "yes", "on"}
+    if previous is not None and not valid_previous:
+        warnings.append("P4_WARM_START_SKIPPED")
     if fit_items:
         lr = float(os.getenv("ODEV21_P4_LR", "0.03"))
         lam = float(os.getenv("ODEV21_P4_LAMBDA", "1.0"))
-        steps = max(1, int(os.getenv("ODEV21_P4_STEPS", "100")))
+        steps = max(1, int(os.getenv("ODEV21_P4_WARM_STEPS", "20") if warm
+                           else os.getenv("ODEV21_P4_STEPS", "100")))
+        fit_options = {}
+        if warm:
+            fit_options = {"init": {model_user_key: previous_p4},
+                           "early_stop_tol": float(os.getenv("ODEV21_P4_EARLY_STOP_TOL", "0"))}
         snapshots = runtime.fit_module.fit_p4(runtime.model, {model_user_key: fit_items}, runtime.stats,
                                              lr=lr, lam=lam, steps=(steps,), per_step=4,
                                              seed=user_seed,
-                                             device=runtime.device)
+                                             device=runtime.device, **fit_options)
         p4 = np.asarray(snapshots[steps][model_user_key], np.float32)
     else:
         warnings.append("P4_INPUT_INSUFFICIENT")

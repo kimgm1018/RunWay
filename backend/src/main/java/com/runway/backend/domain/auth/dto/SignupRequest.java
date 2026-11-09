@@ -39,7 +39,12 @@ public record SignupRequest(
                         implementation = SignupConsent[].class,
                         requiredMode = Schema.RequiredMode.REQUIRED,
                         description = "Four distinct consent types, exactly one of each")
-                Object consents) {
+                Object consents,
+        @Schema(
+                        type = "string",
+                        description =
+                                "U29가 SIGN_UP 목적으로 발급한 인증 증명. 운영 필수, 개발·테스트 설정에서만 생략 가능")
+                Object phoneVerificationToken) {
     @Override
     public String toString() {
         return "SignupRequest[REDACTED]";

@@ -12,6 +12,7 @@ import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedContextIntegrationSupport;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -67,6 +68,33 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     // ---------------------------------------------------------------- G12
+
+    @Test
+    void groupPaceFlagOff_storedAiStateDoesNotChangeG03OrG10ResponseBytes() throws Exception {
+        long id = createGroupRun();
+        insertProfile(hostId, 360);
+        String detailBefore = mockMvc.perform(get("/api/v1/group-runs/{id}", id)
+                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String liveBefore = live(id, hostId).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        jdbc.update("""
+                INSERT INTO group_run_pace_state(group_run_id,group_pace_sec_per_km,
+                    start_recommended_pace_sec_per_km,struggling_count) VALUES (?,450,480,3)
+                """, id);
+        assertThat(mockMvc.perform(get("/api/v1/group-runs/{id}", id)
+                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(detailBefore);
+        assertThat(live(id, hostId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(liveBefore);
+        jdbc.update("UPDATE group_runs SET status='RUNNING' WHERE id=?", id);
+        String runningBefore = live(id, hostId).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        jdbc.update("UPDATE group_run_pace_state SET group_pace_sec_per_km=500, struggling_count=7 WHERE group_run_id=?", id);
+        assertThat(live(id, hostId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(runningBefore);
+    }
 
     @Test
     void forceFinish_hostCompletesGroup_andAbortsUnconfirmedStarts() throws Exception {
@@ -433,7 +461,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     @Test
-    void live_running_usesSessionPaces_andExcludesCompletedParticipant() throws Exception {
+    void live_running_usesMeasuredSpeeds_andExcludesCompletedParticipant() throws Exception {
         insertProfile(hostId, 500);
         insertProfile(memberId, 500);
         long groupRunId = createGroupRun();
@@ -442,8 +470,10 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         start(groupRunId, hostId).andExpect(status().isOk());
         markStarted(hostSession);
         markStarted(memberSession);
-        setSessionAveragePace(hostSession, 320);
-        setSessionAveragePace(memberSession, 380);
+        Instant now = Instant.now();
+        // 실측 320·380 → 중앙값 350. 종료 후 average_pace는 guide에 쓰지 않는다.
+        insertSample(hostSession, now.minusSeconds(3), 800.0, speedMpsForPace(320));
+        insertSample(memberSession, now.minusSeconds(3), 700.0, speedMpsForPace(380));
 
         live(groupRunId, memberId)
                 .andExpect(status().isOk())
@@ -459,7 +489,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     @Test
-    void live_running_prefersCoachingPaceOverSessionAverage() throws Exception {
+    void live_running_prefersCoachingPaceOverMeasuredSpeed() throws Exception {
         insertProfile(hostId, 500);
         insertProfile(memberId, 500);
         long groupRunId = createGroupRun();
@@ -468,8 +498,9 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         start(groupRunId, hostId).andExpect(status().isOk());
         markStarted(hostSession);
         markStarted(memberSession);
-        setSessionAveragePace(hostSession, 400);
-        setSessionAveragePace(memberSession, 400);
+        Instant now = Instant.now();
+        insertSample(hostSession, now.minusSeconds(3), 800.0, speedMpsForPace(400));
+        insertSample(memberSession, now.minusSeconds(3), 700.0, speedMpsForPace(400));
         insertCoachingDecision(hostSession, 300);
         insertCoachingDecision(memberSession, 360);
 
@@ -628,6 +659,99 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     @Test
+    void live_running_standingParticipant_staysRanked_whileOtherSamplesAreFresh()
+            throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        Instant now = Instant.now();
+        // 597: 호스트는 걷고 멤버는 서 있다. 멤버 거리 표본은 90초 전에 멈췄지만 심박 표본은 이어진다.
+        insertSample(hostSession, now.minusSeconds(3), 179.0, speedMpsForPace(360));
+        Instant memberDistanceAt = now.minusSeconds(90).truncatedTo(ChronoUnit.SECONDS);
+        // 멈추기 직전에는 빠르게 달렸다(거리 표본에 속도 포함).
+        insertSample(memberSession, memberDistanceAt, 46.0, speedMpsForPace(240));
+        Instant memberHeartRateAt = now.minusSeconds(5).truncatedTo(ChronoUnit.SECONDS);
+        insertHeartRateSample(memberSession, now.minusSeconds(30));
+        insertHeartRateSample(memberSession, memberHeartRateAt);
+        // 미래 시각 심박 표본은 신선도 판단에 쓰지 않는다(ceiling 밖).
+        insertHeartRateSample(memberSession, now.plusSeconds(300));
+        int events = totalEventCount();
+
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[0].gapToBehindM").value(133.0))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(360))
+                .andExpect(jsonPath("$.participants[1].userId").value(memberId))
+                .andExpect(jsonPath("$.participants[1].rank").value(2))
+                .andExpect(jsonPath("$.participants[1].progressM").value(46.0))
+                .andExpect(jsonPath("$.participants[1].gapToAheadM").value(133.0))
+                // 최신 측정 표본 기준 60초 안에 움직인 속도가 없으므로 멈추기 전 페이스를 보이지 않는다.
+                .andExpect(jsonPath("$.participants[1].paceSecPerKm").value(nullValue()))
+                // 멈추기 전 240초/km가 남았다면 부담 참가자로 잡혔을 상황이지만, 서 있는 참가자는 알림 대상이 아니다.
+                .andExpect(jsonPath("$.loadAlert").value(nullValue()))
+                .andExpect(
+                        jsonPath("$.participants[1].measuredAt")
+                                .value(memberHeartRateAt.toString()))
+                .andExpect(jsonPath("$.participants[1].stale").value(false));
+
+        // 측정 표본이 60초 넘게 전혀 없으면(미래 표본만 남음) 기존처럼 stale.
+        jdbc.update(
+                "DELETE FROM running_metric_samples WHERE running_session_id = ? AND measured_at > ?",
+                memberSession,
+                Timestamp.from(now.minusSeconds(60)));
+        insertHeartRateSample(memberSession, now.plusSeconds(300));
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].behindCount").value(0))
+                .andExpect(jsonPath("$.participants[1].rank").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].progressM").value(nullValue()))
+                // 미래 표본이 아니라 허용 시각 이하의 마지막 표본(거리 표본)으로 판단했다.
+                .andExpect(
+                        jsonPath("$.participants[1].measuredAt").value(memberDistanceAt.toString()))
+                .andExpect(jsonPath("$.participants[1].stale").value(true));
+
+        // 일시정지 참가자는 심박 표본이 신선해도 제외된다.
+        insertHeartRateSample(memberSession, now.minusSeconds(2));
+        jdbc.update(
+                "UPDATE running_sessions SET status = 'PAUSED'::running_sessions_status_enum WHERE id = ?",
+                memberSession);
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[1].rank").value(nullValue()))
+                .andExpect(jsonPath("$.participants[1].stale").value(true));
+
+        assertThat(groupStatus(groupRunId)).isEqualTo("RUNNING");
+        assertThat(totalEventCount()).isEqualTo(events);
+    }
+
+    @Test
+    void live_running_keepsMeasuredPace_whenLatestSampleIsHeartRateOnly() throws Exception {
+        long groupRunId = createGroupRun();
+        long hostSession = readyHost(groupRunId);
+        long memberSession = joinAndReady(groupRunId, memberId);
+        start(groupRunId, hostId).andExpect(status().isOk());
+        markStarted(hostSession);
+        markStarted(memberSession);
+        Instant now = Instant.now();
+        // 워치는 지표별로 따로 보내므로 달리는 중에도 최신 행이 심박 단독일 수 있다. 60초 창 안의 속도로 페이스를 유지한다.
+        insertSample(hostSession, now.minusSeconds(10), 500.0, speedMpsForPace(330));
+        insertHeartRateSample(hostSession, now.minusSeconds(2));
+        insertSample(memberSession, now.minusSeconds(3), 400.0, speedMpsForPace(360));
+
+        live(groupRunId, hostId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.participants[0].userId").value(hostId))
+                .andExpect(jsonPath("$.participants[0].rank").value(1))
+                .andExpect(jsonPath("$.participants[0].paceSecPerKm").value(330))
+                .andExpect(jsonPath("$.participants[0].stale").value(false))
+                .andExpect(jsonPath("$.participants[1].paceSecPerKm").value(360));
+    }
+
+    @Test
     void live_running_ignoresFutureMeasuredAt_andKeepsEarlierValidSample() throws Exception {
         long groupRunId = createGroupRun();
         long hostSession = readyHost(groupRunId);
@@ -652,7 +776,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     @Test
-    void live_running_returnsSessionAveragePace_andLoadAlertForFastMember() throws Exception {
+    void live_running_returnsMeasuredPace_andLoadAlertForFastMember() throws Exception {
         long groupRunId = createGroupRun();
         long hostSession = readyHost(groupRunId);
         long memberSession = joinAndReady(groupRunId, memberId);
@@ -660,11 +784,9 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         markStarted(hostSession);
         markStarted(memberSession);
         // 안내 페이스 = 중앙값(300, 400) = 350. host 300 <= 350 - 30 이므로 부담, member 400은 아님.
-        setSessionAveragePace(hostSession, 300);
-        setSessionAveragePace(memberSession, 400);
         Instant now = Instant.now();
-        insertSample(hostSession, now.minusSeconds(3), 1200.0);
-        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+        insertSample(hostSession, now.minusSeconds(3), 1200.0, speedMpsForPace(300));
+        insertSample(memberSession, now.minusSeconds(3), 1000.0, speedMpsForPace(400));
         int events = totalEventCount();
 
         live(groupRunId, memberId)
@@ -688,11 +810,9 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         markStarted(hostSession);
         markStarted(memberSession);
         // 안내 페이스 350. host 321 > 350 - 30 이므로 경계 밖(부담 아님).
-        setSessionAveragePace(hostSession, 321);
-        setSessionAveragePace(memberSession, 379);
         Instant now = Instant.now();
-        insertSample(hostSession, now.minusSeconds(3), 1200.0);
-        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+        insertSample(hostSession, now.minusSeconds(3), 1200.0, speedMpsForPace(321));
+        insertSample(memberSession, now.minusSeconds(3), 1000.0, speedMpsForPace(379));
 
         live(groupRunId, memberId)
                 .andExpect(status().isOk())
@@ -711,12 +831,10 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         start(groupRunId, hostId).andExpect(status().isOk());
         markStarted(hostSession);
         markStarted(memberSession);
-        setSessionAveragePace(hostSession, 300);
-        setSessionAveragePace(memberSession, 400);
         Instant now = Instant.now();
         // host 표본은 TTL 초과 -> stale. 빠르지만 부담 집계와 pace 노출에서 제외된다.
-        insertSample(hostSession, now.minusSeconds(120), 1200.0);
-        insertSample(memberSession, now.minusSeconds(3), 1000.0);
+        insertSample(hostSession, now.minusSeconds(120), 1200.0, speedMpsForPace(300));
+        insertSample(memberSession, now.minusSeconds(3), 1000.0, speedMpsForPace(400));
 
         live(groupRunId, memberId)
                 .andExpect(status().isOk())
@@ -729,12 +847,13 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     @Test
-    void live_running_withoutSessionAveragePace_hasNullPace() throws Exception {
+    void live_running_withoutMeasuredSpeed_hasNullPace() throws Exception {
         long groupRunId = createGroupRun();
         long hostSession = readyHost(groupRunId);
         joinAndReady(groupRunId, memberId);
         start(groupRunId, hostId).andExpect(status().isOk());
         markStarted(hostSession);
+        // 거리 표본만 있고 speed 없음 → 순위는 가능, 실측 페이스는 null
         insertSample(hostSession, Instant.now().minusSeconds(3), 500.0);
 
         live(groupRunId, memberId)
@@ -891,15 +1010,36 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     }
 
     private void insertSample(long sessionId, Instant measuredAt, double totalDistanceM) {
+        insertSample(sessionId, measuredAt, totalDistanceM, null);
+    }
+
+    private void insertSample(
+            long sessionId, Instant measuredAt, double totalDistanceM, Double speedMps) {
         jdbc.update(
                 """
                 INSERT INTO running_metric_samples(running_session_id, measured_at,
-                    elapsed_duration, total_distance, is_hr_measured)
-                VALUES (?, ?, 100, ?, FALSE)
+                    elapsed_duration, total_distance, speed, is_hr_measured)
+                VALUES (?, ?, 100, ?, ?, FALSE)
                 """,
                 sessionId,
                 Timestamp.from(measuredAt),
-                totalDistanceM);
+                totalDistanceM,
+                speedMps);
+    }
+
+    private static double speedMpsForPace(int paceSecPerKm) {
+        return 1000.0d / paceSecPerKm;
+    }
+
+    private void insertHeartRateSample(long sessionId, Instant measuredAt) {
+        jdbc.update(
+                """
+                INSERT INTO running_metric_samples(running_session_id, measured_at,
+                    elapsed_duration, heart_rate, is_hr_measured)
+                VALUES (?, ?, 100, 120, TRUE)
+                """,
+                sessionId,
+                Timestamp.from(measuredAt));
     }
 
     private void insertProfile(long userId, int averagePaceSecPerKm) {
@@ -910,13 +1050,6 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
                 """,
                 userId,
                 averagePaceSecPerKm);
-    }
-
-    private void setSessionAveragePace(long sessionId, int averagePaceSecPerKm) {
-        jdbc.update(
-                "UPDATE running_sessions SET average_pace = ? WHERE id = ?",
-                averagePaceSecPerKm,
-                sessionId);
     }
 
     private void insertCoachingDecision(long sessionId, int recommendedPaceSecPerKm) {
@@ -1085,7 +1218,7 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
         return jdbc.queryForObject(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREEE')
+                VALUES (?, 'hash', ?, '2000-01-01', 'MALE', ?, 'AGREE')
                 RETURNING id
                 """,
                 Long.class,

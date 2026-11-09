@@ -1,4 +1,5 @@
 import { apiRequest } from './http';
+import { listItems } from './listItems';
 
 // CMT12 지역 목록, loaded once and shared: courses and crews keep only a region code.
 
@@ -33,9 +34,11 @@ export function createRegions() {
   let list: Promise<RegionItem[]> | null = null;
 
   // A failed load is tried again next time; until then places show without a region name.
+  // Missing/null items must stay [] — otherwise crew/course mapping throws and looks like a
+  // failed list load (same empty-list rule as S15P31E105-588).
   const load = () => {
-    list ??= apiRequest<{ items: RegionItem[] }>('/regions')
-      .then(({ items }) => items)
+    list ??= apiRequest<{ items?: RegionItem[] | null }>('/regions')
+      .then(body => listItems(body))
       .catch(() => {
         list = null;
         return [];

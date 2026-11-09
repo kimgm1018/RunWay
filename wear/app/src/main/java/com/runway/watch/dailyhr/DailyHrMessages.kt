@@ -85,7 +85,7 @@ fun HealthConsent.Companion.fromDataMap(
     access: String?, updatedAt: String?, collectionId: String? = null, collectionStartedAt: String? = null,
 ): HealthConsent? {
     val agreed = when (access) {
-        "AGREEE" -> true
+        "AGREE" -> true
         "DISAGREE" -> false
         else -> return null
     }

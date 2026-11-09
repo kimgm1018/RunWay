@@ -39,14 +39,32 @@ async function settle(ms = 20) {
 }
 
 // Flush each timer-driven render before checking the next screen (S15P31E105-372).
-async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
-  const deadline = Date.now() + timeoutMs;
-  while (!texts(screen).includes(text)) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+// Cap by poll count, not wall clock, so suite load does not trip Date.now budgets (S15P31E105-565).
+async function waitForText(screen: Screen, text: string, maxPolls = 300) {
+  for (let i = 0; i < maxPolls; i++) {
+    if (texts(screen).includes(text)) {
+      return;
     }
     await settle(50);
   }
+  throw new Error(`Timed out waiting for ${text}: ${texts(screen)}`);
+}
+
+// 이전 스택 화면에도 장소 이름이 남아 있을 수 있어 검색 결과는 선택 버튼이 생길 때까지 기다린다.
+async function waitForAction(screen: Screen, label: string, maxPolls = 300) {
+  for (let i = 0; i < maxPolls; i++) {
+    if (
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === label &&
+          typeof node.props.onPress === 'function',
+      ).length
+    ) {
+      return;
+    }
+    await settle(50);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
 }
 
 async function press(screen: Screen, label: string) {
@@ -167,7 +185,7 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   expect(page).not.toContain('남천 회복 조깅 크루장이');
   expect(() => labelled(screen, '대기방 입장')).toThrow();
   await type(screen, '내 크루 검색', '없는 크루');
-  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  expect(texts(screen)).toContain('찾는 크루가 없어요');
   await press(screen, '검색 닫기');
   expect(texts(screen)).toContain('크루장이 승인하면 그룹런이 보여요');
   await act(async () => screen.unmount());
@@ -201,7 +219,7 @@ test('6.1 lists every crew, open ones before full ones, and searches by name or 
   expect(page).toContain('해운대 선셋 런');
   expect(page).not.toContain('광안리 새벽 크루 18/30명');
   await type(screen, '크루 검색', '없는 크루');
-  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  expect(texts(screen)).toContain('찾는 크루가 없어요');
   // Closing the search clears it.
   await press(screen, '검색 닫기');
   expect(texts(screen)).toContain('광안리 새벽 크루 18/30명');
@@ -313,6 +331,85 @@ test('6.2 sends a join request (6.2b) and 6.0 shows the crew as 승인 대기', 
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-592: approval happens on the leader's phone, so 6.0 loads M10 again whenever the group tab
+// comes back into view, and keeps the old list on screen until the new one arrives.
+test('6.0 loads my crews again when the group tab is shown again, keeping the list until it arrives', async () => {
+  const repositories = createMockRepositories({
+    latencyMs: 0,
+    tickMs: 20,
+    scenario: 'noCrews',
+  });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await press(screen!, '그룹');
+  await press(screen!, '크루 모집 보러 가기');
+  await press(screen!, '광안리 새벽 크루, 모집 중 18/30명');
+  await press(screen!, '가입 신청');
+  await press(screen!, '내 크루로');
+  await settle(100);
+  expect(texts(screen!)).toContain('승인 대기');
+
+  // The leader approves on their phone: the next M10 has the crew as a member with its run.
+  const listMine = repositories.groupRuns.listMine;
+  let release = () => {};
+  const spy = jest.spyOn(repositories.groupRuns, 'listMine').mockImplementation(
+    () =>
+      new Promise(resolve => {
+        release = () =>
+          listMine.apply(repositories.groupRuns).then(data =>
+            resolve({
+              ...data,
+              crews: data.crews.map(({ crew }) => ({
+                crew: { ...crew, membership: 'MEMBER' as const },
+                groupRuns: [
+                  {
+                    id: 'gr-approved',
+                    crewId: crew.id,
+                    crewName: crew.name,
+                    title: '승인 후 첫 새벽런',
+                    hostId: 'u-leader',
+                    hostNickname: '성윤',
+                    isHost: false,
+                    scheduledAt: '2099-01-01T21:00:00.000Z',
+                    meetingPlaceName: '광안리 해변',
+                    meetingAddress: '부산 수영구',
+                    courseId: null,
+                    courseName: null,
+                    targetDistanceM: null,
+                    targetDurationSec: 2400,
+                    participantCount: 3,
+                    joined: false,
+                    status: 'SCHEDULED' as const,
+                  },
+                ],
+              })),
+            }),
+          );
+      }),
+  );
+
+  await press(screen!, '홈');
+  await press(screen!, '그룹');
+  expect(spy).toHaveBeenCalledTimes(1);
+  // Mid-load the old list stays: no spinner, no empty state.
+  let page = texts(screen!);
+  expect(page).toContain('승인 대기');
+  expect(page).not.toContain('혼자 달리던 길, 같이 달려 볼까요');
+
+  await act(async () => release());
+  await settle(50);
+  page = texts(screen!);
+  expect(page).not.toContain('승인 대기');
+  expect(page).toContain('승인 후 첫 새벽런');
+  spy.mockRestore();
+  await act(async () => screen!.unmount());
+});
+
 test('6.2m saves the capacity and 6.2a approves a request and switches to 바로 가입', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
@@ -413,6 +510,7 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   }
   await press(screen, '만나는 곳 변경');
   await type(screen, '장소·주소 검색', '수영강');
+  await waitForAction(screen, '수영강 APEC나루공원 입구');
   await press(screen, '수영강 APEC나루공원 입구');
   await press(screen, '이 위치로 정하기');
   expect(texts(screen)).toContain('위치 확정');
@@ -501,6 +599,7 @@ test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   expect(create().props.disabled).toBe(true);
   await type(screen, '크루 이름', '광안리 주말 러너스');
   await type(screen, '지역 검색', '광안리');
+  await waitForAction(screen, '광안리해수욕장 입구');
   await press(screen, '광안리해수욕장 입구');
   await press(screen, '모집 인원 늘리기');
   expect(texts(screen)).toContain('21');

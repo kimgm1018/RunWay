@@ -27,6 +27,9 @@ object MelonPolicy {
   // 멜론 MediaBrowser 최상위 메뉴(실기기 확인: 홈·재생목록·음악서랍) 중 기본 재생목록.
   fun isDefaultPlaylist(title: String?) = title?.trim() == "재생목록"
 
+  // 계정의 곡 목록이 있는 최상위 메뉴(S15P31E105-566 실기기 확인: 좋아요한 곡·최근들은 곡·플레이리스트 폴더).
+  fun isDrawer(title: String?) = title?.trim() == "음악서랍"
+
   fun isTop100(title: String?) = title?.replace(" ", "")?.contains("TOP100", ignoreCase = true) == true
 
   /** 멜론이 지원한다고 알린 동작만 보낸다. 재생·일시정지는 토글 동작으로도 지원될 수 있다. */
@@ -77,6 +80,76 @@ object MelonPolicy {
       .toString()
   }
 
+  /**
+   * 음악서랍 항목의 종류. 폴더 안 항목은 내 플레이리스트, 바로 아래 항목은 이름으로 좋아요한 곡·최근들은 곡을 가른다.
+   * 바로 아래 항목의 아이콘은 표지가 아니라 멜론 메뉴 기호라서 표지로 쓰지 않는다.
+   */
+  fun kindOf(title: String?, inFolder: Boolean): String {
+    val name = title?.replace(" ", "") ?: ""
+    return when {
+      inFolder -> "PLAYLIST"
+      name.contains("좋아요") -> "LIKED"
+      name.contains("최근") -> "RECENT"
+      else -> "LIST"
+    }
+  }
+
+  /** 2.7 내 재생 목록 항목. 표지는 웹 이미지 주소만 넘기고, 그 밖에는 2.7 기본 타일로 둔다. */
+  fun libraryJson(entries: List<MelonEntry>): String = JSONArray().apply {
+    entries.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.id }.forEach {
+      put(
+        JSONObject()
+          .put("id", it.id)
+          .put("title", it.title)
+          .put("kind", it.kind)
+          .put("artworkUri", webImage(it.artworkUri) ?: JSONObject.NULL)
+          .put("trackCount", it.trackCount?.takeIf { count -> count > 0 } ?: JSONObject.NULL),
+      )
+    }
+  }.toString()
+
+  /** 최근 들은 곡 기록에 곡을 맨 앞으로 넣는다. 같은 곡은 한 번만 두고(새 정보로 바꿈) `limit`곡까지 남긴다. */
+  fun addHistory(json: String, heard: MelonHeard, limit: Int): String {
+    if (heard.id.isBlank() || heard.title.isBlank()) return json
+    val kept = historyOf(json).filter { it.id != heard.id }
+    return JSONArray().apply {
+      (listOf(heard) + kept).take(limit).forEach {
+        put(
+          JSONObject()
+            .put("id", it.id)
+            .put("title", it.title)
+            .put("artist", it.artist)
+            .put("artworkUri", webImage(it.artworkUri) ?: JSONObject.NULL)
+            .put("durationMs", it.durationMs),
+        )
+      }
+    }.toString()
+  }
+
+  fun historyOf(json: String): List<MelonHeard> = try {
+    val array = JSONArray(json)
+    (0 until array.length()).mapNotNull { index ->
+      val value = array.optJSONObject(index) ?: return@mapNotNull null
+      val id = value.optString("id")
+      val title = value.optString("title")
+      if (id.isBlank() || title.isBlank()) {
+        null
+      } else {
+        MelonHeard(
+          id,
+          title,
+          value.optString("artist"),
+          if (value.isNull("artworkUri")) null else value.optString("artworkUri"),
+          value.optLong("durationMs"),
+        )
+      }
+    }
+  } catch (_: Exception) {
+    emptyList()
+  }
+
+  fun webImage(uri: String?) = uri?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+
   private infix fun Long.has(action: Long) = this and action == action
 }
 
@@ -88,6 +161,18 @@ data class MelonTrack(
   val positionMs: Long,
   val artworkUri: String?,
 )
+
+/** 멜론 MediaBrowser가 재생할 수 있다고 알린 목록(좋아요한 곡·최근들은 곡·내 플레이리스트). */
+data class MelonEntry(
+  val id: String,
+  val title: String,
+  val artworkUri: String?,
+  val kind: String = "PLAYLIST",
+  val trackCount: Int? = null,
+)
+
+/** 이 기기에서 멜론이 재생한 곡(최근 들은 곡). */
+data class MelonHeard(val id: String, val title: String, val artist: String, val artworkUri: String?, val durationMs: Long)
 
 data class MelonSnapshot(
   val connected: Boolean,

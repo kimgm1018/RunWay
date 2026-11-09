@@ -152,3 +152,118 @@ def test_grade_less_endpoint_returns_200(regression, monkeypatch):
     assert result["gradeFilledRunCount"] == 1
     assert result["gradeMissingRatio"] == 1.0
     assert result["hrThresholdRunCount"] == 1
+
+
+@pytest.mark.parametrize("previous, enabled, mode, skipped", [
+    ({"modelVersion": "test", "p4": [1, -2, 3, 10]}, "1", "warm", False),
+    (None, "1", "cold", False),
+    ({"modelVersion": "other", "p4": [1, 2, 3, 4]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, float("nan")]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, float("inf")]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, 10.01]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, "4"]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, True]}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": (1, 2, 3, 4)}, "1", "cold", True),
+    ({}, "1", "cold", True),
+    ({"modelVersion": "test", "p4": [1, 2, 3, 4]}, "0", "cold", False),
+])
+def test_personalization_warm_start_selection(regression, monkeypatch, previous, enabled, mode, skipped):
+    monkeypatch.setenv("ODEV21_P4_WARM_START", enabled)
+    monkeypatch.setenv("ODEV21_P4_STEPS", "11")
+    monkeypatch.setenv("ODEV21_P4_WARM_STEPS", "6")
+    monkeypatch.setenv("ODEV21_P4_EARLY_STOP_TOL", "0.002")
+    runtime = _fake_runtime()
+    runtime.model, runtime.stats, runtime.device = object(), {}, "cpu"
+    runtime.fit_module.fit_items = lambda *_args, **_kwargs: [object()]
+    calls = []
+
+    def fit_p4(_model, groups, _stats, **kwargs):
+        calls.append(kwargs)
+        steps = kwargs["steps"][0]
+        return {steps: {group: np.asarray([0.1, 0.2, 0.3, 0.4], np.float32) for group in groups}}
+
+    runtime.fit_module.fit_p4 = fit_p4
+    req = PersonalizeRequest.model_validate(_grade_less_body(regression))
+    result = compute_personalization(req, runtime, previous=previous)
+    assert ("P4_WARM_START_SKIPPED" in result["warnings"]) == skipped
+    assert result["p4"] == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert len(calls) == 1
+    if mode == "warm":
+        assert calls[0]["steps"] == (6,)
+        assert calls[0]["init"] == {str(req.user_id): previous["p4"]}
+        assert calls[0]["early_stop_tol"] == 0.002
+    else:
+        assert calls[0]["steps"] == (11,)
+        assert "init" not in calls[0]
+        assert "early_stop_tol" not in calls[0]
+
+
+def test_personalization_warm_start_defaults_and_no_fit_steps(regression, monkeypatch):
+    for name in ("ODEV21_P4_WARM_START", "ODEV21_P4_WARM_STEPS", "ODEV21_P4_EARLY_STOP_TOL"):
+        monkeypatch.delenv(name, raising=False)
+    runtime = _fake_runtime()
+    previous = {"modelVersion": "test", "p4": [1, 2, 3, 4]}
+    req = PersonalizeRequest.model_validate(_grade_less_body(regression))
+    result = compute_personalization(req, runtime, previous=previous)
+    assert "P4_WARM_START_SKIPPED" not in result["warnings"]
+
+    runtime.model, runtime.stats, runtime.device = object(), {}, "cpu"
+    runtime.fit_module.fit_items = lambda *_args, **_kwargs: [object()]
+
+    def fit_p4(_model, groups, _stats, **kwargs):
+        assert kwargs["steps"] == (20,)
+        assert kwargs["early_stop_tol"] == 0
+        return {20: {group: np.zeros(4, np.float32) for group in groups}}
+
+    runtime.fit_module.fit_p4 = fit_p4
+    assert compute_personalization(req, runtime, previous=previous)["p4"] == [0.0, 0.0, 0.0, 0.0]
+
+
+@pytest.mark.parametrize("lookup_result", ["payload", "empty", "error", "disabled"])
+def test_personalize_lookup_runs_in_heavy_pool(regression, monkeypatch, lookup_result):
+    import threading
+    import app.main as main_module
+
+    monkeypatch.setenv("GRU_PERSONALIZATION_ENABLED", "false")
+    previous = {"modelVersion": "test", "p4": [1, 2, 3, 4]}
+    calls, logs = [], []
+    runtime = _fake_runtime()
+
+    class Lookup:
+        def get_personalization(self, user_id):
+            calls.append((user_id, threading.get_ident()))
+            if lookup_result == "error":
+                raise RuntimeError("조회 실패")
+            return SimpleNamespace(payload=previous if lookup_result == "payload" else None)
+
+    def compute(body, model, *, now, previous):
+        assert model is runtime
+        assert previous == (globals_previous if lookup_result == "payload" else None)
+        if lookup_result != "disabled":
+            assert calls == [(int(body.user_id), threading.get_ident())]
+        return {"warnings": [], "p4": [0, 0, 0, 0]}
+
+    globals_previous = previous
+    monkeypatch.setattr(main_module, "compute_personalization", compute)
+    monkeypatch.setattr(main_module, "log_ai_error", lambda code, *args, **kwargs: logs.append(code))
+    app = create_app(lambda: FakeModel5(), lambda: FakePolicy(), ode_loader=lambda: runtime,
+                     personal_plan_user_lookup=None if lookup_result == "disabled" else Lookup())
+    pool_calls = []
+
+    async def run_heavy(request, path, compute, *, pool):
+        assert path == "/v1/hr/personalize"
+        assert pool == "personalize"
+        assert calls == []
+        pool_calls.append(pool)
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(compute)
+
+    monkeypatch.setattr(main_module, "_run_heavy", run_heavy)
+    with TestClient(app) as client:
+        response = client.post("/v1/hr/personalize", json=_grade_less_body(regression))
+    assert response.status_code == 200
+    assert pool_calls == ["personalize"]
+    assert logs.count("P4_WARM_START_LOOKUP_FAILED") == (1 if lookup_result == "error" else 0)
+    if lookup_result == "disabled":
+        assert calls == []

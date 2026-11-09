@@ -25,4 +25,25 @@ allprojects {
     }
 }
 
+// Deep Windows worktree paths can make Ninja regenerate build.ninja indefinitely.
+// Keep sources in place (Metro resolves real paths), but shorten CMake's outputs.
+if (System.getProperty("os.name").startsWith("Windows")) {
+    subprojects { subproject ->
+        ["com.android.application", "com.android.library"].each { pluginId ->
+            subproject.plugins.withId(pluginId) {
+                subproject.extensions.getByName("androidComponents").finalizeDsl { android ->
+                    // React Native may assign the app's CMake path in a later callback.
+                    def moduleId = java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(subproject.projectDir.canonicalPath.getBytes("UTF-8"))
+                        .encodeHex().toString().take(16)
+                    def nativeRoot = rootProject.findProperty("runwayNativeBuildRoot") ?:
+                        new File(System.getProperty("java.io.tmpdir"), "runway-cxx")
+                    android.externalNativeBuild.cmake.buildStagingDirectory =
+                        new File(nativeRoot.toString(), moduleId)
+                }
+            }
+        }
+    }
+}
+
 apply plugin: "com.facebook.react.rootproject"

@@ -45,8 +45,7 @@ pipeline {
         stage('Mobile Typecheck and Lint') {
             steps {
                 dir('frontend') {
-                    sh 'pnpm typecheck'
-                    sh 'pnpm lint'
+                    sh 'sh ../infra/jenkins/check-mobile-static.sh'
                 }
             }
         }

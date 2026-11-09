@@ -48,7 +48,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.consentType").value("HEALTH_DATA"))
                 .andExpect(jsonPath("$.granted").value(true));
-        assertThat(stored(user)).isEqualTo("AGREEE");
+        assertThat(stored(user)).isEqualTo("AGREE");
 
         health(user, false)
                 .andExpect(status().isOk())
@@ -63,7 +63,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
             health(userId, granted)
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.granted").value(granted));
-            assertThat(stored(userId)).isEqualTo(granted ? "AGREEE" : "DISAGREE");
+            assertThat(stored(userId)).isEqualTo(granted ? "AGREE" : "DISAGREE");
         }
     }
 
@@ -73,7 +73,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
         change(userId, "{\"consentType\":\"" + type + "\",\"granted\":false}")
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("INVALID_CONSENT"));
-        assertThat(stored(userId)).isEqualTo("AGREEE");
+        assertThat(stored(userId)).isEqualTo("AGREE");
     }
 
     @ParameterizedTest
@@ -99,7 +99,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
         change(userId, body)
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-        assertThat(stored(userId)).isEqualTo("AGREEE");
+        assertThat(stored(userId)).isEqualTo("AGREE");
     }
 
     @Test
@@ -118,7 +118,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
                                 .contentType(MediaType.TEXT_PLAIN)
                                 .content("{\"consentType\":\"HEALTH_DATA\",\"granted\":false}"))
                 .andExpect(status().isUnsupportedMediaType());
-        assertThat(stored(userId)).isEqualTo("AGREEE");
+        assertThat(stored(userId)).isEqualTo("AGREE");
     }
 
     /** D-5: 값이 실제로 바뀔 때만 회원 행 updated_at을 갱신한다. 같은 값 재요청은 쓰지 않는다. */
@@ -158,7 +158,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
         consentStatus(userId)
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
-        assertThat(stored(userId)).isEqualTo("AGREEE");
+        assertThat(stored(userId)).isEqualTo("AGREE");
     }
 
     @Test
@@ -166,7 +166,7 @@ class ConsentApiIntegrationTest extends SyncBatchIntegrationSupport {
         health(userId, false).andExpect(status().isOk());
 
         assertThat(stored(userId)).isEqualTo("DISAGREE");
-        assertThat(stored(otherUserId)).isEqualTo("AGREEE");
+        assertThat(stored(otherUserId)).isEqualTo("AGREE");
         consentStatus(otherUserId).andExpect(jsonPath("$.items[3].granted").value(true));
     }
 

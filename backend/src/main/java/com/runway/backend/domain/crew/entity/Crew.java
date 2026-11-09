@@ -48,6 +48,11 @@ public class Crew {
     @Column(name = "region_code", length = 40)
     private String regionCode;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "join_policy", nullable = false, columnDefinition = "crews_join_policy_enum")
+    private CrewJoinPolicy joinPolicy;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private Instant createdAt;
 
@@ -60,7 +65,8 @@ public class Crew {
             String description,
             String imageKey,
             int capacity,
-            String regionCode) {
+            String regionCode,
+            CrewJoinPolicy joinPolicy) {
         Crew crew = new Crew();
         crew.ownerId = ownerId;
         crew.name = name;
@@ -68,6 +74,7 @@ public class Crew {
         crew.imageKey = imageKey;
         crew.capacity = capacity;
         crew.regionCode = regionCode;
+        crew.joinPolicy = joinPolicy;
         crew.status = CrewStatus.ACTIVE;
         return crew;
     }
@@ -78,6 +85,14 @@ public class Crew {
 
     public void transferOwnership(long newOwnerId) {
         this.ownerId = newOwnerId;
+    }
+
+    public void changeCapacity(int capacity) {
+        this.capacity = capacity;
+    }
+
+    public void changeJoinPolicy(CrewJoinPolicy joinPolicy) {
+        this.joinPolicy = joinPolicy;
     }
 
     public void deactivate() {

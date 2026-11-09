@@ -1,7 +1,11 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { lowerToLogo, RunMap } from '../src/components/RunMap';
-import { appConfig } from '../src/config';
+import {
+  headingOf,
+  lowerToLogo,
+  RunMap,
+  zoomFor,
+} from '../src/components/RunMap';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -32,7 +36,17 @@ const texts = (root: ReactTestRenderer.ReactTestInstance) =>
     .findAll(node => typeof node.props.children === 'string')
     .map(node => node.props.children);
 
-test('a course with paces shows the start and one pace label per km', () => {
+// The props RunMap gave the mock overlays named `name` (their displayName in jest.setup.js).
+const overlays = (root: ReactTestRenderer.ReactTestInstance, name: string) =>
+  root
+    .findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        (node.type as { displayName?: string }).displayName === name,
+    )
+    .map(node => node.props);
+
+test('a course with paces shows its start, its finish and one pace label per km', () => {
   const root = render(
     <RunMap
       route={route}
@@ -41,9 +55,54 @@ test('a course with paces shows the start and one pace label per km', () => {
     />,
   );
   expect(texts(root)).toEqual(
-    expect.arrayContaining(['SF', '5\'30"', '5\'45"', '6\'00"']),
+    expect.arrayContaining(['S', 'F', '5\'30"', '5\'45"', '6\'00"']),
   );
+  expect(texts(root)).not.toContain('SF');
   expect(count(root, 'naver-map-multipath')).toBe(1);
+});
+
+test('a course that ends where it starts has one SF pole', () => {
+  const root = render(<RunMap route={[...route, [129.1302, 35.1501]]} />);
+  expect(texts(root)).toContain('SF');
+  expect(texts(root)).not.toContain('S');
+  expect(texts(root)).not.toContain('F');
+});
+
+test('the course is a white ribbon round a thin centre over a soft shadow, the part run in grey (S15P31E105-562)', () => {
+  const root = render(<RunMap route={route} progress={0.4} />);
+  const [ribbon] = overlays(root, 'naver-map-multipath');
+  expect(ribbon.width).toBe(2.2);
+  expect(ribbon.outlineWidth).toBe(2.4);
+  expect(ribbon.progress).toBe(0.4);
+  expect(ribbon.pathParts[0]).toEqual(
+    expect.objectContaining({
+      color: '#060606',
+      outlineColor: '#FFFFFF',
+      passedColor: '#B4BDC4',
+      passedOutlineColor: '#FFFFFF',
+    }),
+  );
+  // The shadow is one wide faint line under the ribbon.
+  expect(count(root, 'naver-map-path')).toBe(1);
+  const [shadow] = overlays(root, 'naver-map-path');
+  expect(shadow.width).toBe(10);
+  expect(shadow.zIndex).toBeLessThan(ribbon.zIndex);
+});
+
+test('a card map (compact) is a lite map with small poles; a screen map is not', () => {
+  const card = render(<RunMap route={route} compact />);
+  expect(
+    card.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
+  ).toBe(true);
+  const screen = render(<RunMap route={route} />);
+  expect(
+    screen.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
+  ).toBe(false);
+});
+
+test('a cancelled course is grey and casts no shadow', () => {
+  const root = render(<RunMap route={route} muted />);
+  expect(count(root, 'naver-map-path')).toBe(0);
 });
 
 test('while running the course is a guide: no start, no labels, the run on top', () => {
@@ -55,20 +114,21 @@ test('while running the course is a guide: no start, no labels, the run on top',
       segmentPaces={[330]}
     />,
   );
-  expect(texts(root)).not.toContain('SF');
+  expect(texts(root)).not.toContain('S');
+  expect(texts(root)).not.toContain('F');
   expect(texts(root)).not.toContain('5\'30"');
-  // The course stays a hollow line under the run, by day and after sunset alike.
+  // The course stays a guide ribbon under the run; the run is the ink ribbon over its shadow.
   expect(count(root, 'naver-map-multipath')).toBe(1);
   expect(count(root, 'naver-map-polyline')).toBe(0);
-  expect(count(root, 'naver-map-path')).toBe(1);
+  expect(count(root, 'naver-map-path')).toBe(2);
 });
 
-test('the map is always the K1 day style, with no night map after sunset (S15P31E105-527)', () => {
+test('the map is the plain Naver day map, with no night map after sunset (S15P31E105-527, -521)', () => {
   const root = render(<RunMap route={route} trail={route.slice(0, 2)} />);
   const map = root.find(
     node => 'customStyleId' in node.props && 'mapType' in node.props,
   );
-  expect(map.props.customStyleId).toBe(appConfig.naverMapDayStyleId);
+  expect(map.props.customStyleId).toBeUndefined();
   expect(map.props.mapType).toBe('Basic');
   expect(map.props.isNightModeEnabled).toBeFalsy();
 });
@@ -167,4 +227,46 @@ test('without a logo the map keeps its own logo place', () => {
   const map = layOut(root, 1000);
   expect(map.props.logoAlign).toBeUndefined();
   expect(map.props.logoMargin).toBeUndefined();
+});
+
+// S15P31E105-521: the tilted views.
+test('the map is flat without buildings unless the screen asks for the tilted view', () => {
+  const flat = layOut(render(<RunMap route={route} />), 1000);
+  expect(flat.props.layerGroups.BUILDING).toBe(false);
+  expect(flat.props.camera).toBeUndefined();
+  const lean = layOut(render(<RunMap route={route} view="lean" />), 1000);
+  expect(lean.props.layerGroups.BUILDING).toBe(true);
+  expect(lean.props.layerGroups.TRANSIT).toBe(false);
+});
+
+test('the tilted views fit the region at the zoom the flat fit would pick', () => {
+  const region = {
+    latitude: 37.5,
+    longitude: 127,
+    latitudeDelta: 0.002,
+    longitudeDelta: 0.01,
+  };
+  // 0.01° of longitude at 37.5° is about 883 m across 400 points.
+  expect(zoomFor(region, undefined, 400, 1000)).toBeCloseTo(14.78, 1);
+  // Twice the span is one zoom level out.
+  expect(
+    zoomFor({ ...region, longitudeDelta: 0.02 }, undefined, 400, 1000),
+  ).toBeCloseTo(13.78, 1);
+  // A tall region is held by the padded height instead.
+  const tall = { ...region, latitudeDelta: 0.02, longitudeDelta: 0.001 };
+  expect(zoomFor(tall, { top: 250, bottom: 250 }, 400, 1000)).toBeCloseTo(
+    zoomFor(tall, undefined, 400, 500),
+    5,
+  );
+});
+
+test('the heading follows the last stretch of the run and holds while standing', () => {
+  const start: LngLat = [127, 37.5];
+  // About 33 m north, then 26 m east.
+  const north: LngLat = [127, 37.5003];
+  const east: LngLat = [127.0003, 37.5003];
+  expect(headingOf([start, north], 200)).toBeCloseTo(0, 0);
+  expect(headingOf([start, north, east], 0)).toBeCloseTo(90, 0);
+  // A step of a few metres keeps the heading it had.
+  expect(headingOf([north, [127.00002, 37.5003]], 135)).toBe(135);
 });

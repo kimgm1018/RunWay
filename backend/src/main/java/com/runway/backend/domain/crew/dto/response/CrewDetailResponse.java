@@ -11,6 +11,7 @@ public record CrewDetailResponse(
         long memberCount,
         int capacity,
         String regionCode,
+        String joinPolicy,
         String myMembershipStatus) {
 
     public static CrewDetailResponse from(
@@ -23,6 +24,7 @@ public record CrewDetailResponse(
                 memberCount,
                 crew.getCapacity(),
                 crew.getRegionCode(),
+                crew.getJoinPolicy().name(),
                 myMembershipStatus == null ? null : myMembershipStatus.name());
     }
 }

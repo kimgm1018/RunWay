@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -21,8 +21,8 @@ import {
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
 import { DarkSegmented } from './CrewJoinRequestsScreen';
-import { GroupCta, groupLook, MistBackground, SectionLabel } from './look';
-import { useGroupRunDraft } from './parts';
+import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
+import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
 import { photoFailure, pickPhoto } from '../photoPicker';
@@ -43,7 +43,8 @@ const policyNotes: Record<CrewJoinPolicy, string> = {
   INSTANT: '바로 가입은 신청하면 바로 멤버가 돼요.',
 };
 
-// A section with a line label and a note on the right: 필수, 검색해서 선택, 0 / 200 … (no card).
+// A section with a line label and a note on the right: 필수, 검색해서 선택, 0 / 200 …, a full-width block under a
+// grey band on the white page (S15P31E105-563).
 function Field({
   title,
   note,
@@ -54,7 +55,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <View style={styles.field}>
+    <View style={groupPage.block}>
       <View style={styles.rowBetween}>
         <SectionLabel tone="mist">{title}</SectionLabel>
         {note ? (
@@ -68,7 +69,7 @@ function Field({
   );
 }
 
-// The dark glass pill an entry sits in (--input-dark-*, as a plain fill).
+// The flat light grey pill an entry sits in (S15P31E105-563).
 function InputBox({
   children,
   tall = false,
@@ -84,7 +85,7 @@ function InputBox({
 }
 
 // 지역: type to search the places and pick one; the picked place shows with a pin.
-function AreaPicker({
+export function AreaPicker({
   area,
   onPick,
 }: {
@@ -94,18 +95,34 @@ function AreaPicker({
   const { groupRuns } = useRepositories();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MeetingPlace[]>([]);
-  const search = async (text: string) => {
-    setQuery(text);
-    if (!text.trim()) {
-      setResults([]);
-      return;
-    }
-    try {
-      setResults((await groupRuns.searchPlaces(text)).slice(0, 4));
-    } catch {
-      setResults([]);
-    }
-  };
+  const [searching, setSearching] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setResults([]);
+    setFailed(false);
+    setSearching(Boolean(query.trim()) && !area);
+    if (!query.trim() || area) return;
+    const timer = setTimeout(() => {
+      groupRuns.searchPlaces(query).then(
+        found => {
+          if (!active) return;
+          setResults(found.slice(0, 4));
+          setSearching(false);
+        },
+        () => {
+          if (!active) return;
+          setFailed(true);
+          setSearching(false);
+        },
+      );
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [groupRuns, query, area, attempt]);
   if (area) {
     return (
       <Pressable
@@ -131,13 +148,32 @@ function AreaPicker({
           placeholderTextColor={groupLook.onLightMuted}
           selectionColor={groupLook.onLight}
           value={query}
-          onChangeText={search}
+          onChangeText={text => {
+            setQuery(text);
+            setResults([]);
+            setFailed(false);
+            setSearching(Boolean(text.trim()));
+          }}
           style={styles.input}
         />
       </InputBox>
+      {searching ? <AppText style={styles.sub}>검색 중이에요</AppText> : null}
+      {failed ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="지역 검색 다시 시도"
+          onPress={() => setAttempt(value => value + 1)}
+        >
+          <AppText style={styles.sub}>
+            검색하지 못했어요. 눌러서 다시 시도해 주세요
+          </AppText>
+        </Pressable>
+      ) : !searching && query.trim() && results.length === 0 ? (
+        <AppText style={styles.sub}>찾는 장소가 없어요</AppText>
+      ) : null}
       {results.map(place => (
         <Pressable
-          key={place.name}
+          key={`${place.name}:${place.address}:${place.position.join(',')}`}
           accessibilityRole="button"
           accessibilityLabel={place.name}
           onPress={() => {
@@ -241,11 +277,10 @@ export function CrewCreateScreen() {
   };
 
   return (
-    // On the mist like the rest of 6.0~6.3 (S15P31E105-483).
+    // The white page with grey bands, like 6.2 (S15P31E105-563).
     <ThemeProvider tone="light">
-      <View style={styles.root}>
+      <View style={[styles.root, groupPage.page]}>
         <StatusBar barStyle="dark-content" />
-        <MistBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
             <BackButton tone="light" onPress={() => navigation.goBack()} />
@@ -260,7 +295,7 @@ export function CrewCreateScreen() {
             contentContainerStyle={styles.content}
           >
             {/* 대표 사진: the picked photo fills the box; tapping it picks another, × takes it out. */}
-            <View>
+            <View style={styles.photoBlock}>
               <PressableScale
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -344,7 +379,7 @@ export function CrewCreateScreen() {
               />
               <AppText style={styles.sub}>{policyNotes[joinPolicy]}</AppText>
             </Field>
-            <View style={styles.capacityRow}>
+            <View style={[groupPage.block, styles.capacityRow]}>
               <View style={styles.flex}>
                 <SectionLabel tone="mist" style={styles.capacityLabel}>
                   모집 인원
@@ -372,7 +407,9 @@ export function CrewCreateScreen() {
           </ScrollView>
         </KeyboardLift>
         <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <BottomFade white />
           <GroupCta
+            navy
             title="크루 만들기"
             icon="plus"
             disabled={!ready || busy}
@@ -384,11 +421,9 @@ export function CrewCreateScreen() {
   );
 }
 
-// A light glass field on the mist (S15P31E105-483), in place of --input-dark-*.
+// A flat light grey field on the white page (S15P31E105-563): no edge light or shadow.
 const inputDark = {
-  backgroundColor: 'rgba(255,255,255,0.6)',
-  boxShadow:
-    'inset 0 1px 0 rgba(255,255,255,0.9), inset 0 -1px 0 rgba(30,45,60,0.08), 0 6px 18px rgba(30,45,60,0.1)',
+  backgroundColor: groupLook.lightFill,
 };
 
 const styles = StyleSheet.create({
@@ -409,7 +444,12 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   // Room under the last section for the floating button.
-  content: { paddingHorizontal: 16, paddingBottom: 120, gap: spacing.xl },
+  content: { paddingBottom: 120 },
+  photoBlock: {
+    paddingHorizontal: 20,
+    paddingTop: spacing.md,
+    paddingBottom: 24,
+  },
   // 6.3-PhotoUpload: a light glass box, 96 high.
   photo: {
     height: 96,
@@ -438,7 +478,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: groupLook.onLightSub,
   },
-  field: { gap: spacing.md },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -518,6 +557,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 16,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
 });

@@ -78,21 +78,22 @@ function startReady(screen: Screen) {
 }
 
 // 앱 타이머가 낸 갱신은 act가 끝날 때 반영되므로 짧게 나눠 기다리며 조건을 확인한다.
+// Poll count (not Date.now) so suite CPU load does not expire the wait early (S15P31E105-565).
 async function settleUntil(
   screen: Screen,
   ready: () => boolean,
   what: string,
-  timeoutMs = 15000,
+  maxPolls = 300,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  while (!ready()) {
-    if (Date.now() > deadline) {
-      throw new Error(
-        `${what} 화면이 ${timeoutMs}ms 안에 열리지 않음: ${texts(screen)}`,
-      );
+  for (let i = 0; i < maxPolls; i++) {
+    if (ready()) {
+      return;
     }
     await settle(50);
   }
+  throw new Error(
+    `${what} 화면이 ${maxPolls}회 대기 안에 열리지 않음: ${texts(screen)}`,
+  );
 }
 
 async function press(screen: Screen, label: string) {
@@ -133,8 +134,10 @@ async function startRun(
     await press(screen!, label);
   };
   if (kind === 'course') {
-    // 2.1 저장한 코스 → 3.1c, where a course sets up the run.
-    await open('저장한 코스', '홈');
+    // 러닝 → 2.0C 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-564).
+    await open('러닝', '홈 탭');
+    await open('코스 러닝', '러닝 방식 선택');
+    await open('저장한 코스', '코스 러닝 시작');
     await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
   } else {
     await open('러닝', '홈 탭');
@@ -257,10 +260,10 @@ test('a free run result can be saved as my course, and a failed save offers 다�
   await press(free, '내 코스에 저장');
   expect(texts(free)).toContain('내 코스에 저장했어요');
   expect(texts(free)).toContain('내 코스에 저장됨');
-  // 기록 보기 opens the run just saved in 5.2.
+  // 기록 보기 opens the run just saved in 2.1's detail, with its way back to 러닝 기록 (S15P31E105-574).
   await press(free, '기록 보기');
   await settle();
-  expect(texts(free)).toContain('기록 상세');
+  expect(texts(free)).toContain('기록으로 돌아가기');
   await act(async () => free.unmount());
 
   const failed = await startRun('free', 'recordSaveFailed');
@@ -344,7 +347,9 @@ async function courseStartGoal(pick: boolean) {
     await settleUntil(screen!, () => shows(screen!, label), what);
     await press(screen!, label);
   };
-  await open('저장한 코스', '홈');
+  await open('러닝', '홈 탭');
+  await open('코스 러닝', '러닝 방식 선택');
+  await open('저장한 코스', '코스 러닝 시작');
   await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
   const chip = `${formatDotDate(first.startedAt)} ${formatDuration(
     first.durationSec,

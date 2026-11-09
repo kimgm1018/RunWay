@@ -126,7 +126,7 @@ class SchemaIntegrityTest {
     private static String userSql(String login) {
         return """
         INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-        VALUES ('%s','synthetic-hash','%s','2000-01-01','MALE','00000000000','AGREEE')
+        VALUES ('%s','synthetic-hash','%s','2000-01-01','MALE','00000000000','AGREE')
         """
                 .formatted(login, login.substring(0, Math.min(10, login.length())));
     }
@@ -266,13 +266,13 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM information_schema.tables WHERE"
                                     + " table_schema='public' AND table_type='BASE TABLE' AND"
                                     + " table_name<>'spatial_ref_sys'"))
-                .isEqualTo(32);
+                .isEqualTo(33);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND column_name='id' AND"
                                     + " is_identity='YES' AND identity_generation='ALWAYS'"))
-                .isEqualTo(32);
+                .isEqualTo(33);
         assertThat(user).isPositive();
         assertThat(otherUser).isGreaterThan(user);
         rejects(

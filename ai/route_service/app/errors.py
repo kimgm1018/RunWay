@@ -15,7 +15,7 @@ REROLL_NO_ROUTE_MESSAGE = "이 조건으로 더 보여 드릴 다른 코스가 �
 NO_ROAD_MESSAGE = "고른 위치 주변에 달릴 수 있는 길이 없어요 (바다나 산속일 수 있어요). 길 가까이를 눌러 주세요."
 END_SNAP_MESSAGE = "도착 위치 근처에서 안전하게 달릴 수 있는 길을 찾지 못했어요. 도착 위치를 길 가까이로 옮겨 주세요."
 SHAPE_FAIL = {  # 새 모양(왕복·편도)의 blocking issue code -> 사용자 메시지 (code는 그대로 쓴다)
-    "OUT_OF_APP_RANGE": "현재 앱 범위를 벗어난 목적지입니다. 15 km 안쪽의 도착 위치를 골라 주세요.",
+    "OUT_OF_APP_RANGE": "현재 앱 범위를 벗어난 목적지입니다. 21.1 km 안쪽의 도착 위치를 골라 주세요.",
     "END_SNAP_PE1": END_SNAP_MESSAGE, "END_SNAP_PE2": END_SNAP_MESSAGE, "END_SNAP_PE4": END_SNAP_MESSAGE,
     "END_SNAP_PE5": END_SNAP_MESSAGE,
     "SNAP_NODE_NOT_IN_GENERATION_GRAPH": "코스를 만드는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",

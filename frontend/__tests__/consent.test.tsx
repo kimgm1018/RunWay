@@ -118,7 +118,7 @@ test.each([false, true])(
     expect(control(screen, '동의하고 가입하기').props.disabled).toBe(false);
     await press(screen, '동의하고 가입하기');
     expect(text(screen.root)).toContain(
-      `가입 동의 값: ${health ? 'AGREEE' : 'DISAGREE'}`,
+      `가입 동의 값: ${health ? 'AGREE' : 'DISAGREE'}`,
     );
     await act(async () => screen.unmount());
   },

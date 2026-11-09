@@ -4,6 +4,7 @@ import {
   Animated,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -30,7 +31,10 @@ import {
   type Repositories,
   type WatchConnection,
 } from '../../data';
+import { watchConnectionLabel } from '../../data/api/devices';
 import { setWatchHealthConsent } from '../../health/watchHealth';
+import type { SleepAccess } from '../../health/samsungSleep';
+import { useSamsungSleep } from '../../health/useSamsungSleep';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1, spacing, useTheme } from '../../theme';
@@ -142,6 +146,24 @@ function Tiles({ children }: { children: React.ReactNode }) {
   return <View style={styles.tiles}>{children}</View>;
 }
 
+// S15P31E105-572: Samsung Health sleep read access on this phone. OS permission, not the server consent above.
+const sleepAccessLabels: Record<SleepAccess, string> = {
+  granted: '수면 읽기 허용됨',
+  notRequested: '수면 연결 안 됨',
+  denied: '수면 권한 거부됨',
+  revoked: '수면 권한 해제됨',
+  unavailable: '사용할 수 없음',
+};
+
+// S15P31E105-600: Samsung Health heart rate read access, used for the resting heart rate computed on this phone.
+const heartAccessLabels: Record<SleepAccess, string> = {
+  granted: '심박 읽기 허용됨',
+  notRequested: '심박 연결 안 됨',
+  denied: '심박 권한 거부됨',
+  revoked: '심박 권한 해제됨',
+  unavailable: '사용할 수 없음',
+};
+
 const loadAll = (repositories: Repositories) =>
   Promise.all([
     repositories.settings.get(),
@@ -157,6 +179,7 @@ export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const toast = useToast();
+  const sleep = useSamsungSleep();
   const session = useSession();
   const {
     settings: settingsApi,
@@ -196,7 +219,7 @@ export function SettingsScreen() {
     setSavingHealth(true);
     const applied = (value: boolean) => {
       setHealth(value);
-      void setWatchHealthConsent(value ? 'AGREEE' : 'DISAGREE');
+      void setWatchHealthConsent(value ? 'AGREE' : 'DISAGREE');
     };
     try {
       const saved = await consentsApi.setHealth(granted);
@@ -347,7 +370,7 @@ export function SettingsScreen() {
             <Tile
               icon="smartwatch"
               name={watch.deviceName}
-              state={watch.status === 'connected' ? '연결됨' : '연결 해제됨'}
+              state={watchConnectionLabel(watch)}
               onPress={() =>
                 watch.status === 'connected'
                   ? disconnect(watch)
@@ -362,6 +385,40 @@ export function SettingsScreen() {
                 toast('권한은 Health Connect 앱의 앱 권한에서 바꿀 수 있어요')
               }
             />
+            {Platform.OS === 'android' && sleep.access !== null ? (
+              <Tile
+                icon="moon"
+                name="삼성 헬스 수면"
+                state={sleepAccessLabels[sleep.access]}
+                onPress={() => {
+                  if (sleep.requesting) return;
+                  if (sleep.access === 'granted') {
+                    toast('권한은 삼성 헬스 앱의 설정에서 바꿀 수 있어요');
+                  } else if (sleep.access === 'unavailable') {
+                    toast('이 기기에서는 삼성 헬스를 사용할 수 없어요');
+                  } else {
+                    void sleep.request();
+                  }
+                }}
+              />
+            ) : null}
+            {Platform.OS === 'android' && sleep.heartAccess !== null ? (
+              <Tile
+                icon="heart"
+                name="삼성 헬스 심박"
+                state={heartAccessLabels[sleep.heartAccess]}
+                onPress={() => {
+                  if (sleep.requesting) return;
+                  if (sleep.heartAccess === 'granted') {
+                    toast('권한은 삼성 헬스 앱의 설정에서 바꿀 수 있어요');
+                  } else if (sleep.heartAccess === 'unavailable') {
+                    toast('이 기기에서는 삼성 헬스를 사용할 수 없어요');
+                  } else {
+                    void sleep.request();
+                  }
+                }}
+              />
+            ) : null}
             {/* Giving consent saves at once; withdrawing asks first (W04·W05). */}
             {health !== null ? (
               <Tile

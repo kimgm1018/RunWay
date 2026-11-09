@@ -1,5 +1,6 @@
 package com.runway.backend.domain.user.controller;
 
+import com.runway.backend.domain.user.service.FollowListService;
 import com.runway.backend.domain.user.service.FollowService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.exception.ApiException;
@@ -16,6 +17,7 @@ import tools.jackson.databind.JsonNode;
 @RequiredArgsConstructor
 public class FollowController {
     private final FollowService follows;
+    private final FollowListService lists;
 
     @PutMapping("/{userId}/follow")
     public FollowService.Result follow(@AuthenticationPrincipal AuthenticatedUser user,
@@ -27,6 +29,25 @@ public class FollowController {
     public FollowService.Result cancel(@AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable @Positive long userId) {
         return follows.cancel(CurrentUserIdResolver.requireUserId(user), userId);
+    }
+
+    // U26 · U27: approved followers and followings, 20 per page.
+    @GetMapping("/{userId}/followers")
+    public FollowListService.Page followers(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long userId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit) {
+        return lists.list(CurrentUserIdResolver.requireUserId(user), userId,
+                FollowListService.Kind.FOLLOWERS, cursor, limit);
+    }
+
+    @GetMapping("/{userId}/following")
+    public FollowListService.Page following(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long userId,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit) {
+        return lists.list(CurrentUserIdResolver.requireUserId(user), userId,
+                FollowListService.Kind.FOLLOWING, cursor, limit);
     }
 
     @GetMapping("/me/follow-requests")

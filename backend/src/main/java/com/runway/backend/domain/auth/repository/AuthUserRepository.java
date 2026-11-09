@@ -46,6 +46,16 @@ public class AuthUserRepository {
                 .findFirst();
     }
 
+    /** 비밀번호 해시를 바꾼다(users.md U30, S15P31E105-560). {@link #lock(long)}과 같은 트랜잭션에서만 호출한다. */
+    public void updatePassword(long userId, String hash) {
+        int updated =
+                jdbc.update(
+                        "UPDATE users SET password=?, updated_at=now() WHERE id=? AND account_status='ACTIVE'",
+                        hash,
+                        userId);
+        if (updated != 1) throw new IllegalStateException("비밀번호를 바꿀 회원이 없습니다.");
+    }
+
     public record Account(long id, String loginId, String passwordHash, String status) {
         public boolean active() {
             return "ACTIVE".equals(status);

@@ -6,13 +6,15 @@ CREATE TYPE "sync_batches_status_enum" AS ENUM('RECEIVED', 'COMMITTED', 'REJECTE
 CREATE TYPE "daily_readiness_readiness_confidence_enum" AS ENUM('LOW','MEDIUM','HIGH');
 CREATE TYPE "users_gender_enum" AS ENUM('MALE', 'FEMALE');
 CREATE TYPE "users_account_status_enum" AS ENUM('ACTIVE', 'WITHDRAWN');
-CREATE TYPE "users_health_data_access_enum" AS ENUM('AGREEE', 'DISAGREE');
+-- S15P31E105-314 (V24): V1의 오타 라벨 'AGREEE'를 'AGREE'로 RENAME VALUE한 결과와 같다.
+CREATE TYPE "users_health_data_access_enum" AS ENUM('AGREE', 'DISAGREE');
 CREATE TYPE "group_runs_status_enum" AS ENUM('SCHEDULED', 'RUNNING', 'COMPLETED', 'CANCELLED');
 CREATE TYPE "crew_memberships_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED', 'LEFT');
 CREATE TYPE "courses_status_enum" AS ENUM('ACTIVE', 'MERGED', 'BLOCKED');
 CREATE TYPE "course_environment_tags_environment_type_enum" AS ENUM('PARK', 'RIVERSIDE', 'URBAN', 'BEACH', 'TRACK');
 CREATE TYPE "user_profiles_running_level_enum" AS ENUM('BEGINNER', 'INTERMEDIATE', 'ADVANCED');
 CREATE TYPE "crews_status_enum" AS ENUM('ACTIVE', 'INACTIVE');
+CREATE TYPE "crews_join_policy_enum" AS ENUM('APPROVAL', 'INSTANT');
 CREATE TYPE "running_sessions_status_enum" AS ENUM('READY', 'RUNNING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'INTERRUPTED');
 CREATE TYPE "running_sessions_analysis_status_enum" AS ENUM('PENDING', 'PROCESSING', 'READY', 'FAILED', 'LEGACY');
 CREATE TYPE "session_control_events_action_enum" AS ENUM('START', 'PAUSE', 'RESUME', 'END', 'SET_BPM', 'COACHING');
@@ -303,7 +305,8 @@ CREATE TABLE "daily_health_metrics" (
 	"max_heart_rate"	NUMERIC(7,2)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
 	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"rhr_revision"	INTEGER		NULL
+	"rhr_revision"	INTEGER		NULL,
+	"rhr_source"	VARCHAR(20)		NULL
 );
 
 COMMENT ON COLUMN "daily_health_metrics"."id" IS '일별 건강 ID';
@@ -325,6 +328,8 @@ COMMENT ON COLUMN "daily_health_metrics"."created_at" IS '생성일시';
 COMMENT ON COLUMN "daily_health_metrics"."updated_at" IS '수정일시';
 
 COMMENT ON COLUMN "daily_health_metrics"."rhr_revision" IS 'rhr_bpm 워치 추정값의 revision. 같은 날짜는 더 큰 revision만 rhr_bpm을 갱신. 미저장 시 NULL';
+
+COMMENT ON COLUMN "daily_health_metrics"."rhr_source" IS 'rhr_bpm 출처. RUNWAY_WATCH(워치 추정) 또는 SAMSUNG_HEALTH(삼성 헬스 심박으로 폰 계산). 미저장·출처 미상이면 NULL';
 
 CREATE TABLE "posts" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -384,8 +389,11 @@ CREATE TABLE "crews" (
 	"status"	"crews_status_enum"	DEFAULT 'ACTIVE'	NOT NULL,
 	"region_code"	VARCHAR(40)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"join_policy"	"crews_join_policy_enum"	DEFAULT 'APPROVAL'	NOT NULL
 );
+
+COMMENT ON COLUMN "crews"."join_policy" IS '가입 방식. APPROVAL=크루장 승인 후 멤버, INSTANT=신청 즉시 멤버(정원 안). 크루장이 M12로 변경한다.';
 
 CREATE TABLE "running_sessions" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -1128,6 +1136,9 @@ ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_coaching_
 ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_revision"
     CHECK ("rhr_revision" IS NULL OR "rhr_revision" >= 1);
 
+ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_source"
+    CHECK ("rhr_source" IS NULL OR "rhr_source" IN ('RUNWAY_WATCH', 'SAMSUNG_HEALTH'));
+
 ALTER TABLE "user_follows" ADD CONSTRAINT "ck_user_follows_values"
     CHECK (
         "follower_id" <> "followee_id"
@@ -1256,6 +1267,12 @@ CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended
 
 -- S15P31E105-421 (V13): 세션별 경과시간 순 측정값 조회(AI04 실시간 코칭 history, 세션당 15초마다)용. FK 인덱스가 없어 전체 스캔하던 조회다.
 CREATE INDEX idx_running_metric_samples_session_elapsed ON running_metric_samples (running_session_id, elapsed_duration);
+
+-- S15P31E105-597 (V23): 세션별 허용 시각 이하 최신 측정 표본 조회(G10 그룹런 실시간 순위의 최신 누적 거리·최신 측정 시각, 참가자당 2회)용.
+CREATE INDEX idx_running_metric_samples_session_measured ON running_metric_samples (running_session_id, measured_at DESC, id DESC);
+
+-- S15P31E105-534 (V20): 팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청·팔로워 수)용. FK 인덱스가 없어 전체 스캔하던 조회다.
+CREATE INDEX idx_user_follows_followee_created ON user_follows (followee_id, is_approved, created_at DESC, id DESC);
 
 -- S15P31E105-386 (implementation S15P31E105-245): users PK 정의 이후 FK 추가. 논리 탈퇴는 서비스에서 삭제한다.
 ALTER TABLE "user_recommendation_preferences"
@@ -1415,3 +1432,19 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- S15P31E105-585. Null pace means no successful inference yet.
+CREATE TABLE group_run_pace_state (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    group_run_id BIGINT NOT NULL UNIQUE REFERENCES group_runs(id) ON DELETE CASCADE,
+    group_pace_sec_per_km INTEGER CHECK (group_pace_sec_per_km > 0),
+    start_recommended_pace_sec_per_km INTEGER CHECK (start_recommended_pace_sec_per_km > 0),
+    last_change_direction VARCHAR(4) CHECK (last_change_direction IN ('SLOW', 'FAST')),
+    last_change_at TIMESTAMPTZ,
+    struggling_count INTEGER NOT NULL DEFAULT 0 CHECK (struggling_count >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((last_change_direction IS NULL) = (last_change_at IS NULL))
+);
+CREATE TRIGGER trg_group_run_pace_state_updated_at
+    BEFORE UPDATE ON group_run_pace_state
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

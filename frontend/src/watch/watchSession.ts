@@ -12,6 +12,8 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
     sendCommand: async () => undefined,
     sendBpmCommand: async () => undefined,
     sendCoachingGuide: async () => undefined,
+    sendServerEnd: async () => undefined,
+    sendGroupStatus: async () => undefined,
     sendReceived: async () => undefined,
     sendServerState: async () => undefined,
     sendError: async () => undefined,
@@ -20,5 +22,7 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
     subscribe: () => () => undefined,
     setRunActive: async () => undefined,
     getActiveSessionId: async () => null,
+    isWatchConnected: async () => false,
+    getConnectedWatch: async () => null,
   };
 }

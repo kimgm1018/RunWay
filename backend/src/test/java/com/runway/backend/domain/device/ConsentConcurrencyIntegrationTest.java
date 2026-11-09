@@ -135,7 +135,7 @@ class ConsentConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
             CompletableFuture<String> revoke = async(this::revoke);
             waitForLockWaits(1);
             assertThat(revoke).isNotDone();
-            assertThat(consent()).isEqualTo("AGREEE");
+            assertThat(consent()).isEqualTo("AGREE");
             holder.commit();
 
             assertThat(revoke.get(10, TimeUnit.SECONDS)).isEqualTo("OK");
@@ -398,7 +398,7 @@ class ConsentConcurrencyIntegrationTest extends SyncBatchIntegrationSupport {
                     .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"));
             holder.rollback();
         }
-        assertThat(consent()).isEqualTo("AGREEE");
+        assertThat(consent()).isEqualTo("AGREE");
     }
 
     /**

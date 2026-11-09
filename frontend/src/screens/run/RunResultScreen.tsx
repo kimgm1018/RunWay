@@ -29,7 +29,7 @@ import {
 import { errorCode, useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openRecord } from '../../navigation/navigateTo';
 import { fontFamily, k1, palette, spacing, ThemeProvider } from '../../theme';
 import { comparisonResult, useFinalComparison } from './recordComparison';
 import { useRunControlState, useRunSession } from './RunSession';
@@ -461,9 +461,7 @@ export function RunResultScreen() {
               title="기록 보기"
               disabled={saveState !== 'saved'}
               onPress={() =>
-                recordId
-                  ? navigation.navigate('RecordDetail', { recordId })
-                  : undefined
+                recordId ? openRecord(navigation, recordId) : undefined
               }
             />
             <ResultButton

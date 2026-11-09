@@ -2,8 +2,14 @@ package com.runway.watch.session
 
 import com.runway.watch.batch.NoUploads
 import com.runway.watch.batch.RunUploads
+import com.runway.watch.cue.GroupPaceAlert
+import com.runway.watch.cue.NoGroupPaceAlert
 import com.runway.watch.cue.RhythmPlayer
 import com.runway.watch.cue.SilentRhythm
+import com.runway.watch.run.GroupNotice
+import com.runway.watch.run.GroupPhase
+import com.runway.watch.run.GroupPosition
+import com.runway.watch.run.GroupStatus
 import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.RunState
 import kotlinx.coroutines.TimeoutCancellationException
@@ -69,6 +75,10 @@ data class WatchSessionState(
     val phoneRecording: Boolean = false,
     /** The server's record comparison from the last STATE_RESULT(scope=SERVER) (S15P31E105-422). */
     val comparison: RecordComparison = RecordComparison.NotSelected,
+    /** The group run this session belongs to (SESSION_PREPARE.groupRunId); null for a personal run (S15P31E105-420). */
+    val groupRunId: String? = null,
+    /** The group as the phone relayed it from G10 (GROUP_STATUS); null until one arrives. Never computed here. */
+    val group: GroupStatus? = null,
 )
 
 private val NEXT_STATE = mapOf(
@@ -118,10 +128,14 @@ class WatchSessionController(
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
     /** END-path diagnostics for device checks (S15P31E105-446): ids, stages, counts and durations only, never readings. */
     private val log: (String) -> Unit = {},
+    /** One buzz per shared pace change the phone relayed (S15P31E105-604). */
+    private val paceAlert: GroupPaceAlert = NoGroupPaceAlert,
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(
-        store.prepared()?.let { WatchSessionState(sessionId = it.sessionId, confirmed = RunState.READY, stateVersion = it.stateVersion) }
+        store.prepared()?.let {
+            WatchSessionState(sessionId = it.sessionId, confirmed = RunState.READY, stateVersion = it.stateVersion, groupRunId = it.groupRunId)
+        }
             ?: WatchSessionState(),
     )
     val state: StateFlow<WatchSessionState> = _state
@@ -151,6 +165,13 @@ class WatchSessionController(
     /** The session this process already stopped for the phone take-over; later snapshots do not stop it again. */
     private var handedSession: String? = null
 
+    /** G10 updatedAt of the last GROUP_STATUS applied, and when it arrived ([elapsedMs]); reset with the session. */
+    private var groupUpdatedAt: Instant? = null
+    private var groupReceivedMs: Long? = null
+    private var groupFlushedMs: Long? = null
+    /** The last pace change alerted, with its G10 updatedAt, so a resent GROUP_STATUS does not buzz again (S15P31E105-604). */
+    private var groupAlerted: Pair<Instant?, GroupNotice.PaceChanged>? = null
+
     private data class UnsavedEnd(
         val sessionId: String,
         val commandId: String,
@@ -167,6 +188,8 @@ class WatchSessionController(
             "COMMAND_RECEIVED" -> onReceived(message)
             "STATE_RESULT" -> onServerState(message)
             "COACHING_GUIDE" -> onCoachingGuide(message)
+            "SERVER_END" -> onServerEnd(message)
+            "GROUP_STATUS" -> onGroupStatus(message)
             "ERROR" -> {
                 val current = _state.value
                 // The phone or server refused the request, so the requested BPM was not approved.
@@ -234,6 +257,8 @@ class WatchSessionController(
     suspend fun tick() = mutex.withLock {
         releaseStaleRequest()
         reportSavedEnd()
+        markGroupLate()
+        flushGroupReadings()
         val current = _state.value
         val sessionId = current.sessionId
         // S15P31E105-445: 재시작한 워치는 폰의 상태 전달을 기다리지 않고 저장된 세션의 서버 상태를 직접 묻는다.
@@ -323,14 +348,24 @@ class WatchSessionController(
         val deviceId = message.deviceId()
         val ready = deviceId != null
         val reason = if (ready) null else "DEVICE_ID_MISSING"
-        store.savePrepared(Prepared(message.sessionId, version, ready = ready, deviceId = deviceId))
+        val groupRunId = message.groupRunId()
+        store.savePrepared(Prepared(message.sessionId, version, ready = ready, deviceId = deviceId, groupRunId = groupRunId))
         val current = _state.value
         // initialBpm is only the first value; a later prepare never overwrites the BPM the runner changed (9.3).
         val initialBpm = message.bpm("initialBpm")
         _state.value = if (current.sessionId == message.sessionId && current.confirmed != null) {
-            current.copy(stateVersion = maxOf(current.stateVersion, version), currentBpm = current.currentBpm ?: initialBpm)
+            current.copy(
+                stateVersion = maxOf(current.stateVersion, version),
+                currentBpm = current.currentBpm ?: initialBpm,
+                groupRunId = groupRunId,
+                group = current.group.takeIf { groupRunId != null && groupRunId == current.groupRunId },
+            )
         } else {
-            WatchSessionState(sessionId = message.sessionId, confirmed = RunState.READY, stateVersion = version, currentBpm = initialBpm)
+            resetGroup()
+            WatchSessionState(
+                sessionId = message.sessionId, confirmed = RunState.READY, stateVersion = version, currentBpm = initialBpm,
+                groupRunId = groupRunId,
+            )
         }
         sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason))
     }
@@ -645,6 +680,7 @@ class WatchSessionController(
         val lost = sameSession && current.measurementLost && watchRecords
         // 앱이 다시 시작된 뒤에도 서버가 운동 중이라고 하면 이 세션의 측정값을 계속 batch로 만든다.
         if (phone && handedSession != message.sessionId) handOver(message.sessionId)
+        if (!sameSession) resetGroup()
         if (watchRecords) {
             keepAlive.start()
             store.prepared()?.takeIf { it.sessionId == message.sessionId }?.deviceId?.let { uploads.begin(message.sessionId, it) }
@@ -665,6 +701,9 @@ class WatchSessionController(
             phoneRecording = phone,
             // 기록 비교는 batch 저장마다 같은 버전으로 온다. 버전이 낮은 스냅샷은 위에서 이미 버렸다.
             comparison = message.comparison(),
+            groupRunId = if (sameSession) current.groupRunId
+            else store.prepared()?.takeIf { it.sessionId == message.sessionId }?.groupRunId,
+            group = if (sameSession) current.group else null,
         )
         if (newer || phone) {
             exerciseRunning = state == RunState.RUNNING && !lost && !phone
@@ -672,6 +711,106 @@ class WatchSessionController(
         }
         lastServerStateMs = if (active) elapsedMs() else null
         if (watchRecords && attachedSession != message.sessionId) reattach(message.sessionId)
+    }
+
+    /**
+     * SERVER_END (9.3, S15P31E105-420): the group leader ended the group (G12) and the server approved this runner's END.
+     * It runs exactly like an approved END: once per commandId, result via COMMAND_RESULT. The group then shows as
+     * ended by the leader. A SERVER_END for another session or a personal run changes no group state.
+     */
+    private suspend fun onServerEnd(message: SessionEnvelope) {
+        onCommand(message, "END")
+        val current = _state.value
+        if (current.sessionId == message.sessionId && current.groupRunId != null) {
+            _state.value = current.copy(group = (current.group ?: GroupStatus()).copy(phase = GroupPhase.FORCE_FINISHED))
+        }
+    }
+
+    /**
+     * GROUP_STATUS (9.3, S15P31E105-420): G10 as the phone relayed it, applied only for this session's group. An update
+     * older than the last one applied (G10 updatedAt) is a late event and dropped. Ranks and gaps are shown as given:
+     * an unranked update keeps the last standing marked delayed, or waits when there never was one. An ended group
+     * does not go back to running, and an end by the leader stays shown as such.
+     */
+    private fun onGroupStatus(message: SessionEnvelope) {
+        val update = message.groupUpdate() ?: return
+        val current = _state.value
+        if (current.sessionId != message.sessionId || current.groupRunId == null || update.groupRunId != current.groupRunId) return
+        val last = groupUpdatedAt
+        if (last != null && update.updatedAt != null && update.updatedAt.isBefore(last)) return
+        if (update.updatedAt != null) groupUpdatedAt = update.updatedAt
+        groupReceivedMs = elapsedMs()
+        val before = current.group ?: GroupStatus()
+        val phase = when (before.phase) {
+            GroupPhase.FORCE_FINISHED -> GroupPhase.FORCE_FINISHED
+            GroupPhase.FINISHED -> if (update.phase == GroupPhase.FORCE_FINISHED) update.phase else before.phase
+            else -> update.phase
+        }
+        val previous = (before.position as? GroupPosition.Known)?.standing
+        val position = when {
+            phase == GroupPhase.WAITING -> GroupPosition.Waiting
+            update.standing != null && !update.stale -> GroupPosition.Known(update.standing)
+            previous != null -> GroupPosition.Known(previous, delayed = true)
+            update.stale -> GroupPosition.Waiting
+            else -> GroupPosition.Unavailable
+        }
+        val newPace = update.guidePaceSecondsPerKm
+        // 폰이 연속 조회에서 본 공동 페이스 변경만 알린다(S15P31E105-604). 워치는 변경을 판단하거나 새 페이스를 계산하지 않는다.
+        // 첫 수신·재연결 뒤 값 차이는 paceChanged가 없어 조용히 반영되고, 같은 현황의 재전달은 다시 울리지 않는다.
+        // 지난 변경 표시는 지금 공동 페이스로 바뀐 것일 때만 남긴다(조용히 바뀐 뒤 옛 변경을 보이지 않는다).
+        val change = update.paceChanged?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        val notice = change ?: (before.notice as? GroupNotice.PaceChanged)
+            ?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        if (change != null && groupAlerted != (update.updatedAt to change)) {
+            groupAlerted = update.updatedAt to change
+            paceAlert.paceChanged()
+        }
+        _state.value = current.copy(
+            group = GroupStatus(
+                phase = phase,
+                guidePaceSecondsPerKm = newPace,
+                position = position,
+                leaderToLastGapMeters = update.leaderToLastGapMeters,
+                notice = notice,
+                rankedCount = update.rankedCount,
+            ),
+        )
+    }
+
+    /**
+     * No GROUP_STATUS for [GROUP_LATE_MS] while the group runs (the phone relays G10 every few seconds): the standing
+     * shown is the last one received, so it is marked delayed instead of current.
+     */
+    private fun markGroupLate() {
+        val current = _state.value
+        val group = current.group ?: return
+        val known = group.position as? GroupPosition.Known ?: return
+        val since = groupReceivedMs ?: return
+        if (group.phase != GroupPhase.RUNNING || known.delayed || elapsedMs() - since < GROUP_LATE_MS) return
+        _state.value = current.copy(group = group.copy(position = known.copy(delayed = true)))
+    }
+
+    /**
+     * During a group run the ranking uses this watch's latest distance on the server, so readings the platform holds
+     * back with the screen off are asked for every [GROUP_FLUSH_MS] (S15P31E105-420). Personal runs keep the batching.
+     */
+    private suspend fun flushGroupReadings() {
+        val current = _state.value
+        if (current.groupRunId == null || current.confirmed != RunState.RUNNING || current.phoneRecording || !exerciseRunning) {
+            groupFlushedMs = null
+            return
+        }
+        val nowMs = elapsedMs()
+        val last = groupFlushedMs
+        if (last != null && nowMs - last < GROUP_FLUSH_MS) return
+        groupFlushedMs = nowMs
+        try { gateway.flush() } catch (_: Exception) { /* throttled or failed: the next one asks again */ }
+    }
+
+    private fun resetGroup() {
+        groupUpdatedAt = null
+        groupReceivedMs = null
+        groupAlerted = null
     }
 
     /**
@@ -739,5 +878,9 @@ class WatchSessionController(
         const val REQUEST_TIMEOUT_MS = 60_000L
         /** Gap between re-reports of a saved END that did not reach the phone (S15P31E105-446). */
         const val REPORT_RETRY_MS = 10_000L
+        /** No GROUP_STATUS for this long during a group run marks the standing delayed (S15P31E105-420). */
+        const val GROUP_LATE_MS = 15_000L
+        /** How often a group run asks Health Services for held-back readings (S15P31E105-420). */
+        const val GROUP_FLUSH_MS = 10_000L
     }
 }

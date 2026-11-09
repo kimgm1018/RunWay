@@ -7,6 +7,7 @@ import {
 } from '@react-navigation/native';
 import { AppText, BottomSheet, Icon, useToast } from '../../components';
 import {
+  DataError,
   spotifyFailureMessage,
   SpotifyStateError,
   useRepositories,
@@ -190,6 +191,8 @@ export function GroupRunProgressScreen({
   const [isHost, setIsHost] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const finishing = useRef(false);
+  // 결과 화면으로 한 번만 넘어간다. 그룹장이 끝냈거나(SERVER_END) 내 종료가 서버에 저장되면 내 기록도 끝난다(S15P31E105-420).
+  const leftForResult = useRef(false);
   const groupRunId = run?.config.groupRunId ?? 'gr-today';
 
   // Opened without a run: start a group run without a course.
@@ -276,6 +279,22 @@ export function GroupRunProgressScreen({
   );
   const status = useRef(run?.status);
   status.current = run?.status;
+  const endedRunId = run?.status === 'finished' ? run.config.groupRunId : undefined;
+  useEffect(() => {
+    if (!endedRunId || leftForResult.current) {
+      return;
+    }
+    leftForResult.current = true;
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: 'MainTabs' },
+          { name: 'GroupRunResult', params: { groupRunId: endedRunId } },
+        ],
+      }),
+    );
+  }, [endedRunId, navigation]);
   const latest = useRef({ pause, toast });
   latest.current = { pause, toast };
   // The back key never leaves or resumes the run: while running it pauses, while paused it stays.
@@ -299,6 +318,7 @@ export function GroupRunProgressScreen({
   const { config, sample, trail } = run;
   const goal = config.goalPaceSecPerKm ?? 360;
   const toResult = () => {
+    leftForResult.current = true;
     finish();
     navigation.dispatch(
       CommonActions.reset({
@@ -456,9 +476,16 @@ export function GroupRunProgressScreen({
                 await groupRuns.forceFinish(run.config.groupRunId);
                 setConfirming(false);
                 toResult();
-              } catch {
+              } catch (error) {
+                const code =
+                  error instanceof DataError ? error.code : undefined;
                 toast(
-                  '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
+                  error instanceof DataError && error.status === 409
+                    ? code === 'INVALID_GROUP_STATE'
+                      ? '이미 취소되었거나 끝난 그룹런이에요. 상세에서 상태를 확인해 주세요'
+                      : error.message ||
+                        '지금은 전체 종료를 할 수 없어요. 그룹 상태를 확인해 주세요'
+                    : '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
                 );
               } finally {
                 finishing.current = false;

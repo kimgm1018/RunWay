@@ -82,6 +82,14 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
 });
 
+test('H01 empty or missing items stays empty instead of failing the screen', async () => {
+  const { records } = createRecordsApi();
+  serve(() => respond(200, { items: [] }));
+  await expect(records.getRecent('recent', 4)).resolves.toEqual([]);
+  serve(() => respond(200, {}));
+  await expect(records.getRecent('recent', 4)).resolves.toEqual([]);
+});
+
 test('H01 recent runs ask for solo runs in the chosen order', async () => {
   serve(() => respond(200, { items: [solo] }));
   const { records } = createRecordsApi();

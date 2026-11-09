@@ -1,0 +1,7 @@
+{
+  "grid": {"cell_ids": [0, 1, 2], "cell_offsets": [0, 2, 3, 4], "cell_node_idx": [0, 1, 2, 3]},
+  "network": {
+    "node_way_ptr": [0, 1, 3, 4, 5], "node_way_idx": [0, 0, 1, 0, 1],
+    "ref_ptr": [0, 3, 5], "ref_pos": [0, 1, 2, 1, 3], "way_seg_ptr": [0, 2, 3]
+  }
+}

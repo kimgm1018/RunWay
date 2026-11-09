@@ -26,7 +26,10 @@ class SecurityAccessIntegrationTest {
                     "/api/v1/auth/login",
                     "/api/v1/auth/signup",
                     "/api/v1/auth/refresh",
-                    "/api/v1/auth/logout"
+                    "/api/v1/auth/logout",
+                    "/api/v1/auth/phone-verifications",
+                    "/api/v1/auth/phone-verifications/confirm",
+                    "/api/v1/auth/password-reset"
                 }) {
             mvc.perform(post(path))
                     .andExpect(status().isOk())
@@ -42,6 +45,10 @@ class SecurityAccessIntegrationTest {
         mvc.perform(post("/api/v1/auth/login-id/availability"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/auth/login/extra")).andExpect(status().isUnauthorized());
+        // 공개는 정확한 경로만이다(S15P31E105-560): 하위 경로·다른 메서드는 회원 체인으로 간다.
+        mvc.perform(post("/api/v1/auth/phone-verifications/other"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/auth/password-reset/extra")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/images/550e8400-e29b-41d4-a716-446655440000"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("public-image"));

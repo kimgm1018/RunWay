@@ -35,6 +35,8 @@ type ServerCrew = {
   ownerId: number;
   capacity: number;
   regionCode: string | null;
+  // M01·M02 joinPolicy (S15P31E105-570); APPROVAL when a seed leaves it out.
+  joinPolicy?: 'APPROVAL' | 'INSTANT';
   members: { userId: number; nickname: string }[];
   pending: { userId: number; nickname: string }[];
 };
@@ -58,6 +60,7 @@ const summary = (crew: ServerCrew) => ({
   capacity: crew.capacity,
   status: 'ACTIVE',
   regionCode: crew.regionCode,
+  joinPolicy: crew.joinPolicy ?? 'APPROVAL',
   memberCount: crew.members.length,
   myMembershipStatus: statusOf(crew),
 });
@@ -83,6 +86,18 @@ function serve() {
     async (address: string, init: { method: string; body?: string }) => {
       const url = new URL(address);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/places/search') {
+        return respond(200, {
+          items: [
+            {
+              name: '광안리해수욕장 입구',
+              address: '부산광역시 수영구 광안해변로',
+              position: [129.118, 35.153],
+              distanceM: null,
+            },
+          ],
+        });
+      }
       const find = (id: string) => crews.find(crew => crew.id === Number(id))!;
       if (path === '/users/me') {
         return respond(200, {
@@ -134,6 +149,7 @@ function serve() {
           ownerId: meId,
           capacity: body.capacity,
           regionCode: body.regionCode ?? null,
+          joinPolicy: body.joinPolicy ?? 'APPROVAL',
           members: [{ userId: meId, nickname: '민준' }],
           pending: [],
         });
@@ -426,6 +442,7 @@ test('6.3 creates a crew in the picked place’s region', async () => {
   await press(screen, '크루 만들기');
   await type(screen, '크루 이름', '광안리 주말 러너스');
   await type(screen, '지역 검색', '광안리');
+  await settle(350);
   await press(screen, '광안리해수욕장 입구');
   await press(screen, '크루 만들기');
   await settle(100);
@@ -436,6 +453,7 @@ test('6.3 creates a crew in the picked place’s region', async () => {
       description: null,
       capacity: 20,
       regionCode: '26500',
+      joinPolicy: 'APPROVAL',
     },
   ]);
   expect(texts(screen)).toContain('광안리 주말 러너스');
@@ -480,6 +498,7 @@ test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with t
   ).toBeGreaterThan(0);
   await type(screen, '크루 이름', '광안리 주말 러너스');
   await type(screen, '지역 검색', '광안리');
+  await settle(350);
   await press(screen, '광안리해수욕장 입구');
   await press(screen, '크루 만들기');
   await settle(100);
@@ -490,6 +509,7 @@ test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with t
       description: null,
       capacity: 20,
       regionCode: '26500',
+      joinPolicy: 'APPROVAL',
       imageKey: `images/crew/${meId}/${crewImageId}.jpg`,
     },
   ]);

@@ -82,7 +82,7 @@ object GroupRunDisplay {
             is GroupPosition.Known -> {
                 // Own location only dims this runner's standing; the spread is the server's group value.
                 val late = p.delayed || !snapshot.phoneConnected
-                standing(p.standing, late || location == FeedStatus.DELAYED, spread(group, late))
+                standing(p.standing, late || location == FeedStatus.DELAYED, spread(group, late), group.rankedCount)
             }
         }
     }
@@ -124,7 +124,7 @@ object GroupRunDisplay {
             GroupLine("선두–후미 ${meters(it)}", "선두와 후미 간격 ${spokenMeters(it)}" + if (delayed) ", 지연" else "")
         }
 
-    private fun standing(s: GroupStanding, delayed: Boolean, spread: GroupLine?): GroupPositionView.Standing {
+    private fun standing(s: GroupStanding, delayed: Boolean, spread: GroupLine?, rankedCount: Int? = null): GroupPositionView.Standing {
         val rank = s.rank?.takeIf { it > 0 }
         val ahead = s.aheadCount?.takeIf { it >= 0 }
         val behind = s.behindCount?.takeIf { it >= 0 }
@@ -132,8 +132,13 @@ object GroupRunDisplay {
         return GroupPositionView.Standing(
             rank = rank?.let { "${it}위" } ?: MetricFormat.MISSING,
             rankDescription = (rank?.let { "현재 ${it}위" } ?: "순위 없음") + late,
-            // Only when both counts arrived; the watch does not guess the number of runners.
-            total = if (ahead != null && behind != null) "/ ${ahead + behind + 1}명" else null,
+            // The ranked runners the phone counted from G10; without it only when both counts arrived (a tie counts
+            // neither ahead nor behind, so that is a lower bound). The watch does not guess the number of runners.
+            total = when {
+                ahead != null && behind != null -> "/ ${maxOf(rankedCount ?: 0, ahead + behind + 1)}명"
+                rankedCount != null -> "/ ${rankedCount}명"
+                else -> null
+            },
             ahead = side("앞", "앞서 달리는", "↑", ahead, s.gapToAheadMeters, late),
             behind = side("뒤", "뒤따르는", "↓", behind, s.gapToBehindMeters, late),
             delayed = delayed,

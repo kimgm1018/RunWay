@@ -13,6 +13,31 @@ pnpm typecheck
 pnpm lint
 ```
 
+### Windows에서 Android APK 빌드
+
+해당 Jira worktree의 `frontend/android`에서 실행한다. 네이버 지도 Client ID와 삼성 헬스 SDK는 아래 설정을 먼저 준비한다.
+
+```powershell
+.\gradlew.bat :app:assembleDebug -PreactNativeArchitectures=arm64-v8a --max-workers=4 --console=plain
+```
+
+`arm64-v8a`는 ARM64 휴대폰용이다. x86_64 에뮬레이터는 `-PreactNativeArchitectures=x86_64`로 바꾼다.
+APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 삼성 SDK가 기본 경로에 없으면
+`-PsamsungHealthSdk=<AAR의 절대 경로>`를 함께 지정한다.
+
+긴 Windows worktree 경로에서는 CMake/Ninja가 `build.ninja still dirty after 100 tries` 또는
+`Filename longer than 260 characters`로 실패할 수 있다. Android 루트 Gradle 설정은 Windows에서
+CMake 중간 산출물을 Java 임시 디렉터리의 `runway-cxx/<모듈 경로 해시>`에 저장한다.
+해시는 worktree와 모듈을 구분한다. 더 짧은 경로가 필요하면 `-PrunwayNativeBuildRoot=C:/rw-cxx`로 지정한다.
+이 디렉터리는 CMake 재사용을 위해 `clean` 이후에도 유지되며, 소스와 APK 출력 위치는 그대로다.
+
+`Could not read workspace metadata .../transforms/<해시>/metadata.bin`은 별도 Gradle 캐시 오류다.
+실패한 빌드가 종료된 뒤 오류에 명시된 캐시 항목만 격리하고 다시 빌드해 재생성한다.
+다른 빌드가 사용 중인 캐시나 사용자 전체 `.gradle` 디렉터리를 일괄 삭제하지 않는다.
+
+설정 참고: [AGP 8.12 Cmake.buildStagingDirectory](https://developer.android.com/reference/tools/gradle-api/8.12/com/android/build/api/dsl/Cmake).
+2026-11-09에 사용 중인 AGP 8.12.0 기준으로 공식 API 문서를 확인했다. Context7은 미연결 상태여서 공식 문서를 직접 조회했다.
+
 글꼴은 `assets/fonts/`에 있고 `npx react-native-asset`으로 Android·iOS 프로젝트에 연결했습니다.
 글꼴을 더하거나 빼면 같은 명령을 다시 실행합니다.
 

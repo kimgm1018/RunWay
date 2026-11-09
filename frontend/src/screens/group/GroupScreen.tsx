@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   animateNextLayout,
@@ -25,14 +25,7 @@ import {
 } from '../../data';
 import { formatClockTime } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import {
-  fontFamily,
-  radius,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
+import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
 import {
   canEnterRoom,
   dDay,
@@ -61,7 +54,7 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
     >
-      <Raised tone="white" style={styles.upcoming}>
+      <Raised tone="card" style={styles.upcoming}>
         <View style={styles.flex}>
           {/* Crew, time and place only (담당자 요청). The run's title is on 6.4, and the title and how
               soon it starts stay in the label for screen readers. */}
@@ -111,15 +104,23 @@ function RunCard({
       }
       style={[
         styles.run,
-        { borderLeftColor: today ? groupLook.lineToday : groupLook.lineLater },
+        {
+          borderLeftColor: today
+            ? groupLook.lineTodayOnLight
+            : groupLook.lineLaterOnLight,
+        },
       ]}
     >
       <View style={styles.runTop}>
-        <Raised tone={today ? 'white' : 'darkGlass'} style={styles.dayChip}>
-          <AppText style={today ? styles.chipTextDark : styles.chipTextLight}>
-            {day}
-          </AppText>
-        </Raised>
+        {today ? (
+          <Raised tone="navy" style={styles.dayChip}>
+            <AppText style={styles.chipTextLight}>{day}</AppText>
+          </Raised>
+        ) : (
+          <View style={[styles.dayChip, styles.flatChip]}>
+            <AppText style={styles.chipTextDark}>{day}</AppText>
+          </View>
+        )}
         {/* hostNickname shows only here (6.4 has no host line), so it stays on the list. */}
         <AppText style={styles.host}>
           {run.isHost ? '내가 만듦' : `${run.hostNickname}님이 만듦`}
@@ -141,19 +142,16 @@ function RunCard({
           onPress={onToggle}
           hitSlop={6}
         >
-          <Raised
-            tone={run.joined ? 'white' : 'darkGlass'}
-            style={styles.joinButton}
-          >
-            {run.joined ? (
-              <Icon name="check" color={groupLook.navy} size={13} />
-            ) : null}
-            <AppText
-              style={run.joined ? styles.joinTextOn : styles.joinTextOff}
-            >
-              {run.joined ? '참가 중' : '참가하기'}
-            </AppText>
-          </Raised>
+          {run.joined ? (
+            <Raised tone="navy" style={styles.joinButton}>
+              <Icon name="check" color={groupLook.onDark} size={13} />
+              <AppText style={styles.joinTextOn}>참가 중</AppText>
+            </Raised>
+          ) : (
+            <View style={[styles.joinButton, styles.flatChip]}>
+              <AppText style={styles.joinTextOff}>참가하기</AppText>
+            </View>
+          )}
         </PressableScale>
       </View>
       {/* When and where in one line; the course is on 6.4 (담당자 결정, S15P31E105-414). */}
@@ -186,7 +184,7 @@ function CrewPanel({
   if (crew.membership === 'PENDING') {
     return (
       <View style={styles.crewHeader}>
-        {/* Not faded: half opacity on the dark background was hard to read. '승인 대기' tells the state. */}
+        {/* Not faded: half opacity was hard to read. '승인 대기' tells the state. */}
         <View style={styles.flex}>
           <AppText style={crewCard.name} numberOfLines={1}>
             {crew.name}
@@ -199,8 +197,8 @@ function CrewPanel({
           </AppText>
         </View>
         {/* On the right, flat like the other crews' round buttons there (담당자 요청). */}
-        <View style={styles.pendingChip}>
-          <AppText style={styles.chipTextLight}>승인 대기</AppText>
+        <View style={[styles.pendingChip, styles.flatChip]}>
+          <AppText style={styles.chipTextDark}>승인 대기</AppText>
         </View>
       </View>
     );
@@ -260,9 +258,10 @@ function CrewPanel({
             ))}
           </View>
         ) : pinnedOnly ? null : (
-          <AppText style={[styles.sub, styles.noRuns]}>
-            예정된 그룹런이 없어요. + 로 만들어 보세요.
-          </AppText>
+          <View style={styles.noRuns}>
+            <AppText style={styles.sub}>아직 예정된 그룹런이 없어요</AppText>
+            <AppText style={styles.sub}>+로 만들어 보세요</AppText>
+          </View>
         )
       ) : null}
     </View>
@@ -359,6 +358,19 @@ export function MyCrewsPage({
       [version],
     ),
   );
+  // Changes made elsewhere (a leader approving my request on their phone, leaving a crew on 6.2) show when
+  // the group tab comes back into view, with the old list kept until the new one arrives
+  // (S15P31E105-592). The first focus is the first load.
+  const refreshMine = mine.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshMine();
+      }
+      focused.current = true;
+    }, [refreshMine]),
+  );
   // Join changes on this screen show at once.
   const [joined, setJoined] = useState<Record<string, boolean>>({});
   useEffect(() => setJoined({}), [version]);
@@ -422,7 +434,7 @@ export function MyCrewsPage({
           {term &&
           !mine.data.crews.some(({ crew }) => matches(crew.name, crew.area)) ? (
             <AppText style={[styles.sub, styles.onMist, styles.noMatch]}>
-              찾는 크루가 없어요.
+              찾는 크루가 없어요
             </AppText>
           ) : null}
           {mine.data.crews
@@ -433,18 +445,17 @@ export function MyCrewsPage({
                 run => run.id !== mine.data.upcoming?.id,
               );
               return (
-                // The navy card keeps the dark theme inside it, so the run lines stay white on the mist.
-                <ThemeProvider key={crew.id} tone="dark">
-                  <View style={crewCard.card}>
-                    <CrewPanel
-                      crew={crew}
-                      runs={listed.map(withJoin)}
-                      initiallyOpen={index === 0}
-                      pinnedOnly={runs.length > 0 && listed.length === 0}
-                      onToggleJoin={toggle}
-                    />
-                  </View>
-                </ThemeProvider>
+                // The same raised white card as 곧 출발 above (S15P31E105-563), so the run lines use the
+                // app's light theme with navy text.
+                <Raised key={crew.id} tone="card" style={crewCard.card}>
+                  <CrewPanel
+                    crew={crew}
+                    runs={listed.map(withJoin)}
+                    initiallyOpen={index === 0}
+                    pinnedOnly={runs.length > 0 && listed.length === 0}
+                    onToggleJoin={toggle}
+                  />
+                </Raised>
               );
             })}
         </ScrollView>
@@ -467,8 +478,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
+  // Flat light grey fill on the white card: later-day chips, 참가하기 and 승인 대기.
+  flatChip: { backgroundColor: groupLook.lightFill },
   chipTextDark: {
     fontFamily: fontFamily.bold,
     fontSize: 12,
@@ -541,7 +554,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // No initial tile (there are no crew photos), so the name is bigger (담당자 요청).
-  subColor: { color: groupLook.onDarkSub },
+  subColor: { color: groupLook.onLightSub },
   // Text straight on the mist rather than in a navy crew card (S15P31E105-483).
   onMist: { color: groupLook.onLightSub },
   noMatch: { textAlign: 'center', paddingVertical: spacing.xxxl },
@@ -549,7 +562,6 @@ const styles = StyleSheet.create({
     height: 34,
     paddingHorizontal: 14,
     borderRadius: 17,
-    backgroundColor: groupLook.darkButton,
     justifyContent: 'center',
   },
   runs: { marginTop: 16, gap: 16 },
@@ -574,7 +586,7 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 16,
-    color: groupLook.onDarkMuted,
+    color: groupLook.onLightMuted,
   },
   count: { marginLeft: 'auto' },
   runTitleRow: {
@@ -589,7 +601,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     letterSpacing: -0.3,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
   lines: { marginTop: 4 },
   joinButton: {
@@ -605,15 +617,19 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 13.5,
     lineHeight: 18,
-    color: groupLook.navy,
+    color: groupLook.onDark,
   },
   joinTextOff: {
     fontFamily: fontFamily.bold,
     fontSize: 13.5,
     lineHeight: 18,
-    color: groupLook.onDark,
+    color: groupLook.onLight,
   },
-  noRuns: { textAlign: 'center', paddingVertical: spacing.xl },
+  noRuns: {
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: spacing.xl,
+  },
   noCrews: {
     flex: 1,
     paddingHorizontal: spacing.screen,

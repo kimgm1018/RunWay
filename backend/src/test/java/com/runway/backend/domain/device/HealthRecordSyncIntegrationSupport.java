@@ -67,9 +67,39 @@ abstract class HealthRecordSyncIntegrationSupport extends SyncBatchIntegrationSu
         return record;
     }
 
+    /** 유효한 합성 삼성 헬스 기상일 수면 합계 레코드(S15P31E105-572). */
+    protected static ObjectNode sleep(LocalDate date, String minutes) {
+        ObjectNode record = JSON.createObjectNode();
+        record.put("type", "DAILY_SLEEP_SUMMARY");
+        record.put("metricDate", date.toString());
+        record.set("sleepDurationMin", JSON.valueToTree(new BigDecimal(minutes)));
+        record.put("computedAt", date + "T00:30:00Z");
+        return record;
+    }
+
+    /** 유효한 합성 삼성 헬스 심박 기반 안정 심박 레코드(S15P31E105-600). */
+    protected static ObjectNode restingHr(LocalDate date, String bpm) {
+        ObjectNode record = JSON.createObjectNode();
+        record.put("type", "DAILY_RESTING_HR");
+        record.put("metricDate", date.toString());
+        record.set("restingHrBpm", JSON.valueToTree(new BigDecimal(bpm)));
+        record.put("method", "DAILY_LOWER_10PCT_MINUTE_MEAN_V1");
+        record.put("validMinuteCount", 96);
+        record.put("computedAt", date + "T03:10:00Z");
+        return record;
+    }
+
     protected static String healthBody(ObjectNode... records) {
+        return healthBody("RUNWAY_WATCH", records);
+    }
+
+    protected static String sleepBody(ObjectNode... records) {
+        return healthBody("SAMSUNG_HEALTH", records);
+    }
+
+    protected static String healthBody(String provider, ObjectNode... records) {
         ObjectNode body = JSON.createObjectNode();
-        body.put("provider", "RUNWAY_WATCH");
+        body.put("provider", provider);
         var array = body.putArray("records");
         for (ObjectNode record : records) {
             array.add(record);
@@ -87,7 +117,7 @@ abstract class HealthRecordSyncIntegrationSupport extends SyncBatchIntegrationSu
     /** 회원의 날짜별 저장 행. 없으면 빈 목록. */
     protected List<Map<String, Object>> metricRows(long user, LocalDate date) {
         return jdbc.queryForList(
-                "SELECT rhr_bpm, rhr_revision, sleep_duration_min, daily_training_load, max_heart_rate,"
+                "SELECT rhr_bpm, rhr_revision, rhr_source, sleep_duration_min, daily_training_load, max_heart_rate,"
                         + " updated_at FROM daily_health_metrics WHERE user_id=? AND metric_date=?",
                 user,
                 date);

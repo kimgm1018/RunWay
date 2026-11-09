@@ -16,6 +16,8 @@ type Fail = (error: DataError) => Promise<never>;
 const me = fixtures.communityUsers.me;
 // U24 reads 10 requests a page.
 const requestPage = 10;
+// U26 · U27 read 20 a page.
+const followPage = 20;
 
 // My run as a post card. The mock has no heart rate or cadence totals, so a watch run gets
 // the 7.3 sheet's values.
@@ -24,6 +26,7 @@ function shareableOf(record: RecordFixture): PostRecord {
     ...toSummary(record),
     place: record.title.replace(/ 출발$/, ''),
     courseRun: record.courseId !== null,
+    route: record.route,
     averageHeartRate: record.watch ? 158 : null,
     cadence: record.watch ? 170 : null,
   };
@@ -77,6 +80,10 @@ export function createCommunityMock({
   let followRequests = fixtures.myFollowRequests.map(request => ({
     ...request,
   }));
+  // 7.4c: who follows whom besides me; my own follows come from followStatus.
+  const followers = new Map(
+    Object.entries(fixtures.runnerFollowers).map(([id, ids]) => [id, [...ids]]),
+  );
   // A request that is no longer waiting answers 404 like U25.
   const settle = (requesterId: string, approved: boolean) => {
     followRequests = followRequests.filter(
@@ -85,8 +92,34 @@ export function createCommunityMock({
     const mine = profiles.get(me.userId);
     if (approved && mine) {
       mine.followerCount += 1;
+      followers.set(me.userId, [
+        requesterId,
+        ...(followers.get(me.userId) ?? []).filter(id => id !== requesterId),
+      ]);
     }
   };
+  // U26 · U27 newest first: the ones I follow, then the fixture's.
+  const followersOf = (userId: string) => [
+    ...(userId !== me.userId &&
+    profiles.get(userId)?.followStatus === 'FOLLOWING'
+      ? [me.userId]
+      : []),
+    ...(followers.get(userId) ?? []),
+  ];
+  const followingOf = (userId: string) =>
+    userId === me.userId
+      ? [...profiles.entries()]
+          .filter(([, profile]) => profile.followStatus === 'FOLLOWING')
+          .map(([id]) => id)
+      : [...followers.entries()]
+          .filter(([, ids]) => ids.includes(userId))
+          .map(([id]) => id);
+  const nicknameOf = (userId: string) =>
+    Object.values(fixtures.communityUsers).find(user => user.userId === userId)
+      ?.handle ??
+    fixtures.myFollowRequests.find(request => request.requesterId === userId)
+      ?.nickname ??
+    '러너';
 
   const find = (postId: string) => {
     const post = posts.find(item => item.id === postId);
@@ -199,6 +232,10 @@ export function createCommunityMock({
       };
       return respond(detail);
     },
+    getRoute: postId => {
+      const post = find(postId);
+      return respond(post.courseShared ? post.record.route : null);
+    },
     getShareable: recordId => respond(shareableOf(record(recordId))),
     create: (recordId, draft) => {
       const id = `post-mine-${nextId++}`;
@@ -304,9 +341,15 @@ export function createCommunityMock({
           : profile.isPrivate
           ? 'PENDING'
           : 'FOLLOWING';
-        profile.followerCount +=
+        const change =
           (profile.followStatus === 'FOLLOWING' ? 1 : 0) -
           (was === 'FOLLOWING' ? 1 : 0);
+        profile.followerCount += change;
+        // 7.4b 팔로잉 counts the runners 7.4c lists for me (S15P31E105-534).
+        const mine = profiles.get(me.userId);
+        if (mine) {
+          mine.followingCount += change;
+        }
       }
       return respond(profileOf(userId));
     },
@@ -317,6 +360,32 @@ export function createCommunityMock({
       return respond({
         items: followRequests.slice(start, end),
         nextCursor: end < followRequests.length ? String(end) : null,
+      });
+    },
+    // U26 · U27: a private account answers 403 until it approves me.
+    listFollows: (userId, kind, cursor) => {
+      const profile = profiles.get(userId);
+      if (!profile) {
+        return fail(new DataError('USER_NOT_FOUND', '러너 없음'));
+      }
+      if (
+        userId !== me.userId &&
+        profile.isPrivate &&
+        profile.followStatus !== 'FOLLOWING'
+      ) {
+        return fail(new DataError('ACCOUNT_ACCESS_DENIED', '비공개 계정'));
+      }
+      const ids = kind === 'followers' ? followersOf(userId) : followingOf(userId);
+      const start = cursor ? Number(cursor) : 0;
+      const end = start + followPage;
+      return respond({
+        items: ids.slice(start, end).map(id => ({
+          userId: id,
+          nickname: nicknameOf(id),
+          profileImageUrl:
+            id === me.userId ? myPhoto() : fixtures.runnerPhotos[id] ?? null,
+        })),
+        nextCursor: end < ids.length ? String(end) : null,
       });
     },
     decideFollowRequest: (request, decision) => {

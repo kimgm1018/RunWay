@@ -303,16 +303,23 @@ def build_request_graph(gen, lat: float, lon: float, target_m: float, env: dict,
 
 # ------------------------------------------------------------------ Running Suitability edge levels (once per graph)
 def traffic_node_distance(cg, cfg: dict) -> np.ndarray:
-    """Distance (m) from every graph node to the nearest traffic centreline (all statuses)."""
+    """Distance (m) from every graph node to the nearest traffic centreline (all statuses), exact up to beside_m + 1 m.
+
+    edge_levels only asks "<= beside_m", so nodes farther than beside_m + 1 m get inf instead of their exact distance.
+    A radius query (dwithin) finds the candidate pairs and the exact distance is taken per pair; the minimum equals the
+    old query_nearest distance for every node within the radius, so the levels are unchanged (590 follow-up, 11-09:
+    30 request graphs, 0 level mismatches, 3.7x faster)."""
+    d = np.full(len(cg.node_ids), np.inf)
     e = cg.edges_all
     t = e[e["highway"].isin(cfg["traffic"]["traffic_highway"])]
     if t.empty:
-        return np.full(len(cg.node_ids), np.inf)
+        return d
     u, v = t["u"].to_numpy(), t["v"].to_numpy()
-    tree = shapely.STRtree(shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1)))
-    idx, dist = tree.query_nearest(shapely.points(cg.x, cg.y), return_distance=True, all_matches=False)
-    d = np.full(len(cg.node_ids), np.inf)
-    d[idx[0]] = dist
+    lines = shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1))
+    pts = shapely.points(cg.x, cg.y)
+    pi, li = shapely.STRtree(lines).query(pts, predicate="dwithin", distance=cfg["traffic"]["beside_m"] + 1.0)
+    if len(pi):
+        np.minimum.at(d, pi, shapely.distance(pts[pi], lines[li]))
     return d
 
 def edge_levels(cg, node_dist: np.ndarray, cfg: dict) -> dict:
@@ -334,9 +341,13 @@ class Sidecar:
     way_status / way_reason: classify() 결과를 way 위치 순서로 둔 list(cls[wid]와 같은 값). 압축 도로망(network_store)이면
     refs / attrs / cls는 배열에서 그때그때 만드는 view이고 값·순서는 dict 경로와 같다."""
 
-    def __init__(self, src):
+    def __init__(self, src, prepared=None):
         t0 = time.perf_counter()
         self.src = src
+        if prepared is not None:
+            prepared.sidecar(self, src)
+            self.build_s = round(time.perf_counter() - t0, 2)
+            return
         if getattr(src, "net", None) is not None:
             self._init_compact(src)
             self.build_s = round(time.perf_counter() - t0, 2)
@@ -473,12 +484,15 @@ def routegraph_sig(rg) -> tuple:
 class FastGraphRouteGenerator(api.RouteGenerator):
     """Canonical RouteGenerator whose per-request graph comes from build_fast (canonical's otherwise)."""
 
-    def __init__(self, *args, fast: bool = True, self_test: bool = True, **kwargs):
+    def __init__(self, *args, fast: bool = True, self_test: bool = True, region=None, **kwargs):
         self.source_snapshot = {}   # S1: the parsed extract from a validated snapshot when its key matches (else the PBF)
         self.network_store = {}     # H21: the compact store (views, no dicts) when its key matches (else S1 / the PBF)
-        with source_snapshot.source_from_snapshot(busan, self.source_snapshot):
-            with network_store.source_from_store(busan, self.network_store):
-                super().__init__(*args, **kwargs)
+        if region is None:
+            with source_snapshot.source_from_snapshot(busan, self.source_snapshot):
+                with network_store.source_from_store(busan, self.network_store):
+                    super().__init__(*args, **kwargs)
+        else:
+            super().__init__(*args, region=region, **kwargs)
         self.sidecar, self.fast_status = None, {"fast": False, "reason": "disabled"}
         if not fast:
             return
@@ -486,7 +500,7 @@ class FastGraphRouteGenerator(api.RouteGenerator):
         if osmnx_v != VERIFIED_OSMNX:
             self.fast_status = {"fast": False, "reason": f"osmnx {osmnx_v} != verified {VERIFIED_OSMNX}"}
             return
-        sc = Sidecar(self.source)
+        sc = Sidecar(self.source) if region is None else Sidecar(self.source, region.prepared)
         st = {"fast": True, "reason": "", "sidecar_build_s": sc.build_s}
         if self_test:
             key, target = SELF_TEST

@@ -5,9 +5,16 @@ import App from '../App';
 import { Backdrop } from '../src/components';
 import { createMockRepositories, DataError } from '../src/data';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
+import { FeedPage } from '../src/screens/community/FeedPage';
+import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
+import {
+  CourseGlyph,
+  CourseMapThumb,
+} from '../src/screens/course/SavedCoursesScreen';
 import { CrewDetailScreen } from '../src/screens/group/CrewDetailScreen';
 import { GroupTabScreen } from '../src/screens/group/GroupTabScreen';
+import { Raised } from '../src/screens/group/look';
 import { ThemeProvider } from '../src/theme';
 
 jest.mock(
@@ -124,6 +131,193 @@ test('7.1 lists shared runs, filters to people I follow and likes a post', async
   expect(liked()).toBe(1);
   await press(screen, '좋아요');
   expect(liked()).toBe(2);
+});
+
+// S15P31E105-567: H01 · CMT02 summaries carry no route (shape []); 7.1 · 7.4 · 7.4b open and the run tiles draw no made-up line.
+test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getProfile = repositories.runners.getProfile;
+  repositories.runners.getProfile = async userId => {
+    const profile = await getProfile(userId);
+    return {
+      ...profile,
+      records: profile.records.map(item => ({
+        ...item,
+        record: { ...item.record, shape: [] },
+      })),
+    };
+  };
+  const listFeed = repositories.community.listFeed;
+  repositories.community.listFeed = async scope =>
+    (await listFeed(scope)).map(post => ({
+      ...post,
+      courseShared: true,
+      record: { ...post.record, shape: [] },
+    }));
+  // Every run tile gets its map (S15P31E105-562); with no shape, one still waiting for its points draws no
+  // made-up outline.
+  const outlines = () => {
+    expect(screen.root.findAllByType(CourseMapThumb).length).toBeGreaterThan(0);
+    return screen.root
+      .findAllByType(CourseGlyph)
+      .filter(glyph => glyph.children.length > 0).length;
+  };
+  const screen = await openCommunity(repositories);
+  expect(texts(screen)).toContain('minjun.run');
+  // 홈 → 프로필 and the 프로필 tab, entered more than once as on the Galaxy.
+  for (let round = 0; round < 3; round += 1) {
+    await press(screen, 'minjun.run 프로필');
+    await settle(50);
+    expect(outlines()).toBe(0);
+    await press(screen, '뒤로');
+    await press(screen, '프로필');
+    await settle(50);
+    expect(outlines()).toBe(0);
+    await press(screen, '커뮤니티');
+  }
+});
+
+// 7.1 (S15P31E105-561, 담당자 시안): one full-screen page per post, the run's numbers at the foot, the actions down
+// the right, and the route drawn only for a post that shares its course.
+test('7.1 shows each post as a full-screen page with its numbers, and the route only when the course is shared', async () => {
+  const screen = await openCommunity();
+  const pages = screen.root.findAllByType(FeedPage);
+  expect(pages.length).toBeGreaterThan(1);
+  const first = pages[0];
+  const words = first
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string')
+    .join(' ');
+  for (const label of ['거리', '시간', '평균 페이스']) {
+    expect(words).toContain(label);
+  }
+  // The page on screen shows its shared course on the real map (S15P31E105-521); the pages around it keep the
+  // drawn map with 예시 경로, so the feed holds one native map.
+  const mapsOf = (page: TestRenderer.ReactTestInstance) =>
+    page.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'naver-map',
+    ).length;
+  expect(first.props.post.courseShared).toBe(true);
+  expect(mapsOf(first)).toBe(1);
+  expect(words).not.toContain('예시 경로');
+  const next = pages.find(
+    (page, index) => index > 0 && page.props.post.courseShared,
+  );
+  if (next) {
+    expect(mapsOf(next)).toBe(0);
+    expect(
+      next
+        .findAllByType(Text)
+        .flatMap(node => [node.props.children].flat())
+        .join(' '),
+    ).toContain('예시 경로');
+  }
+  for (const action of ['댓글', '공유']) {
+    expect(
+      first.findAll(
+        node =>
+          node.props.accessibilityLabel === action &&
+          typeof node.props.onPress === 'function',
+      ).length,
+    ).toBeGreaterThan(0);
+  }
+  // Without the course shared, the page keeps the map but draws no route or 예시 경로.
+  const hidden = pages.find(page => !page.props.post.courseShared);
+  if (hidden) {
+    const hiddenWords = hidden
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .join(' ');
+    expect(hiddenWords).not.toContain('예시 경로');
+  }
+});
+
+// 7.2 (S15P31E105-561, 담당자 레퍼런스): the map behind a white sheet with the numbers, the run, 좋아요, the 댓글
+// card and 달성, and a comment bar that opens the same comments sheet as 7.1.
+test('7.2 shows the run over its map, likes it and opens the comments from the card and the bar', async () => {
+  const screen = await openCommunity();
+  await press(screen, '검색');
+  await settle(50);
+  await press(screen, 'seoyun.run의 5.02km 러닝');
+  await settle(50);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const words = detail
+    .findAllByType(Text)
+    .flatMap(node => [node.props.children].flat())
+    .filter(child => typeof child === 'string')
+    .join(' ');
+  for (const label of [
+    '거리',
+    '평균 페이스',
+    '평균 심박',
+    '케이던스',
+    '민락수변공원 출발 5.0km · 완주',
+    '댓글 3',
+    '달성',
+    '목표 완주',
+  ]) {
+    expect(words).toContain(label);
+  }
+  await press(screen, '댓글 3개 열기');
+  expect(texts(screen)).toContain(
+    '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
+  );
+  await press(screen, '댓글 닫기');
+  await press(screen, '댓글 쓰기');
+  expect(labelled(screen, '댓글 입력', 'onChangeText')).toBeTruthy();
+});
+
+// A feed page opens 7.2, and 7.2's map plays the course back: the distance counts up, a tap pauses and resumes,
+// and it ends on the run's full distance (S15P31E105-561, 담당자 레퍼런스).
+test('a feed page opens 7.2, whose map plays the course from the start with pause and replay', async () => {
+  const screen = await openCommunity();
+  await press(screen, 'minjun.run의 게시물 열기');
+  await settle(50);
+  expect(screen.root.findAllByType(PostDetailScreen)).toHaveLength(1);
+  // The distance counts up beside the time; the average pace stays big (담당자 요청: 페이스가 주).
+  const km = () =>
+    parseFloat(
+      (
+        screen.root.find(
+          node =>
+            typeof node.props.accessibilityLabel === 'string' &&
+            node.props.accessibilityLabel.startsWith('거리 ') &&
+            node.props.accessibilityLabel.endsWith('km'),
+        ).props.accessibilityLabel as string
+      ).slice(3),
+    );
+
+  await press(screen, '코스 재생');
+  // It starts at the start.
+  expect(km()).toBeLessThan(0.1);
+  expect(texts(screen)).toContain('탭하면 일시정지');
+  expect(texts(screen)).toContain('평균 페이스 (/KM)');
+  // The camera swoops in first (once the map is up, here after its limit), then the run plays; time passes in
+  // steps so each stage's timers start.
+  for (let step = 0; step < 18; step++) {
+    await settle(500);
+  }
+  const halfway = km();
+  expect(halfway).toBeGreaterThan(0);
+  expect(halfway).toBeLessThan(5.02);
+
+  await press(screen, '재생 일시정지');
+  expect(texts(screen)).toContain('일시정지됨 · 탭하면 계속');
+  const paused = km();
+  for (let step = 0; step < 6; step++) {
+    await settle(500);
+  }
+  expect(km()).toBe(paused);
+
+  await press(screen, '재생 계속');
+  for (let step = 0; step < 20; step++) {
+    await settle(500);
+  }
+  expect(km()).toBe(5.02);
+  expect(texts(screen)).toContain('탭하면 다시 재생');
+  await press(screen, '코스 재생 닫기');
 });
 
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
@@ -274,27 +468,32 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(texts(screen)).toContain('팔로우');
 });
 
-test('그룹 · 커뮤니티 · 프로필 sit on the mist like 홈, and only the crew cards stay navy (S15P31E105-483)', async () => {
+test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark map feed, 6.0 crew cards white like 곧 출발 (S15P31E105-483·561·563)', async () => {
   const screen = await openCommunity();
   const onMist = (component: React.ElementType) =>
     screen.root.findByType(component).findAllByType(Backdrop).length > 0;
-  expect(onMist(CommunityScreen)).toBe(true);
+  // 7.1 is now full-screen pages on a dark map (S15P31E105-561, 담당자 시안), not the mist.
+  expect(onMist(CommunityScreen)).toBe(false);
 
   await press(screen, '그룹');
   await settle(50);
   expect(onMist(GroupTabScreen)).toBe(true);
-  // 6.0's navy crew cards keep the dark theme inside them, so their run lines stay white.
+  // 6.0's crew cards are the raised white card 곧 출발 uses, in the light theme (S15P31E105-563).
+  const group = screen.root.findByType(GroupTabScreen);
   expect(
-    screen.root
-      .findByType(GroupTabScreen)
-      .findAll(
-        node => node.type === ThemeProvider && node.props.tone === 'dark',
-      ).length,
-  ).toBeGreaterThan(0);
+    group.findAll(
+      node => node.type === ThemeProvider && node.props.tone === 'dark',
+    ),
+  ).toHaveLength(0);
+  expect(
+    group.findAll(node => node.type === Raised && node.props.tone === 'card')
+      .length,
+  ).toBeGreaterThan(1);
 
   await press(screen, '민락 야경 러너스 크루 상세');
   await settle(50);
-  expect(onMist(CrewDetailScreen)).toBe(true);
+  // 6.2 is a plain white page split by grey bands (S15P31E105-563), not the mist.
+  expect(onMist(CrewDetailScreen)).toBe(false);
   await press(screen, '뒤로');
 
   await press(screen, '프로필');
@@ -330,7 +529,7 @@ test('7.4b answers follow requests in the sheet and the counts follow', async ()
   await settle(50);
   page = texts(screen);
   expect(page).toContain('jiwoo.runs님의 요청을 거절했어요');
-  expect(page).toContain('대기 중인 요청이 없어요.');
+  expect(page).toContain('아직 대기 중인 요청이 없어요');
   expect(page).toContain('0건');
   expect(page).toContain('87');
 });
@@ -385,8 +584,21 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   expect(page).toContain('최근 기록');
   // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
   expect(page).not.toContain('공개 계정');
+  // My run opens in 2.1 기록 상세 on its day (S15P31E105-564), where 기록 공유 is.
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
-  await settle(50);
+  for (let tries = 0; tries < 40; tries++) {
+    if (
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === '기록 공유' &&
+          typeof node.props.onPress === 'function',
+      ).length > 0
+    ) {
+      break;
+    }
+    await settle(50);
+  }
+  expect(texts(screen)).toContain('10월 15일 목요일');
   await press(screen, '기록 공유');
   await settle(50);
   expect(texts(screen)).toContain('기록 공유');

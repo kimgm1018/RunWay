@@ -27,6 +27,12 @@ services:
       BACKEND_DOCS_USERNAME: runway105
       # HR 추론 AI 서버(runway-ai 내부 네트워크의 ai 서비스). AI04 실시간 코칭(421)과 AI06 개인화(410)가 함께 쓴다.
       BACKEND_AI_BASE_URL: http://ai:8000
+      # 그룹런 공동 페이스 AI10 S15P31E105-585/606, false면 기존 중앙값.
+      BACKEND_GROUP_PACE_ENABLED: "true"
+      # C01 경사 계산 DEM(S15P31E105-568). Route 전국 데이터 폴더의 전국 DEM을 읽기 전용으로 연결한다(601).
+      # 파일을 바꾸면 아래 마운트 경로와 SHA를 함께 바꾼다. 불일치 시 C01만 503 GRADE_NOT_READY다. 되돌리기: 부산 clip(45faaa5e…).
+      BACKEND_COURSE_DEM_PATH: /data/dem/copernicus_glo30_national.tif
+      BACKEND_COURSE_DEM_SHA256: 21f8a77e60e409cfc252c2a22df8119ca822dc538b4d9aa8ca28858ff24920f2
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -40,6 +46,12 @@ services:
       - type: bind
         source: /home/ubuntu/runway/data/images
         target: /data/images
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /home/ubuntu/runway/data/route_national/copernicus_glo30_national.tif
+        target: /data/dem/copernicus_glo30_national.tif
+        read_only: true
         bind:
           create_host_path: false
       - type: bind

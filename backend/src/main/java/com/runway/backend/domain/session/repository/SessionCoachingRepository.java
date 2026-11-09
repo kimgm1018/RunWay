@@ -2,6 +2,7 @@ package com.runway.backend.domain.session.repository;
 
 import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.CoachingSource;
+import com.runway.backend.domain.coaching.decide.GuidePaceSetAt;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -29,7 +30,7 @@ public class SessionCoachingRepository {
     public boolean healthConsented(long userId) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND health_data_access = 'AGREEE')",
+                        "SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND health_data_access = 'AGREE')",
                         Boolean.class,
                         userId));
     }
@@ -76,10 +77,15 @@ public class SessionCoachingRepository {
      * (is_hr_measured)일 때만 돌려준다.
      */
     public List<CoachingSource.Sample> recentSamples(long sessionId, int windowSec) {
+        return recentSamples(sessionId, windowSec, true);
+    }
+
+    public List<CoachingSource.Sample> recentSamples(
+            long sessionId, int windowSec, boolean includeHeartRate) {
         return jdbc.query(
                 """
                 SELECT elapsed_duration, measured_at,
-                       CASE WHEN is_hr_measured THEN heart_rate END AS heart_rate,
+                       CASE WHEN ? AND is_hr_measured THEN heart_rate END AS heart_rate,
                        speed, grade, total_distance, route_progress
                 FROM running_metric_samples
                 WHERE running_session_id = ?
@@ -96,6 +102,7 @@ public class SessionCoachingRepository {
                                 doubleOrNull(rs.getBigDecimal("grade")),
                                 doubleOrNull(rs.getBigDecimal("total_distance")),
                                 doubleOrNull(rs.getBigDecimal("route_progress"))),
+                includeHeartRate,
                 sessionId,
                 sessionId,
                 windowSec);
@@ -121,6 +128,28 @@ public class SessionCoachingRepository {
                         sessionId)
                 .stream()
                 .findFirst();
+    }
+
+    /**
+     * 현재 안내 페이스가 처음 적용된 시각({@code guidePaceSetAt}). 같은 추천 페이스의 연속 APPLIED는 streak 시작 시각으로
+     * 본다(S15P31E105-516).
+     */
+    public Optional<Instant> guidePaceSetAt(long sessionId) {
+        List<GuidePaceSetAt.AppliedPace> applied =
+                jdbc.query(
+                        """
+                        SELECT e.applied_at, d.recommended_pace
+                        FROM session_control_events e
+                        JOIN coaching_decisions d ON d.id = e.coaching_id
+                        WHERE e.session_id = ? AND e.action = 'COACHING' AND e.result = 'APPLIED'
+                        ORDER BY e.applied_at DESC, e.id DESC
+                        """,
+                        (rs, n) ->
+                                new GuidePaceSetAt.AppliedPace(
+                                        rs.getTimestamp("applied_at").toInstant(),
+                                        rs.getBigDecimal("recommended_pace")),
+                        sessionId);
+        return Optional.ofNullable(GuidePaceSetAt.resolve(applied));
     }
 
     private static CoachingLevel coachingLevel(String value) {

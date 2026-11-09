@@ -91,8 +91,16 @@ class RouteResponse:
 class RouteGenerator:
     """Canonical round-trip generator. Not thread-safe (OSMnx settings are global): one per worker."""
 
-    def __init__(self, extract_path: Path | None = None, graph_cache_size: int = GRAPH_CACHE_SIZE):
+    def __init__(self, extract_path: Path | None = None, graph_cache_size: int = GRAPH_CACHE_SIZE, *, region=None):
         t0 = time.perf_counter()
+        if region is not None:
+            # 명시적 자료 공급만 바꾼다. 요청 알고리즘과 부산 기본 초기화는 그대로다.
+            self.source, self.extract = region.source, region.extract
+            self._extract_poly = region.extract_poly
+            self._cache = OrderedDict()
+            self._cache_size = graph_cache_size
+            self.load_seconds = round(time.perf_counter() - t0, 2)
+            return
         self.source = busan.BusanSource(extract_path)
         meta = json.loads((busan.BUSAN_DIR / "EXTRACT.json").read_text(encoding="utf-8"))
         self.extract = {"file": self.source.path.name, "osm_data_timestamp": meta.get("osm_data_timestamp"),

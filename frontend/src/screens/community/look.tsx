@@ -62,15 +62,18 @@ export function LineLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// 코스도 함께 공유 (7.3 · 7.3e): a navy track with a white knob when on, pale mist off.
+// 코스도 함께 공유 (7.3 · 7.3e): a navy track with a white knob when on, pale mist off. dark: over 7.3's dark map
+// (S15P31E105-563), the feed's neon mint track with a navy knob when on, faint white off.
 export function CourseToggle({
   label,
   value,
   onChange,
+  dark = false,
 }: {
   label: string;
   value: boolean;
   onChange: (value: boolean) => void;
+  dark?: boolean;
 }) {
   return (
     <Pressable
@@ -79,9 +82,19 @@ export function CourseToggle({
       accessibilityState={{ checked: value }}
       onPress={() => onChange(!value)}
       hitSlop={8}
-      style={[styles.track, value ? styles.trackOn : styles.trackOff]}
+      style={[
+        styles.track,
+        value ? styles.trackOn : styles.trackOff,
+        dark && (value ? styles.trackOnDark : styles.trackOffDark),
+      ]}
     >
-      <View style={[styles.knob, value ? styles.on : styles.off]} />
+      <View
+        style={[
+          styles.knob,
+          value ? styles.on : styles.off,
+          dark && value && styles.knobOnDark,
+        ]}
+      />
     </Pressable>
   );
 }
@@ -273,6 +286,9 @@ const styles = StyleSheet.create({
   },
   trackOn: { backgroundColor: communityLook.ink },
   trackOff: { backgroundColor: '#E2EAEE' },
+  trackOnDark: { backgroundColor: '#4DFFD2' },
+  trackOffDark: { backgroundColor: 'rgba(255,255,255,0.24)' },
+  knobOnDark: { backgroundColor: communityLook.ink },
   knob: {
     width: 24,
     height: 24,

@@ -19,7 +19,7 @@ import {
   isSameDay,
 } from '../../format';
 import { fontFamily, k1, spacing, ThemeProvider } from '../../theme';
-import { CourseGlyph } from '../course/SavedCoursesScreen';
+import { CourseGlyph, drawableShape } from '../course/SavedCoursesScreen';
 import { CommunitySheet, communityLook, SheetButton } from './look';
 
 // Svg gradient ids are global on Android, so every gradient gets its own.
@@ -93,7 +93,7 @@ export function Avatar({
 }
 
 // 2026.10.19 07:12
-function stamp(iso: string) {
+export function stamp(iso: string) {
   const day = new Date(Date.parse(iso) + 9 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10)
@@ -233,7 +233,8 @@ export function RunPhoto({
           offsets={[...media.offsets]}
           style={styles.mediaFill}
         />
-        {courseShared ? (
+        {/* A post summary carries no route; an unknown one shows neither the outline nor its note (S15P31E105-567). */}
+        {courseShared && drawableShape(record.shape).length > 0 ? (
           <>
             {/* --media-free starts near white, so its note is in teal there. */}
             <AppText
@@ -242,7 +243,12 @@ export function RunPhoto({
               예시 경로
             </AppText>
             <View style={styles.mediaGlyph}>
-              <CourseGlyph shape={record.shape} thin />
+              {/* --media-free is light where the outline sits, so it is drawn in ink there. */}
+              <CourseGlyph
+                shape={record.shape}
+                km={record.distanceM / 1000}
+                tone={tone === 0 ? 'ink' : 'white'}
+              />
             </View>
           </>
         ) : null}

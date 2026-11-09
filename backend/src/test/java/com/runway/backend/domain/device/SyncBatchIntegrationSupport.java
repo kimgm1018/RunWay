@@ -83,8 +83,8 @@ abstract class SyncBatchIntegrationSupport {
         // 준비도 자동 평가(254)가 남긴 결과. 회원 FK가 있으므로 회원보다 먼저 지운다.
         jdbc.update("DELETE FROM daily_readiness");
         jdbc.update("DELETE FROM users");
-        userId = insertUser("AGREEE");
-        otherUserId = insertUser("AGREEE");
+        userId = insertUser("AGREE");
+        otherUserId = insertUser("AGREE");
         watchId = insertDevice(userId, "WATCH", false);
         phoneId = insertDevice(userId, "PHONE", false);
         otherWatchId = insertDevice(otherUserId, "WATCH", false);

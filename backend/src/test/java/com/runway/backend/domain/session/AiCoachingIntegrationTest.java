@@ -126,7 +126,7 @@ class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
 
     /** 사용자당 활성 세션은 하나이므로 새 회원으로 시작 3분 지난 세션을 만든다. */
     private long sessionOfNewUser() {
-        long owner = insertUser("AGREEE");
+        long owner = insertUser("AGREE");
         long watch = insertDevice(owner, "WATCH", false);
         long phone = insertDevice(owner, "PHONE", false);
         long sessionId = insertSession(owner, "RUNNING", 2, watch, phone, "PENDING", null);

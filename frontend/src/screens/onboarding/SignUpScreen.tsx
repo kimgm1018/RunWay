@@ -29,6 +29,8 @@ import {
   isValidPassword,
   loginIdRule,
   passwordChecks,
+  passwordLimitRule,
+  passwordWithinLimit,
 } from './validation';
 
 const passwordLabels = { length: '8자 이상', letter: '영문', digit: '숫자' };
@@ -161,6 +163,7 @@ export function SignUpScreen() {
                 loginId,
                 password,
                 phoneNumber: phone.phoneNumber,
+                phoneVerificationToken: phone.token,
               });
               navigateTo(navigation, 'Consent');
             }}
@@ -194,7 +197,18 @@ export function SignUpScreen() {
           onChangeText={setPassword}
           secureTextEntry
           textContentType="newPassword"
-          status={password && isValidPassword(password) ? 'success' : 'default'}
+          status={
+            password && !passwordWithinLimit(password)
+              ? 'error'
+              : password && isValidPassword(password)
+              ? 'success'
+              : 'default'
+          }
+          helper={
+            password && !passwordWithinLimit(password)
+              ? passwordLimitRule
+              : undefined
+          }
         />
         <View style={styles.checks}>
           {(Object.keys(passwordLabels) as (keyof typeof checks)[]).map(key => (
