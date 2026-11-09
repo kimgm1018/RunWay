@@ -714,7 +714,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 - body `status`는 `APPROVED`|`REJECTED`만 허용. OWNER만 처리; 비소유자 → `403 NOT_ADMIN`.
 - 대상이 PENDING이 아니면 → `409 NOT_PENDING`.
 - APPROVED 시 현재 APPROVED 인원이 `capacity` 이상이면 → `409 CREW_CAPACITY_EXCEEDED`. 승인 성공 시 `joined_at` 설정.
-- 인원 계산 전에 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M04 가입 신청·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경과 같은 잠금을 써서 동시 승인·정원 축소가 겹쳐도 APPROVED 인원이 정원을 넘지 않는다(S15P31E105-570).
+- 인원 계산 전에 `crews` 행을 잠근다(`SELECT … FOR UPDATE`). M04 가입 신청·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경과 같은 잠금을 써서 동시 승인·정원 축소가 겹쳐도 APPROVED 인원이 정원을 넘지 않는다(S15P31E105-570). 동시 승인 경합에서 한쪽만 성공하고 다른 쪽은 `409 CREW_CAPACITY_EXCEEDED`(또는 이미 처리된 경우 `409 NOT_PENDING`)다(S15P31E105-593).
 - 승인·거절 확정 후 신청자 알림함 연계는 S15P31E105-458([notifications.md](notifications.md)). 종류는 `CREW_JOIN_APPROVED`/`CREW_JOIN_REJECTED`. 수신자 설정은 잠정 `notifications.community`(별도 확정 전까지). false이면 행 없음.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 

@@ -268,10 +268,11 @@ public class CrewService {
     public DecideJoinResponse decideJoinRequest(
             long ownerUserId, long crewId, long targetUserId, DecideJoinRequest request) {
         requireExistingUser(ownerUserId);
+        // Lock for approve and reject so capacity checks stay serialized with other crew writes (570/593).
         Crew crew = requireCrewForUpdate(crewId);
         requireOwner(crew, ownerUserId);
-
         CrewMembershipStatus decision = resolveDecisionStatus(request.status());
+
         CrewMembership membership =
                 crewMembershipRepository
                         .findByCrewIdAndUserId(crewId, targetUserId)
