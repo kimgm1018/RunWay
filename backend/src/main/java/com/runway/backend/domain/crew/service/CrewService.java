@@ -148,7 +148,17 @@ public class CrewService {
         requireExistingUser(userId);
         String query = blankToNull(q);
         String region = blankToNull(regionCode);
-        List<Crew> crews = crewRepository.searchActive(CrewStatus.ACTIVE, query, region);
+        // 없는 검색 조건은 쿼리에서 제외해 null 파라미터의 SQL 타입 추론을 피한다.
+        List<Crew> crews;
+        if (query == null && region == null) {
+            crews = crewRepository.searchActive(CrewStatus.ACTIVE);
+        } else if (query == null) {
+            crews = crewRepository.searchActiveByRegion(CrewStatus.ACTIVE, region);
+        } else if (region == null) {
+            crews = crewRepository.searchActiveByName(CrewStatus.ACTIVE, query);
+        } else {
+            crews = crewRepository.searchActiveByNameAndRegion(CrewStatus.ACTIVE, query, region);
+        }
         if (crews.isEmpty()) {
             return new CrewListResponse(List.of());
         }
