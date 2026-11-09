@@ -96,7 +96,7 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   }
   // 과거 러닝 기록 shows the day on the date line: no run on 10.19, then 10.15's run.
   await press(screen, '과거 러닝 기록');
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   // The date line opens the calendar (2026년 10월), where a day picks it and closes it.
   await press(screen, '달력 열기');
   expect(texts(screen)).toContain('2026년 10월');

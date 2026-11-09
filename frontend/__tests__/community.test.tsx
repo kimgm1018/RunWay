@@ -502,7 +502,7 @@ test('7.4b answers follow requests in the sheet and the counts follow', async ()
   await settle(50);
   page = texts(screen);
   expect(page).toContain('jiwoo.runs님의 요청을 거절했어요');
-  expect(page).toContain('대기 중인 요청이 없어요.');
+  expect(page).toContain('아직 대기 중인 요청이 없어요');
   expect(page).toContain('0건');
   expect(page).toContain('87');
 });

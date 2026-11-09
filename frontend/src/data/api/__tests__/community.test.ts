@@ -61,6 +61,18 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken, refreshToken: 'refresh-1' });
 });
 
+test('CMT02 empty feed stays empty instead of failing the screen', async () => {
+  fetchMock.mockResolvedValue(respond(200, { items: [] }));
+
+  await expect(community().listFeed('ALL')).resolves.toEqual([]);
+});
+
+test('CMT02 missing items is an empty feed, not a load error', async () => {
+  fetchMock.mockResolvedValue(respond(200, {}));
+
+  await expect(community().listFeed('FOLLOWING')).resolves.toEqual([]);
+});
+
 test('CMT02 lists the feed by scope with the counts the server does not give left out', async () => {
   fetchMock.mockResolvedValue(respond(200, { items: [post, mine] }));
 

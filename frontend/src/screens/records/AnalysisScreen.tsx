@@ -641,7 +641,9 @@ export function AnalysisContent({
   const swipe = onSwipe;
   const open = onOpen;
   const none =
-    mode === 'DAY' ? '이 날은 러닝 기록이 없어요' : '이 기간에는 기록이 없어요';
+    mode === 'DAY'
+      ? '아직 이 날의 러닝 기록이 없어요'
+      : '아직 이 기간의 기록이 없어요';
   return (
     <>
       {data.status === 'error' ? (

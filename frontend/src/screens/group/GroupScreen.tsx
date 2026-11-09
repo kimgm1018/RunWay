@@ -258,9 +258,10 @@ function CrewPanel({
             ))}
           </View>
         ) : pinnedOnly ? null : (
-          <AppText style={[styles.sub, styles.noRuns]}>
-            예정된 그룹런이 없어요. + 로 만들어 보세요.
-          </AppText>
+          <View style={styles.noRuns}>
+            <AppText style={styles.sub}>아직 예정된 그룹런이 없어요</AppText>
+            <AppText style={styles.sub}>+로 만들어 보세요</AppText>
+          </View>
         )
       ) : null}
     </View>
@@ -433,7 +434,7 @@ export function MyCrewsPage({
           {term &&
           !mine.data.crews.some(({ crew }) => matches(crew.name, crew.area)) ? (
             <AppText style={[styles.sub, styles.onMist, styles.noMatch]}>
-              찾는 크루가 없어요.
+              찾는 크루가 없어요
             </AppText>
           ) : null}
           {mine.data.crews
@@ -624,7 +625,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: groupLook.onLight,
   },
-  noRuns: { textAlign: 'center', paddingVertical: spacing.xl },
+  noRuns: {
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: spacing.xl,
+  },
   noCrews: {
     flex: 1,
     paddingHorizontal: spacing.screen,

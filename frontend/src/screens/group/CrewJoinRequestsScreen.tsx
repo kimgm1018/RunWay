@@ -328,7 +328,7 @@ export function CrewJoinRequestsScreen() {
               </View>
               {requests.length === 0 ? (
                 <AppText style={[styles.sub, styles.none]}>
-                  대기 중인 신청이 없어요
+                  아직 대기 중인 신청이 없어요
                 </AppText>
               ) : (
                 <View>

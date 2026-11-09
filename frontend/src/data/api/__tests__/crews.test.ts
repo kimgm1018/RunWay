@@ -127,6 +127,18 @@ test('M01 with no words asks for every crew', async () => {
   ).resolves.toEqual([]);
 });
 
+test('M01 and M10 missing items stay empty instead of failing the screen', async () => {
+  serve(path =>
+    path === '/crews' || path === '/users/me/crews'
+      ? respond(200, {})
+      : undefined,
+  );
+  await expect(
+    api().crews.search({ query: '새벽', nearby: false }),
+  ).resolves.toEqual([]);
+  await expect(api().listMine()).resolves.toEqual([]);
+});
+
 test('M02 with M07 marks me, puts the leader first and counts requests for the leader', async () => {
   serve(path => {
     if (path === '/crews/42') {

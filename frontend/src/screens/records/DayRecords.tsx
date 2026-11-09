@@ -112,7 +112,7 @@ function RunChips({
 function NoRun({ onList }: { onList?: () => void }) {
   return (
     <View style={styles.empty}>
-      <AppText style={styles.emptyTitle}>이 날은 러닝 기록이 없어요</AppText>
+      <AppText style={styles.emptyTitle}>아직 이 날의 러닝 기록이 없어요</AppText>
       <AppText style={styles.emptyText}>점이 있는 날을 눌러 보세요</AppText>
       {onList ? (
         <Pressable

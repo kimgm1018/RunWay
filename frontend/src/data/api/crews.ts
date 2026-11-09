@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { apiRequest } from './http';
 import { uploadImage } from './images';
+import { listItems } from './listItems';
 import type { Regions } from './regions';
 
 // M01–M12 크루 (docs/design/api/crews.md). Crews keep a region code, shown by its CMT12 name. The capacity
@@ -117,8 +118,10 @@ export function createCrewsApi({
       if (!isServerId(crewId)) {
         return mock.listJoinRequests(crewId);
       }
-      const { items } = await apiRequest<{ items: JoinRequestItem[] }>(
-        `/crews/${crewId}/join-requests`,
+      const items = listItems(
+        await apiRequest<{ items: JoinRequestItem[] }>(
+          `/crews/${crewId}/join-requests`,
+        ),
       );
       // M05 has only the nickname; level, pace and the first-crew mark are not shared.
       return items.map(item => ({
@@ -135,22 +138,24 @@ export function createCrewsApi({
   const crews: Repositories['crews'] = {
     // M01 has no location filter, so 내 근처 lists the same crews.
     search: async ({ query }) => {
-      const { items } = await apiRequest<{ items: CrewResponse[] }>('/crews', {
-        query: { q: query.trim() || undefined },
-      });
+      const items = listItems(
+        await apiRequest<{ items: CrewResponse[] }>('/crews', {
+          query: { q: query.trim() || undefined },
+        }),
+      );
       return Promise.all(items.map(toListItem));
     },
     get: async crewId => {
       if (!isServerId(crewId)) {
         return mock.get(crewId);
       }
-      const [crew, { items }, myUserId] = await Promise.all([
+      const [crew, membersPage, myUserId] = await Promise.all([
         apiRequest<CrewResponse>(`/crews/${crewId}`),
         apiRequest<{ items: MemberItem[] }>(`/crews/${crewId}/members`),
         myId(),
       ]);
       const amOwner = String(crew.ownerId) === myUserId;
-      const members: CrewMember[] = [...items]
+      const members: CrewMember[] = [...listItems(membersPage)]
         .sort((a, b) => Number(b.isOwner) - Number(a.isOwner))
         .map(member => ({
           userId: String(member.userId),
@@ -253,8 +258,8 @@ export function createCrewsApi({
 
   // M10 내 크루 for 6.0: members first, then requests still waiting.
   const listMine = async (): Promise<MyCrew[]> => {
-    const { items } = await apiRequest<{ items: MyCrewItem[] }>(
-      '/users/me/crews',
+    const items = listItems(
+      await apiRequest<{ items: MyCrewItem[] }>('/users/me/crews'),
     );
     const mine = await Promise.all(
       items.map(

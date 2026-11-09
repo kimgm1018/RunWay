@@ -110,7 +110,7 @@ export function CommunityScreen() {
               icon="community"
               title={
                 scope === 'FOLLOWING'
-                  ? '팔로우한 러너의 게시물이 아직 없어요'
+                  ? '아직 팔로우한 러너의 게시물이 없어요'
                   : '아직 공유된 러닝이 없어요'
               }
             />

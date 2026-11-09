@@ -7,6 +7,7 @@ import type {
   Repositories,
 } from '../types';
 import { apiRequest } from './http';
+import { listItems } from './listItems';
 import { tokenStore } from './tokenStore';
 
 // CMT01–CMT11 커뮤니티 (docs/design/api/community.md). The server has no like or comment counts, my
@@ -159,16 +160,19 @@ export function createCommunityApi({
 
   return {
     listFeed: async scope => {
-      const { items } = await apiRequest<{ items: PostResponse[] }>('/posts', {
-        query: { scope },
-      });
+      const items = listItems(
+        await apiRequest<{ items: PostResponse[] }>('/posts', {
+          query: { scope },
+        }),
+      );
       return items.map(toPost);
     },
     get: async postId => {
-      const [post, { items }] = await Promise.all([
+      const [post, commentsPage] = await Promise.all([
         apiRequest<PostResponse>(`/posts/${postId}`),
         apiRequest<{ items: CommentResponse[] }>(`/posts/${postId}/comments`),
       ]);
+      const items = listItems(commentsPage);
       const base = toPost(post);
       // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. A course that cannot
       // be read leaves the post without a route rather than failing the page.
