@@ -365,6 +365,7 @@ export function TodayRunScreen() {
         area={{ top: 0.17, bottom: 0.17 }}
         // The NAVER logo just over the sheet, on the left (S15P31E105-429).
         logo={{ above: 0.715 }}
+        view="lean"
         style={StyleSheet.absoluteFill}
       />
       {/* Touches outside the tabs, the buttons and the sheet reach the map below (지도에서 선택). */}

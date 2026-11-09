@@ -184,8 +184,30 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
     .flatMap(node => [node.props.children].flat())
     .filter(child => typeof child === 'string')
     .join(' ');
-  for (const label of ['거리', '시간', '평균 페이스', '예시 경로']) {
+  for (const label of ['거리', '시간', '평균 페이스']) {
     expect(words).toContain(label);
+  }
+  // The page on screen shows its shared course on the real map (S15P31E105-521); the pages around it keep the
+  // drawn map with 예시 경로, so the feed holds one native map.
+  const mapsOf = (page: TestRenderer.ReactTestInstance) =>
+    page.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'naver-map',
+    ).length;
+  expect(first.props.post.courseShared).toBe(true);
+  expect(mapsOf(first)).toBe(1);
+  expect(words).not.toContain('예시 경로');
+  const next = pages.find(
+    (page, index) => index > 0 && page.props.post.courseShared,
+  );
+  if (next) {
+    expect(mapsOf(next)).toBe(0);
+    expect(
+      next
+        .findAllByType(Text)
+        .flatMap(node => [node.props.children].flat())
+        .join(' '),
+    ).toContain('예시 경로');
   }
   for (const action of ['댓글', '공유']) {
     expect(

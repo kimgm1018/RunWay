@@ -1,7 +1,11 @@
 import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
-import { lowerToLogo, RunMap } from '../src/components/RunMap';
-import { appConfig } from '../src/config';
+import {
+  headingOf,
+  lowerToLogo,
+  RunMap,
+  zoomFor,
+} from '../src/components/RunMap';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -63,12 +67,12 @@ test('while running the course is a guide: no start, no labels, the run on top',
   expect(count(root, 'naver-map-path')).toBe(1);
 });
 
-test('the map is always the K1 day style, with no night map after sunset (S15P31E105-527)', () => {
+test('the map is the plain Naver day map, with no night map after sunset (S15P31E105-527, -521)', () => {
   const root = render(<RunMap route={route} trail={route.slice(0, 2)} />);
   const map = root.find(
     node => 'customStyleId' in node.props && 'mapType' in node.props,
   );
-  expect(map.props.customStyleId).toBe(appConfig.naverMapDayStyleId);
+  expect(map.props.customStyleId).toBeUndefined();
   expect(map.props.mapType).toBe('Basic');
   expect(map.props.isNightModeEnabled).toBeFalsy();
 });
@@ -167,4 +171,46 @@ test('without a logo the map keeps its own logo place', () => {
   const map = layOut(root, 1000);
   expect(map.props.logoAlign).toBeUndefined();
   expect(map.props.logoMargin).toBeUndefined();
+});
+
+// S15P31E105-521: the tilted views.
+test('the map is flat without buildings unless the screen asks for the tilted view', () => {
+  const flat = layOut(render(<RunMap route={route} />), 1000);
+  expect(flat.props.layerGroups.BUILDING).toBe(false);
+  expect(flat.props.camera).toBeUndefined();
+  const lean = layOut(render(<RunMap route={route} view="lean" />), 1000);
+  expect(lean.props.layerGroups.BUILDING).toBe(true);
+  expect(lean.props.layerGroups.TRANSIT).toBe(false);
+});
+
+test('the tilted views fit the region at the zoom the flat fit would pick', () => {
+  const region = {
+    latitude: 37.5,
+    longitude: 127,
+    latitudeDelta: 0.002,
+    longitudeDelta: 0.01,
+  };
+  // 0.01° of longitude at 37.5° is about 883 m across 400 points.
+  expect(zoomFor(region, undefined, 400, 1000)).toBeCloseTo(14.78, 1);
+  // Twice the span is one zoom level out.
+  expect(
+    zoomFor({ ...region, longitudeDelta: 0.02 }, undefined, 400, 1000),
+  ).toBeCloseTo(13.78, 1);
+  // A tall region is held by the padded height instead.
+  const tall = { ...region, latitudeDelta: 0.02, longitudeDelta: 0.001 };
+  expect(zoomFor(tall, { top: 250, bottom: 250 }, 400, 1000)).toBeCloseTo(
+    zoomFor(tall, undefined, 400, 500),
+    5,
+  );
+});
+
+test('the heading follows the last stretch of the run and holds while standing', () => {
+  const start: LngLat = [127, 37.5];
+  // About 33 m north, then 26 m east.
+  const north: LngLat = [127, 37.5003];
+  const east: LngLat = [127.0003, 37.5003];
+  expect(headingOf([start, north], 200)).toBeCloseTo(0, 0);
+  expect(headingOf([start, north, east], 0)).toBeCloseTo(90, 0);
+  // A step of a few metres keeps the heading it had.
+  expect(headingOf([north, [127.00002, 37.5003]], 135)).toBe(135);
 });

@@ -31,9 +31,8 @@ import {
 } from '@mj-studio/react-native-naver-map';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
-import { appConfig } from '../../config';
 import type { Post } from '../../data';
-import { routeLengthM, walkAlong, type LngLat } from '../../geo';
+import { bearingOf, routeLengthM, walkAlong, type LngLat } from '../../geo';
 import { formatPace } from '../../format';
 import { fontFamily } from '../../theme';
 import { feedLook, MapBackdrop } from './FeedPage';
@@ -311,9 +310,9 @@ const replayNavy = '#02050E';
 // (레퍼런스 시작 부분).
 const flat = { tilt: 0, bearing: 0 };
 const introMs = 2200;
-// The overview holds this long once the map's style is in, so its tiles draw and it is seen before the swoop.
+// The overview holds this long once the map is ready, so its tiles draw and it is seen before the swoop.
 const holdMs = 1500;
-// A map that never says its style is in still starts after this long.
+// A map that never says it is ready still starts after this long.
 const readyLimitMs = 4000;
 const tickMs = 100;
 // How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it.
@@ -353,18 +352,6 @@ function pointAt(route: LngLat[], progress: number): LngLat {
   const total = routeLengthM(route);
   const path = walkAlong(route, total * Math.min(1, Math.max(0, progress)));
   return path[path.length - 1] ?? route[0];
-}
-
-// Compass bearing (0 north, clockwise) from one point to another.
-function bearingOf([lng1, lat1]: LngLat, [lng2, lat2]: LngLat) {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-    Math.sin(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.cos(toRad(lng2 - lng1));
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 // The heading `progress` of the way along, looking a little ahead (back from the end).
@@ -436,7 +423,7 @@ function MapReplay({
     setCamera(
       overviewOf(path.current, size.current.width, size.current.height),
     );
-    // The map is made anew on every opening and its tiles stay blank until its style is in; the swoop waits for
+    // The map is made anew on every opening and its tiles stay blank until it is ready; the swoop waits for
     // that (or for the limit) so it is not spent over an empty map.
     const limit = setTimeout(() => setReady(true), readyLimitMs);
     return () => {
@@ -540,15 +527,11 @@ function MapReplay({
           <NaverMapView
             style={StyleSheet.absoluteFill}
             camera={camera}
-            // Without a custom style the map is ready once made; with one, once the style is in (or fails).
-            onInitialized={
-              appConfig.naverMapDayStyleId ? undefined : () => setReady(true)
-            }
-            onCustomStyleLoaded={() => setReady(true)}
-            onCustomStyleLoadFailed={() => setReady(true)}
+            // The plain Naver map, like every tilted map (S15P31E105-521): its buildings stand up, K1's stay
+            // flat. With no custom style to load, the map is ready once made.
+            onInitialized={() => setReady(true)}
             animationDuration={motion.duration}
             animationEasing={motion.easing}
-            customStyleId={appConfig.naverMapDayStyleId || undefined}
             mapType="Basic"
             // The camera's middle sits where the runner's pin is, above the numbers.
             mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
