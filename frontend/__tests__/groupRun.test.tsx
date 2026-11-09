@@ -331,6 +331,85 @@ test('6.2 sends a join request (6.2b) and 6.0 shows the crew as 승인 대기', 
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-592: approval happens on the leader's phone, so 6.0 loads M10 again whenever the group tab
+// comes back into view, and keeps the old list on screen until the new one arrives.
+test('6.0 loads my crews again when the group tab is shown again, keeping the list until it arrives', async () => {
+  const repositories = createMockRepositories({
+    latencyMs: 0,
+    tickMs: 20,
+    scenario: 'noCrews',
+  });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await press(screen!, '그룹');
+  await press(screen!, '크루 모집 보러 가기');
+  await press(screen!, '광안리 새벽 크루, 모집 중 18/30명');
+  await press(screen!, '가입 신청');
+  await press(screen!, '내 크루로');
+  await settle(100);
+  expect(texts(screen!)).toContain('승인 대기');
+
+  // The leader approves on their phone: the next M10 has the crew as a member with its run.
+  const listMine = repositories.groupRuns.listMine;
+  let release = () => {};
+  const spy = jest.spyOn(repositories.groupRuns, 'listMine').mockImplementation(
+    () =>
+      new Promise(resolve => {
+        release = () =>
+          listMine.apply(repositories.groupRuns).then(data =>
+            resolve({
+              ...data,
+              crews: data.crews.map(({ crew }) => ({
+                crew: { ...crew, membership: 'MEMBER' as const },
+                groupRuns: [
+                  {
+                    id: 'gr-approved',
+                    crewId: crew.id,
+                    crewName: crew.name,
+                    title: '승인 후 첫 새벽런',
+                    hostId: 'u-leader',
+                    hostNickname: '성윤',
+                    isHost: false,
+                    scheduledAt: '2099-01-01T21:00:00.000Z',
+                    meetingPlaceName: '광안리 해변',
+                    meetingAddress: '부산 수영구',
+                    courseId: null,
+                    courseName: null,
+                    targetDistanceM: null,
+                    targetDurationSec: 2400,
+                    participantCount: 3,
+                    joined: false,
+                    status: 'SCHEDULED' as const,
+                  },
+                ],
+              })),
+            }),
+          );
+      }),
+  );
+
+  await press(screen!, '홈');
+  await press(screen!, '그룹');
+  expect(spy).toHaveBeenCalledTimes(1);
+  // Mid-load the old list stays: no spinner, no empty state.
+  let page = texts(screen!);
+  expect(page).toContain('승인 대기');
+  expect(page).not.toContain('혼자 달리던 길, 같이 달려 볼까요');
+
+  await act(async () => release());
+  await settle(50);
+  page = texts(screen!);
+  expect(page).not.toContain('승인 대기');
+  expect(page).toContain('승인 후 첫 새벽런');
+  spy.mockRestore();
+  await act(async () => screen!.unmount());
+});
+
 test('6.2m saves the capacity and 6.2a approves a request and switches to 바로 가입', async () => {
   const screen = await openGroup();
   await press(screen, '크루 모집');
