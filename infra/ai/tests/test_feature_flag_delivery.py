@@ -66,19 +66,35 @@ def _client() -> TestClient:
                                  ode_loader=lambda: None))
 
 
-def test_compose_feature_flags_default_off_at_api_consumers(monkeypatch):
+def test_compose_feature_flags_deployment_defaults_at_api_consumers(monkeypatch):
     _set_service_flags(monkeypatch, {})
     with _client() as client:
         plan = client.post("/v1/pace/plan", json={"targetDistanceM": 5000, "targetDurationSec": 1650})
         decide_body_value = decide_body()
         decide_body_value["includeForecast"] = True
         decide = client.post("/v1/pace/decide", json=decide_body_value)
-        assert client.get("/health").json()["components"]["groupPace"]["enabled"] is False
+        assert client.get("/health").json()["components"]["groupPace"]["enabled"] is True
 
     assert plan.status_code == 200
     assert "ODE_MODEL_NOT_READY" not in [warning["code"] for warning in plan.json()["warnings"]]
     assert decide.status_code == 200
     assert decide.json()["forecast"]["status"] == "DISABLED"
+
+
+def test_compose_group_pace_can_be_disabled_via_env(monkeypatch):
+    _set_service_flags(monkeypatch, {"GROUP_PACE_ENABLED": "false"})
+    with _client() as client:
+        assert client.get("/health").json()["components"]["groupPace"]["enabled"] is False
+        response = client.post("/v1/group/pace", json={
+            "groupRunId": 3,
+            "currentGroupPaceSecPerKm": 340,
+            "elapsedSec": 300,
+            "now": "2026-11-05T00:00:00Z",
+            "participants": [{"active": True, "history": decide_body()["history"]}],
+        })
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "GROUP_PACE_DISABLED"
 
 
 def test_compose_feature_flag_overrides_reach_api_consumers(monkeypatch):
