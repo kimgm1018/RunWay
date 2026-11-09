@@ -150,13 +150,17 @@ public class GroupRunParticipantJdbcRepository {
     }
 
     /**
-     * RUNNING 세션 참가자의 추천/실측 페이스. AI04 coaching 최신 recommended_pace 우선, 없으면
-     * session.average_pace. 일시정지·종료·미시작은 제외.
+     * RUNNING 세션 참가자의 추천/실측 페이스. AI04 coaching 최신 recommended_pace 우선, 없으면 최근 60초
+     * W07 speed 실측 페이스. 일시정지·종료·미시작은 제외. 종료 후 average_pace는 쓰지 않는다.
+     *
+     * @param measuredAtCeiling 보통 {@code now + MEASURED_AT_FUTURE_SKEW}
      */
-    public List<BigDecimal> findRunningParticipantGuidePaces(long groupRunId) {
+    public List<BigDecimal> findRunningParticipantGuidePaces(
+            long groupRunId, Instant measuredAtCeiling) {
+        Timestamp ceiling = Timestamp.from(measuredAtCeiling);
         return jdbcTemplate.query(
                 """
-                SELECT COALESCE(c.recommended_pace, s.average_pace) AS pace
+                SELECT COALESCE(c.recommended_pace, live.pace) AS pace
                 FROM group_run_participants p
                 INNER JOIN running_sessions s
                   ON s.id = p.session_id AND s.deleted_at IS NULL
@@ -169,13 +173,33 @@ public class GroupRunParticipantJdbcRepository {
                     ORDER BY cd.id DESC
                     LIMIT 1
                 ) c ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT (1000.0 / AVG(rms.speed)) AS pace
+                    FROM running_metric_samples rms
+                    WHERE rms.running_session_id = s.id
+                      AND rms.speed IS NOT NULL
+                      AND rms.speed > 0
+                      AND rms.speed NOT IN (
+                          'NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
+                      AND rms.measured_at <= ?
+                      AND rms.measured_at >= (
+                          SELECT MAX(x.measured_at)
+                          FROM running_metric_samples x
+                          WHERE x.running_session_id = s.id
+                            AND x.speed IS NOT NULL
+                            AND x.speed > 0
+                            AND x.measured_at <= ?
+                      ) - INTERVAL '60 seconds'
+                ) live ON TRUE
                 WHERE p.group_run_id = ?
                   AND s.status = 'RUNNING'::running_sessions_status_enum
-                  AND COALESCE(c.recommended_pace, s.average_pace) IS NOT NULL
-                  AND COALESCE(c.recommended_pace, s.average_pace) > 0
+                  AND COALESCE(c.recommended_pace, live.pace) IS NOT NULL
+                  AND COALESCE(c.recommended_pace, live.pace) > 0
                 ORDER BY p.joined_at ASC, p.id ASC
                 """,
                 (rs, rowNum) -> rs.getBigDecimal("pace"),
+                ceiling,
+                ceiling,
                 groupRunId);
     }
 
