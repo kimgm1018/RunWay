@@ -135,7 +135,7 @@ test('a completed account enters home and stays signed in after a relaunch', asy
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(1);
   await login(first);
 
-  expect(texts(first)).toContain('오늘 준비도');
+  expect(texts(first)).toContain('러닝 시작하기');
   // S15P31E105-313: the login hands the consent to the watch again.
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(2);
   expect(tokenStore.current()).toEqual({
@@ -147,7 +147,7 @@ test('a completed account enters home and stays signed in after a relaunch', asy
   await act(async () => first.unmount());
 
   const relaunch = await launch();
-  expect(texts(relaunch)).toContain('오늘 준비도');
+  expect(texts(relaunch)).toContain('러닝 시작하기');
   expect(tokenStore.current()?.refreshExpiresAt).toBe('2026-12-02T01:00:00Z');
   // The restored session refreshes the watch consent as well.
   expect(refreshWatchHealthConsent).toHaveBeenCalledTimes(3);

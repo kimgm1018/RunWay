@@ -245,7 +245,7 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   expect(texts(screen)).toContain('내 코스에 저장했어요');
 
   await press(screen, '완료');
-  expect(texts(screen)).toContain('오늘 준비도');
+  expect(texts(screen)).toContain('러닝 시작하기');
   await act(async () => screen.unmount());
 });
 

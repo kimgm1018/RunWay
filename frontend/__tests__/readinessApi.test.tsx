@@ -5,7 +5,7 @@ import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 
 // 2.1 오늘 컨디션 against the server (dataSource 'api'): the readiness and that day's health metrics
-// from R02 (S15P31E105-322, S15P31E105-550). Values differ from the mock fixture (7h 12m, 58 bpm)
+// from R02 (S15P31E105-322, S15P31E105-550). Values differ from the mock fixture (7h 12m, 58회/분)
 // so a mock value on screen would show up.
 
 jest.mock(
@@ -92,17 +92,29 @@ test("2.1 shows today's R02 score and metrics without a made-up grade", async ()
   });
   const screen = await launch();
 
-  const page = texts(screen);
-  expect(page).toContain('75');
-  expect(page).toContain('6h 35m');
-  expect(page).toContain('61 bpm');
+  // R02 judges nothing (no level yet, readiness-formula 6절), so the card has no sentence; the report shows
+  // the records step by step (S15P31E105-615): 최근 러닝 → 지난밤 회복 → 오늘 준비도 with what went into it.
+  let page = texts(screen);
+  for (const text of [
+    '최근 러닝',
+    '지난밤 회복',
+    '안정 시 심박',
+    '6h 35m',
+    '75',
+    '점수에 들어간 기록',
+    '수집 전',
+    '최근 러닝은 최근 운동량으로 점수에 들어가요. 아직 수집 전이라 이 점수에는 반영되지 않았어요.',
+    '러닝 시작하기',
+  ]) {
+    expect(page).toContain(text);
+  }
+  expect(page).not.toContain('평소');
+  expect(page).toContain('61회/분');
   expect(page).not.toContain('7h 12m');
-  expect(page).not.toContain('58 bpm');
+  expect(page).not.toContain('58회/분');
   // No grade from R02, so the title names none.
   expect(page).toContain('오늘 준비도');
   expect(page).not.toContain('오늘 준비도 양호');
-  // 러닝 시작 left 2.1 with the old card (S15P31E105-564).
-  expect(page).not.toContain('러닝 시작');
   expect(page).not.toContain('undefined');
   await act(async () => screen.unmount());
 });
@@ -120,8 +132,10 @@ test("2.1 shows only the measured metric when the day's sleep is missing", async
   const screen = await launch();
 
   const page = texts(screen);
-  expect(page).toContain('61 bpm');
+  expect(page).toContain('61회/분');
+  // No sleep: a dash, and the score says it had no sleep record; nothing reads 0 or 정상.
   expect(page).toContain('– –');
+  expect(page).toContain('기록 없음');
   expect(page).not.toContain('7h 12m');
   await act(async () => screen.unmount());
 });
@@ -138,12 +152,17 @@ test('2.1 shows 2.P′ 오래된 데이터 for an earlier day', async () => {
   });
   const screen = await launch();
 
-  const page = texts(screen);
+  let page = texts(screen);
+  // No sentence of its own (담당자 요청); the report's last step names the last score's day.
+  expect(page).not.toContain('오늘의 달리기를 준비해 보세요');
   expect(page).toContain('마지막 평가 10월 30일');
   expect(page).toContain('워치 동기화');
+  expect(page).toContain('러닝 시작하기');
+  page = texts(screen);
+  expect(page).toContain('마지막 평가 10월 30일');
   expect(page).not.toContain('81');
   // That day's metrics are not today's.
-  expect(page).not.toContain('61 bpm');
+  expect(page).not.toContain('61회/분');
   expect(page).not.toContain('6h 35m');
   await act(async () => screen.unmount());
 });

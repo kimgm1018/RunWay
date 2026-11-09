@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Icon, useCountUp, type IconName } from '../../components';
+import { AppText, useCountUp, WordWrap } from '../../components';
 import type { ReadinessState, TodayCondition } from '../../data';
 import type { SleepAccess, TodaySleep } from '../../health/samsungSleep';
 import type { TodayRestingHr } from '../../health/samsungRestingHr';
@@ -11,11 +11,13 @@ import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
 import { recordsLook } from '../records/look';
 import { longDay } from '../records/DatePicker';
+import { ReadinessFlow } from './ReadinessFlow';
+import { readinessGuide } from './readinessGuide';
 
-// 2.1 홈의 준비도 (S15P31E105-564, 담당자 결정): today's readiness on the frost card, laid out like 5.1's run
-// card. R02 gives only the latest score, so it is always today's whatever day the date line shows (담당자 결정:
-// 지난 날은 띄우지 않음). 러닝 시작 left with the old card (하단 탭에 러닝); a state without a usable score keeps the
-// button that fixes it.
+// 2.1 홈의 준비도 (S15P31E105-564; S15P31E105-615 담당자 요청서: 점수 나열 대신 "오늘 어떻게 달릴지"): on top the day's
+// sentence and its reasons in plain words, then the score and the metrics in full, and 러닝 시작하기 (2.0M) at the foot
+// (담당자 요청). R02 gives only the latest score, so it is always today's whatever day the date line shows (담당자 결정:
+// 지난 날은 띄우지 않음). A state without a usable score keeps the button that fixes it, under the main one.
 
 const states: Record<
   ReadinessState,
@@ -39,34 +41,6 @@ const states: Record<
     note: '연결된 워치가 없어요',
   },
 };
-
-function Metric({
-  icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: IconName;
-  label: string;
-  value: string;
-  sub: string | null;
-}) {
-  return (
-    <View style={styles.metric}>
-      <View style={styles.metricLabel}>
-        <Icon
-          name={icon}
-          color={recordsLook.onCardLabel}
-          size={13}
-          strokeWidth={2}
-        />
-        <AppText style={styles.label}>{label}</AppText>
-      </View>
-      <AppText style={styles.metricValue}>{value}</AppText>
-      {sub ? <AppText style={styles.metricSub}>{sub}</AppText> : null}
-    </View>
-  );
-}
 
 // The score on a 0–100 line: the filled part up to the score, a white dot at it.
 function Gauge({ score }: { score: number | null }) {
@@ -225,8 +199,9 @@ export function ReadinessPanel({
     ((needsAccess(phoneSleep.access) && !r02Sleep) ||
       (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null));
   const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
+  // The grade alone: its label names 부하, which the card does not show (담당자 요청서: 전문용어 노출 금지).
   const weeklyLoadSub =
-    weeklyLoad !== null ? today.weeklyLoadLabel : consented ? '수집 전' : null;
+    weeklyLoad !== null ? null : consented ? '수집 전' : null;
   // 2.P′ 오래된 데이터 says when the last score was made, when it is known.
   const note =
     today.readinessState === 'stale' && today.lastAssessedDate
@@ -235,8 +210,9 @@ export function ReadinessPanel({
   const score = ready ? today.readinessScore : null;
   const counted = Math.round(useCountUp(score ?? 0));
   // R02 has no grade yet: the title names one only when the data has it (mock data).
-  const [grade, advice] = today.readinessSummary?.split(' · ') ?? [];
+  const [grade] = today.readinessSummary?.split(' · ') ?? [];
   const title = isToday ? '오늘 준비도' : '준비도';
+  const guide = readinessGuide(today, { isToday });
   return (
     <View>
       <View style={styles.chip}>
@@ -246,49 +222,55 @@ export function ReadinessPanel({
             : `${longDay(today.date)} 기준`}
         </AppText>
       </View>
-      <AppText style={styles.title}>
-        {ready && grade ? `${title} ${grade}` : title}
-      </AppText>
-      {ready && advice ? (
-        <AppText style={styles.subtitle}>{advice}</AppText>
-      ) : note ? (
-        <AppText style={styles.subtitle}>{note}</AppText>
+      {/* The data's own sentence for today, when it has one; no neutral line in its place (담당자 요청: 삭제). */}
+      {guide.judged ? (
+        <>
+          <View style={styles.guideTitleBox}>
+            <WordWrap
+              text={guide.title}
+              style={styles.guideTitle}
+              fontSize={26}
+            />
+          </View>
+          {guide.action ? (
+            <View style={styles.guideActionBox}>
+              <WordWrap
+                text={guide.action}
+                style={styles.guideAction}
+                fontSize={14.5}
+              />
+            </View>
+          ) : null}
+        </>
       ) : null}
 
-      <View style={styles.scoreBlock}>
-        <AppText style={styles.label}>준비도</AppText>
-        <AppText
-          style={styles.score}
-          accessibilityLabel={`준비도 ${score ?? '없음'}`}
-        >
-          {score === null ? '--' : String(counted)}
-          <AppText style={styles.scoreUnit}> /100</AppText>
-        </AppText>
-        <Gauge score={score} />
-      </View>
-
-      <View style={styles.metrics}>
-        <Metric icon="moon" label="수면" value={sleepValue} sub={sleepSub} />
-        <Metric
-          icon="heart"
-          label="안정 심박"
-          value={restingHeartRate !== null ? `${restingHeartRate} bpm` : '– –'}
-          sub={restingHeartRateSub}
-        />
-        <Metric
-          icon="activity"
-          label="주간 부하"
-          value={weeklyLoad ?? '– –'}
-          sub={weeklyLoadSub}
-        />
-      </View>
-
-      {ready && today.aiAdvice ? (
-        <View style={styles.advice}>
-          <AppText style={styles.label}>오늘의 조언</AppText>
-          <AppText style={styles.adviceText}>{today.aiAdvice}</AppText>
-        </View>
-      ) : null}
+      {/* The report (담당자 요청: 어제 러닝 → 회복 → 오늘 준비도를 시각화로): each step's records and why one is missing. */}
+      <ReadinessFlow
+        day={today.date}
+        isToday={isToday}
+        consented={consented}
+        sleep={{
+          value: sleepValue,
+          minutes: r02Sleep
+            ? today.sleepMinutes
+            : localSleep
+            ? Math.round(localSleep.minutes)
+            : null,
+          sub: sleepSub,
+        }}
+        heart={{
+          value: restingHeartRate !== null ? `${restingHeartRate}회/분` : '– –',
+          sub: restingHeartRateSub,
+        }}
+        readiness={{
+          title: ready && grade ? `${title} ${grade}` : title,
+          note,
+          score,
+          counted,
+          gauge: <Gauge score={score} />,
+        }}
+        load={{ value: weeklyLoad, sub: weeklyLoadSub }}
+      />
 
       {connect ? (
         <Pressable
@@ -297,20 +279,31 @@ export function ReadinessPanel({
           accessibilityState={{ busy: phoneSleep.requesting }}
           disabled={phoneSleep.requesting}
           onPress={phoneSleep.onConnect}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
         >
-          <AppText style={styles.actionText}>삼성 헬스 연결</AppText>
+          <AppText style={styles.secondaryText}>삼성 헬스 연결</AppText>
         </Pressable>
       ) : stateAction ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={stateAction.title}
           onPress={() => navigateTo(navigation, stateAction.route)}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
         >
-          <AppText style={styles.actionText}>{stateAction.title}</AppText>
+          <AppText style={styles.secondaryText}>{stateAction.title}</AppText>
         </Pressable>
       ) : null}
+
+      {/* The card's last and main action (담당자 요청: 맨 밑에 러닝 시작하기): the run tab's first step, 2.0M. Nothing
+          there is changed by readiness (담당자 요청서: 자동 변경 없음). */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="러닝 시작하기"
+        onPress={() => navigateTo(navigation, 'RunMode')}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+      >
+        <AppText style={styles.actionText}>러닝 시작하기</AppText>
+      </Pressable>
     </View>
   );
 }
@@ -329,44 +322,6 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 16,
     color: 'rgba(255,255,255,0.92)',
-  },
-  title: {
-    marginTop: 14,
-    fontFamily: fontFamily.bold,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.5,
-    color: recordsLook.onCard,
-  },
-  subtitle: {
-    marginTop: 1,
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 21,
-    letterSpacing: -0.3,
-    color: recordsLook.onCardSub,
-  },
-  label: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: recordsLook.onCardLabel,
-  },
-  scoreBlock: { marginTop: 26 },
-  score: {
-    marginTop: 2,
-    fontFamily: fontFamily.bold,
-    fontSize: 64,
-    lineHeight: 72,
-    letterSpacing: -2,
-    color: recordsLook.onCard,
-    includeFontPadding: false,
-  },
-  scoreUnit: {
-    fontFamily: fontFamily.bold,
-    fontSize: 18,
-    letterSpacing: 0,
-    color: recordsLook.onCardSub,
   },
   gauge: { marginTop: 14, height: 34 },
   track: {
@@ -401,48 +356,40 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     color: recordsLook.onCardMuted,
   },
-  metrics: {
-    marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: recordsLook.onCardLine,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  metric: { flex: 1 },
-  metricLabel: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  metricValue: {
-    marginTop: 4,
+  guideTitleBox: { marginTop: 14 },
+  guideActionBox: { marginTop: 6 },
+  guideTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 21,
-    lineHeight: 26,
-    letterSpacing: -0.5,
+    fontSize: 26,
+    lineHeight: 33,
+    letterSpacing: -0.7,
     color: recordsLook.onCard,
   },
-  metricSub: {
-    marginTop: 1,
-    fontFamily: fontFamily.medium,
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: recordsLook.onCardSub,
+  guideAction: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 21,
+    letterSpacing: -0.2,
+    color: recordsLook.onCard,
   },
-  advice: {
+  secondary: {
     marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: recordsLook.onCardLine,
-    gap: 6,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  adviceText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 22,
-    letterSpacing: -0.3,
+  secondaryText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 20,
     color: recordsLook.onCard,
   },
   action: {
-    marginTop: 24,
-    height: 52,
+    marginTop: 12,
+    height: 54,
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
