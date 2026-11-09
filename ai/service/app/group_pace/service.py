@@ -8,7 +8,7 @@ from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
 from app.models.base import HORIZONS_SEC
 from app.policy.mpc_policy import _mean, allow_at
-from app.policy.residual_margin import DECEL_AT_MOST_MPS
+from app.policy.residual_margin import MarginTable
 from app.schemas import Candidate, PredictRequest
 
 DELTAS = (-30, -20, -10, 0, 10, 20, 30, 45, 60)
@@ -145,7 +145,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             danger |= predictions[i, baseline, 2] >= ref.danger_bpm
             for j, pace in enumerate(paces):
                 if pace > current:
-                    uppers[i, j] = predictions[i, j, 2] + margins.margin(120, DECEL_AT_MOST_MPS, mean_grade)
+                    uppers[i, j] = predictions[i, j, 2] + cfg.hr_slow_margin_120_bpm[MarginTable.grade_of(mean_grade) or "UNKNOWN"]
                 else:
                     dspeed = 1000.0 / pace - measured_speed if measured_speed is not None else None
                     uppers[i, j] = max(prediction + margins.margin(horizon, dspeed, mean_grade)

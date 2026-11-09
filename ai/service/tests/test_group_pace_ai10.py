@@ -94,7 +94,7 @@ def test_participant_validation():
 
 
 def test_slowdown_chooses_smallest_passing_for_everyone():
-    model = GroupModel(lambda pace, hr: [190, 190, 160 if pace > (359 if hr == 151 else 344) else 170])
+    model = GroupModel(lambda pace, hr: [190, 190, 155 if pace > (359 if hr == 151 else 344) else 170])
     result = run(body(participants=[participant(hr=150), participant(2, hr=151)]), model)
     assert (result.group_pace_sec_per_km, result.direction, result.reason) == (360, "SLOW", "HR_LIMIT")
     assert result.changed and result.struggling_count == 0
@@ -259,14 +259,20 @@ def test_large_group_chunks_without_participant_cap():
     assert max(len(b["hr"]) for b in model.batches) <= 256
 
 
-def test_slow_margin_forces_decel_and_unknown_uses_largest_cell():
-    table = flat_table(0, {(120, "DECEL", "FLAT"): 1, (120, "DECEL", "UP"): 9,
-                           (120, "DECEL", "DOWN"): 3})
-    model = GroupModel(lambda pace, hr: [170, 170, 155] if pace > 344 else [170] * 3)
-    data = body()
-    assert run(data, model, table).group_pace_sec_per_km == 400
-    data["participants"][0]["futureGradePct"] = [0] * 24
-    assert run(data, model, table).group_pace_sec_per_km == 350
+@pytest.mark.parametrize("residual_margin", [0, 20])
+@pytest.mark.parametrize("grade,slow_hr,expected", [
+    (0, 158.01, 350), (0, 158.21, 400),    # FLAT: +4.89 bpm
+    (3, 156.92, 350), (3, 157.12, 400),    # UP: +5.98 bpm
+    (-3, 156.25, 350), (-3, 156.45, 400),  # DOWN: +6.65 bpm
+    (None, 155.44, 350), (None, 155.64, 400),  # UNKNOWN: +7.46 bpm
+])
+def test_slow_candidates_use_ai04_config_independent_of_residual_table(grade, slow_hr, expected, residual_margin):
+    model = GroupModel(lambda pace, hr: [170, 170, slow_hr] if pace > 344 else [170] * 3)
+    p = participant()
+    p["futureGradePct"] = None if grade is None else [grade] * 24
+    result = run(body(participants=[p]), model, flat_table(residual_margin))
+    assert (result.group_pace_sec_per_km, result.reason, result.struggling_count) == (
+        expected, "HR_LIMIT" if expected == 350 else "FLOOR", 0 if expected == 350 else 1)
 
 
 def test_current_and_fast_margin_direction_use_ai04_six_complete_cells():
@@ -286,8 +292,10 @@ def test_current_and_fast_margin_direction_use_ai04_six_complete_cells():
 
 def test_slow_upper_equal_to_allow_fails():
     table = flat_table(2)
-    model = GroupModel(lambda pace, hr: [180, 180, 160.9 if pace > 349 else 161])
-    assert run(model=model, margins=table).group_pace_sec_per_km == 350
+    # UNKNOWN: 155.54 + 7.46 == allow 163 fails at +10; 155.44 + 7.46 passes at +20.
+    model = GroupModel(lambda pace, hr: [180, 180, 155.44 if pace > 359 else 155.54])
+    result = run(model=model, margins=table)
+    assert (result.group_pace_sec_per_km, result.reason, result.struggling_count) == (360, "HR_LIMIT", 0)
 
 
 def test_cooldown_danger_exception_uses_raw_prediction_not_margin():
