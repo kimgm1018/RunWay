@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -6,7 +6,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   animateNextLayout,
@@ -356,6 +356,19 @@ export function MyCrewsPage({
       (repositories: Repositories) => loadMine(repositories, version),
       [version],
     ),
+  );
+  // Changes made elsewhere (a leader approving my request on their phone, leaving a crew on 6.2) show when
+  // the group tab comes back into view, with the old list kept until the new one arrives
+  // (S15P31E105-592). The first focus is the first load.
+  const refreshMine = mine.refresh;
+  const focused = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focused.current) {
+        void refreshMine();
+      }
+      focused.current = true;
+    }, [refreshMine]),
   );
   // Join changes on this screen show at once.
   const [joined, setJoined] = useState<Record<string, boolean>>({});
