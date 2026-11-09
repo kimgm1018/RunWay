@@ -36,7 +36,7 @@ public class HealthRecordJdbcRepository {
         return db(
                 () ->
                         jdbc.query(
-                                        "SELECT health_data_access = 'AGREEE' AS consented FROM users"
+                                        "SELECT health_data_access = 'AGREE' AS consented FROM users"
                                                 + " WHERE id = ? AND account_status = 'ACTIVE' FOR SHARE",
                                         (rs, n) -> rs.getBoolean("consented"),
                                         userId)

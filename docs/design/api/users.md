@@ -1055,7 +1055,7 @@ Request Body는 [U11 필드 계약](#필드-계약--u11-응답-및-u12-요청응
 }
 ```
 
-예시는 합성 값이다. 비밀번호 예시는 실제 정책 길이에 맞는 값으로 바꾸어 사용한다. 원래 healthDataAccess 직접 입력은 consents로 대체한다. 건강 동의의 단일 원천은 HEALTH_DATA이며 true는 users.health_data_access=AGREEE, false는 DISAGREE로 저장한다.
+예시는 합성 값이다. 비밀번호 예시는 실제 정책 길이에 맞는 값으로 바꾸어 사용한다. 원래 healthDataAccess 직접 입력은 consents로 대체한다. 건강 동의의 단일 원천은 HEALTH_DATA이며 true는 users.health_data_access=AGREE, false는 DISAGREE로 저장한다.
 
 ### Response
 

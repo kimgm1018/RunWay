@@ -312,7 +312,7 @@ user_devices는 기기 연결, daily_health_metrics는 날짜별 건강 요약, 
 
 `POST` `/api/v1/consents`
 
-> **S15P31E105-250 확정 계약 · 2026-11-02.** 가입 후 건강정보 동의를 켜거나 끈다. 동의 값의 단일 원천은 `users.health_data_access`(AGREEE/DISAGREE)이며 동의 이력·약관 버전·동의 시각은 저장하지 않는다(U15 2026-10-29 확정과 같다).
+> **S15P31E105-250 확정 계약 · 2026-11-02.** 가입 후 건강정보 동의를 켜거나 끈다. 동의 값의 단일 원천은 `users.health_data_access`(AGREE/DISAGREE)이며 동의 이력·약관 버전·동의 시각은 저장하지 않는다(U15 2026-10-29 확정과 같다).
 
 | 항목 | 값 |
 |---|---|
@@ -401,7 +401,8 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 ### 상태값
 
-- HEALTH_DATA: 동의(AGREEE) ↔ 철회(DISAGREE) 양방향. 가입 시 값은 U15에서 정한다.
+- HEALTH_DATA: 동의(AGREE) ↔ 철회(DISAGREE) 양방향. 가입 시 값은 U15에서 정한다.
+- 저장값 표기(S15P31E105-314 사용자 확정 · 2026-11-09): V1의 오타 `AGREEE`를 V24에서 `AGREE`로 바꿨다. W04와 U15는 동의 여부를 `granted` boolean으로만 받으므로 요청에 `AGREEE`/`AGREE` 문자열이 오는 경로가 없고 서버 호환 처리는 두지 않는다. 폰↔워치 동의 DataItem도 `AGREE`/`DISAGREE`만 인정하며 이전 값 `AGREEE`는 수용하지 않는다(완전 전환). 기기에 이미 저장된 `AGREEE`는 워치 로컬 DB 업그레이드와 폰의 W05 재반영으로 `AGREE`가 된다. 상세는 [워치·모바일·서버 연동](../watch-mobile-server-integration.md)을 따른다.
 
 ### 미정 사항
 
@@ -517,7 +518,7 @@ U15 동의 항목과 같은 형식이다. 문자열·숫자를 boolean으로 바
 
 - 로그인 회원 본인의 행에만 저장한다. 요청에 회원·기기 식별자를 받지 않는다.
 - 탈퇴 등 활성 회원이 아니면 401 `UNAUTHORIZED`.
-- `users.health_data_access`가 동의(`AGREEE`)가 아니면 403 `CONSENT_REQUIRED`로 요청 전체를 거절하고 아무것도 저장하지 않는다.
+- `users.health_data_access`가 동의(`AGREE`)가 아니면 403 `CONSENT_REQUIRED`로 요청 전체를 거절하고 아무것도 저장하지 않는다.
 - 기기(`deviceId`)는 받지 않는다. `daily_health_metrics`에 기기가 저장되지 않으며, 워치를 해제·교체한 뒤 폰에 남은 값도 올릴 수 있어야 하기 때문이다.
 
 ### Request Body

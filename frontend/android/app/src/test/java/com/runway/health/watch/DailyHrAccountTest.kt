@@ -42,6 +42,27 @@ class DailyHrAccountTest {
     assertEquals(1, store.allForAccount("202").single().uploadedRevision)
   }
 
+  /** S15P31E105-314: a consent saved as the old typo 'AGREEE' becomes AGREE without a new collection or lost records. */
+  @Test fun legacyAgreeConsentIsReplacedByAgreeKeepingEpochAndRecords() {
+    val disk = MemoryPrefs()
+    val before = DailyHrPrefs(disk)
+    assertTrue(before.prepareAccount("101"))
+    val epoch = before.collectionId()!!
+    before.saveConsent(CONSENT_AGREE)
+    before.upsertIfConsented(row(epoch))
+    // State the previous app version left behind.
+    check(disk.edit().putString("consent", "AGREEE").putBoolean("consent_delivered", true).commit())
+
+    val updated = DailyHrPrefs(disk)
+    assertTrue(updated.prepareAccount("101"))
+    assertNull(updated.upsertIfConsented(row(epoch).copy(revision = 2))) // not stored or acked until republished
+    updated.saveConsent(CONSENT_AGREE)
+    assertEquals(CONSENT_AGREE, updated.consent())
+    assertEquals(epoch, updated.collectionId()) // same collection, so the watch keeps its records
+    assertEquals(listOf(1), updated.allForAccount("101").map { it.revision })
+    assertEquals(2, updated.upsertIfConsented(row(epoch).copy(revision = 2))!!.revision)
+  }
+
   @Test fun withdrawalRotatesEpochSoOldRecordsCannotReturnAfterAgreement() {
     val store = DailyHrPrefs(MemoryPrefs())
     store.prepareAccount("101")

@@ -492,7 +492,7 @@ export function createMockRepositories(
         };
         accounts.set(request.loginId, account);
         runningProfileSaved = false;
-        healthConsent = request.healthDataAccess === 'AGREEE';
+        healthConsent = request.healthDataAccess === 'AGREE';
         return respond(session(request.loginId, account), options);
       },
       resetPassword: ({ verificationToken, newPassword }) => {

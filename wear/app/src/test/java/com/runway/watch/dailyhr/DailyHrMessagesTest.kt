@@ -74,10 +74,10 @@ class DailyHrMessagesTest {
 
     @Test fun boundConsentRequiresCollectionStartToRejectQueuedSamples() {
         val ts = "2026-10-30T01:00:00Z"
-        assertNull(HealthConsent.fromDataMap("AGREEE", ts, "collection-a", null))
-        assertNull(HealthConsent.fromDataMap("AGREEE", ts, "collection-a", "bad"))
+        assertNull(HealthConsent.fromDataMap("AGREE", ts, "collection-a", null))
+        assertNull(HealthConsent.fromDataMap("AGREE", ts, "collection-a", "bad"))
         assertEquals(HealthConsent(true, Instant.parse(ts), "collection-a", Instant.parse(ts)),
-            HealthConsent.fromDataMap("AGREEE", ts, "collection-a", ts))
+            HealthConsent.fromDataMap("AGREE", ts, "collection-a", ts))
     }
 
     @Test
@@ -92,12 +92,13 @@ class DailyHrMessagesTest {
     @Test
     fun consent_fromDataMap() {
         val ts = "2026-10-30T01:00:00Z"
-        assertTrue(HealthConsent.fromDataMap("AGREEE", ts)!!.agreed)
+        assertTrue(HealthConsent.fromDataMap("AGREE", ts)!!.agreed)
         assertFalse(HealthConsent.fromDataMap("DISAGREE", ts)!!.agreed)
-        assertNull(HealthConsent.fromDataMap("AGREE", ts))
+        // S15P31E105-314: no compatibility for the pre-V24 typo; an old app's value reads as no consent.
+        assertNull(HealthConsent.fromDataMap("AGREEE", ts))
         assertNull(HealthConsent.fromDataMap(null, ts))
-        assertNull(HealthConsent.fromDataMap("AGREEE", null))
-        assertNull(HealthConsent.fromDataMap("AGREEE", "garbage"))
+        assertNull(HealthConsent.fromDataMap("AGREE", null))
+        assertNull(HealthConsent.fromDataMap("AGREE", "garbage"))
     }
 
     @Test

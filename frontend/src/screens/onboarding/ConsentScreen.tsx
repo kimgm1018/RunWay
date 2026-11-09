@@ -28,7 +28,7 @@ export function ConsentScreen() {
     terms: false,
     personal: false,
     location: false,
-    health: draft.healthDataAccess === 'AGREEE',
+    health: draft.healthDataAccess === 'AGREE',
   });
   const [viewing, setViewing] = useState<(typeof consents)[number] | null>(
     null,
@@ -56,7 +56,7 @@ export function ConsentScreen() {
             disabled={!requiredDone}
             onPress={() => {
               update({
-                healthDataAccess: agreed.health ? 'AGREEE' : 'DISAGREE',
+                healthDataAccess: agreed.health ? 'AGREE' : 'DISAGREE',
               });
               navigateTo(navigation, 'ProfileBasic');
             }}

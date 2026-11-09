@@ -58,7 +58,7 @@ public class ReadinessJdbcRepository {
     private Optional<Boolean> consent(long userId, String lock) {
         return jdbc
                 .query(
-                        "SELECT health_data_access = 'AGREEE' AS consented FROM users"
+                        "SELECT health_data_access = 'AGREE' AS consented FROM users"
                                 + " WHERE id = ? AND account_status = 'ACTIVE'"
                                 + lock,
                         (rs, n) -> rs.getBoolean("consented"),
@@ -135,7 +135,7 @@ public class ReadinessJdbcRepository {
                         JOIN users u
                           ON u.id = r.user_id
                          AND u.account_status = 'ACTIVE'
-                         AND u.health_data_access = 'AGREEE'
+                         AND u.health_data_access = 'AGREE'
                         LEFT JOIN daily_health_metrics m
                                ON m.user_id = r.user_id AND m.metric_date = r.readiness_date
                         WHERE r.user_id = ?

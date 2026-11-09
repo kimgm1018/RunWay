@@ -587,7 +587,7 @@ class RunningSessionPatchIntegrationTest extends RunningSessionIntegrationSuppor
     void 중계폰이_연결중이면_그_폰만_중단할수_있다() throws Exception {
         long sessionId = insertReadySession();
         insertCommand(sessionId, watchId, "START", 1, "PENDING");
-        long secondUser = insertUser("AGREEE");
+        long secondUser = insertUser("AGREE");
         long foreignPhone = insertDevice(secondUser, "PHONE", false);
         mockMvc.perform(patchRequest(userId, sessionId, abort(1, foreignPhone)))
                 .andExpect(status().isForbidden())

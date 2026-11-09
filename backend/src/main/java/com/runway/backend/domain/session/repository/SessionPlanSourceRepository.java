@@ -38,7 +38,7 @@ public class SessionPlanSourceRepository {
     public Optional<Consent> consent(long userId) {
         return jdbc
                 .query(
-                        "SELECT health_data_access='AGREEE' AS granted, health_data_access::text ||"
+                        "SELECT health_data_access='AGREE' AS granted, health_data_access::text ||"
                                 + " ':' || updated_at::text AS stamp FROM users WHERE id=? AND"
                                 + " account_status='ACTIVE'",
                         (rs, n) -> new Consent(rs.getBoolean("granted"), rs.getString("stamp")),

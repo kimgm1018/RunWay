@@ -29,7 +29,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 3. 평가 대상 날짜는 바뀐 날짜 D 전부와, D+1~D+7 중 건강 행이 있는 날짜다. D가 이후 날짜의 평소 RHR(이전 7일)에 들어가므로, 과거 값이 늦게 도착해도 이후 날짜 결과에 반영된다.
 4. 날짜마다 별도 트랜잭션에서 평가한다. 평가 날짜는 W06 `metricDate`다(심박은 워치 시간대 날짜, 수면은 폰 시간대 기상일, S15P31E105-572).
    1. 같은 회원 평가를 회원별 advisory lock으로 한 줄로 세운다. 겹친 평가 중 나중 평가는 앞 평가 커밋 뒤의 최신 건강값을 읽으므로 오래된 값으로 계산한 결과가 최신 결과를 덮어쓰지 않는다.
-   2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREEE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
+   2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
    3. D-27~D의 일별 건강값으로 [산식](../readiness-formula.md)을 계산한다. 계산 가능한 항목이 없으면 저장하지 않고 기존 결과를 그대로 둔다.
    4. `(user_id, readiness_date)`로 넣거나 갱신한다. 같은 날짜가 다시 바뀌면 같은 행의 점수·신뢰도를 갱신한다.
 5. 한 날짜의 평가 실패는 다른 날짜 평가와 W06 응답·저장에 영향을 주지 않는다. 실패·대기열 초과 로그에는 회원 ID·날짜·예외 종류만 남기고 건강값과 예외 메시지는 남기지 않는다. 이벤트가 재전달되지 않으므로 이 로그가 누락 평가를 찾는 근거다.
@@ -59,7 +59,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 ### 인증 및 권한
 
 - 로그인한 활성 회원 본인의 결과만 조회한다. 다른 회원의 결과를 지정하는 입력은 없다.
-- 건강정보 동의(`health_data_access = AGREEE`)가 없으면 저장된 결과가 있어도 반환하지 않는다(403 `CONSENT_REQUIRED`).
+- 건강정보 동의(`health_data_access = AGREE`)가 없으면 저장된 결과가 있어도 반환하지 않는다(403 `CONSENT_REQUIRED`).
 
 ### Path Parameters
 

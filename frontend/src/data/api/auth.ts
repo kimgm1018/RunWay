@@ -110,7 +110,7 @@ export const signUp: Repositories['auth']['signUp'] = async ({
           { consentType: 'LOCATION_DATA', granted: true },
           {
             consentType: 'HEALTH_DATA',
-            granted: healthDataAccess === 'AGREEE',
+            granted: healthDataAccess === 'AGREE',
           },
         ],
       },

@@ -142,7 +142,7 @@ test('8.1 건강정보 수집 asks before withdrawing and gives consent again at
   // Giving it again needs no sheet.
   await press(screen, '건강정보 수집');
   expect(stateOf(screen, '건강정보 수집')).toBe('동의함');
-  expect(watchConsent).toHaveBeenLastCalledWith('AGREEE');
+  expect(watchConsent).toHaveBeenLastCalledWith('AGREE');
   await act(async () => screen.unmount());
 });
 

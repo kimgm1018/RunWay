@@ -23,9 +23,9 @@ function deps(response: unknown, tokens = ['access-1', 'access-1']) {
   } satisfies ConsentReadDeps;
 }
 
-test('HEALTH_DATA granted maps to AGREEE and W05 is called with GET /consents', async () => {
+test('HEALTH_DATA granted maps to AGREE and W05 is called with GET /consents', async () => {
   const d = deps(items(true));
-  await expect(readServerHealthConsent(d)).resolves.toBe('AGREEE');
+  await expect(readServerHealthConsent(d)).resolves.toBe('AGREE');
   expect(d.request).toHaveBeenCalledWith('/consents');
 });
 
@@ -104,7 +104,7 @@ test.each([true, false])(
       )
       .mockResolvedValueOnce(respond(200, items(granted)));
     await expect(readServerHealthConsent()).resolves.toBe(
-      granted ? 'AGREEE' : 'DISAGREE',
+      granted ? 'AGREE' : 'DISAGREE',
     );
   },
 );

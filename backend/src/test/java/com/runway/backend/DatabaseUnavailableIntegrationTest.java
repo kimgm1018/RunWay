@@ -85,7 +85,7 @@ class DatabaseUnavailableIntegrationTest {
                 jdbc.queryForObject(
                         """
                         INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-                        VALUES ('db_outage_294','hash','러너','2000-01-01','MALE','01011112222','AGREEE')
+                        VALUES ('db_outage_294','hash','러너','2000-01-01','MALE','01011112222','AGREE')
                         RETURNING id
                         """,
                         Long.class);

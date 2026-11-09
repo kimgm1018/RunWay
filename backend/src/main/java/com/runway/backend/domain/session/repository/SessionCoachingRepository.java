@@ -30,7 +30,7 @@ public class SessionCoachingRepository {
     public boolean healthConsented(long userId) {
         return Boolean.TRUE.equals(
                 jdbc.queryForObject(
-                        "SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND health_data_access = 'AGREEE')",
+                        "SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND health_data_access = 'AGREE')",
                         Boolean.class,
                         userId));
     }

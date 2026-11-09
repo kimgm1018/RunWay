@@ -6,7 +6,8 @@ CREATE TYPE "sync_batches_status_enum" AS ENUM('RECEIVED', 'COMMITTED', 'REJECTE
 CREATE TYPE "daily_readiness_readiness_confidence_enum" AS ENUM('LOW','MEDIUM','HIGH');
 CREATE TYPE "users_gender_enum" AS ENUM('MALE', 'FEMALE');
 CREATE TYPE "users_account_status_enum" AS ENUM('ACTIVE', 'WITHDRAWN');
-CREATE TYPE "users_health_data_access_enum" AS ENUM('AGREEE', 'DISAGREE');
+-- S15P31E105-314 (V24): V1의 오타 라벨 'AGREEE'를 'AGREE'로 RENAME VALUE한 결과와 같다.
+CREATE TYPE "users_health_data_access_enum" AS ENUM('AGREE', 'DISAGREE');
 CREATE TYPE "group_runs_status_enum" AS ENUM('SCHEDULED', 'RUNNING', 'COMPLETED', 'CANCELLED');
 CREATE TYPE "crew_memberships_status_enum" AS ENUM('PENDING', 'APPROVED', 'REJECTED', 'LEFT');
 CREATE TYPE "courses_status_enum" AS ENUM('ACTIVE', 'MERGED', 'BLOCKED');

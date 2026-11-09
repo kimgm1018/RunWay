@@ -713,7 +713,7 @@ export type AuthSession = {
 export type Gender = 'MALE' | 'FEMALE';
 
 // ERD code for users.health_data_access, spelled as in the API spec.
-export type HealthDataAccess = 'AGREEE' | 'DISAGREE';
+export type HealthDataAccess = 'AGREE' | 'DISAGREE';
 
 export type SignUpRequest = {
   loginId: string;

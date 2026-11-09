@@ -78,7 +78,7 @@ public class GroupRunFitJdbcRepository {
                 INNER JOIN users u ON u.id = dr.user_id
                 WHERE dr.user_id IN (%s)
                   AND u.account_status = 'ACTIVE'
-                  AND u.health_data_access = 'AGREEE'
+                  AND u.health_data_access = 'AGREE'
                 ORDER BY dr.user_id, dr.readiness_date DESC, dr.id DESC
                 """
                         .formatted(placeholders(userIds.size())),
