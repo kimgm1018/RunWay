@@ -1,5 +1,6 @@
 package com.runway.health.music
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,5 +76,68 @@ class MelonPolicyTest {
     assertTrue(json.getBoolean("installed"))
     assertFalse(json.getBoolean("browsable"))
     assertTrue(json.getBoolean("permitted"))
+  }
+
+  @Test
+  fun `finds the music drawer menu by its name`() {
+    assertTrue(MelonPolicy.isDrawer(" 음악서랍 "))
+    assertFalse(MelonPolicy.isDrawer("재생목록"))
+    assertFalse(MelonPolicy.isDrawer(null))
+  }
+
+  @Test
+  fun `library keeps Melon's order, drops blanks and repeats, and passes only web covers`() {
+    val json = JSONArray(
+      MelonPolicy.libraryJson(
+        listOf(
+          MelonEntry("like", "좋아요한 곡", "https://example.com/like.png", "LIKED"),
+          MelonEntry("recent", "최근들은 곡", null, "RECENT"),
+          MelonEntry("like", "좋아요한 곡", null, "LIKED"),
+          MelonEntry("", "빈 ID", null),
+          MelonEntry("blank", " ", null),
+          MelonEntry("list", "플리", "content://melon/cover"),
+          MelonEntry("list-2", "플리 2", "https://example.com/cover.jpg"),
+        ),
+      ),
+    )
+    assertEquals(4, json.length())
+    assertEquals("like", json.getJSONObject(0).getString("id"))
+    assertEquals("LIKED", json.getJSONObject(0).getString("kind"))
+    assertEquals("https://example.com/like.png", json.getJSONObject(0).getString("artworkUri"))
+    assertTrue(json.getJSONObject(1).isNull("artworkUri"))
+    assertTrue(json.getJSONObject(2).isNull("artworkUri"))
+    assertEquals("https://example.com/cover.jpg", json.getJSONObject(3).getString("artworkUri"))
+  }
+
+  @Test
+  fun `tells liked, recent and own playlists apart`() {
+    assertEquals("LIKED", MelonPolicy.kindOf("좋아요한 곡", false))
+    assertEquals("RECENT", MelonPolicy.kindOf("최근들은 곡", false))
+    assertEquals("LIST", MelonPolicy.kindOf("기타", false))
+    assertEquals("PLAYLIST", MelonPolicy.kindOf("최근 플리", true))
+  }
+
+  @Test
+  fun `a known track count goes with the list`() {
+    val json = JSONArray(
+      MelonPolicy.libraryJson(listOf(MelonEntry("a", "A", null, "LIKED", 34), MelonEntry("b", "B", null, "LIKED", 0))),
+    )
+    assertEquals(34, json.getJSONObject(0).getInt("trackCount"))
+    assertTrue(json.getJSONObject(1).isNull("trackCount"))
+  }
+
+  @Test
+  fun `history puts the newest song first, once, up to the limit`() {
+    var json = "[]"
+    listOf("a", "b", "c", "a").forEach {
+      json = MelonPolicy.addHistory(json, MelonHeard(it, "Song $it", "Artist", "content://x", 1000L), 3)
+    }
+    val songs = MelonPolicy.historyOf(json)
+    assertEquals(listOf("a", "c", "b"), songs.map { it.id })
+    assertEquals(null, songs.first().artworkUri)
+    json = MelonPolicy.addHistory(json, MelonHeard("d", "Song d", "", null, 0L), 3)
+    assertEquals(listOf("d", "a", "c"), MelonPolicy.historyOf(json).map { it.id })
+    assertEquals(json, MelonPolicy.addHistory(json, MelonHeard("", "blank", "", null, 0L), 3))
+    assertEquals(emptyList<MelonHeard>(), MelonPolicy.historyOf("broken"))
   }
 }

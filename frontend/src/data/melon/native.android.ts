@@ -1,5 +1,7 @@
 import { NativeModules } from 'react-native';
 import {
+  parseLibrary,
+  parseRecent,
   parsePlayback,
   parseStart,
   parseStatus,
@@ -15,6 +17,10 @@ type NativeMelonMedia = {
   getNowPlaying(): Promise<string>;
   command(name: MelonCommand): Promise<boolean>;
   playDefault(): Promise<string>;
+  getLibrary(): Promise<string>;
+  playItem(mediaId: string): Promise<boolean>;
+  getRecent(): Promise<string>;
+  playTrack(id: string): Promise<boolean>;
   openPermissionSettings(): Promise<boolean>;
   openMelon(): Promise<boolean>;
 };
@@ -31,6 +37,11 @@ export function createMelonBridge(): MelonBridge | undefined {
     send: command => native.command(command).catch(() => false),
     playDefault: async () =>
       parseStart(await native.playDefault().catch(() => 'NONE')),
+    library: async () =>
+      parseLibrary(await native.getLibrary().catch(() => '[]')),
+    playItem: id => native.playItem(id).catch(() => false),
+    recent: async () => parseRecent(await native.getRecent().catch(() => '[]')),
+    playTrack: id => native.playTrack(id).catch(() => false),
     openPermissionSettings: () =>
       native.openPermissionSettings().catch(() => false),
     openMelon: () => native.openMelon().catch(() => false),
