@@ -172,6 +172,7 @@ test('sendGroupStatus relays G10 values unchanged and drops non-finite numbers',
     leaderToLastGapM: 13,
     updatedAt: '2026-11-09T01:05:00Z',
     rankedCount: 2,
+    paceChanged: { from: 360, to: 370 },
   });
 
   const [path, type, sessionId, payload] = native.send.mock.calls[0];
@@ -185,7 +186,25 @@ test('sendGroupStatus relays G10 values unchanged and drops non-finite numbers',
     leaderToLastGapM: 13,
     updatedAt: '2026-11-09T01:05:00Z',
     rankedCount: 2,
+    paceChanged: { from: 360, to: 370 },
   });
+});
+
+test('sendGroupStatus sends paceChanged as null when the phone saw no change', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+
+  await watch.sendGroupStatus!('201', {
+    groupRunId: '77',
+    phase: 'RUNNING',
+    guidePaceSecPerKm: 370,
+    standing: null,
+    stale: true,
+    leaderToLastGapM: null,
+    updatedAt: null,
+    rankedCount: null,
+  });
+
+  expect(JSON.parse(native.send.mock.calls[0][3]).paceChanged).toBeNull();
 });
 
 test('prepare without a watch device id answers not ready and sends nothing', async () => {

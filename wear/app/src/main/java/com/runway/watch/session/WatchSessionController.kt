@@ -2,6 +2,8 @@ package com.runway.watch.session
 
 import com.runway.watch.batch.NoUploads
 import com.runway.watch.batch.RunUploads
+import com.runway.watch.cue.GroupPaceAlert
+import com.runway.watch.cue.NoGroupPaceAlert
 import com.runway.watch.cue.RhythmPlayer
 import com.runway.watch.cue.SilentRhythm
 import com.runway.watch.run.GroupNotice
@@ -126,6 +128,8 @@ class WatchSessionController(
     private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
     /** END-path diagnostics for device checks (S15P31E105-446): ids, stages, counts and durations only, never readings. */
     private val log: (String) -> Unit = {},
+    /** One buzz per shared pace change the phone relayed (S15P31E105-604). */
+    private val paceAlert: GroupPaceAlert = NoGroupPaceAlert,
 ) {
     private val mutex = Mutex()
     private val _state = MutableStateFlow(
@@ -165,6 +169,8 @@ class WatchSessionController(
     private var groupUpdatedAt: Instant? = null
     private var groupReceivedMs: Long? = null
     private var groupFlushedMs: Long? = null
+    /** The last pace change alerted, with its G10 updatedAt, so a resent GROUP_STATUS does not buzz again (S15P31E105-604). */
+    private var groupAlerted: Pair<Instant?, GroupNotice.PaceChanged>? = null
 
     private data class UnsavedEnd(
         val sessionId: String,
@@ -748,13 +754,16 @@ class WatchSessionController(
             update.stale -> GroupPosition.Waiting
             else -> GroupPosition.Unavailable
         }
-        val oldPace = before.guidePaceSecondsPerKm
         val newPace = update.guidePaceSecondsPerKm
-        // 서버가 바꾼 공동 페이스를 그대로 알린다. 워치는 새 페이스를 계산하지 않는다.
-        val notice = if (phase == GroupPhase.RUNNING && oldPace != null && newPace != null && oldPace != newPace) {
-            GroupNotice.PaceChanged(oldPace, newPace)
-        } else {
-            before.notice.takeIf { phase == GroupPhase.RUNNING }
+        // 폰이 연속 조회에서 본 공동 페이스 변경만 알린다(S15P31E105-604). 워치는 변경을 판단하거나 새 페이스를 계산하지 않는다.
+        // 첫 수신·재연결 뒤 값 차이는 paceChanged가 없어 조용히 반영되고, 같은 현황의 재전달은 다시 울리지 않는다.
+        // 지난 변경 표시는 지금 공동 페이스로 바뀐 것일 때만 남긴다(조용히 바뀐 뒤 옛 변경을 보이지 않는다).
+        val change = update.paceChanged?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        val notice = change ?: (before.notice as? GroupNotice.PaceChanged)
+            ?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        if (change != null && groupAlerted != (update.updatedAt to change)) {
+            groupAlerted = update.updatedAt to change
+            paceAlert.paceChanged()
         }
         _state.value = current.copy(
             group = GroupStatus(
@@ -801,6 +810,7 @@ class WatchSessionController(
     private fun resetGroup() {
         groupUpdatedAt = null
         groupReceivedMs = null
+        groupAlerted = null
     }
 
     /**

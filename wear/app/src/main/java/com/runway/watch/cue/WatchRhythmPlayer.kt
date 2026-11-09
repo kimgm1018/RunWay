@@ -25,7 +25,11 @@ private const val TAG = "RhythmCue"
  * restarts the beat at the new tempo; the same BPM is ignored so the beat is not reset (pace-coaching.md).
  * Failures (no audio focus, no vibrator) are logged by type only and stop the cue; they never stop the run.
  */
-class WatchRhythmPlayer(context: Context) : RhythmPlayer {
+class WatchRhythmPlayer(
+    context: Context,
+    /** S15P31E105-604: while another alert holds the vibrator, beats skip their buzz but keep the click. */
+    private val quiet: HapticQuiet? = null,
+) : RhythmPlayer {
     private val audioManager = context.applicationContext.getSystemService(AudioManager::class.java)
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= 31) {
         context.applicationContext.getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -114,7 +118,9 @@ class WatchRhythmPlayer(context: Context) : RhythmPlayer {
                 }
                 val due = origin + beatOffsetNanos(vibrationBeat, bpm)
                 if (SystemClock.elapsedRealtimeNanos() >= due) {
-                    vibrator?.takeIf { it.hasVibrator() }?.vibrate(VibrationEffect.createOneShot(VIBRATION_MS, VIBRATION_AMPLITUDE))
+                    if (quiet?.active() != true) {
+                        vibrator?.takeIf { it.hasVibrator() }?.vibrate(VibrationEffect.createOneShot(VIBRATION_MS, VIBRATION_AMPLITUDE))
+                    }
                     vibrationBeat = ((SystemClock.elapsedRealtimeNanos() - origin) * bpm / 60_000_000_000L) + 1
                 }
                 for (i in pcm.indices) {

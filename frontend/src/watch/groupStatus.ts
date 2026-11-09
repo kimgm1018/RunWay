@@ -7,6 +7,7 @@ import type { GroupRunLive, WatchGroupStatus } from '../data/types';
 export function watchGroupStatus(
   groupRunId: string,
   live: GroupRunLive,
+  paceChanged: WatchGroupStatus['paceChanged'] = null,
 ): WatchGroupStatus | null {
   const phase =
     live.status === 'SCHEDULED'
@@ -43,5 +44,29 @@ export function watchGroupStatus(
     leaderToLastGapM: live.spreadM,
     updatedAt: live.updatedAt ?? null,
     rankedCount: rankedCount > 0 ? rankedCount : null,
+    paceChanged,
   };
+}
+
+const validPace = (value: number | null) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+
+// 공동 페이스 변경 판단(GRP-006·WAT-005, S15P31E105-604). 한 번의 연속 G10 조회 동안만 쓴다.
+// 직전 유효값과 정수로 비교해 달라졌을 때만 {from,to}를 낸다. 첫 수신·null→값·같은 값은 null이다.
+// null·조회 오류(reset) 뒤에는 기준을 비워 다음 유효값을 조용히 반영한다. 조회를 새로 시작하면(앱 재진입) 새로 만들어
+// 지난 변경을 다시 알리지 않는다. 그룹이 달리는 중일 때만 알리며, 대기 중 바뀐 값은 기준값만 갱신한다.
+export function createPaceChangeTracker() {
+  let last: number | null = null;
+  const next = (live: GroupRunLive): WatchGroupStatus['paceChanged'] => {
+    const pace = validPace(live.guidePaceSecPerKm);
+    const from = last;
+    last = pace;
+    return pace !== null && from !== null && from !== pace && live.status === 'RUNNING'
+      ? { from, to: pace }
+      : null;
+  };
+  const reset = () => {
+    last = null;
+  };
+  return { next, reset };
 }

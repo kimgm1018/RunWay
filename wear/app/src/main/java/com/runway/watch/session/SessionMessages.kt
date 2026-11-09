@@ -1,5 +1,6 @@
 package com.runway.watch.session
 
+import com.runway.watch.run.GroupNotice
 import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.GroupStanding
 import com.runway.watch.run.RecordComparison
@@ -109,6 +110,11 @@ data class SessionEnvelope(
             leaderToLastGapMeters = payload.nullableDistance("leaderToLastGapM")?.value,
             updatedAt = instant("updatedAt"),
             rankedCount = payload.wholeNumber("rankedCount")?.takeIf { it >= 1 }?.toInt(),
+            paceChanged = payload.optJSONObject("paceChanged")?.let { c ->
+                val from = c.wholeNumber("from")?.takeIf { it > 0 }?.toInt() ?: return@let null
+                val to = c.wholeNumber("to")?.takeIf { it > 0 }?.toInt() ?: return@let null
+                GroupNotice.PaceChanged(from, to).takeIf { from != to }
+            },
         )
     }
 
@@ -300,4 +306,9 @@ data class GroupUpdate(
     val updatedAt: Instant?,
     /** Runners G10 ranked now; null when not sent (older phone). */
     val rankedCount: Int? = null,
+    /**
+     * GROUP_STATUS.paceChanged (S15P31E105-604): the shared pace change the phone saw between two G10 reads it made in a
+     * row. Null on the first read, null→value, the same value, or a resend; the watch alerts only when this is set.
+     */
+    val paceChanged: GroupNotice.PaceChanged? = null,
 )
