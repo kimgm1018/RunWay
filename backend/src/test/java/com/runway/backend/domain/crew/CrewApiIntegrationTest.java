@@ -14,9 +14,16 @@ import com.runway.backend.domain.crew.dto.response.CrewSummaryResponse;
 import com.runway.backend.domain.crew.service.CrewService;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedContextIntegrationSupport;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -617,6 +624,173 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
                                         """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("CREW_CAPACITY_EXCEEDED"));
+
+        String secondStatus =
+                jdbc.queryForObject(
+                        """
+                        SELECT status::text FROM crew_memberships
+                        WHERE crew_id = ? AND user_id = ?
+                        """,
+                        String.class,
+                        crewId,
+                        secondId);
+        org.junit.jupiter.api.Assertions.assertEquals("PENDING", secondStatus);
+    }
+
+    @Test
+    void 정원초과_거절후_재신청은_409_상태를_유지한다() throws Exception {
+        long rejectedId = insertUser("reapply_rejected", "재신청자", "01077778883");
+        long fillerId = insertUser("reapply_filler", "채움", "01077778884");
+        long crewId = createCrew(userId, "재신청 정원2", 2);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(rejectedId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, rejectedId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"REJECTED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(fillerId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, fillerId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(rejectedId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CREW_CAPACITY_EXCEEDED"));
+
+        String status =
+                jdbc.queryForObject(
+                        """
+                        SELECT status::text FROM crew_memberships
+                        WHERE crew_id = ? AND user_id = ?
+                        """,
+                        String.class,
+                        crewId,
+                        rejectedId);
+        org.junit.jupiter.api.Assertions.assertEquals("REJECTED", status);
+    }
+
+    @Test
+    void 만원_대기중_재신청은_ALREADY가_CAPACITY보다_앞선다() throws Exception {
+        long waitingId = insertUser("already_waiting", "대기중", "01077778885");
+        long fillerId = insertUser("already_filler", "선승인", "01077778886");
+        long crewId = createCrew(userId, "ALREADY 우선 정원2", 2);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(waitingId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(fillerId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, fillerId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(waitingId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ALREADY_MEMBER_OR_PENDING"));
+    }
+
+    @RepeatedTest(3)
+    void 동시_승인은_정원을_넘기지_않는다() throws Exception {
+        long firstId = insertUser("race_first_" + System.nanoTime(), "경합1", uniquePhone());
+        long secondId = insertUser("race_second_" + System.nanoTime(), "경합2", uniquePhone());
+        long crewId = createCrew(userId, "동시승인 정원2", 2);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(firstId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(secondId)))
+                .andExpect(status().isOk());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (long targetId : List.of(firstId, secondId)) {
+                futures.add(
+                        pool.submit(
+                                () -> {
+                                    ready.countDown();
+                                    start.await(10, TimeUnit.SECONDS);
+                                    return mockMvc.perform(
+                                                    patch(
+                                                                    "/api/v1/crews/{crewId}/join-requests/{userId}",
+                                                                    crewId,
+                                                                    targetId)
+                                                            .header(
+                                                                    "Authorization",
+                                                                    SecurityTestSupport.bearer(
+                                                                            userId))
+                                                            .contentType(
+                                                                    MediaType.APPLICATION_JSON)
+                                                            .content(
+                                                                    """
+                                                                    {"status":"APPROVED"}
+                                                                    """))
+                                            .andReturn()
+                                            .getResponse()
+                                            .getStatus();
+                                }));
+            }
+            org.junit.jupiter.api.Assertions.assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> future : futures) {
+                statuses.add(future.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(statuses).containsExactlyInAnyOrder(200, 409);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Long approved =
+                jdbc.queryForObject(
+                        """
+                        SELECT count(*) FROM crew_memberships
+                        WHERE crew_id = ? AND status = 'APPROVED'
+                        """,
+                        Long.class,
+                        crewId);
+        org.junit.jupiter.api.Assertions.assertEquals(2L, approved);
+    }
+
+    private String uniquePhone() {
+        long n = Math.floorMod(System.nanoTime(), 100_000_000L);
+        return String.format("010%08d", n);
     }
 
     private long insertUser(String loginId, String nickname, String phone) {
