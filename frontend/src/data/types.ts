@@ -721,6 +721,8 @@ export type SignUpRequest = {
   gender: Gender;
   phoneNumber: string;
   healthDataAccess: HealthDataAccess;
+  // U29 SIGN_UP proof for phoneNumber (users.md U15). Only dev/test servers accept a sign-up without it.
+  phoneVerificationToken?: string;
 };
 
 // A photo picked on the phone, as React Native's FormData sends it. The server takes jpeg or png up to 5MB.
@@ -741,7 +743,7 @@ export type LoginIdAvailability = {
   reason: 'DUPLICATED' | null;
 };
 
-// Phone verification has no API spec yet; these shapes cover 1.3 and 1.2q until it does.
+// U28·U29 휴대전화 인증 (users.md), used by 1.3 회원가입 and 1.2q 전화번호로 찾기.
 export type PhoneVerificationPurpose = 'SIGN_UP' | 'PASSWORD_RESET';
 
 export type PhoneCodeRequest = {

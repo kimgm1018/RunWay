@@ -10,7 +10,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 
 | 문서 | 도메인 | API 수 |
 |---|---|---:|
-| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 27 |
+| [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 30 |
 | [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
 | [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
@@ -49,7 +49,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 탈퇴·향후 정지 후 기존 JWT는 원래 만료시각까지 최대 10분 유효하다. 즉시 차단용 요청별 상태 조회·차단 목록은 두지 않으며 기존 자원 권한·동의 검사는 유지한다.
 
 
-토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
+토큰은 JSON 본문으로 반환하며 회원 API는 `Authorization: Bearer <accessToken>`을 사용한다. U01 로그인·U15 가입·U16 아이디 확인·U28~U30 휴대전화 인증과 비밀번호 재설정은 Access Token을 요구하지 않는다. U02 갱신·U03 로그아웃은 JSON 본문의 Refresh Token으로 처리하며 Access Token이 없거나 만료돼도 호출할 수 있다. 이 예외가 회원 데이터 조회 권한을 부여하지는 않는다.
 
 U02는 Refresh Token을 교체하고 이전 토큰 재사용 시 해당 로그인 계열의 갱신 권한을 폐기한다. U03은 해당 계열만 폐기하고 `204 No Content`를 반환한다. 앱은 갱신을 한 번으로 모으고 결과가 불확실한 갱신을 무조건 재시도하지 않는다. 오류 응답·로그아웃 반복·갱신 경합의 정확한 결과는 [U01~U03](users.md#인증-정책-적용-범위)을 따른다. 이 절과 U01~U03에서 확정한 항목은 문서 전체의 일반적인 초안 표시와 구분한다.
 
@@ -182,6 +182,9 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | U25 | [팔로우 요청 승인·거절](./users.md#u25-팔로우-요청-승인거절) | PATCH | `/users/me/follow-requests/{requesterId}` | [users.md](./users.md) |
 | U26 | [팔로워 목록](./users.md#u26-팔로워-목록) | GET | `/users/{userId}/followers` | [users.md](./users.md) |
 | U27 | [팔로잉 목록](./users.md#u27-팔로잉-목록) | GET | `/users/{userId}/following` | [users.md](./users.md) |
+| U28 | [휴대전화 인증번호 요청](./users.md#u28-휴대전화-인증번호-요청) | POST | `/auth/phone-verifications` | [users.md](./users.md) |
+| U29 | [휴대전화 인증번호 확인](./users.md#u29-휴대전화-인증번호-확인) | POST | `/auth/phone-verifications/confirm` | [users.md](./users.md) |
+| U30 | [비밀번호 재설정](./users.md#u30-비밀번호-재설정) | POST | `/auth/password-reset` | [users.md](./users.md) |
 | W01 | [기기 등록](./devices-health.md#w01-기기-등록) | POST | `/devices` | [devices-health.md](./devices-health.md) |
 | W02 | [등록 기기 조회](./devices-health.md#w02-등록-기기-조회) | GET | `/devices` | [devices-health.md](./devices-health.md) |
 | W03 | [기기 연결 해제](./devices-health.md#w03-기기-연결-해제) | DELETE | `/devices/{deviceId}` | [devices-health.md](./devices-health.md) |

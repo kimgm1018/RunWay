@@ -133,9 +133,13 @@ test('sign-up validates each field and reaches home through the watch connection
   await type(screen, '비밀번호 확인', 'runway123');
   expect(texts(screen)).toContain('비밀번호가 일치해요');
 
+  // A registered number still gets a code; the app tells only after the code is right (review R-1).
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
+  expect(texts(screen)).not.toContain('이미 가입된 전화번호예요');
+  await type(screen, '인증번호', fixtures.verificationCode);
   expect(texts(screen)).toContain('이미 가입된 전화번호예요');
+  expect(texts(screen)).toContain('인증번호 받기');
   await type(screen, '전화번호', '010-5555-6666');
   expect(isDisabled(screen, '다음')).toBe(true);
   await press(screen, '인증번호 받기');
@@ -325,8 +329,13 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
 
   await type(screen, '전화번호', '01077310042');
   await press(screen, '인증번호 받기');
+  expect(texts(screen)).not.toContain('가입되지 않은 전화번호예요');
+  await type(screen, '인증번호', fixtures.verificationCode);
   expect(texts(screen)).toContain('가입되지 않은 전화번호예요');
   expect(texts(screen)).toContain('처음이신가요?');
+  // The used-up code is gone: back to the number step.
+  expect(texts(screen)).toContain('인증번호 받기');
+  expect(texts(screen)).not.toContain('다시 받기');
 
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');

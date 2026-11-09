@@ -359,6 +359,42 @@ class RefreshTokenStoreIntegrationTest {
                                 ApiException.class,
                                 error -> assertThat(error.code()).isEqualTo("TOO_MANY_REQUESTS"));
 
+                // S15P31E105-560: 휴대전화 인증 스크립트도 앱 ACL 명령·키 범위 안에서 동작한다.
+                var phones =
+                        new com.runway.backend.domain.auth.repository.PhoneVerificationStore(redis);
+                var signUp =
+                        com.runway.backend.domain.auth.verification.PhoneVerificationPurpose.SIGN_UP;
+                String phone = "01012345678";
+                String waitKey =
+                        "runway:auth:phone:wait:SIGN_UP:"
+                                + java.util.HexFormat.of()
+                                        .formatHex(
+                                                java.security.MessageDigest.getInstance("SHA-256")
+                                                        .digest(
+                                                                phone.getBytes(
+                                                                        java.nio.charset
+                                                                                .StandardCharsets
+                                                                                .UTF_8)));
+                assertThat(phones.issue(signUp, phone, "198.51.100.31", "123456").status())
+                        .isEqualTo(1);
+                assertThat(phones.issue(signUp, phone, "198.51.100.31", "123456").status())
+                        .isEqualTo(-2);
+                assertThat(phones.confirm(signUp, phone, "000000", "synthetic-proof").status())
+                        .isEqualTo(-5);
+                assertThat(phones.confirm(signUp, phone, "123456", "synthetic-proof").status())
+                        .isEqualTo(1);
+                phones.discard(signUp, phone, "123456");
+                assertThat(phones.consume("synthetic-proof")).isPresent();
+                assertThat(phones.consume("synthetic-proof")).isEmpty();
+                for (int sent = 1; sent < 5; sent++) {
+                    redis.delete(waitKey);
+                    assertThat(phones.issue(signUp, phone, "198.51.100.31", "123456").status())
+                            .isEqualTo(1);
+                }
+                redis.delete(waitKey);
+                assertThat(phones.issue(signUp, phone, "198.51.100.31", "123456").status())
+                        .isEqualTo(-3);
+
                 assertThat(
                                 redis.opsForValue()
                                         .get(

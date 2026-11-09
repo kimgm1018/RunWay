@@ -31,13 +31,17 @@ class SignupConcurrencyIntegrationTest extends AuthIntegrationSupport {
                         })
                 .when(repository)
                 .insertUser(any(), anyString());
+        var other =
+                SignupValidationTest.payload(
+                        sameNickname ? "racer002" : "racer001",
+                        sameNickname ? "경합하나" : "경합둘째",
+                        true);
+        // 번호가 같으면 S15P31E105-560의 번호 잠금이 두 저장을 먼저 한 줄로 세운다. 이 테스트는 아이디·닉네임 UNIQUE 경합을 보므로
+        // 번호를 다르게 둔다(같은 번호 경합은 SignupVerificationIntegrationTest).
+        other.put("phoneNumber", "01099990000");
         String[] json = {
             mapper.writeValueAsString(SignupValidationTest.payload("racer001", "경합하나", false)),
-            mapper.writeValueAsString(
-                    SignupValidationTest.payload(
-                            sameNickname ? "racer002" : "racer001",
-                            sameNickname ? "경합하나" : "경합둘째",
-                            true))
+            mapper.writeValueAsString(other)
         };
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(() -> send(json[0]));

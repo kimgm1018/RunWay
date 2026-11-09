@@ -1,8 +1,11 @@
 package com.runway.backend.domain.auth;
 
+import com.runway.backend.domain.auth.repository.PhoneAccountRepository;
+import com.runway.backend.domain.auth.repository.PhoneVerificationStore;
 import com.runway.backend.domain.auth.repository.RefreshTokenStore;
 import com.runway.backend.domain.auth.repository.SignupRepository;
 import com.runway.backend.domain.auth.service.MemberPasswordHasher;
+import com.runway.backend.domain.auth.verification.SmsPort;
 import com.runway.backend.domain.user.repository.ProfileOwnerLockRepository;
 import com.runway.backend.domain.user.repository.UserProfileRepository;
 import com.runway.backend.global.security.JwtAccessTokenService;
@@ -16,6 +19,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.GenericContainer;
@@ -34,8 +38,12 @@ import org.testcontainers.utility.DockerImageName;
             JwtAccessTokenService.class,
             SignupRepository.class,
             ProfileOwnerLockRepository.class,
-            UserProfileRepository.class
+            UserProfileRepository.class,
+            PhoneVerificationStore.class,
+            PhoneAccountRepository.class
         })
+// 실제 SMS를 보내지 않는다(S15P31E105-560). 기본 Mock은 꺼짐(enabled=false)이며 필요한 테스트가 스텁한다.
+@MockitoBean(types = SmsPort.class)
 abstract class AuthIntegrationSupport {
     static final String REDIS_IMAGE =
             "redis:8.2.11@sha256:dae6b6fcd9e26c1e73cf70323f0711d4c1ade5bf40c1dfd9aa24d0fbb57e2309";
