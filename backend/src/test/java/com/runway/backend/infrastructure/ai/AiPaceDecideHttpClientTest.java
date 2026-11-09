@@ -59,7 +59,7 @@ class AiPaceDecideHttpClientTest {
                         new PaceDecideRequest.Goal(null, null, null),
                         new BigDecimal("0.5"), null,
                         new BigDecimal("400.00"), new BigDecimal("400.00"),
-                        300, 750.0, null, Instant.parse("2026-11-05T03:00:00Z"), null, null),
+                        300, 750.0, null, Instant.parse("2026-11-05T03:00:00Z"), null, null, null),
                 false);
     }
 

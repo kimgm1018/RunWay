@@ -152,6 +152,7 @@ public final class CoachingInputAssembler {
                         routeProgressM,
                         inputAsOf,
                         lastCoaching,
+                        source.guidePaceSetAt(),
                         source.lastResumedAt());
         var request =
                 new PaceDecideRequest(

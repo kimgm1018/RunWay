@@ -2,6 +2,7 @@ package com.runway.backend.domain.session.repository;
 
 import com.runway.backend.domain.coaching.decide.CoachingLevel;
 import com.runway.backend.domain.coaching.decide.CoachingSource;
+import com.runway.backend.domain.coaching.decide.GuidePaceSetAt;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -121,6 +122,28 @@ public class SessionCoachingRepository {
                         sessionId)
                 .stream()
                 .findFirst();
+    }
+
+    /**
+     * 현재 안내 페이스가 처음 적용된 시각({@code guidePaceSetAt}). 같은 추천 페이스의 연속 APPLIED는 streak 시작 시각으로
+     * 본다(S15P31E105-516).
+     */
+    public Optional<Instant> guidePaceSetAt(long sessionId) {
+        List<GuidePaceSetAt.AppliedPace> applied =
+                jdbc.query(
+                        """
+                        SELECT e.applied_at, d.recommended_pace
+                        FROM session_control_events e
+                        JOIN coaching_decisions d ON d.id = e.coaching_id
+                        WHERE e.session_id = ? AND e.action = 'COACHING' AND e.result = 'APPLIED'
+                        ORDER BY e.applied_at DESC, e.id DESC
+                        """,
+                        (rs, n) ->
+                                new GuidePaceSetAt.AppliedPace(
+                                        rs.getTimestamp("applied_at").toInstant(),
+                                        rs.getBigDecimal("recommended_pace")),
+                        sessionId);
+        return Optional.ofNullable(GuidePaceSetAt.resolve(applied));
     }
 
     private static CoachingLevel coachingLevel(String value) {

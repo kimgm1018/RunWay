@@ -35,13 +35,14 @@ class CoachingInputAssemblerTest {
 
     private static CoachingSource source(List<Sample> samples) {
         return new CoachingSource(
-                7L, 3L, 4L, STARTED, null, null, null, null, null, null, null, null, samples);
+                7L, 3L, 4L, STARTED, null, null, null, null, null, null, null, null, null, samples);
     }
 
     private static CoachingSource withGoalAndPlan(Plan plan, AppliedCoaching applied) {
+        Instant guideSetAt = applied == null ? null : applied.appliedAt();
         return new CoachingSource(
                 7L, 3L, 4L, STARTED, 5000, null, new BigDecimal("330.00"), null, null, plan,
-                applied, null, steadySamples());
+                applied, guideSetAt, null, steadySamples());
     }
 
     private static PaceDecideRequest request(CoachingSource source) {
@@ -93,10 +94,12 @@ class CoachingInputAssemblerTest {
 
     @Test
     void context는_계약_필드를_채운다() {
+        Instant guideSetAt = NOW.minusSeconds(180);
         CoachingSource source =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, 5000, 1800, null, null, null, null,
                         new AppliedCoaching(11L, NOW.minusSeconds(90), new BigDecimal("355.50"), null),
+                        guideSetAt,
                         NOW.minusSeconds(200), steadySamples());
 
         var assembled = CoachingInputAssembler.assemble(source, NOW).assembled();
@@ -120,6 +123,8 @@ class CoachingInputAssemblerTest {
         assertThat(context.anchorPaceSecPerKm()).isEqualByComparingTo("355.50");
         assertThat(context.currentGuidePaceSecPerKm()).isEqualByComparingTo("355.50");
         assertThat(context.lastCoaching()).isEqualTo(new PaceDecideRequest.LastCoaching(11L, NOW.minusSeconds(90)));
+        // 단계만 바뀐 뒤에도 페이스 변경 시각은 유지된다(S15P31E105-516).
+        assertThat(context.guidePaceSetAt()).isEqualTo(guideSetAt);
         assertThat(context.resumedAt()).isEqualTo(NOW.minusSeconds(200));
         // 심박·속도 모두 마지막 표본이 2초 전이다.
         assertThat(context.inputAsOf()).isEqualTo(NOW.minusSeconds(2));
@@ -169,7 +174,7 @@ class CoachingInputAssemblerTest {
         CoachingSource course =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, null, null, null, new BigDecimal("3000"), null, null,
-                        null, null, steadySamples());
+                        null, null, null, steadySamples());
 
         assertThat(request(course).context().mode()).isEqualTo("COURSE");
         assertThat(request(withGoalAndPlan(null, null)).context().mode()).isEqualTo("FREE_WITH_GOAL");
@@ -185,7 +190,7 @@ class CoachingInputAssemblerTest {
         CoachingSource course =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, null, null, null, new BigDecimal("3000"), profile, null,
-                        null, null, steadySamples());
+                        null, null, null, steadySamples());
 
         PaceDecideRequest request = request(course);
 
@@ -203,11 +208,11 @@ class CoachingInputAssemblerTest {
         CoachingSource beyond =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, null, null, null, new BigDecimal("800"), shortProfile,
-                        null, null, null, steadySamples());
+                        null, null, null, null, steadySamples());
         CoachingSource noProfile =
                 new CoachingSource(
                         7L, 3L, 4L, STARTED, null, null, null, new BigDecimal("3000"), null, null,
-                        null, null, steadySamples());
+                        null, null, null, steadySamples());
 
         assertThat(request(beyond).candidates()).allSatisfy(c -> assertThat(c.futureGradePct()).isNull());
         assertThat(request(noProfile).candidates()).allSatisfy(c -> assertThat(c.futureGradePct()).isNull());

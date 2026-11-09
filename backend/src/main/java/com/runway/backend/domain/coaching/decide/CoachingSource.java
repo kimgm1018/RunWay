@@ -12,6 +12,7 @@ import java.util.List;
  * @param gradeProfile 코스의 100m 경사(courses.md elevationProfile). 코스가 아니거나 없으면 null
  * @param plan 최신 초기 계획. 없으면 null
  * @param lastAppliedCoaching 마지막으로 워치에 적용된 코칭. 없으면 null
+ * @param guidePaceSetAt 현재 안내 페이스가 처음 적용된 시각. 없으면 null(S15P31E105-516)
  * @param lastResumedAt 마지막으로 적용된 재개 시각. 없으면 null
  * @param samples 최근 측정 표본(경과초 오름차순)
  */
@@ -27,6 +28,7 @@ public record CoachingSource(
         List<GradeSegment> gradeProfile,
         Plan plan,
         AppliedCoaching lastAppliedCoaching,
+        Instant guidePaceSetAt,
         Instant lastResumedAt,
         List<Sample> samples) {
 
