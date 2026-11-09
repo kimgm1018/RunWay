@@ -1479,6 +1479,12 @@ export type Repositories = {
     unblockBatches?: (sessionId: string) => Promise<void>;
     // 워치와의 연결(MessageClient 노드) 여부. 워치 앱 상태까지 뜻하지는 않는다.
     isWatchConnected?: () => Promise<boolean>;
+    // S15P31E105-571: 실제 Data Layer 노드. 없으면 null이며 가짜 기기명을 만들지 않는다.
+    getConnectedWatch?: () => Promise<{
+      id: string;
+      displayName: string;
+      nearby?: boolean;
+    } | null>;
     // W07이 다시 보내도 소용없는 이유로 거절한 batch. 워치에 ERROR(retryable=false)를 보낸다.
     failBatch: (batchId: string, code: string) => Promise<void>;
     // 등록하면 수신함에 남은 이벤트부터 전달한다.

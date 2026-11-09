@@ -5,6 +5,32 @@ import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 
 // 1.6w → 1.7 워치 연결 and 8.1 기기 against the server (dataSource 'api'): W01·W02·W03.
+// S15P31E105-571: registration needs a reachable Data Layer node; mock Galaxy Watch7 alone is not enough.
+
+const mockFindConnectedWatch = jest.fn<
+  Promise<{ id: string; displayName: string } | null>,
+  []
+>();
+
+jest.mock('../src/watch/watchSession', () => ({
+  createNativeWatchSession: () => ({
+    getLinkedDevices: async () => null,
+    prepare: async () => ({ stateVersion: 0, ready: false, reasonCode: null }),
+    sendCommand: async () => undefined,
+    sendBpmCommand: async () => undefined,
+    sendCoachingGuide: async () => undefined,
+    sendReceived: async () => undefined,
+    sendServerState: async () => undefined,
+    sendError: async () => undefined,
+    commitBatch: async () => undefined,
+    failBatch: async () => undefined,
+    subscribe: () => () => undefined,
+    setRunActive: async () => undefined,
+    getActiveSessionId: async () => null,
+    isWatchConnected: async () => (await mockFindConnectedWatch()) != null,
+    getConnectedWatch: () => mockFindConnectedWatch(),
+  }),
+}));
 
 jest.mock('../src/health/watchHealth', () => ({
   setWatchHealthConsent: jest.fn().mockResolvedValue(undefined),
@@ -210,23 +236,43 @@ async function openWatchChoice() {
 beforeEach(async () => {
   linked = false;
   failing = null;
+  mockFindConnectedWatch.mockReset();
+  mockFindConnectedWatch.mockResolvedValue(null);
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.clear();
   serve();
 });
 
-test('1.6w 네 links the watch before 1.7 opens', async () => {
+test('1.6w 네 links a reachable watch before 1.7 opens', async () => {
+  mockFindConnectedWatch.mockResolvedValue({
+    id: 'node-1',
+    displayName: 'Galaxy Watch7',
+  });
   const screen = await openWatchChoice();
 
   await press(screen, '다음');
 
-  expect(sent()).toEqual(['POST /devices', 'GET /devices']);
-  expect(texts(screen)).toContain('연결됨');
+  expect(sent()).toEqual(['POST /devices', 'GET /devices', 'GET /devices']);
+  expect(texts(screen)).toContain('준비 미완료');
+  await act(async () => screen.unmount());
+});
+
+test('1.6w opens 1.7 without registering when no watch node is reachable', async () => {
+  const screen = await openWatchChoice();
+
+  await press(screen, '다음');
+
+  expect(sent().filter(call => call.startsWith('POST'))).toEqual([]);
+  expect(texts(screen)).toContain('워치 없음');
   await act(async () => screen.unmount());
 });
 
 test('1.6w stays with a notice when the server cannot link the watch', async () => {
+  mockFindConnectedWatch.mockResolvedValue({
+    id: 'node-1',
+    displayName: 'Galaxy Watch7',
+  });
   failing = 'POST';
   const screen = await openWatchChoice();
 
@@ -239,28 +285,56 @@ test('1.6w stays with a notice when the server cannot link the watch', async () 
   await act(async () => screen.unmount());
 });
 
-test('8.1 shows the linked watch and unlinks it with W03', async () => {
+test('8.1 shows a linked-but-unreachable watch as 등록/연결 끊김, not mock-connected', async () => {
   linked = true;
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
   const screen = await launch(true);
   await press(screen, '설정');
-  expect(texts(screen)).toContain('Galaxy Watch7');
+  expect(texts(screen)).toContain('워치');
+  expect(last(screen, '워치', 'onPress').props.accessibilityValue.text).toBe(
+    '등록/연결 끊김',
+  );
+  expect(texts(screen)).not.toContain('Galaxy Watch7');
 
-  // The watch tile lets go of a connected watch (runway-settings).
+  // No live node → open 1.7 to reconnect; do not pretend it is connected.
+  await press(screen, '워치');
+  expect(sent().filter(call => call.startsWith('DELETE'))).toEqual([]);
+  expect(texts(screen)).toContain('등록/연결 끊김');
+  await act(async () => screen.unmount());
+});
+
+test('8.1 disconnects a reachable linked watch with W03', async () => {
+  linked = true;
+  mockFindConnectedWatch.mockResolvedValue({
+    id: 'node-1',
+    displayName: 'Galaxy Watch7',
+  });
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const screen = await launch(true);
+  await press(screen, '설정');
+  expect(texts(screen)).toContain('Galaxy Watch7');
+  expect(
+    last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
+  ).toBe('준비 미완료');
+
   await press(screen, 'Galaxy Watch7');
 
   expect(sent()).toContain('DELETE /devices/31');
   const page = texts(screen);
   expect(page).toContain('Galaxy Watch7 연결을 해제했어요');
   expect(
-    last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
-  ).toBe('연결 해제됨');
+    last(screen, '워치', 'onPress').props.accessibilityValue.text,
+  ).toBe('워치 없음');
   await act(async () => screen.unmount());
 });
 
 test('8.1 keeps the watch and says so when W03 fails', async () => {
   linked = true;
   failing = 'DELETE';
+  mockFindConnectedWatch.mockResolvedValue({
+    id: 'node-1',
+    displayName: 'Galaxy Watch7',
+  });
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
   const screen = await launch(true);
   await press(screen, '설정');
@@ -272,6 +346,6 @@ test('8.1 keeps the watch and says so when W03 fails', async () => {
   );
   expect(
     last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
-  ).toBe('연결됨');
+  ).toBe('준비 미완료');
   await act(async () => screen.unmount());
 });

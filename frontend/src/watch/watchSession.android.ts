@@ -27,6 +27,8 @@ type NativeWatchSession = {
   blockBatches(sessionId: string): Promise<string>;
   unblockBatches(sessionId: string): Promise<void>;
   isWatchConnected(): Promise<boolean>;
+  // S15P31E105-571: OS Data Layer node (id · displayName). Null when nothing is reachable.
+  getConnectedWatch(): Promise<{ id: string; displayName: string; nearby: boolean } | null>;
 };
 
 type Subscription = { remove: () => void };
@@ -413,6 +415,25 @@ export function createNativeWatchSession(
     },
     unblockBatches: sessionId => native.unblockBatches(sessionId),
     isWatchConnected: () => native.isWatchConnected().catch(() => false),
+    getConnectedWatch: async () => {
+      try {
+        const node = await native.getConnectedWatch();
+        if (!node || typeof node.id !== 'string') {
+          return null;
+        }
+        const displayName =
+          typeof node.displayName === 'string' && node.displayName.trim()
+            ? node.displayName.trim()
+            : '워치';
+        return {
+          id: node.id,
+          displayName,
+          nearby: node.nearby === true,
+        };
+      } catch {
+        return null;
+      }
+    },
 
     sendError: (sessionId, { code, retryable, failedType }) =>
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),

@@ -262,6 +262,28 @@ test('6.0b without crews counts open crews and their areas', async () => {
   });
 });
 
+test('6.0b without crews stays empty when nearby recruiting search fails', async () => {
+  const mock = createMockRepositories({ latencyMs: 0 });
+  const groupRuns = createGroupRunsApi({
+    mock: mock.groupRuns,
+    crews: {
+      ...mock.crews,
+      search: async () => {
+        throw new DataError('NETWORK_ERROR', '크루 검색 실패');
+      },
+    } as unknown as Repositories['crews'],
+    myCrews: async () => [],
+    myId: async () => '101',
+    usualPace: async () => 380,
+  });
+
+  await expect(groupRuns.listMine()).resolves.toEqual({
+    upcoming: null,
+    crews: [],
+    nearbyRecruiting: { count: 0, areas: [] },
+  });
+});
+
 test('6.4 fills the run from G03, G07, the crew and the course', async () => {
   serve();
 

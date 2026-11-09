@@ -189,6 +189,31 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
     }
   }
 
+  /**
+   * Connected Wear node for settings/onboarding (S15P31E105-571). Prefer a nearby node; displayName is the OS
+   * name (no mock brand). Null when no Data Layer node is present — never invent a watch.
+   */
+  @ReactMethod fun getConnectedWatch(promise: Promise) {
+    scope.launch {
+      try {
+        val nodes = Tasks.await(Wearable.getNodeClient(app).connectedNodes, 10, TimeUnit.SECONDS)
+        val node = nodes.firstOrNull { it.isNearby } ?: nodes.firstOrNull()
+        if (node == null) {
+          promise.resolve(null)
+          return@launch
+        }
+        val map = Arguments.createMap()
+        map.putString("id", node.id)
+        val name = node.displayName.trim()
+        map.putString("displayName", if (name.isEmpty()) "워치" else name)
+        map.putBoolean("nearby", node.isNearby)
+        promise.resolve(map)
+      } catch (_: Exception) {
+        promise.resolve(null)
+      }
+    }
+  }
+
   /** W07 answered COMMITTED: store the ACK, then send BATCH_COMMITTED to the watch. Rejects an ACK that does not match. */
   @ReactMethod fun commitBatch(batchId: String, acceptedCount: Double, promise: Promise) {
     scope.launch {
