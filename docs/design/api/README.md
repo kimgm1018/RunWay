@@ -18,7 +18,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
 | [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 5 |
 | [그룹런](./group-runs.md) | 그룹런·만남 장소 검색 | 14 |
-| [크루](./crews.md) | 크루 | 11 |
+| [크루](./crews.md) | 크루 | 12 |
 | [커뮤니티](./community.md) | 커뮤니티 | 13 |
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
@@ -237,6 +237,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | M09 | [크루 멤버 내보내기](./crews.md#m09-크루-멤버-내보내기) | DELETE | `/crews/{crewId}/members/{userId}` | [crews.md](./crews.md) |
 | M10 | [내 크루 목록](./crews.md#m10-내-크루-목록) | GET | `/users/me/crews` | [crews.md](./crews.md) |
 | M11 | [크루 해산](./crews.md#m11-크루-해산) | DELETE | `/crews/{crewId}` | [crews.md](./crews.md) |
+| M12 | [크루 설정 변경](./crews.md#m12-크루-설정-변경) | PATCH | `/crews/{crewId}` | [crews.md](./crews.md) |
 | CMT01 | [게시물 작성](./community.md#cmt01-게시물-작성) | POST | `/posts` | [community.md](./community.md) |
 | CMT02 | [게시물 목록](./community.md#cmt02-게시물-목록) | GET | `/posts` | [community.md](./community.md) |
 | CMT03 | [게시물 상세](./community.md#cmt03-게시물-상세) | GET | `/posts/{postId}` | [community.md](./community.md) |
@@ -278,7 +279,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 
 - [x] C04 수동 코스 등록 제외. 러닝 경로 자동 등록으로 변경, 개인 코스 저장 유지
 - [ ] 8.2 프로필 수정 '연령대' UI ↔ 생년월일 입력 (U05)
-- [x] 크루 가입 방식 — 크루장 승인 필수로 확정 (M03·M04)
+- [x] 크루 가입 방식 — 크루장 승인(APPROVAL)과 바로 가입(INSTANT) 중 크루장이 선택. 기본 APPROVAL. 2026-11-09 S15P31E105-570에서 기존 "크루장 승인 필수" 확정을 변경 (M03·M04·M12)
 - [x] 그룹런은 참가·참가 취소만 제공. 별도 불참 응답 제외
 - [ ] 7.1 검색창 유지 여부 (CMT13)
 

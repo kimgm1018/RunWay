@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -249,16 +249,28 @@ export function CrewJoinRequestsScreen() {
       setBusy(false);
     }
   };
+  // M12 (S15P31E105-570): one change at a time, so a fast second tap cannot leave the screen
+  // showing a value the server did not keep.
+  const policySaving = useRef(false);
   const changePolicy = async (policy: CrewJoinPolicy) => {
-    if (!crew || policy === crew.joinPolicy) {
+    if (!crew || policy === crew.joinPolicy || policySaving.current) {
       return;
     }
+    policySaving.current = true;
     setCrew({ ...crew, joinPolicy: policy });
     try {
       await crews.setJoinPolicy(crewId, policy);
-    } catch {
+    } catch (error) {
       setCrew(crew);
-      toast('가입 방식을 바꾸지 못했어요. 잠시 후 다시 시도해 주세요');
+      const code = errorCode(error);
+      if (code === 'NOT_ADMIN' || code === 'CREW_NOT_FOUND') {
+        toast('가입 방식을 바꿀 수 없는 크루예요');
+        reloadAll();
+      } else {
+        toast('가입 방식을 바꾸지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      policySaving.current = false;
     }
   };
 

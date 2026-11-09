@@ -2,6 +2,7 @@ package com.runway.backend.domain.crew.service;
 
 import com.runway.backend.domain.crew.dto.request.CreateCrewRequest;
 import com.runway.backend.domain.crew.dto.request.DecideJoinRequest;
+import com.runway.backend.domain.crew.dto.request.UpdateCrewSettingsRequest;
 import com.runway.backend.domain.crew.dto.response.CrewCreateResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDetailResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDissolveResponse;
@@ -17,6 +18,7 @@ import com.runway.backend.domain.crew.dto.response.MemberListResponse;
 import com.runway.backend.domain.crew.dto.response.MyCrewItemResponse;
 import com.runway.backend.domain.crew.dto.response.MyCrewListResponse;
 import com.runway.backend.domain.crew.entity.Crew;
+import com.runway.backend.domain.crew.entity.CrewJoinPolicy;
 import com.runway.backend.domain.crew.entity.CrewMembership;
 import com.runway.backend.domain.crew.entity.CrewMembershipStatus;
 import com.runway.backend.domain.crew.entity.CrewStatus;
@@ -51,6 +53,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CrewService {
 
+    private static final int MIN_CAPACITY = 1;
+    private static final int MAX_CAPACITY = 200;
+
     private final CrewRepository crewRepository;
     private final CrewMembershipRepository crewMembershipRepository;
     private final UserExistsRepository userExistsRepository;
@@ -67,6 +72,12 @@ public class CrewService {
             throw new ApiException(ErrorCode.INVALID_CREW);
         }
 
+        CrewJoinPolicy joinPolicy =
+                request.joinPolicy() == null
+                        ? CrewJoinPolicy.APPROVAL
+                        : CrewJoinPolicy.parse(request.joinPolicy())
+                                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_CREW_SETTINGS));
+
         String imageKey = blankToNull(request.imageKey());
         if (imageKey != null) {
             imageKey = images.requireOwnedImageKey(userId, ImagePurpose.CREW, imageKey);
@@ -79,7 +90,8 @@ public class CrewService {
                         blankToNull(request.description()),
                         imageKey,
                         request.capacity(),
-                        regionCode);
+                        regionCode,
+                        joinPolicy);
         crewRepository.save(crew);
         crewMembershipRepository.save(CrewMembership.approveOwner(crew.getId(), userId));
         crewRepository.flush();
@@ -195,7 +207,8 @@ public class CrewService {
     @Transactional
     public JoinRequestResponse createJoinRequest(long userId, long crewId) {
         requireExistingUser(userId);
-        Crew crew = requireActiveCrew(crewId);
+        Crew crew = requireActiveCrewForUpdate(crewId);
+        boolean instant = crew.getJoinPolicy() == CrewJoinPolicy.INSTANT;
 
         Optional<CrewMembership> existing =
                 crewMembershipRepository.findByCrewIdAndUserId(crewId, userId);
@@ -206,11 +219,21 @@ public class CrewService {
             if (status == CrewMembershipStatus.PENDING || status == CrewMembershipStatus.APPROVED) {
                 throw new ApiException(ErrorCode.ALREADY_MEMBER_OR_PENDING);
             }
-            requireCapacityAvailable(crew);
+        }
+        // 만원이면 가입 방식과 관계없이 신청을 받지 않는다(S15P31E105-582). 크루 행 잠금 아래에서 확인하므로
+        // 바로 가입이 동시에 들어와도 정원을 넘지 않는다(S15P31E105-570).
+        requireCapacityAvailable(crew);
+        if (existing.isPresent()) {
+            membership = existing.get();
             membership.reapply();
+            if (instant) {
+                membership.approve();
+            }
         } else {
-            requireCapacityAvailable(crew);
-            membership = CrewMembership.pendingRequest(crewId, userId);
+            membership =
+                    instant
+                            ? CrewMembership.joinInstantly(crewId, userId)
+                            : CrewMembership.pendingRequest(crewId, userId);
             crewMembershipRepository.save(membership);
         }
         crewMembershipRepository.flush();
@@ -245,7 +268,7 @@ public class CrewService {
     public DecideJoinResponse decideJoinRequest(
             long ownerUserId, long crewId, long targetUserId, DecideJoinRequest request) {
         requireExistingUser(ownerUserId);
-        Crew crew = requireCrew(crewId);
+        Crew crew = requireCrewForUpdate(crewId);
         requireOwner(crew, ownerUserId);
 
         CrewMembershipStatus decision = resolveDecisionStatus(request.status());
@@ -279,6 +302,48 @@ public class CrewService {
         return DecideJoinResponse.from(membership);
     }
 
+    /**
+     * M12 크루 설정 변경. 크루장만 정원·가입 방식을 바꾼다. 정원은 크루 행 잠금 아래에서 현재 승인 인원 이상인지 확인한다.
+     * 바로 가입으로 바꿔도 기존 PENDING 신청은 그대로 둔다(S15P31E105-570).
+     */
+    @Transactional
+    public CrewDetailResponse updateSettings(
+            long userId, long crewId, UpdateCrewSettingsRequest request) {
+        requireExistingUser(userId);
+        Crew crew = requireActiveCrewForUpdate(crewId);
+        requireOwner(crew, userId);
+
+        Integer capacity = request.capacity();
+        String joinPolicyValue = request.joinPolicy();
+        if (capacity == null && joinPolicyValue == null) {
+            throw new ApiException(ErrorCode.INVALID_CREW_SETTINGS);
+        }
+        if (capacity != null && (capacity < MIN_CAPACITY || capacity > MAX_CAPACITY)) {
+            throw new ApiException(ErrorCode.INVALID_CREW_SETTINGS);
+        }
+        CrewJoinPolicy joinPolicy =
+                joinPolicyValue == null
+                        ? null
+                        : CrewJoinPolicy.parse(joinPolicyValue)
+                                .orElseThrow(() -> new ApiException(ErrorCode.INVALID_CREW_SETTINGS));
+
+        long memberCount =
+                crewMembershipRepository.countByCrewIdAndStatus(
+                        crewId, CrewMembershipStatus.APPROVED);
+        if (capacity != null) {
+            if (capacity < memberCount) {
+                throw new ApiException(ErrorCode.CREW_CAPACITY_BELOW_MEMBERS);
+            }
+            crew.changeCapacity(capacity);
+        }
+        if (joinPolicy != null) {
+            crew.changeJoinPolicy(joinPolicy);
+        }
+        crewRepository.flush();
+        entityManager.refresh(crew);
+        return CrewDetailResponse.from(crew, memberCount, CrewMembershipStatus.APPROVED);
+    }
+
     @Transactional(readOnly = true)
     public MemberListResponse listMembers(long userId, long crewId) {
         requireExistingUser(userId);
@@ -304,7 +369,8 @@ public class CrewService {
     @Transactional
     public MemberLeaveResponse leave(long userId, long crewId, Long successorUserId) {
         requireExistingUser(userId);
-        Crew crew = requireActiveCrew(crewId);
+        // 크루장 이양이 같은 순간의 M12 정원·가입 방식 변경을 이전 값으로 덮어쓰지 않도록 같은 크루 행 잠금을 쓴다.
+        Crew crew = requireActiveCrewForUpdate(crewId);
         if (!crew.isOwnedBy(userId)) {
             if (successorUserId != null) {
                 throw new ApiException(ErrorCode.VALIDATION_ERROR_CREW_LEAVE);
@@ -336,7 +402,8 @@ public class CrewService {
     @Transactional
     public CrewDissolveResponse dissolve(long userId, long crewId) {
         requireExistingUser(userId);
-        Crew crew = requireCrew(crewId);
+        // M04 바로 가입과 겹쳐도 해산된 크루에 APPROVED 멤버가 남지 않도록 같은 크루 행 잠금을 쓴다.
+        Crew crew = requireCrewForUpdate(crewId);
         requireOwner(crew, userId);
         if (crew.getStatus() == CrewStatus.INACTIVE) {
             return CrewDissolveResponse.from(crew);
@@ -358,7 +425,8 @@ public class CrewService {
     @Transactional
     public MemberLeaveResponse removeMember(long ownerUserId, long crewId, long targetUserId) {
         requireExistingUser(ownerUserId);
-        Crew crew = requireCrew(crewId);
+        // 같은 크루장의 M08 이양과 겹쳐도 내보낸 회원이 새 크루장이 되지 않도록 같은 크루 행 잠금을 쓴다.
+        Crew crew = requireCrewForUpdate(crewId);
         requireOwner(crew, ownerUserId);
         if (crew.isOwnedBy(targetUserId)) {
             throw new ApiException(ErrorCode.CANNOT_REMOVE_OWNER);
@@ -389,6 +457,18 @@ public class CrewService {
             throw crewNotFound();
         }
         return crew;
+    }
+
+    private Crew requireActiveCrewForUpdate(long crewId) {
+        Crew crew = requireCrewForUpdate(crewId);
+        if (crew.getStatus() != CrewStatus.ACTIVE) {
+            throw crewNotFound();
+        }
+        return crew;
+    }
+
+    private Crew requireCrewForUpdate(long crewId) {
+        return crewRepository.findByIdForUpdate(crewId).orElseThrow(CrewService::crewNotFound);
     }
 
     private Crew requireCrew(long crewId) {
@@ -432,6 +512,7 @@ public class CrewService {
         return new ApiException(ErrorCode.CREW_NOT_FOUND);
     }
 
+    /** 크루 행 잠금을 잡은 상태에서 호출한다(M04·M06). 승인 인원이 정원에 닿았으면 새 신청·멤버를 받지 않는다. */
     private void requireCapacityAvailable(Crew crew) {
         long approvedCount =
                 crewMembershipRepository.countByCrewIdAndStatus(

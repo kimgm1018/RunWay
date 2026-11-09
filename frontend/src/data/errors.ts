@@ -24,6 +24,8 @@ export const dataErrorCodes = [
   'RECORD_NOT_FOUND',
   // M04·M06 크루 정원 초과 (docs/design/api/crews.md).
   'CREW_CAPACITY_EXCEEDED',
+  // M12 크루 설정 변경: the new capacity is under the current member count (S15P31E105-570).
+  'CREW_CAPACITY_BELOW_MEMBERS',
   // M02–M08 크루.
   'CREW_NOT_FOUND',
   // CMT13 통합 검색: the query is under the server's minimum length.

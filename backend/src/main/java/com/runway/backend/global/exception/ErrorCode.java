@@ -212,9 +212,15 @@ public enum ErrorCode {
     VALIDATION_ERROR_CREW_LEAVE(
             HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "후임 지정은 크루장 탈퇴에만 사용할 수 있습니다."),
     CREW_CAPACITY_EXCEEDED(HttpStatus.CONFLICT, "CREW_CAPACITY_EXCEEDED", "크루 정원이 가득 찼습니다."),
+    CREW_CAPACITY_BELOW_MEMBERS(
+            HttpStatus.CONFLICT, "CREW_CAPACITY_BELOW_MEMBERS", "정원은 현재 멤버 수보다 작게 정할 수 없습니다."),
     ALREADY_MEMBER_OR_PENDING(
             HttpStatus.CONFLICT, "ALREADY_MEMBER_OR_PENDING", "이미 멤버이거나 가입 신청 대기 중입니다."),
     INVALID_CREW(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CREW", "유효하지 않은 지역 코드입니다."),
+    INVALID_CREW_SETTINGS(
+            HttpStatus.UNPROCESSABLE_CONTENT,
+            "INVALID_CREW",
+            "정원은 1~200명, 가입 방식은 APPROVAL 또는 INSTANT로 지정해 주세요."),
     INVALID_BATCH(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_BATCH", "배치 내용이 유효하지 않습니다."),
     INVALID_CONSENT_CONSENT_CHANGE(
             HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_CONSENT", "변경할 수 없는 동의 유형입니다."),

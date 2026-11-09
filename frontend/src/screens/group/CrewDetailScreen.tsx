@@ -515,8 +515,14 @@ export function CrewDetailScreen() {
       await crews.updateCapacity(current.id, draftCapacity);
       toast('정원을 저장했어요');
       reload();
-    } catch {
-      toast('정원을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      // M12 (S15P31E105-570): someone joined meanwhile, so the new capacity is under the member count.
+      if (errorCode(error) === 'CREW_CAPACITY_BELOW_MEMBERS') {
+        toast('현재 멤버 수보다 적게 정할 수 없어요');
+        reload();
+      } else {
+        toast('정원을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
     } finally {
       setBusy(false);
     }
