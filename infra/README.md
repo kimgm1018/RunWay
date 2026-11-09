@@ -8,7 +8,7 @@
 
 | 경로 | 역할 |
 | --- | --- |
-| `compose.yaml`, `nginx/default.conf` | Nginx·HTTPS·백엔드/Jenkins 라우팅 |
+| `compose.yaml`, `nginx/default.conf` | Nginx·HTTPS·백엔드/Jenkins 라우팅, 루트 `/` 소개 랜딩(`../frontend/landing/`) 서빙 |
 | `jenkins/compose.yaml`, `jenkins/backend-agent/` | Jenkins 컨트롤러·Java 21 빌드 에이전트 |
 | `jenkins/mobile-agent/` | Node·Java·Android 도구를 갖춘 모바일 빌드 에이전트 |
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
@@ -193,6 +193,25 @@ GRU 개인화·ODE preview/forecast는 기본 OFF다. AI09 검증에는 `PERSONA
 - **설정·주의:** 저장소 루트에서 `ROUTE_CI_TAG=<실행별 소문자 태그> sh infra/jenkins/check-route.sh`로 MR 검사를 재현한다.
   임시 컨테이너·이미지는 실행별로 정리한다. 운영 준비 상태는 `GET /internal/v1/ready`, 코스 생성은 `POST /internal/v1/routes/recommendations`다.
   요청 계약은 [Route API](../ai/route_service/API.md)를 따른다.
+
+### 소개 랜딩
+
+- **경로:** `https://k15e105.p.ssafy.io/`(정확히 루트만)에서 `frontend/landing/index.html`을 제공한다. 이미지·파비콘은 HTML에 내장되어 있다.
+  `/api/v1`·`/jenkins`·`/grafana`·인증서 갱신 경로는 기존 라우팅을 유지한다.
+- **서버 배치:** EC2의 `~/runway/frontend/landing/`을 Nginx `/usr/share/nginx/landing`에 읽기 전용 디렉터리로 연결한다.
+  응답은 `Cache-Control: no-cache`라 브라우저가 매번 ETag로 재검증하며, 파일 교체 후 Nginx 재시작 없이 반영된다.
+- **상태 검사:** 루트가 랜딩으로 바뀌어 blackbox 검사는 `/backend-probe`를 사용한다. Nginx가 이 경로를 백엔드 루트로 전달해 기존과 같은 공개 404(`NOT_FOUND`)를 확인한다.
+- **갱신(수동):** 랜딩 변경이 master에 반영되면 master 체크아웃의 저장소 루트에서 아래를 실행한다. 임시 파일로 올린 뒤 같은 폴더 안에서 교체해 요청 중 불완전한 파일이 보이지 않게 한다.
+
+```bash
+scp -i <SSH 키> frontend/landing/index.html ubuntu@k15e105.p.ssafy.io:runway/frontend/landing/.index.html.new
+ssh -i <SSH 키> ubuntu@k15e105.p.ssafy.io 'mv runway/frontend/landing/.index.html.new runway/frontend/landing/index.html'
+sha256sum frontend/landing/index.html
+curl -s https://k15e105.p.ssafy.io/ | sha256sum
+```
+
+두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
+`nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
 
 ## 폰·워치 연결 검증
 

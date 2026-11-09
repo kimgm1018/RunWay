@@ -11,7 +11,7 @@ scrape_configs:
     params:
       module: [backend_https]
     static_configs:
-      - targets: ["https://k15e105.p.ssafy.io/"]
+      - targets: ["https://k15e105.p.ssafy.io/backend-probe"]
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
