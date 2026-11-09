@@ -195,7 +195,7 @@ public class CrewService {
     @Transactional
     public JoinRequestResponse createJoinRequest(long userId, long crewId) {
         requireExistingUser(userId);
-        requireActiveCrew(crewId);
+        Crew crew = requireActiveCrew(crewId);
 
         Optional<CrewMembership> existing =
                 crewMembershipRepository.findByCrewIdAndUserId(crewId, userId);
@@ -206,8 +206,10 @@ public class CrewService {
             if (status == CrewMembershipStatus.PENDING || status == CrewMembershipStatus.APPROVED) {
                 throw new ApiException(ErrorCode.ALREADY_MEMBER_OR_PENDING);
             }
+            requireCapacityAvailable(crew);
             membership.reapply();
         } else {
+            requireCapacityAvailable(crew);
             membership = CrewMembership.pendingRequest(crewId, userId);
             crewMembershipRepository.save(membership);
         }
@@ -257,12 +259,7 @@ public class CrewService {
         }
 
         if (decision == CrewMembershipStatus.APPROVED) {
-            long approvedCount =
-                    crewMembershipRepository.countByCrewIdAndStatus(
-                            crewId, CrewMembershipStatus.APPROVED);
-            if (approvedCount >= crew.getCapacity()) {
-                throw new ApiException(ErrorCode.CREW_CAPACITY_EXCEEDED);
-            }
+            requireCapacityAvailable(crew);
             membership.approve();
             notifications.create(
                     targetUserId,
@@ -433,6 +430,15 @@ public class CrewService {
 
     private static ApiException crewNotFound() {
         return new ApiException(ErrorCode.CREW_NOT_FOUND);
+    }
+
+    private void requireCapacityAvailable(Crew crew) {
+        long approvedCount =
+                crewMembershipRepository.countByCrewIdAndStatus(
+                        crew.getId(), CrewMembershipStatus.APPROVED);
+        if (approvedCount >= crew.getCapacity()) {
+            throw new ApiException(ErrorCode.CREW_CAPACITY_EXCEEDED);
+        }
     }
 
     private static ApiException notPending() {

@@ -559,17 +559,56 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
-    void 정원초과_승인은_409() throws Exception {
+    void 정원초과_가입신청은_409() throws Exception {
         long applicantId = insertUser("full_crew_user", "만석지원", "01077778888");
         long crewId = createCrew(userId, "정원1 크루", 1);
 
         mockMvc.perform(
                         post("/api/v1/crews/{crewId}/join-requests", crewId)
                                 .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CREW_CAPACITY_EXCEEDED"));
+
+        Long pendingCount =
+                jdbc.queryForObject(
+                        """
+                        SELECT count(*) FROM crew_memberships
+                        WHERE crew_id = ? AND user_id = ? AND status = 'PENDING'
+                        """,
+                        Long.class,
+                        crewId,
+                        applicantId);
+        org.junit.jupiter.api.Assertions.assertEquals(0L, pendingCount);
+    }
+
+    @Test
+    void 정원초과_승인은_409() throws Exception {
+        long firstId = insertUser("full_crew_first", "선승인", "01077778881");
+        long secondId = insertUser("full_crew_second", "후승인", "01077778882");
+        long crewId = createCrew(userId, "정원2 크루", 2);
+
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(firstId)))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", crewId)
+                                .header("Authorization", SecurityTestSupport.bearer(secondId)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(
-                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, applicantId)
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, firstId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", crewId, secondId)
                                 .header("Authorization", SecurityTestSupport.bearer(userId))
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
