@@ -71,7 +71,7 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
                                 + " WHERE id=?",
                         id);
         assertThat(passwords.matches("Runner9!", saved.get("password").toString())).isTrue();
-        assertThat(saved.get("health_data_access")).isEqualTo(health ? "AGREEE" : "DISAGREE");
+        assertThat(saved.get("health_data_access")).isEqualTo(health ? "AGREE" : "DISAGREE");
         assertThat(saved.get("account_status")).isEqualTo("ACTIVE");
         assertThat(
                         jdbc.queryForObject(

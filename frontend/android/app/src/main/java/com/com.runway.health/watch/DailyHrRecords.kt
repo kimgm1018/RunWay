@@ -27,7 +27,7 @@ data class DailyHrSummaryMessage(val messageId: String, val record: DailyHrRecor
 const val SUMMARY_PATH = "/runway/v1/health/daily-hr"
 const val RECEIVED_PATH = "/runway/v1/health/daily-hr-received"
 const val CONSENT_PATH = "/runway/v1/state/health-consent"
-const val CONSENT_AGREE = "AGREEE"
+const val CONSENT_AGREE = "AGREE"
 const val CONSENT_DISAGREE = "DISAGREE"
 private const val MAX_BYTES = 32 * 1024
 private const val PROTOCOL_VERSION = 1
@@ -41,7 +41,7 @@ fun merge(existing: DailyHrRecord?, incoming: DailyHrRecord): DailyHrRecord = wh
   else -> existing
 }
 
-/** Records are kept only while consent is AGREEE; returns null (do not store or ack) otherwise. */
+/** Records are kept only while consent is AGREE; returns null (do not store or ack) otherwise. */
 fun consentedMerge(consent: String?, existing: DailyHrRecord?, incoming: DailyHrRecord): DailyHrRecord? =
   if (consent == CONSENT_AGREE) merge(existing, incoming) else null
 

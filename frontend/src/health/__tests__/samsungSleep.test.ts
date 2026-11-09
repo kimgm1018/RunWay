@@ -296,7 +296,7 @@ describe('W06 업로드 (AC8)', () => {
     return {
       native,
       send: jest.fn(async (body: SleepSyncRequest) => ok(body.records.length)),
-      consent: async () => 'AGREEE',
+      consent: async () => 'AGREE',
       sessionKey: () => '1',
       owner: () => '7',
       now: () => now,

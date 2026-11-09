@@ -213,7 +213,7 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
         return jdbc.queryForObject("""
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
                 VALUES (?,'synthetic',?,'2000-01-01','MALE',?,?::users_health_data_access_enum) RETURNING id
-                """, Long.class, "pace"+n, "pace"+n, "0101111000"+n, consent ? "AGREEE" : "DISAGREE");
+                """, Long.class, "pace"+n, "pace"+n, "0101111000"+n, consent ? "AGREE" : "DISAGREE");
     }
 
     private long runner(long user, String status, int ageSeconds) {

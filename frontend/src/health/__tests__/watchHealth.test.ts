@@ -29,8 +29,8 @@ afterAll(() => {
 });
 
 test('setWatchHealthConsent forwards the choice to the native module', async () => {
-  await load().setWatchHealthConsent('AGREEE');
-  expect(native.setHealthConsent).toHaveBeenCalledWith('AGREEE', '101');
+  await load().setWatchHealthConsent('AGREE');
+  expect(native.setHealthConsent).toHaveBeenCalledWith('AGREE', '101');
 });
 
 test('refresh sets the server value when the reader returns one', async () => {
@@ -81,7 +81,7 @@ test('read and mark pass through to the native module', async () => {
 test('a missing native module is a silent no-op', async () => {
   delete (NativeModules as Record<string, unknown>).WatchHealth;
   const m = load();
-  await expect(m.setWatchHealthConsent('AGREEE')).resolves.toBeUndefined();
+  await expect(m.setWatchHealthConsent('AGREE')).resolves.toBeUndefined();
   await expect(m.refreshWatchHealthConsent()).resolves.toBeUndefined();
   await expect(m.readWatchDailyHr()).resolves.toEqual([]);
   await expect(
@@ -96,7 +96,7 @@ test('rejecting native calls never throw', async () => {
   const err = { code: 'WATCH_UNAVAILABLE' };
   Object.values(native).forEach(fn => fn.mockRejectedValue(err));
   const m = load();
-  await expect(m.setWatchHealthConsent('AGREEE')).resolves.toBeUndefined();
+  await expect(m.setWatchHealthConsent('AGREE')).resolves.toBeUndefined();
   await expect(m.refreshWatchHealthConsent()).resolves.toBeUndefined();
   await expect(m.readWatchDailyHr()).resolves.toEqual([]);
   await expect(
@@ -135,7 +135,7 @@ test('daily HR prepares the current account before reading and fails closed when
 test('an unidentifiable legacy login never reads or grants watch health consent', async () => {
   tokenStore.hold({ accessToken: 'a', refreshToken: 'r' });
   await expect(load().readWatchDailyHr()).resolves.toEqual([]);
-  await load().setWatchHealthConsent('AGREEE');
+  await load().setWatchHealthConsent('AGREE');
   expect(native.getDailyHr).not.toHaveBeenCalled();
   expect(native.setHealthConsent).not.toHaveBeenCalled();
 });

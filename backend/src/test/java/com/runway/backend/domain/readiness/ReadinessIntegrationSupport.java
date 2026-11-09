@@ -71,8 +71,8 @@ abstract class ReadinessIntegrationSupport {
         jdbc.update("DELETE FROM daily_readiness");
         jdbc.update("DELETE FROM daily_health_metrics");
         jdbc.update("DELETE FROM users");
-        userId = insertUser("AGREEE");
-        otherUserId = insertUser("AGREEE");
+        userId = insertUser("AGREE");
+        otherUserId = insertUser("AGREE");
     }
 
     /**

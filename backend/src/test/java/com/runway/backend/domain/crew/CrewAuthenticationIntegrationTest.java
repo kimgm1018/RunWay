@@ -29,7 +29,7 @@ class CrewAuthenticationIntegrationTest extends SharedContextIntegrationSupport 
         return jdbc.queryForObject(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-                VALUES (?, 'synthetic-hash', ?, '2000-01-01', 'MALE', '01000000000', 'AGREEE') RETURNING id
+                VALUES (?, 'synthetic-hash', ?, '2000-01-01', 'MALE', '01000000000', 'AGREE') RETURNING id
                 """,
                 Long.class,
                 name,

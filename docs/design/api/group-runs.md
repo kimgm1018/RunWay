@@ -454,7 +454,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 
 - **최근 페이스(사용자별)**: 해당 사용자의 `running_sessions` 중 `status = COMPLETED`, 미삭제(`deleted_at IS NULL`), `average_pace`가 양수인 세션을 `ended_at`(없으면 `started_at`) 최신순으로 최대 5건 가져와 `average_pace`의 산술평균을 정수(sec/km)로 반올림한다(0.5는 올림). 조건에 맞는 세션이 없으면 null. 개인 러닝과 그룹런 세션을 구분하지 않는다.
 - **`myFit`**: 요청자의 최근 페이스가 null이면 `myFit`은 null이다. 아니면 `{ recentPaceSecPerKm: 요청자 최근 페이스, readinessScore: 요청자 최신 준비도 또는 null }`. 요청자가 아직 참가하지 않았어도 계산한다.
-- **최신 준비도(사용자별)**: R02와 같이 `daily_readiness`에서 `readiness_date`가 가장 늦은 1건(날짜 필터 없음)의 `readiness_score`를 정수로 반올림한다. R02와 같은 조건으로 활성 회원이고 건강정보 동의(`health_data_access = AGREEE`)가 있어야 하며, 결과가 없거나 동의가 없으면 null이다. 조회 시점에 동의를 철회한 회원의 값은 노출하지 않는다.
+- **최신 준비도(사용자별)**: R02와 같이 `daily_readiness`에서 `readiness_date`가 가장 늦은 1건(날짜 필터 없음)의 `readiness_score`를 정수로 반올림한다. R02와 같은 조건으로 활성 회원이고 건강정보 동의(`health_data_access = AGREE`)가 있어야 하며, 결과가 없거나 동의가 없으면 null이다. 조회 시점에 동의를 철회한 회원의 값은 노출하지 않는다.
 - **`comfortRange`**: 해당 그룹런 참가자(요청자의 참가 여부와 무관) 각각의 최근 페이스를 구해 null을 제외한다. 값이 2개 이상이면 `[최솟값, 최댓값]`(정수 sec/km, `fastSecPerKm` = 최솟값, `slowSecPerKm` = 최댓값). 2개 미만이면 `groupGuidePaceSecPerKm`이 있을 때 `groupGuidePaceSecPerKm ± 20`초(빠른 쪽은 1 미만으로 내리지 않음)이고, 추천 페이스도 없으면 null이다.
 - **FE 대응**: `GroupRunDetail.myFit` ← G03 `myFit`(readinessScore가 null일 수 있어 FE 타입은 `number | null`로 맞춰야 한다), `WaitingRoom.comfortRange` ← G03 `[comfortRange.fastSecPerKm, comfortRange.slowSecPerKm]`, `GroupRunParticipant.readinessScore` ← G07 `items[].readinessScore`.
 

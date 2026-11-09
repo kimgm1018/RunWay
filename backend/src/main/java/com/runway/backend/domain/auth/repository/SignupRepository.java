@@ -68,7 +68,7 @@ public class SignupRepository {
                 input.birthDate(),
                 input.gender(),
                 input.phoneNumber(),
-                input.healthGranted() ? "AGREEE" : "DISAGREE");
+                input.healthGranted() ? "AGREE" : "DISAGREE");
     }
 
     public void insertSettings(long userId) {

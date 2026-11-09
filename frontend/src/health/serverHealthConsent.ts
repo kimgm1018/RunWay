@@ -32,7 +32,7 @@ export async function readServerHealthConsent(
     return null;
   }
   const body = (await deps.request('/consents')) as ConsentStatus | null;
-  // Signed out (or another account) while W05 was in flight: an AGREEE must not overwrite the withdrawal.
+  // Signed out (or another account) while W05 was in flight: an AGREE must not overwrite the withdrawal.
   if (sessionKey() !== token) {
     return null;
   }
@@ -42,7 +42,7 @@ export async function readServerHealthConsent(
   if (typeof health?.granted !== 'boolean') {
     return null;
   }
-  return health.granted ? 'AGREEE' : 'DISAGREE';
+  return health.granted ? 'AGREE' : 'DISAGREE';
 }
 
 // Mock data has no server consent, so the watch only gets a saved consent whose delivery failed.

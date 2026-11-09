@@ -103,7 +103,7 @@ test('U16 asks for the ID as a query without a token', async () => {
 });
 
 test.each([
-  ['AGREEE', true],
+  ['AGREE', true],
   ['DISAGREE', false],
 ] as const)(
   'U15 sends the four consents with health data %s',

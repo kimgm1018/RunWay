@@ -25,7 +25,7 @@ public class ConsentJdbcRepository {
      * @return 실제로 값을 바꿨으면 true. 같은 값이거나 활성 회원이 아니면 false
      */
     public boolean updateHealthConsent(long userId, boolean granted) {
-        String value = granted ? "AGREEE" : "DISAGREE";
+        String value = granted ? "AGREE" : "DISAGREE";
         return jdbc.update(
                         """
                         UPDATE users
@@ -43,7 +43,7 @@ public class ConsentJdbcRepository {
     public Optional<Boolean> findActiveUserConsent(long userId) {
         return jdbc
                 .query(
-                        "SELECT health_data_access = 'AGREEE' AS consented FROM users"
+                        "SELECT health_data_access = 'AGREE' AS consented FROM users"
                                 + " WHERE id = ? AND account_status = 'ACTIVE'",
                         (rs, n) -> rs.getBoolean("consented"),
                         userId)

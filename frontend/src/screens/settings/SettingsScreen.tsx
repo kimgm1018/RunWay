@@ -209,7 +209,7 @@ export function SettingsScreen() {
     setSavingHealth(true);
     const applied = (value: boolean) => {
       setHealth(value);
-      void setWatchHealthConsent(value ? 'AGREEE' : 'DISAGREE');
+      void setWatchHealthConsent(value ? 'AGREE' : 'DISAGREE');
     };
     try {
       const saved = await consentsApi.setHealth(granted);

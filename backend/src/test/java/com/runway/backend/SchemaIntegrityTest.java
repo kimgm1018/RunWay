@@ -126,7 +126,7 @@ class SchemaIntegrityTest {
     private static String userSql(String login) {
         return """
         INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
-        VALUES ('%s','synthetic-hash','%s','2000-01-01','MALE','00000000000','AGREEE')
+        VALUES ('%s','synthetic-hash','%s','2000-01-01','MALE','00000000000','AGREE')
         """
                 .formatted(login, login.substring(0, Math.min(10, login.length())));
     }

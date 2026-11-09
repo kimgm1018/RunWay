@@ -65,8 +65,8 @@ async function prepare(): Promise<string | null> {
 export async function setWatchHealthConsent(
   access: HealthDataAccess,
 ): Promise<void> {
-  const userId = access === 'AGREEE' ? await prepare() : owner();
-  if (access === 'AGREEE' && !userId) return;
+  const userId = access === 'AGREE' ? await prepare() : owner();
+  if (access === 'AGREE' && !userId) return;
   await quietly(module => module.setHealthConsent(access, userId), undefined);
 }
 

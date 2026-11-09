@@ -31,9 +31,9 @@ class GroupRunFitReadinessIntegrationTest extends SharedContextIntegrationSuppor
 
     @BeforeEach
     void seed() {
-        hostId = insertUser("gr_fit_host", "호스트", "01055550001", "AGREEE");
-        memberId = insertUser("gr_fit_member", "멤버", "01055550002", "AGREEE");
-        outsiderId = insertUser("gr_fit_out", "미참가", "01055550003", "AGREEE");
+        hostId = insertUser("gr_fit_host", "호스트", "01055550001", "AGREE");
+        memberId = insertUser("gr_fit_member", "멤버", "01055550002", "AGREE");
+        outsiderId = insertUser("gr_fit_out", "미참가", "01055550003", "AGREE");
         crewId = insertCrew(hostId, "적합도 크루");
         approveMember(crewId, hostId);
         approveMember(crewId, memberId);

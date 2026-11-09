@@ -94,7 +94,7 @@ class SessionCoachingIntegrationTest extends RunningSessionIntegrationSupport {
 
     /** 사용자당 활성 세션은 하나이므로(V8) 사례마다 새 회원·워치·폰을 만든다. 반환값은 {세션, 워치}. */
     private long[] sessionOfNewUser(String state, boolean phoneFallback, long startedSecondsAgo) {
-        long owner = insertUser("AGREEE");
+        long owner = insertUser("AGREE");
         long watch = insertDevice(owner, "WATCH", false);
         long phone = insertDevice(owner, "PHONE", false);
         long sessionId =

@@ -48,7 +48,7 @@ public class GroupPaceRepository {
     public boolean consented(long userId) {
         return Boolean.TRUE.equals(jdbc.queryForObject("""
                 SELECT EXISTS (SELECT 1 FROM users WHERE id = ? AND account_status = 'ACTIVE'
-                    AND health_data_access = 'AGREEE')
+                    AND health_data_access = 'AGREE')
                 """, Boolean.class, userId));
     }
 
@@ -90,7 +90,7 @@ public class GroupPaceRepository {
     public List<Runner> runners(long groupId) {
         return jdbc.query("""
                 SELECT p.user_id, s.id, s.status::text, s.started_at,
-                       (u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREEE') AS consent
+                       (u.account_status = 'ACTIVE' AND u.health_data_access = 'AGREE') AS consent
                 FROM group_run_participants p
                 JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
                 JOIN users u ON u.id = p.user_id
@@ -104,7 +104,7 @@ public class GroupPaceRepository {
     public List<Candidate> candidates(long groupId) {
         return jdbc.query("""
                 SELECT p.user_id, (u.account_status = 'ACTIVE'
-                    AND u.health_data_access = 'AGREEE') AS consent, up.average_pace
+                    AND u.health_data_access = 'AGREE') AS consent, up.average_pace
                 FROM group_run_participants p JOIN users u ON u.id = p.user_id
                 LEFT JOIN user_profiles up ON up.user_id = p.user_id
                 WHERE p.group_run_id = ? ORDER BY p.id

@@ -13,7 +13,7 @@ import java.time.ZoneId
 class DailyHrStore(
     context: Context,
     private val zone: ZoneId = ZoneId.systemDefault(),
-) : SQLiteOpenHelper(context.applicationContext, "daily_hr.db", null, 2) {
+) : SQLiteOpenHelper(context.applicationContext, "daily_hr.db", null, 3) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(CREATE_MINUTES)
         db.execSQL("CREATE TABLE drops(reason TEXT PRIMARY KEY, count INTEGER NOT NULL)")
@@ -29,12 +29,19 @@ class DailyHrStore(
      * v1 kept raw samples (dropped) and per-day summaries. Summaries are marked acked so they are not resent but the
      * next V2 estimate for the same date continues the revision and overwrites the phone's V1 record; prune removes
      * them later. Consent, state, counter and transitions stay.
+     *
+     * v3 (S15P31E105-314): the stored consent label is renamed from the old typo 'AGREEE' to 'AGREE'. Without it the
+     * updated app would read a consented member as no consent and wipe unacked summaries and minutes. Only this
+     * stored value is converted; messages from the phone still accept 'AGREE'/'DISAGREE' only.
      */
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-        check(old == 1 && new == 2) { "Unsupported daily HR database version" }
-        db.execSQL("DROP TABLE IF EXISTS samples")
-        db.execSQL(CREATE_MINUTES)
-        db.execSQL("UPDATE summaries SET acked=1")
+        check(old in 1..2 && new == 3) { "Unsupported daily HR database version" }
+        if (old == 1) {
+            db.execSQL("DROP TABLE IF EXISTS samples")
+            db.execSQL(CREATE_MINUTES)
+            db.execSQL("UPDATE summaries SET acked=1")
+        }
+        db.execSQL("UPDATE meta SET value='AGREE' WHERE key='$KEY_CONSENT_ACCESS' AND value='AGREEE'")
     }
 
     /**
@@ -201,7 +208,7 @@ class DailyHrStore(
         if (current?.collectionId != c.collectionId) {
             listOf("minutes", "drops", "transitions", "summaries").forEach { db.delete(it, null, null) }
         }
-        setMeta(db, KEY_CONSENT_ACCESS, if (c.agreed) "AGREEE" else "DISAGREE")
+        setMeta(db, KEY_CONSENT_ACCESS, if (c.agreed) "AGREE" else "DISAGREE")
         setMeta(db, KEY_CONSENT_UPDATED_AT, c.updatedAt.toString())
         setMetaOrRemove(db, KEY_COLLECTION_ID, c.collectionId)
         setMetaOrRemove(db, KEY_COLLECTION_STARTED_AT, c.collectionStartedAt?.toString())

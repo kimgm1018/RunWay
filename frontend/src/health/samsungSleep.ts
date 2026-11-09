@@ -274,7 +274,7 @@ export type SleepUploadDeps = {
   native: SleepNative;
   send: (body: SleepSyncRequest) => Promise<SleepSyncResponse>;
   // Server health consent (W05), null when unknown. OS permission is a different thing; without consent nothing is sent.
-  consent: () => Promise<'AGREEE' | 'DISAGREE' | null>;
+  consent: () => Promise<'AGREE' | 'DISAGREE' | null>;
   // Login generation; a change while a request is in flight means another account.
   sessionKey: () => string | undefined;
   // The signed-in account the sent marks belong to; undefined when not known (then nothing is skipped).
@@ -370,7 +370,7 @@ async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
   if (!changed.length) {
     return 'nothing';
   }
-  let consent: 'AGREEE' | 'DISAGREE' | null;
+  let consent: 'AGREE' | 'DISAGREE' | null;
   try {
     consent = await deps.consent();
   } catch {
@@ -379,7 +379,7 @@ async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
   if (deps.sessionKey() !== token) {
     return 'signed-out';
   }
-  if (consent !== 'AGREEE') {
+  if (consent !== 'AGREE') {
     return consent === 'DISAGREE' ? 'consent-required' : 'retry-later';
   }
   const earliest = localWakeDate(Date.parse(sleepWindow(now).start));

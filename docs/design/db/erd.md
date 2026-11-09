@@ -361,7 +361,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - 배치 UNIQUE는 같은 기기의 같은 배치 ID 재저장을 거부한다. 서비스는 기존 해시가 같으면 기존 결과, 다르면 충돌로 처리해야 한다. 서로 다른 배치에 겹친 원본 측정·GPS, 스트림 sequence·누락 구간·재설치 경계는 W07의 저장 보장 범위를 넘는 후속 저장 설계에서 검토한다. 이 작업에서 원본 식별 컬럼을 임의 추가하지 않았다.
 - 게시글 작성자와 세션 소유자 일치, 그룹 참가자와 연결 세션 회원 일치, 기기·세션 소유권, 호스트/참가 자격, 정원 동시 승인과 상태 전이는 서비스 검증이 필요하다. 단순 FK와 범위 CHECK가 대신하지 않는다.
 - 크루 정원 1~200명은 사용자 확정에 따라 DB CHECK로 보장한다. 생리 지표의 허용 범위, 상태별 필수값, 삭제·탈퇴 후 보존 정책은 이번 제약 보완에서 새로 확정하지 않았다.
-- 원본 오타 `users.health_data_access`의 `AGREEE`, `user_profiles.duraction`은 유지했다.
+- 원본 오타 `user_profiles.duraction`은 유지했다. `users.health_data_access`의 동의 값 오타 `AGREEE`는 S15P31E105-314에서 Flyway V24(`ALTER TYPE ... RENAME VALUE`)로 `AGREE`로 바로잡았다. V1은 수정하지 않았고 기존 동의 회원 행은 라벨 변경으로 그대로 `AGREE`가 된다.
 - 기준 SQL의 실행·정상/거부 동작은 `backend`의 `SchemaIntegrityTest`로 검증한다. 실제 실행 결과와 미실행 여부는 해당 업무 검증 기록에 남긴다. 서비스 Entity 매핑·첫 Flyway 이력 검증과 구분한다.
 
 
@@ -371,7 +371,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
-- 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREEE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
+- 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
 - V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png의 PK·FK·타입·NULL 표시는 기준 SQL을 반영하며 UNIQUE·CHECK·트리거의 정확한 정의와 온라인 ERD의 미갱신 제약은 schema.sql을 따른다.
 
 ### 팔로우 요청 처리 이력 — S15P31E105-249
