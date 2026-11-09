@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 관련 업무 | S15P31E105-337, Route 계약 초안 S15P31E105-370 |
-| 구현 | AI01~09: `ai/service/`. Route는 별도 서비스이며 운영 HTTP 구현 전 |
+| 구현 | AI01~10: `ai/service/`. Route는 별도 서비스이며 운영 HTTP 구현 전 |
 | 상태 | 제안, 팀 확인 전 |
 | 기준 dev | `a93cc17`, 2026-11-03 |
 | 범위 | Spring 백엔드 → AI 서버 내부 계약. 클라이언트 공개 API 아님 |
@@ -52,6 +52,7 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | `components.personalPlan.populationMode` | string | 평균 묶음 경로 모드(`median_bundle`, `empty`, `off`) |
 | `components.personalPlan.populationBundleLoaded` | boolean | 시작 때 평균 묶음을 읽어 검증했는지 여부 |
 | `components.cueBpm` | string | `UP` / `DOWN` / `DISABLED`. 목표 BPM 계산기 상태 |
+| `components.groupPace.enabled` | boolean | `GROUP_PACE_ENABLED` 설정 상태. 기본 false이며 AI10은 `503 GROUP_PACE_DISABLED` |
 
 `components`는 진단 정보이며 `status`, `modelLoaded`, HTTP 200/503 판정에 영향을 주지 않는다. 설정값·URL·경로는 반환하지 않는다. GRU가 준비되면 ODE가 미준비여도 HTTP 200과 `status=UP`, `modelLoaded=true`를 반환한다. ODE 준비 상태는 `models.ode.status`의 `UP`/`DOWN`으로만 알린다. GRU가 미준비이면 ODE 준비 여부와 관계없이 HTTP 503과 `status=DOWN`을 반환한다. 팀 AI 이미지의 HEALTHCHECK와 `infra/ai/check.sh`가 `status=UP` 및 `modelLoaded=true`를 요구하므로 ODE의 선택적 가용성을 전체 서비스 readiness와 분리한다.
 
@@ -684,6 +685,65 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 | AI 조회 | `user_hr_personalization` | AI09는 `userId`가 있을 때만 `user_id` 기준 최신 행의 `personalization_version`, `schema_version`, `model_version`, `support_run_count`, `summary_u_json`, `history8_json`, `p4_json`, `hr0_sub_bpm`, `hr_ref_bpm`, `hr_danger_bpm`, `hr_sustain_bpm`, `hr_threshold_run_count`, `created_at`을 조회한다. 속도 보정이 켜져 있으면 `running_sessions`에서 같은 `user_id`의 `total_distance`, `moving_duration`, `elapsed_duration`을 `status='COMPLETED'`, `deleted_at IS NULL`, `ended_at` ≤ 계획 시각 조건으로 최근 20행까지 읽는다(S15P31E105-402). 목표 심박 보정(k가 `inf`가 아닐 때)은 같은 테이블에서 같은 조건에 경과 900~5,400초, 거리 3,000 m 이상, `average_heart_rate` 30~240 bpm 조건을 더해 `average_heart_rate`, `elapsed_duration`, `total_distance`를 최근 20행까지 읽는다(S15P31E105-377, 같은 SELECT 권한). AI 읽기 계정의 `running_sessions` SELECT 권한은 AI CD의 `infra/ai/grant-readonly.sh`가 개인화 테이블 대기 전에 준다. ERD V10 반영 대상이며, 현재 `schema.sql` 스냅샷에는 테이블 정의가 없음 |
 
 `schema.sql` 기준 컬럼은 `pace_plans.recommended_pace NUMERIC(10,2)`, `pace_plans.session_id BIGINT NOT NULL`, `pace_plan_segments.segment_sequence INTEGER`, `start_distance NUMERIC(12,2)`, `end_distance NUMERIC(12,2)`, `recommended_pace NUMERIC(10,2)`다. ERD V10에는 `user_hr_personalization`만 반영하고, `user_gru_personalization` 등 나머지 제안은 필요할 때 검토한다.
+
+## AI10 — 그룹 공동 페이스
+
+`POST /v1/group/pace` · S15P31E105-584. 실제로 달리는 전원을 기준으로 공동 페이스를 고른다. 한 명만 힘들어도 자동으로 제외하지 않는다. AI04 개인 코칭 동작은 그대로다.
+
+### Request Body
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `groupRunId` | integer | 그룹런 ID. 양수 int64 |
+| `currentGroupPaceSecPerKm` | number | 현재 공동 페이스 G. 유한한 양수, sec/km |
+| `goalPaceSecPerKm` | number / null | 방장 목표 페이스. 있으면 회복 가속의 한계. 유한한 양수 |
+| `startRecommendedPaceSecPerKm` | number / null | 출발 전에 확정한 추천 공동 페이스. 목표가 없을 때 회복 가속의 한계. 유한한 양수 |
+| `elapsedSec` | number | 그룹 시작 후 경과 초. 유한한 0 이상 값 |
+| `progressRatio` | number / null | 선택 진행률(0~1). 백엔드가 그룹 목표 거리 대비 진행 거리로 계산, 없으면 0. 생략·null의 기본값은 null이며 계산 시 0.0을 사용한다. 유한한 값만 허용하며 범위를 벗어나면 [0, 1]로 보정 |
+| `now` | datetime | 쿨다운 계산용 UTC 시각. 시간대 필수 |
+| `lastChange` | object / null | 마지막 실제 변경. 서버가 저장하지 않고 호출자가 전달 |
+| `lastChange.direction` | string | `SLOW` / `FAST` |
+| `lastChange.changedAt` | datetime | 마지막 변경 UTC 시각. 시간대 필수이며 `now` 이후는 불가 |
+| `participants` | array | 1명 이상. 인원 상한 없음 |
+| `participants[].userId` | integer / null | 동의자의 AI06 심박 기준 조회용 ID. 미동의자는 생략하거나 null |
+| `participants[].active` | boolean | 실제로 달리는지 여부. 일시정지·종료·지연·불참자는 보내지 않거나 false |
+| `participants[].history` | object | AI03·AI04의 `History`와 동일. 5초 간격 `hrBpm`, `speedMps`, `gradePct` 및 선택 `segmentId`. 배열 길이는 같아야 하며 결측은 null |
+| `participants[].futureGradePct` | array / null | 앞으로 2분의 경사 24칸. null 또는 빈 칸이 하나라도 있으면 경사 모름 |
+
+선택 필드는 생략해도 null로 처리한다. 미동의자는 `userId`와 심박을 보내지 않는다. `userId`가 없거나 심박 기록이 전부 null이면 속도 기록만 사용하며, 심박 기준 DB와 GRU 개인화는 조회하지 않는다. 최근 측정 기준 페이스는 AI04와 같은 최근 12칸(60초) 속도의 결측 제외 평균을 `1000 / speed`로 바꾼 값이다. 심박 판단은 AI04와 같은 t0 심박·완전 history 칸 수 검사를 통과해야 한다. 판단 가능한 심박도 기준 페이스도 없는 참가자는 제외하고 `PARTICIPANT_DATA_UNUSABLE`을 붙인다.
+
+### Response
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `groupPaceSecPerKm` | number | 반환 공동 페이스, sec/km |
+| `changed` | boolean | 현재와 차이가 10초/km 이상이고 변경 제한을 통과했는지 여부 |
+| `direction` | string | `SLOW` / `FAST` / `HOLD` |
+| `reason` | string | `HR_LIMIT` / `RECOVERED` / `COOLDOWN` / `WARMUP_CAP` / `FLOOR` / `SMALL_CHANGE` / `NO_DATA` |
+| `strugglingCount` | integer | 실제 반환 페이스에서 심박 상한이 개인 허용선 이상인 심박 판단 참가자 수 |
+| `excludedCount` | integer | 전달된 참가자 중 active=false 또는 데이터 부족으로 판단에서 제외한 수. 호출자가 보내지 않은 인원은 셀 수 없음 |
+| `paceOnlyCount` | integer | active=true 중 userId가 없거나 심박 기록이 없는 참가자 수. 속도도 없어 제외한 참가자를 포함 |
+| `warnings` | string[] | `GRADE_UNKNOWN`, `HR_THRESHOLD_LOOKUP_UNAVAILABLE` 등 AI04 기준 조회 경고, `PARTICIPANT_DATA_UNUSABLE`, `RECOVERY_CAP_MISSING` |
+| `modelVersion` | string | 기본 GRU 모델 버전 |
+
+### 선택 규칙
+
+1. 후보는 G−30, G−20, G−10, G, G+10, G+20, G+30, G+45, G+60의 9개다. 0 이하 페이스는 쓰지 않는다. 심박 참가자 × 후보를 기본 GRU로 한 번에 예측하며, 256개 창을 넘으면 내부에서 나눈다. 사용자별 GRU 출력층 조회는 하지 않는다. 미래 속도는 후보의 `1000 / pace`로 일정하게 두고, 미래 경사 모름은 추론에서 0% 평지로 채운다. 과거 경사는 AI04의 flat0 경로와 같다.
+2. AI04의 AI06 기준 조회·러닝 횟수별 모집단 혼합과 `allow_at`을 재사용한다. DB가 없거나 조회가 실패하면 AI04와 같은 모집단 기준으로 대체한다. 백엔드가 계산한 `progressRatio`를 [0, 1]로 보정해 모든 참가자의 `allow_at`에 전달한다. 생략·null이면 0.0으로 계산한다. 허용선은 진행률에 따라 혼합된 지속~위험 심박 기준 사이에서 움직이며, 경과 시간만으로 진행률을 추정하지 않는다.
+3. 느린 후보는 120초 예측 + 여유 표의 DECEL 120초 셀만 쓴다. G와 빠른 후보는 AI04처럼 후보 속도와 최근 6칸(30초) 측정 속도 평균의 차이로 방향을 분류해 30·60·120초 예측 + 각 여유값의 최댓값을 쓴다. 6칸이 안 되거나 결측이 있으면 방향 모름으로 가장 큰 방향 셀을 쓴다. 미래 경사는 24칸 평균으로 분류한다. 경사 모름은 추론의 평지 가정과 별개로 해당 방향·시간의 가장 큰 여유 셀을 쓴다.
+4. 상한 < 허용선이면 통과한다. 회복 가속 후보는 상한 < 허용선−3 bpm이어야 한다. 속도만 쓰는 참가자는 기준 페이스보다 30초/km **초과** 빠른 후보만 막는다. G보다 느려지는 후보는 이 규칙으로 막지 않는다.
+5. G에서 한 명이라도 통과하지 못하면 전원이 통과하는 가장 빠른 느린 후보를 고른다(`HR_LIMIT`). 없으면 G+60을 반환한다(`FLOOR`). 한 명만 실패해도 포함한다. G에서 전원이 통과하면 G−30 이상 G 미만 범위에서 한 번에 최대 30초/km까지, 목표 페이스 또는 목표가 없을 때 출발 전 추천 페이스보다 빠르지 않고 전원이 허용선−3 bpm 기준을 통과하는 가장 빠른 후보를 고른다(`RECOVERED`). 두 한계가 모두 없으면 현재를 유지하고 `RECOVERY_CAP_MISSING`을 붙인다.
+6. 마지막 변경부터 120초 미만이면 방향과 관계없이 현재를 유지한다(`COOLDOWN`). 단 G에서 누군가의 **여유값을 더하기 전** 120초 예측이 혼합된 위험 기준 이상이면 감속은 허용한다. 정확히 120초면 제한하지 않는다.
+7. `elapsedSec` < 180이면 감속은 최대 +10초/km다(`WARMUP_CAP`). 위험으로 쿨다운을 벗어난 경우에도 적용한다. 제한 후 반환 페이스에서 `strugglingCount`를 다시 센다.
+8. 현재와 차이가 10초/km 미만이면 현재를 유지한다(`HOLD`, `changed=false`, `SMALL_CHANGE`). 정확히 10초는 변경한다. 회복 가능한 후보가 없어 유지하는 경우도 `SMALL_CHANGE`다. 활성 참가자 전원에게 쓸 수 있는 데이터가 없으면 HTTP 200, 현재 페이스, `HOLD`, `NO_DATA`를 반환한다.
+
+### 설정·호출 주기·오류
+
+`GROUP_PACE_ENABLED` 기본값은 false다. false이면 공통 오류 형식으로 `503 GROUP_PACE_DISABLED`를 반환한다. `/health`의 `components.groupPace.enabled`로 설정 상태를 확인하며 readiness 판정에는 영향을 주지 않는다. 모델·정책 미준비는 `503 MODEL_NOT_READY`, 잘못된 요청은 `400 VALIDATION_ERROR`, 잘못된 GRU 출력은 `500 PREDICTION_FAILED`다.
+
+호출자는 **그룹당 최소 30초 간격**으로 호출하고, 실제 변경 시각·방향을 저장해 다음 `lastChange`에 넣는다. AI10은 상태를 저장하거나 호출 간격을 자체 제한하지 않는다. 기존 무거운 요청 대기열과 스레드 실행을 사용한다(`HEAVY_MAX_CONCURRENCY`, `HEAVY_QUEUE_WAIT_SEC`, 초과 시 `503 AI_BUSY`). GRU는 기존 기본 예측 경로를 사용하며 별도 전역 잠금을 추가하지 않는다.
+
+구현 참고: Pydantic 2.14.1(저장소 고정 버전)의 [시간대 필수 datetime](https://github.com/pydantic/pydantic/blob/v2.14.1/docs/api/standard_library_types.md)과 [모델 검증](https://github.com/pydantic/pydantic/blob/v2.14.1/docs/concepts/validators.md)을 Context7으로 확인했다(2026-11-09).
 
 ## Route 코스 생성 내부 HTTP 계약 초안
 
