@@ -49,6 +49,8 @@ COPY analysis ./analysis
 COPY app ./app
 COPY tests ./tests
 COPY tools/route_regression ./tools/route_regression
+# 전국 미리 계산 빌더(S15P31E105-586)를 합성 저장소 시험이 직접 부른다. 운영 이미지에는 넣지 않는다.
+COPY tools/data ./tools/data
 USER runway
 # 실제 엔진 테스트는 데이터 부재로 생략되며 그 결과도 JUnit에 남는다.
 CMD ["python", "-B", "-m", "pytest", "-q", "tests", "tools/route_regression/test_identity_checks.py", "-p", "no:cacheprovider", "--junitxml=/reports/pytest.xml"]

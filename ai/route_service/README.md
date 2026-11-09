@@ -265,3 +265,74 @@ Golden 회귀(결과가 한 글자도 안 바뀌었는지, 약 8분): [tools/rou
 10. [ROUTE_TECHNICAL_GUIDE.md](ROUTE_TECHNICAL_GUIDE.md) → [ROUTE_DEVELOPMENT_HISTORY.md](ROUTE_DEVELOPMENT_HISTORY.md)
 
 모든 엔진 모듈 맨 위에 `요약 / 위치 / 주의` 세 줄이 있다.
+# 전국 도로 자료 모드 (S15P31E105-586, 기본 OFF)
+
+`ROUTE_DATA_MODE=busan`이 기본이다. 부산 모드는 기존 파일 로더, 광안리 예열, 요청 처리와 오류 문구를 그대로 사용한다.
+전국 모드는 `ROUTE_DATA_MODE=national`로 켜며, `ROUTE_NATIONAL_DIR`는 `store/`, `store_prep/`,
+`env_layers_national.json`을 담은 폴더다. `ROUTE_WINDOW_CACHE_SIZE`는 준비된 창 파이프라인 LRU 크기이며 기본 1, 양의 정수다.
+알 수 없는 모드, 잘못된 캐시 크기, 전국 모드의 누락·없는 경로는 시작 설정 오류다.
+자료 로드·예열 실패는 기존처럼 ready 503, 추천 503 `UNAVAILABLE`이다.
+
+전국 모드는 시작할 때 store/prep mmap과 엔진을 열고 서울 SSAFY 인근 고정점
+`37.5013,127.0396`의 LOOP 5 km 창 엔진을 준비한다. 부산 고정점의 생성자 self-test는 이 창에 실행하지 않는다.
+기본 `ROUTE_WARMUP=1`이면 이 점에서 실제 추천 1회까지 성공해야 ready다.
+`ROUTE_WARMUP=0`이면 추천 예열만 생략하고 store·엔진·창 준비 후 ready가 된다.
+Numba import/컴파일은 엔진 준비 과정에서 수행된다. 첫 다른 지역 요청에는 새 창 준비 비용이 있다.
+
+요청은 기존 엔진 잠금 안에서 시작·모양·목표·P2P 원시 도착 좌표로 창을 정하고 LRU에서 재사용한다.
+LOOP/OAB는 출발점 중심, P2P는 입력 중점 중심이다. 1 km 여유와 최대 반쪽 길이 20 km를 적용하고,
+작은 창이 출발점의 5 km anchor ±20 km 창 안에 들어갈 때만 사용한다.
+1 km 셀과 접하는 way는 node·segment까지 통째로 유지한다.
+작은 창 결과에 `OUTSIDE_CANONICAL_EXTRACT`가 하나라도 있으면 같은 요청을 anchor 창으로 한 번만 다시 실행한다.
+다른 오류와 처음부터 anchor 창을 쓴 요청은 재실행하지 않는다. seed와 선호는 창 key에 넣지 않아 재추천도 같은 창을 고른다.
+기존 재추천 lookback/결과 cache를 유지한다. LRU 칸 수는 결과에 영향을 주지 않으며, 퇴출은 새 창 생성 전에 한다.
+
+엔진 주입은 선택 인자 `RoutePipeline(..., region=WindowRegion(...))`에서 시작한다.
+RouteGenerator는 source·extract polygon, RunwayData는 env·DEM·환경 거리 cache를 받는다.
+Sidecar/Substrate/ArraySource는 선택적인 prepared 인자로 정적 표만 복원하고,
+Gate는 검증된 원본 PBF SHA256을 받아 전국 PBF를 창마다 해싱하지 않는다.
+인자를 생략하면 기존 초기화와 같은 호출을 수행한다. 점수·Gate 규칙·TOP_K·ATTEMPTS·MAX_KM(15)은 바꾸지 않았다.
+현재 ArraySource의 status_code/status_objs도 원래 생성 방식으로 계산한다.
+
+전국 `OUT_OF_AREA` 문구는 “출발 위치나 도착 위치가 전국 도로 자료의 추천 범위 밖이에요. 자료 범위 안의 위치를 골라 주세요.”다.
+P2P의 시작·도착 범위는 거리 상한보다 먼저 검사한다. 부산 문구와 오류 상태·응답 구조는 그대로다.
+전국 범위는 원본 extract bbox다. 그 안에서도 바다나 도로 없는 지역은 코스를 만들지 못할 수 있다.
+
+배포: `ROUTE_NATIONAL_DIR` 폴더를 컨테이너에 **읽기 전용**으로 마운트한다. 예를 들어
+호스트 `C:\data\national-bundle`을 `/data/national:ro`로 마운트하고
+`ROUTE_DATA_MODE=national`, `ROUTE_NATIONAL_DIR=/data/national`, `ROUTE_WINDOW_CACHE_SIZE=1`을 주입한다.
+기존 부산 `RUNWAY_DATA_DIR` 설정은 부산 모드용이다. 이 업무에서는 compose·Dockerfile·infra를 수정하지 않았다.
+자료 생성 순서·디스크·메모리·전체 해시 검증은 [전국 빌더 안내](tools/data/national/README.md)를 따른다.
+
+검토자는 서비스 폴더에서 아래를 실행한다. 실제 자료 없는 전체 테스트도 먼저 수행한다.
+
+```powershell
+python -B -m pytest tests -q
+python -B tools/data/national/build_prep.py --national-dir C:\Users\SSAFY\Desktop\RunWay_data\route_kr_store_v1 --verify
+$env:ROUTE_DATA_MODE = 'national'
+$env:ROUTE_NATIONAL_DIR = 'C:\Users\SSAFY\Desktop\RunWay_data\route_kr_store_v1'
+$env:ROUTE_WINDOW_CACHE_SIZE = '1'
+$env:ROUTE_WARMUP = '1'
+python -B -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+다른 PowerShell에서 다음을 확인한다. ready가 true가 된 뒤 서울 LOOP 5/15 km, OAB 10 km, P2P,
+seed 1/25/49, 같은 입력 반복과 다른 지역을 끼운 뒤 재실행을 검사한다. 창+준비 시간과 peak RSS는 현재 코드로 별도 측정한다.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/internal/v1/ready
+$body = @{lat=37.5013; lon=127.0396; distance_km=5; seed=1} | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8000/internal/v1/routes/recommendations -Method Post -ContentType application/json -Body $body
+```
+
+부산 동일성 검사는 전국 환경변수를 해제한 새 프로세스에서 기존 부산 데이터와 수행한다.
+아래 명령은 service 캡처와 `service_identity.py` 비교를 함께 실행한다. 사용하는 자료가 v2이면
+`--baseline tools/route_regression/baseline_v2 --strict`도 추가한다. tag 출력 폴더는 기존에 없어야 한다.
+
+```powershell
+$env:ROUTE_DATA_MODE = 'busan'
+Remove-Item Env:ROUTE_NATIONAL_DIR -ErrorAction SilentlyContinue
+python -B tools/route_regression/run_regression.py --tag national586-busan-review --app service
+```
+
+이 샌드박스에서는 Python 명령을 찾지 못했으므로 테스트·실자료 응답·성능 통과를 확인하지 않았다.

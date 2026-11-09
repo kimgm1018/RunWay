@@ -334,9 +334,13 @@ class Sidecar:
     way_status / way_reason: classify() 결과를 way 위치 순서로 둔 list(cls[wid]와 같은 값). 압축 도로망(network_store)이면
     refs / attrs / cls는 배열에서 그때그때 만드는 view이고 값·순서는 dict 경로와 같다."""
 
-    def __init__(self, src):
+    def __init__(self, src, prepared=None):
         t0 = time.perf_counter()
         self.src = src
+        if prepared is not None:
+            prepared.sidecar(self, src)
+            self.build_s = round(time.perf_counter() - t0, 2)
+            return
         if getattr(src, "net", None) is not None:
             self._init_compact(src)
             self.build_s = round(time.perf_counter() - t0, 2)
@@ -473,12 +477,15 @@ def routegraph_sig(rg) -> tuple:
 class FastGraphRouteGenerator(api.RouteGenerator):
     """Canonical RouteGenerator whose per-request graph comes from build_fast (canonical's otherwise)."""
 
-    def __init__(self, *args, fast: bool = True, self_test: bool = True, **kwargs):
+    def __init__(self, *args, fast: bool = True, self_test: bool = True, region=None, **kwargs):
         self.source_snapshot = {}   # S1: the parsed extract from a validated snapshot when its key matches (else the PBF)
         self.network_store = {}     # H21: the compact store (views, no dicts) when its key matches (else S1 / the PBF)
-        with source_snapshot.source_from_snapshot(busan, self.source_snapshot):
-            with network_store.source_from_store(busan, self.network_store):
-                super().__init__(*args, **kwargs)
+        if region is None:
+            with source_snapshot.source_from_snapshot(busan, self.source_snapshot):
+                with network_store.source_from_store(busan, self.network_store):
+                    super().__init__(*args, **kwargs)
+        else:
+            super().__init__(*args, region=region, **kwargs)
         self.sidecar, self.fast_status = None, {"fast": False, "reason": "disabled"}
         if not fast:
             return
@@ -486,7 +493,7 @@ class FastGraphRouteGenerator(api.RouteGenerator):
         if osmnx_v != VERIFIED_OSMNX:
             self.fast_status = {"fast": False, "reason": f"osmnx {osmnx_v} != verified {VERIFIED_OSMNX}"}
             return
-        sc = Sidecar(self.source)
+        sc = Sidecar(self.source) if region is None else Sidecar(self.source, region.prepared)
         st = {"fast": True, "reason": "", "sidecar_build_s": sc.build_s}
         if self_test:
             key, target = SELF_TEST

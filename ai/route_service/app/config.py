@@ -44,6 +44,17 @@ class Settings:
     reroll_exclude: bool = True     # 재추천에서 이전 1~2개 응답의 코스 제외
     reroll_cache_size: int = 256    # 그 비교용 코스 결과 cache 칸 수
     lock_wait_s: float = 8.0        # 실행 슬롯 대기 상한(초)
+    data_mode: str = 'busan'
+    national_dir: Path | None = None
+    window_cache_size: int = 1
+
+    def __post_init__(self):
+        if self.data_mode not in ('busan', 'national'):
+            raise ValueError('ROUTE_DATA_MODE must be busan or national')
+        if not isinstance(self.window_cache_size, int) or isinstance(self.window_cache_size, bool) or self.window_cache_size < 1:
+            raise ValueError('ROUTE_WINDOW_CACHE_SIZE must be an integer >= 1')
+        if self.data_mode == 'national' and (self.national_dir is None or not self.national_dir.is_dir()):
+            raise ValueError('ROUTE_NATIONAL_DIR must be an existing directory in national mode')
 
 
 def load_settings() -> Settings:
@@ -64,4 +75,7 @@ def load_settings() -> Settings:
         reroll_exclude=_flag("ROUTE_REROLL_EXCLUDE", True),
         reroll_cache_size=int(os.getenv("ROUTE_REROLL_CACHE_SIZE", "256")),
         lock_wait_s=lock_wait_s,
+        data_mode=os.getenv('ROUTE_DATA_MODE', 'busan'),
+        national_dir=Path(os.environ['ROUTE_NATIONAL_DIR']) if os.getenv('ROUTE_NATIONAL_DIR', '').strip() else None,
+        window_cache_size=int(os.getenv('ROUTE_WINDOW_CACHE_SIZE', '1')),
     )
