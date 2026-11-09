@@ -462,11 +462,11 @@ export type CrewMember = {
   recentPaceSecPerKm: number | null;
 };
 
-// 6.2a 가입 방식. M03 fixes it to APPROVAL; 바로 가입 follows the K1 sheet and has no API yet.
+// 6.2a 가입 방식, saved on the server (M03 on create, M12 on change; S15P31E105-570).
 export type CrewJoinPolicy = 'APPROVAL' | 'INSTANT';
 
-// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy follow
-// the K1 sheets and have no API yet (docs/design/api/crews.md).
+// 6.2 크루 상세 (M02 with the M07 members). The 6.2m capacity edit and 6.2a join policy are saved
+// with M12 (docs/design/api/crews.md).
 export type CrewDetail = CrewListItem & {
   joinPolicy: CrewJoinPolicy;
   amOwner: boolean;

@@ -2,13 +2,25 @@ package com.runway.backend.domain.crew.repository;
 
 import com.runway.backend.domain.crew.entity.Crew;
 import com.runway.backend.domain.crew.entity.CrewStatus;
+import jakarta.persistence.LockModeType;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface CrewRepository extends JpaRepository<Crew, Long> {
+
+    /**
+     * 크루 행을 쓰거나 승인 인원과 정원을 함께 판단하는 쓰기(M04 가입 신청·M06 승인·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경)가
+     * 같은 크루 행 잠금을 먼저 잡아, 인원 계산과 저장 사이에 다른 승인·정원 축소가 끼어들거나 이전 값으로 덮어쓰지
+     * 못하게 한다(S15P31E105-570).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Crew c where c.id = :id")
+    Optional<Crew> findByIdForUpdate(@Param("id") long id);
 
     @Query(
             """

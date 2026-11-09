@@ -13,6 +13,7 @@ CREATE TYPE "courses_status_enum" AS ENUM('ACTIVE', 'MERGED', 'BLOCKED');
 CREATE TYPE "course_environment_tags_environment_type_enum" AS ENUM('PARK', 'RIVERSIDE', 'URBAN', 'BEACH', 'TRACK');
 CREATE TYPE "user_profiles_running_level_enum" AS ENUM('BEGINNER', 'INTERMEDIATE', 'ADVANCED');
 CREATE TYPE "crews_status_enum" AS ENUM('ACTIVE', 'INACTIVE');
+CREATE TYPE "crews_join_policy_enum" AS ENUM('APPROVAL', 'INSTANT');
 CREATE TYPE "running_sessions_status_enum" AS ENUM('READY', 'RUNNING', 'PAUSED', 'COMPLETED', 'CANCELLED', 'INTERRUPTED');
 CREATE TYPE "running_sessions_analysis_status_enum" AS ENUM('PENDING', 'PROCESSING', 'READY', 'FAILED', 'LEGACY');
 CREATE TYPE "session_control_events_action_enum" AS ENUM('START', 'PAUSE', 'RESUME', 'END', 'SET_BPM', 'COACHING');
@@ -384,8 +385,11 @@ CREATE TABLE "crews" (
 	"status"	"crews_status_enum"	DEFAULT 'ACTIVE'	NOT NULL,
 	"region_code"	VARCHAR(40)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"join_policy"	"crews_join_policy_enum"	DEFAULT 'APPROVAL'	NOT NULL
 );
+
+COMMENT ON COLUMN "crews"."join_policy" IS '가입 방식. APPROVAL=크루장 승인 후 멤버, INSTANT=신청 즉시 멤버(정원 안). 크루장이 M12로 변경한다.';
 
 CREATE TABLE "running_sessions" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,

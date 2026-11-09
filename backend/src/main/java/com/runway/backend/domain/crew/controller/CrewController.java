@@ -3,6 +3,7 @@ package com.runway.backend.domain.crew.controller;
 import com.runway.backend.domain.crew.dto.request.CreateCrewRequest;
 import com.runway.backend.domain.crew.dto.request.DecideJoinRequest;
 import com.runway.backend.domain.crew.dto.request.LeaveCrewRequest;
+import com.runway.backend.domain.crew.dto.request.UpdateCrewSettingsRequest;
 import com.runway.backend.domain.crew.dto.response.CrewCreateResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDetailResponse;
 import com.runway.backend.domain.crew.dto.response.CrewDissolveResponse;
@@ -51,6 +52,16 @@ public class CrewController {
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long crewId) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return crewService.getDetail(userId, crewId);
+    }
+
+    /** M12 크루 설정 변경(정원·가입 방식). */
+    @PatchMapping("/{crewId}")
+    public CrewDetailResponse updateSettings(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long crewId,
+            @RequestBody UpdateCrewSettingsRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return crewService.updateSettings(userId, crewId, request);
     }
 
     @GetMapping

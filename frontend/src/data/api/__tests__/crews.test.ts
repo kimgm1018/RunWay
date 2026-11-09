@@ -32,6 +32,7 @@ const crew = (fields: Record<string, unknown> = {}) => ({
   capacity: 30,
   status: 'ACTIVE',
   regionCode: '26500',
+  joinPolicy: 'APPROVAL',
   memberCount: 3,
   myMembershipStatus: 'APPROVED',
   ...fields,
@@ -221,6 +222,32 @@ test('M04 sends a join request and reads its state', async () => {
   await expect(api().crews.requestJoin('44')).resolves.toBe('PENDING');
 });
 
+// 바로 가입 (S15P31E105-570): M04 answers APPROVED, so I am a member at once.
+test('M04 on a 바로 가입 crew makes me a member at once', async () => {
+  serve((path, init) =>
+    path === '/crews/45/join-requests' && init.method === 'POST'
+      ? respond(200, {
+          crewId: 45,
+          userId: 101,
+          status: 'APPROVED',
+          requestedAt: '2026-11-09T01:00:00Z',
+        })
+      : undefined,
+  );
+  await expect(api().crews.requestJoin('45')).resolves.toBe('MEMBER');
+});
+
+test('a refused join policy change reaches the screen', async () => {
+  serve((path, init) =>
+    path === '/crews/42' && init.method === 'PATCH'
+      ? respond(403, { code: 'NOT_ADMIN', message: '', details: {} })
+      : undefined,
+  );
+  await expect(
+    api().crews.setJoinPolicy('42', 'INSTANT'),
+  ).rejects.toMatchObject({ code: 'NOT_ADMIN' });
+});
+
 test('M04 on a full crew passes CREW_CAPACITY_EXCEEDED on', async () => {
   serve(() =>
     respond(409, { code: 'CREW_CAPACITY_EXCEEDED', message: '', details: {} }),
@@ -290,7 +317,13 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     if (path === '/crews/50') {
       return respond(
         200,
-        crew({ id: 50, ownerId: 101, memberCount: 1, capacity: 21 }),
+        crew({
+          id: 50,
+          ownerId: 101,
+          memberCount: 1,
+          capacity: 21,
+          joinPolicy: 'INSTANT',
+        }),
       );
     }
     if (path === '/crews/50/members' || path === '/crews/50/join-requests') {
@@ -316,7 +349,9 @@ test('M03 sends the region of the picked place and keeps the join policy here', 
     description: null,
     capacity: 21,
     regionCode: '26500',
+    joinPolicy: 'INSTANT',
   });
+  // The join policy shown comes back from M02, not from this phone.
   expect((await crews.get('50')).joinPolicy).toBe('INSTANT');
 });
 
@@ -372,6 +407,7 @@ test('M03 sends the photo F01 stored for the crew as imageKey', async () => {
       description: null,
       capacity: 20,
       regionCode: '26500',
+      joinPolicy: 'APPROVAL',
       imageKey: `images/crew/101/${imageId}.png`,
     },
   ]);
@@ -427,9 +463,42 @@ test('a place in an unknown or ambiguous region is sent without a region', async
   await expect(codeOf(null)).resolves.toBeNull();
 });
 
-test('the capacity edit stays on this phone and checks the member count', async () => {
-  serve(path =>
-    path === '/crews/42'
+// 6.2m · 6.2a (S15P31E105-570): M12 saves the capacity and the join policy, and a new api (an app restart)
+// reads them back from the server.
+test('M12 saves the capacity and the join policy on the server', async () => {
+  let saved = crew({ id: 42, ownerId: 101, memberCount: 24 });
+  serve((path, init) => {
+    if (path === '/crews/42' && init.method === 'PATCH') {
+      saved = { ...saved, ...JSON.parse(init.body ?? '{}') };
+      return respond(200, saved);
+    }
+    if (path === '/crews/42') return respond(200, saved);
+    if (path === '/crews/42/members' || path === '/crews/42/join-requests') {
+      return respond(200, { items: [] });
+    }
+    return undefined;
+  });
+
+  await api().crews.updateCapacity('42', 26);
+  await api().crews.setJoinPolicy('42', 'INSTANT');
+
+  expect(sent('PATCH')).toEqual([
+    { path: '/crews/42', body: { capacity: 26 } },
+    { path: '/crews/42', body: { joinPolicy: 'INSTANT' } },
+  ]);
+  const restarted = await api().crews.get('42');
+  expect(restarted.capacity).toBe(26);
+  expect(restarted.joinPolicy).toBe('INSTANT');
+});
+
+test('a refused M12 change reaches the screen and is not kept on this phone', async () => {
+  serve((path, init) =>
+    path === '/crews/42' && init.method === 'PATCH'
+      ? respond(409, {
+          code: 'CREW_CAPACITY_BELOW_MEMBERS',
+          message: '정원은 현재 멤버 수보다 작게 정할 수 없습니다.',
+        })
+      : path === '/crews/42'
       ? respond(200, crew({ id: 42, ownerId: 101, memberCount: 24 }))
       : path === '/crews/42/members' || path === '/crews/42/join-requests'
       ? respond(200, { items: [] })
@@ -437,11 +506,10 @@ test('the capacity edit stays on this phone and checks the member count', async 
   );
   const { crews } = api();
 
-  await expect(crews.updateCapacity('42', 20)).rejects.toBeTruthy();
-  await crews.updateCapacity('42', 26);
-
-  expect((await crews.get('42')).capacity).toBe(26);
-  expect(sent('PATCH')).toEqual([]);
+  await expect(crews.updateCapacity('42', 20)).rejects.toMatchObject({
+    code: 'CREW_CAPACITY_BELOW_MEMBERS',
+  });
+  expect((await crews.get('42')).capacity).toBe(30);
 });
 
 test('M08 leaves a crew', async () => {

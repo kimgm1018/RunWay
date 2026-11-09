@@ -68,6 +68,16 @@ public class CrewMembership {
         return membership;
     }
 
+    /** 바로 가입 크루의 첫 신청. requested_at은 DB 기본값으로 채워지고 처음부터 APPROVED로 저장한다. */
+    public static CrewMembership joinInstantly(long crewId, long userId) {
+        CrewMembership membership = new CrewMembership();
+        membership.crewId = crewId;
+        membership.userId = userId;
+        membership.status = CrewMembershipStatus.APPROVED;
+        membership.joinedAt = Instant.now();
+        return membership;
+    }
+
     public void reapply() {
         this.status = CrewMembershipStatus.PENDING;
         this.requestedAt = Instant.now();

@@ -164,7 +164,7 @@
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
 | `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
-| `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태 |
+| `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태·가입 방식(`join_policy` APPROVAL/INSTANT, 기본 APPROVAL) |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
@@ -233,6 +233,8 @@ account_visibility와 location_collection_mode는 **NOT NULL**이다. 설정 행
 ### 크루 정원
 
 **크루 최대 정원은 200명이다.** 각 크루의 `capacity`는 1~200명 범위에서 명시하며, DB의 `CHECK (capacity BETWEEN 1 AND 200)`과 기존 NOT NULL로 보장한다. 모든 크루의 정원을 자동 200명으로 설정하거나 기본값을 추가하지 않는다. 실제 승인 인원이 해당 크루 정원을 넘지 않도록 하는 검증과 동시성 처리는 서비스 책임이다. 그룹런 참가 정원과는 별개이며 현재 group_runs에는 capacity가 없다.
+
+**정원·가입 방식 변경과 동시성 (S15P31E105-570, 2026-11-09 사용자 확정).** 크루장은 M12로 `capacity`와 `join_policy`를 바꾼다. `capacity`는 현재 APPROVED 인원 미만으로 줄일 수 없다. M04 가입 신청·M06 승인·M08 탈퇴·M09 내보내기·M11 해산·M12 설정 변경은 같은 `crews` 행을 `SELECT … FOR UPDATE`로 먼저 잠근다. 인원을 세는 M04 바로 가입·M06 승인·M12는 잠금 아래에서 세므로 동시에 실행돼도 APPROVED 인원이 `capacity`를 넘지 않고, M08 이양·M11 해산은 M12 변경을 덮어쓰거나 해산 뒤 멤버를 남기지 않는다. INSTANT로 바꿔도 기존 PENDING 행은 그대로 둔다. 기준 SQL·Flyway V21을 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 ## 5. 알림 종류와 화면 이동
 

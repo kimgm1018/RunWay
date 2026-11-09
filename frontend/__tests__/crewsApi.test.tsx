@@ -35,6 +35,8 @@ type ServerCrew = {
   ownerId: number;
   capacity: number;
   regionCode: string | null;
+  // M01·M02 joinPolicy (S15P31E105-570); APPROVAL when a seed leaves it out.
+  joinPolicy?: 'APPROVAL' | 'INSTANT';
   members: { userId: number; nickname: string }[];
   pending: { userId: number; nickname: string }[];
 };
@@ -58,6 +60,7 @@ const summary = (crew: ServerCrew) => ({
   capacity: crew.capacity,
   status: 'ACTIVE',
   regionCode: crew.regionCode,
+  joinPolicy: crew.joinPolicy ?? 'APPROVAL',
   memberCount: crew.members.length,
   myMembershipStatus: statusOf(crew),
 });
@@ -146,6 +149,7 @@ function serve() {
           ownerId: meId,
           capacity: body.capacity,
           regionCode: body.regionCode ?? null,
+          joinPolicy: body.joinPolicy ?? 'APPROVAL',
           members: [{ userId: meId, nickname: '민준' }],
           pending: [],
         });
@@ -449,6 +453,7 @@ test('6.3 creates a crew in the picked place’s region', async () => {
       description: null,
       capacity: 20,
       regionCode: '26500',
+      joinPolicy: 'APPROVAL',
     },
   ]);
   expect(texts(screen)).toContain('광안리 주말 러너스');
@@ -504,6 +509,7 @@ test('6.3 picks a 대표 사진, takes it out or changes it, and sends it with t
       description: null,
       capacity: 20,
       regionCode: '26500',
+      joinPolicy: 'APPROVAL',
       imageKey: `images/crew/${meId}/${crewImageId}.jpg`,
     },
   ]);
