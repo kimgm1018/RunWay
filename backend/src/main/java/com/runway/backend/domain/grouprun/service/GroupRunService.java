@@ -796,6 +796,7 @@ public class GroupRunService {
                 now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS);
         // MVP: GPS 궤적은 읽지 않고 빈 목록을 넘긴다. 자유 그룹도 누적 거리만으로 순위를 매긴다(선두 궤적 투영은 확장).
         // 미래 시각 표본은 ceiling 이하만 고르므로 이후 정상 표본을 가리지 않는다.
+        // 신선도는 종류와 무관한 최신 측정 표본으로 판단한다. 멈춰 서 있으면 워치가 거리 표본을 보내지 않기 때문이다.
         List<SessionReferenceRepository.GroupLiveRow> liveRows =
                 sessionReferenceRepository.findGroupLiveRows(row.id(), measuredAtCeiling);
         Map<Long, Integer> paceByUser = new HashMap<>();
@@ -816,7 +817,8 @@ public class GroupRunService {
                                                         ? null
                                                         : r.totalDistance().doubleValue(),
                                                 r.measuredAt(),
-                                                List.of()))
+                                                List.of(),
+                                                r.lastSampleAt()))
                         .toList();
         Double courseDistanceM = null;
         if (row.courseId() != null) {
@@ -834,8 +836,8 @@ public class GroupRunService {
     }
 
     /**
-     * 순위 집합 밖(미시작·일시정지·표본 없음·TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다. paceSecPerKm은 최근
-     * 60초 실측 페이스이며 stale이면 null이다.
+     * 순위 집합 밖(미시작·일시정지·거리 표본 없음·최신 측정 표본 TTL 초과·미래 시각)은 stale로 표시해 순위 0 같은 값으로 채우지 않는다.
+     * paceSecPerKm은 최신 측정 표본 기준 최근 60초 실측 페이스이며 stale이면 null이다.
      */
     private static GroupRunLiveResponse.Participant toLiveParticipant(
             ParticipantLive live, Integer livePaceSecPerKm) {

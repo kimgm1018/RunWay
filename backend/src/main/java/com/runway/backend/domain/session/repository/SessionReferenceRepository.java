@@ -248,10 +248,11 @@ public class SessionReferenceRepository {
     }
 
     /**
-     * G10 실시간 순위·실측 페이스용 읽기 전용 조회. 모든 참가자를 가입 순서로 돌려주고, 세션별로 누적 거리가 있는 가장 최근
-     * <b>허용 시각 이하</b> 측정 표본(W07) 하나만 읽는다. 같은 표본 시각 기준 최근 60초 {@code speed} 평균도 함께 읽는다.
-     * {@code measuredAtCeiling}보다 미래인 표본은 고르지 않아 이후 정상 표본이 가려지지 않게 한다. 연결 세션이 없거나 삭제
-     * 표시된 세션, 유효 표본이 없는 세션의 값은 null이다. 쓰기·잠금을 하지 않는다.
+     * G10 실시간 순위·실측 페이스용 읽기 전용 조회. 모든 참가자를 가입 순서로 돌려주고, 세션별로 <b>허용 시각 이하</b> 측정
+     * 표본(W07) 중 누적 거리가 있는 가장 최근 표본의 거리·시각과, 종류와 무관한 가장 최근 표본 시각({@code lastSampleAt}, 신선도
+     * 판단용)을 읽는다. 실측 페이스용 {@code speed} 평균은 {@code lastSampleAt} 기준 최근 60초로 내므로 멈춰 서 있으면 null이다.
+     * 모두 한 SQL 문에서 읽는다. {@code measuredAtCeiling}보다 미래인 표본은 고르지 않아 이후 정상 표본이 가려지지 않게 한다. 연결
+     * 세션이 없거나 삭제 표시된 세션, 유효 표본이 없는 세션의 값은 null이다. 쓰기·잠금을 하지 않는다.
      *
      * @param measuredAtCeiling 보통 {@code now + MEASURED_AT_FUTURE_SKEW}
      */
@@ -259,7 +260,8 @@ public class SessionReferenceRepository {
         return jdbc.query(
                 """
                 SELECT p.user_id, s.status::text AS session_status, s.started_at,
-                       m.total_distance, m.measured_at, pace.avg_speed
+                       m.total_distance, m.measured_at,
+                       latest.measured_at AS last_sample_at, pace.avg_speed
                 FROM group_run_participants p
                 LEFT JOIN running_sessions s ON s.id = p.session_id AND s.deleted_at IS NULL
                 LEFT JOIN LATERAL (
@@ -271,16 +273,23 @@ public class SessionReferenceRepository {
                     ORDER BY rms.measured_at DESC, rms.id DESC
                     LIMIT 1) m ON TRUE
                 LEFT JOIN LATERAL (
+                    SELECT rms.measured_at
+                    FROM running_metric_samples rms
+                    WHERE rms.running_session_id = s.id
+                      AND rms.measured_at <= ?
+                    ORDER BY rms.measured_at DESC, rms.id DESC
+                    LIMIT 1) latest ON TRUE
+                LEFT JOIN LATERAL (
                     SELECT AVG(rms.speed) AS avg_speed
                     FROM running_metric_samples rms
                     WHERE rms.running_session_id = s.id
-                      AND m.measured_at IS NOT NULL
+                      AND latest.measured_at IS NOT NULL
                       AND rms.speed IS NOT NULL
                       AND rms.speed > 0
                       AND rms.speed NOT IN (
                           'NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric)
-                      AND rms.measured_at <= m.measured_at
-                      AND rms.measured_at >= m.measured_at - INTERVAL '60 seconds'
+                      AND rms.measured_at <= latest.measured_at
+                      AND rms.measured_at >= latest.measured_at - INTERVAL '60 seconds'
                 ) pace ON TRUE
                 WHERE p.group_run_id = ?
                 ORDER BY p.joined_at, p.id
@@ -292,7 +301,9 @@ public class SessionReferenceRepository {
                                 toInstant(rs, "started_at"),
                                 rs.getBigDecimal("total_distance"),
                                 toInstant(rs, "measured_at"),
-                                rs.getBigDecimal("avg_speed")),
+                                rs.getBigDecimal("avg_speed"),
+                                toInstant(rs, "last_sample_at")),
+                Timestamp.from(measuredAtCeiling),
                 Timestamp.from(measuredAtCeiling),
                 groupRunId);
     }
@@ -387,7 +398,8 @@ public class SessionReferenceRepository {
             Instant startedAt,
             BigDecimal totalDistance,
             Instant measuredAt,
-            BigDecimal averageSpeedMps) {}
+            BigDecimal averageSpeedMps,
+            Instant lastSampleAt) {}
 
     public record CoachingGuideRow(
             BigDecimal recommendedPace, Instant expiresAt, CoachingLevel coachingLevel) {}

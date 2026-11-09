@@ -14,7 +14,9 @@ import java.util.List;
  *   <li>자유 모드: d가 가장 큰 참가자를 리더로 삼고, 리더 궤적이 2점 이상이면 다른 참가자의 진행도를 리더 궤적 위 투영으로
  *       구한다. 궤적이 부족하면 d만으로 순위를 매긴다.
  *   <li>진행도를 내림차순 정렬한 뒤 인접 차이가 TIE_EPSILON_M 이하면 같은 동률 군집·같은 rank다.
- *   <li>GPS가 없거나 TTL을 넘기거나 측정 시각이 허용 오차를 넘어 미래이면 0 등을 만들지 않고 순위 없이 반환한다.
+ *   <li>누적 거리 표본이 없거나, 종류와 무관한 최신 측정 표본 시각({@link ParticipantSample#freshnessAt()})이 TTL을
+ *       넘기거나 허용 오차를 넘어 미래이면 0 등을 만들지 않고 순위 없이 반환한다. 최신 측정 표본이 신선하면 거리 표본이
+ *       오래됐어도(멈춰 서 있는 참가자) 마지막 누적 거리로 순위를 낸다.
  * </ul>
  */
 public final class GroupRunLiveRanking {
@@ -51,7 +53,7 @@ public final class GroupRunLiveRanking {
           && s.totalDistanceM() != null
           && isFinite(s.totalDistanceM())
           && s.measuredAt() != null
-          && !isUnusableMeasurement(now, s.measuredAt())) {
+          && !isUnusableMeasurement(now, s.freshnessAt())) {
         eligible.add(i);
       }
     }
@@ -79,7 +81,7 @@ public final class GroupRunLiveRanking {
         // 순위 집합 밖이어도 마지막 표본 시각은 참고용으로 남긴다. stale=순위 제외.
         result.add(
             new ParticipantLive(
-                s.userId(), null, null, null, null, null, null, s.measuredAt(), true));
+                s.userId(), null, null, null, null, null, null, s.freshnessAt(), true));
         continue;
       }
       result.add(
@@ -91,7 +93,7 @@ public final class GroupRunLiveRanking {
               gapAhead[i],
               gapBehind[i],
               progress[i],
-              s.measuredAt(),
+              s.freshnessAt(),
               false));
     }
     return result;

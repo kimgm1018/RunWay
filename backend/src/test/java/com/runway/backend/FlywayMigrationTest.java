@@ -81,7 +81,7 @@ class FlywayMigrationTest {
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
                 VALUES ('prefs_migrate','synthetic','prefmig','2000-01-01','MALE','00000000000','DISAGREE')
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(13);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(14);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='prefs_migrate'"))
                 .isEqualTo(1);
         assertThat(number("SELECT count(*) FROM user_recommendation_preferences")).isZero();
@@ -173,7 +173,7 @@ class FlywayMigrationTest {
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='11' AND"
                                     + " success"))
                 .isEqualTo(1);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(11);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(12);
         assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
     }
 
@@ -196,7 +196,7 @@ class FlywayMigrationTest {
                                     + " table_schema='public' AND"
                                     + " table_name='user_hr_personalization'"))
                 .isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(11);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(12);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='hr_pers_migrate'"))
                 .isEqualTo(1);
         assertThat(number("SELECT count(*) FROM user_hr_personalization")).isZero();
@@ -266,7 +266,7 @@ class FlywayMigrationTest {
                 WHERE a.login_id='follow_mig_a' AND b.login_id='follow_mig_b';
                 """);
         assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(10);
         assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
         assertThat(number("SELECT count(*) FROM user_follows WHERE is_approved=TRUE")).isEqualTo(1);
         assertThat(number("SELECT count(*) FROM follow_request_history")).isZero();
@@ -306,7 +306,7 @@ class FlywayMigrationTest {
                 FROM running_sessions s JOIN users u ON s.user_id=u.id WHERE u.login_id='v12_runner';
                 """);
         assertThat(number(METRIC_SAMPLES_INDEX)).isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(10);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(11);
         assertThat(
                         number(
                                 "SELECT count(*) FROM running_metric_samples m JOIN running_sessions s ON"
@@ -349,7 +349,7 @@ class FlywayMigrationTest {
                 WHERE a.login_id='v19_a' AND b.login_id='v19_b';
                 """);
         assertThat(number(FOLLOWEE_INDEX)).isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(4);
         assertThat(
                         number(
                                 "SELECT count(*) FROM user_follows f JOIN users b ON"
@@ -387,7 +387,7 @@ class FlywayMigrationTest {
                                     + " table_schema='public' AND table_name='crews' AND"
                                     + " column_name='join_policy'"))
                 .isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(3);
         assertThat(
                         number(
                                 "SELECT count(*) FROM crews WHERE name='v20 crew' AND capacity=15"
@@ -396,6 +396,52 @@ class FlywayMigrationTest {
         assertThat(
                         number(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='21' AND"
+                                    + " success"))
+                .isEqualTo(1);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
+    }
+
+    /** V23 인덱스가 정의대로 있는지(S15P31E105-597). V22는 S15P31E105-585가 사용한다. */
+    private static final String METRIC_SAMPLES_MEASURED_INDEX =
+            "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND"
+                    + " tablename='running_metric_samples' AND"
+                    + " indexname='idx_running_metric_samples_session_measured' AND indexdef ="
+                    + " 'CREATE INDEX idx_running_metric_samples_session_measured ON"
+                    + " public.running_metric_samples USING btree (running_session_id,"
+                    + " measured_at DESC, id DESC)'";
+
+    @Test
+    void v23AddsRunningMetricSamplesSessionMeasuredIndexAndPreservesData() throws Exception {
+        Flyway.configure()
+                .dataSource(databaseUrl, DATABASE.getUsername(), DATABASE.getPassword())
+                .locations("classpath:db/migration")
+                .target("22")
+                .load()
+                .migrate();
+        execute(
+                """
+                INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
+                VALUES ('v21_runner','synthetic','v21run','2000-01-01','MALE','00000000000','AGREEE');
+                INSERT INTO running_sessions(user_id,status,started_at)
+                SELECT id,'RUNNING','2026-11-09T01:00:00Z' FROM users WHERE login_id='v21_runner';
+                INSERT INTO running_metric_samples(running_session_id,measured_at,elapsed_duration,heart_rate,total_distance,is_hr_measured)
+                SELECT s.id,'2026-11-09T01:00:05Z',5,140,12.50,true
+                FROM running_sessions s JOIN users u ON s.user_id=u.id WHERE u.login_id='v21_runner';
+                """);
+        assertThat(number(METRIC_SAMPLES_MEASURED_INDEX)).isZero();
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM running_metric_samples m JOIN running_sessions s ON"
+                                    + " m.running_session_id=s.id JOIN users u ON s.user_id=u.id"
+                                    + " WHERE u.login_id='v21_runner' AND m.elapsed_duration=5 AND"
+                                    + " m.heart_rate=140 AND m.total_distance=12.50"))
+                .isEqualTo(1);
+        assertThat(number(METRIC_SAMPLES_MEASURED_INDEX)).isEqualTo(1);
+        assertThat(number(METRIC_SAMPLES_INDEX)).isEqualTo(1);
+        assertThat(
+                        number(
+                                "SELECT count(*) FROM flyway_schema_history WHERE version='23' AND"
                                     + " success"))
                 .isEqualTo(1);
         assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
@@ -421,7 +467,7 @@ class FlywayMigrationTest {
                                 "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND"
                                     + " tablename='course_segment_difficulties'"))
                 .isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(8);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(9);
         assertThat(number("SELECT count(*) FROM courses WHERE distance=2500.00")).isEqualTo(1);
         assertThat(number("SELECT count(*) FROM course_segment_difficulties")).isZero();
         execute(
@@ -480,7 +526,7 @@ class FlywayMigrationTest {
                                     + " table_schema='public' AND table_name='notifications' AND"
                                     + " column_name='dedupe_key'"))
                 .isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(6);
         assertThat(
                         number(
                                 "SELECT count(*) FROM notifications n JOIN users u ON n.user_id=u.id"
@@ -526,7 +572,7 @@ class FlywayMigrationTest {
                                     + " table_schema='public' AND table_name='coaching_decisions' AND"
                                     + " column_name='coaching_level'"))
                 .isZero();
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(5);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
@@ -548,7 +594,7 @@ class FlywayMigrationTest {
 
     @Test
     void firstMigrationAndReapplicationPreserveData() throws Exception {
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(22);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(23);
         execute(
                 """
                 INSERT INTO users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)
@@ -558,7 +604,7 @@ class FlywayMigrationTest {
         assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isZero();
         assertThat(number("SELECT count(*) FROM users WHERE login_id='migration_runner'"))
                 .isEqualTo(1);
-        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(22);
+        assertThat(number("SELECT count(*) FROM flyway_schema_history")).isEqualTo(23);
         assertThat(
                         number(
                                 "SELECT count(*) FROM flyway_schema_history WHERE version='1' AND"
@@ -741,7 +787,7 @@ class FlywayMigrationTest {
     @Test
     void v3ConvertsExistingBatchUuidWithoutLosingData() throws Exception {
         installV1WithBatch("ABCDEFAB-0000-4000-8000-000000000101");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(21);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(22);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
@@ -842,7 +888,7 @@ class FlywayMigrationTest {
                 INSERT INTO coaching_decisions(session_id,elapsed_duration,recommended_pace,cue_bpm)
                 SELECT id,10,300,160 FROM running_sessions;
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(21);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(22);
         assertThat(
                         number(
                                 "SELECT count(*) FROM coaching_decisions WHERE cue_bpm=160 AND"
@@ -922,7 +968,7 @@ class FlywayMigrationTest {
                 INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,sleep_duration_min)
                 SELECT id,'2026-10-30',58.4,420 FROM users WHERE login_id='v8_health';
                 """);
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(14);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(15);
         assertThat(
                         number(
                                 "SELECT count(*) FROM daily_health_metrics WHERE rhr_bpm=58.4 AND"
@@ -956,7 +1002,7 @@ class FlywayMigrationTest {
                     + " users(login_id,password,nickname,birth_date,gender,phone_number,health_data_access)"
                     + " VALUES"
                     + " ('before_signup','hash','before','2000-01-01','MALE','01012345678','DISAGREE')");
-        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(19);
+        assertThat(flyway("classpath:db/migration").migrate().migrationsExecuted).isEqualTo(20);
         assertThat(number("SELECT count(*) FROM users WHERE login_id='before_signup'"))
                 .isEqualTo(1);
         assertThat(
