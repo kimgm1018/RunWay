@@ -6,7 +6,7 @@ STORE_MANIFEST = '80c6430e58e271966721292dc45f457709761102da2f0c2e2ba246a1f6c397
 COVERAGE = (124.3727348, 32.9104556, 132.1236111, 38.61772)
 TIMESTAMP = '2026-10-20T20:23:47Z'
 RUNTIME = json.loads(r'''{
-    "runway_routing/graph.py":  "fedbdca6eac24b93637867b7a624b261ae1e29169259648757a03e53d9687518",
+    "runway_routing/graph.py":  "d70f9ea312d02f4cb28ef54260f7637eaa9c92b32216ccfd051a46ed93b9b195",
     "runway_routing/network_store.py":  "362b2f584b98e643404e0511e74aa6291ec9c78eba96e546bf1067c3b938d8c7",
     "runway_routing/substrate.py":  "284ec48002ce010f6c4795d7d849094504b2407c99f948be9e497366cf3bcf37",
     "runway_routing/array_graph.py":  "9eed0f6ced3d7806407ae248b2a8b4acfecc7b7ebf9ff66992e063b985e72f76",

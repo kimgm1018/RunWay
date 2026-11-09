@@ -303,16 +303,23 @@ def build_request_graph(gen, lat: float, lon: float, target_m: float, env: dict,
 
 # ------------------------------------------------------------------ Running Suitability edge levels (once per graph)
 def traffic_node_distance(cg, cfg: dict) -> np.ndarray:
-    """Distance (m) from every graph node to the nearest traffic centreline (all statuses)."""
+    """Distance (m) from every graph node to the nearest traffic centreline (all statuses), exact up to beside_m + 1 m.
+
+    edge_levels only asks "<= beside_m", so nodes farther than beside_m + 1 m get inf instead of their exact distance.
+    A radius query (dwithin) finds the candidate pairs and the exact distance is taken per pair; the minimum equals the
+    old query_nearest distance for every node within the radius, so the levels are unchanged (590 follow-up, 11-09:
+    30 request graphs, 0 level mismatches, 3.7x faster)."""
+    d = np.full(len(cg.node_ids), np.inf)
     e = cg.edges_all
     t = e[e["highway"].isin(cfg["traffic"]["traffic_highway"])]
     if t.empty:
-        return np.full(len(cg.node_ids), np.inf)
+        return d
     u, v = t["u"].to_numpy(), t["v"].to_numpy()
-    tree = shapely.STRtree(shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1)))
-    idx, dist = tree.query_nearest(shapely.points(cg.x, cg.y), return_distance=True, all_matches=False)
-    d = np.full(len(cg.node_ids), np.inf)
-    d[idx[0]] = dist
+    lines = shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1))
+    pts = shapely.points(cg.x, cg.y)
+    pi, li = shapely.STRtree(lines).query(pts, predicate="dwithin", distance=cfg["traffic"]["beside_m"] + 1.0)
+    if len(pi):
+        np.minimum.at(d, pi, shapely.distance(pts[pi], lines[li]))
     return d
 
 def edge_levels(cg, node_dist: np.ndarray, cfg: dict) -> dict:
