@@ -31,6 +31,7 @@ import {
   type Repositories,
   type WatchConnection,
 } from '../../data';
+import { watchConnectionLabel } from '../../data/api/devices';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import type { SleepAccess } from '../../health/samsungSleep';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
@@ -360,7 +361,7 @@ export function SettingsScreen() {
             <Tile
               icon="smartwatch"
               name={watch.deviceName}
-              state={watch.status === 'connected' ? '연결됨' : '연결 해제됨'}
+              state={watchConnectionLabel(watch)}
               onPress={() =>
                 watch.status === 'connected'
                   ? disconnect(watch)

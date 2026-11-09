@@ -22,5 +22,7 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
     subscribe: () => () => undefined,
     setRunActive: async () => undefined,
     getActiveSessionId: async () => null,
+    isWatchConnected: async () => false,
+    getConnectedWatch: async () => null,
   };
 }

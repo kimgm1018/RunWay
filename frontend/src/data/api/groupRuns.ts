@@ -7,6 +7,7 @@ import type {
   GroupRunParticipant,
   GroupRunSummary,
   MyCrew,
+  MyGroupRuns,
   Repositories,
   WaitingRoom,
 } from '../types';
@@ -304,17 +305,31 @@ export function createGroupRunsApi({
     listMine: async () => {
       const mine = await myCrews();
       if (mine.length === 0) {
-        const open = (await crews.search({ query: '', nearby: true })).filter(
-          crew =>
-            crew.myMembership === null && crew.memberCount < crew.capacity,
-        );
+        // 6.0b empty guidance must still open when I have no crews. Nearby recruiting
+        // is only a hint — a failed /crews search must not look like a load error
+        // (S15P31E105-571 with S15P31E105-588 empty-list behavior).
+        let nearbyRecruiting: MyGroupRuns['nearbyRecruiting'] = {
+          count: 0,
+          areas: [],
+        };
+        try {
+          const open = (
+            await crews.search({ query: '', nearby: true })
+          ).filter(
+            crew =>
+              crew.myMembership === null && crew.memberCount < crew.capacity,
+          );
+          nearbyRecruiting = {
+            count: open.length,
+            areas: [...new Set(open.map(crew => crew.area))].slice(0, 3),
+          };
+        } catch {
+          // Keep zeros; NoCrews still shows the existing empty copy.
+        }
         return {
           upcoming: null,
           crews: [],
-          nearbyRecruiting: {
-            count: open.length,
-            areas: [...new Set(open.map(crew => crew.area))].slice(0, 3),
-          },
+          nearbyRecruiting,
         };
       }
       const names = new Map(mine.map(crew => [crew.id, crew.name]));

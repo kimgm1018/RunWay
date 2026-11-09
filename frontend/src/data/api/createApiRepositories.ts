@@ -62,6 +62,11 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     mock: mock.crews,
     regions,
   });
+  // One native session bridge for run control and for W01/settings connection probes (S15P31E105-571).
+  const watchSession = {
+    ...createNativeWatchSession(),
+    getLinkedDevices: createLinkedDevices(serverRequest),
+  };
   return {
     ...mock,
     // U28~U30 휴대전화 인증·비밀번호 재설정 (S15P31E105-560): no auth call stays on mock data.
@@ -104,7 +109,6 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     notifications: notificationsApi,
     // Without a profile the expected course times fall back to 6′00″.
     courses: createCoursesApi({ mock: mock.courses, usualPace, regions }),
-    watch: createWatchApi(mock.watch),
     // S15P31E105-256 러닝 세션 제어(S01~S08)와 워치 중계. 세션에 쓸 워치·폰 기기 ID는 W02로 읽고 폰이 없으면 W01로 연결한다.
     // W07 워치 batch 업로드(S15P31E105-311)는 본문 원문을 그대로 보낸다.
     // S10 구독(S15P31E105-257)은 러닝 중 서버 코칭·상태를 워치로 중계하는 데 쓴다.
@@ -113,10 +117,12 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       uploadBatch: uploadSyncBatch,
       subscribeEvents: (sessionId, handlers) => createSessionEvents({ sessionId, ...handlers }).stop,
     },
-    watchSession: {
-      ...createNativeWatchSession(),
-      getLinkedDevices: createLinkedDevices(serverRequest),
-    },
+    watchSession,
+    // S15P31E105-571: 설정·온보딩 워치 상태는 Data Layer 노드 + W01~W03. mock 연결/기기명을 쓰지 않는다.
+    watch: createWatchApi(mock.watch, {
+      findConnectedWatch: async () =>
+        (await watchSession.getConnectedWatch?.()) ?? null,
+    }),
     // 실제 모드의 화면 기록은 일시정지 제외 시계만 센다(S15P31E105-517). 거리·페이스·심박·케이던스·위치는 폰이 받은
     // 워치 batch(또는 인계 후 폰 GPS)의 실측값으로 채우고(runControl live), 목업 값이나 목업 길 안내는 만들지 않는다.
     run: {

@@ -139,6 +139,37 @@ test('M01 and M10 missing items stay empty instead of failing the screen', async
   await expect(api().listMine()).resolves.toEqual([]);
 });
 
+test('M01 stays empty when /regions omits items instead of crashing the list', async () => {
+  fetchMock.mockImplementation(
+    async (address: string, init: { method: string; body?: string }) => {
+      const url = new URL(address);
+      const path = url.pathname.replace(/^.*\/api\/v1/, '');
+      if (path === '/regions') {
+        return respond(200, {});
+      }
+      if (path === '/crews') {
+        return respond(200, {
+          items: [crew({ id: 99, myMembershipStatus: null })],
+        });
+      }
+      throw new Error(`unexpected request ${init.method} ${address}`);
+    },
+  );
+  await expect(
+    api().crews.search({ query: '', nearby: false }),
+  ).resolves.toEqual([
+    {
+      id: '99',
+      name: '광안리 새벽 크루',
+      description: '주말 새벽 5km',
+      area: '지역 미정',
+      capacity: 30,
+      memberCount: 3,
+      myMembership: null,
+    },
+  ]);
+});
+
 test('M02 with M07 marks me, puts the leader first and counts requests for the leader', async () => {
   serve(path => {
     if (path === '/crews/42') {

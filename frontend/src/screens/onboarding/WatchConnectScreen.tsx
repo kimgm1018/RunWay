@@ -29,6 +29,7 @@ import {
   type WatchConnection,
   type WatchLinkState,
 } from '../../data';
+import { watchConnectionLabel } from '../../data/api/devices';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import {
@@ -188,7 +189,9 @@ function WatchFace({
                       lineHeight: 18 * scale,
                     }}
                   >
-                    {connected ? '연결됨' : '연결 끊김'}
+                    {connection
+                      ? watchConnectionLabel(connection)
+                      : '워치 없음'}
                   </AppText>
                 </>
               )}
@@ -369,7 +372,7 @@ export function WatchConnectScreen() {
                 variant="captionStrong"
                 tone={connected ? 'accentText' : 'danger'}
               >
-                {connected ? '연결됨' : '연결 끊김'}
+                {watchConnectionLabel(connection)}
               </AppText>
             </View>
             <Battery percent={connection.batteryPercent} />
