@@ -701,6 +701,8 @@ export type MusicState = {
   library: MusicLibrary | null;
   // Spotify plays chosen tracks only with Premium (2.7S).
   premium: boolean;
+  // Android: the Spotify account RunWay connected through the Spotify app, shown in 2.8 (S15P31E105-573).
+  spotifyAccount?: string;
 };
 
 // U01 로그인 · U15 회원가입 response.

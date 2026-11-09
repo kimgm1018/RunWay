@@ -124,6 +124,8 @@ dependencies {
     if (!samsungSdk.exists()) { throw new GradleException('Download Samsung Health Data SDK 1.1.0 and set -PsamsungHealthSdk=<aar path>. See frontend/README.md.') }
     implementation files(samsungSdk)
     implementation files('libs/spotify-app-remote-release-0.8.0.aar')
+    // S15P31E105-573 (ADR-0021): Spotify app sign-in with PKCE for App Remote and the Web API lists in one consent.
+    implementation 'com.spotify.android:auth:5.0.0'
     implementation 'com.google.code.gson:gson:2.9.0'
     implementation 'com.google.android.gms:play-services-wearable:18.0.0'
     testImplementation 'junit:junit:4.13.2'

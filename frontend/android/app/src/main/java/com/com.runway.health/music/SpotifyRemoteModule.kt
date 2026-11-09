@@ -1,5 +1,6 @@
 package com.runway.health.music
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.content.Intent
 import android.net.Uri
@@ -17,6 +18,11 @@ import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Image
 import com.spotify.protocol.types.PlayerState
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
+import com.spotify.sdk.android.auth.PKCEInformation
+import com.spotify.sdk.android.auth.app.SpotifyNativeAuthUtil
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
@@ -34,8 +40,65 @@ class SpotifyRemoteModule(private val app: ReactApplicationContext) : ReactConte
   private val pendingConnections = mutableListOf<Promise>()
   private var artworkId: String? = null
   private var artworkPath: String? = null
+  private var authorization: Promise? = null
+
+  // S15P31E105-573: the Spotify app's sign-in answers through the calling activity's result.
+  private val authorizationResults = object : BaseActivityEventListener() {
+    override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
+      if (requestCode != AUTHORIZATION_REQUEST) return
+      val pending = authorization ?: return
+      authorization = null
+      // getResponse() reports any non-OK result as EMPTY; auth 4.0+ sends a user's back/close as RESULT_CANCELED
+      // and technical errors as RESULT_OK, so the result code tells a cancel apart (seen on Galaxy S22, 573).
+      if (SpotifyRemotePolicy.authorizationCanceled(resultCode)) {
+        pending.reject("CANCELED", "Spotify sign-in closed"); return
+      }
+      val response = AuthorizationClient.getResponse(resultCode, data)
+      when (response.type) {
+        AuthorizationResponse.Type.CODE -> pending.resolve(Arguments.createMap().apply {
+          putString("code", response.code); putString("state", response.state)
+        })
+        AuthorizationResponse.Type.CANCELLED -> pending.reject("CANCELED", "Spotify sign-in closed")
+        else -> {
+          // The error name only (for example access_denied); codes and tokens never enter logs.
+          Log.w("RunWaySpotify", "authorization failed: ${response.type} ${response.error.orEmpty()}")
+          pending.reject(SpotifyRemotePolicy.authorizationFailure(response.error), "Spotify sign-in failed")
+        }
+      }
+    }
+  }
+
+  init { app.addActivityEventListener(authorizationResults) }
 
   override fun getName() = "SpotifyRemote"
+
+  // One consent in the Spotify app for App Remote and the Web API lists, as the account signed in there. Only the
+  // S256 challenge goes to the library: the verifier stays in JavaScript, which exchanges the returned code, so a
+  // CODE request never makes the library exchange or log anything secret.
+  @ReactMethod fun authorize(clientId: String, redirectUri: String, scopes: ReadableArray, codeChallenge: String, state: String, promise: Promise) {
+    main.post {
+      val activity = app.currentActivity
+      if (activity == null) { promise.reject("FAILED", "No activity for the Spotify sign-in"); return@post }
+      if (!SpotifyAppRemote.isSpotifyInstalled(app)) { promise.reject("INSTALL_REQUIRED", "Install Spotify to connect"); return@post }
+      if (!SpotifyRemotePolicy.supportsPkce(SpotifyNativeAuthUtil.getSpotifyAppVersionCode(app), AuthorizationClient.MIN_SPOTIFY_VERSION_FOR_TOKEN_CONVERSION)) {
+        promise.reject("APP_UPDATE_REQUIRED", "Update Spotify to sign in"); return@post
+      }
+      authorization?.reject("CANCELED", "Replaced by a new Spotify sign-in")
+      authorization = promise
+      try {
+        val request = AuthorizationRequest.Builder(clientId, AuthorizationResponse.Type.CODE, redirectUri)
+          .setScopes(Array(scopes.size()) { scopes.getString(it).orEmpty() })
+          .setState(state)
+          .setPkceInformation(PKCEInformation("", codeChallenge, "S256"))
+          .build()
+        AuthorizationClient.openLoginActivity(activity, AUTHORIZATION_REQUEST, request)
+      } catch (error: Exception) {
+        Log.w("RunWaySpotify", "authorization start failed (${error.javaClass.simpleName})")
+        if (authorization === promise) authorization = null
+        promise.reject("FAILED", "Could not open the Spotify sign-in")
+      }
+    }
+  }
 
   @ReactMethod fun installed(promise: Promise) {
     promise.resolve(SpotifyAppRemote.isSpotifyInstalled(app))
@@ -237,7 +300,16 @@ class SpotifyRemoteModule(private val app: ReactApplicationContext) : ReactConte
   @ReactMethod fun disconnect(promise: Promise) { main.post { close(); promise.resolve(null) } }
   @ReactMethod fun addListener(eventName: String) { /* Required by NativeEventEmitter. */ }
   @ReactMethod fun removeListeners(count: Int) { /* Required by NativeEventEmitter. */ }
-  override fun invalidate() { main.post { close(); images.shutdownNow() }; super.invalidate() }
+  override fun invalidate() {
+    app.removeActivityEventListener(authorizationResults)
+    main.post {
+      authorization?.reject("CANCELED", "Spotify sign-in ended"); authorization = null
+      close(); images.shutdownNow()
+    }
+    super.invalidate()
+  }
+
+  private companion object { const val AUTHORIZATION_REQUEST = 0x5F73 }
 }
 
 class SpotifyRemotePackage : ReactPackage {

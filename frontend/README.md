@@ -78,10 +78,16 @@ Spotify 앱에서 미리 재생 버튼을 누르는 과정을 요구하지 않�
 4. 개발 모드에서는 휴대폰 Spotify 앱에 로그인한 계정을 허용 사용자로 등록한다. Spotify 앱 설치·로그인과 최초 연결 동의가 필요하다.
 5. 2.8에서 Spotify의 로그인 버튼 또는 2.7의 다시 연결을 누른다. 연결 읽기만으로 인증 화면을 자동 실행하지 않는다.
 
-App Remote 인증은 **휴대폰 Spotify 앱의 계정**을 사용한다. 브라우저의 Web API PKCE 계정과는 별개다.
-계정 변경은 Spotify 앱에서 수행한다. RunWay 로그아웃·세션 만료 시 SDK 연결과 로컬 연결 동의 표시를 지우며,
-다음 RunWay 로그인은 다시 명시적으로 연결해야 한다. `UserNotAuthorizedException`이 발생하면 Android 등록,
-허용 사용자, 연결 동의를 확인한다. SDK 연결 실패를 Web API의 다른 활성 기기 제어로 자동 우회하지 않는다.
+Android 인증은 **휴대폰 Spotify 앱의 계정** 하나로 한다(S15P31E105-573, [ADR-0021 제안](../docs/adr/0021-spotify-android-app-sign-in.md)).
+최초 연결은 Spotify Auth 5.0.0의 앱 SSO(PKCE)로 재생(`app-remote-control`)과 목록 scope를 한 번에 동의받는다.
+받은 code는 JS가 교환해 Keychain에 저장하고, 목록 재진입·앱 재실행·만료 시 자동 갱신을 재사용한다. 2.8에 연결된
+계정 이름이 보이며, 계정은 Spotify 앱에서 바꾼 뒤 2.8의 다시 연결로 반영한다. Spotify 앱은 이미 동의한 계정에도 SSO마다
+동의 화면을 띄우므로, 연결만 끊긴 2.7b 다시 연결은 저장된 앱 로그인이 있으면 App Remote만 다시 연결한다. 573 이전 브라우저 로그인 토큰은 폰 계정으로
+가정하지 않고 목록 재연결을 요구한다. Spotify 앱이 PKCE를 지원하지 않는 버전이면 업데이트를 안내한다.
+리다이렉트 `runway://spotify-callback`은 Auth 라이브러리의 `RedirectUriReceiverActivity`가 받는다(5.0.0 필수 선언).
+RunWay 로그아웃·세션 만료 시 SDK 연결·로컬 연결 동의 표시·목록 토큰을 지우며, 다음 RunWay 로그인은 다시 명시적으로
+연결해야 한다. `UserNotAuthorizedException`이 발생하면 Android 등록, 허용 사용자, 연결 동의를 확인하며 이때 목록 토큰도
+지운다. SDK 연결 실패를 Web API의 다른 활성 기기 제어로 자동 우회하지 않는다.
 
 Android 14 이상에서는 SDK 서비스 연결용 Context가 명시적 연결에 한해 Spotify 동의 화면 실행을 허용한다.
 SDK 원본 AAR은 수정하지 않는다. 최초 동의를 읽고 응답할 시간은 최대 2분, 자동 재연결 제한은 20초다.
