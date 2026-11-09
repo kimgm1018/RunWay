@@ -34,8 +34,11 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
   private var browser: MediaBrowser? = null
   private var browserController: MediaController? = null
   private val waiting = mutableListOf<Promise>()
+  // 2.7에서 고를 수 있는 mediaId. 이번 연결에서 멜론이 알려 준 목록만 재생 요청한다.
+  private val offered = mutableSetOf<String>()
 
   override fun getName() = "MelonMedia"
+
 
   /** 설치 여부, MediaBrowser 지원 여부, 알림 접근 허용 여부. */
   @ReactMethod fun getStatus(promise: Promise) {
@@ -182,6 +185,118 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
     }
   }
 
+  /**
+   * 2.7 내 재생 목록(S15P31E105-566). 멜론 MediaBrowser의 음악서랍에서 재생 가능한 목록(좋아요한 곡·최근들은 곡)과
+   * 한 단계 아래 폴더의 목록(내 플레이리스트)을 멜론이 준 순서대로 넘긴다. 재생 가능한 목록은 수록곡을 하위 항목으로
+   * 공개하지 않아(실기기 확인) 곡 단위 목록은 만들지 않는다. 연결 전·메뉴 없음·시간 초과는 빈 목록.
+   */
+  @ReactMethod fun getLibrary(promise: Promise) {
+    main.post {
+      val current = browser
+      if (current == null || !current.isConnected || browserController == null) {
+        promise.resolve("[]")
+        return@post
+      }
+      var settled = false
+      val finish = { items: List<Pair<MediaBrowser.MediaItem, Boolean>> ->
+        if (!settled) {
+          settled = true
+          offered.clear()
+          items.mapNotNullTo(offered) { it.first.mediaId }
+          promise.resolve(MelonPolicy.libraryJson(items.map { (item, inFolder) ->
+            val id = item.mediaId ?: ""
+            val kind = MelonPolicy.kindOf(title(item), inFolder)
+            val icon = item.description.iconUri?.toString()
+            MelonEntry(
+              id,
+              title(item) ?: "",
+              if (kind == "PLAYLIST") icon else covers().getString(id, null),
+              kind,
+              covers().getInt(COUNT_PREFIX + id, 0).takeIf { it > 0 },
+            )
+          }))
+        }
+      }
+      main.postDelayed({ finish(emptyList()) }, BROWSE_TIMEOUT_MS)
+      children(current, current.root) { roots ->
+        val drawer = roots.firstOrNull { it.isBrowsable && MelonPolicy.isDrawer(title(it)) }
+          ?: return@children finish(emptyList())
+        children(current, drawer.mediaId) { items ->
+          val found = items.filter { it.isPlayable }.map { it to false }.toMutableList()
+          val folders = items.filter { it.isBrowsable }
+          fun open(index: Int) {
+            if (index >= folders.size) return finish(found)
+            children(current, folders[index].mediaId) { lists ->
+              found += lists.filter { it.isPlayable }.map { it to true }
+              open(index + 1)
+            }
+          }
+          open(0)
+        }
+      }
+    }
+  }
+
+  /** getLibrary가 알려 준 목록을 처음부터 재생한다. 보냈으면 true. 결과는 재생 상태를 다시 읽어 확인한다. */
+  @ReactMethod fun playItem(mediaId: String, promise: Promise) {
+    main.post {
+      val controller = browserController
+      if (browser?.isConnected != true || controller == null || mediaId !in offered) {
+        promise.resolve(false)
+        return@post
+      }
+      val before = controller.queue?.firstOrNull()?.description?.mediaId
+      controller.transportControls.playFromMediaId(mediaId, null)
+      promise.resolve(true)
+      rememberCover(controller, mediaId, before, 0)
+    }
+  }
+
+  /** 2.7 최근 들은 곡: 이 기기에서 멜론이 재생한 곡, 최신순(MelonHistory). */
+  @ReactMethod fun getRecent(promise: Promise) {
+    promise.resolve(MelonHistory.read(app))
+  }
+
+  /**
+   * 최근 들은 곡 하나를 재생한다. 지금 대기열에 있으면 그 곡으로 바로 넘어가고, 없으면 멜론 검색 재생(표준
+   * playFromSearch, 실기기에서 약 2초)으로 곡 이름·아티스트를 찾는다. 보냈으면 true.
+   */
+  @ReactMethod fun playTrack(id: String, promise: Promise) {
+    main.post {
+      val controller = browserController
+      val heard = MelonHistory.find(app, id)
+      if (browser?.isConnected != true || controller == null || heard == null) {
+        promise.resolve(false)
+        return@post
+      }
+      val queued = controller.queue?.firstOrNull { it.description.mediaId == id }
+      if (queued != null) {
+        controller.transportControls.skipToQueueItem(queued.queueId)
+      } else {
+        controller.transportControls.playFromSearch("${heard.title} ${heard.artist}".trim(), android.os.Bundle())
+      }
+      promise.resolve(true)
+    }
+  }
+
+  // 멜론은 좋아요한 곡 같은 목록에 표지·곡 수를 주지 않아(실기기 확인), 이 앱에서 고른 목록이 재생 대기열이 되면 첫 곡의
+  // 앨범 아트와 대기열 곡 수를 그 목록의 것으로 이 기기에만 기억한다. 대기열이 바뀌지 않으면(지금 듣는 목록을 다시
+  // 고른 경우) 약 3초 뒤의 대기열을 쓴다.
+  private fun rememberCover(controller: MediaController, mediaId: String, before: String?, attempt: Int) {
+    main.postDelayed({
+      val queue = controller.queue
+      val first = queue?.firstOrNull()?.description
+      val art = MelonPolicy.webImage(first?.iconUri?.toString())
+      when {
+        art != null && (first?.mediaId != before || attempt >= COVER_TRIES) ->
+          covers().edit().putString(mediaId, art).putInt(COUNT_PREFIX + mediaId, queue?.size ?: 0).apply()
+        attempt < COVER_TRIES -> rememberCover(controller, mediaId, before, attempt + 1)
+      }
+    }, COVER_POLL_MS)
+  }
+
+  private fun covers() = app.getSharedPreferences(COVER_PREFS, android.content.Context.MODE_PRIVATE)
+
   private fun title(item: MediaBrowser.MediaItem) = item.description.title?.toString()
 
   // 한 번만 받는 구독. 오류·빈 목록은 빈 목록으로 넘긴다.
@@ -239,6 +354,7 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
     }
     browser = null
     browserController = null
+    offered.clear()
   }
 
   private fun installed() = try {
@@ -302,6 +418,7 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
         artworkUri = artwork(id, metadata),
       )
     }
+    if (track != null) MelonHistory.record(app, metadata)
     return MelonSnapshot(true, playing, loginRequired, MelonPolicy.commandsOf(actions), track)
   }
 
@@ -346,6 +463,10 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
     const val CONNECT_TIMEOUT_MS = 5_000L
     const val BROWSE_TIMEOUT_MS = 8_000L
     const val ART_DIR = "melon-art"
+    const val COVER_PREFS = "melon-covers"
+    const val COVER_POLL_MS = 300L
+    const val COVER_TRIES = 10
+    const val COUNT_PREFIX = "count:"
   }
 }
 

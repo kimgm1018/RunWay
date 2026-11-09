@@ -676,6 +676,8 @@ export type Playlist = {
   // The playlist cover and its song count (Spotify Web API); the card draws a plain tile without a cover.
   artworkUrl?: string | null;
   trackCount?: number;
+  // The icon on the plain tile when there is no cover (멜론 좋아요한 곡 · 최근들은 곡); a note otherwise.
+  icon?: 'heart' | 'clock';
 };
 
 export type MusicLibrary = {
@@ -1321,12 +1323,12 @@ export type Repositories = {
     pause: () => Promise<MusicState>;
     next: () => Promise<MusicState>;
     previous: () => Promise<MusicState>;
-    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론 cannot
-    // start a chosen one). Playing one starts it from the top on the music app.
+    // 2.7 내 재생 목록 (담당자 요청): the picked service's playlists, [] when it has none to offer (멜론: its 음악서랍
+    // lists — 좋아요한 곡, 최근들은 곡 and the user's own playlists). Playing one starts it from the top on the music app.
     getPlaylists: () => Promise<Playlist[]>;
     playPlaylist: (playlistId: string) => Promise<MusicState>;
     // 2.7 최근 들은 곡 (담당자 요청): songs heard lately on the picked service, newest first, each once; [] where
-    // the service has none to offer (멜론). Playing one starts that song.
+    // the service has none to offer (멜론 lists no song-by-song history). Playing one starts that song.
     getRecentTracks: () => Promise<Track[]>;
     playTrack: (trackId: string) => Promise<MusicState>;
   };

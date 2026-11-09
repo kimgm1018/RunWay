@@ -430,6 +430,7 @@ function ShelfItem({
   title,
   detail,
   artworkUrl,
+  icon = 'music',
   label,
   busy,
   onPress,
@@ -437,6 +438,7 @@ function ShelfItem({
   title: string;
   detail: string | null;
   artworkUrl?: string | null;
+  icon?: 'music' | 'heart' | 'clock';
   label: string;
   busy: boolean;
   onPress: () => void;
@@ -461,7 +463,7 @@ function ShelfItem({
         />
       ) : (
         <View style={[styles.playlistCover, styles.playlistBlank]}>
-          <Icon name="music" color="#FFFFFF" size={22} />
+          <Icon name={icon} color="#FFFFFF" size={22} />
         </View>
       )}
       <AppText style={styles.playlistName} numberOfLines={1}>
@@ -574,6 +576,7 @@ function Library({
                       : `${playlist.trackCount}곡`
                   }
                   artworkUrl={playlist.artworkUrl}
+                  icon={playlist.icon}
                   label={`${playlist.title} 재생 목록 재생`}
                   busy={busy}
                   onPress={() => onPlayPlaylist(playlist)}
@@ -661,6 +664,8 @@ export function MusicCardScreen() {
   // Bumped after 다시 로그인 to read both again.
   const [playlistRead, setPlaylistRead] = useState(0);
   const songId = state?.nowPlaying?.id ?? null;
+  // 멜론 목록의 표지·곡 수는 이 앱에서 재생한 뒤 기억되므로 곡이 바뀌면 다시 읽는다(Spotify 목록은 그대로).
+  const melonSong = service === 'MELON' ? songId : null;
   const scopeMissing = (error: unknown) =>
     error instanceof SpotifyError && error.reason === 'SCOPE_REQUIRED';
   useEffect(() => {
@@ -683,7 +688,7 @@ export function MusicCardScreen() {
     return () => {
       live = false;
     };
-  }, [music, service, linked, playlistRead]);
+  }, [music, service, linked, playlistRead, melonSong]);
   useEffect(() => {
     setRecentNeedsSignIn(false);
     if (!service || !linked) {
