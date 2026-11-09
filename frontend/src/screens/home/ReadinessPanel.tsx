@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon, useCountUp, type IconName } from '../../components';
 import type { ReadinessState, TodayCondition } from '../../data';
+import type { SleepAccess, TodaySleep } from '../../health/samsungSleep';
 import { formatMonthDay, formatSleep } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
@@ -85,10 +86,93 @@ function Gauge({ score }: { score: number | null }) {
   );
 }
 
-export function ReadinessPanel({ today }: { today: TodayCondition }) {
+// S15P31E105-572: Samsung Health sleep read on this phone. Without a score for today it still shows the latest
+// night (today's when there is one), with its source and wake date, and the card asks for sleep access when it is
+// missing.
+export type PhoneSleep = {
+  access: SleepAccess | null;
+  today: TodaySleep | null;
+  requesting: boolean;
+  onConnect: () => void;
+};
+
+const needsAccess = (access: SleepAccess | null | undefined) =>
+  access === 'notRequested' || access === 'denied' || access === 'revoked';
+
+// What the sleep metric says under a missing value, so 거부·해제·기록 없음·시간 미확인·조회 실패 are told apart.
+function phoneSleepNote(sleep: PhoneSleep): string | null {
+  if (sleep.access === 'denied') {
+    return '삼성 헬스 권한 거부됨';
+  }
+  if (sleep.access === 'revoked') {
+    return '삼성 헬스 권한 해제됨';
+  }
+  if (sleep.access !== 'granted') {
+    return null;
+  }
+  if (sleep.today?.status === 'empty') {
+    return '삼성 헬스 기록 없음';
+  }
+  if (sleep.today?.status === 'unresolved') {
+    return '삼성 헬스 수면 시간 미확인';
+  }
+  if (sleep.today?.status === 'error') {
+    return '삼성 헬스 조회 실패';
+  }
+  return null;
+}
+
+export function ReadinessPanel({
+  today,
+  phoneSleep,
+}: {
+  today: TodayCondition;
+  phoneSleep?: PhoneSleep;
+}) {
   const navigation = useNavigation();
   const ready = today.readinessState === 'ready';
-  const { action, note: stateNote } = states[today.readinessState];
+  const { action: stateAction, note: stateNote } =
+    states[today.readinessState];
+  // Server health consent off: nothing health-related is shown, and the card keeps 설정 열기.
+  const consented = today.readinessState !== 'permissionDenied';
+  const r02Sleep = ready && today.sleepMinutes !== null;
+  // Without R02 sleep for today (no score, a stale score, or a score made from the watch alone) the phone's own
+  // read of today's sleep is shown with its source (2026-11-09 사용자 결정, 리뷰 B-3).
+  const localSleep =
+    consented && !r02Sleep && phoneSleep?.today?.status === 'ready'
+      ? phoneSleep.today
+      : null;
+  const sleepValue = r02Sleep
+    ? formatSleep(today.sleepMinutes!)
+    : localSleep
+    ? formatSleep(Math.round(localSleep.minutes))
+    : '– –';
+  const sleepSub = r02Sleep
+    ? today.sleepLabel
+    : localSleep
+    ? `삼성 헬스 · ${formatMonthDay(localSleep.date)}`
+    : consented && phoneSleep
+    ? phoneSleepNote(phoneSleep)
+    : ready
+    ? today.sleepLabel
+    : null;
+  const connect =
+    consented && phoneSleep && needsAccess(phoneSleep.access) && !r02Sleep;
+  // A missing 안정 심박 or 주간 부하 says why (2026-11-09 사용자 결정, 실기기 E2E). R02 gives the resting heart
+  // rate only for the score's own day, and nothing collects training load yet (readiness-formula 7.1).
+  const restingHeartRate =
+    ready && today.restingHeartRate !== null ? today.restingHeartRate : null;
+  const restingHeartRateSub =
+    restingHeartRate !== null
+      ? today.restingHeartRateLabel
+      : !consented
+      ? null
+      : ready
+      ? '오늘 워치 기록 없음'
+      : '준비도 계산 후 표시';
+  const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
+  const weeklyLoadSub =
+    weeklyLoad !== null ? today.weeklyLoadLabel : consented ? '수집 전' : null;
   // 2.P′ 오래된 데이터 says when the last score was made, when it is known.
   const note =
     today.readinessState === 'stale' && today.lastAssessedDate
@@ -128,28 +212,22 @@ export function ReadinessPanel({ today }: { today: TodayCondition }) {
         <Metric
           icon="moon"
           label="수면"
-          value={
-            ready && today.sleepMinutes !== null
-              ? formatSleep(today.sleepMinutes)
-              : '– –'
-          }
-          sub={ready ? today.sleepLabel : null}
+          value={sleepValue}
+          sub={sleepSub}
         />
         <Metric
           icon="heart"
           label="안정 심박"
           value={
-            ready && today.restingHeartRate !== null
-              ? `${today.restingHeartRate} bpm`
-              : '– –'
+            restingHeartRate !== null ? `${restingHeartRate} bpm` : '– –'
           }
-          sub={ready ? today.restingHeartRateLabel : null}
+          sub={restingHeartRateSub}
         />
         <Metric
           icon="activity"
           label="주간 부하"
-          value={ready && today.weeklyLoad ? today.weeklyLoad : '– –'}
-          sub={ready ? today.weeklyLoadLabel : null}
+          value={weeklyLoad ?? '– –'}
+          sub={weeklyLoadSub}
         />
       </View>
 
@@ -160,14 +238,25 @@ export function ReadinessPanel({ today }: { today: TodayCondition }) {
         </View>
       ) : null}
 
-      {action ? (
+      {connect ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={action.title}
-          onPress={() => navigateTo(navigation, action.route)}
+          accessibilityLabel="삼성 헬스 연결"
+          accessibilityState={{ busy: phoneSleep.requesting }}
+          disabled={phoneSleep.requesting}
+          onPress={phoneSleep.onConnect}
           style={({ pressed }) => [styles.action, pressed && styles.pressed]}
         >
-          <AppText style={styles.actionText}>{action.title}</AppText>
+          <AppText style={styles.actionText}>삼성 헬스 연결</AppText>
+        </Pressable>
+      ) : stateAction ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={stateAction.title}
+          onPress={() => navigateTo(navigation, stateAction.route)}
+          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+        >
+          <AppText style={styles.actionText}>{stateAction.title}</AppText>
         </Pressable>
       ) : null}
     </View>

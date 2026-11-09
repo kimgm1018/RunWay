@@ -116,10 +116,10 @@ Readiness = min(BaseReadiness, 상한(M))
 
 ### 7.1 입력
 
-- 입력은 `daily_health_metrics`의 회원별 일별 값만 쓴다. 날짜는 W06 `metricDate`(워치 시간대 날짜)다.
+- 입력은 `daily_health_metrics`의 회원별 일별 값만 쓴다. 날짜는 W06 `metricDate`다(심박은 워치 시간대 날짜, 수면은 폰 시간대 기상일).
   - S: `sleep_duration_min`, R: `rhr_bpm`, L: `daily_training_load`(하루 TRIMP 합)
 - 오늘 RHR은 W06이 저장한 `rhr_bpm`을 그대로 쓴다. W06 추정 방법(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)은 원본 설계의 "연속 30분 최저 평균"과 다르며, 저장값의 정의는 [W06 계약](api/devices-health.md)을 따른다.
-- 2026-11 현재 W06은 RHR만 저장한다. 수면·부하 수집이 추가되기 전까지 실제 결과는 R 한 항목으로 계산된다.
+- W06은 RHR(워치)과 수면(삼성 헬스 기상일 합계, S15P31E105-572)을 저장한다. 수면 날짜는 폰 시간대 기상일이며 RHR의 워치 시간대 날짜와 같은 기기 시간대를 전제로 한다. 부하 수집이 추가되기 전까지 실제 결과는 S·R 항목으로 계산된다.
 
 ### 7.2 경계와 보간
 

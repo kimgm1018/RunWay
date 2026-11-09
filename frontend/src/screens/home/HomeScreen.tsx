@@ -45,6 +45,7 @@ import { CalendarPanel, DateLine, WeekStrip } from '../records/DatePicker';
 import { DayRecordDetail } from '../records/DayRecords';
 import { AnalysisPanel } from './AnalysisPanel';
 import { ReadinessPanel } from './ReadinessPanel';
+import { useSamsungSleep } from '../../health/useSamsungSleep';
 import { RecordsPanel } from './RecordsPanel';
 
 // 2.1 홈 (S15P31E105-564, 담당자 레퍼런스): 인사말, the date (fixed), what the menu shows, and the menu over the tab
@@ -162,6 +163,8 @@ export function HomeScreen() {
   const today = kstDay(clock.now());
   const me = useResource(loadMe);
   const condition = useResource(loadToday);
+  // S15P31E105-572: today's Samsung Health sleep read on this phone, for 2.1 without a score.
+  const sleep = useSamsungSleep();
   const notifications = useResource(loadNotifications);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
   // (leaving 2.9 marks all read). The first focus is the first load.
@@ -231,6 +234,7 @@ export function HomeScreen() {
   const [pending, setPending] = useState(0);
   const onRefresh = () => {
     recordsChanged();
+    void sleep.refresh();
     [me, condition, notifications].forEach(resource => {
       setPending(count => count + 1);
       resource.refresh().finally(() => setPending(count => count - 1));
@@ -252,7 +256,17 @@ export function HomeScreen() {
           onAction={condition.reload}
         />
       ) : (
-        <ReadinessPanel today={condition.data} />
+        <ReadinessPanel
+          today={condition.data}
+          phoneSleep={{
+            access: sleep.access,
+            today: sleep.today,
+            requesting: sleep.requesting,
+            onConnect: () => {
+              void sleep.request();
+            },
+          }}
+        />
       )
     ) : menu === 'records' ? (
       <RecordsPanel day={day} runId={runId} onRun={setRunId} onOpen={openRun} />

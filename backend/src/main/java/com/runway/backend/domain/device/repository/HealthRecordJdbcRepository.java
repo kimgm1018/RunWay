@@ -73,6 +73,32 @@ public class HealthRecordJdbcRepository {
     }
 
     /**
+     * 날짜별 수면 합계(분)를 넣거나, 저장값과 다를 때만 갱신한다(마지막 값 우선, S15P31E105-572). revision이 없으므로 같은 값 재전송은
+     * 갱신하지 않아 duplicate가 된다. 다른 건강 컬럼은 바꾸지 않는다.
+     *
+     * @return 삽입 또는 갱신했으면 true, 저장값과 같아 바꾸지 않았으면 false
+     */
+    public boolean upsertSleep(long userId, LocalDate metricDate, BigDecimal sleepDurationMin) {
+        return !db(
+                        () ->
+                                jdbc.queryForList(
+                                        """
+                                        INSERT INTO daily_health_metrics(user_id, metric_date, sleep_duration_min)
+                                        VALUES (?, ?, ?)
+                                        ON CONFLICT ON CONSTRAINT uq_daily_health_metrics_user_id_metric_date
+                                        DO UPDATE SET sleep_duration_min = EXCLUDED.sleep_duration_min
+                                        WHERE daily_health_metrics.sleep_duration_min
+                                              IS DISTINCT FROM EXCLUDED.sleep_duration_min
+                                        RETURNING id
+                                        """,
+                                        Long.class,
+                                        userId,
+                                        metricDate,
+                                        sleepDurationMin))
+                .isEmpty();
+    }
+
+    /**
      * DB 오류를 값이 없는 예외로 바꾼다. 원인 예외는 연결하지 않는다(연결하면 원인 메시지가 함께 기록된다). 잠금 대기 초과(55P03) 등은 공통
      * 기준({@link RetryableSqlStates})으로 재시도 가능한 장애(503)로 바꾼다.
      */
