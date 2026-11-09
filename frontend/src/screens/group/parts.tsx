@@ -13,6 +13,7 @@ import { formatClockTime, formatDotDateWeekday } from '../../format';
 import {
   fontFamily,
   k1,
+  mistGradient,
   palette,
   radius,
   spacing,
@@ -80,19 +81,30 @@ export function goalLine(run: GroupRunSummary, prefix = true) {
 
 // Member initials sit on K1 tones (DESIGN.md 2-10).
 const avatarTones = [k1.top, '#C3D1DD', k1.light, '#A5B6C8', '#D5DEE7'];
+// mint: 6.5's members on K1 mint shades (담당자 요청, S15P31E105-563).
+const mintTones = [
+  palette.mint,
+  '#C4FBF4',
+  palette.mintPressed,
+  '#B6F8EF',
+  '#9CEFE3',
+];
 
 // A member shown by the first letter of their nickname (no photos).
 export function Initial({
   name,
   index = 0,
   size = 32,
+  mint = false,
   style,
 }: {
   name: string;
   index?: number;
   size?: number;
+  mint?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
+  const tones = mint ? mintTones : avatarTones;
   return (
     <View
       style={[
@@ -101,7 +113,7 @@ export function Initial({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: avatarTones[index % avatarTones.length],
+          backgroundColor: tones[index % tones.length],
         },
         style,
       ]}
@@ -211,7 +223,20 @@ export function Tag({
 // Behind the bottom buttons of a scrolling screen: clear at the top and black from the middle down,
 // so the list slides under the buttons instead of showing through them. It takes its measured size:
 // an Svg sized in percent falls back to 300×150 on Android.
-export function BottomFade() {
+// mist fades into the mist's steel blue foot, white into the white page of 6.4c · 6.5 · 6.8 (S15P31E105-563),
+// instead of night.
+export function BottomFade({
+  mist = false,
+  white = false,
+}: {
+  mist?: boolean;
+  white?: boolean;
+}) {
+  const [top, end] = white
+    ? ['#FFFFFF', '#FFFFFF']
+    : mist
+    ? [mistGradient.colors[19], mistGradient.colors[20]]
+    : [k1.night, k1.black];
   const [box, setBox] = useState<{ width: number; height: number } | null>(
     null,
   );
@@ -223,9 +248,9 @@ export function BottomFade() {
         <Svg width={box.width} height={box.height}>
           <Defs>
             <LinearGradient id="bottomFade" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={k1.night} stopOpacity={0} />
-              <Stop offset="0.45" stopColor={k1.night} stopOpacity={0.96} />
-              <Stop offset="1" stopColor={k1.black} stopOpacity={1} />
+              <Stop offset="0" stopColor={top} stopOpacity={0} />
+              <Stop offset="0.45" stopColor={top} stopOpacity={0.96} />
+              <Stop offset="1" stopColor={end} stopOpacity={1} />
             </LinearGradient>
           </Defs>
           <Rect width={box.width} height={box.height} fill="url(#bottomFade)" />

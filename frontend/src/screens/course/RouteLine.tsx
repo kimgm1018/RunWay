@@ -7,12 +7,15 @@ const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 // A course as a white line with a faint white halo and the S·F start dot, fitted into its box
 // (DESIGN.md 2-7 코스 카드: 3.1b 앞면, 4.5·4.5F 경로). It takes GeoJSON [longitude, latitude] points.
 // thin: runway-course-handoff 3.1b, a bare 1.5px white line with a white start dot and S·F.
+// color draws the line, halo, dot and S·F in one colour instead (6.7 on the mist in mint, S15P31E105-563).
 export function RouteLine({
   route,
   thin = false,
+  color,
 }: {
   route: [number, number][];
   thin?: boolean;
+  color?: string;
 }) {
   if (route.length < 2) {
     return null;
@@ -45,7 +48,7 @@ export function RouteLine({
         <Polyline
           points={points}
           fill="none"
-          stroke={palette.white}
+          stroke={color ?? palette.white}
           strokeOpacity={0.18}
           strokeWidth={6}
           strokeLinejoin="round"
@@ -55,7 +58,7 @@ export function RouteLine({
       <Polyline
         points={points}
         fill="none"
-        stroke={palette.white}
+        stroke={color ?? palette.white}
         strokeWidth={thin ? 0.6 : 2.2}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -64,14 +67,14 @@ export function RouteLine({
         cx={start.x}
         cy={start.y}
         r={thin ? 1.8 : 3}
-        fill={thin ? palette.white : k1.ice}
+        fill={color ?? (thin ? palette.white : k1.ice)}
       />
       <Text
         x={start.x + (thin ? 3.2 : 4.5)}
         y={start.y + (thin ? 1.3 : 1.6)}
         fontSize={thin ? 3.6 : 4.6}
         fontWeight="700"
-        fill={thin ? palette.white : k1.ice}
+        fill={color ?? (thin ? palette.white : k1.ice)}
       >
         S·F
       </Text>

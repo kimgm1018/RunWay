@@ -19,8 +19,20 @@ const tabs: Record<TabKey, { label: string }> = {
   ProfileTab: { label: '프로필' },
 };
 
+type BarLook = {
+  bar: string;
+  barBorder: string;
+  barShadow: string;
+  inactive: string;
+  active: string;
+  tile: string;
+  tileShadow: string;
+  texture: boolean;
+  runFrame: string;
+};
+
 // runway-tabbar (S15P31E105-428): the light bar. The full-screen map screens (2.0·2.0F) hide it (S15P31E105-517).
-const light = {
+const light: BarLook = {
   bar: '#FFFFFF',
   barBorder: 'rgba(2,5,14,0.05)',
   barShadow: '0 12px 32px rgba(9,17,26,0.12), 0 2px 6px rgba(9,17,26,0.05)',
@@ -32,6 +44,21 @@ const light = {
   tileShadow:
     '0 6px 14px rgba(2,5,14,0.28), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 0 0 1px rgba(255,255,255,0.06)',
   texture: true,
+  runFrame: k1.night,
+};
+
+// Over the group tab's first screen (GroupIntro, S15P31E105-563, 담당자 요청): a see-through bar so the photo and
+// its navy foot run under it, white icons, and the chosen tab a white tile with navy on it.
+const glass: BarLook = {
+  bar: 'rgba(255,255,255,0.06)',
+  barBorder: 'rgba(255,255,255,0.16)',
+  barShadow: 'none',
+  inactive: 'rgba(255,255,255,0.86)',
+  active: k1.night,
+  tile: '#FFFFFF',
+  tileShadow: 'none',
+  texture: false,
+  runFrame: 'rgba(255,255,255,0.86)',
 };
 
 const texture = require('../../assets/images/tab-active-texture.png');
@@ -150,10 +177,16 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
     void refreshMe();
   }, [refreshMe, state.index]);
   const photo = me.data?.profileImageUrl ?? null;
-  const shown = getFocusedRouteNameFromRoute(state.routes[state.index]);
+  const current = state.routes[state.index];
+  const shown = getFocusedRouteNameFromRoute(current);
   if (shown && hiddenOn.includes(shown)) {
     return null;
   }
+  const look =
+    current.name === 'GroupTab' &&
+    (current.params as { intro?: boolean } | undefined)?.intro
+      ? glass
+      : light;
   return (
     <View
       pointerEvents="box-none"
@@ -167,16 +200,16 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
         style={[
           styles.bar,
           {
-            backgroundColor: light.bar,
-            borderColor: light.barBorder,
-            boxShadow: light.barShadow,
+            backgroundColor: look.bar,
+            borderColor: look.barBorder,
+            boxShadow: look.barShadow,
           },
         ]}
       >
         {state.routes.map((route, index) => {
           const focused = state.index === index;
           const key = route.name as TabKey;
-          const color = focused ? light.active : light.inactive;
+          const color = focused ? look.active : look.inactive;
           const open = () => {
             const event = navigation.emit({
               type: 'tabPress',
@@ -197,12 +230,12 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
               style={[
                 styles.tab,
                 focused && {
-                  backgroundColor: light.tile,
-                  boxShadow: light.tileShadow,
+                  backgroundColor: look.tile,
+                  boxShadow: look.tileShadow,
                 },
               ]}
             >
-              {focused && light.texture ? (
+              {focused && look.texture ? (
                 <View style={styles.textureClip}>
                   <Image
                     source={texture}
@@ -218,7 +251,10 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
               )}
               {key === 'RunTab' ? (
                 // 러닝 alone is framed by one thick deep navy line (S15P31E105-522, 담당자 요청).
-                <View pointerEvents="none" style={styles.runFrame} />
+                <View
+                  pointerEvents="none"
+                  style={[styles.runFrame, { borderColor: look.runFrame }]}
+                />
               ) : null}
               <AppText
                 numberOfLines={1}
@@ -278,7 +314,6 @@ const styles = StyleSheet.create({
     left: 0,
     borderRadius: 18,
     borderWidth: 2.5,
-    borderColor: k1.night,
   },
   // The full tab width, centred: measured on its own, the name can come out 0 wide on the first draw before the
   // font is ready and stay hidden until the tab draws again.

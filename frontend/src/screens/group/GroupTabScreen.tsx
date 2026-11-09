@@ -19,6 +19,7 @@ import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
+import { GroupIntro, groupIntroSeen, markGroupIntroSeen } from './GroupIntro';
 import { MyCrewsPage } from './GroupScreen';
 import { groupLook, insetTrackLight, Raised } from './look';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -79,6 +80,16 @@ export function GroupTabScreen() {
   const requested = route.params?.screen;
   const pager = useRef<PagerView>(null);
   const [page, setPage] = useState(() => pageOf(requested));
+  // 그룹 탭 첫 화면 (GroupIntro) the first time the tab opens after launch; a link to a page skips it.
+  const [intro, setIntro] = useState(() => !requested && !groupIntroSeen());
+  const startGroups = useCallback(() => {
+    markGroupIntroSeen();
+    setIntro(false);
+  }, []);
+  // The tab bar reads this to go see-through over the intro.
+  useEffect(() => {
+    navigation.setParams({ intro } as never);
+  }, [intro, navigation]);
 
   // A link from another screen picks the page once, then the param is cleared so the same link
   // works again after the user swipes away.
@@ -86,18 +97,21 @@ export function GroupTabScreen() {
     if (!requested) {
       return;
     }
+    startGroups();
     const target = pageOf(requested);
     pager.current?.setPageWithoutAnimation(target);
     setPage(target);
     navigation.setParams({ screen: undefined } as never);
-  }, [requested, navigation]);
+  }, [requested, navigation, startGroups]);
 
   // react-native-pager-view 8 on Android turns off swiping when the new architecture clears the pager's
   // children while mounting, and only a changed scrollEnabled prop turns it back on. Turn it on again
-  // once the pages are in place.
+  // once the pages are in place, which is after the intro when it shows.
   useEffect(() => {
-    pager.current?.setScrollEnabled(true);
-  }, []);
+    if (!intro) {
+      pager.current?.setScrollEnabled(true);
+    }
+  }, [intro]);
 
   const select = useCallback((target: number) => {
     pager.current?.setPage(target);
@@ -127,6 +141,10 @@ export function GroupTabScreen() {
       return () => subscription.remove();
     }, [page, select]),
   );
+
+  if (intro) {
+    return <GroupIntro onStart={startGroups} />;
+  }
 
   return (
     // 6.0 · 6.1 sit on the mist like 홈 and 러닝 (S15P31E105-483), so the tab bar's move between tabs keeps one

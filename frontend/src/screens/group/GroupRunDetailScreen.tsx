@@ -1,12 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import {
   useFocusEffect,
   useNavigation,
@@ -14,14 +7,11 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import {
   AppText,
   EmptyState,
   Icon,
   IconButton,
-  LightGlass,
-  MistFill,
   useToast,
 } from '../../components';
 import {
@@ -39,18 +29,11 @@ import {
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
+import { fontFamily, k1, size, spacing, useTheme } from '../../theme';
+import { RunMap, type RunMapLogo } from '../../components/RunMap';
+import { MapScreenFrame } from '../run/MapScreenFrame';
+import { GroupCta, groupLook, Raised } from './look';
 import {
-  fontFamily,
-  k1,
-  size,
-  spacing,
-  ThemeProvider,
-  useTheme,
-} from '../../theme';
-import { RunMap } from '../../components/RunMap';
-import { GroupCta, groupLook } from './look';
-import {
-  BottomFade,
   canEnterRoom,
   dDay,
   formatSchedule,
@@ -71,19 +54,11 @@ export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
 
 // 6.4 is laid out like the product cards the 담당자 chose (S15P31E105-414): the map full-bleed at the
 // top, melting into its own colour as the photo does on those cards, with a big title, a round pill
-// beside it, a grey description, see-through tag pills and a pill button. The page keeps our --bg-common
-// (담당자 요청): the map melts into its white top, the text is navy there and white on its navy foot,
-// where the white pill button sits.
-const tone = '#FFFFFF';
-// --bg-common's stops with the white part reaching 55% of the screen, past the foot of the map, so the
-// map's white fade meets white instead of a hard edge.
-const commonStops = groupLook.commonBackgroundStops.map(offset =>
-  offset <= 0.35
-    ? (offset * 0.55) / 0.35
-    : 0.55 + ((offset - 0.35) * 0.45) / 0.65,
-);
+// beside it, a grey description, see-through tag pills and a pill button. Since S15P31E105-563 it is laid
+// out like 2.0 코스 러닝: the map full screen and every fact and the button on one white sheet at the
+// bottom, the D-n pill and the button in navy.
 const muted = groupLook.onLightSub;
-const glass = 'rgba(2,5,14,0.07)';
+const glass = groupLook.lightFill;
 
 // The next group run, for links that open 6.4 without an id.
 async function loadDetail(repositories: Repositories, groupRunId?: string) {
@@ -106,7 +81,7 @@ function FitLine({ run }: { run: GroupRunDetail }) {
       ? '내 페이스보다 느긋해요'
       : '내 페이스보다 빨라요';
   return (
-    <View style={[styles.card, styles.fit]}>
+    <View style={styles.fit}>
       <AppText style={styles.blockTitle}>{verdict}</AppText>
       <AppText style={styles.muted}>
         {`최근 러닝 평균 ${formatPace(run.myFit.recentPaceSecPerKm)} · 준비도 ${
@@ -117,8 +92,8 @@ function FitLine({ run }: { run: GroupRunDetail }) {
   );
 }
 
-// A see-through pill: the one beside the title (D-n, or 취소됨 in coral) and the tags under the
-// description.
+// A pill: the one beside the title (D-n as a raised navy pill like 6.0's 오늘, or 취소됨 in coral) and the
+// light grey tags on the cards.
 function Pill({
   label,
   danger = false,
@@ -128,6 +103,15 @@ function Pill({
   danger?: boolean;
   large?: boolean;
 }) {
+  if (large && !danger) {
+    return (
+      <Raised tone="navy" style={[styles.pill, styles.pillLarge]}>
+        <AppText style={[styles.pillText, styles.pillTextLarge, styles.onNavy]}>
+          {label}
+        </AppText>
+      </Raised>
+    );
+  }
   return (
     <View
       style={[
@@ -149,39 +133,16 @@ function Pill({
   );
 }
 
-// The map full-bleed behind the top of the page, fading into the page's tone from its middle down.
-function MapBackdrop({
-  run,
-  cancelled,
-}: {
-  run: GroupRunDetail;
-  cancelled: boolean;
-}) {
-  return (
-    <View style={styles.map} pointerEvents="none">
-      <RunMap
-        muted={cancelled}
-        route={run.route ?? undefined}
-        position={run.route ? undefined : run.meetingPosition}
-        // Above the fade: 110–300 of the 470 map, a lone meeting place at 210.
-        area={
-          run.route ? { top: 0.23, bottom: 0.64 } : { top: 0.45, bottom: 0.45 }
-        }
-        interactive={false}
-        style={StyleSheet.absoluteFill}
-      />
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
-        <Defs>
-          <LinearGradient id="detailFade" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0.38" stopColor={tone} stopOpacity={0} />
-            <Stop offset="0.72" stopColor={tone} stopOpacity={0.78} />
-            <Stop offset="1" stopColor={tone} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#detailFade)" />
-      </Svg>
-    </View>
-  );
+// Where the course goes: between the round header buttons and the sheet, a little clear of both; a lone
+// meeting place in the middle of that.
+function mapArea(hasRoute: boolean, logo: RunMapLogo | undefined) {
+  const bottom = logo ? 1 - logo.above - 0.04 : 0.45;
+  const top = 0.14;
+  if (hasRoute) {
+    return { top, bottom: Math.max(top + 0.1, bottom) };
+  }
+  const middle = (top + bottom) / 2;
+  return { top: middle, bottom: middle };
 }
 
 // 6.4 그룹런 상세, and 6.4e 취소 완료 when the run was cancelled.
@@ -260,89 +221,173 @@ export function GroupRunDetailScreen() {
     }
   };
 
+  const actions = cancelled ? (
+    <View style={styles.buttonRow}>
+      <View style={styles.flex}>
+        <GroupCta
+          navy
+          title="다시 만들기"
+          primary={false}
+          onPress={() =>
+            navigation.navigate('GroupRunCreate', {
+              crewId: run.crewId,
+            })
+          }
+        />
+      </View>
+      <View style={styles.flex}>
+        <GroupCta
+          navy
+          title="내 크루로"
+          icon="arrowRight"
+          onPress={() => navigateTo(navigation, 'MyCrews')}
+        />
+      </View>
+    </View>
+  ) : enterable ? (
+    <GroupCta
+      navy
+      title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
+      icon="arrowRight"
+      onPress={() => navigation.navigate('WaitingRoom', { groupRunId: run.id })}
+    />
+  ) : (
+    <>
+      {run.joined ? (
+        <AppText style={[styles.muted, styles.opens]}>
+          {`대기방은 ${formatDotDateWeekday(
+            new Date(Date.parse(run.scheduledAt) - roomOpensMs),
+          )} ${formatClockTime(
+            new Date(Date.parse(run.scheduledAt) - roomOpensMs),
+          )}에 열려요`}
+        </AppText>
+      ) : null}
+      {run.isHost ? (
+        // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
+        <GroupCta
+          navy
+          title="대기방 입장 · 그룹장"
+          icon="arrowRight"
+          disabled
+          onPress={() => undefined}
+        />
+      ) : (
+        <GroupCta
+          navy
+          title={run.joined ? '참가 취소' : '참가하기'}
+          icon={run.joined ? undefined : 'plus'}
+          primary={!run.joined}
+          disabled={busy}
+          onPress={toggleJoin}
+        />
+      )}
+    </>
+  );
+
+  // Laid out like 2.0 코스 러닝 (담당자 요청, S15P31E105-563): the map full screen and one white sheet at the
+  // bottom holding the title, every fact and the button. The former cards are sections set apart by
+  // space only: the title with its round pill, when and where, the course, who comes, my fit and the host
+  // row. Only what a runner needs: the duplicates and the computed time are gone.
   return (
-    <View style={[styles.root, { backgroundColor: groupLook.navy }]}>
-      <MistFill
-        id="groupRunDetailBackground"
-        colors={[...groupLook.commonBackground]}
-        offsets={commonStops}
-      />
-      <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <MapBackdrop run={run} cancelled={cancelled} />
-        <View style={styles.body}>
-          {/* Title with its round pill on the right, as on the reference cards. */}
-          <View style={styles.titleRow}>
-            <AppText style={[styles.title, cancelled && styles.struck]}>
-              {run.title}
-            </AppText>
-            {cancelled ? (
-              <Pill label="취소됨" danger large />
-            ) : (
-              <Pill label={dDay(run.scheduledAt, now)} large />
-            )}
-          </View>
-          {/* The facts as pills, sorted onto faint cards by kind (담당자 요청): when and where, then the
-              course. Only what a runner needs: the duplicates and the computed time are gone. */}
-          <View style={[styles.card, styles.firstCard]}>
-            <View style={styles.tags}>
-              <Pill label={run.crewName} />
-              <Pill label={formatSchedule(run.scheduledAt)} />
-              <Pill label={run.meetingPlaceName} />
+    <MapScreenFrame
+      // A white sheet rather than 2.0's glass (담당자 요청).
+      sheetColor="#FFFFFF"
+      renderMap={logo => (
+        <RunMap
+          muted={cancelled}
+          route={run.route ?? undefined}
+          position={run.route ? undefined : run.meetingPosition}
+          // Between the header and the sheet, as measured (the sheet's height changes with what it holds).
+          area={mapArea(Boolean(run.route), logo)}
+          logo={logo}
+          interactive={false}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+      top={
+        <View style={styles.topRow}>
+          <BackButton onPress={() => navigation.goBack()} />
+          <View style={styles.flex} />
+          {!cancelled ? (
+            <IconButton
+              icon="share"
+              accessibilityLabel="공유"
+              onPress={() => navigateTo(navigation, 'PostWrite')}
+            />
+          ) : null}
+        </View>
+      }
+      bottom={
+        <>
+          <View style={styles.info}>
+            <View style={styles.titleRow}>
+              <AppText style={[styles.title, cancelled && styles.struck]}>
+                {run.title}
+              </AppText>
+              {cancelled ? (
+                <Pill label="취소됨" danger large />
+              ) : (
+                <Pill label={dDay(run.scheduledAt, now)} large />
+              )}
             </View>
-            {!cancelled ? (
-              <AppText style={styles.muted}>{run.meetingAddress}</AppText>
-            ) : null}
-          </View>
-          {cancelled ? (
-            reason ? (
-              <View style={[styles.card, styles.tags]}>
-                <Pill label={`사유 · ${reason.label}`} />
+            <View style={styles.section}>
+              <View style={styles.tags}>
+                <Pill label={run.crewName} />
+                <Pill label={formatSchedule(run.scheduledAt)} />
+                <Pill label={run.meetingPlaceName} />
               </View>
-            ) : null
-          ) : (
-            <View style={[styles.card, styles.tags]}>
-              <Pill label={goalLine(run, false)} />
-              <Pill label={`페이스 ${formatPace(run.goalPaceSecPerKm)}`} />
-            </View>
-          )}
-          {cancelled ? (
-            <>
-              {run.cancellation ? (
-                <LightGlass radius={18} style={styles.message}>
-                  <View style={styles.messageHead}>
-                    <Initial name={run.cancellation.byNickname} />
-                    <AppText style={[styles.messageName, styles.flex]}>
-                      {`${run.cancellation.byNickname} · ${
-                        run.cancellation.byRole === 'HOST'
-                          ? '그룹장'
-                          : run.cancellation.byRole
-                      }`}
-                    </AppText>
-                  </View>
-                  {run.cancellation.message ? (
-                    <AppText style={styles.messageText}>
-                      {run.cancellation.message}
-                    </AppText>
-                  ) : (
-                    // G03 cancellation.message is always null on the server: cancelMessage
-                    // is notification-only (group-runs.md G13). Avoid an empty quote block.
-                    <AppText style={styles.messageText}>
-                      호스트가 남긴 말은 알림함에서 확인할 수 있어요
-                    </AppText>
-                  )}
-                </LightGlass>
+              {!cancelled ? (
+                <AppText style={styles.muted}>{run.meetingAddress}</AppText>
               ) : null}
-              <View style={styles.notice}>
-                <Icon name="bell" color={muted} size={14} />
-                <AppText style={styles.muted}>
-                  {`크루 멤버 ${run.crewMemberCount}명에게 취소 알림을 보냈어요`}
-                </AppText>
+            </View>
+            {cancelled ? (
+              reason ? (
+                <View style={styles.tags}>
+                  <Pill label={`사유 · ${reason.label}`} />
+                </View>
+              ) : null
+            ) : (
+              <View style={styles.tags}>
+                <Pill label={goalLine(run, false)} />
+                <Pill label={`페이스 ${formatPace(run.goalPaceSecPerKm)}`} />
               </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.card}>
+            )}
+            {cancelled ? (
+              <>
+                {run.cancellation ? (
+                  <View style={styles.message}>
+                    <View style={styles.messageHead}>
+                      <Initial name={run.cancellation.byNickname} />
+                      <AppText style={[styles.messageName, styles.flex]}>
+                        {`${run.cancellation.byNickname} · ${
+                          run.cancellation.byRole === 'HOST'
+                            ? '그룹장'
+                            : run.cancellation.byRole
+                        }`}
+                      </AppText>
+                    </View>
+                    {run.cancellation.message ? (
+                      <AppText style={styles.messageText}>
+                        {run.cancellation.message}
+                      </AppText>
+                    ) : (
+                      // G03 cancellation.message is always null on the server: cancelMessage
+                      // is notification-only (group-runs.md G13). Avoid an empty quote block.
+                      <AppText style={styles.messageText}>
+                        호스트가 남긴 말은 알림함에서 확인할 수 있어요
+                      </AppText>
+                    )}
+                  </View>
+                ) : null}
+                <View style={styles.notice}>
+                  <Icon name="bell" color={muted} size={14} />
+                  <AppText style={styles.muted}>
+                    {`크루 멤버 ${run.crewMemberCount}명에게 취소 알림을 보냈어요`}
+                  </AppText>
+                </View>
+              </>
+            ) : (
+              <>
                 <View style={styles.avatars}>
                   {run.participants.slice(0, 5).map((member, index) => (
                     <Initial
@@ -356,129 +401,49 @@ export function GroupRunDetailScreen() {
                     {`${run.participantCount}명 참가 · 크루 멤버 ${run.crewMemberCount}명 중`}
                   </AppText>
                 </View>
-              </View>
-              <FitLine run={run} />
-              {run.isHost ? (
-                <View style={[styles.card, styles.hostRow]}>
-                  <Initial name="나" index={0} size={28} />
-                  <AppText style={[styles.muted, styles.flex]}>
-                    내가 만든 그룹런
-                  </AppText>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="그룹런 수정"
-                    onPress={() =>
-                      navigation.navigate('GroupRunCreate', {
-                        groupRunId: run.id,
-                      })
-                    }
-                    hitSlop={8}
-                  >
-                    <AppText style={styles.hostLink}>수정</AppText>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="그룹런 취소"
-                    onPress={() =>
-                      navigation.navigate('GroupRunCancel', {
-                        groupRunId: run.id,
-                      })
-                    }
-                    hitSlop={8}
-                  >
-                    <AppText style={[styles.hostLink, styles.hostCancel]}>
-                      그룹런 취소
+                <FitLine run={run} />
+                {run.isHost ? (
+                  <View style={styles.hostRow}>
+                    <Initial name="나" index={0} size={28} />
+                    <AppText style={[styles.muted, styles.flex]}>
+                      내가 만든 그룹런
                     </AppText>
-                  </Pressable>
-                </View>
-              ) : null}
-            </>
-          )}
-        </View>
-      </ScrollView>
-      <SafeAreaView
-        edges={['top']}
-        style={styles.header}
-        pointerEvents="box-none"
-      >
-        <View style={styles.headerRow}>
-          <BackButton onPress={() => navigation.goBack()} />
-          <View style={styles.flex} />
-          {!cancelled ? (
-            <IconButton
-              icon="share"
-              accessibilityLabel="공유"
-              onPress={() => navigateTo(navigation, 'PostWrite')}
-            />
-          ) : null}
-        </View>
-      </SafeAreaView>
-      {/* The white pill button of the reference cards, on the navy foot of --bg-common. */}
-      <ThemeProvider tone="dark">
-        <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <BottomFade />
-          {cancelled ? (
-            <View style={styles.buttonRow}>
-              <View style={styles.flex}>
-                <GroupCta
-                  title="다시 만들기"
-                  primary={false}
-                  onPress={() =>
-                    navigation.navigate('GroupRunCreate', {
-                      crewId: run.crewId,
-                    })
-                  }
-                />
-              </View>
-              <View style={styles.flex}>
-                <GroupCta
-                  title="내 크루로"
-                  icon="arrowRight"
-                  onPress={() => navigateTo(navigation, 'MyCrews')}
-                />
-              </View>
-            </View>
-          ) : enterable ? (
-            <GroupCta
-              title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
-              icon="arrowRight"
-              onPress={() =>
-                navigation.navigate('WaitingRoom', { groupRunId: run.id })
-              }
-            />
-          ) : (
-            <>
-              {run.joined ? (
-                <AppText style={[styles.muted, styles.onDarkSub, styles.opens]}>
-                  {`대기방은 ${formatDotDateWeekday(
-                    new Date(Date.parse(run.scheduledAt) - roomOpensMs),
-                  )} ${formatClockTime(
-                    new Date(Date.parse(run.scheduledAt) - roomOpensMs),
-                  )}에 열려요`}
-                </AppText>
-              ) : null}
-              {run.isHost ? (
-                // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
-                <GroupCta
-                  title="대기방 입장 · 그룹장"
-                  icon="arrowRight"
-                  disabled
-                  onPress={() => undefined}
-                />
-              ) : (
-                <GroupCta
-                  title={run.joined ? '참가 취소' : '참가하기'}
-                  icon={run.joined ? undefined : 'plus'}
-                  primary={!run.joined}
-                  disabled={busy}
-                  onPress={toggleJoin}
-                />
-              )}
-            </>
-          )}
-        </SafeAreaView>
-      </ThemeProvider>
-    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="그룹런 수정"
+                      onPress={() =>
+                        navigation.navigate('GroupRunCreate', {
+                          groupRunId: run.id,
+                        })
+                      }
+                      hitSlop={8}
+                    >
+                      <AppText style={styles.hostLink}>수정</AppText>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="그룹런 취소"
+                      onPress={() =>
+                        navigation.navigate('GroupRunCancel', {
+                          groupRunId: run.id,
+                        })
+                      }
+                      hitSlop={8}
+                    >
+                      <AppText style={[styles.hostLink, styles.hostCancel]}>
+                        그룹런 취소
+                      </AppText>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </>
+            )}
+          </View>
+          {/* The navy pill button like 6.0's 대기방 입장, inside the sheet as 2.0's 러닝 시작. */}
+          <View style={styles.actions}>{actions}</View>
+        </>
+      }
+    />
   );
 }
 
@@ -552,24 +517,14 @@ const styles = StyleSheet.create({
   loadingRoot: { backgroundColor: '#FFFFFF' },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  scroll: { paddingBottom: 170 },
-  // The map behind the top 470 of the page; the text starts over its faded part.
-  map: {
-    height: 470,
-    overflow: 'hidden',
-    backgroundColor: groupLook.mapBackground,
-  },
-  header: { position: 'absolute', top: 0, left: 0, right: 0 },
   headerRow: {
     height: size.header,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.screen,
   },
-  body: {
-    marginTop: -150,
-    paddingHorizontal: 20,
-  },
+  // The back and share buttons over the map; MapScreenFrame keeps them 16 from the edges.
+  topRow: { flexDirection: 'row', alignItems: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   title: {
     flex: 1,
@@ -584,15 +539,10 @@ const styles = StyleSheet.create({
     color: groupLook.onLightSub,
   },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  // A flat card a shade darker than the page: no glass edge or shadow (담당자 요청).
-  card: {
-    marginTop: 12,
-    padding: 16,
-    gap: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(2,5,14,0.045)',
-  },
-  firstCard: { marginTop: 20 },
+  // The sheet's facts, sections 16 apart with no line between them (6.4 has no hairlines, 담당자 요청).
+  info: { gap: 16 },
+  section: { gap: 10 },
+  actions: { gap: spacing.md, marginTop: 4 },
   pill: {
     height: 30,
     paddingHorizontal: 13,
@@ -609,6 +559,7 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   pillTextLarge: { fontSize: 15, lineHeight: 20 },
+  onNavy: { color: groupLook.onDark },
   pillDangerText: { color: k1.coral },
   muted: {
     fontFamily: fontFamily.regular,
@@ -624,7 +575,8 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   avatars: { flexDirection: 'row', alignItems: 'center' },
-  overlap: { marginRight: -6, borderWidth: 2, borderColor: '#E1E8EE' },
+  // The ring takes the white sheet's colour so the overlapping initials read apart.
+  overlap: { marginRight: -6, borderWidth: 2, borderColor: '#FFFFFF' },
   count: { marginLeft: spacing.xxl },
   hostRow: {
     flexDirection: 'row',
@@ -637,9 +589,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: groupLook.onLight,
   },
-  onDarkSub: { color: groupLook.onDarkSub },
   hostCancel: { color: k1.coral },
-  message: { marginTop: 12, padding: spacing.xl, gap: spacing.md },
+  message: { gap: spacing.md },
   messageHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   messageName: {
     fontFamily: fontFamily.bold,
@@ -654,20 +605,9 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   notice: {
-    marginTop: 20,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingTop: 28,
-    paddingBottom: spacing.xl,
-    gap: spacing.md,
   },
   buttonRow: { flexDirection: 'row', gap: spacing.md },
   opens: { textAlign: 'center' },

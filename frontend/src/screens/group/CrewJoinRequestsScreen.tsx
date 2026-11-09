@@ -38,13 +38,7 @@ import {
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { joinPolicyLabels } from './CrewDetailScreen';
-import {
-  MistBackground,
-  groupLook,
-  insetTrackLight,
-  Raised,
-  SectionLabel,
-} from './look';
+import { groupLook, groupPage, SectionLabel } from './look';
 import { BackButton } from '../../components/BackButton';
 
 const levelLabels: Record<SelfReportedLevel, string> = {
@@ -89,13 +83,7 @@ export function DarkSegmented<T extends string>({
             onPress={() => onChange(option.value)}
             style={styles.segment}
           >
-            {selected ? (
-              <Raised tone="navy" style={styles.segmentOn}>
-                {label}
-              </Raised>
-            ) : (
-              label
-            )}
+            {selected ? <View style={styles.segmentOn}>{label}</View> : label}
           </Pressable>
         );
       })}
@@ -120,7 +108,8 @@ function requestLine(request: CrewJoinRequest, now: Date) {
     .join(' · ');
 }
 
-// One request without dividers (6.2a-PendingRequests): 거절 dark glass, 승인 raised white.
+// One request without dividers (6.2a-PendingRequests): on the white page 승인 is flat navy and 거절 flat grey
+// (S15P31E105-563).
 function RequestRow({
   request,
   canApprove,
@@ -156,9 +145,9 @@ function RequestRow({
         disabled={busy}
         onPress={() => onDecide(false)}
       >
-        <Raised tone="navy" style={styles.decide}>
-          <AppText style={styles.decideTextLight}>거절</AppText>
-        </Raised>
+        <View style={[styles.decide, styles.decideGrey]}>
+          <AppText style={styles.decideTextDark}>거절</AppText>
+        </View>
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
@@ -168,9 +157,9 @@ function RequestRow({
         onPress={() => onDecide(true)}
         style={[!canApprove && styles.locked]}
       >
-        <Raised tone="white" style={styles.decide}>
-          <AppText style={styles.decideTextDark}>승인</AppText>
-        </Raised>
+        <View style={[styles.decide, styles.decideNavy]}>
+          <AppText style={styles.decideTextLight}>승인</AppText>
+        </View>
       </PressableScale>
     </View>
   );
@@ -279,21 +268,19 @@ export function CrewJoinRequestsScreen() {
   const canApprove = crew ? crew.memberCount < crew.capacity : false;
 
   return (
-    // 6.0~6.3 sit on --bg-analysis-dark, so the whole screen takes the dark theme.
-    // On the mist like the rest of 6.0~6.3 (S15P31E105-483).
+    // The white page with grey bands, like 6.2 (S15P31E105-563).
     <ThemeProvider tone="light">
-      <View style={styles.root}>
+      <View style={[styles.root, groupPage.page]}>
         <StatusBar barStyle="dark-content" />
-        <MistBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
             <BackButton tone="light" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               가입 신청
             </AppText>
-            <Raised tone="navy" style={styles.ownerOnly}>
+            <View style={styles.ownerOnly}>
               <AppText style={styles.ownerOnlyText}>크루장만 보여요</AppText>
-            </Raised>
+            </View>
           </View>
         </SafeAreaView>
         {failed ? (
@@ -317,7 +304,7 @@ export function CrewJoinRequestsScreen() {
                 {` / ${crew.capacity}명 · ${joinPolicyLabels[crew.joinPolicy]}`}
               </AppText>
             </View>
-            <View style={styles.section}>
+            <View style={groupPage.block}>
               <View style={styles.rowBetween}>
                 <SectionLabel tone="mist">가입 방식</SectionLabel>
                 <AppText style={styles.note} numberOfLines={1}>
@@ -334,7 +321,7 @@ export function CrewJoinRequestsScreen() {
                 바로 멤버가 돼요.
               </AppText>
             </View>
-            <View style={styles.section}>
+            <View style={groupPage.block}>
               <View style={styles.rowBetween}>
                 <SectionLabel tone="mist">대기 중인 신청</SectionLabel>
                 <AppText style={styles.count}>{`${requests.length}건`}</AppText>
@@ -393,6 +380,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     borderRadius: 13,
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
   },
   ownerOnlyText: {
     fontFamily: fontFamily.bold,
@@ -400,9 +388,14 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: groupLook.onDark,
   },
-  content: { paddingHorizontal: 16, paddingBottom: 48 },
-  // 6.2a-CrewHero: the crew name and its member line.
-  titleBlock: { gap: spacing.xs, marginTop: spacing.xl },
+  content: { paddingBottom: 48 },
+  // 6.2a-CrewHero: the crew name and its member line, over the first band.
+  titleBlock: {
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 30,
@@ -417,7 +410,6 @@ const styles = StyleSheet.create({
     color: groupLook.onLightSub,
   },
   summaryStrong: { fontFamily: fontFamily.bold, color: groupLook.onLight },
-  section: { gap: spacing.md, marginTop: spacing.xxl },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -450,8 +442,7 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 4,
     borderRadius: 22,
-    backgroundColor: groupLook.lightButton,
-    boxShadow: insetTrackLight,
+    backgroundColor: groupLook.lightFill,
   },
   segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   segmentOn: {
@@ -460,6 +451,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: groupLook.navy,
   },
   segmentText: {
     fontFamily: fontFamily.bold,
@@ -501,6 +493,8 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     justifyContent: 'center',
   },
+  decideNavy: { backgroundColor: groupLook.navy },
+  decideGrey: { backgroundColor: groupLook.lightFill },
   decideTextLight: {
     fontFamily: fontFamily.bold,
     fontSize: 14,
@@ -516,5 +510,5 @@ const styles = StyleSheet.create({
   locked: { opacity: 0.5 },
   none: { paddingVertical: spacing.xl },
   // 6.2a-ApprovalNote.
-  approvalNote: { marginTop: spacing.xxl, paddingHorizontal: spacing.xs },
+  approvalNote: { paddingHorizontal: 20 },
 });

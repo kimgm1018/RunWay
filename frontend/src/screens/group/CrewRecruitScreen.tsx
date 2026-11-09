@@ -23,30 +23,31 @@ function CrewCard({ crew }: { crew: CrewListItem }) {
         full ? '정원 마감' : '모집 중'
       } ${count}`}
       onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-      style={[crewCard.card, styles.crew]}
     >
-      <View style={styles.flex}>
-        {/* 모집 중 alone on top, the count right after the name (담당자 요청). Plain regular text, no
+      <Raised tone="card" style={[crewCard.card, styles.crew]}>
+        <View style={styles.flex}>
+          {/* 모집 중 alone on top, the count right after the name (담당자 요청). Plain regular text, no
             pill. */}
-        <AppText style={[crewCard.small, styles.statusText]}>
-          {full ? '정원 마감' : '모집 중'}
-        </AppText>
-        <View style={[crewCard.lineGap, styles.nameLine]}>
-          <AppText style={[crewCard.name, styles.crewName]} numberOfLines={1}>
-            {crew.name}
+          <AppText style={[crewCard.small, styles.statusText]}>
+            {full ? '정원 마감' : '모집 중'}
           </AppText>
-          <AppText style={styles.countText}>{count}</AppText>
+          <View style={[crewCard.lineGap, styles.nameLine]}>
+            <AppText style={[crewCard.name, styles.crewName]} numberOfLines={1}>
+              {crew.name}
+            </AppText>
+            <AppText style={styles.countText}>{count}</AppText>
+          </View>
         </View>
-      </View>
-      {/* A round arrow, not a pill, so the card reads as one to open (담당자 요청). The whole card
+        {/* A round arrow, not a pill, so the card reads as one to open (담당자 요청). The whole card
           opens 6.2, so the arrow is only a sign and not a second button for screen readers. */}
-      <View
-        style={crewCard.round}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <Icon name="arrowRight" color={groupLook.onDark} size={16} />
-      </View>
+        <View
+          style={crewCard.round}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Icon name="arrowRight" color={groupLook.onDark} size={16} />
+        </View>
+      </Raised>
     </PressableScale>
   );
 }
@@ -178,16 +179,17 @@ const styles = StyleSheet.create({
   // Text straight on the mist rather than in a navy crew card (S15P31E105-483).
   onMist: { color: groupLook.onLightSub },
   list: { gap: 12, marginTop: spacing.md },
-  // 6.1-CrewCard on a navy card so each crew reads as something to tap (담당자 요청, S15P31E105-483).
+  // 6.1-CrewCard on a card so each crew reads as something to tap (담당자 요청, S15P31E105-483), white like
+  // 6.0's since S15P31E105-563.
   crew: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   // Regular weight, not bold (담당자 요청).
   countText: {
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onDarkSub,
+    color: groupLook.onLightSub,
   },
-  statusText: { color: groupLook.onDark },
+  statusText: { color: groupLook.onLight },
   nameLine: {
     flexDirection: 'row',
     alignItems: 'baseline',

@@ -17,14 +17,18 @@ import { k1, size, spacing, useTheme } from '../../theme';
 // above the floating tab bar. The map is the K1 day map at any hour (S15P31E105-527). By day the sheet is
 // light glass (runway-course-handoff); after sunset it stays the dark sheet of DESIGN.md 2-6. The map gets where the NAVER logo goes: just over the sheet, as
 // measured, since the sheet's height changes with day, night and what it holds (S15P31E105-429).
+// sheetColor paints the day sheet one solid colour with a drop shadow instead of glass (6.4 white,
+// S15P31E105-563).
 export function MapScreenFrame({
   renderMap,
   top,
   bottom,
+  sheetColor,
 }: {
   renderMap: (logo: RunMapLogo | undefined) => React.ReactNode;
   top: React.ReactNode;
   bottom: React.ReactNode;
+  sheetColor?: string;
 }) {
   const { name, colors } = useTheme();
   const night = name === 'dark';
@@ -73,8 +77,13 @@ export function MapScreenFrame({
         ) : (
           <LightGlass
             radius={34}
+            solid={sheetColor}
             onLayout={measureSheet}
-            style={[styles.sheet, styles.sheetDay]}
+            style={[
+              styles.sheet,
+              styles.sheetDay,
+              sheetColor ? styles.sheetSolid : null,
+            ]}
           >
             {bottom}
           </LightGlass>
@@ -117,4 +126,5 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   sheetDay: { left: 8, right: 8, gap: 12 },
+  sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.18)' },
 });
