@@ -24,6 +24,7 @@ import {
   useToast,
 } from '../../components';
 import {
+  DataError,
   useRepositories,
   useResource,
   type GroupRunCancelReason,
@@ -109,8 +110,12 @@ export function GroupRunCancelScreen() {
       setConfirming(false);
       // Back to 6.4, which now shows the cancelled run (6.4e).
       navigation.goBack();
-    } catch {
-      toast('그룹런을 취소하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      toast(
+        error instanceof DataError && error.status === 409
+          ? '이미 취소되었거나 끝난 그룹런이에요. 상세에서 상태를 확인해 주세요'
+          : '그룹런을 취소하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
       setBusy(false);
     }
   };
@@ -185,7 +190,7 @@ export function GroupRunCancelScreen() {
                 })}
               </View>
             </View>
-            {/* 6.4c-CancelMessage: an optional note; a blank one is not sent and the server's default text goes out. */}
+            {/* 6.4c-CancelMessage: optional; blank is omitted. Sent once as the notification body, not stored on G03. */}
             <View style={styles.reasons}>
               <View style={styles.rowBetween}>
                 <SectionLabel tone="light">남길 말</SectionLabel>
@@ -196,7 +201,7 @@ export function GroupRunCancelScreen() {
               <LightGlass radius={20} style={styles.messageBox}>
                 <TextInput
                   accessibilityLabel="남길 말"
-                  placeholder="참가자에게 전할 말을 적어 주세요"
+                  placeholder="알림으로 전할 말을 적어 주세요"
                   placeholderTextColor={groupLook.onLightSub}
                   selectionColor={groupLook.navy}
                   value={message}
@@ -207,6 +212,9 @@ export function GroupRunCancelScreen() {
                   style={styles.messageInput}
                 />
               </LightGlass>
+              <AppText style={styles.note}>
+                상세 화면에는 남지 않고, 크루 멤버 알림 본문으로만 전달돼요
+              </AppText>
             </View>
             {/* 6.4c-CancelNotice: the coral bell and the line, no box. */}
             <View style={styles.warning}>

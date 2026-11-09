@@ -207,8 +207,8 @@ export function WaitingRoomScreen() {
   const observeError = useCallback(
     (error: unknown) =>
       setWatchError(
-        error instanceof DataError && error.status === 409
-          ? '그룹런이 취소되었거나 종료되었어요. 상세에서 상태를 확인해 주세요.'
+        error instanceof DataError && error.status === 409 && error.message
+          ? error.message
           : '대기방 상태를 확인하지 못했어요. 연결되면 다시 조회해요.',
       ),
     [],

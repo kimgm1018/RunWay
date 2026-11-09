@@ -7,6 +7,7 @@ import {
 } from '@react-navigation/native';
 import { AppText, BottomSheet, Icon, useToast } from '../../components';
 import {
+  DataError,
   spotifyFailureMessage,
   SpotifyStateError,
   useRepositories,
@@ -456,9 +457,16 @@ export function GroupRunProgressScreen({
                 await groupRuns.forceFinish(run.config.groupRunId);
                 setConfirming(false);
                 toResult();
-              } catch {
+              } catch (error) {
+                const code =
+                  error instanceof DataError ? error.code : undefined;
                 toast(
-                  '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
+                  error instanceof DataError && error.status === 409
+                    ? code === 'INVALID_GROUP_STATE'
+                      ? '이미 취소되었거나 끝난 그룹런이에요. 상세에서 상태를 확인해 주세요'
+                      : error.message ||
+                        '지금은 전체 종료를 할 수 없어요. 그룹 상태를 확인해 주세요'
+                    : '전체 종료 응답을 확인하지 못했어요. 그룹 상태를 확인한 뒤 다시 시도해 주세요',
                 );
               } finally {
                 finishing.current = false;

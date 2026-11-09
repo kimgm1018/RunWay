@@ -456,13 +456,19 @@ export function createGroupRunsApi({
           const own = loaded.items.find(
             item => String(item.userId) === loaded.me,
           );
-          if (
-            loaded.run.status === 'CANCELLED' ||
-            loaded.run.status === 'COMPLETED'
-          ) {
+          // Keep CANCELLED and COMPLETED copy separate: callers used to show one mixed 409 line.
+          if (loaded.run.status === 'CANCELLED') {
             throw new DataError(
               'INVALID_GROUP_STATE',
-              '그룹런이 취소되었거나 종료되었어요.',
+              '그룹런이 취소되었어요. 상세에서 확인해 주세요.',
+              null,
+              409,
+            );
+          }
+          if (loaded.run.status === 'COMPLETED') {
+            throw new DataError(
+              'INVALID_GROUP_STATE',
+              '그룹런이 종료되었어요. 상세에서 확인해 주세요.',
               null,
               409,
             );
