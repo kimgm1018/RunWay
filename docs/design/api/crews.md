@@ -451,7 +451,7 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 
 **사용 흐름과 응답 판단**
 
-신청 성공은 PENDING이며 가입 완료가 아니다. 이미 PENDING 또는 APPROVED면 409다. REJECTED/LEFT는 동일 행을 PENDING으로 갱신해 재신청한다.
+신청 성공은 PENDING이며 가입 완료가 아니다. 이미 PENDING 또는 APPROVED면 409다. 현재 APPROVED 인원이 `crews.capacity` 이상이면 신청을 받지 않고 `409 CREW_CAPACITY_EXCEEDED`다. REJECTED/LEFT는 동일 행을 PENDING으로 갱신해 재신청한다(재신청 시에도 정원 검사를 한다).
 
 ### 오류 응답
 
@@ -460,6 +460,7 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
 | `409 ALREADY_MEMBER_OR_PENDING` | 중복 관계 | 이미 PENDING 또는 APPROVED 관계가 있는데 가입 신청을 다시 보냄 |
+| `409 CREW_CAPACITY_EXCEEDED` | 정원 초과 | 현재 APPROVED 인원이 `crews.capacity` 이상인데 가입 신청(또는 REJECTED/LEFT 재신청)을 보냄. PENDING 인원은 정원에 포함하지 않는다 |
 | `401 UNAUTHORIZED` | 인증 | 인증이 필요한 요청에 토큰이 없거나 만료·위변조되어 사용자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
 | `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함 |
@@ -473,7 +474,8 @@ ACTIVE 크루에 대해 본인 가입 신청을 PENDING으로 생성·반환한�
 
 - ACTIVE 크루에만 신청 가능. 요청 body 없음. 성공 시 PENDING 행을 생성하거나 반환한다.
 - 이미 PENDING 또는 APPROVED → `409 ALREADY_MEMBER_OR_PENDING`.
-- REJECTED 또는 LEFT → 동일 `crew_memberships` 행을 PENDING으로 갱신해 재신청한다(`requested_at` 갱신, `joined_at` null).
+- 현재 APPROVED 인원이 `capacity` 이상 → `409 CREW_CAPACITY_EXCEEDED`. PENDING은 만들지 않는다. 정원 판정은 승인(M06)과 같이 APPROVED만 센다.
+- REJECTED 또는 LEFT → 동일 `crew_memberships` 행을 PENDING으로 갱신해 재신청한다(`requested_at` 갱신, `joined_at` null). 재신청 직전에도 위 정원 검사를 한다.
 - 승인 전에는 내 크루에 '승인 대기'로 보인다(6.0, 6.2b). 크루장 승인(M06) 후 멤버가 된다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
