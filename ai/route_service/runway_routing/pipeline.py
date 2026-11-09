@@ -62,17 +62,19 @@ class RoutePipeline:
     요청 전체 동안 lock을 잡는다. mode("enforce" / "shadow")와 fast는 생성자 인자다(app이 환경변수로 정한다).
     주의: 생성자 기본값은 mode="shadow"다. 서비스(app)는 기본 "enforce"를 넘긴다. 직접 만들 때는 mode를 명시한다."""
 
-    def __init__(self, env_layer: str = "wide", mode: str = "shadow", fast: bool = True, self_test: bool = True):
+    def __init__(self, env_layer: str = "wide", mode: str = "shadow", fast: bool = True, self_test: bool = True, *, region=None):
         # extract + verified legacy fast-graph self-test. (G, rg) LRU 칸 수 = 요청 graph LRU와 같은 GRAPH_CACHE_SIZE
-        self.gen = ArrayLoopGenerator(fast=fast, self_test=self_test, graph_cache_size=graph_mod.GRAPH_CACHE_SIZE)
+        gen_kw = {} if region is None else {"region": region}
+        self.gen = ArrayLoopGenerator(fast=fast, self_test=self_test, graph_cache_size=graph_mod.GRAPH_CACHE_SIZE, **gen_kw)
         api.busan.ox.settings.log_console = False
-        self.data = RunwayData(env_layer)
+        self.data = RunwayData(env_layer) if region is None else RunwayData(env_layer, region=region)
         self.graphs = GraphStore(self.gen, self.data)
         self.rs_cfg = self.data.rs_cfg
         self.rs_weight = self.rs_cfg["ranking"]["weight"]
         if self.rs_weight is None:
             raise ValueError("running_suitability_config.json ranking.weight is not set")
-        self.gate = Gate(mode, self.gen.source.path, self.gen.extract.get("osm_data_timestamp"))
+        gate_kw = {} if region is None else {"extract_sha256": region.extract_sha256}
+        self.gate = Gate(mode, self.gen.source.path, self.gen.extract.get("osm_data_timestamp"), **gate_kw)
         self.shape_cfg = self.data.shape_cfg
         self.ug2 = self.gate.cfg["v2"]
         # P2P's two app-max disks as array masks (same sets and results as the networkx graphs, ~10x cheaper);
@@ -85,11 +87,13 @@ class RoutePipeline:
         #   RUNWAY_FAST_GRAPH=0     app(config.py)이 읽어 fast=False로 전달. canonical builder -> 결과 동일, cold 느려짐
         #   RUNWAY_USABILITY_GATE=shadow  app(config.py)이 읽어 mode로 전달. Gate가 기록만 함  -> FAIL 경로가 남을 수 있음
         # 앞의 셋은 같은 결과를 내도록 검증된 느린 경로이고, shadow만 추천 결과가 달라질 수 있는 비상용 스위치다.
-        self.substrate = Substrate(self.gen, self.ug2) if env_flag("RUNWAY_P2P_SUBSTRATE") else None
+        prep_kw = {} if region is None else {"prepared": region.prepared}
+        self.substrate = Substrate(self.gen, self.ug2, **prep_kw) if env_flag("RUNWAY_P2P_SUBSTRATE") else None
         #   RUNWAY_ARRAY_SHAPES=0   여기서 읽음. OUT_AND_BACK / P2P 생성 disk를 networkx G/H로   -> 결과 동일, cold 느려짐
         self.array_shapes = env_flag("RUNWAY_ARRAY_SHAPES")
         if self.gen.array_enabled:
-            self.gen.array_source = ArraySource(self.substrate if self.substrate is not None else Substrate(self.gen, self.ug2))
+            self.gen.array_source = ArraySource(
+                self.substrate if self.substrate is not None else Substrate(self.gen, self.ug2, **prep_kw), **prep_kw)
         self.lock = threading.Lock()
         self._shown, self._skip = [], frozenset()   # 요청 하나 동안만(run), 재추천 제외 상태
 

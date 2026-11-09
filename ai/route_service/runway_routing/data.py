@@ -304,14 +304,14 @@ class EnvFeatureCache:
 class RunwayData:
     """Static data of one pipeline: scoring / suitability / shape configs, env layer, DEM, env edge cache."""
 
-    def __init__(self, env_layer: str = "wide"):
+    def __init__(self, env_layer: str = "wide", *, region=None):
         t0 = time.perf_counter()
         self.scfg = load_scoring_config()
         self.thresholds = {k: v for k, v in self.scfg["env_thresholds_m"].items() if not k.startswith("_")}
-        self.env = load_env(env_layer)
-        self.dem, self.dem_path = load_dem_any()
+        self.env = load_env(env_layer) if region is None else region.env
+        self.dem, self.dem_path = load_dem_any() if region is None else (region.dem, region.dem_path)
         self.load_seconds = round(time.perf_counter() - t0, 2)
-        self.cache, self.cache_note = EnvFeatureCache.load(self.env)
+        self.cache, self.cache_note = EnvFeatureCache.load(self.env) if region is None else (region.cache, '')
         self.rs_cfg = load_config("running_suitability_config.json")
         self.shape_cfg = load_config("shape_config.json")
 

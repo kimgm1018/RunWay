@@ -63,6 +63,9 @@ SLIM_ROUTE_KEYS = ("rank", "coords", "distance_m", "summary", "reasons", "caveat
 
 
 def _default_pipeline_factory(settings: Settings):
+    if settings.data_mode == 'national':
+        from .national import NationalPipeline
+        return NationalPipeline(settings)
     from runway_routing.pipeline import RoutePipeline
     return RoutePipeline("wide", mode=settings.gate_mode, fast=settings.fast_graph)
 
@@ -100,7 +103,11 @@ class Engine:
             self.phase = "warming"
             t0 = time.perf_counter()
             try:
-                res = recommend_core(self, warmup_request(), gate_log=False, lock_wait_s=None, remember=False)
+                warmup = warmup_request()
+                if self.settings.data_mode == 'national':
+                    from .national import WARMUP_LAT, WARMUP_LON
+                    warmup = RecommendRequest(lat=WARMUP_LAT, lon=WARMUP_LON, distance_km=5.0)
+                res = recommend_core(self, warmup, gate_log=False, lock_wait_s=None, remember=False)
                 # 441 R13: 예열은 늘 코스가 나오는 고정 요청(광안리 순환 5 km)이다. 200(코스 1개 이상)이 아니면 4xx라도
                 # 데이터·엔진 문제(잘못된 bundle → OUT_OF_AREA, Gate·생성 고장 → NO_ROUTE 등)로 보고 시작 실패로 둔다.
                 status = getattr(res, "status_code", 200)
@@ -206,12 +213,20 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
     dbg = settings.debug
 
     def _fail(code, message=None, debug=None, details=None):
+        if code == 'OUT_OF_AREA' and settings.data_mode == 'national':
+            message = '출발 위치나 도착 위치가 전국 도로 자료의 추천 범위 밖이에요. 자료 범위 안의 위치를 골라 주세요.'
         return fail(code, message, details=details, debug=debug, include_debug=dbg)
 
     if not (MIN_KM <= req.distance_km <= MAX_KM):
         return _fail("DISTANCE_RANGE", f"거리는 {MIN_KM:g}~{MAX_KM:g} km 사이로 정해 주세요.")
     if req.shape == "point_to_point" and (req.end_lat is None or req.end_lon is None):
         return _fail("DESTINATION_REQUIRED")
+    if settings.data_mode == 'national':
+        from runway_routing.national.store import OutOfArea
+        try:
+            p.check_area(req.lat, req.lon, req.shape, req.end_lat, req.end_lon)
+        except OutOfArea:
+            return _fail('OUT_OF_AREA')
     if req.shape == "point_to_point" and _straight_m(req) > _p2p_out_of_range_m(p):
         return _fail("OUT_OF_APP_RANGE")
     loop = req.shape == "loop"
@@ -254,6 +269,12 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
         if gate_log:
             _log_usability(settings, req, out, getattr(getattr(p, "gate", None), "files", None))
     except Exception as exc:
+        if settings.data_mode == 'national':
+            from runway_routing.national.store import OutOfArea, NoRoad
+            if isinstance(exc, OutOfArea):
+                return _fail('OUT_OF_AREA')
+            if isinstance(exc, NoRoad):
+                return _fail('NO_ROAD_NEARBY')
         if type(exc).__name__ == "InsufficientResponseError":  # osmnx: 작업 disk 안에 길이 전혀 없음
             return _fail("NO_ROAD_NEARBY", debug=f"{type(exc).__name__}: {exc}")
         if _no_usable_road(exc):   # 441 R7: 길은 있지만 달릴 수 있는 길·waypoint 교차로가 하나도 없음

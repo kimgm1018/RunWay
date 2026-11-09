@@ -114,7 +114,7 @@ def route_input(r: dict, cg, request_type: str, target_m: float, start: dict, p2
 class Gate:
     """One pipeline's gate: mode ("shadow" | "enforce"), frozen configs, version stamp."""
 
-    def __init__(self, mode: str, extract_path, osm_data_timestamp):
+    def __init__(self, mode: str, extract_path, osm_data_timestamp, *, extract_sha256=None):
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         self.mode = mode
@@ -123,7 +123,8 @@ class Gate:
         self.files = {"ug-v1.json": _sha(UG_V1), "ug-v2.json": _sha(UG_V2),
                       "usability_gate.py": _sha(HERE / "usability_gate.py")}
         self.version = UG.make_gate_version(
-            self.cfg, _sha(UG_V1) + ":" + _sha(UG_V2), _sha(WALK_FILTER), _sha(Path(extract_path)), osm_data_timestamp)
+            self.cfg, _sha(UG_V1) + ":" + _sha(UG_V2), _sha(WALK_FILTER),
+            _sha(Path(extract_path)) if extract_sha256 is None else extract_sha256, osm_data_timestamp)
 
     def skipped(self, why: str) -> dict:
         return {"mode": self.mode, "skipped": why, "gate_version": self.version}

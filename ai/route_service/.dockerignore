@@ -3,6 +3,11 @@
 # CI에 필요한 테스트·합성 회귀 검사만 허용한다. 실제 데이터·보고서는 제외한다.
 tests/*
 !tests/*.py
+# 전국 저장소 합성 fixture(S15P31E105-586): 작은 생성 코드와 JSON만 허용한다.
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/*.py
+!tests/fixtures/*.json
 tools/route_regression/*
 !tools/route_regression/test_identity_checks.py
 !tools/route_regression/service_identity.py

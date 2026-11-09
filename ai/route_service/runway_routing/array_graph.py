@@ -67,7 +67,11 @@ class _Selection:
 
 class ArraySource:
     """Request-independent normalized per-way rows, backed by the existing Substrate."""
-    def __init__(self, substrate):
+    def __init__(self, substrate, *, prepared=None):
+        if prepared is not None:
+            prepared.array_source(self, substrate)
+            self._status_codes(substrate.sc)
+            return
         self.S = substrate
         sc = substrate.sc
         compact = getattr(substrate.src, "net", None) is not None
@@ -81,6 +85,9 @@ class ArraySource:
         self.way_table = pd.DataFrame(rows, columns=legacy.EDGE_TAGS)
         self.way_table["osmid"] = self.way_table["osmid"].astype("int64")
         # full_status 배열 경로용: way별 status 번호와 번호 -> 원래 문자열(처음 나온 way의 객체)
+        self._status_codes(sc)
+
+    def _status_codes(self, sc):
         codes, self.status_objs = {}, []
         for st in sc.way_status:
             if st not in codes:
