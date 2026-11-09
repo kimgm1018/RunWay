@@ -211,7 +211,9 @@ public class GroupPaceService {
                     || group.goalDistance() == null || group.goalDistance() <= 0) return null;
             var state = states.find(groupId).orElse(null);
             if (state == null) return null;
-            var ranked = states.candidates(groupId).stream().map(candidate -> new Ranked(candidate,
+            var ranked = states.candidates(groupId).stream()
+                    .filter(GroupPaceRepository.Candidate::consent)
+                    .map(candidate -> new Ranked(candidate,
                     GroupRunFitCalculator.recentPaceSecPerKm(states.recentPaces(
                             candidate.userId(), group.goalDistance())))).toList();
             return new StartInput(group, state.updatedAt(), selectSlowest(ranked));
@@ -222,14 +224,13 @@ public class GroupPaceService {
         for (var selected : input.selected()) {
             var candidate = selected.candidate();
             if (candidate.consent() && !states.consented(candidate.userId())) return;
-            // Same consent policy as personal pre-run planning: anonymous population fallback.
-            var result = candidate.consent() ? plans.plan(candidate.userId(), goal)
-                    : plans.populationPlan(goal, candidate.profilePace(), null);
+            var result = plans.plan(candidate.userId(), goal);
+            var state = states.find(groupId).orElse(null);
+            if (state == null || !java.util.Objects.equals(state.updatedAt(), input.token())) return;
             if (result.isEmpty() || result.get().pace() == null || result.get().pace().signum() <= 0
                     || result.get().distance() == null
                     || result.get().distance().compareTo(BigDecimal.valueOf(goal.distanceM())) != 0
-                    || !java.util.Objects.equals(result.get().userId(),
-                            candidate.consent() ? candidate.userId() : null)) return;
+                    || !java.util.Objects.equals(result.get().userId(), candidate.userId())) return;
             int pace = result.get().pace().setScale(0, RoundingMode.HALF_UP).intValueExact();
             recommended = recommended == null ? pace : Math.max(recommended, pace);
         }

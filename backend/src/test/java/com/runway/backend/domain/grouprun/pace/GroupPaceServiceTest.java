@@ -113,17 +113,97 @@ class GroupPaceServiceTest {
     }
 
     @Test
-    void preRun_slowerHostGoalWinsAndNonConsentUsesAnonymousPlan() {
+    void preRun_allNonConsentDoesNotCallPlansOrSave() {
         var fixture = new RunningFixture();
         fixture.scheduled();
         when(fixture.states.candidates(7)).thenReturn(List.of(
-                new GroupPaceRepository.Candidate(9, false, BigDecimal.valueOf(330))));
-        when(fixture.plans.populationPlan(any(), any(), isNull())).thenReturn(Optional.of(
-                new PersonalPacePlanPort.Result(null, null, BigDecimal.valueOf(5000),
-                        BigDecimal.valueOf(330), List.of())));
+                new GroupPaceRepository.Candidate(9, false, BigDecimal.valueOf(330)),
+                new GroupPaceRepository.Candidate(10, false, null)));
         fixture.service.evaluateStart(7);
-        verify(fixture.states).saveStart(7, fixture.token, 360);
-        verify(fixture.plans, never()).plan(any(), any());
+        verifyNoInteractions(fixture.plans);
+        verify(fixture.states, never()).saveStart(anyLong(), any(), anyInt());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullSource
+    @org.junit.jupiter.params.provider.ValueSource(ints = 900)
+    void preRun_nonConsenterDoesNotDisplaceConsentingCandidatesOrAffectPace(Integer recent) {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null),
+                new GroupPaceRepository.Candidate(11, true, null),
+                new GroupPaceRepository.Candidate(12, true, null),
+                new GroupPaceRepository.Candidate(13, true, null),
+                new GroupPaceRepository.Candidate(14, false, BigDecimal.valueOf(900))));
+        for (long user = 9; user <= 12; user++) {
+            when(fixture.states.recentPaces(user, 5000))
+                    .thenReturn(List.of(BigDecimal.valueOf(300 + (user - 9) * 10)));
+        }
+        when(fixture.states.recentPaces(14, 5000)).thenReturn(
+                recent == null ? List.of() : List.of(BigDecimal.valueOf(recent)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.plans.plan(anyLong(), any())).thenAnswer(invocation -> Optional.of(
+                new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
+                        BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+
+        fixture.service.evaluateStart(7);
+
+        verify(fixture.plans).plan(eq(13L), any());
+        verify(fixture.plans).plan(eq(12L), any());
+        verify(fixture.plans).plan(eq(11L), any());
+        verify(fixture.plans).plan(eq(10L), any());
+        verifyNoMoreInteractions(fixture.plans);
+        verify(fixture.states).saveStart(7, fixture.token, 410);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void preRun_supersededOrMissingStateStopsRemainingCallsWithoutSaving(boolean missing) {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.consented(10)).thenReturn(true);
+        when(fixture.plans.plan(eq(9L), any())).thenAnswer(invocation -> {
+            when(fixture.states.find(7)).thenReturn(missing ? Optional.empty() : Optional.of(
+                    new GroupPaceRepository.State(null, null, null, null, 0,
+                            fixture.token.plusSeconds(1))));
+            return Optional.of(new PersonalPacePlanPort.Result(null, 9L,
+                    BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of()));
+        });
+
+        fixture.service.evaluateStart(7);
+
+        verify(fixture.plans).plan(eq(9L), any());
+        verifyNoMoreInteractions(fixture.plans);
+        verify(fixture.states, never()).saveStart(anyLong(), any(), anyInt());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"330,360", "410,410"})
+    void preRun_unchangedTokenKeepsSlowestPlanOrHostGoal(int plannedPace, int expected) {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.consented(10)).thenReturn(true);
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 9L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(320), List.of())));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 10L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(plannedPace), List.of())));
+
+        fixture.service.evaluateStart(7);
+
+        verify(fixture.plans).plan(eq(9L), any());
+        verify(fixture.plans).plan(eq(10L), any());
+        verifyNoMoreInteractions(fixture.plans);
+        verify(fixture.states).saveStart(7, fixture.token, expected);
     }
 
     @org.junit.jupiter.params.ParameterizedTest
