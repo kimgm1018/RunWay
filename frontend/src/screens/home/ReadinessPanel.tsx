@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AppText, Icon, useCountUp, type IconName } from '../../components';
 import type { ReadinessState, TodayCondition } from '../../data';
 import type { SleepAccess, TodaySleep } from '../../health/samsungSleep';
+import type { TodayRestingHr } from '../../health/samsungRestingHr';
 import { formatMonthDay, formatSleep } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
@@ -92,7 +93,11 @@ function Gauge({ score }: { score: number | null }) {
 export type PhoneSleep = {
   access: SleepAccess | null;
   today: TodaySleep | null;
+  // S15P31E105-600: heart rate access and today's resting heart rate computed on this phone from Samsung Health.
+  heartAccess?: SleepAccess | null;
+  restingHr?: TodayRestingHr | null;
   requesting: boolean;
+  // Asks for sleep and heart rate together (D-8).
   onConnect: () => void;
 };
 
@@ -118,6 +123,34 @@ function phoneSleepNote(sleep: PhoneSleep): string | null {
   }
   if (sleep.today?.status === 'error') {
     return '삼성 헬스 조회 실패';
+  }
+  return null;
+}
+
+// What 안정 심박 says under a missing value when the phone reads Samsung Health heart rate (D-9). Null falls back to
+// the watch/score notes.
+function phoneRestingHrNote(sleep: PhoneSleep): string | null {
+  if (sleep.heartAccess === 'denied') {
+    return '삼성 헬스 권한 거부됨';
+  }
+  if (sleep.heartAccess === 'revoked') {
+    return '삼성 헬스 권한 해제됨';
+  }
+  if (sleep.heartAccess !== 'granted') {
+    return null;
+  }
+  if (sleep.restingHr?.status === 'insufficient') {
+    return '오늘 심박 기록 부족';
+  }
+  if (sleep.restingHr?.status === 'error') {
+    return '삼성 헬스 조회 실패';
+  }
+  // Granted by the OS state, but the read itself was refused (리뷰 B-4).
+  if (sleep.restingHr?.status === 'accessRequired') {
+    return '삼성 헬스 권한 확인 필요';
+  }
+  if (sleep.restingHr?.status === 'unavailable') {
+    return '삼성 헬스 사용 불가';
   }
   return null;
 }
@@ -161,20 +194,36 @@ export function ReadinessPanel({
     : ready
     ? today.sleepLabel
     : null;
-  const connect =
-    consented && phoneSleep && needsAccess(phoneSleep.access) && !r02Sleep;
   // A missing 안정 심박 or 주간 부하 says why (2026-11-09 사용자 결정, 실기기 E2E). R02 gives the resting heart
   // rate only for the score's own day, and nothing collects training load yet (readiness-formula 7.1).
-  const restingHeartRate =
+  // S15P31E105-600 (D-9): R02's value with its source first, then today's value computed on this phone from Samsung
+  // Health heart rate, then why there is none.
+  const r02RestingHeartRate =
     ready && today.restingHeartRate !== null ? today.restingHeartRate : null;
+  const localRestingHr =
+    consented &&
+    r02RestingHeartRate === null &&
+    phoneSleep?.restingHr?.status === 'ready' &&
+    // A value read before midnight is not today's after it (리뷰 B-1).
+    (todayDay === undefined || phoneSleep.restingHr.date === todayDay)
+      ? phoneSleep.restingHr
+      : null;
+  const restingHeartRate =
+    r02RestingHeartRate ?? (localRestingHr ? Math.round(localRestingHr.bpm) : null);
   const restingHeartRateSub =
-    restingHeartRate !== null
+    r02RestingHeartRate !== null
       ? today.restingHeartRateLabel
+      : localRestingHr
+      ? '삼성 헬스 · 오늘'
       : !consented
       ? null
-      : ready
-      ? '오늘 워치 기록 없음'
-      : '준비도 계산 후 표시';
+      : (phoneSleep && phoneRestingHrNote(phoneSleep)) ??
+        (ready ? '오늘 워치 기록 없음' : '준비도 계산 후 표시');
+  const connect =
+    consented &&
+    phoneSleep &&
+    ((needsAccess(phoneSleep.access) && !r02Sleep) ||
+      (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null));
   const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
   const weeklyLoadSub =
     weeklyLoad !== null ? today.weeklyLoadLabel : consented ? '수집 전' : null;

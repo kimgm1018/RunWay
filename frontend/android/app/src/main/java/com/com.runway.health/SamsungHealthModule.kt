@@ -65,6 +65,34 @@ class SamsungHealthModule(private val app: ReactApplicationContext) : ReactConte
     val ok = sleepPrefs.edit().apply { if (json == null) remove("state") else putString("state", json) }.commit()
     promise.resolve(ok)
   }
+  private val heartRatePermission get() = Permission.of(DataTypes.HEART_RATE, AccessType.READ)
+
+  /** S15P31E105-600: heart rate read permission state for the resting heart rate flow (granted / required / unavailable). */
+  @ReactMethod fun heartRateAccessStatus(promise: Promise) {
+    if (!installed()) { promise.resolve("unavailable"); return }
+    run(promise) { if (store.getGrantedPermissions(setOf(heartRatePermission)).contains(heartRatePermission)) "granted" else "required" }
+  }
+  /** Asks for sleep and/or heart rate read in one dialog. Resolves which of them are granted afterwards. */
+  @ReactMethod fun requestHealthAccess(metrics: ReadableArray, promise: Promise) = run(promise) {
+    val activity = app.currentActivity ?: throw IllegalStateException()
+    val wanted = (0 until metrics.size()).mapNotNull { metrics.getString(it) }.toSet()
+    val asked = buildSet {
+      if ("sleep" in wanted) add(sleepPermission)
+      if ("heartRate" in wanted) add(heartRatePermission)
+    }
+    if (asked.isEmpty()) throw IllegalArgumentException()
+    val granted = store.requestPermissions(asked, activity)
+    Arguments.createMap().apply {
+      if ("sleep" in wanted) putBoolean("sleep", granted.contains(sleepPermission))
+      if ("heartRate" in wanted) putBoolean("heartRate", granted.contains(heartRatePermission))
+    }
+  }
+  /** App-private JSON state for resting heart rate upload bookkeeping. Holds dates and bpm only, never logged. */
+  @ReactMethod fun loadRestingHrState(promise: Promise) { promise.resolve(sleepPrefs.getString("restingHrState", null)) }
+  @ReactMethod fun saveRestingHrState(json: String?, promise: Promise) {
+    val ok = sleepPrefs.edit().apply { if (json == null) remove("restingHrState") else putString("restingHrState", json) }.commit()
+    promise.resolve(ok)
+  }
   @ReactMethod fun requestReadAccess(promise: Promise) = run(promise) {
     val activity = app.currentActivity ?: throw IllegalStateException()
     store.requestPermissions(permissions, activity)

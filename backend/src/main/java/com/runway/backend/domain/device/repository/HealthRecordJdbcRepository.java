@@ -45,10 +45,11 @@ public class HealthRecordJdbcRepository {
     }
 
     /**
-     * 날짜별 추정값을 저장된 revision보다 클 때만 넣거나 갱신한다. 비교는 이 문장 안에서 하므로 같은 날짜의 동시 요청도 충돌 행을 잠근 뒤 최신 행으로
-     * 다시 판정되어 최종값은 가장 큰 revision이다. 다른 건강 컬럼은 바꾸지 않는다.
+     * 날짜별 워치 추정값을 저장된 워치 revision보다 클 때, 또는 저장된 값이 워치 값이 아닐 때(삼성 헬스 값·미저장) 넣거나 갱신한다(워치 우선,
+     * S15P31E105-600). 비교는 이 문장 안에서 하므로 같은 날짜의 동시 요청도 충돌 행을 잠근 뒤 최신 행으로 다시 판정되어 최종값은 가장 큰
+     * revision의 워치 값이다. 다른 건강 컬럼은 바꾸지 않는다.
      *
-     * @return 삽입 또는 갱신했으면 true, 저장된 revision이 같거나 커서 바꾸지 않았으면 false
+     * @return 삽입 또는 갱신했으면 true, 저장된 워치 revision이 같거나 커서 바꾸지 않았으면 false
      */
     public boolean upsertRestingHr(
             long userId, LocalDate metricDate, BigDecimal restingHrBpm, int revision) {
@@ -56,11 +57,13 @@ public class HealthRecordJdbcRepository {
                         () ->
                                 jdbc.queryForList(
                                         """
-                                        INSERT INTO daily_health_metrics(user_id, metric_date, rhr_bpm, rhr_revision)
-                                        VALUES (?, ?, ?, ?)
+                                        INSERT INTO daily_health_metrics(user_id, metric_date, rhr_bpm, rhr_revision, rhr_source)
+                                        VALUES (?, ?, ?, ?, 'RUNWAY_WATCH')
                                         ON CONFLICT ON CONSTRAINT uq_daily_health_metrics_user_id_metric_date
-                                        DO UPDATE SET rhr_bpm = EXCLUDED.rhr_bpm, rhr_revision = EXCLUDED.rhr_revision
-                                        WHERE daily_health_metrics.rhr_revision IS NULL
+                                        DO UPDATE SET rhr_bpm = EXCLUDED.rhr_bpm, rhr_revision = EXCLUDED.rhr_revision,
+                                                      rhr_source = EXCLUDED.rhr_source
+                                        WHERE daily_health_metrics.rhr_source = 'SAMSUNG_HEALTH'
+                                           OR daily_health_metrics.rhr_revision IS NULL
                                            OR daily_health_metrics.rhr_revision < EXCLUDED.rhr_revision
                                         RETURNING id
                                         """,
@@ -69,6 +72,36 @@ public class HealthRecordJdbcRepository {
                                         metricDate,
                                         restingHrBpm,
                                         revision))
+                .isEmpty();
+    }
+
+    /**
+     * 삼성 헬스 심박으로 폰이 계산한 날짜별 안정 심박을 넣거나, 저장된 값이 삼성 헬스 값이고 다를 때만 갱신한다(마지막 값 우선, revision 없음).
+     * 저장된 값이 워치 값이거나 출처 없이 값만 있으면(W06 밖에서 넣은 값, V25 이전과 같게 취급) 바꾸지 않는다(워치 우선, S15P31E105-600). 조건은 이 문장 안에서 판정하므로 같은 날짜의 워치 요청이 먼저 커밋되면
+     * 충돌 행을 잠근 뒤 최신 행으로 다시 판정되어 워치 값을 덮어쓰지 않는다. 다른 건강 컬럼은 바꾸지 않는다.
+     *
+     * @return 삽입 또는 갱신했으면 true, 워치 값이 있거나 저장값과 같아 바꾸지 않았으면 false
+     */
+    public boolean upsertSamsungRestingHr(
+            long userId, LocalDate metricDate, BigDecimal restingHrBpm) {
+        return !db(
+                        () ->
+                                jdbc.queryForList(
+                                        """
+                                        INSERT INTO daily_health_metrics(user_id, metric_date, rhr_bpm, rhr_revision, rhr_source)
+                                        VALUES (?, ?, ?, NULL, 'SAMSUNG_HEALTH')
+                                        ON CONFLICT ON CONSTRAINT uq_daily_health_metrics_user_id_metric_date
+                                        DO UPDATE SET rhr_bpm = EXCLUDED.rhr_bpm, rhr_revision = NULL,
+                                                      rhr_source = EXCLUDED.rhr_source
+                                        WHERE daily_health_metrics.rhr_bpm IS NULL
+                                           OR (daily_health_metrics.rhr_source = 'SAMSUNG_HEALTH'
+                                               AND daily_health_metrics.rhr_bpm IS DISTINCT FROM EXCLUDED.rhr_bpm)
+                                        RETURNING id
+                                        """,
+                                        Long.class,
+                                        userId,
+                                        metricDate,
+                                        restingHrBpm))
                 .isEmpty();
     }
 

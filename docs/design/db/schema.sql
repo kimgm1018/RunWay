@@ -305,7 +305,8 @@ CREATE TABLE "daily_health_metrics" (
 	"max_heart_rate"	NUMERIC(7,2)		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
 	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"rhr_revision"	INTEGER		NULL
+	"rhr_revision"	INTEGER		NULL,
+	"rhr_source"	VARCHAR(20)		NULL
 );
 
 COMMENT ON COLUMN "daily_health_metrics"."id" IS '일별 건강 ID';
@@ -327,6 +328,8 @@ COMMENT ON COLUMN "daily_health_metrics"."created_at" IS '생성일시';
 COMMENT ON COLUMN "daily_health_metrics"."updated_at" IS '수정일시';
 
 COMMENT ON COLUMN "daily_health_metrics"."rhr_revision" IS 'rhr_bpm 워치 추정값의 revision. 같은 날짜는 더 큰 revision만 rhr_bpm을 갱신. 미저장 시 NULL';
+
+COMMENT ON COLUMN "daily_health_metrics"."rhr_source" IS 'rhr_bpm 출처. RUNWAY_WATCH(워치 추정) 또는 SAMSUNG_HEALTH(삼성 헬스 심박으로 폰 계산). 미저장·출처 미상이면 NULL';
 
 CREATE TABLE "posts" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -1132,6 +1135,9 @@ ALTER TABLE "coaching_decisions" ADD CONSTRAINT "ck_coaching_decisions_coaching_
 
 ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_revision"
     CHECK ("rhr_revision" IS NULL OR "rhr_revision" >= 1);
+
+ALTER TABLE "daily_health_metrics" ADD CONSTRAINT "ck_daily_health_metrics_rhr_source"
+    CHECK ("rhr_source" IS NULL OR "rhr_source" IN ('RUNWAY_WATCH', 'SAMSUNG_HEALTH'));
 
 ALTER TABLE "user_follows" ADD CONSTRAINT "ck_user_follows_values"
     CHECK (

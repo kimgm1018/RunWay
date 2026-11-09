@@ -137,6 +137,88 @@ class HealthRecordSyncConcurrencyIntegrationTest extends HealthRecordSyncIntegra
         }
     }
 
+    /**
+     * S15P31E105-600 AC-4c. 같은 날짜에 워치 추정값과 삼성 헬스 안정 심박이 동시에 와도, 어느 쪽이 먼저 커밋되든 최종 출처는 워치다. 삼성 값이
+     * 먼저 커밋되면 워치가 덮어쓰고, 워치가 먼저면 삼성 upsert가 충돌 행을 다시 판정해 바꾸지 않는다.
+     */
+    @RepeatedTest(20)
+    void 같은_날짜의_워치와_삼성_안정_심박이_동시에_와도_워치_값이_남는다() throws Exception {
+        String watch = healthBody(estimate(today(), 1, "58.4"));
+        String samsung = sleepBody(restingHr(today(), "52.0"));
+
+        List<String> results =
+                runTogether(List.of(() -> syncBody(userId, samsung), () -> syncBody(userId, watch)));
+
+        assertThat(results).containsOnly("OK");
+        assertThat(count("SELECT count(*) FROM daily_health_metrics")).isEqualTo(1);
+        assertThat(metricRows(userId, today()).get(0))
+                .containsEntry("rhr_source", "RUNWAY_WATCH")
+                .containsEntry("rhr_revision", 1);
+    }
+
+    private String syncCounted(long user, String body) {
+        HealthRecordSyncRequest request =
+                HealthRecordSyncRequest.parse(body.getBytes(StandardCharsets.UTF_8), today());
+        HealthRecordSyncResponse response = service.sync(user, request);
+        return response.acceptedCount() == 1 ? "ACCEPTED" : "DUPLICATE";
+    }
+
+    /** 다른 트랜잭션이 같은 날짜 행을 넣고 아직 커밋하지 않은 상태를 만든다(리뷰 A-8·B-3: 커밋 순서 고정). */
+    private static void insertUncommitted(Connection holder, long user, String source)
+            throws Exception {
+        holder.setAutoCommit(false);
+        try (PreparedStatement insert =
+                holder.prepareStatement(
+                        "INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,rhr_revision,rhr_source)"
+                                + " VALUES (?,?,?,?,?)")) {
+            boolean watch = "RUNWAY_WATCH".equals(source);
+            insert.setLong(1, user);
+            insert.setObject(2, today());
+            insert.setBigDecimal(3, new java.math.BigDecimal(watch ? "58.4" : "52.0"));
+            insert.setObject(4, watch ? 1 : null, java.sql.Types.INTEGER);
+            insert.setString(5, source);
+            insert.executeUpdate();
+        }
+    }
+
+    /** 워치 값이 먼저 커밋되면, 그 행을 기다리던 삼성 upsert는 커밋된 행으로 다시 판정해 바꾸지 않는다(duplicate). */
+    @Test
+    void 워치가_먼저_커밋되면_기다리던_삼성_안정_심박은_duplicate다() throws Exception {
+        try (Connection holder = dataSource.getConnection()) {
+            insertUncommitted(holder, userId, "RUNWAY_WATCH");
+            CompletableFuture<String> samsung =
+                    CompletableFuture.supplyAsync(
+                            () -> syncCounted(userId, sleepBody(restingHr(today(), "52.0"))));
+            waitForLockWait();
+            assertThat(samsung).isNotDone();
+            holder.commit();
+
+            assertThat(samsung.get(10, TimeUnit.SECONDS)).isEqualTo("DUPLICATE");
+        }
+        assertThat(metricRows(userId, today()).get(0))
+                .containsEntry("rhr_source", "RUNWAY_WATCH")
+                .containsEntry("rhr_revision", 1);
+    }
+
+    /** 삼성 값이 먼저 커밋되면, 그 행을 기다리던 워치 upsert는 삼성 값을 덮어쓴다. */
+    @Test
+    void 삼성이_먼저_커밋되면_기다리던_워치_값이_덮어쓴다() throws Exception {
+        try (Connection holder = dataSource.getConnection()) {
+            insertUncommitted(holder, userId, "SAMSUNG_HEALTH");
+            CompletableFuture<String> watch =
+                    CompletableFuture.supplyAsync(
+                            () -> syncCounted(userId, healthBody(estimate(today(), 1, "58.4"))));
+            waitForLockWait();
+            assertThat(watch).isNotDone();
+            holder.commit();
+
+            assertThat(watch.get(10, TimeUnit.SECONDS)).isEqualTo("ACCEPTED");
+        }
+        assertThat(metricRows(userId, today()).get(0))
+                .containsEntry("rhr_source", "RUNWAY_WATCH")
+                .containsEntry("rhr_revision", 1);
+    }
+
     /** 철회 트랜잭션이 회원 행을 잡고 있으면 W06은 기다렸다가 커밋된 철회를 읽고 403으로 끝난다. */
     @Test
     void 먼저_시작한_동의_철회가_커밋되면_기다리던_W06은_저장하지_않는다() throws Exception {

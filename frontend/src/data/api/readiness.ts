@@ -11,6 +11,8 @@ type ReadinessResponse = {
   readinessDate: string;
   readinessConfidence: 'HIGH' | 'MEDIUM' | 'LOW' | null;
   restingHrBpm: number | null;
+  // S15P31E105-600: where the resting heart rate came from; null without a value or a known source.
+  restingHrSource?: 'RUNWAY_WATCH' | 'SAMSUNG_HEALTH' | null;
   sleepDurationMin: number | null;
   healthUpdatedAt: string | null;
 };
@@ -41,6 +43,12 @@ async function latestReadiness(): Promise<Latest> {
     throw error;
   }
 }
+
+// 2.1 names the source under the resting heart rate (2026-11-09 사용자 결정 D-9).
+const restingHrSourceLabels: Record<string, string> = {
+  RUNWAY_WATCH: 'RunWay 워치',
+  SAMSUNG_HEALTH: '삼성 헬스',
+};
 
 const round = (value: number | null | undefined) =>
   value === null || value === undefined ? null : Math.round(value);
@@ -79,6 +87,10 @@ export function createReadinessApi({ now }: { now: () => Date }) {
         readinessScore: Math.round(response.readinessScore),
         sleepMinutes: round(response.sleepDurationMin),
         restingHeartRate: round(response.restingHrBpm),
+        restingHeartRateLabel:
+          response.restingHrBpm !== null && response.restingHrSource
+            ? restingHrSourceLabels[response.restingHrSource] ?? null
+            : null,
         syncedAt: response.healthUpdatedAt ?? null,
         lastAssessedDate: response.readinessDate,
       };

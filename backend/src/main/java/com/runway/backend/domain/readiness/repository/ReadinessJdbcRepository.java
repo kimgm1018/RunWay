@@ -130,7 +130,10 @@ public class ReadinessJdbcRepository {
                         """
                         SELECT r.id, r.readiness_score, r.readiness_date,
                                r.readiness_confidence::text AS confidence,
-                               m.rhr_bpm, m.sleep_duration_min, m.updated_at AS health_updated_at
+                               m.rhr_bpm,
+                               CASE WHEN m.rhr_bpm IS NULL THEN NULL ELSE m.rhr_source END AS rhr_source,
+                               m.sleep_duration_min,
+                               m.updated_at AS health_updated_at
                         FROM daily_readiness r
                         JOIN users u
                           ON u.id = r.user_id
@@ -151,6 +154,7 @@ public class ReadinessJdbcRepository {
                                     rs.getObject("readiness_date", LocalDate.class),
                                     rs.getString("confidence"),
                                     rs.getBigDecimal("rhr_bpm"),
+                                    rs.getString("rhr_source"),
                                     rs.getBigDecimal("sleep_duration_min"),
                                     healthUpdatedAt == null ? null : healthUpdatedAt.toInstant());
                         },
@@ -166,6 +170,7 @@ public class ReadinessJdbcRepository {
             LocalDate readinessDate,
             String confidence,
             BigDecimal restingHrBpm,
+            String restingHrSource,
             BigDecimal sleepDurationMin,
             Instant healthUpdatedAt) {}
 }

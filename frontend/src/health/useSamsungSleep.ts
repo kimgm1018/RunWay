@@ -6,7 +6,6 @@ import { tokenStore } from '../data/api/tokenStore';
 import {
   checkSleepAccess,
   readTodaySleep,
-  requestSleepAccess,
   resetSleepUploads,
   uploadSamsungSleep,
   type SleepAccess,
@@ -16,15 +15,28 @@ import {
   type TodaySleep,
 } from './samsungSleep';
 import { samsungSleepNative } from './samsungSleepNative';
+import {
+  checkHeartRateAccess,
+  readTodayRestingHr,
+  requestSamsungAccess,
+  type SamsungAccessRequest,
+  type TodayRestingHr,
+} from './samsungRestingHr';
+import {
+  requestSamsungHealthAccess,
+  samsungHeartNative,
+} from './samsungRestingHrNative';
 import { readServerHealthConsent } from './serverHealthConsent';
 
 export const sleepUploadIntervalMs = 30 * 60 * 1000;
 
 export function sleepUploadDeps(
   native: SleepNative = samsungSleepNative,
+  heart: SleepNative = samsungHeartNative,
 ): SleepUploadDeps {
   return {
     native,
+    heart,
     send: body =>
       apiRequest<SleepSyncResponse>('/health-records/sync', {
         method: 'POST',
@@ -42,11 +54,13 @@ export function sleepUploadDeps(
   };
 }
 
-// S15P31E105-572: Samsung Health sleep goes to W06 while signed in against the server: on sign-in, on returning to the
-// foreground and every 30 minutes. Signing out clears the sent marks so the next account sends its own.
+// S15P31E105-572·600: Samsung Health sleep and the phone's resting heart rate go to W06 in one request while signed in
+// against the server: on sign-in, on returning to the foreground and every 30 minutes. Signing out clears the sent
+// marks so the next account sends its own.
 export function useSamsungSleepUpload(
   signedIn: boolean,
   native: SleepNative = samsungSleepNative,
+  heart: SleepNative = samsungHeartNative,
 ) {
   const wasSignedIn = useRef(false);
   useEffect(() => {
@@ -54,6 +68,7 @@ export function useSamsungSleepUpload(
       // Only an actual sign-out clears them; a cold start before the session is restored keeps them.
       if (wasSignedIn.current) {
         void resetSleepUploads(native);
+        void resetSleepUploads(heart);
       }
       wasSignedIn.current = false;
       return;
@@ -63,7 +78,7 @@ export function useSamsungSleepUpload(
       return;
     }
     const upload = () => {
-      void uploadSamsungSleep(sleepUploadDeps(native));
+      void uploadSamsungSleep(sleepUploadDeps(native, heart));
     };
     upload();
     let previous = AppState.currentState;
@@ -82,25 +97,35 @@ export function useSamsungSleepUpload(
       subscription.remove();
       clearInterval(timer);
     };
-  }, [signedIn, native]);
+  }, [signedIn, native, heart]);
 }
 
 export type SamsungSleepView = {
   access: SleepAccess | null;
   today: TodaySleep | null;
+  // S15P31E105-600: heart rate read access and today's resting heart rate computed on this phone.
+  heartAccess: SleepAccess | null;
+  todayRestingHr: TodayRestingHr | null;
   requesting: boolean;
   request: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
-// Sleep access and today's phone sleep for 2.1 and settings. Re-checked when the app returns to the foreground,
-// so granting in Samsung Health and coming back shows the new state.
+// Sleep and heart rate access, today's phone sleep and resting heart rate for 2.1 and settings. Re-checked when the app
+// returns to the foreground, so granting in Samsung Health and coming back shows the new state. `request` asks for both
+// in one dialog (D-8).
 export function useSamsungSleep(
   native: SleepNative = samsungSleepNative,
   now: () => Date = () => new Date(),
+  heart: SleepNative = samsungHeartNative,
+  requestBoth: SamsungAccessRequest = requestSamsungHealthAccess,
 ): SamsungSleepView {
   const [access, setAccess] = useState<SleepAccess | null>(null);
   const [today, setToday] = useState<TodaySleep | null>(null);
+  const [heartAccess, setHeartAccess] = useState<SleepAccess | null>(null);
+  const [todayRestingHr, setTodayRestingHr] = useState<TodayRestingHr | null>(
+    null,
+  );
   const [requesting, setRequesting] = useState(false);
   const mounted = useRef(true);
   const nowRef = useRef(now);
@@ -112,11 +137,21 @@ export function useSamsungSleep(
       next === 'granted'
         ? await readTodaySleep(native, nowRef.current())
         : { status: next === 'unavailable' ? 'unavailable' : 'accessRequired' };
+    const nextHeart = await checkHeartRateAccess(heart);
+    const restingHr: TodayRestingHr =
+      nextHeart === 'granted'
+        ? await readTodayRestingHr(heart, nowRef.current())
+        : {
+            status:
+              nextHeart === 'unavailable' ? 'unavailable' : 'accessRequired',
+          };
     if (mounted.current) {
       setAccess(next);
       setToday(sleep);
+      setHeartAccess(nextHeart);
+      setTodayRestingHr(restingHr);
     }
-  }, [native]);
+  }, [native, heart]);
 
   useEffect(() => {
     mounted.current = true;
@@ -137,20 +172,32 @@ export function useSamsungSleep(
   const request = useCallback(async () => {
     setRequesting(true);
     try {
-      const next = await requestSleepAccess(native);
+      const next = await requestSamsungAccess(native, heart, requestBoth);
       if (mounted.current) {
-        setAccess(next);
+        setAccess(next.sleep);
+        setHeartAccess(next.heartRate);
       }
       await refresh();
-      if (next === 'granted' && appConfig.dataSource === 'api') {
-        void uploadSamsungSleep(sleepUploadDeps(native));
+      if (
+        (next.sleep === 'granted' || next.heartRate === 'granted') &&
+        appConfig.dataSource === 'api'
+      ) {
+        void uploadSamsungSleep(sleepUploadDeps(native, heart));
       }
     } finally {
       if (mounted.current) {
         setRequesting(false);
       }
     }
-  }, [native, refresh]);
+  }, [native, heart, requestBoth, refresh]);
 
-  return { access, today, requesting, request, refresh };
+  return {
+    access,
+    today,
+    heartAccess,
+    todayRestingHr,
+    requesting,
+    request,
+    refresh,
+  };
 }

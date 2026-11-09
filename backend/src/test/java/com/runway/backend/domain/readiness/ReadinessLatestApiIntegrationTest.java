@@ -163,6 +163,49 @@ class ReadinessLatestApiIntegrationTest extends ReadinessIntegrationSupport {
                 .andExpect(jsonPath("$.healthUpdatedAt").isString());
     }
 
+    /** S15P31E105-600 AC-6. 안정 심박 출처를 같은 행의 rhr_source로 반환한다. */
+    @Test
+    void 안정_심박_출처를_함께_반환한다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        insertRestingHrWithSource(userId, DAY, "57.30", "SAMSUNG_HEALTH");
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.restingHrBpm").value(57.30))
+                .andExpect(jsonPath("$.restingHrSource").value("SAMSUNG_HEALTH"));
+
+        jdbc.update(
+                "UPDATE daily_health_metrics SET rhr_source='RUNWAY_WATCH', rhr_revision=1"
+                        + " WHERE user_id=?",
+                userId);
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(jsonPath("$.restingHrSource").value("RUNWAY_WATCH"));
+    }
+
+    @Test
+    void 안정_심박이_없거나_출처가_없으면_출처는_null로_포함한다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(jsonPath("$", hasKey("restingHrSource")))
+                .andExpect(jsonPath("$.restingHrSource", nullValue()));
+
+        insertHealth(userId, DAY, "58", null);
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(jsonPath("$.restingHrBpm").value(58))
+                .andExpect(jsonPath("$", hasKey("restingHrSource")))
+                .andExpect(jsonPath("$.restingHrSource", nullValue()));
+
+        // 짝 CHECK가 없으므로 값 없이 출처만 남은 행도 출처를 반환하지 않는다(리뷰 A-7).
+        jdbc.update(
+                "UPDATE daily_health_metrics SET rhr_bpm=NULL, rhr_revision=NULL,"
+                        + " rhr_source='SAMSUNG_HEALTH' WHERE user_id=?",
+                userId);
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(jsonPath("$.restingHrBpm", nullValue()))
+                .andExpect(jsonPath("$.restingHrSource", nullValue()));
+    }
+
     @Test
     void 다른_회원의_같은_날짜_건강_지표는_반환하지_않는다() throws Exception {
         insertReadiness(userId, DAY, "75.50", "LOW");

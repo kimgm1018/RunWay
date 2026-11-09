@@ -192,3 +192,101 @@ describe('2.1 수면 부분 표시', () => {
     ).toEqual(['워치 동기화']);
   });
 });
+
+// S15P31E105-600 AC-6 (D-9): 안정 심박 shows R02's value with its source, then today's value computed on the phone from
+// Samsung Health heart rate, then why there is none.
+describe('2.1 안정 심박 출처·사유', () => {
+  const heart = (
+    heartAccess: PhoneSleep['heartAccess'],
+    restingHr: PhoneSleep['restingHr'],
+  ): PhoneSleep => ({ ...granted(400), heartAccess, restingHr });
+  const scored = { ...base, readinessState: 'ready' as const, readinessScore: 72, sleepMinutes: 401 };
+
+  it('shows the R02 value with its source label and not the phone value', () => {
+    const { all } = texts(
+      { ...scored, restingHeartRate: 58, restingHeartRateLabel: '삼성 헬스' },
+      heart('granted', { status: 'ready', date: '2026-11-09', bpm: 51.6 }),
+    );
+    expect(all).toContain('58 bpm');
+    expect(all).toContain('삼성 헬스');
+    expect(all).not.toContain('52 bpm');
+    expect(all).not.toContain('삼성 헬스 · 오늘');
+
+    const watch = texts(
+      { ...scored, restingHeartRate: 58, restingHeartRateLabel: 'RunWay 워치' },
+      heart('granted', { status: 'ready', date: '2026-11-09', bpm: 51.6 }),
+    ).all;
+    expect(watch).toContain('RunWay 워치');
+  });
+
+  it("shows today's phone value with its source when R02 has none (no score, or a score without it)", () => {
+    const phone = heart('granted', { status: 'ready', date: '2026-11-09', bpm: 51.6 });
+    for (const today of [base, scored, { ...base, readinessState: 'stale' as const }]) {
+      const { all } = texts(today, phone);
+      expect(all).toContain('52 bpm');
+      expect(all).toContain('삼성 헬스 · 오늘');
+    }
+  });
+
+  it.each([
+    ['denied', { status: 'accessRequired' }, '삼성 헬스 권한 거부됨'],
+    ['revoked', { status: 'accessRequired' }, '삼성 헬스 권한 해제됨'],
+    ['granted', { status: 'insufficient' }, '오늘 심박 기록 부족'],
+    ['granted', { status: 'error' }, '삼성 헬스 조회 실패'],
+  ] as const)('tells %s / %j apart under 안정 심박', (access, restingHr, note) => {
+    const { all } = texts(scored, heart(access, restingHr));
+    expect(all).toContain(note);
+    expect(all).not.toContain('오늘 워치 기록 없음');
+  });
+
+  it("does not call a value read before midnight today's (리뷰 B-1)", () => {
+    let screen!: TestRenderer.ReactTestRenderer;
+    act(() => {
+      screen = TestRenderer.create(
+        <ReadinessPanel
+          today={{ ...scored, date: '2026-11-10' }}
+          todayDay="2026-11-10"
+          phoneSleep={heart('granted', { status: 'ready', date: '2026-11-09', bpm: 51.6 })}
+        />,
+      );
+    });
+    const all = screen.root
+      .findAll(node => typeof node.props.children === 'string')
+      .map(node => node.props.children as string);
+    expect(all).not.toContain('52 bpm');
+    expect(all).not.toContain('삼성 헬스 · 오늘');
+  });
+
+  it.each([
+    [{ status: 'accessRequired' }, '삼성 헬스 권한 확인 필요'],
+    [{ status: 'unavailable' }, '삼성 헬스 사용 불가'],
+  ] as const)('tells a refused read %j apart even with access granted (리뷰 B-4)', (restingHr, note) => {
+    const { all } = texts(scored, heart('granted', restingHr));
+    expect(all).toContain(note);
+    expect(all).not.toContain('오늘 워치 기록 없음');
+  });
+
+  it('keeps the watch note when heart rate was never asked or Samsung Health is unavailable', () => {
+    expect(texts(scored, heart('notRequested', { status: 'accessRequired' })).all).toContain('오늘 워치 기록 없음');
+    expect(texts(scored, heart('unavailable', { status: 'unavailable' })).all).toContain('오늘 워치 기록 없음');
+  });
+
+  it('asks for Samsung Health access when heart rate access is missing even with sleep granted', () => {
+    expect(texts(scored, heart('notRequested', { status: 'accessRequired' })).buttons).toEqual(['삼성 헬스 연결']);
+    expect(
+      texts(
+        { ...scored, restingHeartRate: 58, restingHeartRateLabel: 'RunWay 워치' },
+        heart('notRequested', { status: 'accessRequired' }),
+      ).buttons,
+    ).not.toContain('삼성 헬스 연결');
+  });
+
+  it('shows no phone resting heart rate without server health consent', () => {
+    const { all } = texts(
+      { ...base, readinessState: 'permissionDenied' },
+      heart('granted', { status: 'ready', date: '2026-11-09', bpm: 51.6 }),
+    );
+    expect(all).not.toContain('52 bpm');
+    expect(all).not.toContain('삼성 헬스 · 오늘');
+  });
+});
