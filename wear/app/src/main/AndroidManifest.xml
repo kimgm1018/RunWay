@@ -79,6 +79,11 @@
                     android:host="*"
                     android:pathPrefix="/runway/v1/coaching/"
                     android:scheme="wear" />
+                <!-- S15P31E105-420: GROUP_STATUS, the G10 group standing relayed by the phone. -->
+                <data
+                    android:host="*"
+                    android:pathPrefix="/runway/v1/group/"
+                    android:scheme="wear" />
                 <data
                     android:host="*"
                     android:path="/runway/v1/error"

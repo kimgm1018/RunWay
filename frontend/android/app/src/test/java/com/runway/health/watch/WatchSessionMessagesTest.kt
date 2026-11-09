@@ -140,10 +140,13 @@ class WatchSessionMessagesTest {
   }
 
   @Test
-  fun `JS may send on session paths, ERROR and COACHING_GUIDE only`() {
+  fun `JS may send on session paths, ERROR, COACHING_GUIDE and GROUP_STATUS only`() {
     assertTrue(isSendablePath(COMMAND_PATH))
+    assertTrue(isSendablePath("/runway/v1/session/server-end"))
     assertTrue(isSendablePath(ERROR_PATH))
     assertTrue(isSendablePath(COACHING_GUIDE_PATH))
+    assertTrue(isSendablePath(GROUP_STATUS_PATH))
+    assertFalse(isSendablePath("/runway/v1/group/other"))
     assertFalse(isSendablePath(COACHING_RESULT_PATH))
     assertFalse(isSendablePath("/runway/v1/coaching/other"))
     assertFalse(isSendablePath("/runway/v1/data/batch"))

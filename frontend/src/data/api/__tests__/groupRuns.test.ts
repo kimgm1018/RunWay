@@ -846,6 +846,8 @@ test('G14 maps completed, pending and missing records without synthetic group to
     maxGapM: null,
     analysisStatus: 'PROCESSING',
     hasUnconfirmedStarts: true,
+    // G07 본인 항목에 세션이 없으면 공유할 기록을 짐작하지 않는다.
+    mySessionId: null,
     participants: [
       { userId: '101', state: 'FINISHED', isMe: true, durationSec: 1800 },
       {
@@ -857,6 +859,30 @@ test('G14 maps completed, pending and missing records without synthetic group to
       },
     ],
   });
+});
+
+test('G14 result carries my session so sharing opens my own group run record', async () => {
+  // 실기기 E2E: 그룹원의 기록 공유가 "최근 기록"을 짐작해 불러오다 실패했다(S15P31E105-420).
+  serve(path =>
+    path === '/group-runs/61/participants'
+      ? respond(200, {
+          items: [
+            { userId: 9, nickname: '하린', isHost: false, readyStatus: 'READY', sessionId: 31 },
+            { userId: 101, nickname: '민준', isHost: true, readyStatus: 'READY', sessionId: 900 },
+          ],
+          participantCount: 2,
+          readyCount: 2,
+        })
+      : path.endsWith('/results')
+      ? respond(200, {
+          targetDistanceM: null,
+          analysis: { status: 'PENDING' },
+          hasUnconfirmedStarts: false,
+          participants: [],
+        })
+      : undefined,
+  );
+  expect((await api().groupRuns.getResult('61')).mySessionId).toBe('900');
 });
 
 test('mock runs stay on the mock', async () => {

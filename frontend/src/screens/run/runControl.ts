@@ -18,6 +18,8 @@ import type {
   WatchSessionEvent,
 } from '../../data/types';
 
+// 그룹 출발·종료 중계(S15P31E105-420): 그룹런 참가 세션도 같은 경로를 쓴다. G16이 만든 READY 세션에 joinGroup으로 붙어
+// 워치를 준비시키고, 서버가 직접 승인한 명령(G09 START, G12 END)을 S10 스냅샷에서 받아 워치에 전달한 뒤 실제 결과를 보고한다.
 // 개인 러닝(자유·코스)의 세션 제어. 서버 승인(REQUEST) → 워치 실행 → 실제 결과 저장(RESULT) 순서로만 상태를 바꾼다.
 // 승인 응답이나 워치 수신 확인만으로 시작·일시정지·종료를 확정하지 않는다(sessions.md 세션 제어 공통 계약).
 
@@ -96,6 +98,11 @@ export type RunControl = {
   prepare: (goal: SessionGoalDraft) => Promise<void>;
   // 앱 재실행 뒤 기존 세션에 다시 붙는다. 수신함에 남은 워치 결과가 있으면 서버에 보고한다.
   attach: (sessionId: string) => Promise<void>;
+  // 그룹런 대기방 준비 완료(G16)로 서버가 만든 READY 세션에 붙어 워치를 그룹 목표로 준비시킨다(S15P31E105-420).
+  // 출발은 그룹장의 G09가 승인하며 여기서 START를 요청하지 않는다.
+  joinGroup: (sessionId: string, goal: SessionGoalDraft, groupRunId: string) => Promise<void>;
+  // 서버 상태(S02)를 다시 읽어 반영하고 워치에도 알린다. 준비 해제로 서버가 세션을 취소했을 때 쓴다.
+  sync: () => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   finish: () => Promise<void>;
@@ -131,6 +138,8 @@ type Deps = {
     // 폰 기록(인계 후) batch 주기·종료 마무리 상한.
     phoneFlushMs?: number;
     phoneFinishWaitMs?: number;
+    // 그룹 세션의 S02 조회 주기(S15P31E105-420). S10이 오지 않아도 서버가 승인한 출발·종료를 찾는다.
+    groupPollMs?: number;
   };
 };
 
@@ -140,6 +149,8 @@ type CoachingResultEvent = Extract<WatchSessionEvent, { type: 'COACHING_RESULT' 
 const noop = () => undefined;
 
 const TERMINAL: SessionStatus[] = ['COMPLETED', 'CANCELLED', 'INTERRUPTED'];
+// SERVER_END.reason(9.3): 그룹장이 그룹 전체를 끝냈다(G12).
+const GROUP_END_REASON = 'GROUP_FORCE_FINISHED';
 // 응답 없음(NETWORK_ERROR)·서버 장애(SERVER_ERROR, 5xx). 같은 요청으로만 재시도하며 서버는 같은 요청을 같은 결과로 답한다.
 const RETRYABLE: DataErrorCode[] = ['NETWORK_ERROR', 'SERVER_ERROR'];
 const RESYNC: DataErrorCode[] = ['STALE_STATE', 'CONTROL_DEVICE_CHANGED', 'INVALID_SESSION_STATE'];
@@ -213,6 +224,7 @@ export function createRunControl({
   const guideTries = timers?.guideTries ?? 3;
   const watchCheckMs = timers?.watchCheckMs ?? 10_000;
   const watchQuietMs = timers?.watchQuietMs ?? 30_000;
+  const groupPollMs = timers?.groupPollMs ?? 3_000;
 
   let state = initialState;
   let devices: LinkedDevices | null = null;
@@ -242,6 +254,15 @@ export function createRunControl({
   const coachingSaved = new Map<string, number>();
   // 세션에 붙기 전에 도착한 코칭 결과(앱 재실행 뒤 수신함).
   const earlyCoaching = new Map<string, CoachingResultEvent>();
+  // ── 그룹런 참가 세션(S15P31E105-420). 그룹이면 서버가 직접 승인한 START를 워치에 전달한다.
+  let groupRunId: string | null = null;
+  // S02 groupEndedAt. 있으면 그룹이 끝났고, 대기 중인 END는 서버의 그룹 종료 명령이다.
+  let groupEndedAt: string | null = null;
+  // 그룹 종료 END 명령(commandId → 그룹 종료 기준시각). 워치에는 SERVER_END로 보낸다.
+  const serverEnds = new Map<string, string>();
+  // 그룹 세션의 S02 주기 조회. S10은 중간 프록시 설정에 따라 도착하지 않을 수 있어(실기기 E2E) 같은 스냅샷 처리로 보완한다.
+  let groupTimer: ReturnType<typeof setInterval> | null = null;
+  let groupPolling = false;
   let stopEvents: (() => void) | null = null;
   let eventsFor: string | null = null;
   // ── 폰 인계 후 폰 기록(S15P31E105-464).
@@ -383,12 +404,47 @@ export function createRunControl({
     syncEvents();
     syncPhone();
     syncWatchCheck();
+    syncGroupPoll();
   };
+
+  // 그룹 참가 세션이 끝나기 전까지 S02를 주기적으로 읽어 S10 스냅샷과 같이 처리한다. 다른 조작 중에는 건너뛴다.
+  function syncGroupPoll() {
+    const want =
+      !disposed &&
+      groupRunId !== null &&
+      !!state.sessionId &&
+      !!state.status &&
+      !TERMINAL.includes(state.status);
+    if (want && groupTimer === null) {
+      groupTimer = setInterval(() => {
+        pollGroup().catch(noop);
+      }, groupPollMs);
+      (groupTimer as unknown as { unref?: () => void }).unref?.();
+    } else if (!want && groupTimer !== null) {
+      clearInterval(groupTimer);
+      groupTimer = null;
+    }
+  }
+
+  async function pollGroup() {
+    const sessionId = state.sessionId;
+    if (disposed || busy || groupPolling || !sessionId) {
+      return;
+    }
+    groupPolling = true;
+    try {
+      const view = await session.get(sessionId);
+      onSnapshot({ event: 'POLL', session: view, reconnected: false });
+    } finally {
+      groupPolling = false;
+    }
+  }
 
   // 서버 상태를 한 번에 반영한다. extra로 진행 표시를 함께 바꿔 "운동 중인데 시작 확인 중" 같은 중간 상태를 내보내지 않는다.
   const applyView = (view: RunningSessionView, extra: Partial<RunControlState> = {}) => {
     controlDeviceId = view.controlDeviceId;
     relayDeviceId = view.relayDeviceId;
+    groupEndedAt = view.groupEndedAt ?? null;
     setState({
       // 다른 세션에 붙으면 이전 세션의 실측값을 남기지 않는다.
       ...(view.sessionId !== state.sessionId ? { live: null } : {}),
@@ -587,6 +643,7 @@ export function createRunControl({
   }
 
   // 승인 명령을 워치에 보내고 실제 결과를 기다린다. 결과가 없으면 미확인으로 남기고 서버에 아무것도 보고하지 않는다.
+  // 그룹 종료 END는 SERVER_END로 보낸다(9.3). 워치는 어느 쪽이든 같은 commandId를 한 번만 실행한다.
   async function deliver(approval: CommandApproval) {
     inflight = approval;
     const sessionId = state.sessionId as string;
@@ -594,7 +651,17 @@ export function createRunControl({
       approval.commandId,
       approval.action === 'END' ? endResultWaitMs : resultWaitMs,
     );
-    await watch.sendCommand(sessionId, approval).catch(() => undefined);
+    const endedAt = serverEnds.get(approval.commandId);
+    const sending =
+      endedAt !== undefined && watch.sendServerEnd
+        ? watch.sendServerEnd(sessionId, {
+            commandId: approval.commandId,
+            expectedVersion: approval.expectedVersion,
+            endedAt,
+            reason: GROUP_END_REASON,
+          })
+        : watch.sendCommand(sessionId, approval);
+    await sending.catch(() => undefined);
     const event = await waiting;
     if (!event) {
       setState({
@@ -837,14 +904,91 @@ export function createRunControl({
     attempt(1);
   }
 
+  // 서버가 폰의 요청 없이 승인한 명령(S15P31E105-420): 그룹장의 G09 출발 START와 G12 그룹 종료 END.
+  // 결과가 PENDING인 것만 전달한다. UNKNOWN은 워치가 이미 답한 명령이라 재확인(recheck)으로만 다시 보낸다.
+  // 그룹이 끝났거나 세션이 READY가 아니면 START를 전달하지 않는다(watch-mobile-server-integration.md 시작 응답 복구).
+  function serverCommandOf(view: RunningSessionView): CommandApproval | null {
+    const pending = view.pendingCommand;
+    if (!pending || pending.result !== 'PENDING') {
+      return null;
+    }
+    const start =
+      pending.action === 'START' &&
+      groupRunId !== null &&
+      view.state === 'READY' &&
+      !view.groupEndedAt;
+    const end = pending.action === 'END' && !!view.groupEndedAt;
+    if (!start && !end) {
+      return null;
+    }
+    if (end) {
+      serverEnds.set(pending.commandId, view.groupEndedAt as string);
+    }
+    return {
+      commandId: pending.commandId,
+      action: pending.action as ControlAction,
+      expectedVersion: pending.expectedVersion,
+      result: 'PENDING',
+    };
+  }
+
+  // 서버가 승인한 명령을 한 번만 맡아 다른 조작이 끝난 뒤 전달한다. 같은 commandId는 결과를 보고할 때까지 다시 맡지 않는다.
+  // 폰으로 기록을 넘긴 세션의 그룹 종료는 폰이 직접 실행하고 보고한다(sessions.md SERVER_END).
+  function relayServerCommand(view: RunningSessionView) {
+    const approval = serverCommandOf(view);
+    if (
+      !approval ||
+      inflight?.commandId === approval.commandId ||
+      reported.has(approval.commandId)
+    ) {
+      return;
+    }
+    inflight = approval;
+    const work = async () => {
+      if (inflight?.commandId !== approval.commandId) {
+        return;
+      }
+      // 기다리는 동안 다른 세션으로 바뀌었으면 맡은 명령을 놓는다. 남겨 두면 이후 명령이 모두 막힌다.
+      if (state.sessionId !== view.sessionId) {
+        inflight = null;
+        return;
+      }
+      setState({ pending: { action: approval.action, commandId: approval.commandId }, problem: null });
+      if (phoneMode()) {
+        await executePhone(approval);
+        return;
+      }
+      await deliver(approval);
+    };
+    const go = () => {
+      if (disposed) {
+        return;
+      }
+      if (busy) {
+        busy.then(go, go);
+        return;
+      }
+      run(work);
+    };
+    go();
+  }
+
   // S10 스냅샷마다 워치에 STATE_RESULT(scope=SERVER)를 보내고(D-8), 승인된 코칭 명령을 COACHING_GUIDE로 전달한다.
   // 미확정 명령(pendingCommand.coachingGuide)이 있으면 만료됐어도 결과 확인용으로 먼저 보낸다(만료된 코칭의 결과 확인).
-  // SERVER_END는 그룹런 업무(S15P31E105-268) 범위라 워치에 따로 전달하지 않는다.
+  // 서버가 직접 승인한 그룹 출발·종료 명령은 워치에 전달한다(S15P31E105-420).
   function onSnapshot({ session: view, reconnected }: SessionSnapshot) {
     if (disposed || view.sessionId !== state.sessionId) {
       return;
     }
     const sessionId = view.sessionId;
+    if (view.stateVersion >= state.stateVersion) {
+      groupEndedAt = view.groupEndedAt ?? null;
+    }
+    // 그룹 참가 세션은 그룹장이 바꾼 상태(출발 전 취소 등)를 폰 조작 없이도 반영한다. 진행 중인 조작이 있으면 그 결과가 맞춘다.
+    if (groupRunId !== null && !busy && !inflight && view.stateVersion > state.stateVersion) {
+      applyView(view);
+      settleActive().catch(noop);
+    }
     // 기록 비교는 batch 저장마다 같은 버전으로 온다(sessions.md S10). 더 오래된 버전으로는 되돌리지 않는다.
     if (view.stateVersion >= state.stateVersion) {
       setState({
@@ -854,6 +998,7 @@ export function createRunControl({
       });
     }
     watch.sendServerState(sessionId, view, null).catch(noop);
+    relayServerCommand(view);
     if (view.recordingMode === 'PHONE_FALLBACK') {
       return;
     }
@@ -939,6 +1084,7 @@ export function createRunControl({
       stateVersion,
       deviceId: controlDeviceId ?? devices?.watchDeviceId ?? '',
       goal,
+      groupRunId,
     });
     const ready = prepared.ready && prepared.stateVersion === stateVersion;
     await call(() =>
@@ -1025,20 +1171,40 @@ export function createRunControl({
       return;
     }
     const action = pending.action as ControlAction;
-    inflight = {
+    const approval: CommandApproval = {
       commandId: pending.commandId,
       action,
       expectedVersion: pending.expectedVersion,
       result: pending.result,
     };
+    inflight = approval;
     setState({ pending: { action, commandId: pending.commandId } });
     const event = early.get(pending.commandId);
     if (event) {
       early.delete(pending.commandId);
       await report(action, event);
+    } else if (serverCommandOf(view)?.commandId === pending.commandId && view.recordingMode !== 'PHONE_FALLBACK') {
+      // 서버가 승인한 그룹 출발·종료가 아직 유효하다. 같은 명령을 다시 보내 워치가 보관한 결과(또는 첫 실행 결과)를 받는다.
+      await deliver(approval);
     } else {
       setState({ problem: { kind: 'unconfirmed', action } });
     }
+  }
+
+  // G16 READY 세션에 붙는다. 워치가 없으면 준비하지 않고 알린다. 이미 출발 명령이 있으면 attachTo가 전달한다.
+  async function joinGroupFlow(sessionId: string, goal: SessionGoalDraft, group: string) {
+    groupRunId = group;
+    devices = await watch.getLinkedDevices();
+    await attachTo(sessionId);
+    lastGoal = goal;
+    if (state.sessionId !== sessionId || state.status !== 'READY' || inflight) {
+      return;
+    }
+    if (!devices) {
+      setState({ problem: { kind: 'watchRequired' } });
+      return;
+    }
+    await prepareWatch(goal);
   }
 
   async function doCancel(notifyWatch: boolean) {
@@ -1318,9 +1484,32 @@ export function createRunControl({
         }
       }),
     attach: sessionId => run(() => attachTo(sessionId)),
+    joinGroup: (sessionId, goal, group) => run(() => joinGroupFlow(sessionId, goal, group)),
+    sync: () =>
+      run(async () => {
+        if (!state.sessionId) {
+          return;
+        }
+        const sessionId = state.sessionId;
+        const view = await call(() => session.get(sessionId));
+        applyView(view);
+        await watch.sendServerState(sessionId, view, null).catch(noop);
+        await settleActive();
+      }),
     pause: () => run(() => control('PAUSE')),
     resume: () => run(() => control('RESUME')),
-    finish: () => run(() => control('END')),
+    finish: () =>
+      run(async () => {
+        // 그룹이 이미 끝났으면 서버가 만든 그룹 종료 END를 기다린다. 새 END를 요청하면 COMMAND_PENDING이 된다.
+        if (groupEndedAt && state.sessionId) {
+          const sessionId = state.sessionId;
+          const view = await call(() => session.get(sessionId));
+          applyView(view);
+          relayServerCommand(view);
+          return;
+        }
+        await control('END');
+      }),
     cancel: () => run(() => doCancel(false)),
     recheck: () =>
       run(async () => {
@@ -1359,6 +1548,10 @@ export function createRunControl({
       if (watchTimer !== null) {
         clearInterval(watchTimer);
         watchTimer = null;
+      }
+      if (groupTimer !== null) {
+        clearInterval(groupTimer);
+        groupTimer = null;
       }
       stopEvents?.();
       stopEvents = null;

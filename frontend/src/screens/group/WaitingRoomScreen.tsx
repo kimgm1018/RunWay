@@ -44,7 +44,11 @@ import {
   useTheme,
 } from '../../theme';
 import { ServiceMark, useMusicSource } from '../run/parts';
-import { useRunActions, type RunConfig } from '../run/RunSession';
+import {
+  useRunActions,
+  useRunControlState,
+  type RunConfig,
+} from '../run/RunSession';
 import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
 import { BottomFade, Initial } from './parts';
 import { BackButton } from '../../components/BackButton';
@@ -170,8 +174,9 @@ export function WaitingRoomScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
   const groupRunId = route.params?.groupRunId ?? 'gr-today';
   const { colors } = useTheme();
-  const { groupRuns, clock } = useRepositories();
-  const { start } = useRunActions();
+  const { groupRuns, clock, watchSession } = useRepositories();
+  const { start, joinGroup, leaveGroup } = useRunActions();
+  const control = useRunControlState();
   const source = useMusicSource();
   const data = useResource(
     useCallback(
@@ -197,6 +202,24 @@ export function WaitingRoomScreen() {
       setRoom(loadedRoom);
     }
   }, [loadedRoom]);
+
+  // 준비 완료로 서버가 만든 내 세션에 붙어 워치를 그룹 목표로 준비시킨다(S15P31E105-420). 출발은 그룹장의 G09가 승인하고
+  // 워치가 실제로 시작해야 확정된다. 다시 들어온 대기방도 같은 세션에 다시 붙는다.
+  const mySessionId = room?.mySessionId ?? null;
+  const goalPace = room?.goalPaceSecPerKm ?? null;
+  useEffect(() => {
+    if (run && mySessionId && goalPace !== null) {
+      joinGroup(groupRunConfig(run, goalPace), mySessionId);
+    }
+  }, [goalPace, joinGroup, mySessionId, run]);
+  const watchProblem =
+    control?.sessionId === mySessionId && mySessionId
+      ? control?.problem?.kind === 'watchRequired'
+        ? '워치가 연결되어 있지 않아요. 워치를 연결해야 함께 출발할 수 있어요.'
+        : control?.problem?.kind === 'watchNotReady'
+        ? '워치가 출발 준비를 하지 못했어요. 워치 앱을 열고 다시 준비해 주세요.'
+        : null
+      : null;
 
   const observeError = useCallback(
     (error: unknown) =>
@@ -321,7 +344,21 @@ export function WaitingRoomScreen() {
       return;
     readyBusy.current = true;
     try {
-      setRoom(await groupRuns.setReady(groupRunId, !isReady));
+      // G16은 서버에 연결된 워치·폰 기기로 세션을 만든다(없으면 DEVICE_NOT_FOUND). 준비 전에 연결 워치를 확인하고,
+      // 아직 없는 폰 기기는 이 확인에서 등록한다(S15P31E105-420). 목업 그룹런은 기기가 필요 없다.
+      if (!isReady && /^\d+$/.test(groupRunId)) {
+        const linked = await watchSession.getLinkedDevices();
+        if (!linked) {
+          toast('워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요');
+          return;
+        }
+      }
+      const next = await groupRuns.setReady(groupRunId, !isReady);
+      setRoom(next);
+      if (isReady) {
+        // 준비 해제: 서버가 취소한 세션 상태를 워치에 알리고 놓는다.
+        leaveGroup();
+      }
     } catch {
       toast(
         '준비 상태를 변경하지 못했어요. 대기방 상태를 확인한 뒤 다시 시도해 주세요',
@@ -366,6 +403,9 @@ export function WaitingRoomScreen() {
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
         <PaceCard room={room} />
+        {watchProblem ? (
+          <AppText accessibilityLiveRegion="polite">{watchProblem}</AppText>
+        ) : null}
         {watchError ? (
           <AppText accessibilityLiveRegion="polite" style={styles.inset}>
             {watchError}

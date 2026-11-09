@@ -12,6 +12,8 @@ export function createNativeWatchSession(): Repositories['watchSession'] {
     sendCommand: async () => undefined,
     sendBpmCommand: async () => undefined,
     sendCoachingGuide: async () => undefined,
+    sendServerEnd: async () => undefined,
+    sendGroupStatus: async () => undefined,
     sendReceived: async () => undefined,
     sendServerState: async () => undefined,
     sendError: async () => undefined,

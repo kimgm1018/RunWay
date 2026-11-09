@@ -69,10 +69,13 @@ const isServerId = (id: string) => /^\d+$/.test(id);
 type LiveResponse = {
   status: GroupRunSummary['status'];
   groupGuidePaceSecPerKm: number | null;
+  updatedAt?: string | null;
   loadAlert?: GroupRunLive['loadAlert'];
   participants: {
     userId: number;
     rank: number | null;
+    aheadCount?: number | null;
+    behindCount?: number | null;
     paceSecPerKm?: number | null;
     progressM: number | null;
     stale: boolean;
@@ -169,6 +172,12 @@ const placeAndTime = (draft: Omit<GroupRunDraft, 'crewId'>) => ({
   ...goalOf(draft),
 });
 
+// G07 본인 항목의 세션 ID(내 그룹런 기록). 없으면 null.
+function mySessionIdOf(loaded: { items: ParticipantItem[]; me: string }) {
+  const sessionId = loaded.items.find(item => String(item.userId) === loaded.me)?.sessionId;
+  return sessionId == null ? null : String(sessionId);
+}
+
 export function createGroupRunsApi({
   mock,
   crews,
@@ -257,9 +266,9 @@ export function createGroupRunsApi({
     run.goalPaceSecPerKm ?? (await usualPace()) ?? defaultPaceSecPerKm;
 
   async function waitingRoom(groupRunId: string): Promise<WaitingRoom> {
-    const { run, participants, participantCount, readyCount } = await load(
-      groupRunId,
-    );
+    const { run, participants, participantCount, readyCount, items, me } =
+      await load(groupRunId);
+    const mine = items.find(item => String(item.userId) === me);
     const [pace, course] = await Promise.all([
       goalPace(run),
       courseOf(run.courseId),
@@ -280,6 +289,11 @@ export function createGroupRunsApi({
       participantCount,
       readyCount,
       participants,
+      // G16이 만든 내 READY 세션. 워치 준비와 그룹 출발 중계에 쓴다(S15P31E105-420).
+      mySessionId:
+        mine?.readyStatus === 'READY' && mine.sessionId != null
+          ? String(mine.sessionId)
+          : null,
     };
   }
 
@@ -548,7 +562,10 @@ export function createGroupRunsApi({
               stale: item.stale,
               gapToAheadM: item.gapToAheadM,
               gapToBehindM: item.gapToBehindM,
+              aheadCount: item.aheadCount ?? null,
+              behindCount: item.behindCount ?? null,
             })),
+            updatedAt: value.updatedAt ?? null,
             spreadM:
               positions.length >= 2 &&
               positions.length === value.participants.length
@@ -615,6 +632,8 @@ export function createGroupRunsApi({
         maxGapM: null,
         analysisStatus: result.analysis.status,
         hasUnconfirmedStarts: result.hasUnconfirmedStarts,
+        // 공유는 내 기록을 지정해 연다. 최근 기록으로 짐작하면 다른 기록이 붙거나 불러오지 못한다.
+        mySessionId: mySessionIdOf(loaded),
         participants: rows,
       };
     },

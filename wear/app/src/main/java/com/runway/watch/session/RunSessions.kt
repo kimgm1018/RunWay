@@ -22,6 +22,9 @@ class RunSessions private constructor(context: Context) {
     private val store = PrefsSessionStore(context)
     private val sender = MessageClientSessionSender(context)
 
+    /** The latest measured values for the watch screen (S15P31E105-420). */
+    private val live = LiveReadings()
+
     /** Measurement batches of the run (S15P31E105-311); its own loop closes and resends them. */
     val uploader = BatchUploader(
         store = FileBatchStore(context),
@@ -31,7 +34,11 @@ class RunSessions private constructor(context: Context) {
     )
     val controller = WatchSessionController(
         store = store,
-        gateway = HealthServicesExerciseGateway(context, onReadings = { readings -> scope.launch { uploader.offer(readings) } }),
+        gateway = HealthServicesExerciseGateway(context, onReadings = { readings ->
+            // 같은 측정값을 화면에도 보인다(S15P31E105-420). 업로드 본문은 바꾸지 않는다.
+            live.offer(readings)
+            scope.launch { uploader.offer(readings) }
+        }),
         sender = sender,
         uploads = uploader,
         keepAlive = ServiceKeepAlive(context),
@@ -39,7 +46,7 @@ class RunSessions private constructor(context: Context) {
         player = WatchRhythmPlayer(context),
         log = { Log.i(TAG, it) },
     )
-    val control = SessionRunControl(controller, scope, uploader.state)
+    val control = SessionRunControl(controller, scope, uploader.state, live)
 
     /**
      * Controller messages run one at a time in arrival order, off the listener thread: an END waits up to 90 s for the
