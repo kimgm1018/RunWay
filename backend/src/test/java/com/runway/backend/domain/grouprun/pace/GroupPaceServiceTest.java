@@ -146,15 +146,16 @@ class GroupPaceServiceTest {
             runners.add(new GroupPaceRepository.Runner(20 + i, 30 + i, "RUNNING",
                     now.minusSeconds(600), false));
             live.add(new SessionReferenceRepository.GroupLiveRow(20 + i, "RUNNING", now,
-                    BigDecimal.valueOf(distances.get(i)), now, null));
+                    BigDecimal.valueOf(distances.get(i)), now, null, now));
         }
         // Paused and stale participants must not affect the median.
         runners.add(new GroupPaceRepository.Runner(90, 91, "PAUSED", now, false));
         live.add(new SessionReferenceRepository.GroupLiveRow(90, "PAUSED", now,
-                BigDecimal.valueOf(50000), now, null));
+                BigDecimal.valueOf(50000), now, null, now));
         runners.add(new GroupPaceRepository.Runner(92, 93, "RUNNING", now, false));
         live.add(new SessionReferenceRepository.GroupLiveRow(92, "RUNNING", now,
-                BigDecimal.valueOf(50000), now.minusSeconds(3600), null));
+                BigDecimal.valueOf(50000), now.minusSeconds(3600), null,
+                now.minusSeconds(3600)));
         when(fixture.states.runners(7)).thenReturn(runners);
         when(fixture.references.findGroupLiveRows(eq(7L), any())).thenReturn(live);
         assertThat(fixture.request().progressRatio()).isEqualTo(expected);
@@ -207,9 +208,11 @@ class GroupPaceServiceTest {
             when(states.reserve(7, token)).thenReturn(Optional.of(token));
             when(states.runners(7)).thenReturn(List.of(new GroupPaceRepository.Runner(9, 8,
                     "RUNNING", Instant.now().minusSeconds(600), true)));
+            Instant sampledAt = Instant.now();
             when(references.findGroupLiveRows(eq(7L), any())).thenReturn(List.of(
                     new SessionReferenceRepository.GroupLiveRow(9, "RUNNING", token,
-                            BigDecimal.valueOf(1000), Instant.now(), BigDecimal.valueOf(360))));
+                            BigDecimal.valueOf(1000), sampledAt, BigDecimal.valueOf(360),
+                            sampledAt)));
             when(coaching.recentSamples(8, 1800, true)).thenReturn(List.of(
                     new com.runway.backend.domain.coaching.decide.CoachingSource.Sample(600,
                             Instant.now(), 150.0, 2.8, null, 1000.0, null)));

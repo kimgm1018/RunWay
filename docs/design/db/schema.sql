@@ -1261,6 +1261,9 @@ CREATE INDEX idx_running_sessions_user_ended ON running_sessions (user_id, ended
 -- S15P31E105-421 (V13): 세션별 경과시간 순 측정값 조회(AI04 실시간 코칭 history, 세션당 15초마다)용. FK 인덱스가 없어 전체 스캔하던 조회다.
 CREATE INDEX idx_running_metric_samples_session_elapsed ON running_metric_samples (running_session_id, elapsed_duration);
 
+-- S15P31E105-597 (V23): 세션별 허용 시각 이하 최신 측정 표본 조회(G10 그룹런 실시간 순위의 최신 누적 거리·최신 측정 시각, 참가자당 2회)용.
+CREATE INDEX idx_running_metric_samples_session_measured ON running_metric_samples (running_session_id, measured_at DESC, id DESC);
+
 -- S15P31E105-534 (V20): 팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청·팔로워 수)용. FK 인덱스가 없어 전체 스캔하던 조회다.
 CREATE INDEX idx_user_follows_followee_created ON user_follows (followee_id, is_approved, created_at DESC, id DESC);
 
