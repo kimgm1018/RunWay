@@ -52,7 +52,7 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | `components.personalPlan.populationMode` | string | 평균 묶음 경로 모드(`median_bundle`, `empty`, `off`) |
 | `components.personalPlan.populationBundleLoaded` | boolean | 시작 때 평균 묶음을 읽어 검증했는지 여부 |
 | `components.cueBpm` | string | `UP` / `DOWN` / `DISABLED`. 목표 BPM 계산기 상태 |
-| `components.groupPace.enabled` | boolean | `GROUP_PACE_ENABLED` 설정 상태. 기본 false이며 AI10은 `503 GROUP_PACE_DISABLED` |
+| `components.groupPace.enabled` | boolean | `GROUP_PACE_ENABLED` 설정 상태. 배포 설정에서 켬, false로 끌 수 있음. false이면 AI10은 `503 GROUP_PACE_DISABLED` |
 
 `components`는 진단 정보이며 `status`, `modelLoaded`, HTTP 200/503 판정에 영향을 주지 않는다. 설정값·URL·경로는 반환하지 않는다. GRU가 준비되면 ODE가 미준비여도 HTTP 200과 `status=UP`, `modelLoaded=true`를 반환한다. ODE 준비 상태는 `models.ode.status`의 `UP`/`DOWN`으로만 알린다. GRU가 미준비이면 ODE 준비 여부와 관계없이 HTTP 503과 `status=DOWN`을 반환한다. 팀 AI 이미지의 HEALTHCHECK와 `infra/ai/check.sh`가 `status=UP` 및 `modelLoaded=true`를 요구하므로 ODE의 선택적 가용성을 전체 서비스 readiness와 분리한다.
 
@@ -739,7 +739,7 @@ AI 서비스는 아래 데이터를 읽고, AI09 계획 결과를 DB에 직접 �
 
 ### 설정·호출 주기·오류
 
-`GROUP_PACE_ENABLED` 기본값은 false다. false이면 공통 오류 형식으로 `503 GROUP_PACE_DISABLED`를 반환한다. `/health`의 `components.groupPace.enabled`로 설정 상태를 확인하며 readiness 판정에는 영향을 주지 않는다. 모델·정책 미준비는 `503 MODEL_NOT_READY`, 잘못된 요청은 `400 VALIDATION_ERROR`, 잘못된 GRU 출력은 `500 PREDICTION_FAILED`다.
+`GROUP_PACE_ENABLED`는 배포 설정에서 켬, false로 끌 수 있음. 코드 수준 기본값은 false다. false이면 공통 오류 형식으로 `503 GROUP_PACE_DISABLED`를 반환한다. `/health`의 `components.groupPace.enabled`로 설정 상태를 확인하며 readiness 판정에는 영향을 주지 않는다. 모델·정책 미준비는 `503 MODEL_NOT_READY`, 잘못된 요청은 `400 VALIDATION_ERROR`, 잘못된 GRU 출력은 `500 PREDICTION_FAILED`다.
 
 호출자는 **그룹당 최소 30초 간격**으로 호출하고, 실제 변경 시각·방향을 저장해 다음 `lastChange`에 넣는다. AI10은 상태를 저장하거나 호출 간격을 자체 제한하지 않는다. 기존 무거운 요청 대기열과 스레드 실행을 사용한다(`HEAVY_MAX_CONCURRENCY`, `HEAVY_QUEUE_WAIT_SEC`, 초과 시 `503 AI_BUSY`). GRU는 기존 기본 예측 경로를 사용하며 별도 전역 잠금을 추가하지 않는다.
 

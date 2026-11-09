@@ -407,7 +407,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | `targetDistanceM` | integer / null | O | group_runs.goal_distance의 적용값. |
 | `targetDurationSec` | integer / null | O | group_runs.goal_duration의 적용값. |
 | `goalPaceSecPerKm` | number / null | O | **방장 목표**(`targetDistanceM`·`targetDurationSec` 환산) 페이스. 환산 불가면 null. 추천 페이스와 별개이며 `groupGuidePaceSecPerKm`으로 대체하지 않는다. |
-| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**. `BACKEND_GROUP_PACE_ENABLED=false`(기본값)는 기존 참가자 프로필 중앙값(유효 0명이면 null). ON의 `SCHEDULED`는 저장된 출발 추천 우선, 없으면 같은 중앙값으로 폴백. 아래 산출·저장 규칙 참고. |
+| `groupGuidePaceSecPerKm` | number / null | O | **추천 공동 페이스**. `BACKEND_GROUP_PACE_ENABLED`는 배포 설정에서 켬, false로 끌 수 있음. false는 기존 참가자 프로필 중앙값(유효 0명이면 null). ON의 `SCHEDULED`는 저장된 출발 추천 우선, 없으면 같은 중앙값으로 폴백. 아래 산출·저장 규칙 참고. |
 | `meetingPlaceName` | string / null | O | group_runs.meeting_name. 미지정은 null. |
 | `meetingAddress` | string / null | O | group_runs.meeting_address. 미지정은 null. |
 | `cancellation` | object / null | O | **CANCELLED일 때만** 채운다. 그 외 status는 null. S15P31E105-469. |
@@ -1252,7 +1252,7 @@ G09가 200을 반환한 뒤 워치가 시작을 거절하거나 응답하지 않
 
 #### `groupGuidePaceSecPerKm`
 
-- **추천 공동 페이스**이며 방장 목표 환산값(`goalPaceSecPerKm`)과 구분한다. 목표 환산값을 추천으로 쓰지 않는다. `BACKEND_GROUP_PACE_ENABLED` 기본값은 false이며 OFF의 응답·중앙값 규칙은 그대로 유지한다. OFF 기준 집계는 **중앙값(median)**이며 그룹 전용 AI API를 호출하지 않는다.
+- **추천 공동 페이스**이며 방장 목표 환산값(`goalPaceSecPerKm`)과 구분한다. 목표 환산값을 추천으로 쓰지 않는다. `BACKEND_GROUP_PACE_ENABLED`는 배포 설정에서 켬, false로 끌 수 있음. 코드 수준 기본값은 false이며 OFF의 응답·중앙값 규칙은 그대로 유지한다. OFF 기준 집계는 **중앙값(median)**이며 그룹 전용 AI API를 호출하지 않는다.
 - OFF 또는 저장값 없음: `SCHEDULED`는 참가자 `user_profiles.average_pace` 중앙값이며 유효 0명이면 null이다. `RUNNING`은 개인 AI04 `recommendedPace` 우선·없으면 최근 60초 실측 페이스를 입력으로 중앙값을 낸다(종료 후 `running_sessions.average_pace` 폴백 아님, S15P31E105-598). 이 입력은 개인 `paceSecPerKm`과 달리 **마지막 `speed>0` 표본 시각**을 60초 창 끝으로 두며 신선도 상한이 없다. 그래서 멈춰 서 있는 참가자의 멈추기 전 페이스도 안내 페이스 중앙값에는 계속 들어간다(S15P31E105-597). 뒤처진 참가자도 포함하며 일시정지·개인 종료는 제외한다. 유효 입력이 없으면 프로필 중앙값, 그것도 없으면 null이다.
 - ON·`RUNNING`: 배치 저장 커밋 후 별도 비동기 실행기가 AI10 `POST /v1/group/pace`를 호출한다. 그룹별 DB 예약으로 호출 간격을 최소 30초로 제한한다. 현재 공동 페이스는 저장값 우선·없으면 위 중앙값이다. 5초 전체 타임아웃·오류·503이면 이전 저장값을 유지하며, 처음이면 중앙값으로 폴백한다.
 - AI10 입력은 시작 확인된 참가자의 최근 최대 360개 5초 칸(개인 AI04와 같은 조립 로직)이다. 일시정지·종료·stale은 `active=false`로 전달한다. 건강정보 미동의자는 `userId=null`, 심박 칸은 null이다. 코스는 현재 공동 페이스에서 앞 24칸 경사, 자유러닝은 null이다.
