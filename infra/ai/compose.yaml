@@ -30,9 +30,10 @@ services:
       ODEV21_TORCH_THREADS: "${ODEV21_TORCH_THREADS:-1}"
       ODEV21_WARMUP_ENABLED: "${ODEV21_WARMUP_ENABLED:-true}"
       ODEV21_VALIDATED_HORIZON_SEC: "${ODEV21_VALIDATED_HORIZON_SEC:-5400}"
-      # 앱에서 읽는 선택 기능. 값이 없으면 두 기능 모두 꺼진다.
+      # 앱에서 읽는 선택 기능. 값이 없으면 모두 꺼진다.
       ODE_PREVIEW_ENABLED: "${ODE_PREVIEW_ENABLED:-false}"
       DECIDE_FORECAST_ENABLED: "${DECIDE_FORECAST_ENABLED:-false}"
+      GROUP_PACE_ENABLED: "${GROUP_PACE_ENABLED:-false}"
       # 자유러닝 경사 처리: reject(팀 기존 계약) | unknown | flat0(기본값, 0% 평지)
       FREE_RUN_GRADE_POLICY: "${FREE_RUN_GRADE_POLICY:-flat0}"
       # 개인 계획: 팀 DB 읽기 전용 접속(비우면 503 NOT_READY)과 실험 기능 스위치. 값은 배포 환경에서만 준다.

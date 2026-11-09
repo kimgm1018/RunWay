@@ -13,7 +13,7 @@ from app.main import create_app
 from demo_fakes import FakeModel5, FakePolicy, decide_body, fixed_clock
 
 COMPOSE = Path(__file__).resolve().parents[1] / "compose.yaml"
-FLAGS = ("ODE_PREVIEW_ENABLED", "DECIDE_FORECAST_ENABLED")
+FLAGS = ("ODE_PREVIEW_ENABLED", "DECIDE_FORECAST_ENABLED", "GROUP_PACE_ENABLED")
 
 
 def _compose_environment() -> dict[str, str]:
@@ -73,6 +73,7 @@ def test_compose_feature_flags_default_off_at_api_consumers(monkeypatch):
         decide_body_value = decide_body()
         decide_body_value["includeForecast"] = True
         decide = client.post("/v1/pace/decide", json=decide_body_value)
+        assert client.get("/health").json()["components"]["groupPace"]["enabled"] is False
 
     assert plan.status_code == 200
     assert "ODE_MODEL_NOT_READY" not in [warning["code"] for warning in plan.json()["warnings"]]
@@ -84,12 +85,14 @@ def test_compose_feature_flag_overrides_reach_api_consumers(monkeypatch):
     _set_service_flags(monkeypatch, {
         "ODE_PREVIEW_ENABLED": "true",
         "DECIDE_FORECAST_ENABLED": "true",
+        "GROUP_PACE_ENABLED": "true",
     })
     with _client() as client:
         plan = client.post("/v1/pace/plan", json={"targetDistanceM": 5000, "targetDurationSec": 1650})
         decide_body_value = decide_body()
         decide_body_value["includeForecast"] = True
         decide = client.post("/v1/pace/decide", json=decide_body_value)
+        assert client.get("/health").json()["components"]["groupPace"]["enabled"] is True
 
     assert plan.status_code == 200
     assert "ODE_MODEL_NOT_READY" in [warning["code"] for warning in plan.json()["warnings"]]
