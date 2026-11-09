@@ -96,6 +96,8 @@
    외부 포트 없이 `runway-route_default`에 연결한다. 백엔드 기동 전에 이 네트워크를 준비한다.
 6. 백엔드를 실행한다. **수동 Compose 실행에는 현재 이미지의 `BACKEND_IMAGE`를 명시**한다.
    Route 연결은 `BACKEND_ROUTE_MODE=http`·`BACKEND_ROUTE_BASE_URL=http://route:8000`을 사용한다.
+   C01 경사 계산 DEM은 Route 번들 v2의 검증된 파일을 읽기 전용으로 연결하므로 Route 데이터 준비 후 기동하며,
+   기동 로그 `코스 DEM 준비 완료`를 확인한다. Route 데이터 revision 변경 시 마운트 경로·SHA를 함께 바꾼다(S15P31E105-568).
 7. 인증서 갱신 스크립트는 `/usr/local/sbin/`, service/timer는 `/etc/systemd/system/`에 설치하고 timer를 활성화한다. UTC 03시·15시에 최대 30분 지연하여 갱신 여부를 확인한다.
 
 ## Jenkins 공통 설정
