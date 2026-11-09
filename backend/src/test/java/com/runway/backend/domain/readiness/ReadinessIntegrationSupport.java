@@ -121,6 +121,16 @@ abstract class ReadinessIntegrationSupport {
                 new BigDecimal(bpm));
     }
 
+    /** 일별 건강 행을 RHR과 출처로 직접 넣는다(S15P31E105-600). */
+    protected void insertRestingHrWithSource(long user, LocalDate date, String bpm, String source) {
+        jdbc.update(
+                "INSERT INTO daily_health_metrics(user_id,metric_date,rhr_bpm,rhr_source) VALUES (?,?,?,?)",
+                user,
+                date,
+                new BigDecimal(bpm),
+                source);
+    }
+
     /** 일별 건강 행을 RHR·수면 값으로 직접 넣는다. null 값은 미측정. */
     protected void insertHealth(long user, LocalDate date, String bpm, String sleepMin) {
         jdbc.update(
@@ -167,6 +177,19 @@ abstract class ReadinessIntegrationSupport {
                 {"type":"DAILY_HR_ESTIMATE","metricDate":"%s","revision":%d,"estimatedRestingHrBpm":%s,\
                 "method":"%s","validSampleCount":812,"computedAt":"%sT09:00:00Z"}"""
                 .formatted(date, revision, bpm, METHOD, date);
+    }
+
+    /** W06 삼성 헬스 심박 기반 안정 심박 레코드 JSON(S15P31E105-600). */
+    protected static String samsungRestingHr(LocalDate date, String bpm) {
+        return """
+                {"type":"DAILY_RESTING_HR","metricDate":"%s","restingHrBpm":%s,\
+                "method":"DAILY_LOWER_10PCT_MINUTE_MEAN_V1","validMinuteCount":96,\
+                "computedAt":"%sT03:10:00Z"}"""
+                .formatted(date, bpm, date);
+    }
+
+    protected static String samsungBody(String... records) {
+        return "{\"provider\":\"SAMSUNG_HEALTH\",\"records\":[" + String.join(",", records) + "]}";
     }
 
     protected static String healthBody(String... records) {

@@ -17,6 +17,7 @@ const latest = (
   readinessDate: string,
   health: {
     restingHrBpm?: number | null;
+    restingHrSource?: string | null;
     sleepDurationMin?: number | null;
     healthUpdatedAt?: string | null;
   } = {},
@@ -144,6 +145,37 @@ test('R02 with only some metrics leaves the missing ones unknown', async () => {
     sleepMinutes: null,
     restingHeartRate: 58,
     syncedAt: '2026-11-01T21:05:00Z',
+  });
+});
+
+// S15P31E105-600: the resting heart rate names its source (D-9).
+test.each([
+  ['RUNWAY_WATCH', 'RunWay 워치'],
+  ['SAMSUNG_HEALTH', '삼성 헬스'],
+  [null, null],
+  ['SOMETHING_NEW', null],
+])('R02 resting heart rate source %s is labelled %s', async (source, label) => {
+  fetchMock.mockResolvedValue(
+    respond(200, latest('2026-11-02', { restingHrSource: source })),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    restingHeartRate: 58,
+    restingHeartRateLabel: label,
+  });
+});
+
+test('no resting heart rate means no source label', async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', { restingHrBpm: null, restingHrSource: 'SAMSUNG_HEALTH' }),
+    ),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    restingHeartRate: null,
+    restingHeartRateLabel: null,
   });
 });
 

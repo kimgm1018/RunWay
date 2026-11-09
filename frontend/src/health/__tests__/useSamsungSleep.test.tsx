@@ -117,3 +117,63 @@ it('clears sent marks on an actual sign-out, not on a cold start before the sess
     uploaded: {},
   });
 });
+
+// S15P31E105-600: heart rate access and today's resting heart rate, one dialog for both, marks cleared on sign-out.
+it('shows heart rate access and today’s resting heart rate, and asks for both in one dialog', async () => {
+  let heartStatus: NativeSleepAccess = 'required';
+  const sleep = native(() => 'granted');
+  const heart = native(() => heartStatus);
+  heart.read = jest.fn(async () =>
+    Array.from({ length: 30 }, (_, i) => ({
+      id: `h${i}`,
+      metric: 'heartRate' as const,
+      startTime: new Date(2026, 10, 9, 1, i).toISOString(),
+      endTime: new Date(2026, 10, 9, 1, i).toISOString(),
+      value: 57,
+      source: { id: 'watch', name: 'Galaxy Watch' },
+    })),
+  );
+  const requestBoth = jest.fn(async () => {
+    heartStatus = 'granted';
+    return { sleep: true, heartRate: true };
+  });
+  let view!: SamsungSleepView;
+  function Probe() {
+    view = useSamsungSleep(sleep, () => new Date(2026, 10, 9, 9), heart, requestBoth);
+    return null;
+  }
+  await act(async () => {
+    TestRenderer.create(<Probe />);
+  });
+  await flush();
+  expect(view.heartAccess).toBe('notRequested');
+  expect(view.todayRestingHr).toEqual({ status: 'accessRequired' });
+
+  await act(async () => {
+    await view.request();
+  });
+  await flush();
+  expect(requestBoth).toHaveBeenCalledTimes(1);
+  expect(view.access).toBe('granted');
+  expect(view.heartAccess).toBe('granted');
+  expect(view.todayRestingHr).toEqual({ status: 'ready', date: '2026-11-09', bpm: 57 });
+});
+
+it('clears resting heart rate marks on an actual sign-out too', async () => {
+  const marks = JSON.stringify({ requested: true, everGranted: true, owner: '7', uploaded: { '2026-11-08': 57 } });
+  const sleep = native(() => 'granted');
+  const heart = native(() => 'granted', marks);
+  function Probe({ signedIn }: { signedIn: boolean }) {
+    useSamsungSleepUpload(signedIn, sleep, heart);
+    return null;
+  }
+  let screen!: TestRenderer.ReactTestRenderer;
+  await act(async () => {
+    screen = TestRenderer.create(<Probe signedIn />);
+  });
+  await act(async () => {
+    screen.update(<Probe signedIn={false} />);
+  });
+  await flush();
+  expect(JSON.parse(heart.saved()!)).toMatchObject({ everGranted: true, owner: null, uploaded: {} });
+});

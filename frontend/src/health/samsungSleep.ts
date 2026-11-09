@@ -1,6 +1,11 @@
 import { DataError } from '../data/errors';
 import type { HealthRecord, ReadWindow } from './types';
 import { localWakeDate, sleepByWakeDate } from './sleep';
+import {
+  readDailyRestingHr,
+  restingHrMethod,
+  type DailyRestingHr,
+} from './samsungRestingHr';
 
 // S15P31E105-572: Samsung Health sleep read directly on the phone (never through Health Connect), summed per local
 // wake date, sent to W06 as `SAMSUNG_HEALTH` / `DAILY_SLEEP_SUMMARY` and shown on 2.1 when R02 has no sleep for today.
@@ -142,12 +147,17 @@ export async function requestSleepAccess(
     // The dialog never showed (no activity, SDK error): that is not the user's denial.
     return checkSleepAccess(native);
   }
+  await recordAccessRequest(native, granted);
+  return granted ? 'granted' : checkSleepAccess(native);
+}
+
+// Remembers that the dialog was shown, so a later 'required' reads as denied (never granted) or revoked.
+export async function recordAccessRequest(native: SleepNative, granted: boolean) {
   await updateSleepState(native, state => ({
     ...state,
     requested: true,
     everGranted: state.everGranted || granted,
   }));
-  return granted ? 'granted' : checkSleepAccess(native);
 }
 
 export const sleepDays = 7;
@@ -253,25 +263,40 @@ export async function readTodaySleep(
 }
 
 // W06 (docs/design/api/devices-health.md, S15P31E105-572).
+// S15P31E105-600: the same request also carries the phone's daily resting heart rate.
+export type SleepSyncRecord =
+  | {
+      type: 'DAILY_SLEEP_SUMMARY';
+      metricDate: string;
+      sleepDurationMin: number;
+      computedAt: string;
+    }
+  | {
+      type: 'DAILY_RESTING_HR';
+      metricDate: string;
+      restingHrBpm: number;
+      method: typeof restingHrMethod;
+      validMinuteCount: number;
+      computedAt: string;
+    };
+
 export type SleepSyncRequest = {
   provider: 'SAMSUNG_HEALTH';
-  records: {
-    type: 'DAILY_SLEEP_SUMMARY';
-    metricDate: string;
-    sleepDurationMin: number;
-    computedAt: string;
-  }[];
+  records: SleepSyncRecord[];
 };
 
 export type SleepSyncResponse = {
   acceptedCount: number;
   duplicateCount: number;
   rejectedCount: number;
-  errors: { index: number }[];
+  errors: { index: number; code?: string; reason?: string }[];
 };
 
 export type SleepUploadDeps = {
   native: SleepNative;
+  // S15P31E105-600: heart rate boundary. When given, the phone's daily resting heart rate goes in the same request,
+  // so this phone never sends two SAMSUNG_HEALTH W06 requests at once.
+  heart?: SleepNative;
   send: (body: SleepSyncRequest) => Promise<SleepSyncResponse>;
   // Server health consent (W05), null when unknown. OS permission is a different thing; without consent nothing is sent.
   consent: () => Promise<'AGREE' | 'DISAGREE' | null>;
@@ -330,24 +355,69 @@ export function uploadSamsungSleep(
 function markSent(
   native: SleepNative,
   owner: string | undefined,
-  sent: DailySleep[],
+  sent: [date: string, value: number][],
   earliest: string,
 ) {
   return updateSleepState(native, state => {
     const uploaded: Record<string, number> = {};
     if (owner !== undefined && state.owner === owner) {
-      for (const [date, minutes] of Object.entries(state.uploaded)) {
+      for (const [date, value] of Object.entries(state.uploaded)) {
         if (date >= earliest) {
-          uploaded[date] = minutes;
+          uploaded[date] = value;
         }
       }
     }
-    sent.forEach(day => {
-      uploaded[day.date] = day.minutes;
+    sent.forEach(([date, value]) => {
+      uploaded[date] = value;
     });
     return { ...state, owner: owner ?? null, uploaded };
   });
 }
+
+type ReadFailureStatus = 'error' | 'accessRequired' | 'unavailable';
+
+// What one metric adds to the request: the changed days, or why it could not be read.
+type Part<T> = { changed: T[] } | { failed: ReadFailureStatus } | null;
+
+async function sentMarks(native: SleepNative, owner: string | undefined) {
+  const state = await loadSleepState(native);
+  return owner !== undefined && state.owner === owner ? state.uploaded : {};
+}
+
+async function sleepPart(
+  native: SleepNative,
+  owner: string | undefined,
+  now: Date,
+): Promise<Part<DailySleep>> {
+  if ((await checkSleepAccess(native)) !== 'granted') {
+    return null;
+  }
+  const read = await readDailySleep(native, now);
+  if (read.status !== 'ready') {
+    return { failed: read.status };
+  }
+  const sent = await sentMarks(native, owner);
+  return { changed: read.days.filter(day => sent[day.date] !== day.minutes) };
+}
+
+async function restingHrPart(
+  heart: SleepNative | undefined,
+  owner: string | undefined,
+  now: Date,
+): Promise<Part<DailyRestingHr>> {
+  if (!heart || (await checkSleepAccess(heart)) !== 'granted') {
+    return null;
+  }
+  const read = await readDailyRestingHr(heart, now);
+  if (read.status !== 'ready') {
+    return { failed: read.status };
+  }
+  const sent = await sentMarks(heart, owner);
+  return { changed: read.days.filter(day => sent[day.date] !== day.bpm) };
+}
+
+const changedOf = <T,>(part: Part<T>): T[] =>
+  part && 'changed' in part ? part.changed : [];
 
 async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
   const token = deps.sessionKey();
@@ -355,20 +425,25 @@ async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
     return 'signed-out';
   }
   const owner = deps.owner();
-  if ((await checkSleepAccess(deps.native)) !== 'granted') {
+  const now = deps.now();
+  const sleep = await sleepPart(deps.native, owner, now);
+  const heart = await restingHrPart(deps.heart, owner, now);
+  if (!sleep && !heart) {
     return 'no-access';
   }
-  const now = deps.now();
-  const read = await readDailySleep(deps.native, now);
-  if (read.status !== 'ready') {
-    return read.status === 'error' ? 'retry-later' : 'no-access';
-  }
-  const state = await loadSleepState(deps.native);
-  const sent =
-    owner !== undefined && state.owner === owner ? state.uploaded : {};
-  const changed = read.days.filter(day => sent[day.date] !== day.minutes);
-  if (!changed.length) {
-    return 'nothing';
+  const sleepChanged = changedOf(sleep);
+  const heartDays = changedOf(heart);
+  if (!sleepChanged.length && !heartDays.length) {
+    // Nothing readable changed. A failed read waits for the next run (error) or for access (permission/policy).
+    const failures = [sleep, heart].flatMap(part =>
+      part && 'failed' in part ? [part.failed] : [],
+    );
+    if (failures.includes('error')) {
+      return 'retry-later';
+    }
+    return failures.length && failures.length === [sleep, heart].filter(Boolean).length
+      ? 'no-access'
+      : 'nothing';
   }
   let consent: 'AGREE' | 'DISAGREE' | null;
   try {
@@ -383,15 +458,31 @@ async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
     return consent === 'DISAGREE' ? 'consent-required' : 'retry-later';
   }
   const earliest = localWakeDate(Date.parse(sleepWindow(now).start));
+  const computedAt = now.toISOString();
   const body: SleepSyncRequest = {
     provider: 'SAMSUNG_HEALTH',
-    records: changed.map(day => ({
-      type: 'DAILY_SLEEP_SUMMARY',
-      metricDate: day.date,
-      sleepDurationMin: day.minutes,
-      computedAt: now.toISOString(),
-    })),
+    records: [
+      ...sleepChanged.map(
+        (day): SleepSyncRecord => ({
+          type: 'DAILY_SLEEP_SUMMARY',
+          metricDate: day.date,
+          sleepDurationMin: day.minutes,
+          computedAt,
+        }),
+      ),
+      ...heartDays.map(
+        (day): SleepSyncRecord => ({
+          type: 'DAILY_RESTING_HR',
+          metricDate: day.date,
+          restingHrBpm: day.bpm,
+          method: restingHrMethod,
+          validMinuteCount: day.minutes,
+          computedAt,
+        }),
+      ),
+    ],
   };
+  const total = body.records.length;
   for (let attempt = 0; ; attempt++) {
     if (deps.sessionKey() !== token) {
       return 'signed-out';
@@ -422,13 +513,42 @@ async function runUpload(deps: SleepUploadDeps): Promise<SleepUploadResult> {
     if (deps.sessionKey() !== token) {
       return 'signed-out';
     }
-    if (!countsAddUp(response, changed.length)) {
+    if (!countsAddUp(response, total)) {
       return 'retry-later';
     }
-    // accepted·duplicate are stored; a record rejected inside a 200 cannot succeed with the same content. Either way
-    // it is marked, and a changed value is sent again.
-    await markSent(deps.native, owner, changed, earliest);
-    return response.rejectedCount === changed.length ? 'nothing' : 'done';
+    // accepted·duplicate are stored (a resting heart rate on a day with a watch value is a duplicate: the watch wins);
+    // a record rejected inside a 200 cannot succeed with the same content. Either way it is marked, and a changed value
+    // is sent again.
+    if (sleep && 'changed' in sleep) {
+      await markSent(
+        deps.native,
+        owner,
+        sleepChanged.map(day => [day.date, day.minutes]),
+        earliest,
+      );
+    }
+    if (deps.heart && heart && 'changed' in heart) {
+      // A server without DAILY_RESTING_HR (before S15P31E105-600) rejects it inside a 200 as an unknown field or
+      // type. Those are left unmarked so they go through once the server is updated (리뷰 A-1).
+      const notUnderstood = new Set(
+        response.errors
+          .filter(
+            e =>
+              e.code === 'UNSUPPORTED_RECORD_TYPE' ||
+              e.reason === 'UNKNOWN_FIELD',
+          )
+          .map(e => e.index),
+      );
+      await markSent(
+        deps.heart,
+        owner,
+        heartDays
+          .filter((_, i) => !notUnderstood.has(sleepChanged.length + i))
+          .map(day => [day.date, day.bpm]),
+        earliest,
+      );
+    }
+    return response.rejectedCount === total ? 'nothing' : 'done';
   }
 }
 

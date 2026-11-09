@@ -73,14 +73,15 @@
 
 #### daily_health_metrics — 날짜별 건강 요약
 
-`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`뿐이다.
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이다.
 
 | 컬럼 | 타입·NULL | 용도 |
 | --- | --- | --- |
-| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). W06은 삼성 헬스 공식 안정 시 심박이 아니라 RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`)를 저장한다 |
-| rhr_revision | INTEGER NULL | `rhr_bpm` 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이면 NULL(S15P31E105-252, V9) |
+| rhr_bpm | NUMERIC(7,2) NULL | 안정시 심박(bpm). 삼성 헬스 공식 안정 시 심박이 아니다. RunWay 워치 일상 측정 최근 24시간 추정치(`ROLLING24H_LOWER_10PCT_MINUTE_MEAN_V2`) 또는 삼성 헬스 심박으로 폰이 계산한 일별 값(`DAILY_LOWER_10PCT_MINUTE_MEAN_V1`, S15P31E105-600)이며 출처는 `rhr_source`다 |
+| rhr_revision | INTEGER NULL | `rhr_bpm` 워치 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이거나 삼성 헬스 값이면 NULL(S15P31E105-252, V9) |
+| rhr_source | VARCHAR(20) NULL | `rhr_bpm` 출처. `RUNWAY_WATCH`·`SAMSUNG_HEALTH`(CHECK). W06은 값과 함께 항상 채운다. 출처가 NULL인 값(W06 밖에서 넣은 값)은 워치 값처럼 삼성 헬스 값이 덮어쓰지 않는다. 같은 날짜는 워치 값이 우선한다. V25 이전 값은 `RUNWAY_WATCH`로 채웠다(S15P31E105-600, V25) |
 
-수면·운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
 
 ### 러닝·페이스 코칭
 

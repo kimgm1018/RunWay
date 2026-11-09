@@ -252,7 +252,8 @@ export function HomeScreen() {
   const today = kstDay(clock.now());
   const me = useResource(loadMe);
   const condition = useResource(loadToday);
-  // S15P31E105-572: today's Samsung Health sleep read on this phone, for 2.1 without a score.
+  // S15P31E105-572·600: today's Samsung Health sleep and resting heart rate read on this phone, for 2.1 without a
+  // score.
   const sleep = useSamsungSleep();
   const notifications = useResource(loadNotifications);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
@@ -398,6 +399,8 @@ export function HomeScreen() {
         phoneSleep={{
           access: sleep.access,
           today: sleep.today,
+          heartAccess: sleep.heartAccess,
+          restingHr: sleep.todayRestingHr,
           requesting: sleep.requesting,
           onConnect: () => {
             void sleep.request();
