@@ -40,6 +40,9 @@ server:
     include-exception: false
 
 runway:
+  group-pace:
+    enabled: ${BACKEND_GROUP_PACE_ENABLED:false}
+    base-url: ${BACKEND_AI_BASE_URL:}
   places:
     enabled: ${BACKEND_PLACE_SEARCH_ENABLED:false}
     search-client-id: ${BACKEND_NAVER_SEARCH_CLIENT_ID:}

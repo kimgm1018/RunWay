@@ -28,6 +28,7 @@ import com.runway.backend.domain.grouprun.dto.response.StartGroupRunResponse;
 import com.runway.backend.domain.grouprun.entity.GroupRunCancelReason;
 import com.runway.backend.domain.grouprun.entity.GroupRunStatus;
 import com.runway.backend.domain.grouprun.entity.ReadyStatus;
+import com.runway.backend.domain.grouprun.pace.GroupPaceService;
 import com.runway.backend.domain.grouprun.helper.GroupGuidePaceCalculator;
 import com.runway.backend.domain.grouprun.helper.GroupResultAggregates;
 import com.runway.backend.domain.grouprun.helper.GroupRunFitCalculator;
@@ -102,6 +103,7 @@ public class GroupRunService {
     private final JsonMapper jsonMapper;
     private final SessionPlanPreparation planPreparation;
     private final PlatformTransactionManager transactionManager;
+    private final GroupPaceService groupPaceService;
 
     @Transactional
     public CreateGroupRunResponse create(long userId, CreateGroupRunRequest request) {
@@ -136,6 +138,7 @@ public class GroupRunService {
                         goals.durationSec(),
                         GroupRunStatus.SCHEDULED.name());
         participantJdbcRepository.insert(groupRunId, userId, false);
+        groupPaceService.membershipOrGoalChanged(groupRunId);
 
         return new CreateGroupRunResponse(
                 groupRunId,
@@ -331,6 +334,9 @@ public class GroupRunService {
                 goalDuration);
 
         GroupRunRow updated = requireGroupRun(groupRunId);
+        if (request.anyGoalFieldPresent() || request.courseIdPresent()) {
+            groupPaceService.membershipOrGoalChanged(groupRunId);
+        }
         return new PatchGroupRunResponse(
                 updated.id(),
                 updated.title(),
@@ -357,6 +363,7 @@ public class GroupRunService {
         }
         try {
             var joinedAt = participantJdbcRepository.insert(groupRunId, userId, false);
+            groupPaceService.membershipOrGoalChanged(groupRunId);
             return new JoinGroupRunResponse(groupRunId, userId, joinedAt);
         } catch (DataIntegrityViolationException ex) {
             throw new ApiException(ErrorCode.FULL_OR_ALREADY_JOINED, Map.of());
@@ -382,6 +389,7 @@ public class GroupRunService {
         Long sessionId = participant.sessionId();
         // 참가 행을 먼저 지워 세션 연결을 끊은 뒤 취소한다(ready 해제와 같은 잠금 순서).
         participantJdbcRepository.delete(groupRunId, userId);
+        groupPaceService.membershipOrGoalChanged(groupRunId);
         if (sessionId != null) {
             runningSessionControlService.cancel(userId, sessionId);
         }
@@ -733,6 +741,14 @@ public class GroupRunService {
                                     .filter(p -> !p.stale())
                                     .map(GroupRunLiveResponse.Participant::paceSecPerKm)
                                     .toList());
+            var stored = groupPaceService.stored(groupRunId).filter(s -> s.pace() != null);
+            if (stored.isPresent()) {
+                var state = stored.get();
+                guidePace = state.pace();
+                loadAlert = state.strugglingCount() > 0
+                        ? new GroupRunLiveResponse.LoadAlert(state.strugglingCount(), state.pace())
+                        : null;
+            }
         } else {
             participants =
                     participantJdbcRepository.findByGroupRunId(groupRunId).stream()
@@ -751,6 +767,13 @@ public class GroupRunService {
 
     /** 공동 추천 페이스. 목표 환산과 분리. RUNNING은 AI04/실측 중앙값, 부족 시·그 외 상태는 참가자 프로필 평균 페이스 중앙값. */
     private Integer resolveGroupGuidePace(GroupRunRow row) {
+        var stored = groupPaceService.stored(row.id());
+        if (stored.isPresent()) {
+            Integer pace = "SCHEDULED".equals(row.status())
+                    ? stored.get().startPace()
+                    : "RUNNING".equals(row.status()) ? stored.get().pace() : null;
+            if (pace != null) return pace;
+        }
         if (GroupRunStatus.RUNNING.name().equals(row.status())) {
             Instant measuredAtCeiling =
                     Instant.now()

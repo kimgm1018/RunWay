@@ -77,10 +77,15 @@ public class SessionCoachingRepository {
      * (is_hr_measured)일 때만 돌려준다.
      */
     public List<CoachingSource.Sample> recentSamples(long sessionId, int windowSec) {
+        return recentSamples(sessionId, windowSec, true);
+    }
+
+    public List<CoachingSource.Sample> recentSamples(
+            long sessionId, int windowSec, boolean includeHeartRate) {
         return jdbc.query(
                 """
                 SELECT elapsed_duration, measured_at,
-                       CASE WHEN is_hr_measured THEN heart_rate END AS heart_rate,
+                       CASE WHEN ? AND is_hr_measured THEN heart_rate END AS heart_rate,
                        speed, grade, total_distance, route_progress
                 FROM running_metric_samples
                 WHERE running_session_id = ?
@@ -97,6 +102,7 @@ public class SessionCoachingRepository {
                                 doubleOrNull(rs.getBigDecimal("grade")),
                                 doubleOrNull(rs.getBigDecimal("total_distance")),
                                 doubleOrNull(rs.getBigDecimal("route_progress"))),
+                includeHeartRate,
                 sessionId,
                 sessionId,
                 windowSec);

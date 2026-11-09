@@ -69,6 +69,33 @@ class GroupRunLiveFinishResultsIntegrationTest extends SharedContextIntegrationS
     // ---------------------------------------------------------------- G12
 
     @Test
+    void groupPaceFlagOff_storedAiStateDoesNotChangeG03OrG10ResponseBytes() throws Exception {
+        long id = createGroupRun();
+        insertProfile(hostId, 360);
+        String detailBefore = mockMvc.perform(get("/api/v1/group-runs/{id}", id)
+                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String liveBefore = live(id, hostId).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        jdbc.update("""
+                INSERT INTO group_run_pace_state(group_run_id,group_pace_sec_per_km,
+                    start_recommended_pace_sec_per_km,struggling_count) VALUES (?,450,480,3)
+                """, id);
+        assertThat(mockMvc.perform(get("/api/v1/group-runs/{id}", id)
+                .header("Authorization", SecurityTestSupport.bearer(hostId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(detailBefore);
+        assertThat(live(id, hostId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(liveBefore);
+        jdbc.update("UPDATE group_runs SET status='RUNNING' WHERE id=?", id);
+        String runningBefore = live(id, hostId).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        jdbc.update("UPDATE group_run_pace_state SET group_pace_sec_per_km=500, struggling_count=7 WHERE group_run_id=?", id);
+        assertThat(live(id, hostId).andExpect(status().isOk()).andReturn().getResponse().getContentAsString())
+                .isEqualTo(runningBefore);
+    }
+
+    @Test
     void forceFinish_hostCompletesGroup_andAbortsUnconfirmedStarts() throws Exception {
         long groupRunId = createGroupRun();
         long hostSession = readyHost(groupRunId);

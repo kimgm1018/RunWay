@@ -182,7 +182,7 @@ public final class CoachingInputAssembler {
      * 경과초를 5초 칸으로 묶어 칸마다 지표별 마지막 측정값을 쓴다. 마지막 칸은 t0가 든 칸이고, 최근 {@link #HISTORY_CELLS}칸만 보낸다.
      * 측정이 없는 칸은 null이다.
      */
-    static PaceDecideRequest.History history(List<Sample> samples, int t0Elapsed) {
+    public static PaceDecideRequest.History history(List<Sample> samples, int t0Elapsed) {
         int lastCell = t0Elapsed / STEP_SEC;
         int firstCell = Math.max(0, lastCell - HISTORY_CELLS + 1);
         int size = lastCell - firstCell + 1;
@@ -302,7 +302,7 @@ public final class CoachingInputAssembler {
     /**
      * t0+5k초(k=1..24)에 도달할 위치의 100m 경사. 위치가 하나라도 경사 목록 밖이면 모름(null)으로 보낸다(AI는 빈 칸이 하나라도 있으면 모름으로 본다).
      */
-    static List<Double> futureGrade(
+    public static List<Double> futureGrade(
             List<GradeSegment> profile, Double routeProgressM, double speedMps) {
         if (profile == null || profile.isEmpty() || routeProgressM == null) {
             return null;
