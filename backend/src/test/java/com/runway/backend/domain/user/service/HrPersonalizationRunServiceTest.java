@@ -278,10 +278,13 @@ class HrPersonalizationRunServiceTest {
         elevation = (lon, lat) -> 10.0;
         consent(true);
         completedSessions(1);
-        when(converter.convert(any(W07Session.class), eq(elevation))).thenReturn(Optional.empty());
+        when(converter.convert(any(W07Session.class), any(ElevationSource.class))).thenReturn(Optional.empty());
 
         service().runForUser(USER_ID);
 
-        verify(converter).convert(any(W07Session.class), eq(elevation));
+        // 서비스는 실행마다 DEM 실패를 결측으로 바꾸는 래퍼(W07ToAi06Converter.demForRun)를 넘긴다(S15P31E105-590).
+        ArgumentCaptor<ElevationSource> passed = ArgumentCaptor.forClass(ElevationSource.class);
+        verify(converter).convert(any(W07Session.class), passed.capture());
+        assertThat(passed.getValue().elevationAt(129.0, 35.1)).isEqualTo(10.0);
     }
 }

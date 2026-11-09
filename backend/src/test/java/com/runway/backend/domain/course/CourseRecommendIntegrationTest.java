@@ -156,7 +156,7 @@ class CourseRecommendIntegrationTest {
         recommend(request(37.5665, 126.9780))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("INVALID_SEARCH"))
-                .andExpect(jsonPath("$.message").value("출발 위치가 서비스 지역(부산) 밖입니다."))
+                .andExpect(jsonPath("$.message").value("출발 위치가 서비스 지역 밖입니다."))
                 .andExpect(jsonPath("$.details.reason").value("OUT_OF_AREA"));
 
         Assertions.assertThat(ROUTE.received()).hasSize(1);

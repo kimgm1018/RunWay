@@ -118,7 +118,8 @@ public class HrPersonalizationRunService {
     private List<Ai06Session> convertRecentSessions(long userId) {
         List<SessionHeader> candidates =
                 sessionRepository.findCompletedSessions(userId, CANDIDATE_LIMIT);
-        ElevationSource elevation = courseElevation.source().orElse(null);
+        ElevationSource elevation =
+                W07ToAi06Converter.demForRun(courseElevation.source().orElse(null));
         List<Ai06Session> converted = new ArrayList<>();
         for (SessionHeader header : candidates) {
             if (converted.size() >= MAX_SESSIONS) {

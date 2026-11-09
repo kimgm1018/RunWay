@@ -109,7 +109,7 @@ class ErrorCodeTest {
                 ErrorCode.SEARCH_OUT_OF_AREA,
                 422,
                 "INVALID_SEARCH",
-                "출발 위치가 서비스 지역(부산) 밖입니다.");
+                "출발 위치가 서비스 지역 밖입니다.");
         assertContract(
                 ErrorCode.SEARCH_OUT_OF_APP_RANGE,
                 422,

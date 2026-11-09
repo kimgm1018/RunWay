@@ -8,6 +8,7 @@ import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -20,12 +21,24 @@ import java.util.stream.IntStream;
 
 class GeoTiffElevationSourceTest {
     @TempDir Path temporary;
+    private final java.util.List<GeoTiffElevationSource> sources = new java.util.ArrayList<>();
+
+    @AfterEach
+    void closeSources() {
+        sources.forEach(GeoTiffElevationSource::close);
+    }
+
+    private GeoTiffElevationSource open(Path path) throws Exception {
+        var source = GeoTiffElevationSource.load(path, sha256(path));
+        sources.add(source);
+        return source;
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"area", "point", "deflate", "tiled", "predictor3", "nonzero-tiepoint"})
     void readsPixelCentresAndBilinearValuesFromIndependentGeoTiff(String name) throws Exception {
         var path = fixture(name);
-        var source = GeoTiffElevationSource.load(path, sha256(path));
+        var source = open(path);
         assertThat(source.elevationAt(10.5, 49.5)).isCloseTo(0, within(1e-9));
         assertThat(source.elevationAt(11, 49)).isCloseTo(5.5, within(1e-9));
         assertThat(source.elevationAt(12.75, 46.25)).isCloseTo(34.75, within(1e-9));
@@ -38,7 +51,7 @@ class GeoTiffElevationSourceTest {
     @Test
     void treatsNoDataAsMissingInsteadOfNegativeElevation() throws Exception {
         var path = fixture("nodata");
-        var source = GeoTiffElevationSource.load(path, sha256(path));
+        var source = open(path);
         assertThat(source.elevationAt(11, 49)).isNaN();
         assertThat(source.elevationAt(12, 48)).isEqualTo(16.5);
     }
@@ -77,13 +90,56 @@ class GeoTiffElevationSourceTest {
     @Test
     void supportsConcurrentQueriesWithoutMutableTiffReaderState() throws Exception {
         var path = fixture("tiled");
-        var source = GeoTiffElevationSource.load(path, sha256(path));
+        var source = open(path);
         var results =
                 IntStream.range(0, 1000)
                         .parallel()
                         .mapToDouble(i -> source.elevationAt(11, 49))
                         .toArray();
         assertThat(results).containsOnly(5.5);
+    }
+
+    @Test
+    void mapsOnlyDataReadFailuresToServiceUnavailableAndPropagatesInvariantBugs() {
+        // I/O, TIFF decode and format failures arrive as IOException: C01 GRADE_UNAVAILABLE.
+        assertThatThrownBy(
+                        () ->
+                                GeoTiffElevationSource.sample(
+                                        (x, y) -> {
+                                            throw new java.io.IOException("block");
+                                        },
+                                        0,
+                                        0,
+                                        Double.NaN))
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE));
+        // Any other RuntimeException is a programming error and keeps the 500 path.
+        assertThatThrownBy(
+                        () ->
+                                GeoTiffElevationSource.sample(
+                                        (x, y) -> {
+                                            throw new IllegalStateException("invariant");
+                                        },
+                                        0,
+                                        0,
+                                        Double.NaN))
+                .isExactlyInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(
+                        () ->
+                                GeoTiffElevationSource.sample(
+                                        (x, y) -> {
+                                            throw new ArrayIndexOutOfBoundsException();
+                                        },
+                                        0,
+                                        0,
+                                        Double.NaN))
+                .isExactlyInstanceOf(ArrayIndexOutOfBoundsException.class);
+        // Values are unchanged; nodata and non-finite values are missing.
+        assertThat(GeoTiffElevationSource.sample((x, y) -> 12.5, 0, 0, -9999)).isEqualTo(12.5);
+        assertThat(GeoTiffElevationSource.sample((x, y) -> -9999, 0, 0, -9999)).isNaN();
+        assertThat(GeoTiffElevationSource.sample((x, y) -> Double.POSITIVE_INFINITY, 0, 0, -9999))
+                .isNaN();
     }
 
     private Path fixture(String name) throws Exception {
