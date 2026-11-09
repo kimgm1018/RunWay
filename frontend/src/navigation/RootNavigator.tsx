@@ -107,6 +107,13 @@ const runRoutes: ReadonlySet<RouteName> = new Set<RouteName>([
 
 const noHeader = { headerShown: false } as const;
 
+// 2.9 알림 rises from the bottom over 홈 (담당자 레퍼런스: 알림 페이지 영상). The page moves itself (see
+// NotificationsScreen), over a transparent screen so 홈 stays in view under it while it rises.
+const risingPage = {
+  presentation: 'transparentModal',
+  animation: 'none',
+} as const;
+
 // The PoC pulls in native health modules, so load it only when the developer opens it.
 function loadHealthPoc() {
   return require('../screens/HealthPocScreen').HealthPocScreen;
@@ -219,6 +226,8 @@ export function RootNavigator() {
                             ? musicSheet
                             : runRoutes.has(route)
                             ? runScreen
+                            : route === 'Notifications'
+                            ? risingPage
                             : undefined
                         }
                       />

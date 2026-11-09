@@ -124,15 +124,20 @@ function phoneSleepNote(sleep: PhoneSleep): string | null {
 
 export function ReadinessPanel({
   today,
+  todayDay,
   phoneSleep,
 }: {
   today: TodayCondition;
+  // Today in KST (YYYY-MM-DD), from 홈's clock.
+  todayDay?: string;
   phoneSleep?: PhoneSleep;
 }) {
   const navigation = useNavigation();
+  // A score made on another day says so and is not called today's (S15P31E105-574): the score's own date against
+  // today reads 'N월 N일 기준', not 오늘.
+  const isToday = todayDay === undefined || today.date === todayDay;
   const ready = today.readinessState === 'ready';
-  const { action: stateAction, note: stateNote } =
-    states[today.readinessState];
+  const { action: stateAction, note: stateNote } = states[today.readinessState];
   // Server health consent off: nothing health-related is shown, and the card keeps 설정 열기.
   const consented = today.readinessState !== 'permissionDenied';
   const r02Sleep = ready && today.sleepMinutes !== null;
@@ -182,13 +187,18 @@ export function ReadinessPanel({
   const counted = Math.round(useCountUp(score ?? 0));
   // R02 has no grade yet: the title names one only when the data has it (mock data).
   const [grade, advice] = today.readinessSummary?.split(' · ') ?? [];
+  const title = isToday ? '오늘 준비도' : '준비도';
   return (
     <View>
       <View style={styles.chip}>
-        <AppText style={styles.chipText}>{longDay(today.date)}</AppText>
+        <AppText style={styles.chipText}>
+          {isToday
+            ? `오늘 · ${longDay(today.date)}`
+            : `${longDay(today.date)} 기준`}
+        </AppText>
       </View>
       <AppText style={styles.title}>
-        {ready && grade ? `오늘 준비도 ${grade}` : '오늘 준비도'}
+        {ready && grade ? `${title} ${grade}` : title}
       </AppText>
       {ready && advice ? (
         <AppText style={styles.subtitle}>{advice}</AppText>
@@ -209,18 +219,11 @@ export function ReadinessPanel({
       </View>
 
       <View style={styles.metrics}>
-        <Metric
-          icon="moon"
-          label="수면"
-          value={sleepValue}
-          sub={sleepSub}
-        />
+        <Metric icon="moon" label="수면" value={sleepValue} sub={sleepSub} />
         <Metric
           icon="heart"
           label="안정 심박"
-          value={
-            restingHeartRate !== null ? `${restingHeartRate} bpm` : '– –'
-          }
+          value={restingHeartRate !== null ? `${restingHeartRate} bpm` : '– –'}
           sub={restingHeartRateSub}
         />
         <Metric

@@ -260,10 +260,10 @@ test('a free run result can be saved as my course, and a failed save offers 다�
   await press(free, '내 코스에 저장');
   expect(texts(free)).toContain('내 코스에 저장했어요');
   expect(texts(free)).toContain('내 코스에 저장됨');
-  // 기록 보기 opens the run just saved in 5.2.
+  // 기록 보기 opens the run just saved in 2.1's detail, with its way back to 러닝 기록 (S15P31E105-574).
   await press(free, '기록 보기');
   await settle();
-  expect(texts(free)).toContain('기록 상세');
+  expect(texts(free)).toContain('기록으로 돌아가기');
   await act(async () => free.unmount());
 
   const failed = await startRun('free', 'recordSaveFailed');

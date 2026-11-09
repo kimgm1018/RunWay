@@ -88,14 +88,14 @@ afterEach(async () => {
   }
 });
 
-test('2.1 과거 러닝 기록 says when the day’s runs did not load and loads again on retry', async () => {
+test('2.1 러닝 기록 says when the day’s runs did not load and loads again on retry', async () => {
   const repositories = createMockRepositories({ latencyMs: 0 });
   const getMonth = repositories.records.getMonth;
   const failing = jest
     .spyOn(repositories.records, 'getMonth')
     .mockRejectedValue(offline());
   const screen = await launch(repositories);
-  await press(screen, '과거 러닝 기록');
+  await press(screen, '러닝 기록');
   await settle();
 
   expect(texts(screen)).toContain('기록을 불러오지 못했어요');

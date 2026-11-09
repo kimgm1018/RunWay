@@ -114,8 +114,11 @@ async function render(repositories = createMockRepositories({ latencyMs: 0 })) {
   return screen!;
 }
 
-// The date line's calendar picks a day (S15P31E105-564).
+// The date line's calendar picks a day (S15P31E105-564), on 러닝 기록 or 러닝 분석: 준비도 has no date (-574).
 async function pickDay(screen: Screen, month: number, day: number) {
+  if (!hasLabel(screen, '달력 열기')) {
+    await press(screen, '러닝 기록');
+  }
   await press(screen, '달력 열기');
   if (month !== 10) {
     await press(screen, `2026년 ${month}월`);
@@ -124,16 +127,32 @@ async function pickDay(screen: Screen, month: number, day: number) {
   await settle();
 }
 
+// The day's run card opens its detail (S15P31E105-574): its label is the run's name, date, time and distance.
+async function openCard(screen: Screen) {
+  const cards = screen.root.findAll(
+    node =>
+      typeof node.props.accessibilityLabel === 'string' &&
+      / · \d+:\d{2}, [\d.]+km$/.test(node.props.accessibilityLabel) &&
+      typeof node.props.onPress === 'function',
+  );
+  await act(async () => {
+    cards[cards.length - 1].props.onPress();
+  });
+  await settle();
+  await settle();
+}
+
 // 2.1's 기록 상세 for a day, with the run's buttons under it (S15P31E105-564: 5.2 is part of 2.1).
 async function openRecordDetail(screen: Screen, month: number, day: number) {
   await pickDay(screen, month, day);
-  await press(screen, '기록 상세');
+  await waitForText(screen, '평균 페이스');
+  await openCard(screen);
   await waitForText(screen, '기록 공유');
 }
 
-test('2.1 과거 러닝 기록 shows the day on the date line, a week back by swipe and any day by the calendar', async () => {
+test('2.1 러닝 기록 shows the day on the date line, a week back by swipe and any day by the calendar', async () => {
   const screen = await render();
-  await press(screen, '과거 러닝 기록');
+  await press(screen, '러닝 기록');
   // Today (10.19) has no run.
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   expect(stateOf(screen, '10월 19일')?.selected).toBe(true);
@@ -177,7 +196,8 @@ test('2.1 과거 러닝 기록 shows the day on the date line, a week back by sw
 test('2.1 기록 상세 shows the run with its 페이스 · 심박 · 케이던스 tabs and its buttons', async () => {
   const screen = await render();
   await pickDay(screen, 10, 15);
-  await press(screen, '기록 상세');
+  await waitForText(screen, '평균 페이스');
+  await openCard(screen);
   await waitForText(screen, '구간 페이스');
   let page = texts(screen);
   for (const text of [
@@ -200,9 +220,12 @@ test('2.1 기록 상세 shows the run with its 페이스 · 심박 · 케이던�
   expect(hasLabel(screen, '최고 178')).toBe(true);
   expect(texts(screen)).toContain('구간 케이던스');
 
-  // A day whose run did not measure cadence has no 케이던스 tab.
+  // A day whose run did not measure cadence has no 케이던스 tab: back to 러닝 기록, another day, its run.
+  await press(screen, '기록으로 돌아가기');
   await pickDay(screen, 10, 8);
   await waitForText(screen, '남천 해변 언덕길');
+  await openCard(screen);
+  await waitForText(screen, '기록 공유');
   expect(hasLabel(screen, '케이던스')).toBe(false);
 
   // The run's buttons sit under it; the handoff drops the map, AI advice and 닫기 (담당자 결정), and the ↗ to 5.2
@@ -312,13 +335,13 @@ test('2.1 러닝 분석 shows the day on the date line as a single card without 
   await act(async () => screen.unmount());
 });
 
-test('2.1 과거 러닝 기록 turns over to the month’s runs, and a run there opens in 기록 상세', async () => {
+test('2.1 러닝 기록 opens the month’s runs from its own button, and a run there opens its detail and comes back', async () => {
   const screen = await render();
-  await press(screen, '과거 러닝 기록');
-  // A day without a run can still turn over.
+  await press(screen, '러닝 기록');
+  // A day without a run still offers the month (S15P31E105-574: 이 달 기록 전체 보기, no more turning over).
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
-  await press(screen, '이 달 기록 보기');
-  await settle(600);
+  await press(screen, '이 달 기록 전체 보기');
+  await settle(300);
   let page = texts(screen);
   for (const text of [
     '러닝 기록 | 10월',
@@ -330,18 +353,25 @@ test('2.1 과거 러닝 기록 turns over to the month’s runs, and a run there
   ]) {
     expect(page).toContain(text);
   }
-  // ↻ turns it back to the day's card.
-  await press(screen, '기록 카드로 보기');
-  await settle(600);
+  // ↻ goes back to the day's card.
+  await press(screen, '하루 기록으로 보기');
+  await settle(300);
   expect(texts(screen)).toContain('아직 이 날의 러닝 기록이 없어요');
 
-  await press(screen, '이 달 기록 보기');
-  await settle(600);
+  await press(screen, '이 달 기록 전체 보기');
+  await settle(300);
   await press(screen, '남천 해변 언덕길, 10.08 목');
   await waitForText(screen, '10월 8일 목요일');
   await waitForText(screen, '내 코스에 저장');
-  expect(stateOf(screen, '기록 상세')?.selected).toBe(true);
+  // The detail is a step of 러닝 기록, which stays chosen.
+  expect(stateOf(screen, '러닝 기록')?.selected).toBe(true);
   page = texts(screen);
   expect(page).toContain('남천 해변 언덕길');
+  // Back comes to the month list on the same date, not to today's card.
+  await press(screen, '기록으로 돌아가기');
+  page = texts(screen);
+  expect(page).toContain('10월 기록');
+  expect(page).toContain('7번 · 34.2km');
+  expect(page).not.toContain('내 코스에 저장');
   await act(async () => screen.unmount());
 });
