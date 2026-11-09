@@ -51,6 +51,10 @@ const failureMessages: Record<SpotifyFailure, string | null> = {
     'Spotify에 이어 들을 음악이 없어요. Spotify에서 재생할 음악을 선택해 주세요',
   NO_ACTIVE_DEVICE: 'Spotify 앱에서 먼저 곡을 재생해 주세요',
   SCOPE_REQUIRED: '목록을 보려면 Spotify에 다시 로그인해 주세요',
+  LIBRARY_EXPIRED: 'Spotify 목록 권한이 만료됐어요. 다시 로그인해 주세요',
+  ACCOUNT_CHECK: '휴대폰 Spotify 앱 계정으로 목록을 다시 연결해 주세요',
+  DENIED: 'Spotify 권한을 허용하지 않아 연결하지 않았어요',
+  APP_UPDATE_REQUIRED: 'Spotify 앱을 최신 버전으로 업데이트해 주세요',
   FAILED: 'Spotify와 연결하지 못했어요',
 };
 

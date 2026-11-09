@@ -198,3 +198,83 @@ test('App Remote can resume without a current track and player events update the
   await waitFor(() => texts(screen).includes('Changed by Spotify event'));
   expect(texts(screen)).not.toContain('Remote synthetic song');
 });
+
+// S15P31E105-573: lists from a browser sign-in say why they need the Spotify app sign-in, which then brings them
+// and shows the connected account in 2.8 with 다시 연결.
+test('lists signed in through the browser ask for the Spotify app sign-in, which shows the account in 2.8', async () => {
+  await remoteConsent.save();
+  const playback: RemotePlayback = {
+    connected: true,
+    playing: false,
+    canPlayOnDemand: true,
+    track: null,
+  };
+  const authorize = jest.fn(async (request: { state: string }) => ({
+    code: 'synthetic-code',
+    state: request.state,
+  }));
+  const remote: SpotifyRemoteBridge = {
+    installed: async () => true,
+    connect: async () => {},
+    disconnect: async () => {},
+    getState: async () => playback,
+    playUri: async () => {},
+    send: async () => {},
+    subscribe: () => () => {},
+    authorize,
+  };
+  const music = withSavedMusic(
+    withSpotifyRemote(
+      createMockRepositories({ latencyMs: 0 }).music,
+      remote,
+      'client',
+    ),
+    { restoreSpotifyTrack: false },
+  );
+  // Spotify answers from here for the whole test, so a call left over from an earlier test never reaches the
+  // real service and signs the synthetic account out mid-test.
+  globalThis.fetch = jest.fn(async (url: string) => {
+    if (url === 'https://accounts.spotify.com/api/token') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: 'synthetic-app',
+          refresh_token: 'synthetic-app-refresh',
+          expires_in: 3600,
+        }),
+      };
+    }
+    if (url === 'https://api.spotify.com/v1/me') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'synthetic-user', display_name: 'Runner' }),
+      };
+    }
+    return reply(
+      200,
+      JSON.stringify({
+        items: [{ id: 'pl1', name: 'Synthetic list', images: [] }],
+      }),
+    );
+  }) as unknown as typeof fetch;
+  const screen = await launch(music);
+  await press(screen, '음악 연결 설정');
+  await waitFor(() => texts(screen).includes('음악 없음'));
+  await press(screen, 'Spotify');
+  await press(screen, '설정 완료');
+  await waitFor(() =>
+    texts(screen).includes(
+      '휴대폰 Spotify 앱 계정으로 목록을 다시 연결해 주세요',
+    ),
+  );
+  await press(screen, 'Spotify 다시 로그인');
+  await waitFor(() => texts(screen).includes('Synthetic list'));
+  expect(authorize).toHaveBeenCalledTimes(1);
+  expect(texts(screen)).not.toContain('목록을 다시 연결해 주세요');
+  await press(screen, '음악 연결 설정');
+  await waitFor(() => texts(screen).includes('Spotify 계정 Runner로 연결돼'));
+  await press(screen, 'Spotify 다시 연결');
+  expect(authorize).toHaveBeenCalledTimes(2);
+});

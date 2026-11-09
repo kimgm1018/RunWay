@@ -43,7 +43,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <!-- S15P31E105-374: Spotify sign-in (PKCE) returns here. -->
+      </activity>
+      <!-- S15P31E105-573: Spotify sign-in (PKCE) returns to the auth library, which hands the code to RunWay.
+           Spotify auth 5.0.0 requires this filter and checks it even for the Spotify app sign-in; MainActivity no
+           longer takes the URI, so one activity owns it and no chooser appears. -->
+      <activity
+        android:name="com.spotify.sdk.android.auth.browser.RedirectUriReceiverActivity"
+        android:exported="true">
         <intent-filter>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />

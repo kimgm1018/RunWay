@@ -5,7 +5,7 @@
 | 상태 | 제안 |
 | 결정일 | - |
 | 결정자 | - |
-| 관련 | [S15P31E105-501](https://ssafy.atlassian.net/browse/S15P31E105-501), [음악 요구사항 MUS-001~006](../design/requirements.md#12-러닝-중-음악-재생-및-제어) |
+| 관련 | [S15P31E105-501](https://ssafy.atlassian.net/browse/S15P31E105-501), [음악 요구사항 MUS-001~006](../design/requirements.md#12-러닝-중-음악-재생-및-제어), 인증 보완: [ADR-0021](0021-spotify-android-app-sign-in.md) |
 
 ## 맥락
 

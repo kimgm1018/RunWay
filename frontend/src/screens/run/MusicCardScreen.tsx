@@ -494,7 +494,7 @@ function Library({
   busy: boolean;
   onPlayPlaylist: (playlist: Playlist) => void;
   onPlayTrack: (track: Track) => void;
-  onSignIn?: () => void;
+  onSignIn?: { note: string; run: () => void };
 }) {
   const shelves: { key: Shelf; label: string }[] = [
     ...(playlists.length > 0
@@ -539,14 +539,14 @@ function Library({
       {onSignIn ? (
         <View style={styles.playlistSignIn}>
           <AppText style={[styles.notice, styles.signInNote]}>
-            목록을 보려면 Spotify에 다시 로그인해 주세요
+            {onSignIn.note}
           </AppText>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Spotify 다시 로그인"
             accessibilityState={{ disabled: busy }}
             disabled={busy}
-            onPress={onSignIn}
+            onPress={onSignIn.run}
             style={({ pressed }) => [
               styles.signInPill,
               (pressed || busy) && styles.pressed,
@@ -658,18 +658,26 @@ export function MusicCardScreen() {
   const linked = state?.linked ?? false;
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [recent, setRecent] = useState<Track[]>([]);
-  const [playlistsNeedSignIn, setPlaylistsNeedSignIn] = useState(false);
-  const [recentNeedsSignIn, setRecentNeedsSignIn] = useState(false);
-  const needsSignIn = playlistsNeedSignIn || recentNeedsSignIn;
+  // Why a list needs a Spotify sign-in, if it does: no permission yet, one Spotify stopped refreshing, or a browser
+  // sign-in that may be another account than the phone's Spotify app (S15P31E105-573).
+  const [playlistsSignIn, setPlaylistsSignIn] = useState<string | null>(null);
+  const [recentSignIn, setRecentSignIn] = useState<string | null>(null);
+  const signInNote = playlistsSignIn ?? recentSignIn;
+  const needsSignIn = signInNote !== null;
   // Bumped after 다시 로그인 to read both again.
   const [playlistRead, setPlaylistRead] = useState(0);
   const songId = state?.nowPlaying?.id ?? null;
   // 멜론 목록의 표지·곡 수는 이 앱에서 재생한 뒤 기억되므로 곡이 바뀌면 다시 읽는다(Spotify 목록은 그대로).
   const melonSong = service === 'MELON' ? songId : null;
   const scopeMissing = (error: unknown) =>
-    error instanceof SpotifyError && error.reason === 'SCOPE_REQUIRED';
+    error instanceof SpotifyError &&
+    (error.reason === 'SCOPE_REQUIRED' ||
+      error.reason === 'LIBRARY_EXPIRED' ||
+      error.reason === 'ACCOUNT_CHECK')
+      ? spotifyFailureMessage(error, '')
+      : null;
   useEffect(() => {
-    setPlaylistsNeedSignIn(false);
+    setPlaylistsSignIn(null);
     if (!service || !linked) {
       setPlaylists([]);
       return;
@@ -682,7 +690,7 @@ export function MusicCardScreen() {
       error => {
         if (!live) return;
         setPlaylists([]);
-        setPlaylistsNeedSignIn(scopeMissing(error));
+        setPlaylistsSignIn(scopeMissing(error));
       },
     );
     return () => {
@@ -690,7 +698,7 @@ export function MusicCardScreen() {
     };
   }, [music, service, linked, playlistRead, melonSong]);
   useEffect(() => {
-    setRecentNeedsSignIn(false);
+    setRecentSignIn(null);
     if (!service || !linked) {
       setRecent([]);
       return;
@@ -703,7 +711,7 @@ export function MusicCardScreen() {
       error => {
         if (!live) return;
         setRecent([]);
-        setRecentNeedsSignIn(scopeMissing(error));
+        setRecentSignIn(scopeMissing(error));
       },
     );
     return () => {
@@ -837,7 +845,11 @@ export function MusicCardScreen() {
                   busy={busy}
                   onPlayPlaylist={playPlaylist}
                   onPlayTrack={playTrack}
-                  onSignIn={needsSignIn ? signInForPlaylists : undefined}
+                  onSignIn={
+                    signInNote !== null
+                      ? { note: signInNote, run: signInForPlaylists }
+                      : undefined
+                  }
                 />
               ) : null}
               <WideButton

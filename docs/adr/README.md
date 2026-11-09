@@ -85,7 +85,8 @@ ADR에는 선택 이유를 기록하고, 구체적인 계약은 해당 기준 �
 | [ADR-0017](0017-redis-login-attempt-store.md) | 로그인 실패 횟수와 잠금 상태도 인증용 Redis에 저장한다 | 채택 | — (ADR-0015의 후속 범위 확장, 기존 결정 유지) |
 | [ADR-0018](0018-naver-map-sdk.md) | 앱 지도는 네이버 지도 SDK로 그린다 | 채택 | — |
 | [ADR-0019](0019-course-generation-backend.md) | 경사 계산은 백엔드에서 하고, 코스 생성은 AI 최적화를 먼저 시도한다 | 채택 | — |
-| [ADR-0020](0020-spotify-android-app-remote.md) | Android Spotify 재생은 App Remote로 제어한다 | 제안 | — |
+| [ADR-0020](0020-spotify-android-app-remote.md) | Android Spotify 재생은 App Remote로 제어한다 | 제안 | — (인증은 [ADR-0021](0021-spotify-android-app-sign-in.md)로 보완) |
+| [ADR-0021](0021-spotify-android-app-sign-in.md) | Android Spotify 재생·목록 권한은 Spotify 앱 SSO(PKCE) 한 번으로 받는다 | 제안 | — (ADR-0020 보완, 대체하지 않음) |
 
 새 ADR을 추가할 때 번호에는 문서 링크를 연결하고, 대체 관계에는 `대체함: ADR-NNNN` 또는 `대체됨: ADR-NNNN`을 문서 링크와 함께 적는다. 관계가 없으면 `—`로 표시한다.
 
