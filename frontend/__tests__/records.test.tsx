@@ -135,7 +135,7 @@ test('2.1 과거 러닝 기록 shows the day on the date line, a week back by sw
   const screen = await render();
   await press(screen, '과거 러닝 기록');
   // Today (10.19) has no run.
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   expect(stateOf(screen, '10월 19일')?.selected).toBe(true);
   expect(stateOf(screen, '10월 20일')?.disabled).toBe(true);
 
@@ -150,7 +150,7 @@ test('2.1 과거 러닝 기록 shows the day on the date line, a week back by sw
   }
   expect(hasLabel(screen, '최고 5′41″')).toBe(true);
   await press(screen, '10월 14일');
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await press(screen, '10월 13일');
   await waitForText(screen, '29:48');
 
@@ -245,7 +245,7 @@ test('기록 상세 deletes my run after the S09 notice, with the post that shar
   page = texts(screen);
   expect(page).toContain('기록을 삭제했어요');
   // 2.1 reads the day again without the run.
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await expect(
     repositories.records.getDetail('run-1015'),
   ).rejects.toMatchObject({ code: 'RECORD_NOT_FOUND' });
@@ -306,7 +306,7 @@ test('2.1 러닝 분석 shows the day on the date line as a single card without 
   // A swipe on the graph moves the date line a day back: 10.14 has no run.
   await swipe(screen, 120);
   await waitForText(screen, '10월 14일 수요일');
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   expect(texts(screen)).toContain('러닝 분석 | 10월 14일');
 
   await act(async () => screen.unmount());
@@ -316,7 +316,7 @@ test('2.1 과거 러닝 기록 turns over to the month’s runs, and a run there
   const screen = await render();
   await press(screen, '과거 러닝 기록');
   // A day without a run can still turn over.
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await press(screen, '이 달 기록 보기');
   await settle(600);
   let page = texts(screen);
@@ -333,7 +333,7 @@ test('2.1 과거 러닝 기록 turns over to the month’s runs, and a run there
   // ↻ turns it back to the day's card.
   await press(screen, '기록 카드로 보기');
   await settle(600);
-  expect(texts(screen)).toContain('이 날은 러닝 기록이 없어요');
+  expect(texts(screen)).toContain('아직 이 날의 러닝 기록이 없어요');
 
   await press(screen, '이 달 기록 보기');
   await settle(600);

@@ -185,7 +185,7 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   expect(page).not.toContain('남천 회복 조깅 크루장이');
   expect(() => labelled(screen, '대기방 입장')).toThrow();
   await type(screen, '내 크루 검색', '없는 크루');
-  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  expect(texts(screen)).toContain('찾는 크루가 없어요');
   await press(screen, '검색 닫기');
   expect(texts(screen)).toContain('크루장이 승인하면 그룹런이 보여요');
   await act(async () => screen.unmount());
@@ -219,7 +219,7 @@ test('6.1 lists every crew, open ones before full ones, and searches by name or 
   expect(page).toContain('해운대 선셋 런');
   expect(page).not.toContain('광안리 새벽 크루 18/30명');
   await type(screen, '크루 검색', '없는 크루');
-  expect(texts(screen)).toContain('찾는 크루가 없어요.');
+  expect(texts(screen)).toContain('찾는 크루가 없어요');
   // Closing the search clears it.
   await press(screen, '검색 닫기');
   expect(texts(screen)).toContain('광안리 새벽 크루 18/30명');

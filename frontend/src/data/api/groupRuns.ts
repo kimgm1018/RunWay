@@ -11,6 +11,7 @@ import type {
   WaitingRoom,
 } from '../types';
 import { apiRequest } from './http';
+import { listItems } from './listItems';
 import { searchPlaces } from './places';
 
 // 그룹런 서버 API와 PLS01 장소 검색. 실제 기기 제어·결과 보고는 별도 연동에서 담당한다.
@@ -308,9 +309,10 @@ export function createGroupRunsApi({
           if (crew.membership !== 'MEMBER') {
             return { crew, groupRuns: [] };
           }
-          const { items } = await apiRequest<{ items: ListItem[] }>(
-            '/group-runs',
-            { query: { crewId: crew.id, limit: pageLimit } },
+          const items = listItems(
+            await apiRequest<{ items: ListItem[] }>('/group-runs', {
+              query: { crewId: crew.id, limit: pageLimit },
+            }),
           );
           const runs = await Promise.all(
             items

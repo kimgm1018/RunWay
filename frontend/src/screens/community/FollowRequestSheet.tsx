@@ -161,7 +161,7 @@ export function FollowRequestSheet({
         state.status !== 'ready'
           ? undefined
           : empty
-          ? '대기 중인 요청이 없어요.'
+          ? '아직 대기 중인 요청이 없어요'
           : '승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.'
       }
     >

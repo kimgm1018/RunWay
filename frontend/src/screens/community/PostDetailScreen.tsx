@@ -333,7 +333,7 @@ export function PostDetailScreen() {
                 <AppText style={styles.commentPreview} numberOfLines={2}>
                   {latest
                     ? `${latest.author.handle}  ${latest.body}`
-                    : '아직 댓글이 없어요. 첫 댓글을 남겨 보세요.'}
+                    : '아직 댓글이 없어요\n첫 댓글을 남겨 보세요'}
                 </AppText>
               </Pressable>
 

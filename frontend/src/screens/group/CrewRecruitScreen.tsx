@@ -145,7 +145,7 @@ export function CrewRecruitPage({
           <ActivityIndicator style={styles.loading} />
         ) : list.length === 0 ? (
           <AppText style={[styles.sub, styles.onMist, styles.none]}>
-            찾는 크루가 없어요.
+            찾는 크루가 없어요
           </AppText>
         ) : (
           <View style={styles.list}>

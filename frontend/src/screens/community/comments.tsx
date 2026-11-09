@@ -382,7 +382,7 @@ export function CommentSheet({
                 style={styles.center}
               >
                 <AppText style={styles.empty}>
-                  댓글을 불러오지 못했어요. 눌러서 다시 시도해 주세요.
+                  {`댓글을 불러오지 못했어요\n눌러서 다시 시도해 주세요`}
                 </AppText>
               </Pressable>
             ) : !comments ? (
@@ -393,7 +393,7 @@ export function CommentSheet({
             ) : comments.length === 0 ? (
               <View style={styles.center}>
                 <AppText style={styles.emptyTitle}>아직 댓글이 없어요</AppText>
-                <AppText style={styles.empty}>첫 댓글을 남겨 보세요.</AppText>
+                <AppText style={styles.empty}>첫 댓글을 남겨 보세요</AppText>
               </View>
             ) : (
               comments.map(comment => (

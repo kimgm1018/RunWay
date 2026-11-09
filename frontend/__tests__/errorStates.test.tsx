@@ -107,7 +107,7 @@ test('2.1 과거 러닝 기록 says when the day’s runs did not load and loads
   const page = texts(screen);
   expect(page).not.toContain('기록을 불러오지 못했어요');
   // Today (10.19) has no run.
-  expect(page).toContain('이 날은 러닝 기록이 없어요');
+  expect(page).toContain('아직 이 날의 러닝 기록이 없어요');
 });
 
 test('2.0F says the location was not found and a tap looks again', async () => {

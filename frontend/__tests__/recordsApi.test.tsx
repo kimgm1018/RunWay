@@ -238,7 +238,7 @@ test('2.1 과거 러닝 기록 shows a day from the server and 기록 상세 ope
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
   // Today (Monday 11.02) has no run; Sunday 11.01 is on the week strip's page before.
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await press(screen, '11월 1일');
   // Sunday 11.01 has two runs; the card shows one at a time.
   await waitForText(screen, '07:10 · 5.02km');
@@ -288,11 +288,11 @@ test('without any runs 과거 러닝 기록 and 러닝 분석 show their empty s
   serve(false);
   const screen = await launch();
   await press(screen, '과거 러닝 기록');
-  await waitForText(screen, '이 날은 러닝 기록이 없어요');
+  await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   await act(async () => screen.unmount());
 
   const analysis = await launch();
   await press(analysis, '러닝 분석');
-  await waitForText(analysis, '이 날은 러닝 기록이 없어요');
+  await waitForText(analysis, '아직 이 날의 러닝 기록이 없어요');
   await act(async () => analysis.unmount());
 });
