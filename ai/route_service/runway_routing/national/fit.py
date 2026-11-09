@@ -7,7 +7,7 @@ CAP_M = 20000
 MARGIN_M = 1000
 # 한국 안에서 32652 -> 5179 거리 차이를 여유 있게 감싼다.
 PROJECTION_SCALE = 1.002
-APP_MAX_M = 15000  # 동결된 shape_config.json:4. pipeline 생성 때 다시 확인한다.
+APP_MAX_M = 21100  # 하프 마라톤 21.1 km, shape_config.json:4. pipeline 생성 때 다시 확인한다.
 MAX_END_SNAP_M = 250  # ug-v2 PE1, snap.py:169-182
 SNAP_ALLOWANCE_M = 500  # 최악값이 아니다. 부족하면 엔진 검사 후 기존 창으로 재실행한다.
 
@@ -80,6 +80,10 @@ class WindowSpec:
 
 def window_spec(start, shape, target_m, end=None, *, anchor=False):
     x, y = start
+    if str(shape).lower() == 'point_to_point' and end is not None:
+        # 607: 편도 기준 칸은 출발점이 아니라 출발·도착 중점의 5 km 칸이다. 21.1 km 상한에서는 도착점이
+        # 출발점에서 직선 23.7 km까지 떨어질 수 있어, 출발점 기준 ±20 km 창으로는 끝점과 d_min 원을 담지 못한다.
+        x, y = x + float(end[0])/2, y + float(end[1])/2
     base = (math.floor((x-700000)/5000)*5000+702500,
             math.floor((y-1300000)/5000)*5000+1302500)
     centre, half = window_geometry(start, shape, target_m, end)

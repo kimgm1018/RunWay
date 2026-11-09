@@ -19,7 +19,7 @@ URL = "/internal/v1/routes/recommendations"
 READY = "/internal/v1/ready"
 BODY = {"lat": 35.1532, "lon": 129.1186, "distance_km": 5.0}
 P2P = {**BODY, "shape": "point_to_point", "end_lat": 35.1587, "end_lon": 129.1604}
-SHAPE_CFG = {"tolerance": {"value": 0.10}, "app_km": {"max": 15.0}, "snap_max_m": {"value": 250}}
+SHAPE_CFG = {"tolerance": {"value": 0.10}, "app_km": {"max": 21.1}, "snap_max_m": {"value": 250}}
 
 
 class InsufficientResponseError(Exception):
@@ -203,10 +203,10 @@ def test_unknown_top_level_field_is_ignored(tmp_path):
 # ------------------------------------------------------------------ checks before the engine runs (422)
 @pytest.mark.parametrize("body,code", [
     ({**BODY, "distance_km": 0.99}, "DISTANCE_RANGE"),
-    ({**BODY, "distance_km": 15.01}, "DISTANCE_RANGE"),
+    ({**BODY, "distance_km": 21.11}, "DISTANCE_RANGE"),
     ({**BODY, "shape": "point_to_point"}, "DESTINATION_REQUIRED"),
     ({**BODY, "shape": "point_to_point", "end_lat": 35.1532}, "DESTINATION_REQUIRED"),
-    ({**BODY, "shape": "point_to_point", "end_lat": 35.35, "end_lon": 129.1186}, "OUT_OF_APP_RANGE"),
+    ({**BODY, "shape": "point_to_point", "end_lat": 35.4, "end_lon": 129.1186}, "OUT_OF_APP_RANGE"),
 ])
 def test_rejected_without_engine_call(tmp_path, body, code):
     c, pipe = client(tmp_path, warmup=False)
@@ -218,8 +218,37 @@ def test_rejected_without_engine_call(tmp_path, body, code):
 def test_distance_range_message(tmp_path):
     c, _ = client(tmp_path, warmup=False)
     with c:
-        j = c.post(URL, json={**BODY, "distance_km": 20}).json()
-    assert j == {"code": "DISTANCE_RANGE", "message": "거리는 1~15 km 사이로 정해 주세요.", "details": None}
+        j = c.post(URL, json={**BODY, "distance_km": 21.11}).json()
+    assert j == {"code": "DISTANCE_RANGE", "message": "거리는 1~21.1 km 사이로 정해 주세요.", "details": None}
+
+
+def test_half_marathon_distance_reaches_engine(tmp_path):
+    c, pipe = client(tmp_path, warmup=False)
+    with c:
+        assert_error(c.post(URL, json={**BODY, 'distance_km': 21.1}), 422, 'NO_ROUTE')
+    assert pipe.calls[0][0][2] == 21100
+
+
+@pytest.mark.parametrize('straight_m,rejected', [(23710.01, True), (23709.99, False)])
+def test_p2p_half_marathon_precheck_boundary(tmp_path, monkeypatch, straight_m, rejected):
+    monkeypatch.setattr('app.main._straight_m', lambda req: straight_m)
+    c, pipe = client(tmp_path, FakePipeline(shape_out()), warmup=False)
+    with c:
+        assert_error(c.post(URL, json=P2P), 422, 'OUT_OF_APP_RANGE' if rejected else 'NO_ROUTE')
+    assert len(pipe.calls) == (0 if rejected else 1)
+
+
+@pytest.mark.parametrize('d_min,code,minimum', [
+    (23000, 'DESTINATION_TOO_FAR', 21.0),
+    (23500, 'OUT_OF_APP_RANGE', 21.5),
+])
+def test_p2p_gate_half_marathon_limit(d_min, code, minimum):
+    import json
+    from pathlib import Path
+    from runway_routing.usability_gate import p2p_precheck
+    path = Path(__file__).resolve().parents[1] / 'runway_routing/config/ug-v2.json'
+    cfg = {'v2': json.loads(path.read_text(encoding='utf-8'))}
+    assert p2p_precheck(d_min, 20000, cfg) == {'code': code, 'min_target_km': minimum}
 
 
 # ------------------------------------------------------------------ engine results -> error codes

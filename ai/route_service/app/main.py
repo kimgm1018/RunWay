@@ -48,7 +48,7 @@ log = logging.getLogger("runway.ai")
 
 ATTEMPTS = 24            # seed 하나당 후보 시도 수; "다른 코스 추천" -> next_seed = seed + ATTEMPTS
 TOP_K = 3
-MIN_KM, MAX_KM = 1.0, 15.0
+MIN_KM, MAX_KM = 1.0, 21.1
 MAX_SNAP_M = 250         # 요청 위치 -> 실제 출발 node(snap.start_distance_m) 상한. canonical start_far_from_network 경고 거리와 같은 값
 ENV_FILTERS = ["river", "beach", "park", "trail"]
 FEATURE_OF = {"river": "river_ratio", "beach": "coastal_ratio", "park": "green_ratio", "trail": "trail_ratio"}
@@ -470,9 +470,10 @@ def _straight_m(req: RecommendRequest) -> float:
 
 
 def _p2p_out_of_range_m(p) -> float:
-    """17 km 사전 거절: 출발·도착이 각각 최대 250 m 옮겨져 snap되므로, 직선거리가 1.1 x 15 km + 2 x 250 m = 17.0 km를
-    넘으면 어떤 snap 결과로도 15 km 코스를 만들 수 없다. 이때는 graph를 만들기 전에 "앱 범위 밖"으로 답한다.
-    이 검사가 없으면 8.5 km app-max disk가 먼 쪽 끝을 담지 못해 엉뚱한 "근처에 길이 없음" 오류가 난다."""
+    """23.71 km 사전 거절: 출발·도착이 각각 최대 250 m 옮겨져 snap되므로, 직선거리가 1.1 x 21.1 km + 2 x 250 m = 23.71 km를
+    넘으면 어떤 snap 결과로도 21.1 km 코스를 만들 수 없다. 이때는 graph를 만들기 전에 "앱 범위 밖"으로 답한다.
+    이 검사가 없으면 약 11.86 km app-max disk(0.55 x 21.1 km + 250 m, gen.working_radius_m)가
+    먼 쪽 끝을 담지 못해 엉뚱한 "근처에 길이 없음" 오류가 난다."""
     c = p.shape_cfg
     return (1 + c["tolerance"]["value"]) * c["app_km"]["max"] * 1000 + 2 * c["snap_max_m"]["value"]
 

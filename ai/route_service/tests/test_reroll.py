@@ -160,7 +160,7 @@ def test_served_is_empty_for_blocking_errors():
 class FakePipeline:
     def __init__(self):
         self.lock = threading.Lock()
-        self.shape_cfg = {"tolerance": {"value": 0.10}, "app_km": {"max": 15.0}, "snap_max_m": {"value": 250}}
+        self.shape_cfg = {"tolerance": {"value": 0.10}, "app_km": {"max": 21.1}, "snap_max_m": {"value": 250}}
         self.calls = []
 
     def run(self, *args, **kw):

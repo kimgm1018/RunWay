@@ -1,8 +1,8 @@
 {
  "version": "shape-v1",
  "_comment": "Generator parameters for OUT_AND_BACK and POINT_TO_POINT (IMPL-1 P5). Every value is an EXISTING code constant or a user decision; no new tuning. Gate thresholds live in usability-audit's ug-v2, not here. Every key below is read by production (config/CONFIG_NOTES.md).",
- "app_km": {"max": 15.0,
-            "_basis": "app distance maximum (route_demo/app_runway.py MAX_KM); P2P distance_rule, app-max disk radius and the 17.0 km precheck read it"},
+ "app_km": {"max": 21.1,
+            "_basis": "app distance maximum (route_demo/app_runway.py MAX_KM); P2P distance_rule, app-max disk radius and the 23.71 km precheck read it"},
  "tolerance": {"value": 0.10, "_basis": "features.TOLERANCE (LOOP) / analysis rrg.TOLERANCE; user decision 3: [0.9T, 1.1T]"},
  "attempts": {"value": 24, "_basis": "route_demo/app_runway.py ATTEMPTS (one seed block)"},
  "circuity0": {"value": 1.3, "_basis": "analysis/runway_route_generator.CIRCUITY0"},
@@ -12,6 +12,6 @@
  "oab_window": {"value": 0.04, "_basis": "PoC OUT_AND_BACK (archive runway_route_generator.GeneratorConfig.oab_window): turnaround network distance within +-4 % of T/2"},
  "oab_sectors": {"value": 12, "_basis": "archive runway_route_generator.GeneratorConfig.oab_sectors"},
  "oab_turnaround_min_degree": {"value": 3, "_basis": "COURSE_SHAPE_DESIGN_v2 10 (EP4 generator preference): prefer junction nodes; same degree >= 3 as the canonical waypoint pool (runway_route_generator.load_graph wp_nodes)"},
- "snap_max_m": {"value": 250, "_basis": "ug-v2 PE1 / analysis runway_busan_graph.WORK_BUFFER_M. Read ONLY by the app's 17.0 km P2P precheck ((1 + tolerance) x app max + 2 x snap_max_m); the generator's destination snap uses ug-v2 PE1 itself"},
+ "snap_max_m": {"value": 250, "_basis": "ug-v2 PE1 / analysis runway_busan_graph.WORK_BUFFER_M. Read ONLY by the app's 23.71 km P2P precheck ((1 + tolerance) x app max + 2 x snap_max_m); the generator's destination snap uses ug-v2 PE1 itself"},
  "p2p_waypoints": {"value": [1, 2], "_basis": "COURSE_SHAPE_DESIGN_v2 5-2: 1-2 ellipse waypoints; k cycles with the seed like make_candidate's (2, 3, 4)[seed % 3]"}
 }
