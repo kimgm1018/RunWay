@@ -166,3 +166,7 @@ jest.mock('lottie-react-native', () => {
 beforeEach(() => {
   require('./src/components/Motion').setReduceMotion(true);
 });
+
+// The app ships with dataSource 'api' (S15P31E105-591). Screen tests are written against the mock repositories,
+// so every test file starts on 'mock'; a test that needs the server path sets 'api' itself and restores it.
+require('./src/config').appConfig.dataSource = 'mock';
