@@ -14,11 +14,38 @@ public interface CrewRepository extends JpaRepository<Crew, Long> {
             """
             select c from Crew c
             where c.status = :status
-              and (:q is null or lower(c.name) like lower(concat('%', :q, '%')))
-              and (:regionCode is null or c.regionCode = :regionCode)
             order by c.id asc
             """)
-    List<Crew> searchActive(
+    List<Crew> searchActive(@Param("status") CrewStatus status);
+
+    @Query(
+            """
+            select c from Crew c
+            where c.status = :status
+              and c.regionCode = :regionCode
+            order by c.id asc
+            """)
+    List<Crew> searchActiveByRegion(
+            @Param("status") CrewStatus status, @Param("regionCode") String regionCode);
+
+    @Query(
+            """
+            select c from Crew c
+            where c.status = :status
+              and lower(c.name) like lower(concat('%', :q, '%'))
+            order by c.id asc
+            """)
+    List<Crew> searchActiveByName(@Param("status") CrewStatus status, @Param("q") String q);
+
+    @Query(
+            """
+            select c from Crew c
+            where c.status = :status
+              and lower(c.name) like lower(concat('%', :q, '%'))
+              and c.regionCode = :regionCode
+            order by c.id asc
+            """)
+    List<Crew> searchActiveByNameAndRegion(
             @Param("status") CrewStatus status,
             @Param("q") String q,
             @Param("regionCode") String regionCode);
