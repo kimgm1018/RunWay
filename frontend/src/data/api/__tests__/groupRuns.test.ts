@@ -1,3 +1,4 @@
+import { DataError } from '../../errors';
 import { createMockRepositories } from '../../mock/createMockRepositories';
 import type { MyCrew, Repositories } from '../../types';
 import { createGroupRunsApi } from '../groupRuns';
@@ -630,6 +631,32 @@ test('G09 approval does not imply a start; watchStart waits for my confirmed ses
     expect(onStart).toHaveBeenCalledTimes(1);
   } finally {
     stop();
+  }
+});
+
+test('watchStart reports cancel and finish with separate 409 messages', async () => {
+  for (const [status, phrase] of [
+    ['CANCELLED', '취소되었어요'],
+    ['COMPLETED', '종료되었어요'],
+  ] as const) {
+    serve(path =>
+      path === '/group-runs/61'
+        ? respond(200, detail(61, { status }))
+        : undefined,
+    );
+    const onError = jest.fn();
+    const stop = api().groupRuns.watchStart('61', jest.fn(), onError);
+    try {
+      await jest.advanceTimersByTimeAsync(20);
+      expect(onError).toHaveBeenCalled();
+      const error = onError.mock.calls[0][0] as DataError;
+      expect(error).toBeInstanceOf(DataError);
+      expect(error.status).toBe(409);
+      expect(error.message).toContain(phrase);
+      expect(error.message).not.toContain('취소되었거나 종료');
+    } finally {
+      stop();
+    }
   }
 });
 

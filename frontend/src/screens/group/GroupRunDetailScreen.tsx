@@ -324,7 +324,13 @@ export function GroupRunDetailScreen() {
                     <AppText style={styles.messageText}>
                       {run.cancellation.message}
                     </AppText>
-                  ) : null}
+                  ) : (
+                    // G03 cancellation.message is always null on the server: cancelMessage
+                    // is notification-only (group-runs.md G13). Avoid an empty quote block.
+                    <AppText style={styles.messageText}>
+                      호스트가 남긴 말은 알림함에서 확인할 수 있어요
+                    </AppText>
+                  )}
                 </LightGlass>
               ) : null}
               <View style={styles.notice}>
