@@ -157,7 +157,7 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `context.plan[]` | object[] / null | X | `startM`, `endM`, `ratio` 구간 |
 | `context.anchorPaceSecPerKm` | number | O | 후보 기준 페이스. 백엔드는 러너에게 지금 안내 중인 페이스를 보낸다. 실제 측정 페이스를 넣으면 추천이 튈 수 있다. |
 | `context.currentGuidePaceSecPerKm` | number / null | X | 현재 안내 페이스 |
-| `context.guidePaceSetAt` | string (UTC date-time) / null | X | 안내 페이스가 마지막으로 바뀐 시각. 단계만 바뀐 발행(같은 페이스)으로는 바뀌지 않는다. 감속 쿨다운·빨라지기 간격·안내 미준수 판단에 쓴다. 없으면 `lastCoaching.appliedAt`을 쓴다(S15P31E105-506). 지금 백엔드는 보내지 않는다 |
+| `context.guidePaceSetAt` | string (UTC date-time) / null | X | 안내 페이스가 마지막으로 바뀐 시각. 단계만 바뀐 발행(같은 페이스)으로는 바뀌지 않는다. 감속 쿨다운·빨라지기 간격·안내 미준수 판단에 쓴다. 없으면 `lastCoaching.appliedAt`을 쓴다(S15P31E105-506). 백엔드는 APPLIED 코칭 중 현재 추천 페이스 streak의 시작 `applied_at`을 보낸다(S15P31E105-516) |
 | `context.activeSec` | number | O | 일시정지를 제외한 경과 시간 |
 | `context.distanceM` | number | O | 실측 누적 거리 |
 | `context.routeProgressM` | number / null | X | 코스 누적 거리 |
@@ -253,7 +253,7 @@ S15P31E105-506(인계 I-23, 팀 검토 2026-11-06). 예전에는 후보 간격(�
 **백엔드와의 관계** (S15P31E105-503 병합 코드 기준)
 - 단계 변경 발행은 `publishSuggested=true`일 때만 한다. 안내 미준수와 위험 감속 권고는 `publishSuggested=true`라 같은 페이스여도 단계가 바뀌면 알린다. 쿨다운 중 `HOLD`는 `false`라 보내지 않는다.
 - 위험이나 안내 미준수가 이어져 페이스·단계가 같으면 새로 보내지 않고, 코칭 없이 2분이 지나면 백엔드가 지금 안내를 다시 보낸다(`reevaluationDue`). 따로 재알림 규칙은 필요 없다.
-- 요청 사항(선택): `guidePaceSetAt` = 안내 페이스가 마지막으로 바뀐 시각을 보내 주기(단계만 바뀐 발행으로는 바꾸지 않음, 인계 I-4). 없으면 단계만 바뀐 발행도 `lastCoaching.appliedAt`을 새로 써서 안내 미준수 유예(60초)가 다시 시작되고, 무시가 이어질 때 DANGER·CAUTION이 오간다.
+- `guidePaceSetAt`(S15P31E105-516): 백엔드가 안내 페이스가 마지막으로 바뀐 시각을 보낸다(단계만 바뀐 발행으로는 바꾸지 않음, 인계 I-4). 보내지 않으면 단계만 바뀐 발행도 `lastCoaching.appliedAt`을 새로 써서 안내 미준수 유예(60초)가 다시 시작되고, 무시가 이어질 때 DANGER·CAUTION이 오간다.
 
 ### 코칭 단계 (coachingLevel)
 
@@ -362,6 +362,7 @@ AI 서버는 AI04 판단 결과를 DB에 직접 쓰지 않는다. 발행·저장
 | `elapsedSec`·`activeSec` | t0 표본의 `elapsed_duration`. 워치 Health Services의 active duration이라 일시정지를 제외한 값이다 |
 | `mode` | 코스 있음 `COURSE`, 목표 있음 `FREE_WITH_GOAL`, 없음 `FREE_NO_GOAL`(N7-3 잠정) |
 | `anchorPaceSecPerKm`(=`currentGuidePaceSecPerKm`) | 마지막 APPLIED 코칭의 추천 페이스 → 현재 거리의 계획 구간 페이스 → 계획 추천 페이스 → 목표 페이스 → 최근 60초 실측 평균 페이스 순. 120~1800초/km를 벗어나면 호출하지 않는다 |
+| `guidePaceSetAt` | APPLIED 코칭을 최신순으로 보며 현재 추천 페이스와 같은 streak의 시작 `applied_at`. 적용 코칭이 없으면 null. `lastCoaching`은 최신 APPLIED 한 건 그대로(S15P31E105-516) |
 | `plan` | 최신 `pace_plans`의 구간. `ratio = 구간 페이스 ÷ 계획 추천 페이스`(O7) |
 | 코스 진행거리·미래 경사 | 워치가 `routeProgressM`을 보내지 않으므로 저장값이 없으면 누적 거리를 코스 거리 안으로 잘라 쓴다. 후보마다 t0+5k초 위치의 `courses.elevation_profile` 100m 경사를 넣고, 한 칸이라도 범위 밖이면 null. 자유러닝은 null |
 | `userId` | 건강정보 동의 사용자만(동의하지 않으면 자동 코칭 자체를 하지 않는다). `context.bpm`·`hrReference`는 보내지 않는다 |

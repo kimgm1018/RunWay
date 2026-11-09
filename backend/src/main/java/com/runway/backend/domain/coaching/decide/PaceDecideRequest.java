@@ -46,6 +46,7 @@ public record PaceDecideRequest(
             Double routeProgressM,
             Instant inputAsOf,
             LastCoaching lastCoaching,
+            Instant guidePaceSetAt,
             Instant resumedAt) {}
 
     @JsonInclude(JsonInclude.Include.ALWAYS)

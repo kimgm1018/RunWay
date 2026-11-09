@@ -197,6 +197,7 @@ public class SessionCoachingService {
                 course == null ? null : course.profile(),
                 plan,
                 coachingRepository.lastAppliedCoaching(sessionId).orElse(null),
+                coachingRepository.guidePaceSetAt(sessionId).orElse(null),
                 coachingRepository.lastAppliedResume(sessionId).orElse(null),
                 coachingRepository.recentSamples(
                         sessionId, CoachingInputAssembler.HISTORY_CELLS * 5));
