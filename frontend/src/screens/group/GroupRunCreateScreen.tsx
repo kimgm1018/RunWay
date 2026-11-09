@@ -471,15 +471,13 @@ export function GroupRunCreateScreen() {
           title="만나는 곳"
           right={<AppText style={styles.note}>상세 위치</AppText>}
         >
-          {draft.place ? (
-            <ChangeRow
-              icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
-              title={draft.place.name}
-              detail={draft.place.address}
-              label="만나는 곳 변경"
-              onChange={() => navigation.navigate('MeetingPlace')}
-            />
-          ) : null}
+          <ChangeRow
+            icon={<Icon name="mapPin" color={groupLook.onLight} size={18} />}
+            title={draft.place?.name ?? '만나는 곳 선택'}
+            detail={draft.place?.address ?? '지도나 검색으로 위치를 골라 주세요'}
+            label="만나는 곳 변경"
+            onChange={() => navigation.navigate('MeetingPlace')}
+          />
         </Section>
         <Section title="날짜·시간">
           <View style={styles.chips}>

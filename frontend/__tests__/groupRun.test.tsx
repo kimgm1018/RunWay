@@ -49,6 +49,22 @@ async function waitForText(screen: Screen, text: string, timeoutMs = 15000) {
   }
 }
 
+// 이전 스택 화면에도 장소 이름이 남아 있을 수 있어 검색 결과는 선택 버튼이 생길 때까지 기다린다.
+async function waitForAction(screen: Screen, label: string, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (
+    !screen.root.findAll(
+      node =>
+        node.props.accessibilityLabel === label &&
+        typeof node.props.onPress === 'function',
+    ).length
+  ) {
+    if (Date.now() > deadline)
+      throw new Error(`Timed out waiting for ${label}`);
+    await settle(50);
+  }
+}
+
 async function press(screen: Screen, label: string) {
   await act(async () => {
     labelled(screen, label).props.onPress();
@@ -413,6 +429,7 @@ test('6.8 makes a run with a place picked on 6.9', async () => {
   }
   await press(screen, '만나는 곳 변경');
   await type(screen, '장소·주소 검색', '수영강');
+  await waitForAction(screen, '수영강 APEC나루공원 입구');
   await press(screen, '수영강 APEC나루공원 입구');
   await press(screen, '이 위치로 정하기');
   expect(texts(screen)).toContain('위치 확정');
@@ -501,6 +518,7 @@ test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   expect(create().props.disabled).toBe(true);
   await type(screen, '크루 이름', '광안리 주말 러너스');
   await type(screen, '지역 검색', '광안리');
+  await waitForAction(screen, '광안리해수욕장 입구');
   await press(screen, '광안리해수욕장 입구');
   await press(screen, '모집 인원 늘리기');
   expect(texts(screen)).toContain('21');

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   PermissionsAndroid,
   Platform,
@@ -35,8 +35,12 @@ import { Tag, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
-const formatDistance = (meters: number) =>
-  meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
+const formatDistance = (meters: number | null) =>
+  meters === null || !Number.isFinite(meters)
+    ? ''
+    : meters >= 1000
+    ? `${(meters / 1000).toFixed(1)}km`
+    : `${Math.round(meters)}m`;
 
 // A point picked on the map has no place name or address yet (no reverse geocoding), so it shows its
 // coordinates; its distance is known only once my location is.
@@ -49,7 +53,7 @@ function mapPlace(
     name,
     address: `${position[1].toFixed(5)}, ${position[0].toFixed(5)}`,
     position,
-    distanceM: me ? distanceM(me, position) : Number.NaN,
+    distanceM: me ? distanceM(me, position) : null,
   };
 }
 
@@ -102,6 +106,9 @@ export function MeetingPlaceScreen() {
   const { draft, setPlace } = useGroupRunDraft();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MeetingPlace[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [picked, setPicked] = useState<MeetingPlace | null>(draft.place);
   const [confirming, setConfirming] = useState(false);
   const [placeName, setPlaceName] = useState('');
@@ -113,21 +120,38 @@ export function MeetingPlaceScreen() {
   // True while the camera flies to my location; where it stops is the picked place.
   const locating = useRef(false);
 
-  const search = useCallback(
-    (text: string) => {
-      groupRuns.searchPlaces(text).then(found => {
-        setResults(found);
-        setPicked(current => current ?? found[0] ?? null);
-      });
-    },
-    [groupRuns],
-  );
-  useEffect(() => search(''), [search]);
+  useEffect(() => {
+    let active = true;
+    setResults([]);
+    setSearchFailed(false);
+    setSearching(Boolean(query.trim()));
+    // 빈 검색은 mock의 기존 주변 후보만 유지한다. API는 빈 배열을 반환한다.
+    const timer = setTimeout(
+      () => {
+        groupRuns.searchPlaces(query, me).then(
+          found => {
+            if (!active) return;
+            setResults(found);
+            setSearching(false);
+          },
+          () => {
+            if (!active) return;
+            setSearchFailed(true);
+            setSearching(false);
+          },
+        );
+      },
+      query.trim() ? 300 : 0,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [groupRuns, query, me, attempt]);
 
   const choose = (place: MeetingPlace) => {
     setPicked(place);
     setQuery('');
-    search('');
   };
 
   // 내 위치로: with the location permission the map follows me once; without it the nearest place.
@@ -206,8 +230,10 @@ export function MeetingPlaceScreen() {
                 value={query}
                 onChangeText={text => {
                   setQuery(text);
+                  setResults([]);
+                  setSearching(Boolean(text.trim()));
+                  setSearchFailed(false);
                   setConfirming(false);
-                  search(text);
                 }}
                 style={styles.searchInput}
               />
@@ -215,10 +241,26 @@ export function MeetingPlaceScreen() {
           </View>
           {query ? (
             <LightGlass radius={22} style={styles.results}>
-              {results.length ? (
+              {searching ? (
+                <AppText style={[styles.sub, styles.noResult]}>
+                  검색 중이에요
+                </AppText>
+              ) : searchFailed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="장소 검색 다시 시도"
+                  onPress={() => setAttempt(value => value + 1)}
+                >
+                  <AppText style={[styles.sub, styles.noResult]}>
+                    검색하지 못했어요. 눌러서 다시 시도해 주세요
+                  </AppText>
+                </Pressable>
+              ) : results.length ? (
                 results.map(place => (
                   <Pressable
-                    key={place.name}
+                    key={`${place.name}:${place.address}:${place.position.join(
+                      ',',
+                    )}`}
                     accessibilityRole="button"
                     accessibilityLabel={place.name}
                     onPress={() => choose(place)}

@@ -1,5 +1,29 @@
 # RunWay 백엔드
 
+## 만남 장소 검색 설정 (S15P31E105-471)
+
+`GET /api/v1/places/search`는 장소명(네이버 지역 검색)과 주소(Maps Geocoding)를 함께 검색한다.
+기본 `BACKEND_PLACE_SEARCH_ENABLED=false`에서는 비어 있지 않은 검색 요청에 503을 반환한다.
+활성화하려면 서버 실행 환경에 `BACKEND_PLACE_SEARCH_ENABLED=true`와 아래 네 값을 모두 주입한다.
+
+| 변수 | 용도 |
+| --- | --- |
+| `BACKEND_NAVER_SEARCH_CLIENT_ID` | 네이버 개발자센터 검색 API 애플리케이션 ID |
+| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 애플리케이션 Secret |
+| `BACKEND_NAVER_MAPS_KEY_ID` | 네이버 클라우드 Maps Geocoding API Key ID |
+| `BACKEND_NAVER_MAPS_KEY` | 위 애플리케이션 API Key |
+
+검색 API와 Maps API의 인증은 별개다. Maps 애플리케이션에는 Geocoding 사용 권한이 필요하다.
+활성화했는데 필수 값이 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다.
+실제 값은 사용자가 로컬 실행 환경 또는 인프라 Secret으로 주입하며 앱 번들·Git에 넣지 않는다.
+`.env.example`은 설정 이름만 제공하고 Spring Boot가 실제 `.env`를 자동으로 읽지는 않는다.
+운영 Compose/CI 주입은 인프라 담당자가 연결해야 하며 이 변경이 배포 완료를 뜻하지 않는다.
+외부 호출의 연결 상한은 1초, 전체는 5초, 소스별 본문 상한은 128 KiB다. 자동 재시도는 없다.
+로컬 합성 HTTP 테스트에는 실제 인증정보가 필요 없다. 실제 외부 API 연결과 기기 UI는 별도로 검증한다.
+프론트의 기본 데이터 소스는 이번 작업에서 바꾸지 않았다. 실제 앱 검색을 확인하려면
+`frontend/src/config.ts`의 `dataSource`를 `api`로 설정한 빌드와 이 API가 배포된 서버 주소를 사용한다.
+샘플 데이터 모드의 검색 결과는 외부 검색 연결 성공을 뜻하지 않는다.
+
 Java 21·Spring MVC 기반의 실행·테스트 초기 구성과 서비스용 Flyway 마이그레이션 V1을 포함한다.
 크루·게시글·댓글 API는 공통 JWT 인증을 사용한다. 문서 접속 인증과 회원 API 인증은 구분한다.
 

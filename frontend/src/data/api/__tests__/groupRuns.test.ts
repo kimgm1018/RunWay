@@ -190,6 +190,24 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
 });
 
+test('place search in API mode uses the real endpoint instead of mock places', async () => {
+  const place = {
+    name: '검색된 공원',
+    address: '도로 1',
+    position: [129.118, 35.153],
+    distanceM: null,
+  };
+  serve(path =>
+    path === '/places/search' ? respond(200, { items: [place] }) : undefined,
+  );
+  expect(await api().groupRuns.searchPlaces('공원')).toEqual([place]);
+  expect(
+    fetchMock.mock.calls.some(([address]) =>
+      new URL(address).pathname.endsWith('/places/search'),
+    ),
+  ).toBe(true);
+});
+
 afterEach(() => {
   jest.useRealTimers();
 });
