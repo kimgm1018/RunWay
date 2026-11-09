@@ -362,7 +362,7 @@ var grades = calculator.calculate(route, distanceM);
   이는 공개 API의 거리 상한을 정하는 정책이 아니다. 순수 고도→경사 계산은 전체 20m 격자를
   할당하지 않아 스키마의 최대 거리도 계산할 수 있다.
 - 기동 시 파일 연결과 준비 상태 처리는 아래 "C01 코스 생성 설정"(S15P31E105-423)을 따른다.
-  DEM 원본 배포(볼륨·manifest·준비 스크립트)는 인프라 후속 업무다.
+  운영 DEM 연결은 아래 "공유 DEM"의 운영 배포 문단(S15P31E105-568)을 따른다.
   고도 데이터는 Copernicus DEM 라이선스와 출처 표기 기준을 따른다.
 
 ### C01 코스 생성 설정 (S15P31E105-423)
@@ -398,8 +398,12 @@ Route 응답 본문은 256KB까지만 읽는다. 로그에는 상태·지연·�
 
 공유 DEM을 받은 경우 실제 파일 검증은 `BACKEND_COURSE_DEM_PATH`를 지정하고
 `.\gradlew.bat test --tests "*SharedBusanDemTest"`로 실행한다. 변수가 없으면 이 테스트는 건너뛰며,
-기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다. 운영 배포는 인프라가 HR 모델처럼 HF에서 받아
-DEM 볼륨에 넣는다(AI 팀 요청 예정).
+기본 빌드는 합성 DEM 테스트로 같은 코드를 검증한다.
+
+운영 배포(S15P31E105-568)는 별도 복사본을 두지 않고, Route CD(`infra/route/prepare-data.sh`)가 같은 revision을
+받아 SHA를 검증한 번들의 이 파일을 `infra/backend/compose.yaml`에서 `/data/dem/`에 읽기 전용으로 연결한다.
+Route 데이터 revision을 바꾸면 백엔드 Compose의 마운트 경로·`BACKEND_COURSE_DEM_SHA256`을 함께 바꾸고 재기동한다.
+기동 로그 `코스 DEM 준비 완료`로 연결을 확인한다(`파일 없음`·`해시·형식 검증 실패`·`미설정`은 C01 503).
 
 테스트는 실제 DEM 없이 `src/test/resources/course-grade/dem/`의 작은 합성 파일을 사용한다.
 `generate_dem_fixtures.py`에 독립 재생성 명령이 있으며 실제 좌표·건강 데이터는 포함하지 않는다.
