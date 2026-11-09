@@ -21,6 +21,7 @@ import {
   type RunControlState,
 } from './runControl';
 import { useSession } from '../../session/SessionProvider';
+import { watchGroupStatus } from '../../watch/groupStatus';
 import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
@@ -74,6 +75,11 @@ type RunActions = {
   abortStart: () => void;
   // 워치 단절·측정 끊김 때 기록·제어를 폰으로 넘긴다(S08 TAKE_OVER_PHONE, S15P31E105-464).
   takeOver: () => void;
+  // 그룹런 대기방 준비 완료(G16)로 서버가 만든 내 READY 세션에 붙어 워치를 준비시킨다(S15P31E105-420). 같은 세션이면 그대로 둔다.
+  // 이후 그룹장의 출발(G09)·그룹 종료(G12)는 이 세션의 서버 명령으로 워치에 전달되고, 내 일시정지·종료도 이 세션으로 제어한다.
+  joinGroup: (config: RunConfig, sessionId: string) => void;
+  // 준비 해제: 서버가 취소한 세션 상태를 워치에 알리고 붙은 세션을 놓는다.
+  leaveGroup: () => void;
 };
 
 const firstSample: RunSample = {
@@ -174,6 +180,7 @@ export function RunSessionProvider({
     session,
     watchSession,
     phoneLocation,
+    groupRuns,
   } = useRepositories();
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
@@ -377,6 +384,15 @@ export function RunSessionProvider({
   const [resumeTarget, setResumeTarget] = useState<ResumeTarget | null>(null);
   // 다시 붙은 세션 중 복원 여부를 이미 판단한 세션 ID. 같은 세션을 두 번 복원하지 않는다.
   const judged = useRef<string | null>(null);
+  // 지금 붙은 그룹런 참가 세션(S15P31E105-420). 그룹 러닝이어도 이 값이 없으면(목업·준비 전) 화면 기록만 쓴다.
+  const groupRef = useRef<{ groupRunId: string; sessionId: string } | null>(null);
+  const [groupLink, setGroupLink] = useState<{ groupRunId: string; sessionId: string } | null>(
+    null,
+  );
+  const linkGroup = useCallback((link: { groupRunId: string; sessionId: string } | null) => {
+    groupRef.current = link;
+    setGroupLink(link);
+  }, []);
 
   useEffect(
     () => () => {
@@ -442,6 +458,7 @@ export function RunSessionProvider({
   // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
   // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
   const reset = useCallback(() => {
+    linkGroup(null);
     stopListening.current?.();
     stopListening.current = null;
     controlRef.current?.dispose();
@@ -453,7 +470,7 @@ export function RunSessionProvider({
     setControl(null);
     setRun(null);
     setResumeTarget(null);
-  }, []);
+  }, [linkGroup]);
 
   const drop = useCallback((target: RunControl) => {
     if (controlRef.current !== target) {
@@ -509,12 +526,70 @@ export function RunSessionProvider({
     };
   }, [drop, newControl, reset, signedIn, watchSession]);
 
+  // 그룹 러닝 중 G10 현황을 워치에 GROUP_STATUS로 전달한다(S15P31E105-420). 내 운동이 진행 중인 동안만 보낸다.
+  const groupActive =
+    !!groupLink &&
+    control?.sessionId === groupLink.sessionId &&
+    (control.status === 'RUNNING' || control.status === 'PAUSED');
+  useEffect(() => {
+    const send = watchSession.sendGroupStatus;
+    if (!groupActive || !groupLink || !send) {
+      return;
+    }
+    const { groupRunId, sessionId } = groupLink;
+    return groupRuns.watchLive(
+      groupRunId,
+      value => {
+        const status = watchGroupStatus(groupRunId, value);
+        if (status) {
+          send(sessionId, status).catch(() => undefined);
+        }
+      },
+      // 조회 실패는 보내지 않는다. 워치가 받지 못한 시간만큼 마지막 값을 지연으로 표시한다.
+      () => undefined,
+    );
+  }, [groupActive, groupLink, groupRuns, watchSession]);
+
   const actions = useMemo<RunActions>(() => {
+    // 서버 세션으로 제어하는 러닝이면 그 제어기. 그룹 러닝은 내 참가 세션에 붙어 있을 때만이다.
     const personal = () =>
-      latest.current?.config.mode === 'GROUP' ? null : controlRef.current;
+      latest.current?.config.mode === 'GROUP' && !groupRef.current
+        ? null
+        : controlRef.current;
+    const groupControl = (groupRunId: string | undefined) => {
+      const link = groupRef.current;
+      const target = controlRef.current;
+      return link &&
+        target &&
+        link.groupRunId === groupRunId &&
+        target.getState().sessionId === link.sessionId
+        ? target
+        : null;
+    };
     return {
       start: config => {
+        const joined = config.mode === 'GROUP' ? groupControl(config.groupRunId) : null;
+        if (joined) {
+          // 출발은 서버가 확정한 내 세션 상태로만 시작한다(아래 상태 반영). 이미 시작됐으면 그 시각으로 화면 기록을 연다.
+          pendingConfig.current = config;
+          const state = joined.getState();
+          const current = latest.current;
+          if (
+            (state.status === 'RUNNING' || state.status === 'PAUSED') &&
+            (!current || current.status === 'finished')
+          ) {
+            local.start(config, state.startedAt);
+            if (state.status === 'PAUSED') {
+              local.pause();
+            }
+          } else if (current && current.status !== 'finished' && current.config.groupRunId !== config.groupRunId) {
+            // 앱 재실행 복원은 설정을 몰라 자유 러닝으로 이어 갔다. 같은 세션이므로 기록은 두고 그룹 설정으로 바꾼다.
+            setRun({ ...current, config });
+          }
+          return;
+        }
         if (config.mode === 'GROUP') {
+          linkGroup(null);
           // 지난 개인 러닝의 안내·대기 표시가 그룹 화면에 남지 않게 한다.
           stopListening.current?.();
           controlRef.current?.dispose();
@@ -574,8 +649,39 @@ export function RunSessionProvider({
       takeOver: () => {
         controlRef.current?.takeOver();
       },
+      joinGroup: (config, sessionId) => {
+        const groupRunId = config.groupRunId;
+        if (!groupRunId) {
+          return;
+        }
+        const existing = controlRef.current?.getState();
+        if (
+          groupRef.current?.sessionId === sessionId &&
+          existing?.sessionId === sessionId &&
+          !TERMINAL.includes(existing.status ?? '')
+        ) {
+          return;
+        }
+        pendingConfig.current = config;
+        // 그룹 세션은 이 앱이 이어 붙는 것이라 재실행 복원 화면을 따로 열지 않는다.
+        judged.current = sessionId;
+        const target = newControl();
+        linkGroup({ groupRunId, sessionId });
+        target.joinGroup(sessionId, goalOf(config), groupRunId);
+      },
+      leaveGroup: () => {
+        if (!groupRef.current) {
+          return;
+        }
+        const target = controlRef.current;
+        linkGroup(null);
+        pendingConfig.current = null;
+        if (target) {
+          target.sync().finally(() => drop(target));
+        }
+      },
     };
-  }, [local, newControl, save, sessionIdOf]);
+  }, [drop, linkGroup, local, newControl, save, sessionIdOf]);
 
   const resume = useMemo(
     () => ({ target: resumeTarget, consume: () => setResumeTarget(null) }),

@@ -337,7 +337,12 @@ export function GroupRunResultScreen() {
         <BottomFade mist />
         <NavyButton
           title="내 그룹런 기록 공유"
-          onPress={() => navigateTo(navigation, 'PostWrite')}
+          // 내 그룹런 기록을 지정해 연다(S15P31E105-420). 기록이 없으면(미시작·목업) 기존처럼 최근 기록으로 연다.
+          onPress={() =>
+            result?.mySessionId
+              ? navigation.navigate('PostWrite', { recordId: result.mySessionId })
+              : navigateTo(navigation, 'PostWrite')
+          }
         />
         <NavyButton title="완료" onPress={done} />
       </SafeAreaView>

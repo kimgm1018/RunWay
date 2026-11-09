@@ -112,6 +112,11 @@ class HealthServicesExerciseGateway(
         return true
     }
 
+    // Health Services throttles flushes; a throttled one simply delivers nothing early.
+    override suspend fun flush() {
+        client.flushAsync().await()
+    }
+
     override suspend fun end() {
         client.endExerciseAsync().await()
         listener?.let { client.clearUpdateCallbackAsync(it) }

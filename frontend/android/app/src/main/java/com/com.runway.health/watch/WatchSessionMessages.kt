@@ -20,6 +20,8 @@ const val ERROR_PATH = "/runway/v1/error"
 // S15P31E105-257: server coaching to the watch and its real result back (9.2).
 const val COACHING_GUIDE_PATH = "/runway/v1/coaching/guide"
 const val COACHING_RESULT_PATH = "/runway/v1/coaching/result"
+// S15P31E105-420: G10 group standing relayed to the watch (9.2 GROUP_STATUS).
+const val GROUP_STATUS_PATH = "/runway/v1/group/status"
 
 private const val MAX_SESSION_BYTES = 32 * 1024
 private const val SESSION_PROTOCOL_VERSION = 1
@@ -106,9 +108,9 @@ fun toJsEvent(message: SessionEnvelope): String {
     .toString()
 }
 
-/** Paths JS may send on: the session paths, ERROR and COACHING_GUIDE (9.2). */
+/** Paths JS may send on: the session paths (SERVER_END included), ERROR, COACHING_GUIDE and GROUP_STATUS (9.2). */
 fun isSendablePath(path: String): Boolean =
-  path.startsWith(SESSION_PATH_PREFIX) || path == ERROR_PATH || path == COACHING_GUIDE_PATH
+  path.startsWith(SESSION_PATH_PREFIX) || path == ERROR_PATH || path == COACHING_GUIDE_PATH || path == GROUP_STATUS_PATH
 
 /** Watch paths stored in the session inbox: the session paths and COACHING_RESULT. */
 fun isSessionInboxPath(path: String): Boolean =

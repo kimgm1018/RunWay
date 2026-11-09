@@ -1,5 +1,7 @@
 package com.runway.watch.session
 
+import com.runway.watch.run.GroupPhase
+import com.runway.watch.run.GroupStanding
 import com.runway.watch.run.RecordComparison
 import org.json.JSONObject
 import java.time.Instant
@@ -26,6 +28,13 @@ object SessionPaths {
     const val COACHING_PREFIX = "/runway/v1/coaching/"
     const val COACHING_GUIDE = "/runway/v1/coaching/guide"
     const val COACHING_RESULT = "/runway/v1/coaching/result"
+
+    /** G12 group end: the participant's server-approved END relayed by the phone (9.3 SERVER_END, S15P31E105-420). */
+    const val SERVER_END = "/runway/v1/session/server-end"
+
+    /** G10 group standing relayed by the phone (9.3 GROUP_STATUS, S15P31E105-420). */
+    const val GROUP_PREFIX = "/runway/v1/group/"
+    const val GROUP_STATUS = "/runway/v1/group/status"
 }
 
 /** 9.3 targetBpm range for SET_BPM and COACHING_GUIDE. */
@@ -41,6 +50,8 @@ private val INCOMING_TYPES = setOf(
     "BATCH_RECEIVED", "BATCH_COMMITTED",
     // S15P31E105-257: server-approved coaching relayed by the phone.
     "COACHING_GUIDE",
+    // S15P31E105-420: group end command and G10 group standing relayed by the phone.
+    "SERVER_END", "GROUP_STATUS",
 )
 
 data class SessionEnvelope(
@@ -69,6 +80,37 @@ data class SessionEnvelope(
     fun batchId(): String? = payload.optString("batchId").takeIf { it.isNotEmpty() && it.length <= 64 }
 
     fun deviceId(): String? = payload.idText("deviceId")?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true }
+
+    /** SESSION_PREPARE/GROUP_STATUS.groupRunId: the group run this session belongs to; null for a personal run (S15P31E105-420). */
+    fun groupRunId(): String? = payload.idText("groupRunId")?.takeIf { it.toLongOrNull()?.let { id -> id > 0 } == true }
+
+    /**
+     * GROUP_STATUS (S15P31E105-420): the phone's copy of G10 for this runner. Null when the group or the phase is
+     * missing or unknown, so the message is ignored. A standing without a positive rank, or with a negative count or
+     * gap, is dropped as a whole rather than shown half made up.
+     */
+    fun groupUpdate(): GroupUpdate? {
+        val group = groupRunId() ?: return null
+        val phase = try { GroupPhase.valueOf(payload.optString("phase")) } catch (_: Exception) { return null }
+        val standing = payload.optJSONObject("standing")?.let { s ->
+            val rank = s.wholeNumber("rank")?.takeIf { it >= 1 } ?: return@let null
+            val ahead = s.nullableWhole("aheadCount") ?: return@let null
+            val behind = s.nullableWhole("behindCount") ?: return@let null
+            val gapAhead = s.nullableDistance("gapToAheadM") ?: return@let null
+            val gapBehind = s.nullableDistance("gapToBehindM") ?: return@let null
+            GroupStanding(rank.toInt(), ahead.value?.toInt(), behind.value?.toInt(), gapAhead.value, gapBehind.value)
+        }
+        return GroupUpdate(
+            groupRunId = group,
+            phase = phase,
+            guidePaceSecondsPerKm = payload.wholeNumber("guidePaceSecPerKm")?.takeIf { it > 0 }?.toInt(),
+            standing = standing,
+            stale = payload.optBoolean("stale", true),
+            leaderToLastGapMeters = payload.nullableDistance("leaderToLastGapM")?.value,
+            updatedAt = instant("updatedAt"),
+            rankedCount = payload.wholeNumber("rankedCount")?.takeIf { it >= 1 }?.toInt(),
+        )
+    }
 
     /**
      * STATE_RESULT(scope=SERVER).comparison: the server's S02 record comparison (S15P31E105-422, sessions.md "기록 비교").
@@ -108,6 +150,16 @@ internal fun dayLabel(at: Instant): String = at.atZone(KOREA).let { "${it.monthV
 private fun JSONObject.wholeNumber(name: String): Long? =
     if (!has(name) || isNull(name)) null
     else (opt(name) as? Number)?.takeIf { it.toDouble() == it.toLong().toDouble() }?.toLong()?.takeIf { it >= 0 }
+
+/** A field that may be null: [value] is null for null/absent; the wrapper itself is null when the value is invalid. */
+private data class NullableField<T>(val value: T?)
+
+private fun JSONObject.nullableWhole(name: String): NullableField<Long>? =
+    if (!has(name) || isNull(name)) NullableField(null) else wholeNumber(name)?.let { NullableField(it) }
+
+private fun JSONObject.nullableDistance(name: String): NullableField<Double>? =
+    if (!has(name) || isNull(name)) NullableField(null)
+    else (opt(name) as? Number)?.toDouble()?.takeIf { it.isFinite() && it >= 0 }?.let { NullableField(it) }
 
 /** UTC "…Z" or an ISO-8601 time with an offset; null when unreadable. */
 internal fun parseInstant(text: String): Instant? = try {
@@ -233,3 +285,19 @@ object SessionMessages {
         return bytes
     }
 }
+
+/**
+ * One GROUP_STATUS (S15P31E105-420). [standing] is null when the server did not rank this runner; [stale] is G10's
+ * own flag for this runner. [updatedAt] is G10 updatedAt and orders updates: an older one never replaces a newer one.
+ */
+data class GroupUpdate(
+    val groupRunId: String,
+    val phase: GroupPhase,
+    val guidePaceSecondsPerKm: Int?,
+    val standing: GroupStanding?,
+    val stale: Boolean,
+    val leaderToLastGapMeters: Double?,
+    val updatedAt: Instant?,
+    /** Runners G10 ranked now; null when not sent (older phone). */
+    val rankedCount: Int? = null,
+)

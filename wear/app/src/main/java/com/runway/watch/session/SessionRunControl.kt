@@ -7,7 +7,9 @@ import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
 import com.runway.watch.run.CoachingGuide
 import com.runway.watch.run.RhythmBpm
+import com.runway.watch.run.GroupStatus
 import com.runway.watch.run.RunMetrics
+import com.runway.watch.run.RunMode
 import com.runway.watch.run.RunControl
 import com.runway.watch.run.RunIntent
 import com.runway.watch.run.RunResult
@@ -17,7 +19,9 @@ import com.runway.watch.run.SaveStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
 /**
@@ -30,12 +34,27 @@ class SessionRunControl(
     private val controller: WatchSessionController,
     private val scope: CoroutineScope,
     private val uploads: StateFlow<UploadState> = MutableStateFlow(UploadState()),
+    /** Measured values for the screen (S15P31E105-420); the same readings also go to the uploader. */
+    private val live: LiveReadings = LiveReadings(),
+    private val elapsedMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) : RunControl {
     private val state = MutableStateFlow(toSnapshot(controller.state.value, uploads.value))
     override val snapshot: StateFlow<RunSnapshot> = state
+    private var shownSession: String? = null
 
     init {
-        scope.launch { controller.state.combine(uploads) { s, u -> toSnapshot(s, u) }.collect { state.value = it } }
+        // 측정값의 신선도(실시간·지연·신호 없음)는 시간이 지나면 바뀌므로 몇 초마다 다시 계산한다.
+        val ticks = flow { while (true) { emit(Unit); delay(TICK_MS) } }
+        scope.launch {
+            combine(controller.state, uploads, live.latest, ticks) { s, u, l, _ ->
+                // 새 세션은 지난 운동의 측정값을 보이지 않는다.
+                if (s.sessionId != shownSession) {
+                    shownSession = s.sessionId
+                    if (l != LiveReadings.Latest()) live.reset()
+                }
+                toSnapshot(s, u, l, elapsedMs())
+            }.collect { state.value = it }
+        }
     }
 
     override fun send(intent: RunIntent) {
@@ -62,15 +81,48 @@ class SessionRunControl(
             "SET_BPM" to "BPM 변경", "COACHING" to "코칭 적용",
         )
 
-        fun toSnapshot(session: WatchSessionState, upload: UploadState = UploadState()) = RunSnapshot(
+        private const val TICK_MS = 5_000L
+
+        /**
+         * Measured values shown while this watch records the run (RUNNING/PAUSED and not handed to the phone). The time
+         * runs on from the last active time only while RUNNING, so a pause freezes it.
+         */
+        fun metrics(session: WatchSessionState, latest: LiveReadings.Latest, nowMs: Long): RunMetrics {
+            val base = RunMetrics(
+                guidePaceSecondsPerKm = session.coaching?.paceSecPerKm,
+                rhythm = session.currentBpm?.let(::RhythmBpm),
+            )
+            val recording = (session.confirmed == RunState.RUNNING || session.confirmed == RunState.PAUSED) &&
+                !session.phoneRecording && !session.measurementLost
+            if (!recording) return base
+            val active = latest.activeSec?.let {
+                val since = if (session.confirmed == RunState.RUNNING) (nowMs - it.receivedMs).coerceAtLeast(0) else 0
+                it.value * 1000 + since
+            }
+            return base.copy(
+                distanceMeters = latest.distanceMeters?.value,
+                elapsedMs = active,
+                paceSecondsPerKm = latest.pace?.value,
+                heartRate = LiveReadings.heartRate(latest),
+                cadenceSpm = latest.cadence?.value,
+                feeds = LiveReadings.feeds(latest, nowMs),
+            )
+        }
+
+        fun toSnapshot(
+            session: WatchSessionState,
+            upload: UploadState = UploadState(),
+            latest: LiveReadings.Latest = LiveReadings.Latest(),
+            nowMs: Long = 0,
+        ) = RunSnapshot(
             state = session.confirmed,
+            // 그룹 참가 세션이면 그룹 화면을 쓴다(S15P31E105-420). 그룹 값은 폰이 전달한 G10 그대로다.
+            mode = if (session.groupRunId != null) RunMode.GROUP else RunMode.PERSONAL,
+            group = if (session.groupRunId != null) session.group ?: GroupStatus() else null,
             phoneConnected = session.problem != WatchProblem.PhoneUnreachable,
             pendingCommand = session.pending != null && session.problem == null,
             pendingIntent = session.pending?.takeIf { session.problem == null }?.let { intentOf(it.action) },
-            metrics = RunMetrics(
-                guidePaceSecondsPerKm = session.coaching?.paceSecPerKm,
-                rhythm = session.currentBpm?.let(::RhythmBpm),
-            ),
+            metrics = metrics(session, latest, nowMs),
             notice = notice(session) ?: if (upload.unconfirmed) "기록 저장을 확인할 수 없어요" else null,
             result = result(session, upload),
             bpmChange = session.bpmRequest?.let { BpmChange(RhythmBpm(it.targetBpm), BpmChangeStatus.valueOf(it.status.name)) },

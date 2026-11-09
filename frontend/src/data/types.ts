@@ -575,6 +575,8 @@ export type WaitingRoom = {
   participantCount: number;
   readyCount: number;
   participants: GroupRunParticipant[];
+  // G07 본인 항목의 sessionId. 준비 완료(G16)로 서버가 만든 내 READY 세션이며, 준비 전·목업은 null(S15P31E105-420).
+  mySessionId?: string | null;
 };
 
 // G10 실시간 현황, seen from me. gapM is positive for members ahead of me.
@@ -589,7 +591,12 @@ export type GroupRunLive = {
     stale?: boolean;
     gapToAheadM?: number | null;
     gapToBehindM?: number | null;
+    // G10 앞·뒤 인원(S15P31E105-420 워치 전달). 서버가 주지 않으면 null.
+    aheadCount?: number | null;
+    behindCount?: number | null;
   }[];
+  // G10 updatedAt. 워치가 늦게 온 현황을 구분하는 기준이다(S15P31E105-420).
+  updatedAt?: string | null;
   spreadM: number | null;
   inRange: boolean | null;
   guidePaceSecPerKm: number | null;
@@ -610,6 +617,8 @@ export type GroupRunResult = {
   maxGapM: number | null;
   analysisStatus?: string;
   hasUnconfirmedStarts?: boolean;
+  // 내 참가 세션 = 내 그룹런 기록 ID(H02·CMT01). 시작하지 않았거나 목업이면 null(S15P31E105-420).
+  mySessionId?: string | null;
   participants: {
     userId: string;
     nickname: string;
@@ -901,6 +910,27 @@ export type RunningSessionView = {
   comparison?: RecordComparison | null;
   serverReceiveAt?: string | null;
   serverSendAt?: string | null;
+  // S02 groupEndedAt: 종료된 그룹런의 종료 기준시각. 개인런·진행 중 그룹런은 null(S15P31E105-420).
+  groupEndedAt?: string | null;
+};
+
+// GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
+export type WatchGroupStatus = {
+  groupRunId: string;
+  phase: 'WAITING' | 'RUNNING' | 'FINISHED' | 'FORCE_FINISHED';
+  guidePaceSecPerKm: number | null;
+  standing: {
+    rank: number;
+    aheadCount: number | null;
+    behindCount: number | null;
+    gapToAheadM: number | null;
+    gapToBehindM: number | null;
+  } | null;
+  stale: boolean;
+  leaderToLastGapM: number | null;
+  updatedAt: string | null;
+  // 지금 G10이 순위를 낸 참가자 수. 같은 거리(동순위)는 앞·뒤 인원에 들지 않아 그 합으로 총인원을 알 수 없다.
+  rankedCount: number | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
@@ -1384,6 +1414,8 @@ export type Repositories = {
         stateVersion: number;
         deviceId: string;
         goal: SessionGoalDraft;
+        // 그룹런 참가 세션이면 그 그룹런 ID. 워치가 그룹 화면을 쓴다(S15P31E105-420).
+        groupRunId?: string | null;
       },
     ) => Promise<{
       stateVersion: number;
@@ -1403,6 +1435,13 @@ export type Repositories = {
         stateVersion: number | null;
       },
     ) => Promise<void>;
+    // G12 그룹 종료로 서버가 승인한 개인 END를 SERVER_END로 전달만 한다(9.3, S15P31E105-420).
+    sendServerEnd?: (
+      sessionId: string,
+      end: { commandId: string; expectedVersion: number; endedAt: string; reason: string },
+    ) => Promise<void>;
+    // G10 현황을 GROUP_STATUS로 전달만 한다(9.3, S15P31E105-420).
+    sendGroupStatus?: (sessionId: string, status: WatchGroupStatus) => Promise<void>;
     // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
     sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
     // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.

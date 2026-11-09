@@ -6,9 +6,16 @@ import java.time.Instant
 
 /**
  * The session and version the phone asked the watch to prepare (SESSION_PREPARE). [deviceId] is this watch's
- * user_devices.id from the same message; batches carry it as their producer (S15P31E105-311).
+ * user_devices.id from the same message; batches carry it as their producer (S15P31E105-311). [groupRunId] is set when
+ * the session is a group run participant's (S15P31E105-420), so a restarted watch still shows the group pages.
  */
-data class Prepared(val sessionId: String, val stateVersion: Long, val ready: Boolean, val deviceId: String? = null)
+data class Prepared(
+    val sessionId: String,
+    val stateVersion: Long,
+    val ready: Boolean,
+    val deviceId: String? = null,
+    val groupRunId: String? = null,
+)
 
 /**
  * EXECUTING is written before the exercise call so a crash mid-call is never re-executed (9.4). IGNORED is only for
@@ -82,6 +89,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
                 Prepared(
                     it.getString("sessionId"), it.getLong("stateVersion"), it.getBoolean("ready"),
                     if (it.isNull("deviceId")) null else it.optString("deviceId").takeIf { id -> id.isNotEmpty() },
+                    if (!it.has("groupRunId") || it.isNull("groupRunId")) null else it.optString("groupRunId").takeIf { id -> id.isNotEmpty() },
                 )
             }
         } catch (_: Exception) {
@@ -92,6 +100,7 @@ class PrefsSessionStore(context: Context) : SessionStore {
     override fun savePrepared(prepared: Prepared) = synchronized(LOCK) {
         val json = JSONObject().put("sessionId", prepared.sessionId).put("stateVersion", prepared.stateVersion).put("ready", prepared.ready)
             .put("deviceId", prepared.deviceId ?: JSONObject.NULL)
+            .put("groupRunId", prepared.groupRunId ?: JSONObject.NULL)
         check(prefs.edit().putString(KEY_PREPARED, json.toString()).commit())
     }
 

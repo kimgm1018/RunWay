@@ -63,6 +63,9 @@ const runDetail = (run: Run) => ({
   goalPaceSecPerKm: null,
 });
 
+// W02의 연결 워치 여부. 테스트마다 기본은 연결됨.
+let watchLinked = true;
+
 function serve() {
   fetchMock.mockImplementation(
     async (address: string, init: { method: string; body?: string }) => {
@@ -97,6 +100,17 @@ function serve() {
       // 6.8 offers my saved courses (C09); none are saved here.
       if (path === '/users/me/bookmarked-courses') {
         return respond(200, { items: [] });
+      }
+      // W02: 준비 완료(G16) 전에 연결 워치·폰을 확인한다(S15P31E105-420).
+      if (path === '/devices' && init.method === 'GET') {
+        return respond(200, {
+          items: watchLinked
+            ? [
+                { id: 501, deviceType: 'WATCH' },
+                { id: 502, deviceType: 'PHONE' },
+              ]
+            : [{ id: 502, deviceType: 'PHONE' }],
+        });
       }
       if (path === '/regions') {
         return respond(200, { items: [], currentRegionCode: null });
@@ -301,6 +315,7 @@ beforeEach(async () => {
   ];
   posted = [];
   patched = [];
+  watchLinked = true;
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
@@ -330,6 +345,22 @@ test('6.0 pins my run that starts soon and 6.5 marks me ready with G16', async (
 
   expect(calls('POST')).toEqual(['/group-runs/61/participants/me/ready']);
   expect(texts(screen)).toContain('2명 준비 완료');
+  await act(async () => screen.unmount());
+});
+
+test('6.5 does not mark me ready without a linked watch and says so', async () => {
+  // G16은 연결 워치·폰으로 세션을 만든다. 워치가 없으면 서버 오류 대신 연결 안내를 보인다(S15P31E105-420).
+  watchLinked = false;
+  const screen = await openGroup();
+  await press(screen, '대기방 입장');
+  await press(screen, '준비 완료');
+  await settle(50);
+
+  expect(calls('POST')).toEqual([]);
+  expect(texts(screen)).toContain(
+    '워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요',
+  );
+  expect(texts(screen)).toContain('1명 준비 완료');
   await act(async () => screen.unmount());
 });
 

@@ -191,6 +191,8 @@ export function GroupRunProgressScreen({
   const [isHost, setIsHost] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const finishing = useRef(false);
+  // 결과 화면으로 한 번만 넘어간다. 그룹장이 끝냈거나(SERVER_END) 내 종료가 서버에 저장되면 내 기록도 끝난다(S15P31E105-420).
+  const leftForResult = useRef(false);
   const groupRunId = run?.config.groupRunId ?? 'gr-today';
 
   // Opened without a run: start a group run without a course.
@@ -277,6 +279,22 @@ export function GroupRunProgressScreen({
   );
   const status = useRef(run?.status);
   status.current = run?.status;
+  const endedRunId = run?.status === 'finished' ? run.config.groupRunId : undefined;
+  useEffect(() => {
+    if (!endedRunId || leftForResult.current) {
+      return;
+    }
+    leftForResult.current = true;
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 1,
+        routes: [
+          { name: 'MainTabs' },
+          { name: 'GroupRunResult', params: { groupRunId: endedRunId } },
+        ],
+      }),
+    );
+  }, [endedRunId, navigation]);
   const latest = useRef({ pause, toast });
   latest.current = { pause, toast };
   // The back key never leaves or resumes the run: while running it pauses, while paused it stays.
@@ -300,6 +318,7 @@ export function GroupRunProgressScreen({
   const { config, sample, trail } = run;
   const goal = config.goalPaceSecPerKm ?? 360;
   const toResult = () => {
+    leftForResult.current = true;
     finish();
     navigation.dispatch(
       CommonActions.reset({
