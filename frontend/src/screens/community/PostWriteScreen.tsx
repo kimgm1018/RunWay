@@ -22,6 +22,7 @@ import {
   useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
   type PostDraft,
@@ -40,6 +41,30 @@ import { Avatar, recordLabel, stamp } from './parts';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 const bodyLimit = 500;
+
+// What a failed 게시 (CMT01) or 저장 (CMT04) says, by the server's reason (S15P31E105-633).
+export function postFailure(error: unknown, action: '게시' | '저장') {
+  switch (errorCode(error)) {
+    // CMT01: the run was deleted or never completed, or is not mine.
+    case 'INVALID_POST':
+      return '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요';
+    case 'RESOURCE_NOT_OWNED':
+      return '내 러닝 기록만 공유할 수 있어요';
+    // CMT04: the post is gone, or is someone else's.
+    case 'POST_NOT_FOUND':
+      return '이미 삭제된 게시물이에요';
+    case 'NOT_AUTHOR':
+      return '내가 쓴 게시물만 수정할 수 있어요';
+    case 'VALIDATION_ERROR':
+      return '글 내용을 확인해 주세요';
+    case 'NETWORK_ERROR':
+      return '인터넷 연결을 확인한 뒤 다시 시도해 주세요';
+    default:
+      return action === '게시'
+        ? '게시하지 못했어요. 잠시 후 다시 시도해 주세요'
+        : '저장하지 못했어요. 잠시 후 다시 시도해 주세요';
+  }
+}
 
 // 7.3 and 7.3e: what I write, laid over the run as it will show in the 7.1 feed (S15P31E105-563, 담당자 요청: 지금
 // 커뮤니티 화면처럼): the dark map with the route in neon when the course goes along, the run's numbers and title at
@@ -284,8 +309,8 @@ export function PostWriteScreen() {
             await community.create(record.data.id, draft);
             toast('러닝 기록을 공유했어요');
             navigateTo(navigation, 'Community');
-          } catch {
-            toast('게시하지 못했어요. 잠시 후 다시 시도해 주세요');
+          } catch (error) {
+            toast(postFailure(error, '게시'));
           }
         }}
       />
@@ -349,8 +374,8 @@ export function PostEditScreen() {
             await community.update(postId, draft);
             toast('게시물을 수정했어요');
             navigation.goBack();
-          } catch {
-            toast('저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+          } catch (error) {
+            toast(postFailure(error, '저장'));
           }
         }}
       />

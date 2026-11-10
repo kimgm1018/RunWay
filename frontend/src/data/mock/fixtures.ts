@@ -1283,6 +1283,8 @@ export const posts: PostFixture[] = [
     comments: [
       {
         id: 'comment-1',
+        parentId: null,
+        deleted: false,
         author: communityUsers.sungyoon,
         body: '축하해요! 3km 구간 페이스 조절 진짜 잘했네요',
         createdAt: '2026-10-19T10:45:00+09:00',
@@ -1291,6 +1293,8 @@ export const posts: PostFixture[] = [
       },
       {
         id: 'comment-2',
+        parentId: null,
+        deleted: false,
         author: communityUsers.eunseo,
         body: '저도 다음 주에 이 코스 도전해볼게요',
         createdAt: '2026-10-19T11:45:00+09:00',
@@ -1299,6 +1303,8 @@ export const posts: PostFixture[] = [
       },
       {
         id: 'comment-3',
+        parentId: null,
+        deleted: false,
         author: communityUsers.jiwoo,
         body: '코칭 알림 진동으로 오나요?',
         createdAt: '2026-10-19T12:13:00+09:00',
@@ -1350,6 +1356,8 @@ export const posts: PostFixture[] = [
     comments: [
       {
         id: 'comment-4',
+        parentId: null,
+        deleted: false,
         author: communityUsers.seoyun,
         body: '오르막 직전에 보폭을 줄여 보세요. 심박이 덜 올라요',
         createdAt: '2026-10-17T21:02:00+09:00',

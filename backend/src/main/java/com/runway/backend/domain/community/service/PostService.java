@@ -16,11 +16,15 @@ import com.runway.backend.domain.community.repository.CommentRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository.AuthorRow;
 import com.runway.backend.domain.community.repository.PostCount;
+import com.runway.backend.domain.community.repository.PostBookmarkRepository;
 import com.runway.backend.domain.community.repository.PostLikeRepository;
+import com.runway.backend.domain.community.repository.PostPageQueryRepository;
+import com.runway.backend.domain.community.repository.PostPageQueryRepository.Activity;
+import com.runway.backend.domain.community.repository.PostPageQueryRepository.ActivityRow;
 import com.runway.backend.domain.community.repository.PostRepository;
 import com.runway.backend.domain.community.repository.RunningSessionLookupRepository;
 import com.runway.backend.domain.community.repository.RunningSessionLookupRepository.SessionShareInfo;
-import com.runway.backend.domain.community.repository.UserFollowLookupRepository;
+import com.runway.backend.domain.community.service.PostPageCursor.ActivityCursor;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -30,13 +34,16 @@ import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -49,10 +56,11 @@ public class PostService {
     private final PostRepository postRepository;
     private final RunningSessionLookupRepository runningSessionLookupRepository;
     private final AccountVisibilityRepository accountVisibilityRepository;
-    private final UserFollowLookupRepository userFollowLookupRepository;
     private final CommunityUserQueryRepository communityUserQueryRepository;
     private final CommentRepository commentRepository;
     private final PostLikeRepository postLikeRepository;
+    private final PostBookmarkRepository postBookmarkRepository;
+    private final PostPageQueryRepository postPageQueryRepository;
     private final EntityManager entityManager;
 
     @Transactional
@@ -87,53 +95,101 @@ public class PostService {
         return PostCreateResponse.from(post, session.courseId());
     }
 
-    @Transactional(readOnly = true)
+    /** U21 러너 프로필 등 페이지를 쓰지 않는 호출용. CMT02 무파라미터와 같이 전체를 반환한다. */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PostListResponse list(long userId, String scope, Long authorId) {
+        return list(userId, scope, authorId, null, null);
+    }
+
+    /**
+     * CMT02. {@code cursor}·{@code limit}가 모두 없으면 지금처럼 전체를 반환한다(앱 페이지 연동 전 하위 호환). 하나라도 있으면 limit(기본 20,
+     * 최대 50)개씩 id 내림차순으로 자른다. 삭제·접근 불가 글은 SQL에서 먼저 제외하므로 한 페이지가 limit보다 적어도 hasNext는 정확하다. ID 조회와
+     * 게시물·집계 조회가 같은 스냅샷을 보도록 REPEATABLE READ로 읽는다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PostListResponse list(
+            long userId, String scope, Long authorId, String cursor, Integer limit) {
         requireExistingUser(userId);
         String resolvedScope = resolveScope(scope);
-
-        List<Post> posts;
-        if (SCOPE_FOLLOWING.equals(resolvedScope)) {
-            Set<Long> authorIds =
-                    new HashSet<>(userFollowLookupRepository.findApprovedFolloweeIds(userId));
-            authorIds.add(userId);
-            if (authorId != null && !authorIds.contains(authorId)) {
-                return new PostListResponse(List.of());
-            }
-            posts = postRepository.findActiveByAuthorIds(authorIds, authorId);
-        } else {
-            posts = postRepository.findActive(authorId);
+        boolean following = SCOPE_FOLLOWING.equals(resolvedScope);
+        if (cursor == null && limit == null) {
+            List<Long> ids =
+                    postPageQueryRepository.findVisiblePostIds(
+                            userId, following, authorId, null, null);
+            return PostListResponse.lastPage(toListItems(userId, ids));
         }
 
+        int pageSize = PostPageCursor.resolveLimit(limit);
+        Long beforeId =
+                cursor == null
+                        ? null
+                        : PostPageCursor.decodeFeed(cursor, userId, resolvedScope, authorId);
+        List<Long> ids =
+                postPageQueryRepository.findVisiblePostIds(
+                        userId, following, authorId, beforeId, pageSize + 1);
+        boolean hasNext = ids.size() > pageSize;
+        List<Long> page = ids.subList(0, Math.min(ids.size(), pageSize));
+        String nextCursor =
+                hasNext
+                        ? PostPageCursor.encodeFeed(
+                                userId, resolvedScope, authorId, page.getLast())
+                        : null;
+        return new PostListResponse(toListItems(userId, page), nextCursor, hasNext);
+    }
+
+    /**
+     * CMT18 내 스크랩·CMT19 내 좋아요. 본인 관계만 읽고 관계 생성 시각·ID 최신 순이다. 삭제됐거나 지금 볼 수 없는 게시물(작성자 비공개 전환·팔로우
+     * 해제·탈퇴)은 SQL에서 제외한 뒤 페이지를 자른다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PostListResponse listMyActivity(
+            long userId, Activity activity, String cursor, Integer limit) {
+        requireExistingUser(userId);
+        int pageSize = PostPageCursor.resolveLimit(limit);
+        ActivityCursor after =
+                cursor == null ? null : PostPageCursor.decodeActivity(cursor, userId, activity);
+        List<ActivityRow> rows =
+                postPageQueryRepository.findActivity(
+                        userId,
+                        activity,
+                        after == null ? null : after.createdAt(),
+                        after == null ? 0L : after.id(),
+                        pageSize + 1);
+        boolean hasNext = rows.size() > pageSize;
+        List<ActivityRow> page = rows.subList(0, Math.min(rows.size(), pageSize));
+        String nextCursor = null;
+        if (hasNext) {
+            ActivityRow last = page.getLast();
+            nextCursor =
+                    PostPageCursor.encodeActivity(userId, activity, last.createdAt(), last.id());
+        }
+        List<Long> postIds = page.stream().map(ActivityRow::postId).toList();
+        return new PostListResponse(toListItems(userId, postIds), nextCursor, hasNext);
+    }
+
+    /** 주어진 순서대로 목록 항목을 만든다. 게시물과 표시값은 게시물 수와 관계없이 IN 조회로 모은다. */
+    private List<PostListItemResponse> toListItems(long viewerId, List<Long> orderedPostIds) {
+        if (orderedPostIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Post> byId =
+                postRepository.findAllById(orderedPostIds).stream()
+                        .collect(Collectors.toMap(Post::getId, Function.identity()));
+        List<Post> posts =
+                orderedPostIds.stream().map(byId::get).filter(Objects::nonNull).toList();
         if (posts.isEmpty()) {
-            return new PostListResponse(List.of());
+            return List.of();
         }
-
-        Set<Long> authorIds = posts.stream().map(Post::getAuthorId).collect(Collectors.toSet());
-        Set<Long> accessibleAuthors = accountVisibilityRepository.accessibleAmong(userId, authorIds);
-
-        List<Post> visible =
-                posts.stream()
-                        .filter(
-                                post ->
-                                        accessibleAuthors.contains(post.getAuthorId()))
-                        .toList();
-        if (visible.isEmpty()) {
-            return new PostListResponse(List.of());
-        }
-
-        PostViews views = loadViews(userId, visible);
-        List<PostListItemResponse> items =
-                visible.stream()
-                        .map(
-                                post ->
-                                        PostListItemResponse.from(
-                                                post,
-                                                views.author(post),
-                                                views.session(post),
-                                                views.engagement(userId, post)))
-                        .toList();
-        return new PostListResponse(items);
+        PostViews views = loadViews(viewerId, posts);
+        return posts.stream()
+                .map(
+                        post ->
+                                PostListItemResponse.from(
+                                        post,
+                                        views.author(post),
+                                        views.session(post),
+                                        views.engagement(viewerId, post)))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -185,7 +241,7 @@ public class PostService {
         return new PostDeleteResponse(post.getDeletedAt());
     }
 
-    /** 작성자, 세션, 댓글 수, 좋아요 수, 조회자 좋아요를 게시물 수와 관계없이 각각 IN 조회 한 번으로 모은다. */
+    /** 작성자, 세션, 댓글 수, 좋아요 수, 조회자 좋아요·스크랩을 게시물 수와 관계없이 각각 IN 조회 한 번으로 모은다. */
     private PostViews loadViews(long viewerId, List<Post> posts) {
         Set<Long> postIds = posts.stream().map(Post::getId).collect(Collectors.toSet());
         Map<Long, AuthorRow> authors =
@@ -198,7 +254,9 @@ public class PostService {
                 toCountMap(commentRepository.countActiveByPostIds(postIds));
         Map<Long, Long> reactionCounts = toCountMap(postLikeRepository.countByPostIds(postIds));
         Set<Long> liked = new HashSet<>(postLikeRepository.findLikedPostIds(viewerId, postIds));
-        return new PostViews(authors, sessions, commentCounts, reactionCounts, liked);
+        Set<Long> bookmarked =
+                new HashSet<>(postBookmarkRepository.findBookmarkedPostIds(viewerId, postIds));
+        return new PostViews(authors, sessions, commentCounts, reactionCounts, liked, bookmarked);
     }
 
     private static Map<Long, Long> toCountMap(List<PostCount> counts) {
@@ -211,7 +269,8 @@ public class PostService {
             Map<Long, SessionShareInfo> sessions,
             Map<Long, Long> commentCounts,
             Map<Long, Long> reactionCounts,
-            Set<Long> liked) {
+            Set<Long> liked,
+            Set<Long> bookmarked) {
 
         PostAuthorResponse author(Post post) {
             return PostAuthorResponse.of(post.getAuthorId(), authors.get(post.getAuthorId()));
@@ -232,7 +291,8 @@ public class PostService {
                     courseShared,
                     commentCounts.getOrDefault(post.getId(), 0L),
                     reactionCounts.getOrDefault(post.getId(), 0L),
-                    liked.contains(post.getId()));
+                    liked.contains(post.getId()),
+                    bookmarked.contains(post.getId()));
         }
     }
 

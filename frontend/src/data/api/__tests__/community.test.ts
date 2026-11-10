@@ -140,7 +140,7 @@ test('CMT03 and CMT06 open a post with its comments and who wrote them', async (
   expect(detail.commentCount).toBe(3);
   expect(detail.courseShared).toBe(true);
   expect(detail.record.courseRun).toBe(true);
-  expect(detail.comments.map(comment => comment.author.nickname)).toEqual([
+  expect(detail.comments.map(comment => comment.author?.nickname)).toEqual([
     '서윤',
     '나',
     '러너',
@@ -463,4 +463,187 @@ test('7.3 previews the run course from C03 and a free run with no route, never t
   expect(sent(0).url).toBe(`${base}/courses/21`);
   expect(freeRun).toMatchObject({ route: null, courseRun: false });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+// S15P31E105-633: replies, the deleted root kept for its replies, and comment likes.
+const comment = (fields: Record<string, unknown>) => ({
+  postId: 101,
+  parentCommentId: null,
+  createdAt: post.createdAt,
+  deleted: false,
+  reactionCount: 0,
+  myReaction: null,
+  ...fields,
+});
+
+test('CMT06 maps replies, comment likes and a deleted root, and does not count the deleted root', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.endsWith('/comments')
+      ? respond(200, {
+          items: [
+            comment({
+              id: 1,
+              authorId: null,
+              author: null,
+              body: null,
+              deleted: true,
+            }),
+            comment({
+              id: 2,
+              authorId: 9,
+              author: { userId: 9, nickname: '서윤' },
+              parentCommentId: 1,
+              body: '저도요',
+              reactionCount: 3,
+              myReaction: 'LIKE',
+            }),
+            comment({
+              id: 3,
+              authorId: 7,
+              author: { userId: 7, nickname: '민준' },
+              body: '좋아요',
+              reactionCount: 1,
+            }),
+          ],
+        })
+      : respond(200, { ...post, updatedAt: post.createdAt }),
+  );
+
+  const detail = await community().get('101');
+
+  expect(detail.comments).toEqual([
+    expect.objectContaining({
+      id: '1',
+      parentId: null,
+      deleted: true,
+      author: null,
+      isMine: false,
+      body: '',
+      likeCount: 0,
+      liked: false,
+    }),
+    expect.objectContaining({
+      id: '2',
+      parentId: '1',
+      deleted: false,
+      author: expect.objectContaining({ nickname: '서윤' }),
+      likeCount: 3,
+      liked: true,
+    }),
+    expect.objectContaining({
+      id: '3',
+      parentId: null,
+      isMine: true,
+      likeCount: 1,
+      liked: false,
+    }),
+  ]);
+  // The post gave no commentCount: the deleted root is not one.
+  expect(detail.commentCount).toBe(2);
+});
+
+test('CMT06 from an older server without deleted, reactionCount or myReaction', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.endsWith('/comments')
+      ? respond(200, {
+          items: [
+            {
+              id: 1,
+              postId: 101,
+              authorId: 9,
+              parentCommentId: null,
+              body: '고마워요',
+              createdAt: post.createdAt,
+            },
+            {
+              id: 2,
+              postId: 101,
+              authorId: 30,
+              parentCommentId: 1,
+              body: '저도요',
+              createdAt: post.createdAt,
+            },
+          ],
+        })
+      : respond(200, { ...post, updatedAt: post.createdAt }),
+  );
+
+  const { comments } = await community().get('101');
+
+  expect(
+    comments.map(({ id, parentId, deleted, likeCount, liked }) => ({
+      id,
+      parentId,
+      deleted,
+      likeCount,
+      liked,
+    })),
+  ).toEqual([
+    { id: '1', parentId: null, deleted: false, likeCount: 0, liked: false },
+    { id: '2', parentId: '1', deleted: false, likeCount: 0, liked: false },
+  ]);
+});
+
+test('CMT07 replies under a root with parentCommentId', async () => {
+  fetchMock.mockResolvedValue(
+    respond(201, {
+      ...comment({ id: 9, authorId: 7, parentCommentId: 4, body: '@서윤 네' }),
+      author: { userId: 7, nickname: '민준', profileImageUrl: null },
+    }),
+  );
+
+  const reply = await community().addComment('101', '@서윤 네', '4');
+
+  expect(sent()).toEqual({
+    url: `${base}/posts/101/comments`,
+    method: 'POST',
+    body: { body: '@서윤 네', parentCommentId: 4 },
+  });
+  expect(reply).toMatchObject({
+    id: '9',
+    parentId: '4',
+    deleted: false,
+    isMine: true,
+    likeCount: 0,
+    liked: false,
+  });
+});
+
+test('CMT14 and CMT15 like and unlike a comment and answer with the server count', async () => {
+  const api = community();
+  fetchMock.mockResolvedValueOnce(
+    respond(200, { commentId: 4, reactionCount: 5, myReaction: 'LIKE' }),
+  );
+  await expect(api.setCommentLiked('4', true)).resolves.toEqual({
+    likeCount: 5,
+    liked: true,
+  });
+  expect(sent(0)).toEqual({
+    url: `${base}/comments/4/reactions/me`,
+    method: 'PUT',
+    body: { reactionType: 'LIKE' },
+  });
+
+  fetchMock.mockResolvedValueOnce(
+    respond(200, { commentId: 4, reactionCount: 4, myReaction: null }),
+  );
+  await expect(api.setCommentLiked('4', false)).resolves.toEqual({
+    likeCount: 4,
+    liked: false,
+  });
+  expect(sent(1)).toEqual({
+    url: `${base}/comments/4/reactions/me`,
+    method: 'DELETE',
+    body: undefined,
+  });
+});
+
+test('CMT14 failing on a deleted comment rejects with COMMENT_NOT_FOUND', async () => {
+  fetchMock.mockResolvedValue(
+    respond(404, { code: 'COMMENT_NOT_FOUND', message: '' }),
+  );
+
+  await expect(community().setCommentLiked('4', true)).rejects.toMatchObject({
+    code: 'COMMENT_NOT_FOUND',
+  });
 });

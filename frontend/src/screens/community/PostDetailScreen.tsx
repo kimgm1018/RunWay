@@ -18,8 +18,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
+  countComments,
   useRepositories,
   useResource,
+  type PostComment,
   type PostDetail,
   type Repositories,
 } from '../../data';
@@ -147,8 +149,20 @@ export function PostDetailScreen() {
     }).catch(() => undefined);
 
   const mapHeight = Math.round(height * mapShare);
-  const commentCount = post ? post.commentCount ?? post.comments.length : 0;
-  const latest = post?.comments[post.comments.length - 1] ?? null;
+  const commentCount = post
+    ? post.commentCount ?? countComments(post.comments)
+    : 0;
+  // The newest comment still there; a deleted root kept for its replies is not one.
+  const latest =
+    post?.comments.reduce<PostComment | null>(
+      (newest, comment) =>
+        comment.deleted || !comment.author
+          ? newest
+          : !newest || comment.createdAt >= newest.createdAt
+          ? comment
+          : newest,
+      null,
+    ) ?? null;
 
   return (
     <View style={styles.root}>
@@ -345,7 +359,7 @@ export function PostDetailScreen() {
                   <Icon name="forward" color={look.sub} size={16} />
                 </View>
                 <AppText style={styles.commentPreview} numberOfLines={2}>
-                  {latest
+                  {latest?.author
                     ? `${latest.author.handle}  ${latest.body}`
                     : '아직 댓글이 없어요\n첫 댓글을 남겨 보세요'}
                 </AppText>

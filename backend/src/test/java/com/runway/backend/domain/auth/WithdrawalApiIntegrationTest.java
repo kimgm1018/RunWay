@@ -207,6 +207,31 @@ class WithdrawalApiIntegrationTest extends RefreshIntegrationSupport {
         mvc.perform(get("/api/v1/posts/"+post).header("Authorization",SecurityTestSupport.bearer(o))).andExpect(status().isGone()).andExpect(jsonPath("$.code").value("WITHDRAWN_POST"));
         assertThatThrownBy(() -> jdbc.update("INSERT INTO daily_health_metrics(user_id,metric_date) VALUES (?,current_date)",user)).hasRootCauseInstanceOf(java.sql.SQLException.class);
     }
+    @Test void ownPostLikesCommentLikesAndBookmarksAreRemovedButOthersRemain() throws Exception {
+        long o=other();
+        long os=jdbc.queryForObject("INSERT INTO running_sessions(user_id,status,analysis_status) VALUES (?,'COMPLETED','READY') RETURNING id",Long.class,o);
+        long otherPost=jdbc.queryForObject("INSERT INTO posts(author_id,session_id,body) VALUES (?,?,'other post') RETURNING id",Long.class,o,os);
+        long otherComment=jdbc.queryForObject("INSERT INTO comments(post_id,author_id,body) VALUES (?,?,'other comment') RETURNING id",Long.class,otherPost,o);
+        long ownPost=jdbc.queryForObject("INSERT INTO posts(author_id,session_id,body) VALUES (?,?,'own post') RETURNING id",Long.class,user,session("COMPLETED"));
+        long ownComment=jdbc.queryForObject("INSERT INTO comments(post_id,author_id,body) VALUES (?,?,'own comment') RETURNING id",Long.class,otherPost,user);
+        for (long liker : new long[]{user,o}) {
+            jdbc.update("INSERT INTO post_likes(post_id,user_id) VALUES (?,?)",otherPost,liker);
+            jdbc.update("INSERT INTO comment_likes(comment_id,user_id) VALUES (?,?)",otherComment,liker);
+            jdbc.update("INSERT INTO post_bookmarks(post_id,user_id) VALUES (?,?)",otherPost,liker);
+        }
+        jdbc.update("INSERT INTO post_likes(post_id,user_id) VALUES (?,?)",ownPost,o);
+        jdbc.update("INSERT INTO comment_likes(comment_id,user_id) VALUES (?,?)",ownComment,o);
+        jdbc.update("INSERT INTO post_bookmarks(post_id,user_id) VALUES (?,?)",ownPost,o);
+        withdraw().andExpect(status().isOk());
+        for (String table : new String[]{"post_likes","comment_likes","post_bookmarks"}) {
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM "+table+" WHERE user_id=?",Long.class,user)).as(table).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM "+table+" WHERE user_id=?",Long.class,o)).as(table).isEqualTo(2L);
+        }
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO comment_likes(comment_id,user_id) VALUES (?,?)",otherComment,user))
+                .hasRootCauseInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO post_bookmarks(post_id,user_id) VALUES (?,?)",otherPost,user))
+                .hasRootCauseInstanceOf(java.sql.SQLException.class);
+    }
     @Test void previouslyDeletedPostRemainsNotFoundAfterWithdrawal() throws Exception {
         long id=session("COMPLETED"); long o=other();
         long post=jdbc.queryForObject("INSERT INTO posts(author_id,session_id,body,deleted_at) VALUES (?,?,'private deleted original',now()) RETURNING id",Long.class,user,id);

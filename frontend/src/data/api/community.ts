@@ -1,4 +1,5 @@
 import type {
+  CommentLike,
   Post,
   PostAuthor,
   PostComment,
@@ -55,14 +56,26 @@ const readCourseRoute = (courseId: number | string) =>
     .then(course => course.route.coordinates)
     .catch(() => null);
 
+// CMT06 item and CMT07. S15P31E105-633 adds deleted, reactionCount and myReaction; a deleted root kept for its
+// replies comes without authorId, author and body. An older server leaves the new fields out.
 type CommentResponse = {
   id: number;
   postId: number;
-  authorId: number;
-  author?: AuthorResponse;
+  authorId: number | null;
+  author?: AuthorResponse | null;
   parentCommentId: number | null;
-  body: string;
+  body: string | null;
   createdAt: string;
+  deleted?: boolean;
+  reactionCount?: number;
+  myReaction?: 'LIKE' | null;
+};
+
+// CMT14 · CMT15.
+type CommentReactionResponse = {
+  commentId: number;
+  reactionCount: number;
+  myReaction: 'LIKE' | null;
 };
 
 // A runner without a nickname (a closed account), or a comment from a server without its author.
@@ -190,39 +203,47 @@ export function createCommunityApi({
     };
   };
 
+  // postAuthor names the comment's author when the server leaves it out: only the post's author and I are known.
   const toComment = (
     response: CommentResponse,
-    postAuthor: AuthorResponse,
+    postAuthor: AuthorResponse | null,
   ): PostComment => {
-    const me = String(response.authorId) === myUserId();
-    if (response.author) {
+    const shared = {
+      id: String(response.id),
+      parentId:
+        response.parentCommentId == null
+          ? null
+          : String(response.parentCommentId),
+      createdAt: response.createdAt,
+    };
+    if (response.deleted || response.authorId == null) {
       return {
-        id: String(response.id),
-        author: authorFrom(response.author),
-        isMine: me,
-        body: response.body,
-        createdAt: response.createdAt,
-        // Comment likes have no API.
+        ...shared,
+        deleted: true,
+        author: null,
+        isMine: false,
+        body: '',
         likeCount: 0,
         liked: false,
       };
     }
-    // Without the comment's author, only the post's author and I have a name.
+    const me = String(response.authorId) === myUserId();
     const nickname =
-      response.authorId === postAuthor.userId
+      postAuthor && response.authorId === postAuthor.userId
         ? postAuthor.nickname
         : me
         ? myName
         : unknownAuthor;
     return {
-      id: String(response.id),
-      author: authorOf(response.authorId, nickname),
+      ...shared,
+      deleted: false,
+      author: response.author
+        ? authorFrom(response.author)
+        : authorOf(response.authorId, nickname),
       isMine: me,
-      body: response.body,
-      createdAt: response.createdAt,
-      // Comment likes have no API.
-      likeCount: 0,
-      liked: false,
+      body: response.body ?? '',
+      likeCount: Math.max(0, response.reactionCount ?? 0),
+      liked: response.myReaction === 'LIKE',
     };
   };
 
@@ -250,11 +271,14 @@ export function createCommunityApi({
         post.courseId == null || !(base.courseShared || base.isMine)
           ? null
           : await readCourseRoute(post.courseId);
+      const comments = items.map(item => toComment(item, post.author));
       const detail: PostDetail = {
         ...base,
         record: { ...base.record, route },
-        commentCount: base.commentCount ?? items.length,
-        comments: items.map(item => toComment(item, post.author)),
+        // A deleted root kept for its replies is not a comment to count.
+        commentCount:
+          base.commentCount ?? comments.filter(item => !item.deleted).length,
+        comments,
       };
       return detail;
     },
@@ -333,21 +357,29 @@ export function createCommunityApi({
         bookmarks.delete(postId);
       }
     },
-    addComment: async (postId, body) => {
+    // CMT07; a reply names its root as parentCommentId (left out for a root comment).
+    addComment: async (postId, body, parentId) => {
       const comment = await apiRequest<CommentResponse>(
         `/posts/${postId}/comments`,
-        { method: 'POST', body: { body } },
+        {
+          method: 'POST',
+          body: parentId
+            ? { body, parentCommentId: Number(parentId) }
+            : { body },
+        },
       );
+      const added = toComment(comment, null);
       return {
-        id: String(comment.id),
+        ...added,
+        // Without its author, my new comment is still mine.
         author: comment.author
-          ? authorFrom(comment.author)
-          : authorOf(comment.authorId, myName),
+          ? added.author
+          : authorOf(comment.authorId ?? 0, myName),
+        parentId:
+          comment.parentCommentId == null
+            ? parentId ?? null
+            : String(comment.parentCommentId),
         isMine: true,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        likeCount: 0,
-        liked: false,
       };
     },
     updateComment: async (commentId, body) => {
@@ -359,6 +391,26 @@ export function createCommunityApi({
     },
     removeComment: async commentId => {
       await apiRequest(`/comments/${commentId}`, { method: 'DELETE' });
+    },
+    // CMT14 좋아요 · CMT15 취소: the server's count and my like after the change.
+    setCommentLiked: async (commentId, liked): Promise<CommentLike> => {
+      const reaction = await apiRequest<CommentReactionResponse>(
+        `/comments/${commentId}/reactions/me`,
+        {
+          method: liked ? 'PUT' : 'DELETE',
+          body: liked ? { reactionType: 'LIKE' } : undefined,
+        },
+      );
+      return {
+        likeCount:
+          typeof reaction?.reactionCount === 'number'
+            ? Math.max(0, reaction.reactionCount)
+            : null,
+        liked:
+          reaction?.myReaction !== undefined
+            ? reaction.myReaction === 'LIKE'
+            : liked,
+      };
     },
   };
 }
