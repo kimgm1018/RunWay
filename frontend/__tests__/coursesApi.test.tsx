@@ -755,3 +755,41 @@ test('저장 중 연속 클릭해도 U12는 한 번만 보낸다', async () => {
     release?.();
   }
 });
+
+// S15P31E105-659: 편도에서는 지도를 눌러 출발·도착을 바로 정한다.
+test('편도에서 지도를 누르면 표시된 카드의 위치가 바뀌고 추천 요청에 그대로 전달된다', async () => {
+  const screen = await openTodayRun();
+  const tap = async (latitude: number, longitude: number) => {
+    await act(async () =>
+      screen.root
+        .findAll(node => typeof node.props.onTapMap === 'function')
+        .pop()!
+        .props.onTapMap({ latitude, longitude }),
+    );
+  };
+  const hasMapTap = () =>
+    screen.root.findAll(node => typeof node.props.onTapMap === 'function')
+      .length > 0;
+  // 순환·왕복에서는 지도를 눌러도 위치가 정해지지 않는다.
+  expect(hasMapTap()).toBe(false);
+  await press(screen, '코스 형태 설정');
+  await press(screen, '편도');
+  await press(screen, '조건 목록으로');
+  // 편도를 고르면 도착 카드가 표시되고, 지도를 누르면 선택 화면 없이 도착지가 정해진다.
+  expect(
+    labelled(screen, '도착 위치 선택').props.accessibilityState.selected,
+  ).toBe(true);
+  await tap(35.16, 129.14);
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+  // 기준 카드를 한 번 눌러 표시하면 다음 터치는 출발지를 바꾸고 도착지는 그대로다.
+  await press(screen, '기준 위치 현재 위치');
+  await tap(35.152, 129.119);
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies()[0]).toMatchObject({
+    latitude: 35.152,
+    longitude: 129.119,
+    shape: 'point_to_point',
+    endLatitude: 35.16,
+    endLongitude: 129.14,
+  });
+});

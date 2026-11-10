@@ -33,6 +33,8 @@ import { fontFamily, k1, spacing, ThemeProvider, useTheme } from '../../theme';
 import { parseClock } from '../onboarding/validation';
 import { ErrorNotice } from '../onboarding/parts';
 import { RunMap } from '../../components/RunMap';
+import type { LngLat } from '../../geo';
+import { placeNameOf } from '../../data/placeName';
 import { CoursePlacePicker } from './CoursePlacePicker';
 import { CourseTabs } from './CourseTabs';
 import { useCourseSearch } from './CourseSearch';
@@ -242,7 +244,63 @@ export function TodayRunScreen() {
   }, [locate]);
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
   const openPicker = (kind: 'origin' | 'destination') => setPicking(kind);
+  // 편도 (S15P31E105-659): the card marked on the map is the end point a tap on the map sets, so the start
+  // and the finish are chosen right on the map. A marked card pressed again opens the search.
+  const [marked, setMarked] = useState<'origin' | 'destination' | null>(null);
+  // After the user's first touch the camera stays where they put it, so a tap does not shift the map.
+  const [mapTouched, setMapTouched] = useState(false);
+  const oneWay = preferences?.shape === 'point_to_point';
+  const oneWayBefore = useRef(false);
+  useEffect(() => {
+    // Choosing 편도 asks for the finish first; leaving it clears the mark (and the finish marker with it).
+    if (oneWay && !oneWayBefore.current) {
+      setMarked('destination');
+      setMapTouched(false);
+    } else if (!oneWay) {
+      setMarked(null);
+    }
+    oneWayBefore.current = oneWay;
+  }, [oneWay]);
+  const pressEndpoint = (kind: 'origin' | 'destination') => {
+    if (!oneWay || marked === kind) {
+      openPicker(kind);
+    } else {
+      setMarked(kind);
+    }
+  };
+  const setEndpoint = (kind: 'origin' | 'destination', position: LngLat) => {
+    const named = { name: '지도에서 고른 위치', position };
+    if (kind === 'destination') {
+      setDestination(named);
+    } else {
+      locationVersion.current += 1;
+      setLocating(false);
+      setLocationNotice(null);
+      setOrigin(named);
+    }
+    placeNameOf(position).then(name => {
+      if (!name) return;
+      const rename = (current: Place | null) =>
+        current?.position === position ? { ...current, name } : current;
+      if (kind === 'destination') setDestination(rename);
+      else setOrigin(rename);
+    });
+  };
+  const tapMap = (position: LngLat) => {
+    if (
+      !marked ||
+      !Number.isFinite(position[0]) ||
+      !Number.isFinite(position[1]) ||
+      Math.abs(position[0]) > 180 ||
+      Math.abs(position[1]) > 90
+    ) {
+      return;
+    }
+    setMapTouched(true);
+    setEndpoint(marked, position);
+  };
   const pickPlace = (value: Place) => {
+    setMapTouched(false);
     if (picking === 'destination') {
       setDestination(value);
     } else {
@@ -356,16 +414,28 @@ export function TodayRunScreen() {
     }
   };
 
+  // 편도일 때만 도착 마커를 지도에 둔다. 순환·왕복으로 바꾸면 사라진다 (S15P31E105-659).
+  const showDestination = preferences?.shape === 'point_to_point';
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
       <RunMap
         position={place?.position}
-        // The place sits above the sheet, under the tabs (142 of 844).
-        area={{ top: 0.17, bottom: 0.17 }}
+        destination={showDestination ? destination?.position : undefined}
+        // The place sits above the sheet, under the tabs (142 of 844). Two end points share that band: the
+        // 조건 목록 sheet starts at 0.30 of the height (S15P31E105-659).
+        area={
+          showDestination && destination
+            ? { top: 0.17, bottom: 0.27 }
+            : { top: 0.17, bottom: 0.17 }
+        }
         // The NAVER logo just over the sheet, on the left (S15P31E105-429).
         logo={{ above: 0.715 }}
         view="lean"
+        onTapMap={oneWay && marked ? tapMap : undefined}
+        onUserMove={oneWay ? () => setMapTouched(true) : undefined}
+        cameraLocked={oneWay && mapTouched}
         style={StyleSheet.absoluteFill}
       />
       {/* Touches outside the tabs, the buttons and the sheet reach the map below (지도에서 선택). */}
@@ -436,9 +506,10 @@ export function TodayRunScreen() {
                 <PanelContent
                   place={place}
                   locating={locating}
-                  onPickOrigin={() => openPicker('origin')}
+                  onPickOrigin={() => pressEndpoint('origin')}
                   destination={destination}
-                  onPickDestination={() => openPicker('destination')}
+                  onPickDestination={() => pressEndpoint('destination')}
+                  marked={marked}
                   distanceKm={distanceKm}
                   setDistanceKm={setDistanceKm}
                   goal={goal}
@@ -450,7 +521,13 @@ export function TodayRunScreen() {
                   setPreferences={setPreferences}
                   conditionsDisabled={!preferences || saving || loading}
                 />
-                {preferences?.shape === 'point_to_point' && !destination ? (
+                {oneWay && marked ? (
+                  <AppText style={styles.hint}>
+                    {`지도를 눌러 ${
+                      marked === 'origin' ? '기준' : '도착'
+                    } 위치를 정해요. 표시된 카드를 한 번 더 누르면 검색해요.`}
+                  </AppText>
+                ) : oneWay && !destination ? (
                   <AppText style={styles.hint}>
                     편도 코스는 도착 위치를 선택해 주세요.
                   </AppText>
@@ -589,6 +666,7 @@ function PanelContent({
   destination,
   onPickDestination,
   locating,
+  marked,
 }: {
   place: Place | null;
   // 현재 위치 is being looked for; otherwise an empty origin asks to be picked.
@@ -608,6 +686,8 @@ function PanelContent({
   conditionsDisabled: boolean;
   destination: Place | null;
   onPickDestination: () => void;
+  // 편도: the card whose point a tap on the map sets.
+  marked: 'origin' | 'destination' | null;
 }) {
   const { colors } = useTheme();
   const [detail, setDetail] = useState<ConditionDetail | null>(null);
@@ -757,6 +837,7 @@ function PanelContent({
           (locating ? '위치를 찾는 중이에요' : '기준 위치 설정하기')
         }
         accessibilityLabel={`기준 위치 ${place?.name ?? ''}`}
+        selected={marked === 'origin'}
         onPress={onPickOrigin}
       />
       {preferences?.shape === 'point_to_point' ? (
@@ -765,6 +846,7 @@ function PanelContent({
           kicker="도착 위치"
           value={destination?.name ?? '도착 위치 설정하기'}
           accessibilityLabel={`도착 위치 ${destination?.name ?? '선택'}`}
+          selected={marked === 'destination'}
           onPress={onPickDestination}
         />
       ) : null}

@@ -67,6 +67,9 @@ type RunMapProps = {
   routeParts?: LngLat[][];
   // A point the screen sets, not the GPS: the found place (자유 러닝, 2.0F) or the meeting place (6.4·6.9).
   position?: LngLat;
+  // S15P31E105-659 편도 코스 추천: the chosen end point. With it the screen's `position` becomes the start: both
+  // stand on poles (S and F) and the camera fits the two. Ignored while a course or a run is shown.
+  destination?: LngLat;
   // 6.6 · 6.6r: the other members.
   members?: RunMapMember[];
   // 6.4 취소된 그룹런: the course in grey.
@@ -430,6 +433,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     trailParts,
     routeParts,
     position,
+    destination,
     members,
     muted = false,
     showLocation = false,
@@ -456,6 +460,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   const running = !!trail && trail.length > 0;
   const hasRoute = !!route && route.length >= 2;
+  // The two chosen end points, shown while there is no course and no run (S15P31E105-659).
+  const endpoints = !!destination && !hasRoute && !running;
 
   // The camera follows whatever the screen shows; it moves only when that changes.
   const fitted = fitTo?.length
@@ -464,6 +470,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         ...(route ?? []),
         ...(trail ?? []),
         ...(position ? [position] : []),
+        ...(destination && !route?.length && !running ? [destination] : []),
         ...(members ?? []).map(member => member.position),
       ]);
   const { region, padding } = lowerToLogo(
@@ -724,7 +731,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           })
         : null}
       {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
-      {running || (position && !hasRoute) ? (
+      {endpoints ? (
+        <>
+          <PoleMarker at={destination as LngLat} label="F" finish />
+          {position ? <PoleMarker at={position} label="S" /> : null}
+        </>
+      ) : null}
+      {running || (position && !hasRoute && !endpoints) ? (
         <DotMarker
           at={running ? trail[trail.length - 1] : (position as LngLat)}
           dot={{
