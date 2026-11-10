@@ -19,4 +19,5 @@ public record CourseDetailResponse(
         List<String> environmentTags,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer estimatedDurationSec,
         String status,
-        Long mergedIntoCourseId) {}
+        Long mergedIntoCourseId,
+        CourseBasemapResponse basemap) {}

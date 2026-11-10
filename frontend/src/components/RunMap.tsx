@@ -91,6 +91,9 @@ type RunMapProps = {
   onTapMap?: (point: LngLat) => void;
   // 6.9: the centre of the visible part once the camera stops (after following my location).
   onCameraIdle?: (center: LngLat) => void;
+  // Once, when the first view has been set and the camera has come to rest there: the map can be uncovered
+  // without the course jumping into place on screen (7.1 피드).
+  onShown?: () => void;
   // 4.2 지도 보기 (S15P31E105-517): the user dragged or zoomed the map, so the screen stops following.
   onUserMove?: () => void;
   // Leaves the camera where the user put it; while true the map does not fit what it shows.
@@ -444,6 +447,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     interactive = true,
     onTapMap,
     onCameraIdle,
+    onShown,
     onUserMove,
     cameraLocked = false,
     rotatable = true,
@@ -519,10 +523,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     padding?.bottom ?? 0
   }|${view}|${bearing}`;
   const shownKey = useRef('');
+  const everShown = useRef(false);
+  const shownSaid = useRef(false);
   // Camera calls sent before the native map is ready are dropped, so they wait for it.
   const [ready, setReady] = useState(false);
   // The tilted views move the camera through the camera prop: the fit command lays the map flat.
   const [camera, setCamera] = useState<Camera>();
+  // The first view lands at once rather than gliding there, so the map is shown sooner; later moves glide.
+  const [glides, setGlides] = useState(false);
   useEffect(() => {
     if (
       !ready ||
@@ -535,17 +543,27 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     }
     // One frame later, so the new padding reaches the native map before the camera moves.
     const frame = requestAnimationFrame(() => {
+      const first = !everShown.current;
+      everShown.current = true;
       shownKey.current = key;
       if (target) {
         setCamera(target);
       } else {
-        map.current?.animateRegionTo({ ...region, duration: 300 });
+        map.current?.animateRegionTo({ ...region, duration: first ? 0 : 300 });
       }
     });
     return () => cancelAnimationFrame(frame);
     // region and target are rebuilt every render; key says when they really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, ready, height, mapWidth, cameraLocked]);
+  // After the first camera has reached the native map, later ones glide.
+  useEffect(() => {
+    if (!camera || glides) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => setGlides(true));
+    return () => cancelAnimationFrame(frame);
+  }, [camera, glides]);
   // Once the user moves the map the shown view is theirs; following again fits it afresh.
   useEffect(() => {
     if (cameraLocked) {
@@ -601,7 +619,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       initialRegion={fitted}
       // While the user holds the camera (지도 보기 moved by hand) the map leaves it where they put it.
       camera={tilted && !cameraLocked ? camera : undefined}
-      animationDuration={300}
+      animationDuration={glides ? 300 : 0}
       customStyleId={customStyleId}
       mapType="Basic"
       // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
@@ -628,8 +646,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           : undefined
       }
       onCameraIdle={
-        onCameraIdle
-          ? ({ latitude, longitude }) => onCameraIdle([longitude, latitude])
+        onCameraIdle || onShown
+          ? ({ latitude, longitude }) => {
+              onCameraIdle?.([longitude, latitude]);
+              // The first rest after the first view was sent (a tilted view waits for its camera prop).
+              if (
+                onShown &&
+                !shownSaid.current &&
+                everShown.current &&
+                (!tilted || camera)
+              ) {
+                shownSaid.current = true;
+                onShown();
+              }
+            }
           : undefined
       }
       isScrollGesturesEnabled={interactive}

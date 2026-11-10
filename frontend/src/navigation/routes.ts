@@ -73,6 +73,7 @@ export const mainRoutes = [
   'RunningBaselineEdit',
   'Settings',
   'LocationSetting',
+  'DataLicense',
   'WatchConnect',
   'Withdraw',
   'WithdrawPassword',
@@ -444,11 +445,24 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '8.1',
     title: '설정',
     task: SETTINGS,
-    links: ['LocationSetting', 'WatchConnect', 'Withdraw', 'signOut'],
+    links: [
+      'LocationSetting',
+      'DataLicense',
+      'WatchConnect',
+      'Withdraw',
+      'signOut',
+    ],
   },
   LocationSetting: {
     code: '8.1b',
     title: '위치 기록',
+    task: SETTINGS,
+    links: ['Settings'],
+  },
+  // S15P31E105-612: OpenStreetMap's notice for the course cards' maps and the NAVER Map SDK's legal screens.
+  DataLicense: {
+    code: '8.1c',
+    title: '데이터 라이선스',
     task: SETTINGS,
     links: ['Settings'],
   },

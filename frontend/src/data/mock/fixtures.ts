@@ -3,6 +3,7 @@ import { shapeOfRoute } from '../../geo';
 import type {
   AppNotification,
   AppSettings,
+  CourseBasemap,
   CoursePlan,
   CrewJoinRequest,
   CrewListItem,
@@ -356,10 +357,23 @@ function routeFromShape(
     Number((savedCourseOrigin[1] - (y - 0.5) * latSpan).toFixed(6)),
   ]);
 }
-export const savedCourses: SavedCourse[] = savedCourseShapes.map(course => ({
-  ...course,
-  route: routeFromShape(course.shape, course.distanceM),
-}));
+// The map image round 민락수변공원 as C03 would send it (S15P31E105-612): a bundled 600×900 PNG standing in for the
+// server's render, the course already drawn on it. Mock data only.
+const mockMinrakBasemapImage = require('../../assets/mock/basemap-minrak.png');
+const minrakBasemapUri = assetUri(mockMinrakBasemapImage);
+export const minrakBasemap: CourseBasemap | null = minrakBasemapUri
+  ? { imageUrl: minrakBasemapUri, osmDataTimestamp: '2026-11-01T00:00:00Z' }
+  : null;
+
+// The first three saved courses lie round 민락수변공원 with its basemap; the rest have none yet, as a course the
+// server has not made one for, and show the plain outline.
+export const savedCourses: SavedCourse[] = savedCourseShapes.map(
+  (course, index) => ({
+    ...course,
+    route: routeFromShape(course.shape, course.distanceM),
+    basemap: index < 3 ? minrakBasemap : null,
+  }),
+);
 
 const minrakLoop: [number, number][] = [
   [129.1318, 35.1543],

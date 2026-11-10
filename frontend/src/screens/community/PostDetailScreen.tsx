@@ -36,10 +36,11 @@ import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
-import { feedLook, MapBackdrop, RouteLine } from './FeedPage';
+import { feedLook, MapBackdrop, RouteLine, useMapCover } from './FeedPage';
 import { communityLook } from './look';
 import { RouteReplay } from './RouteReplay';
 import { RunMap } from '../../components/RunMap';
+import type { LngLat } from '../../geo';
 import {
   Avatar,
   placeLine,
@@ -137,6 +138,35 @@ export function PostDetailScreen() {
       bookmarked: next.bookmarked,
     });
   });
+  // The course's points as 7.1 already read them (getRoute keeps them), so the map is drawn as the page opens
+  // rather than after the post, its comments and its course are read again (사용자 요청).
+  const [routeAhead, setRouteAhead] = useState<LngLat[] | null>(null);
+  useEffect(() => {
+    if (!postId) {
+      return;
+    }
+    let live = true;
+    // A post the repository cannot find may throw at once rather than reject; either way the page waits for the post.
+    Promise.resolve()
+      .then(() => community.getRoute(postId))
+      .then(map => {
+        if (live && map && map.route.length >= 2) {
+          setRouteAhead(map.route);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [community, postId]);
+  // Once the post is read it decides: its own points while shared, none when it is not.
+  const mapRoute = post
+    ? post.courseShared
+      ? post.record.route ?? routeAhead
+      : null
+    : routeAhead;
+  const hasMap = !!mapRoute && mapRoute.length >= 2;
+  const { uncover, coverView } = useMapCover(hasMap, 'post-map-cover');
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [replay, setReplay] = useState(false);
@@ -178,15 +208,19 @@ export function PostDetailScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
-      {post && post.courseShared && post.record.route ? (
+      {hasMap && mapRoute ? (
         // The shared course on the real map (담당자 요청), fitted between the header and the sheet.
-        <RunMap
-          route={post.record.route}
-          interactive={false}
-          area={{ top: 0.14, bottom: mapShare - 0.04 }}
-          view="lean"
-          style={StyleSheet.absoluteFill}
-        />
+        <>
+          <RunMap
+            route={mapRoute}
+            interactive={false}
+            area={{ top: 0.14, bottom: mapShare - 0.04 }}
+            view="lean"
+            style={StyleSheet.absoluteFill}
+            onShown={uncover}
+          />
+          {coverView}
+        </>
       ) : post ? (
         // No real points (the server list, or a post without its course): the run's shape on the drawn map.
         <>

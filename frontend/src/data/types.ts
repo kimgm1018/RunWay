@@ -175,6 +175,21 @@ export type SavedCourse = {
   status?: CourseStatus;
   // C09·C03: set when status is MERGED so the representative course can be named.
   mergedIntoCourseId?: string | null;
+  // The course's map thumbnail (C03 basemap, S15P31E105-612); null or left out draws the outline only.
+  basemap?: CourseBasemap | null;
+};
+
+// C03 basemap (S15P31E105-612): a server-rendered 600×900 (2:3) PNG of the flat OpenStreetMap map round a course with
+// the course already drawn on it, its course centred at (0.5, 0.30) of the image, the longer side about 0.42 of its
+// width. `imageUrl` is ready to load (a relative path is made whole); `osmDataTimestamp` is when the OSM data was cut.
+export type CourseBasemap = {
+  imageUrl: string;
+  osmDataTimestamp: string | null;
+};
+// A course's points with its basemap, for a card that asks for them (7.4 기록 카드).
+export type CourseMapData = {
+  route: [number, number][];
+  basemap: CourseBasemap | null;
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
@@ -1375,8 +1390,9 @@ export type Repositories = {
     listMyLikes: (cursor?: string | null) => Promise<PostPage>;
     get: (postId: string) => Promise<PostDetail>;
     // The shared course's points for the post on screen in 7.1, drawn on the real map (C03 by the post's course,
-    // S15P31E105-521); null without a course or when it cannot be read.
-    getRoute: (postId: string) => Promise<[number, number][] | null>;
+    // S15P31E105-521), with its map thumbnail for the 7.4 card (S15P31E105-612); null without a course or when it
+    // cannot be read.
+    getRoute: (postId: string) => Promise<CourseMapData | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
     create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
@@ -1577,10 +1593,18 @@ export type Repositories = {
     // G12 그룹 종료로 서버가 승인한 개인 END를 SERVER_END로 전달만 한다(9.3, S15P31E105-420).
     sendServerEnd?: (
       sessionId: string,
-      end: { commandId: string; expectedVersion: number; endedAt: string; reason: string },
+      end: {
+        commandId: string;
+        expectedVersion: number;
+        endedAt: string;
+        reason: string;
+      },
     ) => Promise<void>;
     // G10 현황을 GROUP_STATUS로 전달만 한다(9.3, S15P31E105-420).
-    sendGroupStatus?: (sessionId: string, status: WatchGroupStatus) => Promise<void>;
+    sendGroupStatus?: (
+      sessionId: string,
+      status: WatchGroupStatus,
+    ) => Promise<void>;
     // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
     sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
     // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.

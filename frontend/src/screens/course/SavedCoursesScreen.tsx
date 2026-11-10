@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useId, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -18,8 +19,6 @@ import Svg, {
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
-// Kept out of components/index.ts: RunMap loads the Naver Map native module.
-import { RunMap, type RunMapArea } from '../../components/RunMap';
 import {
   AppText,
   Backdrop,
@@ -31,11 +30,13 @@ import {
 import {
   useRepositories,
   useResource,
+  type CourseBasemap,
+  type CourseMapData,
   type Repositories,
   type SavedCourse,
 } from '../../data';
 import { formatKm } from '../../format';
-import type { LngLat } from '../../geo';
+import { shapeOfRoute, type LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, palette, spacing } from '../../theme';
 import { CourseTabs } from './CourseTabs';
@@ -120,10 +121,7 @@ const labelHalf = 3;
 
 // The S · F · SF label on the side away from the line, so it never sits on it: opposite the ways the line
 // leaves the point, or beside the line where it runs straight through. Kept inside the box.
-export function labelAt(
-  [x, y]: [number, number],
-  ways: [number, number][],
-) {
+export function labelAt([x, y]: [number, number], ways: [number, number][]) {
   let [awayX, awayY] = ways.reduce(
     ([sumX, sumY], [wayX, wayY]) => [sumX - wayX, sumY - wayY],
     [0, 0],
@@ -166,13 +164,14 @@ export function CourseGlyph({
   const [startX, startY] = route[0];
   const line = route.length > 1;
   const end = route[route.length - 1];
-  const loop =
-    Math.hypot(end[0] - startX, end[1] - startY) <= sameSpot;
+  const loop = Math.hypot(end[0] - startX, end[1] - startY) <= sameSpot;
   const last = route.length - 1;
   // A loop's SF has the line leaving and coming back; S and F each have one side of it.
   const start = labelAt(
     route[0],
-    loop ? [towards(route, 0, 1), towards(route, last, -1)] : [towards(route, 0, 1)],
+    loop
+      ? [towards(route, 0, 1), towards(route, last, -1)]
+      : [towards(route, 0, 1)],
   );
   const finish = labelAt(end, [towards(route, last, -1)]);
   const label = (at: { x: number; y: number }, text: string) => (
@@ -236,16 +235,80 @@ export function CourseGlyph({
   );
 }
 
-// The plain day map's ground, under the card while the map or its points load.
+// The light map's ground under the plain outline (and under the map image while it loads).
 const mapGround = '#F3F5F6';
 
-// A course card on the real Naver map (S15P31E105-562, 담당자 요청: 썸네일의 색을 빼고 지도로): the course as the
-// map's ribbon with small S · F poles, in `area` (fractions of the card's height, between the card's chips and its
-// words), and a dark fade from `shadeFrom` down so the white words below stay readable over any map. It takes no
-// touches, so the card keeps them. Until there are points (H01 records carry none, so `load` asks for them) the
-// ground shows the outline drawn from `shape`.
+// Where the outline sits on a card, as fractions of the card's height (0 top, 1 bottom).
+export type CourseThumbArea = { top: number; bottom: number };
+
+// The outline's 0–100 box on a card of this size: the square CourseGlyph's Svg fits in its band (20% in from each
+// side, `area` from top to bottom, centred, as `meet` does), in dp.
+export function glyphBox(width: number, height: number, area: CourseThumbArea) {
+  const [left, bandWidth] = [width * 0.2, width * 0.6];
+  const [top, bandHeight] = [
+    height * area.top,
+    height * (area.bottom - area.top),
+  ];
+  const side = Math.max(0, Math.min(bandWidth, bandHeight));
+  return {
+    x: left + (bandWidth - side) / 2,
+    y: top + (bandHeight - side) / 2,
+    scale: side / 100,
+  };
+}
+
+// The C03 map image (S15P31E105-612): 600×900 (2:3 portrait), its course centred at (0.5, 0.30) of the image with
+// the longer side about 0.42 of the image's width.
+export const basemapImage = {
+  aspect: 900 / 600,
+  courseX: 0.5,
+  courseY: 0.3,
+  courseSpan: 0.42,
+} as const;
+
+// Where the map image goes on a card of this size, in dp: the image's course centre on the centre of the outline's
+// square (glyphBox) and its course as wide as the outline's (0.8 of the square's side, 0.1–0.9). Where that would
+// leave an edge of the card bare (a short band makes a small image), the image grows about the same centre until it
+// covers the card, so the course is then drawn a little larger than the outline would be. The card cuts what runs
+// past it.
+export function basemapImageFrame(
+  width: number,
+  height: number,
+  area: CourseThumbArea,
+) {
+  const box = glyphBox(width, height, area);
+  const side = box.scale * 100;
+  const [centreX, centreY] = [box.x + side / 2, box.y + side / 2];
+  const { aspect, courseX, courseY, courseSpan } = basemapImage;
+  const imageWidth = Math.max(
+    (0.8 * side) / courseSpan,
+    // The left and right edges.
+    centreX / courseX,
+    (width - centreX) / (1 - courseX),
+    // The top and bottom edges.
+    centreY / courseY / aspect,
+    (height - centreY) / (1 - courseY) / aspect,
+  );
+  const imageHeight = imageWidth * aspect;
+  return {
+    left: centreX - imageWidth * courseX,
+    top: centreY - imageHeight * courseY,
+    width: imageWidth,
+    height: imageHeight,
+  };
+}
+
+// A course card's map (S15P31E105-612, replacing S15P31E105-562's Naver map). With a C03 basemap the card is the
+// server's map image, which already has the course drawn on it, placed so its course sits where the outline would
+// (basemapImageFrame), with © OpenStreetMap at the top right; no outline is drawn over it. Without a basemap, or when
+// the image fails to load, the card is the plain outline (G안 CourseGlyph) in `area` (fractions of the card's height,
+// between the card's chips and its words) on the light ground. A dark fade from `shadeFrom` down keeps the white
+// words below readable. It takes no touches, so the card keeps them. Without points or a basemap (H01 records carry
+// none) `load` is asked once for them, and the outline is drawn from `shape` meanwhile. The © OpenStreetMap label sits in
+// the top left corner, clear of the controls at the top right and the words below.
 export function CourseMapThumb({
   route,
+  basemap,
   load,
   shape,
   km,
@@ -253,24 +316,25 @@ export function CourseMapThumb({
   shadeFrom,
 }: {
   route?: LngLat[] | null;
-  load?: () => Promise<LngLat[] | null>;
+  basemap?: CourseBasemap | null;
+  load?: () => Promise<CourseMapData | null>;
   shape: [number, number][];
   km?: number;
-  area: RunMapArea;
+  area: CourseThumbArea;
   shadeFrom: number;
 }) {
   const given = route && route.length >= 2 ? route : null;
-  const [loaded, setLoaded] = useState<LngLat[] | null>(null);
-  const wants = !given && !!load;
+  const [loaded, setLoaded] = useState<CourseMapData | null>(null);
+  const wants = !given && !basemap && !!load;
   useEffect(() => {
     if (!wants || !load) {
       return;
     }
     let live = true;
     load()
-      .then(points => {
+      .then(answer => {
         if (live) {
-          setLoaded(points);
+          setLoaded(answer);
         }
       })
       .catch(() => undefined);
@@ -280,29 +344,64 @@ export function CourseMapThumb({
     // load is rebuilt every render; the card asks once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wants]);
-  const points = given ?? (loaded && loaded.length >= 2 ? loaded : null);
+  const points =
+    given ??
+    (loaded && Array.isArray(loaded.route) && loaded.route.length >= 2
+      ? loaded.route
+      : null);
+  const map = basemap ?? loaded?.basemap ?? null;
+  // An image that failed is not asked again; the card keeps the outline (a new address tries again).
+  const [failed, setFailed] = useState<string | null>(null);
+  const image = map && failed !== map.imageUrl ? map.imageUrl : null;
+  // The outline stays until the image has loaded, so a slow image never leaves the card without its course.
+  const [shown, setShown] = useState<string | null>(null);
+  const imageShown = !!image && shown === image;
+  const outline = useMemo(
+    () => (points ? shapeOfRoute(points) : shape),
+    [points, shape],
+  );
+  const [size, setSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const frame = size ? basemapImageFrame(size.width, size.height, area) : null;
   const shadeId = `mapShade${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
-    <View pointerEvents="none" style={styles.mapThumb}>
-      {points ? (
-        <RunMap
-          route={points}
-          compact
-          interactive={false}
-          rotatable={false}
-          area={area}
-          // The NAVER logo sits just over the dark fade, where it can be seen.
-          logo={{ above: 1 - shadeFrom, side: 'right' }}
-          style={StyleSheet.absoluteFill}
+    <View
+      testID="course-thumb"
+      pointerEvents="none"
+      style={styles.mapThumb}
+      onLayout={event => {
+        const { width, height } = event.nativeEvent.layout;
+        setSize(now =>
+          now && now.width === width && now.height === height
+            ? now
+            : { width, height },
+        );
+      }}
+    >
+      {image && frame ? (
+        // Placed once the card has a size; the outline shows until it has loaded.
+        <Image
+          testID="course-basemap"
+          source={{ uri: image }}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+          onLoad={() => setShown(image)}
+          onError={() => setFailed(image)}
+          style={[styles.mapImage, frame]}
         />
-      ) : (
+      ) : null}
+      {imageShown ? null : (
         <View
           style={[
             styles.mapThumbGlyph,
-            { top: `${area.top * 100}%`, bottom: `${(1 - area.bottom) * 100}%` },
+            {
+              top: `${area.top * 100}%`,
+              bottom: `${(1 - area.bottom) * 100}%`,
+            },
           ]}
         >
-          <CourseGlyph shape={shape} km={km} tone="ink" />
+          <CourseGlyph shape={outline} km={km} tone="ink" />
         </View>
       )}
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
@@ -319,6 +418,20 @@ export function CourseMapThumb({
         </Defs>
         <Rect width="100%" height="100%" fill={`url(#${shadeId})`} />
       </Svg>
+      {imageShown ? (
+        // ODbL: the map's data is OpenStreetMap contributors' (8 설정 > 데이터 라이선스 has the full notice).
+        <View
+          testID="course-basemap-attribution"
+          style={styles.attribution}
+        >
+          <AppText
+            style={styles.attributionText}
+            accessibilityLabel="지도 데이터 © OpenStreetMap 기여자"
+          >
+            © OpenStreetMap
+          </AppText>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -339,7 +452,7 @@ export function splitTitle(title: string) {
   return best < 0 ? title : `${title.slice(0, best)}\n${title.slice(best + 1)}`;
 }
 
-// One saved course: the course on its small map, the title, distance and time, and 이 코스로 달리기. The whole card
+// One saved course: the course on its small light map, the title, distance and time, and 이 코스로 달리기. The whole card
 // opens the course run; the mockup has no unsave control, so a small glass bookmark keeps that action.
 function SavedCard({
   course,
@@ -366,10 +479,11 @@ function SavedCard({
         pressed && styles.pressed,
       ]}
     >
-      {/* The course on the real map (S15P31E105-562) between the bookmark and the words, the fade under the
-          words starting 140 above the foot. */}
+      {/* The course on its map (S15P31E105-612) between the bookmark and the words, the fade under the words
+          starting 150 above the foot; © OpenStreetMap sits left of the bookmark. */}
       <CourseMapThumb
         route={course.route}
+        basemap={course.basemap}
         shape={course.shape}
         km={course.distanceM / 1000}
         area={{ top: 44 / height, bottom: (height - 128) / height }}
@@ -523,6 +637,20 @@ const styles = StyleSheet.create({
     backgroundColor: mapGround,
   },
   mapThumbGlyph: { position: 'absolute', left: '20%', right: '20%' },
+  mapImage: { position: 'absolute' },
+  // A small white pill at the card's top right, level with the bookmark (S15P31E105-612).
+  // As quiet as a map credit can be and still be read (사용자 요청): small grey words straight on the light map, no
+  // badge behind them.
+  attribution: {
+    position: 'absolute',
+    top: 14,
+    left: 16,
+  },
+  attributionText: {
+    fontSize: 7.5,
+    lineHeight: 10,
+    color: 'rgba(0,0,0,0.42)',
+  },
   bookmark: {
     position: 'absolute',
     top: 10,

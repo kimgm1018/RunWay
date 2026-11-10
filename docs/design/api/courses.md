@@ -401,7 +401,11 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
     "PARK"
   ],
   "status": "ACTIVE",
-  "mergedIntoCourseId": null
+  "mergedIntoCourseId": null,
+  "basemap": {
+    "imageUrl": "/api/v1/images/2f6c1d1e-8a3b-4c7e-9f0a-1b2c3d4e5f60",
+    "osmDataTimestamp": "2026-10-20T20:21:44Z"
+  }
 }
 ```
 
@@ -421,6 +425,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | `estimatedDurationSec` | number | X | 코스와 페이스로 계산한 표시 값. courses 저장 컬럼이 아니며 계산·반올림 규칙 확인 필요. |
 | `status` | string | O | `courses.status` (ENUM('ACTIVE', 'MERGED', 'BLOCKED')). 저장 값은 NULL 불가. 허용값: ACTIVE, MERGED, BLOCKED. |
 | `mergedIntoCourseId` | integer (int64) / null | O | `courses.merged_into_course_id` (BIGINT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `basemap` | object / null | O | 썸네일 지도 바탕([S15P31E105-612](https://ssafy.atlassian.net/browse/S15P31E105-612), [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md)). `course_basemaps` 행이 없거나(생성 전·Route 실패) 범위 밖(`OUT_OF_AREA`)으로 이미지 없이 저장된 행이면 `null`. 구조는 [basemap 썸네일 지도 바탕 구조](#basemap-썸네일-지도-바탕-구조). |
 
 
 **사용 흐름과 응답 판단**
@@ -474,8 +479,19 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
 
+#### basemap 썸네일 지도 바탕 구조
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `imageUrl` | string | O | 서버가 그린 썸네일 PNG(600×900, 세로 2:3) 주소. 같은 서버의 이미지 조회 경로 `/api/v1/images/{id}`(토큰 없이 조회, `course_basemaps`가 참조하는 이미지만 제공, 내용이 바뀌지 않아 캐시 허용. [F02 코스 썸네일](files.md)) |
+| `osmDataTimestamp` | string(ISO-8601) / null | O | 도로·면을 뽑은 전국 OSM 자료 시점. 모르면 `null` |
+
+- 그림에는 위에서 내려다본 지도(모든 도로·산책로, 공원·녹지·물·바다, 건물 윤곽)와 코스 선(G안: 흰 테두리·검은 선·시작점)이 함께 들어 있다. 코스는 그림 가로의 약 42% 크기로 (가로 50%, 세로 30%) 위치에 놓인다. 글자는 없다. 앱은 이 배치 값으로 그림을 카드에 놓으므로, 크기·배치 값을 바꾸면 이 계약의 변경으로 다룬다(그리기 버전만 올리지 않는다).
+- 지형지물이 100개를 넘으므로 앱은 그림을 보여 줄 때 카드에 "© OpenStreetMap" 표기를 함께 보여 준다(ODbL, ADR-0022). 그림이 없거나 불러오지 못하면 선 썸네일을 쓴다.
+
 ### 처리 규칙
 
+- **썸네일 지도 바탕:** 코스 저장(C10·후보 저장, 기존 코스 재사용 포함) 커밋 뒤 서버가 비동기로 Route `POST /internal/v1/basemaps`(`detail: "full"`, [Route 썸네일 지도 바탕](ai-service.md#route-썸네일-지도-바탕-내부-계약))를 호출해 지형지물·건물을 받고 PNG를 그려 이미지 볼륨에 저장한다. 요청 범위는 그림에 보이는 땅 영역에 여백 8%를 더하고 축마다 7.9 km·1° 이하로 자른다. 서버 기동 시 Route 준비(`/internal/v1/ready`)를 기다린 뒤 썸네일이 없거나 그리기 버전이 다른 `ACTIVE` 코스를 일괄로 그린다(`runway.course-basemap.backfill-on-startup`, 1회 최대 `backfill-limit`건). Route·그리기·저장 실패는 저장하지 않는다. 일괄 채우기 중 Route 일시 실패는 1분 뒤 한 번 더 시도하고, 그 밖에는 다음 기동 때 다시 시도하며, `OUT_OF_AREA`면 그림 없이(`basemap: null`) 저장해 다시 시도하지 않는다. 코스 저장 응답에는 영향이 없다.
 - 공용 코스에 이름은 없다. 본인이 저장한 코스라면 본인 북마크의 별명을 `myAlias`로 제공할 수 있다.
 
 - 요청 사용자 페이스 기준 예상 소요 시간, 경로는 GeoJSON.

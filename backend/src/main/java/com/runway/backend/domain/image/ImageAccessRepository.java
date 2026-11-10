@@ -28,6 +28,7 @@ public class ImageAccessRepository {
     }
 
     // Evaluate the resource reference and its current access policy in one DB snapshot.
+    // Course thumbnails are looked up separately (findCourseBasemapKeys).
     public List<String> findReadableKeys(Long viewerId, String fileName) {
         return jdbc.query("""
                     SELECT u.profile_image_key FROM users u
@@ -48,5 +49,18 @@ public class ImageAccessRepository {
                             WHERE f.follower_id=? AND f.followee_id=p.author_id
                               AND f.is_approved=TRUE))
                 """, (rs, row) -> rs.getString(1), fileName, fileName, fileName, viewerId, viewerId);
+    }
+
+    // Course thumbnails (S15P31E105-612, F02): public without a token, like crew and public profile images, because
+    // they picture shared courses. Unlike C03 (signed-in users only), any key a course_basemaps row references is
+    // readable whatever the course's status or the viewer; unreferenced keys stay 404.
+    // The file-name match uses idx_course_basemaps_image_file (V32) instead of scanning the table;
+    // the full-key match keeps only canonical keys of the row's own course.
+    public List<String> findCourseBasemapKeys(String fileName) {
+        return jdbc.query("""
+                    SELECT b.image_key FROM course_basemaps b
+                    WHERE split_part(b.image_key, '/', 4) = ?
+                      AND b.image_key = 'images/course-basemap/' || b.course_id || '/' || ?
+                """, (rs, row) -> rs.getString(1), fileName, fileName);
     }
 }

@@ -37,6 +37,7 @@ import {
 import {
   DataError,
   useRepositories,
+  type CourseMapData,
   type FollowListKind,
   useResource,
   type Repositories,
@@ -388,7 +389,7 @@ function RunTile({
 }: {
   record: RunRecordSummary;
   width: number;
-  loadRoute?: () => Promise<[number, number][] | null>;
+  loadRoute?: () => Promise<CourseMapData | null>;
   onPress: () => void;
 }) {
   const detail = record.group
@@ -411,7 +412,7 @@ function RunTile({
         pressed && styles.tilePressed,
       ]}
     >
-      {/* The run on the real map (S15P31E105-562), the words over its dark foot. */}
+      {/* The run on its map (S15P31E105-612), the words over its dark foot. */}
       <CourseMapThumb
         load={loadRoute}
         shape={record.shape}
@@ -633,7 +634,8 @@ function Profile({
                       key={record.id}
                       record={record}
                       width={tileWidth}
-                      // H01 carries no points: a shared run asks its post (CMT), my own run its record (H02).
+                      // H01 carries no points: a shared run asks its post (CMT, with the course's map image),
+                      // my own run its record (H02, no basemap: the outline only).
                       loadRoute={
                         postId
                           ? () => community.getRoute(postId)
@@ -641,7 +643,11 @@ function Profile({
                           ? () =>
                               recordsRepo
                                 .getDetail(record.id)
-                                .then(detail => detail.route)
+                                .then(detail =>
+                                  detail.route
+                                    ? { route: detail.route, basemap: null }
+                                    : null,
+                                )
                           : undefined
                       }
                       onPress={() =>

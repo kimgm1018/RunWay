@@ -435,14 +435,50 @@ test('the list courseId gives 7.1 the route without reading the post again', asy
   const api = community();
 
   await api.listFeed('ALL');
-  await expect(api.getRoute('101')).resolves.toEqual([
-    [129.1, 35.1],
-    [129.2, 35.2],
-  ]);
+  await expect(api.getRoute('101')).resolves.toEqual({
+    route: [
+      [129.1, 35.1],
+      [129.2, 35.2],
+    ],
+    basemap: null,
+  });
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
     `${base}/posts?scope=ALL&limit=20`,
     `${base}/courses/21`,
   ]);
+});
+
+// 사용자 요청 (7.2 지도를 바로): 7.2 takes the shared course 7.1 already read instead of asking for it again.
+test('CMT03 uses the course 7.1 already read', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes('/courses/')
+      ? respond(200, {
+          route: {
+            coordinates: [
+              [129.1, 35.1],
+              [129.2, 35.2],
+            ],
+          },
+        })
+      : url.endsWith('/comments')
+      ? respond(200, { items: [] })
+      : url.endsWith('/posts/101')
+      ? respond(200, counted)
+      : respond(200, { items: [counted] }),
+  );
+  const api = community();
+
+  await api.listFeed('ALL');
+  await api.getRoute('101');
+  const detail = await api.get('101');
+
+  expect(detail.record.route).toEqual([
+    [129.1, 35.1],
+    [129.2, 35.2],
+  ]);
+  expect(
+    fetchMock.mock.calls.filter(([url]) => String(url).includes('/courses/')),
+  ).toHaveLength(1);
 });
 
 test('the server myReaction wins over a like made earlier in the session', async () => {
@@ -767,4 +803,52 @@ test('CMT14 failing on a deleted comment rejects with COMMENT_NOT_FOUND', async 
   await expect(community().setCommentLiked('4', true)).rejects.toMatchObject({
     code: 'COMMENT_NOT_FOUND',
   });
+});
+
+// S15P31E105-612: a shared course's points come with its map image for the 7.4 card; an older C03 without one
+// gives null, and a post without a course nothing.
+test('getRoute reads the course with its basemap once per post', async () => {
+  const basemap = {
+    imageUrl: 'https://cdn.example.com/basemaps/31.png',
+    osmDataTimestamp: null,
+  };
+  const route: [number, number][] = [
+    [129.13, 35.15],
+    [129.14, 35.16],
+  ];
+  fetchMock.mockImplementation(async (address: string) => {
+    if (address.endsWith('/posts/101')) {
+      return respond(200, { ...post, courseId: 31 });
+    }
+    if (address.endsWith('/posts/102')) {
+      return respond(200, { ...mine, courseId: 32 });
+    }
+    if (address.endsWith('/posts/103')) {
+      return respond(200, { ...post, id: 103, courseId: null });
+    }
+    if (address.endsWith('/courses/31')) {
+      return respond(200, {
+        route: { type: 'LineString', coordinates: route },
+        basemap,
+      });
+    }
+    if (address.endsWith('/courses/32')) {
+      return respond(200, {
+        route: { type: 'LineString', coordinates: route },
+      });
+    }
+    throw new Error(`unexpected ${address}`);
+  });
+  const api = community();
+
+  await expect(api.getRoute('101')).resolves.toEqual({
+    route,
+    basemap,
+  });
+  await api.getRoute('101');
+  expect(
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/courses/31')),
+  ).toHaveLength(1);
+  await expect(api.getRoute('102')).resolves.toEqual({ route, basemap: null });
+  await expect(api.getRoute('103')).resolves.toBeNull();
 });

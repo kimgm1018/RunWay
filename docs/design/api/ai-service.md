@@ -912,6 +912,17 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 
 남은 확인 항목은 URL/본문, shape별 오류 매핑, Gate enforce·snap·거리 기준, 위 두 가지 보완 제안이다. “경로만 반환”은 공간 데이터가 coords뿐이라는 안이다. 실제 확인자·일자·합의/수정 내용을 남기기 전 Jira 370의 담당 확인 완료 조건은 충족하지 않는다. 이 문서 리뷰용 AI 에이전트 검토를 Route 담당자의 확인으로 대신하지 않는다.
 
+## Route 썸네일 지도 바탕 내부 계약
+
+[S15P31E105-612](https://ssafy.atlassian.net/browse/S15P31E105-612), [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md). 백엔드 전용 내부 API다. 코스 저장 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 호출해 받은 지형지물로 썸네일 PNG를 그린다. 세부 구현·상수는 [Route API.md](../../../ai/route_service/API.md)를 따른다.
+
+- **요청:** `POST /internal/v1/basemaps`, `{"bbox": [west, south, east, north], "detail": "thumb" | "full", "meters_per_pixel": number}`(WGS84, 기본 `thumb`). `meters_per_pixel`(0 초과 100 이하, 선택)은 썸네일 그림의 축척으로, 그림에서 보이지 않을 작은 건물(1.5 px²보다 작음)·산책로(5 m/px 초과)·이면도로(8 m/px 초과)를 빼는 데 쓴다. 없으면 bbox 폭/600. 서쪽<동쪽, 남쪽<북쪽, 한 변 8 km 이하, 경도·위도 폭 각 1° 이하. 코스 경로 자체는 보내지 않는다. 백엔드는 `full`만 쓴다.
+- **처리(`full`):** 전국 OSM 자료(`store/network` 도로, `store/envcache/layers.gpkg` 강·물·해안·해변·공원·녹지)와 건물 자료(`buildings/buildings.gpkg`)를 bbox로 자르고 단순화한다. 해안선(육지 왼쪽·바다 오른쪽)으로 바다 면(`sea`)을 만든다. 개수 99개 제한은 없고, 상세 요청은 한 번에 1개만 처리한다(다른 요청은 최대 8초 기다린 뒤 `503 BUSY`). 지형지물 40,000개·좌표 300,000개·응답 약 7.5 MB 상한을 넘으면 작은 건물부터 뺀다. 읽기 전용이며 추천 엔진 lock을 잡지 않고 외부 인터넷을 쓰지 않는다. 건물 자료가 없거나 읽을 수 없으면(손상·레이어 없음) 건물 없이 `buildings_available: false`로 응답한다. 오류 로그에는 좌표·경로를 남기지 않는다.
+- **성공 200(`full`):** `{"osm_data_timestamp", "buildings_available": bool, "buildings_osm_data_timestamp", "features": [{"kind", "geometry", "road_class"(도로), "height_m"(건물)}]}`. kind는 `sea`·`green`·`park`·`beach`·`water`·`river`·`coast`·`road`·`building`. `thumb`은 기존 99개 이하 응답이다.
+- **오류:** 기존 Route 오류 형식. `400 VALIDATION_ERROR`(bbox·detail 형식·크기), `422 OUT_OF_AREA`(전국 자료 범위 밖), `503 NOT_READY`·`UNAVAILABLE`·`BUSY`, `500 INTERNAL`.
+- **백엔드 처리:** 그림에 보이는 땅 영역 + 여백 8%(축마다 7.9 km·1° 이하)로 요청한다. 서버 기동 시 일괄 채우기는 Route `GET /internal/v1/ready`가 준비될 때까지 기다린 뒤 시작한다. 연결 1초·요청 15초·응답 8 MB 상한. 성공이면 PNG를 그려 저장, `OUT_OF_AREA`면 그림 없이 저장, 그 밖의 실패·형식 오류는 저장하지 않는다. 기동 시 일괄 채우기 중 Route가 잠깐 멈춘 실패(연결 실패·시간 초과·5xx)는 대기열이 빈 뒤 1분(`backfill-retry-delay`) 기다려 한 번 더 시도하고, 그래도 실패하거나 저장 이벤트에서 실패한 코스는 다음 기동 때 다시 시도한다. 일괄 채우기 작업 사이에는 2초(`backfill-interval`)를 쉬고, 새로 저장한 코스를 먼저 처리한다.
+- **건물 자료:** Geofabrik 한국 OSM에서 `tools/data/national/build_buildings.py`로 만든 `buildings.gpkg`(EPSG:4326, `height_m`)와 `metadata.json`을 전국 자료 마운트의 `buildings/`에 둔다. 2026-11-10 운영 서버에 1,383,390동(OSM 2026-11-08 기준)을 추가했다.
+
 ## DB 대응 요약
 
 | AI 응답 | DB 테이블·컬럼 |

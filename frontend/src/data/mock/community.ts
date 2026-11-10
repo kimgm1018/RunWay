@@ -333,7 +333,12 @@ export function createCommunityMock({
     },
     getRoute: postId => {
       const post = find(postId);
-      return respond(post.courseShared ? post.record.route : null);
+      // The mock's posts all run round 민락수변공원, so a shared course gets that map image.
+      return respond(
+        post.courseShared && post.record.route
+          ? { route: post.record.route, basemap: fixtures.minrakBasemap }
+          : null,
+      );
     },
     getShareable: recordId => respond(shareableOf(record(recordId))),
     create: (recordId, draft) => {

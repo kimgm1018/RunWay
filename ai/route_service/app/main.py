@@ -4,6 +4,10 @@
   POST /internal/v1/routes/recommendations   성공 200 {routes[rank, coords, distance_m, summary, reasons, caveats,
                                               score, score_terms], notices, next_seed}
   GET  /internal/v1/ready                    200 {"ready": true, ...} / 503 {"ready": false, ...}
+  POST /internal/v1/basemaps                 성공 200 {osm_data_timestamp, features[kind, geometry]} (저장 코스 썸네일 지도 바탕,
+                                              전국 모드만, 엔진 lock 없이 읽기 전용. app/basemap.py, S15P31E105-612)
+                                              detail="full"이면 보행로·건물(height_m)까지 + buildings_available 등.
+                                              full은 한 번에 1건(별도 slot, 최대 ROUTE_LOCK_WAIT_S 대기 뒤 503 BUSY)
   GET  /health/live                          프로세스 생존
 오류는 non-2xx + {code, message, details}(errors.py). 판단 순서·코드·문구는 예전 데모(/api/recommend)와 같다.
 ROUTE_DEBUG=1이면 성공 응답이 예전 데모의 전체 필드(고도·경사 값 제외) + debug가 되고, 오류에도 debug가 붙는다.
@@ -43,8 +47,9 @@ from runway_routing.snap import start_distance_m, to_utm
 from . import reroll, response_cache
 from .ai_logging import log_ai_error
 from .config import Settings, load_settings
-from .errors import REROLL_NO_ROUTE_MESSAGE, SHAPE_FAIL, fail
-from .schemas import SEED_MAX, Filters, RecommendRequest
+from .errors import (BASEMAP_BUSY_MESSAGE, BASEMAP_INTERNAL_MESSAGE, BASEMAP_OUT_OF_AREA_MESSAGE,
+                     BASEMAP_UNSUPPORTED_MESSAGE, REROLL_NO_ROUTE_MESSAGE, SHAPE_FAIL, fail)
+from .schemas import SEED_MAX, BasemapRequest, Filters, RecommendRequest
 
 log = logging.getLogger("runway.ai")
 
@@ -59,8 +64,12 @@ DROP_FEATURE_KEYS = frozenset(ELEVATION_KEYS) | {"elevation_available", "elevati
 DROP_DETAIL_LABELS = frozenset({"누적 상승", "평균 경사"})
 RECOMMEND = "/internal/v1/routes/recommendations"
 READY = "/internal/v1/ready"
+BASEMAPS = "/internal/v1/basemaps"
 DEADLINE_HEADER = "X-Request-Deadline"   # epoch ms, 선택. 계산 시작 직전에 지났으면 503 TIMEOUT
 LOCK_WAIT_S = 8.0                        # 실행 슬롯 기본 대기 상한. HTTP 요청은 settings 값을 쓴다
+# detail="full" 지도 바탕 동시 실행 수. 촘촘한 도심 요청 하나가 수백 MB를 쓰므로 Route(1 CPU·2 GB)가 코스 생성과 함께
+# 버티도록 한 번에 1건만 계산한다(pipeline.lock과 별개라 추천을 막지 않는다). S15P31E105-612 리뷰 B-1.
+BASEMAP_FULL_CONCURRENCY = 1
 SLIM_ROUTE_KEYS = ("rank", "coords", "distance_m", "summary", "reasons", "caveats", "score", "score_terms")
 
 
@@ -144,6 +153,7 @@ def create_app(settings: Settings | None = None, pipeline_factory=None, *, backg
     app = FastAPI(title="RunWay Route", version="1.0.0", lifespan=lifespan,
                   description="백엔드 서버 전용 내부 API. 러닝 코스 TOP3를 만든다.")
     app.state.engine = engine
+    full_slot = app.state.basemap_full_slot = threading.Semaphore(BASEMAP_FULL_CONCURRENCY)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, e: RequestValidationError):
@@ -177,6 +187,44 @@ def create_app(settings: Settings | None = None, pipeline_factory=None, *, backg
                 return fail("VALIDATION_ERROR", details={"fields": [
                     {"name": DEADLINE_HEADER, "reason": "epoch milliseconds integer"}]})
         return recommend_core(engine, req, lock_wait_s=settings.lock_wait_s, deadline_ms=deadline_ms)
+
+    # sync def: thread pool에서 돈다. 읽기 전용 mmap·gpkg만 읽으므로 pipeline.lock을 잡지 않는다(추천 계산 중에도 바로 답한다).
+    # detail="full"은 별도 slot(한 번에 1건)을 settings.lock_wait_s까지 기다리고 못 잡으면 503 BUSY.
+    # 오류 로그·debug에는 예외 클래스 이름만 남긴다(shapely/GEOS 메시지에 좌표가 들어갈 수 있다. 리뷰 A-4).
+    @app.post(BASEMAPS)
+    def basemaps(req: BasemapRequest):
+        if engine.phase == "failed":
+            return fail("UNAVAILABLE", debug=engine.error, include_debug=settings.debug)
+        if engine.phase != "ready":
+            return fail("NOT_READY")
+        store = getattr(engine.pipeline, "store", None)
+        if settings.data_mode != "national" or store is None:
+            # 부산(legacy) 모드는 큰길을 뽑을 mmap 도로 저장소가 없어 지원하지 않는다.
+            return fail("UNAVAILABLE", BASEMAP_UNSUPPORTED_MESSAGE)
+        w, s, e, n = req.bbox
+        cw, cs, ce, cn = store.coverage
+        if not (w < ce and e > cw and s < cn and n > cs):   # 전국 자료 bbox와 겹치는 넓이가 없음
+            return fail("OUT_OF_AREA", BASEMAP_OUT_OF_AREA_MESSAGE)
+        if req.detail != "full":
+            return _basemap_response(store, req, None)
+        if not full_slot.acquire(timeout=min(settings.lock_wait_s, threading.TIMEOUT_MAX)):
+            return fail("BUSY", BASEMAP_BUSY_MESSAGE)
+        try:
+            buildings_dir = settings.national_dir / "buildings" if settings.national_dir is not None else None
+            return _basemap_response(store, req, buildings_dir)
+        finally:
+            full_slot.release()
+
+    def _basemap_response(store, req: BasemapRequest, buildings_dir):
+        try:
+            from .basemap import build_basemap
+            if req.detail == "full":
+                # 평면 PNG 썸네일용 상세 자료. 응답이 수 MB라 jsonable_encoder(파이썬 재귀 순회)를 거치지 않는다(JSON 기본 타입만 담는다).
+                return JSONResponse(build_basemap(store, tuple(req.bbox), "full", buildings_dir, req.meters_per_pixel))
+            return JSONResponse(jsonable_encoder(build_basemap(store, tuple(req.bbox))))
+        except Exception as exc:
+            log_ai_error("INTERNAL", BASEMAPS, exc)   # 예외 클래스 이름만(좌표 없음)
+            return fail("INTERNAL", BASEMAP_INTERNAL_MESSAGE, debug=type(exc).__name__, include_debug=settings.debug)
 
     return app
 
@@ -282,6 +330,9 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
     depth = reroll.depth(req.seed, ATTEMPTS) if cache is not None else 0
     rr = None
     reroll_item = None
+    # 응답 cache가 켜져 있으면 끝난 응답을 cache에 넣을 때까지 lock을 쥔다. 먼저 놓으면 lock을 기다리던 같은 요청이
+    # 저장 전에 lock 뒤 확인을 해서 miss가 되고 같은 계산을 다시 한다(S15P31E105-630 test_concurrent_identical_requests_compute_once).
+    hold = False
     try:
         hit = _cached(engine, key, "after_lock")   # lock을 기다리는 동안 같은 요청이 끝났으면 다시 계산하지 않는다
         if hit is not None:
@@ -304,6 +355,7 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
             cg = p.graph(centre["lat"], centre["lon"], target_m) if centre else None
         if gate_log:
             _log_usability(settings, req, out, getattr(getattr(p, "gate", None), "files", None))
+        hold = key is not None
     except Exception as exc:
         if settings.data_mode == 'national':
             from runway_routing.national.store import OutOfArea, NoRoad
@@ -319,7 +371,8 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
         log_ai_error("INTERNAL", RECOMMEND, exc)
         return _fail("INTERNAL", debug=f"{type(exc).__name__}: {exc}")
     finally:
-        p.lock.release()
+        if not hold:
+            p.lock.release()
     try:   # 응답 조립(설명·edge·점수 읽기·JSON 변환)의 예외도 같은 INTERNAL 경계에서 처리한다(R6)
         reroll_debug = None if rr is None else {"depth": depth, **(out.get("reroll") or {}), "cache": rr}
         res = _respond(req, out, cg, prefs, filters, loop, target_m, t0, dbg, _fail, reroll_debug)
@@ -334,6 +387,9 @@ def recommend_core(engine: Engine, req: RecommendRequest, gate_log: bool = True,
     except Exception as exc:
         log_ai_error("INTERNAL", RECOMMEND, exc)
         return _fail("INTERNAL", debug=f"{type(exc).__name__}: {exc}")
+    finally:
+        if hold:
+            p.lock.release()
 
 
 def _respond(req: RecommendRequest, out: dict, cg, prefs: Preferences, filters: dict, loop: bool, target_m: int,
