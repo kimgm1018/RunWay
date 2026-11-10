@@ -354,6 +354,64 @@ class ReadinessFormulaTest {
         }
     }
 
+    /** 599 AC-5. 부하 이력이 28일보다 짧으면 이력 일수 H로 평소 주간 부하를 나눈다(28일 합 × 7 ÷ H, H는 7~28). */
+    @Nested
+    class 부하_이력_보정 {
+
+        private final List<DailyHealthInput> inputs =
+                List.of(day(9, null, null, "100"), day(0, null, null, "100"));
+
+        @Test
+        void 첫_부하가_10일_전이면_평소는_합_x_7_나누기_10이다() {
+            // 평소 = 200 × 7 / 10 = 140, 최근 7일 100 → 비율 0.71 → 100
+            ReadinessScore score =
+                    ReadinessFormula.evaluate(D, inputs, D.minusDays(9)).orElseThrow();
+
+            assertThat(score.loadScore()).isEqualByComparingTo("100");
+            assertThat(ReadinessFormula.usualWeeklyLoad(bd("200"), 10)).isEqualByComparingTo("140.00");
+        }
+
+        @Test
+        void 첫_부하를_모르면_28일_이력으로_본다() {
+            // 평소 = 200 / 4 = 50, 최근 7일 100 → 비율 2.0 → 50
+            assertThat(ReadinessFormula.evaluate(D, inputs).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+            assertThat(ReadinessFormula.evaluate(D, inputs, null).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+        }
+
+        @Test
+        void 이력이_28일_이상이면_기존_값과_같다() {
+            assertThat(ReadinessFormula.evaluate(D, inputs, D.minusDays(40)).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+            assertThat(ReadinessFormula.evaluate(D, inputs, D.minusDays(27)).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+        }
+
+        @Test
+        void 이력이_7일보다_짧아도_7일로_나눈다() {
+            // 오늘 하루 100: H = 7 → 평소 100, 비율 1.0 → 100
+            ReadinessScore score =
+                    ReadinessFormula.evaluate(D, List.of(day(0, null, null, "100")), D).orElseThrow();
+
+            assertThat(score.loadScore()).isEqualByComparingTo("100");
+        }
+
+        @ParameterizedTest
+        @CsvSource({"0, 7", "6, 7", "7, 8", "9, 10", "27, 28", "28, 28", "100, 28"})
+        void 이력_일수는_7에서_28_사이다(int firstLoadDaysBefore, int expected) {
+            assertThat(ReadinessFormula.historyDays(D, D.minusDays(firstLoadDaysBefore)))
+                    .isEqualTo(expected);
+        }
+
+        @Test
+        void 이력_보정에서도_구간_경계는_나눗셈_없이_비교한다() {
+            // H = 14: 비율 = 최근 7일 × 14 / (7 × 28일 합). 28일 합 200, 최근 7일 120 → 1.2 정확히 → 90
+            assertThat(ReadinessFormula.loadRatioScore(bd("120"), bd("200"), 14))
+                    .isEqualByComparingTo("90");
+        }
+    }
+
     @Nested
     class 상한 {
 

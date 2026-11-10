@@ -70,8 +70,10 @@ export type PhoneSleep = {
   // S15P31E105-600: heart rate access and today's resting heart rate computed on this phone from Samsung Health.
   heartAccess?: SleepAccess | null;
   restingHr?: TodayRestingHr | null;
+  // S15P31E105-599: exercise read access for the weekly training load.
+  exerciseAccess?: SleepAccess | null;
   requesting: boolean;
-  // Asks for sleep and heart rate together (D-8).
+  // Asks for sleep, heart rate and exercise together (D-8).
   onConnect: () => void;
 };
 
@@ -169,7 +171,7 @@ export function ReadinessPanel({
     ? today.sleepLabel
     : null;
   // A missing 안정 심박 or 주간 부하 says why (2026-11-09 사용자 결정, 실기기 E2E). R02 gives the resting heart
-  // rate only for the score's own day, and nothing collects training load yet (readiness-formula 7.1).
+  // rate and the weekly training load only for the score's own day.
   // S15P31E105-600 (D-9): R02's value with its source first, then today's value computed on this phone from Samsung
   // Health heart rate, then why there is none.
   const r02RestingHeartRate =
@@ -193,15 +195,36 @@ export function ReadinessPanel({
       ? null
       : (phoneSleep && phoneRestingHrNote(phoneSleep)) ??
         (ready ? '오늘 워치 기록 없음' : '준비도 계산 후 표시');
+  // S15P31E105-599: R02's last-7-day training load for today's score only (a stale score's load is not today's). A
+  // score for today without one means no exercise with heart rate in the last 4 weeks, unless exercise access is off.
+  const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
+  const weeklyLoadSub =
+    weeklyLoad !== null
+      ? today.weeklyLoadLabel
+      : !consented
+      ? null
+      : phoneSleep?.exerciseAccess === 'denied'
+      ? '삼성 헬스 권한 거부됨'
+      : phoneSleep?.exerciseAccess === 'revoked'
+      ? '삼성 헬스 권한 해제됨'
+      : ready
+      ? '최근 4주 심박 기록 운동 없음'
+      : '수집 전';
+  // Users who allowed sleep and heart rate before exercise was added (S15P31E105-600) get the button again.
   const connect =
     consented &&
     phoneSleep &&
     ((needsAccess(phoneSleep.access) && !r02Sleep) ||
-      (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null));
-  const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
-  // The grade alone: its label names 부하, which the card does not show (담당자 요청서: 전문용어 노출 금지).
-  const weeklyLoadSub =
-    weeklyLoad !== null ? null : consented ? '수집 전' : null;
+      (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null) ||
+      (needsAccess(phoneSleep.exerciseAccess) && weeklyLoad === null));
+  // 최근 운동량 shows one plain line (S15P31E105-615: 전문용어 노출 금지): the last 7 days and how it compares with
+  // usual, e.g. "30 · 많이 많음"; without a value, the reason instead.
+  const recentLoad =
+    weeklyLoad !== null
+      ? weeklyLoadSub
+        ? `${weeklyLoad} · ${weeklyLoadSub}`
+        : weeklyLoad
+      : null;
   // 2.P′ 오래된 데이터 says when the last score was made, when it is known.
   const note =
     today.readinessState === 'stale' && today.lastAssessedDate
@@ -269,7 +292,7 @@ export function ReadinessPanel({
           counted,
           gauge: <Gauge score={score} />,
         }}
-        load={{ value: weeklyLoad, sub: weeklyLoadSub }}
+        load={{ value: recentLoad, sub: recentLoad === null ? weeklyLoadSub : null }}
       />
 
       {connect ? (

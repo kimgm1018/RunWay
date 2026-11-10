@@ -19,6 +19,6 @@ public class ReadinessEvaluationListener {
 
     @TransactionalEventListener
     public void onHealthMetricsChanged(DailyHealthMetricsChangedEvent event) {
-        dispatcher.dispatch(event.userId(), event.metricDates());
+        dispatcher.dispatch(event.userId(), event.metricDates(), event.loadChangedDates());
     }
 }

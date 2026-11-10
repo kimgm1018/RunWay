@@ -133,7 +133,12 @@ public class ReadinessJdbcRepository {
                                m.rhr_bpm,
                                CASE WHEN m.rhr_bpm IS NULL THEN NULL ELSE m.rhr_source END AS rhr_source,
                                m.sleep_duration_min,
-                               m.updated_at AS health_updated_at
+                               m.updated_at AS health_updated_at,
+                               l.weekly_load, l.total_load, l.load_days,
+                               (SELECT MIN(f.metric_date) FROM daily_health_metrics f
+                                 WHERE f.user_id = r.user_id
+                                   AND f.daily_training_load IS NOT NULL
+                                   AND f.metric_date <= r.readiness_date) AS first_load_date
                         FROM daily_readiness r
                         JOIN users u
                           ON u.id = r.user_id
@@ -141,6 +146,15 @@ public class ReadinessJdbcRepository {
                          AND u.health_data_access = 'AGREE'
                         LEFT JOIN daily_health_metrics m
                                ON m.user_id = r.user_id AND m.metric_date = r.readiness_date
+                        CROSS JOIN LATERAL (
+                            SELECT COALESCE(SUM(w.daily_training_load)
+                                       FILTER (WHERE w.metric_date >= r.readiness_date - 6), 0) AS weekly_load,
+                                   COALESCE(SUM(w.daily_training_load), 0) AS total_load,
+                                   COUNT(w.daily_training_load) AS load_days
+                            FROM daily_health_metrics w
+                            WHERE w.user_id = r.user_id
+                              AND w.metric_date BETWEEN r.readiness_date - 27 AND r.readiness_date
+                        ) l
                         WHERE r.user_id = ?
                         ORDER BY r.readiness_date DESC
                         LIMIT 1
@@ -156,7 +170,13 @@ public class ReadinessJdbcRepository {
                                     rs.getBigDecimal("rhr_bpm"),
                                     rs.getString("rhr_source"),
                                     rs.getBigDecimal("sleep_duration_min"),
-                                    healthUpdatedAt == null ? null : healthUpdatedAt.toInstant());
+                                    healthUpdatedAt == null ? null : healthUpdatedAt.toInstant(),
+                                    rs.getLong("load_days") > 0
+                                            ? new LoadWindow(
+                                                    rs.getBigDecimal("weekly_load"),
+                                                    rs.getBigDecimal("total_load"),
+                                                    rs.getObject("first_load_date", LocalDate.class))
+                                            : null);
                         },
                         userId)
                 .stream()
@@ -172,5 +192,28 @@ public class ReadinessJdbcRepository {
             BigDecimal restingHrBpm,
             String restingHrSource,
             BigDecimal sleepDurationMin,
-            Instant healthUpdatedAt) {}
+            Instant healthUpdatedAt,
+            LoadWindow load) {}
+
+    /**
+     * 기준일 D의 부하 창(S15P31E105-599). D-27~D에 부하 값이 하루도 없으면 행의 {@code load}는 null이다.
+     *
+     * @param weeklySum D-6~D 부하 합
+     * @param totalSum D-27~D 부하 합
+     * @param firstLoadDate 회원의 D 이전(포함) 첫 부하 날짜
+     */
+    public record LoadWindow(BigDecimal weeklySum, BigDecimal totalSum, LocalDate firstLoadDate) {}
+
+    /** 회원의 date 이전(포함) 첫 부하 날짜(이력 보정, S15P31E105-599). 없으면 빈 값. */
+    public Optional<LocalDate> findFirstLoadDate(long userId, LocalDate date) {
+        return Optional.ofNullable(
+                jdbc.queryForObject(
+                        """
+                        SELECT MIN(metric_date) FROM daily_health_metrics
+                        WHERE user_id = ? AND daily_training_load IS NOT NULL AND metric_date <= ?
+                        """,
+                        (rs, n) -> rs.getObject(1, LocalDate.class),
+                        userId,
+                        Date.valueOf(date)));
+    }
 }

@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-09 · ERD ver.3 · **33개 테이블 / 305개 컬럼 / 57개 FK**
+기준: 2026-11-10 · ERD ver.3 · **34개 테이블 / 321개 컬럼 / 59개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -32,6 +32,7 @@
 | `user_settings` | 코칭·알림 사용 여부, 위치 수집 모드, 계정의 기록 공개 범위 |
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
+| `exercise_training_loads` | 운동 1건의 심박 Zone 부하(Edwards TRIMP). RunWay 러닝 또는 삼성 헬스 운동. 일별 부하의 원천 (S15P31E105-599, V26) |
 | `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도 |
 
 #### user_recommendation_preferences — 추천 기본값 (설계 S15P31E105-386 / 구현 S15P31E105-245, 2026-11-03 확정)
@@ -73,7 +74,7 @@
 
 #### daily_health_metrics — 날짜별 건강 요약
 
-`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이다.
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이고, `daily_training_load`는 `exercise_training_loads`에서 날짜별로 다시 계산한 값이다(S15P31E105-599).
 
 | 컬럼 | 타입·NULL | 용도 |
 | --- | --- | --- |
@@ -81,7 +82,27 @@
 | rhr_revision | INTEGER NULL | `rhr_bpm` 워치 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이거나 삼성 헬스 값이면 NULL(S15P31E105-252, V9) |
 | rhr_source | VARCHAR(20) NULL | `rhr_bpm` 출처. `RUNWAY_WATCH`·`SAMSUNG_HEALTH`(CHECK). W06은 값과 함께 항상 채운다. 출처가 NULL인 값(W06 밖에서 넣은 값)은 워치 값처럼 삼성 헬스 값이 덮어쓰지 않는다. 같은 날짜는 워치 값이 우선한다. V25 이전 값은 `RUNWAY_WATCH`로 채웠다(S15P31E105-600, V25) |
 
-운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+| daily_training_load | NUMERIC(12,4) NULL | 하루 운동 부하(Edwards TRIMP 합). 그 날짜의 RunWay 러닝 부하 + RunWay 러닝과 시간이 겹치지 않는 삼성 헬스 운동 부하. 해당 운동이 없으면 NULL이며 준비도는 0으로 본다. 부하만 있는 날은 다른 건강 컬럼이 NULL인 행이 생긴다(S15P31E105-599) |
+
+최대 심박(`max_heart_rate`)은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+
+#### exercise_training_loads — 운동 1건의 부하 (S15P31E105-599, V26)
+
+운동 1건마다 한 행이다. 산식은 [준비도 산식 5절](../readiness-formula.md#5-훈련-부하-점수-l)을 따른다.
+
+| 컬럼 | 타입·NULL | 용도 |
+| --- | --- | --- |
+| source | VARCHAR(20) | `RUNWAY_SESSION`(러닝 종료 후 분석이 끝난 RunWay 러닝의 심박 샘플) 또는 `SAMSUNG_HEALTH`(W06 `EXERCISE_HR_SUMMARY`). CHECK |
+| running_session_id | BIGINT NULL, UNIQUE | `RUNWAY_SESSION`만. 러닝 1건당 최대 1행 |
+| external_id | VARCHAR(128) NULL | `SAMSUNG_HEALTH`만. 폰이 만든 운동 식별자. `(user_id, source, external_id)` UNIQUE |
+| started_at · ended_at | TIMESTAMPTZ | 운동 시각. RunWay 러닝과 겹치는 삼성 헬스 운동을 일별 합에서 빼는 데 쓴다(겹침: 시작 < 상대 종료 이고 종료 > 상대 시작) |
+| metric_date | DATE | 일별 부하를 넣을 날짜. RunWay 러닝은 시작 시각의 Asia/Seoul 날짜, 삼성 헬스는 폰 시간대 시작 날짜 |
+| zone1_seconds~zone5_seconds | INTEGER, 0 이상 | Zone별 머문 초 |
+| training_load | NUMERIC(12,4), 0 이상 | Zone 분 × Zone 번호의 합 |
+
+- 심박이 측정되지 않은 RunWay 러닝은 행을 만들지 않는다. 러닝을 삭제(S09)하면 행을 지운다.
+- 부하는 저장 시점의 HRmax·안정 심박으로 계산하며 이후 다시 계산하지 않는다.
+- 회원 탈퇴 시 지운다(탈퇴 쓰기 차단 트리거 `rw_active_owner` 적용).
 
 ### 러닝·페이스 코칭
 
@@ -310,6 +331,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | user_profiles / user_settings | 각각 user_id |
 | user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
+| exercise_training_loads | running_session_id / user_id, source, external_id |
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |
 | course_segment_difficulties | course_id |

@@ -102,8 +102,9 @@ test("2.1 shows today's R02 score and metrics without a made-up grade", async ()
     '6h 35m',
     '75',
     '점수에 들어간 기록',
-    '수집 전',
-    '최근 러닝은 최근 운동량으로 점수에 들어가요. 아직 수집 전이라 이 점수에는 반영되지 않았어요.',
+    // R02 without a weekly load for today's score: no exercise with heart rate in 4 weeks (S15P31E105-599).
+    '최근 4주 심박 기록 운동 없음',
+    '심박이 기록된 러닝·운동이 있으면 최근 운동량으로 점수에 들어가요.',
     '러닝 시작하기',
   ]) {
     expect(page).toContain(text);

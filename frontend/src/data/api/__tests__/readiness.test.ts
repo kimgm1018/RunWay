@@ -1,5 +1,5 @@
 import { appConfig } from '../../../config';
-import { createReadinessApi } from '../readiness';
+import { createReadinessApi, weeklyLoadLabel } from '../readiness';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -20,6 +20,8 @@ const latest = (
     restingHrSource?: string | null;
     sleepDurationMin?: number | null;
     healthUpdatedAt?: string | null;
+    weeklyTrainingLoad?: number | null;
+    usualWeeklyTrainingLoad?: number | null;
   } = {},
 ) => ({
   id: 101,
@@ -29,6 +31,8 @@ const latest = (
   restingHrBpm: 58.4,
   sleepDurationMin: 431.6,
   healthUpdatedAt: '2026-11-01T21:05:00Z',
+  weeklyTrainingLoad: null,
+  usualWeeklyTrainingLoad: null,
   ...health,
 });
 
@@ -261,5 +265,67 @@ test('a server without the metric fields leaves them unknown, not undefined', as
     sleepMinutes: null,
     restingHeartRate: null,
     syncedAt: null,
+  });
+});
+
+// S15P31E105-599 (T-9): 주간 부하 is R02's last-7-day load, rounded, with its band against the usual week.
+test.each([
+  [79.9, 100, '평소보다 적음'],
+  [80, 100, '평소와 비슷'],
+  [120, 100, '평소와 비슷'],
+  [120.01, 100, '평소보다 많음'],
+  [160, 100, '평소보다 많음'],
+  [160.01, 100, '많이 많음'],
+  [0, 100, '평소보다 적음'],
+  [50, null, '평소 기록 없음'],
+  [50, 0, '평소 기록 없음'],
+])('weekly load %s against usual %s is %s', (weekly, usual, label) => {
+  expect(weeklyLoadLabel(weekly, usual)).toBe(label);
+});
+
+test("R02 training load fills today's 주간 부하", async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', { weeklyTrainingLoad: 312.46, usualWeeklyTrainingLoad: 280.5 }),
+    ),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    readinessState: 'ready',
+    weeklyLoad: '312',
+    weeklyLoadLabel: '평소와 비슷',
+  });
+});
+
+test('R02 without training load (or a server before it) leaves 주간 부하 empty', async () => {
+  fetchMock.mockResolvedValue(respond(200, latest('2026-11-02')));
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
+  });
+
+  const old: Record<string, unknown> = { ...latest('2026-11-02') };
+  delete old.weeklyTrainingLoad;
+  delete old.usualWeeklyTrainingLoad;
+  fetchMock.mockResolvedValue(respond(200, old));
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
+  });
+});
+
+test("an earlier day's training load is not shown as today's", async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-10-30', { weeklyTrainingLoad: 312, usualWeeklyTrainingLoad: 280 }),
+    ),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    readinessState: 'stale',
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
   });
 });

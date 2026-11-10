@@ -25,8 +25,9 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 처리 순서:
 
 1. W06이 `daily_health_metrics`를 저장·갱신한 날짜 목록을 `DailyHealthMetricsChangedEvent`로 알린다([W06 6항](devices-health.md)). 준비도 평가는 W06 트랜잭션 **커밋 후** 리스너가 받는다. 전부 duplicate·거절·롤백된 요청은 평가하지 않는다.
+   - 러닝 부하 저장(S15P31E105-599)도 같은 이벤트를 발행한다. RunWay 러닝의 종료 후 분석이 READY로 커밋되거나 러닝이 삭제(S09)되면, 커밋 후 리스너가 부하 저장 전용 실행기(스레드 1개, 대기열 1,000건, 넘치면 건너뛰고 세션 ID 로그)에 넘기고, 실행기가 별도 트랜잭션에서 그 러닝의 부하를 저장·삭제하고 바뀐 일별 부하 날짜를 알린다. 세션은 부하 잠금 뒤 다시 읽는다. 삭제됐거나 심박이 없거나 건강정보 동의가 없으면 새로 저장하지 않고 기존 부하 행만 지운다(동의 철회 뒤 삭제한 러닝 포함). 탈퇴 회원은 처리하지 않는다(탈퇴 정리가 행을 지움). 잠금 순서는 회원 행 FOR SHARE → 회원별 부하 advisory lock(`599001`) → 일별 건강 행이며, 운동 요약이 든 W06도 같은 순서다. 실패는 세션 ID·예외 종류만 로그로 남기고 다시 시도하지 않는다. 산식은 [산식 5-1](../readiness-formula.md#5-1-zone-기준과-운동-부하-수집-s15p31e105-599-2026-11-10-사용자-결정)을 따른다.
 2. 리스너는 DB를 쓰지 않고 평가를 준비도 전용 실행기(스레드 2개, 대기열 1,000건)에 넘긴 뒤 바로 돌아온다. W06 응답은 평가를 기다리지 않고, W06 요청은 자기 커넥션만 쓴다. 대기열이 차면 그 이벤트의 평가를 건너뛴다.
-3. 평가 대상 날짜는 바뀐 날짜 D 전부와, D+1~D+7 중 건강 행이 있는 날짜다. D가 이후 날짜의 평소 RHR(이전 7일)에 들어가므로, 과거 값이 늦게 도착해도 이후 날짜 결과에 반영된다.
+3. 평가 대상 날짜는 바뀐 날짜 D 전부와, D+1~D+7 중 건강 행이 있는 날짜다. D가 이후 날짜의 평소 RHR(이전 7일)에 들어가므로, 과거 값이 늦게 도착해도 이후 날짜 결과에 반영된다. 일별 부하(`daily_training_load`)가 바뀐 날짜는 이벤트의 `loadChangedDates`로 구분하며 D+1~D+27(부하 28일 창) 중 건강 행이 있는 날짜까지 평가한다(S15P31E105-599).
 4. 날짜마다 별도 트랜잭션에서 평가한다. 평가 날짜는 W06 `metricDate`다(워치 심박은 워치 시간대 날짜, 삼성 헬스 안정 심박은 폰 시간대 날짜(S15P31E105-600), 수면은 폰 시간대 기상일(S15P31E105-572)).
    1. 같은 회원 평가를 회원별 advisory lock으로 한 줄로 세운다. 겹친 평가 중 나중 평가는 앞 평가 커밋 뒤의 최신 건강값을 읽으므로 오래된 값으로 계산한 결과가 최신 결과를 덮어쓰지 않는다.
    2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
@@ -50,7 +51,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | RDY-001~003 |
-| 상태 | S15P31E105-254 확정(2026-11-02). 기준일 건강 지표는 S15P31E105-550 확정(2026-11-08). 등급·판단 요인은 후속 |
+| 상태 | S15P31E105-254 확정(2026-11-02). 기준일 건강 지표는 S15P31E105-550 확정(2026-11-08). 주간 부하는 S15P31E105-599 확정(2026-11-10). 등급·판단 요인은 후속 |
 
 ### 설명
 
@@ -86,7 +87,9 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
   "restingHrBpm": 58.40,
   "restingHrSource": "RUNWAY_WATCH",
   "sleepDurationMin": null,
-  "healthUpdatedAt": "2026-10-24T21:05:12.345Z"
+  "healthUpdatedAt": "2026-10-24T21:05:12.345Z",
+  "weeklyTrainingLoad": 410.00,
+  "usualWeeklyTrainingLoad": 400.00
 }
 ```
 
@@ -100,9 +103,12 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | `restingHrSource` | string / null | O | 같은 행의 `rhr_source`. `RUNWAY_WATCH`(RunWay 워치 추정) 또는 `SAMSUNG_HEALTH`(삼성 헬스 심박으로 폰 계산, S15P31E105-600). `restingHrBpm`이 null이거나 출처 없이 저장된 값(W06 밖에서 넣은 값)이면 null |
 | `sleepDurationMin` | number / null | O | 같은 행의 `sleep_duration_min`(분, 소수 둘째 자리). 행이나 값이 없으면 null. W06 `SAMSUNG_HEALTH` 수면(폰 시간대 기상일, S15P31E105-572)이 저장한 값이다 |
 | `healthUpdatedAt` | string (ISO 8601 UTC) / null | O | 같은 행의 `updated_at`. 그 날짜 건강 행이 마지막으로 바뀐 시각이며 준비도 평가 시각(`assessedAt`, 후속)이 아니다. 행이 없으면 null |
+| `weeklyTrainingLoad` | number / null | O | `readinessDate`를 D로 한 D-6~D 일별 부하 합(소수 둘째 자리, S15P31E105-599). D-27~D에 부하 값이 하루도 없으면 null. 값 없는 날은 0으로 더한다 |
+| `usualWeeklyTrainingLoad` | number / null | O | 평소 주간 부하 = D-27~D 합 × 7 ÷ 이력 일수(7~28, [산식 7.2](../readiness-formula.md#72-경계와-보간)), 소수 둘째 자리(HALF_UP). `weeklyTrainingLoad`가 null이면 null. 창 안 부하가 모두 0이면(Zone1 미만 운동만) 두 값 모두 0이며, 이때 준비도 L 항목은 계산하지 않는다. 앱은 평소 값이 0이면 "평소 기록 없음"을 표시한다 |
 
 - "최신"은 본인 결과 중 `readinessDate`가 가장 늦은 1건이다. 오늘 날짜 필터를 두지 않는다.
 - 점수만으로 날짜·신뢰도를 추측하지 않는다. 미산출 점수를 0으로 채우지 않는다.
+- 주간 부하 두 값은 조회 시점의 일별 부하로 같은 SQL에서 계산한다. 점수(L 항목)와 같은 정의지만 평가가 끝나기 전이면 점수보다 최신일 수 있다. 앱은 비율(`weeklyTrainingLoad ÷ usualWeeklyTrainingLoad`)로 "평소 대비" 상태를 표시하며 값이 null이면 "최근 4주 심박 기록 운동 없음"을 표시한다.
 - 건강 지표 3개는 점수와 같은 기준일(`readinessDate`) 값만 반환한다. 다른 날짜 값으로 대체하지 않고, 미측정 값을 0으로 채우지 않는다(S15P31E105-550). 앱은 결과가 오늘 날짜가 아니면(오래된 평가) 이 지표를 오늘 값으로 표시하지 않는다.
 
 후속 필드(이번 계약에 없음):

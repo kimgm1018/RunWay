@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,13 +38,21 @@ public final class ReadinessFormula {
      * @return 계산 가능한 항목이 하나도 없으면 빈 값
      */
     public static Optional<ReadinessScore> evaluate(LocalDate date, List<DailyHealthInput> inputs) {
+        return evaluate(date, inputs, null);
+    }
+
+    /**
+     * @param firstLoadDate 회원의 D 이전(포함) 첫 부하 날짜(S15P31E105-599 이력 보정). null이면 28일 이력이 있는 것으로 본다
+     */
+    public static Optional<ReadinessScore> evaluate(
+            LocalDate date, List<DailyHealthInput> inputs, LocalDate firstLoadDate) {
         Map<LocalDate, DailyHealthInput> byDate = new HashMap<>();
         for (DailyHealthInput input : inputs) {
             byDate.put(input.metricDate(), input);
         }
         BigDecimal sleep = sleepScore(date, byDate);
         BigDecimal recovery = recoveryScore(date, byDate);
-        BigDecimal load = loadScore(date, byDate);
+        BigDecimal load = loadScore(date, byDate, historyDays(date, firstLoadDate));
 
         BigDecimal sum = BigDecimal.ZERO;
         BigDecimal min = null;
@@ -159,11 +168,44 @@ public final class ReadinessFormula {
         return round(BigDecimal.valueOf(35));
     }
 
+    /** 부하 창 일수(D-27~D). */
+    public static final int LOAD_WINDOW_DAYS = LOOKBACK_DAYS + 1;
+
+    /** 이력 보정 최소 일수. 최근 7일 창보다 짧게 나누지 않는다. */
+    static final int MIN_HISTORY_DAYS = 7;
+
     /**
-     * 최근 7일(D-6~D) 부하 합 / 평소 주간 부하(D-27~D 합 ÷ 4). 28일 창에 부하 값이 하루도 없거나 평소 부하가 0이면 계산하지 않는다. 값이 없는 날은
-     * 운동하지 않은 날(0)로 본다.
+     * 부하 이력 일수 H = min(28, D − 첫 부하 날짜 + 1), 최소 7(S15P31E105-599). 첫 부하 날짜를 모르면(null) 28이다.
      */
+    public static int historyDays(LocalDate date, LocalDate firstLoadDate) {
+        if (firstLoadDate == null) {
+            return LOAD_WINDOW_DAYS;
+        }
+        long days = ChronoUnit.DAYS.between(firstLoadDate, date) + 1;
+        return (int) Math.max(MIN_HISTORY_DAYS, Math.min(LOAD_WINDOW_DAYS, days));
+    }
+
+    /**
+     * 최근 7일(D-6~D) 부하 합 / 평소 주간 부하(D-27~D 합 × 7 ÷ H, H = 이력 일수). 28일 창에 부하 값이 하루도 없거나 평소 부하가 0이면
+     * 계산하지 않는다. 값이 없는 날은 운동하지 않은 날(0)로 본다. H = 28이면 기존 정의(28일 합 ÷ 4)와 같다.
+     */
+    static BigDecimal loadScore(
+            LocalDate date, Map<LocalDate, DailyHealthInput> byDate, int historyDays) {
+        LoadSums sums = loadSums(date, byDate);
+        if (sums == null) {
+            return null;
+        }
+        return loadRatioScore(sums.acute(), sums.total(), historyDays);
+    }
+
     static BigDecimal loadScore(LocalDate date, Map<LocalDate, DailyHealthInput> byDate) {
+        return loadScore(date, byDate, LOAD_WINDOW_DAYS);
+    }
+
+    /** 최근 7일 합과 28일 합. 28일 창에 부하 값이 없거나 합이 0 이하이면 null. */
+    public record LoadSums(BigDecimal acute, BigDecimal total) {}
+
+    static LoadSums loadSums(LocalDate date, Map<LocalDate, DailyHealthInput> byDate) {
         BigDecimal acute = BigDecimal.ZERO;
         BigDecimal total = BigDecimal.ZERO;
         boolean measured = false;
@@ -181,27 +223,39 @@ public final class ReadinessFormula {
         if (!measured || total.signum() <= 0) {
             return null;
         }
-        return loadRatioScore(acute, total);
+        return new LoadSums(acute, total);
+    }
+
+    /** 평소 주간 부하 = 28일 합 × 7 ÷ H, 소수 둘째 자리(HALF_UP). R02 표시에 쓴다. */
+    public static BigDecimal usualWeeklyLoad(BigDecimal total, int historyDays) {
+        return round(
+                total.multiply(BigDecimal.valueOf(7))
+                        .divide(BigDecimal.valueOf(historyDays), MC));
+    }
+
+    static BigDecimal loadRatioScore(BigDecimal acute, BigDecimal total) {
+        return loadRatioScore(acute, total, LOAD_WINDOW_DAYS);
     }
 
     /**
-     * 부하 비율(최근 7일 합 ÷ (28일 합 ÷ 4)) 점수. ≤1.0 100, 1.0~1.2 100→90, 1.2~1.4 90→80, 1.4~1.6 80→65, 1.6~2.0 65→50
-     * 선형, 2.0 초과 35. 구간 판정은 나눗셈 없이 {@code 최근 7일 합 × 4 ≤ k × 28일 합}으로 정확히 비교한다(28일 합 > 0).
+     * 부하 비율(최근 7일 합 ÷ (28일 합 × 7 ÷ H)) 점수. ≤1.0 100, 1.0~1.2 100→90, 1.2~1.4 90→80, 1.4~1.6 80→65, 1.6~2.0
+     * 65→50 선형, 2.0 초과 35. 구간 판정은 나눗셈 없이 {@code 최근 7일 합 × H ≤ k × 28일 합 × 7}로 정확히 비교한다(28일 합 > 0).
      */
-    static BigDecimal loadRatioScore(BigDecimal acute, BigDecimal total) {
-        BigDecimal scaledAcute = acute.multiply(BigDecimal.valueOf(4));
-        BigDecimal ratio = scaledAcute.divide(total, MC);
+    static BigDecimal loadRatioScore(BigDecimal acute, BigDecimal total, int historyDays) {
+        BigDecimal scaledAcute = acute.multiply(BigDecimal.valueOf(historyDays));
+        BigDecimal scaledTotal = total.multiply(BigDecimal.valueOf(7));
+        BigDecimal ratio = scaledAcute.divide(scaledTotal, MC);
         String[][] segments = {
             {"1.0", "1.2", "100", "90"},
             {"1.2", "1.4", "90", "80"},
             {"1.4", "1.6", "80", "65"},
             {"1.6", "2.0", "65", "50"}
         };
-        if (scaledAcute.compareTo(total) <= 0) {
+        if (scaledAcute.compareTo(scaledTotal) <= 0) {
             return round(HUNDRED);
         }
         for (String[] segment : segments) {
-            if (scaledAcute.compareTo(total.multiply(new BigDecimal(segment[1]))) <= 0) {
+            if (scaledAcute.compareTo(scaledTotal.multiply(new BigDecimal(segment[1]))) <= 0) {
                 return round(interpolate(ratio, segment[0], segment[1], segment[2], segment[3]));
             }
         }

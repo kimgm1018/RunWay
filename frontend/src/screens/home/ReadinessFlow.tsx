@@ -18,8 +18,7 @@ import { addDays, kstDay } from '../records/parts';
 // title, drawn as its pace and heart rate by km), 지난밤 회복
 // (sleep on a bar with the formula's 7시간 mark, the resting heart rate), 오늘 준비도 (the score and which records went
 // into it). The score is the server's (R02) and nothing here recomputes it. Yesterday's run reaches the score only
-// through 최근 운동량 (readiness-formula 5절), which nothing collects yet; the card says so rather than draw a link the
-// score does not have.
+// through 최근 운동량 (readiness-formula 5절, collected since S15P31E105-599); without a value the card says why.
 
 // readiness-formula 3절: 7시간 이상 is the sleep score's top; the bar runs a little past it.
 export const sleepFullMinutes = 7 * 60;
@@ -280,7 +279,7 @@ export function ReadinessFlow({
             {load.value === null ? (
               <View style={styles.loadNote}>
                 <WordWrap
-                  text="최근 러닝은 최근 운동량으로 점수에 들어가요. 아직 수집 전이라 이 점수에는 반영되지 않았어요."
+                  text="심박이 기록된 러닝·운동이 있으면 최근 운동량으로 점수에 들어가요."
                   style={styles.small}
                   fontSize={12}
                 />
