@@ -31,6 +31,43 @@ export function isValidPassword(value: string) {
   );
 }
 
+// 1.3 회원가입·1.2q 새 비밀번호 칸(S15P31E105-627): 아이디 칸처럼 안 글씨에 규칙을 보이고, 아래 안내에서 만족한 조건마다
+// ✓를 붙인다. 모두 만족하면 success가 되어 TextField가 안내 앞에 ✓를 붙이고 초록색으로 보인다.
+export const passwordRule = '영문·숫자 8자 이상';
+const passwordLabels = { length: '8자 이상', letter: '영문', digit: '숫자' };
+
+export function passwordGuide(value: string): {
+  status: 'default' | 'success' | 'error';
+  helper: string;
+} {
+  if (value && !passwordWithinLimit(value)) {
+    return { status: 'error', helper: passwordLimitRule };
+  }
+  if (value && isValidPassword(value)) {
+    return { status: 'success', helper: '사용할 수 있는 비밀번호예요' };
+  }
+  const checks = passwordChecks(value);
+  const keys = Object.keys(passwordLabels) as (keyof typeof passwordLabels)[];
+  return {
+    status: 'default',
+    helper: keys
+      .map(key =>
+        checks[key] ? `✓ ${passwordLabels[key]}` : passwordLabels[key],
+      )
+      .join(' · '),
+  };
+}
+
+// 비밀번호 확인 칸: 입력하면 일치 여부를 알려 준다.
+export function confirmGuide(password: string, confirm: string) {
+  if (!confirm) {
+    return { status: 'default' as const, helper: undefined };
+  }
+  return confirm === password
+    ? { status: 'success' as const, helper: '비밀번호가 일치해요' }
+    : { status: 'error' as const, helper: '비밀번호가 일치하지 않아요' };
+}
+
 export function digitsOnly(value: string) {
   return value.replace(/\D/g, '');
 }

@@ -19,10 +19,12 @@ import {
 } from './parts';
 import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
 import {
+  confirmGuide,
   formatPhoneNumber,
   isValidPassword,
+  passwordGuide,
   passwordLimitRule,
-  passwordWithinLimit,
+  passwordRule,
 } from './validation';
 
 // U30 failures that used up the proof or leave it in doubt: verify the number again (users.md U30). A 5xx such as
@@ -75,16 +77,12 @@ export function PasswordPhoneScreen() {
   const phoneError = phone.error?.field === 'phone' ? phone.error : null;
   const codeError = phone.error?.field === 'code' ? phone.error : null;
   const passwordOk = isValidPassword(password) && confirm === password;
-  const tooLong = password !== '' && !passwordWithinLimit(password);
-  const passwordHelper =
-    confirm && confirm !== password
-      ? { status: 'error' as const, text: '비밀번호가 일치하지 않아요' }
-      : passwordOk
-      ? {
-          status: 'success' as const,
-          text: '8~20자 · 영문·숫자 포함 · 비밀번호가 일치해요',
-        }
-      : { status: 'default' as const, text: '8~20자 · 영문·숫자 포함' };
+  // 회원가입과 같은 안내(S15P31E105-627). 서버가 정책 위반(422)으로 돌려보내면 증명은 그대로 두고 규칙을 알린다.
+  const passwordState =
+    failed === 'policy'
+      ? { status: 'error' as const, helper: passwordLimitRule }
+      : passwordGuide(password);
+  const confirmState = confirmGuide(password, confirm);
 
   const changePassword = (text: string) => {
     setPassword(text);
@@ -141,7 +139,7 @@ export function PasswordPhoneScreen() {
       }
     >
       <RunnerArt />
-      <StepTitle title="전화번호로 찾기" />
+      <StepTitle title={'비밀번호를 '} muted="잊으셨나요?" />
       <View style={styles.step}>
         <StepLabel
           index={1}
@@ -253,20 +251,13 @@ export function PasswordPhoneScreen() {
               labelInside
               icon="padlock"
               label="새 비밀번호"
+              placeholder={passwordRule}
               value={password}
               onChangeText={changePassword}
               secureTextEntry
               textContentType="newPassword"
-              status={
-                tooLong || failed === 'policy'
-                  ? 'error'
-                  : isValidPassword(password)
-                  ? 'success'
-                  : 'default'
-              }
-              helper={
-                tooLong || failed === 'policy' ? passwordLimitRule : undefined
-              }
+              status={passwordState.status}
+              helper={passwordState.helper}
             />
             <TextField
               labelInside
@@ -277,8 +268,9 @@ export function PasswordPhoneScreen() {
               onChangeText={setConfirm}
               secureTextEntry
               textContentType="newPassword"
-              status={passwordHelper.status}
-              helper={passwordHelper.text}
+              placeholder="한 번 더 입력해 주세요"
+              status={confirmState.status}
+              helper={confirmState.helper}
             />
             {failed === 'retry' ? (
               <InlineError>

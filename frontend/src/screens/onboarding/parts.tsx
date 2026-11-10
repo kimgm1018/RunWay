@@ -62,7 +62,7 @@ export const onboardingScreen = {
   contentStyle: { paddingHorizontal: 24, paddingTop: 0, gap: 12 },
 } as const;
 
-// Left-aligned bold ink title. `muted` is the rest of the sentence, such as 1.2p's 잊으셨나요?; it is the same
+// Left-aligned bold ink title. `muted` is the rest of the sentence, such as 1.2q's 잊으셨나요?; it is the same
 // ink now (the handoff has one colour), kept apart so the line breaks stay where they were.
 // The caller ends `title` with the line break or space that comes before it.
 export function StepTitle({

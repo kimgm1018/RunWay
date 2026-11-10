@@ -158,7 +158,7 @@ export function LoginScreen() {
       </View>
       <TextLink
         title="비밀번호를 잊으셨나요?"
-        onPress={() => navigateTo(navigation, 'PasswordFind')}
+        onPress={() => navigateTo(navigation, 'PasswordPhone')}
         style={styles.forgot}
       />
     </Screen>
