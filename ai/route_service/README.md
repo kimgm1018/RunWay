@@ -166,7 +166,7 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 
 | 환경변수 | 읽는 때 | 잘못된 값이면 |
 |---|---|---|
-| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
+| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`, `RUNWAY_FAST_ROUTING`, `RUNWAY_GATE_FAST_CONTEXT` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
 | `ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
 | `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
 
@@ -180,6 +180,8 @@ API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **ap
 | `RUNWAY_SP_KERNEL=nx` | D-exact → networkx 최단 경로 | 같음(느려짐) |
 | `RUNWAY_SP_ENGINE=python` | Numba D-exact → Python D-exact | 같음(느려짐), Numba import·컴파일 없음 |
 | `RUNWAY_SP_ASTAR=0` | 구간 탐색 Numba A* → Numba bidirectional(S15P31E105-621. A*도 동점 근처면 bidirectional로 다시 찾음) | 같음(생성 느려짐) |
+| `RUNWAY_FAST_ROUTING=0` | 요청 graph routing edge 준비의 배열 정렬·`pair_to_eid` 배열 조회 → pandas 정렬·dict(S15P31E105-626) | 같음(첫 요청 느려짐) |
+| `RUNWAY_GATE_FAST_CONTEXT=0` | Gate context의 incident 배열 색인 → `usability_gate.build_context` Python 반복(S15P31E105-626) | 같음(첫 요청 느려짐) |
 | `RUNWAY_ARRAY_LOOP=0` | LOOP 배열 graph → 기존 NetworkX G/H 준비 | 같음(첫 요청 느려짐), Numba 탐색은 유지 |
 | `RUNWAY_ARRAY_SHAPES=0` | OAB/P2P 생성 disk 배열 graph → networkx | 같음(cold 느려짐) |
 | `RUNWAY_ARRAY_PAIR_FAST=0` | LOOP 배열 graph 생성의 배열/Numba 처리(full_status·component·key) → 기존 Python 반복문 | 같음(LOOP cold 느려짐) |

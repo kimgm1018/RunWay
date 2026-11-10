@@ -289,6 +289,28 @@ def astar(csr, xy, s: int, t: int, M: np.ndarray, used: np.ndarray, pen: float, 
     return None if k < 0 else a.out[:k].tolist()
 
 
+def astar_length(csr, xy, s: int, t: int):
+    """출발 s → 도착 t의 최단 거리(비용 = length)를 A*로 구한다(S15P31E105-626, candidates.path_length용).
+    M = 1, used = 0, pen = 0이면 비용 L[e] * 1.0 * (1 + 0.0 * 0) == L[e]이고, g는 0에서 경로 순서대로 더한 값이라
+    Python Dijkstra의 dist[t]와 같은 경로면 bit 단위로 같다. 반환: g(float64), 경로 없음이면 inf,
+    거의 같은 다른 경로가 있거나(-2) h가 어긋나면(-3) None(호출자가 기존 Dijkstra로 다시 계산)."""
+    a = arrays(csr)
+    if a.x is None:
+        xy = np.asarray(xy, dtype=np.float64)
+        a.x, a.y = np.ascontiguousarray(xy[:, 0]), np.ascontiguousarray(xy[:, 1])
+    ones = getattr(a, "ones", None)
+    if ones is None:
+        ones = a.ones = np.ones(len(a.length), np.float64)
+        a.zero_used = np.zeros(len(a.length), np.int64)
+    k = _astar(a.ptr, a.nbr, a.ned, a.length, ones, a.zero_used, 0.0, s, t, a.x, a.y, 0.995, TIE_EPS,
+               a.mark, a.val, a.pred, a.hd, a.hc, a.hn, a.out, a.meta)
+    if k <= -2:
+        return None
+    if k < 0:
+        return np.inf
+    return a.val[0, t]
+
+
 def warm_up() -> None:
     """Run the compiled kernel once on a 3-node graph (loads / links the machine code at start-up, not on a request)."""
     class _Tiny:
