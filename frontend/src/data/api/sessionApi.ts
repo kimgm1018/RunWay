@@ -74,6 +74,8 @@ export type ServerSession = {
   serverSendAt?: string | null;
   // S15P31E105-420에서 읽는다. 이전 응답에는 없을 수 있어 선택으로 둔다.
   groupEndedAt?: string | null;
+  // S15P31E105-643. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  movingDurationSec?: number | null;
 };
 
 const id = (value: string) => Number(value);
@@ -129,6 +131,12 @@ export function sessionView(value: ServerSession): RunningSessionView {
     serverReceiveAt: value.serverReceiveAt ?? null,
     serverSendAt: value.serverSendAt ?? null,
     groupEndedAt: value.groupEndedAt ?? null,
+    movingDurationSec:
+      typeof value.movingDurationSec === 'number' &&
+      Number.isFinite(value.movingDurationSec) &&
+      value.movingDurationSec >= 0
+        ? value.movingDurationSec
+        : null,
   };
 }
 

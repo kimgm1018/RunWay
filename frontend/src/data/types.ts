@@ -937,6 +937,9 @@ export type RunningSessionView = {
   serverSendAt?: string | null;
   // S02 groupEndedAt: 종료된 그룹런의 종료 기준시각. 개인런·진행 중 그룹런은 null(S15P31E105-420).
   groupEndedAt?: string | null;
+  // 서버가 serverSendAt 기준으로 계산한 일시정지 제외 운동시간(초, S15P31E105-643). 시작 전이거나 서버가 아직 주지
+  // 않으면 null이고, 앱은 화면 시계로 센다(S15P31E105-528).
+  movingDurationSec?: number | null;
 };
 
 // GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
