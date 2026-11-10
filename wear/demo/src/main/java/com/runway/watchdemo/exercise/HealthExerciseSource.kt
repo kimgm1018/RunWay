@@ -3,6 +3,7 @@ package com.runway.watchdemo.exercise
 import android.content.Context
 import android.location.LocationManager
 import android.os.SystemClock
+import android.util.Log
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.data.*
@@ -29,7 +30,7 @@ class HealthExerciseSource(private val context: Context, private val client: and
         val supported = caps.getExerciseTypeCapabilities(ExerciseType.RUNNING).supportedDataTypes
         val gps = Permissions.gps(context) && context.getSystemService(LocationManager::class.java).isProviderEnabled(LocationManager.GPS_PROVIDER)
         val wanted = mutableSetOf<DataType<*, *>>(DataType.STEPS, DataType.STEPS_TOTAL, DataType.STEPS_PER_MINUTE,
-            DataType.DISTANCE, DataType.DISTANCE_TOTAL, DataType.SPEED, DataType.STRIDE_LENGTH)
+            DataType.DISTANCE, DataType.DISTANCE_TOTAL, DataType.SPEED, DataType.STRIDE_LENGTH, DataType.VO2_MAX)
         if (Permissions.heart(context)) wanted.add(DataType.HEART_RATE_BPM)
         val selected = wanted.intersect(supported)
         check(selected.isNotEmpty()) { "수집 가능한 지표가 없습니다" }
@@ -45,6 +46,8 @@ class HealthExerciseSource(private val context: Context, private val client: and
             if (SupportStatus.fromWire(support[type.name]) != SupportStatus.SUPPORTED) support[type.name] = status.wireValue
         }
         support["gps"] = if (gps) "enabled_fallback_possible" else "disabled_steps_based"
+        // S15P31E105-614: RUNNING capability probe for VO2_MAX on real Galaxy Watch.
+        Log.i(VO2_TAG, "capability VO2_MAX=${support["VO2_MAX.support"]} selected=${DataType.VO2_MAX in selected}")
         val originWall = System.currentTimeMillis(); val originElapsed = SystemClock.elapsedRealtime()
         fun elapsed(epoch: Long) = originElapsed + epoch - originWall
         val distanceSource = if (gps) "health_services_gps_enabled_fallback_possible" else "health_services_steps_based"
@@ -55,6 +58,7 @@ class HealthExerciseSource(private val context: Context, private val client: and
             override fun onAvailabilityChanged(dataType: DataType<*, *>, availability: Availability) {
                 val values = mutableMapOf(dataType.name to availability.toString())
                 metricKind(dataType)?.let { values["${it.name}.availability"] = availability.toString() }
+                if (dataType == DataType.VO2_MAX) Log.i(VO2_TAG, "availability=$availability")
                 onState(ExerciseSignal.Availability(values))
             }
             override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
@@ -68,12 +72,14 @@ class HealthExerciseSource(private val context: Context, private val client: and
                             v.takeIf { it.isFinite() && it >= 0 }, unit,
                             if (kind == MetricKind.SPEED) distanceSource else "health_services",
                             if (!v.isFinite() || accuracy.contains("UNRELIABLE", true) || accuracy.contains("NO_CONTACT", true)) "unreliable" else accuracy))
+                        if (kind == MetricKind.VO2_MAX) Log.i(VO2_TAG, "sample value=$v accuracy=$accuracy")
                     }
                 }
                 samples(DataType.HEART_RATE_BPM, MetricKind.HEART_RATE, "bpm")
                 samples(DataType.SPEED, MetricKind.SPEED, "m/s")
                 samples(DataType.STEPS_PER_MINUTE, MetricKind.CADENCE, "steps/min")
                 samples(DataType.STRIDE_LENGTH, MetricKind.STEP_LENGTH, "m/step")
+                samples(DataType.VO2_MAX, MetricKind.VO2_MAX, "mL/kg/min")
                 metrics.getData(DataType.STEPS).forEach { p -> points.add(MetricSample(MetricKind.STEPS,
                     p.startDurationFromBoot.toMillis(), p.endDurationFromBoot.toMillis(), p.value.toDouble(), "steps",
                     quality = p.accuracy?.toString() ?: "good")) }
@@ -111,6 +117,11 @@ class HealthExerciseSource(private val context: Context, private val client: and
         DataType.SPEED -> MetricKind.SPEED
         DataType.HEART_RATE_BPM -> MetricKind.HEART_RATE
         DataType.STRIDE_LENGTH -> MetricKind.STEP_LENGTH
+        DataType.VO2_MAX -> MetricKind.VO2_MAX
         else -> null
+    }
+
+    companion object {
+        private const val VO2_TAG = "RunWayVo2Max"
     }
 }
