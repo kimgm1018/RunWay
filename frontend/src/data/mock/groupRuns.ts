@@ -324,6 +324,7 @@ export function createGroupRunMock({
           userId: member.userId,
           nickname: member.nickname,
           isMe: false,
+          isHost: member.userId === run.hostId,
           gapM: member.gapM + wobble(index),
           paceSecPerKm: member.paceSecPerKm + Math.round(wobble(index) / 3),
         }));
@@ -336,6 +337,7 @@ export function createGroupRunMock({
               userId: me.userId,
               nickname: me.nickname,
               isMe: true,
+              isHost: me.userId === run.hostId,
               gapM: 0,
               paceSecPerKm: 0,
             },

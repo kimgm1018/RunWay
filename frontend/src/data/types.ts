@@ -598,6 +598,8 @@ export type GroupRunLive = {
     // G10 앞·뒤 인원(S15P31E105-420 워치 전달). 서버가 주지 않으면 null.
     aheadCount?: number | null;
     behindCount?: number | null;
+    // G07 참가자 isHost. 그룹장 폰만 간격 벌어짐 알림을 보낸다(S15P31E105-629). 모르면 없음.
+    isHost?: boolean;
   }[];
   // G10 updatedAt. 워치가 늦게 온 현황을 구분하는 기준이다(S15P31E105-420).
   updatedAt?: string | null;
@@ -948,6 +950,9 @@ export type WatchGroupStatus = {
   rankedCount: number | null;
   // 폰이 연속 조회에서 본 공동 페이스 변경(S15P31E105-604). 워치는 이 값이 있을 때만 알림·진동한다. 없으면 null.
   paceChanged?: { from: number; to: number } | null;
+  // 그룹장 폰이 본 선두–후미 간격 벌어짐(S15P31E105-629). 기준을 넘은 뒤 다시 내려오기 전까지 매번 넣고,
+  // 넘은 순간의 현황에만 isNew=true다. 워치는 isNew일 때만 진동한다. 그룹장이 아니거나 벌어지지 않았으면 null.
+  gapWidened?: { gapM: number; memberName: string | null; isNew: boolean } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.

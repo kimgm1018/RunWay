@@ -106,6 +106,23 @@ class GroupRunDisplayTest {
         assertNull("no spread without the group value", standing(changed).spread)
     }
 
+    @Test fun leadersWidenedGroupNoticeShowsOnBothPages() {
+        val wide = GroupStatus(GroupPhase.RUNNING, 355, GroupPosition.Known(standing), leaderToLastGapMeters = 160.0,
+            notice = GroupNotice.PaceChanged(340, 355), gapNotice = GroupNotice.GapWidened(160, "민수"))
+        val pace = GroupRunDisplay.pace(snapshot(wide)) as GroupPaceView.Pace
+        assertEquals(GroupLine("민수님이 뒤처졌어요 (160m)", "그룹 간격 알림, 민수님이 뒤처졌어요, 선두와 후미 160미터"), pace.gap)
+        // A pace change at the same time stays shown next to it.
+        assertEquals("이전 5’40” → 새 5’55”", pace.change!!.text)
+        assertEquals("민수님이 뒤처졌어요 (160m)", standing(snapshot(wide)).gap!!.text)
+
+        val generic = wide.copy(gapNotice = GroupNotice.GapWidened(1234, null), position = GroupPosition.Unavailable)
+        assertEquals("그룹이 벌어졌어요 (1.23km)", (GroupRunDisplay.position(snapshot(generic)) as GroupPositionView.Message).gap!!.text)
+
+        // Other runners and a close group get no notice.
+        assertNull((GroupRunDisplay.pace(snapshot(wide.copy(gapNotice = null))) as GroupPaceView.Pace).gap)
+        assertNull(standing(snapshot(wide.copy(gapNotice = null))).gap)
+    }
+
     @Test fun leaderToLastSpreadIsTheGroupsValue() {
         val spread = GroupStatus(GroupPhase.RUNNING, 340, GroupPosition.Known(standing), leaderToLastGapMeters = 180.0)
         assertEquals(GroupLine("선두–후미 180m", "선두와 후미 간격 180미터"), standing(snapshot(spread)).spread)

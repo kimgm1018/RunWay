@@ -10,6 +10,7 @@ import android.util.Log
 /**
  * GRP-006·WAT-005 (S15P31E105-604): one vibration when the group's shared pace changed. The session controller calls it
  * only for a change the phone relayed, once per change; the watch never decides a change itself.
+ * The leader's widened-group notice (S15P31E105-629) uses the same single buzz; both on one update buzz once.
  */
 fun interface GroupPaceAlert {
     fun paceChanged()

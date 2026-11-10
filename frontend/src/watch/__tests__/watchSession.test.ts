@@ -187,7 +187,30 @@ test('sendGroupStatus relays G10 values unchanged and drops non-finite numbers',
     updatedAt: '2026-11-09T01:05:00Z',
     rankedCount: 2,
     paceChanged: { from: 360, to: 370 },
+    gapWidened: null,
   });
+});
+
+test('sendGroupStatus relays the host gap notice and sends null without one', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const base = {
+    groupRunId: '77',
+    phase: 'RUNNING' as const,
+    guidePaceSecPerKm: 370,
+    standing: null,
+    stale: false,
+    leaderToLastGapM: 160,
+    updatedAt: '2026-11-09T01:05:00Z',
+    rankedCount: 2,
+  };
+
+  await watch.sendGroupStatus!('201', { ...base, gapWidened: { gapM: 160.4, memberName: '민수 "A"', isNew: true } });
+  await watch.sendGroupStatus!('201', { ...base, gapWidened: { gapM: Number.NaN, memberName: null, isNew: true } });
+  await watch.sendGroupStatus!('201', base);
+
+  expect(JSON.parse(native.send.mock.calls[0][3]).gapWidened).toEqual({ gapM: 160, memberName: '민수 "A"', isNew: true });
+  expect(JSON.parse(native.send.mock.calls[1][3]).gapWidened).toBeNull();
+  expect(JSON.parse(native.send.mock.calls[2][3]).gapWidened).toBeNull();
 });
 
 test('sendGroupStatus sends paceChanged as null when the phone saw no change', async () => {

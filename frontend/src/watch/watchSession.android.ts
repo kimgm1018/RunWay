@@ -108,6 +108,15 @@ function paceChangedJson(change: WatchGroupStatus['paceChanged']) {
   return from !== null && to !== null ? JSON.stringify({ from, to }) : 'null';
 }
 
+// S15P31E105-629: 그룹장 폰이 본 간격 벌어짐. 거리가 없으면 보내지 않는다(null). 이름은 JSON 문자열로 옮긴다.
+function gapWidenedJson(gap: WatchGroupStatus['gapWidened']) {
+  const gapM = finiteOrNull(gap?.gapM ?? null);
+  if (!gap || gapM === null || gapM < 0) {
+    return 'null';
+  }
+  return JSON.stringify({ gapM: Math.round(gapM), memberName: gap.memberName ?? null, isNew: gap.isNew === true });
+}
+
 // GROUP_STATUS payload(9.3). 그룹런 ID는 숫자 토큰 그대로 넣고, 값은 받은 그대로 옮긴다.
 function groupStatusJson(status: WatchGroupStatus) {
   const standing = status.standing
@@ -127,7 +136,9 @@ function groupStatusJson(status: WatchGroupStatus) {
     `"updatedAt":${JSON.stringify(status.updatedAt)},` +
     `"rankedCount":${JSON.stringify(finiteOrNull(status.rankedCount))},` +
     // S15P31E105-604: 폰이 본 공동 페이스 변경. 워치는 이 값이 있을 때만 진동한다.
-    `"paceChanged":${paceChangedJson(status.paceChanged)}}`
+    `"paceChanged":${paceChangedJson(status.paceChanged)},` +
+    // S15P31E105-629: 그룹장에게만 오는 간격 벌어짐. 워치는 isNew일 때만 진동한다.
+    `"gapWidened":${gapWidenedJson(status.gapWidened)}}`
   );
 }
 

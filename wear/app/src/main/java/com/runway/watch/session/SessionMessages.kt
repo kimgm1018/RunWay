@@ -115,7 +115,16 @@ data class SessionEnvelope(
                 val to = c.wholeNumber("to")?.takeIf { it > 0 }?.toInt() ?: return@let null
                 GroupNotice.PaceChanged(from, to).takeIf { from != to }
             },
+            gapWidened = gapWidened(),
+            gapWidenedNew = payload.optJSONObject("gapWidened")?.optBoolean("isNew", false) == true && gapWidened() != null,
         )
+    }
+
+    /** GROUP_STATUS.gapWidened (S15P31E105-629); a missing or negative distance drops it. A blank name is no name. */
+    private fun gapWidened(): GroupNotice.GapWidened? = payload.optJSONObject("gapWidened")?.let { g ->
+        val meters = g.wholeNumber("gapM")?.takeIf { it >= 0 }?.toInt() ?: return@let null
+        val name = if (!g.has("memberName") || g.isNull("memberName")) null else g.optString("memberName").trim().takeIf { it.isNotEmpty() }
+        GroupNotice.GapWidened(meters, name)
     }
 
     /**
@@ -311,4 +320,10 @@ data class GroupUpdate(
      * row. Null on the first read, null→value, the same value, or a resend; the watch alerts only when this is set.
      */
     val paceChanged: GroupNotice.PaceChanged? = null,
+    /**
+     * GROUP_STATUS.gapWidened (S15P31E105-629): sent only to the group leader while the group stays stretched past the
+     * phone's threshold. [gapWidenedNew] is true only on the update where it crossed; the watch buzzes only then.
+     */
+    val gapWidened: GroupNotice.GapWidened? = null,
+    val gapWidenedNew: Boolean = false,
 )
