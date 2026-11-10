@@ -64,6 +64,7 @@ if BACKEND == "py" and ENGINE == "numba":
     bidirectional_numba = _numba.bidirectional
     ASTAR = _flag("RUNWAY_SP_ASTAR", True)
     astar_numba = _numba.astar
+    astar_length_numba = _numba.astar_length
 else:
     ASTAR = False
 

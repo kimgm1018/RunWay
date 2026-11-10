@@ -41,8 +41,14 @@ returned untouched, so a FAIL-free enforce run is identical to V1 apart from the
 import hashlib
 from pathlib import Path
 
+import numpy as np
+
 from . import usability_gate as UG
 from .data import CONFIG_DIR, ROOT, classify
+from .env_flags import flag as env_flag
+
+# RUNWAY_GATE_FAST_CONTEXT=0: 요청 graph의 Gate context를 usability_gate.build_context(Python 반복)로 만든다(결과 같음).
+FAST_CONTEXT = env_flag("RUNWAY_GATE_FAST_CONTEXT")
 
 HERE = Path(__file__).resolve().parent
 UG_V1 = CONFIG_DIR / "ug-v1.json"
@@ -81,12 +87,51 @@ def build_context(source, edge_triples):
     return UG.build_context(ways, lonlat, edge_triples, classify)
 
 
+class _Incident:
+    """usability_gate.build_context의 incident(node)와 같은 값을 배열로 만든다(S15P31E105-626).
+    원래 코드는 (a, b, w)마다 adj[a].append((b, w)), adj[b].append((a, w))를 한다(a == b는 건너뜀). 그래서 node 하나의
+    목록 순서는 반쪽 간선 (2i: a 쪽, 2i + 1: b 쪽)의 등장 순서다. 반쪽 간선을 node로 안정 정렬하면 같은 순서가 되고,
+    목록은 Gate가 물어본 node만 만든다(같은 list 객체를 다시 돌려준다). 값은 Python int tuple이다."""
+
+    def __init__(self, u, v, w):
+        u, v, w = (np.asarray(x).astype(np.int64, copy=False) for x in (u, v, w))
+        keep = np.repeat(u != v, 2)
+        src = np.empty(2 * len(u), np.int64)
+        dst = np.empty(2 * len(u), np.int64)
+        src[0::2], src[1::2] = u, v
+        dst[0::2], dst[1::2] = v, u
+        src, dst, ww = src[keep], dst[keep], np.repeat(w, 2)[keep]
+        o = np.argsort(src, kind="stable")
+        self._key, self._dst, self._w = src[o], dst[o], ww[o]
+        self._memo = {}
+
+    def __call__(self, n):
+        x = self._memo.get(n)
+        if x is None:
+            try:
+                k = int(n)
+            except (TypeError, ValueError):
+                return []                                  # adj.get(n, []): not a node id
+            if k != n:
+                return []
+            lo, hi = np.searchsorted(self._key, k, "left"), np.searchsorted(self._key, k, "right")
+            x = self._memo[n] = list(zip(self._dst[lo:hi].tolist(), self._w[lo:hi].tolist()))
+        return x
+
+
 def gate_context(cg, source):
-    """build_context over the request graph's all-status edges (cached on the graph object)."""
+    """build_context over the request graph's all-status edges (cached on the graph object).
+    incident는 _Incident(배열)로 만든다. usability_gate.build_context의 adj와 같은 목록·순서다(S15P31E105-626)."""
     ctx = getattr(cg, "_ug_ctx", None)
     if ctx is None:
         e = cg.edges_all
-        ctx = build_context(source, zip(e["osm_u"], e["osm_v"], e["osmid"]))
+        if not FAST_CONTEXT:
+            ctx = build_context(source, zip(e["osm_u"], e["osm_v"], e["osmid"]))
+        else:
+            ways = source.ways if isinstance(source.ways, dict) else _MemoGet(source.ways)
+            lonlat = source.lonlat if isinstance(source.lonlat, dict) else _MemoGet(source.lonlat)
+            inc = _Incident(e["osm_u"].to_numpy(), e["osm_v"].to_numpy(), e["osmid"].to_numpy())
+            ctx = UG.GateContext(way=ways.get, lonlat=lonlat.get, incident=inc, classify=classify)
         cg._ug_ctx = ctx
     return ctx
 

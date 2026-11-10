@@ -248,7 +248,9 @@ class WindowEnvCache:
         self.dtype = np.dtype([('a', '<i8'), ('b', '<i8'), ('w', '<i8')])
         keys = np.empty(len(a), self.dtype)
         keys['a'], keys['b'], keys['w'] = np.minimum(a, b), np.maximum(a, b), n['way_ids'][n['seg_w']]
-        order = np.argsort(keys, kind='stable')
+        # S15P31E105-626: 구조체 배열의 안정 argsort는 필드 (a, b, w) 순 사전식 비교라 lexsort((w, b, a))와 같은
+        # 순서다(둘 다 안정 정렬). lexsort가 5–6배 빠르다(서울 21.1 km 창 약 0.3 s → 0.05 s).
+        order = np.lexsort((keys['w'], keys['b'], keys['a']))
         sorted_keys = keys[order]
         keep = np.r_[True, sorted_keys[1:] != sorted_keys[:-1]] if len(order) else np.empty(0, bool)
         self.keys, self.dist_dm = sorted_keys[keep], window.dist_dm[order[keep]]

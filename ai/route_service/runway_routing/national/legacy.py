@@ -22,3 +22,5 @@ RUNTIME['runway_routing/config/ug-v2.json'] = '7e3d9cfbd13ca15bac2a2aaf5f2527383
 # 621: np.unique → sorted_unique(같은 값·dtype), populate_adapter 벡터화(같은 값). prep 배열은 같다.
 RUNTIME['runway_routing/substrate.py'] = '1a4e87269a9965d8352075e970d482f219641be56c0c12d092e6131c296dfc06'
 RUNTIME['runway_routing/array_graph.py'] = 'a9d8bd869699eb9a16e7f08583296a3b642f3d68d9edce74237a8ac19d577076'
+# 626: _build_routing의 pandas 정렬·pair_to_eid dict를 배열로(같은 redges·같은 조회). prep 배열은 같다.
+RUNTIME['runway_routing/graph.py'] = 'c5093a2a7f1632c7296ca840c23b8d0ba396145948eac690371e368bb5d00812'
