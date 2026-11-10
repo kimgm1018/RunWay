@@ -254,9 +254,12 @@ private fun FeedCell(metric: LiveMetric, modifier: Modifier, warnWhenOff: Boolea
  * from. The handle stays so pausing never needs a detour.
  */
 @Composable
-internal fun RunDetailScreen(snapshot: RunSnapshot, detail: RunDetail, onPause: () -> Unit) {
+internal fun RunDetailScreen(
+    snapshot: RunSnapshot, detail: RunDetail, onClose: () -> Unit = {}, onPause: () -> Unit,
+) {
     val view = RunStatusDisplay.from(snapshot)
-    WatchFace(rim = RunStatusDisplay.rim(view), ticks = if (detail == RunDetail.PACE) view.paceTicks else null,
+    // A tap anywhere but the pause handle goes back to the status page, as back does (S15P31E105-658).
+    WatchFace(modifier = Modifier.clickable(role = Role.Button, onClickLabel = "현황으로 돌아가기", onClick = onClose), rim = RunStatusDisplay.rim(view), ticks = if (detail == RunDetail.PACE) view.paceTicks else null,
         handle = pauseHandle(view, onPause)) {
         when (detail) {
             RunDetail.PACE -> {
