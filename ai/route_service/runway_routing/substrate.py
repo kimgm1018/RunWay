@@ -48,6 +48,7 @@ from shapely.geometry import Point
 from . import network_store
 from . import snap as SNAP
 from .data import RUNNABLE, api, classify
+from .fast_unique import sorted_unique
 from .graph import Sidecar, cache_size_env
 
 busan = api.busan
@@ -189,7 +190,7 @@ class DiskMask:
         sel = np.logical_or.reduceat(inside[sc.ref_pos], sc.ptr[:-1])
         if not sel.any():
             raise InsufficientResponseError("No data elements in server response. Check query location/filters and log.")
-        cand = np.unique(sc.ref_pos[sel[S.way_of_ref]])
+        cand = sorted_unique(sc.ref_pos[sel[S.way_of_ref]])
         self.disk_ll = busan._disk_ll(cx, cy, radius)
         keep = np.zeros(len(S.ids), bool)
         keep[cand[shapely.intersects_xy(self.disk_ll, S.lon[cand], S.lat[cand])]] = True
@@ -198,7 +199,7 @@ class DiskMask:
         segm = sel[S.seg_w] & keep[S.seg_a] & keep[S.seg_b]
         self.S, self.seg = S, np.flatnonzero(segm)
         self.sel, self.keep = sel, keep
-        self.g_nodes = np.unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
+        self.g_nodes = sorted_unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
         run = self.seg[S.runnable[S.seg_w[self.seg]]]
         a, b, ln = S.seg_a[run], S.seg_b[run], S.seg_len[run]
         lo, hi = np.minimum(a, b), np.maximum(a, b)
@@ -208,7 +209,7 @@ class DiskMask:
         pick = order[first]
         self.h_seg = run[pick]
         self.h_lo, self.h_hi, self.h_len = lo[pick], hi[pick], ln[pick]
-        hn = np.unique(np.r_[self.h_lo, self.h_hi])
+        hn = sorted_unique(np.r_[self.h_lo, self.h_hi])
         self.h_nodes = hn                                           # substrate positions
         ia, ib = np.searchsorted(hn, self.h_lo), np.searchsorted(hn, self.h_hi)
         n = len(hn)

@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 import numpy as np
+from ..fast_unique import sorted_unique
 from .fit import window_spec
 
 class OutOfArea(ValueError):
@@ -59,12 +60,12 @@ def select_window(grid, net, cells):
     cp = grid['cell_offsets']
     inner = grid['cell_node_idx'][gather_ranges(cp[p], cp[p+1])]
     nptr = net['node_way_ptr']
-    ways = np.unique(net['node_way_idx'][gather_ranges(nptr[inner], nptr[inner+1])])
+    ways = sorted_unique(net['node_way_idx'][gather_ranges(nptr[inner], nptr[inner+1])])
     if not len(ways):
         raise NoRoad('NO_ROAD_NEARBY: 창에 way가 없음')
     rp, sp = net['ref_ptr'], net['way_seg_ptr']
     refs = gather_ranges(rp[ways], rp[ways+1])
-    nodes = np.unique(net['ref_pos'][refs])
+    nodes = sorted_unique(net['ref_pos'][refs])
     segments = gather_ranges(sp[ways], sp[ways+1])
     return {'ways': ways, 'nodes': nodes, 'refs': refs, 'segments': segments}
 

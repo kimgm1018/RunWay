@@ -19,3 +19,6 @@ RUNTIME = json.loads(r'''{
 }''')
 # 607: app_target_km_range 15→21.1과 문구만 바뀜. prep은 ug-v2에서 PE4/PE5만 읽으므로 B2 prep 배열은 같다.
 RUNTIME['runway_routing/config/ug-v2.json'] = '7e3d9cfbd13ca15bac2a2aaf5f252738373531721deeb8477f9f8c12d15349de'
+# 621: np.unique → sorted_unique(같은 값·dtype), populate_adapter 벡터화(같은 값). prep 배열은 같다.
+RUNTIME['runway_routing/substrate.py'] = '1a4e87269a9965d8352075e970d482f219641be56c0c12d092e6131c296dfc06'
+RUNTIME['runway_routing/array_graph.py'] = 'a9d8bd869699eb9a16e7f08583296a3b642f3d68d9edce74237a8ac19d577076'
