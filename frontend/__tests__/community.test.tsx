@@ -444,6 +444,36 @@ test('7.4b draws my profile photo behind the page and 7.4 falls back to the lett
   expect(texts(screen)).toContain('성');
 });
 
+// S15P31E105-620: a photo that does not load leaves the gradient and the letter, as without one.
+test('7.4b falls back to the letter when my profile photo fails to load', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const changed = repositories.profile.changePhoto({
+    uri: 'file:///photos/broken.jpg',
+    type: 'image/jpeg',
+    name: 'broken.jpg',
+  });
+  await jest.advanceTimersByTimeAsync(10);
+  await changed;
+  const screen = await openCommunity(repositories);
+  await press(screen, 'minjun.run 프로필');
+  await settle(50);
+  // 7.4b's backdrop: the sharp photo and its blurred copy (2.1's avatar has no blur and sits elsewhere).
+  const backdrop = () =>
+    screen.root
+      .findAllByType(Image)
+      .filter(
+        node =>
+          node.props.source?.uri === 'file:///photos/broken.jpg' &&
+          node.props.resizeMode === 'cover',
+      );
+  expect(backdrop()).toHaveLength(2);
+  await act(async () => {
+    backdrop()[0].props.onError?.({ nativeEvent: { error: 'not found' } });
+  });
+  expect(backdrop()).toHaveLength(0);
+  expect(texts(screen)).toContain('m');
+});
+
 test('7.4 of a private runner shows only the name until the request is approved, and takes it back', async () => {
   const screen = await openCommunity();
   // Their posts stay out of the feed, so the profile opens from 7.5 검색.

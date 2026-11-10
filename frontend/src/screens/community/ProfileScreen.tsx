@@ -203,7 +203,7 @@ function Letter({
 // The sharp letter's foot fades out so the info area starts calm, with a dark tint deepening below it.
 function HeroBackdrop({
   initial,
-  photo,
+  photo: address,
   heroHeight,
   scrollY,
 }: {
@@ -214,6 +214,9 @@ function HeroBackdrop({
   scrollY: Animated.Value;
 }) {
   const { width, height } = useWindowDimensions();
+  // A photo that does not load leaves the gradient and the letter, as without one.
+  const [failed, setFailed] = useState<string | null>(null);
+  const photo = address && address !== failed ? address : null;
   // Wider than the screen so the blur does not fade in at the sides.
   const blurWidth = width + 120;
   const blurred = scrollY.interpolate({
@@ -241,6 +244,7 @@ function HeroBackdrop({
             source={{ uri: photo }}
             style={styles.fill}
             resizeMode="cover"
+            onError={() => setFailed(photo)}
             accessibilityIgnoresInvertColors
           />
           {/* A large photo barely softens under blurRadius alone, so on Android filter: blur is added

@@ -148,6 +148,25 @@ test('U21 of a private runner who has not approved me keeps only the name, photo
   });
 });
 
+// S15P31E105-620: U21 gives the F02 path (/api/v1/images/…); the backdrop and avatar need the full address.
+test('U21 turns the server photo path into the full address', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      userId: 303,
+      nickname: '지우',
+      profileImageUrl: '/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
+      profileAccessible: false,
+      followStatus: 'NONE',
+      isFollowing: false,
+    }),
+  );
+
+  await expect(runners.getProfile('303')).resolves.toMatchObject({
+    profileImageUrl:
+      'https://k15e105.p.ssafy.io/api/v1/images/550e8400-e29b-41d4-a716-446655440000',
+  });
+});
+
 const myProfile = {
   userId: 101,
   nickname: '민준',
@@ -372,7 +391,11 @@ test.each(['followers', 'following'] as const)(
       .mockResolvedValueOnce(
         respond(200, {
           items: [
-            { userId: 7, nickname: '지우', profileImageUrl: '/api/v1/images/a' },
+            {
+              userId: 7,
+              nickname: '지우',
+              profileImageUrl: '/api/v1/images/a',
+            },
             { userId: 8, nickname: null, profileImageUrl: null },
           ],
           nextCursor: 'cursor-2',
@@ -389,17 +412,21 @@ test.each(['followers', 'following'] as const)(
 
     await expect(runners.listFollows('202', kind, null)).resolves.toEqual({
       items: [
-        { userId: '7', nickname: '지우', profileImageUrl: '/api/v1/images/a' },
+        {
+          userId: '7',
+          nickname: '지우',
+          profileImageUrl: 'https://k15e105.p.ssafy.io/api/v1/images/a',
+        },
         { userId: '8', nickname: '러너', profileImageUrl: null },
       ],
       nextCursor: 'cursor-2',
     });
-    await expect(
-      runners.listFollows('202', kind, 'cursor-2'),
-    ).resolves.toEqual({
-      items: [{ userId: '9', nickname: '수아', profileImageUrl: null }],
-      nextCursor: null,
-    });
+    await expect(runners.listFollows('202', kind, 'cursor-2')).resolves.toEqual(
+      {
+        items: [{ userId: '9', nickname: '수아', profileImageUrl: null }],
+        nextCursor: null,
+      },
+    );
     // 20 is the only page size U26 · U27 take, so no limit is sent.
     expect(calls()).toEqual([
       `GET /users/202/${kind}`,
