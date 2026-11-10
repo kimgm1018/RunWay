@@ -186,6 +186,7 @@
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
 | `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
+| `course_basemaps` | 코스 썸네일 PNG(서버가 OSM 지도와 코스 선을 그림)의 이미지 볼륨 키와 OSM 자료 시점·그리기 버전. 코스당 1행 |
 | `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태·가입 방식(`join_policy` APPROVAL/INSTANT, 기본 APPROVAL) |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
@@ -223,6 +224,22 @@
 - 생성 코스 저장 커밋 후 백엔드가 AI05를 호출해 한 번 저장한다(`INSERT ... ON CONFLICT DO NOTHING`). 세션 생성·목표 변경은 잠금 안에서 이 행만 읽는다. 비율의 개수·양수 검사는 서비스가, 배열 형식·개수 상한은 DB가 확인한다.
 - 비율은 사용자와 무관한 지형 값이다. 개인 비율(AI09)은 저장하지 않는다(S15P31E105-442 범위).
 - 기준 SQL·Flyway V15를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 계산·사용 규칙은 [sessions.md 초기 계획](../api/sessions.md)과 [ai-service.md 백엔드 호출 순서](../api/ai-service.md#백엔드-호출-순서)를 따른다.
+
+#### course_basemaps — 코스 썸네일 PNG (S15P31E105-612, 2026-11-10)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 행 ID |
+| course_id | BIGINT NOT NULL UNIQUE, FK courses.id ON DELETE CASCADE | 코스. 코스당 1행 |
+| image_key | VARCHAR(1024) NULL | 썸네일 PNG의 이미지 볼륨 키(`images/course-basemap/{course_id}/{uuid}.png`). 전국 자료 범위 밖이면 NULL(재시도 안 함) |
+| osm_data_timestamp | TIMESTAMPTZ NULL | 도로·면 전국 OSM 자료 시점 |
+| buildings_osm_data_timestamp | TIMESTAMPTZ NULL | 건물 자료 OSM 시점. 건물 자료가 없으면 NULL |
+| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v1`). 다르면 기동 시 일괄 채우기가 다시 그린다 |
+| created_at / updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장·수정 시각(`set_updated_at()` 트리거) |
+
+- 코스 저장 커밋 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 Route 상세 모드로 지형지물·건물을 받아 600×900 PNG를 그리고 이미지 볼륨([ADR-0016](../../adr/0016-image-volume-storage.md))에 저장한다. Route 실패·그리기·저장 실패는 행을 만들지 않는다.
+- C03 `basemap.imageUrl`은 이 키의 이미지 ID로 만든 `/api/v1/images/{id}`이며, 이미지 조회는 이 테이블이 참조하는 키만 허용한다. 결정 근거는 [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md).
+- 기준 SQL·Flyway V32를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 ### 지역·커뮤니티·알림
 
@@ -337,6 +354,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |
 | course_segment_difficulties | course_id |
+| course_basemaps | course_id |
 | post_likes | post_id, user_id |
 | comment_likes | comment_id, user_id |
 | post_bookmarks | post_id, user_id |

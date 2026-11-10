@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { RouteName } from '../../navigation/routes';
+import { DataLicenseScreen } from './DataLicenseScreen';
 import { LocationSettingScreen } from './LocationSettingScreen';
 import { ProfileEditScreen } from './ProfileEditScreen';
 import { RunningBaselineEditScreen } from './RunningBaselineEditScreen';
@@ -10,11 +11,12 @@ import {
   WithdrawScreen,
 } from './WithdrawScreens';
 
-// 8.x 설정 · 계정 (runway-settings): all on the mist, 8.1b 위치 기록 split from 8.1.
+// 8.x 설정 · 계정 (runway-settings): all on the mist, 8.1b 위치 기록 split from 8.1, 8.1c 데이터 라이선스.
 export const settingsScreens: Partial<Record<RouteName, React.ComponentType>> =
   {
     Settings: SettingsScreen,
     LocationSetting: LocationSettingScreen,
+    DataLicense: DataLicenseScreen,
     ProfileEdit: ProfileEditScreen,
     RunningBaselineEdit: RunningBaselineEditScreen,
     Withdraw: WithdrawScreen,

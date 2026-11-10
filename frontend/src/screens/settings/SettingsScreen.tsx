@@ -365,6 +365,20 @@ export function SettingsScreen() {
     </View>
   );
   const onOff = (on: boolean) => (on ? '켜기' : '끄기');
+  // S15P31E105-612: the map data notices need none of the settings either, so they show on a failed read too.
+  const about = (
+    <>
+      <Band>정보</Band>
+      <Tiles>
+        <Tile
+          icon="note"
+          name="데이터 라이선스"
+          state="지도 데이터"
+          onPress={() => navigateTo(navigation, 'DataLicense')}
+        />
+      </Tiles>
+    </>
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -388,6 +402,7 @@ export function SettingsScreen() {
             actionLabel="다시 시도"
             onAction={reload}
           />
+          {about}
           {accountLinks}
         </ScrollView>
       ) : !settings || !watch ? (
@@ -573,6 +588,7 @@ export function SettingsScreen() {
             </>
           ) : null}
 
+          {about}
           {accountLinks}
         </ScrollView>
       )}

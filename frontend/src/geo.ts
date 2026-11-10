@@ -57,8 +57,13 @@ export function walkAlong(route: LngLat[], walkedM: number): LngLat[] {
   return path;
 }
 
-// Fits a route into the 0–1 box the list thumbnails draw (north up, the longer side 0.1–0.9).
-export function shapeOfRoute(route: LngLat[]): [number, number][] {
+// How a route is fitted into the 0–1 box the list thumbnails draw (north up, the longer side 0.1–0.9, y grows
+// downward, the course's box centred at 0.5, 0.5 so the shorter side sits in the middle), as a function any other
+// [longitude, latitude] point can go through too. The course card's map image (S15P31E105-612) is rendered round
+// the same centre, so the outline and the image's course meet. Points off the route may fall outside 0–1.
+export function routeProjector(
+  route: LngLat[],
+): (point: LngLat) => [number, number] {
   const xs = route.map(point => point[0]);
   const ys = route.map(point => point[1]);
   const [minX, maxX, minY, maxY] = [
@@ -68,8 +73,17 @@ export function shapeOfRoute(route: LngLat[]): [number, number][] {
     Math.max(...ys),
   ];
   const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  return route.map(([x, y]) => [
-    0.1 + ((x - minX) / span) * 0.8,
-    0.9 - ((y - minY) / span) * 0.8,
-  ]);
+  // The shorter side is moved in by half of what it lacks; the longer side gets 0 and keeps exactly 0.1–0.9.
+  const padX = ((span - (maxX - minX)) / span) * 0.4;
+  const padY = ((span - (maxY - minY)) / span) * 0.4;
+  return ([x, y]) => [
+    0.1 + padX + ((x - minX) / span) * 0.8,
+    0.9 - padY - ((y - minY) / span) * 0.8,
+  ];
+}
+
+// Fits a route into the 0–1 box the list thumbnails draw (north up, the longer side 0.1–0.9, centred).
+export function shapeOfRoute(route: LngLat[]): [number, number][] {
+  const project = routeProjector(route);
+  return route.map(point => project(point));
 }

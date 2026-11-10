@@ -12,7 +12,8 @@ import {
 import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
-import { FeedPage } from '../src/screens/community/FeedPage';
+import { RunMap } from '../src/components/RunMap';
+import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { Avatar } from '../src/screens/community/parts';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
@@ -167,8 +168,15 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       })),
     };
   };
-  // Every run tile gets its map (S15P31E105-562); with no shape, one still waiting for its points draws no
-  // made-up outline.
+  // The runs have no points to ask for either (S15P31E105-612: points that do come are drawn as the real outline,
+  // where S15P31E105-562 showed a Naver map instead).
+  repositories.community.getRoute = async () => null;
+  const getDetail = repositories.records.getDetail;
+  repositories.records.getDetail = async recordId => ({
+    ...(await getDetail(recordId)),
+    route: null,
+  });
+  // Every run tile gets its card (S15P31E105-562); with no shape and no points it draws no made-up outline.
   const outlines = () => {
     expect(screen.root.findAllByType(CourseMapThumb).length).toBeGreaterThan(0);
     return screen.root
@@ -205,8 +213,9 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
   for (const label of ['거리', '시간', '평균 페이스']) {
     expect(words).toContain(label);
   }
-  // The page on screen shows its shared course on the real map (S15P31E105-521); the pages around it keep the
-  // drawn map with 예시 경로, so the feed holds one native map.
+  // The page on screen shows its shared course on the real map (S15P31E105-521), and the pages just above and
+  // below draw theirs ahead (사용자 요청: 지도를 더 빨리). Pages further off wait on the map's light ground with no
+  // dark drawn map or 예시 경로, so the feed holds at most three native maps.
   const mapsOf = (page: TestRenderer.ReactTestInstance) =>
     page.findAll(
       node =>
@@ -215,17 +224,33 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
   expect(first.props.post.courseShared).toBe(true);
   expect(mapsOf(first)).toBe(1);
   expect(words).not.toContain('예시 경로');
+  // The page below waits for the first map to be up, then draws its own.
+  expect(mapsOf(pages[1])).toBe(0);
+  const [firstMap] = first.findAllByType(RunMap);
+  await act(async () => firstMap.props.onShown());
+  await settle(50);
+  if (pages[1].props.post.courseShared) {
+    expect(mapsOf(pages[1])).toBe(1);
+  }
   const next = pages.find(
-    (page, index) => index > 0 && page.props.post.courseShared,
+    (page, index) => index > 1 && page.props.post.courseShared,
   );
   if (next) {
     expect(mapsOf(next)).toBe(0);
+    expect(
+      next.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'feed-map-loading',
+      ),
+    ).toHaveLength(1);
+    expect(next.findAllByType(MapBackdrop)).toHaveLength(0);
     expect(
       next
         .findAllByType(Text)
         .flatMap(node => [node.props.children].flat())
         .join(' '),
-    ).toContain('예시 경로');
+    ).not.toContain('예시 경로');
   }
   for (const action of ['댓글', '공유']) {
     expect(
@@ -245,6 +270,112 @@ test('7.1 shows each post as a full-screen page with its numbers, and the route 
       .join(' ');
     expect(hiddenWords).not.toContain('예시 경로');
   }
+});
+
+// 사용자 요청: the map's light ground covers a new map until it says its first view is set, then fades, so the
+// course does not jump into place on screen.
+test('7.1 uncovers the real map once its first view is in place', async () => {
+  const screen = await openCommunity();
+  await settle(50);
+  const [first] = screen.root.findAllByType(FeedPage);
+  const covers = () =>
+    first.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'feed-map-cover',
+    );
+  expect(covers()).toHaveLength(1);
+  const [map] = first.findAllByType(RunMap);
+  await act(async () => map.props.onShown());
+  await settle(400);
+  expect(covers()).toHaveLength(0);
+});
+
+// 사용자 요청 (7.2 지도를 바로): 7.2 draws the course 7.1 already read while the post itself is still on its way,
+// under the light cover until the map's first view is in place.
+test('7.2 draws the shared course before the post has been read', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.community.get = () => new Promise(() => undefined);
+  const screen = await openCommunity(repositories);
+  await settle(50);
+  const [feedMap] = screen.root
+    .findAllByType(FeedPage)[0]
+    .findAllByType(RunMap);
+  const feedRoute = feedMap.props.route;
+  expect(feedRoute.length).toBeGreaterThan(1);
+  await openFirstPost(screen);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const [drawn] = detail.findAllByType(RunMap);
+  expect(drawn.props.route).toEqual(feedRoute);
+  expect(
+    detail.findAll(
+      node =>
+        typeof node.type === 'string' && node.props.testID === 'post-map-cover',
+    ),
+  ).toHaveLength(1);
+});
+
+// 사용자 요청 (지도를 더 빨리): the page below the one on screen asks for its shared course ahead.
+test('7.1 asks for the next shared course before it is swiped to', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const listFeed = repositories.community.listFeed;
+  repositories.community.listFeed = async (scope, cursor) => {
+    const page = await listFeed(scope, cursor);
+    return {
+      ...page,
+      items: page.items.map(post => ({
+        ...post,
+        courseShared: true,
+        record: { ...post.record, route: null },
+      })),
+    };
+  };
+  const asked: string[] = [];
+  const getRoute = repositories.community.getRoute;
+  repositories.community.getRoute = async postId => {
+    asked.push(postId);
+    return getRoute(postId);
+  };
+  const screen = await openCommunity(repositories);
+  await settle(50);
+  const pages = screen.root.findAllByType(FeedPage);
+  expect(pages.length).toBeGreaterThan(1);
+  expect(asked).toContain(pages[0].props.post.id);
+  expect(asked).toContain(pages[1].props.post.id);
+});
+
+// 사용자 요청: a shared course whose points cannot be read leaves the light ground for the drawn map with 예시 경로.
+test('7.1 falls back to the drawn map when the shared course cannot be read', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const listFeed = repositories.community.listFeed;
+  repositories.community.listFeed = async (scope, cursor) => {
+    const page = await listFeed(scope, cursor);
+    return {
+      ...page,
+      items: page.items.map(post => ({
+        ...post,
+        record: { ...post.record, route: null },
+      })),
+    };
+  };
+  repositories.community.getRoute = async () => null;
+  const screen = await openCommunity(repositories);
+  await settle(50);
+  const [first] = screen.root.findAllByType(FeedPage);
+  expect(first.props.post.courseShared).toBe(true);
+  expect(
+    first.findAll(
+      node =>
+        typeof node.type === 'string' &&
+        node.props.testID === 'feed-map-loading',
+    ),
+  ).toHaveLength(0);
+  expect(first.findAllByType(MapBackdrop)).toHaveLength(1);
+  expect(
+    first
+      .findAllByType(Text)
+      .flatMap(node => [node.props.children].flat())
+      .join(' '),
+  ).toContain('예시 경로');
 });
 
 // 7.2 (S15P31E105-561, 담당자 레퍼런스): the map behind a white sheet with the numbers, the run, 좋아요, the 댓글
@@ -925,6 +1056,87 @@ test('a request answered elsewhere leaves the sheet with a note, and a failed li
   expect(page).toContain('이미 처리됐거나 취소된 요청이에요');
   expect(page).not.toContain('dohyun_r 승인');
   expect(page).toContain('jiwoo.runs');
+});
+
+// S15P31E105-612: a shared run's tile asks its post for the course with its map image and shows it with
+// © OpenStreetMap and no outline over it; no tile holds a Naver map.
+test('7.4 run tiles show a shared course on its map image', async () => {
+  // The mock's bundled image has no address under Jest, so the shared courses get a server one.
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getRoute = repositories.community.getRoute;
+  repositories.community.getRoute = async postId => {
+    const map = await getRoute(postId);
+    return map
+      ? {
+          ...map,
+          basemap: {
+            imageUrl: 'https://k15e105.p.ssafy.io/api/v1/courses/1/basemap.png',
+            osmDataTimestamp: null,
+          },
+        }
+      : null;
+  };
+  const screen = await openCommunity(repositories);
+  await press(screen, 'seoyun.run 프로필');
+  await settle(50);
+  const tiles = screen.root
+    .findAllByType(CourseMapThumb)
+    .filter(tile => typeof tile.props.load === 'function');
+  expect(tiles.length).toBeGreaterThan(0);
+  // The mock answers on a timer, which only settle() moves on.
+  const pending = tiles[0].props.load();
+  await settle(50);
+  const answer = await pending;
+  expect(answer?.route.length).toBeGreaterThan(1);
+  expect(answer?.basemap?.imageUrl).toBe(
+    'https://k15e105.p.ssafy.io/api/v1/courses/1/basemap.png',
+  );
+  for (const tile of tiles) {
+    const [thumb] = tile.findAll(
+      node =>
+        node.props.testID === 'course-thumb' &&
+        typeof node.props.onLayout === 'function',
+    );
+    await act(async () =>
+      thumb.props.onLayout({
+        nativeEvent: { layout: { x: 0, y: 0, width: 170, height: 200 } },
+      }),
+    );
+  }
+  await settle(50);
+  const drawn = tiles.filter(
+    tile =>
+      tile.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'course-basemap',
+      ).length > 0,
+  );
+  expect(drawn.length).toBeGreaterThan(0);
+  for (const tile of drawn) {
+    // The outline keeps the course on the tile until its image has loaded, then gives way.
+    expect(tile.findAllByType(CourseGlyph)).toHaveLength(1);
+    const [image] = tile.findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        node.props.testID === 'course-basemap' &&
+        typeof node.props.onLoad === 'function',
+    );
+    await act(async () => image.props.onLoad({ nativeEvent: {} }));
+    expect(tile.findAllByType(CourseGlyph)).toHaveLength(0);
+    expect(
+      tile.findAll(
+        node =>
+          typeof node.type === 'string' &&
+          node.props.testID === 'course-basemap-attribution',
+      ),
+    ).toHaveLength(1);
+  }
+  for (const tile of tiles) {
+    expect(
+      tile.findAll(node => node.props.testID === 'naver-map'),
+    ).toHaveLength(0);
+  }
 });
 
 test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run on 러닝 분석', async () => {

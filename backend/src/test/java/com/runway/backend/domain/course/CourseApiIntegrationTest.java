@@ -52,7 +52,10 @@ class CourseApiIntegrationTest {
         registry.add("spring.datasource.password", DATABASE::getPassword);
         // C01은 개발용 스텁 모드로 확인한다. Route HTTP 흐름은 CourseRecommendIntegrationTest가 맡는다.
         registry.add("runway.course.route.mode", () -> "stub");
+        registry.add("runway.images.volume-path", () -> IMAGE_VOLUME.toString());
     }
+
+    @org.junit.jupiter.api.io.TempDir static java.nio.file.Path IMAGE_VOLUME;
 
     /** C01 생성기 호출 시점의 트랜잭션 여부를 기록한다(AC-10). 결과는 스텁 그대로다. */
     @TestConfiguration
@@ -139,6 +142,104 @@ class CourseApiIntegrationTest {
                                 .header("Authorization", SecurityTestSupport.bearer(userId)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("COURSE_NOT_FOUND"));
+    }
+
+    @Test
+    void C03_바탕지도가_없으면_basemap은_null() throws Exception {
+        MvcResult result =
+                mockMvc.perform(
+                                get("/api/v1/courses/{courseId}", activeCourseId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(userId)))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        // 필드는 빠지지 않고 null로 온다.
+        tools.jackson.databind.JsonNode body =
+                tools.jackson.databind.json.JsonMapper.builder()
+                        .build()
+                        .readTree(result.getResponse().getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(body.has("basemap")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(body.get("basemap").isNull()).isTrue();
+    }
+
+    @Test
+    void C03_썸네일이_있으면_이미지_URL과_기준시각을_돌려주고_이미지가_없는_행은_null() throws Exception {
+        String imageId = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
+        jdbc.update(
+                """
+                INSERT INTO course_basemaps(course_id, image_key, osm_data_timestamp, render_version)
+                VALUES (?, ?, '2026-10-20T00:00:00Z'::timestamptz, 'flat-v1')
+                """,
+                activeCourseId,
+                "images/course-basemap/" + activeCourseId + "/" + imageId + ".png");
+        // 범위 밖(OUT_OF_AREA)으로 저장된 행은 이미지가 없다.
+        jdbc.update(
+                "INSERT INTO course_basemaps(course_id, image_key, render_version) VALUES (?, NULL, 'flat-v1')",
+                mergedCourseId);
+
+        mockMvc.perform(
+                        get("/api/v1/courses/{courseId}", activeCourseId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.basemap.imageUrl").value("/api/v1/images/" + imageId))
+                .andExpect(jsonPath("$.basemap.osmDataTimestamp").value("2026-10-20T00:00:00Z"))
+                .andExpect(jsonPath("$.basemap.features").doesNotExist());
+
+        MvcResult result =
+                mockMvc.perform(
+                                get("/api/v1/courses/{courseId}", mergedCourseId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(userId)))
+                        .andExpect(status().isOk())
+                        .andReturn();
+        tools.jackson.databind.JsonNode body =
+                tools.jackson.databind.json.JsonMapper.builder()
+                        .build()
+                        .readTree(result.getResponse().getContentAsString());
+        org.assertj.core.api.Assertions.assertThat(body.has("basemap")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(body.get("basemap").isNull()).isTrue();
+    }
+
+    @Test
+    void C03_썸네일_imageUrl은_F02로_PNG를_받고_참조되지_않은_키는_404() throws Exception {
+        String imageId = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
+        String imageKey = "images/course-basemap/" + activeCourseId + "/" + imageId + ".png";
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3};
+        java.nio.file.Path file = IMAGE_VOLUME.resolve(imageKey);
+        java.nio.file.Files.createDirectories(file.getParent());
+        java.nio.file.Files.write(file, png);
+
+        // 행이 참조하기 전에는 파일이 있어도 내주지 않는다.
+        mockMvc.perform(get("/api/v1/images/{imageId}", imageId))
+                .andExpect(status().isNotFound());
+
+        jdbc.update(
+                "INSERT INTO course_basemaps(course_id, image_key, render_version) VALUES (?, ?, 'flat-v1')",
+                activeCourseId,
+                imageKey);
+
+        // 다른 이미지와 같이 토큰 없이도 조회된다(F02).
+        mockMvc.perform(get("/api/v1/images/{imageId}", imageId))
+                .andExpect(status().isOk())
+                .andExpect(
+                        org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                                .string("Content-Type", "image/png"))
+                .andExpect(
+                        org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                                .bytes(png))
+                // 키가 그릴 때마다 새 UUID라 내용이 바뀌지 않으므로 오래 캐시한다(B-4).
+                .andExpect(
+                        org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                                .string("Cache-Control", "public, max-age=31536000, immutable"));
+        mockMvc.perform(
+                        get("/api/v1/images/{imageId}", imageId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(
+                        org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                                .string("Cache-Control", "public, max-age=31536000, immutable"));
     }
 
     @Test

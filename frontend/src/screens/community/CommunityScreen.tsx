@@ -21,6 +21,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
 import { FeedPage, feedLook } from './FeedPage';
+import { takePrefetchedFeed } from './feedPrefetch';
 import { PostMenu } from './parts';
 import { usePostPages } from './usePostPages';
 
@@ -50,7 +51,14 @@ export function CommunityScreen() {
   // A new scope starts again from its first page.
   const feed = usePostPages(
     useCallback(
-      (cursor: string | null) => community.listFeed(scope, cursor),
+      (cursor: string | null) => {
+        // The first 전체 page may have been read ahead from another tab; if that read failed, read it again.
+        const ahead =
+          cursor === null && scope === 'ALL' ? takePrefetchedFeed() : null;
+        return ahead
+          ? ahead.catch(() => community.listFeed(scope, cursor))
+          : community.listFeed(scope, cursor);
+      },
       [community, scope],
     ),
   );
@@ -97,6 +105,15 @@ export function CommunityScreen() {
     [update],
   );
   const focused = useIsFocused();
+  // The pages around the one on screen draw their maps only after its map is up, so on entering 커뮤니티 the first
+  // map does not share the phone with two more (사용자 요청: 첫 진입을 빠르게). Leaving the feed starts it over.
+  const [firstMapUp, setFirstMapUp] = useState(false);
+  useEffect(() => {
+    if (!focused) {
+      setFirstMapUp(false);
+    }
+  }, [focused]);
+  const markFirstMapUp = useCallback(() => setFirstMapUp(true), []);
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
 
@@ -159,6 +176,9 @@ export function CommunityScreen() {
           // A few pages either side, so a quick swipe never lands on an empty page.
           windowSize={5}
           initialNumToRender={4}
+          // Android detaches the pages off screen by default, and a detached native map does not start; the pages
+          // around the one on screen keep theirs attached so their maps are drawn before a swipe brings them in.
+          removeClippedSubviews={false}
           getItemLayout={(_, index) => ({
             length: pageSize.height,
             offset: pageSize.height * index,
@@ -211,6 +231,10 @@ export function CommunityScreen() {
               onMenu={() => setMenuFor(item)}
               onComments={() => setCommentsFor(item)}
               active={focused && index === shownPage}
+              nearby={
+                focused && firstMapUp && Math.abs(index - shownPage) === 1
+              }
+              onMapShown={markFirstMapUp}
             />
           )}
         />

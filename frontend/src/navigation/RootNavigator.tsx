@@ -16,6 +16,8 @@ import { onboardingScreens, SignUpDraftProvider } from '../screens/onboarding';
 import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { communityScreens, MyProfileTabScreen } from '../screens/community';
+import { prefetchFeed } from '../screens/community/feedPrefetch';
+import { useRepositories } from '../data';
 import { settingsScreens } from '../screens/settings';
 import {
   groupScreens,
@@ -152,6 +154,11 @@ function renderTabBar(props: React.ComponentProps<typeof PillTabBar>) {
 
 function MainTabs() {
   useResumeRun();
+  // 커뮤니티's first page and its first courses are read ahead, so entering it draws at once.
+  const { community } = useRepositories();
+  React.useEffect(() => {
+    prefetchFeed(community);
+  }, [community]);
   return (
     <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
       {/* The tab bar draws the tabs in this order: 홈·커뮤니티·러닝·그룹·프로필 (S15P31E105-522). */}

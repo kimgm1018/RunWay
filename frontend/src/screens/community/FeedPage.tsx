@@ -1,5 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Share, StyleSheet, View } from 'react-native';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Animated, Pressable, Share, StyleSheet, View } from 'react-native';
 import Svg, {
   Circle,
   Defs,
@@ -40,6 +46,9 @@ export const feedLook = {
   park: '#1B2621',
   water: '#18212D',
   // 코스 선 (담당자 지정): #4DFFD2, RGB 77·255·210.
+  // A shared course's page until its real map is drawn: the light ground the map loads on, so no dark drawn map
+  // flashes first (사용자 요청).
+  mapLoading: '#F3F5F6',
   route: '#4DFFD2',
   white: '#FFFFFF',
   sub: 'rgba(255,255,255,0.68)',
@@ -56,6 +65,48 @@ function seeded(seed: string) {
     value = (value * 16807) % 2147483647;
     return value / 2147483647;
   };
+}
+
+// The map's light ground over a new native map until its first view is set and still, then a short fade, so the
+// course never jumps into place on screen (사용자 요청). If the map never says so, it is uncovered after a while.
+// 7.1 and 7.2 use it; `uncover` goes to RunMap's onShown.
+export function useMapCover(hasMap: boolean, testID: string) {
+  const cover = useRef(new Animated.Value(1)).current;
+  const [covered, setCovered] = useState(true);
+  // Once faded the cover is gone, so it costs nothing over the map.
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    if (!hasMap) {
+      cover.setValue(1);
+      setCovered(true);
+      setGone(false);
+      return;
+    }
+    const late = setTimeout(() => setCovered(false), 2000);
+    return () => clearTimeout(late);
+  }, [hasMap, cover]);
+  useEffect(() => {
+    if (!covered) {
+      Animated.timing(cover, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setGone(true);
+        }
+      });
+    }
+  }, [covered, cover]);
+  const uncover = useCallback(() => setCovered(false), []);
+  const coverView = gone ? null : (
+    <Animated.View
+      testID={testID}
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, styles.mapLoading, { opacity: cover }]}
+    />
+  );
+  return { covered, uncover, coverView };
 }
 
 // A dark street map drawn from the seed: a turned grid of streets, a few wide roads, a park and a river. The posts
@@ -364,6 +415,8 @@ export function FeedPage({
   onMenu,
   onComments,
   active = false,
+  nearby = false,
+  onMapShown,
 }: {
   post: Post;
   width: number;
@@ -375,18 +428,25 @@ export function FeedPage({
   onMenu: () => void;
   // 댓글 and 댓글 N개 모두 보기 open the 댓글 sheet over the feed (담당자 요청).
   onComments: () => void;
-  // The page on screen. Only it draws the real map, so the feed never holds more than one native map.
+  // The page on screen.
   active?: boolean;
+  // The pages just above and below it (사용자 요청: 지도를 더 빨리). They read their course and draw the real map
+  // ahead, off screen, so a swipe lands on a map already drawn. The feed holds at most three native maps.
+  nearby?: boolean;
+  // The page on screen has its real map uncovered (or has none to draw), so the feed can start the pages around it.
+  onMapShown?: () => void;
 }) {
   const navigation = useNavigation();
   const { clock, community } = useRepositories();
   const { like, bookmark } = usePostChanges(onChange);
   const record = post.record;
   // The shared course on the real map, leaning back with the buildings standing (S15P31E105-521, 담당자 요청). The
-  // list carries no points, so the page on screen asks for them; until they come, and for a post without a
-  // course, the drawn map stays.
+  // list carries no points, so the page on screen asks for them; until they come the page is the map's light
+  // ground. The drawn map stays for a post without a course, and for a course whose points could not be read.
   const [route, setRoute] = useState<LngLat[] | null>(record.route);
-  const wantsRoute = active && post.courseShared && !route;
+  const [routeMissing, setRouteMissing] = useState(false);
+  const mapOn = active || nearby;
+  const wantsRoute = mapOn && post.courseShared && !route;
   useEffect(() => {
     if (!wantsRoute) {
       return;
@@ -394,20 +454,42 @@ export function FeedPage({
     let live = true;
     community
       .getRoute(post.id)
-      .then(points => {
+      .then(map => {
         if (live) {
-          setRoute(points);
+          setRoute(map?.route ?? null);
+          setRouteMissing(!map || map.route.length < 2);
         }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (live) {
+          setRouteMissing(true);
+        }
+      });
     return () => {
       live = false;
     };
   }, [wantsRoute, community, post.id]);
   const realMap =
-    active && post.courseShared && route !== null && route.length >= 2
+    mapOn && post.courseShared && route !== null && route.length >= 2
       ? route
       : null;
+  const hasMap = realMap !== null;
+  const { covered, uncover, coverView } = useMapCover(hasMap, 'feed-map-cover');
+  // The page on screen says when its map is up, or at once when it draws none, so the maps around it wait their
+  // turn (사용자 요청: 커뮤니티 첫 진입을 빠르게).
+  const mapUp = hasMap && !covered;
+  const noMapToDraw = !post.courseShared || routeMissing;
+  useEffect(() => {
+    if (active && (mapUp || noMapToDraw)) {
+      onMapShown?.();
+    }
+  }, [active, mapUp, noMapToDraw, onMapShown]);
+  // A shared course whose real map is still to come (or the page is not on screen yet).
+  const mapPending =
+    !realMap &&
+    post.courseShared &&
+    !routeMissing &&
+    (route === null || route.length >= 2);
   const openAuthor = () =>
     post.isMine
       ? navigateTo(navigation, 'MyProfile')
@@ -437,8 +519,15 @@ export function FeedPage({
             // The course between the author row and the run's words; the NAVER logo sits just over the words.
             area={{ top: (top + 80) / height, bottom: 0.6 }}
             style={[StyleSheet.absoluteFill, styles.mapGround]}
+            onShown={uncover}
           />
+          {coverView}
         </View>
+      ) : mapPending ? (
+        <View
+          testID="feed-map-loading"
+          style={[StyleSheet.absoluteFill, styles.mapLoading]}
+        />
       ) : (
         <>
           <MapBackdrop seed={post.id} width={width} height={height} />
@@ -447,7 +536,11 @@ export function FeedPage({
           ) : null}
         </>
       )}
-      <Shade width={width} height={height} strong={realMap !== null} />
+      <Shade
+        width={width}
+        height={height}
+        strong={realMap !== null || mapPending}
+      />
       {/* The page itself opens 7.2 (담당자 요청); the buttons over it keep their own actions. */}
       <Pressable
         accessibilityRole="button"
@@ -492,7 +585,7 @@ export function FeedPage({
           </Pressable>
         ) : null}
       </View>
-      {post.courseShared && !realMap ? (
+      {post.courseShared && !realMap && !mapPending ? (
         // The drawn map is only the route's shape, so the page says so (기존 화면과 같음). The real map is the place.
         <AppText style={[styles.example, { top: top + 56 }]}>예시 경로</AppText>
       ) : null}
@@ -568,7 +661,8 @@ export function FeedPage({
 const styles = StyleSheet.create({
   page: { overflow: 'hidden', backgroundColor: feedLook.ground },
   // Dark until the map's tiles draw, like the page under it.
-  mapGround: { backgroundColor: feedLook.ground },
+  mapGround: { backgroundColor: feedLook.mapLoading },
+  mapLoading: { backgroundColor: feedLook.mapLoading },
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
   authorRow: {

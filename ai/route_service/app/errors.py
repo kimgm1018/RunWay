@@ -11,6 +11,11 @@
 from fastapi.responses import JSONResponse
 
 REROLL_NO_ROUTE_MESSAGE = "이 조건으로 더 보여 드릴 다른 코스가 없어요."
+# basemap(S15P31E105-612) 문구. code는 기존 OUT_OF_AREA / UNAVAILABLE을 쓴다.
+BASEMAP_OUT_OF_AREA_MESSAGE = "요청한 지도 범위가 전국 지도 자료 범위 밖이에요."
+BASEMAP_UNSUPPORTED_MESSAGE = "이 Route 서비스 설정(부산 모드)에서는 지도 바탕 자료를 제공하지 않아요."
+BASEMAP_BUSY_MESSAGE = "다른 지도 바탕 자료를 만드는 중이에요. 잠시 후 다시 시도해 주세요."
+BASEMAP_INTERNAL_MESSAGE = "지도 바탕 자료를 만드는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
 
 NO_ROAD_MESSAGE = "고른 위치 주변에 달릴 수 있는 길이 없어요 (바다나 산속일 수 있어요). 길 가까이를 눌러 주세요."
 END_SNAP_MESSAGE = "도착 위치 근처에서 안전하게 달릴 수 있는 길을 찾지 못했어요. 도착 위치를 길 가까이로 옮겨 주세요."

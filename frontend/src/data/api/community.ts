@@ -1,5 +1,6 @@
 import type {
   CommentLike,
+  CourseMapData,
   Post,
   PostAuthor,
   PostComment,
@@ -8,6 +9,7 @@ import type {
   PostRecord,
   Repositories,
 } from '../types';
+import { basemapOf } from './basemap';
 import { apiRequest } from './http';
 import { imageAddress } from './images';
 import { listItems } from './listItems';
@@ -59,8 +61,12 @@ type PostListResponse = {
 // The app reads 20 a page (S15P31E105-647 D-3).
 export const postPageSize = 20;
 
-// C03, only the route (GeoJSON [longitude, latitude]).
-type CourseRouteResponse = { route: { coordinates: [number, number][] } };
+// C03, only the route (GeoJSON [longitude, latitude]) and its map thumbnail (S15P31E105-612, missing on an older
+// server).
+type CourseRouteResponse = {
+  route: { coordinates: [number, number][] };
+  basemap?: unknown;
+};
 
 // A course's points for 7.2, 7.3 and 7.3e; a course that cannot be read leaves the page without them.
 const readCourseRoute = (courseId: number | string) =>
@@ -177,8 +183,8 @@ export function createCommunityApi({
   // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
   // post does not ask again.
   const courseIds = new Map<string, number | null>();
-  const routes = new Map<string, Promise<[number, number][] | null>>();
-  const readRoute = async (postId: string) => {
+  const routes = new Map<string, Promise<CourseMapData | null>>();
+  const readRoute = async (postId: string): Promise<CourseMapData | null> => {
     const courseId = courseIds.has(postId)
       ? courseIds.get(postId)
       : sharedCourseOf(await apiRequest<PostResponse>(`/posts/${postId}`));
@@ -188,7 +194,10 @@ export function createCommunityApi({
     const course = await apiRequest<CourseRouteResponse>(
       `/courses/${courseId}`,
     );
-    return course.route.coordinates;
+    return {
+      route: course.route.coordinates,
+      basemap: basemapOf(course.basemap),
+    };
   };
 
   const toPost = (response: PostResponse): Post => {
@@ -289,10 +298,13 @@ export function createCommunityApi({
       // the course I left unshared (the server still gives me its courseId), so 7.3e can show what sharing it
       // again would show; 7.2 draws it only while shared. A course that cannot be read leaves the post without
       // a route rather than failing the page.
+      // A shared course 7.1 already read is not asked for again (사용자 요청: 7.2 지도를 바로).
+      const known = base.courseShared ? routes.get(postId) : undefined;
+      const knownRoute = known ? (await known)?.route ?? null : null;
       const route =
         post.courseId == null || !(base.courseShared || base.isMine)
           ? null
-          : await readCourseRoute(post.courseId);
+          : knownRoute ?? (await readCourseRoute(post.courseId));
       const comments = items.map(item => toComment(item, post.author));
       const detail: PostDetail = {
         ...base,

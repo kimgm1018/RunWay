@@ -183,6 +183,51 @@ test('C09 saved courses get a region name, my alias, a shape and the time at my 
   });
 });
 
+// S15P31E105-612: C03 brings the map image for the card, its relative address made whole; an unreadable one and
+// an older server's missing field are null.
+test('C09 saved courses carry the C03 basemap, null when C03 has none', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7' && init.method === 'GET') {
+      return respond(200, {
+        ...detail(7),
+        basemap: {
+          imageUrl: '/api/v1/courses/7/basemap.png',
+          osmDataTimestamp: '2026-11-01T00:00:00Z',
+        },
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved[0].basemap).toEqual({
+    imageUrl: 'https://k15e105.p.ssafy.io/api/v1/courses/7/basemap.png',
+    osmDataTimestamp: '2026-11-01T00:00:00Z',
+  });
+  expect(saved[1].basemap).toBeNull();
+});
+
+test('C09 saved courses drop a basemap whose image cannot be loaded', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7' && init.method === 'GET') {
+      return respond(200, {
+        ...detail(7),
+        basemap: { imageUrl: '', osmDataTimestamp: null },
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved[0].basemap).toBeNull();
+});
+
 test('without a running profile the expected time uses 6′00″', async () => {
   serve(common);
   const { courses } = api(null);

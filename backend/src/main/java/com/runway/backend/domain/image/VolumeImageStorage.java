@@ -17,6 +17,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Component
 public class VolumeImageStorage implements ImageStorage {
@@ -113,6 +114,25 @@ public class VolumeImageStorage implements ImageStorage {
                 }
                 if (safeDirectory(directory)) deleteFile(directory);
             }
+        } catch (IOException | DirectoryIteratorException exception) {
+            // No filesystem paths or driver exception messages leave this boundary.
+            throw new ApiException(ErrorCode.UPLOAD_UNAVAILABLE);
+        }
+    }
+
+    private static final Pattern COURSE_BASEMAP_KEY =
+            Pattern.compile(
+                    Pattern.quote(COURSE_BASEMAP_KEY_PREFIX)
+                            + "[1-9][0-9]{0,18}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.png");
+
+    @Override
+    public void deleteCourseBasemap(String imageKey) {
+        if (imageKey == null || !COURSE_BASEMAP_KEY.matcher(imageKey).matches()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR_IMAGE_RESOLVE);
+        }
+        Path target = resolve(imageKey);
+        try {
+            if (safeFile(target)) deleteFile(target);
         } catch (IOException | DirectoryIteratorException exception) {
             // No filesystem paths or driver exception messages leave this boundary.
             throw new ApiException(ErrorCode.UPLOAD_UNAVAILABLE);

@@ -12,6 +12,8 @@ import { DataError } from '../errors';
 import { courseShapeOptions } from '../coursePreferences';
 import { getCoursePreferences, saveCoursePreferences } from './preferences';
 import type { Regions } from './regions';
+import { shapeOfRoute } from '../../geo';
+import { basemapOf } from './basemap';
 
 // C01·C03·C07·C08·C09·C10 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
@@ -31,6 +33,9 @@ type DetailResponse = {
   estimatedDurationSec?: number;
   status: CourseStatus;
   mergedIntoCourseId: number | null;
+  // The map thumbnail `{ imageUrl, osmDataTimestamp }` (S15P31E105-612); null until the server has made it,
+  // missing on an older server.
+  basemap?: unknown;
 };
 
 type BookmarkItem = {
@@ -99,24 +104,9 @@ const isServerId = (courseId: string) => /^\d+$/.test(courseId);
 // A C01 route on 3.1b, stored by C10 when it is picked or saved.
 const isGeneratedId = (courseId: string) => courseId.startsWith('generated:');
 
-// The same 0–1 box as the mock thumbnails (y grows downward).
+// The same 0–1 box as the mock thumbnails (y grows downward, the course centred).
 function shapeOf(route: [number, number][]): [number, number][] {
-  if (route.length === 0) {
-    return [];
-  }
-  const xs = route.map(point => point[0]);
-  const ys = route.map(point => point[1]);
-  const [minX, maxX, minY, maxY] = [
-    Math.min(...xs),
-    Math.max(...xs),
-    Math.min(...ys),
-    Math.max(...ys),
-  ];
-  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  return route.map(([x, y]) => [
-    0.1 + ((x - minX) / span) * 0.8,
-    0.9 - ((y - minY) / span) * 0.8,
-  ]);
+  return route.length === 0 ? [] : shapeOfRoute(route);
 }
 
 // Straight-line metres between two [longitude, latitude] points; close enough at course scale.
@@ -285,6 +275,7 @@ export function createCoursesApi({
           route: course.route.coordinates,
           status,
           mergedIntoCourseId,
+          basemap: basemapOf(course.basemap),
         };
       }),
     );

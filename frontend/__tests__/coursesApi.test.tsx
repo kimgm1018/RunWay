@@ -10,6 +10,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 import { now } from '../src/data/mock/fixtures';
+import { shapeOfRoute } from '../src/geo';
+import {
+  CourseGlyph,
+  CourseMapThumb,
+} from '../src/screens/course/SavedCoursesScreen';
 
 // 3.1b 추천 코스, 3.1c 저장한 코스 and 2.1 저장한 코스 against the server (dataSource 'api'): C01·C03·C07·C08·C09.
 
@@ -359,17 +364,27 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
 });
 
-test('3.1c draws each saved course on its own map from the C03 points (S15P31E105-562)', async () => {
+// S15P31E105-612: the card gets the C03 points and draws them as its outline, with no Naver map (S15P31E105-562
+// drew a compact RunMap here). This C03 has no basemap (an older server), so the card is the plain outline, not a
+// map image.
+test('3.1c draws each saved course from the C03 points without a Naver map', async () => {
   const screen = await openTodayRun();
   await press(screen, '저장한 코스');
-  const maps = screen.root.findAll(
-    node =>
-      typeof node.type !== 'string' &&
-      Array.isArray(node.props.route) &&
-      node.props.compact === true,
+  const thumbs = screen.root.findAllByType(CourseMapThumb);
+  expect(thumbs.length).toBeGreaterThan(0);
+  expect(thumbs[0].props.route).toEqual(loop);
+  expect(thumbs[0].props.basemap).toBeNull();
+  expect(thumbs[0].findByType(CourseGlyph).props.shape).toEqual(
+    shapeOfRoute(loop),
   );
-  expect(maps.length).toBeGreaterThan(0);
-  expect(maps[0].props.route).toEqual(loop);
+  expect(
+    screen.root.findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        Array.isArray(node.props.route) &&
+        node.props.compact === true,
+    ),
+  ).toHaveLength(0);
 });
 
 test('3.1c puts the course back when the server keeps it', async () => {

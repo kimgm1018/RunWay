@@ -182,6 +182,8 @@ class ImageApiIntegrationTest {
                         .header("Authorization", SecurityTestSupport.bearer(42)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", MediaType.IMAGE_PNG_VALUE))
+                // 사용자 이미지는 코스 썸네일(S15P31E105-612)과 달리 캐시하지 않는다.
+                .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().bytes(PNG));
     }
 
