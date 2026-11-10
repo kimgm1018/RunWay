@@ -1,3 +1,4 @@
+import { threadComments, withoutComment } from '../commentThread';
 import { DataError } from '../errors';
 import type {
   PostAuthor,
@@ -32,6 +33,16 @@ function shareableOf(record: RecordFixture): PostRecord {
     cadence: record.watch ? 170 : null,
   };
 }
+
+// A deleted root kept for its replies: no author, text or likes (CMT06).
+const deletedPlace = (comment: PostFixture['comments'][number]) => ({
+  ...comment,
+  deleted: true,
+  author: null,
+  body: '',
+  likeCount: 0,
+  liked: false,
+});
 
 // 7.x 커뮤니티 mock: posts, likes, bookmarks, comments and follows kept in memory.
 export function createCommunityMock({
@@ -136,6 +147,12 @@ export function createCommunityMock({
   };
   const postWith = (commentId: string) =>
     posts.find(post => post.comments.some(item => item.id === commentId));
+  // A live comment (not a deleted root's place) and its post, or the server's COMMENT_NOT_FOUND.
+  const liveComment = (commentId: string) => {
+    const post = postWith(commentId);
+    const comment = post?.comments.find(item => item.id === commentId);
+    return post && comment && !comment.deleted ? { post, comment } : null;
+  };
   // Authors carry their photo like CMT02 · CMT03 · CMT06 author.profileImageUrl.
   const photoOf = (userId: string) =>
     userId === me.userId ? myPhoto() : fixtures.runnerPhotos[userId] ?? null;
@@ -147,7 +164,8 @@ export function createCommunityMock({
     ...post,
     author: withPhoto(post.author),
     isMine: post.author.userId === me.userId,
-    commentCount: comments.length,
+    // As CMT02 · CMT03: a deleted root kept for its replies is not counted.
+    commentCount: comments.filter(comment => !comment.deleted).length,
   });
   const following = (userId: string) =>
     userId === me.userId || profiles.get(userId)?.followStatus === 'FOLLOWING';
@@ -234,10 +252,11 @@ export function createCommunityMock({
       const post = find(postId);
       const detail: PostDetail = {
         ...view(post),
-        comments: post.comments.map(comment => ({
+        // As CMT06: each root followed by its replies.
+        comments: threadComments(post.comments).map(({ comment }) => ({
           ...comment,
-          author: withPhoto(comment.author),
-          isMine: comment.author.userId === me.userId,
+          author: comment.author ? withPhoto(comment.author) : null,
+          isMine: comment.author?.userId === me.userId,
         })),
       };
       return respond(detail);
@@ -293,9 +312,25 @@ export function createCommunityMock({
       update(postId, { bookmarked });
       return respond(undefined);
     },
-    addComment: (postId, body) => {
+    // CMT07: a reply answers a live root of the same post (the server's INVALID_PARENT_COMMENT otherwise).
+    addComment: (postId, body, parentId) => {
+      const parent = parentId
+        ? find(postId).comments.find(item => item.id === parentId)
+        : null;
+      if (parentId && (!parent || parent.deleted || parent.parentId)) {
+        return fail(
+          new DataError(
+            'INVALID_PARENT_COMMENT',
+            '답글을 달 수 없는 댓글',
+            null,
+            422,
+          ),
+        );
+      }
       const comment: PostComment = {
         id: `comment-mine-${nextId++}`,
+        parentId: parentId ?? null,
+        deleted: false,
         author: withPhoto(me),
         isMine: true,
         body,
@@ -308,12 +343,12 @@ export function createCommunityMock({
     },
     // CMT08 · CMT09 answer the same errors as the server.
     updateComment: (commentId, body) => {
-      const post = postWith(commentId);
-      const comment = post?.comments.find(item => item.id === commentId);
-      if (!post || !comment) {
+      const found = liveComment(commentId);
+      if (!found) {
         return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
       }
-      if (comment.author.userId !== me.userId) {
+      const { post, comment } = found;
+      if (comment.author?.userId !== me.userId) {
         return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
       }
       const text = body.trim();
@@ -327,19 +362,39 @@ export function createCommunityMock({
       });
       return respond(text);
     },
+    // A root with replies stays as a deleted place; one without leaves, as does a deleted place whose last
+    // reply goes (CMT06 D-1).
     removeComment: commentId => {
-      const post = postWith(commentId);
-      const comment = post?.comments.find(item => item.id === commentId);
-      if (!post || !comment) {
+      const found = liveComment(commentId);
+      if (!found) {
         return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
       }
-      if (comment.author.userId !== me.userId) {
+      const { post, comment } = found;
+      if (comment.author?.userId !== me.userId) {
         return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
       }
       update(post.id, {
-        comments: post.comments.filter(item => item.id !== commentId),
+        comments: withoutComment(post.comments, commentId, deletedPlace),
       });
       return respond(undefined);
+    },
+    // CMT14 · CMT15: idempotent, and my own comment can be liked too.
+    setCommentLiked: (commentId, liked) => {
+      const found = liveComment(commentId);
+      if (!found) {
+        return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
+      }
+      const { post, comment } = found;
+      const likeCount =
+        comment.liked === liked
+          ? comment.likeCount
+          : Math.max(0, comment.likeCount + (liked ? 1 : -1));
+      update(post.id, {
+        comments: post.comments.map(item =>
+          item.id === commentId ? { ...item, liked, likeCount } : item,
+        ),
+      });
+      return respond({ likeCount, liked });
     },
   };
 

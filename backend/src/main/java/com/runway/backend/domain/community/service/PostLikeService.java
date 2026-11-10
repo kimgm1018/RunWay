@@ -2,7 +2,6 @@ package com.runway.backend.domain.community.service;
 
 import com.runway.backend.domain.community.dto.request.UpsertReactionRequest;
 import com.runway.backend.domain.community.dto.response.ReactionUpsertResponse;
-import com.runway.backend.domain.community.entity.PostLike;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
 import com.runway.backend.domain.community.repository.PostLikeRepository;
 import com.runway.backend.global.exception.ApiException;
@@ -10,7 +9,6 @@ import com.runway.backend.global.exception.ErrorCode;
 
 import lombok.RequiredArgsConstructor;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,13 +30,13 @@ public class PostLikeService {
         postService.requireReadablePost(userId, postId);
         requireLikeType(request == null ? null : request.reactionType());
 
-        return postLikeRepository
-                .findByPostIdAndUserId(postId, userId)
-                .map(
-                        existing ->
-                                new ReactionUpsertResponse(
-                                        existing.getPostId(), existing.getUserId()))
-                .orElseGet(() -> insertLike(postId, userId));
+        // 이미 있으면 INSERT하지 않는다. INSERT는 BEFORE 트리거(rw_active_owner)가 회원 행을 NOWAIT로 잠가 같은 회원의
+        // 로그인·프로필 저장 잠금과 겹치면 503이 되므로, 멱등 재요청은 트리거를 타지 않게 한다.
+        if (!postLikeRepository.existsByPostIdAndUserId(postId, userId)) {
+            // 동시 요청은 유니크 제약에서 한쪽이 건너뛰므로 중복 행·예외(롤백 전용 트랜잭션) 없이 같은 결과가 된다.
+            postLikeRepository.insertIfAbsent(postId, userId);
+        }
+        return new ReactionUpsertResponse(postId, userId);
     }
 
     @Transactional
@@ -47,17 +45,6 @@ public class PostLikeService {
         postService.requireReadablePost(userId, postId);
         postLikeRepository.deleteByPostIdAndUserId(postId, userId);
         return Map.of();
-    }
-
-    private ReactionUpsertResponse insertLike(long postId, long userId) {
-        try {
-            PostLike saved = postLikeRepository.save(PostLike.create(postId, userId));
-            return new ReactionUpsertResponse(saved.getPostId(), saved.getUserId());
-        } catch (DataIntegrityViolationException ex) {
-            PostLike existing =
-                    postLikeRepository.findByPostIdAndUserId(postId, userId).orElseThrow(() -> ex);
-            return new ReactionUpsertResponse(existing.getPostId(), existing.getUserId());
-        }
     }
 
     private void requireLikeType(String reactionType) {

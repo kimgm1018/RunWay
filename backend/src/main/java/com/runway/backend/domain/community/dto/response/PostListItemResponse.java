@@ -19,6 +19,7 @@ public record PostListItemResponse(
         long commentCount,
         long reactionCount,
         @JsonInclude(JsonInclude.Include.ALWAYS) String myReaction,
+        boolean bookmarked,
         PostAuthorResponse author,
         RecordSummaryResponse recordSummary) {
 
@@ -41,6 +42,7 @@ public record PostListItemResponse(
                 engagement.commentCount(),
                 engagement.reactionCount(),
                 engagement.myReaction(),
+                engagement.bookmarked(),
                 author,
                 RecordSummaryResponse.from(session));
     }

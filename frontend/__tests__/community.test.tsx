@@ -6,8 +6,10 @@ import { Backdrop } from '../src/components';
 import {
   createMockRepositories,
   DataError,
+  type CommentLike,
   type Repositories,
 } from '../src/data';
+import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
 import { FeedPage } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
@@ -388,6 +390,300 @@ test('the 댓글 sheet edits and deletes only my own comment (S15P31E105-389)', 
   expect(page).toContain('댓글을 삭제했어요');
   expect(page).not.toContain('진동 알림으로 와요');
   expect(menus()).toBe(0);
+});
+
+// S15P31E105-633: the rows the 댓글 sheet shows, as [text, indented].
+const rows = (screen: Screen) =>
+  screen.root
+    .findAllByType(CommentRow)
+    .map(row => [
+      row.props.comment.deleted ? '삭제된 댓글' : row.props.comment.body,
+      Boolean(row.props.reply),
+    ]);
+
+const rowOf = (screen: Screen, body: string) => {
+  const row = screen.root
+    .findAllByType(CommentRow)
+    .find(item => item.props.comment.body === body);
+  if (!row) {
+    throw new Error(`No comment ${body}`);
+  }
+  return row;
+};
+
+// A button inside the comment row with this text.
+const rowButton = (screen: Screen, body: string, label: string) =>
+  rowOf(screen, body).find(
+    node =>
+      node.props.accessibilityLabel === label &&
+      typeof node.props.onPress === 'function',
+  );
+
+async function pressIn(screen: Screen, body: string, label: string) {
+  await act(async () => {
+    rowButton(screen, body, label).props.onPress();
+  });
+  await settle();
+  await settle();
+}
+
+const commentInput = (screen: Screen) =>
+  labelled(screen, '댓글 입력', 'onChangeText').props.value;
+
+test('a reply goes under its root, a reply to a reply answers the root, and 취소 makes a plain comment', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const addComment = jest.spyOn(repositories.community, 'addComment');
+  const screen = await openCommunity(repositories);
+  await press(screen, '댓글 3개 모두 보기');
+  const first = '축하해요! 3km 구간 페이스 조절 진짜 잘했네요';
+  const firstHandle = rowOf(screen, first).props.comment.author.handle;
+
+  // 답글 달기 on the first root: the bar names whom I answer and the field starts with the handle.
+  await pressIn(screen, first, `${firstHandle}에게 답글 달기`);
+  expect(texts(screen)).toContain(`${firstHandle}님에게 답글 남기는 중`);
+  expect(commentInput(screen)).toBe(`@${firstHandle} `);
+  await type(screen, '댓글 입력', `@${firstHandle} 고마워요`);
+  await press(screen, '게시');
+  expect(addComment).toHaveBeenLastCalledWith(
+    'post-seoyun-1019',
+    `@${firstHandle} 고마워요`,
+    'comment-1',
+  );
+  // The reply comes at the end of its root's group, indented, and the bar is gone.
+  expect(rows(screen)).toEqual([
+    [first, false],
+    [`@${firstHandle} 고마워요`, true],
+    ['저도 다음 주에 이 코스 도전해볼게요', false],
+    ['코칭 알림 진동으로 오나요?', false],
+  ]);
+  expect(texts(screen)).not.toContain('님에게 답글 남기는 중');
+
+  // Answering that reply goes under the same root, naming the reply's author.
+  const myHandle = rowOf(screen, `@${firstHandle} 고마워요`).props.comment
+    .author.handle;
+  await pressIn(
+    screen,
+    `@${firstHandle} 고마워요`,
+    `${myHandle}에게 답글 달기`,
+  );
+  expect(texts(screen)).toContain(`${myHandle}님에게 답글 남기는 중`);
+  expect(commentInput(screen)).toBe(`@${myHandle} `);
+  await type(screen, '댓글 입력', `@${myHandle} 네!`);
+  await press(screen, '게시');
+  expect(addComment).toHaveBeenLastCalledWith(
+    'post-seoyun-1019',
+    `@${myHandle} 네!`,
+    'comment-1',
+  );
+  expect(rows(screen).slice(0, 3)).toEqual([
+    [first, false],
+    [`@${firstHandle} 고마워요`, true],
+    [`@${myHandle} 네!`, true],
+  ]);
+
+  // 취소 drops the handle and the next 게시 is a plain comment.
+  await pressIn(
+    screen,
+    '코칭 알림 진동으로 오나요?',
+    'jiwoo.runs에게 답글 달기',
+  );
+  await press(screen, '답글 취소');
+  expect(texts(screen)).not.toContain('님에게 답글 남기는 중');
+  expect(commentInput(screen)).toBe('');
+  await type(screen, '댓글 입력', '모두 화이팅');
+  await press(screen, '게시');
+  expect(addComment).toHaveBeenLastCalledWith(
+    'post-seoyun-1019',
+    '모두 화이팅',
+    null,
+  );
+  expect(rows(screen)[rows(screen).length - 1]).toEqual(['모두 화이팅', false]);
+
+  await press(screen, '댓글 닫기');
+  expect(texts(screen)).toContain('댓글 6개 모두 보기');
+});
+
+test('deleting my comment with replies leaves 삭제된 댓글입니다, which is not counted and has no buttons', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const screen = await openCommunity(repositories);
+  await press(screen, '댓글 3개 모두 보기');
+  await type(screen, '댓글 입력', '원댓글');
+  await press(screen, '게시');
+  const myHandle = rowOf(screen, '원댓글').props.comment.author.handle;
+  await pressIn(screen, '원댓글', `${myHandle}에게 답글 달기`);
+  await type(screen, '댓글 입력', '대댓글');
+  await press(screen, '게시');
+
+  await pressIn(screen, '원댓글', '댓글 메뉴');
+  await press(screen, '삭제');
+  await press(screen, '삭제');
+  await settle(50);
+  expect(rows(screen).slice(-2)).toEqual([
+    ['삭제된 댓글', false],
+    ['대댓글', true],
+  ]);
+  expect(texts(screen)).toContain('삭제된 댓글입니다');
+  const place = screen.root
+    .findAllByType(CommentRow)
+    .find(row => row.props.comment.deleted)!;
+  // No menu, 좋아요 or 답글 달기 on it.
+  expect(
+    place.findAll(node => typeof node.props.onPress === 'function'),
+  ).toHaveLength(0);
+  // Its thread takes no new replies: the reply under it has no 답글 달기 (CMT07 INVALID_PARENT_COMMENT).
+  expect(() =>
+    rowButton(screen, '대댓글', `${myHandle}에게 답글 달기`),
+  ).toThrow();
+  expect(
+    rowOf(screen, '대댓글').findAll(
+      node =>
+        typeof node.props.accessibilityLabel === 'string' &&
+        node.props.accessibilityLabel.endsWith('답글 달기'),
+    ),
+  ).toHaveLength(0);
+  expect(() => rowButton(screen, '대댓글', '댓글 메뉴')).not.toThrow();
+  await press(screen, '댓글 닫기');
+  // 3 + the reply: the deleted root is not counted, and the mock keeps it as CMT06 would.
+  expect(texts(screen)).toContain('댓글 4개 모두 보기');
+  // The mock answers on app time, which only settle() moves.
+  const read = repositories.community.get('post-seoyun-1019');
+  await settle();
+  expect((await read).comments.map(item => item.deleted)).toEqual([
+    false,
+    false,
+    false,
+    true,
+    false,
+  ]);
+
+  // The reply going takes the deleted root with it.
+  await press(screen, '댓글 4개 모두 보기');
+  await settle(50);
+  await pressIn(screen, '대댓글', '댓글 메뉴');
+  await press(screen, '삭제');
+  await press(screen, '삭제');
+  await settle(50);
+  expect(texts(screen)).not.toContain('삭제된 댓글입니다');
+  expect(rows(screen)).toHaveLength(3);
+  await press(screen, '댓글 닫기');
+  expect(texts(screen)).toContain('댓글 3개 모두 보기');
+});
+
+test('a reply whose root was deleted meanwhile says so, turns back into a plain comment and reloads', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const addComment = jest
+    .spyOn(repositories.community, 'addComment')
+    .mockRejectedValueOnce(
+      new DataError('INVALID_PARENT_COMMENT', '원댓글 삭제됨', null, 422),
+    );
+  const get = jest.spyOn(repositories.community, 'get');
+  const screen = await openCommunity(repositories);
+  await press(screen, '댓글 3개 모두 보기');
+  const first = '축하해요! 3km 구간 페이스 조절 진짜 잘했네요';
+  const firstHandle = rowOf(screen, first).props.comment.author.handle;
+  await pressIn(screen, first, `${firstHandle}에게 답글 달기`);
+  await type(screen, '댓글 입력', `@${firstHandle} 고마워요`);
+  const reads = get.mock.calls.length;
+
+  await press(screen, '게시');
+  expect(addComment).toHaveBeenLastCalledWith(
+    'post-seoyun-1019',
+    `@${firstHandle} 고마워요`,
+    'comment-1',
+  );
+  await settle(50);
+  const page = texts(screen);
+  expect(page).toContain('원댓글이 삭제돼 답글을 달 수 없어요');
+  expect(page).not.toContain('잠시 후 다시 시도해 주세요');
+  // Back to a plain comment with the text kept, and the comments read again.
+  expect(page).not.toContain('님에게 답글 남기는 중');
+  expect(commentInput(screen)).toBe(`@${firstHandle} 고마워요`);
+  expect(get.mock.calls.length).toBe(reads + 1);
+  expect(rows(screen)).toHaveLength(3);
+
+  // The next 게시 is a plain comment and goes through.
+  await press(screen, '게시');
+  expect(addComment).toHaveBeenLastCalledWith(
+    'post-seoyun-1019',
+    `@${firstHandle} 고마워요`,
+    null,
+  );
+  expect(rows(screen)[rows(screen).length - 1]).toEqual([
+    `@${firstHandle} 고마워요`,
+    false,
+  ]);
+});
+
+test('a comment like shows at once, takes the server count, and goes back when it fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let answer: (value: CommentLike) => void = () => undefined;
+  const setCommentLiked = jest
+    .spyOn(repositories.community, 'setCommentLiked')
+    .mockImplementationOnce(
+      () =>
+        new Promise<CommentLike>(resolve => {
+          answer = resolve;
+        }),
+    )
+    .mockRejectedValueOnce(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
+  const screen = await openCommunity(repositories);
+  await press(screen, '댓글 3개 모두 보기');
+  const body = '축하해요! 3km 구간 페이스 조절 진짜 잘했네요';
+  const comment = () => rowOf(screen, body).props.comment;
+  expect(comment()).toMatchObject({ liked: false, likeCount: 4 });
+
+  // At once, before the server answers.
+  await pressIn(screen, body, '댓글 좋아요');
+  expect(setCommentLiked).toHaveBeenLastCalledWith('comment-1', true);
+  expect(comment()).toMatchObject({ liked: true, likeCount: 5 });
+  expect(texts(screen)).toContain('좋아요 5개');
+  expect(() => rowButton(screen, body, '댓글 좋아요 취소')).not.toThrow();
+  // The server's count wins once it answers.
+  await act(async () => answer({ likeCount: 9, liked: true }));
+  await settle();
+  expect(comment()).toMatchObject({ liked: true, likeCount: 9 });
+
+  // A failed unlike goes back.
+  await pressIn(screen, body, '댓글 좋아요 취소');
+  expect(setCommentLiked).toHaveBeenLastCalledWith('comment-1', false);
+  expect(comment()).toMatchObject({ liked: true, likeCount: 9 });
+  expect(texts(screen)).toContain('좋아요 9개');
+});
+
+test('a comment unlike never counts below 0', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const get = repositories.community.get;
+  // A like made elsewhere between the count and my reaction can read as 0 and liked.
+  jest.spyOn(repositories.community, 'get').mockImplementation(async id => {
+    const detail = await get(id);
+    return {
+      ...detail,
+      comments: detail.comments.map(item => ({
+        ...item,
+        liked: true,
+        likeCount: 0,
+      })),
+    };
+  });
+  let answer: (value: CommentLike) => void = () => undefined;
+  jest.spyOn(repositories.community, 'setCommentLiked').mockImplementation(
+    () =>
+      new Promise<CommentLike>(resolve => {
+        answer = resolve;
+      }),
+  );
+  const screen = await openCommunity(repositories);
+  await press(screen, '댓글 3개 모두 보기');
+  const body = '저도 다음 주에 이 코스 도전해볼게요';
+  await pressIn(screen, body, '댓글 좋아요 취소');
+  expect(rowOf(screen, body).props.comment).toMatchObject({
+    liked: false,
+    likeCount: 0,
+  });
+  // Without a count from the server, the one on screen stays.
+  await act(async () => answer({ likeCount: null, liked: false }));
+  await settle();
+  expect(rowOf(screen, body).props.comment.likeCount).toBe(0);
 });
 
 test('my post opens 7.2b, edits through 7.3e and deletes through 7.2c', async () => {

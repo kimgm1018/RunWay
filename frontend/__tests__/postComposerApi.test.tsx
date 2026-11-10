@@ -5,8 +5,10 @@ import { RunMap } from '../src/components/RunMap';
 import { ToastProvider } from '../src/components/Toast';
 import {
   createMockRepositories,
+  DataError,
   DataProvider,
   tokenStore,
+  type DataErrorCode,
   type Repositories,
   type RunRecordDetail,
 } from '../src/data';
@@ -14,6 +16,7 @@ import { createCommunityApi } from '../src/data/api/community';
 import { RouteLine } from '../src/screens/community/FeedPage';
 import {
   PostEditScreen,
+  postFailure,
   PostWriteScreen,
 } from '../src/screens/community/PostWriteScreen';
 
@@ -277,4 +280,93 @@ test('7.3e shows the course again when I turn sharing back on and sends courseSh
     courseShared: true,
   });
   expect(mockGoBack).toHaveBeenCalled();
+});
+
+// S15P31E105-633: a failed 게시 (CMT01) or 저장 (CMT04) says why.
+test('a failed 게시 or 저장 says why, by the server code', () => {
+  const failure = (code: DataErrorCode, action: '게시' | '저장') =>
+    postFailure(new DataError(code, ''), action);
+
+  expect(failure('INVALID_POST', '게시')).toBe(
+    '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요',
+  );
+  expect(failure('RESOURCE_NOT_OWNED', '게시')).toBe(
+    '내 러닝 기록만 공유할 수 있어요',
+  );
+  expect(failure('POST_NOT_FOUND', '저장')).toBe('이미 삭제된 게시물이에요');
+  expect(failure('NOT_AUTHOR', '저장')).toBe(
+    '내가 쓴 게시물만 수정할 수 있어요',
+  );
+  expect(failure('VALIDATION_ERROR', '저장')).toBe('글 내용을 확인해 주세요');
+  expect(failure('NETWORK_ERROR', '게시')).toBe(
+    '인터넷 연결을 확인한 뒤 다시 시도해 주세요',
+  );
+  expect(failure('SERVER_ERROR', '게시')).toBe(
+    '게시하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+  expect(postFailure(new Error('?'), '저장')).toBe(
+    '저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+});
+
+// Every fetch goes as serve() answers, except the one this answers.
+function failing(
+  match: (path: string, method: string) => boolean,
+  status: number,
+  code: string,
+) {
+  const served = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(
+    async (url: string, init: { method: string }) => {
+      const path = new URL(url).pathname.replace(/^.*\/api\/v1/, '');
+      return match(path, init.method)
+        ? respond(status, { code, message: '' })
+        : served(url, init);
+    },
+  );
+}
+
+async function submit(screen: Screen, label: string) {
+  const buttons = screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === label &&
+      typeof node.props.onPress === 'function',
+  );
+  await act(async () => {
+    await buttons[buttons.length - 1].props.onPress();
+  });
+}
+
+test('7.3 says the run can no longer be shared when CMT01 answers INVALID_POST', async () => {
+  serve();
+  failing(
+    (path, method) => path === '/posts' && method === 'POST',
+    422,
+    'INVALID_POST',
+  );
+  mockParams = { recordId: '55' };
+  const screen = await render(PostWriteScreen);
+
+  await submit(screen, '게시');
+
+  expect(texts(screen)).toContain(
+    '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요',
+  );
+  expect(texts(screen)).not.toContain('잠시 후 다시 시도해 주세요');
+});
+
+test('7.3e says the post is gone when CMT04 answers POST_NOT_FOUND', async () => {
+  serve();
+  failing(
+    (path, method) => path === '/posts/201' && method === 'PATCH',
+    404,
+    'POST_NOT_FOUND',
+  );
+  mockParams = { postId: '201' };
+  const screen = await render(PostEditScreen);
+
+  await submit(screen, '저장');
+
+  expect(texts(screen)).toContain('이미 삭제된 게시물이에요');
+  expect(mockGoBack).not.toHaveBeenCalled();
 });
