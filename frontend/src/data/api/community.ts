@@ -4,6 +4,7 @@ import type {
   PostAuthor,
   PostComment,
   PostDetail,
+  PostPage,
   PostRecord,
   Repositories,
 } from '../types';
@@ -12,10 +13,9 @@ import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { tokenStore } from './tokenStore';
 
-// CMT01–CMT11 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
-// like and the author's photo; comments carry their author. The server has no handles or the run's
-// place and heart rate yet, so those are filled in below. Bookmarks have no API and stay on this phone
-// for the session.
+// CMT01–CMT19 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
+// like, my bookmark and the author's photo; comments carry their author. The server has no handles or the
+// run's place and heart rate yet, so those are filled in below.
 
 type AuthorResponse = {
   userId: number;
@@ -43,9 +43,21 @@ export type PostResponse = {
   commentCount?: number;
   reactionCount?: number;
   myReaction?: 'LIKE' | null;
+  // S15P31E105-634: whether I bookmarked it (CMT16 · CMT17); an older server leaves it out.
+  bookmarked?: boolean;
   author: AuthorResponse;
   recordSummary: RecordSummaryResponse | null;
 };
+
+// CMT02 · CMT18 · CMT19 page. nextCursor is null when hasNext is false.
+type PostListResponse = {
+  items?: PostResponse[] | null;
+  nextCursor?: string | null;
+  hasNext?: boolean;
+};
+
+// The app reads 20 a page (S15P31E105-647 D-3).
+export const postPageSize = 20;
 
 // C03, only the route (GeoJSON [longitude, latitude]).
 type CourseRouteResponse = { route: { coordinates: [number, number][] } };
@@ -162,7 +174,6 @@ export function createCommunityApi({
   // Likes I made or took back in this session, only for a server that leaves out myReaction: when the
   // post carries myReaction, the server's value wins on every read.
   const likes = new Map<string, boolean>();
-  const bookmarks = new Set<string>();
   // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
   // post does not ask again.
   const courseIds = new Map<string, number | null>();
@@ -199,7 +210,7 @@ export function createCommunityApi({
           ? response.myReaction === 'LIKE'
           : likes.get(id) ?? false,
       commentCount: response.commentCount ?? null,
-      bookmarked: bookmarks.has(id),
+      bookmarked: response.bookmarked ?? false,
     };
   };
 
@@ -247,15 +258,26 @@ export function createCommunityApi({
     };
   };
 
+  const readPage = async (
+    path: string,
+    query: Record<string, string>,
+    cursor: string | null | undefined,
+  ): Promise<PostPage> => {
+    const page = await apiRequest<PostListResponse | null>(path, {
+      query: { ...query, limit: postPageSize, cursor: cursor ?? undefined },
+    });
+    return {
+      items: listItems(page).map(toPost),
+      nextCursor: page?.hasNext && page.nextCursor ? page.nextCursor : null,
+    };
+  };
+
   return {
-    listFeed: async scope => {
-      const items = listItems(
-        await apiRequest<{ items: PostResponse[] }>('/posts', {
-          query: { scope },
-        }),
-      );
-      return items.map(toPost);
-    },
+    listFeed: (scope, cursor) => readPage('/posts', { scope }, cursor),
+    listAuthorPosts: (userId, cursor) =>
+      readPage('/posts', { authorId: userId }, cursor),
+    listMyBookmarks: cursor => readPage('/users/me/bookmarks', {}, cursor),
+    listMyLikes: cursor => readPage('/users/me/likes', {}, cursor),
     get: async postId => {
       const [post, commentsPage] = await Promise.all([
         apiRequest<PostResponse>(`/posts/${postId}`),
@@ -350,12 +372,11 @@ export function createCommunityApi({
       });
       likes.set(postId, liked);
     },
+    // CMT16 스크랩 · CMT17 취소, both idempotent.
     setBookmarked: async (postId, bookmarked) => {
-      if (bookmarked) {
-        bookmarks.add(postId);
-      } else {
-        bookmarks.delete(postId);
-      }
+      await apiRequest(`/posts/${postId}/bookmarks/me`, {
+        method: bookmarked ? 'PUT' : 'DELETE',
+      });
     },
     // CMT07; a reply names its root as parentCommentId (left out for a root comment).
     addComment: async (postId, body, parentId) => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Text } from 'react-native';
+import { FlatList, Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
@@ -9,6 +9,7 @@ import {
   type CommentLike,
   type Repositories,
 } from '../src/data';
+import { postsChanged } from '../src/data/postsChanged';
 import { CommentRow } from '../src/screens/community/comments';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
 import { FeedPage } from '../src/screens/community/FeedPage';
@@ -155,12 +156,17 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
     };
   };
   const listFeed = repositories.community.listFeed;
-  repositories.community.listFeed = async scope =>
-    (await listFeed(scope)).map(post => ({
-      ...post,
-      courseShared: true,
-      record: { ...post.record, shape: [] },
-    }));
+  repositories.community.listFeed = async (scope, cursor) => {
+    const page = await listFeed(scope, cursor);
+    return {
+      ...page,
+      items: page.items.map(post => ({
+        ...post,
+        courseShared: true,
+        record: { ...post.record, shape: [] },
+      })),
+    };
+  };
   // Every run tile gets its map (S15P31E105-562); with no shape, one still waiting for its points draws no
   // made-up outline.
   const outlines = () => {
@@ -1049,4 +1055,190 @@ test('7.3 keeps 코스도 함께 공유 off and disabled on a free run', async (
     body: null,
     courseShared: false,
   });
+});
+
+// S15P31E105-647: 7.1 reads 20 posts a page and the next near the end, until the last page.
+function pagedFeed(total: number) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const listFeed = repositories.community.listFeed;
+  const asked: { scope: string; cursor: string | null }[] = [];
+  repositories.community.listFeed = async (scope, cursor) => {
+    asked.push({ scope, cursor: cursor ?? null });
+    const [template] = (await listFeed('ALL')).items;
+    const start = cursor ? Number(cursor) : 0;
+    const end = Math.min(start + 20, total);
+    return {
+      items: Array.from({ length: end - start }, (_, offset) => ({
+        ...template,
+        id: `${scope}-${start + offset}`,
+      })),
+      nextCursor: end < total ? String(end) : null,
+    };
+  };
+  return { repositories, asked };
+}
+
+const feedList = (screen: Screen) => {
+  const [list] = screen.root
+    .findAllByType(CommunityScreen)[0]
+    .findAll(
+      node =>
+        node.type === FlatList && typeof node.props.onEndReached === 'function',
+    );
+  return list;
+};
+
+async function reachEnd(screen: Screen) {
+  await act(async () => {
+    feedList(screen).props.onEndReached({ distanceFromEnd: 0 });
+  });
+  await settle();
+}
+
+test('7.1 reads the next 20 near the end, stops after the last page, and a new scope starts again', async () => {
+  const { repositories, asked } = pagedFeed(45);
+  const screen = await openCommunity(repositories);
+  expect(feedList(screen).props.data).toHaveLength(20);
+
+  await reachEnd(screen);
+  expect(feedList(screen).props.data).toHaveLength(40);
+  await reachEnd(screen);
+  expect(feedList(screen).props.data).toHaveLength(45);
+  // The last page is in: reaching the end asks nothing more.
+  await reachEnd(screen);
+  expect(asked).toEqual([
+    { scope: 'ALL', cursor: null },
+    { scope: 'ALL', cursor: '20' },
+    { scope: 'ALL', cursor: '40' },
+  ]);
+  expect(
+    feedList(screen).props.data.map((post: { id: string }) => post.id),
+  ).toEqual(Array.from({ length: 45 }, (_, index) => `ALL-${index}`));
+
+  await press(screen, '팔로잉');
+  expect(asked[asked.length - 1]).toEqual({ scope: 'FOLLOWING', cursor: null });
+  expect(feedList(screen).props.data).toHaveLength(20);
+  expect(feedList(screen).props.data[0].id).toBe('FOLLOWING-0');
+});
+
+// The first feed page opens its 7.2.
+async function openFirstPost(screen: Screen) {
+  await act(async () => {
+    screen.root
+      .findAllByType(FeedPage)[0]
+      .findAll(
+        node =>
+          typeof node.props.accessibilityLabel === 'string' &&
+          node.props.accessibilityLabel.endsWith('의 게시물 열기') &&
+          typeof node.props.onPress === 'function',
+      )[0]
+      .props.onPress();
+  });
+  await settle(50);
+  expect(screen.root.findAllByType(PostDetailScreen)).toHaveLength(1);
+}
+
+test('7.1 coming back from 7.2 or another tab keeps the posts read so far without reading again', async () => {
+  const { repositories, asked } = pagedFeed(45);
+  // The paged posts open as the mock's first post under their own id.
+  const original = createMockRepositories({ latencyMs: 0 }).community;
+  repositories.community.get = async postId => {
+    const [template] = (await original.listFeed('ALL')).items;
+    return { ...(await original.get(template.id)), id: postId };
+  };
+  const screen = await openCommunity(repositories);
+  await reachEnd(screen);
+  expect(feedList(screen).props.data).toHaveLength(40);
+
+  await openFirstPost(screen);
+  await press(screen, '뒤로');
+  await press(screen, '홈');
+  await press(screen, '커뮤니티');
+  await settle();
+
+  expect(asked.map(item => item.cursor)).toEqual([null, '20']);
+  expect(feedList(screen).props.data).toHaveLength(40);
+});
+
+test('7.1 reads its first page again once after a post was written, edited or deleted elsewhere', async () => {
+  const { repositories, asked } = pagedFeed(45);
+  const screen = await openCommunity(repositories);
+  await reachEnd(screen);
+  expect(feedList(screen).props.data).toHaveLength(40);
+
+  // What 7.3, 7.3e and 7.2's 삭제 send once the server took the change.
+  postsChanged();
+  await press(screen, '홈');
+  await press(screen, '커뮤니티');
+  await settle();
+  expect(asked.map(item => item.cursor)).toEqual([null, '20', null]);
+  expect(feedList(screen).props.data).toHaveLength(20);
+
+  // The change was read once; the next return keeps the list.
+  await reachEnd(screen);
+  await press(screen, '홈');
+  await press(screen, '커뮤니티');
+  await settle();
+  expect(asked.map(item => item.cursor)).toEqual([null, '20', null, '20']);
+  expect(feedList(screen).props.data).toHaveLength(40);
+});
+
+test('a like and a bookmark made on 7.2 show on the feed page under it without reading the feed again', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const listFeed = jest.fn(repositories.community.listFeed);
+  repositories.community.listFeed = listFeed;
+  const screen = await openCommunity(repositories);
+  const feedPost = (id: string) =>
+    screen.root
+      .findAllByType(FeedPage)
+      .map(page => page.props.post)
+      .find(post => post.id === id);
+  const opened = screen.root.findAllByType(FeedPage)[0].props.post;
+  await openFirstPost(screen);
+  expect(screen.root.findAllByType(PostDetailScreen)).toHaveLength(1);
+  const reads = listFeed.mock.calls.length;
+
+  await press(screen, opened.liked ? '좋아요 취소' : '좋아요');
+  await press(screen, opened.bookmarked ? '저장 취소' : '저장');
+  await press(screen, '뒤로');
+
+  expect(feedPost(opened.id).liked).toBe(!opened.liked);
+  expect(feedPost(opened.id).bookmarked).toBe(!opened.bookmarked);
+  expect(listFeed.mock.calls.length).toBe(reads);
+});
+
+test('7.1 저장 shows at once through CMT16 and goes back when the server refuses', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const calls: [string, boolean][] = [];
+  let refuse = false;
+  repositories.community.setBookmarked = async (postId, bookmarked) => {
+    calls.push([postId, bookmarked]);
+    if (refuse) {
+      throw new DataError('SERVER_ERROR', 'offline');
+    }
+  };
+  const screen = await openCommunity(repositories);
+  const firstPost = () => screen.root.findAllByType(FeedPage)[0].props.post;
+  const firstBookmark = () =>
+    screen.root
+      .findAllByType(FeedPage)[0]
+      .findAll(
+        node =>
+          (node.props.accessibilityLabel === '저장' ||
+            node.props.accessibilityLabel === '저장 취소') &&
+          typeof node.props.onPress === 'function',
+      )[0];
+  const before = firstPost().bookmarked;
+
+  await act(async () => firstBookmark().props.onPress());
+  await settle();
+  expect(firstPost().bookmarked).toBe(!before);
+  expect(calls).toEqual([[firstPost().id, !before]]);
+
+  refuse = true;
+  await act(async () => firstBookmark().props.onPress());
+  await settle();
+  // Refused: the bookmark stays as it was before this press.
+  expect(calls[1]).toEqual([firstPost().id, before]);
+  expect(firstPost().bookmarked).toBe(!before);
 });

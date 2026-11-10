@@ -4,6 +4,7 @@ import type {
   PostAuthor,
   PostComment,
   PostDetail,
+  PostPage,
   PostRecord,
   Repositories,
   RunnerProfile,
@@ -20,6 +21,8 @@ const me = fixtures.communityUsers.me;
 const requestPage = 10;
 // U26 · U27 read 20 a page.
 const followPage = 20;
+// CMT02 · CMT18 · CMT19 read 20 a page (S15P31E105-647).
+const postPage = 20;
 
 // My run as a post card. The mock has no heart rate or cadence totals, so a watch run gets
 // the 7.3 sheet's values.
@@ -88,6 +91,28 @@ export function createCommunityMock({
     ]),
   );
   let nextId = 1;
+  // CMT02 newest first; the key also places a cursor, so a post taken out between pages skips nothing.
+  const postKey = (post: PostFixture) => `${post.createdAt}|${post.id}`;
+  const byNewest = (list: PostFixture[]) =>
+    [...list].sort((a, b) => postKey(b).localeCompare(postKey(a)));
+  // CMT18 · CMT19 list in the order I bookmarked or liked, newest first: each mark gets the next number. The
+  // fixtures' marks count up from the oldest post.
+  let markCount = 0;
+  const marked = (list: PostFixture[]) =>
+    new Map(
+      byNewest(list)
+        .reverse()
+        .map(post => [post.id, ++markCount] as const),
+    );
+  const bookmarkMarks = marked(posts.filter(post => post.bookmarked));
+  const likeMarks = marked(posts.filter(post => post.liked));
+  const setMark = (marks: Map<string, number>, postId: string, on: boolean) => {
+    if (on) {
+      marks.set(postId, ++markCount);
+    } else {
+      marks.delete(postId);
+    }
+  };
   // 7.4b 팔로우 요청: answered ones leave the list (U24 lists PENDING only).
   let followRequests = fixtures.myFollowRequests.map(request => ({
     ...request,
@@ -169,6 +194,40 @@ export function createCommunityMock({
   });
   const following = (userId: string) =>
     userId === me.userId || profiles.get(userId)?.followStatus === 'FOLLOWING';
+  // As the server: a private runner's posts only once they approve me.
+  const visible = (post: PostFixture) => {
+    const profile = profiles.get(post.author.userId);
+    return (
+      !profile?.isPrivate ||
+      post.author.userId === me.userId ||
+      profile.followStatus === 'FOLLOWING'
+    );
+  };
+  // 20 a page from a list sorted by key, newest first; the cursor is the last key given, as the server's.
+  const pageOf = (
+    list: PostFixture[],
+    keyOf: (post: PostFixture) => string,
+    cursor?: string | null,
+  ): PostPage => {
+    const from = cursor ? list.findIndex(post => keyOf(post) < cursor) : 0;
+    const start = from === -1 ? list.length : from;
+    const page = list.slice(start, start + postPage);
+    return {
+      items: page.map(view),
+      nextCursor:
+        start + postPage < list.length ? keyOf(page[page.length - 1]) : null,
+    };
+  };
+  const feedPage = (list: PostFixture[], cursor?: string | null) =>
+    pageOf(byNewest(list.filter(visible)), postKey, cursor);
+  const markPage = (marks: Map<string, number>, cursor?: string | null) => {
+    const keyOf = (post: PostFixture) =>
+      String(marks.get(post.id) ?? 0).padStart(10, '0');
+    const list = posts
+      .filter(post => marks.has(post.id) && visible(post))
+      .sort((a, b) => keyOf(b).localeCompare(keyOf(a)));
+    return pageOf(list, keyOf, cursor);
+  };
   const record = (recordId: string | null) => {
     const mine = records();
     const found = recordId ? mine.find(item => item.id === recordId) : mine[0];
@@ -241,13 +300,24 @@ export function createCommunityMock({
   };
 
   const community: Repositories['community'] = {
-    listFeed: scope =>
+    listFeed: (scope, cursor) =>
       respond(
-        posts
-          .filter(post => scope === 'ALL' || following(post.author.userId))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .map(view),
+        feedPage(
+          posts.filter(
+            post => scope === 'ALL' || following(post.author.userId),
+          ),
+          cursor,
+        ),
       ),
+    listAuthorPosts: (userId, cursor) =>
+      respond(
+        feedPage(
+          posts.filter(post => post.author.userId === userId),
+          cursor,
+        ),
+      ),
+    listMyBookmarks: cursor => respond(markPage(bookmarkMarks, cursor)),
+    listMyLikes: cursor => respond(markPage(likeMarks, cursor)),
     get: postId => {
       const post = find(postId);
       const detail: PostDetail = {
@@ -275,7 +345,8 @@ export function createCommunityMock({
           body: draft.body,
           record: shareableOf(record(recordId)),
           // As CMT01: a free run keeps courseShared false.
-          courseShared: draft.courseShared && record(recordId).courseId !== null,
+          courseShared:
+            draft.courseShared && record(recordId).courseId !== null,
           createdAt: new Date().toISOString(),
           likeCount: 0,
           liked: false,
@@ -300,6 +371,7 @@ export function createCommunityMock({
     setLiked: (postId, liked) => {
       const post = find(postId);
       if (post.liked !== liked) {
+        setMark(likeMarks, postId, liked);
         update(postId, {
           liked,
           likeCount:
@@ -309,6 +381,10 @@ export function createCommunityMock({
       return respond(undefined);
     },
     setBookmarked: (postId, bookmarked) => {
+      const post = posts.find(item => item.id === postId);
+      if (post && post.bookmarked !== bookmarked) {
+        setMark(bookmarkMarks, postId, bookmarked);
+      }
       update(postId, { bookmarked });
       return respond(undefined);
     },
@@ -444,7 +520,8 @@ export function createCommunityMock({
       ) {
         return fail(new DataError('ACCOUNT_ACCESS_DENIED', '비공개 계정'));
       }
-      const ids = kind === 'followers' ? followersOf(userId) : followingOf(userId);
+      const ids =
+        kind === 'followers' ? followersOf(userId) : followingOf(userId);
       const start = cursor ? Number(cursor) : 0;
       const end = start + followPage;
       return respond({
