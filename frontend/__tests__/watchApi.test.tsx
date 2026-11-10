@@ -296,10 +296,11 @@ test('8.1 shows a linked-but-unreachable watch as 등록/연결 끊김, not mock
   );
   expect(texts(screen)).not.toContain('Galaxy Watch7');
 
-  // No live node → open 1.7 to reconnect; do not pretend it is connected.
+  // No live node → settings tries W01, then opens 1.7 (S15P31E105-625); do not pretend connected.
   await press(screen, '워치');
   expect(sent().filter(call => call.startsWith('DELETE'))).toEqual([]);
-  expect(texts(screen)).toContain('등록/연결 끊김');
+  expect(sent().filter(call => call.startsWith('POST'))).toEqual([]);
+  expect(texts(screen)).toContain('다시 연결');
   await act(async () => screen.unmount());
 });
 
@@ -325,6 +326,32 @@ test('8.1 disconnects a reachable linked watch with W03', async () => {
   expect(
     last(screen, '워치', 'onPress').props.accessibilityValue.text,
   ).toBe('워치 없음');
+  await act(async () => screen.unmount());
+});
+
+test('8.1 re-registers a reachable watch with W01 after disconnect (S15P31E105-625)', async () => {
+  linked = true;
+  mockFindConnectedWatch.mockResolvedValue({
+    id: 'node-1',
+    displayName: 'Galaxy Watch7',
+  });
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const screen = await launch(true);
+  await press(screen, '설정');
+  await press(screen, 'Galaxy Watch7');
+  expect(sent()).toContain('DELETE /devices/31');
+  expect(
+    last(screen, '워치', 'onPress').props.accessibilityValue.text,
+  ).toBe('워치 없음');
+
+  await press(screen, '워치');
+
+  expect(sent()).toContain('POST /devices');
+  expect(texts(screen)).toContain('Galaxy Watch7을(를) 다시 등록했어요');
+  expect(texts(screen)).toContain('Galaxy Watch7');
+  expect(
+    last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
+  ).toBe('준비 미완료');
   await act(async () => screen.unmount());
 });
 
