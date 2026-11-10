@@ -171,6 +171,8 @@ class WatchSessionController(
     private var groupFlushedMs: Long? = null
     /** The last pace change alerted, with its G10 updatedAt, so a resent GROUP_STATUS does not buzz again (S15P31E105-604). */
     private var groupAlerted: Pair<Instant?, GroupNotice.PaceChanged>? = null
+    /** The last widened-group crossing alerted, with its G10 updatedAt, so a resend does not buzz again (S15P31E105-629). */
+    private var groupGapAlerted: Pair<Instant?, GroupNotice.GapWidened>? = null
 
     private data class UnsavedEnd(
         val sessionId: String,
@@ -761,10 +763,20 @@ class WatchSessionController(
         val change = update.paceChanged?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
         val notice = change ?: (before.notice as? GroupNotice.PaceChanged)
             ?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        var buzz = false
         if (change != null && groupAlerted != (update.updatedAt to change)) {
             groupAlerted = update.updatedAt to change
-            paceAlert.paceChanged()
+            buzz = true
         }
+        // 그룹장 폰이 보낸 간격 벌어짐만 표시한다(S15P31E105-629). 넘은 순간(gapWidenedNew)의 현황에만 진동하고, 같은 현황의
+        // 재전달은 다시 울리지 않는다. 폰이 더 보내지 않으면(다시 좁혀짐·지연) 표시를 지운다.
+        val gap = update.gapWidened?.takeIf { phase == GroupPhase.RUNNING }
+        if (gap != null && update.gapWidenedNew && groupGapAlerted != (update.updatedAt to gap)) {
+            groupGapAlerted = update.updatedAt to gap
+            buzz = true
+        }
+        // 같은 현황에 둘 다 오면 진동은 한 번만 울린다(연달아 울리면 뒤 진동이 앞 진동을 끊는다). 표시는 둘 다 남는다.
+        if (buzz) paceAlert.paceChanged()
         _state.value = current.copy(
             group = GroupStatus(
                 phase = phase,
@@ -772,6 +784,7 @@ class WatchSessionController(
                 position = position,
                 leaderToLastGapMeters = update.leaderToLastGapMeters,
                 notice = notice,
+                gapNotice = gap,
                 rankedCount = update.rankedCount,
             ),
         )
@@ -811,6 +824,7 @@ class WatchSessionController(
         groupUpdatedAt = null
         groupReceivedMs = null
         groupAlerted = null
+        groupGapAlerted = null
     }
 
     /**

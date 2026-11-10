@@ -34,7 +34,13 @@ sealed interface GroupPaceView {
      * 9.7: the shared guide pace as delivered. [mine] compares it with the runner's live pace and is
      * null while that pace is not live; [change] is the server's pace change notice.
      */
-    data class Pace(val pace: MetricText, val mine: GroupLine?, val change: GroupLine?) : GroupPaceView
+    data class Pace(
+        val pace: MetricText,
+        val mine: GroupLine?,
+        val change: GroupLine?,
+        /** The leader's widened-group notice (S15P31E105-629); null for other runners or while the group is close. */
+        val gap: GroupLine? = null,
+    ) : GroupPaceView
     data class Message(val message: GroupMessage) : GroupPaceView
 }
 
@@ -53,8 +59,10 @@ sealed interface GroupPositionView {
         val spread: GroupLine?,
         /** Runners sharing this rank, this runner included (9.8b); null when not tied or unknown. */
         val tie: Int? = null,
+        /** The leader's widened-group notice (S15P31E105-629); shown in place of [spread], which it includes. */
+        val gap: GroupLine? = null,
     ) : GroupPositionView
-    data class Message(val message: GroupMessage, val spread: GroupLine? = null) : GroupPositionView
+    data class Message(val message: GroupMessage, val spread: GroupLine? = null, val gap: GroupLine? = null) : GroupPositionView
 }
 
 /**
@@ -70,23 +78,26 @@ object GroupRunDisplay {
         val shared = MetricFormat.pace(group.guidePaceSecondsPerKm)
         val change = (group.notice as? GroupNotice.PaceChanged)?.let(::change)
         if (shared.missing) return GroupPaceView.Message(GroupMessage("공동 페이스를 기다려요", "받는 대로\n바로 보여 드려요"))
-        return GroupPaceView.Pace(shared.copy(description = "공동 ${shared.description}"), mine(snapshot, group.guidePaceSecondsPerKm!!), change)
+        return GroupPaceView.Pace(
+            shared.copy(description = "공동 ${shared.description}"), mine(snapshot, group.guidePaceSecondsPerKm!!), change, group.gapNotice?.let(::gap),
+        )
     }
 
     fun position(snapshot: RunSnapshot): GroupPositionView {
         val group = status(snapshot)
         ended(group)?.let { return GroupPositionView.Message(it) }
         val location = snapshot.metrics.feeds.location
+        val gap = group.gapNotice?.let(::gap)
         if (location == FeedStatus.NO_SIGNAL || location == FeedStatus.STOPPED) return GroupPositionView.Message(
-            GroupMessage("내 진행 데이터가\n없어요", "지금은 순위에서 빠져 있어요", warning = true), spread(group, !snapshot.phoneConnected))
+            GroupMessage("내 진행 데이터가\n없어요", "지금은 순위에서 빠져 있어요", warning = true), spread(group, !snapshot.phoneConnected), gap)
         return when (val p = group.position) {
-            GroupPosition.Waiting -> GroupPositionView.Message(GroupMessage("순위를 기다려요", "받는 대로\n바로 보여 드려요"), spread(group, !snapshot.phoneConnected))
+            GroupPosition.Waiting -> GroupPositionView.Message(GroupMessage("순위를 기다려요", "받는 대로\n바로 보여 드려요"), spread(group, !snapshot.phoneConnected), gap)
             GroupPosition.Unavailable ->
-                GroupPositionView.Message(GroupMessage("순위를 계산할 수\n없어요", "순위·간격 정보를 받지 못했어요"), spread(group, !snapshot.phoneConnected))
+                GroupPositionView.Message(GroupMessage("순위를 계산할 수\n없어요", "순위·간격 정보를 받지 못했어요"), spread(group, !snapshot.phoneConnected), gap)
             is GroupPosition.Known -> {
                 // Own location only dims this runner's standing; the spread is the server's group value.
                 val late = p.delayed || !snapshot.phoneConnected
-                standing(p.standing, late || location == FeedStatus.DELAYED, spread(group, late), group.rankedCount)
+                standing(p.standing, late || location == FeedStatus.DELAYED, spread(group, late), group.rankedCount).copy(gap = gap)
             }
         }
     }
@@ -120,6 +131,15 @@ object GroupRunDisplay {
         val to = MetricFormat.pace(notice.toSecondsPerKm)
         if (from.missing || to.missing) return null
         return GroupLine("이전 ${from.value} → 새 ${to.value}", "공동 페이스 변경, ${from.description}에서 ${to.description}로")
+    }
+
+    /** The leader's widened-group notice (S15P31E105-629): who is at the back when known, else a generic line. */
+    private fun gap(notice: GroupNotice.GapWidened): GroupLine {
+        val distance = meters(notice.meters.toDouble())
+        val spoken = spokenMeters(notice.meters.toDouble())
+        return notice.memberName?.let {
+            GroupLine("${it}님이 뒤처졌어요 ($distance)", "그룹 간격 알림, ${it}님이 뒤처졌어요, 선두와 후미 $spoken")
+        } ?: GroupLine("그룹이 벌어졌어요 ($distance)", "그룹 간격 알림, 그룹이 벌어졌어요, 선두와 후미 $spoken")
     }
 
     /** First-to-last distance of the whole group; shown in every running state since it is not this runner's. */
@@ -185,7 +205,9 @@ internal fun GroupPacePage(snapshot: RunSnapshot, count: Int, index: Int, visibl
                 Caption("공동 페이스")
                 HeroMetric(view.pace, HeroSize.PACE, unit = null)
                 view.change?.let { Line(it, RunwayColors.Content, announce = true, strong = true) }
-                view.mine?.let { Line(it, RunwayColors.ContentSecondary) }
+                // S15P31E105-629: the leader's widened-group notice takes the own-pace line's place to fit the face.
+                view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
+                    ?: view.mine?.let { Line(it, RunwayColors.ContentSecondary) }
             }
             is GroupPaceView.Message -> MessageBody(view.message, "공동 페이스")
         }
@@ -208,7 +230,8 @@ internal fun GroupPositionPage(snapshot: RunSnapshot, count: Int, index: Int, vi
                 val noMe = !ended && (location == FeedStatus.NO_SIGNAL || location == FeedStatus.STOPPED)
                 if (noMe) StatusIcons(listOf(StatusItem(StatusKind.GPS, StatusLevel.PROBLEM, "위치 수신 없음")))
                 MessageBody(view.message, if (noMe) null else "진행 순서")
-                view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
+                view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
+                    ?: view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
             }
         }
     }
@@ -235,7 +258,9 @@ private fun StandingBody(view: GroupPositionView.Standing) {
         SideCell(view.ahead, "바로 앞", view.delayed)
         SideCell(view.behind, "바로 뒤", view.delayed)
     }
-    view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
+    // S15P31E105-629: the leader's widened-group notice includes the first-to-last distance, so it replaces that line.
+    view.gap?.let { Line(it, RunwayColors.Warning, announce = true, strong = true) }
+        ?: view.spread?.let { Line(it, RunwayColors.ContentSecondary) }
 }
 
 /** Gap to the nearest runner on one side; nobody there reads 없음, someone without a delivered gap "– –". */

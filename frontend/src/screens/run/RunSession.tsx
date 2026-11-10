@@ -22,7 +22,11 @@ import {
 } from './runControl';
 import { speakCoaching, stopCoaching } from './coachingVoiceOutput';
 import { useSession } from '../../session/SessionProvider';
-import { createPaceChangeTracker, watchGroupStatus } from '../../watch/groupStatus';
+import {
+  createGapAlertTracker,
+  createPaceChangeTracker,
+  watchGroupStatus,
+} from '../../watch/groupStatus';
 import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
@@ -559,17 +563,27 @@ export function RunSessionProvider({
     // 이 조회 동안 본 공동 페이스 변경만 알린다(S15P31E105-604). 다시 구독하면 새로 시작해 지난 변경은 울리지 않는다.
     // 전송에 실패한 변경은 다시 보내지 않는다. 다음 현황에서 최신값만 조용히 반영된다.
     const paceChange = createPaceChangeTracker();
+    // 그룹장 폰만 선두–후미 간격 벌어짐을 알린다(S15P31E105-629, 같은 규칙). 기준은 groupStatus.ts GROUP_GAP_ALERT_M.
+    const gapAlert = createGapAlertTracker();
     return groupRuns.watchLive(
       groupRunId,
       value => {
-        const status = watchGroupStatus(groupRunId, value, paceChange.next(value));
+        const status = watchGroupStatus(
+          groupRunId,
+          value,
+          paceChange.next(value),
+          gapAlert.next(value),
+        );
         if (status) {
           send(sessionId, status).catch(() => undefined);
         }
       },
       // 조회 실패는 보내지 않는다. 워치가 받지 못한 시간만큼 마지막 값을 지연으로 표시한다.
       // 공동 페이스 비교 기준도 비워, 실패 뒤 첫 값은 조용히 반영한다(S15P31E105-604).
-      () => paceChange.reset(),
+      () => {
+        paceChange.reset();
+        gapAlert.reset();
+      },
     );
   }, [groupActive, groupLink, groupRuns, watchSession]);
 

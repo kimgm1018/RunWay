@@ -567,6 +567,11 @@ export function createGroupRunsApi({
                 loaded.participants.find(
                   member => member.userId === String(item.userId),
                 )?.nickname ?? unknownNickname,
+              // 그룹장 폰만 간격 벌어짐 알림을 보낸다(S15P31E105-629).
+              isHost:
+                loaded.participants.find(
+                  member => member.userId === String(item.userId),
+                )?.isHost === true,
               isMe: String(item.userId) === loaded.me,
               gapM:
                 own && usable(own) && usable(item)

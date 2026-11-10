@@ -38,9 +38,16 @@ sealed interface GroupPosition {
 /**
  * GRP-006 notices; the watch only shows them in the run pages. A shared pace change comes as
  * GROUP_STATUS.paceChanged, the change the phone saw between two G10 reads (S15P31E105-604).
+ * A widened group comes as GROUP_STATUS.gapWidened, only to the leader's watch (S15P31E105-629).
  */
 sealed interface GroupNotice {
     data class PaceChanged(val fromSecondsPerKm: Int, val toSecondsPerKm: Int) : GroupNotice
+
+    /**
+     * The first-to-last distance went past the phone's threshold (S15P31E105-629). [memberName] is the runner at the
+     * back when the phone knows exactly one; otherwise null and the notice is generic. The watch never decides this.
+     */
+    data class GapWidened(val meters: Int, val memberName: String?) : GroupNotice
 }
 
 data class GroupStatus(
@@ -54,6 +61,11 @@ data class GroupStatus(
      */
     val leaderToLastGapMeters: Double? = null,
     val notice: GroupNotice? = null,
+    /**
+     * The leader's widened-group notice (S15P31E105-629), kept apart from [notice] so a pace change at the same time
+     * does not hide it. Shown while the phone still sends it.
+     */
+    val gapNotice: GroupNotice.GapWidened? = null,
     /**
      * GROUP_STATUS.rankedCount: how many runners G10 ranked now (S15P31E105-420). Runners at the same distance share a
      * rank and count neither ahead nor behind, so the total cannot come from those counts alone.
