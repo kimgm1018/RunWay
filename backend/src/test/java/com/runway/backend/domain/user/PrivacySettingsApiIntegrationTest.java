@@ -64,6 +64,7 @@ class PrivacySettingsApiIntegrationTest {
     @BeforeEach
     void seed() {
         jdbc.update("DELETE FROM posts");
+        jdbc.update("DELETE FROM exercise_training_loads");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM crew_memberships");
         jdbc.update("DELETE FROM crews");

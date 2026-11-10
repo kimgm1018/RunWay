@@ -123,8 +123,9 @@ export const todayCondition: TodayCondition = {
   readinessSummary: '양호 · 계획한 강도로 달려도 좋아요',
   sleepLabel: '충분',
   restingHeartRateLabel: '평소 수준',
-  weeklyLoad: '적정',
-  weeklyLoadLabel: '과부하 없음',
+  // S15P31E105-599: R02 weeklyTrainingLoad (TRIMP, rounded) and its band against usualWeeklyTrainingLoad.
+  weeklyLoad: '312',
+  weeklyLoadLabel: '평소와 비슷',
   aiAdvice: '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
   lastAssessedDate: '2026-10-19',
 };

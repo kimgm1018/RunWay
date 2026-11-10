@@ -15,6 +15,10 @@ type ReadinessResponse = {
   restingHrSource?: 'RUNWAY_WATCH' | 'SAMSUNG_HEALTH' | null;
   sleepDurationMin: number | null;
   healthUpdatedAt: string | null;
+  // S15P31E105-599: training load (TRIMP) of the last 7 days up to readinessDate and the usual weekly load. Both null
+  // when the 28 days up to readinessDate have no load. Optional for a server before this contract.
+  weeklyTrainingLoad?: number | null;
+  usualWeeklyTrainingLoad?: number | null;
 };
 
 type Latest =
@@ -50,11 +54,32 @@ const restingHrSourceLabels: Record<string, string> = {
   SAMSUNG_HEALTH: '삼성 헬스',
 };
 
+// 2.1 주간 부하 against the usual week (S15P31E105-599). The bounds follow the formula's ratio bands 1.2·1.6.
+export function weeklyLoadLabel(
+  weekly: number,
+  usual: number | null | undefined,
+): string {
+  if (usual === null || usual === undefined || !(usual > 0)) {
+    return '평소 기록 없음';
+  }
+  const ratio = weekly / usual;
+  if (ratio < 0.8) {
+    return '평소보다 적음';
+  }
+  if (ratio <= 1.2) {
+    return '평소와 비슷';
+  }
+  if (ratio <= 1.6) {
+    return '평소보다 많음';
+  }
+  return '많이 많음';
+}
+
 const round = (value: number | null | undefined) =>
   value === null || value === undefined ? null : Math.round(value);
 
-// 2.1 오늘 컨디션 from R02 alone. Nothing in R02 backs a grade, condition, labels, 7-day load
-// or AI advice, so API mode leaves them empty rather than showing mock values as real ones.
+// 2.1 오늘 컨디션 from R02 alone. Nothing in R02 backs a grade, condition, labels or AI advice, so API mode leaves
+// them empty rather than showing mock values as real ones. The 7-day load comes from R02 (S15P31E105-599).
 export function createReadinessApi({ now }: { now: () => Date }) {
   return async (): Promise<TodayCondition> => {
     const latest = await latestReadiness();
@@ -81,6 +106,8 @@ export function createReadinessApi({ now }: { now: () => Date }) {
     const { response } = latest;
     // The date is the watch's own day, so one ahead of KST still counts as today.
     if (response.readinessDate >= today) {
+      const weekly = response.weeklyTrainingLoad;
+      const hasWeekly = typeof weekly === 'number' && Number.isFinite(weekly);
       return {
         ...empty,
         readinessState: 'ready',
@@ -91,6 +118,10 @@ export function createReadinessApi({ now }: { now: () => Date }) {
           response.restingHrBpm !== null && response.restingHrSource
             ? restingHrSourceLabels[response.restingHrSource] ?? null
             : null,
+        weeklyLoad: hasWeekly ? String(Math.round(weekly)) : null,
+        weeklyLoadLabel: hasWeekly
+          ? weeklyLoadLabel(weekly, response.usualWeeklyTrainingLoad)
+          : null,
         syncedAt: response.healthUpdatedAt ?? null,
         lastAssessedDate: response.readinessDate,
       };

@@ -46,6 +46,32 @@ class ReadinessEvaluationServiceTest {
                 .containsExactly(D, D.plusDays(2), D.plusDays(7), far, far.plusDays(1), far.plusDays(7));
     }
 
+    /** 599 AC-6. 부하가 바뀐 날짜는 D+1~D+27 중 건강 행이 있는 날짜까지 평가한다. */
+    @Test
+    void 부하가_바뀐_날짜는_이후_27일까지_평가한다() {
+        when(repository.findMetricDates(anyLong(), eq(D.plusDays(1)), eq(D.plusDays(27))))
+                .thenReturn(List.of(D.plusDays(5), D.plusDays(20), D.plusDays(27)));
+
+        assertThat(service.targetDates(1L, List.of(D), List.of(D)))
+                .containsExactly(D, D.plusDays(5), D.plusDays(20), D.plusDays(27));
+    }
+
+    @Test
+    void 부하와_RHR이_다른_날짜에서_바뀌면_각자의_범위만_넣는다() {
+        LocalDate rhrOnly = D.plusDays(30);
+        when(repository.findMetricDates(anyLong(), eq(D.plusDays(1)), eq(rhrOnly.plusDays(27))))
+                .thenReturn(
+                        List.of(
+                                D.plusDays(20),
+                                D.plusDays(28),
+                                rhrOnly.plusDays(5),
+                                rhrOnly.plusDays(10)));
+
+        // D+28은 부하 창 밖, rhrOnly+10은 RHR 7일 창 밖이다.
+        assertThat(service.targetDates(1L, List.of(D, rhrOnly), List.of(D)))
+                .containsExactly(D, D.plusDays(20), rhrOnly, rhrOnly.plusDays(5));
+    }
+
     @Test
     void 바뀐_날짜가_없으면_조회하지_않고_빈_목록() {
         assertThat(service.targetDates(1L, List.of())).isEmpty();

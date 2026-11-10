@@ -125,6 +125,7 @@ public class WithdrawalRepository {
     /** Keep only identifiers and group result facts; remove private originals and derived HR. */
     public void scrub(long userId, Instant now) {
         jdbc.update("DELETE FROM user_hr_personalization WHERE user_id=?",userId);
+        jdbc.update("DELETE FROM exercise_training_loads WHERE user_id=?",userId);
         jdbc.update("DELETE FROM daily_health_metrics WHERE user_id=?",userId);
         jdbc.update("DELETE FROM daily_readiness WHERE user_id=?",userId);
         for (String table : List.of("running_route_points","running_metric_samples","running_session_splits"))

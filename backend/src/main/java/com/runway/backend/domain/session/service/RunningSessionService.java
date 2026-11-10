@@ -294,6 +294,8 @@ public class RunningSessionService {
         referenceRepository.markPostsDeleted(sessionId, userId, deletedAt);
         // 커밋 뒤 전송 단계가 삭제를 확인하고 열린 S10 스트림을 닫는다.
         events.publishEvent(SessionStreamChanged.state(sessionId));
+        // S15P31E105-599: 커밋 후 이 러닝의 부하를 지우고 일별 부하를 다시 계산한다(TrainingLoadListener).
+        events.publishEvent(new RunningSessionDeletedEvent(sessionId));
         return new DeletedSessionResponse(sessionId, deletedAt);
     }
 

@@ -118,7 +118,7 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
     '평소 수준',
     '점수에 들어간 기록',
     '최근 운동량',
-    '적정',
+    '312 · 평소와 비슷',
     '82',
     '오늘 준비도 양호',
     '58회/분',

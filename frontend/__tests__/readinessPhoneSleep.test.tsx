@@ -210,7 +210,9 @@ describe('2.1 수면 부분 표시', () => {
       granted(400),
     ).all;
     expect(scoredWithoutWatch).toContain('오늘 워치 기록 없음');
-    expect(scoredWithoutWatch).toContain('수집 전');
+    // S15P31E105-599: a score for today without training load means no exercise with heart rate in 4 weeks.
+    expect(scoredWithoutWatch).toContain('최근 4주 심박 기록 운동 없음');
+    expect(scoredWithoutWatch).not.toContain('수집 전');
 
     const scored = texts(
       {
@@ -231,6 +233,46 @@ describe('2.1 수면 부분 표시', () => {
     }).all;
     expect(noConsent).not.toContain('준비도 계산 후 표시');
     expect(noConsent).not.toContain('수집 전');
+    expect(noConsent).not.toContain('최근 4주 심박 기록 운동 없음');
+  });
+
+  // S15P31E105-599 (T-9): R02's weekly training load with its band; a stale score's load is not today's.
+  it('shows the weekly training load with its band, only for a score of today', () => {
+    const loaded = {
+      ...base,
+      readinessState: 'ready' as const,
+      readinessScore: 72,
+      weeklyLoad: '312',
+      weeklyLoadLabel: '평소보다 많음',
+    };
+    const scored = texts(loaded).all;
+    // One plain line under 최근 운동량 (S15P31E105-615): the value and how it compares with usual.
+    expect(scored).toContain('312 · 평소보다 많음');
+    expect(scored).not.toContain('최근 4주 심박 기록 운동 없음');
+
+    const stale = texts({
+      ...loaded,
+      readinessState: 'stale',
+      lastAssessedDate: '2026-11-05',
+    }).all;
+    expect(stale).not.toContain('312 · 평소보다 많음');
+    expect(stale).not.toContain('최근 4주 심박 기록 운동 없음');
+    expect(stale).toContain('수집 전');
+  });
+
+  it('asks for exercise access when it is missing and there is no weekly load', () => {
+    const scored = { ...base, readinessState: 'ready' as const, readinessScore: 72, sleepMinutes: 401, restingHeartRate: 58 };
+    const missing = texts(scored, { ...granted(400), heartAccess: 'granted', exerciseAccess: 'denied' });
+    expect(missing.buttons).toEqual(['삼성 헬스 연결']);
+    expect(missing.all).toContain('삼성 헬스 권한 거부됨');
+    expect(missing.all).not.toContain('최근 4주 심박 기록 운동 없음');
+
+    const loaded = texts(
+      { ...scored, weeklyLoad: '200', weeklyLoadLabel: '평소와 비슷' },
+      { ...granted(400), heartAccess: 'granted', exerciseAccess: 'notRequested' },
+    );
+    expect(loaded.buttons).toEqual([]);
+    expect(loaded.all).toContain('200 · 평소와 비슷');
   });
 
   it('keeps the watch button when sleep is granted or Samsung Health is unavailable', () => {

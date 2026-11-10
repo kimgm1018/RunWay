@@ -152,18 +152,27 @@ export async function readTodayRestingHr(
 export const checkHeartRateAccess = (native: SleepNative) =>
   checkSleepAccess(native);
 
-// One dialog for both (D-8). Returns the resulting access of each.
+// One dialog for sleep, heart rate and (S15P31E105-599) exercise (D-8). Returns the resulting access of each.
 export type SamsungAccessRequest = () => Promise<{
   sleep: boolean;
   heartRate: boolean;
+  exercise?: boolean;
 }>;
 
+export type SamsungAccess = {
+  sleep: SleepAccess;
+  heartRate: SleepAccess;
+  exercise?: SleepAccess;
+};
+
+// `exercise` is the exercise access boundary (samsungExerciseLoad); without it only sleep and heart rate are recorded.
 export async function requestSamsungAccess(
   sleep: SleepNative,
   heart: SleepNative,
   request: SamsungAccessRequest,
-): Promise<{ sleep: SleepAccess; heartRate: SleepAccess }> {
-  let granted: { sleep: boolean; heartRate: boolean };
+  exercise?: SleepNative,
+): Promise<SamsungAccess> {
+  let granted: { sleep: boolean; heartRate: boolean; exercise?: boolean };
   try {
     granted = await request();
   } catch {
@@ -171,12 +180,24 @@ export async function requestSamsungAccess(
     return {
       sleep: await checkSleepAccess(sleep),
       heartRate: await checkSleepAccess(heart),
+      ...(exercise ? { exercise: await checkSleepAccess(exercise) } : {}),
     };
   }
   await recordAccessRequest(sleep, granted.sleep);
   await recordAccessRequest(heart, granted.heartRate);
+  if (exercise) {
+    await recordAccessRequest(exercise, granted.exercise === true);
+  }
   return {
     sleep: granted.sleep ? 'granted' : await checkSleepAccess(sleep),
     heartRate: granted.heartRate ? 'granted' : await checkSleepAccess(heart),
+    ...(exercise
+      ? {
+          exercise:
+            granted.exercise === true
+              ? ('granted' as const)
+              : await checkSleepAccess(exercise),
+        }
+      : {}),
   };
 }

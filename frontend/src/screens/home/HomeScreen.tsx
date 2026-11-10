@@ -400,6 +400,7 @@ export function HomeScreen() {
           today: sleep.today,
           heartAccess: sleep.heartAccess,
           restingHr: sleep.todayRestingHr,
+          exerciseAccess: sleep.exerciseAccess,
           requesting: sleep.requesting,
           onConnect: () => {
             void sleep.request();

@@ -8,8 +8,8 @@ import type { SamsungAccessRequest } from './samsungRestingHr';
 type NativeSamsungHeart = {
   heartRateAccessStatus(): Promise<NativeSleepAccess>;
   requestHealthAccess(
-    metrics: ('sleep' | 'heartRate')[],
-  ): Promise<{ sleep?: boolean; heartRate?: boolean }>;
+    metrics: ('sleep' | 'heartRate' | 'exercise')[],
+  ): Promise<{ sleep?: boolean; heartRate?: boolean; exercise?: boolean }>;
   readMetric(
     metric: 'heartRate',
     start: string,
@@ -40,11 +40,17 @@ export const samsungHeartNative: SleepNative = {
   saveState: json => required().saveRestingHrState(json),
 };
 
-// One system dialog for sleep and heart rate (2026-11-09 사용자 결정 D-8).
+// One system dialog for sleep and heart rate (2026-11-09 사용자 결정 D-8), and exercise for the training load
+// (S15P31E105-599).
 export const requestSamsungHealthAccess: SamsungAccessRequest = async () => {
-  const granted = await required().requestHealthAccess(['sleep', 'heartRate']);
+  const granted = await required().requestHealthAccess([
+    'sleep',
+    'heartRate',
+    'exercise',
+  ]);
   return {
     sleep: granted.sleep === true,
     heartRate: granted.heartRate === true,
+    exercise: granted.exercise === true,
   };
 };

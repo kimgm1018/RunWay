@@ -60,16 +60,20 @@ abstract class SyncBatchIntegrationSupport {
     private int seq;
 
     @Autowired private ReadinessEvaluationDispatcher readinessDispatcher;
+    @Autowired private com.runway.backend.domain.readiness.trainingload.TrainingLoadDispatcher trainingLoadDispatcher;
 
     /** 다른 컨텍스트의 테스트가 같은 DB를 쓰므로, 이 테스트가 남긴 평가도 끝내고 넘긴다. */
     @AfterEach
     void awaitReadinessEvaluations() throws InterruptedException {
+        // S15P31E105-599: 러닝 부하 저장이 끝나야 그 뒤의 준비도 평가까지 넘어간다.
+        assertThat(trainingLoadDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
         assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
     }
 
     @BeforeEach
     void resetData() throws InterruptedException {
         // W06 커밋 후 준비도 평가(254)는 별도 스레드에서 돈다. 앞 테스트의 평가가 끝난 뒤 지워야 회원 삭제와 겹치지 않는다.
+        assertThat(trainingLoadDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
         assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
         jdbc.update("DELETE FROM running_metric_samples");
         jdbc.update("DELETE FROM running_route_points");
@@ -77,6 +81,7 @@ abstract class SyncBatchIntegrationSupport {
         jdbc.update("DELETE FROM session_control_events");
         // W07 저장 뒤 코칭 발행(257)이 남긴 추천. 세션 FK가 있으므로 세션보다 먼저 지운다.
         jdbc.update("DELETE FROM coaching_decisions");
+        jdbc.update("DELETE FROM exercise_training_loads");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM daily_health_metrics");

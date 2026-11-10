@@ -50,12 +50,18 @@ public class ReadinessEvaluationDispatcher implements DisposableBean {
 
     /** 바뀐 날짜와 그 영향을 받는 이후 날짜의 평가를 대기열에 넣는다. 호출 스레드에서 DB를 쓰지 않는다. */
     public void dispatch(long userId, List<LocalDate> changedDates) {
+        dispatch(userId, changedDates, List.of());
+    }
+
+    /** loadChangedDates: 그중 일별 부하가 바뀐 날짜(이후 27일까지 재평가, S15P31E105-599). */
+    public void dispatch(
+            long userId, List<LocalDate> changedDates, List<LocalDate> loadChangedDates) {
         pending.incrementAndGet();
         try {
             executor.execute(
                     () -> {
                         try {
-                            run(userId, changedDates);
+                            run(userId, changedDates, loadChangedDates);
                         } finally {
                             pending.decrementAndGet();
                         }
@@ -73,10 +79,11 @@ public class ReadinessEvaluationDispatcher implements DisposableBean {
      * 날짜마다 별도 트랜잭션으로 평가한다. 한 날짜가 실패해도 나머지는 계속한다. 로그에는 회원 ID·날짜·예외 종류만 남기고 예외 메시지는 남기지 않는다(DB
      * 드라이버 메시지에 바인딩한 건강 값이 들어갈 수 있다).
      */
-    private void run(long userId, List<LocalDate> changedDates) {
+    private void run(
+            long userId, List<LocalDate> changedDates, List<LocalDate> loadChangedDates) {
         List<LocalDate> targets;
         try {
-            targets = evaluationService.targetDates(userId, changedDates);
+            targets = evaluationService.targetDates(userId, changedDates, loadChangedDates);
         } catch (RuntimeException e) {
             log.warn(
                     "준비도 자동 평가 대상 조회 실패 (userId={}, dates={}, {})",

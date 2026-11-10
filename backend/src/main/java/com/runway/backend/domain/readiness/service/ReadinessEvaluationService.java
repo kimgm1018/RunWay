@@ -25,6 +25,9 @@ public class ReadinessEvaluationService {
     /** 날짜 D가 바뀌면 D를 평소 RHR(이전 7일)로 쓰는 D+1~D+7도 다시 평가한다. */
     static final int FOLLOWING_DAYS = 7;
 
+    /** 일별 부하가 바뀐 날짜 D는 D를 부하 28일 창에 넣는 D+1~D+27도 다시 평가한다(S15P31E105-599). */
+    static final int LOAD_FOLLOWING_DAYS = ReadinessFormula.LOOKBACK_DAYS;
+
     private final ReadinessJdbcRepository repository;
 
     /**
@@ -33,23 +36,39 @@ public class ReadinessEvaluationService {
      */
     @Transactional(readOnly = true)
     public List<LocalDate> targetDates(long userId, List<LocalDate> changedDates) {
-        if (changedDates.isEmpty()) {
+        return targetDates(userId, changedDates, List.of());
+    }
+
+    /**
+     * 위와 같고, 일별 부하가 바뀐 날짜 D는 D+1~D+27(부하 28일 창) 중 건강 행이 있는 날짜까지 더한다(S15P31E105-599).
+     */
+    @Transactional(readOnly = true)
+    public List<LocalDate> targetDates(
+            long userId, List<LocalDate> changedDates, List<LocalDate> loadChangedDates) {
+        if (changedDates.isEmpty() && loadChangedDates.isEmpty()) {
             return List.of();
         }
         TreeSet<LocalDate> changed = new TreeSet<>(changedDates);
+        TreeSet<LocalDate> loadChanged = new TreeSet<>(loadChangedDates);
         TreeSet<LocalDate> targets = new TreeSet<>(changed);
+        targets.addAll(loadChanged);
+        LocalDate last = targets.last();
+        LocalDate until =
+                last.plusDays(loadChanged.isEmpty() ? FOLLOWING_DAYS : LOAD_FOLLOWING_DAYS);
         for (LocalDate candidate :
-                repository.findMetricDates(
-                        userId,
-                        changed.first().plusDays(1),
-                        changed.last().plusDays(FOLLOWING_DAYS))) {
-            LocalDate nearestChanged = changed.lower(candidate);
-            if (nearestChanged != null
-                    && !candidate.isAfter(nearestChanged.plusDays(FOLLOWING_DAYS))) {
+                repository.findMetricDates(userId, targets.first().plusDays(1), until)) {
+            if (within(changed, candidate, FOLLOWING_DAYS)
+                    || within(loadChanged, candidate, LOAD_FOLLOWING_DAYS)) {
                 targets.add(candidate);
             }
         }
         return List.copyOf(targets);
+    }
+
+    /** candidate보다 앞선 가장 가까운 바뀐 날짜 D가 있고 candidate ≤ D+days인가. */
+    private static boolean within(TreeSet<LocalDate> changed, LocalDate candidate, int days) {
+        LocalDate nearest = changed.lower(candidate);
+        return nearest != null && !candidate.isAfter(nearest.plusDays(days));
     }
 
     /**
@@ -69,7 +88,8 @@ public class ReadinessEvaluationService {
                 ReadinessFormula.evaluate(
                         date,
                         repository.findHealthInputs(
-                                userId, date.minusDays(ReadinessFormula.LOOKBACK_DAYS), date));
+                                userId, date.minusDays(ReadinessFormula.LOOKBACK_DAYS), date),
+                        repository.findFirstLoadDate(userId, date).orElse(null));
         score.ifPresent(
                 s -> repository.upsert(userId, date, s.readinessScore(), s.confidence()));
         return score;

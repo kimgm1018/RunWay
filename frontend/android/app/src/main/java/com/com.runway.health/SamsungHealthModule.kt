@@ -72,25 +72,81 @@ class SamsungHealthModule(private val app: ReactApplicationContext) : ReactConte
     if (!installed()) { promise.resolve("unavailable"); return }
     run(promise) { if (store.getGrantedPermissions(setOf(heartRatePermission)).contains(heartRatePermission)) "granted" else "required" }
   }
-  /** Asks for sleep and/or heart rate read in one dialog. Resolves which of them are granted afterwards. */
+  /** Asks for sleep, heart rate and/or exercise read in one dialog. Resolves which of them are granted afterwards. */
   @ReactMethod fun requestHealthAccess(metrics: ReadableArray, promise: Promise) = run(promise) {
     val activity = app.currentActivity ?: throw IllegalStateException()
     val wanted = (0 until metrics.size()).mapNotNull { metrics.getString(it) }.toSet()
     val asked = buildSet {
       if ("sleep" in wanted) add(sleepPermission)
       if ("heartRate" in wanted) add(heartRatePermission)
+      if ("exercise" in wanted) add(exercisePermission)
     }
     if (asked.isEmpty()) throw IllegalArgumentException()
     val granted = store.requestPermissions(asked, activity)
     Arguments.createMap().apply {
       if ("sleep" in wanted) putBoolean("sleep", granted.contains(sleepPermission))
       if ("heartRate" in wanted) putBoolean("heartRate", granted.contains(heartRatePermission))
+      if ("exercise" in wanted) putBoolean("exercise", granted.contains(exercisePermission))
     }
   }
   /** App-private JSON state for resting heart rate upload bookkeeping. Holds dates and bpm only, never logged. */
   @ReactMethod fun loadRestingHrState(promise: Promise) { promise.resolve(sleepPrefs.getString("restingHrState", null)) }
   @ReactMethod fun saveRestingHrState(json: String?, promise: Promise) {
     val ok = sleepPrefs.edit().apply { if (json == null) remove("restingHrState") else putString("restingHrState", json) }.commit()
+    promise.resolve(ok)
+  }
+  private val exercisePermission get() = Permission.of(DataTypes.EXERCISE, AccessType.READ)
+
+  /** S15P31E105-599: exercise read permission state for the training load flow (granted / required / unavailable). */
+  @ReactMethod fun exerciseAccessStatus(promise: Promise) {
+    if (!installed()) { promise.resolve("unavailable"); return }
+    run(promise) { if (store.getGrantedPermissions(setOf(exercisePermission)).contains(exercisePermission)) "granted" else "required" }
+  }
+  /**
+   * S15P31E105-599: heart rate logs of every exercise session starting in [start, end), of any exercise type. Each
+   * session with at least one heart rate log becomes {id, startTime, endTime, exerciseType, logs: [[epochMs, bpm], ...]}
+   * with only the log entries that have a heart rate. Values are never logged.
+   */
+  @ReactMethod fun readExerciseHeartRate(start: String, end: String, promise: Promise) = run(promise) {
+    if (!store.getGrantedPermissions(setOf(exercisePermission)).contains(exercisePermission)) {
+      throw AuthorizationException(ErrorCode.ERR_NO_USER_PERMISSION, "Read permission required")
+    }
+    val from = Instant.parse(start); val to = Instant.parse(end)
+    val output = Arguments.createArray()
+    var token: String? = null
+    val seen = mutableSetOf<String>()
+    do {
+      val builder = DataTypes.EXERCISE.readDataRequestBuilder
+        .setInstantTimeFilter(InstantTimeFilter.of(from, to, true, false)).setPageSize(1000).setOrdering(Ordering.DESC)
+      token?.let { builder.setPageToken(it) }
+      val response = store.readData(builder.build())
+      response.dataList.forEach { point ->
+        point.getValue(DataType.ExerciseType.SESSIONS).orEmpty().forEachIndexed { index, session ->
+          val logs = Arguments.createArray()
+          session.log.orEmpty().forEach { entry ->
+            entry.heartRate?.let { bpm ->
+              logs.pushArray(Arguments.createArray().apply {
+                pushDouble(entry.timestamp.toEpochMilli().toDouble()); pushDouble(bpm.toDouble())
+              })
+            }
+          }
+          if (logs.size() > 0) output.pushMap(Arguments.createMap().apply {
+            putString("id", "${point.uid}-$index")
+            putString("startTime", session.startTime.toString()); putString("endTime", session.endTime.toString())
+            putString("exerciseType", session.exerciseType?.name ?: "UNKNOWN")
+            putArray("logs", logs)
+          })
+        }
+      }
+      token = response.pageToken?.takeIf { it.isNotEmpty() }
+      if (token != null && !seen.add(token!!)) throw IllegalStateException()
+    } while (token != null)
+    output
+  }
+  /** App-private JSON state for exercise load upload bookkeeping. Holds exercise ids, dates and hashes only, never logged. */
+  @ReactMethod fun loadExerciseLoadState(promise: Promise) { promise.resolve(sleepPrefs.getString("exerciseLoadState", null)) }
+  @ReactMethod fun saveExerciseLoadState(json: String?, promise: Promise) {
+    val ok = sleepPrefs.edit().apply { if (json == null) remove("exerciseLoadState") else putString("exerciseLoadState", json) }.commit()
     promise.resolve(ok)
   }
   @ReactMethod fun requestReadAccess(promise: Promise) = run(promise) {
