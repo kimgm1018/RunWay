@@ -189,6 +189,7 @@ export function createCoursesApi({
   // C01 routes by card id, and the course id C10 gave each one stored so far.
   const candidates = new Map<string, Candidate>();
   const stored = new Map<string, Promise<string>>();
+  let recommendationSequence = 0;
 
   // C10 stores the picked route, or hands back the course with exactly the same points (reused). Asking again
   // for the same card reuses the answer; a failure lets the next tap ask again.
@@ -339,6 +340,9 @@ export function createCoursesApi({
         },
       },
     );
+    // seed/index can repeat after a location change or a new search. Keep each
+    // answer in its own namespace, including when requests finish out of order.
+    const recommendationId = ++recommendationSequence;
     // The goal pace from 3.1, or my usual pace, for the expected time on each card.
     const paceSecPerKm =
       search.goalInputType === 'PACE' && search.targetPaceSecPerKm
@@ -349,7 +353,7 @@ export function createCoursesApi({
     const courses = answer.courses.map((item): RecommendedCourse => {
       const route = item.route.coordinates;
       const heights = heightsOf(item.elevationProfile);
-      const id = `generated:${seed}:${item.index}`;
+      const id = `generated:${recommendationId}:${seed}:${item.index}`;
       const name = `${kmLabel(item.distanceM)} 코스`;
       candidates.set(id, {
         candidateToken: item.candidateToken,
