@@ -676,6 +676,23 @@ export function createMockRepositories(
           ? respond(toDetail(record, saved), options)
           : fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
       },
+      getResultSummary: recordId => {
+        const record = records.find(run => run.id === recordId);
+        if (!record) {
+          return fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
+        }
+        const detail = toDetail(record, saved);
+        return respond(
+          {
+            distanceM: detail.distanceM,
+            movingDurationSec: detail.durationSec,
+            averagePaceSecPerKm: detail.averagePaceSecPerKm,
+            averageHeartRate: detail.averageHeartRate,
+            goalAchieved: detail.goalAchieved,
+          },
+          options,
+        );
+      },
       getStatistics: (period, baseDate) =>
         respond(statisticsOf(records, period, baseDate), options),
       getPaceTrend: months =>

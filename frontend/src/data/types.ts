@@ -1009,6 +1009,15 @@ export type RunningSessionView = {
   movingDurationSec?: number | null;
 };
 
+// STATE_RESULT analysis.summary(S15P31E105-663): H02 값을 그대로 옮긴다. 폰·워치는 계산하지 않는다.
+export type WatchResultSummary = {
+  distanceM: number | null;
+  movingDurationSec: number | null;
+  averagePaceSecPerKm: number | null;
+  averageHeartRate: number | null;
+  goalAchieved: boolean | null;
+};
+
 // GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
 export type WatchGroupStatus = {
   groupRunId: string;
@@ -1253,6 +1262,8 @@ export type Repositories = {
     // month is YYYY-MM.
     getMonth: (month: string, filter: RecordFilter) => Promise<RecordMonth>;
     getDetail: (recordId: string) => Promise<RunRecordDetail>;
+    // H02 요약만 가볍게 읽는다. 종료 직후 워치 결과 화면에 옮길 값이라 구간·경로는 읽지 않는다(S15P31E105-663).
+    getResultSummary: (recordId: string) => Promise<WatchResultSummary>;
     // baseDate is any day (YYYY-MM-DD) inside the period.
     getStatistics: (
       period: AnalysisPeriod,
@@ -1589,10 +1600,12 @@ export type Repositories = {
       guide: CoachingGuide,
     ) => Promise<void>;
     // STATE_RESULT(scope=SERVER). clientSendAt은 워치 STATE_QUERY의 값, 서버 스냅샷 전달이면 null.
+    // summary는 분석이 READY일 때만 H02에서 읽어 옮기는 요약이며, 없으면 null(S15P31E105-663).
     sendServerState: (
       sessionId: string,
       session: RunningSessionView,
       clientSendAt?: string | null,
+      summary?: WatchResultSummary | null,
     ) => Promise<void>;
     // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
     sendError: (

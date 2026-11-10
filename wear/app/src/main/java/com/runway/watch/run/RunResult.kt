@@ -32,6 +32,16 @@ data class RunResult(
     val goal: GoalEvaluation? = null,
 )
 
+/**
+ * STATE_RESULT(scope=SERVER).analysis (S15P31E105-663): the server's analysis status and, once READY, the summary the phone
+ * read from H02. The watch only shows it. [summary] and [goal] are null until READY; a missing value stays null.
+ */
+data class AnalysisReport(
+    val status: AnalysisStatus,
+    val summary: RunSummary? = null,
+    val goal: GoalEvaluation? = null,
+)
+
 enum class ResultPhase { ENDING, SAVE_UNCONFIRMED, ANALYSIS_PENDING, ANALYZING, ANALYSIS_FAILED, READY }
 
 object RunResults {

@@ -287,6 +287,17 @@ export function createRecordsApi() {
     },
     // AI advice and the 내 코스 link have no server source yet, so 5.2 hides them. The measured route comes from S11;
     // a record's id is its session id (H02).
+    // H02만 읽는다(S15P31E105-663). 목록·구간·경로 조회 없이 종료 직후 워치에 옮길 요약만 만든다.
+    getResultSummary: async recordId => {
+      const detail = await apiRequest<DetailResponse>(`${path}/${recordId}`);
+      return {
+        distanceM: detail.actualDistanceM,
+        movingDurationSec: detail.movingDurationSec,
+        averagePaceSecPerKm: roundPace(detail.averagePaceSecPerKm),
+        averageHeartRate: detail.averageHeartRate,
+        goalAchieved: detail.goalAchieved,
+      };
+    },
     getDetail: async recordId => {
       const [detail, { splits }, summary, routeParts] = await Promise.all([
         apiRequest<DetailResponse>(`${path}/${recordId}`),

@@ -7,6 +7,7 @@ import type {
   SessionCommand,
   SessionGoalDraft,
   WatchGroupStatus,
+  WatchResultSummary,
   WatchSessionEvent,
 } from '../data/types';
 
@@ -178,6 +179,19 @@ function guideJson(guide: CoachingGuide) {
     `"recommendedPaceSecPerKm":${JSON.stringify(guide.recommendedPaceSecPerKm)},` +
     `"expiresAt":${JSON.stringify(guide.expiresAt)}}`
   );
+}
+
+// STATE_RESULT analysis(S15P31E105-663): S02 analysis.status와, READY일 때만 H02에서 읽은 요약. 값은 그대로 옮긴다.
+function analysisJson(status: string, summary: WatchResultSummary | null) {
+  const show = status === 'READY' ? summary : null;
+  const number = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const body = show
+    ? `{"distanceM":${number(show.distanceM)},"movingDurationSec":${number(show.movingDurationSec)},` +
+      `"averagePaceSecPerKm":${number(show.averagePaceSecPerKm)},"averageHeartRate":${number(show.averageHeartRate)},` +
+      `"goalAchieved":${typeof show.goalAchieved === 'boolean' ? show.goalAchieved : null}}`
+    : 'null';
+  return `{"status":${JSON.stringify(status)},"summary":${body}}`;
 }
 
 // STATE_RESULT comparison = S02 기록 비교 객체(sessions.md "기록 비교"). 알려진 필드만 옮긴다.
@@ -488,7 +502,12 @@ export function createNativeWatchSession(
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
 
     // S02/S10 스냅샷을 그대로 옮긴다. 서버 시각이 없는 상태(취소 응답 등)는 null로 보낸다.
-    sendServerState: (sessionId, session: RunningSessionView, clientSendAt = null) =>
+    sendServerState: (
+      sessionId,
+      session: RunningSessionView,
+      clientSendAt = null,
+      summary = null,
+    ) =>
       send(
         'state-result',
         'STATE_RESULT',
@@ -502,7 +521,9 @@ export function createNativeWatchSession(
           `"serverReceiveAt":${JSON.stringify(session.serverReceiveAt ?? null)},` +
           `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)},` +
           // S02 기록 비교를 그대로 옮긴다(S15P31E105-422). 워치는 다시 계산하지 않는다.
-          `"comparison":${comparisonJson(session.comparison ?? null)}}`,
+          `"comparison":${comparisonJson(session.comparison ?? null)},` +
+          // S02 분석 상태와 H02 요약을 옮긴다(S15P31E105-663). 워치는 계산하지 않는다.
+          `"analysis":${analysisJson(session.analysisStatus, summary)}}`,
       ),
 
     subscribe: listener => {

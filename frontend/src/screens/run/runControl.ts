@@ -18,6 +18,7 @@ import type {
   SessionGoalDraft,
   SessionSnapshot,
   SessionStatus,
+  WatchResultSummary,
   WatchSessionEvent,
 } from '../../data/types';
 
@@ -127,6 +128,8 @@ export type RunControl = {
 type Deps = {
   session: Repositories['session'];
   watch: Repositories['watchSession'];
+  // 종료 뒤 분석이 READY일 때 H02 요약을 워치 결과 화면에 옮긴다(S15P31E105-663). 없으면 상태만 옮긴다.
+  records?: Pick<Repositories['records'], 'getResultSummary'>;
   // 폰 인계 뒤 폰 GPS. 없으면 폰 기록은 시간만 이어간다.
   location?: PhoneLocation;
   // 폰 batch ID(UUID v4).
@@ -152,6 +155,9 @@ type Deps = {
     approxEveryMs?: number;
     // 개인 러닝 중 S02 조회 주기. S10이 오지 않아도 서버 코칭 명령을 워치에 전달한다(S15P31E105-549).
     serverPollMs?: number;
+    // 종료 뒤 분석 상태 조회 주기와 상한(S15P31E105-663). 상한 뒤에는 워치의 STATE_QUERY로만 답한다.
+    analysisPollMs?: number;
+    analysisMaxMs?: number;
   };
   // 코칭 음성 안내(S15P31E105-579). 없으면 읽지 않는다.
   voice?: CoachingVoiceOut;
@@ -233,6 +239,7 @@ const randomId = () => {
 export function createRunControl({
   session,
   watch,
+  records,
   location = noLocation,
   newId = randomId,
   now = () => Date.now(),
@@ -250,6 +257,9 @@ export function createRunControl({
   const groupPollMs = timers?.groupPollMs ?? 3_000;
   // 개인 러닝 중 S02 조회 주기(S10 보완, S15P31E105-549).
   const serverPollMs = timers?.serverPollMs ?? 5_000;
+  // 종료 뒤 분석이 끝날 때까지 S02를 5초마다 최대 3분 조회한다(S15P31E105-663).
+  const analysisPollMs = timers?.analysisPollMs ?? 5_000;
+  const analysisMaxMs = timers?.analysisMaxMs ?? 180_000;
   // GPS 위치가 없을 때 대략 위치를 다시 묻는 주기.
   const approxEveryMs = timers?.approxEveryMs ?? 15_000;
 
@@ -575,6 +585,9 @@ export function createRunControl({
     controlDeviceId = view.controlDeviceId;
     relayDeviceId = view.relayDeviceId;
     groupEndedAt = view.groupEndedAt ?? null;
+    if (view.state === 'COMPLETED') {
+      trackAnalysis(view.sessionId);
+    }
     setState({
       // 다른 세션에 붙으면 이전 세션의 실측값을 남기지 않는다.
       ...(view.sessionId !== state.sessionId ? { live: null, approxPosition: null } : {}),
@@ -1164,11 +1177,83 @@ export function createRunControl({
     deliverGuide(sessionId, guide);
   }
 
+  // 분석이 READY일 때만 H02 요약을 읽는다. 읽지 못하면 null이며 값을 만들어 채우지 않는다(S15P31E105-663).
+  async function summaryFor(view: RunningSessionView): Promise<WatchResultSummary | null> {
+    if (view.analysisStatus !== 'READY' || !records) {
+      return null;
+    }
+    try {
+      return await records.getResultSummary(view.sessionId);
+    } catch {
+      return null;
+    }
+  }
+
+  // 종료(COMPLETED)된 세션의 분석 상태를 워치 결과 화면에 알린다(S15P31E105-663, 통합 설계 STATE_RESULT.analysis).
+  // S02를 일정 간격으로 조회해 상태가 바뀔 때마다 한 번 보내고 READY·FAILED·LEGACY에서 멈춘다. 상한을 넘기면 멈추고,
+  // 이후는 워치가 다시 물을 때(STATE_QUERY) 답한다. 분석 계산은 서버가 하며 여기서는 옮기기만 한다.
+  let analysisFor: string | null = null;
+  let analysisTimer: ReturnType<typeof setTimeout> | null = null;
+  const stopAnalysis = () => {
+    if (analysisTimer !== null) {
+      clearTimeout(analysisTimer);
+      analysisTimer = null;
+    }
+    analysisFor = null;
+  };
+  const trackAnalysis = (sessionId: string) => {
+    if (analysisFor === sessionId) {
+      return;
+    }
+    stopAnalysis();
+    analysisFor = sessionId;
+    const startedAt = now();
+    let sent: string | null = null;
+    let summaryTries = 0;
+    const tick = async () => {
+      analysisTimer = null;
+      if (disposed || analysisFor !== sessionId || state.sessionId !== sessionId) {
+        return;
+      }
+      let finished = false;
+      try {
+        const view = await call(() => session.get(sessionId));
+        if (disposed || analysisFor !== sessionId) {
+          return;
+        }
+        const status = view.analysisStatus;
+        const summary = await summaryFor(view);
+        // READY인데 요약을 못 읽었으면 몇 번 더 읽어 본 뒤에 보낸다.
+        const wait = status === 'READY' && !summary && ++summaryTries < 3;
+        if (!wait && status !== sent) {
+          sent = status;
+          await watch.sendServerState(sessionId, view, null, summary).catch(noop);
+        }
+        finished = !wait && ['READY', 'FAILED', 'LEGACY'].includes(status);
+      } catch {
+        // 다음 조회에서 다시 시도한다.
+      }
+      if (finished || disposed || analysisFor !== sessionId) {
+        return;
+      }
+      if (now() - startedAt >= analysisMaxMs) {
+        analysisFor = null;
+        return;
+      }
+      analysisTimer = setTimeout(tick, analysisPollMs);
+    };
+    analysisTimer = setTimeout(tick, 0);
+  };
+
   // 워치 STATE_QUERY(scope=SERVER): S02를 조회해 서버 시각·BPM·명령과 함께 답한다. clientSendAt은 그대로 돌려준다.
   async function answerState(sessionId: string, clientSendAt: string | null) {
     try {
       const view = await call(() => session.get(sessionId));
-      await watch.sendServerState(sessionId, view, clientSendAt);
+      const summary = await summaryFor(view);
+      // 요약이 없으면 기존 호출 모양 그대로 보낸다(S15P31E105-663).
+      await (summary
+        ? watch.sendServerState(sessionId, view, clientSendAt, summary)
+        : watch.sendServerState(sessionId, view, clientSendAt));
     } catch (error) {
       const code = errorCode(error);
       await watch
@@ -1747,6 +1832,7 @@ export function createRunControl({
       }),
     dispose: () => {
       disposed = true;
+      stopAnalysis();
       announcer?.reset();
       knownGuides.clear();
       recorder?.dispose();

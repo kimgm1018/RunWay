@@ -6,6 +6,7 @@ import com.runway.watch.cue.GroupPaceAlert
 import com.runway.watch.cue.NoGroupPaceAlert
 import com.runway.watch.cue.RhythmPlayer
 import com.runway.watch.cue.SilentRhythm
+import com.runway.watch.run.AnalysisReport
 import com.runway.watch.run.GroupNotice
 import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.GroupPosition
@@ -75,6 +76,8 @@ data class WatchSessionState(
     val phoneRecording: Boolean = false,
     /** The server's record comparison from the last STATE_RESULT(scope=SERVER) (S15P31E105-422). */
     val comparison: RecordComparison = RecordComparison.NotSelected,
+    /** The server's analysis status and summary from the last STATE_RESULT(scope=SERVER).analysis (S15P31E105-663). */
+    val analysis: AnalysisReport? = null,
     /** The group run this session belongs to (SESSION_PREPARE.groupRunId); null for a personal run (S15P31E105-420). */
     val groupRunId: String? = null,
     /** The group as the phone relayed it from G10 (GROUP_STATUS); null until one arrives. Never computed here. */
@@ -707,6 +710,9 @@ class WatchSessionController(
             phoneRecording = phone,
             // 기록 비교는 batch 저장마다 같은 버전으로 온다. 버전이 낮은 스냅샷은 위에서 이미 버렸다.
             comparison = message.comparison(),
+            // 분석 상태는 stateVersion을 올리지 않아 같은 버전으로 다시 온다(S15P31E105-663). 필드가 없으면 알던 값을 둔다.
+            analysis = if (state != RunState.COMPLETED) null
+            else message.analysis() ?: if (sameSession) current.analysis else null,
             groupRunId = if (sameSession) current.groupRunId
             else store.prepared()?.takeIf { it.sessionId == message.sessionId }?.groupRunId,
             group = if (sameSession) current.group else null,
