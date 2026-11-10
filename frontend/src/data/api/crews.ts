@@ -67,6 +67,8 @@ export function createCrewsApi({
   regions: Regions;
 }) {
   let me: Promise<string> | null = null;
+  // Crew photo uploads embed my user id; clear with myId so the next account does not reuse them.
+  const photoKeys = new Map<string, Promise<string>>();
 
   // U04 gives my user id, to find me among the members and the leader.
   const myId = () => {
@@ -79,9 +81,14 @@ export function createCrewsApi({
     return me;
   };
 
+  // Logout and session expiry must drop the cached id before the next login (S15P31E105-638).
+  const clearMyId = () => {
+    me = null;
+    photoKeys.clear();
+  };
+
   // 6.3 대표 사진: F01 (purpose CREW) stores it under images/crew/{userId}/{imageId}.{ext}, and M03 takes that path
   // as imageKey (files.md F01, crews.md M03). A photo already uploaded is not sent again when M03 is retried.
-  const photoKeys = new Map<string, Promise<string>>();
   const crewPhotoKey = (photo: PhotoFile) => {
     let key = photoKeys.get(photo.uri);
     if (!key) {
@@ -279,5 +286,5 @@ export function createCrewsApi({
     );
   };
 
-  return { crews, listMine, myId };
+  return { crews, listMine, myId, clearMyId };
 }

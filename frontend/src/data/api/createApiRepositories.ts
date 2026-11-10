@@ -43,6 +43,7 @@ import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
 import { createAccountApi } from './account';
 import { createCurrentPlace } from './currentPlace';
+import { registerApiIdentityCacheClear } from './identityCache';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -59,10 +60,12 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     crews,
     listMine: myCrews,
     myId,
+    clearMyId,
   } = createCrewsApi({
     mock: mock.crews,
     regions,
   });
+  registerApiIdentityCacheClear(clearMyId);
   // One native session bridge for run control and for W01/settings connection probes (S15P31E105-571).
   const watchSession = {
     ...createNativeWatchSession(),

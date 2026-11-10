@@ -24,6 +24,8 @@ type ListItem = {
   movingDuration: number | null;
   averagePace: number | null;
   goalAchieved: boolean | null;
+  // Optional 0–1 thumbnail outline when the server sends one (H01 leaves it out today).
+  shape?: [number, number][] | null;
   // H01 runType and the group run link (RunningRecordGroupResponse); group is null for solo runs (S15P31E105-635).
   runType?: RunType | null;
   group?: {
@@ -102,14 +104,24 @@ function titleOf(startedAt: string) {
   return `${part} 러닝`;
 }
 
-// H01 leaves out the route thumbnail, so the row shows a blank thumbnail and the run time. The item's own runType
-// wins over the queried one; group keeps the crew and the group run id that opens 6.7 (S15P31E105-635).
+// H01 usually leaves out the route thumbnail; when shape points arrive, keep them for the row glyph.
+// The item's own runType wins over the queried one; group keeps the crew and the group run id that opens 6.7
+// (S15P31E105-635).
 function toSummary(
   item: ListItem & { startedAt: string },
   runType: RunType,
 ): RunRecordSummary {
   const distanceM = item.totalDistance ?? 0;
   const durationSec = item.movingDuration ?? 0;
+  const shape = Array.isArray(item.shape)
+    ? item.shape.filter(
+        (point): point is [number, number] =>
+          Array.isArray(point) &&
+          point.length >= 2 &&
+          typeof point[0] === 'number' &&
+          typeof point[1] === 'number',
+      )
+    : [];
   return {
     id: String(item.id),
     title: titleOf(item.startedAt),
@@ -119,7 +131,7 @@ function toSummary(
     averagePaceSecPerKm:
       roundPace(item.averagePace) ??
       (distanceM > 0 ? Math.round(durationSec / (distanceM / 1000)) : 0),
-    shape: [],
+    shape,
     runType: item.runType ?? runType,
     group: item.group
       ? {
@@ -224,14 +236,24 @@ export function createRecordsApi() {
   }
 
   const records: Repositories['records'] = {
-    // 2.1 과거 러닝 기록 lists my solo runs.
+    // Newest runs across solo and group (first-run tip and 5.1 start day; S15P31E105-638).
     getRecent: async (sort, limit) => {
-      const page = await apiRequest<ListResponse>(path, {
-        query: { runType: 'SOLO', sort: sortParam[sort], limit },
-      });
-      return remember(
-        started(listItems(page)).map(item => toSummary(item, 'SOLO')),
+      const lists = await Promise.all(
+        (['SOLO', 'GROUP'] as const).map(runType =>
+          apiRequest<ListResponse>(path, {
+            query: { runType, sort: sortParam[sort], limit },
+          }).then(page =>
+            started(listItems(page)).map(item => toSummary(item, runType)),
+          ),
+        ),
       );
+      const order = (a: RunRecordSummary, b: RunRecordSummary) =>
+        sort === 'distance'
+          ? b.distanceM - a.distanceM
+          : sort === 'pace'
+          ? a.averagePaceSecPerKm - b.averagePaceSecPerKm
+          : newestFirst(a, b);
+      return remember(lists.flat().sort(order).slice(0, limit));
     },
     getMonth: async (month, filter) => {
       const [summary, runs] = await Promise.all([
@@ -263,6 +285,7 @@ export function createRecordsApi() {
           roundPace(detail.averagePaceSecPerKm) ?? summary.averagePaceSecPerKm,
         goalAchieved: detail.goalAchieved,
         route: null,
+        targetDistanceM: detail.targetDistanceM,
         targetDurationSec: detail.targetDurationSec,
         targetPaceSecPerKm: roundPace(detail.targetPaceSecPerKm),
         averageHeartRate:

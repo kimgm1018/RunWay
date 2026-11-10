@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import type { RunRecordDetail, RunSplit } from '../../../data';
 import { compareWithGoal, kmBands, measured } from '../paceHeart';
-import { RecordView } from '../RecordView';
+import { goalLine, RecordView } from '../RecordView';
 
 // S15P31E105-615: 2.1 홈 러닝 분석 — a card that turns: 앞면 러닝 결과 (both lines by km, the figures), 뒷면 목표와 비교
 // (the API's splits against the run's own target pace, ±10초/km). Values are synthetic.
@@ -145,6 +145,7 @@ const record = (change: Partial<RunRecordDetail> = {}): RunRecordDetail => ({
   group: null,
   goalAchieved: null,
   route: null,
+  targetDistanceM: null,
   targetDurationSec: null,
   targetPaceSecPerKm: 360,
   averageHeartRate: 155,
@@ -311,6 +312,48 @@ test('a run without splits gives no split comparison', async () => {
 test('a time goal is said without 달성 or 미달성', async () => {
   const { back, wordsIn } = await card({ targetDurationSec: 1827 });
   expect(wordsIn(back())).toContain('목표 시간 30:27보다 19초 빨리 마쳤어요.');
+});
+
+test('goalLine trusts server goalAchieved over the duration gap (S15P31E105-638)', () => {
+  expect(goalLine(record())).toBeNull();
+  expect(
+    goalLine(
+      record({
+        goalAchieved: true,
+        targetDurationSec: 1800,
+        durationSec: 1781,
+      }),
+    ),
+  ).toEqual({
+    text: '목표 30:00 달성 · 19초 단축',
+    achieved: true,
+  });
+  // Server says missed even when the phone duration looks early.
+  expect(
+    goalLine(
+      record({
+        goalAchieved: false,
+        targetDurationSec: 1800,
+        durationSec: 1790,
+      }),
+    ),
+  ).toEqual({
+    text: '목표 30:00 미달성',
+    achieved: false,
+  });
+  expect(
+    goalLine(
+      record({
+        goalAchieved: true,
+        targetDurationSec: null,
+        targetDistanceM: 5000,
+        distanceM: 5020,
+      }),
+    ),
+  ).toEqual({
+    text: '목표 5.00km 달성',
+    achieved: true,
+  });
 });
 
 test('뒷면 막대: a split faster than the target rises above the target line, a slower one hangs below it', () => {

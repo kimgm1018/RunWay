@@ -97,6 +97,8 @@ export type RunSplit = {
 export type RunRecordDetail = RunRecordSummary & {
   // [longitude, latitude] points; null for a run recorded without location.
   route: [number, number][] | null;
+  // H02 targetDistanceM; null when the run had no distance goal (S15P31E105-638).
+  targetDistanceM: number | null;
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
   // H02 averageHeartRate (bpm, rounded); null when the run measured no heart rate (S15P31E105-615).
@@ -131,6 +133,9 @@ export type PaceTrend = {
   changeSecPerKm: number | null;
 };
 
+// C03·C09 courses.status. Only ACTIVE is runnable for a new start (SYS-002).
+export type CourseStatus = 'ACTIVE' | 'MERGED' | 'BLOCKED';
+
 export type SavedCourse = {
   id: string;
   name: string;
@@ -141,6 +146,10 @@ export type SavedCourse = {
   shape: [number, number][];
   // The course as GeoJSON [longitude, latitude] points (C03 route), for the card's map (S15P31E105-562).
   route: [number, number][];
+  // C09·C03 status. Missing on older mocks means ACTIVE.
+  status?: CourseStatus;
+  // C09·C03: set when status is MERGED so the representative course can be named.
+  mergedIntoCourseId?: string | null;
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
@@ -366,10 +375,12 @@ export type AppNotification = {
   targetId: string;
 };
 
-// N01: the newest page of the inbox and the unread count across all of it.
+// N01: one page of the inbox and the unread count across all of it.
 export type NotificationList = {
   items: AppNotification[];
   unreadCount: number;
+  // Null on the last page (N01 nextCursor / hasNext).
+  nextCursor: string | null;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -441,6 +452,8 @@ export type SavedRunRecord = {
     averagePaceSecPerKm: number | null;
     averageHeartRate: number | null;
     averageCadence: number | null;
+    // H02 goalAchieved after save; null when the run had no goal (S15P31E105-638).
+    goalAchieved: boolean | null;
   } | null;
 };
 
@@ -1359,7 +1372,8 @@ export type Repositories = {
     find: (request: SearchRequest) => Promise<SearchPage>;
   };
   notifications: {
-    list: () => Promise<NotificationList>;
+    // N01: cursor null/omitted reads the newest page (limit 50).
+    list: (cursor?: string | null) => Promise<NotificationList>;
     markAllRead: () => Promise<void>;
   };
   run: {

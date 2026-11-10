@@ -34,6 +34,7 @@ import { formatRelative } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, k1 } from '../../theme';
 import { BackButton } from '../../components/BackButton';
+import { FollowRequestSheet } from '../community/FollowRequestSheet';
 
 type Navigation = NavigationProp<RootStackParamList>;
 type Open = (navigation: Navigation, targetId: string) => void;
@@ -46,10 +47,11 @@ const openRunner: Open = (navigation, userId) =>
   navigation.navigate('RunnerProfile', { userId });
 
 // Each kind's title, its icon on the row's tile, and the screen its targetId opens (6.4 그룹런, 6.2 크루, 7.2 게시물,
-// 7.4 러너).
+// 7.4 러너). FOLLOW_REQUEST opens 7.4b 승인·거절 instead: N01 targetId is the requester's users.id
+// (docs/design/api/notifications.md), not the follow-request id.
 const kinds: Record<
   NotificationKind,
-  { title: string; icon: IconName; open: Open }
+  { title: string; icon: IconName; open: Open | 'followRequests' }
 > = {
   GROUP_RUN_PARTICIPATION_CANCELLED: {
     title: '그룹런 취소',
@@ -77,7 +79,11 @@ const kinds: Record<
     open: (navigation, postId) => navigation.navigate('PostDetail', { postId }),
   },
   NEW_FOLLOWER: { title: '새 팔로워', icon: 'userPlus', open: openRunner },
-  FOLLOW_REQUEST: { title: '팔로우 요청', icon: 'userPlus', open: openRunner },
+  FOLLOW_REQUEST: {
+    title: '팔로우 요청',
+    icon: 'userPlus',
+    open: 'followRequests',
+  },
   FOLLOW_APPROVED: {
     title: '팔로우 승인',
     icon: 'userCheck',
@@ -228,18 +234,22 @@ function EmptyBell() {
 // 2.9 알림 (담당자 레퍼런스: 알림 페이지 영상): a mist page (담당자 요청) that rises over 홈, 뒤로 and a large 알림 on one
 // line, then every notification in one list, newest first (담당자 결정: 오늘 · 이번 주 탭 없이, 지우기 없이 - the
 // server has no delete). No 모두 읽음: everything shown here counts as read once the screen is left (담당자 결정).
-// 2.9b 알림 없음 stays.
+// 2.9b 알림 없음 stays. N01 pages past the first 50 join with 더 보기.
 export function NotificationsScreen() {
   const navigation = useNavigation<Navigation>();
   const rise = useRise();
   const repositories = useRepositories();
   const resource = useResource(useCallback(loadNotifications, []));
   const [items, setItems] = useState<AppNotification[] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [followRequestsOpen, setFollowRequestsOpen] = useState(false);
   // N01's count also covers what this page leaves out (older pages, kinds the app does not know).
   const unreadCount = useRef(0);
   useEffect(() => {
     if (resource.status === 'ready') {
       setItems(resource.data.items);
+      setNextCursor(resource.data.nextCursor);
       unreadCount.current = resource.data.unreadCount;
     }
   }, [resource.status, resource.data]);
@@ -264,6 +274,40 @@ export function NotificationsScreen() {
       [notifications],
     ),
   );
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) {
+      return;
+    }
+    setLoadingMore(true);
+    try {
+      const page = await notifications.list(nextCursor);
+      setItems(current => {
+        const shown = current ?? [];
+        return [
+          ...shown,
+          ...page.items.filter(
+            item => !shown.some(existing => existing.id === item.id),
+          ),
+        ];
+      });
+      setNextCursor(page.nextCursor);
+      unreadCount.current = page.unreadCount;
+    } catch {
+      // Keep the page already shown; the next tap can try again.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const openItem = (item: AppNotification) => {
+    const open = kinds[item.kind].open;
+    if (open === 'followRequests') {
+      setFollowRequestsOpen(true);
+      return;
+    }
+    open(navigation, item.targetId);
+  };
 
   return (
     <Animated.View style={[styles.rise, rise]}>
@@ -303,12 +347,26 @@ export function NotificationsScreen() {
                 key={item.id}
                 item={item}
                 now={now}
-                onPress={() => kinds[item.kind].open(navigation, item.targetId)}
+                onPress={() => openItem(item)}
               />
             ))}
+            {nextCursor ? (
+              <Button
+                title="더 보기"
+                variant="text"
+                size="small"
+                loading={loadingMore}
+                onPress={loadMore}
+              />
+            ) : null}
           </View>
         )}
       </Screen>
+      <FollowRequestSheet
+        visible={followRequestsOpen}
+        onClose={() => setFollowRequestsOpen(false)}
+        onDecided={() => {}}
+      />
     </Animated.View>
   );
 }

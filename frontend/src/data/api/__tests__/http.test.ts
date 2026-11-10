@@ -276,35 +276,59 @@ test('concurrent and delayed 401 responses share one rotation and each replay on
   expect(fetchMock.mock.calls).toHaveLength(7);
 });
 
-test.each([401, 503])(
-  'a failed refresh (%i) expires once without replay or exposing its body',
-  async status => {
-    await tokenStore.save({
-      accessToken: 'access-1',
-      refreshToken: 'refresh-1',
-    });
-    const expired = jest.fn();
-    const unsubscribe = onUnauthorized(expired);
-    try {
-      fetchMock
-        .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
-        .mockResolvedValueOnce(
-          respond(status, {
-            message: 'secret-refresh-value',
-            details: { token: 'secret' },
-          }),
-        );
-      const error = await failure(apiRequest('/users/me'));
-      expect(error.code).toBe('UNAUTHORIZED');
-      expect(JSON.stringify(error)).not.toContain('secret');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(expired).toHaveBeenCalledTimes(1);
-      expect(tokenStore.current()).toBeNull();
-    } finally {
-      unsubscribe();
-    }
-  },
-);
+test('a failed refresh (401) expires once without replay or exposing its body', async () => {
+  await tokenStore.save({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+  });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(
+        respond(401, {
+          message: 'secret-refresh-value',
+          details: { token: 'secret' },
+        }),
+      );
+    const error = await failure(apiRequest('/users/me'));
+    expect(error.code).toBe('UNAUTHORIZED');
+    expect(JSON.stringify(error)).not.toContain('secret');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(expired).toHaveBeenCalledTimes(1);
+    expect(tokenStore.current()).toBeNull();
+  } finally {
+    unsubscribe();
+  }
+});
+
+test('a temporary 5xx on refresh keeps the session and surfaces SERVER_ERROR', async () => {
+  await tokenStore.save({
+    accessToken: 'access-1',
+    refreshToken: 'refresh-1',
+  });
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock
+      .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED' }))
+      .mockResolvedValueOnce(
+        respond(503, {
+          message: 'secret-refresh-value',
+          details: { token: 'secret' },
+        }),
+      );
+    const error = await failure(apiRequest('/users/me'));
+    expect(error.code).toBe('SERVER_ERROR');
+    expect(JSON.stringify(error)).not.toContain('secret');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-1');
+  } finally {
+    unsubscribe();
+  }
+});
 
 test('a replay rejected again expires without a second refresh', async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
@@ -412,16 +436,23 @@ test('403 and public 401 never attempt token rotation', async () => {
   expect(tokenStore.current()?.accessToken).toBe('access-1');
 });
 
-test('a lost refresh response is not resent and clears the session', async () => {
+test('a lost refresh response is not resent and keeps the session', async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
-  fetchMock
-    .mockResolvedValueOnce(respond(401))
-    .mockRejectedValueOnce(new Error('secret transport body'));
-  const error = await failure(apiRequest('/users/me'));
-  expect(error.code).toBe('UNAUTHORIZED');
-  expect(error.message).not.toContain('secret');
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(tokenStore.current()).toBeNull();
+  const expired = jest.fn();
+  const unsubscribe = onUnauthorized(expired);
+  try {
+    fetchMock
+      .mockResolvedValueOnce(respond(401))
+      .mockRejectedValueOnce(new Error('secret transport body'));
+    const error = await failure(apiRequest('/users/me'));
+    expect(error.code).toBe('NETWORK_ERROR');
+    expect(error.message).not.toContain('secret');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(expired).not.toHaveBeenCalled();
+    expect(tokenStore.current()?.accessToken).toBe('access-1');
+  } finally {
+    unsubscribe();
+  }
 });
 
 test('a keystore rotation failure ends the session without replay', async () => {

@@ -178,8 +178,14 @@ function useResumeRun() {
 
 export function RootNavigator() {
   const { signedIn, restoring, loginRequired } = useSession();
+  // After expiry, Login is first so the user lands there; Start stays next so back is not a dead end
+  // (LoginScreen navigates to Start when loginRequired — S15P31E105-638).
   const signedOutRoutes = loginRequired
-    ? ['Login' as const, ...authRoutes.filter(route => route !== 'Login')]
+    ? ([
+        'Login',
+        'Start',
+        ...authRoutes.filter(route => route !== 'Login' && route !== 'Start'),
+      ] as const)
     : authRoutes;
   const { name, colors } = useTheme();
   if (restoring) {

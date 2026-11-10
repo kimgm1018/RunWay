@@ -14,6 +14,7 @@ type DetailResponse = {
   averagePaceSecPerKm: number | null;
   averageHeartRate: number | null;
   averageCadence: number | null;
+  goalAchieved: boolean | null;
 };
 
 const rounded = (value: number | null) =>
@@ -38,6 +39,7 @@ export const saveRunRecord: Repositories['run']['saveRecord'] =
           averagePaceSecPerKm: rounded(detail.averagePaceSecPerKm),
           averageHeartRate: rounded(detail.averageHeartRate),
           averageCadence: rounded(detail.averageCadence),
+          goalAchieved: detail.goalAchieved,
         },
       };
       return saved;

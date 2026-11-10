@@ -352,6 +352,10 @@ export function GroupRunCreateScreen() {
   ]);
 
   const chooseCourse = (item: SavedCourse) => {
+    // SYS-002: only ACTIVE saved courses may start a new group run.
+    if (item.status === 'MERGED' || item.status === 'BLOCKED') {
+      return;
+    }
     setCourse({
       id: item.id,
       name: item.myAlias ?? item.name,
@@ -572,18 +576,22 @@ export function GroupRunCreateScreen() {
         onClose={() => setSheet(null)}
         title="코스 고르기"
       >
-        {(saved ?? []).map(item => (
-          <Button
-            key={item.id}
-            title={`${item.myAlias ?? item.name} · ${formatKm(
-              item.distanceM,
-              1,
-            )}km`}
-            variant={item.id === course?.id ? 'primary' : 'secondary'}
-            size="medium"
-            onPress={() => chooseCourse(item)}
-          />
-        ))}
+        {(saved ?? [])
+          .filter(
+            item => item.status !== 'MERGED' && item.status !== 'BLOCKED',
+          )
+          .map(item => (
+            <Button
+              key={item.id}
+              title={`${item.myAlias ?? item.name} · ${formatKm(
+                item.distanceM,
+                1,
+              )}km`}
+              variant={item.id === course?.id ? 'primary' : 'secondary'}
+              size="medium"
+              onPress={() => chooseCourse(item)}
+            />
+          ))}
       </BottomSheet>
       <BottomSheet
         visible={sheet === 'day'}

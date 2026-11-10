@@ -278,19 +278,22 @@ export function RunResultScreen() {
   if (!run?.summary) {
     return <View style={styles.root} />;
   }
-  const { summary, config, trail, saveState, recordId } = run;
+  const { summary, config, trail, saveState, recordId, goalAchieved } = run;
   const finished = plan
     ? summary.distanceM >= plan.distanceM * finishShare
     : false;
   const shape = plan ? plan.route : trail;
   // 4.5 비교 결과: 서버가 계산한 같은 지점 도달 시간 차이(S15P31E105-422).
   const rivalResult = comparisonResult(finalComparison);
-  // 목표 달성: the course finished within its planned time. Then the distance counts up and 달성 pops in, once
-  // (완료 하이라이트, S15P31E105-478).
-  const achieved =
+  // 목표 달성: prefer H02 goalAchieved after save; else the course finished within its planned time
+  // (S15P31E105-638, 완료 하이라이트 S15P31E105-478).
+  const localAchieved =
     plan !== null &&
     finished &&
     summary.durationSec <= plan.expectedDurationSec;
+  const achieved = goalAchieved !== null ? goalAchieved : localAchieved;
+  const showGoal =
+    goalAchieved !== null ? plan !== null : plan !== null && finished;
 
   const toggleSaved = async () => {
     setBusy(true);
@@ -417,7 +420,7 @@ export function RunResultScreen() {
               unit="spm"
             />
           </View>
-          {plan && finished ? (
+          {showGoal && plan ? (
             <Pop active={achieved}>
               <AppText style={styles.goalNote}>
                 {`목표 ${formatDuration(plan.expectedDurationSec)} `}

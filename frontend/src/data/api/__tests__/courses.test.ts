@@ -189,6 +189,77 @@ test('without a running profile the expected time uses 6′00″', async () => {
   expect(saved[0].expectedMinutes).toBe(30);
 });
 
+test('getSaved keeps the other courses when one C03 detail fails', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/9' && init.method === 'GET') {
+      return respond(500, { code: 'INTERNAL_ERROR', message: 'detail failed' });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved.map(item => item.id)).toEqual(['7']);
+  expect(saved[0]).toMatchObject({ status: 'ACTIVE', mergedIntoCourseId: null });
+});
+
+test('getSaved keeps MERGED and BLOCKED with status, not as plain ACTIVE runs', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/users/me/bookmarked-courses') {
+      return respond(200, {
+        items: [
+          {
+            id: 7,
+            regionCode: '26500',
+            status: 'MERGED',
+            mergedIntoCourseId: 11,
+            myAlias: '옛 코스',
+            distanceM: 5000,
+          },
+          {
+            id: 9,
+            regionCode: null,
+            status: 'BLOCKED',
+            mergedIntoCourseId: null,
+            myAlias: null,
+            distanceM: 6200.5,
+          },
+        ],
+      });
+    }
+    const match = path.match(/^\/courses\/(\d+)$/);
+    if (match && init.method === 'GET') {
+      const id = Number(match[1]);
+      return respond(200, {
+        ...detail(id, {
+          status: id === 7 ? 'MERGED' : 'BLOCKED',
+          mergedIntoCourseId: id === 7 ? 11 : null,
+        }),
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved).toEqual([
+    expect.objectContaining({
+      id: '7',
+      status: 'MERGED',
+      mergedIntoCourseId: '11',
+    }),
+    expect.objectContaining({
+      id: '9',
+      status: 'BLOCKED',
+      mergedIntoCourseId: null,
+    }),
+  ]);
+});
+
 const search: CourseSearch = {
   origin: { name: '광안리해수욕장', position: [129.118, 35.153] },
   targetDistanceM: 5000,
@@ -410,7 +481,9 @@ test('C08 failures reach the screen', async () => {
     respond(404, { code: 'COURSE_NOT_FOUND', message: '', details: {} }),
   );
   const { courses } = api();
-  await expect(courses.unsave('7')).rejects.toMatchObject({ code: 'UNKNOWN' });
+  await expect(courses.unsave('7')).rejects.toMatchObject({
+    code: 'COURSE_NOT_FOUND',
+  });
 });
 
 test('2.0 plans a chosen server course with its name, route and distance', async () => {

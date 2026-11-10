@@ -16,6 +16,7 @@ import {
   type LocationRecordingMode,
   type Repositories,
 } from '../../data';
+import { errorCode } from '../../data/errors';
 import { fontFamily } from '../../theme';
 import { locationLabels, settingsLook } from './SettingsScreen';
 
@@ -50,10 +51,12 @@ export function LocationSettingScreen() {
     }
   }, [data]);
 
+  const [saving, setSaving] = useState(false);
   const choose = async (next: LocationRecordingMode) => {
-    if (!mode || next === mode) {
+    if (!mode || next === mode || saving) {
       return;
     }
+    setSaving(true);
     const before = mode;
     setMode(next);
     try {
@@ -61,9 +64,15 @@ export function LocationSettingScreen() {
         (await settingsApi.update({ locationRecordingMode: next }))
           .locationRecordingMode,
       );
-    } catch {
-      setMode(before);
-      toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      if (errorCode(error) === 'SAVE_UNCONFIRMED') {
+        toast('저장했어요. 최신 설정을 불러오지 못했어요');
+      } else {
+        setMode(before);
+        toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -95,9 +104,14 @@ export function LocationSettingScreen() {
               key={item}
               accessibilityRole="switch"
               accessibilityLabel={locationLabels[item]}
-              accessibilityState={{ checked: item === mode }}
+              accessibilityState={{ checked: item === mode, disabled: saving }}
+              disabled={saving}
               onPress={() => choose(item)}
-              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.row,
+                saving && styles.pressed,
+                pressed && !saving && styles.pressed,
+              ]}
             >
               <AppText style={styles.rowText}>{locationLabels[item]}</AppText>
               <Switch on={item === mode} />

@@ -638,7 +638,6 @@ export function createMockRepositories(
       getRecent: (sort, limit) =>
         respond(
           records
-            .filter(run => run.runType === 'SOLO')
             .map(toSummary)
             .sort(recordOrder[sort])
             .slice(0, limit),
@@ -783,13 +782,15 @@ export function createMockRepositories(
         records.find(record => record.groupRunId === groupRunId) ?? null,
     }),
     notifications: {
-      list: () => {
+      // N01 pages of 50; the mock inbox is smaller, so one page is the whole list.
+      list: (_cursor = null) => {
         const items =
           options.scenario === 'noNotifications' ? [] : notifications;
         return respond(
           {
             items,
             unreadCount: items.filter(item => !item.read).length,
+            nextCursor: null,
           },
           options,
         );
