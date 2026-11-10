@@ -2,6 +2,7 @@ import { DataError, errorCode, type DataErrorCode } from '../../data/errors';
 import { createBatchRelay } from '../../watch/batchRelay';
 import { createLiveMetrics, type LiveMetrics } from '../../watch/liveMetrics';
 import { createPhoneRecorder, type PhoneRecorder } from '../../watch/phoneRecorder';
+import { createCoachingAnnouncer, type CoachingVoiceOut } from './coachingAnnouncer';
 import type {
   BpmApproval,
   CoachingGuide,
@@ -141,6 +142,8 @@ type Deps = {
     // 그룹 세션의 S02 조회 주기(S15P31E105-420). S10이 오지 않아도 서버가 승인한 출발·종료를 찾는다.
     groupPollMs?: number;
   };
+  // 코칭 음성 안내(S15P31E105-579). 없으면 읽지 않는다.
+  voice?: CoachingVoiceOut;
 };
 
 type ResultEvent = Extract<WatchSessionEvent, { type: 'COMMAND_RESULT' }>;
@@ -215,6 +218,7 @@ export function createRunControl({
   newId = randomId,
   now = () => Date.now(),
   timers,
+  voice,
 }: Deps): RunControl {
   const resultWaitMs = timers?.resultWaitMs ?? watch.timing?.resultWaitMs ?? 30_000;
   const endResultWaitMs = timers?.endResultWaitMs ?? watch.timing?.endResultWaitMs ?? 120_000;
@@ -248,6 +252,10 @@ export function createRunControl({
   // ── 워치 BPM·서버 코칭 중계(S15P31E105-257). 코칭 값은 화면 상태(coaching·currentBpm)로도 보이지만, 중계 결과로 problem·pending은 바꾸지 않는다.
   // 워치에 보낸 SET_BPM 승인 명령. 시간 초과 뒤 늦게 온 결과도 보고한다.
   let bpmInflight: BpmApproval | null = null;
+  // 코칭 음성 안내(S15P31E105-579): 워치가 적용한 코칭(폰 기록이면 새로 받은 코칭)을 읽는다. 결과 이벤트에는 페이스가 없어
+  // S10/S02에서 본 코칭을 commandId로 기억해 둔다.
+  const announcer = voice ? createCoachingAnnouncer(voice) : null;
+  const knownGuides = new Map<string, CoachingGuide>();
   // 워치에 전달 중인 코칭 명령. 같은 명령은 결과를 기다리는 동안 다시 보내지 않고, 재연결 때만 다시 보낸다.
   let guideWait: { commandId: string; timer: ReturnType<typeof setTimeout> | null } | null = null;
   // 서버 저장을 확인한 코칭 결과(commandId → 저장 후 버전). 같은 결과를 다시 받으면 저장 확인만 다시 보낸다.
@@ -401,6 +409,7 @@ export function createRunControl({
       state = { ...state, watchLost: false };
     }
     listeners.forEach(listener => listener(state));
+    announcer?.setRunning(!disposed && state.status === 'RUNNING');
     syncEvents();
     syncPhone();
     syncWatchCheck();
@@ -999,7 +1008,16 @@ export function createRunControl({
     }
     watch.sendServerState(sessionId, view, null).catch(noop);
     relayServerCommand(view);
+    for (const seen of [view.pendingCommand?.coachingGuide, view.coaching]) {
+      if (seen) {
+        knownGuides.set(seen.commandId, seen);
+      }
+    }
     if (view.recordingMode === 'PHONE_FALLBACK') {
+      // 폰으로 기록 중이면 워치 적용이 없으므로 새로 받은 코칭을 안내한다(S15P31E105-579).
+      if (view.coaching) {
+        announcer?.applied(view.coaching);
+      }
       return;
     }
     const guide = view.pendingCommand?.coachingGuide ?? view.coaching ?? null;
@@ -1427,6 +1445,11 @@ export function createRunControl({
         clearTimeout(guideWait.timer);
         guideWait.timer = null;
       }
+      // 워치가 실제로 적용한 코칭만 읽는다(S15P31E105-579). 같은 결과가 다시 와도 announcer가 한 번만 다룬다.
+      const applied = knownGuides.get(event.commandId);
+      if (event.result === 'APPLIED' && event.sessionId === state.sessionId && applied) {
+        announcer?.applied(applied);
+      }
       if (!state.sessionId) {
         earlyCoaching.set(event.commandId, event);
         return;
@@ -1542,6 +1565,8 @@ export function createRunControl({
       }),
     dispose: () => {
       disposed = true;
+      announcer?.reset();
+      knownGuides.clear();
       recorder?.dispose();
       recorder = null;
       recorderFor = null;

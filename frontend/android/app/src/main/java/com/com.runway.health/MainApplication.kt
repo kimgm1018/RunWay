@@ -25,6 +25,7 @@ class MainApplication : Application(), ReactApplication {
           add(MelonMediaPackage())
           add(PlaceNamePackage())
           add(SpotifyRemotePackage())
+          add(CoachingVoicePackage())
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
         },

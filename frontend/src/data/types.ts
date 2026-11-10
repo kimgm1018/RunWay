@@ -873,6 +873,9 @@ export type SessionCommand = {
   coachingGuide?: CoachingGuide | null;
 };
 
+// AI04 코칭 단계(sessions.md coaching 객체 coachingLevel, S15P31E105-503).
+export type CoachingLevel = 'OK' | 'CAUTION' | 'DANGER';
+
 // S02 coaching 객체 = COACHING_GUIDE payload (sessions.md "coaching 객체 필드", 9.3).
 export type CoachingGuide = {
   commandId: string;
@@ -881,6 +884,8 @@ export type CoachingGuide = {
   targetBpm: number;
   recommendedPaceSecPerKm: number;
   expiresAt: string;
+  // 앱의 음성 안내만 쓴다(S15P31E105-579). 워치 COACHING_GUIDE payload에는 넣지 않는다. 저장된 값이 없으면 null.
+  coachingLevel?: CoachingLevel | null;
 };
 
 // S02 comparison 객체(sessions.md "기록 비교", S15P31E105-422). 서버가 계산한 같은 거리 도달 운동시간이며 앱·워치는 다시 계산하지 않는다.
