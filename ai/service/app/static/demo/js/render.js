@@ -131,6 +131,8 @@
     var ms = sizeSvg(map), es = sizeSvg(elevation);
     var raw = course && Array.isArray(course.points) ? course.points : [];
     var points = raw.filter(function (p) { return Array.isArray(p) && num(p[0]) != null && num(p[1]) != null; });
+    var context = document.querySelector('.context');
+    if (context) context.classList.toggle('no-course', points.length < 2);
     if (points.length < 2) {
       svgText(map, {x: ms.w / 2, y: ms.h / 2 - 6, 'text-anchor': 'middle', class: 'svg-empty'}, '코스 데이터 없음');
       svgText(map, {x: ms.w / 2, y: ms.h / 2 + 16, 'text-anchor': 'middle', class: 'svg-legend'}, '후보·예측·안내는 그대로 동작합니다');
@@ -214,6 +216,7 @@
     var size = sizeSvg(chart);
     var W = size.w, H = size.h;
     if (!trace) return;
+    if (trace.group) { drawGroupChart(chart, W, H, trace, traces); return; }
     var now = num(trace.elapsedSec) == null ? 0 : Number(trace.elapsedSec);
     var actual = actualSeries(trace, traces);
     var candidates = Array.isArray(trace.candidates) ? trace.candidates : [];
@@ -304,6 +307,83 @@
     if (start) svg('circle', {cx: start[0], cy: start[1], r: 6, class: 'svg-dot'}, chart);
   }
 
+  // 그룹: 러너마다 심박 선, 가장 빠듯한 러너 강조, 고른 공동 페이스의 2분 뒤 예측, 그 러너의 허용선
+  function drawGroupChart(chart, W, H, trace, traces) {
+    var g = trace.group, now = num(trace.elapsedSec) || 0;
+    var members = g.members || [];
+    var series = members.map(function (m) {
+      var pts = [];
+      (traces || []).forEach(function (t) {
+        var at = num(t.elapsedSec);
+        if (!t.group || at == null || at < now - PAST_SEC || at > now) return;
+        var mm = (t.group.members || []).filter(function (x) { return x.label === m.label; })[0];
+        if (mm && num(mm.hrNowBpm) != null && at < now - 115) pts.push([at, Number(mm.hrNowBpm)]);
+      });
+      (m.hrTail || []).forEach(function (v, i, arr) { if (num(v) != null) pts.push([now - (arr.length - 1 - i) * 5, Number(v)]); });
+      pts.sort(function (a, b) { return a[0] - b[0]; });
+      return pts;
+    });
+    var chosen = g.chosenIndex;
+    var worst = g.worstIndex;
+    var values = [];
+    series.forEach(function (pts) { pts.forEach(function (p) { values.push(p[1]); }); });
+    members.forEach(function (m) {
+      var row = m.predHrBpm && m.predHrBpm[chosen];
+      (row || []).forEach(function (v) { if (num(v) != null) values.push(Number(v)); });
+      if (num(m.allowBpm) != null) values.push(Number(m.allowBpm));
+    });
+    if (!values.length) {
+      svgText(chart, {x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'svg-empty'}, '심박 입력을 기다리고 있습니다');
+      return;
+    }
+    var lo = Math.min.apply(null, values) - 6, hi = Math.max.apply(null, values) + 5;
+    if (hi - lo < 28) { var mid = (hi + lo) / 2; lo = mid - 14; hi = mid + 14; }
+    var padL = 46, padR = 96, padT = 14, padB = 26;
+    var t0 = now - PAST_SEC, t1 = now + FUTURE_SEC;
+    var x = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
+    var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
+    var defs = svg('defs', {}, chart);
+    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    var step = (hi - lo) > 60 ? 20 : 10;
+    for (var gv = Math.ceil(lo / step) * step; gv <= hi; gv += step) {
+      svg('line', {x1: padL, x2: W - padR, y1: y(gv), y2: y(gv), class: 'svg-grid'}, chart);
+      svgText(chart, {x: padL - 8, y: y(gv) + 4, 'text-anchor': 'end', class: 'svg-axis'}, String(gv));
+    }
+    [-360, -240, -120, 0, 120].forEach(function (sec) {
+      svgText(chart, {x: x(now + sec), y: H - 6, 'text-anchor': 'middle', class: 'svg-axis'},
+        sec === 0 ? '지금' : (sec > 0 ? '+' : '−') + Math.abs(sec / 60) + '분');
+    });
+    var wm = Number.isInteger(worst) ? members[worst] : null;
+    var allow = wm ? num(wm.allowBpm) : null;
+    if (allow != null && y(allow) > padT) {
+      svg('rect', {x: padL, y: padT, width: W - padL - padR, height: Math.max(0, y(allow) - padT), class: 'svg-danger-zone'}, chart);
+    }
+    svg('line', {x1: x(now), x2: x(now), y1: padT, y2: H - padB, class: 'svg-now'}, chart);
+    var order = members.map(function (_, i) { return i; }).sort(function (a, b) { return (a === worst) - (b === worst); });
+    order.forEach(function (i) {
+      var m = members[i], pts = series[i], isWorst = i === worst;
+      if (pts.length > 1) {
+        svg('path', {d: pathOf(pts.map(function (p) { return [x(p[0]), y(p[1])]; })), class: isWorst ? 'svg-member worst' : 'svg-member'}, chart);
+      }
+      var row = m.predHrBpm && m.predHrBpm[chosen];
+      var last = pts.length ? pts[pts.length - 1] : null;
+      if (row && last) {
+        var pp = [[x(now), y(last[1])]];
+        row.forEach(function (v, k) { if (num(v) != null && HORIZONS[k] != null) pp.push([x(now + HORIZONS[k]), y(Number(v))]); });
+        svg('path', {d: pathOf(pp), class: isWorst ? 'svg-pred' : 'svg-member-pred'}, chart);
+        var end = pp[pp.length - 1];
+        svg('circle', {cx: end[0], cy: end[1], r: isWorst ? 6 : 4, class: isWorst ? 'svg-pred-dot' : 'svg-member-dot'}, chart);
+        svgText(chart, {x: end[0] + 10, y: end[1] + 5, class: isWorst ? 'svg-pred-label' : 'svg-member-label'},
+          m.label.replace('러너 ', 'R') + ' ' + Math.round(Number(row[2])));
+      }
+      if (last) svg('circle', {cx: x(now), cy: y(last[1]), r: isWorst ? 6 : 4, class: isWorst ? 'svg-dot' : 'svg-member-dot'}, chart);
+    });
+    if (allow != null) {
+      svg('line', {x1: padL, x2: W - padR + 4, y1: y(allow), y2: y(allow), class: 'svg-allow'}, chart);
+      svgText(chart, {x: W - padR + 10, y: y(allow) - 6, class: 'svg-allow-label'}, '허용 ' + Math.round(allow));
+    }
+  }
+
   // ── 후보 카드 ───────────────────────────
   function pct(value, range) {
     return Math.max(0, Math.min(100, (value - range.lo) / (range.hi - range.lo) * 100));
@@ -392,26 +472,39 @@
     board.classList.remove('hidden');
     clear(board);
     var candidates = trace.group.candidates;
+    var baseline = trace.group.baselineIndex;
     board.style.setProperty('--cols', String(candidates.length));
-    board.appendChild(el('div', 'gb-head', '멤버'));
+    board.style.setProperty('--rows', String(matrix.rows.length));
+    board.appendChild(el('div', 'gb-head gb-corner', '러너 · 지금 심박'));
     candidates.forEach(function (c, j) {
-      var head = el('div', 'gb-head' + (j === matrix.chosenIndex ? ' chosen' : ''), deltaText(c.deltaSecPerKm));
+      var ok = matrix.columnsPassed[j];
+      var head = el('div', 'gb-head' + (j === matrix.chosenIndex ? ' chosen' : '') + (j === baseline ? ' current' : '') +
+        (ok === false ? ' col-fail' : ''), deltaText(c.deltaSecPerKm));
       head.appendChild(el('small', null, L().formatPace(c.paceSecPerKm)));
+      head.appendChild(el('i', 'gb-mark', j === matrix.chosenIndex ? '선택' : ok === false ? '✕' : ok ? '✓' : ''));
       board.appendChild(head);
     });
+    var cellIndex = 0;
     matrix.rows.forEach(function (row, i) {
       var worst = i === matrix.worstIndex;
-      var name = el('div', 'gb-name', row.label + (row.allow != null ? ' · 허용 ' + Math.round(row.allow) : ''));
-      if (worst) name.classList.add('gb-row-worst');
+      var name = el('div', 'gb-name');
+      name.appendChild(el('span', 'gb-who', row.label));
+      name.appendChild(el('b', 'gb-hr', row.hrNow != null ? String(Math.round(row.hrNow)) : '—'));
+      name.appendChild(el('small', null, row.allow != null ? '허용 ' + Math.round(row.allow) : ''));
+      if (worst) { name.classList.add('gb-row-worst'); name.setAttribute('title', '가장 빠듯한 러너'); }
       board.appendChild(name);
       row.cells.forEach(function (cell, j) {
         var cls = 'gb-cell' + (cell.passed === false ? ' fail' : cell.headroom != null && cell.headroom < 3 ? ' tight' : '') +
           (j === matrix.chosenIndex ? ' col-chosen' : '') + (worst ? ' gb-row-worst' : '');
-        var text = cell.headroom == null ? '—' : (cell.headroom > 0 ? '+' : '−') + Math.abs(Math.round(cell.headroom));
-        board.appendChild(el('div', cls, text));
+        var node = el('div', cls);
+        node.style.setProperty('--i', String(cellIndex++));
+        node.appendChild(el('b', null, cell.pred != null ? String(Math.round(cell.pred)) : '—'));
+        node.appendChild(el('small', null, cell.headroom == null ? '' : (cell.headroom > 0 ? '여유 ' : '초과 ') + Math.abs(Math.round(cell.headroom))));
+        board.appendChild(node);
       });
     });
-    put('candidate-meta', '멤버 ' + matrix.rows.length + '명 × 후보 ' + candidates.length + '개 · 칸 = 허용선까지 남은 bpm');
+    put('candidate-meta', '러너 ' + matrix.rows.length + '명 × ' + L().candidateSummary(candidates).text +
+      ' · 칸 = 2분 뒤 예측 심박 / 허용선까지 여유(상한 기준)');
   }
 
   // ── 판단 기록 ───────────────────────────
@@ -442,7 +535,12 @@
       var hr = el('span', 'rec-hr');
       var c = Number.isInteger(decision.chosenIndex) && trace.candidates ? trace.candidates[decision.chosenIndex] : null;
       var pred = c && c.predHrBpm && num(c.predHrBpm[2]);
-      if (pred != null) {
+      if (trace.group) {
+        if (decision.changed) hr.appendChild(document.createTextNode(L().formatPace(decision.fromPaceSecPerKm) + ' → '));
+        hr.appendChild(el('b', null, decision.reasonLabel || ''));
+        var g = trace.group, w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+        if (w && w.hrNowBpm != null) hr.appendChild(document.createTextNode(' · ' + w.label + ' ' + Math.round(w.hrNowBpm)));
+      } else if (pred != null) {
         hr.appendChild(document.createTextNode('예측 '));
         hr.appendChild(el('b', null, String(Math.round(pred))));
         var allow = num(trace.reference && trace.reference.allowBpm);
@@ -466,7 +564,18 @@
   }
 
   // ── 상단 숫자 ───────────────────────────
+  var PERSONAL_LABELS = {'label-hr': '현재 심박', 'label-pace': '실측 페이스', 'label-distance': '거리', 'unit-distance': 'km',
+    'kicker-text': '지금 러너에게 갈 안내', 'guide-side-label': '이 페이스의 2분 뒤 예측'};
+  var GROUP_LABELS = {'label-hr': '가장 빠듯한 러너 심박', 'label-pace': '이전 공동 페이스', 'label-distance': '그룹 인원', 'unit-distance': '명',
+    'kicker-text': '지금 그룹에 갈 공동 페이스', 'guide-side-label': '가장 빠듯한 러너 2분 뒤 예측'};
+  function setLabels(group) {
+    var labels = group ? GROUP_LABELS : PERSONAL_LABELS;
+    Object.keys(labels).forEach(function (id) { put(id, labels[id]); });
+  }
+
   function heroNumbers(trace, stage) {
+    setLabels(!!trace.group);
+    if (trace.group) { groupHero(trace); return; }
     var input = trace.input || {};
     var allow = num(trace.reference && trace.reference.allowBpm);
     var hr = num(input.hrNowBpm);
@@ -492,9 +601,53 @@
     put('metric-latency', text);
   }
 
+  function groupHero(trace) {
+    var g = trace.group, d = trace.decision || {};
+    var w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+    var hr = w ? num(w.hrNowBpm) : null, allow = w ? num(w.allowBpm) : null;
+    putBump('metric-hr', hr != null ? Math.round(hr) : '—');
+    put('metric-allow', w ? w.label + ' · 허용선 ' + (allow != null ? Math.round(allow) : '—') + ' bpm' : '허용선 —');
+    var hrCard = document.querySelector('.stat-hr');
+    if (hrCard) {
+      hrCard.classList.toggle('over', hr != null && allow != null && hr >= allow);
+      var heart = hrCard.querySelector('.heart');
+      if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
+    }
+    putBump('metric-pace', d.fromPaceSecPerKm != null ? L().formatPace(d.fromPaceSecPerKm) : '—');
+    put('metric-grade', g.goalPaceSecPerKm != null ? '목표 ' + L().formatPace(g.goalPaceSecPerKm) + '/km' : '목표 —');
+    var hrCount = (g.members || []).length;
+    putBump('metric-distance', hrCount + (g.paceOnlyCount || 0));
+    put('metric-remaining', '심박 판단 ' + hrCount + '명' + (g.paceOnlyCount ? ' · 페이스만 ' + g.paceOnlyCount : '') +
+      (g.excludedCount ? ' · 제외 ' + g.excludedCount : ''));
+    putBump('metric-elapsed', L().formatElapsed(trace.elapsedSec));
+    var latency = trace.latency || {};
+    put('metric-latency', latency.decideMs != null ? '판단 ' + formatNumber(latency.decideMs, 0) + ' ms · 30초마다' : '30초마다 판단');
+  }
+
   function guideBlock(trace, options) {
     var guide = L().guideCard(trace);
     var decision = trace.decision || {};
+    var from = byId('guide-from');
+    if (from) {
+      var showFrom = !!trace.group && decision.changed && decision.fromPaceSecPerKm != null;
+      from.textContent = showFrom ? L().formatPace(decision.fromPaceSecPerKm) + ' →' : '';
+      from.classList.toggle('hidden', !showFrom);
+      var card = document.querySelector('.guide-card');
+      if (card) card.classList.toggle('has-from', showFrom);
+    }
+    if (trace.group) {
+      var g = trace.group, w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+      var gp = w && Number.isInteger(g.chosenIndex) && w.predHr120Bpm ? num(w.predHr120Bpm[g.chosenIndex]) : null;
+      put('guide-pace', decision.recommendedPaceSecPerKm != null ? L().formatPace(decision.recommendedPaceSecPerKm) : '—');
+      var act = put('guide-action', guide.actionText);
+      if (act) act.setAttribute('data-action', guide.actionKind || 'idle');
+      put('guide-delivery', options.replay ? '재생' : guide.deliveryText);
+      put('guide-pred', gp != null ? Math.round(gp) : '—');
+      put('guide-allow', w && w.allowBpm != null ? Math.round(w.allowBpm) : '—');
+      var gs = byId('guide-side');
+      if (gs) gs.classList.toggle('over', gp != null && w && gp >= w.allowBpm);
+      return;
+    }
     put('guide-pace', decision.recommendedPaceSecPerKm != null ? L().formatPace(decision.recommendedPaceSecPerKm) : '—');
     var action = put('guide-action', guide.actionText === '—' ? '대기' : guide.actionText);
     if (action) action.setAttribute('data-action', guide.actionKind || 'idle');
@@ -530,6 +683,11 @@
     if (chip) chip.setAttribute('data-kind', mode.kind);
     var cards = candidateCards(trace, animate && !trace.group);
     groupBoard(trace);
+    var board = byId('group-board');
+    if (board) {
+      board.classList.remove('animating');
+      if (animate && trace.group) { void board.offsetWidth; board.classList.add('animating'); }
+    }
     lastRendered = {trace: trace, traces: traces};
     drawChart(trace, traces);
     drawCourse(latestSnapshot && latestSnapshot.course, trace);
@@ -617,6 +775,11 @@
     clear(byId('record-list')); clear(byId('candidate-list')); clear(byId('hr-chart'));
     put('candidate-meta', 'GRU가 예측한 2분 뒤 심박');
     groupBoard(null);
+    setLabels(false);
+    var fromEl = byId('guide-from');
+    if (fromEl) fromEl.classList.add('hidden');
+    var guideEl = document.querySelector('.guide-card');
+    if (guideEl) guideEl.classList.remove('has-from');
     setBanner(null);
     setWaiting(true);
     renderSnapshot(snapshot || {});

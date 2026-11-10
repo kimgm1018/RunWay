@@ -95,6 +95,7 @@
     var candidate = (trace.candidates || [])[decision.chosenIndex];
     var delta = candidate && candidate.deltaSecPerKm;
     var actionText = action === 'EASE_OFF' ? '속도 낮추기' : delta === 0 ? '유지' : delta < 0 ? '가속' : delta > 0 ? '감속' : '—';
+    if (decision.reasonLabel) actionText = decision.reasonLabel;   // 그룹 AI10: 가속·감속·정상 · 유지·쿨다운·워밍업
     var delivery = trace.coaching && trace.coaching.delivery;
     var deliveryText = {WATCH: '워치 적용', NOT_DELIVERED: '워치 미전달', REPLAY: '재생'}[delivery] || '워치 미전달';
     return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText,
@@ -130,6 +131,7 @@
   function actionKind(trace) {
     var decision = trace && trace.decision || {};
     if (decision.action === 'EASE_OFF') return 'ease';
+    if (decision.direction) return {FAST: 'up', SLOW: 'down', HOLD: 'hold'}[decision.direction] || 'idle';
     var candidate = (trace && trace.candidates || [])[decision.chosenIndex];
     var delta = candidate && Number(candidate.deltaSecPerKm);
     if (!candidate || !Number.isFinite(delta)) return 'idle';
@@ -215,14 +217,16 @@
 
   // 어떤 판단기가 낸 기록인지: trace.group이 있으면 그룹 공동 페이스(AI10), 아니면 개인 페이스(AI04)
   function modeOf(trace) {
-    if (trace && trace.group) return {kind: 'group', label: trace.group.label || '그룹 공동 페이스 · AI10'};
+    if (trace && (trace.group || trace.kind === 'GROUP')) {
+      return {kind: 'group', label: trace.group && trace.group.label || '그룹 공동 페이스 · AI10'};
+    }
     return {kind: 'personal', label: '개인 페이스 · AI04'};
   }
 
-  // 그룹 판단(제안 형식, 아직 데모 스트림에 들어오지 않음):
-  // trace.group = {label?, candidates:[{deltaSecPerKm, paceSecPerKm}], chosenIndex,
-  //                members:[{label, allowBpm, upperHrBpm:[후보별 120초 예측+여유]}]}
-  // 행 = 멤버, 열 = 후보. 칸 값 = 허용선까지 남은 bpm(음수면 초과). 고른 후보에서 여유가 가장 작은 멤버가 worst.
+  // 그룹 판단(app/demo/group_trace.py build_group_trace):
+  // trace.group = {candidates:[{deltaSecPerKm, paceSecPerKm, passed}], chosenIndex, worstIndex,
+  //                members:[{label, hrNowBpm, allowBpm, predHr120Bpm[], upperHrBpm[], passed[]}]}
+  // 행 = 멤버, 열 = 후보. 칸 = 120초 예측 심박과 허용선까지 남은 bpm(상한 기준, 음수면 초과).
   function groupMatrix(group) {
     if (!group || !Array.isArray(group.members) || !Array.isArray(group.candidates)) return null;
     var chosen = Number.isInteger(group.chosenIndex) ? group.chosenIndex : null;
@@ -230,19 +234,45 @@
     var rows = group.members.map(function (member, index) {
       var allow = Number(member && member.allowBpm);
       var uppers = member && Array.isArray(member.upperHrBpm) ? member.upperHrBpm : [];
+      var preds = member && Array.isArray(member.predHr120Bpm) ? member.predHr120Bpm : [];
+      var passes = member && Array.isArray(member.passed) ? member.passed : [];
       var cells = group.candidates.map(function (_, j) {
         var upper = uppers[j] == null ? NaN : Number(uppers[j]);
+        var pred = preds[j] == null ? NaN : Number(preds[j]);
         var headroom = Number.isFinite(upper) && Number.isFinite(allow) ? allow - upper : null;
-        return {upper: Number.isFinite(upper) ? upper : null, headroom: headroom, passed: headroom == null ? null : headroom > 0};
+        var passed = typeof passes[j] === 'boolean' ? passes[j] : headroom == null ? null : headroom > 0;
+        return {upper: Number.isFinite(upper) ? upper : null, pred: Number.isFinite(pred) ? pred : null,
+          headroom: headroom, passed: passed};
       });
       var atChosen = chosen != null && cells[chosen] ? cells[chosen].headroom : null;
       if (atChosen != null && atChosen < worstHeadroom) { worstHeadroom = atChosen; worst = index; }
-      return {label: member && member.label || '멤버 ' + (index + 1), allow: Number.isFinite(allow) ? allow : null, cells: cells};
+      var hr = Number(member && member.hrNowBpm);
+      return {label: member && member.label || '멤버 ' + (index + 1), allow: Number.isFinite(allow) ? allow : null,
+        hrNow: member && member.hrNowBpm != null && Number.isFinite(hr) ? hr : null, cells: cells};
     });
-    return {rows: rows, chosenIndex: chosen, worstIndex: worst};
+    if (Number.isInteger(group.worstIndex) && rows[group.worstIndex]) worst = group.worstIndex;
+    var columns = group.candidates.map(function (c, j) {
+      if (typeof c.passed === 'boolean') return c.passed;
+      return rows.length ? rows.every(function (r) { return r.cells[j].passed !== false; }) : null;
+    });
+    return {rows: rows, chosenIndex: chosen, worstIndex: worst, columnsPassed: columns};
+  }
+
+  // 그룹 러닝 스트림 키(app/demo/buffer.py GROUP_KEY_OFFSET과 같은 값, 테스트로 확인). Nginx 숫자 경로를 그대로 쓴다
+  var GROUP_KEY_OFFSET = 9000000000000;
+
+  // ?session=<id>가 있으면 그 세션, ?group=<groupRunId>면 그룹 스트림, 둘 다 없으면 가장 최근 세션
+  function streamRef(params) {
+    var session = params.get('session');
+    if (session) return session;
+    var group = params.get('group');
+    if (group && /^[0-9]+$/.test(group)) return String(GROUP_KEY_OFFSET + Number(group));
+    return 'latest';
   }
 
   var RunwayDemoLogic = {
+    GROUP_KEY_OFFSET: GROUP_KEY_OFFSET,
+    streamRef: streamRef,
     candidateSummary: candidateSummary,
     modeOf: modeOf,
     groupMatrix: groupMatrix,

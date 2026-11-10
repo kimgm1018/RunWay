@@ -67,8 +67,20 @@ def _predict_all(model, requests: list[PredictRequest], candidate_count: int) ->
     return np.concatenate(predictions).reshape(len(requests), candidate_count, 3)
 
 
+def _fill_detail(detail: dict, *, paces, baseline, chosen, requests, hr_members, uppers, predictions) -> None:
+    """시연 기록에 쓸 계산값만 옮긴다. 응답·선택에는 영향이 없다."""
+    detail.update({
+        "paces": [float(p) for p in paces], "baseline": baseline, "chosen": chosen,
+        "members": [{"history": request.history, "allow": float(member[1]), "danger": float(member[0].danger_bpm),
+                     "upper": [float(v) for v in uppers[i]] if uppers is not None else None,
+                     "pred": [[float(v) for v in row] for row in predictions[i]] if predictions is not None else None}
+                    for i, (request, member) in enumerate(zip(requests, hr_members))],
+    })
+
+
 def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_lookup=None,
-                         hr_threshold_lookup_configured: bool = True) -> GroupPaceResponse:
+                         hr_threshold_lookup_configured: bool = True, detail: dict | None = None) -> GroupPaceResponse:
+    """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다."""
     current = body.current_group_pace_sec_per_km
     paces = candidate_paces(current, DELTAS)
     baseline = paces.index(current)
@@ -124,6 +136,10 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         changed = abs(pace - current) >= 10
         if not changed:
             index, pace = baseline, current
+        if detail is not None:
+            _fill_detail(detail, paces=paces, baseline=baseline, chosen=index, requests=requests, hr_members=hr_members,
+                         uppers=uppers if hr_members else None,
+                         predictions=predictions if requests else None)
         return GroupPaceResponse(
             group_pace_sec_per_km=pace, changed=changed,
             direction=("SLOW" if pace > current else "FAST") if changed else "HOLD", reason=reason,
