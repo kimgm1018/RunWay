@@ -27,3 +27,7 @@ RUNTIME['runway_routing/graph.py'] = 'c5093a2a7f1632c7296ca840c23b8d0ba396145948
 # 640: env 거리를 창 segment 위치로 조회(같은 행), full_status를 정렬 배열 Mapping으로(같은 key·status). prep 배열은 같다.
 RUNTIME['runway_routing/graph.py'] = '3ef2a685fd6440f885fad2e305ac8719acad16a26fd290d7c097288475f95fb5'
 RUNTIME['runway_routing/array_graph.py'] = '95881e3d9f779ea1d0608ad1710d2af2fdb500efe40c08aeb588a0ef660481c7'
+# 645: 생성 disk의 처음 나온 순번·pair별 최단 간선을 Numba 훑기로, 요청 graph 첫 간선을 segment 단위로, edge 문자열 판정을
+# 서로 다른 값 단위로(모두 같은 값). prep 배열은 같다.
+RUNTIME['runway_routing/graph.py'] = '6be7ccdfa59abc5a5b054b450f486bcd36c613de014b2d2abe0fdac9badc67d9'
+RUNTIME['runway_routing/array_graph.py'] = '54a4b3f9f8b596a081249249c4c773a8e88bda1c395ad2ee6e695fd0b095437e'

@@ -85,6 +85,8 @@ ENV_PREPARED = env_flag("RUNWAY_ENV_PREPARED")
 LEAN_ROUTING = env_flag("RUNWAY_ADAPTER_LEAN_ROUTING")
 #   RUNWAY_FAST_ROUTING=0          _build_routing: pandas 정렬·중복 제거와 pair_to_eid dict(S15P31E105-626 이전 경로)
 FAST_ROUTING = env_flag("RUNWAY_FAST_ROUTING")
+#   RUNWAY_FAST_EDGE_ARRAYS=0      prepare_edge_arrays: 문자열 열 np.isin을 edge마다(S15P31E105-645 이전 경로)
+FAST_EDGE_ARRAYS = env_flag("RUNWAY_FAST_EDGE_ARRAYS")
 
 
 def _s(v):
@@ -313,9 +315,30 @@ def _env_inner(cg, env: dict, thresholds: dict):
     return inner
 
 
+class _Codes:
+    """np.isin(values, test)를 서로 다른 값에서 한 번 계산하고 edge로 펼친다(S15P31E105-645).
+
+    pd.factorize는 같은 값(==, hash)을 한 번호로 묶으므로 각 edge의 isin 결과는 그 번호 대표값의 결과와 같다.
+    결측(None/NaN)은 번호 -1이고 그 결과는 na(결측일 때 기존 식의 값)다."""
+
+    def __init__(self, values):
+        self.codes, self.uniq = pd.factorize(values, use_na_sentinel=True)
+        self.uniq = np.asarray(self.uniq, dtype=object)
+
+    def isin(self, test, na=False):
+        return self.spread(np.isin(self.uniq, test), na)
+
+    def spread(self, per_value, na=False):
+        """서로 다른 값마다의 bool -> edge마다의 bool. 번호 -1(결측)은 맨 뒤에 붙인 na 칸을 가리킨다."""
+        return np.r_[np.asarray(per_value, bool), bool(na)][self.codes]
+
+
 def prepare_edge_arrays(graph) -> None:
     """Per routing edge numpy arrays used by features, generation bias and scoring."""
     e = graph.redges
+    if FAST_EDGE_ARRAYS:
+        _prepare_edge_arrays_codes(graph, e)
+        return
     hw = e["highway"].fillna("").to_numpy()
     fw = e["footway"].to_numpy()
     tun = e["tunnel"].to_numpy()
@@ -330,6 +353,31 @@ def prepare_edge_arrays(graph) -> None:
                   | ((hw == "footway") & ~np.isin(fw, list(STREET_FOOTWAY))))
     A["bridge"] = (pd.notna(br) & (br != "no")).astype(bool)
     A["tunnel"] = (pd.notna(tun) & ~np.isin(tun.astype(str), list(NOT_A_TUNNEL))).astype(bool)
+    A["recovered"] = e["recovered"].to_numpy(bool)
+    for f in ENV_FLAGS:
+        A[f] = e[f].to_numpy(bool) if f in e.columns else np.zeros(len(e), bool)
+    graph.ea = A
+
+
+def _prepare_edge_arrays_codes(graph, e) -> None:
+    """prepare_edge_arrays와 같은 key·순서·값(bool 배열)을 문자열 열의 서로 다른 값 단위 isin으로 만든다(S15P31E105-645).
+
+    hw는 fillna("") 뒤라 결측이 없다. footway의 결측(NaN)은 기존 np.isin에서 어떤 문자열과도 같지 않아 False다.
+    tunnel은 기존 식 notna & ~isin(str(값))이라 결측이면 False, 아니면 str(대표값)으로 같은 판정을 한다."""
+    hw = _Codes(e["highway"].fillna("").to_numpy())
+    fw = _Codes(e["footway"].to_numpy())
+    tun = _Codes(e["tunnel"].to_numpy())
+    br = e["bridge"].to_numpy()
+    A = {"length": e["length"].to_numpy(float), "u": e["u"].to_numpy(), "osmid": e["osmid"].to_numpy()}
+    for h in ("footway", "pedestrian", "path", "track", "steps", "cycleway", "residential", "service",
+              "unclassified", "living_street", "tertiary", "secondary", "primary"):
+        A[f"hw_{h}"] = hw.isin([h, f"{h}_link"])
+    A["major"] = hw.isin(list(MAJOR))
+    A["walk_dedicated"] = hw.isin(list(WALK_DEDICATED))
+    A["trail"] = (hw.isin(["path", "track", "pedestrian"])
+                  | (hw.isin(["footway"]) & ~fw.isin(list(STREET_FOOTWAY))))
+    A["bridge"] = (pd.notna(br) & (br != "no")).astype(bool)
+    A["tunnel"] = tun.spread(~np.isin(tun.uniq.astype(str), list(NOT_A_TUNNEL)), na=False)
     A["recovered"] = e["recovered"].to_numpy(bool)
     for f in ENV_FLAGS:
         A[f] = e[f].to_numpy(bool) if f in e.columns else np.zeros(len(e), bool)
