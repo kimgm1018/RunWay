@@ -91,7 +91,7 @@
     if (state.stream) state.stream.close();
     state.snapshot = {stage: 'L1A', label: '실시간 세션 대기', course: null};
     root.RunwayDemoRender.reset(state.snapshot);
-    root.RunwayDemoRender.setHeader('예측기 연결 대기', 'mpc-v0.4.1');
+    root.RunwayDemoRender.setHeader('예측기 연결 대기', root.RunwayDemoLogic.DEFAULT_POLICY_VERSION);
     root.RunwayDemoRender.setConnection('세션 대기 중');
     state.stream = root.RunwayDemoStream.connect({token: token, session: session,
       onEvent: handleEvent,
@@ -134,7 +134,7 @@
     if (state.playbackTimer) clearTimeout(state.playbackTimer);
     state.playbackTimer = null;
     var button = byId('play-toggle');
-    if (button) button.textContent = '재생';
+    if (button) { button.textContent = '재생'; button.setAttribute('data-playing', 'false'); }
   }
 
   function updateProgress() {
@@ -144,6 +144,9 @@
     var label = byId('progress-label');
     if (label) label.textContent = (state.playbackIndex < 0 ? 0 : state.playbackIndex + 1) + ' / ' + count;
   }
+
+  // 재생 중 4× 이하에서는 라이브와 같은 전환을 보여 준다. 16×·위치 이동에서는 전환 없이 바로 그린다
+  function replayAnimates() { return state.playing && state.playbackSpeed <= 4; }
 
   function replayOptions() {
     return {replay: true, stage: 'L3', replaySpeed: state.playbackSpeed,
@@ -160,7 +163,7 @@
     state.traces = [];
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
     for (var i = 0; i <= state.playbackIndex; i += 1) processTrace(rows[i], false, replayOptions());
-    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.1');
+    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), root.RunwayDemoLogic.policyVersionOf((recording.traces || [])[0], recording));
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
     root.RunwayDemoRender.setConnection('정적 재생 · ' + (recording.label || '녹화 기록'));
     updateProgress();
@@ -182,7 +185,7 @@
       if (!state.playing) return;
       var trace = state.recording.traces[next];
       state.playbackIndex = next;
-      processTrace(trace, false, replayOptions());
+      processTrace(trace, replayAnimates(), replayOptions());
       root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
       updateProgress();
       schedulePlayback();
@@ -199,10 +202,10 @@
     }
     state.playing = true;
     var button = byId('play-toggle');
-    if (button) button.textContent = '일시정지';
+    if (button) { button.textContent = '일시정지'; button.setAttribute('data-playing', 'true'); }
     if (state.playbackIndex < 0) {
       state.playbackIndex = 0;
-      processTrace(rows[0], false, replayOptions());
+      processTrace(rows[0], replayAnimates(), replayOptions());
       root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
       updateProgress();
     }
@@ -217,13 +220,13 @@
     state.playbackIndex = -1;
     if (!recording) {
       root.RunwayDemoRender.reset({stage: 'L3', label: '재생 기록 없음', course: null});
-      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.1');
+      root.RunwayDemoRender.setHeader('예측기 대기', root.RunwayDemoLogic.DEFAULT_POLICY_VERSION);
       setBanner('insufficient', '재생 기록을 recordings/에 추가해 주세요.');
       updateProgress();
       return;
     }
     root.RunwayDemoRender.reset(recording.snapshot || {stage: 'L3', label: recording.label, course: null});
-    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), recording.policyVersion || 'mpc-v0.4.1');
+    root.RunwayDemoRender.setHeader('예측기: ' + (recording.modelLabel || recording.modelVersion || '알 수 없음'), root.RunwayDemoLogic.policyVersionOf((recording.traces || [])[0], recording));
     root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
     root.RunwayDemoRender.setConnection('정적 재생 · ' + (recording.label || '녹화 기록'));
     setBanner(null);
@@ -233,7 +236,7 @@
   async function startReplayMode() {
     show(byId('replay-controls'), true);
     show(byId('auth-panel'), false);
-      root.RunwayDemoRender.setHeader('예측기 대기', 'mpc-v0.4.1');
+    root.RunwayDemoRender.setHeader('예측기 대기', root.RunwayDemoLogic.DEFAULT_POLICY_VERSION);
     try {
       var recordings = await loadRecordings();
       var select = byId('recording-select');
@@ -249,6 +252,17 @@
       else selectRecording(recordings, 0);
       var toggle = byId('play-toggle');
       toggle.addEventListener('click', function () { state.playing ? stopPlayback() : startPlayback(); });
+      // 대기 화면의 큰 재생 버튼과 스페이스 키: 대체 시연에서 바로 시작할 수 있게
+      var bigPlay = byId('waiting-play');
+      show(bigPlay, recordings.length > 0);
+      show(byId('waiting-hint'), recordings.length > 0);
+      if (bigPlay) bigPlay.addEventListener('click', function () { if (!state.playing) startPlayback(); });
+      document.addEventListener('keydown', function (event) {
+        var tag = event.target && event.target.tagName;
+        if (event.code !== 'Space' || tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON') return;
+        event.preventDefault();
+        state.playing ? stopPlayback() : startPlayback();
+      });
       byId('play-speed').addEventListener('change', function (event) {
         state.playbackSpeed = Number(event.target.value) || 1;
         root.RunwayDemoRender.setStage('L3', state.playbackSpeed);
@@ -293,7 +307,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     var params = new URLSearchParams(window.location.search);
     var zoom = byId('zoom-toggle');
-    zoom.addEventListener('click', function () {
+    if (zoom) zoom.addEventListener('click', function () {
       var active = zoom.getAttribute('aria-pressed') !== 'true';
       zoom.setAttribute('aria-pressed', String(active));
       root.RunwayDemoRender.setZoom(active);
