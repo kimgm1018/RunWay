@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { AppText, Icon, WordWrap } from '../../components';
 import { useResource, type Repositories, type TrainingLoad } from '../../data';
+import { weeklyLoadLabel } from '../../data/api/readiness';
 import { fontFamily } from '../../theme';
 import { recordsLook } from '../records/look';
 import { addDays, kstDay } from '../records/parts';
@@ -79,26 +80,39 @@ export function ScoreRing({
 }
 
 // "최근 7일 운동량이 평소보다 50% 많아 운동량 항목에 반영됐어요." Only with a usual week to compare with.
-export function LoadNotice({ load }: { load: TrainingLoad }) {
+// S15P31E105-660 사용자 결정: the same bands as the sentence above (weeklyLoadLabel, ratio 0.8~1.2 = 비슷), so a
+// small difference reads 평소와 비슷해 rather than "3% 많아"; outside them the percent. "운동량 항목에 반영됐어요" only
+// when the score really used the load item (loadScore), never for a day the formula left it out.
+export function LoadNotice({
+  load,
+  loadScored,
+}: {
+  load: TrainingLoad;
+  loadScored: boolean;
+}) {
   if (load.usual === null || !(load.usual > 0)) {
     return null;
   }
   const change = Math.round((load.weekly / load.usual - 1) * 100);
-  const word =
-    change > 0
-      ? `${change}% 많아`
-      : change < 0
-      ? `${-change}% 적어`
-      : '같은 수준이라';
+  const similar = weeklyLoadLabel(load.weekly, load.usual) === '평소와 비슷';
+  const lead = similar ? '최근 7일 운동량이 ' : '최근 7일 운동량이 평소보다 ';
+  const word = similar
+    ? '평소와 비슷해'
+    : change > 0
+    ? `${change}% 많아`
+    : `${-change}% 적어`;
   return (
     <View style={styles.notice}>
       <Icon name="activity" color={recordsLook.onCard} size={18} />
       <View style={styles.noticeBody}>
         <AppText style={styles.noticeText}>
-          {'최근 7일 운동량이 평소보다 '}
+          {lead}
           <AppText style={styles.noticeStrong}>{word}</AppText>
+          {loadScored ? '' : '요.'}
         </AppText>
-        <AppText style={styles.noticeText}>운동량 항목에 반영됐어요.</AppText>
+        {loadScored ? (
+          <AppText style={styles.noticeText}>운동량 항목에 반영됐어요.</AppText>
+        ) : null}
       </View>
     </View>
   );

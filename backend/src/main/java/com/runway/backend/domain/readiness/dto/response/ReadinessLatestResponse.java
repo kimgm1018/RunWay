@@ -13,7 +13,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * R02 응답. readinessConfidence는 미산출이면 null로 포함한다(신뢰도이며 준비도 등급이 아니다). 건강 지표는 readinessDate와 같은 날짜의
+ * R02 응답이며 R03 날짜별 조회(S15P31E105-660)도 같은 형식을 쓴다. readinessConfidence는 미산출이면 null로 포함한다(신뢰도이며 준비도 등급이 아니다). 건강 지표는 readinessDate와 같은 날짜의
  * 본인 일별 건강 행 값이며, 행이나 값이 없으면 null로 포함한다.
  *
  * @param readinessDate 준비도 기준일(워치 시간대 날짜). 클라이언트가 오늘 결과인지 판단한다

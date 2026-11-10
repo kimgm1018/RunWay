@@ -19,8 +19,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
-  EmptyState,
   FadeIn,
+  Icon,
   PressableScale,
   useReduceMotion,
   useToast,
@@ -236,6 +236,43 @@ function MenuBar({
   );
 }
 
+// A message inside the navy 준비도 card (S15P31E105-660 실기기 확인). The shared EmptyState draws dark text for light
+// screens, which vanished on the card, so this one uses the card's own white text.
+function CardMessage({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: 'alert' | 'heartPulse';
+  title: string;
+  description?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.message}>
+      <View style={styles.messageIcon}>
+        <Icon name={icon} color={recordsLook.onCard} size={22} strokeWidth={1.7} />
+      </View>
+      <AppText style={styles.messageTitle}>{title}</AppText>
+      {description ? (
+        <AppText style={styles.messageText}>{description}</AppText>
+      ) : null}
+      {actionLabel && onAction ? (
+        <PressableScale
+          onPress={onAction}
+          accessibilityRole="button"
+          style={styles.messageAction}
+        >
+          <AppText style={styles.messageActionText}>{actionLabel}</AppText>
+        </PressableScale>
+      ) : null}
+    </View>
+  );
+}
+
 // 2.1 준비도 on a past day (S15P31E105-594): that day's score when it has one, else a line saying it has none.
 function DayReadiness({ day, today, watchReady }: { day: string; today: string; watchReady: boolean }) {
   const condition = useResource(
@@ -249,7 +286,7 @@ function DayReadiness({ day, today, watchReady }: { day: string; today: string; 
   }
   if (condition.status === 'error') {
     return (
-      <EmptyState
+      <CardMessage
         icon="alert"
         title="준비도를 불러오지 못했어요"
         actionLabel="다시 시도"
@@ -259,7 +296,7 @@ function DayReadiness({ day, today, watchReady }: { day: string; today: string; 
   }
   if (!condition.data) {
     return (
-      <EmptyState
+      <CardMessage
         icon="heartPulse"
         title="이 날의 준비도 기록이 없어요"
         description="준비도는 건강 기록이 모인 날에 계산돼요"
@@ -389,7 +426,7 @@ export function HomeScreen() {
     ) : condition.status === 'loading' ? (
       <ActivityIndicator style={styles.loading} color="#FFFFFF" />
     ) : condition.status === 'error' ? (
-      <EmptyState
+      <CardMessage
         icon="alert"
         title="오늘 컨디션을 불러오지 못했어요"
         actionLabel="다시 시도"
@@ -602,6 +639,43 @@ const styles = StyleSheet.create({
   },
   cardContent: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 },
   loading: { marginTop: 120 },
+  message: { alignItems: 'center', gap: 10, paddingHorizontal: 24, paddingVertical: 96 },
+  messageIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  messageTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 24,
+    color: recordsLook.onCard,
+    textAlign: 'center',
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: recordsLook.onCardMuted,
+    textAlign: 'center',
+  },
+  messageAction: {
+    marginTop: 8,
+    height: 40,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  messageActionText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: recordsLook.onCard,
+  },
   calendar: { flex: 1, backgroundColor: '#FFFFFF' },
   calendarContent: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 8 },
   hidden: { display: 'none' },

@@ -2,15 +2,19 @@ package com.runway.backend.domain.readiness.service;
 
 import com.runway.backend.domain.readiness.dto.response.ReadinessLatestResponse;
 import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository;
+import com.runway.backend.domain.readiness.repository.ReadinessJdbcRepository.LatestReadinessRow;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import java.time.LocalDate;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** R02 최신 준비도 조회. 조회는 평가를 실행하지 않는다. */
+/** R02 최신·R03 날짜별 준비도 조회. 조회는 평가를 실행하지 않는다. */
 @Service
 @RequiredArgsConstructor
 public class ReadinessQueryService {
@@ -26,9 +30,22 @@ public class ReadinessQueryService {
      */
     @Transactional(readOnly = true)
     public ReadinessLatestResponse getLatest(long userId) {
+        return find(userId, () -> repository.findLatest(userId));
+    }
+
+    /**
+     * R03 본인의 지정 기준 날짜 준비도 조회(S15P31E105-660). 동의 확인·재확인과 오류 코드는 {@link #getLatest}와 같고, 그 날짜 결과가
+     * 없으면 404 ASSESSMENT_NOT_FOUND다.
+     */
+    @Transactional(readOnly = true)
+    public ReadinessLatestResponse getByDate(long userId, LocalDate readinessDate) {
+        return find(userId, () -> repository.findByDate(userId, readinessDate));
+    }
+
+    private ReadinessLatestResponse find(
+            long userId, Supplier<Optional<LatestReadinessRow>> query) {
         requireConsent(userId);
-        return repository
-                .findLatest(userId)
+        return query.get()
                 .map(ReadinessLatestResponse::from)
                 .orElseThrow(
                         () -> {
