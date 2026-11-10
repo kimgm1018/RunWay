@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { latinRuns } from '../../components';
 import { fontFamily } from '../../theme';
 import { CodeInput } from './CodeInput';
 import {
@@ -30,8 +31,10 @@ export function PhoneCodeStep({ phone }: { phone: Verification }) {
         <>
           <Text style={styles.title}>인증번호를 입력해주세요</Text>
           <Text style={styles.sub}>
-            {'남은 시간 '}
-            {formatRemaining(phone.remainingSec)}
+            {latinRuns(
+              ['남은 시간 ', formatRemaining(phone.remainingSec)],
+              styles.sub,
+            )}
           </Text>
         </>
       )}
@@ -60,9 +63,12 @@ export function PhoneCodeStep({ phone }: { phone: Verification }) {
           <Text
             style={[styles.resend, phone.resendSec > 0 && styles.resendWaiting]}
           >
-            {phone.resendSec > 0
-              ? `인증번호 다시 받기 (${wait(phone.resendSec)})`
-              : '인증번호 다시 받기'}
+            {latinRuns(
+              phone.resendSec > 0
+                ? `인증번호 다시 받기 (${wait(phone.resendSec)})`
+                : '인증번호 다시 받기',
+              styles.resend,
+            )}
           </Text>
         </Pressable>
       )}

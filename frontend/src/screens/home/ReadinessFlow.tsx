@@ -281,6 +281,7 @@ function DayBars({
           <AppText
             key={tick}
             style={[styles.axisText, { top: lineAt(tick) - 8 }]}
+            numberOfLines={1}
           >
             {String(tick)}
           </AppText>
@@ -598,7 +599,8 @@ const styles = StyleSheet.create({
     color: recordsLook.onCardSub,
   },
   chart: { marginTop: 10, flexDirection: 'row' },
-  axis: { width: 30 },
+  // Wide enough for 200 in Archivo (S15P31E105-662), which sets figures wider than Noto Sans KR did.
+  axis: { width: 36 },
   axisText: {
     position: 'absolute',
     left: 0,

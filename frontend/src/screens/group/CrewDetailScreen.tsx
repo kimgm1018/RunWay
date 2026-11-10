@@ -319,7 +319,7 @@ function SheetButton({
 }
 
 // 6.2x 가입 신청 불가, 6.2b 가입 신청 완료 and the other confirms: an icon, a title, the count big in
-// Rajdhani when there is one, and a line over the sheet's buttons, all centred as in the 시안 (S15P31E105-594).
+// Archivo when there is one, and a line over the sheet's buttons, all centred as in the 시안 (S15P31E105-594).
 function SheetBody({
   icon,
   danger = false,
@@ -398,7 +398,7 @@ function RequestsLink({
     >
       <Raised tone="night" style={[styles.card, styles.requests]}>
         <View style={styles.flex}>
-          {/* One line, so it still reads 가입 신청 N건 whole; the count's digits in Rajdhani. */}
+          {/* One line, so it still reads 가입 신청 N건 whole; the count's digits in Archivo. */}
           <AppText style={styles.rowTitle}>
             {'가입 신청 '}
             <AppText style={styles.mint}>
@@ -1173,7 +1173,7 @@ const styles = StyleSheet.create({
   mint: { color: groupTone.accent },
   // AppText sets its own colour, so the digits name the mint again.
   requestCount: {
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 18,
     color: groupTone.accent,
   },
@@ -1330,7 +1330,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
     textAlign: 'right',
-    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontFamily: fontFamily.numberSemiBold,
     fontSize: 22,
     color: groupTone.text,
   },
@@ -1358,8 +1358,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   sheetCount: { fontFamily: fontFamily.medium, fontSize: 22, lineHeight: 32 },
-  // The big count of 정원 마감 in Rajdhani Bold, as the 시안's 30 / 30명.
-  sheetCountNumber: { fontFamily: fontFamily.rajdhaniBold, fontSize: 30 },
+  // The big count of 정원 마감 in Archivo Bold, as the 시안's 30 / 30명.
+  sheetCountNumber: { fontFamily: fontFamily.numberBold, fontSize: 30 },
   centred: { textAlign: 'center' },
   sheetButtons: {
     alignSelf: 'stretch',

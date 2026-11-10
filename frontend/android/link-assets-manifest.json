@@ -14,32 +14,16 @@
       "sha1": "9cbdb4613850394f24317e9a218d944dfe7750bb"
     },
     {
-      "path": "assets/fonts/Barlow-Bold.ttf",
-      "sha1": "c1694b01b285276fd14230bfd00c6704d50a49d2"
+      "path": "assets/fonts/ArchivoExpanded-Medium.ttf",
+      "sha1": "bb918befa7730a89c7f4c26384ac7067c789cea9"
     },
     {
-      "path": "assets/fonts/Barlow-Medium.ttf",
-      "sha1": "b92efed6cae54e68aae2b30c93a7d1c2f3609395"
+      "path": "assets/fonts/ArchivoExpanded-Regular.ttf",
+      "sha1": "1f2a47d1a158c04b82a27b445b57acb620ebd283"
     },
     {
-      "path": "assets/fonts/Barlow-Regular.ttf",
-      "sha1": "d9301d2a82b5e2a4db2951afb351edf3b1f3f112"
-    },
-    {
-      "path": "assets/fonts/Barlow-SemiBold.ttf",
-      "sha1": "861d74254dc79fe4fc6d5e08183bdf3efc3b2572"
-    },
-    {
-      "path": "assets/fonts/Doto-Black.ttf",
-      "sha1": "5f4b46861d1f214fc977684f41d12f58f89b9c35"
-    },
-    {
-      "path": "assets/fonts/IBMPlexMono-Medium.ttf",
-      "sha1": "d1246280a315c377a651879047723bab6e3b411e"
-    },
-    {
-      "path": "assets/fonts/IBMPlexMono-Regular.ttf",
-      "sha1": "2b7c2393fff41a6e1446fd6351002e1aa1a999e8"
+      "path": "assets/fonts/ArchivoExpanded-SemiBold.ttf",
+      "sha1": "6ec6b4e136536b4d64a500375239c2ee1e4e443c"
     },
     {
       "path": "assets/fonts/NanumBrush.ttf",
@@ -60,22 +44,6 @@
     {
       "path": "assets/fonts/NotoSansKR-Regular.otf",
       "sha1": "d5c1165d57c419e4e264a8c25211c7ed92d611ca"
-    },
-    {
-      "path": "assets/fonts/Rajdhani-Bold.ttf",
-      "sha1": "a99ae7ab2128c1690a605f1129f713d55c48579c"
-    },
-    {
-      "path": "assets/fonts/Rajdhani-Medium.ttf",
-      "sha1": "8af3795d08d540f5b16443a06f145413ba6f3ecf"
-    },
-    {
-      "path": "assets/fonts/Rajdhani-Regular.ttf",
-      "sha1": "81ce692b649babc80ec32c49f2abe27d7567d921"
-    },
-    {
-      "path": "assets/fonts/Rajdhani-SemiBold.ttf",
-      "sha1": "40563884df08246cd0a96b5d9d1186516f5da7a7"
     }
   ]
 }

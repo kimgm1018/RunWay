@@ -15,6 +15,7 @@ import {
   type Camera,
 } from '@mj-studio/react-native-naver-map';
 import { bearingOf, distanceM, type LngLat } from '../geo';
+import { latinRuns } from './AppText';
 import { fontFamily, k1, palette } from '../theme';
 import {
   coursePaceColors,
@@ -389,7 +390,7 @@ function PoleMarker({
               finish && styles.poleTextFinish,
             ]}
           >
-            {label}
+            {latinRuns(label, styles.poleText)}
           </Text>
         </View>
         <View style={[styles.poleStem, { height: stem }]} />
@@ -752,9 +753,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               >
                 <View style={[styles.pill, { width }]}>
                   <View style={styles.pillNumber}>
-                    <Text style={styles.pillNumberText}>{index + 1}</Text>
+                    <Text style={styles.pillNumberText}>
+                      {latinRuns(index + 1, styles.pillNumberText)}
+                    </Text>
                   </View>
-                  <Text style={styles.pillText}>{label}</Text>
+                  <Text style={styles.pillText}>
+                    {latinRuns(label, styles.pillText)}
+                  </Text>
                 </View>
               </NaverMapMarkerOverlay>
             );
@@ -800,9 +805,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 ring={palette.white}
                 ringWidth={2}
               />
-              <Text
-                style={[styles.memberName, styles.memberNameLight]}
-              >
+              <Text style={[styles.memberName, styles.memberNameLight]}>
                 {member.label}
               </Text>
             </View>

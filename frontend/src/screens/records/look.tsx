@@ -655,7 +655,7 @@ const styles = StyleSheet.create({
   monthTextOn: { color: '#FFFFFF' },
   monthCellTall: { height: 58 },
   cellSub: {
-    fontFamily: fontFamily.mono,
+    fontFamily: fontFamily.numberRegular,
     fontSize: 10.5,
     lineHeight: 13,
     color: recordsLook.sub,

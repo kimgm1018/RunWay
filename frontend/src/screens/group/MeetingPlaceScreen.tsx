@@ -104,7 +104,7 @@ function ConfirmButton({
 // runway-group-handoff: the light map with a navy pin,
 // and light glass for the search, the buttons and the sheet. The sheet shows the picked place's own
 // address and distance. S15P31E105-594 담당자 시안: the search results as rows of their own and the digits in
-// Rajdhani; the colours stay as they were (담당자 결정: 색은 그대로, 구성만 시안대로).
+// Archivo; the colours stay as they were (담당자 결정: 색은 그대로, 구성만 시안대로).
 export function MeetingPlaceScreen() {
   const navigation = useNavigation();
   const { groupRuns } = useRepositories();

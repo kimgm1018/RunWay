@@ -60,20 +60,12 @@
 		<string>NotoSansKR-Bold.otf</string>
 		<string>NotoSansKR-Medium.otf</string>
 		<string>NotoSansKR-Regular.otf</string>
-		<string>Barlow-Bold.ttf</string>
-		<string>Barlow-Medium.ttf</string>
-		<string>Barlow-Regular.ttf</string>
-		<string>Barlow-SemiBold.ttf</string>
-		<string>Doto-Black.ttf</string>
-		<string>IBMPlexMono-Medium.ttf</string>
-		<string>IBMPlexMono-Regular.ttf</string>
-		<string>Rajdhani-Bold.ttf</string>
-		<string>Rajdhani-Medium.ttf</string>
-		<string>Rajdhani-Regular.ttf</string>
-		<string>Rajdhani-SemiBold.ttf</string>
+		<string>ArchivoExpanded-Bold.ttf</string>
+		<string>ArchivoExpanded-Medium.ttf</string>
+		<string>ArchivoExpanded-Regular.ttf</string>
+		<string>ArchivoExpanded-SemiBold.ttf</string>
 		<string>NanumBrush.ttf</string>
 		<string>ArchivoExpanded-ExtraBold.ttf</string>
-		<string>ArchivoExpanded-Bold.ttf</string>
 		<string>ArchivoExpanded-Black.ttf</string>
 	</array>
 </dict>

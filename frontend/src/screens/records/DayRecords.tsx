@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
   },
   runChipOn: { backgroundColor: 'rgba(255,255,255,0.72)' },
   runChipText: {
-    fontFamily: fontFamily.monoMedium,
+    fontFamily: fontFamily.numberMedium,
     fontSize: 11,
     lineHeight: 14,
     color: recordsLook.onCardSub,

@@ -188,7 +188,7 @@ function ChangeButton({
   );
 }
 
-// 날짜 · 시간 (S15P31E105-594 담당자 시안): a faint field with a faint rim, its icon first, the value in Rajdhani
+// 날짜 · 시간 (S15P31E105-594 담당자 시안): a faint field with a faint rim, its icon first, the value in Archivo
 // digits and a chevron at the end.
 function PickField({
   icon,
@@ -902,7 +902,7 @@ const styles = StyleSheet.create({
   loading: { marginTop: spacing.xxxl },
   km: {
     marginTop: 2,
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 28,
     lineHeight: 32,
     color: groupTone.text,
