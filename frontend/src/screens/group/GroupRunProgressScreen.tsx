@@ -221,8 +221,9 @@ function GroupRunProgressContent({
             setLive(value);
           },
           () => {
+            // Keep the last good snapshot so a transient poll failure does not
+            // blank the board; only first-load failure leaves live null.
             setLiveError(true);
-            setLive(null);
           },
         ),
       [groupRunId, groupRuns],

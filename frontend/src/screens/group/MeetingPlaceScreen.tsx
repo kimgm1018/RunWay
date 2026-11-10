@@ -42,8 +42,10 @@ const formatDistance = (meters: number | null) =>
     ? `${(meters / 1000).toFixed(1)}km`
     : `${Math.round(meters)}m`;
 
-// A point picked on the map has no place name or address yet (no reverse geocoding), so it shows its
-// coordinates; its distance is known only once my location is.
+// Map taps have no reverse geocoding (group-runs.md). Keep a fixed address placeholder instead of
+// lat/lng text so the saved meetingAddress is not mistaken for a road address (S15P31E105-637).
+const mapPickedAddress = '지도에서 선택한 위치';
+
 function mapPlace(
   position: LngLat,
   name: string,
@@ -51,7 +53,7 @@ function mapPlace(
 ): MeetingPlace {
   return {
     name,
-    address: `${position[1].toFixed(5)}, ${position[0].toFixed(5)}`,
+    address: mapPickedAddress,
     position,
     distanceM: me ? distanceM(me, position) : null,
   };

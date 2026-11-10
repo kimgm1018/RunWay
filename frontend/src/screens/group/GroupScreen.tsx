@@ -14,8 +14,10 @@ import {
   EmptyState,
   Icon,
   PressableScale,
+  useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
   type GroupRunSummary,
@@ -86,15 +88,19 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
 // One run under its crew, set in by a left line (white for today) instead of a card.
 function RunCard({
   run,
+  busy,
   onToggle,
 }: {
   run: GroupRunSummary;
+  busy: boolean;
   onToggle: () => void;
 }) {
   const navigation = useNavigation();
   const { clock } = useRepositories();
   const day = dDay(run.scheduledAt, clock.now());
   const today = day === '오늘';
+  // Hosts cannot leave their own run; only SCHEDULED runs accept join toggles (6.4).
+  const canToggle = !run.isHost && run.status === 'SCHEDULED';
   return (
     <Pressable
       accessibilityRole="button"
@@ -133,26 +139,29 @@ function RunCard({
         <AppText style={[styles.runTitle, styles.flex]} numberOfLines={1}>
           {run.title}
         </AppText>
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={
-            run.joined ? `${run.title} 참가 취소` : `${run.title} 참가하기`
-          }
-          accessibilityState={{ selected: run.joined }}
-          onPress={onToggle}
-          hitSlop={6}
-        >
-          {run.joined ? (
-            <Raised tone="navy" style={styles.joinButton}>
-              <Icon name="check" color={groupLook.onDark} size={13} />
-              <AppText style={styles.joinTextOn}>참가 중</AppText>
-            </Raised>
-          ) : (
-            <View style={[styles.joinButton, styles.flatChip]}>
-              <AppText style={styles.joinTextOff}>참가하기</AppText>
-            </View>
-          )}
-        </PressableScale>
+        {canToggle ? (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={
+              run.joined ? `${run.title} 참가 취소` : `${run.title} 참가하기`
+            }
+            accessibilityState={{ selected: run.joined, disabled: busy }}
+            disabled={busy}
+            onPress={onToggle}
+            hitSlop={6}
+          >
+            {run.joined ? (
+              <Raised tone="navy" style={styles.joinButton}>
+                <Icon name="check" color={groupLook.onDark} size={13} />
+                <AppText style={styles.joinTextOn}>참가 중</AppText>
+              </Raised>
+            ) : (
+              <View style={[styles.joinButton, styles.flatChip]}>
+                <AppText style={styles.joinTextOff}>참가하기</AppText>
+              </View>
+            )}
+          </PressableScale>
+        ) : null}
       </View>
       {/* When and where in one line; the course is on 6.4 (담당자 결정, S15P31E105-414). */}
       <View style={styles.lines}>
@@ -170,6 +179,7 @@ function CrewPanel({
   runs,
   initiallyOpen,
   pinnedOnly,
+  joinBusy,
   onToggleJoin,
 }: {
   crew: MyCrew;
@@ -177,6 +187,7 @@ function CrewPanel({
   initiallyOpen: boolean;
   // The crew's only run is the one pinned in '곧 출발', so the empty-list hint would be wrong.
   pinnedOnly: boolean;
+  joinBusy: Record<string, boolean>;
   onToggleJoin: (run: GroupRunSummary) => void;
 }) {
   const navigation = useNavigation();
@@ -253,6 +264,7 @@ function CrewPanel({
               <RunCard
                 key={run.id}
                 run={run}
+                busy={!!joinBusy[run.id]}
                 onToggle={() => onToggleJoin(run)}
               />
             ))}
@@ -278,7 +290,7 @@ function NoCrews({ data }: { data: MyGroupRuns }) {
         혼자 달리던 길, 같이 달려 볼까요
       </AppText>
       <AppText variant="caption" tone="textSecondary">
-        {`내 근처 3km에서 ${data.nearbyRecruiting.count}개 크루가 멤버를 찾고 있어요`}
+        {`모집 중인 크루 ${data.nearbyRecruiting.count}곳`}
       </AppText>
       <View
         style={[
@@ -350,6 +362,7 @@ export function MyCrewsPage({
   const matches = (...texts: string[]) =>
     !term || texts.some(text => text.includes(term));
   const { groupRuns } = useRepositories();
+  const toast = useToast();
   const { version } = useGroupRunDraft();
   // Reloads when 6.4 joins, leaves or cancels, or 6.8 makes a run.
   const mine = useResource(
@@ -373,15 +386,35 @@ export function MyCrewsPage({
   );
   // Join changes on this screen show at once.
   const [joined, setJoined] = useState<Record<string, boolean>>({});
+  const [joinBusy, setJoinBusy] = useState<Record<string, boolean>>({});
+  const joinBusyRef = useRef<Record<string, boolean>>({});
   useEffect(() => setJoined({}), [version]);
 
   const toggle = async (run: GroupRunSummary) => {
+    if (run.isHost || run.status !== 'SCHEDULED') {
+      return;
+    }
+    if (joinBusyRef.current[run.id]) {
+      return;
+    }
     const next = !(joined[run.id] ?? run.joined);
+    joinBusyRef.current[run.id] = true;
+    setJoinBusy(current => ({ ...current, [run.id]: true }));
     setJoined(current => ({ ...current, [run.id]: next }));
     try {
       await (next ? groupRuns.join(run.id) : groupRuns.leave(run.id));
-    } catch {
+    } catch (error) {
       setJoined(current => ({ ...current, [run.id]: !next }));
+      toast(
+        errorCode(error) === 'FULL_OR_ALREADY_JOINED'
+          ? '이미 참가했거나 자리가 없는 그룹런이에요'
+          : next
+          ? '참가하지 못했어요. 잠시 후 다시 시도해 주세요'
+          : '참가를 취소하지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+    } finally {
+      joinBusyRef.current[run.id] = false;
+      setJoinBusy(current => ({ ...current, [run.id]: false }));
     }
   };
   const withJoin = (run: GroupRunSummary): GroupRunSummary => {
@@ -453,6 +486,7 @@ export function MyCrewsPage({
                     runs={listed.map(withJoin)}
                     initiallyOpen={index === 0}
                     pinnedOnly={runs.length > 0 && listed.length === 0}
+                    joinBusy={joinBusy}
                     onToggleJoin={toggle}
                   />
                 </Raised>

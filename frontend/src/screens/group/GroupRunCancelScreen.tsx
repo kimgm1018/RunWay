@@ -245,9 +245,10 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
             <AppText variant="body" tone="textSecondary">
               {`${formatSchedule(run.scheduledAt)} ‘${
                 run.title
-              }’가 취소되고, 크루 멤버 ${
-                run.crewMemberCount
-              }명에게 바로 알림이 가요.`}
+              }’가 취소되고, 크루 멤버 ${Math.max(
+                0,
+                run.crewMemberCount - 1,
+              )}명에게 바로 알림이 가요.`}
             </AppText>
             <View
               style={[
