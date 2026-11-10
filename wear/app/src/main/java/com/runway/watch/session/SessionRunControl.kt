@@ -172,13 +172,19 @@ class SessionRunControl(
         }
 
         /**
-         * 서버가 종료를 저장했으면 저장 완료·분석 대기(분석 계산은 S15P31E105-312), 종료나 마지막 기록 저장을 확인하지 못했으면
+         * 서버가 종료를 저장했으면 저장 완료와 서버가 알려 준 분석 상태(분석 계산은 S15P31E105-312, 전달은 S15P31E105-663), 종료나 마지막 기록 저장을 확인하지 못했으면
          * 저장 미확인.
          */
         fun result(session: WatchSessionState, upload: UploadState = UploadState()): RunResult? = when {
             upload.unconfirmed && (session.confirmed == RunState.COMPLETED || session.pending?.action == "END") ->
                 RunResult(save = SaveStatus.UNCONFIRMED)
-            session.confirmed == RunState.COMPLETED -> RunResult(save = SaveStatus.SAVED, analysis = AnalysisStatus.PENDING)
+            session.confirmed == RunState.COMPLETED -> RunResult(
+                save = SaveStatus.SAVED,
+                // 서버가 알려 준 분석 상태와 요약만 쓴다. 받은 것이 없으면 분석 대기이며 값을 만들지 않는다(S15P31E105-663).
+                analysis = session.analysis?.status ?: AnalysisStatus.PENDING,
+                summary = session.analysis?.summary,
+                goal = session.analysis?.goal,
+            )
             (session.problem as? WatchProblem.Unconfirmed)?.action == "END" -> RunResult(save = SaveStatus.UNCONFIRMED)
             else -> null
         }

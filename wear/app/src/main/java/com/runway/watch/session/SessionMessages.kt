@@ -1,9 +1,14 @@
 package com.runway.watch.session
 
+import com.runway.watch.run.AnalysisReport
+import com.runway.watch.run.AnalysisStatus
+import com.runway.watch.run.GoalEvaluation
 import com.runway.watch.run.GroupNotice
 import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.GroupStanding
+import com.runway.watch.run.HeartRate
 import com.runway.watch.run.RecordComparison
+import com.runway.watch.run.RunSummary
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
@@ -128,6 +133,34 @@ data class SessionEnvelope(
         val meters = g.wholeNumber("gapM")?.takeIf { it >= 0 }?.toInt() ?: return@let null
         val name = if (!g.has("memberName") || g.isNull("memberName")) null else g.optString("memberName").trim().takeIf { it.isNotEmpty() }
         GroupNotice.GapWidened(meters, name)
+    }
+
+    /**
+     * STATE_RESULT(scope=SERVER).analysis (S15P31E105-663, integration doc STATE_RESULT): the server's analysis status and,
+     * only when READY, the H02 summary the phone relayed. Null when the field is absent (an older phone), the status is
+     * unknown or LEGACY. Nothing is computed here; a missing or invalid value stays null and is shown as missing.
+     */
+    fun analysis(): AnalysisReport? {
+        val a = payload.optJSONObject("analysis") ?: return null
+        val status = when (a.optString("status")) {
+            "PENDING" -> AnalysisStatus.PENDING
+            "PROCESSING" -> AnalysisStatus.PROCESSING
+            "READY" -> AnalysisStatus.READY
+            "FAILED" -> AnalysisStatus.FAILED
+            else -> return null
+        }
+        if (status != AnalysisStatus.READY) return AnalysisReport(status)
+        val s = a.optJSONObject("summary") ?: return AnalysisReport(status)
+        val distance = s.nullableDistance("distanceM")?.value
+        val moving = s.wholeNumber("movingDurationSec")
+        val pace = (s.opt("averagePaceSecPerKm") as? Number)?.toDouble()?.takeIf { it.isFinite() && it > 0 }?.let { Math.round(it).toInt() }
+        val heart = (s.opt("averageHeartRate") as? Number)?.toDouble()?.takeIf { it.isFinite() && it > 0 }?.let { HeartRate(Math.round(it).toInt()) }
+        val achieved = if (s.has("goalAchieved") && !s.isNull("goalAchieved")) s.opt("goalAchieved") as? Boolean else null
+        return AnalysisReport(
+            status = status,
+            summary = RunSummary(distanceMeters = distance, elapsedMs = moving?.let { it * 1000 }, averagePaceSecondsPerKm = pace, averageHeartRate = heart),
+            goal = achieved?.let { GoalEvaluation(it) },
+        )
     }
 
     /**

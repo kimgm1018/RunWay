@@ -513,6 +513,7 @@ test('sendServerState carries BPM, commands with the coaching guide, server time
     serverReceiveAt: '2026-10-28T01:01:00Z',
     serverSendAt: '2026-10-28T01:01:00.010Z',
     comparison: null,
+    analysis: { status: 'PENDING', summary: null },
   });
 });
 
@@ -543,6 +544,48 @@ test('sendServerState passes the S02 record comparison to the watch as it is (S1
 
   const payload = JSON.parse(native.send.mock.calls[0][3]);
   expect(payload.comparison).toEqual(comparison);
+});
+
+// S15P31E105-663: 분석 상태는 S02 값 그대로, 요약은 READY일 때만 H02 값 그대로 옮긴다.
+test('sendServerState carries the analysis status, and the H02 summary only when READY (S15P31E105-663)', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const view = {
+    sessionId: '201',
+    controlDeviceId: '101',
+    relayDeviceId: '102',
+    state: 'COMPLETED' as const,
+    stateVersion: 4,
+    startedAt: '2026-10-28T01:00:01Z',
+    endedAt: '2026-10-28T01:30:01Z',
+    recordingMode: 'WATCH' as const,
+    pendingCommand: null,
+    lastCommand: null,
+  };
+  const summary = {
+    distanceM: 5012,
+    movingDurationSec: 1800,
+    averagePaceSecPerKm: 359,
+    averageHeartRate: 151,
+    goalAchieved: true,
+  };
+
+  await watch.sendServerState('201', { ...view, analysisStatus: 'READY' }, null, summary);
+  await watch.sendServerState('201', { ...view, analysisStatus: 'PROCESSING' }, null, summary);
+  await watch.sendServerState('201', { ...view, analysisStatus: 'READY' }, null, {
+    ...summary,
+    averageHeartRate: null,
+    goalAchieved: null,
+  });
+
+  const analysis = (index: number) => JSON.parse(native.send.mock.calls[index][3]).analysis;
+  expect(analysis(0)).toEqual({ status: 'READY', summary });
+  // READY가 아니면 요약이 와도 보내지 않는다.
+  expect(analysis(1)).toEqual({ status: 'PROCESSING', summary: null });
+  // 없는 값은 null 그대로이고 만들어 채우지 않는다.
+  expect(analysis(2)).toEqual({
+    status: 'READY',
+    summary: { ...summary, averageHeartRate: null, goalAchieved: null },
+  });
 });
 
 // 폰 인계(S15P31E105-464): 수신 차단은 저장 확인이 없는 batch 이벤트를 돌려주고, 위치 유형은 켤 때만 전달한다.
