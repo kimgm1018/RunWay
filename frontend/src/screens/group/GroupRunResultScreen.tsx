@@ -307,8 +307,9 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
                     <AppText>
                       {row.state === 'UNCONFIRMED' ? '시작 미확인' : '미시작'}
                     </AppText>
-                  ) : row.goalAchieved === false || row.state === 'STOPPED' ? (
-                    // A run that stopped short of the goal is the flat navy pill (6.7-FinishStatus).
+                  ) : row.state === 'STOPPED' ? (
+                    // Only an interrupted session is "중단". Missing the goal after finishing
+                    // still leaves a normal finish record (S15P31E105-637).
                     <View style={styles.stopped}>
                       <AppText style={styles.stoppedText}>
                         {row.distanceM === null

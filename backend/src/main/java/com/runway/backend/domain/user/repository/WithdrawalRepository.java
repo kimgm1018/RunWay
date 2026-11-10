@@ -143,7 +143,11 @@ public class WithdrawalRepository {
                 + " WHERE author_id=?",Timestamp.from(now),userId);
         jdbc.update("DELETE FROM notifications WHERE user_id=? OR (notification_type='POST_COMMENT'"
                 + " AND target_id IN (SELECT id FROM posts WHERE author_id=?))",userId,userId);
-        for (String table : List.of("user_recommendation_preferences","user_profiles","user_settings","course_bookmarks","post_likes"))
+        // Only this user's own like/bookmark rows; others' rows on this user's posts/comments stay. The deletes
+        // lock only these rows (no lock on posts/comments/users), and new writes of them already fail fast on
+        // rw_active_owner (users KEY SHARE NOWAIT) because account() holds users FOR UPDATE.
+        for (String table : List.of("user_recommendation_preferences","user_profiles","user_settings","course_bookmarks",
+                "post_likes","comment_likes","post_bookmarks"))
             jdbc.update("DELETE FROM " + table + " WHERE user_id=?",userId);
         // Preserve request history, but do not replay an old approval as an active relationship.
         jdbc.update("UPDATE follow_request_history SET result='CANCELLED',processed_at=?"

@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-10 · ERD ver.3 · **34개 테이블 / 321개 컬럼 / 59개 FK**
+기준: 2026-11-10 · ERD ver.3 · **36개 테이블 / 329개 컬럼 / 63개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -232,6 +232,8 @@
 | `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부 |
 | `comments` | 게시글 댓글. parent_comment_id가 없으면 일반 댓글, 있으면 대댓글 |
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
+| `comment_likes` | 회원과 댓글의 좋아요 관계. 행 존재가 LIKE. UNIQUE(comment_id,user_id), FK comments·users, 탈퇴 정리용 `idx_comment_likes_user_id`(user_id), post_likes와 같은 탈퇴 쓰기 차단 트리거(회원 상태만 검사). 부모 삭제 재확인은 V17 가드 대상(`comments`·`post_likes`)이 아니므로 서비스의 저장 전 확인과 조회 시 삭제 댓글 제외에 의존한다. 확인 직후 댓글 삭제가 커밋되면 삭제된 댓글에 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-633, V28) |
+| `post_bookmarks` | 회원의 게시글 스크랩(저장) 관계. post_likes와 같은 구조·유니크 제약·탈퇴 쓰기 차단(회원 상태 검사)이며 본인만 목록을 본다. 다만 V17 가드의 부모 게시물 삭제 재확인은 `comments`·`post_likes`에만 적용되므로, 스크랩은 서비스의 저장 전 확인과 목록 조회의 삭제 글 제외에 의존한다. 확인 직후 게시물 삭제가 커밋되면 삭제된 글에 보이지 않는 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-634, V29) |
 | `user_follows` | 팔로우 요청/성립 관계와 승인 여부 |
 | `follow_request_history` | 요청별 최종 처리 결과와 재전송 판별. 자동 삭제하지 않음 |
 | `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`) |
@@ -336,6 +338,8 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | course_bookmarks | user_id, course_id |
 | course_segment_difficulties | course_id |
 | post_likes | post_id, user_id |
+| comment_likes | comment_id, user_id |
+| post_bookmarks | post_id, user_id |
 | user_follows | follower_id, followee_id |
 | course_environment_tags | course_id, environment_type |
 | group_run_participants | group_run_id, user_id |
@@ -375,6 +379,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - 페이스 구간 순서는 양수, 시작거리는 0 이상, 종료거리는 시작거리보다 크고 추천 페이스는 양수다. 구간 사이의 겹침·빈 구간은 이 행 단위 CHECK만으로 보장하지 않는다.
 - 위 범위 검사를 적용한 NUMERIC 컬럼은 `NaN`도 거부한다. PostgreSQL에서 NaN은 일반 수보다 크게 비교되므로 하한 검사만으로는 차단되지 않는다. NULL 허용은 유지한다.
 - 자기 팔로우와 댓글의 자기 부모 참조를 CHECK로 금지한다. 댓글 부모는 `(post_id,parent_comment_id)` 복합 FK로 같은 게시물에 제한한다. 일반 댓글은 부모 NULL을 허용하고, 한 단계 대댓글 깊이는 서비스에서 검사한다.
+- 댓글 삭제는 soft delete다. 삭제된 원댓글은 삭제되지 않은 대댓글이 남아 있을 때만 CMT06에 `deleted: true` 자리로 보이고, 삭제된 댓글의 `comment_likes` 행은 남지만 집계·좋아요 대상에서 제외한다(S15P31E105-633).
 - 기존 `updated_at` 보유 테이블은 BEFORE UPDATE 트리거가 `clock_timestamp()`로 갱신한다. INSERT는 기존 기본값을 사용한다. JPA가 같은 컬럼의 수정 시각을 중복 관리하지 않는다.
 - Enum 허용 값은 보존하고 PostgreSQL 명명 타입으로 선언한다. PostGIS 확장 준비를 SQL에 명시한다. 운영 확장 설치 권한과 실행 책임은 배포 업무에서 결정한다.
 
@@ -406,7 +411,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 회원탈퇴와 쓰기 경합 (S15P31E105-248)
 
-V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/좋아요/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
+V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
 
 탈퇴 시 users의 NOT NULL은 유지하고 고정 대체값/로그인 ID 해시를 사용한다. 개인 건강/GPS 및 파생 개인화는 실제 삭제하고, 세션 ID·공용 코스·확정 그룹 결과의 최소 사실은 보존한다. 구체 제거/보존 목록은 users.md U18을 따른다. 이미지 삭제 재시도는 기존 WITHDRAWN과 파일 존재로 처리한다.
 

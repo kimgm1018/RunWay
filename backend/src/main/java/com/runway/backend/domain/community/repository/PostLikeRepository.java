@@ -5,12 +5,27 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PostLikeRepository extends JpaRepository<PostLike, Long> {
 
     Optional<PostLike> findByPostIdAndUserId(Long postId, Long userId);
+
+    /**
+     * 좋아요를 넣는다. 이미 있으면 아무것도 하지 않는다. 동시 요청은 유니크 제약(post_id,user_id)에서 한쪽이 기다렸다가 건너뛰므로
+     * 예외로 트랜잭션이 깨지지 않는다(CommentLikeRepository·PostBookmarkRepository와 같음).
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = false)
+    @Query(
+            value =
+                    """
+                    INSERT INTO post_likes(post_id, user_id) VALUES (:postId, :userId)
+                    ON CONFLICT (post_id, user_id) DO NOTHING
+                    """,
+            nativeQuery = true)
+    int insertIfAbsent(@Param("postId") long postId, @Param("userId") long userId);
 
     boolean existsByPostIdAndUserId(Long postId, Long userId);
 

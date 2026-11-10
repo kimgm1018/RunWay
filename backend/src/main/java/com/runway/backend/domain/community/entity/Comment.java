@@ -55,6 +55,10 @@ public class Comment {
         return authorId.equals(userId);
     }
 
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
     public boolean isRoot() {
         return parentCommentId == null;
     }

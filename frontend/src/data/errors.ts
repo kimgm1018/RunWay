@@ -68,10 +68,15 @@ export const dataErrorCodes = [
   'EDIT_NOT_ALLOWED',
   // G01·G04 목표 환산 실패 (422).
   'INVALID_GOAL',
+  // CMT01 게시: the run is deleted or not completed (S15P31E105-633). CMT04 수정: the post is gone.
+  'INVALID_POST',
+  'POST_NOT_FOUND',
   // CMT08 · CMT09 댓글 수정·삭제 (docs/design/api/community.md).
   'EMPTY_COMMENT',
   'NOT_AUTHOR',
   'COMMENT_NOT_FOUND',
+  // CMT07 답글: the root is deleted, gone or itself a reply (422).
+  'INVALID_PARENT_COMMENT',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
   // U18 회원탈퇴 (users.md, S15P31E105-523): 먼저 정리할 크루·그룹런·운동이 있음(409), 동의 없음(422),

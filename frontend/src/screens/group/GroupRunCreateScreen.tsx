@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
@@ -17,6 +18,7 @@ import {
   AppText,
   BottomSheet,
   Button,
+  EmptyState,
   Icon,
   PressableScale,
   useToast,
@@ -235,6 +237,16 @@ export function GroupRunCreateScreen() {
   const [sheet, setSheet] = useState<'course' | 'day' | 'time' | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Leaving create/edit without saving must not reuse the previous meeting place
+  // on the next open. MeetingPlace is pushed on top, so beforeRemove (not blur)
+  // is the abandon signal; successful save already clears place first.
+  useEffect(() => {
+    const stop = navigation.addListener('beforeRemove', () => {
+      setPlace(null);
+    });
+    return stop;
+  }, [navigation, setPlace]);
+
   const ready = options.status === 'ready' ? options.data : null;
   const [mine, saved, plan, places] = ready ?? [];
   const crew =
@@ -396,6 +408,41 @@ export function GroupRunCreateScreen() {
     }
   };
 
+  if (options.status !== 'ready' || (editingId && editing.status !== 'ready')) {
+    return (
+      <View style={[styles.root, groupPage.page]}>
+        <StatusBar barStyle="dark-content" />
+        <SafeAreaView edges={['top']}>
+          <View style={styles.header}>
+            <BackButton onPress={() => navigation.goBack()} />
+            <AppText style={styles.title} accessibilityRole="header">
+              {editingId ? '그룹런 수정' : '그룹런 만들기'}
+            </AppText>
+          </View>
+        </SafeAreaView>
+        <SafeAreaView edges={['bottom']} style={styles.flex}>
+          {options.status === 'error' || editing.status === 'error' ? (
+            <EmptyState
+              icon="alert"
+              title="그룹런 작성 정보를 불러오지 못했어요"
+              actionLabel="다시 시도"
+              onAction={() => {
+                if (options.status === 'error') {
+                  options.reload();
+                }
+                if (editing.status === 'error') {
+                  editing.reload();
+                }
+              }}
+            />
+          ) : (
+            <ActivityIndicator style={styles.loading} />
+          )}
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.root, groupPage.page]}>
       <StatusBar barStyle="dark-content" />
@@ -415,12 +462,22 @@ export function GroupRunCreateScreen() {
           title="코스"
           right={<ModeSwitch value={mode} onChange={setMode} />}
         >
-          {mode === 'COURSE' && course ? (
+          {mode === 'COURSE' ? (
             <ChangeRow
-              icon={<RouteThumb shape={course.shape} />}
-              title={course.name}
-              detail={`${formatKm(course.distanceM, 1)}km`}
-              label="코스 변경"
+              icon={
+                course ? (
+                  <RouteThumb shape={course.shape} />
+                ) : (
+                  <Icon name="route" color={groupLook.onLight} size={18} />
+                )
+              }
+              title={course?.name ?? '코스 선택'}
+              detail={
+                course
+                  ? `${formatKm(course.distanceM, 1)}km`
+                  : '저장한 코스에서 골라 주세요'
+              }
+              label={course ? '코스 변경' : '코스 고르기'}
               onChange={() => setSheet('course')}
             />
           ) : null}
@@ -724,4 +781,5 @@ const styles = StyleSheet.create({
   },
   sheetList: { maxHeight: 360 },
   sheetItem: { marginBottom: spacing.sm },
+  loading: { marginTop: spacing.xxxl },
 });

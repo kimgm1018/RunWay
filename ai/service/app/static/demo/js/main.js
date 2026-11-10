@@ -119,12 +119,14 @@
     if (Array.isArray(root.RunwayDemoInlineRecordings)) return root.RunwayDemoInlineRecordings;
     root.RunwayDemoRecordings = [];
     root.RunwayDemoRecordingFiles = [];
-    await loadClassicScript('recordings/index.js');
+    // 기록은 다시 만들 수 있으므로 브라우저 캐시를 쓰지 않는다(예전 기록이 보이는 문제)
+    var bust = '?v=' + Date.now();
+    await loadClassicScript('recordings/index.js' + bust);
     var files = Array.isArray(root.RunwayDemoRecordingFiles) ? root.RunwayDemoRecordingFiles : [];
     for (var i = 0; i < files.length; i += 1) {
       var name = String(files[i]);
       if (!/^[A-Za-z0-9_-]+\.js$/.test(name)) continue;
-      await loadClassicScript('recordings/' + name);
+      await loadClassicScript('recordings/' + name + bust);
     }
     return Array.isArray(root.RunwayDemoRecordings) ? root.RunwayDemoRecordings : [];
   }

@@ -266,14 +266,25 @@ export type Post = {
 
 export type PostComment = {
   id: string;
-  author: PostAuthor;
+  // The root comment a reply sits under (CMT06 parentCommentId); null for a root comment. Replies go one level deep.
+  parentId: string | null;
+  // A deleted root kept in place for its replies (S15P31E105-633): it has no author or text, shows as
+  // '삭제된 댓글입니다' and is never counted.
+  deleted: boolean;
+  // null only on a deleted root.
+  author: PostAuthor | null;
   // Mine shows 7.2's 댓글 수정·삭제 menu (CMT08·CMT09).
   isMine: boolean;
   body: string;
   createdAt: string;
+  // CMT06 reactionCount and myReaction === 'LIKE' (CMT14 · CMT15).
   likeCount: number;
   liked: boolean;
 };
+
+// What CMT14 · CMT15 answer: the comment's like count (null when the server leaves it out) and my like after
+// the change.
+export type CommentLike = { likeCount: number | null; liked: boolean };
 
 export type PostDetail = Post & { comments: PostComment[] };
 
@@ -937,6 +948,9 @@ export type RunningSessionView = {
   serverSendAt?: string | null;
   // S02 groupEndedAt: 종료된 그룹런의 종료 기준시각. 개인런·진행 중 그룹런은 null(S15P31E105-420).
   groupEndedAt?: string | null;
+  // 서버가 serverSendAt 기준으로 계산한 일시정지 제외 운동시간(초, S15P31E105-643). 시작 전이거나 서버가 아직 주지
+  // 않으면 null이고, 앱은 화면 시계로 센다(S15P31E105-528).
+  movingDurationSec?: number | null;
 };
 
 // GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
@@ -1292,10 +1306,20 @@ export type Repositories = {
     remove: (postId: string) => Promise<void>;
     setLiked: (postId: string, liked: boolean) => Promise<void>;
     setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
-    addComment: (postId: string, body: string) => Promise<PostComment>;
+    // CMT07; parentId answers that root comment (parentCommentId).
+    addComment: (
+      postId: string,
+      body: string,
+      parentId?: string | null,
+    ) => Promise<PostComment>;
     // CMT08 · CMT09 on one of my comments; updateComment answers with the saved text.
     updateComment: (commentId: string, body: string) => Promise<string>;
     removeComment: (commentId: string) => Promise<void>;
+    // CMT14 좋아요 · CMT15 취소 on a comment.
+    setCommentLiked: (
+      commentId: string,
+      liked: boolean,
+    ) => Promise<CommentLike>;
   };
   // 7.4 · 7.4b (U21–U23). userId null is me.
   runners: {

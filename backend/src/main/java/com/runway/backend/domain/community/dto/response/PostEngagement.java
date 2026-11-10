@@ -8,13 +8,15 @@ package com.runway.backend.domain.community.dto.response;
  * @param commentCount 삭제되지 않은 댓글 수(대댓글 포함)
  * @param reactionCount 좋아요 수
  * @param liked 조회자의 좋아요 여부
+ * @param bookmarked 조회자의 스크랩(저장) 여부
  */
 public record PostEngagement(
         Long courseId,
         boolean courseShared,
         long commentCount,
         long reactionCount,
-        boolean liked) {
+        boolean liked,
+        boolean bookmarked) {
 
     public static final String LIKE = "LIKE";
 

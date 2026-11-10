@@ -3,6 +3,7 @@ import { createBatchRelay } from '../../watch/batchRelay';
 import { createLiveMetrics, type LiveMetrics } from '../../watch/liveMetrics';
 import { createPhoneRecorder, type PhoneRecorder } from '../../watch/phoneRecorder';
 import { createCoachingAnnouncer, type CoachingVoiceOut } from './coachingAnnouncer';
+import { runClockOf, type RunClock } from './runClock';
 import type {
   BpmApproval,
   CoachingGuide,
@@ -64,6 +65,8 @@ export type RunControlState = {
   watchLost: boolean;
   // 폰 기록 중 폰 GPS를 받는지. 권한·GPS가 없으면 'off'이고 기록은 시간만 이어간다.
   phoneGps: 'on' | 'off' | null;
+  // 서버 기준 운동 시간의 기준점(S15P31E105-528). 서버가 운동시간을 주지 않으면 null이고 화면은 폰 시계로 센다.
+  clock: RunClock | null;
 };
 
 // 폰 인계를 안내할지: 워치로 실제 시작한 RUNNING/PAUSED 세션에서 워치 단절·측정 끊김이 보이거나, 워치가 제어 결과를
@@ -174,6 +177,7 @@ const initialState: RunControlState = {
   recordingMode: null,
   watchLost: false,
   phoneGps: null,
+  clock: null,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -466,6 +470,7 @@ export function createRunControl({
       coaching: view.coaching ?? null,
       currentBpm: view.currentBpm ?? null,
       recordingMode: view.recordingMode,
+      clock: runClockOf(view, Date.now()),
       ...extra,
     });
   };
@@ -1004,6 +1009,7 @@ export function createRunControl({
         comparison: view.comparison ?? null,
         coaching: view.coaching ?? null,
         currentBpm: view.currentBpm ?? null,
+        clock: runClockOf(view, Date.now()),
       });
     }
     watch.sendServerState(sessionId, view, null).catch(noop);
