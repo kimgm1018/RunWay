@@ -14,6 +14,7 @@ import {
   useToast,
 } from '../components';
 import { spacing } from '../theme';
+import { CodeInputDemo } from './onboarding/CodeInputDemo';
 
 // Developer screen to check every shared component in the current theme.
 export function ComponentGalleryScreen() {
@@ -90,6 +91,10 @@ export function ComponentGalleryScreen() {
         </AppText>
         <AppText variant="metricHero">5′58″</AppText>
       </Card>
+
+      {/* S15P31E105-646: "482913"만 성공, 칩은 문자 자동입력 시연. */}
+      <AppText variant="heading">인증번호 입력</AppText>
+      <CodeInputDemo />
 
       <AppText variant="heading">빈 상태</AppText>
       <EmptyState

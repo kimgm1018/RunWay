@@ -1,6 +1,6 @@
 // Input rules from docs/design/api/users.md (U01·U15) and the messages on prototype v15 1.x.
 
-export const loginIdRule = '영문·숫자 4–16자';
+export const loginIdRule = '영문/숫자 4~16자';
 export const nicknameRule = '2–10자 · 그룹런과 커뮤니티에 표시돼요';
 
 export function isValidLoginId(value: string) {
@@ -33,23 +33,30 @@ export function isValidPassword(value: string) {
 
 // 1.3 회원가입·1.2q 새 비밀번호 칸(S15P31E105-627): 아이디 칸처럼 안 글씨에 규칙을 보이고, 아래 안내에서 만족한 조건마다
 // ✓를 붙인다. 모두 만족하면 success가 되어 TextField가 안내 앞에 ✓를 붙이고 초록색으로 보인다.
-export const passwordRule = '영문·숫자 8자 이상';
-const passwordLabels = { length: '8자 이상', letter: '영문', digit: '숫자' };
+// 아이디(영문/숫자 아무거나)와 달리 영문과 숫자가 모두 있어야 해서 '포함'으로 구분한다(S15P31E105-646, 담당자 결정).
+export const passwordRule = '영문, 숫자 포함 8자 이상';
+// 아이디 칸 규칙(영문/숫자 4~16자)과 같은 순서로 보인다(S15P31E105-646).
+const passwordLabels = { letter: '영문', digit: '숫자', length: '8자 이상' };
 
 export function passwordGuide(value: string): {
   status: 'default' | 'success' | 'error';
-  helper: string;
+  helper: string | undefined;
 } {
+  // 아무것도 입력하지 않았으면 안 글씨(규칙)만 보이고 아래 안내는 없다(S15P31E105-646).
+  if (!value) {
+    return { status: 'default', helper: undefined };
+  }
   if (value && !passwordWithinLimit(value)) {
     return { status: 'error', helper: passwordLimitRule };
   }
   if (value && isValidPassword(value)) {
     return { status: 'success', helper: '사용할 수 있는 비밀번호예요' };
   }
+  // 아이디 칸처럼 조건을 다 채우기 전에는 빨간 테두리·글씨로 알리고, 만족한 조건에는 ✓를 붙인다(S15P31E105-646).
   const checks = passwordChecks(value);
   const keys = Object.keys(passwordLabels) as (keyof typeof passwordLabels)[];
   return {
-    status: 'default',
+    status: 'error',
     helper: keys
       .map(key =>
         checks[key] ? `✓ ${passwordLabels[key]}` : passwordLabels[key],
