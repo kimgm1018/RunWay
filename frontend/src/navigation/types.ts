@@ -9,7 +9,7 @@ import type {
 } from './routes';
 
 export type RunStackParamList = Record<RunTabRouteName, undefined>;
-// The home tab's stack: 2.1 (opening one of my runs in 기록 상세, S15P31E105-564), then 5.1 (on a day, YYYY-MM-DD)
+// The home tab's stack: 2.1 (opening one of my runs on 러닝 분석, S15P31E105-594), then 5.1 (on a day, YYYY-MM-DD)
 // and 5.3.
 export type HomeStackParamList = {
   Home: { recordId: string } | undefined;

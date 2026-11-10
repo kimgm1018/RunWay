@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { AppText, EmptyState, FadeIn } from '../../components';
 import {
@@ -15,14 +15,12 @@ import {
   formatKm,
 } from '../../format';
 import { fontFamily } from '../../theme';
-import { PillTabs, recordsLook } from './look';
+import { recordsLook } from './look';
 import { kstDay, kstMonth } from './parts';
-import { metricOptions, metrics, RecordView } from './RecordView';
-import { RecordActions } from './RecordActions';
-import type { SplitMetric } from './SplitChart';
+import { RecordView } from './RecordView';
 
-// One day's runs and the chosen run's detail, shared by 5.1 내 기록 and 2.1 홈's 과거 러닝 기록 · 기록 상세
-// (S15P31E105-564).
+// One day's runs and the chosen run's card, shared by 5.1 내 기록 and 2.1 홈's 러닝 분석 (S15P31E105-564; 기록 상세
+// 화면은 S15P31E105-594 담당자 결정으로 없앰).
 
 type DayBundle = {
   runs: RunRecordSummary[];
@@ -122,7 +120,9 @@ function RunChips({
 function NoRun({ onList }: { onList?: () => void }) {
   return (
     <View style={styles.empty}>
-      <AppText style={styles.emptyTitle}>아직 이 날의 러닝 기록이 없어요</AppText>
+      <AppText style={styles.emptyTitle}>
+        아직 이 날의 러닝 기록이 없어요
+      </AppText>
       <AppText style={styles.emptyText}>점이 있는 날을 눌러 보세요</AppText>
       {onList ? (
         <Pressable
@@ -188,7 +188,7 @@ const pickRun = (runs: RunRecordSummary[], runId: string | null) =>
   runs.find(item => item.id === runId) ?? runs[0] ?? null;
 
 // 5.1 (and 홈 과거 러닝 기록): the day's run on the frost card, the average pace large and the split graph.
-// onOpen opens it (5.2, 6.7 for a group run, or 홈's 기록 상세).
+// onOpen opens it (6.7 for a group run; on 홈 a solo run is the card itself).
 export function DayRecords({
   day,
   runId,
@@ -214,7 +214,9 @@ export function DayRecords({
     dayRuns.status === 'ready' ? dayRuns.data.monthHasRuns : false;
   const run = pickRun(list, runId);
   const detail = useRunDetail(run);
-  const failed = home ? '러닝 기록을 불러오지 못했어요.' : '기록을 불러오지 못했어요';
+  const failed = home
+    ? '러닝 기록을 불러오지 못했어요.'
+    : '기록을 불러오지 못했어요';
   if (dayRuns.status === 'error') {
     return (
       <EmptyState
@@ -249,7 +251,10 @@ export function DayRecords({
             key={detail.data.id}
             record={detail.data}
             chartHeight={300}
-            onOpen={() => onOpen(run)}
+            // On 홈 a solo run is already the card itself, so only a group run opens on (6.7).
+            onOpen={
+              !home || run.runType === 'GROUP' ? () => onOpen(run) : undefined
+            }
             openLabel={rowLabel(run)}
             layout={home ? 'home' : 'records'}
           />
@@ -261,68 +266,6 @@ export function DayRecords({
           actionLabel="다시 시도"
           onAction={detail.reload}
         />
-      ) : (
-        <ActivityIndicator style={styles.loading} />
-      )}
-    </>
-  );
-}
-
-// 홈 기록 상세: the day's run as 5.2 was (the three figures, then the 페이스 · 심박 · 케이던스 graph) with its tabs on
-// the card, and under it 내 코스에 저장 · 기록 공유 · 기록 삭제 (S15P31E105-564: 5.2 화면은 없앰).
-export function DayRecordDetail({
-  day,
-  runId,
-  onRun,
-}: {
-  day: string;
-  runId: string | null;
-  onRun: (id: string) => void;
-}) {
-  const dayRuns = useDayRuns(day);
-  const list = dayRuns.status === 'ready' ? dayRuns.data.runs : [];
-  const run = pickRun(list, runId);
-  const detail = useRunDetail(run);
-  const [metric, setMetric] = useState<SplitMetric>('pace');
-  const record = detail.status === 'ready' ? detail.data : null;
-  const options = record ? metricOptions(record) : metrics.slice(0, 1);
-  // A run without 심박 or 케이던스 goes back to 페이스.
-  const shown = options.some(option => option.value === metric)
-    ? metric
-    : 'pace';
-  if (dayRuns.status === 'error' || detail.status === 'error') {
-    return (
-      <EmptyState
-        icon="alert"
-        title="기록을 불러오지 못했어요"
-        actionLabel="다시 시도"
-        onAction={dayRuns.status === 'error' ? dayRuns.reload : detail.reload}
-      />
-    );
-  }
-  if (dayRuns.status !== 'ready') {
-    return <ActivityIndicator style={styles.loading} />;
-  }
-  if (!run) {
-    return <NoRun />;
-  }
-  return (
-    <>
-      <RunChips runs={list} run={run} onRun={onRun} />
-      <View style={styles.detailHead}>
-        <PillTabs onCard options={options} value={shown} onChange={setMetric} />
-      </View>
-      {record ? (
-        <FadeIn appearKey={record.id}>
-          <RecordView
-            key={record.id}
-            layout="detail"
-            record={record}
-            chartHeight={240}
-            metric={shown}
-          />
-          <RecordActions record={record} />
-        </FadeIn>
       ) : (
         <ActivityIndicator style={styles.loading} />
       )}
@@ -363,7 +306,6 @@ const styles = StyleSheet.create({
     color: recordsLook.onCardSub,
   },
   runChipTextOn: { color: recordsLook.ink },
-  detailHead: { marginBottom: 16 },
   listLink: {
     marginTop: 14,
     height: 36,

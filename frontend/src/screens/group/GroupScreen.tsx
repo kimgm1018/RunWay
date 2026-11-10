@@ -27,23 +27,23 @@ import {
 } from '../../data';
 import { formatClockTime } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, size, spacing, useTheme } from '../../theme';
+import { fontFamily, size, spacing } from '../../theme';
 import {
   canEnterRoom,
   dDay,
   formatSchedule,
-  InfoLine,
   startsIn,
-  Tag,
   useGroupRunDraft,
 } from './parts';
-import { crewCard, groupLook, Raised, SearchField } from './look';
+import { groupTone, NumText, Raised, SearchField } from './look';
 
 const loadMine = (repositories: Repositories, _version: number) =>
   repositories.groupRuns.listMine();
 
-// The run starting next (6.0-UpcomingRunBanner) on a raised white card with navy text, so it reads
-// apart from the crews' glass cards below (담당자 요청, S15P31E105-414).
+// runway-group-screen-designs 01 내 크루 (S15P31E105-594 담당자 시안): dark navy cards on the mist, white text,
+// mint for 곧 출발, 대기방 입장, 참가하기 and the + button.
+
+// The run starting next (6.0-UpcomingRunBanner): 곧 출발, the crew, time and place, then 대기방 입장 past a line.
 function UpcomingCard({ run }: { run: GroupRunSummary }) {
   const navigation = useNavigation();
   const { clock } = useRepositories();
@@ -56,50 +56,61 @@ function UpcomingCard({ run }: { run: GroupRunSummary }) {
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
     >
-      <Raised tone="card" style={styles.upcoming}>
+      <Raised tone="night" style={styles.upcoming}>
         <View style={styles.flex}>
-          {/* Crew, time and place only (담당자 요청). The run's title is on 6.4, and the title and how
-              soon it starts stay in the label for screen readers. */}
+          {/* Crew, time and place only (담당자 요청). The run's title is on 6.4, and the title and how soon it
+              starts stay in the label for screen readers. */}
+          <View style={[styles.chip, styles.chipMint, styles.soonChip]}>
+            <AppText style={styles.chipTextMint}>곧 출발</AppText>
+          </View>
           <AppText style={styles.upcomingTitle} numberOfLines={1}>
             {run.crewName}
           </AppText>
-          <AppText style={styles.upcomingSub} numberOfLines={1}>
-            {`${formatClockTime(run.scheduledAt)} · ${run.meetingPlaceName}`}
-          </AppText>
+          <NumText
+            style={styles.sub}
+            numberOfLines={1}
+            text={`${formatClockTime(run.scheduledAt)} · ${
+              run.meetingPlaceName
+            }`}
+          />
         </View>
         {canEnterRoom(run, now) ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="대기방 입장"
-            onPress={() =>
-              navigation.navigate('WaitingRoom', { groupRunId: run.id })
-            }
-          >
-            <Raised tone="navy" style={styles.enter}>
+          <View style={styles.enterSide}>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="대기방 입장"
+              onPress={() =>
+                navigation.navigate('WaitingRoom', { groupRunId: run.id })
+              }
+              style={styles.enter}
+            >
               <AppText style={styles.enterText}>대기방 입장</AppText>
-            </Raised>
-          </PressableScale>
+            </PressableScale>
+          </View>
         ) : null}
       </Raised>
     </PressableScale>
   );
 }
 
-// One run under its crew, set in by a left line (white for today) instead of a card.
+// One run under its crew: D-4 (or 오늘) in a box on the left, then the title, when and where, and who made it ·
+// how many joined; 참가 중 (mint outline) or 참가하기 (mint) on the right.
 function RunCard({
   run,
+  first,
   busy,
   onToggle,
 }: {
   run: GroupRunSummary;
+  // Every run but the first has a line above it.
+  first: boolean;
   busy: boolean;
   onToggle: () => void;
 }) {
   const navigation = useNavigation();
   const { clock } = useRepositories();
   const day = dDay(run.scheduledAt, clock.now());
-  const today = day === '오늘';
-  // Hosts cannot leave their own run; only SCHEDULED runs accept join toggles (6.4).
+  // Hosts cannot leave their own run; only SCHEDULED runs accept join toggles (6.4, S15P31E105-637).
   const canToggle = !run.isHost && run.status === 'SCHEDULED';
   return (
     <Pressable
@@ -108,68 +119,50 @@ function RunCard({
       onPress={() =>
         navigation.navigate('GroupRunDetail', { groupRunId: run.id })
       }
-      style={[
-        styles.run,
-        {
-          borderLeftColor: today
-            ? groupLook.lineTodayOnLight
-            : groupLook.lineLaterOnLight,
-        },
-      ]}
+      style={[styles.run, !first && styles.runLine]}
     >
-      <View style={styles.runTop}>
-        {today ? (
-          <Raised tone="navy" style={styles.dayChip}>
-            <AppText style={styles.chipTextLight}>{day}</AppText>
-          </Raised>
-        ) : (
-          <View style={[styles.dayChip, styles.flatChip]}>
-            <AppText style={styles.chipTextDark}>{day}</AppText>
-          </View>
-        )}
-        {/* hostNickname shows only here (6.4 has no host line), so it stays on the list. */}
-        <AppText style={styles.host}>
-          {run.isHost ? '내가 만듦' : `${run.hostNickname}님이 만듦`}
-        </AppText>
-        <AppText style={[styles.sub, styles.count]}>
-          {`참가 ${run.participantCount}명`}
-        </AppText>
+      <View style={styles.dayBox}>
+        <NumText style={styles.dayText} text={day} />
       </View>
-      <View style={styles.runTitleRow}>
-        <AppText style={[styles.runTitle, styles.flex]} numberOfLines={1}>
+      <View style={styles.flex}>
+        <AppText style={styles.runTitle} numberOfLines={1}>
           {run.title}
         </AppText>
-        {canToggle ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={
-              run.joined ? `${run.title} 참가 취소` : `${run.title} 참가하기`
-            }
-            accessibilityState={{ selected: run.joined, disabled: busy }}
-            disabled={busy}
-            onPress={onToggle}
-            hitSlop={6}
-          >
-            {run.joined ? (
-              <Raised tone="navy" style={styles.joinButton}>
-                <Icon name="check" color={groupLook.onDark} size={13} />
-                <AppText style={styles.joinTextOn}>참가 중</AppText>
-              </Raised>
-            ) : (
-              <View style={[styles.joinButton, styles.flatChip]}>
-                <AppText style={styles.joinTextOff}>참가하기</AppText>
-              </View>
-            )}
-          </PressableScale>
-        ) : null}
-      </View>
-      {/* When and where in one line; the course is on 6.4 (담당자 결정, S15P31E105-414). */}
-      <View style={styles.lines}>
-        <InfoLine
-          icon="clock"
-          value={`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
+        {/* When and where in one line; the course is on 6.4 (담당자 결정, S15P31E105-414). */}
+        <NumText
+          style={styles.small}
+          numberOfLines={1}
+          text={`${formatSchedule(run.scheduledAt)} · ${run.meetingPlaceName}`}
+        />
+        {/* hostNickname shows only here (6.4 has no host line), so it stays on the list. */}
+        <NumText
+          style={styles.small}
+          numberOfLines={1}
+          text={`${
+            run.isHost ? '내가 만듦' : `${run.hostNickname}님이 만듦`
+          } · 참가 ${run.participantCount}명`}
         />
       </View>
+      {canToggle ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={
+            run.joined ? `${run.title} 참가 취소` : `${run.title} 참가하기`
+          }
+          accessibilityState={{ selected: run.joined, disabled: busy }}
+          disabled={busy}
+          onPress={onToggle}
+          hitSlop={6}
+          style={[
+            styles.joinButton,
+            run.joined ? styles.joinOn : styles.joinOff,
+          ]}
+        >
+          <AppText style={run.joined ? styles.joinTextOn : styles.joinTextOff}>
+            {run.joined ? '참가 중' : '참가하기'}
+          </AppText>
+        </PressableScale>
+      ) : null}
     </Pressable>
   );
 }
@@ -197,19 +190,15 @@ function CrewPanel({
       <View style={styles.crewHeader}>
         {/* Not faded: half opacity was hard to read. '승인 대기' tells the state. */}
         <View style={styles.flex}>
-          <AppText style={crewCard.name} numberOfLines={1}>
+          <AppText style={styles.crewName} numberOfLines={1}>
             {crew.name}
           </AppText>
-          <AppText
-            style={[crewCard.small, crewCard.lineGap, styles.subColor]}
-            numberOfLines={1}
-          >
+          <AppText style={[styles.small, styles.lineGap]} numberOfLines={1}>
             크루장이 승인하면 그룹런이 보여요
           </AppText>
         </View>
-        {/* On the right, flat like the other crews' round buttons there (담당자 요청). */}
-        <View style={[styles.pendingChip, styles.flatChip]}>
-          <AppText style={styles.chipTextDark}>승인 대기</AppText>
+        <View style={[styles.chip, styles.chipSlate]}>
+          <AppText style={styles.chipTextLight}>승인 대기</AppText>
         </View>
       </View>
     );
@@ -221,15 +210,23 @@ function CrewPanel({
           accessibilityRole="button"
           accessibilityLabel={`${crew.name} 크루 상세`}
           onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-          style={styles.crewName}
+          style={styles.flex}
         >
-          <View style={styles.flex}>
-            {/* Name only: the area and the member count are on 6.2 (담당자 요청). */}
-            <AppText style={crewCard.name} numberOfLines={1}>
-              {`${crew.name} ›`}
-            </AppText>
-          </View>
+          {/* Name only: the area and the member count are on 6.2 (담당자 요청). */}
+          <AppText style={styles.crewName} numberOfLines={1}>
+            {crew.name}
+          </AppText>
         </Pressable>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${crew.name} 그룹런 만들기`}
+          onPress={() =>
+            navigation.navigate('GroupRunCreate', { crewId: crew.id })
+          }
+          style={styles.plus}
+        >
+          <Icon name="plus" color={groupTone.onAccent} size={16} />
+        </PressableScale>
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={open ? `${crew.name} 접기` : `${crew.name} 펴기`}
@@ -238,32 +235,23 @@ function CrewPanel({
             animateNextLayout();
             setOpen(value => !value);
           }}
-          style={crewCard.round}
+          hitSlop={8}
+          style={styles.fold}
         >
-          <Icon
-            name={open ? 'chevronDown' : 'forward'}
-            color={groupLook.onDark}
-            size={16}
-          />
-        </PressableScale>
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`${crew.name} 그룹런 만들기`}
-          onPress={() =>
-            navigation.navigate('GroupRunCreate', { crewId: crew.id })
-          }
-          style={crewCard.round}
-        >
-          <Icon name="plus" color={groupLook.onDark} size={16} />
+          {/* Down to open, up to close. */}
+          <View style={open ? styles.flip : null}>
+            <Icon name="chevronDown" color={groupTone.text} size={20} />
+          </View>
         </PressableScale>
       </View>
       {open ? (
         runs.length ? (
           <View style={styles.runs}>
-            {runs.map(run => (
+            {runs.map((run, index) => (
               <RunCard
                 key={run.id}
                 run={run}
+                first={index === 0}
                 busy={!!joinBusy[run.id]}
                 onToggle={() => onToggleJoin(run)}
               />
@@ -271,8 +259,8 @@ function CrewPanel({
           </View>
         ) : pinnedOnly ? null : (
           <View style={styles.noRuns}>
-            <AppText style={styles.sub}>아직 예정된 그룹런이 없어요</AppText>
-            <AppText style={styles.sub}>+로 만들어 보세요</AppText>
+            <AppText style={styles.small}>아직 예정된 그룹런이 없어요</AppText>
+            <AppText style={styles.small}>+로 만들어 보세요</AppText>
           </View>
         )
       ) : null}
@@ -280,35 +268,34 @@ function CrewPanel({
   );
 }
 
+// 6.0b 내 크루 없음 (09-8 in runway-group-screen-designs): one dark card with the crew icon, the lines, 크루 모집 보러
+// 가기 in mint and 직접 만들기 in slate.
 function NoCrews({ data }: { data: MyGroupRuns }) {
   const navigation = useNavigation();
-  const { colors } = useTheme();
   return (
     <View style={styles.noCrews}>
-      <Tag label="러닝 크루" tone="muted" />
-      <AppText variant="display" numberOfLines={1} adjustsFontSizeToFit>
-        혼자 달리던 길, 같이 달려 볼까요
-      </AppText>
-      <AppText variant="caption" tone="textSecondary">
-        {`모집 중인 크루 ${data.nearbyRecruiting.count}곳`}
-      </AppText>
-      <View
-        style={[
-          styles.recruitCard,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <View style={styles.recruitRow}>
-          <View
-            style={[styles.crewTile, { backgroundColor: colors.surfaceMuted }]}
-          >
-            <Icon name="mapPin" color={colors.accentText} size={18} />
-          </View>
+      <Raised tone="night" style={styles.noCrewsCard}>
+        <Icon name="users" color={groupTone.sub} size={36} />
+        <AppText style={styles.noCrewsTag}>러닝 크루</AppText>
+        <AppText
+          style={styles.noCrewsTitle}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          혼자 달리던 길, 같이 달려 볼까요
+        </AppText>
+        <NumText
+          style={[styles.small, styles.center]}
+          text={`모집 중인 크루 ${data.nearbyRecruiting.count}곳`}
+        />
+        <View style={styles.nearby}>
+          <Icon name="mapPin" color={groupTone.text} size={18} />
           <View style={styles.flex}>
-            <AppText variant="bodyStrong">
-              {`내 근처 크루 ${data.nearbyRecruiting.count}곳이 모집 중`}
-            </AppText>
-            <AppText variant="caption" tone="textTertiary">
+            <NumText
+              style={styles.nearbyTitle}
+              text={`내 근처 크루 ${data.nearbyRecruiting.count}곳이 모집 중`}
+            />
+            <AppText style={styles.small}>
               {data.nearbyRecruiting.areas.join(' · ')}
             </AppText>
           </View>
@@ -317,26 +304,21 @@ function NoCrews({ data }: { data: MyGroupRuns }) {
           accessibilityRole="button"
           accessibilityLabel="크루 모집 보러 가기"
           onPress={() => navigateTo(navigation, 'CrewRecruit')}
-          style={[styles.recruitButton, { backgroundColor: colors.accent }]}
+          style={[styles.wide, styles.wideMint]}
         >
-          <AppText variant="button" style={{ color: colors.onAccent }}>
-            크루 모집 보러 가기 ›
+          <AppText style={styles.wideTextMint}>크루 모집 보러 가기 ›</AppText>
+        </PressableScale>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="직접 만들기"
+          onPress={() => navigateTo(navigation, 'CrewCreate')}
+          style={[styles.wide, styles.wideSlate]}
+        >
+          <AppText style={styles.wideTextSlate}>
+            원하는 크루가 없다면 직접 만들기
           </AppText>
         </PressableScale>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="직접 만들기"
-        onPress={() => navigateTo(navigation, 'CrewCreate')}
-        style={styles.createLink}
-      >
-        <AppText variant="caption" tone="textSecondary">
-          원하는 크루가 없다면{' '}
-          <AppText variant="captionStrong" tone="accentText">
-            직접 만들기
-          </AppText>
-        </AppText>
-      </Pressable>
+      </Raised>
     </View>
   );
 }
@@ -480,7 +462,7 @@ export function MyCrewsPage({
               return (
                 // The same raised white card as 곧 출발 above (S15P31E105-563), so the run lines use the
                 // app's light theme with navy text.
-                <Raised key={crew.id} tone="card" style={crewCard.card}>
+                <Raised key={crew.id} tone="night" style={styles.crewCard}>
                   <CrewPanel
                     crew={crew}
                     runs={listed.map(withJoin)}
@@ -502,162 +484,165 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  // Every card, 곧 출발 included, sits 14 apart (담당자 요청).
+  // Every card, 곧 출발 included, sits 12 apart.
   content: {
     paddingHorizontal: 16,
     paddingTop: spacing.md,
-    gap: 14,
+    gap: 12,
   },
+  center: { textAlign: 'center' },
   sub: {
     fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupLook.onLightSub,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: groupTone.sub,
   },
-  // Flat light grey fill on the white card: later-day chips, 참가하기 and 승인 대기.
-  flatChip: { backgroundColor: groupLook.lightFill },
-  chipTextDark: {
+  small: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: groupTone.sub,
+  },
+  lineGap: { marginTop: 6 },
+  // Text straight on the mist (찾는 크루가 없어요).
+  onMist: { color: groupTone.sub },
+  noMatch: { textAlign: 'center', paddingVertical: spacing.xxxl },
+  chip: {
+    alignSelf: 'flex-start',
+    height: 24,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  chipMint: { backgroundColor: groupTone.accent },
+  chipSlate: { alignSelf: 'center', backgroundColor: groupTone.quiet },
+  chipTextMint: {
     fontFamily: fontFamily.bold,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.navy,
+    color: groupTone.onAccent,
   },
   chipTextLight: {
     fontFamily: fontFamily.bold,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onDark,
+    color: groupTone.text,
   },
-  // 6.0-UpcomingRunBanner: a raised white card, the 대기방 입장 pill on the right.
+  soonChip: { marginBottom: 8 },
   upcoming: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    // Same padding, corners and gap as the crew cards below (담당자 요청).
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderRadius: 20,
   },
   upcomingTitle: {
+    marginBottom: 4,
     fontFamily: fontFamily.bold,
-    fontSize: 21,
-    lineHeight: 27,
+    fontSize: 19,
+    lineHeight: 25,
     letterSpacing: -0.4,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
-  upcomingSub: {
-    marginTop: 10,
-    fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupLook.onLightSub,
+  // 대기방 입장 past a thin line.
+  enterSide: {
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingLeft: 14,
+    borderLeftWidth: 1,
+    borderLeftColor: groupTone.line,
   },
   enter: {
-    width: 100,
-    height: 42,
-    borderRadius: 21,
+    height: 40,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: groupTone.button,
   },
   enterText: {
     fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupLook.onDark,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupTone.onButton,
   },
-  // 6.0-CrewCardExpanded: the crew's head row, then its runs below without a panel.
-  // As tall as a two-line card (name 27 + 10 + note 18), so every card on 6.0 is one height (담당자 요청).
+  crewCard: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 20 },
   crewHeader: {
-    minHeight: 55,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
   crewName: {
-    flex: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 19,
+    lineHeight: 25,
+    letterSpacing: -0.4,
+    color: groupTone.text,
+  },
+  // + as a mint button with a navy plus (mint on white reads only as a fill), the fold as a bare chevron (담당자 시안).
+  plus: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: groupTone.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fold: { width: 28, alignItems: 'center' },
+  flip: { transform: [{ rotate: '180deg' }] },
+  runs: { marginTop: 12 },
+  run: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    paddingVertical: 12,
   },
-  crewTile: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: groupLook.darkFill,
+  runLine: { borderTopWidth: 1, borderTopColor: groupTone.line },
+  dayBox: {
+    minWidth: 46,
+    height: 30,
+    paddingHorizontal: 8,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: groupTone.quiet,
   },
-  // No initial tile (there are no crew photos), so the name is bigger (담당자 요청).
-  subColor: { color: groupLook.onLightSub },
-  // Text straight on the mist rather than in a navy crew card (S15P31E105-483).
-  onMist: { color: groupLook.onLightSub },
-  noMatch: { textAlign: 'center', paddingVertical: spacing.xxxl },
-  pendingChip: {
-    height: 34,
-    paddingHorizontal: 14,
-    borderRadius: 17,
-    justifyContent: 'center',
-  },
-  runs: { marginTop: 16, gap: 16 },
-  run: {
-    marginLeft: 2,
-    paddingLeft: 12,
-    borderLeftWidth: 1.5,
-  },
-  runTop: {
-    height: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dayChip: {
-    height: 20,
-    paddingHorizontal: 9,
-    borderRadius: 10,
-    justifyContent: 'center',
-  },
-  host: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: groupLook.onLightMuted,
-  },
-  count: { marginLeft: 'auto' },
-  runTitleRow: {
-    marginTop: 6,
-    minHeight: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  dayText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupTone.text,
   },
   runTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 15.5,
+    lineHeight: 21,
     letterSpacing: -0.3,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
-  lines: { marginTop: 4 },
   joinButton: {
-    flexDirection: 'row',
+    height: 32,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     alignItems: 'center',
-    gap: 5,
-    height: 30,
-    paddingLeft: 11,
-    paddingRight: 12,
-    borderRadius: 15,
+    justifyContent: 'center',
   },
+  // 참가 중 as a quiet chip, 참가하기 in mint.
+  joinOn: { backgroundColor: groupTone.quiet },
+  joinOff: { backgroundColor: groupTone.accent },
   joinTextOn: {
     fontFamily: fontFamily.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: groupLook.onDark,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupTone.text,
   },
   joinTextOff: {
     fontFamily: fontFamily.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: groupLook.onLight,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupTone.onAccent,
   },
   noRuns: {
     alignItems: 'center',
@@ -666,23 +651,61 @@ const styles = StyleSheet.create({
   },
   noCrews: {
     flex: 1,
-    paddingHorizontal: spacing.screen,
-    paddingTop: spacing.xxxl,
-    gap: spacing.xl,
+    paddingHorizontal: 16,
+    paddingTop: spacing.xl,
   },
-  recruitCard: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: spacing.xxl,
-    gap: spacing.xl,
-    marginTop: spacing.xxl,
+  noCrewsCard: {
+    alignItems: 'center',
+    gap: 12,
+    padding: 22,
+    borderRadius: 22,
   },
-  recruitRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  recruitButton: {
-    height: size.buttonMedium,
-    borderRadius: radius.pill,
+  noCrewsTag: {
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupTone.text,
+  },
+  noCrewsTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 21,
+    lineHeight: 28,
+    color: groupTone.text,
+  },
+  nearby: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: groupTone.inner,
+  },
+  nearbyTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 20,
+    color: groupTone.text,
+  },
+  wide: {
+    alignSelf: 'stretch',
+    height: 50,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  createLink: { alignSelf: 'center', padding: spacing.md },
+  wideMint: { backgroundColor: groupTone.button },
+  wideSlate: { backgroundColor: groupTone.quiet },
+  wideTextMint: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupTone.onButton,
+  },
+  wideTextSlate: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupTone.text,
+  },
 });

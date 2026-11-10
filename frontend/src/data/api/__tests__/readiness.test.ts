@@ -1,5 +1,5 @@
 import { appConfig } from '../../../config';
-import { createReadinessApi, weeklyLoadLabel } from '../readiness';
+import { createReadinessApi, createReadinessOnApi, weeklyLoadLabel } from '../readiness';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -22,6 +22,12 @@ const latest = (
     healthUpdatedAt?: string | null;
     weeklyTrainingLoad?: number | null;
     usualWeeklyTrainingLoad?: number | null;
+    // S15P31E105-594: asked of the server, not in the contract yet.
+    dailyTrainingLoads?: { date: string; load: number | null }[] | null;
+    sleepScore?: number | null;
+    recoveryScore?: number | null;
+    loadScore?: number | null;
+    restingHrChangePct?: number | null;
   } = {},
 ) => ({
   id: 101,
@@ -72,6 +78,9 @@ test('R02 for today (KST) is the score with that day\'s own sleep and resting he
     restingHeartRate: 58,
     lastAssessedDate: '2026-11-02',
     ...unbacked,
+    // No training load or item scores in this answer (S15P31E105-594).
+    trainingLoad: null,
+    scoreFactors: null,
   });
   const [requested, init] = fetchMock.mock.calls[0];
   expect(requested).toBe(
@@ -315,6 +324,79 @@ test('R02 without training load (or a server before it) leaves 주간 부하 emp
   });
 });
 
+test('R02 training load and item scores feed 2.1 준비도 (S15P31E105-594)', async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', {
+        weeklyTrainingLoad: 600,
+        usualWeeklyTrainingLoad: 400,
+        // Out of order on purpose; null is a day without exercise.
+        dailyTrainingLoads: [
+          { date: '2026-11-02', load: 180 },
+          { date: '2026-10-27', load: 80 },
+          { date: '2026-10-28', load: null },
+          { date: '2026-10-29', load: 160 },
+          { date: '2026-10-30', load: 110 },
+          { date: '2026-10-31', load: 70 },
+          { date: '2026-11-01', load: null },
+        ],
+        sleepScore: 90,
+        recoveryScore: 80,
+        loadScore: 72.5,
+        restingHrChangePct: 6.7,
+      }),
+    ),
+  );
+
+  const condition = await getTodayCondition();
+  expect(condition.trainingLoad?.weekly).toBe(600);
+  expect(condition.trainingLoad?.usual).toBe(400);
+  expect(condition.trainingLoad?.days?.map(day => day.date)).toEqual([
+    '2026-10-27',
+    '2026-10-28',
+    '2026-10-29',
+    '2026-10-30',
+    '2026-10-31',
+    '2026-11-01',
+    '2026-11-02',
+  ]);
+  expect(condition.trainingLoad?.days?.[1]).toEqual({
+    date: '2026-10-28',
+    load: null,
+  });
+  expect(condition.scoreFactors).toEqual({
+    sleep: 90,
+    recovery: 80,
+    load: 72.5,
+    restingHrChangePct: 6.7,
+  });
+});
+
+test('R02 with a malformed daily list or no item scores leaves them out', async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', {
+        weeklyTrainingLoad: 600,
+        usualWeeklyTrainingLoad: 400,
+        dailyTrainingLoads: [{ date: 'yesterday', load: 10 }],
+        sleepScore: null,
+        recoveryScore: null,
+        loadScore: null,
+      }),
+    ),
+  );
+
+  const condition = await getTodayCondition();
+  expect(condition.trainingLoad).toEqual({
+    weekly: 600,
+    usual: 400,
+    days: null,
+  });
+  expect(condition.scoreFactors).toBeNull();
+});
+
 test("an earlier day's training load is not shown as today's", async () => {
   fetchMock.mockResolvedValue(
     respond(
@@ -328,4 +410,16 @@ test("an earlier day's training load is not shown as today's", async () => {
     weeklyLoad: null,
     weeklyLoadLabel: null,
   });
+});
+
+test('2.1 준비도 on a past day is R02 only when that day is its own (S15P31E105-594)', async () => {
+  const getConditionOn = createReadinessOnApi();
+  fetchMock.mockResolvedValue(respond(200, latest('2026-10-30')));
+  await expect(getConditionOn('2026-10-30')).resolves.toMatchObject({
+    date: '2026-10-30',
+    readinessState: 'ready',
+    readinessScore: 75,
+  });
+  fetchMock.mockResolvedValue(respond(200, latest('2026-10-30')));
+  await expect(getConditionOn('2026-10-29')).resolves.toBeNull();
 });

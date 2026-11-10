@@ -29,6 +29,28 @@ export type TodayCondition = {
   aiAdvice: string | null;
   // 2.P′ 오래된 데이터: when the last score was made.
   lastAssessedDate: string | null;
+  // S15P31E105-594 2.1 준비도 (담당자 시안): the score day's training load (TRIMP). Null without one.
+  trainingLoad?: TrainingLoad | null;
+  // The formula's item scores (readiness-formula 3~5절) behind the score; null until R02 sends them.
+  scoreFactors?: ScoreFactors | null;
+};
+
+export type TrainingLoad = {
+  // D-6~D sum and the usual week (28 days, readiness-formula 7.2); usual is null without history.
+  weekly: number;
+  usual: number | null;
+  // D-6~D oldest first. load is null on a day with no exercise (not 0, which is exercise below Zone 1). The whole
+  // list is null until R02 sends it.
+  days: { date: string; load: number | null }[] | null;
+};
+
+export type ScoreFactors = {
+  // S, R, L (0–100, two decimals); null when the item was left out (readiness-formula 7.3).
+  sleep: number | null;
+  recovery: number | null;
+  load: number | null;
+  // R's today-against-usual resting heart rate change, in percent.
+  restingHrChangePct: number | null;
 };
 
 // 2.1 러닝 분석 card.
@@ -1192,6 +1214,8 @@ export type Repositories = {
   };
   home: {
     getTodayCondition: () => Promise<TodayCondition>;
+    // 2.1 준비도 on a past day (S15P31E105-594); null when that day has no score.
+    getConditionOn: (day: string) => Promise<TodayCondition | null>;
     getMonthlySummary: () => Promise<MonthlyRunSummary>;
   };
   records: {

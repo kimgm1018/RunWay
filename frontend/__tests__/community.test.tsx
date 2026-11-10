@@ -805,7 +805,7 @@ test('7.4 of a private runner shows only the name until the request is approved,
   expect(texts(screen)).toContain('팔로우');
 });
 
-test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark map feed, 6.0 crew cards white like 곧 출발 (S15P31E105-483·561·563)', async () => {
+test('프로필 sits on the mist like 홈, 커뮤니티 is the dark map feed and 그룹 the home navy (S15P31E105-483·561·594)', async () => {
   const screen = await openCommunity();
   const onMist = (component: React.ElementType) =>
     screen.root.findByType(component).findAllByType(Backdrop).length > 0;
@@ -814,22 +814,22 @@ test('그룹 · 프로필 sit on the mist like 홈 and 커뮤니티 is the dark 
 
   await press(screen, '그룹');
   await settle(50);
-  expect(onMist(GroupTabScreen)).toBe(true);
-  // 6.0's crew cards are the raised white card 곧 출발 uses, in the light theme (S15P31E105-563).
+  // 6.0 · 6.1 are on the home card's navy (S15P31E105-594 담당자 결정), in the dark theme, with faint white cards.
+  expect(onMist(GroupTabScreen)).toBe(false);
   const group = screen.root.findByType(GroupTabScreen);
   expect(
     group.findAll(
       node => node.type === ThemeProvider && node.props.tone === 'dark',
-    ),
-  ).toHaveLength(0);
+    ).length,
+  ).toBeGreaterThan(0);
   expect(
-    group.findAll(node => node.type === Raised && node.props.tone === 'card')
+    group.findAll(node => node.type === Raised && node.props.tone === 'night')
       .length,
   ).toBeGreaterThan(1);
 
   await press(screen, '민락 야경 러너스 크루 상세');
   await settle(50);
-  // 6.2 is a plain white page split by grey bands (S15P31E105-563), not the mist.
+  // 6.2 is the 시안's cards on the home's navy (S15P31E105-594), not the mist.
   expect(onMist(CrewDetailScreen)).toBe(false);
   await press(screen, '뒤로');
 
@@ -901,7 +901,7 @@ test('a request answered elsewhere leaves the sheet with a note, and a failed li
   expect(page).toContain('jiwoo.runs');
 });
 
-test('7.4 follows a runner, a private one takes a request, and 7.4b shares my run (7.3)', async () => {
+test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run on 러닝 분석', async () => {
   const screen = await openCommunity();
   await press(screen, 'seoyun.run 프로필');
   await settle(50);
@@ -921,35 +921,16 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   expect(page).toContain('최근 기록');
   // 7.4b no longer shows 공개 계정 · 비공개 계정 (담당자 요청).
   expect(page).not.toContain('공개 계정');
-  // My run opens in 2.1 기록 상세 on its day (S15P31E105-564), where 기록 공유 is.
+  // My run opens on 2.1 러닝 분석 on its day (S15P31E105-594: 기록 상세 and its 기록 공유 are gone).
   await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
   for (let tries = 0; tries < 40; tries++) {
-    if (
-      screen.root.findAll(
-        node =>
-          node.props.accessibilityLabel === '기록 공유' &&
-          typeof node.props.onPress === 'function',
-      ).length > 0
-    ) {
+    if (texts(screen).includes('2026.10.15 · 06:30')) {
       break;
     }
     await settle(50);
   }
-  expect(texts(screen)).toContain('10월 15일 목요일');
-  await press(screen, '기록 공유');
-  await settle(50);
-  expect(texts(screen)).toContain('기록 공유');
-  await type(screen, '글 내용', '새벽 공기 최고');
-  await press(screen, '게시');
-  await settle(100);
-  page = texts(screen);
-  expect(page).toContain('러닝 기록을 공유했어요');
-  expect(page).toContain('새벽 공기 최고');
-
-  // The notification expires; the shared record remains in the feed.
-  await settle(3000);
-  expect(texts(screen)).not.toContain('러닝 기록을 공유했어요');
-  expect(texts(screen)).toContain('새벽 공기 최고');
+  expect(texts(screen)).toContain('2026.10.15 · 06:30');
+  expect(texts(screen)).toContain('페이스와 심박 변화');
 });
 
 // S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
@@ -980,22 +961,16 @@ test('Avatar shows the photo and falls back to the letter', async () => {
 // 7.4b → 2.1 기록 상세 → 7.3 기록 공유 with my 10.15 run.
 async function openShare(repositories: Repositories) {
   const screen = await openCommunity(repositories);
-  await press(screen, 'minjun.run 프로필');
+  // 기록 상세 and its 기록 공유 are gone (S15P31E105-594 담당자 결정), so 7.3 opens the way 4.5's 기록 공유 opens it:
+  // with the run's record.
+  // The mock answers on fake timers, so time is moved on while it reads.
+  const recent = repositories.records.getRecent('recent', 1);
   await settle(50);
-  await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
-  for (let tries = 0; tries < 40; tries++) {
-    if (
-      screen.root.findAll(
-        node =>
-          node.props.accessibilityLabel === '기록 공유' &&
-          typeof node.props.onPress === 'function',
-      ).length > 0
-    ) {
-      break;
-    }
-    await settle(50);
-  }
-  await press(screen, '기록 공유');
+  const [record] = await recent;
+  const navigation = screen.root.findByType(CommunityScreen).props.navigation;
+  await act(async () =>
+    navigation.navigate('PostWrite', { recordId: record.id }),
+  );
   await settle(50);
   return screen;
 }

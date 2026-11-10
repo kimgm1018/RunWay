@@ -235,12 +235,35 @@ const calls = (method: string) =>
     .filter(([, init]) => init.method === method)
     .map(([address]) => new URL(address).pathname.replace(/^.*\/api\/v1/, ''));
 
+// A Text's whole line, nested Texts included (NumText draws the digits in their own Text, S15P31E105-594).
+function lineOf(children: unknown): string {
+  return [children]
+    .flat(Infinity as 1)
+    .map(child =>
+      typeof child === 'string' || typeof child === 'number'
+        ? String(child)
+        : child && typeof child === 'object' && 'props' in child
+        ? lineOf((child as { props: { children?: unknown } }).props.children)
+        : '',
+    )
+    .join('');
+}
+
 function texts(screen: Screen) {
-  return screen.root
-    .findAllByType(Text)
-    .flatMap(node => [node.props.children].flat())
-    .filter(child => typeof child === 'string' || typeof child === 'number')
-    .join(' ');
+  const nodes = screen.root.findAllByType(Text);
+  return [
+    ...nodes
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number'),
+    // Lines split into nested Texts, read whole too.
+    ...nodes
+      .filter(node =>
+        [node.props.children]
+          .flat()
+          .some(child => child && typeof child === 'object'),
+      )
+      .map(node => lineOf(node.props.children)),
+  ].join(' ');
 }
 
 // Stacks keep earlier screens mounted, so the newest match belongs to the top screen.

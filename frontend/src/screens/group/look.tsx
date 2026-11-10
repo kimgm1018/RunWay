@@ -4,6 +4,7 @@ import {
   TextInput,
   View,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import {
@@ -53,6 +54,10 @@ export const groupLook = {
   lineLaterOnLight: 'rgba(2,5,14,0.2)',
   // The white page of 6.2 · 6.4c · 6.5 · 6.8 and the grey band between its parts (S15P31E105-563, 담당자 결정).
   page: '#FFFFFF',
+  // The mint of runway-group-screen-designs (S15P31E105-594), the home's mint too: only on the small marks
+  // (chips, +, 참가 중, picked small chips), with navy text on it; big buttons stay dark navy (담당자 요청).
+  mint: '#4DFFD2',
+  onMint: '#02050E',
   band: '#EEF1F4',
   // --bg-common (6.4 · 6.4c · 6.5 · 6.8 · 6.6c): white for the top third, then down to navy.
   commonBackground: [
@@ -106,9 +111,41 @@ export const groupLook = {
   // The light map behind 6.4 · 6.6 · 6.6r · 6.9.
   mapBackground: '#F3F5F6',
   // --warn: the 취소 icon circle only (6.4c).
-  warn: '#E2876F',
+  warn: '#F15066',
   // --cta-navy-bg (6.7 bottom buttons) as a plain fill, see the Svg alpha note below.
   ctaNavy: 'rgba(14,26,34,0.93)',
+} as const;
+
+// runway-group-screen-designs in the home tone (S15P31E105-594 담당자 결정 2026-11-10: 진한 네이비 배경, 지금 디자인과
+// 일관된 톤): the home card navy page, faint white cards, white text, white big buttons, mint only on small marks
+// and the watch's red pink for 해산 · 취소 · 내보내기.
+export const groupTone = {
+  // The page: the home card's and the tab bar's navy.
+  page: '#02050E',
+  // A bottom sheet over it, a step lighter so it stands apart from the page.
+  sheet: '#0E1621',
+  // A card on it: a faint white like the panels inside the home card, with a faint white rim.
+  card: 'rgba(255,255,255,0.07)',
+  cardLine: 'rgba(255,255,255,0.12)',
+  text: '#FFFFFF',
+  sub: 'rgba(255,255,255,0.68)',
+  muted: 'rgba(255,255,255,0.45)',
+  line: 'rgba(255,255,255,0.12)',
+  // A field or a row inside a card.
+  inner: 'rgba(255,255,255,0.08)',
+  // Big buttons: white with navy text, like the home's 러닝 결과 보기 (담당자 요청: 큰 버튼에 민트 X).
+  button: '#FFFFFF',
+  onButton: '#02050E',
+  // Mint only on the small marks (chips, +, 나, toggles, bars), navy text on it.
+  accent: groupLook.mint,
+  onAccent: groupLook.onMint,
+  accentSoft: 'rgba(77,255,210,0.16)',
+  // A quiet chip or secondary button.
+  quiet: 'rgba(255,255,255,0.14)',
+  // The watch's warning red pink toned down (wear RunwayTheme Warning #FF5C7A, a little redder and softer, kept as vivid as the mint so the two read as one set: 담당자 요청 '톤 낮춰줘' · '약간 붉은 톤' · '민트랑 톤 맞게') for
+  // 해산 · 취소 · 내보내기 · 종료, with a faint fill of it behind its icons.
+  danger: '#F15066',
+  dangerSoft: 'rgba(241,80,102,0.16)',
 } as const;
 
 const recipes = {
@@ -135,6 +172,30 @@ const recipes = {
   navyFlat: {
     colors: null,
     fill: '#02050E',
+    boxShadow: 'none',
+  },
+  // The mint main button and picked tab (S15P31E105-594): flat mint, no gradient.
+  mintFlat: {
+    colors: null,
+    fill: '#4DFFD2',
+    boxShadow: 'none',
+  },
+  // A card on the navy page (S15P31E105-594): a faint white with a faint white rim, flat.
+  night: {
+    colors: null,
+    fill: 'rgba(255,255,255,0.07)',
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.1)',
+  },
+  // The big white button on the navy page.
+  whiteFlat: {
+    colors: null,
+    fill: '#FFFFFF',
+    boxShadow: 'none',
+  },
+  // A quiet secondary button on the navy page.
+  quietFlat: {
+    colors: null,
+    fill: 'rgba(255,255,255,0.14)',
     boxShadow: 'none',
   },
   // --raised-navy-*: navy pills and the picked segment on light screens.
@@ -229,6 +290,17 @@ export function GroupBackground({
 
 // The mist behind a whole screen (6.0~6.3, S15P31E105-483), as on 홈 and 러닝. It replaced --bg-analysis-dark
 // so moving between the tabs keeps one background.
+// runway-group-screen-designs (S15P31E105-594 담당자 결정 2026-11-10: 배경은 시안처럼 진한 네이비): the home card's
+// navy behind every group screen but the intro.
+export function NightBackground() {
+  return (
+    <View
+      style={[StyleSheet.absoluteFill, { backgroundColor: groupTone.page }]}
+      pointerEvents="none"
+    />
+  );
+}
+
 export function MistBackground() {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -297,13 +369,14 @@ export function GroupCta({
   navy?: boolean;
   onPress: () => void;
 }) {
-  // Navy fill with white text: a navy primary, or the old navy/glass secondary.
-  const navyFill = navy ? primary : !primary;
-  // navy: a plain navy primary and the soft card white secondary, flatter than the pills (담당자 요청).
+  // White text on every secondary (navy: a quiet white on the navy page).
+  const navyFill = !primary;
+  // navy: on the navy page (S15P31E105-594) a white primary with navy text, like the home's buttons, and a quiet
+  // see-through secondary.
   const tone: RaisedTone = navy
     ? primary
-      ? 'navyFlat'
-      : 'card'
+      ? 'whiteFlat'
+      : 'quietFlat'
     : primary
     ? 'white'
     : onMist
@@ -319,23 +392,16 @@ export function GroupCta({
     >
       <Raised
         tone={tone}
-        style={[
-          styles.cta,
-          primary && { boxShadow: navy ? ctaShadowNavy : ctaShadow },
-        ]}
+        style={[styles.cta, primary && !navy && { boxShadow: ctaShadow }]}
       >
         {/* Disabled dims the label only: the button floats over the list, which must not show through. */}
         <View style={[styles.ctaContent, disabled && styles.disabled]}>
-          <AppText style={navyFill ? styles.ctaTextGlass : styles.ctaText}>
+          <AppText style={[navyFill ? styles.ctaTextGlass : styles.ctaText]}>
             {title}
           </AppText>
           {primary && icon ? (
-            <View style={[styles.ctaIcon, navy && styles.ctaIconOnNavy]}>
-              <Icon
-                name={icon}
-                color={navy ? groupLook.navy : groupLook.onDark}
-                size={14}
-              />
+            <View style={styles.ctaIcon}>
+              <Icon name={icon} color={groupLook.onDark} size={14} />
             </View>
           ) : null}
         </View>
@@ -405,12 +471,12 @@ export function SearchField({
   return (
     <View style={styles.searchRow}>
       <View style={styles.search}>
-        <Icon name="search" color={groupLook.onLightSub} size={16} />
+        <Icon name="search" color={groupTone.sub} size={16} />
         <TextInput
           accessibilityLabel={label}
           placeholder="크루 이름이나 지역으로 검색"
-          placeholderTextColor={groupLook.onLightMuted}
-          selectionColor={groupLook.onLight}
+          placeholderTextColor={groupTone.muted}
+          selectionColor={groupTone.accent}
           value={value}
           onChangeText={onChangeText}
           returnKeyType="search"
@@ -422,9 +488,9 @@ export function SearchField({
         accessibilityRole="button"
         accessibilityLabel="검색 닫기"
         onPress={onClose}
-        style={[crewCard.round, styles.roundOnLight]}
+        style={[crewCard.round, styles.roundOnNight]}
       >
-        <Icon name="close" color={groupLook.onLight} size={16} />
+        <Icon name="close" color={groupTone.text} size={16} />
       </PressableScale>
     </View>
   );
@@ -433,9 +499,6 @@ export function SearchField({
 // --cta-shadow: deeper than a small white pill.
 const ctaShadow =
   'inset 0 1px 0 rgba(255,255,255,1), inset 0 -2px 4px rgba(93,129,148,0.18), 0 12px 28px rgba(0,0,0,0.38)';
-// The navy primary's: the navy pill's inner light with a softer drop on the mist.
-// The navy primary's: a short, light drop only, no edge light (담당자 요청: 덜 입체적으로).
-const ctaShadowNavy = '0 4px 12px rgba(2,5,14,0.16)';
 
 const styles = StyleSheet.create({
   raised: { overflow: 'hidden' },
@@ -479,34 +542,75 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaIconOnNavy: { backgroundColor: groupLook.onDark },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   search: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    height: 34,
+    height: 40,
     paddingHorizontal: 14,
-    borderRadius: 17,
-    backgroundColor: groupLook.lightButton,
-    boxShadow: insetTrackLight,
+    borderRadius: 14,
+    backgroundColor: groupTone.card,
+    borderWidth: 1,
+    borderColor: groupTone.cardLine,
   },
-  roundOnLight: {
-    backgroundColor: groupLook.lightButton,
-    boxShadow: '0 2px 6px rgba(30,45,60,0.12)',
-  },
-  // No lineHeight: on Android it clips the top of the placeholder in a single-line input. Without the
-  // font's extra top padding the text sits centred in the 34 field.
+  roundOnNight: { backgroundColor: groupTone.quiet },
   searchInput: {
     flex: 1,
-    height: 34,
+    height: 40,
     fontFamily: typography.input.fontFamily,
     fontSize: 14,
     paddingVertical: 0,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
   disabled: { opacity: 0.45 },
+});
+
+// The digits of a line in Rajdhani (S15P31E105-594 담당자 결정: 그룹 화면 숫자는 워치와 같은 Rajdhani), the words
+// around them in the app's Korean font, which Rajdhani has no letters for. D-4, 11.14 07:00, 18/30, 6′10″ and the
+// like are one run each.
+const numberRun = /(D-\d+|\d[\d:.,/′″'"+-]*)/;
+
+export function NumText({
+  text,
+  style,
+  numberStyle,
+  numberOfLines,
+}: {
+  text: string;
+  style?: StyleProp<TextStyle>;
+  // On top of Rajdhani SemiBold: a size or colour of the digits' own.
+  numberStyle?: StyleProp<TextStyle>;
+  numberOfLines?: number;
+}) {
+  const parts = text.split(numberRun);
+  // The digits keep the line's colour (AppText would set its own) and are drawn a little larger, since
+  // Rajdhani's figures sit smaller than the Korean letters at the same size.
+  const line = StyleSheet.flatten(style) ?? {};
+  const own: TextStyle = {
+    ...(line.color ? { color: line.color } : null),
+    ...(typeof line.fontSize === 'number'
+      ? { fontSize: Math.round(line.fontSize * 1.12 * 2) / 2 }
+      : null),
+  };
+  return (
+    <AppText style={style} numberOfLines={numberOfLines}>
+      {parts.map((part, index) =>
+        index % 2 === 1 ? (
+          <AppText key={index} style={[numStyles.number, own, numberStyle]}>
+            {part}
+          </AppText>
+        ) : (
+          part
+        ),
+      )}
+    </AppText>
+  );
+}
+
+const numStyles = StyleSheet.create({
+  number: { fontFamily: fontFamily.rajdhaniSemiBold, letterSpacing: 0 },
 });

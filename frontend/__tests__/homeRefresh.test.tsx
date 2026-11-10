@@ -82,8 +82,8 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(true);
-  expect(texts(screen)).toContain('계획한 강도로 달려도 좋아요');
-  expect(texts(screen)).toContain('러닝 기록');
+  expect(texts(screen)).toContain('최근 운동량이 평소보다 많아요.');
+  expect(texts(screen)).toContain('월별 기록');
 
   await act(async () => release());
   await settle();
@@ -93,7 +93,7 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   [today, me, notifications].forEach((spy, index) =>
     expect(spy.mock.calls.length).toBeGreaterThan(before[index]),
   );
-  expect(texts(screen)).toContain('계획한 강도로 달려도 좋아요');
+  expect(texts(screen)).toContain('최근 운동량이 평소보다 많아요.');
 });
 
 test('2.1 keeps the home on screen when only the notifications fail', async () => {
@@ -102,9 +102,9 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   const screen = await launch(repositories);
 
   const page = texts(screen);
-  expect(page).toContain('계획한 강도로 달려도 좋아요');
+  expect(page).toContain('최근 운동량이 평소보다 많아요.');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('러닝 기록');
+  expect(page).toContain('월별 기록');
   expect(page).not.toContain('불러오지 못했어요');
 });
 
@@ -118,5 +118,5 @@ test('2.1 says when today’s condition did not load, with the other sections st
   const page = texts(screen);
   expect(page).toContain('오늘 컨디션을 불러오지 못했어요');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('러닝 기록');
+  expect(page).toContain('월별 기록');
 });

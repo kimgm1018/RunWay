@@ -44,6 +44,22 @@
     {
       "path": "assets/fonts/NotoSansKR-Regular.otf",
       "sha1": "d5c1165d57c419e4e264a8c25211c7ed92d611ca"
+    },
+    {
+      "path": "assets/fonts/Rajdhani-Bold.ttf",
+      "sha1": "a99ae7ab2128c1690a605f1129f713d55c48579c"
+    },
+    {
+      "path": "assets/fonts/Rajdhani-Medium.ttf",
+      "sha1": "8af3795d08d540f5b16443a06f145413ba6f3ecf"
+    },
+    {
+      "path": "assets/fonts/Rajdhani-Regular.ttf",
+      "sha1": "81ce692b649babc80ec32c49f2abe27d7567d921"
+    },
+    {
+      "path": "assets/fonts/Rajdhani-SemiBold.ttf",
+      "sha1": "40563884df08246cd0a96b5d9d1186516f5da7a7"
     }
   ]
 }

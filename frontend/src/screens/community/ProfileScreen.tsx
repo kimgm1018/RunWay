@@ -647,7 +647,7 @@ function Profile({
                       onPress={() =>
                         postId
                           ? navigation.navigate('PostDetail', { postId })
-                          : // My own run opens in 2.1 기록 상세 (S15P31E105-564).
+                          : // My own run opens on 2.1 러닝 분석 (S15P31E105-594).
                           profile.isMe
                           ? openRecord(navigation, record.id)
                           : undefined

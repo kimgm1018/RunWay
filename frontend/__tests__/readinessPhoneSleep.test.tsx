@@ -77,8 +77,15 @@ function texts(today: TodayCondition, phoneSleep?: PhoneSleep) {
       node => node.props.accessibilityRole === 'button' && node.props.onPress,
     )
     .map(node => node.props.accessibilityLabel as string)
-    // The card's own 러닝 시작하기 is always there; these checks are about the other one.
-    .filter(label => label !== '러닝 시작하기')
+    // The card's own 러닝 시작하기 and the report's toggles (부하란?, 왜 N점인가요?, S15P31E105-594) are always
+    // there; these checks are about the other one.
+    .filter(
+      label =>
+        label !== '러닝 시작하기' &&
+        label !== '부하란?' &&
+        label !== '준비도에 들어가는 기록' &&
+        !label.endsWith('점인가요?'),
+    )
     .filter((label, index, labels) => labels.indexOf(label) === index);
   return { all, buttons, screen };
 }

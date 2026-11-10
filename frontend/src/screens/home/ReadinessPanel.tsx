@@ -11,7 +11,15 @@ import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
 import { recordsLook } from '../records/look';
 import { longDay } from '../records/DatePicker';
-import { ReadinessFlow } from './ReadinessFlow';
+import {
+  accent,
+  LoadCard,
+  LoadNotice,
+  ScoreReasons,
+  ScoreRing,
+  scoreText,
+  type ReasonRow,
+} from './ReadinessFlow';
 import { readinessGuide } from './readinessGuide';
 
 // 2.1 홈의 준비도 (S15P31E105-564; S15P31E105-615 담당자 요청서: 점수 나열 대신 "오늘 어떻게 달릴지"): on top the day's
@@ -42,24 +50,18 @@ const states: Record<
   },
 };
 
-// The score on a 0–100 line: the filled part up to the score, a white dot at it.
-function Gauge({ score }: { score: number | null }) {
-  const share = score === null ? 0 : Math.max(0, Math.min(100, score)) / 100;
-  return (
-    <View style={styles.gauge}>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${share * 100}%` }]} />
-      </View>
-      {score === null ? null : (
-        <View style={[styles.knob, { left: `${share * 100}%` }]} />
-      )}
-      <View style={styles.ends}>
-        <AppText style={styles.end}>0</AppText>
-        <AppText style={styles.end}>100</AppText>
-      </View>
-    </View>
-  );
-}
+// The score's grade on top (S15P31E105-594 담당자 요청: "준비도 양호, 보통 이런 느낌"). R02 has no grade yet
+// (readiness-formula 6절), so the card names the band of the score itself: 80 and up 양호, 60 and up 보통, else 낮음.
+export const gradeOf = (score: number) =>
+  score >= 80 ? '양호' : score >= 60 ? '보통' : '낮음';
+
+// The top sentence for the week's load band (weeklyLoadLabel, S15P31E105-599).
+const loadSentences: Record<string, string> = {
+  '평소보다 적음': '최근 운동량이 평소보다 적어요.',
+  '평소와 비슷': '최근 운동량이 평소와 비슷해요.',
+  '평소보다 많음': '최근 운동량이 평소보다 많아요.',
+  '많이 많음': '최근 운동량이 평소보다 많이 많아요.',
+};
 
 // S15P31E105-572: Samsung Health sleep read on this phone. Without a score for today it still shows the latest
 // night (today's when there is one), with its source and wake date, and the card asks for sleep access when it is
@@ -185,7 +187,8 @@ export function ReadinessPanel({
       ? phoneSleep.restingHr
       : null;
   const restingHeartRate =
-    r02RestingHeartRate ?? (localRestingHr ? Math.round(localRestingHr.bpm) : null);
+    r02RestingHeartRate ??
+    (localRestingHr ? Math.round(localRestingHr.bpm) : null);
   const restingHeartRateSub =
     r02RestingHeartRate !== null
       ? today.restingHeartRateLabel
@@ -232,68 +235,108 @@ export function ReadinessPanel({
       : stateNote;
   const score = ready ? today.readinessScore : null;
   const counted = Math.round(useCountUp(score ?? 0));
-  // R02 has no grade yet: the title names one only when the data has it (mock data).
-  const [grade] = today.readinessSummary?.split(' · ') ?? [];
-  const title = isToday ? '오늘 준비도' : '준비도';
   const guide = readinessGuide(today, { isToday });
+  // S15P31E105-594 담당자 요청: on top the score's grade (준비도 양호 · 보통 · 낮음), and under it the load against the
+  // usual week when there is one (the band R02's numbers already give, S15P31E105-599), else the data's own sentence.
+  // Both speak of the score's own day, which the date line names. Without a score, why there is none.
+  const trainingLoad = ready ? today.trainingLoad ?? null : null;
+  const loadSentence =
+    ready && today.weeklyLoadLabel
+      ? loadSentences[today.weeklyLoadLabel] ?? null
+      : null;
+  const headline = score !== null ? `준비도 ${gradeOf(score)}` : null;
+  const lead =
+    score === null
+      ? note
+      : loadSentence ??
+        (guide.judged
+          ? guide.title
+          : '운동 기록과 회복 상태를 함께 살펴보세요.');
+  const factors = ready ? today.scoreFactors ?? null : null;
+  const ratio =
+    trainingLoad && trainingLoad.usual !== null && trainingLoad.usual > 0
+      ? trainingLoad.weekly / trainingLoad.usual
+      : null;
+  const change = factors?.restingHrChangePct ?? null;
+  const rows: ReasonRow[] = [
+    {
+      name: '수면',
+      score: factors?.sleep ?? null,
+      detail: '최근 3일 반영',
+      value: sleepValue,
+      note: sleepSub,
+    },
+    {
+      name: '안정 심박',
+      score: factors?.recovery ?? null,
+      detail:
+        change === null
+          ? '평소 대비'
+          : `평소 대비 ${change > 0 ? '+' : ''}${scoreText(change)}%`,
+      value: restingHeartRate !== null ? `${restingHeartRate}회/분` : '– –',
+      note: restingHeartRateSub,
+    },
+    {
+      name: '최근 운동량',
+      score: factors?.load ?? null,
+      detail:
+        ratio === null
+          ? null
+          : `평소의 ${scoreText(Math.round(ratio * 10) / 10)}배`,
+      value: recentLoad ?? '– –',
+      note: recentLoad === null ? weeklyLoadSub : null,
+    },
+  ];
+  const { month, date } = {
+    month: Number(today.date.slice(5, 7)),
+    date: Number(today.date.slice(8, 10)),
+  };
   return (
     <View>
-      <View style={styles.chip}>
-        <AppText style={styles.chipText}>
-          {isToday
-            ? `오늘 · ${longDay(today.date)}`
-            : `${longDay(today.date)} 기준`}
+      <View style={styles.head}>
+        <AppText style={styles.headTitle}>
+          {isToday ? '오늘의 준비도' : '준비도'}
+        </AppText>
+        <AppText style={styles.headDate}>
+          {isToday ? `${month}월 ${date}일` : `${longDay(today.date)} 기준`}
         </AppText>
       </View>
-      {/* The data's own sentence for today, when it has one; no neutral line in its place (담당자 요청: 삭제). */}
-      {guide.judged ? (
-        <>
-          <View style={styles.guideTitleBox}>
-            <WordWrap
-              text={guide.title}
-              style={styles.guideTitle}
-              fontSize={26}
-            />
-          </View>
-          {guide.action ? (
-            <View style={styles.guideActionBox}>
-              <WordWrap
-                text={guide.action}
-                style={styles.guideAction}
-                fontSize={14.5}
-              />
+
+      <View style={styles.hero}>
+        <View style={styles.heroText}>
+          {headline ? (
+            <WordWrap text={headline} style={styles.headline} fontSize={24} />
+          ) : null}
+          {lead ? (
+            <View style={headline ? styles.leadBox : null}>
+              <WordWrap text={lead} style={styles.lead} fontSize={13.5} />
             </View>
           ) : null}
+        </View>
+        <ScoreRing score={score} counted={counted} />
+      </View>
+
+      {trainingLoad ? <LoadNotice load={trainingLoad} /> : null}
+
+      {consented ? (
+        <>
+          <LoadCard
+            day={today.date}
+            isToday={isToday}
+            load={trainingLoad}
+            reason={weeklyLoadSub}
+          />
+          <ScoreReasons
+            score={score}
+            title={
+              score !== null && factors
+                ? `왜 ${score}점인가요?`
+                : '준비도에 들어가는 기록'
+            }
+            rows={rows}
+          />
         </>
       ) : null}
-
-      {/* The report (담당자 요청: 어제 러닝 → 회복 → 오늘 준비도를 시각화로): each step's records and why one is missing. */}
-      <ReadinessFlow
-        day={today.date}
-        isToday={isToday}
-        consented={consented}
-        sleep={{
-          value: sleepValue,
-          minutes: r02Sleep
-            ? today.sleepMinutes
-            : localSleep
-            ? Math.round(localSleep.minutes)
-            : null,
-          sub: sleepSub,
-        }}
-        heart={{
-          value: restingHeartRate !== null ? `${restingHeartRate}회/분` : '– –',
-          sub: restingHeartRateSub,
-        }}
-        readiness={{
-          title: ready && grade ? `${title} ${grade}` : title,
-          note,
-          score,
-          counted,
-          gauge: <Gauge score={score} />,
-        }}
-        load={{ value: recentLoad, sub: recentLoad === null ? weeklyLoadSub : null }}
-      />
 
       {connect ? (
         <Pressable
@@ -332,68 +375,43 @@ export function ReadinessPanel({
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    alignSelf: 'flex-start',
-    height: 24,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  chipText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 11.5,
-    lineHeight: 16,
-    color: 'rgba(255,255,255,0.92)',
-  },
-  gauge: { marginTop: 14, height: 34 },
-  track: {
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  fill: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-  },
-  knob: {
-    position: 'absolute',
-    top: -4,
-    width: 16,
-    height: 16,
-    marginLeft: -8,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-  },
-  ends: {
-    marginTop: 6,
+  head: {
     flexDirection: 'row',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
   },
-  end: {
-    fontFamily: fontFamily.mono,
-    fontSize: 11,
-    lineHeight: 14,
+  headTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 24,
+    color: recordsLook.onCard,
+  },
+  headDate: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
     color: recordsLook.onCardMuted,
   },
-  guideTitleBox: { marginTop: 14 },
-  guideActionBox: { marginTop: 6 },
-  guideTitle: {
+  hero: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroText: { flex: 1 },
+  headline: {
     fontFamily: fontFamily.bold,
-    fontSize: 26,
-    lineHeight: 33,
+    fontSize: 24,
+    lineHeight: 32,
     letterSpacing: -0.7,
     color: recordsLook.onCard,
   },
-  guideAction: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14.5,
-    lineHeight: 21,
-    letterSpacing: -0.2,
-    color: recordsLook.onCard,
+  leadBox: { marginTop: 10 },
+  lead: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: recordsLook.onCardSub,
   },
   secondary: {
     marginTop: 22,
@@ -416,7 +434,8 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    // The card's one accent, mint (담당자 결정, S15P31E105-594).
+    backgroundColor: accent,
   },
   pressed: { opacity: 0.75 },
   actionText: {

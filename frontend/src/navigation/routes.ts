@@ -267,7 +267,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '4.5',
     title: '러닝 결과',
     task: RUN,
-    // 기록 보기 opens the run in 2.1 기록 상세 (S15P31E105-564).
+    // 기록 보기 opens the run on 2.1 러닝 분석 (S15P31E105-594: 기록 상세 is gone).
     links: ['Home', 'PostWrite'],
   },
 

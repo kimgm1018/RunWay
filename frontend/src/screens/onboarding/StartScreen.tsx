@@ -39,9 +39,9 @@ const mockWidth = 412;
 // stretches it to 365.9×510.6, a little taller than the photo.
 const runner = require('../../../assets/images/start-runner.webp');
 
-// The background of this screen only: slightly different from the mist background of the other screens. The
-// mockup's CSS layers, from the bottom up.
-function StartBackground() {
+// The background of this screen (and 2.1 홈 without the runner, S15P31E105-594): slightly different from the mist
+// background of the other screens. The mockup's CSS layers, from the bottom up.
+export function StartBackground() {
   return (
     <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
       <Defs>

@@ -77,3 +77,15 @@ test('a state without a score says why, and a stale one names its day', () => {
     ).description,
   ).toBe('건강 데이터 권한이 없어요.');
 });
+
+test('준비도 grade on top: 80 and up 양호, 60 and up 보통, else 낮음 (S15P31E105-594)', () => {
+  const { gradeOf } = require('../ReadinessPanel');
+  expect([100, 80, 79, 60, 59, 0].map(gradeOf)).toEqual([
+    '양호',
+    '양호',
+    '보통',
+    '보통',
+    '낮음',
+    '낮음',
+  ]);
+});
