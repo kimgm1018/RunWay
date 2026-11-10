@@ -48,6 +48,7 @@ def runCi(Map opts) {
         pipeline: { Closure body -> body() }, stages: { Closure body -> body() },
         steps: { Closure body -> body() }, script: { Closure body -> body() },
         node: { String label, Closure body -> body() }, dir: { String path, Closure body -> body() },
+        timeout: { Map args, Closure body -> body() },
         gitlabCommitStatus: { Map args, Closure body -> body() }, updateGitlabCommitStatus: { Map args -> },
         withCredentials: { List args, Closure body -> body() }, withEnv: { List args, Closure body -> body() },
         string: { Map args -> args },

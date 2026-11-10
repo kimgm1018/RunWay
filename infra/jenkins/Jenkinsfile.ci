@@ -15,6 +15,8 @@
 //
 // 각 검사는 MR 코드와 대상 브랜치를 합친 코드로 수행한다.
 // 하나라도 실패하면 통합 CI도 실패하며, GitLab에는 통합 결과와 영역별 결과를 전달한다.
+// 서로 다른 MR의 실행은 동시에 시작하고 영역 노드에서만 차례를 기다린다. 영역 노드를 받았을 때 같은 MR에
+// 새 커밋이 있으면 이전 커밋 검사는 중단한다.
 // 여기서 만든 APK는 빌드 검증용이며, 팀 배포용 APK 보관은 master 작업에서 수행한다.
 
 // 알려진 Jest 테스트 파일. APK·JS 번들 검사 없이 타입·린트·전체 Jest로 검사한다.
@@ -97,11 +99,32 @@ def checkoutWatchCode(String revision) {
 }
 
 // 각 에이전트가 준비 단계에서 고정한 동일한 코드 조합을 검사한다.
+// 동시 실행에서는 영역 노드를 기다리는 동안 같은 MR에 새 커밋이 올라올 수 있다.
+// 방금 받은 MR ref가 고정한 커밋과 다르면 이전 커밋 검사를 멈추고 노드를 새 실행에 넘긴다.
 def mergeTarget() {
+    if (env.gitlabMergeRequestIid) {
+        def latest = sh(
+            script: 'test "$(git rev-parse "refs/remotes/origin/mr/$gitlabMergeRequestIid")" = "$CI_SOURCE_SHA"',
+            returnStatus: true
+        )
+        if (latest != 0) {
+            error('MR에 새 커밋이 올라와 이전 커밋 검사를 중단합니다. 최신 커밋은 새 MR 알림 실행에서 검사합니다.')
+        }
+    }
     sh '''
         git -c user.name='RunWay CI' -c user.email='ci@runway.invalid' \
             merge --no-ff --no-edit "$CI_TARGET_SHA"
     '''
+}
+
+// 영역 검사 노드. 통합 CI는 동시 실행되므로 노드 대기 시간은 제외하고 실행 시간만 60분으로 제한한다.
+// 노드마다 executor가 1개라 같은 노드의 작업 폴더·캐시는 한 번에 한 실행만 사용한다.
+def areaNode(String label, Closure body) {
+    node(label) {
+        timeout(time: 60, unit: 'MINUTES') {
+            body()
+        }
+    }
 }
 
 // MR 알림에만 결과를 전송한다. 수동 실행으로 다른 커밋의 상태를 바꾸지 않는다.
@@ -128,9 +151,10 @@ pipeline {
     options {
         skipDefaultCheckout(true)
         gitLabConnection('runway-gitlab')
-        disableConcurrentBuilds()
-        // 최초 Android 의존성 다운로드와 네이티브 빌드 시간을 포함한다.
-        timeout(time: 60, unit: 'MINUTES')
+        // 동시 실행을 허용한다. 영역별 노드(executor 1)에서만 차례를 기다리므로 다른 영역만 바꾼 MR은
+        // 앞선 MR의 모바일·워치 검사가 끝날 때까지 기다리지 않는다. 영역 실행 시간은 areaNode에서 60분으로 제한한다.
+        // 전체 제한은 앞선 실행들의 노드 사용 대기를 포함한다.
+        timeout(time: 180, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '5'))
     }
     stages {
@@ -163,7 +187,8 @@ pipeline {
                         try {
                             ciStatus('prepare-ci') {
                                 stage('Prepare') {
-                                    node('backend') {
+                                    // Git만 사용하므로 먼저 비는 검사 노드에서 준비한다.
+                                    node('backend || mobile || watch || ai') {
                                         // GitLab MR 알림으로 실행되면 해당 MR을, 수동 실행이면 dev를 선택한다.
                                         def target = 'dev'
                                         def revision = 'refs/remotes/origin/dev'
@@ -250,7 +275,7 @@ pipeline {
                         if (checkBackend) {
                             checks['Backend'] = {
                                 ciStatus('backend-ci') {
-                                    node('backend') {
+                                    areaNode('backend') {
                                         stage('Backend Checkout') {
                                             checkoutCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
@@ -273,7 +298,7 @@ pipeline {
                         if (checkMobile) {
                             checks['Mobile'] = {
                                 ciStatus('mobile-ci') {
-                                    node('mobile') {
+                                    areaNode('mobile') {
                                         stage('Mobile Checkout') {
                                             checkoutCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
@@ -292,8 +317,9 @@ pipeline {
                                         stage('Mobile Tests') {
                                             // 캐시는 checkoutCode의 deleteDir 밖인 기존 영속 볼륨에 둔다.
                                             // --onlyChanged 없이 전체 테스트를 매번 실행하며 변환 결과만 재사용한다.
+                                            // 에이전트 CPU 상한(2개)에 맞춰 워커 2개로 실행한다. 컨테이너에서 보이는 호스트 CPU 수로 워커를 정하지 않는다.
                                             dir('frontend') {
-                                                sh 'pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'
+                                                sh 'pnpm exec jest --ci --maxWorkers=2 --cacheDirectory=/home/jenkins/agent/.cache/jest'
                                             }
                                         }
                                         if (checkMobileApk) {
@@ -336,7 +362,7 @@ pipeline {
                         if (checkWatch) {
                             checks['Watch'] = {
                                 ciStatus('watch-ci') {
-                                    node('watch') {
+                                    areaNode('watch') {
                                         stage('Watch Checkout') {
                                             checkoutWatchCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
@@ -372,7 +398,7 @@ pipeline {
                         if (checkAI) {
                             checks['AI'] = {
                                 ciStatus('ai-ci') {
-                                    node('ai') {
+                                    areaNode('ai') {
                                         stage('AI Checkout') {
                                             checkoutCode(env.CI_SOURCE_SHA)
                                             mergeTarget()
@@ -417,7 +443,7 @@ pipeline {
                             checks['Route'] = {
                                 ciStatus('route-ci') {
                                     // HR AI와 같은 노드를 사용하며 executor 1이면 두 검사는 차례로 실행된다.
-                                    node('ai') {
+                                    areaNode('ai') {
                                         stage('Route Checkout') {
                                             checkoutCode(env.CI_SOURCE_SHA)
                                             mergeTarget()

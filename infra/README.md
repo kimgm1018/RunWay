@@ -119,6 +119,15 @@ Webhook 경로는 `/jenkins/project/<작업명>`이며 Job별 Secret token을 �
 Jenkins 계정·Credentials·Job 설정은 영속 볼륨에서 관리하며 이 저장소가 자동 생성하지 않는다.
 AI와 Route는 같은 노드를 사용하므로 executor 1에서는 두 검사가 차례로 실행된다.
 
+**통합 CI 동시 실행(S15P31E105-667):** `runway-ci`는 `disableConcurrentBuilds`를 쓰지 않는다. MR마다 실행은 바로 시작하고,
+`Prepare`는 먼저 비는 검사 노드(`backend || mobile || watch || ai`)에서, 영역 검사는 해당 영역 노드에서만 차례를 기다린다.
+노드마다 executor가 1개라 같은 노드의 작업 폴더·Jest·타입 검사·Gradle 캐시를 두 실행이 동시에 쓰지 않는다.
+영역 실행 시간은 노드를 받은 뒤부터 60분, 전체 실행은 노드 대기를 포함해 180분으로 제한한다.
+영역 노드를 받아 체크아웃한 MR ref가 고정한 커밋과 다르면(같은 MR에 새 커밋 Push) 이전 커밋 검사는
+`MR에 새 커밋이 올라와 이전 커밋 검사를 중단합니다`로 실패 처리하고 노드를 넘긴다. 최신 커밋은 새 알림 실행이 검사하며
+GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실행으로 되돌리려면 `Jenkinsfile.ci`의 `options`에
+`disableConcurrentBuilds()`를 다시 추가한다. 옵션 변경은 해당 `Jenkinsfile.ci`로 한 번 실행된 뒤 Job 설정에 반영된다.
+
 ## 서비스별 CI/CD
 
 ### 백엔드
@@ -144,6 +153,8 @@ AI와 Route는 같은 노드를 사용하므로 executor 1에서는 두 검사�
   정식 출시 서명·스토어 배포는 제외하며 x86 에뮬레이터·32비트 기기는 대상이 아니다.
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
   Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
+  Jest는 MR·master 작업 모두 에이전트 CPU 상한에 맞춘 워커 2개(`--maxWorkers=2`)로 전체 테스트를 실행한다.
+  컨테이너는 호스트 CPU 수를 보므로 워커 수를 명시한다. 병렬 실행이 의심되면 `--runInBand`로 되돌려 같은 테스트를 직렬로 확인한다.
   체크아웃 폴더를 삭제해도 캐시는 유지되며 검사 자체를 생략하지 않는다.
 - **타입 검사·린트 캐시:** MR·master 작업 모두 `infra/jenkins/check-mobile-static.sh`로 전체 타입 검사·린트를 실행하고
   바뀌지 않은 파일의 결과만 재사용한다. TypeScript 증분 정보와 ESLint 내용 기반 캐시는

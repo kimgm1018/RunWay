@@ -14,6 +14,7 @@ def runCi(Map opts) {
         stages: { Closure body -> body() }, stage: { String name, Closure body -> r.stages << name; body() },
         steps: { Closure body -> body() }, script: { Closure body -> body() },
         node: { String label, Closure body -> body() }, dir: { String path, Closure body -> body() },
+        timeout: { Map args, Closure body -> body() },
         deleteDir: { -> }, checkout: { Map ignored -> }, echo: { ignored -> },
         withEnv: { List values, Closure body -> body() },
         withCredentials: { List values, Closure body -> body() }, string: { Map value -> value },
