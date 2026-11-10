@@ -13,6 +13,7 @@ import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 
 import java.time.Duration;
+import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -197,6 +198,24 @@ abstract class RunningSessionIntegrationSupport {
                 expectedVersion,
                 result,
                 result);
+    }
+
+    /** APPLIED PAUSE/RESUME을 지정 시각으로 넣는다(S15P31E105-643 movingDurationSec). */
+    protected long insertAppliedCommand(
+            long sessionId, long deviceId, String action, long expectedVersion, Instant appliedAt) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO session_control_events(session_id,device_id,action,target_bpm,expected_version,result,applied_at)
+                VALUES (?,?,?::session_control_events_action_enum,null,?,
+                        'APPLIED'::session_control_events_result_enum,?)
+                RETURNING id
+                """,
+                Long.class,
+                sessionId,
+                deviceId,
+                action,
+                expectedVersion,
+                java.sql.Timestamp.from(appliedAt));
     }
 
     protected long insertGroupRun(String status, boolean ended) {

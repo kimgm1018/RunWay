@@ -149,6 +149,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `currentBpm` | integer / null | O | 확정된 현재 박자(60~220). 값이 없거나 폰 기록으로 전환하면 null |
 | `startedAt` | string (date-time, UTC) / null | O | 실제 시작시각. 시작 전 null |
 | `endedAt` | string (date-time, UTC) / null | O | 실제 종료시각. 종료 전 null |
+| `movingDurationSec` | integer / null | O | 일시정지를 제외한 운동시간(초). 시작 전(`startedAt` null)은 null. 진행 중·일시정지 중은 실제 시작부터 `serverSendAt`까지, 종료 세션은 `endedAt`까지에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 그 기준 시각까지 일시정지로 본다. 기준 시각보다 늦은 `appliedAt`의 PAUSE는 이 응답 기준 구간에 들어가지 않는다. 이름은 [기록 API `movingDurationSec`](running-records.md)와 같으나, 기록 API는 분석 저장 컬럼을 읽고 S02/S10은 조회 시점에 이벤트로 재계산한다(S15P31E105-643) |
 | `goal` | object | O | 현재 목표. courseId / comparisonSessionId / targetDistanceM / targetDurationSec / targetPaceSecPerKm는 S01과 같은 타입이며 미설정 값은 null |
 | `plan` | object / null | O | 초기 페이스 계획과 구간 계획(pace_plans / pace_plan_segments). 무목표 자유러닝은 null |
 | `analysis` | object | O | 분석 준비 상태 객체 |
@@ -172,6 +173,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
   "currentBpm": null,
   "startedAt": null,
   "endedAt": null,
+  "movingDurationSec": null,
   "goal": {
     "courseId": null,
     "comparisonSessionId": null,
@@ -283,6 +285,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `currentBpm` | integer / null | O | 확정된 현재 박자(60~220). 값이 없거나 폰 기록으로 전환하면 null |
 | `startedAt` | string (date-time, UTC) / null | O | 실제 시작시각. 시작 전 null |
 | `endedAt` | string (date-time, UTC) / null | O | 실제 종료시각. 종료 전 null |
+| `movingDurationSec` | integer / null | O | 일시정지를 제외한 운동시간(초). 시작 전(`startedAt` null)은 null. 진행 중·일시정지 중은 실제 시작부터 `serverSendAt`까지, 종료 세션은 `endedAt`까지에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 그 기준 시각까지 일시정지로 본다. 기준 시각보다 늦은 `appliedAt`의 PAUSE는 이 응답 기준 구간에 들어가지 않는다. 이름은 [기록 API `movingDurationSec`](running-records.md)와 같으나, 기록 API는 분석 저장 컬럼을 읽고 S02/S10은 조회 시점에 이벤트로 재계산한다(S15P31E105-643) |
 | `goal` | object | O | 현재 목표. courseId / comparisonSessionId / targetDistanceM / targetDurationSec / targetPaceSecPerKm는 S01과 같은 타입이며 미설정 값은 null |
 | `plan` | object / null | O | 초기 페이스 계획과 구간 계획(pace_plans / pace_plan_segments). 무목표 자유러닝은 null |
 | `analysis` | object | O | 분석 준비 상태 객체 |
@@ -320,6 +323,7 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
   "currentBpm": null,
   "startedAt": null,
   "endedAt": null,
+  "movingDurationSec": null,
   "goal": {
     "courseId": null,
     "comparisonSessionId": null,

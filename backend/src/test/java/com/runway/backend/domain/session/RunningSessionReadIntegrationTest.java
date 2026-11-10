@@ -6,7 +6,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.runway.backend.domain.session.entity.ControlAction;
+import com.runway.backend.domain.session.service.PostRunAnalysisCalculator;
+import com.runway.backend.domain.session.service.PostRunAnalysisCalculator.PauseResumeEvent;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
@@ -29,6 +33,7 @@ class RunningSessionReadIntegrationTest extends RunningSessionIntegrationSupport
                         .andExpect(jsonPath("$.stateVersion").value(1))
                         .andExpect(jsonPath("$.recordingMode").value("WATCH"))
                         .andExpect(jsonPath("$.coaching").value(nullValue()))
+                        .andExpect(jsonPath("$.movingDurationSec").value(nullValue()))
                         .andReturn()
                         .getResponse()
                         .getContentAsString();
@@ -36,6 +41,121 @@ class RunningSessionReadIntegrationTest extends RunningSessionIntegrationSupport
         Instant receive = Instant.parse(node.get("serverReceiveAt").stringValue());
         Instant send = Instant.parse(node.get("serverSendAt").stringValue());
         assertThat(receive).isBeforeOrEqualTo(send);
+    }
+
+    @Test
+    void 시작_전_세션의_movingDurationSec는_null이다() throws Exception {
+        long sessionId = insertReadySession();
+        mockMvc.perform(getRequest(userId, sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.startedAt").value(nullValue()))
+                .andExpect(jsonPath("$.movingDurationSec").value(nullValue()));
+    }
+
+    @Test
+    void RUNNING_세션은_일시정지를_제외한_movingDurationSec를_준다() throws Exception {
+        Instant started = Instant.parse("2026-10-28T01:00:00Z");
+        long sessionId = insertSession(userId, "RUNNING", 3, watchId, phoneId, "PENDING", null);
+        jdbc.update(
+                "UPDATE running_sessions SET started_at = ? WHERE id=?",
+                java.sql.Timestamp.from(started),
+                sessionId);
+        insertAppliedCommand(sessionId, watchId, "PAUSE", 2, Instant.parse("2026-10-28T01:05:00Z"));
+        insertAppliedCommand(sessionId, watchId, "RESUME", 3, Instant.parse("2026-10-28T01:06:40Z"));
+
+        String body =
+                mockMvc.perform(getRequest(userId, sessionId))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        JsonNode node = JSON.readTree(body);
+        Instant send = Instant.parse(node.get("serverSendAt").stringValue());
+        int expected =
+                PostRunAnalysisCalculator.movingDurationSec(
+                        started,
+                        send,
+                        List.of(
+                                new PauseResumeEvent(
+                                        ControlAction.PAUSE, Instant.parse("2026-10-28T01:05:00Z")),
+                                new PauseResumeEvent(
+                                        ControlAction.RESUME,
+                                        Instant.parse("2026-10-28T01:06:40Z"))));
+        assertThat(node.get("movingDurationSec").intValue()).isEqualTo(expected);
+    }
+
+    @Test
+    void PAUSED_세션은_열린_PAUSE를_serverSendAt까지_뺀다() throws Exception {
+        Instant started = Instant.parse("2026-10-28T01:00:00Z");
+        Instant pausedAt = Instant.parse("2026-10-28T01:03:00Z");
+        long sessionId = insertSession(userId, "PAUSED", 4, watchId, phoneId, "PENDING", null);
+        jdbc.update(
+                "UPDATE running_sessions SET started_at = ? WHERE id=?",
+                java.sql.Timestamp.from(started),
+                sessionId);
+        insertAppliedCommand(sessionId, watchId, "PAUSE", 4, pausedAt);
+
+        String body =
+                mockMvc.perform(getRequest(userId, sessionId))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        JsonNode node = JSON.readTree(body);
+        Instant send = Instant.parse(node.get("serverSendAt").stringValue());
+        int expected =
+                PostRunAnalysisCalculator.movingDurationSec(
+                        started, send, List.of(new PauseResumeEvent(ControlAction.PAUSE, pausedAt)));
+        assertThat(node.get("movingDurationSec").intValue()).isEqualTo(expected);
+        assertThat(expected).isEqualTo(180);
+    }
+
+    @Test
+    void 종료_세션의_movingDurationSec는_endedAt_기준_이벤트_재계산이며_저장_컬럼과_무관하다()
+            throws Exception {
+        // AC-6: S02는 moving_duration 컬럼을 읽지 않고, 분석과 같은 calculator 입력으로 재계산한다.
+        // 저장 컬럼을 고의로 어긋나게 두어도 S02는 이벤트 기준 540을 반환해야 한다(리뷰 B-1).
+        Instant started = Instant.parse("2026-10-28T01:00:00Z");
+        Instant ended = Instant.parse("2026-10-28T01:10:00Z");
+        Instant pauseAt = Instant.parse("2026-10-28T01:04:00Z");
+        Instant resumeAt = Instant.parse("2026-10-28T01:05:00Z");
+        long sessionId = insertSession(userId, "COMPLETED", 6, watchId, phoneId, "READY", null);
+        jdbc.update(
+                "UPDATE running_sessions SET started_at = ?, ended_at = ?, moving_duration = ? WHERE id=?",
+                java.sql.Timestamp.from(started),
+                java.sql.Timestamp.from(ended),
+                999,
+                sessionId);
+        insertAppliedCommand(sessionId, watchId, "PAUSE", 4, pauseAt);
+        insertAppliedCommand(sessionId, watchId, "RESUME", 5, resumeAt);
+
+        List<PauseResumeEvent> events =
+                List.of(
+                        new PauseResumeEvent(ControlAction.PAUSE, pauseAt),
+                        new PauseResumeEvent(ControlAction.RESUME, resumeAt));
+        int expected = PostRunAnalysisCalculator.movingDurationSec(started, ended, events);
+        assertThat(expected).isEqualTo(540);
+        assertThat(
+                        PostRunAnalysisCalculator.calculate(
+                                        started,
+                                        ended,
+                                        null,
+                                        null,
+                                        List.of(),
+                                        events)
+                                .stats()
+                                .movingDuration())
+                .isEqualTo(expected);
+
+        mockMvc.perform(getRequest(userId, sessionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.movingDurationSec").value(540));
+        Integer stored =
+                jdbc.queryForObject(
+                        "SELECT moving_duration FROM running_sessions WHERE id=?",
+                        Integer.class,
+                        sessionId);
+        assertThat(stored).isEqualTo(999);
     }
 
     @Test
