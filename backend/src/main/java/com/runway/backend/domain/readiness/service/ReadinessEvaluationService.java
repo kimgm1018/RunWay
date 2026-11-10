@@ -90,8 +90,7 @@ public class ReadinessEvaluationService {
                         repository.findHealthInputs(
                                 userId, date.minusDays(ReadinessFormula.LOOKBACK_DAYS), date),
                         repository.findFirstLoadDate(userId, date).orElse(null));
-        score.ifPresent(
-                s -> repository.upsert(userId, date, s.readinessScore(), s.confidence()));
+        score.ifPresent(s -> repository.upsert(userId, date, s));
         return score;
     }
 }

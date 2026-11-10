@@ -10,7 +10,7 @@
 
 **응답 해석:** R02는 S15P31E105-254에서 확정한 계약이다. 아래 Response 표의 필드만 구현 계약이며, "후속 필드" 표의 항목은 아직 계약이 아니다. `O`는 응답 객체가 있을 때 키를 항상 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 결과가 없는 경우는 오류 응답 절을 따른다.
 
-daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL 가능)를 저장한다. readinessLevel은 신뢰도와 다른 표시 값이며 등급 경계는 미정이다(후속). daily_health_metrics는 user_id와 기준 날짜로 대응하며 FK로 일일 건강 행을 직접 참조하지 않는다.
+daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL 가능), 계산에 쓴 항목 점수(sleep_score·recovery_score·load_score)와 R 변화율(rhr_change_pct, 모두 NULL 가능, S15P31E105-639)을 저장한다. readinessLevel은 신뢰도와 다른 표시 값이며 등급 경계는 미정이다(후속). daily_health_metrics는 user_id와 기준 날짜로 대응하며 FK로 일일 건강 행을 직접 참조하지 않는다.
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
@@ -32,7 +32,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
    1. 같은 회원 평가를 회원별 advisory lock으로 한 줄로 세운다. 겹친 평가 중 나중 평가는 앞 평가 커밋 뒤의 최신 건강값을 읽으므로 오래된 값으로 계산한 결과가 최신 결과를 덮어쓰지 않는다.
    2. 회원 행을 FOR SHARE로 읽어 활성 회원·건강정보 동의(`health_data_access = AGREE`)를 확인한다. 아니면 평가하지 않는다. 진행 중인 동의 철회는 평가가 끝날 때까지 기다린다.
    3. D-27~D의 일별 건강값으로 [산식](../readiness-formula.md)을 계산한다. 계산 가능한 항목이 없으면 저장하지 않고 기존 결과를 그대로 둔다.
-   4. `(user_id, readiness_date)`로 넣거나 갱신한다. 같은 날짜가 다시 바뀌면 같은 행의 점수·신뢰도를 갱신한다.
+   4. `(user_id, readiness_date)`로 넣거나 갱신한다. 같은 날짜가 다시 바뀌면 같은 행의 점수·신뢰도를 갱신한다. 계산에 쓴 S·R·L 항목 점수와 R 변화율(`sleep_score`·`recovery_score`·`load_score`·`rhr_change_pct`, S15P31E105-639)도 같은 문장으로 넣거나 갱신하며, 제외된 항목은 NULL로 덮어쓴다.
 5. 한 날짜의 평가 실패는 다른 날짜 평가와 W06 응답·저장에 영향을 주지 않는다. 실패·대기열 초과 로그에는 회원 ID·날짜·예외 종류만 남기고 건강값과 예외 메시지는 남기지 않는다. 이벤트가 재전달되지 않으므로 이 로그가 누락 평가를 찾는 근거다.
 
 잠금 순서: 준비도 평가 advisory lock → 회원 행 FOR SHARE. W06은 회원 행 FOR SHARE만 잡는다. 회원 행을 갱신하는 기능(동의 철회·탈퇴 등)이 준비도 평가 advisory lock을 함께 잡게 되면 회원 행보다 먼저 잡아야 교착이 생기지 않는다.
@@ -51,7 +51,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | 단계 | 1차 MVP |
 | 인증 | 회원 |
 | 관련 요구사항 | RDY-001~003 |
-| 상태 | S15P31E105-254 확정(2026-11-02). 기준일 건강 지표는 S15P31E105-550 확정(2026-11-08). 주간 부하는 S15P31E105-599 확정(2026-11-10). 등급·판단 요인은 후속 |
+| 상태 | S15P31E105-254 확정(2026-11-02). 기준일 건강 지표는 S15P31E105-550 확정(2026-11-08). 주간 부하는 S15P31E105-599 확정(2026-11-10). 날짜별 부하·항목 점수는 S15P31E105-639 확정(2026-11-10). 등급은 후속 |
 
 ### 설명
 
@@ -81,15 +81,28 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 ```json
 {
   "id": 101,
-  "readinessScore": 75.00,
+  "readinessScore": 94.38,
   "readinessDate": "2026-10-24",
-  "readinessConfidence": "LOW",
+  "readinessConfidence": "MEDIUM",
   "restingHrBpm": 58.40,
   "restingHrSource": "RUNWAY_WATCH",
   "sleepDurationMin": null,
   "healthUpdatedAt": "2026-10-24T21:05:12.345Z",
   "weeklyTrainingLoad": 410.00,
-  "usualWeeklyTrainingLoad": 400.00
+  "usualWeeklyTrainingLoad": 400.00,
+  "dailyTrainingLoads": [
+    { "date": "2026-10-18", "load": 120.00 },
+    { "date": "2026-10-19", "load": null },
+    { "date": "2026-10-20", "load": 95.50 },
+    { "date": "2026-10-21", "load": null },
+    { "date": "2026-10-22", "load": 104.25 },
+    { "date": "2026-10-23", "load": null },
+    { "date": "2026-10-24", "load": 90.25 }
+  ],
+  "sleepScore": null,
+  "recoveryScore": 90.00,
+  "loadScore": 98.75,
+  "restingHrChangePct": 4.2
 }
 ```
 
@@ -105,10 +118,17 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | `healthUpdatedAt` | string (ISO 8601 UTC) / null | O | 같은 행의 `updated_at`. 그 날짜 건강 행이 마지막으로 바뀐 시각이며 준비도 평가 시각(`assessedAt`, 후속)이 아니다. 행이 없으면 null |
 | `weeklyTrainingLoad` | number / null | O | `readinessDate`를 D로 한 D-6~D 일별 부하 합(소수 둘째 자리, S15P31E105-599). D-27~D에 부하 값이 하루도 없으면 null. 값 없는 날은 0으로 더한다 |
 | `usualWeeklyTrainingLoad` | number / null | O | 평소 주간 부하 = D-27~D 합 × 7 ÷ 이력 일수(7~28, [산식 7.2](../readiness-formula.md#72-경계와-보간)), 소수 둘째 자리(HALF_UP). `weeklyTrainingLoad`가 null이면 null. 창 안 부하가 모두 0이면(Zone1 미만 운동만) 두 값 모두 0이며, 이때 준비도 L 항목은 계산하지 않는다. 앱은 평소 값이 0이면 "평소 기록 없음"을 표시한다 |
+| `dailyTrainingLoads` | array | O | `readinessDate`를 D로 한 D-6~D 7개 `{date, load}`, 날짜 오름차순(S15P31E105-639). 항상 7개다. `date`는 YYYY-MM-DD, `load`(number / null)는 그날 `daily_training_load`를 소수 둘째 자리로 줄인 값이며 행이나 값이 없는 날은 null이다(0으로 채우지 않는다). D-27~D에 부하가 없어 `weeklyTrainingLoad`가 null이면 7개 모두 null. 저장값은 소수 넷째 자리라, 각 날을 둘째 자리로 내린 뒤 남는 0.01을 버린 소수부가 큰 날부터(같으면 이른 날짜) 더하는 합 보존 반올림을 쓴다. 각 날의 오차는 0.01 미만이고 null이 아닌 `load` 합은 `weeklyTrainingLoad`와 같다. 앱은 null이면서 그날 러닝 기록이 있으면 "심박 없음", 없으면 "휴식"으로 구분한다 |
+| `sleepScore` | number / null | O | 이 `readinessScore` 계산에 쓴 수면 항목 점수 S(0~100, 소수 둘째 자리, [산식 3절](../readiness-formula.md#3-수면-점수-s)). 계산에서 제외됐으면([산식 7.3](../readiness-formula.md#73-결측과-신뢰도)) null |
+| `recoveryScore` | number / null | O | 회복 항목 점수 R(0~100, 소수 둘째 자리, [산식 4절](../readiness-formula.md#4-회복-점수-r)). 제외됐으면 null |
+| `loadScore` | number / null | O | 훈련 부하 항목 점수 L(0~100, 소수 둘째 자리, [산식 5절](../readiness-formula.md#5-훈련-부하-점수-l)). 제외됐으면 null |
+| `restingHrChangePct` | number / null | O | R 계산에 쓴 평소(D-7~D-1 측정일 평균) 대비 기준일 안정시 심박 변화율(%) = (오늘 × 일수 − 합) × 100 ÷ 합, 소수 첫째 자리 올림(+∞ 방향). R 구간 경계(3·5·8·12·15%, [산식 4절](../readiness-formula.md#4-회복-점수-r))를 표시값으로 판단해도 `recoveryScore`와 같도록 올림한다(예: +5.04%는 5.1이고 R은 80). 음수면 평소보다 낮다. R이 제외되면 null |
 
 - "최신"은 본인 결과 중 `readinessDate`가 가장 늦은 1건이다. 오늘 날짜 필터를 두지 않는다.
 - 점수만으로 날짜·신뢰도를 추측하지 않는다. 미산출 점수를 0으로 채우지 않는다.
 - 주간 부하 두 값은 조회 시점의 일별 부하로 같은 SQL에서 계산한다. 점수(L 항목)와 같은 정의지만 평가가 끝나기 전이면 점수보다 최신일 수 있다. 앱은 비율(`weeklyTrainingLoad ÷ usualWeeklyTrainingLoad`)로 "평소 대비" 상태를 표시하며 값이 null이면 "최근 4주 심박 기록 운동 없음"을 표시한다.
+- 항목 점수 3개와 `restingHrChangePct`는 자동 평가가 `readinessScore`와 같은 문장으로 저장한 값이다(S15P31E105-639, V30). 그래서 null이 아닌 항목 점수의 평균에 [산식 6-1절](../readiness-formula.md#6-1-최저-항목-기반-상한) 상한을 적용한 값(소수 둘째 자리)이 항상 `readinessScore`이고, null이 아닌 항목 수가 `readinessConfidence`(3 HIGH·2 MEDIUM·1 LOW)다. V30 이전에 저장된 결과는 네 값이 모두 null이며 그 날짜가 다시 평가되면 채워진다(소급 계산하지 않는다). 앱은 값이 없으면 해당 부분을 숨긴다.
+- `dailyTrainingLoads`는 주간 부하 두 값과 같은 SQL에서 조회 시점 값으로 만든다. `loadScore`는 마지막 평가 시점 값이라 평가가 끝나기 전이면 막대가 점수보다 최신일 수 있다.
 - 건강 지표 3개는 점수와 같은 기준일(`readinessDate`) 값만 반환한다. 다른 날짜 값으로 대체하지 않고, 미측정 값을 0으로 채우지 않는다(S15P31E105-550). 앱은 결과가 오늘 날짜가 아니면(오래된 평가) 이 지표를 오늘 값으로 표시하지 않는다.
 
 후속 필드(이번 계약에 없음):
@@ -116,7 +136,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 | 필드 | 보류 이유 |
 |---|---|
 | `readinessLevel` | 점수 구간별 표시 등급을 산식 설계에서 정리 중이다. `readinessConfidence`로 대체하지 않는다. |
-| `reasonDetails` | 판단 요인(S/R/L 점수 등)의 표시 구조가 정해지지 않았다. 항목 점수는 저장 컬럼이 없다. |
+| `reasonDetails` | 항목 점수는 S15P31E105-639에서 평면 필드(`sleepScore` 등)로 제공한다. 그 밖의 판단 요인 문구·구조는 정하지 않았다. |
 | `assessedAt` | 독립 평가 시각 컬럼이 없다. `updated_at`을 평가 시각으로 치환할지 정하지 않았다. |
 | `dataAvailability` | 데이터 부족 표시 구조가 정해지지 않았다. |
 
@@ -134,7 +154,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 ### 처리 규칙
 
 - 활성 회원 동의 확인과 결과 조회를 한 읽기 트랜잭션에서 한다.
-- 결과와 기준일 건강 행은 한 SQL(`daily_readiness`에 같은 회원·같은 날짜 `daily_health_metrics`를 LEFT JOIN)로 읽는다. 동의가 없으면 결과·건강 행을 읽지 않는다.
+- 결과와 기준일 건강 행, 주간 부하·날짜별 부하는 한 SQL(`daily_readiness`에 같은 회원·같은 날짜 `daily_health_metrics`를 LEFT JOIN, 같은 회원의 D-27~D·D-6~D 부하를 하위 조회)로 읽는다. 동의가 없으면 결과·건강 행을 읽지 않는다.
 - 동의 확인과 결과 조회는 잠그지 않는 별도 문장(READ COMMITTED)이라 그 사이에 동의 철회·탈퇴가 커밋될 수 있다. 결과 조회 문장에도 활성 회원·동의 조건을 두어 그 경우 행을 반환하지 않고, 결과가 없으면 동의를 다시 확인해 401·403을 404보다 먼저 응답한다(S15P31E105-550). 결과 조회 문장 이후에 커밋된 철회는 그 응답에 반영되지 않는다.
 - 건강 지표는 조회 시점의 기준일 건강 행 값이고, 점수는 마지막 자동 평가 시점의 값이다. W06이 같은 날짜 값을 갱신한 뒤 평가가 끝나기 전이거나 평가가 누락되면(위 "정하지 않은 것") 지표가 점수 계산에 쓴 값보다 최신일 수 있다. 평가 시각(`assessedAt`)과 누락 재평가는 후속이다.
 - 조회는 평가를 실행하지 않는다. 결과는 위 자동 평가가 만든다.

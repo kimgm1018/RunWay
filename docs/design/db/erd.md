@@ -33,7 +33,7 @@
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
 | `exercise_training_loads` | 운동 1건의 심박 Zone 부하(Edwards TRIMP). RunWay 러닝 또는 삼성 헬스 운동. 일별 부하의 원천 (S15P31E105-599, V26) |
-| `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도 |
+| `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도. 계산에 쓴 항목 점수 `sleep_score`·`recovery_score`·`load_score`와 R 변화율 `rhr_change_pct`(모두 NULL 가능, S15P31E105-639, V30)를 점수와 같은 upsert로 저장한다. 제외된 항목과 V30 이전 결과는 NULL |
 
 #### user_recommendation_preferences — 추천 기본값 (설계 S15P31E105-386 / 구현 S15P31E105-245, 2026-11-03 확정)
 

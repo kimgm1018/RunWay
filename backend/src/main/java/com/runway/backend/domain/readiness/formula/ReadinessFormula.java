@@ -51,7 +51,8 @@ public final class ReadinessFormula {
             byDate.put(input.metricDate(), input);
         }
         BigDecimal sleep = sleepScore(date, byDate);
-        BigDecimal recovery = recoveryScore(date, byDate);
+        Recovery recoveryResult = recovery(date, byDate);
+        BigDecimal recovery = recoveryResult == null ? null : recoveryResult.score();
         BigDecimal load = loadScore(date, byDate, historyDays(date, firstLoadDate));
 
         BigDecimal sum = BigDecimal.ZERO;
@@ -76,7 +77,8 @@ public final class ReadinessFormula {
                         ReadinessConfidence.ofComponentCount(count),
                         sleep,
                         recovery,
-                        load));
+                        load,
+                        recoveryResult == null ? null : recoveryResult.changePct()));
     }
 
     /** 최저 항목 기반 상한. 70 이상 100, 50 이상 84, 30 이상 69, 그 밖 49. */
@@ -131,6 +133,14 @@ public final class ReadinessFormula {
      * 오늘 RHR이 평소(D-7~D-1 평균) 대비 얼마나 올랐는지로 판단한다. 오늘 값이 없거나 평소 값이 3일 미만이면 계산하지 않는다.
      */
     static BigDecimal recoveryScore(LocalDate date, Map<LocalDate, DailyHealthInput> byDate) {
+        Recovery recovery = recovery(date, byDate);
+        return recovery == null ? null : recovery.score();
+    }
+
+    /** R 점수와 그 계산에 쓴 평소 대비 오늘 RHR 변화율(%). R을 계산하지 않으면 null(S15P31E105-639). */
+    record Recovery(BigDecimal score, BigDecimal changePct) {}
+
+    private static Recovery recovery(LocalDate date, Map<LocalDate, DailyHealthInput> byDate) {
         DailyHealthInput today = byDate.get(date);
         if (today == null || today.restingHrBpm() == null) {
             return null;
@@ -147,7 +157,23 @@ public final class ReadinessFormula {
         if (days < MIN_BASELINE_RHR_DAYS || sum.signum() <= 0) {
             return null;
         }
-        return recoveryStep(today.restingHrBpm(), sum, days);
+        return new Recovery(
+                recoveryStep(today.restingHrBpm(), sum, days),
+                recoveryChangePct(today.restingHrBpm(), sum, days));
+    }
+
+    /**
+     * 평소(이전 7일 중 측정일 평균) 대비 오늘 RHR 변화율 = (오늘 × 일수 − 합) × 100 ÷ 합, 소수 첫째 자리 올림(CEILING, +∞ 방향). 평균을
+     * 먼저 반올림하지 않아 {@link #recoveryStep} 구간 판정과 같은 값에서 나온다(합 > 0). 구간 경계(3·5·8·12·15%)가 소수 첫째 자리이므로 올림하면
+     * 표시값으로 판단한 구간이 R 점수 구간과 항상 같다(예: +5.04%는 5.1로 표시되고 R은 80). 반올림(HALF_UP)이면 5.0으로 보여 90 구간처럼 읽힌다
+     * (S15P31E105-639 리뷰 A-1·B-1, 2026-11-10 사용자 결정).
+     */
+    static BigDecimal recoveryChangePct(
+            BigDecimal todayRhr, BigDecimal baselineSum, int baselineDays) {
+        return todayRhr.multiply(BigDecimal.valueOf(baselineDays))
+                .subtract(baselineSum)
+                .multiply(HUNDRED)
+                .divide(baselineSum, 1, RoundingMode.CEILING);
     }
 
     /**
