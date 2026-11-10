@@ -324,7 +324,12 @@ export function ReadinessPanel({
         <ScoreRing score={score} counted={counted} />
       </View>
 
-      {trainingLoad ? <LoadNotice load={trainingLoad} /> : null}
+      {trainingLoad ? (
+        <LoadNotice
+          load={trainingLoad}
+          loadScored={typeof factors?.load === 'number'}
+        />
+      ) : null}
 
       {consented ? (
         <>

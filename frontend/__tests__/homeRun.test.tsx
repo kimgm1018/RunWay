@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import {
@@ -224,6 +224,12 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   // A day without a score says so.
   await press(screen, '10월 14일');
   expect(texts(screen)).toContain('이 날의 준비도 기록이 없어요');
+  // On the navy card in the card's white text, not the light screens' dark text that vanished on it (S15P31E105-660
+  // 실기기 확인).
+  const none = screen.root
+    .findAllByType(Text)
+    .find(node => node.props.children === '이 날의 준비도 기록이 없어요');
+  expect(StyleSheet.flatten(none?.props.style)?.color).toBe('#FFFFFF');
   await press(screen, '10월 15일');
   await press(screen, '월별 기록');
   expect(texts(screen)).toContain('10월 15일 목요일');

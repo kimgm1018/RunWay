@@ -12,7 +12,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 |---|---|---:|
 | [인증·사용자·러닝 프로필](./users.md) | 인증·사용자·러닝 프로필 | 30 |
 | [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
-| [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
+| [운동 준비도](./readiness.md) | 운동 준비도 | 2 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
 | [러닝 세션](./sessions.md) | 러닝 세션 | 11 |
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
@@ -23,7 +23,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **99개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
+총 **100개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -193,6 +193,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | W06 | [Samsung Health 데이터 동기화](./devices-health.md#w06-samsung-health-데이터-동기화) | POST | `/health-records/sync` | [devices-health.md](./devices-health.md) |
 | W07 | [워치 운동 배치 동기화](./devices-health.md#w07-워치-운동-배치-동기화) | POST | `/sync/batches` | [devices-health.md](./devices-health.md) |
 | R02 | [최신 준비도 조회](./readiness.md#r02-최신-준비도-조회) | GET | `/readiness-assessments/latest` | [readiness.md](./readiness.md) |
+| R03 | [날짜별 준비도 조회](./readiness.md#r03-날짜별-준비도-조회) | GET | `/readiness-assessments/dates/{readinessDate}` | [readiness.md](./readiness.md) |
 | C01 | [코스 추천(AI 경로 후보 생성)](./courses.md#c01-코스-추천) | POST | `/courses/recommendations` | [courses.md](./courses.md) |
 | C10 | [생성 코스 선택 저장](./courses.md#c10-생성-코스-선택-저장) | POST | `/courses/generated` | [courses.md](./courses.md) |
 | C03 | [코스 상세 조회](./courses.md#c03-코스-상세-조회) | GET | `/courses/{courseId}` | [courses.md](./courses.md) |

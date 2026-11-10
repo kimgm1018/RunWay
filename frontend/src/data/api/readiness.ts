@@ -7,7 +7,7 @@ import type {
 } from '../types';
 import { apiRequest } from './http';
 
-// R02 response (docs/design/api/readiness.md). The confidence counts the inputs used
+// R02·R03 response (docs/design/api/readiness.md). The confidence counts the inputs used
 // (HIGH 3 · MEDIUM 2 · LOW 1) and is not a grade, so 2.1 does not show it. The health
 // metrics come from the same day's health row as the score, null when not measured.
 type ReadinessResponse = {
@@ -24,8 +24,7 @@ type ReadinessResponse = {
   // when the 28 days up to readinessDate have no load. Optional for a server before this contract.
   weeklyTrainingLoad?: number | null;
   usualWeeklyTrainingLoad?: number | null;
-  // S15P31E105-594 (BE 요청, 아직 계약 전): D-6~D daily load (null = no exercise) and the formula's item scores. The
-  // card draws them once the server sends them.
+  // S15P31E105-639: D-6~D daily load (null = no exercise) and the formula's item scores. Optional for an older server.
   dailyTrainingLoads?: { date: string; load: number | null }[] | null;
   sleepScore?: number | null;
   recoveryScore?: number | null;
@@ -199,14 +198,24 @@ export function createReadinessApi({ now }: { now: () => Date }) {
   };
 }
 
-// 2.1 준비도 on a past day (S15P31E105-594 담당자 요청: 과거 날짜를 고르면 그날의 준비도). R02 gives only the latest
-// result, so a day has one only when it is that result's own day; any other day is null (no score that day) until the
-// server can be asked for a given date.
+// 2.1 준비도 on a past day (S15P31E105-594·660): R03 gives the result of the chosen day with that day's own metrics
+// and load. No result that day (404) and no health consent (403) are both "no score that day" (660 사용자 결정); any
+// other failure is a load error. An answer for another day is never shown as the chosen one.
 export function createReadinessOnApi() {
   return async (day: string): Promise<TodayCondition | null> => {
-    const latest = await latestReadiness();
-    return latest.kind === 'score' && latest.response.readinessDate === day
-      ? readyCondition(latest.response, day)
-      : null;
+    try {
+      const response = await apiRequest<ReadinessResponse>(
+        `/readiness-assessments/dates/${encodeURIComponent(day)}`,
+      );
+      return response.readinessDate === day
+        ? readyCondition(response, day)
+        : null;
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === 'ASSESSMENT_NOT_FOUND' || code === 'CONSENT_REQUIRED') {
+        return null;
+      }
+      throw error;
+    }
   };
 }

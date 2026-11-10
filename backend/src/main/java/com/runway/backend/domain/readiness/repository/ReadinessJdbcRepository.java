@@ -136,12 +136,27 @@ public class ReadinessJdbcRepository {
     }
 
     /**
-     * 본인의 기준 날짜가 가장 늦은 준비도 1건과 같은 날짜의 본인 일별 건강 지표. 건강 행이 없으면 지표는 null이며 다른 날짜 값으로 대체하지
+     * 본인의 기준 날짜가 가장 늦은 준비도 1건과 같은 날짜의 본인 일별 건강 지표(R02). 건강 행이 없으면 지표는 null이며 다른 날짜 값으로 대체하지
      * 않는다. {@code (user_id, metric_date)} 유니크 키라 조인으로 행이 늘지 않는다.
      *
      * <p>활성 회원·건강정보 동의 조건을 같은 문장에 넣어, 앞선 동의 확인 뒤 철회가 커밋됐으면 행을 반환하지 않는다.
      */
     public Optional<LatestReadinessRow> findLatest(long userId) {
+        return findOne(
+                "WHERE r.user_id = ? ORDER BY r.readiness_date DESC LIMIT 1", userId);
+    }
+
+    /**
+     * 본인의 지정 기준 날짜 준비도 1건과 같은 날짜의 본인 일별 건강 지표(R03, S15P31E105-660). 필드 정의·동의 조건은 {@link
+     * #findLatest}와 같은 문장을 쓰고 대상 행 선택만 다르다. {@code (user_id, readiness_date)} 유니크 키라 많아야 1건이다.
+     */
+    public Optional<LatestReadinessRow> findByDate(long userId, LocalDate readinessDate) {
+        // java.sql.Date는 1582년 이전을 율리우스력으로 바꾸므로 LocalDate를 그대로 바인딩한다(재검토 R-2).
+        return findOne("WHERE r.user_id = ? AND r.readiness_date = ?", userId, readinessDate);
+    }
+
+    /** R02·R03 공통 조회. selection은 상수 WHERE·정렬 절만 받으며 값은 바인딩 파라미터로 넘긴다. */
+    private Optional<LatestReadinessRow> findOne(String selection, Object... params) {
         return jdbc
                 .query(
                         """
@@ -179,10 +194,8 @@ public class ReadinessJdbcRepository {
                             WHERE w.user_id = r.user_id
                               AND w.metric_date BETWEEN r.readiness_date - 27 AND r.readiness_date
                         ) l
-                        WHERE r.user_id = ?
-                        ORDER BY r.readiness_date DESC
-                        LIMIT 1
-                        """,
+                        """
+                                + selection,
                         (rs, n) -> {
                             OffsetDateTime healthUpdatedAt =
                                     rs.getObject("health_updated_at", OffsetDateTime.class);
@@ -207,7 +220,7 @@ public class ReadinessJdbcRepository {
                                     rs.getBigDecimal("load_score"),
                                     rs.getBigDecimal("rhr_change_pct"));
                         },
-                        userId)
+                        params)
                 .stream()
                 .findFirst();
     }
@@ -227,7 +240,7 @@ public class ReadinessJdbcRepository {
     }
 
     /**
-     * R02 조회 행. confidence는 미산출이면 null. 건강 지표는 기준일 건강 행이나 값이 없으면 null.
+     * R02·R03 조회 행. confidence는 미산출이면 null. 건강 지표는 기준일 건강 행이나 값이 없으면 null.
      *
      * @param dailyLoads D-6~D 일별 부하 원값 7개(소수 넷째 자리, 값 없는 날 null). load와 같은 문장에서 읽는다
      * @param sleepScore 평가 때 저장한 항목 점수. 제외 항목·V30 이전 결과는 null(recoveryScore·loadScore·restingHrChangePct도 같다)

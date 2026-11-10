@@ -5,10 +5,11 @@
 | ID | 이름 | Method | Endpoint | 단계 | 인증 |
 |---|---|---|---|---|---|
 | [R02](#r02-최신-준비도-조회) | 최신 준비도 조회 | GET | `/readiness-assessments/latest` | 1차 MVP | 회원 |
+| [R03](#r03-날짜별-준비도-조회) | 날짜별 준비도 조회 | GET | `/readiness-assessments/dates/{readinessDate}` | 1차 MVP | 회원 |
 
 ## ERD 응답 대응 기준
 
-**응답 해석:** R02는 S15P31E105-254에서 확정한 계약이다. 아래 Response 표의 필드만 구현 계약이며, "후속 필드" 표의 항목은 아직 계약이 아니다. `O`는 응답 객체가 있을 때 키를 항상 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 결과가 없는 경우는 오류 응답 절을 따른다.
+**응답 해석:** R02는 S15P31E105-254에서 확정한 계약이며, R03(S15P31E105-660)은 같은 응답 형식을 쓴다. 아래 Response 표의 필드만 구현 계약이며, "후속 필드" 표의 항목은 아직 계약이 아니다. `O`는 응답 객체가 있을 때 키를 항상 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 결과가 없는 경우는 오류 응답 절을 따른다.
 
 daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL 가능), 계산에 쓴 항목 점수(sleep_score·recovery_score·load_score)와 R 변화율(rhr_change_pct, 모두 NULL 가능, S15P31E105-639)을 저장한다. readinessLevel은 신뢰도와 다른 표시 값이며 등급 경계는 미정이다(후속). daily_health_metrics는 user_id와 기준 날짜로 대응하며 FK로 일일 건강 행을 직접 참조하지 않는다.
 
@@ -55,7 +56,7 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 
 ### 설명
 
-자동 평가된 본인의 최신 준비도를 조회한다. 조회가 평가를 실행시키지는 않는다.
+자동 평가된 본인의 최신 준비도를 조회한다. 조회가 평가를 실행시키지는 않는다. 특정 날짜의 결과는 [R03](#r03-날짜별-준비도-조회)으로 조회한다.
 
 ### 인증 및 권한
 
@@ -162,3 +163,60 @@ daily_readiness는 readiness_score와 readiness_confidence(LOW/MEDIUM/HIGH, NULL
 ### 상태값
 
 - `readinessConfidence`: HIGH / MEDIUM / LOW / null
+
+## R03 날짜별 준비도 조회
+
+`GET` `/api/v1/readiness-assessments/dates/{readinessDate}`
+
+| 항목 | 값 |
+|---|---|
+| 단계 | 1차 MVP |
+| 인증 | 회원 |
+| 관련 요구사항 | RDY-001~003 |
+| 상태 | S15P31E105-660 확정(2026-11-10). 홈 준비도의 과거 날짜 선택(S15P31E105-594)에 쓴다 |
+
+### 설명
+
+자동 평가된 본인의 지정 기준 날짜 준비도 1건을 조회한다. 응답 형식·필드 정의·NULL 규칙은 [R02 Response](#response)와 같고, 대상 행만 "가장 늦은 날짜" 대신 `readinessDate`가 경로 값과 같은 결과다. 조회가 평가를 실행시키지는 않는다.
+
+### 인증 및 권한
+
+R02와 같다. 로그인한 활성 회원 본인의 결과만 조회하며 다른 회원을 지정하는 입력은 없다. 건강정보 동의가 없으면 결과가 있어도 반환하지 않는다(403 `CONSENT_REQUIRED`).
+
+### Path Parameters
+
+| 이름 | 타입 | 필수 | 설명 |
+|---|---|:---:|---|
+| `readinessDate` | string (YYYY-MM-DD) | O | 조회할 준비도 기준일(`daily_readiness.readiness_date`, 워치 시간대 날짜). 서버는 회원 시간대를 모르므로 미래 날짜인지 판단하지 않으며, 결과가 없으면 404다 |
+
+### Query Parameters
+
+없음
+
+### Request Body
+
+없음
+
+### Response
+
+`200 OK`. [R02 Response](#response)와 같은 필드·타입·NULL 규칙이다. 기준일 D는 경로의 `readinessDate`(= 응답 `readinessDate`)이며 다음 값도 모두 D 기준이다.
+
+- 건강 지표 4개(`restingHrBpm`·`restingHrSource`·`sleepDurationMin`·`healthUpdatedAt`)는 D와 같은 날짜의 본인 건강 행 값이다. 행이나 값이 없으면 null이며 다른 날짜 값으로 대체하지 않는다.
+- `weeklyTrainingLoad`·`usualWeeklyTrainingLoad`·`dailyTrainingLoads`는 D를 기준으로 한 D-6~D·D-27~D 창을 조회 시점 일별 부하로 계산한다.
+- 항목 점수 3개와 `restingHrChangePct`는 그 날짜를 마지막으로 평가할 때 저장한 값이다.
+
+### 오류 응답
+
+| HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
+|---|---|---|
+| `400 VALIDATION_ERROR` | 요청 형식 | `readinessDate`가 부호 없는 4자리 연도의 YYYY-MM-DD 실제 날짜가 아님(`2026-13-01`·`2026-02-30`·`20261027`·`2026-10-27+09:00`·`+2026-10-27` 등). `fields`에 `readinessDate`와 사유 `형식이 올바르지 않습니다.`만 넣고 거절 값은 넣지 않는다([공통 규약](README.md#오류-분류와-재시도-기준)) |
+| `404 ASSESSMENT_NOT_FOUND` | 데이터 없음 | 그 날짜의 본인 준비도 결과가 없음. 다른 날짜 결과가 있어도 대체하지 않으며 건강 데이터 부족·계산 전·계산 실패를 구분하지 않는다 |
+| `401 UNAUTHORIZED` | 인증 | 토큰이 없거나 만료·위변조, 또는 활성 회원이 아님(탈퇴) |
+| `403 CONSENT_REQUIRED` | 동의 | 건강정보 수집 동의가 없음 |
+
+- 공통 서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 따른다.
+
+### 처리 규칙
+
+- R02 [처리 규칙](#처리-규칙)과 같다. 활성 회원 동의 확인과 결과 조회를 한 읽기 트랜잭션에서 하고, 결과 조회 문장(R02와 같은 SQL에 `readiness_date = D` 조건)에도 활성 회원·동의 조건을 둔다. 결과가 없으면 동의를 다시 확인해 401·403을 404보다 먼저 응답한다. 동의가 없으면 결과·건강 행을 읽지 않는다.
+- 앱은 404·403이면 그 날짜를 "기록 없음"으로 표시한다(S15P31E105-660 사용자 결정). 오늘 카드는 R02를 그대로 쓴다.
