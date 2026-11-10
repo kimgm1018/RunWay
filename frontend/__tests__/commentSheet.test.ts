@@ -31,7 +31,13 @@ test('at rest the sheet takes two thirds of its window, over the bottom inset', 
 test('a window that stays full under the keyboard lifts the comment bar by the keyboard', () => {
   const fit = sheetFit({ ...base, open: 780, frame: 780, keyboard: 300 });
   expect(fit.height).toBe(780 - 40 - 8);
-  expect(fit.paddingBottom).toBe(300);
+  // React Native's keyboard height leaves out the navigation bar under it (S15P31E105-619).
+  expect(fit.paddingBottom).toBe(300 + 24);
+  // A window that stops above the navigation bar has no bottom inset to add.
+  expect(
+    sheetFit({ ...base, bottom: 0, open: 780, frame: 780, keyboard: 300 })
+      .paddingBottom,
+  ).toBe(300);
 });
 
 test('a window that shrank above the keyboard does not lift the bar a second time', () => {

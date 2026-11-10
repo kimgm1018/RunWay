@@ -1,5 +1,5 @@
 import React from 'react';
-import { FlatList, Image, Text } from 'react-native';
+import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
@@ -280,6 +280,32 @@ test('7.2 shows the run over its map, likes it and opens the comments from the c
   await press(screen, '댓글 닫기');
   await press(screen, '댓글 쓰기');
   expect(labelled(screen, '댓글 입력', 'onChangeText')).toBeTruthy();
+});
+
+// S15P31E105-619: the sheet's foot keeps room for the whole comment bar, which grows by the phone's bottom bar
+// (115 over a 48 three-button bar), so the 댓글 card scrolls clear of it.
+test('7.2 keeps the end of the sheet clear of a comment bar that grew', async () => {
+  const screen = await openCommunity();
+  await press(screen, '검색');
+  await settle(50);
+  await press(screen, 'seoyun.run의 5.02km 러닝');
+  await settle(50);
+  const detail = screen.root.findByType(PostDetailScreen);
+  const bar = detail.findAll(
+    node => typeof node.props.onLayout === 'function' && node.type === View,
+  );
+  const commentBar = bar[bar.length - 1];
+  await act(async () => {
+    commentBar.props.onLayout({ nativeEvent: { layout: { height: 115 } } });
+  });
+  const sheet = detail.findAll(
+    node =>
+      node.type === View &&
+      StyleSheet.flatten(node.props.style)?.borderTopLeftRadius === 28,
+  )[0];
+  expect(
+    StyleSheet.flatten(sheet.props.style).paddingBottom,
+  ).toBeGreaterThanOrEqual(115 + 16);
 });
 
 // A feed page opens 7.2, and 7.2's map plays the course back: the distance counts up, a tap pauses and resumes,

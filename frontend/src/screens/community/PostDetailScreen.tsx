@@ -140,6 +140,10 @@ export function PostDetailScreen() {
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [replay, setReplay] = useState(false);
+  // The comment bar's real height: the phone's bottom bar adds to it, so the sheet's foot keeps that much room
+  // (S15P31E105-619). Until it is laid out, the bar's height over the bottom inset stands in.
+  const [barHeight, setBarHeight] = useState(0);
+  const footRoom = (barHeight || barBase + insets.bottom) + 24;
 
   const openAuthor = (current: PostDetail) =>
     current.isMine
@@ -239,7 +243,12 @@ export function PostDetailScreen() {
                 </View>
               ) : null}
             </Pressable>
-            <View style={[styles.sheet, { minHeight: height - mapHeight }]}>
+            <View
+              style={[
+                styles.sheet,
+                { minHeight: height - mapHeight, paddingBottom: footRoom },
+              ]}
+            >
               <View style={styles.handle} />
               <View style={styles.stats}>
                 <Stat
@@ -442,6 +451,9 @@ export function PostDetailScreen() {
           {/* 레퍼런스 하단: 좋아요 and a comment field that opens the comments. */}
           <View
             style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}
+            onLayout={event =>
+              setBarHeight(Math.ceil(event.nativeEvent.layout.height))
+            }
           >
             <Pressable
               accessibilityRole="button"
@@ -524,6 +536,9 @@ export function PostDetailScreen() {
   );
 }
 
+// The comment bar without the bottom inset: 10 + the 46 field + 10, and its 1 top line.
+const barBase = 67;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: feedLook.ground },
   flex: { flex: 1 },
@@ -579,8 +594,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
     paddingTop: 10,
-    // Room for the comment bar at the foot.
-    paddingBottom: 96,
   },
   handle: {
     alignSelf: 'center',
