@@ -569,8 +569,8 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
 });
 
-// The digits of a line in Rajdhani (S15P31E105-594 담당자 결정: 그룹 화면 숫자는 워치와 같은 Rajdhani), the words
-// around them in the app's Korean font, which Rajdhani has no letters for. D-4, 11.14 07:00, 18/30, 6′10″ and the
+// The digits of a line in the app's figure font (Archivo, S15P31E105-662), the words around them in the app's Korean
+// font, which Archivo has no letters for. D-4, 11.14 07:00, 18/30, 6′10″ and the
 // like are one run each.
 const numberRun = /(D-\d+|\d[\d:.,/′″'"+-]*)/;
 
@@ -582,20 +582,15 @@ export function NumText({
 }: {
   text: string;
   style?: StyleProp<TextStyle>;
-  // On top of Rajdhani SemiBold: a size or colour of the digits' own.
+  // On top of the figure font's SemiBold: a size or colour of the digits' own.
   numberStyle?: StyleProp<TextStyle>;
   numberOfLines?: number;
 }) {
   const parts = text.split(numberRun);
-  // The digits keep the line's colour (AppText would set its own) and are drawn a little larger, since
-  // Rajdhani's figures sit smaller than the Korean letters at the same size.
+  // The digits keep the line's colour (AppText would set its own) at the line's size: Archivo's figures already
+  // stand as tall as the Korean letters, so they are no longer drawn larger as Rajdhani's were.
   const line = StyleSheet.flatten(style) ?? {};
-  const own: TextStyle = {
-    ...(line.color ? { color: line.color } : null),
-    ...(typeof line.fontSize === 'number'
-      ? { fontSize: Math.round(line.fontSize * 1.12 * 2) / 2 }
-      : null),
-  };
+  const own: TextStyle = line.color ? { color: line.color } : {};
   return (
     <AppText style={style} numberOfLines={numberOfLines}>
       {parts.map((part, index) =>
@@ -612,5 +607,5 @@ export function NumText({
 }
 
 const numStyles = StyleSheet.create({
-  number: { fontFamily: fontFamily.rajdhaniSemiBold, letterSpacing: 0 },
+  number: { fontFamily: fontFamily.numberSemiBold, letterSpacing: 0 },
 });

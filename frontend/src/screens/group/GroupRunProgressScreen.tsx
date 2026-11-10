@@ -627,16 +627,16 @@ const styles = StyleSheet.create({
     color: liveLook.sub,
   },
   bigLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
-  // Group screen numbers in Rajdhani (S15P31E105-594 담당자 결정).
+  // Group screen numbers in Archivo (S15P31E105-662).
   // The guide pace in the 시안's mint (S15P31E105-594 담당자 시안); the run screen is dark, so mint digits read.
   big: {
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 48,
     lineHeight: 54,
     color: groupTone.accent,
   },
   bigUnit: {
-    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontFamily: fontFamily.numberSemiBold,
     fontSize: 18,
     lineHeight: 22,
     color: liveLook.muted,

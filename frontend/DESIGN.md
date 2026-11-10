@@ -69,7 +69,7 @@
 | 탭 표시        | ↗ 원 26: 밝은 카드 위 `rgba(17,17,17,.06)` + 검정 아이콘 · 어두운 카드 위 `rgba(255,255,255,.12)` + 흰 아이콘 | 작은 카드 오른쪽 위            |
 | 머리           | 글자 `#0B1418`, 둥근 버튼 흰 55%, 안 읽은 알림 점 `#E2553F`, 프로필 `#2A3238` + 흰 테두리 2 | 2.1 머리                    |
 
-- 점수는 Doto 900, 카드 안 수치·기록은 IBM Plex Mono(400·500)를 쓴다. 나머지 글자는 앱 기본 Noto Sans KR다.
+- 점수·카드 안 수치·기록은 앱 숫자 글꼴 Archivo(아래 3절)를 쓴다. 나머지 글자는 앱 기본 Noto Sans KR다.
 
 ## 2. 박스
 
@@ -395,9 +395,9 @@ S15P31E105-564에서 홈을 다시 짰다(담당자 레퍼런스). 지난 러닝
 | 큰 숫자     | Unbounded 40~44 Regular, 단위는 13 Light 70%                                      |
 | 지표 숫자   | Manrope 26 Light(보조 숫자), 준비도 80 ExtraLight                                 |
 
-앱은 지금 숫자에 Barlow를 쓴다. 시안의 Manrope·Unbounded를 앱에 넣을지는 S15P31E105-206에서 정한다.
+S15P31E105-662부터 앱 전체 숫자·영문은 Archivo 폭 125다(담당자 결정: 결과 화면 시안과 같은 폰트). React Native는 가변 폰트의 폭을 지정할 수 없어 굵기 400·500·600·700 고정본(`ArchivoExpanded-Regular`·`Medium`·`SemiBold`·`Bold`)을 `fontFamily.numberRegular`~`numberBold`로 쓴다. Barlow·Rajdhani·Doto·IBM Plex Mono는 뺐고, 이 문서 표의 그 글꼴 표기는 같은 굵기의 Archivo로 읽는다(ExtraLight·Light는 Regular). 한글 문장 안 숫자·영문도 `AppText`가 나눠 같은 굵기의 Archivo로 그린다(Regular→Regular, Medium→Medium, Bold·Black→Bold, 담당자 결정). 한글은 Noto Sans KR 그대로다. `AppText`가 아닌 `Text`는 `latinRuns`로 같게 맞춘다. 워치 앱(`wear/`)의 Rajdhani는 그대로다.
 
-4.5·6.7 결과 화면만 숫자·영문을 Archivo 폭 125(가변 폰트에서 굵기 700·800·900 고정본 `ArchivoExpanded-*`로 잘라 넣음)로, 손글씨를 나눔손글씨 붓(`NanumBrush`)으로 쓴다. 손글씨는 결과 화면 밖에서 쓰지 않는다(S15P31E105-661 담당자 결정).
+4.5·6.7 결과 화면은 더 굵은 Archivo 고정본(굵기 800·900, `fontFamily.resultExtraBold`·`resultBlack`)을 함께 쓰고, 손글씨를 나눔손글씨 붓(`NanumBrush`)으로 쓴다. 손글씨는 결과 화면 밖에서 쓰지 않는다(S15P31E105-661 담당자 결정).
 
 ## 4. 작은 컴포넌트와 상태
 

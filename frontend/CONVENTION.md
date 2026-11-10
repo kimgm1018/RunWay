@@ -25,7 +25,7 @@
 | `src/screens/records/` | 5.1 전체 기록·5.2 기록 상세·5.3 러닝 분석(S15P31E105-149) |
 | `src/screens/group/` | 6.0 그룹·6.4 그룹런 상세(6.4e 취소 완료 포함)·6.4c 취소·6.5 출발 준비·6.6 진행(6.6b·6.6r)·6.6c 일시정지·6.7 결과·6.8 만들기·6.9 만남 장소(S15P31E105-150) |
 | `src/format.ts` | 날짜·페이스·거리·시간 표시 형식. 날짜는 기기 시간대와 관계없이 한국 시간으로 보여 준다 |
-| `assets/fonts/` | Noto Sans KR(400·500·700·900), Barlow(400~700). 라이선스는 `assets/licenses/` |
+| `assets/fonts/` | Noto Sans KR(400·500·700·900), Archivo 폭 125 고정본 `ArchivoExpanded-*`(400~700). 라이선스는 `assets/licenses/` |
 
 ## 2. 화면 이동
 
@@ -62,7 +62,7 @@
 - 현재 시각은 `repositories.clock.now()`로 읽는다. 목 데이터는 프로토타입처럼 2026-10-19 12:45로 고정해 상대 시간·낮밤이 같게 나온다.
 - 글자는 `AppText`의 `variant`(`display`·`heading`·`body`·`caption`·`metric` 등)로 고른다.
   Android는 굵기를 파일로 구분하므로 `fontWeight` 대신 variant의 `fontFamily`를 쓴다.
-  숫자는 프로토타입의 Bahnschrift 대신 대체 글꼴인 Barlow를 쓴다.
+  숫자·영문은 `fontFamily.number*`(Archivo 폭 125)를 쓴다(S15P31E105-662). 한글 문장 안 숫자·영문도 `AppText`가 나눠 같은 굵기의 Archivo로 그린다(Regular→Regular, Medium→Medium, Bold·Black→Bold, 담당자 결정). 한글은 Noto Sans KR 그대로다. `AppText`가 아닌 `Text`는 `latinRuns`로 같게 맞춘다.
 - 간격은 `spacing`, 모서리는 `radius`(버튼·입력창은 `pill`), 높이는 `size`를 쓴다.
 
 ## 4. 공통 컴포넌트

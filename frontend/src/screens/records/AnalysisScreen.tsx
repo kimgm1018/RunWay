@@ -861,7 +861,7 @@ const styles = StyleSheet.create({
     color: recordsLook.onCardSub,
   },
   rowMeta: {
-    fontFamily: fontFamily.monoMedium,
+    fontFamily: fontFamily.numberMedium,
     fontSize: 13.5,
     lineHeight: 18,
     color: recordsLook.onCard,

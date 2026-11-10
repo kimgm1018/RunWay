@@ -605,9 +605,9 @@ const styles = StyleSheet.create({
     lineHeight: 46,
     color: groupTone.text,
   },
-  // The time left large in Rajdhani, like the pace.
+  // The time left large in Archivo, like the pace.
   countdown: {
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 40,
     color: groupTone.text,
   },
@@ -649,15 +649,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // The shared pace large in Rajdhani (S15P31E105-594 담당자 결정).
+  // The shared pace large in Archivo (S15P31E105-662).
   pace: {
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 64,
     lineHeight: 70,
     color: groupTone.text,
   },
   paceUnit: {
-    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontFamily: fontFamily.numberSemiBold,
     fontSize: 28,
     color: groupTone.text,
   },
@@ -804,7 +804,7 @@ const styles = StyleSheet.create({
   },
   count: {
     ...typography.metricHero,
-    fontFamily: fontFamily.rajdhaniBold,
+    fontFamily: fontFamily.numberBold,
     fontSize: 110,
     lineHeight: 120,
     color: groupTone.text,
