@@ -130,7 +130,10 @@ def build_trace(outcome, *, boot_id: str, seq: int, stage: str, replay_speed: in
             })
     else:
         candidate_rows = []
-    zero_grade = request.candidates[2].future_grade_pct if len(request.candidates) >= 3 else None
+    # 안내 그대로(기준 대비 0초/km) 후보의 경사. 후보는 기준 + DELTAS 순서다(S15P31E105-624).
+    zero = next((c for c in request.candidates
+                 if abs(c.pace_sec_per_km - context.anchor_pace_sec_per_km) <= 0.01), None)
+    zero_grade = zero.future_grade_pct if zero is not None else None
     grade_next = (sum(zero_grade) / len(zero_grade) if zero_grade and all(v is not None for v in zero_grade) else None)
     distance_goal = context.goal.target_distance_m
     remaining = max(0.0, distance_goal - context.distance_m) if distance_goal is not None else None

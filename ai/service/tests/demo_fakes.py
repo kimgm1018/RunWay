@@ -16,7 +16,7 @@ from app.policy.residual_margin import MarginTable, DIRECTIONS, GRADES, HORIZONS
 
 T0 = datetime(2026, 11, 5, 5, 16, 35, tzinfo=timezone.utc)
 T = datetime(2026, 11, 5, 5, 0, tzinfo=timezone.utc)
-DELTAS = (-10, -5, 0, 5, 10)
+from app.pace_selector import DELTAS  # noqa: E402  AI04 후보(S15P31E105-624)
 
 
 def decide_body(**context_overrides):
@@ -79,7 +79,8 @@ class FakePolicy:
                                 hr_threshold_source="POPULATION", hr_threshold_weight=0.0,
                                 margin_table_version="fake-margin-1")
         status = "HR_STALE" if inp.input_age_sec > 20 else "OK"  # 실제 정책 hr_stale_sec=20과 같은 경계
-        return PolicyOutput(status, "GUIDE_PACE", 2, inp.candidates[2].pace_sec_per_km,
+        base = next(i for i, c in enumerate(inp.candidates) if c.delta_sec_per_km == 0)   # 안내 그대로 후보
+        return PolicyOutput(status, "GUIDE_PACE", base, inp.candidates[base].pace_sec_per_km,
                             "HOLD", "현재 pace 유지", "ALL", verdicts, self.publish,
                             allow_bpm=163.0, hard_eff_bpm=175.0,
                             hr_danger_bpm=175.0, hr_sustain_bpm=163.0,

@@ -188,14 +188,23 @@ class CoachingPublishRuleTest {
     }
 
     @Test
-    void 두_분_전_변경은_마지막_적용_후_30초가_지나야_보내고_EASE_OFF는_예외다() {
+    void AI_페이스_변경은_백엔드_30초_간격_없이_보내고_EASE_OFF도_첫_번은_예외다() {
+        // S15P31E105-624: 페이스 변경의 쿨다운은 AI04가 맡는다(안내 변경 뒤 120초). 백엔드는 같은 쿨다운을 두 번 걸지 않는다.
         var change = decision(true, Action.GUIDE_PACE, "355.00", 165);
         var easeOff = decision(true, Action.EASE_OFF, "390.00", 160);
         Instant applied10sAgo = NOW.minusSeconds(10);
 
-        assertThat(eval(change, 165, false, false, false, applied10sAgo, null)).isEmpty();
+        assertThat(eval(change, 165, false, false, false, applied10sAgo, null)).isPresent();
         assertThat(eval(change, 165, false, false, false, NOW.minusSeconds(30), null)).isPresent();
         assertThat(eval(easeOff, 165, false, false, false, applied10sAgo, null)).isPresent();
+    }
+
+    @Test
+    void 페이스가_같고_BPM만_바뀌는_발행은_30초_간격을_지킨다() {
+        var bpmOnly = decision(true, Action.GUIDE_PACE, "360.00", 170);
+
+        assertThat(eval(bpmOnly, 165, false, false, false, NOW.minusSeconds(10), null)).isEmpty();
+        assertThat(eval(bpmOnly, 165, false, false, false, NOW.minusSeconds(30), null)).isPresent();
     }
 
     @Test

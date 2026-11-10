@@ -9,7 +9,7 @@ SPEC_KEYS = {"traceId","bootId","sessionId","stage","replaySpeed","decidedAt","i
 
 def test_keys_and_id():
     t = build_trace(outcome_for(), boot_id="b7f3", seq=123, stage="L1A", replay_speed=None, grade_source="SAMPLE", previous=[])
-    assert set(t) == SPEC_KEYS and t["traceId"] == "b7f3:000123" and len(t["candidates"]) == 5
+    assert set(t) == SPEC_KEYS and t["traceId"] == "b7f3:000123" and len(t["candidates"]) == 9
 
 
 @pytest.mark.parametrize("stage, delivery", [("L1A","WATCH"),("L1B","NOT_DELIVERED"),("L2","NOT_DELIVERED"),("L2B","NOT_DELIVERED"),("L3","REPLAY")])

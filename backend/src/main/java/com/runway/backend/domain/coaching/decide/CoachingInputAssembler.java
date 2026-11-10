@@ -37,8 +37,11 @@ public final class CoachingInputAssembler {
      */
     public static final Duration INPUT_STALE_AFTER = Duration.ofSeconds(12);
 
-    /** 후보 페이스 = 기준 페이스 + 이 값(초/km). 순서가 계약이다. */
-    static final int[] CANDIDATE_DELTAS = {-10, -5, 0, 5, 10};
+    /**
+     * 후보 페이스 = 기준 페이스 + 이 값(초/km). 순서가 계약이다. 그룹 페이스(AI10)와 같은 9개이며 AI04가 같은 선택 규칙으로
+     * 고른다(S15P31E105-624, ai-service.md AI04).
+     */
+    static final int[] CANDIDATE_DELTAS = {-30, -20, -10, 0, 10, 20, 30, 45, 60};
 
     /** 실측 평균으로 기준 페이스를 정할 때 쓰는 최근 구간. */
     static final int MEASURED_PACE_WINDOW_SEC = 60;

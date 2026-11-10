@@ -38,7 +38,7 @@ from app.models.base import ModelInfo  # noqa: E402
 STEP_SEC = 5
 TAU_SEC = 40.0
 GOAL_PACE = 330.0
-DELTAS = (-10, -5, 0, 5, 10)
+from app.pace_selector import DELTAS  # noqa: E402  AI04 후보(S15P31E105-624)
 START = datetime(2026, 11, 6, 0, 0, tzinfo=timezone.utc)
 SCENARIOS = {
     # 인계 sim c와 같은 모양: 평지, 시간이 갈수록 심박이 오른다(심박 drift). 경사 정보 없음(자유 러닝).

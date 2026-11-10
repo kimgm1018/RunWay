@@ -41,7 +41,7 @@ class AiPaceDecideHttpClientTest {
     static PaceDecideRequest request() {
         List<Double> speeds = Collections.nCopies(24, 2.5);
         List<PaceDecideRequest.Candidate> candidates =
-                List.of(-10, -5, 0, 5, 10).stream()
+                List.of(-30, -20, -10, 0, 10, 20, 30, 45, 60).stream()
                         .map(d -> new PaceDecideRequest.Candidate(
                                 new BigDecimal("400.00").add(BigDecimal.valueOf(d)), speeds, null))
                         .toList();
@@ -92,8 +92,8 @@ class AiPaceDecideHttpClientTest {
         assertThat(body.get("elapsedSec").intValue()).isEqualTo(300);
         assertThat(body.get("userId").isNull()).isTrue();
         assertThat(body.get("history").get("hrBpm").get(0).isNull()).isTrue();
-        assertThat(body.get("candidates")).hasSize(5);
-        assertThat(body.get("candidates").get(0).get("paceSecPerKm").doubleValue()).isEqualTo(390.0);
+        assertThat(body.get("candidates")).hasSize(9);
+        assertThat(body.get("candidates").get(0).get("paceSecPerKm").doubleValue()).isEqualTo(370.0);
         assertThat(body.get("candidates").get(0).get("futureGradePct").isNull()).isTrue();
         JsonNode context = body.get("context");
         assertThat(context.get("goal").has("targetDistanceM")).isTrue();
