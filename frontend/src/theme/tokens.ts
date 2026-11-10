@@ -187,6 +187,12 @@ export const fontFamily = {
   rajdhaniBold: 'Rajdhani-Bold',
   mono: 'IBMPlexMono-Regular',
   monoMedium: 'IBMPlexMono-Medium',
+  // 4.5 러닝 결과 시안 G3 (S15P31E105-661): figures and Latin in Archivo at width 125 (static instances cut from the
+  // variable font), and the handwriting. The handwriting is for the result screens only (담당자 결정).
+  resultBold: 'ArchivoExpanded-Bold',
+  resultExtraBold: 'ArchivoExpanded-ExtraBold',
+  resultBlack: 'ArchivoExpanded-Black',
+  resultScript: 'NanumBrush',
 } as const;
 
 // Android picks a weight by file, so each variant names its family instead of setting fontWeight.
