@@ -574,3 +574,20 @@ test('a paused run is not read to and pausing or disposing stops the voice', asy
   control.dispose();
   expect(voice.stop).toHaveBeenCalledTimes(2);
 });
+
+// S15P31E105-528: S02·S10에 서버 운동시간이 오면 운동 시간의 기준점으로 둔다. 없으면 null(화면 시계).
+test('the server running time from S02 and S10 becomes the clock base', async () => {
+  const { control, snapshot, setCurrent } = setup();
+  setCurrent(view({ movingDurationSec: 600 }));
+  await control.attach('201');
+  expect(control.getState().clock).toMatchObject({ movingSec: 600, running: true });
+
+  snapshot(view({ stateVersion: 4, state: 'PAUSED', movingDurationSec: 630 }));
+  expect(control.getState().clock).toMatchObject({ movingSec: 630, running: false });
+  // 더 오래된 버전의 스냅샷으로는 되돌리지 않는다.
+  snapshot(view({ stateVersion: 2, movingDurationSec: 100 }));
+  expect(control.getState().clock).toMatchObject({ movingSec: 630 });
+  snapshot(view({ stateVersion: 5 }));
+  expect(control.getState().clock).toBeNull();
+  control.dispose();
+});

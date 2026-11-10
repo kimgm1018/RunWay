@@ -20,6 +20,7 @@ import {
   type RunControl,
   type RunControlState,
 } from './runControl';
+import { runClockSec, type RunClock } from './runClock';
 import { speakCoaching, stopCoaching } from './coachingVoiceOutput';
 import { useSession } from '../../session/SessionProvider';
 import {
@@ -113,6 +114,15 @@ export function withLive(sample: RunSample, live: LiveMetrics | null): RunSample
   };
 }
 
+// 운동 시간은 서버가 준 기준점이 있으면 그 값으로 맞춘다(S15P31E105-528). 없으면 화면 기록의 일시정지 제외 시계 그대로다.
+export function withClock(
+  sample: RunSample,
+  clock: RunClock | null,
+  nowMs: number,
+): RunSample {
+  return clock ? { ...sample, elapsedSec: runClockSec(clock, nowMs) } : sample;
+}
+
 // Actions stay the same object for the whole session, so screens that only start a run (2.0's
 // 러닝 시작) do not re-render on every reading.
 const RunActionsContext = createContext<RunActions | null>(null);
@@ -201,6 +211,8 @@ export function RunSessionProvider({
   });
   // The newest measured values from the run control; the tracker's ticks are drawn under them.
   const liveRef = useRef<LiveMetrics | null>(null);
+  // 서버 기준 운동 시간의 기준점(S15P31E105-528). 시계 틱마다 이 값으로 운동 시간을 다시 계산한다.
+  const clockRef = useRef<RunClock | null>(null);
 
   const track = useCallback(
     (from: RunSample, route: [number, number][] | null) => {
@@ -210,7 +222,11 @@ export function RunSessionProvider({
         route,
         (tick, guidance) => {
           const live = liveRef.current;
-          const sample = withLive(tick, live);
+          const sample = withClock(
+            withLive(tick, live),
+            clockRef.current,
+            Date.now(),
+          );
           // With measured values the readings come in as they arrive (below), not once per tick.
           if (!live && sample.heartRate !== null) {
             readings.current.heartRates.push(sample.heartRate);
@@ -364,6 +380,19 @@ export function RunSessionProvider({
   );
 
   const [control, setControl] = useState<RunControlState | null>(null);
+  // 서버 기준점이 바뀌면(새 S02·S10) 다음 틱을 기다리지 않고 맞춘다. 일시정지 중에도 서버 값으로 맞춘다.
+  const runClock = control?.clock ?? null;
+  useEffect(() => {
+    clockRef.current = runClock;
+    if (!runClock) {
+      return;
+    }
+    setRun(current =>
+      current && current.status !== 'finished'
+        ? { ...current, sample: withClock(current.sample, runClock, Date.now()) }
+        : current,
+    );
+  }, [runClock]);
   // 새 실측값이 오면 다음 시계 틱을 기다리지 않고 바로 보인다. 평균 심박·케이던스는 받은 값으로 모은다.
   const live = control?.live ?? null;
   useEffect(() => {

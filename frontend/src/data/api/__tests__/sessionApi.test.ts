@@ -142,6 +142,20 @@ test('create, get, reportPrepared and abortUnconfirmedStart use S01, S02 and S08
   ]);
 });
 
+// S15P31E105-528/643: 서버가 주는 일시정지 제외 운동시간. 없거나 이상하면 null(앱은 화면 시계로 센다).
+test('the server running time is kept, and a missing or broken one is null', async () => {
+  const { repository } = fake([
+    { ...sessionResponse, movingDurationSec: 1080 },
+    sessionResponse,
+    { ...sessionResponse, movingDurationSec: -3 },
+    { ...sessionResponse, movingDurationSec: '1080' },
+  ]);
+  expect((await repository.get('201')).movingDurationSec).toBe(1080);
+  expect((await repository.get('201')).movingDurationSec).toBeNull();
+  expect((await repository.get('201')).movingDurationSec).toBeNull();
+  expect((await repository.get('201')).movingDurationSec).toBeNull();
+});
+
 test('ids come back as strings', async () => {
   const { repository } = fake([sessionResponse]);
   const view = await repository.get('201');

@@ -36,6 +36,7 @@ import {
   useRunHistory,
   type MusicCommand,
 } from './live/RunLivePages';
+import { liveDelayNotice } from './liveDelay';
 import { comparisonLine } from './recordComparison';
 import type { RunControlState } from './runControl';
 import { goalPaceOf, useRunControlState, useRunSession } from './RunSession';
@@ -223,6 +224,12 @@ export function RunProgressScreen() {
       : null;
   const showPlayer =
     player?.source && player.source !== 'NONE' && player.linked;
+  // 마지막으로 받은 실측값이 오래되면 알린다(S15P31E105-528). 화면은 시계 틱마다 다시 그려져 초가 갱신된다.
+  const delay = liveDelayNotice(
+    control?.live ?? null,
+    Date.now(),
+    run.status === 'running',
+  );
 
   // 페이스 · 거리 · 심박 · 케이던스, one page each (S15P31E105-517), then 코칭.
   const pages: LivePage[] = metricPages({
@@ -298,6 +305,7 @@ export function RunProgressScreen() {
               }
             />
           ) : null}
+          {delay ? <LiveNotice label="측정 지연" text={delay} /> : null}
           {takeoverShown ? (
             <LiveNotice
               label="폰 기록 안내"
