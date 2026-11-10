@@ -152,7 +152,10 @@ def test_load_failure_is_unavailable(tmp_path, debug):
     c, _ = client(tmp_path, debug=debug, factory=broken)
     with c:
         r = c.get(READY)
-        assert r.status_code == 503 and r.json() == {"ready": False, "phase": "failed", "load_s": None, "warmup_s": None}
+        # response_cache: 응답 cache 통계(S15P31E105-630). debug 모드는 cache를 쓰지 않아 null
+        cache = None if debug else {"entries": 0, "hits": 0, "misses": 0, "puts": 0, "bytes": 0}
+        assert r.status_code == 503 and r.json() == {"ready": False, "phase": "failed", "load_s": None, "warmup_s": None,
+                                                     "response_cache": cache}
         j = assert_error(c.post(URL, json=BODY), 503, "UNAVAILABLE")
         assert ("debug" in j) is debug
 
