@@ -299,3 +299,33 @@ test('a record route of single-point parts draws no line between them', () => {
   expect(overlays(root, 'naver-map-multipath')).toHaveLength(0);
   expect(overlays(root, 'naver-map-path')).toHaveLength(0);
 });
+
+// S15P31E105-659: 편도 추천 조건 화면은 출발·도착 두 끝점을 함께 보여 준다.
+test('a start and a destination stand on S and F poles', () => {
+  const start: LngLat = [129.13, 35.15];
+  const end: LngLat = [129.2, 35.2];
+  const root = render(<RunMap position={start} destination={end} />);
+  expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
+  const markers = overlays(root, 'naver-map-marker');
+  expect(markers).toHaveLength(2);
+  expect(markers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ latitude: 35.15, longitude: 129.13 }),
+      expect.objectContaining({ latitude: 35.2, longitude: 129.2 }),
+    ]),
+  );
+});
+
+test('without a destination only the start dot shows; a course or run ignores the destination', () => {
+  const start: LngLat = [129.13, 35.15];
+  const alone = render(<RunMap position={start} />);
+  expect(texts(alone)).not.toContain('S');
+  expect(texts(alone)).not.toContain('F');
+  expect(count(alone, 'naver-map-marker')).toBe(1);
+
+  const withCourse = render(
+    <RunMap route={route} position={start} destination={[129.2, 35.2]} />,
+  );
+  expect(texts(withCourse)).toContain('F');
+  expect(count(withCourse, 'naver-map-marker')).toBe(2);
+});
