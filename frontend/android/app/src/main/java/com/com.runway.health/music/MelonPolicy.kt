@@ -150,6 +150,12 @@ object MelonPolicy {
 
   fun webImage(uri: String?) = uri?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
 
+  /**
+   * 2.7 음악 카드 앨범 아트(S15P31E105-609): 메타데이터의 아트 주소 중 첫 웹 주소(멜론 CDN 고해상도, 약 1000px).
+   * 없으면 null이고 호출하는 쪽이 메타데이터 비트맵(약 250px)으로 넘어간다.
+   */
+  fun webArtwork(vararg uris: String?): String? = uris.firstNotNullOfOrNull { webImage(it?.trim()) }
+
   private infix fun Long.has(action: Long) = this and action == action
 }
 
