@@ -11,9 +11,12 @@ import {
   isValidPhoneNumber,
   isValidVerificationCode,
 } from './validation';
+import type { CodeInputStatus } from './CodeInput';
 
 // How long a U28 code lives (users.md U28 expiresInSec), for a send whose answer was lost.
 const CODE_LIFETIME_SEC = 180;
+// U28 resendAvailableInSec: the same number can ask again this long after a send (S15P31E105-646 다시 받기 안내).
+const RESEND_WAIT_SEC = 60;
 
 export type VerificationPhase =
   | 'idle'
@@ -53,9 +56,7 @@ function describe(
       const count = error instanceof DataError ? error.failedCount : null;
       return {
         field: 'code',
-        message: `인증번호가 맞지 않아요. 다시 입력해 주세요${
-          count ? ` (${count}/5)` : ''
-        }`,
+        message: `인증번호가 일치하지 않아요${count ? ` (${count}/5)` : ''}`,
       };
     }
     case 'VERIFICATION_ATTEMPTS_EXCEEDED':
@@ -103,6 +104,7 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
   const [code, setCodeDigits] = useState('');
   const [phase, setPhase] = useState<VerificationPhase>('idle');
   const [remainingSec, setRemainingSec] = useState(0);
+  const [resendSec, setResendSec] = useState(0);
   const [error, setError] = useState<FieldError | null>(null);
   // Verification is locked after five misses until a new code is sent.
   const [locked, setLocked] = useState(false);
@@ -124,6 +126,13 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
     return () => clearTimeout(timer);
   }, [counting, remainingSec]);
   const expired = phase === 'sent' && remainingSec <= 0;
+  useEffect(() => {
+    if (resendSec <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => setResendSec(value => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendSec]);
 
   const setPhoneNumber = useCallback(
     (text: string) => {
@@ -152,6 +161,7 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
       setCodeDigits('');
       setLocked(false);
       setRemainingSec(seconds);
+      setResendSec(RESEND_WAIT_SEC);
       setPhase('sent');
     };
     try {
@@ -219,6 +229,8 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
             return;
           }
           setPhase('sent');
+          // A wrong code is cleared so the next try starts at the first tile (S15P31E105-646).
+          setCodeDigits('');
           if (
             failure === 'VERIFICATION_ATTEMPTS_EXCEEDED' ||
             failure === 'VERIFICATION_EXPIRED'
@@ -262,6 +274,19 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
     [locked, phase, verify],
   );
 
+  const codeLocked = locked || expired;
+  // What the 6-tile code input shows (CodeInput, S15P31E105-646).
+  const codeStatus: CodeInputStatus =
+    phase === 'verifying'
+      ? 'verifying'
+      : phase === 'verified'
+      ? 'success'
+      : codeLocked
+      ? 'locked'
+      : error?.field === 'code'
+      ? 'error'
+      : 'entering';
+
   return {
     phoneNumber,
     setPhoneNumber,
@@ -270,7 +295,10 @@ export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
     setCode,
     phase,
     remainingSec,
+    // Seconds until 다시 받기 is allowed again (0: now).
+    resendSec,
     expired,
+    codeStatus,
     // The code field stays editable only while a live code can still be checked.
     codeEditable: phase === 'sent' && !locked && !expired,
     error: expired

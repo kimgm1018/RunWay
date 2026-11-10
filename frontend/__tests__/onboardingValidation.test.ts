@@ -1,4 +1,5 @@
 import {
+  passwordGuide,
   daysInMonth,
   birthDateError,
   birthDateOptions,
@@ -167,5 +168,26 @@ test('birth date wheels pull a date back inside their lists', () => {
     year: 1950,
     month: 5,
     day: 5,
+  });
+});
+
+// S15P31E105-646: 비밀번호 칸 아래 안내. 입력 전 없음, 조건 미충족은 빨간 상태로 영문 · 숫자 · 8자 이상과 만족한 조건의 ✓.
+test('the password guide is empty before typing and red until every rule is met', () => {
+  expect(passwordGuide('')).toEqual({ status: 'default', helper: undefined });
+  expect(passwordGuide('runway')).toEqual({
+    status: 'error',
+    helper: '✓ 영문 · 숫자 · 8자 이상',
+  });
+  expect(passwordGuide('12345678')).toEqual({
+    status: 'error',
+    helper: '영문 · ✓ 숫자 · ✓ 8자 이상',
+  });
+  expect(passwordGuide('runway12')).toEqual({
+    status: 'success',
+    helper: '사용할 수 있는 비밀번호예요',
+  });
+  expect(passwordGuide('run way12')).toEqual({
+    status: 'error',
+    helper: '공백 없이 8~20자로 입력해 주세요',
   });
 });

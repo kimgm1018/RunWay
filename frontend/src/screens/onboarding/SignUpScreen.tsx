@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Screen, TextField } from '../../components';
+import { Screen, TextField } from '../../components';
 import {
   errorCode,
   useRepositories,
@@ -9,7 +8,6 @@ import {
   type LoginIdAvailability,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { spacing } from '../../theme';
 import {
   FieldChip,
   GoButton,
@@ -21,7 +19,8 @@ import {
   StepTitle,
 } from './parts';
 import { useSignUpDraft } from './SignUpDraft';
-import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
+import { PhoneCodeStep } from './PhoneCodeStep';
+import { usePhoneVerification } from './usePhoneVerification';
 import {
   formatPhoneNumber,
   isValidLoginId,
@@ -77,8 +76,9 @@ export function SignUpScreen() {
   const idCheck = useLoginIdCheck(loginId);
   const phone = usePhoneVerification('SIGN_UP');
 
+  // 아무것도 입력하지 않았으면 안 글씨(규칙)만 보이고 아래 안내는 없다(S15P31E105-646).
   const idState = !loginId
-    ? { status: 'default' as const, helper: loginIdRule }
+    ? { status: 'default' as const, helper: undefined }
     : !idCheck.valid
     ? { status: 'error' as const, helper: `${loginIdRule}로 입력해 주세요` }
     : idCheck.failed
@@ -87,10 +87,8 @@ export function SignUpScreen() {
         helper: '아이디를 확인하지 못했어요. 잠시 후 다시 입력해 주세요',
       }
     : !idCheck.result
-    ? {
-        status: 'default' as const,
-        helper: '사용할 수 있는지 확인하는 중이에요',
-      }
+    ? // 확인 중에는 문구 없이 기다린다. 결과(사용 가능·이미 사용 중)만 알린다(S15P31E105-646).
+      { status: 'default' as const, helper: undefined }
     : idCheck.result.available
     ? {
         status: 'success' as const,
@@ -102,7 +100,11 @@ export function SignUpScreen() {
   const confirmState = confirmGuide(password, confirm);
 
   const verified = phone.phase === 'verified';
-  const codeVisible = phone.phase === 'sent' || phone.phase === 'verifying';
+  // 인증을 마친 뒤에도 체크와 '인증 완료'를 보여 준다(S15P31E105-646).
+  const codeVisible =
+    phone.phase === 'sent' ||
+    phone.phase === 'verifying' ||
+    phone.phase === 'verified';
   const phoneChip = verified ? (
     <FieldChip title="인증 완료" tone="accent" />
   ) : phone.phase === 'idle' ? (
@@ -119,17 +121,12 @@ export function SignUpScreen() {
       onPress={phone.request}
     />
   );
+  // 기본 안내 문구는 두지 않는다(S15P31E105-646 담당자 결정). 인증 완료와 오류만 알린다.
   const phoneHelper = verified
-    ? {
-        status: 'success' as const,
-        helper: '본인 인증됐어요 · 비밀번호를 잊었을 때 이 번호로 찾아요',
-      }
+    ? { status: 'success' as const, helper: '본인 인증됐어요' }
     : phone.error?.field === 'phone'
     ? { status: 'error' as const, helper: phone.error.message }
-    : {
-        status: 'default' as const,
-        helper: '본인 인증에 쓰고, 비밀번호를 잊었을 때 이 번호로 찾아요',
-      };
+    : { status: 'default' as const, helper: undefined };
 
   const ready =
     idState.status === 'success' &&
@@ -170,7 +167,7 @@ export function SignUpScreen() {
         labelInside
         icon="person"
         label="아이디"
-        placeholder="영문·숫자 4–16자"
+        placeholder={loginIdRule}
         value={loginId}
         onChangeText={setLoginId}
         autoCapitalize="none"
@@ -217,38 +214,8 @@ export function SignUpScreen() {
         helper={phoneHelper.helper}
         accessory={phoneChip}
       />
-      {codeVisible ? (
-        <TextField
-          labelInside
-          icon="message"
-          label="인증번호"
-          value={phone.code}
-          onChangeText={phone.setCode}
-          editable={phone.codeEditable}
-          keyboardType="number-pad"
-          textContentType="oneTimeCode"
-          placeholder="6자리 숫자"
-          status={phone.error?.field === 'code' ? 'error' : 'default'}
-          helper={
-            phone.error?.field === 'code'
-              ? phone.error.message
-              : '문자로 받은 인증번호 6자리를 입력해 주세요'
-          }
-          accessory={
-            <AppText
-              variant="metricSmall"
-              tone={phone.expired ? 'danger' : 'text'}
-              style={styles.timer}
-            >
-              {formatRemaining(phone.remainingSec)}
-            </AppText>
-          }
-        />
-      ) : null}
+      {/* 인증번호 입력(S15P31E105-646): 6칸 타일, 확인 중 점·성공 체크·실패 흔들림, 다시 받기 안내. */}
+      {codeVisible ? <PhoneCodeStep phone={phone} /> : null}
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  timer: { paddingHorizontal: spacing.xs },
-});

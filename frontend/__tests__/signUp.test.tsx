@@ -170,7 +170,7 @@ async function reachBasicProfile(screen: Screen) {
   await type(screen, '비밀번호 확인', 'runway123');
   await type(screen, '전화번호', '010-5555-6666');
   await press(screen, '인증번호 받기');
-  await type(screen, '인증번호', fixtures.verificationCode);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   await press(screen, '다음');
   await press(screen, '[필수] 서비스 이용약관');
   await press(screen, '[필수] 개인정보 수집·이용');
@@ -228,7 +228,7 @@ test('1.3 reads a server format rejection as a format error', async () => {
   await type(screen, '아이디', 'newrunner');
   await settle(550);
 
-  expect(texts(screen)).toContain('영문·숫자 4–16자로 입력해 주세요');
+  expect(texts(screen)).toContain('영문/숫자 4~16자로 입력해 주세요');
   await act(async () => screen.unmount());
 });
 
@@ -377,6 +377,27 @@ async function openSignUpPhone(screen: Screen) {
 const failure = (status: number, code: string) =>
   respond(status, { code, message: '', details: { retryAfterSec: 40 } });
 
+// S15P31E105-646: 인증번호 단계는 제목·남은 시간·6칸·다시 받기 안내를 보인다(보낸 번호 문구는 담당자 결정으로 뺌).
+test('the code step shows where the code went and when it can be sent again', async () => {
+  serve([]);
+  const screen = await launch();
+  await openSignUpPhone(screen);
+  await press(screen, '인증번호 받기');
+
+  const shown = texts(screen);
+  expect(shown).toContain('인증번호를 입력해주세요');
+  expect(shown).not.toContain('로 전송됨');
+  expect(shown).toContain('남은 시간');
+  expect(shown).toContain('03:00');
+  expect(shown).toContain('인증번호 다시 받기 (1:00)');
+  expect(isDisabled(screen, '인증번호 다시 받기 1:00 뒤')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('인증 완료');
+  expect(texts(screen)).not.toContain('인증번호 다시 받기');
+  expect(texts(screen)).not.toContain('인증번호를 입력해주세요');
+  await act(async () => screen.unmount());
+});
+
 test('a resend that comes too soon keeps the code on screen usable', async () => {
   serve([], [
     respond(200, { expiresInSec: 180, resendAvailableInSec: 60 }),
@@ -388,8 +409,8 @@ test('a resend that comes too soon keeps the code on screen usable', async () =>
   await press(screen, '다시 받기');
 
   expect(texts(screen)).toContain('인증번호는 잠시 후에 다시 받을 수 있어요.');
-  expect(hasField(screen, '인증번호')).toBe(true);
-  await type(screen, '인증번호', fixtures.verificationCode);
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());
 });
@@ -401,9 +422,9 @@ test('an unclear send opens the code field for an SMS that may still arrive', as
   await press(screen, '인증번호 받기');
 
   expect(texts(screen)).toContain('문자가 왔다면 입력하고');
-  expect(hasField(screen, '인증번호')).toBe(true);
+  expect(hasField(screen, '인증번호 6자리')).toBe(true);
   expect(texts(screen)).toContain('03:00');
-  await type(screen, '인증번호', fixtures.verificationCode);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('본인 인증됐어요');
   await act(async () => screen.unmount());
 });
@@ -415,6 +436,6 @@ test('a first request over the limit leaves no code field', async () => {
   await press(screen, '인증번호 받기');
 
   expect(texts(screen)).toContain('인증번호 요청 횟수를 넘었어요');
-  expect(hasField(screen, '인증번호')).toBe(false);
+  expect(hasField(screen, '인증번호 6자리')).toBe(false);
   await act(async () => screen.unmount());
 });

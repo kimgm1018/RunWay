@@ -117,22 +117,26 @@ test('sign-up validates each field and reaches home through the watch connection
   await press(screen, '시작하기');
   await press(screen, '회원가입');
   expect(texts(screen)).toContain('만들어요');
+  // S15P31E105-646: 입력 전에는 칸 아래 안내가 없다(규칙은 안 글씨로만). 전화번호 기본 안내도 없다.
+  expect(texts(screen)).not.toContain('영문/숫자 4~16자');
+  expect(texts(screen)).not.toContain('이 번호로 찾아요');
 
   await type(screen, '아이디', 'runner01');
   await settle(550);
   expect(texts(screen)).toContain('이미 사용 중인 아이디예요');
   await type(screen, '아이디', 'ab');
-  expect(texts(screen)).toContain('영문·숫자 4–16자로 입력해 주세요');
+  expect(texts(screen)).toContain('영문/숫자 4~16자로 입력해 주세요');
   await type(screen, '아이디', 'newrunner');
   await settle(550);
   expect(texts(screen)).toContain('사용할 수 있는 아이디예요');
-  // S15P31E105-627: 사용할 수 있으면 규칙(영문·숫자 4–16자)은 뒤에 붙이지 않는다.
+  // S15P31E105-627: 사용할 수 있으면 규칙(영문/숫자 4~16자)은 뒤에 붙이지 않는다.
   expect(texts(screen)).not.toContain('아이디예요 ·');
 
   // S15P31E105-627: 비밀번호 규칙은 아이디 칸처럼 안 글씨와 아래 안내로 보이고, 만족한 조건마다 ✓가 붙는다.
-  expect(texts(screen)).toContain('8자 이상 · 영문 · 숫자');
+  // S15P31E105-646: 입력 전에는 아래 안내가 없고, 영문 · 숫자 · 8자 이상 순으로 만족한 조건에 ✓.
+  expect(texts(screen)).not.toContain('영문 · 숫자 · 8자 이상');
   await type(screen, '비밀번호', 'runway');
-  expect(texts(screen)).toContain('8자 이상 · ✓ 영문 · 숫자');
+  expect(texts(screen)).toContain('✓ 영문 · 숫자 · 8자 이상');
   await type(screen, '비밀번호', 'runway12');
   expect(texts(screen)).toContain('✓ 사용할 수 있는 비밀번호예요');
   expect(texts(screen)).not.toContain('비밀번호예요 ·');
@@ -146,7 +150,7 @@ test('sign-up validates each field and reaches home through the watch connection
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
   expect(texts(screen)).not.toContain('이미 가입된 전화번호예요');
-  await type(screen, '인증번호', fixtures.verificationCode);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('이미 가입된 전화번호예요');
   expect(texts(screen)).toContain('인증번호 받기');
   await type(screen, '전화번호', '010-5555-6666');
@@ -156,11 +160,11 @@ test('sign-up validates each field and reaches home through the watch connection
   // A keyboard resending the same number keeps the code that was sent.
   await type(screen, '전화번호', '010-5555-6666');
   expect(texts(screen)).toContain('03:00');
-  await type(screen, '인증번호', '111111');
+  await type(screen, '인증번호 6자리', '111111');
   expect(texts(screen)).toContain(
-    '인증번호가 맞지 않아요. 다시 입력해 주세요 (1/5)',
+    '인증번호가 일치하지 않아요 (1/5)',
   );
-  await type(screen, '인증번호', fixtures.verificationCode);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('본인 인증됐어요');
   expect(isDisabled(screen, '다음')).toBe(false);
   await press(screen, '다음');
@@ -340,7 +344,7 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
   await type(screen, '전화번호', '01077310042');
   await press(screen, '인증번호 받기');
   expect(texts(screen)).not.toContain('가입되지 않은 전화번호예요');
-  await type(screen, '인증번호', fixtures.verificationCode);
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
   expect(texts(screen)).toContain('가입되지 않은 전화번호예요');
   expect(texts(screen)).toContain('처음이신가요?');
   // The used-up code is gone: back to the number step.
@@ -349,10 +353,10 @@ test('password reset handles unknown numbers and wrong codes, then logs in with 
 
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
-  await type(screen, '인증번호', '000000');
+  await type(screen, '인증번호 6자리', '000000');
   expect(texts(screen)).toContain('(1/5)');
-  await type(screen, '인증번호', fixtures.verificationCode);
-  expect(texts(screen)).toContain('인증됐어요');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('인증 완료');
 
   await type(screen, '새 비밀번호', 'newpass123');
   await type(screen, '새 비밀번호 확인', 'newpass123');
@@ -374,14 +378,14 @@ test('five wrong codes require a new code', async () => {
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    await type(screen, '인증번호', '000000');
+    await type(screen, '인증번호 6자리', '000000');
   }
   expect(texts(screen)).toContain('인증번호를 5회 틀렸어요');
-  await type(screen, '인증번호', fixtures.verificationCode);
-  expect(texts(screen)).not.toContain('인증됐어요');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).not.toContain('인증 완료');
   await press(screen, '다시 받기');
-  await type(screen, '인증번호', fixtures.verificationCode);
-  expect(texts(screen)).toContain('인증됐어요');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('인증 완료');
   await act(async () => screen.unmount());
 });
 
