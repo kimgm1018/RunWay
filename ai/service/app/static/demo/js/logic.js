@@ -94,7 +94,69 @@
     var actionText = action === 'EASE_OFF' ? '속도 낮추기' : delta === 0 ? '유지' : delta < 0 ? '가속' : delta > 0 ? '감속' : '—';
     var delivery = trace.coaching && trace.coaching.delivery;
     var deliveryText = {WATCH: '워치 적용', NOT_DELIVERED: '워치 미전달', REPLAY: '재생'}[delivery] || '워치 미전달';
-    return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText};
+    return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText,
+      actionKind: actionKind(trace)};
+  }
+
+  // 화면에 따로 버전이 오지 않을 때 쓰는 현재 정책 버전(app/policy/policy_v03.json policy_version)
+  var DEFAULT_POLICY_VERSION = 'mpc-v0.4.3';
+
+  function policyVersionOf(trace, recording) {
+    var fromTrace = trace && trace.policyVersion;
+    var fromRecording = recording && recording.policyVersion;
+    return fromTrace || fromRecording || DEFAULT_POLICY_VERSION;
+  }
+
+  // 정책 탈락 이유(app/policy/mpc_policy.py reject_reason)를 화면 문구로 바꾼다
+  var REJECT_TEXT = {
+    UPPER_OVER_ALLOW: '허용선 초과',
+    GATE_SLOW_ONLY: '감속만 허용',
+    GATE_HOLD_OR_SLOW: '가속 금지',
+    HR_STALE: '입력 지연',
+    ACCEL_IN_HOLD: '안내 유지 중',
+    SLOW_IN_HOLD: '감속 대기',
+    SAFETY: '위험 심박'
+  };
+
+  function rejectReasonText(reason) {
+    if (!reason) return '안전 기준 미통과';
+    return REJECT_TEXT[reason] || String(reason);
+  }
+
+  // 안내 방향: up 가속 · hold 유지 · down 감속 · ease 위험 감속 · idle 판단 없음
+  function actionKind(trace) {
+    var decision = trace && trace.decision || {};
+    if (decision.action === 'EASE_OFF') return 'ease';
+    var candidate = (trace && trace.candidates || [])[decision.chosenIndex];
+    var delta = candidate && Number(candidate.deltaSecPerKm);
+    if (!candidate || !Number.isFinite(delta)) return 'idle';
+    return delta < 0 ? 'up' : delta > 0 ? 'down' : 'hold';
+  }
+
+  function formatElapsed(sec) {
+    var value = Number(sec);
+    if (sec == null || !Number.isFinite(value) || value < 0) return '—';
+    value = Math.floor(value);
+    var h = Math.floor(value / 3600), m = Math.floor(value % 3600 / 60), s = value % 60;
+    var mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    return (h > 0 ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+  }
+
+  // 후보 막대의 공통 세로 범위. 허용선과 모든 예측·상한이 들어가고, 허용선이 위쪽 3/4 근처에 오게 한다
+  function gaugeRange(candidates, allowBpm) {
+    var values = [];
+    (candidates || []).forEach(function (c) {
+      if (c && Array.isArray(c.predHrBpm) && c.predHrBpm[2] != null) values.push(Number(c.predHrBpm[2]));
+      if (c && c.peakUpperBpm != null) values.push(Number(c.peakUpperBpm));
+    });
+    var allow = Number(allowBpm);
+    if (allowBpm != null && Number.isFinite(allow)) values.push(allow);
+    values = values.filter(Number.isFinite);
+    if (!values.length) return null;
+    var max = Math.max.apply(null, values), min = Math.min.apply(null, values);
+    var hi = max + 18;
+    var lo = Math.min(min - 12, hi - 46);
+    return {lo: lo, hi: hi};
   }
 
   // 서버 데모 버퍼(app/demo/buffer.py WINDOW_SEC)와 같은 값. 두 값이 같은지는 테스트로 확인한다
@@ -133,7 +195,54 @@
     });
   }
 
+  function signedSec(value) {
+    var n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return '—';
+    return n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0';
+  }
+
+  // 후보 개수·간격은 데이터에서 읽는다(개인 AI04 5개, 그룹 AI10 9개 등). 화면에 고정 문구를 두지 않는다
+  function candidateSummary(candidates) {
+    var deltas = (candidates || []).map(function (c) { return c && Number(c.deltaSecPerKm); }).filter(Number.isFinite);
+    if (!deltas.length) return {count: (candidates || []).length, text: ''};
+    var lo = Math.min.apply(null, deltas), hi = Math.max.apply(null, deltas);
+    return {count: candidates.length, min: lo, max: hi,
+      text: '후보 ' + candidates.length + '개 · ' + signedSec(lo) + ' ~ ' + signedSec(hi) + '초/km'};
+  }
+
+  // 어떤 판단기가 낸 기록인지: trace.group이 있으면 그룹 공동 페이스(AI10), 아니면 개인 페이스(AI04)
+  function modeOf(trace) {
+    if (trace && trace.group) return {kind: 'group', label: trace.group.label || '그룹 공동 페이스 · AI10'};
+    return {kind: 'personal', label: '개인 페이스 · AI04'};
+  }
+
+  // 그룹 판단(제안 형식, 아직 데모 스트림에 들어오지 않음):
+  // trace.group = {label?, candidates:[{deltaSecPerKm, paceSecPerKm}], chosenIndex,
+  //                members:[{label, allowBpm, upperHrBpm:[후보별 120초 예측+여유]}]}
+  // 행 = 멤버, 열 = 후보. 칸 값 = 허용선까지 남은 bpm(음수면 초과). 고른 후보에서 여유가 가장 작은 멤버가 worst.
+  function groupMatrix(group) {
+    if (!group || !Array.isArray(group.members) || !Array.isArray(group.candidates)) return null;
+    var chosen = Number.isInteger(group.chosenIndex) ? group.chosenIndex : null;
+    var worst = null, worstHeadroom = Infinity;
+    var rows = group.members.map(function (member, index) {
+      var allow = Number(member && member.allowBpm);
+      var uppers = member && Array.isArray(member.upperHrBpm) ? member.upperHrBpm : [];
+      var cells = group.candidates.map(function (_, j) {
+        var upper = uppers[j] == null ? NaN : Number(uppers[j]);
+        var headroom = Number.isFinite(upper) && Number.isFinite(allow) ? allow - upper : null;
+        return {upper: Number.isFinite(upper) ? upper : null, headroom: headroom, passed: headroom == null ? null : headroom > 0};
+      });
+      var atChosen = chosen != null && cells[chosen] ? cells[chosen].headroom : null;
+      if (atChosen != null && atChosen < worstHeadroom) { worstHeadroom = atChosen; worst = index; }
+      return {label: member && member.label || '멤버 ' + (index + 1), allow: Number.isFinite(allow) ? allow : null, cells: cells};
+    });
+    return {rows: rows, chosenIndex: chosen, worstIndex: worst};
+  }
+
   var RunwayDemoLogic = {
+    candidateSummary: candidateSummary,
+    modeOf: modeOf,
+    groupMatrix: groupMatrix,
     recordingOptionTexts: recordingOptionTexts,
     parseSseChunk: parseSseChunk,
     backoffMs: backoffMs,
@@ -143,7 +252,13 @@
     formatPace: formatPace,
     guideCard: guideCard,
     mergeTraces: mergeTraces,
-    TRACE_WINDOW_SEC: TRACE_WINDOW_SEC
+    TRACE_WINDOW_SEC: TRACE_WINDOW_SEC,
+    DEFAULT_POLICY_VERSION: DEFAULT_POLICY_VERSION,
+    policyVersionOf: policyVersionOf,
+    rejectReasonText: rejectReasonText,
+    actionKind: actionKind,
+    formatElapsed: formatElapsed,
+    gaugeRange: gaugeRange
   };
 
   root.RunwayDemoLogic = RunwayDemoLogic;
