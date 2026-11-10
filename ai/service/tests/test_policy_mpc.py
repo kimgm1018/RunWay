@@ -12,7 +12,7 @@ def pace(o): return o.recommended_pace_sec_per_km
 
 def test_baseline_hold():
     o = run()
-    assert (o.status, o.action, o.chosen_index, o.gate, o.reason) == ("OK", "GUIDE_PACE", 2, "ALL", "HOLD")
+    assert (o.status, o.action, o.chosen_index, o.gate, o.reason) == ("OK", "GUIDE_PACE", 3, "ALL", "HOLD")
     # 나이·RHR 계산을 빼고 모집단 P85 163과 P98 175를 사용한다. 위험 기준은 P98 + 3 = 178(v6_8 (b)).
     assert o.reason_text == "현재 pace 유지. 상한 158 < 허용 163" and o.publish_suggested is False
     assert o.allow_bpm == pytest.approx(163.0)
@@ -22,14 +22,14 @@ def test_baseline_hold():
 
 def test_t5_gate_boundaries():
     p0 = MpcPolicy(C, flat_table(0.0)); a = p0.decide(policy_input()).allow_bpm
-    gate = lambda v: p0.decide(policy_input(pred={2: (150, 152, v)})).gate
+    gate = lambda v: p0.decide(policy_input(pred={3: (150, 152, v)})).gate
     assert (gate(a), gate(a - 3.0), gate(a - 3.0 - 0.01)) == ("SLOW_ONLY", "HOLD_OR_SLOW", "ALL")
 
 
 def test_t3_safety():
     # 옛 기준(나이 30·RHR 60의 HRR 90% = 171.7)이면 hr_now 175로 SAFETY였다.
     # v6_8 위험 기준은 모집단 P98 175 + 3 = 178이라 실측 178, 예측 상한 175+4(margin) = 179로 맞춘다.
-    for o in (run(hr_now=178), run(pred={2: (150, 152, 175)})):
+    for o in (run(hr_now=178), run(pred={3: (150, 152, 175)})):
         assert (o.status, o.action, o.chosen_index, pace(o), o.reason) == ("SAFETY", "EASE_OFF", None, 390, "SAFETY")
         assert all(v.reject_reason == "SAFETY" for v in o.verdicts) and o.publish_suggested is True
     assert run(hr_now=177.9).status == "OK"                     # 위험 기준 178 바로 아래는 SAFETY가 아니다
@@ -37,13 +37,13 @@ def test_t3_safety():
 
 
 def test_t4_sprint_only_near_finish_and_ignores_after_finish():
-    hot = {2: (150, 152, 200)}
+    hot = {3: (150, 152, 200)}
     o = run(distanceM=4700, pred=hot)
-    assert o.status == "OK" and o.verdicts[2].upper_hr_bpm[2] is None
+    assert o.status == "OK" and o.verdicts[3].upper_hr_bpm[2] is None
     # 마지막 400m에는 위험 기준(175 + 3 = 178)에 정책의 추가 5 bpm을 더한 183까지를 안전 한계로 본다.
     # 허용선(allow)은 옛 정책처럼 위험 기준 178 그대로다(옛 정책: allow = hard, 안전 한계 = HRmax).
     assert o.hard_eff_bpm == 183.0 and o.allow_bpm == 178.0
-    between = run(distanceM=4700, pred={2: (176, 177, 200)})     # 상한 181: 허용선 178 이상, 안전 한계 183 미만
+    between = run(distanceM=4700, pred={3: (176, 177, 200)})     # 상한 181: 허용선 178 이상, 안전 한계 183 미만
     assert between.status == "OK" and between.gate == "SLOW_ONLY"
     assert run(distanceM=4500, pred=hot).status == "SAFETY"
     no_dist = {"targetDistanceM": None, "targetDurationSec": 1800, "targetPaceSecPerKm": None}
@@ -54,27 +54,28 @@ def test_t1_less_remaining_same_or_faster():
     dist_only = {"targetDistanceM": 5000, "targetDurationSec": None, "targetPaceSecPerKm": None}
     # 예측 158 + margin 4 = 162는 옛 허용선 161.6(HRR 80%)을 넘었지만 새 허용선(모집단 P85 163)보다 낮다.
     # "상한 ≥ 허용 → SLOW_ONLY" 상황을 유지하려고 예측을 159(상한 163)로 올린다.
-    hot = {i: (150, 152, 159) for i in range(5)}
-    assert pace(run(goal=dist_only, pred=hot)) == 370          # 심박 감속은 한 번에 10초(S15P31E105-506)
+    hot = {3: (150, 152, 159)}
+    assert pace(run(goal=dist_only, pred=hot)) == 370          # 통과하는 가장 빠른 느린 후보(+10, S15P31E105-624)
     assert pace(run(goal=dist_only, distanceM=4550, pred=hot)) <= 365
 
 
-def test_t2_preference_order():
+def test_t2_preference_does_not_change_the_pick():
+    # 624: 목표 추종 점수 대신 AI10과 같은 규칙(목표 페이스까지 한 번에)이라 선호값과 무관하다.
     paces = [pace(run(activeSec=910, goalPreference=g)) for g in (0.0, 0.5, 1.0)]
-    assert paces == [360, 355, 355] and paces[2] <= paces[1] <= paces[0]
+    assert paces == [360, 360, 360]          # 필요 페이스 356 > 350 후보 → 올릴 후보 없음
+    assert [pace(run(activeSec=925, goalPreference=g)) for g in (0.0, 1.0)] == [350, 350]
 
 
-def test_t6_t9_stale_and_hold_block_accel():
+def test_t6_t9_stale_and_cooldown_block_accel():
     behind = dict(activeSec=925)
     assert pace(run(**behind)) == 350
     o = run(input_age_sec=21, **behind)
-    assert o.status == "HR_STALE" and pace(o) >= 360 and o.verdicts[0].reject_reason == "HR_STALE"
-    assert run(guidePaceSetAt=T0 - timedelta(seconds=30), **behind).verdicts[0].reject_reason == "ACCEL_IN_HOLD"
-    assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=61), **behind)) == 350
-    assert run(resumedAt=T0 - timedelta(seconds=10), **behind).verdicts[0].reject_reason == "ACCEL_IN_HOLD"
-    # 옛 허용선 161.6 기준의 158(상한 162)을 새 허용선 163 기준의 159(상한 163)로 바꾼다. 위험 기준은 178.
-    # 안내 변경 뒤 120초(감속 쿨다운) 안에는 심박 감속도 기다린다(S15P31E105-506). 지나면 늦춘다.
-    hot = {i: (150, 152, 159) for i in range(5)}
+    assert o.status == "HR_STALE" and pace(o) == 360 and o.reason == "HR_STALE"
+    # 안내 변경·재개 뒤 120초는 올리지도 늦추지도 않는다(AI10과 같은 쿨다운, S15P31E105-624).
+    assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=30), **behind)) == 360
+    assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=121), **behind)) == 350
+    assert pace(run(resumedAt=T0 - timedelta(seconds=10), **behind)) == 360
+    hot = {3: (150, 152, 159)}
     assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=61), pred=hot)) == 360
     assert pace(run(guidePaceSetAt=T0 - timedelta(seconds=121), pred=hot)) == 370
     assert run(guidePaceSetAt=T0 - timedelta(seconds=30), hr_now=178).action == "EASE_OFF"
@@ -111,7 +112,7 @@ def test_t8_plan_ratio():
 
 def test_t10_no_goal_keeps_actual():
     none = {"targetDistanceM": None, "targetDurationSec": None, "targetPaceSecPerKm": None}
-    o = run(goal=none); assert (o.chosen_index, o.reason) == (2, "HOLD")
+    o = run(goal=none); assert (o.chosen_index, o.reason) == (3, "HOLD")
 
 
 def test_t13_deterministic():
@@ -150,5 +151,5 @@ def test_t11_decel_downhill_raises_upper():
 def test_build_policy(tmp_path):
     with pytest.raises(FileNotFoundError): build_policy(None, "gru")
     path = write_margin_table(tmp_path, model="GRU")
-    assert build_policy(path, "gru").policy_version == "mpc-v0.4.3"
+    assert build_policy(path, "gru").policy_version == "mpc-v0.5.0"
     with pytest.raises(ValueError): build_policy(path, "tf")

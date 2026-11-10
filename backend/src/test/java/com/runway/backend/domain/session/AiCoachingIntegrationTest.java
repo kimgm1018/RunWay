@@ -72,7 +72,7 @@ class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
         assertThat(request.context().stateVersion()).isEqualTo(2);
         assertThat(request.context().mode()).isEqualTo("FREE_NO_GOAL");
         assertThat(request.history().hrBpm()).last().isEqualTo(150.0);
-        assertThat(request.candidates()).hasSize(5);
+        assertThat(request.candidates()).hasSize(9);
     }
 
     @Test
@@ -94,7 +94,7 @@ class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
         PaceDecideRequest request = paceDecider.requests().get(0);
         assertThat(request.context().mode()).isEqualTo("COURSE");
         assertThat(request.context().routeProgressM()).isEqualTo(450.0);
-        assertThat(request.candidates().get(2).futureGradePct()).hasSize(24).containsOnly(1.5);
+        assertThat(request.candidates().get(3).futureGradePct()).hasSize(24).containsOnly(1.5);
     }
 
     // ---- AC-3 입력 부족·오래됨 ----
@@ -197,17 +197,18 @@ class AiCoachingIntegrationTest extends RunningSessionIntegrationSupport {
     }
 
     @Test
-    void 적용_후_30초_전_변경은_EASE_OFF만_보낸다() {
+    void 적용_후_30초_전에는_페이스가_같은_BPM_변경은_막고_AI_페이스_변경은_보낸다() {
+        // S15P31E105-624: 페이스 변경의 쿨다운은 AI04가 맡는다(120초). 백엔드 30초 간격은 페이스가 그대로인 발행에만 건다.
         long sessionId = earlySession();
         long[] applied = insertCoaching(sessionId, watchId, 1, 165, "APPLIED", false);
         jdbc.update(
                 "UPDATE session_control_events SET applied_at = now() - interval '10 seconds' WHERE id=?",
                 applied[1]);
 
-        respondChange(true, PaceDecision.Action.GUIDE_PACE, "350.00", 165);
+        respondChange(true, PaceDecision.Action.GUIDE_PACE, "360.00", 170);
         assertThat(service.issueIfDue(sessionId)).isEmpty();
 
-        respondChange(true, PaceDecision.Action.EASE_OFF, "390.00", 158);
+        respondChange(true, PaceDecision.Action.GUIDE_PACE, "350.00", 165);
         assertThat(service.issueIfDue(sessionId)).isPresent();
         // 적용된 코칭(360.00)이 기준 페이스였다.
         assertThat(paceDecider.requests().get(0).context().anchorPaceSecPerKm())

@@ -36,7 +36,7 @@ def run(base, course_id):
         "elapsedSec": 0, "userId": 1,
         "history": {"hrBpm": [150], "speedMps": [3.2], "gradePct": [0]},
         "candidates": [{"paceSecPerKm": pace, "futureSpeedMps": [1000 / pace] * 24}
-                       for pace in (290, 295, 300, 305, 310)],
+                       for pace in (270, 280, 290, 300, 310, 320, 330, 345, 360)],   # 기준 300 + AI04 후보 9개(S15P31E105-624)
         "context": {"sessionId": 1, "stateVersion": 1, "runState": "RUNNING", "mode": "COURSE",
                     "goal": {"targetDistanceM": 1000, "targetDurationSec": None, "targetPaceSecPerKm": 300},
                     "goalPreference": 0.5, "plan": [{"startM": 0, "endM": 1000, "ratio": 1.0}],

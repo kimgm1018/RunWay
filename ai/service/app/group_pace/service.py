@@ -6,12 +6,10 @@ import numpy as np
 from app.decide.service import _thresholds_for_user, recent_inputs
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
-from app.models.base import HORIZONS_SEC
+from app.pace_selector import DELTAS, PaceSelector, candidate_paces, upper_bound
 from app.policy.mpc_policy import _mean, allow_at
-from app.policy.residual_margin import MarginTable
 from app.schemas import Candidate, PredictRequest
 
-DELTAS = (-30, -20, -10, 0, 10, 20, 30, 45, 60)
 MAX_BATCH_WINDOWS = 256
 
 
@@ -72,7 +70,7 @@ def _predict_all(model, requests: list[PredictRequest], candidate_count: int) ->
 def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_lookup=None,
                          hr_threshold_lookup_configured: bool = True) -> GroupPaceResponse:
     current = body.current_group_pace_sec_per_km
-    paces = [current + delta for delta in DELTAS if current + delta > 0]
+    paces = candidate_paces(current, DELTAS)
     baseline = paces.index(current)
     cfg, margins = policy.cfg, policy.margins
     excluded = 0
@@ -144,43 +142,20 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         for i, (ref, allow, measured_speed, mean_grade) in enumerate(hr_members):
             danger |= predictions[i, baseline, 2] >= ref.danger_bpm
             for j, pace in enumerate(paces):
-                if pace > current:
-                    uppers[i, j] = predictions[i, j, 2] + cfg.hr_slow_margin_120_bpm[MarginTable.grade_of(mean_grade) or "UNKNOWN"]
-                else:
-                    dspeed = 1000.0 / pace - measured_speed if measured_speed is not None else None
-                    uppers[i, j] = max(prediction + margins.margin(horizon, dspeed, mean_grade)
-                                       for prediction, horizon in zip(predictions[i, j], HORIZONS_SEC))
+                uppers[i, j] = upper_bound(predictions[i, j], pace, current, measured_speed, mean_grade, cfg, margins)
 
-    def passes(index, *, recover=False):
-        pace = paces[index]
+    def blocked(index):
         # 미동의자의 실측보다 30초/km 초과 빠른 후보만 막으며, 감속은 절대 막지 않는다.
-        if pace <= current and any(pace < reference - 30 for reference in references):
-            return False
-        return bool(np.all(uppers[:, index] < allows - (3.0 if recover else 0.0)))
+        pace = paces[index]
+        return pace <= current and any(pace < reference - 30 for reference in references)
 
-    chosen, reason = baseline, "SMALL_CHANGE"
-    if not passes(baseline):
-        slower = [j for j, pace in enumerate(paces) if pace > current]
-        chosen = next((j for j in slower if passes(j)), slower[-1])
-        reason = "HR_LIMIT" if passes(chosen) else "FLOOR"
-    else:
-        cap = body.goal_pace_sec_per_km
-        if cap is None:
-            cap = body.start_recommended_pace_sec_per_km
-        if cap is None:
-            warnings.append("RECOVERY_CAP_MISSING")
-        else:
-            chosen = next((j for j, pace in enumerate(paces)
-                           if current - 30 <= pace < current and pace >= cap and passes(j, recover=True)), baseline)
-
-        if chosen != baseline:
-            reason = "RECOVERED"
-
-    if body.last_change is not None and (body.now - body.last_change.changed_at).total_seconds() < 120:
-        if not (paces[chosen] > current and danger):
-            return response(baseline, "COOLDOWN")
-    if body.elapsed_sec < 180 and paces[chosen] > current + 10:
-        chosen, reason = paces.index(current + 10), "WARMUP_CAP"
-    if abs(paces[chosen] - current) < 10:
-        return response(baseline, "SMALL_CHANGE")
-    return response(chosen, reason)
+    cap = body.goal_pace_sec_per_km
+    if cap is None:
+        cap = body.start_recommended_pace_sec_per_km
+    since_change = ((body.now - body.last_change.changed_at).total_seconds()
+                    if body.last_change is not None else None)
+    selection = PaceSelector(paces, current, uppers, allows, blocked).select(
+        danger=bool(danger), cap=cap, elapsed_sec=body.elapsed_sec, since_change_sec=since_change)
+    if selection.cap_missing:
+        warnings.append("RECOVERY_CAP_MISSING")
+    return response(selection.index, selection.reason)

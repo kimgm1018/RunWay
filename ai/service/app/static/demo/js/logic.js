@@ -71,8 +71,11 @@
   }
 
   function zoomDeltas(candidates) {
-    if (!Array.isArray(candidates) || candidates.length < 3 || !candidates[2].predHrBpm) return [];
-    var base = candidates[2].predHrBpm[2];
+    if (!Array.isArray(candidates)) return [];
+    // 안내 그대로 후보(deltaSecPerKm 0). 후보가 9개(S15P31E105-624)면 3번, 옛 기록(5개)이면 2번이다.
+    var zero = candidates.filter(function (c) { return c && c.deltaSecPerKm === 0; })[0] || candidates[2];
+    if (!zero || !zero.predHrBpm) return [];
+    var base = zero.predHrBpm[2];
     return candidates.map(function (candidate) {
       return candidate.predHrBpm && candidate.predHrBpm[2] != null && base != null
         ? candidate.predHrBpm[2] - base : null;

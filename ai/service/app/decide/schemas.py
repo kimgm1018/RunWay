@@ -7,6 +7,7 @@ from pydantic import Field, FiniteFloat, field_validator, model_serializer, mode
 
 from app.schemas import CamelModel, Candidate, PredictRequest
 from app.id_types import ServerId, normalize_server_id
+from app.pace_selector import DELTAS as CANDIDATE_DELTAS
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -176,12 +177,12 @@ class DecideRequest(PredictRequest):
 
     @model_validator(mode="after")
     def candidate_order(self):
-        if len(self.candidates) != 5:
-            raise ValueError("후보는 정확히 5개여야 합니다")
-        deltas = (-10, -5, 0, 5, 10)
+        # 그룹 페이스 AI10과 같은 후보 9개(S15P31E105-624).
+        if len(self.candidates) != len(CANDIDATE_DELTAS):
+            raise ValueError(f"후보는 정확히 {len(CANDIDATE_DELTAS)}개여야 합니다")
         if any(abs((c.pace_sec_per_km - self.context.anchor_pace_sec_per_km) - d) > 0.01
-               for c, d in zip(self.candidates, deltas)):
-            raise ValueError("후보는 기준 pace 대비 −10, −5, 0, +5, +10초/km 순서여야 합니다")
+               for c, d in zip(self.candidates, CANDIDATE_DELTAS)):
+            raise ValueError("후보는 기준 pace 대비 −30, −20, −10, 0, +10, +20, +30, +45, +60초/km 순서여야 합니다")
         return self
 
 

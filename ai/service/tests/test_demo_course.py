@@ -21,8 +21,8 @@ def test_grade_uniform_and_clamped():
 
 def test_candidates():
     cs = build_candidates(340, 0.0, slope())
-    assert [c["paceSecPerKm"] for c in cs] == [330, 335, 340, 345, 350]
-    assert cs[0]["futureSpeedMps"] == pytest.approx([1000 / 330] * 24) and cs[0]["futureGradePct"] == pytest.approx([5.0] * 24)
+    assert [c["paceSecPerKm"] for c in cs] == [310, 320, 330, 340, 350, 360, 370, 385, 400]
+    assert cs[0]["futureSpeedMps"] == pytest.approx([1000 / 310] * 24) and cs[0]["futureGradePct"] == pytest.approx([5.0] * 24)
     assert build_candidates(340, 0.0, None)[2]["futureGradePct"] is None
 
 

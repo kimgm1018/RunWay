@@ -15,7 +15,7 @@ def test_decide_200_shape():
     assert r.status_code == 200
     assert set(r.json()) == {"traceId", "modelVersion", "policyVersion", "status", "gate", "publishSuggested", "decision",
                              "candidates", "pacing", "warnings", "forecast"}
-    assert len(r.json()["candidates"]) == 5 and r.json()["traceId"] is None
+    assert len(r.json()["candidates"]) == 9 and r.json()["traceId"] is None
 
 
 def test_decide_uses_learned_population_thresholds_and_ignores_hr_reference_values():
@@ -126,7 +126,7 @@ def test_one_cell_without_plan_or_after_hold_keeps_422():
     # 같은 입력이라도 계획이 있고 넘겨주기 단계면 200 + 계획 pace다(C).
     assert in_hold.status_code == 200 and in_hold.json()["decision"]["recommendedPaceSecPerKm"] == 263.9
     # 계획 없는 완전한 1칸은 기존처럼 모델 예측으로 간다(바뀌지 않음).
-    assert complete_no_plan.status_code == 200 and len(complete_no_plan.json()["candidates"]) == 5
+    assert complete_no_plan.status_code == 200 and len(complete_no_plan.json()["candidates"]) == 9
 
 
 def test_one_cell_with_missing_hr_still_uses_the_plan_during_hold():
@@ -171,7 +171,7 @@ def test_load_policy(tmp_path):
     assert load_policy(replace(s, margin_table_path=None)) is None
     assert load_policy(replace(s, margin_table_path=tmp_path / "none.json")) is None
     path = write_margin_table(tmp_path, model="GRU")
-    assert load_policy(replace(s, margin_table_path=path, model_type="gru")).policy_version == "mpc-v0.4.3"
+    assert load_policy(replace(s, margin_table_path=path, model_type="gru")).policy_version == "mpc-v0.5.0"
     assert load_policy(replace(s, margin_table_path=path, model_type="tf")) is None
 
 

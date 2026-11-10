@@ -1,5 +1,5 @@
 {
-  "policy_version": "mpc-v0.4.3",
+  "policy_version": "mpc-v0.5.0",
   "validated": false,
   "provisional": false,
   "hr_threshold_population_danger_bpm": 175.0,
