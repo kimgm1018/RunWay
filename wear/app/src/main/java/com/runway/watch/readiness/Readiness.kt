@@ -91,3 +91,14 @@ const val BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION"
  */
 fun backgroundLocationRequest(granted: Set<String>): List<String>? =
     if (LOCATION_PERMISSIONS[0] !in granted || BACKGROUND_LOCATION in granted) null else listOf(BACKGROUND_LOCATION)
+
+/** Notification permission, a runtime one from API 33. */
+const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+
+/**
+ * Notification permission to ask for, or null below API 33 or once granted (S15P31E105-617). Optional: without it the
+ * run is still recorded, but the run notification and its Ongoing Activity stay hidden, so turning the screen on shows
+ * the watch face instead of the run.
+ */
+fun notificationPermissionRequest(sdk: Int, granted: Set<String>): List<String>? =
+    if (sdk < 33 || POST_NOTIFICATIONS in granted) null else listOf(POST_NOTIFICATIONS)

@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
+import androidx.wear.ambient.AmbientLifecycleObserver
 import com.runway.watch.dailyhr.DailyHrStore
 import com.runway.watch.dailyhr.canStore
 import com.runway.watch.dailyhr.enqueueRegistration
@@ -24,12 +25,16 @@ import com.runway.watch.readiness.BACKGROUND_LOCATION
 import com.runway.watch.readiness.LOCATION_PERMISSIONS
 import com.runway.watch.readiness.backgroundLocationRequest
 import com.runway.watch.readiness.locationPermissionRequest
+import com.runway.watch.readiness.notificationPermissionRequest
+import com.runway.watch.readiness.POST_NOTIFICATIONS
 import com.runway.watch.readiness.runPermissions
 import com.runway.watch.readiness.runnerPermissionRequest
 import com.runway.watch.run.RunControls
+import com.runway.watch.ui.AmbientMode
 import com.runway.watch.ui.ReadinessActions
 import com.runway.watch.ui.WatchApp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -44,6 +49,29 @@ class MainActivity : ComponentActivity() {
 
     /** Background location ("항상 허용") is asked once per launch, after fine location (S15P31E105-549). */
     private var backgroundAsked = false
+
+    /** Notifications for the run's Ongoing Activity are asked once per launch (S15P31E105-617). */
+    private var notificationAsked = false
+
+    /**
+     * S15P31E105-617: the app stays on screen in ambient (always-on) instead of going to the watch face, with a
+     * low-power screen updated about once a minute. Null while interactive.
+     */
+    private val ambient = MutableStateFlow<AmbientMode?>(null)
+
+    private val ambientObserver = AmbientLifecycleObserver(this, object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+        override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+            ambient.value = AmbientMode(ambientDetails.burnInProtectionRequired, ambientDetails.deviceHasLowBitAmbient)
+        }
+
+        override fun onUpdateAmbient() {
+            ambient.value = ambient.value?.let { it.copy(tick = it.tick + 1) }
+        }
+
+        override fun onExitAmbient() {
+            ambient.value = null
+        }
+    })
 
     // Foreground permissions are asked first, then the background one; a denial ends the sequence for this launch.
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -66,10 +94,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        lifecycle.addObserver(ambientObserver)
         readiness = DeviceReadiness(this)
         val control = RunControls.create(this)
         val actions = ReadinessActions(requestPermission = ::requestByRunner, recheck = ::recheck)
-        setContent { WatchApp(control, readiness.readiness, actions, onExit = ::finish) }
+        setContent { WatchApp(control, readiness.readiness, actions, onExit = ::finish, ambient = ambient) }
         // Without consent nothing is requested; the phone triggers registration when consent arrives.
         // Recreation (rotation, process death) keeps the in-flight sequence alive through the launcher callback.
         if (savedInstanceState != null) return
@@ -111,14 +140,15 @@ class MainActivity : ComponentActivity() {
         if (readiness.readiness.value.consent != CheckState.OK) return
         val granted = grantedPermissions()
         val run = runnerPermissionRequest(Build.VERSION.SDK_INT, granted) ?: return readiness.refreshPermissions()
-        // 경로용 위치 권한도 함께 묻는다. 거절해도 러닝 준비는 막지 않는다.
-        val next = run + locationPermissionRequest(granted).orEmpty()
+        // 경로용 위치 권한과 러닝 알림(Ongoing Activity) 권한도 함께 묻는다. 거절해도 러닝 준비는 막지 않는다.
+        val next = run + locationPermissionRequest(granted).orEmpty() +
+            notificationPermissionRequest(Build.VERSION.SDK_INT, granted).orEmpty()
         askedByRunner = true
         permissionLauncher.launch(next.toTypedArray())
     }
 
     private fun grantedPermissions(): Set<String> =
-        (requiredPermissions(Build.VERSION.SDK_INT) + LOCATION_PERMISSIONS + BACKGROUND_LOCATION).filter {
+        (requiredPermissions(Build.VERSION.SDK_INT) + LOCATION_PERMISSIONS + BACKGROUND_LOCATION + POST_NOTIFICATIONS).filter {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }.toSet()
 
@@ -140,6 +170,7 @@ class MainActivity : ComponentActivity() {
         val granted = grantedPermissions()
         val next = nextPermissionRequest(Build.VERSION.SDK_INT, granted)
             ?: locationPermissionRequest(granted)?.takeIf { !locationAsked }?.also { locationAsked = true }
+            ?: notificationPermissionRequest(Build.VERSION.SDK_INT, granted)?.takeIf { !notificationAsked }?.also { notificationAsked = true }
             ?: backgroundLocationRequest(granted)?.takeIf { !backgroundAsked }?.also { backgroundAsked = true }
         if (next == null) enqueueRegistration(this) else permissionLauncher.launch(next.toTypedArray())
     }
