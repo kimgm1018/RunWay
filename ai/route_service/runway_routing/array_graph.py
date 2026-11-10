@@ -3,6 +3,7 @@
 No NetworkX G/H objects are constructed here. Read-only views expose only the
 operations used by canonical generation/features; NetworkX rollback uses legacy graphs.
 """
+from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
 import os
 
@@ -351,6 +352,8 @@ class ArrayG:
         e["length"] = S.seg_len[self.seg[first]].astype(float)
         e["recovered"] = False
         cg.edges_all = e
+        # S15P31E105-640: edges_all 행마다 그 행을 만든 창 segment 위치(env 거리 조회용, graph.attach_env)
+        cg.edges_all_seg = np.asarray(self.seg[first], np.int64)
         pairs = pd.unique(e["u"].to_numpy() * 10**7 + e["v"].to_numpy())
         cg.full_degree = np.zeros(len(cg.node_ids), dtype=np.int32)
         np.add.at(cg.full_degree, pairs // 10**7, 1)
@@ -389,7 +392,8 @@ def build_array_pair(source, lat, lon, radius, region):
     order = np.lexsort((event, pair_first[inverse], projected[a]))
     # full_status는 다른 결과와 독립이다. 배열 경로는 임시 배열이 커서, 작업판(H·CSR·component)이 쌓이기 전에 먼저 만든다
     # (메모리 최대치를 기존 이하로 유지; 값·순서는 그대로).
-    full_status = _full_status(source, a[order], b[order], sg[order]) if FAST else None
+    # S15P31E105-640: dict 대신 정렬 배열 조회(_StatusMap). 같은 key에 같은 status 집합을 돌려준다.
+    full_status = _StatusMap(source, G, g_rank[a[order]], g_rank[b[order]], sg[order]) if FAST else None
     run = order[S.runnable[S.seg_w[sg[order]]]]
     if not len(run):
         # Canonical route_graph_fast fails when its empty waypoint array indexes
@@ -461,6 +465,74 @@ def build_array_pair(source, lat, lon, radius, region):
     rg._route_csr = csr
     rg._array_snap_endpoints = (xy[H.eu], xy[H.ev])
     return G, rg
+
+
+class _StatusMap(Mapping):
+    """rg.full_status를 dict 없이: {(작은 id, 큰 id): {status, ...}} 읽기 전용 Mapping (S15P31E105-640).
+
+    _full_status(같은 입력)와 key 집합과 각 key의 status 집합이 같다(Mapping ==). 원래 dict는 무방향 pair마다 tuple과
+    set을 만들어 서울 21.1 km에서 약 1.1–1.3 s(1 CPU)와 큰 메모리를 썼다. 소비자는 생성기 route_features의
+    full_status.get(_key(a, b), set())뿐이라, (G 노드 번호 pair, status 번호)를 정렬해 두고 조회 때 bisect로 찾는다.
+    G 노드 번호는 G.node_index(id -> 번호, 이미 있는 dict)로 얻는다. get은 매번 새 set을 돌려준다(읽기만 하는 호출자).
+    한 번 찾은 key는 _memo에 둔다(같은 key -> 같은 set 객체, 원래 dict와 같음).
+    순회(iter/items) 순서는 pair 번호 순이다(원래는 첫 등장 순; 순서를 쓰는 곳은 없고 graph.routegraph_sig는 정렬한다)."""
+
+    def __init__(self, source, G, ga, gb, osg):
+        n = len(G.node_ids)
+        K = len(source.status_objs)
+        st = source.status_code[source.S.seg_w[osg]]
+        combo = sorted_unique((np.minimum(ga, gb) * n + np.maximum(ga, gb)) * K + st)
+        pk = combo // K
+        self._keys, self._codes = pk.tolist(), (combo % K).tolist()
+        self._uniq = sorted_unique(pk)
+        self._n, self._objs, self._index, self._ids = n, source.status_objs, G.node_index, G.node_ids
+        self._memo = {}
+
+    def _range(self, key):
+        try:
+            a, b = key
+            if a > b:                      # dict key는 (작은 id, 큰 id)뿐이다
+                return None
+        except (TypeError, ValueError):
+            return None
+        ia, ib = self._index.get(a), self._index.get(b)
+        if ia is None or ib is None:
+            return None
+        k = min(ia, ib) * self._n + max(ia, ib)
+        i = bisect_left(self._keys, k)
+        if i == len(self._keys) or self._keys[i] != k:
+            return None
+        return i, bisect_right(self._keys, k, i)
+
+    def get(self, key, default=None):
+        # 한 번 찾은 key는 기억한다(같은 graph에서 후보마다 같은 pair를 다시 묻는다). 원래 dict처럼 같은 key에는 같은 set 객체.
+        hit = self._memo.get(key, _MISSING)        # hash 안 되는 key는 원래 dict.get처럼 TypeError
+        if hit is _MISSING:
+            r = self._range(key)
+            if r is None:
+                hit = None
+            else:
+                objs = self._objs
+                hit = {objs[c] for c in self._codes[r[0]:r[1]]}
+            self._memo[key] = hit
+        return default if hit is None else hit
+
+    def __getitem__(self, key):
+        r = self.get(key)
+        if r is None:
+            raise KeyError(key)
+        return r
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+    def __len__(self):
+        return len(self._uniq)
+
+    def __iter__(self):
+        ids, n = self._ids, self._n
+        ia, ib = ids[self._uniq // n], ids[self._uniq % n]
+        return iter(zip(np.minimum(ia, ib).tolist(), np.maximum(ia, ib).tolist()))
 
 
 def _full_status(source, oa, ob, osg):
