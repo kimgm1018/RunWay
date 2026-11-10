@@ -283,6 +283,21 @@ export function SettingsScreen() {
       toast('연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요');
     }
   };
+  // S15P31E105-625: after W03, tap again to W01 when a Data Layer node is reachable.
+  // No node → 1.7 (same as before). Samsung Wearable pairing/list picking stays out of scope.
+  const reconnect = async () => {
+    try {
+      const next = await watchApi.reconnect();
+      setWatch(next);
+      if (next.status === 'connected') {
+        toast(`${next.deviceName}을(를) 다시 등록했어요`);
+        return;
+      }
+      navigateTo(navigation, 'WatchConnect');
+    } catch {
+      toast('다시 등록하지 못했어요. 잠시 후 다시 시도해 주세요');
+    }
+  };
 
   // S15P31E105-555: 로그아웃 (U03) and 회원탈퇴 need none of the settings, so a failed read still shows them.
   const failed = loaded.status === 'error' && !data;
@@ -366,16 +381,18 @@ export function SettingsScreen() {
 
           <Band>기기</Band>
           <Tiles>
-            {/* Connected, a tap lets go of the watch (with 실행 취소); let go, it opens 1.7 to connect. */}
+            {/* Connected → W03 (실행 취소 = W01). Disconnected → W01 when a node is nearby, else 1.7. */}
             <Tile
               icon="smartwatch"
               name={watch.deviceName}
               state={watchConnectionLabel(watch)}
-              onPress={() =>
-                watch.status === 'connected'
-                  ? disconnect(watch)
-                  : navigateTo(navigation, 'WatchConnect')
-              }
+              onPress={() => {
+                if (watch.status === 'connected') {
+                  disconnect(watch);
+                } else {
+                  reconnect();
+                }
+              }}
             />
             <Tile
               icon="heart"
