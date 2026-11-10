@@ -25,11 +25,17 @@ numba fails at import (no silent fallback); it is compiled / loaded from cache a
 heap의 push 순서와 이웃 순회 순서로 정해진다. 다른 알고리즘(A*, scipy 등)이나 다른 순서는 동점 경로를 다르게 골라
 후보·TOP3·golden이 바뀐다. 그래서 이 파일은 순서까지 networkx와 같게 유지해야 하고, networkx 버전이 바뀌면 자동으로
 "nx"로 돌아간다. 수정할 때는 golden 4 mode + random P2P로 동일성을 다시 확인한다.
+
+A*(S15P31E105-621, RUNWAY_SP_ASTAR, 기본 1): Numba 엔진이고 배열 graph(rg.H.xy가 있음)일 때 구간 탐색을
+shortest_path_numba.astar로 한다. 비용이 거의 같은 경로가 하나라도 보이면 그 구간은 bidirectional로 다시 찾으므로
+고르는 경로는 위 kernel과 같다. RUNWAY_SP_ASTAR=0이면 예전처럼 bidirectional만 쓴다(결과 같음, 느려짐).
 """
 import os
 from heapq import heappop, heappush
 
 import networkx
+
+from .env_flags import flag as _flag
 
 VERIFIED_NETWORKX = "3.7"
 
@@ -56,6 +62,10 @@ if BACKEND == "py" and ENGINE == "numba":
     from . import shortest_path_numba as _numba   # compiles (or loads the cache) here, at start-up
     _numba.warm_up()
     bidirectional_numba = _numba.bidirectional
+    ASTAR = _flag("RUNWAY_SP_ASTAR", True)
+    astar_numba = _numba.astar
+else:
+    ASTAR = False
 
 
 def bidirectional(csr, s: int, t: int, M: list, used: list, pen: float) -> list | None:

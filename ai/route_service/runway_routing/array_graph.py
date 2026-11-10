@@ -15,6 +15,7 @@ from shapely.ops import transform
 from . import graph as legacy
 from . import shortest_path
 from .array_components import component_layout, component_layout_fast
+from .fast_unique import sorted_unique
 
 # S15P31E105-437: 작업판 생성의 Python 반복문을 배열/Numba로(결과 같음). "0"이면 기존 반복문(rollback, 재시작 필요).
 _FAST_FLAG = os.environ.get("RUNWAY_ARRAY_PAIR_FAST", "1")
@@ -33,14 +34,14 @@ class _Selection:
         self.sel = np.logical_or.reduceat(inside[sc.ref_pos], sc.ptr[:-1])
         if not self.sel.any():
             raise legacy.InsufficientResponseError("No data elements in server response. Check query location/filters and log.")
-        cand = np.unique(sc.ref_pos[self.sel[S.way_of_ref]])
+        cand = sorted_unique(sc.ref_pos[self.sel[S.way_of_ref]])
         self.disk_ll = legacy.busan._disk_ll(cx, cy, radius)
         self.keep = np.zeros(len(S.ids), bool)
         self.keep[cand[shapely.intersects_xy(self.disk_ll, S.lon[cand], S.lat[cand])]] = True
         if not self.keep.any():
             raise ValueError("Found no graph nodes within the requested polygon.")
         self.seg = np.flatnonzero(self.sel[S.seg_w] & self.keep[S.seg_a] & self.keep[S.seg_b])
-        self.g_nodes = np.unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
+        self.g_nodes = sorted_unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
 
     def g_nodes_in_set_order(self):
         """build_array_pair의 g_nodes(= S.pos_of(list(_g_node_rank())))를 dict 없이 만든다.
@@ -328,12 +329,23 @@ class ArrayG:
         cg.node_highway = np.full(len(cg.node_ids), None, dtype=object)
         ways = S.seg_w[self.seg]
         # Canonical retains the first directed G edge for each unordered node pair+way.
-        triples = np.column_stack((np.minimum(self.a, self.b), np.maximum(self.a, self.b), ways))
-        _, first = np.unique(triples, axis=0, return_index=True)
-        first.sort()
+        # S15P31E105-621: np.unique(rows, axis=0, return_index=True) + sort == each distinct (lo, hi, way)'s first
+        # position, ascending. A stable lexsort + run starts gives the same indices without the row-view unique.
+        lo, hi = np.minimum(self.a, self.b), np.maximum(self.a, self.b)
+        o = np.lexsort((ways, hi, lo))
+        lo_o, hi_o, w_o = lo[o], hi[o], ways[o]
+        start = np.ones(len(o), bool)
+        start[1:] = (lo_o[1:] != lo_o[:-1]) | (hi_o[1:] != hi_o[:-1]) | (w_o[1:] != w_o[:-1])
+        first = np.sort(o[start])
         e = self.source.way_table.iloc[ways[first]].reset_index(drop=True).copy()
-        u = np.fromiter((cg.node_index[int(S.ids[p])] for p in self.a[first]), np.int64, len(first))
-        v = np.fromiter((cg.node_index[int(S.ids[p])] for p in self.b[first]), np.int64, len(first))
+        # cg.node_index[S.ids[p]] == p's position in self.positions (node_ids = S.ids[positions], ids are unique):
+        # the same values by searchsorted instead of one dict lookup per edge.
+        gord = np.argsort(self.positions, kind="stable")
+        gpos = np.asarray(self.positions)[gord]
+        ia, ib = np.searchsorted(gpos, self.a[first]), np.searchsorted(gpos, self.b[first])
+        if len(first) and not (gpos[np.minimum(ia, len(gpos) - 1)] == self.a[first]).all()                 or len(first) and not (gpos[np.minimum(ib, len(gpos) - 1)] == self.b[first]).all():
+            raise KeyError("populate_adapter: edge end outside the graph nodes")   # the dict lookup's error
+        u, v = gord[ia].astype(np.int64), gord[ib].astype(np.int64)
         e["u"], e["v"] = np.minimum(u, v), np.maximum(u, v)
         e["osm_u"], e["osm_v"] = cg.node_ids[e["u"]], cg.node_ids[e["v"]]
         e["length"] = S.seg_len[self.seg[first]].astype(float)

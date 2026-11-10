@@ -5,6 +5,7 @@ ValueError naming the variable. Before, most flags were off only for exactly "0"
 kept the normal path; RUNWAY_ARRAY_LOOP / RUNWAY_ARRAY_SHAPES already used this strict rule.
 Normal values ("0", "1", unset) behave exactly as before.
 
+RUNWAY_SP_ASTAR (shortest_path.py, default 1) uses this rule.
 Not covered here on purpose: RUNWAY_SP_ENGINE / RUNWAY_SP_KERNEL (enums, shortest_path.py), RUNWAY_NETWORK_STORE /
 RUNWAY_SOURCE_SNAPSHOT ("0" = off, otherwise a directory path), RUNWAY_GRAPH_CACHE_SIZE / RUNWAY_MASK_CACHE_SIZE
 (integers, graph.cache_size_env), RUNWAY_ARRAY_LOOP / RUNWAY_ARRAY_PAIR_FAST (same rule, parsed in array_graph.py), and the service flags

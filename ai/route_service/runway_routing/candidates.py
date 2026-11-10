@@ -176,6 +176,12 @@ def _route_through_exact(rg, seq: list, mult: dict, reuse_penalty: float, memo: 
             M = np.asarray(M, dtype=np.float64)
         used = np.zeros(len(csr.length), dtype=np.int64)
         search = shortest_path.bidirectional_numba
+        H = rg.H
+        if shortest_path.ASTAR and getattr(H, "csr", None) is csr and getattr(H, "xy", None) is not None:
+            # A* (S15P31E105-621): same legs as bidirectional (near ties fall back to it), 4-5x fewer expansions.
+            # h needs a lower bound on every edge's M: min over this call's M (fixed for all legs below).
+            xy, min_mult = H.xy, float(M.min()) if len(M) else 1.0
+            search = lambda c, a_, b_, M_, u_, p_: shortest_path.astar_numba(c, xy, a_, b_, M_, u_, p_, min_mult)
     else:
         used = [0] * len(csr.length)
         search = shortest_path.bidirectional
