@@ -48,6 +48,13 @@ object ReadinessRules {
  */
 fun runPermissions(sdk: Int): List<String> = requiredPermissions(sdk).filterNot { it.endsWith("_BACKGROUND") }
 
+data class SensorPermissions(val heartRate: Boolean, val activity: Boolean)
+
+fun sensorPermissions(sdk: Int, granted: Set<String>): SensorPermissions = SensorPermissions(
+    heartRate = (if (sdk >= 36) "android.permission.health.READ_HEART_RATE" else "android.permission.BODY_SENSORS") in granted,
+    activity = "android.permission.ACTIVITY_RECOGNITION" in granted,
+)
+
 /**
  * What "권한 허용" asks for: only the missing run permissions, never the daily background one, which
  * the launch sequence asks for separately. Null when nothing for a run is missing.

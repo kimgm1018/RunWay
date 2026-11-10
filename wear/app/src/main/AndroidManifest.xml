@@ -62,6 +62,10 @@
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data
                     android:host="*"
+                    android:path="/runway/v1/state/readiness-query"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
                     android:pathPrefix="/runway/v1/health/"
                     android:scheme="wear" />
                 <!-- S15P31E105-256: run-session commands relayed by the phone, and its errors. -->

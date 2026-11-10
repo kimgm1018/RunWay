@@ -41,6 +41,10 @@ import { createSessionEvents } from './sessionEvents';
 import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
+import {
+  readWatchReadiness,
+  readPhoneHealthPermissions,
+} from '../../watch/watchReadiness';
 import { createAccountApi } from './account';
 import { createCurrentPlace } from './currentPlace';
 import { registerApiIdentityCacheClear } from './identityCache';
@@ -129,6 +133,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     watch: createWatchApi(mock.watch, {
       findConnectedWatch: async () =>
         (await watchSession.getConnectedWatch?.()) ?? null,
+      readReadiness: readWatchReadiness,
+      readPhonePermissions: readPhoneHealthPermissions,
     }),
     // 실제 모드의 화면 기록은 일시정지 제외 시계만 센다(S15P31E105-517). 거리·페이스·심박·케이던스·위치는 폰이 받은
     // 워치 batch(또는 인계 후 폰 GPS)의 실측값으로 채우고(runControl live), 목업 값이나 목업 길 안내는 만들지 않는다.

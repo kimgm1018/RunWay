@@ -137,18 +137,26 @@ export function ReadinessPanel({
   today,
   todayDay,
   phoneSleep,
+  watchReady = false,
 }: {
   today: TodayCondition;
   // Today in KST (YYYY-MM-DD), from 홈's clock.
   todayDay?: string;
   phoneSleep?: PhoneSleep;
+  // Fresh watch app response + sensor grants; R02 collecting/stale only describes health data.
+  watchReady?: boolean;
 }) {
   const navigation = useNavigation();
   // A score made on another day says so and is not called today's (S15P31E105-574): the score's own date against
   // today reads 'N월 N일 기준', not 오늘.
   const isToday = todayDay === undefined || today.date === todayDay;
   const ready = today.readinessState === 'ready';
-  const { action: stateAction, note: stateNote } = states[today.readinessState];
+  const { action, note: fallbackNote } = states[today.readinessState];
+  const stateAction =
+    watchReady && action?.route === 'WatchConnect' ? null : action;
+  const stateNote = watchReady && today.readinessState === 'watchDisconnected'
+    ? '데이터를 모으는 중이에요'
+    : fallbackNote;
   // Server health consent off: nothing health-related is shown, and the card keeps 설정 열기.
   const consented = today.readinessState !== 'permissionDenied';
   const r02Sleep = ready && today.sleepMinutes !== null;
