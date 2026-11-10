@@ -59,7 +59,10 @@ const regions = {
 type Route = (
   url: URL,
   init: { method: string; body?: string },
-) => ReturnType<typeof respond> | undefined;
+) =>
+  | ReturnType<typeof respond>
+  | Promise<ReturnType<typeof respond>>
+  | undefined;
 
 function serve(route: Route) {
   fetchMock.mockImplementation(
@@ -202,7 +205,10 @@ test('getSaved keeps the other courses when one C03 detail fails', async () => {
   const saved = await courses.getSaved();
 
   expect(saved.map(item => item.id)).toEqual(['7']);
-  expect(saved[0]).toMatchObject({ status: 'ACTIVE', mergedIntoCourseId: null });
+  expect(saved[0]).toMatchObject({
+    status: 'ACTIVE',
+    mergedIntoCourseId: null,
+  });
 });
 
 test('getSaved keeps MERGED and BLOCKED with status, not as plain ACTIVE runs', async () => {
@@ -687,4 +693,167 @@ test('편도 도착지가 없으면 추천 요청을 보내지 않는다', async
     api().courses.recommend({ ...search, shape: 'point_to_point' }),
   ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// S15P31E105-655: seed/index identify a slot, not a candidate across C01 answers.
+const relocatedSearch: CourseSearch = {
+  ...search,
+  origin: { name: '다른 출발점', position: oneWay[0] },
+};
+const relocatedAnswer = {
+  ...generatedAnswer,
+  courses: [
+    {
+      ...generatedAnswer.courses[0],
+      route: { type: 'LineString', coordinates: oneWay },
+      candidateToken: 'v1.1762311600.relocated',
+    },
+  ],
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+const responseFor = (body: { longitude: number }) =>
+  body.longitude === search.origin.position[0]
+    ? generatedAnswer
+    : relocatedAnswer;
+
+function relocatedRoute(url: URL, init: { method: string; body?: string }) {
+  if (url.pathname.endsWith('/courses/recommendations')) {
+    return respond(200, responseFor(JSON.parse(init.body!)));
+  }
+  if (url.pathname.endsWith('/courses/generated')) {
+    const { candidateToken } = JSON.parse(init.body!);
+    return respond(200, {
+      courseId:
+        candidateToken === relocatedAnswer.courses[0].candidateToken ? 9 : 7,
+      reused: false,
+    });
+  }
+  if (url.pathname.endsWith('/bookmark')) {
+    return respond(200, { bookmarked: true });
+  }
+  return common(url, init);
+}
+
+test.each(['choose', 'save'] as const)(
+  'a new location with the same seed/index gets its own C10 route after %s',
+  async action => {
+    serve(relocatedRoute);
+    const { courses } = api();
+    const first = (await courses.recommend(search)).courses[0];
+    await courses[action](first.id);
+    const second = (await courses.recommend(relocatedSearch)).courses[0];
+    await courses.save(second.id);
+    await courses.choose(second.id);
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.route).toEqual(oneWay);
+    expect(posted().map(call => call.body)).toEqual([
+      {
+        candidateToken: generatedAnswer.courses[0].candidateToken,
+        route: generatedAnswer.courses[0].route,
+        distanceM: generatedAnswer.courses[0].distanceM,
+        elevationProfile: generatedAnswer.courses[0].elevationProfile,
+      },
+      {
+        candidateToken: relocatedAnswer.courses[0].candidateToken,
+        route: relocatedAnswer.courses[0].route,
+        distanceM: relocatedAnswer.courses[0].distanceM,
+        elevationProfile: relocatedAnswer.courses[0].elevationProfile,
+      },
+    ]);
+    expect(
+      calls()
+        .filter(call => call.url.pathname.endsWith('/bookmark'))
+        .pop()?.url.pathname,
+    ).toMatch(/\/courses\/9\/bookmark$/);
+    expect(await courses.getTodayPlan()).toMatchObject({
+      courseId: '9',
+      route: oneWay,
+    });
+  },
+);
+
+test('a late C01 answer cannot replace a newer card candidate', async () => {
+  const late = deferred<ReturnType<typeof respond>>();
+  const started = deferred<void>();
+  serve((url, init) => {
+    if (
+      url.pathname.endsWith('/courses/recommendations') &&
+      JSON.parse(init.body!).longitude === search.origin.position[0]
+    ) {
+      started.resolve();
+      return late.promise;
+    }
+    return relocatedRoute(url, init);
+  });
+  const { courses } = api();
+  const pending = courses.recommend(search);
+  await started.promise;
+  const second = (await courses.recommend(relocatedSearch)).courses[0];
+  late.resolve(respond(200, generatedAnswer));
+  const first = (await pending).courses[0];
+  await courses.choose(second.id);
+  await courses.save(first.id);
+
+  expect(first.id).not.toBe(second.id);
+  expect(posted().map(call => call.body.route.coordinates)).toEqual([
+    oneWay,
+    loop,
+  ]);
+  expect(await courses.getTodayPlan()).toMatchObject({
+    courseId: '9',
+    route: oneWay,
+  });
+});
+
+test('a late C10 for an older card keeps its own mapping and the new card stays deduplicated', async () => {
+  const late = deferred<ReturnType<typeof respond>>();
+  const started = deferred<void>();
+  serve((url, init) => {
+    if (
+      url.pathname.endsWith('/courses/generated') &&
+      JSON.parse(init.body!).candidateToken ===
+        generatedAnswer.courses[0].candidateToken
+    ) {
+      started.resolve();
+      return late.promise;
+    }
+    return relocatedRoute(url, init);
+  });
+  const { courses } = api();
+  const first = (await courses.recommend(search)).courses[0];
+  const pending = courses.save(first.id);
+  await started.promise;
+  const second = (await courses.recommend(relocatedSearch)).courses[0];
+  try {
+    expect(second.id).not.toBe(first.id);
+    // B must finish while A is still pending; do not depend on microtask order.
+    await Promise.all([courses.choose(second.id), courses.save(second.id)]);
+  } finally {
+    late.resolve(respond(200, { courseId: 7, reused: false }));
+    await pending;
+  }
+  await courses.save(second.id);
+
+  expect(posted().map(call => call.body.route.coordinates)).toEqual([
+    loop,
+    oneWay,
+  ]);
+  expect(
+    calls()
+      .filter(call => call.url.pathname.endsWith('/bookmark'))
+      .map(call => call.url.pathname.match(/courses\/(\d+)\//)?.[1]),
+  ).toEqual(['9', '7', '9']);
+  expect(await courses.getTodayPlan()).toMatchObject({
+    courseId: '9',
+    route: oneWay,
+  });
 });
