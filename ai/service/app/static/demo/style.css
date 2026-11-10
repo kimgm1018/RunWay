@@ -355,3 +355,45 @@ body.is-waiting .waiting { display: grid; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ── 그룹 공동 페이스(AI10) 화면 ───────── */
+.group-board { grid-template-rows: auto repeat(var(--rows, 3), minmax(0, 1fr)); align-content: stretch; gap: .35rem; }
+.gb-head { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .05rem; padding: .3rem 0; }
+.gb-head.gb-corner { align-items: flex-start; padding-left: .2rem; font-family: var(--ui); font-size: .8rem; }
+.gb-head.current { box-shadow: inset 0 -2px 0 rgb(255 255 255 / 35%); color: var(--text); }
+.gb-head.col-fail { color: #ff8e9b; }
+.gb-mark { font-style: normal; font-size: .72rem; font-weight: 800; min-height: 1em; }
+.gb-head.chosen .gb-mark { color: #05090d; }
+.gb-name { flex-direction: row; align-items: baseline; gap: .45rem; padding: 0 .3rem; border-radius: .35rem; }
+.gb-name .gb-who { font-weight: 700; color: var(--text); }
+.gb-name .gb-hr { font-family: var(--num); font-size: 1.55rem; color: var(--text); }
+.gb-name small { color: var(--muted); font-size: .75rem; }
+.gb-name.gb-row-worst { background: rgb(255 79 98 / 10%); }
+.gb-name.gb-row-worst .gb-who, .gb-name.gb-row-worst .gb-hr { color: var(--warn); }
+.gb-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem; padding: .2rem 0; }
+.gb-cell b { font-family: var(--num); font-size: 1.45rem; line-height: 1; }
+.gb-cell small { font-family: var(--ui); font-size: .68rem; color: var(--muted); font-weight: 600; }
+.gb-cell.fail small { color: #ffc2c9; }
+.gb-cell.col-chosen { background: rgb(196 255 58 / 14%); }
+.gb-cell.col-chosen b { color: var(--accent); }
+.gb-cell.col-chosen.fail b { color: #ffc2c9; }
+.group-board.animating .gb-cell { animation: fade-up .35s ease both; animation-delay: calc(var(--i, 0) * 12ms); }
+.group-board.animating .gb-head.chosen { animation: chosen-head 1.1s ease-out 1.1s 2; }
+@keyframes chosen-head { 0% { box-shadow: 0 0 0 0 rgb(196 255 58 / 70%); } 100% { box-shadow: 0 0 0 .9rem rgb(196 255 58 / 0%); } }
+.guide-from { font-family: var(--num); font-weight: 700; font-size: 2.2rem; color: var(--muted); margin-right: .4rem; align-self: center; }
+.svg-member { fill: none; stroke: var(--neutral); stroke-opacity: .55; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.svg-member.worst { stroke: #fff; stroke-opacity: 1; stroke-width: 3; }
+.svg-member-pred { fill: none; stroke: var(--neutral); stroke-opacity: .6; stroke-width: 1.8; stroke-dasharray: 5 4; }
+.svg-member-dot { fill: var(--bg); stroke: var(--neutral); stroke-width: 2; }
+.svg-member-label { fill: var(--muted); font-family: var(--num); font-weight: 700; font-size: .95rem; }
+.guide-from { white-space: nowrap; font-size: 1.9rem; }
+.guide-main { flex-wrap: nowrap; min-width: 0; }
+.gb-name { flex-wrap: wrap; row-gap: 0; align-content: center; }
+.gb-name small { flex-basis: 100%; }
+/* 코스 데이터가 없으면 지도 칸을 접고 판단 기록에 자리를 준다 */
+.context.no-course { grid-template-rows: minmax(0, 1fr); }
+.context.no-course .map-panel { display: none; }
+.guide-card.has-from .guide-pace { font-size: 4.3rem; }
+.guide-card.has-from .guide-from { font-size: 1.6rem; margin-right: .2rem; }
+.guide-card.has-from .guide-unit { font-size: 1.2rem; }
+.guide-card.has-from .action-pill { margin-left: .4rem; font-size: 1.15rem; padding: .25rem .7rem; }

@@ -33,7 +33,7 @@ from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.group_pace.service import group_pace_enabled, recommend_group_pace
 from app.demo.auth import require_bearer
 from app.demo.config import DemoSettings, load_demo_settings
-from app.demo.recorder import new_demo_state, record_trace
+from app.demo.recorder import group_allowed, new_demo_state, record_group_trace, record_trace
 from app.demo.stream import build_stream_router
 from app.demo.inlet import build_inlet_router
 from app.models.ode.runtime import DEFAULT_VALIDATED_HORIZON_SEC, load_ode_runtime
@@ -458,9 +458,21 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             policy = request.app.state.policy
             if policy is None:
                 raise ApiError(503, "MODEL_NOT_READY", "정책이 로드되지 않았습니다.")
-            return recommend_group_pace(
+            demo = request.app.state.demo
+            # 시연 기능이 꺼져 있거나 허용 목록 밖 그룹이면 detail을 만들지 않는다(추가 계산 0)
+            detail = {} if demo is not None and group_allowed(demo, body.group_run_id) else None
+            began = time.perf_counter()
+            response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
-                hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured)
+                hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail)
+            if detail is not None:
+                try:
+                    record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,
+                                       decided_at=request.app.state.clock(),
+                                       decide_ms=(time.perf_counter() - began) * 1000.0)
+                except Exception:   # 시연 기록 실패가 AI10 응답을 막지 않는다
+                    log.warning("그룹 시연 기록 실패", exc_info=True)
+            return response
 
         return await _run_heavy(request, "/v1/group/pace", recommend)
 

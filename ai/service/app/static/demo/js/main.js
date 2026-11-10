@@ -288,7 +288,7 @@
     var input = byId('token-input');
     if (input) input.value = token;
     show(byId('auth-panel'), !token);
-    var session = params.get('session') || 'latest';
+    var session = root.RunwayDemoLogic.streamRef(params);
     function saveAndConnect() {
       var value = input ? input.value.trim() : '';
       if (!value) { setBanner('stale', '시연 보기 토큰을 입력해 주세요.'); return; }

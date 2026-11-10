@@ -97,3 +97,27 @@ test('그룹 판정판: 칸은 허용선까지 남은 bpm, 고른 후보에서 �
   assert.equal(x.worstIndex, 1);
   assert.equal(m.groupMatrix(null), null);
 });
+
+test('라이브 연결 대상: session 우선, group은 그룹 스트림 키, 없으면 latest', () => {
+  assert.equal(m.streamRef(new URLSearchParams('mode=live&session=42')), '42');
+  assert.equal(m.streamRef(new URLSearchParams('mode=live&group=3')), String(m.GROUP_KEY_OFFSET + 3));
+  assert.equal(m.streamRef(new URLSearchParams('mode=live&group=abc')), 'latest');
+  assert.equal(m.streamRef(new URLSearchParams('mode=live')), 'latest');
+});
+
+test('그룹 기록: 판정판은 데이터의 통과·예측·worst를 쓰고, 안내 방향은 direction', () => {
+  const g = {candidates: [{deltaSecPerKm: -20, paceSecPerKm: 350, passed: true}, {deltaSecPerKm: 0, paceSecPerKm: 370, passed: true}],
+    chosenIndex: 0, worstIndex: 1,
+    members: [{label: '러너 1', hrNowBpm: 140, allowBpm: 163, predHr120Bpm: [146, 139], upperHrBpm: [151, 143], passed: [true, true]},
+              {label: '러너 2', hrNowBpm: 145, allowBpm: 163, predHr120Bpm: [151, 144], upperHrBpm: [155, 148], passed: [true, true]}]};
+  const x = m.groupMatrix(g);
+  assert.equal(x.worstIndex, 1);
+  assert.equal(x.rows[0].cells[0].pred, 146);
+  assert.equal(x.rows[1].hrNow, 145);
+  assert.deepEqual(x.columnsPassed, [true, true]);
+  const trace = {kind: 'GROUP', group: g, decision: {direction: 'FAST', reasonLabel: '가속', chosenIndex: 0}};
+  assert.equal(m.modeOf(trace).kind, 'group');
+  assert.equal(m.actionKind(trace), 'up');
+  assert.equal(m.guideCard(trace).actionText, '가속');
+  assert.equal(m.actionKind({decision: {direction: 'HOLD'}}), 'hold');
+});

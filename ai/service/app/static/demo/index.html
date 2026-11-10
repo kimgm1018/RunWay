@@ -33,35 +33,36 @@
 
     <section class="hero">
       <div class="guide-card">
-        <div class="kicker">지금 러너에게 갈 안내 <span id="guide-delivery" class="delivery">대기</span></div>
+        <div class="kicker"><span id="kicker-text">지금 러너에게 갈 안내</span> <span id="guide-delivery" class="delivery">대기</span></div>
         <div class="guide-main">
+          <span id="guide-from" class="guide-from hidden"></span>
           <strong id="guide-pace" class="guide-pace">—</strong>
           <span class="guide-unit">/km</span>
           <span id="guide-action" class="action-pill" data-action="idle">대기</span>
         </div>
         <p id="reason-line" class="reason-line">판단 기록을 기다리고 있습니다.</p>
         <div id="guide-side" class="guide-side">
-          <div class="guide-side-label">이 페이스의 2분 뒤 예측</div>
+          <div id="guide-side-label" class="guide-side-label">이 페이스의 2분 뒤 예측</div>
           <div class="guide-side-value"><span id="guide-pred">—</span><small>bpm</small></div>
           <div class="guide-side-allow">허용 <b id="guide-allow">—</b></div>
         </div>
       </div>
       <div class="stat stat-hr">
-        <span class="stat-label"><i class="heart" aria-hidden="true"></i>현재 심박</span>
+        <span class="stat-label"><i class="heart" aria-hidden="true"></i><span id="label-hr">현재 심박</span></span>
         <strong id="metric-hr" class="stat-value">—</strong>
         <span class="stat-unit">bpm</span>
         <span id="metric-allow" class="stat-sub">허용 —</span>
       </div>
       <div class="stat">
-        <span class="stat-label">실측 페이스</span>
+        <span id="label-pace" class="stat-label">실측 페이스</span>
         <strong id="metric-pace" class="stat-value">—</strong>
         <span class="stat-unit">/km</span>
         <span id="metric-grade" class="stat-sub">다음 2분 경사 —</span>
       </div>
       <div class="stat">
-        <span class="stat-label">거리</span>
+        <span id="label-distance" class="stat-label">거리</span>
         <strong id="metric-distance" class="stat-value">—</strong>
-        <span class="stat-unit">km</span>
+        <span id="unit-distance" class="stat-unit">km</span>
         <span id="metric-remaining" class="stat-sub">남은 거리 —</span>
       </div>
       <div class="stat">
