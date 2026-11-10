@@ -150,6 +150,50 @@ class ReadinessLatestApiIntegrationTest extends ReadinessIntegrationSupport {
                 .andExpect(jsonPath("$.healthUpdatedAt", nullValue()));
     }
 
+    /** S15P31E105-639 AC-1. 평가 때 저장한 항목 점수와 R 변화율을 그대로 반환하고 기존 필드는 그대로다. */
+    @Test
+    void 저장된_항목_점수와_R_변화율을_반환한다() throws Exception {
+        insertReadiness(userId, DAY, "95.00", "MEDIUM");
+        jdbc.update(
+                "UPDATE daily_readiness SET recovery_score=90.00, load_score=100.00, rhr_change_pct=4.2"
+                        + " WHERE user_id=? AND readiness_date=?",
+                userId,
+                DAY);
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readinessScore").value(95.00))
+                .andExpect(jsonPath("$.readinessConfidence").value("MEDIUM"))
+                .andExpect(jsonPath("$", hasKey("sleepScore")))
+                .andExpect(jsonPath("$.sleepScore", nullValue()))
+                .andExpect(jsonPath("$.recoveryScore").value(90.00))
+                .andExpect(jsonPath("$.loadScore").value(100.00))
+                .andExpect(jsonPath("$.restingHrChangePct").value(4.2))
+                .andExpect(jsonPath("$.dailyTrainingLoads.length()").value(7));
+    }
+
+    /** S15P31E105-639 AC-6. V30 이전 결과처럼 항목 컬럼이 비어 있으면 네 키를 null로 포함하고 기존 필드는 그대로다. */
+    @Test
+    void 항목_점수가_저장되지_않은_결과는_네_키를_null로_포함한다() throws Exception {
+        insertReadiness(userId, DAY, "75.50", "LOW");
+        insertHealth(userId, DAY, "58", "400");
+
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readinessScore").value(75.50))
+                .andExpect(jsonPath("$.readinessConfidence").value("LOW"))
+                .andExpect(jsonPath("$.restingHrBpm").value(58))
+                .andExpect(jsonPath("$.sleepDurationMin").value(400))
+                .andExpect(jsonPath("$", hasKey("sleepScore")))
+                .andExpect(jsonPath("$.sleepScore", nullValue()))
+                .andExpect(jsonPath("$", hasKey("recoveryScore")))
+                .andExpect(jsonPath("$.recoveryScore", nullValue()))
+                .andExpect(jsonPath("$", hasKey("loadScore")))
+                .andExpect(jsonPath("$.loadScore", nullValue()))
+                .andExpect(jsonPath("$", hasKey("restingHrChangePct")))
+                .andExpect(jsonPath("$.restingHrChangePct", nullValue()));
+    }
+
     @Test
     void 일부_지표만_있으면_없는_지표만_null이다() throws Exception {
         insertReadiness(userId, DAY, "75.50", "LOW");

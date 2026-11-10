@@ -43,7 +43,11 @@ CREATE TABLE "daily_readiness" (
 	"readiness_score"	NUMERIC(7,2)		NOT NULL,
 	"readiness_confidence"	"daily_readiness_readiness_confidence_enum"		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"sleep_score"	NUMERIC(7,2)		NULL,
+	"recovery_score"	NUMERIC(7,2)		NULL,
+	"load_score"	NUMERIC(7,2)		NULL,
+	"rhr_change_pct"	NUMERIC(7,1)		NULL
 );
 
 COMMENT ON COLUMN "daily_readiness"."id" IS '러닝 준비도 ID';
@@ -59,6 +63,15 @@ COMMENT ON COLUMN "daily_readiness"."readiness_confidence" IS '준비도 신뢰 
 COMMENT ON COLUMN "daily_readiness"."created_at" IS '생성일시';
 
 COMMENT ON COLUMN "daily_readiness"."updated_at" IS '수정일시';
+
+-- S15P31E105-639 (V30): 자동 평가가 readiness_score와 같은 upsert로 저장하는 항목 점수와 R 변화율. V30 이전 결과는 NULL이다.
+COMMENT ON COLUMN "daily_readiness"."sleep_score" IS '수면 항목 점수 S(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."recovery_score" IS '회복 항목 점수 R(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."load_score" IS '훈련 부하 항목 점수 L(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."rhr_change_pct" IS 'R 계산에 쓴 평소(D-7~D-1 평균) 대비 기준일 안정시 심박 변화율(%). R이 제외되면 NULL';
 
 CREATE TABLE "users" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,

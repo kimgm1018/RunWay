@@ -2,11 +2,16 @@ package com.runway.backend.domain.readiness.repository;
 
 import com.runway.backend.domain.readiness.formula.DailyHealthInput;
 import com.runway.backend.domain.readiness.formula.ReadinessConfidence;
+import com.runway.backend.domain.readiness.formula.ReadinessScore;
 import java.math.BigDecimal;
+import java.sql.Array;
 import java.sql.Date;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -101,21 +106,33 @@ public class ReadinessJdbcRepository {
                 Date.valueOf(to));
     }
 
-    /** 같은 회원·날짜 결과가 있으면 점수·신뢰도를 갱신하고 없으면 넣는다. updated_at은 트리거가 갱신한다. */
-    public void upsert(
-            long userId, LocalDate readinessDate, BigDecimal score, ReadinessConfidence confidence) {
+    /**
+     * 같은 회원·날짜 결과가 있으면 점수·신뢰도·항목 점수·R 변화율을 한 문장으로 갱신하고 없으면 넣는다(S15P31E105-639). 제외된 항목은 null로
+     * 덮어써 항목 점수가 항상 같은 평가의 점수와 짝을 이룬다. updated_at은 트리거가 갱신한다.
+     */
+    public void upsert(long userId, LocalDate readinessDate, ReadinessScore score) {
+        ReadinessConfidence confidence = score.confidence();
         jdbc.update(
                 """
-                INSERT INTO daily_readiness(user_id, readiness_date, readiness_score, readiness_confidence)
-                VALUES (?, ?, ?, ?::daily_readiness_readiness_confidence_enum)
+                INSERT INTO daily_readiness(user_id, readiness_date, readiness_score, readiness_confidence,
+                                            sleep_score, recovery_score, load_score, rhr_change_pct)
+                VALUES (?, ?, ?, ?::daily_readiness_readiness_confidence_enum, ?, ?, ?, ?)
                 ON CONFLICT ON CONSTRAINT uq_daily_readiness_user_id_readiness_date
                 DO UPDATE SET readiness_score = EXCLUDED.readiness_score,
-                              readiness_confidence = EXCLUDED.readiness_confidence
+                              readiness_confidence = EXCLUDED.readiness_confidence,
+                              sleep_score = EXCLUDED.sleep_score,
+                              recovery_score = EXCLUDED.recovery_score,
+                              load_score = EXCLUDED.load_score,
+                              rhr_change_pct = EXCLUDED.rhr_change_pct
                 """,
                 userId,
                 Date.valueOf(readinessDate),
-                score,
-                confidence == null ? null : confidence.name());
+                score.readinessScore(),
+                confidence == null ? null : confidence.name(),
+                score.sleepScore(),
+                score.recoveryScore(),
+                score.loadScore(),
+                score.restingHrChangePct());
     }
 
     /**
@@ -130,6 +147,7 @@ public class ReadinessJdbcRepository {
                         """
                         SELECT r.id, r.readiness_score, r.readiness_date,
                                r.readiness_confidence::text AS confidence,
+                               r.sleep_score, r.recovery_score, r.load_score, r.rhr_change_pct,
                                m.rhr_bpm,
                                CASE WHEN m.rhr_bpm IS NULL THEN NULL ELSE m.rhr_source END AS rhr_source,
                                m.sleep_duration_min,
@@ -138,7 +156,13 @@ public class ReadinessJdbcRepository {
                                (SELECT MIN(f.metric_date) FROM daily_health_metrics f
                                  WHERE f.user_id = r.user_id
                                    AND f.daily_training_load IS NOT NULL
-                                   AND f.metric_date <= r.readiness_date) AS first_load_date
+                                   AND f.metric_date <= r.readiness_date) AS first_load_date,
+                               ARRAY(SELECT d.daily_training_load
+                                     FROM generate_series(0, 6) AS g(i)
+                                     LEFT JOIN daily_health_metrics d
+                                            ON d.user_id = r.user_id
+                                           AND d.metric_date = r.readiness_date - 6 + g.i
+                                     ORDER BY g.i) AS daily_loads
                         FROM daily_readiness r
                         JOIN users u
                           ON u.id = r.user_id
@@ -176,14 +200,38 @@ public class ReadinessJdbcRepository {
                                                     rs.getBigDecimal("weekly_load"),
                                                     rs.getBigDecimal("total_load"),
                                                     rs.getObject("first_load_date", LocalDate.class))
-                                            : null);
+                                            : null,
+                                    dailyLoads(rs.getArray("daily_loads")),
+                                    rs.getBigDecimal("sleep_score"),
+                                    rs.getBigDecimal("recovery_score"),
+                                    rs.getBigDecimal("load_score"),
+                                    rs.getBigDecimal("rhr_change_pct"));
                         },
                         userId)
                 .stream()
                 .findFirst();
     }
 
-    /** R02 조회 행. confidence는 미산출이면 null. 건강 지표는 기준일 건강 행이나 값이 없으면 null. */
+    /** D-6~D 순서의 일별 부하 7개. 행이나 값이 없는 날은 null이다. */
+    private static List<BigDecimal> dailyLoads(Array array) throws SQLException {
+        try {
+            Object[] values = (Object[]) array.getArray();
+            List<BigDecimal> loads = new ArrayList<>(values.length);
+            for (Object value : values) {
+                loads.add((BigDecimal) value);
+            }
+            return Collections.unmodifiableList(loads);
+        } finally {
+            array.free();
+        }
+    }
+
+    /**
+     * R02 조회 행. confidence는 미산출이면 null. 건강 지표는 기준일 건강 행이나 값이 없으면 null.
+     *
+     * @param dailyLoads D-6~D 일별 부하 원값 7개(소수 넷째 자리, 값 없는 날 null). load와 같은 문장에서 읽는다
+     * @param sleepScore 평가 때 저장한 항목 점수. 제외 항목·V30 이전 결과는 null(recoveryScore·loadScore·restingHrChangePct도 같다)
+     */
     public record LatestReadinessRow(
             long id,
             BigDecimal readinessScore,
@@ -193,7 +241,12 @@ public class ReadinessJdbcRepository {
             String restingHrSource,
             BigDecimal sleepDurationMin,
             Instant healthUpdatedAt,
-            LoadWindow load) {}
+            LoadWindow load,
+            List<BigDecimal> dailyLoads,
+            BigDecimal sleepScore,
+            BigDecimal recoveryScore,
+            BigDecimal loadScore,
+            BigDecimal restingHrChangePct) {}
 
     /**
      * 기준일 D의 부하 창(S15P31E105-599). D-27~D에 부하 값이 하루도 없으면 행의 {@code load}는 null이다.
