@@ -15,6 +15,7 @@ import {
   type RunSample,
   type SessionGoalDraft,
 } from '../../data';
+import { recordsChanged } from '../../data/recordsChanged';
 import {
   createRunControl,
   type RunControl,
@@ -67,6 +68,8 @@ type RunState = {
   summary: RunSummary | null;
   saveState: SaveState | null;
   recordId: string | null;
+  // H02 goalAchieved once the session record is read back; null until then (S15P31E105-638).
+  goalAchieved: boolean | null;
 };
 
 type RunActions = {
@@ -280,6 +283,10 @@ export function RunSessionProvider({
                 ...current,
                 saveState: 'saved',
                 recordId,
+                goalAchieved:
+                  server?.goalAchieved !== undefined
+                    ? server.goalAchieved
+                    : current.goalAchieved,
                 // The result shows the server's totals where it has them, as 기록 보기 does.
                 summary:
                   server && current.summary
@@ -301,6 +308,8 @@ export function RunSessionProvider({
               }
             : current,
         );
+        // Home list · calendar · analysis reload without a pull (S15P31E105-638).
+        recordsChanged();
       } catch (error) {
         const saveState: SaveState =
           errorCode(error) === 'SAVE_UNCONFIRMED' ? 'unconfirmed' : 'failed';
@@ -336,6 +345,7 @@ export function RunSessionProvider({
           summary: null,
           saveState: null,
           recordId: null,
+          goalAchieved: null,
         };
         setRun(next);
         track(firstSample, config.plan?.route ?? null);
@@ -348,21 +358,21 @@ export function RunSessionProvider({
         );
       },
       resume: () => {
-        const run = latest.current;
-        if (!run) {
+        const current = latest.current;
+        if (!current) {
           return;
         }
-        setRun({ ...run, status: 'running' });
-        track(run.sample, run.config.plan?.route ?? null);
+        setRun({ ...current, status: 'running' });
+        track(current.sample, current.config.plan?.route ?? null);
       },
       finish: () => {
-        const run = latest.current;
-        if (!run) {
+        const current = latest.current;
+        if (!current) {
           return;
         }
         stopTracking.current?.();
         stopTracking.current = null;
-        const { elapsedSec, distanceM } = run.sample;
+        const { elapsedSec, distanceM } = current.sample;
         const summary: RunSummary = {
           durationSec: elapsedSec,
           distanceM,
@@ -371,7 +381,7 @@ export function RunSessionProvider({
           averageHeartRate: average(readings.current.heartRates),
           averageCadence: average(readings.current.cadences),
         };
-        const finished: RunState = { ...run, status: 'finished', summary };
+        const finished: RunState = { ...current, status: 'finished', summary };
         setRun(finished);
         save(finished, summary, sessionIdOf(finished));
       },
@@ -698,9 +708,9 @@ export function RunSessionProvider({
         }
       },
       retrySave: () => {
-        const run = latest.current;
-        if (run?.summary) {
-          save(run, run.summary, sessionIdOf(run));
+        const current = latest.current;
+        if (current?.summary) {
+          save(current, current.summary, sessionIdOf(current));
         }
       },
       cancel: () => {

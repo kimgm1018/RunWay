@@ -296,6 +296,7 @@ test('the result uses the server record of the session, and an unconfirmed one o
         averagePaceSecPerKm: 356,
         averageHeartRate: 151,
         averageCadence: null,
+        goalAchieved: null,
       },
     };
   };

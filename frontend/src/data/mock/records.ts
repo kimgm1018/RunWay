@@ -137,6 +137,8 @@ export function toDetail(
   return {
     ...toSummary(record),
     route: record.route,
+    // Mock fixtures keep no separate distance goal; course runs still expose duration goals.
+    targetDistanceM: null,
     targetDurationSec: record.targetDurationSec,
     targetPaceSecPerKm: record.targetPaceSecPerKm,
     // The mock keeps no run average, so it is the splits' (H02 has its own).

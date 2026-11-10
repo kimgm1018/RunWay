@@ -51,19 +51,43 @@ function average(values: (number | null)[]) {
     : null;
 }
 
-// 목표 30:00 달성 · 19초 단축, or the miss; null without a goal.
-function goalLine(record: RunRecordDetail) {
-  if (record.targetDurationSec === null) {
+// 목표 30:00 달성 · 19초 단축, or a distance goal; trusts H02 goalAchieved (S15P31E105-638).
+export function goalLine(record: RunRecordDetail) {
+  if (record.goalAchieved === null) {
     return null;
   }
-  const gap = record.targetDurationSec - record.durationSec;
-  const target = formatDuration(record.targetDurationSec);
-  return gap >= 0
-    ? { text: `목표 ${target} 달성 · ${formatGap(gap)} 단축`, achieved: true }
-    : {
-        text: `목표 ${target} 미달성 · ${formatGap(gap)} 늦음`,
-        achieved: false,
+  const achieved = record.goalAchieved;
+  if (record.targetDurationSec !== null) {
+    const gap = record.targetDurationSec - record.durationSec;
+    const target = formatDuration(record.targetDurationSec);
+    if (achieved) {
+      return {
+        text:
+          gap >= 0
+            ? `목표 ${target} 달성 · ${formatGap(gap)} 단축`
+            : `목표 ${target} 달성`,
+        achieved: true,
       };
+    }
+    return {
+      text:
+        gap < 0
+          ? `목표 ${target} 미달성 · ${formatGap(gap)} 늦음`
+          : `목표 ${target} 미달성`,
+      achieved: false,
+    };
+  }
+  if (record.targetDistanceM !== null) {
+    const target = `${formatKm(record.targetDistanceM)}km`;
+    return {
+      text: achieved ? `목표 ${target} 달성` : `목표 ${target} 미달성`,
+      achieved,
+    };
+  }
+  return {
+    text: achieved ? '목표 달성' : '목표 미달성',
+    achieved,
+  };
 }
 
 // 목표보다 5초 빠름 beside the average pace, when the run had a target pace.

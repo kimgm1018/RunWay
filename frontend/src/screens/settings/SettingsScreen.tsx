@@ -32,6 +32,7 @@ import {
   type WatchConnection,
 } from '../../data';
 import { watchConnectionLabel } from '../../data/api/devices';
+import { errorCode } from '../../data/errors';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import type { SleepAccess } from '../../health/samsungSleep';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
@@ -106,6 +107,7 @@ function Tile({
   name,
   state,
   on,
+  disabled,
   onPress,
 }: {
   icon: IconName;
@@ -113,6 +115,7 @@ function Tile({
   state: string;
   // Set for a switch tile; left out for a tile that opens something.
   on?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   const switchTile = on !== undefined;
@@ -121,9 +124,20 @@ function Tile({
       accessibilityRole={switchTile ? 'switch' : 'button'}
       accessibilityLabel={name}
       accessibilityValue={{ text: state }}
-      accessibilityState={switchTile ? { checked: on } : undefined}
+      accessibilityState={
+        switchTile
+          ? { checked: on, disabled: !!disabled }
+          : disabled
+            ? { disabled: true }
+            : undefined
+      }
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.tile,
+        disabled && styles.leaving,
+        pressed && !disabled && styles.pressed,
+      ]}
     >
       <View>
         <Icon
@@ -196,6 +210,9 @@ export function SettingsScreen() {
   const [health, setHealth] = useState<boolean | null>(null);
   const [askWithdraw, setAskWithdraw] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
+  // S15P31E105-638: one U20·U14 at a time so rapid taps cannot race the optimistic UI.
+  const [savingSettings, setSavingSettings] = useState(false);
+  const savingSettingsRef = useRef(false);
   // True while U03 runs (5 seconds at most), so 로그아웃 is not sent twice.
   const [leaving, setLeaving] = useState(false);
   const logOut = () => {
@@ -250,9 +267,11 @@ export function SettingsScreen() {
   };
 
   const change = async (next: Partial<AppSettings>) => {
-    if (!settings) {
+    if (!settings || savingSettingsRef.current) {
       return;
     }
+    savingSettingsRef.current = true;
+    setSavingSettings(true);
     const before = settings;
     setSettings({
       ...settings,
@@ -261,9 +280,17 @@ export function SettingsScreen() {
     });
     try {
       setSettings(await settingsApi.update(next));
-    } catch {
-      setSettings(before);
-      toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      // PATCH landed but the untouched companion GET failed — keep the optimistic value.
+      if (errorCode(error) === 'SAVE_UNCONFIRMED') {
+        toast('저장했어요. 최신 설정을 불러오지 못했어요');
+      } else {
+        setSettings(before);
+        toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      savingSettingsRef.current = false;
+      setSavingSettings(false);
     }
   };
   const disconnect = async (current: WatchConnection) => {
@@ -364,6 +391,7 @@ export function SettingsScreen() {
               name="코칭 음성 알림"
               state={onOff(settings.voiceCoachingEnabled)}
               on={settings.voiceCoachingEnabled}
+              disabled={savingSettings}
               onPress={() =>
                 change({ voiceCoachingEnabled: !settings.voiceCoachingEnabled })
               }
@@ -373,6 +401,7 @@ export function SettingsScreen() {
               name="BPM 리듬 가이드"
               state={onOff(settings.bpmGuideEnabled)}
               on={settings.bpmGuideEnabled}
+              disabled={savingSettings}
               onPress={() =>
                 change({ bpmGuideEnabled: !settings.bpmGuideEnabled })
               }
@@ -459,6 +488,7 @@ export function SettingsScreen() {
               name="계정 공개 범위"
               state={settings.isPrivate ? '비공개' : '공개'}
               on={!settings.isPrivate}
+              disabled={savingSettings}
               onPress={() => change({ isPrivate: !settings.isPrivate })}
             />
             <Tile
@@ -476,6 +506,7 @@ export function SettingsScreen() {
               name="그룹런 알림"
               state={onOff(settings.notifications.groupRun)}
               on={settings.notifications.groupRun}
+              disabled={savingSettings}
               onPress={() =>
                 change({
                   notifications: {
@@ -490,6 +521,7 @@ export function SettingsScreen() {
               name="커뮤니티 알림"
               state={onOff(settings.notifications.community)}
               on={settings.notifications.community}
+              disabled={savingSettings}
               onPress={() =>
                 change({
                   notifications: {

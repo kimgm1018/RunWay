@@ -1,4 +1,4 @@
-import type { NotificationKind, Repositories } from '../types';
+import type { NotificationKind, NotificationList, Repositories } from '../types';
 import { apiRequest } from './http';
 
 // N01·N02 알림함 (docs/design/api/notifications.md). kind is the server's notification_type.
@@ -33,24 +33,27 @@ const isKnown = (
 ): item is NotificationResponse & { kind: NotificationKind } =>
   knownKinds.includes(item.kind);
 
-// 2.9 shows one page of the newest 50 (N01's largest limit); a kind this app does not know yet is left out.
+const pageOf = (response: NotificationListResponse): NotificationList => ({
+  items: response.items.filter(isKnown).map(item => ({
+    id: String(item.id),
+    kind: item.kind,
+    message: item.message,
+    createdAt: item.createdAt,
+    read: item.read,
+    targetId: String(item.targetId),
+  })),
+  unreadCount: response.unreadCount,
+  nextCursor: response.hasNext ? response.nextCursor : null,
+});
+
+// N01 pages of up to 50; cursor null reads the newest page. A kind this app does not know yet is left out.
 export const notificationsApi: Repositories['notifications'] = {
-  list: async () => {
+  list: async (cursor = null) => {
     const response = await apiRequest<NotificationListResponse>(
       '/notifications',
-      { query: { limit: 50 } },
+      { query: { limit: 50, cursor: cursor ?? undefined } },
     );
-    return {
-      items: response.items.filter(isKnown).map(item => ({
-        id: String(item.id),
-        kind: item.kind,
-        message: item.message,
-        createdAt: item.createdAt,
-        read: item.read,
-        targetId: String(item.targetId),
-      })),
-      unreadCount: response.unreadCount,
-    };
+    return pageOf(response);
   },
   markAllRead: () =>
     apiRequest<void>('/notifications/read-all', { method: 'POST' }),

@@ -122,6 +122,73 @@ test('8.1 tiles switch at once and 8.1b picks where the location is recorded', a
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-638: a successful U20 with a failed companion GET keeps the switch.
+test('8.1 keeps the switch when save lands but the companion read fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.settings.update = async change => {
+    if (change.bpmGuideEnabled === false) {
+      throw new DataError('SAVE_UNCONFIRMED', 'companion GET failed');
+    }
+    throw new DataError('SERVER_ERROR', 'unexpected');
+  };
+  const screen = await openSettings(repositories);
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await press(screen, 'BPM 리듬 가이드');
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    false,
+  );
+  expect(texts(screen)).toContain('저장했어요. 최신 설정을 불러오지 못했어요');
+  expect(texts(screen)).not.toContain(
+    '설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-638: while one switch is saving, further taps are ignored.
+test('8.1 ignores a second switch tap while a save is in flight', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  let updates = 0;
+  const realUpdate = repositories.settings.update;
+  repositories.settings.update = async change => {
+    updates += 1;
+    await gate;
+    return realUpdate(change);
+  };
+  const screen = await openSettings(repositories);
+  await act(async () => {
+    labelled(screen, '코칭 음성 알림').props.onPress();
+  });
+  await settle();
+  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.disabled).toBe(
+    true,
+  );
+  await act(async () => {
+    labelled(screen, '코칭 음성 알림').props.onPress();
+    labelled(screen, 'BPM 리듬 가이드').props.onPress();
+  });
+  expect(updates).toBe(1);
+  await act(async () => {
+    release();
+  });
+  await settle();
+  await settle();
+  expect(updates).toBe(1);
+  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.checked).toBe(
+    false,
+  );
+  // Fixture starts with bpmGuideEnabled true; the ignored tap must leave it there.
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await act(async () => screen.unmount());
+});
+
 test('8.1 건강정보 수집 asks before withdrawing and gives consent again at once', async () => {
   const screen = await openSettings();
   expect(stateOf(screen, '건강정보 수집')).toBe('동의함');

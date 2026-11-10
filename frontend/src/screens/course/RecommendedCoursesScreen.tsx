@@ -19,7 +19,14 @@ import Svg, {
   Rect,
   Stop,
 } from 'react-native-svg';
-import { AppText, Backdrop, Icon, MistFill, useToast } from '../../components';
+import {
+  AppText,
+  Backdrop,
+  Button,
+  Icon,
+  MistFill,
+  useToast,
+} from '../../components';
 import {
   errorCode,
   useRepositories,
@@ -410,6 +417,8 @@ export function RecommendedCoursesScreen() {
   const moreTicket = useRequestTicket(search);
   const window = useWindowDimensions();
   const [failed, setFailed] = useState(false);
+  // Bumped by 다시 시도 so the first C01 can be asked again after a failure.
+  const [retry, setRetry] = useState(0);
   // The card in view, kept with the search it belongs to: a new search from 3.1 starts at the first card,
   // so the end of the old row does not ask the new one for its next page.
   const [place, setPlace] = useState({ round, index: 0 });
@@ -436,17 +445,30 @@ export function RecommendedCoursesScreen() {
       ? search.targetDurationSec / (search.targetDistanceM / 1000)
       : null);
 
-  // Opened without going through 3.1: ask with the default conditions.
+  // Opened without going through 3.1: ask with the default conditions. A first failure shows 다시 시도.
   useEffect(() => {
     if (results) {
       return;
     }
+    let cancelled = false;
+    setFailed(false);
     const asked = search ?? defaultSearch;
     courses.recommend(asked).then(
-      found => setSearch(asked, found),
-      () => setFailed(true),
+      found => {
+        if (!cancelled) {
+          setSearch(asked, found);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setFailed(true);
+        }
+      },
     );
-  }, [courses, results, search, setSearch]);
+    return () => {
+      cancelled = true;
+    };
+  }, [courses, results, retry, search, setSearch]);
 
   // The next page (S15P31E105-474, 담당자 결정): reaching the last card asks with the same conditions and the
   // nextSeed of the last answer, and the new courses join the end of the row, so swiping just goes on.
@@ -574,7 +596,15 @@ export function RecommendedCoursesScreen() {
       {!results ? (
         <View style={styles.center}>
           {failed ? (
-            <AppText tone="danger">추천 코스를 불러오지 못했어요</AppText>
+            <View style={styles.failed}>
+              <AppText tone="danger">추천 코스를 불러오지 못했어요</AppText>
+              <Button
+                title="다시 시도"
+                variant="secondary"
+                size="small"
+                onPress={() => setRetry(count => count + 1)}
+              />
+            </View>
           ) : (
             <ActivityIndicator />
           )}
@@ -699,6 +729,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  failed: { alignItems: 'center', gap: 10 },
   pressed: { opacity: 0.85 },
   header: {
     height: 76,

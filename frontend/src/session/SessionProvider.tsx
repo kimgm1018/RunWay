@@ -10,6 +10,7 @@ import React, {
 import { Alert } from 'react-native';
 import { appConfig } from '../config';
 import { useRepositories } from '../data/DataProvider';
+import { clearApiIdentityCache } from '../data/api/identityCache';
 import { onUnauthorized } from '../data/api/http';
 import { tokenStore, type AuthTokens } from '../data/api/tokenStore';
 import { clearSpotifySession } from '../data/spotify/session';
@@ -113,6 +114,7 @@ export function SessionProvider({
           text: '다시 로그인',
           onPress: () => {
             // Reauthentication is not withdrawal of health-data consent.
+            clearApiIdentityCache();
             tokenStore.clear().catch(() => {});
             setLoginRequired(true);
             setSignedIn(false);
@@ -130,6 +132,7 @@ export function SessionProvider({
   const signOut = useCallback(() => {
     // Fire and forget: withdraw consent on the watch and clear its records.
     void setWatchHealthConsent('DISAGREE');
+    clearApiIdentityCache();
     tokenStore.clear().catch(() => {});
     // The next person on this phone should not inherit the Spotify account.
     clearSpotifySession().catch(() => {});
@@ -173,6 +176,7 @@ export function SessionProvider({
 
   // Session expiry is not health-consent withdrawal. Pending watch records survive reauthentication.
   const expireSession = useCallback(() => {
+    clearApiIdentityCache();
     clearSpotifySession().catch(() => {});
     setLoginRequired(true);
     setSignedIn(false);

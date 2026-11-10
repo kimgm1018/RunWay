@@ -79,7 +79,7 @@ function texts(today: TodayCondition, phoneSleep?: PhoneSleep) {
     .map(node => node.props.accessibilityLabel as string)
     // The card's own 러닝 시작하기 is always there; these checks are about the other one.
     .filter(label => label !== '러닝 시작하기')
-    .filter((label, index, all) => all.indexOf(label) === index);
+    .filter((label, index, labels) => labels.indexOf(label) === index);
   return { all, buttons, screen };
 }
 

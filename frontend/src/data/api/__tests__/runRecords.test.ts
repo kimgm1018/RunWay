@@ -62,6 +62,7 @@ test('a personal run reads its session record back from H02 and keeps the server
       averagePaceSecPerKm: 356,
       averageHeartRate: 151,
       averageCadence: null,
+      goalAchieved: null,
     },
   });
   const [url, init] = fetchMock.mock.calls[0];

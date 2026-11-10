@@ -417,6 +417,19 @@ export function SavedCoursesScreen() {
   }, [resource.status, resource.data]);
 
   const open = async (course: SavedCourse) => {
+    // SYS-002: MERGED·BLOCKED are kept on the list for status guidance, not started as a normal run.
+    if (course.status === 'BLOCKED') {
+      toast('이 코스는 사용할 수 없어요. 다른 코스를 골라 주세요');
+      return;
+    }
+    if (course.status === 'MERGED') {
+      toast(
+        course.mergedIntoCourseId
+          ? '이 코스는 다른 코스로 합쳐졌어요. 대표 코스를 다시 골라 주세요'
+          : '이 코스는 다른 코스로 합쳐졌어요. 다른 코스를 골라 주세요',
+      );
+      return;
+    }
     await courses.choose(course.id);
     navigateTo(navigation, 'CourseRun');
   };

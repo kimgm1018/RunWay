@@ -2,7 +2,11 @@ import React from 'react';
 import { Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories, type MockScenario } from '../src/data';
+import {
+  createMockRepositories,
+  type AppNotification,
+  type MockScenario,
+} from '../src/data';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -367,6 +371,89 @@ test('an empty inbox shows the 2.9b empty state', async () => {
   expect(texts(screen)).toContain('아직 받은 알림이 없어요');
   expect(() => labelled(screen, '모두 읽음')).toThrow();
   await act(async () => screen.unmount());
+});
+
+test('FOLLOW_REQUEST opens the approve/reject sheet, not only the runner profile', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const request: AppNotification = {
+    id: 'noti-follow-request',
+    kind: 'FOLLOW_REQUEST',
+    message: 'dohyun_r님의 팔로우 요청이 도착했습니다.',
+    createdAt: '2026-10-19T12:40:00+09:00',
+    read: false,
+    // N01 targetId is the requester users.id (notifications.md), not the request id.
+    targetId: 'user-dohyun',
+  };
+  repositories.notifications.list = async () => ({
+    items: [request],
+    unreadCount: 1,
+    nextCursor: null,
+  });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '알림');
+  await press(
+    screen!,
+    '읽지 않음, 팔로우 요청, dohyun_r님의 팔로우 요청이 도착했습니다.',
+  );
+  await settle(50);
+  expect(texts(screen!)).toContain(
+    '승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.',
+  );
+  expect(texts(screen!)).toContain('dohyun_r');
+  expect(() => labelled(screen!, 'dohyun_r 승인')).not.toThrow();
+  await act(async () => screen!.unmount());
+});
+
+test('알림 더 보기 loads the next N01 page', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const first: AppNotification = {
+    id: 'noti-page-1',
+    kind: 'POST_COMMENT',
+    message: '서연님이 내 게시물에 댓글을 남겼어요: 첫 페이지',
+    createdAt: '2026-10-19T12:40:00+09:00',
+    read: false,
+    targetId: 'post-minjun-1015',
+  };
+  const second: AppNotification = {
+    id: 'noti-page-2',
+    kind: 'NEW_FOLLOWER',
+    message: '지우님이 나를 팔로우했어요',
+    createdAt: '2026-10-19T11:40:00+09:00',
+    read: true,
+    targetId: 'user-jiwoo',
+  };
+  repositories.notifications.list = async cursor =>
+    cursor
+      ? { items: [second], unreadCount: 1, nextCursor: null }
+      : { items: [first], unreadCount: 1, nextCursor: 'page-2' };
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '알림');
+  expect(texts(screen!)).toContain('첫 페이지');
+  // Emphasis splits "지우님" into its own Text node, so assert the non-bold rest.
+  expect(texts(screen!)).not.toContain('나를 팔로우했어요');
+  // loadMore is async; await the button handler so the next page is merged before assert.
+  await act(async () => {
+    await labelled(screen!, '더 보기').props.onPress();
+  });
+  await settle();
+  expect(texts(screen!)).toContain('나를 팔로우했어요');
+  expect(texts(screen!)).toContain('지우님');
+  expect(() => labelled(screen!, '더 보기')).toThrow();
+  await act(async () => screen!.unmount());
 });
 
 test('run mode leads to course recommendations and a free run with a countdown', async () => {

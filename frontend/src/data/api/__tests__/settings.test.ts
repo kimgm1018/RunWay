@@ -1,4 +1,5 @@
 import { appConfig } from '../../../config';
+import { DataError } from '../../errors';
 import { settingsApi } from '../settings';
 import { tokenStore } from '../tokenStore';
 
@@ -124,4 +125,44 @@ test('a failed save rejects so 8.1 can put the switch back', async () => {
   await expect(
     settingsApi.update({ locationRecordingMode: 'OFF' }),
   ).rejects.toBeDefined();
+  // The companion GET must not run after a failed write.
+  expect(calls().some(c => c.request === `GET ${privacyUrl}`)).toBe(false);
+});
+
+// S15P31E105-638: U20 succeeded; a failed U13 read is not a failed save.
+test('a companion GET failure after a successful PATCH is SAVE_UNCONFIRMED', async () => {
+  server({
+    [`PATCH ${appUrl}`]: () => respond(200, { ...app, bpmGuideEnabled: true }),
+    [`GET ${privacyUrl}`]: () =>
+      respond(503, {
+        code: 'SERVICE_UNAVAILABLE',
+        message: '잠시 후 다시 시도',
+      }),
+  });
+
+  await expect(settingsApi.update({ bpmGuideEnabled: true })).rejects.toEqual(
+    expect.objectContaining({
+      name: 'DataError',
+      code: 'SAVE_UNCONFIRMED',
+    } satisfies Partial<DataError>),
+  );
+  expect(calls()).toEqual([
+    { request: `PATCH ${appUrl}`, body: { bpmGuideEnabled: true } },
+    { request: `GET ${privacyUrl}`, body: undefined },
+  ]);
+});
+
+test('a companion GET failure after U14 is SAVE_UNCONFIRMED', async () => {
+  server({
+    [`PATCH ${privacyUrl}`]: () => respond(200, { isPrivate: true }),
+    [`GET ${appUrl}`]: () =>
+      respond(503, {
+        code: 'SERVICE_UNAVAILABLE',
+        message: '잠시 후 다시 시도',
+      }),
+  });
+
+  await expect(settingsApi.update({ isPrivate: true })).rejects.toMatchObject({
+    code: 'SAVE_UNCONFIRMED',
+  });
 });

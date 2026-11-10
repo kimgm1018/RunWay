@@ -286,9 +286,36 @@ export function ProfileBirthdayScreen() {
         // The nickname is chosen on 1.5, so that is where it is shown as taken.
         update({ takenNickname: profile.nickname });
         navigation.goBack();
-      } else {
-        setFailure(describeSignUpError(error));
+        return;
       }
+      // A lost U15 success still created the account; LOGIN_ID_DUPLICATED on retry — sign in and continue
+      // setup instead of a dead-end "change your id" message (S15P31E105-638).
+      if (errorCode(error) === 'LOGIN_ID_DUPLICATED' && !draft.accountCreated) {
+        try {
+          const session = await repositories.auth.login({
+            loginId: draft.loginId,
+            password: draft.password,
+          });
+          holdTokens({
+            userId: session.user.id,
+            accessToken: session.accessToken,
+            refreshToken: session.refreshToken,
+            refreshExpiresAt: session.refreshExpiresAt,
+          });
+          void setWatchHealthConsent(draft.healthDataAccess);
+          update({
+            profile,
+            accountCreated: true,
+            password: '',
+            takenNickname: null,
+          });
+          navigateTo(navigation, 'ProfileRunning');
+          return;
+        } catch {
+          // Fall through to the duplicated-id message when login also fails.
+        }
+      }
+      setFailure(describeSignUpError(error));
     }
   };
 

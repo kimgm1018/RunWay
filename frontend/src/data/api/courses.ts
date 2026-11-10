@@ -1,6 +1,7 @@
 import type {
   CoursePlan,
   CourseRecommendations,
+  CourseStatus,
   EnvironmentType,
   RecommendedCourse,
   Repositories,
@@ -28,16 +29,25 @@ type DetailResponse = {
   environmentTags: EnvironmentType[];
   // Only with targetPaceSecPerKm.
   estimatedDurationSec?: number;
-  status: 'ACTIVE' | 'MERGED' | 'BLOCKED';
+  status: CourseStatus;
+  mergedIntoCourseId: number | null;
 };
 
 type BookmarkItem = {
   id: number;
   regionCode: string | null;
   status: string;
+  mergedIntoCourseId?: number | null;
   myAlias: string | null;
   distanceM: number;
 };
+
+const courseStatuses: readonly CourseStatus[] = ['ACTIVE', 'MERGED', 'BLOCKED'];
+
+const statusOf = (value: string | undefined): CourseStatus =>
+  courseStatuses.includes(value as CourseStatus)
+    ? (value as CourseStatus)
+    : 'ACTIVE';
 
 // C01 (courses.md 코스 생성 후속): routes made for this search, not stored courses. index is not a course id.
 type GradeSegment = {
@@ -244,12 +254,23 @@ export function createCoursesApi({
 
   const getSaved: Repositories['courses']['getSaved'] = async () => {
     const [items, paceSecPerKm] = await Promise.all([bookmarks(), pace()]);
-    return Promise.all(
+    // One C03 failure must not drop the whole list (S15P31E105-638).
+    const settled = await Promise.allSettled(
       items.map(async (item): Promise<SavedCourse> => {
+        const bookmarkStatus = statusOf(item.status);
+        const bookmarkMerged =
+          item.mergedIntoCourseId == null
+            ? null
+            : String(item.mergedIntoCourseId);
         const [course, name] = await Promise.all([
           detail(item.id, paceSecPerKm),
           nameOf(item.id, item.regionCode, item.distanceM),
         ]);
+        const status = statusOf(course.status ?? bookmarkStatus);
+        const mergedIntoCourseId =
+          course.mergedIntoCourseId == null
+            ? bookmarkMerged
+            : String(course.mergedIntoCourseId);
         return {
           id: String(item.id),
           name,
@@ -261,8 +282,13 @@ export function createCoursesApi({
           ),
           shape: shapeOf(course.route.coordinates),
           route: course.route.coordinates,
+          status,
+          mergedIntoCourseId,
         };
       }),
+    );
+    return settled.flatMap(result =>
+      result.status === 'fulfilled' ? [result.value] : [],
     );
   };
 

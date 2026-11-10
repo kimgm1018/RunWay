@@ -70,8 +70,6 @@ function serve(route: Route) {
   });
 }
 
-const base = `${appConfig.apiBaseUrl}/running-records`;
-
 function requested() {
   return fetchMock.mock.calls.map(([url]) => new URL(url));
 }
@@ -90,37 +88,43 @@ test('H01 empty or missing items stays empty instead of failing the screen', asy
   await expect(records.getRecent('recent', 4)).resolves.toEqual([]);
 });
 
-test('H01 recent runs ask for solo runs in the chosen order', async () => {
-  serve(() => respond(200, { items: [solo] }));
+test('H01 recent runs ask for solo and group runs in the chosen order', async () => {
+  serve(url =>
+    url.searchParams.get('runType') === 'GROUP'
+      ? respond(200, { items: [group] })
+      : respond(200, { items: [solo] }),
+  );
   const { records } = createRecordsApi();
 
   const recent = await records.getRecent('pace', 4);
 
-  const [url] = requested();
-  expect(`${url.origin}${url.pathname}`).toBe(base);
-  expect(Object.fromEntries(url.searchParams)).toEqual({
-    runType: 'SOLO',
+  const lists = requested();
+  expect(lists).toHaveLength(2);
+  expect(lists.map(url => url.searchParams.get('runType')).sort()).toEqual([
+    'GROUP',
+    'SOLO',
+  ]);
+  expect(Object.fromEntries(lists[0].searchParams)).toMatchObject({
     sort: 'PACE',
     limit: '4',
   });
   expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
     'Bearer access-1',
   );
-  expect(recent).toEqual([
-    {
-      id: '101',
-      // 07:10 in Korea.
-      title: '아침 러닝',
-      startedAt: '2026-10-28T22:10:00Z',
-      distanceM: 5020.5,
-      durationSec: 1800,
-      averagePaceSecPerKm: 359,
-      shape: [],
-      runType: 'SOLO',
-      group: null,
-      goalAchieved: true,
-    },
-  ]);
+  // Faster pace first (solo 359 before group 360).
+  expect(recent.map(run => run.id)).toEqual(['101', '102']);
+  expect(recent[0]).toMatchObject({
+    id: '101',
+    // 07:10 in Korea.
+    title: '아침 러닝',
+    runType: 'SOLO',
+    goalAchieved: true,
+  });
+  expect(recent[1]).toMatchObject({
+    id: '102',
+    runType: 'GROUP',
+    goalAchieved: null,
+  });
 });
 
 test('H01 month covers the Korean month, keeps run types and follows the cursor', async () => {
@@ -246,6 +250,7 @@ test('H02 and H03 fill the detail of a listed run', async () => {
     averagePaceSecPerKm: 358,
     goalAchieved: true,
     route: null,
+    targetDistanceM: 5000,
     targetDurationSec: 1800,
     targetPaceSecPerKm: 360,
     aiAdvice: null,
