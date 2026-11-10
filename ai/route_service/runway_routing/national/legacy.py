@@ -24,3 +24,6 @@ RUNTIME['runway_routing/substrate.py'] = '1a4e87269a9965d8352075e970d482f219641b
 RUNTIME['runway_routing/array_graph.py'] = 'a9d8bd869699eb9a16e7f08583296a3b642f3d68d9edce74237a8ac19d577076'
 # 626: _build_routing의 pandas 정렬·pair_to_eid dict를 배열로(같은 redges·같은 조회). prep 배열은 같다.
 RUNTIME['runway_routing/graph.py'] = 'c5093a2a7f1632c7296ca840c23b8d0ba396145948eac690371e368bb5d00812'
+# 640: env 거리를 창 segment 위치로 조회(같은 행), full_status를 정렬 배열 Mapping으로(같은 key·status). prep 배열은 같다.
+RUNTIME['runway_routing/graph.py'] = '3ef2a685fd6440f885fad2e305ac8719acad16a26fd290d7c097288475f95fb5'
+RUNTIME['runway_routing/array_graph.py'] = '95881e3d9f779ea1d0608ad1710d2af2fdb500efe40c08aeb588a0ef660481c7'

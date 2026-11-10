@@ -261,7 +261,12 @@ def attach_env(cg: CanonicalRoutingGraph, env: dict, thresholds: dict, cache=Non
     e = cg.redges
     stats = None
     if cache is not None:
-        d, missing = cache.lookup(e)
+        seg = getattr(cg, "edges_all_seg", None)
+        if seg is not None and hasattr(cache, "lookup_segments"):
+            # S15P31E105-640: 배열 graph는 edge가 나온 창 segment를 안다. key 검색 없이 같은 행을 읽는다.
+            d, missing = cache.lookup_segments(seg[e["all_idx"].to_numpy()])
+        else:
+            d, missing = cache.lookup(e)
         if missing.any():  # not in the cache: compute exactly as before
             sub = _Segments(cg.x, cg.y, e["u"].to_numpy()[missing], e["v"].to_numpy()[missing])
             d[missing] = edge_distances(sub, env["layers"])[[f"{c}_dist_m" for c in ENV_CLASSES]].to_numpy()
