@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { AppText, Screen, TextField } from '../../components';
 import {
@@ -9,13 +9,12 @@ import {
   type LoginIdAvailability,
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, spacing } from '../../theme';
+import { spacing } from '../../theme';
 import {
   FieldChip,
   GoButton,
   OnboardingFooter,
   OnboardingHeader,
-  onboardingLook,
   onboardingScreen,
   RunnerArt,
   signUpSteps,
@@ -26,14 +25,12 @@ import { formatRemaining, usePhoneVerification } from './usePhoneVerification';
 import {
   formatPhoneNumber,
   isValidLoginId,
+  confirmGuide,
   isValidPassword,
   loginIdRule,
-  passwordChecks,
-  passwordLimitRule,
-  passwordWithinLimit,
+  passwordGuide,
+  passwordRule,
 } from './validation';
-
-const passwordLabels = { length: '8자 이상', letter: '영문', digit: '숫자' };
 
 // Waits for typing to pause before asking U16 whether the ID is free (users.md suggests about 500ms).
 const checkDelayMs = 500;
@@ -79,7 +76,6 @@ export function SignUpScreen() {
   const [confirm, setConfirm] = useState(draft.password);
   const idCheck = useLoginIdCheck(loginId);
   const phone = usePhoneVerification('SIGN_UP');
-  const checks = passwordChecks(password);
 
   const idState = !loginId
     ? { status: 'default' as const, helper: loginIdRule }
@@ -98,15 +94,12 @@ export function SignUpScreen() {
     : idCheck.result.available
     ? {
         status: 'success' as const,
-        helper: `사용할 수 있는 아이디예요 · ${loginIdRule}`,
+        helper: '사용할 수 있는 아이디예요',
       }
     : { status: 'error' as const, helper: '이미 사용 중인 아이디예요' };
 
-  const confirmState = !confirm
-    ? { status: 'default' as const, helper: undefined }
-    : confirm === password
-    ? { status: 'success' as const, helper: '비밀번호가 일치해요' }
-    : { status: 'error' as const, helper: '비밀번호가 일치하지 않아요' };
+  const passwordState = passwordGuide(password);
+  const confirmState = confirmGuide(password, confirm);
 
   const verified = phone.phase === 'verified';
   const codeVisible = phone.phase === 'sent' || phone.phase === 'verifying';
@@ -187,48 +180,18 @@ export function SignUpScreen() {
         status={idState.status}
         helper={idState.helper}
       />
-      <View style={styles.group}>
-        <TextField
-          labelInside
-          icon="padlock"
-          label="비밀번호"
-          placeholder="8자 이상 · 영문 · 숫자"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          textContentType="newPassword"
-          status={
-            password && !passwordWithinLimit(password)
-              ? 'error'
-              : password && isValidPassword(password)
-              ? 'success'
-              : 'default'
-          }
-          helper={
-            password && !passwordWithinLimit(password)
-              ? passwordLimitRule
-              : undefined
-          }
-        />
-        <View style={styles.checks}>
-          {(Object.keys(passwordLabels) as (keyof typeof checks)[]).map(key => (
-            <View
-              key={key}
-              accessibilityLabel={`${passwordLabels[key]} ${
-                checks[key] ? '충족' : '미충족'
-              }`}
-              style={[styles.check, checks[key] && styles.checkMet]}
-            >
-              <AppText
-                style={[styles.checkText, checks[key] && styles.checkTextMet]}
-              >
-                {checks[key] ? '✓ ' : ''}
-                {passwordLabels[key]}
-              </AppText>
-            </View>
-          ))}
-        </View>
-      </View>
+      <TextField
+        labelInside
+        icon="padlock"
+        label="비밀번호"
+        placeholder={passwordRule}
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        textContentType="newPassword"
+        status={passwordState.status}
+        helper={passwordState.helper}
+      />
       <TextField
         labelInside
         icon="shieldCheck"
@@ -287,23 +250,5 @@ export function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  group: { gap: spacing.md },
-  checks: { flexDirection: 'row', gap: spacing.sm },
-  // The password rules (kept though the handoff leaves them out, 담당자 결정): small pale pills that turn
-  // white with ink text once met.
-  check: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  checkMet: { backgroundColor: '#FFFFFF' },
-  checkText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 12,
-    lineHeight: 16,
-    color: onboardingLook.muted,
-  },
-  checkTextMet: { color: onboardingLook.ink },
   timer: { paddingHorizontal: spacing.xs },
 });

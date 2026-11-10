@@ -2,7 +2,6 @@ import React from 'react';
 import type { AuthRouteName } from '../../navigation/routes';
 import { ConsentScreen } from './ConsentScreen';
 import { LoginScreen } from './LoginScreen';
-import { PasswordFindScreen } from './PasswordFindScreen';
 import { PasswordPhoneScreen } from './PasswordPhoneScreen';
 import {
   ProfileBasicScreen,
@@ -31,6 +30,5 @@ export const onboardingScreens: Record<AuthRouteName, React.ComponentType> = {
   ProfilePace: ProfilePaceScreen,
   WatchChoice: WatchChoiceScreen,
   WatchConnect: WatchConnectScreen,
-  PasswordFind: PasswordFindScreen,
   PasswordPhone: PasswordPhoneScreen,
 };

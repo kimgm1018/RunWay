@@ -28,7 +28,6 @@ export const authRoutes = [
   'ProfilePace',
   'WatchChoice',
   'WatchConnect',
-  'PasswordFind',
   'PasswordPhone',
 ] as const;
 
@@ -115,7 +114,8 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '1.2',
     title: '로그인',
     task: ONBOARDING,
-    links: ['PasswordFind', 'SignUp', 'signIn'],
+    // 비밀번호를 잊으셨나요? → 1.2q 전화번호 입력으로 바로 간다(1.2p 안내 화면 제거, S15P31E105-627).
+    links: ['PasswordPhone', 'SignUp', 'signIn'],
   },
   SignUp: {
     code: '1.3',
@@ -164,12 +164,6 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '워치 연결',
     task: ONBOARDING,
     links: ['signIn'],
-  },
-  PasswordFind: {
-    code: '1.2p',
-    title: '비밀번호 찾기',
-    task: ONBOARDING,
-    links: ['PasswordPhone'],
   },
   PasswordPhone: {
     code: '1.2q',

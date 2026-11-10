@@ -126,7 +126,16 @@ test('sign-up validates each field and reaches home through the watch connection
   await type(screen, '아이디', 'newrunner');
   await settle(550);
   expect(texts(screen)).toContain('사용할 수 있는 아이디예요');
+  // S15P31E105-627: 사용할 수 있으면 규칙(영문·숫자 4–16자)은 뒤에 붙이지 않는다.
+  expect(texts(screen)).not.toContain('아이디예요 ·');
 
+  // S15P31E105-627: 비밀번호 규칙은 아이디 칸처럼 안 글씨와 아래 안내로 보이고, 만족한 조건마다 ✓가 붙는다.
+  expect(texts(screen)).toContain('8자 이상 · 영문 · 숫자');
+  await type(screen, '비밀번호', 'runway');
+  expect(texts(screen)).toContain('8자 이상 · ✓ 영문 · 숫자');
+  await type(screen, '비밀번호', 'runway12');
+  expect(texts(screen)).toContain('✓ 사용할 수 있는 비밀번호예요');
+  expect(texts(screen)).not.toContain('비밀번호예요 ·');
   await type(screen, '비밀번호', 'runway123');
   await type(screen, '비밀번호 확인', 'runway12');
   expect(texts(screen)).toContain('비밀번호가 일치하지 않아요');
@@ -323,9 +332,10 @@ test('a level resets typed values and digits alone get the colons', async () => 
 test('password reset handles unknown numbers and wrong codes, then logs in with the new password', async () => {
   const screen = await render();
   await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
+  // S15P31E105-627: 안내 화면(1.2p) 없이 바로 1.2q 전화번호 입력으로 간다.
   await press(screen, '비밀번호를 잊으셨나요?');
-  expect(texts(screen)).toContain('가입한 전화번호 입력');
-  await press(screen, '전화번호로 찾기');
+  expect(texts(screen)).not.toContain('가입한 전화번호 입력');
+  expect(texts(screen)).toContain('전화번호 확인');
 
   await type(screen, '전화번호', '01077310042');
   await press(screen, '인증번호 받기');
@@ -361,7 +371,6 @@ test('five wrong codes require a new code', async () => {
   const screen = await render();
   await press(screen, '시작하기'); // 1.1 시작하기 opens 1.2 로그인
   await press(screen, '비밀번호를 잊으셨나요?');
-  await press(screen, '전화번호로 찾기');
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
   for (let attempt = 0; attempt < 5; attempt += 1) {

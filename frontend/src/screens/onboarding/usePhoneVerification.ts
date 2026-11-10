@@ -96,7 +96,7 @@ function describe(
   }
 }
 
-// Phone → code → verified, shared by 1.3 회원가입 and 1.2q 전화번호로 찾기.
+// Phone → code → verified, shared by 1.3 회원가입 and 1.2q 비밀번호 찾기.
 export function usePhoneVerification(purpose: PhoneVerificationPurpose) {
   const { auth } = useRepositories();
   const [phoneNumber, setPhoneDigits] = useState('');
