@@ -12,7 +12,12 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaInsetsContext,
+  SafeAreaProvider,
+  useSafeAreaInsets,
+  type EdgeInsets,
+} from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
 import {
   countComments,
@@ -192,6 +197,9 @@ const closeDrag = 120;
 // shrink above the keyboard or stay full under it, by phone: a window that shrank already keeps the comment bar
 // clear, one that did not needs the bar lifted by the keyboard's height. Never both, or the bar floats above
 // the keyboard with a gap. Two thirds of the window (68%) at rest; up to just under the status bar while typing.
+// React Native's keyboard height leaves out the navigation bar (IME minus system bars), so a window that reaches
+// under that bar (Android 16, S15P31E105-619) lifts the bar by its own bottom inset as well; one that stops above
+// it has no bottom inset to add.
 export function sheetFit({
   open,
   frame,
@@ -216,7 +224,7 @@ export function sheetFit({
   return {
     full,
     height: now - top - 8,
-    paddingBottom: shrank ? 0 : keyboard,
+    paddingBottom: shrank ? 0 : keyboard + bottom,
   };
 }
 
@@ -502,14 +510,18 @@ export function CommentSheet({
   };
 
   const sendable = Boolean(editing) || Boolean(draft.trim());
-  const { full, height, paddingBottom } = sheetFit({
-    open,
-    frame,
-    screen: screenHeight,
-    keyboard,
-    top: insets.top,
-    bottom: insets.bottom,
-  });
+  // The sheet's own window decides its insets (S15P31E105-619): on Android the Modal window may or may not
+  // reach under the navigation bar, so the app window's bottom inset could leave the comment bar under the
+  // bar (or float it). The provider inside the Modal measures that window; until it has, the app's stands in.
+  const fitIn = (windowInsets: EdgeInsets | null) =>
+    sheetFit({
+      open,
+      frame,
+      screen: screenHeight,
+      keyboard,
+      top: (windowInsets ?? insets).top,
+      bottom: (windowInsets ?? insets).bottom,
+    });
 
   return (
     <Modal
@@ -523,166 +535,193 @@ export function CommentSheet({
         riseUp();
       }}
     >
-      <View
-        style={styles.root}
-        onLayout={event => {
-          const measured = Math.round(event.nativeEvent.layout.height);
-          setFrame(measured);
-          // The window can shrink before the keyboard's event arrives, so the open height only grows.
-          setOpen(current => Math.max(current, measured));
-        }}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="댓글 닫기"
-          onPress={onClose}
-          style={[StyleSheet.absoluteFill, sheetLook.scrim]}
-        />
-        <Animated.View
-          accessibilityViewIsModal
-          style={[
-            sheetLook.sheet,
-            {
-              height,
-              paddingBottom,
-              transform: [
-                {
-                  // Starts a whole window below, so no part of it shows before it rises.
-                  translateY: Animated.add(
-                    drag,
-                    rise.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, full],
-                    }),
-                  ),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={sheetLook.header} {...pan.panHandlers}>
-            <View style={sheetLook.handle} />
-            <AppText style={sheetLook.title} accessibilityRole="header">
-              댓글
-            </AppText>
-          </View>
-          <ScrollView
-            style={styles.flex}
-            contentContainerStyle={styles.list}
-            keyboardShouldPersistTaps="handled"
-          >
-            {failed ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="댓글 다시 불러오기"
-                onPress={load}
-                style={styles.center}
+      <SafeAreaProvider>
+        <SafeAreaInsetsContext.Consumer>
+          {windowInsets => {
+            const { full, height, paddingBottom } = fitIn(windowInsets);
+            return (
+              <View
+                style={styles.root}
+                onLayout={event => {
+                  const measured = Math.round(event.nativeEvent.layout.height);
+                  setFrame(measured);
+                  // The window can shrink before the keyboard's event arrives, so the open height only grows.
+                  setOpen(current => Math.max(current, measured));
+                }}
               >
-                <AppText style={styles.empty}>
-                  {`댓글을 불러오지 못했어요\n눌러서 다시 시도해 주세요`}
-                </AppText>
-              </Pressable>
-            ) : !comments ? (
-              <ActivityIndicator
-                style={styles.loading}
-                color={communityLook.sub}
-              />
-            ) : comments.length === 0 ? (
-              <View style={styles.center}>
-                <AppText style={styles.emptyTitle}>아직 댓글이 없어요</AppText>
-                <AppText style={styles.empty}>첫 댓글을 남겨 보세요</AppText>
-              </View>
-            ) : (
-              threadComments(comments).map(({ comment, reply }) => (
-                <CommentRow
-                  key={comment.id}
-                  comment={comment}
-                  reply={reply}
-                  onReply={
-                    replyOpen(comment, comments)
-                      ? () => startReply(comment)
-                      : null
-                  }
-                  onMenu={comment.isMine ? () => setCommentMenu(comment) : null}
-                  onLike={() => like(comment)}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="댓글 닫기"
+                  onPress={onClose}
+                  style={[StyleSheet.absoluteFill, sheetLook.scrim]}
                 />
-              ))
-            )}
-          </ScrollView>
-          {notice ? (
-            <AppText style={styles.notice} accessibilityLiveRegion="polite">
-              {notice}
-            </AppText>
-          ) : null}
-          {replyTo && !editing ? (
-            <View style={styles.editing}>
-              <AppText style={styles.editingText}>
-                {`${replyTo.handle}님에게 답글 남기는 중`}
-              </AppText>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="답글 취소"
-                onPress={stopReply}
-                hitSlop={8}
-              >
-                <AppText style={styles.editingText}>취소</AppText>
-              </Pressable>
-            </View>
-          ) : null}
-          {editing ? (
-            <View style={styles.editing}>
-              <AppText style={styles.editingText}>댓글 수정 중</AppText>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="수정 취소"
-                onPress={stopEditing}
-                hitSlop={8}
-              >
-                <AppText style={styles.editingText}>취소</AppText>
-              </Pressable>
-            </View>
-          ) : null}
-          <View style={styles.inputBar}>
-            <Avatar
-              nickname={me.status === 'ready' ? me.data.nickname : ''}
-              userId="me"
-              photo={me.status === 'ready' ? me.data.profileImageUrl : null}
-              mine
-              size={36}
-            />
-            <View style={styles.input}>
-              <TextInput
-                ref={input}
-                accessibilityLabel="댓글 입력"
-                placeholder={
-                  editing
-                    ? '댓글 수정'
-                    : `${post?.author.handle ?? ''}님에게 댓글 달기…`
-                }
-                placeholderTextColor={communityLook.meta}
-                selectionColor={communityLook.ink}
-                value={draft}
-                onChangeText={setDraft}
-                style={styles.inputText}
-              />
-            </View>
-            {/* 저장 stays pressable on an emptied comment so it can say why it does not save. */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={editing ? '댓글 수정 저장' : '게시'}
-              accessibilityState={{ disabled: !sendable || sending }}
-              disabled={!sendable || sending}
-              onPress={send}
-              hitSlop={6}
-              style={({ pressed }) => [styles.send, pressed && styles.pressed]}
-            >
-              <AppText style={[styles.sendText, !sendable && styles.sendOff]}>
-                {editing ? '저장' : '게시'}
-              </AppText>
-            </Pressable>
-          </View>
-        </Animated.View>
-      </View>
+                <Animated.View
+                  accessibilityViewIsModal
+                  style={[
+                    sheetLook.sheet,
+                    {
+                      height,
+                      paddingBottom,
+                      transform: [
+                        {
+                          // Starts a whole window below, so no part of it shows before it rises.
+                          translateY: Animated.add(
+                            drag,
+                            rise.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, full],
+                            }),
+                          ),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={sheetLook.header} {...pan.panHandlers}>
+                    <View style={sheetLook.handle} />
+                    <AppText style={sheetLook.title} accessibilityRole="header">
+                      댓글
+                    </AppText>
+                  </View>
+                  <ScrollView
+                    style={styles.flex}
+                    contentContainerStyle={styles.list}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {failed ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="댓글 다시 불러오기"
+                        onPress={load}
+                        style={styles.center}
+                      >
+                        <AppText style={styles.empty}>
+                          {`댓글을 불러오지 못했어요\n눌러서 다시 시도해 주세요`}
+                        </AppText>
+                      </Pressable>
+                    ) : !comments ? (
+                      <ActivityIndicator
+                        style={styles.loading}
+                        color={communityLook.sub}
+                      />
+                    ) : comments.length === 0 ? (
+                      <View style={[styles.center, styles.emptyState]}>
+                        <AppText style={styles.emptyTitle}>
+                          아직 댓글이 없어요
+                        </AppText>
+                        <AppText style={styles.empty}>
+                          첫 댓글을 남겨 보세요
+                        </AppText>
+                      </View>
+                    ) : (
+                      threadComments(comments).map(({ comment, reply }) => (
+                        <CommentRow
+                          key={comment.id}
+                          comment={comment}
+                          reply={reply}
+                          onReply={
+                            replyOpen(comment, comments)
+                              ? () => startReply(comment)
+                              : null
+                          }
+                          onMenu={
+                            comment.isMine
+                              ? () => setCommentMenu(comment)
+                              : null
+                          }
+                          onLike={() => like(comment)}
+                        />
+                      ))
+                    )}
+                  </ScrollView>
+                  {notice ? (
+                    <AppText
+                      style={styles.notice}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {notice}
+                    </AppText>
+                  ) : null}
+                  {replyTo && !editing ? (
+                    <View style={styles.editing}>
+                      <AppText style={styles.editingText}>
+                        {`${replyTo.handle}님에게 답글 남기는 중`}
+                      </AppText>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="답글 취소"
+                        onPress={stopReply}
+                        hitSlop={8}
+                      >
+                        <AppText style={styles.editingText}>취소</AppText>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  {editing ? (
+                    <View style={styles.editing}>
+                      <AppText style={styles.editingText}>댓글 수정 중</AppText>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="수정 취소"
+                        onPress={stopEditing}
+                        hitSlop={8}
+                      >
+                        <AppText style={styles.editingText}>취소</AppText>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                  <View style={styles.inputBar}>
+                    <Avatar
+                      nickname={me.status === 'ready' ? me.data.nickname : ''}
+                      userId="me"
+                      photo={
+                        me.status === 'ready' ? me.data.profileImageUrl : null
+                      }
+                      mine
+                      size={36}
+                    />
+                    <View style={styles.input}>
+                      <TextInput
+                        ref={input}
+                        accessibilityLabel="댓글 입력"
+                        placeholder={
+                          editing
+                            ? '댓글 수정'
+                            : `${post?.author.handle ?? ''}님에게 댓글 달기…`
+                        }
+                        placeholderTextColor={communityLook.meta}
+                        selectionColor={communityLook.ink}
+                        value={draft}
+                        onChangeText={setDraft}
+                        style={styles.inputText}
+                      />
+                    </View>
+                    {/* 저장 stays pressable on an emptied comment so it can say why it does not save. */}
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={editing ? '댓글 수정 저장' : '게시'}
+                      accessibilityState={{ disabled: !sendable || sending }}
+                      disabled={!sendable || sending}
+                      onPress={send}
+                      hitSlop={6}
+                      style={({ pressed }) => [
+                        styles.send,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <AppText
+                        style={[styles.sendText, !sendable && styles.sendOff]}
+                      >
+                        {editing ? '저장' : '게시'}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                </Animated.View>
+              </View>
+            );
+          }}
+        </SafeAreaInsetsContext.Consumer>
+      </SafeAreaProvider>
       <PostMenu
         subject="comment"
         visible={commentMenu !== null}
@@ -743,6 +782,9 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
   loading: { marginTop: 40 },
   center: { alignItems: 'center', paddingTop: 48, gap: 4 },
+  // No comments yet: as much room under the note as over it, so the comment bar never sits right on it
+  // (S15P31E105-619).
+  emptyState: { paddingBottom: 48 },
   emptyTitle: {
     fontFamily: fontFamily.bold,
     fontSize: 17,
