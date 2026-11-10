@@ -2,12 +2,14 @@ package com.runway.backend.domain.session.service;
 
 import com.runway.backend.domain.device.entity.DeviceType;
 import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
+import com.runway.backend.domain.session.entity.ControlAction;
 import com.runway.backend.domain.session.entity.ControlResult;
 import com.runway.backend.domain.session.entity.PacePlan;
 import com.runway.backend.domain.session.entity.PacePlanSegment;
 import com.runway.backend.domain.session.entity.RunningSession;
 import com.runway.backend.domain.session.entity.RunningSessionStatus;
 import com.runway.backend.domain.session.entity.SessionControlEvent;
+import com.runway.backend.domain.session.service.PostRunAnalysisCalculator.PauseResumeEvent;
 import com.runway.backend.domain.session.mapper.RunningSessionMapper;
 import com.runway.backend.domain.session.mapper.SessionSnapshot;
 import com.runway.backend.domain.session.repository.PacePlanRepository;
@@ -178,7 +180,12 @@ class SessionAccess {
                         .findFirstBySessionIdOrderByIdDesc(session.getId())
                         .orElse(null);
         Instant groupEndedAt = referenceRepository.findGroupEndedAt(session.getId()).orElse(null);
-        Instant now = Instant.now();
+        Instant serverSendAt = Instant.now();
+        // 진행 중은 serverSendAt, 종료 세션은 endedAt 기준(S15P31E105-643). S10도 이 응답을 그대로 보낸다.
+        Instant until = session.getEndedAt() != null ? session.getEndedAt() : serverSendAt;
+        Integer movingDurationSec =
+                PostRunAnalysisCalculator.movingDurationSec(
+                        session.getStartedAt(), until, pauseResumeEvents(session.getId()));
         SessionSnapshot snapshot =
                 new SessionSnapshot(
                         session,
@@ -188,7 +195,20 @@ class SessionAccess {
                         coachingGuide,
                         last,
                         groupEndedAt,
-                        comparisonService.compare(session, now));
-        return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, Instant.now());
+                        comparisonService.compare(session, serverSendAt),
+                        movingDurationSec);
+        return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, serverSendAt);
+    }
+
+    /** 기록 비교·종료 후 분석과 같은 APPLIED PAUSE/RESUME 조회. */
+    private List<PauseResumeEvent> pauseResumeEvents(long sessionId) {
+        return controlEventRepository
+                .findBySessionIdAndActionInAndResultOrderByAppliedAtAscIdAsc(
+                        sessionId,
+                        List.of(ControlAction.PAUSE, ControlAction.RESUME),
+                        ControlResult.APPLIED)
+                .stream()
+                .map(event -> new PauseResumeEvent(event.getAction(), event.getAppliedAt()))
+                .toList();
     }
 }

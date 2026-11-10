@@ -16,6 +16,8 @@ public record RunningSessionResponse(
         Integer currentBpm,
         Instant startedAt,
         Instant endedAt,
+        /** 일시정지를 제외한 운동시간(초). 시작 전이면 null. 기록 API movingDurationSec와 같은 의미(S15P31E105-643). */
+        Integer movingDurationSec,
         Goal goal,
         Plan plan,
         Analysis analysis,

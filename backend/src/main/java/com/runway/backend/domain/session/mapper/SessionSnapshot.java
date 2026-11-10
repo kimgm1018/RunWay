@@ -19,7 +19,8 @@ public record SessionSnapshot(
         CoachingGuideRow coachingGuide,
         SessionControlEvent lastCommand,
         Instant groupEndedAt,
-        RunningSessionResponse.RecordComparison comparison) {
+        RunningSessionResponse.RecordComparison comparison,
+        Integer movingDurationSec) {
 
     public SessionSnapshot {
         segments = List.copyOf(segments);

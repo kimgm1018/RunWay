@@ -109,6 +109,59 @@ class PostRunAnalysisCalculatorTest {
     }
 
     @Test
+    void S02용_movingDurationSec는_시작전이면_null이다() {
+        assertThat(PostRunAnalysisCalculator.movingDurationSec(null, at(100), List.of())).isNull();
+        assertThat(PostRunAnalysisCalculator.movingDurationSec(START, null, List.of())).isNull();
+    }
+
+    @Test
+    void S02용_movingDurationSec는_일시정지_없는_경과와_같다() {
+        assertThat(PostRunAnalysisCalculator.movingDurationSec(START, at(600), List.of())).isEqualTo(600);
+    }
+
+    @Test
+    void S02용_movingDurationSec는_열린_PAUSE를_기준시각까지_뺀다() {
+        assertThat(
+                        PostRunAnalysisCalculator.movingDurationSec(
+                                START, at(500), List.of(pause(300))))
+                .isEqualTo(300);
+    }
+
+    @Test
+    void S02용_movingDurationSec는_재개_후와_여러_번_일시정지를_반영한다() {
+        assertThat(
+                        PostRunAnalysisCalculator.movingDurationSec(
+                                START, at(700), List.of(pause(300), resume(400))))
+                .isEqualTo(600);
+        assertThat(
+                        PostRunAnalysisCalculator.movingDurationSec(
+                                START,
+                                at(1000),
+                                List.of(pause(100), resume(200), pause(500), resume(650))))
+                .isEqualTo(750);
+    }
+
+    @Test
+    void S02용_movingDurationSec는_종료_후_분석_movingDuration과_같다() {
+        List<PauseResumeEvent> events = List.of(pause(300), resume(400));
+        Result analyzed =
+                PostRunAnalysisCalculator.calculate(
+                        START, at(700), null, null, List.of(sample(0, "0"), sample(700, "2000")), events);
+
+        assertThat(PostRunAnalysisCalculator.movingDurationSec(START, at(700), events))
+                .isEqualTo(analyzed.stats().movingDuration());
+    }
+
+    @Test
+    void 기준시각_이후의_열린_PAUSE는_운동시간에서_빼지_않는다() {
+        // 기기 시계가 serverSendAt보다 앞선 APPLIED PAUSE(리뷰 B-2). pauseIntervals/addClamped와 동일.
+        assertThat(
+                        PostRunAnalysisCalculator.movingDurationSec(
+                                START, at(600), List.of(pause(700))))
+                .isEqualTo(600);
+    }
+
+    @Test
     void 일시정지는_운동시간과_구간_페이스에서_제외한다() {
         // 300~400초 일시정지. 500초에 1500m, 700초에 2000m.
         Result result =
