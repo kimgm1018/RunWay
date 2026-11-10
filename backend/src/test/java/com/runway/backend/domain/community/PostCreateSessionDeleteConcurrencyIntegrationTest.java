@@ -43,7 +43,7 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
     void CMT01과_S09가_겹쳐도_삭제된_세션에_미삭제_게시물이_남지_않는다() throws Exception {
         long sessionId =
                 insertCompletedSession(userId, watchId, phoneId, "READY");
-        CreatePostRequest request = new CreatePostRequest(sessionId, "경합 게시물", null, null, null);
+        CreatePostRequest request = new CreatePostRequest(sessionId, "경합 게시물", null, null, null, null);
 
         List<String> results =
                 runTogether(

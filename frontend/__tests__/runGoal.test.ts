@@ -1,5 +1,6 @@
 import {
   goalConfig,
+  goalFromSearch,
   goalLabel,
   maxGoalDistanceM,
   goalLimits,
@@ -43,7 +44,9 @@ test('every goal sends at most two of distance · time · pace, and a course kee
     goalPaceSecPerKm: null,
   });
   // 페이서 sends the distance and the time; the pace is worked out on screen.
-  expect(goalConfig({ kind: 'PACER', distanceM: 6000, durationSec: 1800 })).toEqual({
+  expect(
+    goalConfig({ kind: 'PACER', distanceM: 6000, durationSec: 1800 }),
+  ).toEqual({
     goalDistanceM: 6000,
     goalDurationSec: 1800,
     goalPaceSecPerKm: null,
@@ -55,7 +58,9 @@ test('every goal sends at most two of distance · time · pace, and a course kee
 test('the chip names the goal, and the run screen gets the pace a distance and a time make', () => {
   expect(goalLabel({ kind: 'NONE' })).toBe('목표 설정');
   expect(goalLabel({ kind: 'DISTANCE', distanceM: 5000 })).toBe('5km 달리기');
-  expect(goalLabel({ kind: 'TIME', durationSec: 5400 })).toBe('1시간 30분 달리기');
+  expect(goalLabel({ kind: 'TIME', durationSec: 5400 })).toBe(
+    '1시간 30분 달리기',
+  );
   expect(goalLabel({ kind: 'PACER', distanceM: 6000, durationSec: 1800 })).toBe(
     '6km · 30분 · 5′00″/km',
   );
@@ -70,4 +75,30 @@ test('the chip names the goal, and the run screen gets the pace a distance and a
   expect(goalPaceOf(config)).toBe(300);
   expect(goalPaceOf({ ...config, goalPaceSecPerKm: 330 })).toBe(330);
   expect(goalPaceOf({ ...config, goalDurationSec: null })).toBeNull();
+});
+
+// 3.1's goal reaches 2.0 with the course picked from its results (S15P31E105-635).
+test('the 3.1 goal becomes the 2.0 goal', () => {
+  const search = {
+    origin: { name: '현재 위치', position: [129.1, 35.1] as [number, number] },
+    targetDistanceM: 5000,
+    environmentTypes: [],
+  };
+  expect(
+    goalFromSearch({
+      ...search,
+      goalInputType: 'TIME',
+      targetDurationSec: 1500,
+      targetPaceSecPerKm: null,
+    }),
+  ).toEqual({ kind: 'TIME', durationSec: 1500 });
+  expect(
+    goalFromSearch({
+      ...search,
+      goalInputType: 'PACE',
+      targetDurationSec: null,
+      targetPaceSecPerKm: 330,
+    }),
+  ).toEqual({ kind: 'PACE', paceSecPerKm: 330 });
+  expect(goalFromSearch(null)).toBeNull();
 });

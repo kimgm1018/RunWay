@@ -29,6 +29,7 @@ import {
   type Repositories,
   type RunnerProfile,
 } from '../../data';
+import { RunMap } from '../../components/RunMap';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
@@ -61,8 +62,19 @@ function Composer({
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
   const [body, setBody] = useState(initial.body ?? '');
-  const [courseShared, setCourseShared] = useState(initial.courseShared);
+  // A free run has no course to share yet: the switch stays off (자유 러닝 경로 공유는 S15P31E105-616).
+  const free = !record.courseRun;
+  const [courseShared, setCourseShared] = useState(
+    initial.courseShared && !free,
+  );
   const [busy, setBusy] = useState(false);
+  // The course that would be shared, on the real map (S15P31E105-632): record.route is the course (C03), never my
+  // GPS track. Without its points, the drawn shape marked 예시 경로, or nothing when there is no shape either.
+  const realMap =
+    courseShared && record.route !== null && record.route.length >= 2
+      ? record.route
+      : null;
+  const drawnShape = courseShared && !realMap && record.shape.length >= 2;
   const submit = async () => {
     setBusy(true);
     try {
@@ -78,11 +90,25 @@ function Composer({
   ].filter(Boolean);
   return (
     <>
-      <MapBackdrop seed={record.id} width={width} height={height} />
-      {courseShared ? (
-        <RouteLine shape={record.shape} width={width} height={height} />
-      ) : null}
-      <Shade width={width} height={height} />
+      {realMap ? (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <RunMap
+            route={realMap}
+            view="lean"
+            interactive={false}
+            area={{ top: 0.18, bottom: 0.55 }}
+            style={[StyleSheet.absoluteFill, styles.mapGround]}
+          />
+        </View>
+      ) : (
+        <>
+          <MapBackdrop seed={record.id} width={width} height={height} />
+          {drawnShape ? (
+            <RouteLine shape={record.shape} width={width} height={height} />
+          ) : null}
+        </>
+      )}
+      <Shade width={width} height={height} strong={realMap !== null} />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <PressableScale
@@ -123,7 +149,12 @@ function Composer({
         >
           <View>
             <View style={styles.writer}>
-              <Avatar nickname={me.nickname} userId={me.userId} mine />
+              <Avatar
+                nickname={me.nickname}
+                userId={me.userId}
+                photo={me.profileImageUrl}
+                mine
+              />
               <AppText style={styles.handle}>{me.handle}</AppText>
             </View>
             <View style={styles.bodyField}>
@@ -139,8 +170,8 @@ function Composer({
                 style={styles.bodyInput}
               />
             </View>
-            {courseShared ? (
-              // The mock routes are examples, so the page says so (as on 7.1).
+            {drawnShape ? (
+              // The drawn shape is not the real map, so the page says so (as on 7.1).
               <AppText style={styles.example}>예시 경로</AppText>
             ) : null}
           </View>
@@ -168,15 +199,16 @@ function Composer({
               <View style={styles.flex}>
                 <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
                 <AppText style={styles.shareNote}>
-                  이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이
-                  보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는
-                  사람이 내 코스에 저장할 수 있어요
+                  {free
+                    ? '자유 러닝 경로 공유는 준비 중이에요'
+                    : '이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이 내 코스에 저장할 수 있어요'}
                 </AppText>
               </View>
               <CourseToggle
                 label="코스도 함께 공유"
                 value={courseShared}
                 onChange={setCourseShared}
+                disabled={free}
                 dark
               />
             </View>
@@ -329,6 +361,7 @@ export function PostEditScreen() {
 // 7.3 · 7.3e over the feed's dark map: white words, a see-through dark field, no cards or dividers.
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: feedLook.ground },
+  mapGround: { backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   loading: { marginTop: 48 },
   // 상단 56: 취소 and 게시 as words, the title in the middle.

@@ -30,6 +30,7 @@ import {
   type Repositories,
 } from '../../data';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import {
   fontFamily,
   k1,
@@ -77,9 +78,17 @@ function CancelButton({
 
 // 6.4c 그룹런 취소 (only for the run's creator) with 6.4d 취소 확인; it ends on 6.4e, the cancelled 6.4.
 export function GroupRunCancelScreen() {
-  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunCancel'>>();
-  const groupRunId = route.params?.groupRunId ?? 'gr-wednesday';
+  const groupRunId = route.params?.groupRunId;
+  // Without an id the screen has nothing to show; no mock id stands in (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="그룹런을 찾을 수 없어요" />;
+  }
+  return <GroupRunCancelContent groupRunId={groupRunId} />;
+}
+
+function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
+  const navigation = useNavigation();
   const { colors } = useTheme();
   const { groupRuns } = useRepositories();
   const toast = useToast();

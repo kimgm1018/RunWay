@@ -24,7 +24,7 @@ public class RunningSessionLookupRepository {
     }
 
     /**
-     * CMT01 생성용. 세션 행을 {@code FOR UPDATE}로 잠가 S09 삭제와 같은 순서로 직렬화한다. 호출 트랜잭션이 끝날 때까지
+     * CMT01 생성·CMT04 수정·CMT05 삭제용. 세션 행을 {@code FOR UPDATE}로 잠가 S09 삭제와 같은 순서로 직렬화한다. 호출 트랜잭션이 끝날 때까지
      * 잠금을 유지한다.
      */
     public Optional<SessionShareInfo> findByIdForUpdate(long sessionId) {

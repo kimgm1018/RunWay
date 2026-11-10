@@ -68,6 +68,7 @@ export function CommentRow({
       <Avatar
         nickname={comment.author.nickname}
         userId={comment.author.userId}
+        photo={comment.author.profileImageUrl}
         size={32}
       />
       <View style={styles.flex}>
@@ -497,6 +498,7 @@ export function CommentSheet({
             <Avatar
               nickname={me.status === 'ready' ? me.data.nickname : ''}
               userId="me"
+              photo={me.status === 'ready' ? me.data.profileImageUrl : null}
               mine
               size={36}
             />

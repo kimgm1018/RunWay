@@ -17,7 +17,11 @@ import {
   type Repositories,
   type RunRecordSummary,
 } from '../../data';
-import { navigateTo, openRecord } from '../../navigation/navigateTo';
+import {
+  navigateTo,
+  openGroupRunResult,
+  openRecord,
+} from '../../navigation/navigateTo';
 import type { HomeStackParamList } from '../../navigation/types';
 import { RecordsShell, RoundGlassButton, usePickerTop } from './look';
 import { kstDay, kstMonth } from './parts';
@@ -62,11 +66,10 @@ export function RecordsScreen() {
   };
 
   const open = (run: RunRecordSummary) => {
-    if (run.runType === 'GROUP') {
-      navigateTo(navigation, 'GroupRunResult');
-    } else {
-      openRecord(navigation, run.id);
+    if (run.runType === 'GROUP' && openGroupRunResult(navigation, run.group)) {
+      return;
     }
+    openRecord(navigation, run.id);
   };
 
   return (

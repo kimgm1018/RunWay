@@ -9,6 +9,7 @@ import com.runway.backend.domain.community.repository.UserSearchRepository.UserS
 import com.runway.backend.domain.crew.entity.Crew;
 import com.runway.backend.domain.crew.entity.CrewStatus;
 import com.runway.backend.domain.crew.repository.CrewRepository;
+import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -67,7 +68,13 @@ public class SearchService {
                 List<UserSearchRow> pageRows = hasMore ? rows.subList(0, pageSize) : rows;
                 users =
                         pageRows.stream()
-                                .map(row -> new SearchUserItemResponse(row.id(), row.nickname()))
+                                .map(
+                                        row ->
+                                                new SearchUserItemResponse(
+                                                        row.id(),
+                                                        row.nickname(),
+                                                        ImageService.publicUrlFromKey(
+                                                                row.profileImageKey())))
                                 .toList();
                 nextUser =
                         hasMore

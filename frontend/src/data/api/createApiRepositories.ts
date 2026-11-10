@@ -42,6 +42,7 @@ import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
 import { createAccountApi } from './account';
+import { createCurrentPlace } from './currentPlace';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -67,6 +68,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     ...createNativeWatchSession(),
     getLinkedDevices: createLinkedDevices(serverRequest),
   };
+  // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464)과 러닝 시작 화면의 현재 위치(S15P31E105-635)가 같은 모듈을 쓴다.
+  const phoneLocation = createPhoneLocation();
   return {
     ...mock,
     // U28~U30 휴대전화 인증·비밀번호 재설정 (S15P31E105-560): no auth call stays on mock data.
@@ -127,6 +130,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // 워치 batch(또는 인계 후 폰 GPS)의 실측값으로 채우고(runControl live), 목업 값이나 목업 길 안내는 만들지 않는다.
     run: {
       ...mock.run,
+      // 2.0F · 2.0C · 2.0 현재 위치는 폰 GPS로 찾고, 찾지 못하면 목업 장소 대신 '위치를 확인할 수 없어요'를 보여준다.
+      getCurrentPlace: createCurrentPlace(phoneLocation),
       startTracking: (from, route, onSample) =>
         mock.run.startTracking(from, route, tick =>
           onSample(
@@ -145,7 +150,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       saveRecord: saveRunRecord,
     },
     // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464).
-    phoneLocation: createPhoneLocation(),
+    phoneLocation,
     crews,
     groupRuns: createGroupRunsApi({
       mock: mock.groupRuns,

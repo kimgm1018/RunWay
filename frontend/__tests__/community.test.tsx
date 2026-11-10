@@ -3,10 +3,15 @@ import { Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { Backdrop } from '../src/components';
-import { createMockRepositories, DataError } from '../src/data';
+import {
+  createMockRepositories,
+  DataError,
+  type Repositories,
+} from '../src/data';
 import { CommunityScreen } from '../src/screens/community/CommunityScreen';
 import { FeedPage } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
+import { Avatar } from '../src/screens/community/parts';
 import { MyProfileTabScreen } from '../src/screens/community/ProfileScreen';
 import {
   CourseGlyph,
@@ -643,4 +648,109 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b shares my ru
   await settle(3000);
   expect(texts(screen)).not.toContain('러닝 기록을 공유했어요');
   expect(texts(screen)).toContain('새벽 공기 최고');
+});
+
+// S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
+test('Avatar shows the photo and falls back to the letter', async () => {
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <ThemeProvider>
+        <Avatar nickname="서윤" userId="9" photo="https://img.test/9.jpg" />
+        <Avatar nickname="하은" userId="10" photo={null} />
+      </ThemeProvider>,
+    );
+  });
+  const rendered = screen!;
+  mounted = rendered;
+  const photos = () => rendered.root.findAllByType(Image);
+  expect(photos()).toHaveLength(1);
+  expect(photos()[0].props.source).toEqual({ uri: 'https://img.test/9.jpg' });
+  expect(texts(rendered)).toBe('하');
+
+  await act(async () => {
+    photos()[0].props.onError?.({ nativeEvent: { error: 'not found' } });
+  });
+  expect(photos()).toHaveLength(0);
+  expect(texts(rendered)).toContain('서');
+});
+
+// 7.4b → 2.1 기록 상세 → 7.3 기록 공유 with my 10.15 run.
+async function openShare(repositories: Repositories) {
+  const screen = await openCommunity(repositories);
+  await press(screen, 'minjun.run 프로필');
+  await settle(50);
+  await press(screen, '민락수변공원 출발, 10.15 목 · 29:41, 5.02km');
+  for (let tries = 0; tries < 40; tries++) {
+    if (
+      screen.root.findAll(
+        node =>
+          node.props.accessibilityLabel === '기록 공유' &&
+          typeof node.props.onPress === 'function',
+      ).length > 0
+    ) {
+      break;
+    }
+    await settle(50);
+  }
+  await press(screen, '기록 공유');
+  await settle(50);
+  return screen;
+}
+
+function withRun(courseRun: boolean) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const { getShareable, create } = repositories.community;
+  repositories.community.getShareable = async recordId => ({
+    ...(await getShareable(recordId)),
+    courseRun,
+  });
+  const created = jest.fn(create);
+  repositories.community.create = created;
+  return { repositories, created };
+}
+
+const courseSwitch = (screen: Screen) =>
+  screen.root.findAll(
+    node =>
+      node.props.accessibilityRole === 'switch' &&
+      node.props.accessibilityLabel === '코스도 함께 공유' &&
+      typeof node.props.onPress === 'function',
+  )[0];
+
+test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () => {
+  const { repositories, created } = withRun(true);
+  const screen = await openShare(repositories);
+  expect(courseSwitch(screen).props.accessibilityState).toEqual({
+    checked: true,
+    disabled: false,
+  });
+
+  await act(async () => courseSwitch(screen).props.onPress());
+  await press(screen, '게시');
+  await settle(100);
+
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: false,
+  });
+});
+
+test('7.3 keeps 코스도 함께 공유 off and disabled on a free run', async () => {
+  const { repositories, created } = withRun(false);
+  const screen = await openShare(repositories);
+
+  expect(courseSwitch(screen).props.accessibilityState).toEqual({
+    checked: false,
+    disabled: true,
+  });
+  expect(courseSwitch(screen).props.disabled).toBe(true);
+  expect(texts(screen)).toContain('자유 러닝 경로 공유는 준비 중이에요');
+
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: false,
+  });
 });

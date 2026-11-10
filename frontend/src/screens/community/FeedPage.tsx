@@ -465,6 +465,7 @@ export function FeedPage({
           <Avatar
             nickname={post.author.nickname}
             userId={post.author.userId}
+            photo={post.author.profileImageUrl}
             mine={post.isMine}
             size={40}
           />

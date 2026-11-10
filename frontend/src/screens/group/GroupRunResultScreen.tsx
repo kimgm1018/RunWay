@@ -19,6 +19,7 @@ import { useRepositories, type GroupRunResult } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import { fontFamily, palette, spacing, ThemeProvider } from '../../theme';
 import { RouteLine } from '../course/RouteLine';
 import { useRunSession } from '../run/RunSession';
@@ -131,12 +132,20 @@ function NavyButton({
 // 6.7 그룹런 결과: who finished the goal fixed at the start, without ranks. On the mist like 6.0 (담당자 요청,
 // S15P31E105-563): the result in navy at the top, then the figures and who finished on one soft white card.
 export function GroupRunResultScreen() {
-  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'GroupRunResult'>>();
+  const { run } = useRunSession();
+  const groupRunId = route.params?.groupRunId ?? run?.config.groupRunId;
+  // A record opens its own group run (H01 group.groupRunId); no mock result stands in (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="그룹런 결과를 찾을 수 없어요" />;
+  }
+  return <GroupRunResultContent groupRunId={groupRunId} />;
+}
+
+function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
+  const navigation = useNavigation();
   const { groupRuns } = useRepositories();
   const { run } = useRunSession();
-  const groupRunId =
-    route.params?.groupRunId ?? run?.config.groupRunId ?? 'gr-today';
   const [result, setResult] = useState<GroupRunResult | null>(null);
   const [failed, setFailed] = useState(false);
   // 서버 결과는 G14를 바로 조회한다. 목업 결과만 기존 로컬 기록 저장을 기다린다.

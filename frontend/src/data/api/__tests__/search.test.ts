@@ -19,17 +19,31 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
 });
 
-test('CMT13 asks for both kinds and turns ids into strings', async () => {
+const origin = appConfig.apiBaseUrl.replace(/^(https?:\/\/[^/]+).*$/, '$1');
+
+test('CMT13 asks for both kinds, turns ids into strings and the photo path into an address', async () => {
   fetchMock.mockResolvedValue(
     respond(200, {
-      users: [{ userId: 101, nickname: 'seoyun.run' }],
+      users: [
+        {
+          userId: 101,
+          nickname: 'seoyun.run',
+          profileImageUrl: '/api/v1/images/31',
+        },
+      ],
       crews: [{ id: 201, name: '광안 Run Club' }],
       page: 'dTo1fGM6MA',
     }),
   );
 
   await expect(searchApi.find({ query: 'run', type: 'ALL' })).resolves.toEqual({
-    runners: [{ userId: '101', nickname: 'seoyun.run' }],
+    runners: [
+      {
+        userId: '101',
+        nickname: 'seoyun.run',
+        profileImageUrl: `${origin}/api/v1/images/31`,
+      },
+    ],
     crews: [{ crewId: '201', name: '광안 Run Club' }],
     cursor: 'dTo1fGM6MA',
   });
@@ -40,13 +54,16 @@ test('CMT13 asks for both kinds and turns ids into strings', async () => {
 
 test('러너 sends type USER with the cursor, and a left-out kind is empty', async () => {
   fetchMock.mockResolvedValue(
-    respond(200, { users: [{ userId: 7, nickname: 'run.haeun' }], page: null }),
+    respond(200, {
+      users: [{ userId: 7, nickname: 'run.haeun', profileImageUrl: null }],
+      page: null,
+    }),
   );
 
   await expect(
     searchApi.find({ query: 'run', type: 'RUNNER', cursor: 'abc' }),
   ).resolves.toEqual({
-    runners: [{ userId: '7', nickname: 'run.haeun' }],
+    runners: [{ userId: '7', nickname: 'run.haeun', profileImageUrl: null }],
     crews: [],
     cursor: null,
   });

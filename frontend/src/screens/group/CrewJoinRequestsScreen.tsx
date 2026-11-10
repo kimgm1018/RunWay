@@ -36,6 +36,7 @@ import {
   isSameDay,
 } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { joinPolicyLabels } from './CrewDetailScreen';
 import { groupLook, groupPage, SectionLabel } from './look';
@@ -173,9 +174,17 @@ const loadRequests = (repositories: Repositories, crewId: string) =>
 // 6.2a 가입 신청 관리 (crew leader only): 가입 방식 and the requests waiting for a decision.
 // Approving is locked once the crew is full (M06).
 export function CrewJoinRequestsScreen() {
-  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'CrewJoinRequests'>>();
-  const crewId = route.params?.crewId ?? 'crew-minrak-night';
+  const crewId = route.params?.crewId;
+  // Without an id the screen has nothing to show; no mock id stands in (S15P31E105-635).
+  if (!crewId) {
+    return <MissingTarget title="크루를 찾을 수 없어요" />;
+  }
+  return <CrewJoinRequestsContent crewId={crewId} />;
+}
+
+function CrewJoinRequestsContent({ crewId }: { crewId: string }) {
+  const navigation = useNavigation();
   const { crews } = useRepositories();
   const toast = useToast();
   const crewResource = useResource(

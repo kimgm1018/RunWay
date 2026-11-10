@@ -427,3 +427,40 @@ test('S09 errors such as a run still being analysed are passed on', async () => 
     status: 409,
   });
 });
+
+test('H01 rows keep their own run type and group run link for 6.7 (S15P31E105-635)', async () => {
+  serve(url =>
+    url.pathname.endsWith('/statistics')
+      ? respond(200, statistics)
+      : url.searchParams.get('runType') === 'GROUP'
+      ? respond(200, {
+          items: [
+            {
+              ...group,
+              runType: 'GROUP',
+              group: {
+                groupRunId: 31,
+                crewName: '광안리 새벽 크루',
+                finisherCount: 4,
+              },
+            },
+            // A group row the server could not link to its group run.
+            { ...group, id: 103, runType: 'GROUP', group: null },
+          ],
+        })
+      : respond(200, { items: [{ ...solo, runType: 'SOLO', group: null }] }),
+  );
+  const { records } = createRecordsApi();
+
+  const month = await records.getMonth('2026-10', 'ALL');
+
+  expect(month.records.map(run => [run.id, run.runType, run.group])).toEqual([
+    [
+      '102',
+      'GROUP',
+      { crewName: '광안리 새벽 크루', finisherCount: 4, groupRunId: '31' },
+    ],
+    ['103', 'GROUP', null],
+    ['101', 'SOLO', null],
+  ]);
+});
