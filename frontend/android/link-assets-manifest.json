@@ -2,6 +2,18 @@
   "migIndex": 1,
   "data": [
     {
+      "path": "assets/fonts/ArchivoExpanded-Black.ttf",
+      "sha1": "03736d5c242be7fbfe5a724408588ef769a681dd"
+    },
+    {
+      "path": "assets/fonts/ArchivoExpanded-Bold.ttf",
+      "sha1": "0aa02958bcd4d7c0e1415616d6c22c961a520cc9"
+    },
+    {
+      "path": "assets/fonts/ArchivoExpanded-ExtraBold.ttf",
+      "sha1": "9cbdb4613850394f24317e9a218d944dfe7750bb"
+    },
+    {
       "path": "assets/fonts/Barlow-Bold.ttf",
       "sha1": "c1694b01b285276fd14230bfd00c6704d50a49d2"
     },
@@ -28,6 +40,10 @@
     {
       "path": "assets/fonts/IBMPlexMono-Regular.ttf",
       "sha1": "2b7c2393fff41a6e1446fd6351002e1aa1a999e8"
+    },
+    {
+      "path": "assets/fonts/NanumBrush.ttf",
+      "sha1": "2e5cbf2ecdffa0cb46c1ad5e7374f748e04961ec"
     },
     {
       "path": "assets/fonts/NotoSansKR-Black.otf",

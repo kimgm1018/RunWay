@@ -224,12 +224,13 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   await settle();
   const result = texts(screen);
   for (const text of [
-    // Stopped well before 5km, so the course is not 완주 and no goal line shows. RUN RECORD table (S15P31E105-594
-    // 시안): the pace row keeps the goal pace under its name.
-    'RUN RECORD',
+    // Stopped well before 5km, so the course is not 완주 and no planned-time goal shows. 시안 G3 blocks
+    // (S15P31E105-661): the third block falls back to the goal pace.
+    'PACE',
     '평균 페이스',
-    '목표 6′00″',
-    '/km',
+    'GOAL',
+    '목표 페이스',
+    '6′00″',
     '시간',
     '거리',
     '평균 심박',
@@ -260,7 +261,7 @@ test('a free run result offers 기록 공유 once saved, and a failed save offer
   await press(free, '일시정지');
   await hold(free, '종료');
   await settle();
-  expect(texts(free)).toContain('RUN RECORD');
+  expect(texts(free)).toContain('PACE');
   expect(labelled(free, '기록 공유').props.disabled).toBe(false);
   await act(async () => free.unmount());
 
