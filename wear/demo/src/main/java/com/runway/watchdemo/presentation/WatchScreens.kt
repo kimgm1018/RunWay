@@ -268,7 +268,7 @@ private fun DetailsScreen(state: RecordingSnapshot, record: SessionRecord?, part
         if (state.busy) {
             Label(state.message, Color.White)
             for ((kind, label) in listOf(MetricKind.CADENCE to "SPM", MetricKind.HEART_RATE to "심박",
-                MetricKind.SPEED to "속도", MetricKind.STEP_LENGTH to "직접 보폭")) {
+                MetricKind.SPEED to "속도", MetricKind.STEP_LENGTH to "직접 보폭", MetricKind.VO2_MAX to "VO2max")) {
                 val status = MeasurementSupport.status(state.support, kind)
                 val availability = state.support["${kind.name}.availability"]
                 Label("$label: ${when {
