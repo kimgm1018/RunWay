@@ -11,7 +11,6 @@ import {
   AppText,
   EmptyState,
   Icon,
-  IconButton,
   useToast,
 } from '../../components';
 import {
@@ -221,6 +220,9 @@ export function GroupRunDetailScreen() {
     }
   };
 
+  // Status CTA (S15P31E105-637): waiting room only while SCHEDULED+enterable; RUNNING/COMPLETED
+  // re-enter progress/result for joined members. Progress still needs RunSession.groupRunId — without
+  // a live session the route opens MissingTarget (no session recovery here).
   const actions = cancelled ? (
     <View style={styles.buttonRow}>
       <View style={styles.flex}>
@@ -244,6 +246,22 @@ export function GroupRunDetailScreen() {
         />
       </View>
     </View>
+  ) : run.status === 'RUNNING' && run.joined ? (
+    <GroupCta
+      navy
+      title="진행 화면으로"
+      icon="arrowRight"
+      onPress={() => navigation.navigate('GroupRunProgress')}
+    />
+  ) : run.status === 'COMPLETED' && run.joined ? (
+    <GroupCta
+      navy
+      title="그룹런 결과 보기"
+      icon="arrowRight"
+      onPress={() =>
+        navigation.navigate('GroupRunResult', { groupRunId: run.id })
+      }
+    />
   ) : enterable ? (
     <GroupCta
       navy
@@ -251,7 +269,7 @@ export function GroupRunDetailScreen() {
       icon="arrowRight"
       onPress={() => navigation.navigate('WaitingRoom', { groupRunId: run.id })}
     />
-  ) : (
+  ) : run.status === 'SCHEDULED' ? (
     <>
       {run.joined ? (
         <AppText style={[styles.muted, styles.opens]}>
@@ -282,7 +300,7 @@ export function GroupRunDetailScreen() {
         />
       )}
     </>
-  );
+  ) : null;
 
   // Laid out like 2.0 코스 러닝 (담당자 요청, S15P31E105-563): the map full screen and one white sheet at the
   // bottom holding the title, every fact and the button. The former cards are sections set apart by
@@ -308,13 +326,7 @@ export function GroupRunDetailScreen() {
         <View style={styles.topRow}>
           <BackButton onPress={() => navigation.goBack()} />
           <View style={styles.flex} />
-          {!cancelled ? (
-            <IconButton
-              icon="share"
-              accessibilityLabel="공유"
-              onPress={() => navigateTo(navigation, 'PostWrite')}
-            />
-          ) : null}
+          {/* Share only from the result screen (S15P31E105-637): detail has no reliable recordId. */}
         </View>
       }
       bottom={
@@ -382,7 +394,10 @@ export function GroupRunDetailScreen() {
                 <View style={styles.notice}>
                   <Icon name="bell" color={muted} size={14} />
                   <AppText style={styles.muted}>
-                    {`크루 멤버 ${run.crewMemberCount}명에게 취소 알림을 보냈어요`}
+                    {`크루 멤버 ${Math.max(
+                      0,
+                      run.crewMemberCount - 1,
+                    )}명에게 취소 알림을 보냈어요`}
                   </AppText>
                 </View>
               </>
@@ -408,32 +423,36 @@ export function GroupRunDetailScreen() {
                     <AppText style={[styles.muted, styles.flex]}>
                       내가 만든 그룹런
                     </AppText>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="그룹런 수정"
-                      onPress={() =>
-                        navigation.navigate('GroupRunCreate', {
-                          groupRunId: run.id,
-                        })
-                      }
-                      hitSlop={8}
-                    >
-                      <AppText style={styles.hostLink}>수정</AppText>
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="그룹런 취소"
-                      onPress={() =>
-                        navigation.navigate('GroupRunCancel', {
-                          groupRunId: run.id,
-                        })
-                      }
-                      hitSlop={8}
-                    >
-                      <AppText style={[styles.hostLink, styles.hostCancel]}>
-                        그룹런 취소
-                      </AppText>
-                    </Pressable>
+                    {run.status === 'SCHEDULED' ? (
+                      <>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="그룹런 수정"
+                          onPress={() =>
+                            navigation.navigate('GroupRunCreate', {
+                              groupRunId: run.id,
+                            })
+                          }
+                          hitSlop={8}
+                        >
+                          <AppText style={styles.hostLink}>수정</AppText>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="그룹런 취소"
+                          onPress={() =>
+                            navigation.navigate('GroupRunCancel', {
+                              groupRunId: run.id,
+                            })
+                          }
+                          hitSlop={8}
+                        >
+                          <AppText style={[styles.hostLink, styles.hostCancel]}>
+                            그룹런 취소
+                          </AppText>
+                        </Pressable>
+                      </>
+                    ) : null}
                   </View>
                 ) : null}
               </>
@@ -523,7 +542,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.screen,
   },
-  // The back and share buttons over the map; MapScreenFrame keeps them 16 from the edges.
+  // The back button over the map; MapScreenFrame keeps it 16 from the edges.
   topRow: { flexDirection: 'row', alignItems: 'center' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   title: {

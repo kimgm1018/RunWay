@@ -487,7 +487,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   page = texts(screen);
   expect(page).toContain('취소됨');
   expect(page).toContain('사유 · 날씨');
-  expect(page).toContain('크루 멤버 18명에게 취소 알림을 보냈어요');
+  expect(page).toContain('크루 멤버 17명에게 취소 알림을 보냈어요');
   await press(screen, '내 크루로');
   expect(texts(screen)).not.toContain('수요일 회복 조깅');
   await act(async () => screen.unmount());

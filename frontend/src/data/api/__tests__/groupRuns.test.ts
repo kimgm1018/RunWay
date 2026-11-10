@@ -284,6 +284,89 @@ test('6.0b without crews stays empty when nearby recruiting search fails', async
   });
 });
 
+test('6.0 keeps other runs when one G03 detail fails', async () => {
+  serve((path, init) => {
+    if (path === '/group-runs/62' && init.method === 'GET') {
+      return respond(503, {
+        code: 'SERVER_ERROR',
+        message: '잠시 후 다시 시도해 주세요',
+      });
+    }
+    return undefined;
+  });
+
+  const mine = await api().groupRuns.listMine();
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['61']);
+  expect(mine.upcoming?.id).toBe('61');
+});
+
+test('6.0 keeps other crews when one crew G02 list fails', async () => {
+  const other: MyCrew = {
+    ...myCrew,
+    id: '42',
+    name: '해운대 저녁 크루',
+  };
+  serve((path, init, url) => {
+    if (path === '/group-runs' && init.method === 'GET') {
+      if (url.searchParams.get('crewId') === '42') {
+        return respond(503, {
+          code: 'SERVER_ERROR',
+          message: '잠시 후 다시 시도해 주세요',
+        });
+      }
+      return undefined;
+    }
+    return undefined;
+  });
+
+  const mine = await api({ crews: [myCrew, other] }).groupRuns.listMine();
+  expect(mine.crews.map(item => item.crew.id)).toEqual(['41', '42']);
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['61', '62']);
+  expect(mine.crews[1].groupRuns).toEqual([]);
+  expect(mine.upcoming?.id).toBe('61');
+});
+
+test('6.0 follows G02 nextCursor until the crew list is exhausted', async () => {
+  serve((path, init, url) => {
+    if (path === '/group-runs' && init.method === 'GET') {
+      if (url.searchParams.get('crewId') !== '41') {
+        return respond(200, { items: [], nextCursor: null });
+      }
+      if (!url.searchParams.get('cursor')) {
+        return respond(200, {
+          items: [
+            { id: 60, status: 'COMPLETED' },
+            { id: 61, status: 'SCHEDULED' },
+          ],
+          nextCursor: '61',
+        });
+      }
+      if (url.searchParams.get('cursor') === '61') {
+        return respond(200, {
+          items: [{ id: 62, status: 'SCHEDULED' }],
+          nextCursor: null,
+        });
+      }
+      return respond(200, { items: [], nextCursor: null });
+    }
+    return undefined;
+  });
+
+  const mine = await api().groupRuns.listMine();
+  expect(mine.crews[0].groupRuns.map(run => run.id)).toEqual(['61', '62']);
+  const listCalls = fetchMock.mock.calls
+    .map(([address, init]) => ({
+      path: new URL(address).pathname.replace(/^.*\/api\/v1/, ''),
+      method: init.method,
+      cursor: new URL(address).searchParams.get('cursor'),
+    }))
+    .filter(call => call.path === '/group-runs' && call.method === 'GET');
+  expect(listCalls).toEqual([
+    { path: '/group-runs', method: 'GET', cursor: null },
+    { path: '/group-runs', method: 'GET', cursor: '61' },
+  ]);
+});
+
 test('6.4 fills the run from G03, G07, the crew and the course', async () => {
   serve();
 
@@ -369,11 +452,40 @@ test('G04 sends the edit and keeps the saved note when none is typed', async () 
     path: '/group-runs/61',
     body: {
       courseId: 301,
+      title: '일요일, 함께 5km',
       scheduledAt: '2026-11-07T23:30:00.000Z',
       meetingPosition: { type: 'Point', coordinates: [129.13, 35.157] },
       meetingPlaceName: '민락수변공원',
       meetingAddress: '부산 수영구 민락수변로 7',
     },
+  });
+});
+
+test('G04 refresh free-run title minutes without sending a duration-only goal', async () => {
+  serve((path, init) =>
+    path === '/group-runs/61' && init.method === 'PATCH'
+      ? respond(200, { id: 61 })
+      : undefined,
+  );
+
+  await api().groupRuns.update('61', {
+    courseId: null,
+    meetingPlaceName: '광안리해수욕장 입구',
+    meetingAddress: '부산 수영구 광안해변로 219',
+    meetingPosition: [129.118, 35.153],
+    meetingNote: null,
+    scheduledAt: '2026-11-08T07:00:00+09:00',
+    targetDistanceM: null,
+    targetDurationSec: 2700,
+  });
+
+  expect(sent('PATCH')[0].body).toEqual({
+    courseId: null,
+    title: '일요일, 함께 45분',
+    scheduledAt: '2026-11-07T22:00:00.000Z',
+    meetingPosition: { type: 'Point', coordinates: [129.118, 35.153] },
+    meetingPlaceName: '광안리해수욕장 입구',
+    meetingAddress: '부산 수영구 광안해변로 219',
   });
 });
 
@@ -1029,7 +1141,7 @@ test('서버의 준비도·추천 범위·내 적합도·취소 정보를 연결
   expect(await groupRuns.get('61')).toMatchObject({ myFit, cancellation });
 });
 
-test('결과 집계는 서버 값을 사용하고 최대 간격 연결은 보류한다', async () => {
+test('결과 집계는 서버 값을 사용하고 maxGapM도 그대로 연결한다', async () => {
   serve(path =>
     path.endsWith('/results')
       ? respond(200, {
@@ -1046,7 +1158,7 @@ test('결과 집계는 서버 값을 사용하고 최대 간격 연결은 보류
   expect(await api().groupRuns.getResult('61')).toMatchObject({
     distanceM: 0,
     averagePaceSecPerKm: 367,
-    maxGapM: null,
+    maxGapM: 799.5,
   });
 });
 
