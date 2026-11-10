@@ -20,6 +20,10 @@ import com.runway.watch.dailyhr.refreshConsentFromDataLayer
 import com.runway.watch.dailyhr.requiredPermissions
 import com.runway.watch.readiness.CheckState
 import com.runway.watch.readiness.DeviceReadiness
+import com.runway.watch.readiness.BACKGROUND_LOCATION
+import com.runway.watch.readiness.LOCATION_PERMISSIONS
+import com.runway.watch.readiness.backgroundLocationRequest
+import com.runway.watch.readiness.locationPermissionRequest
 import com.runway.watch.readiness.runPermissions
 import com.runway.watch.readiness.runnerPermissionRequest
 import com.runway.watch.run.RunControls
@@ -34,6 +38,12 @@ class MainActivity : ComponentActivity() {
 
     /** Set when the runner tapped "권한 허용", so a silent denial can fall back to app settings. */
     private var askedByRunner = false
+
+    /** Location for the run route is asked once per launch; a denial leaves runs without GPS (S15P31E105-549). */
+    private var locationAsked = false
+
+    /** Background location ("항상 허용") is asked once per launch, after fine location (S15P31E105-549). */
+    private var backgroundAsked = false
 
     // Foreground permissions are asked first, then the background one; a denial ends the sequence for this launch.
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -99,13 +109,16 @@ class MainActivity : ComponentActivity() {
     /** Asks only the missing run permissions, and never before consent is confirmed. */
     private fun requestByRunner() {
         if (readiness.readiness.value.consent != CheckState.OK) return
-        val next = runnerPermissionRequest(Build.VERSION.SDK_INT, grantedPermissions()) ?: return readiness.refreshPermissions()
+        val granted = grantedPermissions()
+        val run = runnerPermissionRequest(Build.VERSION.SDK_INT, granted) ?: return readiness.refreshPermissions()
+        // 경로용 위치 권한도 함께 묻는다. 거절해도 러닝 준비는 막지 않는다.
+        val next = run + locationPermissionRequest(granted).orEmpty()
         askedByRunner = true
         permissionLauncher.launch(next.toTypedArray())
     }
 
     private fun grantedPermissions(): Set<String> =
-        requiredPermissions(Build.VERSION.SDK_INT).filter {
+        (requiredPermissions(Build.VERSION.SDK_INT) + LOCATION_PERMISSIONS + BACKGROUND_LOCATION).filter {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }.toSet()
 
@@ -124,7 +137,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNextOrRegister() {
-        val next = nextPermissionRequest(Build.VERSION.SDK_INT, grantedPermissions())
+        val granted = grantedPermissions()
+        val next = nextPermissionRequest(Build.VERSION.SDK_INT, granted)
+            ?: locationPermissionRequest(granted)?.takeIf { !locationAsked }?.also { locationAsked = true }
+            ?: backgroundLocationRequest(granted)?.takeIf { !backgroundAsked }?.also { backgroundAsked = true }
         if (next == null) enqueueRegistration(this) else permissionLauncher.launch(next.toTypedArray())
     }
 }

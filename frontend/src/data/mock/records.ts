@@ -137,6 +137,7 @@ export function toDetail(
   return {
     ...toSummary(record),
     route: record.route,
+    routeParts: record.route && record.route.length > 1 ? [record.route] : null,
     // Mock fixtures keep no separate distance goal; course runs still expose duration goals.
     targetDistanceM: null,
     targetDurationSec: record.targetDurationSec,

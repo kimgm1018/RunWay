@@ -549,12 +549,18 @@ export function CoachingPage({
 export function LiveMapPanel({
   route,
   trail,
+  trailParts,
+  notice,
   members,
   area,
   logo,
 }: {
   route: LngLat[] | undefined;
   trail: LngLat[];
+  // The measured path in parts (S15P31E105-549); without it the trail is one line.
+  trailParts?: LngLat[][];
+  // A short note on the map, e.g. 위치 확인 중 while no position comes in (S15P31E105-549).
+  notice?: string | null;
   members?: RunMapMember[];
   area: RunMapArea | undefined;
   logo: RunMapLogo | undefined;
@@ -574,6 +580,7 @@ export function LiveMapPanel({
       <RunMap
         route={route}
         trail={trail.length > 0 ? trail : undefined}
+        trailParts={trailParts}
         members={members}
         fitTo={shown === 'follow' && me ? [me] : undefined}
         cameraLocked={shown === 'free'}
@@ -584,6 +591,15 @@ export function LiveMapPanel({
         logo={logo}
         style={StyleSheet.absoluteFill}
       />
+      {notice ? (
+        <View
+          style={[styles.mapNotice, buttonsAt]}
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+        >
+          <AppText style={styles.mapNoticeText}>{notice}</AppText>
+        </View>
+      ) : null}
       <View
         style={[styles.mapButtons, buttonsAt]}
         pointerEvents="box-none"
@@ -886,6 +902,21 @@ const styles = StyleSheet.create({
     color: liveLook.muted,
   },
   mapButtons: { position: 'absolute', right: 12, gap: 8 },
+  mapNotice: {
+    position: 'absolute',
+    left: 12,
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2, 5, 14, 0.82)',
+  },
+  mapNoticeText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: liveLook.text,
+  },
   mapButton: {
     width: 48,
     height: 48,

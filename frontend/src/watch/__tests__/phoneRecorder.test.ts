@@ -127,3 +127,31 @@ test('a batch the server refuses for good is not waited for', async () => {
 
   expect(await recorder.finish()).toBe(true);
 });
+
+// S15P31E105-549: in a WATCH run the recorder follows every server state change; a repeated pause must not resend.
+test('a repeated pause does not resend a batch that is still unconfirmed', async () => {
+  let calls = 0;
+  const { recorder, fix } = harness(async () => {
+    calls += 1;
+    throw new DataError('UNAUTHORIZED', '로그인 필요');
+  });
+  await recorder.start();
+  recorder.resume();
+  fix(35.15, 129.11);
+  recorder.pause();
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  expect(calls).toBe(1);
+  recorder.pause();
+  recorder.pause();
+  await new Promise<void>(resolve => setTimeout(resolve, 0));
+  expect(calls).toBe(1);
+  recorder.dispose();
+});
+
+// A-10 (S15P31E105-549 review): a quality value beyond NUMERIC(10,2) is sent as unknown, not as a refused batch.
+test('accuracy or altitude beyond the DB scale is sent as null', () => {
+  const { gpsItem } = jest.requireActual('../phoneBatch') as typeof import('../phoneBatch');
+  expect(
+    gpsItem({ latitude: 35.15, longitude: 129.11, accuracyM: 1e9, altitudeM: -2e8, time: 0 }),
+  ).toMatchObject({ accuracyM: null, altitudeM: null });
+});

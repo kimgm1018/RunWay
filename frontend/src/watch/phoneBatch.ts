@@ -51,8 +51,11 @@ export function payloadHash(id: string, deviceId: string, sessionId: string, ite
 }
 
 // DB 자릿수(정확도·고도 10,2)를 넘지 않게 소수 둘째 자리로 맞춘다. 없는 값은 null로 둔다.
+// NUMERIC(10,2)를 넘는 값은 batch 전체 422를 부르므로 모르는 값으로 둔다(S15P31E105-549).
 const scale2 = (value: number | null) =>
-  value === null || !Number.isFinite(value) ? null : Math.round(value * 100) / 100;
+  value === null || !Number.isFinite(value) || Math.abs(value) >= 99_999_999.995
+    ? null
+    : Math.round(value * 100) / 100;
 
 export function gpsItem(fix: PhoneFix): Json | null {
   const { latitude, longitude } = fix;

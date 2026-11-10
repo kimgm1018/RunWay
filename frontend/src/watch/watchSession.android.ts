@@ -53,6 +53,29 @@ type NativeBatch = {
   body: string;
 };
 
+// 표시 전용 LIVE_METRICS(S15P31E105-549). 네이티브 수신함을 거치지 않으므로 ACK하지 않는다.
+type NativeLive = { type: 'LIVE_METRICS'; sessionId: string; payload: Record<string, unknown> };
+
+const numberOrNull = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+function toLiveEvent(raw: NativeLive): WatchSessionEvent | null {
+  const payload = raw.payload;
+  if (!payload || typeof payload !== 'object' || raw.sessionId == null) {
+    return null;
+  }
+  return {
+    type: 'LIVE_METRICS',
+    sessionId: String(raw.sessionId),
+    measuredAt: typeof payload.measuredAt === 'string' ? payload.measuredAt : null,
+    paceSecPerKm: numberOrNull(payload.paceSecPerKm),
+    heartRateBpm: numberOrNull(payload.heartRateBpm),
+    cadenceSpm: numberOrNull(payload.cadenceSpm),
+    distanceM: numberOrNull(payload.distanceM),
+    activeSec: numberOrNull(payload.activeSec),
+  };
+}
+
 function toBatchEvent(raw: NativeBatch): WatchSessionEvent | null {
   if (typeof raw.body !== 'string' || typeof raw.batchId !== 'string') {
     return null;
@@ -278,7 +301,14 @@ export function createNativeWatchSession(
   const unsavedResults = new Map<string, string[]>();
 
   // 수신함에 남은 메시지는 리스너가 붙기 전까지 지우지 않는다(subscribe 때 drain으로 다시 받는다).
-  const handle = (input: NativeEvent | NativeBatch) => {
+  const handle = (input: NativeEvent | NativeBatch | NativeLive) => {
+    if (input.type === 'LIVE_METRICS') {
+      const live = toLiveEvent(input as NativeLive);
+      if (live) {
+        listeners.forEach(listener => listener(live));
+      }
+      return;
+    }
     if (input.type === 'BATCH_DATA') {
       // batch는 수신함이 아니라 네이티브 batch 저장소에 남는다. 리스너가 없으면 subscribe 때 다시 받는다.
       const batch = toBatchEvent(input as NativeBatch);
@@ -313,7 +343,7 @@ export function createNativeWatchSession(
 
   source.addListener(EVENT, json => {
     try {
-      handle(JSON.parse(json) as NativeEvent | NativeBatch);
+      handle(JSON.parse(json) as NativeEvent | NativeBatch | NativeLive);
     } catch {
       // 형식이 맞지 않는 이벤트는 버린다. 값은 로그에 남기지 않는다.
     }

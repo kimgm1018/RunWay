@@ -567,3 +567,31 @@ test('blockBatches returns the frozen batches; setRunActive passes the location 
   await watch.setRunActive(false, undefined, { location: true });
   expect(native.setRunActive.mock.calls).toEqual([[true, '201', true], [false, null, false]]);
 });
+
+test('LIVE_METRICS reach the listener as display values without an inbox ack (S15P31E105-549)', async () => {
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events });
+  const received: WatchSessionEvent[] = [];
+  watch.subscribe(event => received.push(event));
+  await flush();
+
+  events.fire({
+    type: 'LIVE_METRICS',
+    sessionId: '201',
+    payload: { measuredAt: '2026-11-10T01:00:05Z', paceSecPerKm: 360, heartRateBpm: null, cadenceSpm: 170, distanceM: 1234.5, activeSec: 'x' },
+  });
+
+  expect(received).toEqual([
+    {
+      type: 'LIVE_METRICS',
+      sessionId: '201',
+      measuredAt: '2026-11-10T01:00:05Z',
+      paceSecPerKm: 360,
+      heartRateBpm: null,
+      cadenceSpm: 170,
+      distanceM: 1234.5,
+      activeSec: null,
+    },
+  ]);
+  expect(native.ackInbox).not.toHaveBeenCalled();
+});

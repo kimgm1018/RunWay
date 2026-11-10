@@ -94,6 +94,7 @@ const detail = {
   group: null,
   goalAchieved: null,
   route: gps,
+  routeParts: null,
   targetDistanceM: null,
   targetDurationSec: null,
   targetPaceSecPerKm: null,

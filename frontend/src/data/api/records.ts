@@ -71,6 +71,25 @@ type StatisticsResponse = {
 };
 
 const path = '/running-records';
+
+// S11 표시용 경로(sessions.md S11, S15P31E105-549): 서버가 구간별로 워치 위치를 우선해 고르고 출처 전환·공백에서 끊은 조각.
+type RouteResponse = {
+  sessionId: number;
+  segments: { source: 'WATCH' | 'PHONE'; coordinates: [number, number][] }[];
+};
+
+// 경로가 없거나 읽지 못하면 null이다. 경로 하나 때문에 기록 상세 전체를 실패로 보이지 않는다.
+async function routePartsOf(sessionId: string): Promise<[number, number][][] | null> {
+  try {
+    const response = await apiRequest<RouteResponse>(`/running-sessions/${sessionId}/route`);
+    const parts = (response?.segments ?? [])
+      .map(segment => segment.coordinates)
+      .filter(part => Array.isArray(part) && part.length > 0);
+    return parts.length > 0 ? parts : null;
+  } catch {
+    return null;
+  }
+}
 // The server's largest H01 page.
 const pageLimit = 50;
 const kstOffsetMs = 9 * 60 * 60 * 1000;
@@ -266,12 +285,14 @@ export function createRecordsApi() {
         records: remember(runs),
       };
     },
-    // The route map, AI advice and 내 코스 link have no server source yet, so 5.2 hides them.
+    // AI advice and the 내 코스 link have no server source yet, so 5.2 hides them. The measured route comes from S11;
+    // a record's id is its session id (H02).
     getDetail: async recordId => {
-      const [detail, { splits }, summary] = await Promise.all([
+      const [detail, { splits }, summary, routeParts] = await Promise.all([
         apiRequest<DetailResponse>(`${path}/${recordId}`),
         apiRequest<{ splits: RunSplit[] }>(`${path}/${recordId}/splits`),
         known.get(recordId) ?? findSummary(recordId),
+        routePartsOf(recordId),
       ]);
       // H02 answered, so H01 lists the run; this only guards a run removed in between.
       if (!summary) {
@@ -284,7 +305,9 @@ export function createRecordsApi() {
         averagePaceSecPerKm:
           roundPace(detail.averagePaceSecPerKm) ?? summary.averagePaceSecPerKm,
         goalAchieved: detail.goalAchieved,
+        // 내 코스 저장(saveFromRun)에 쓰는 route는 서버 저장 API가 없어 그대로 비운다.
         route: null,
+        routeParts,
         targetDistanceM: detail.targetDistanceM,
         targetDurationSec: detail.targetDurationSec,
         targetPaceSecPerKm: roundPace(detail.targetPaceSecPerKm),

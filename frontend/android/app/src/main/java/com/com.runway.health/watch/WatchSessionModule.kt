@@ -1,5 +1,8 @@
 package com.runway.health.watch
 
+import android.os.SystemClock
+import android.util.Log
+
 import android.content.Context
 import android.content.Intent
 import com.facebook.react.ReactPackage
@@ -117,6 +120,7 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
         promise.reject("WATCH_INVALID", "워치 메시지를 만들지 못했습니다.")
         return@launch
       }
+      val startedMs = SystemClock.elapsedRealtime()
       for (delayMs in retryDelaysMs { Random.nextLong(0, 501) }) {
         if (delayMs > 0) delay(delayMs)
         try {
@@ -132,6 +136,8 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
           // Retried below; the watch side deduplicates by messageId and commandId.
         }
       }
+      // 운영 확인용: 메시지 종류와 걸린 시간만 남긴다(값·좌표·토큰 없음).
+      diag("TX $type gave up after=${SystemClock.elapsedRealtime() - startedMs}ms")
       promise.reject("WATCH_UNAVAILABLE", "워치에 메시지를 보내지 못했습니다.")
     }
   }
@@ -314,4 +320,12 @@ class WatchSessionPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
     listOf(WatchSessionModule(reactContext), RunLocationModule(reactContext))
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
+}
+
+/**
+ * 워치 메시지 전달 실패를 남긴다(S15P31E105-549). 메시지 종류·실패 이유 종류·소요 시간만 남기며 건강값·좌표·토큰은 남기지 않는다.
+ * `adb logcat -s RunWayWatch`로 본다.
+ */
+internal fun diag(line: String) {
+  Log.i("RunWayWatch", line)
 }

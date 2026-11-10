@@ -37,6 +37,7 @@ function setup(
     frozen?: (sessionId: string) => BatchEvent[];
     connected?: boolean;
     watchQuietMs?: number;
+    current?: () => Promise<PhoneFix>;
   } = {},
 ) {
   const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0 });
@@ -128,9 +129,11 @@ function setup(
       return () => gps.delete(listener);
     },
     requestPermission: async () => true,
-    current: async (): Promise<PhoneFix> => {
-      throw new DataError('LOCATION_UNAVAILABLE', '현재 위치 없음');
-    },
+    current:
+      options.current ??
+      (async (): Promise<PhoneFix> => {
+        throw new DataError('LOCATION_UNAVAILABLE', '현재 위치 없음');
+      }),
   };
   let ids = 900;
   const control = createRunControl({
@@ -148,6 +151,7 @@ function setup(
       watchQuietMs: options.watchQuietMs ?? 60_000,
       phoneFlushMs: 10,
       phoneFinishWaitMs: 200,
+      approxEveryMs: 20,
     },
   });
   const fix = (latitude: number, longitude: number) =>
@@ -388,5 +392,154 @@ test('after takeover the old watch cannot control the run', async () => {
   expect(calls.errors).toEqual(['CONTROL_DEVICE_CHANGED']);
   expect(calls.request).toHaveLength(requests);
   expect(control.getState()).toMatchObject({ status: 'RUNNING', recordingMode: 'PHONE_FALLBACK' });
+  control.dispose();
+});
+
+// S15P31E105-549: a WATCH run also records phone GPS with the relay phone's deviceId. The phone keeps GPS on while
+// ready but records only while running, and a watch END waits for the phone batches before uploadComplete=true.
+const phoneItems = (uploads: string[]) =>
+  uploads
+    .map(body => JSON.parse(body))
+    .filter(body => body.deviceId === 102)
+    .flatMap(body => body.items);
+
+test('a watch run uploads phone GPS from the relay phone only while running', async () => {
+  const { control, calls, fix } = setup();
+  await control.prepare(goal);
+  expect(control.getState()).toMatchObject({ status: 'READY', phoneGps: 'on' });
+  fix(35.0, 129.0);
+  await control.start(goal);
+  expect(control.getState()).toMatchObject({ status: 'RUNNING', recordingMode: 'WATCH' });
+  fix(35.1, 129.1);
+  await control.pause();
+  expect(control.getState().status).toBe('PAUSED');
+  fix(35.2, 129.2);
+  await control.resume();
+  fix(35.3, 129.3);
+  await control.finish();
+
+  expect(control.getState().status).toBe('COMPLETED');
+  expect(phoneItems(calls.uploads).map((item: { coordinates: number[] }) => item.coordinates)).toEqual([
+    [129.1, 35.1],
+    [129.3, 35.3],
+  ]);
+  // The watch stays the control device; the phone batches only add positions.
+  expect(calls.reports.map(r => r.deviceId)).toEqual(['101', '101', '101', '101']);
+  expect(calls.reports[calls.reports.length - 1]).toEqual({ action: 'END', deviceId: '101', uploadComplete: true });
+  // The run service asked for the location type while preparing, so phone GPS keeps coming with the screen off.
+  expect(calls.active[0]).toEqual([true, true]);
+  control.dispose();
+});
+
+test('a watch END is not upload-complete while a phone GPS batch is unsaved', async () => {
+  const { control, calls, fix } = setup({
+    upload: async body => {
+      const parsed = JSON.parse(body);
+      if (parsed.deviceId === 102) {
+        throw new DataError('NETWORK_ERROR', '응답 없음');
+      }
+      return { status: 'COMMITTED', batchId: parsed.id, acceptedCount: parsed.items.length };
+    },
+  });
+  await control.start(goal);
+  fix(35.1, 129.1);
+  await control.finish();
+  const end = calls.reports.filter(r => r.action === 'END');
+  expect(end[end.length - 1]).toEqual({ action: 'END', deviceId: '101', uploadComplete: false });
+  control.dispose();
+});
+
+test('the phone GPS of the watch part carries on with the same recorder after a takeover', async () => {
+  const { control, calls, repositories, fix } = setup();
+  await startedWatchSilent(control, repositories);
+  fix(35.1, 129.1);
+  await control.finish();
+  await control.takeOver();
+  fix(35.2, 129.2);
+  await control.finish();
+  expect(phoneItems(calls.uploads).map((item: { coordinates: number[] }) => item.coordinates)).toEqual([
+    [129.1, 35.1],
+    [129.2, 35.2],
+  ]);
+  control.dispose();
+});
+
+
+// S15P31E105-549 실기기 피드백: 실내처럼 GPS 위치가 하나도 없으면 대략 현재 위치(Wi-Fi·기지국 포함)로 지도 점만 찍는다.
+test('without any GPS fix a running run shows an approximate position, never uploads it, and drops it once GPS comes', async () => {
+  const current = jest.fn(
+    async (): Promise<PhoneFix> => ({ latitude: 35.1, longitude: 129.1, accuracyM: 60, altitudeM: null, time: 0 }),
+  );
+  const { control, calls, fix } = setup({ current });
+  await control.start(goal);
+  await wait(60);
+  expect(control.getState().approxPosition).toEqual([129.1, 35.1]);
+  expect(current).toHaveBeenCalled();
+  // The approximate position is only for the dot: no batch carries it.
+  expect(phoneItems(calls.uploads)).toEqual([]);
+
+  // A GPS fix arrives: the route has a real position, so the approximate one is no longer asked for.
+  fix(35.2, 129.2);
+  await wait(60);
+  const asked = current.mock.calls.length;
+  await wait(80);
+  expect(current.mock.calls.length).toBe(asked);
+  control.dispose();
+});
+
+test('when the phone has no approximate position either, nothing is shown', async () => {
+  const { control } = setup();
+  await control.start(goal);
+  await wait(60);
+  expect(control.getState().approxPosition).toBeNull();
+  control.dispose();
+});
+
+test('the watch screen values (LIVE_METRICS) show on the phone during a watch run (S15P31E105-549)', async () => {
+  const { control, repositories } = setup();
+  await control.start(goal);
+  const sessionId = control.getState().sessionId!;
+  const watch = repositories.watchSession as unknown as { emit: (event: unknown) => void };
+  const shown = (measuredAt: string, paceSecPerKm: number | null) => ({
+    type: 'LIVE_METRICS',
+    sessionId,
+    measuredAt,
+    paceSecPerKm,
+    heartRateBpm: 150,
+    cadenceSpm: 170,
+    distanceM: 1200,
+    activeSec: 400,
+  });
+  watch.emit(shown('2026-11-10T01:00:05Z', 330));
+  await wait(5);
+  expect(control.getState().live).toMatchObject({ paceSecPerKm: 330, heartRate: 150, distanceM: 1200 });
+  // Another session's values change nothing.
+  watch.emit({ ...shown('2026-11-10T01:00:06Z', 300), sessionId: '999999' });
+  await wait(5);
+  expect(control.getState().live?.paceSecPerKm).toBe(330);
+  control.dispose();
+});
+
+test('a phone fix shows on the screen right away during a watch run, before its batch (S15P31E105-549)', async () => {
+  const { control, fix } = setup();
+  await control.start(goal);
+  expect(control.getState().live?.here ?? null).toBeNull();
+  fix(35.15, 129.13);
+  expect(control.getState().live?.here).toEqual([129.13, 35.15]);
+  control.dispose();
+});
+
+test('a denied location permission stops the approximate position from asking again (review)', async () => {
+  let calls = 0;
+  const { control } = setup({
+    current: async () => {
+      calls += 1;
+      throw new DataError('LOCATION_PERMISSION_DENIED', '위치 권한 없음');
+    },
+  });
+  await control.start(goal);
+  await wait(120);
+  // approxEveryMs is 20 ms in this setup: without the stop it would ask about six times.
+  expect(calls).toBe(1);
   control.dispose();
 });

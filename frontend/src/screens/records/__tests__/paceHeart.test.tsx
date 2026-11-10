@@ -145,6 +145,7 @@ const record = (change: Partial<RunRecordDetail> = {}): RunRecordDetail => ({
   group: null,
   goalAchieved: null,
   route: null,
+  routeParts: null,
   targetDistanceM: null,
   targetDurationSec: null,
   targetPaceSecPerKm: 360,

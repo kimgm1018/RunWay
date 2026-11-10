@@ -316,4 +316,25 @@ class BatchUploaderTest {
         next.tick()
         assertEquals(1, store.all().count { it.sessionId == "202" })
     }
+
+    // S15P31E105-549: locations are marked like the metrics, so a restart does not batch a location twice.
+    @Test
+    fun `after a restart locations already in a batch are not batched again`() = runBlocking {
+        fun fix(sec: Long) = Reading(at.plusSeconds(sec), sec, location = GeoFix(37.5, 127.0 + sec / 10_000.0, 3.0, null))
+        val before = uploader()
+        before.begin("201", "101")
+        before.offer(listOf(fix(1), fix(2)))
+        nowMs = 5_000
+        before.tick()
+
+        val after = uploader()
+        after.begin("201", "101")
+        after.offer(listOf(fix(1), fix(2), fix(3)))
+        nowMs = 10_000
+        after.tick()
+        val items = JSONObject(store.all()[1].body).getJSONArray("items")
+        assertEquals(1, items.length())
+        assertEquals("GPS_POINT", items.getJSONObject(0).getString("type"))
+        assertEquals(at.plusSeconds(3).toString(), items.getJSONObject(0).getString("measuredAt"))
+    }
 }

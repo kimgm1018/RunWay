@@ -110,7 +110,7 @@
 | --- | --- |
 | `running_sessions` | 한 회원의 한 번의 러닝. 초기 목표·상태·실제 결과. course_id가 없으면 자유러닝 |
 | `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등. 세션별 경과시간 순 조회(AI04 실시간 코칭 history)는 `(running_session_id, elapsed_duration)` 인덱스 `idx_running_metric_samples_session_elapsed`(V13)를 쓴다. 세션별 측정 시각 역순 최신 표본 조회(G10 그룹런 실시간 순위)는 `(running_session_id, measured_at DESC, id DESC)` 인덱스 `idx_running_metric_samples_session_measured`(V23)를 쓴다 |
-| `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도 |
+| `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도. 세션별 측정 시각 순 조회(S11 러닝 경로 조회, 개인화 변환기)는 `(running_session_id, measured_at, id)` 인덱스 `idx_running_route_points_session_measured`(V31)를 쓴다 |
 | `running_session_splits` | 종료 후 1km 단위 실측 구간 집계(H03). 원본 샘플에서 한 번 계산해 덮어써 저장 |
 | `sync_batches` | 기기에서 받은 배치의 식별·해시·수신/반영 상태 |
 | `session_control_events` | 시작·일시정지·재개·종료·수동/AI BPM 명령과 실제 결과, 명령 중복 판정 |

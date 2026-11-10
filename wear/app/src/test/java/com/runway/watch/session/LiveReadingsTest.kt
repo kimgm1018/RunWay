@@ -81,4 +81,21 @@ class LiveReadingsTest {
         live.reset()
         assertNull(SessionRunControl.metrics(running, live.latest.value, now).heartRate)
     }
+
+    // S15P31E105-549 2안: the pace comes from the distance of the last 15 s by measurement time, the same rule as the
+    // phone, not from one jumpy speed reading. Same data as paceRule.test.ts → 1000 / 3 ≈ 333 s/km.
+    @Test
+    fun `the pace follows the distance of the last 15 s like the phone`() {
+        live.offer(listOf(
+            Reading(at, 0, totalDistanceM = 0.0),
+            Reading(at.plusSeconds(10), 10, totalDistanceM = 50.0),
+            Reading(at.plusSeconds(15), 15, totalDistanceM = 65.0),
+            Reading(at.plusSeconds(25), 25, totalDistanceM = 95.0, speedMps = 4.2),
+        ))
+        assertEquals(333, SessionRunControl.metrics(running, live.latest.value, now).paceSecondsPerKm)
+
+        // Standing: the latest speed under 0.3 m/s clears the pace even though the window still shows movement.
+        live.offer(listOf(Reading(at.plusSeconds(26), 26, speedMps = 0.1)))
+        assertNull(SessionRunControl.metrics(running, live.latest.value, now).paceSecondsPerKm)
+    }
 }

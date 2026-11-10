@@ -91,4 +91,47 @@ class BatchFormatTest {
         assertFalse(json.has("payloadHash"))
         assertEquals(JSONObject(body).toString(), json.getJSONObject("payload").toString())
     }
+
+    // S15P31E105-549: watch GPS goes into the same batch as a W07 GPS_POINT, apart from the metric sample.
+    @Test
+    fun `a location becomes a GPS_POINT next to the metric sample of the same time`() {
+        val fix = GeoFix(latitude = 37.49791234567, longitude = 127.02761234567, accuracyM = 4.567, altitudeM = 31.005)
+        val items = BatchFormat.items(listOf(Reading(at, 1, heartRateBpm = 150.0), Reading(at, 1, location = fix)))
+        assertEquals(listOf("METRIC_SAMPLE", "GPS_POINT"), items.map { it["type"] })
+        val point = items[1]
+        assertEquals(setOf("type", "measuredAt", "coordinates", "accuracyM", "altitudeM"), point.keys)
+        assertEquals("2026-10-27T01:00:01Z", point["measuredAt"])
+        assertEquals("[127.027612,37.497912]", Jcs.write(point["coordinates"]))
+        assertEquals("4.57", point["accuracyM"].toString())
+        assertEquals("31.01", point["altitudeM"].toString())
+    }
+
+    @Test
+    fun `a location alone makes only a GPS_POINT and keeps missing quality null`() {
+        val items = BatchFormat.items(listOf(Reading(at, 1, location = GeoFix(37.5, 127.0, null, null))))
+        assertEquals(1, items.size)
+        assertEquals("GPS_POINT", items[0]["type"])
+        assertEquals(null, items[0]["accuracyM"])
+        assertEquals(null, items[0]["altitudeM"])
+        assertEquals("[127,37.5]", Jcs.write(items[0]["coordinates"]))
+    }
+
+    @Test
+    fun `a location out of range or not finite makes no item`() {
+        val bad = listOf(GeoFix(91.0, 127.0, 3.0, null), GeoFix(37.0, 181.0, 3.0, null), GeoFix(Double.NaN, 127.0, 3.0, null))
+        assertTrue(BatchFormat.items(bad.map { Reading(at, 1, location = it) }).isEmpty())
+    }
+
+    @Test
+    fun `quality beyond the DB scale is sent as unknown so the batch is not refused`() {
+        val items = BatchFormat.items(listOf(Reading(at, 1, location = GeoFix(37.5, 127.0, 1e9, -2e8))))
+        assertEquals(null, items[0]["accuracyM"])
+        assertEquals(null, items[0]["altitudeM"])
+    }
+
+    @Test
+    fun `a negative accuracy is left out rather than sent`() {
+        val items = BatchFormat.items(listOf(Reading(at, 1, location = GeoFix(37.5, 127.0, -1.0, null))))
+        assertEquals(null, items[0]["accuracyM"])
+    }
 }

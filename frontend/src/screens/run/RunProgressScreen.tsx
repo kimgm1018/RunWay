@@ -82,6 +82,23 @@ export function recordingDevice(control: RunControlState | null) {
   return null;
 }
 
+// 워치 기록 중 위치를 이만큼 받지 못하면 지도에 "위치 확인 중"을 띄운다(S15P31E105-549).
+export const LOCATING_AFTER_MS = 30_000;
+
+// 지도 보기의 작은 위치 안내. 워치 기록으로 달리는 중에 워치·폰 어느 쪽에서도 쓸 수 있는 위치를 30초 넘게 받지 못했을 때만
+// 보인다. 한쪽 위치라도 오면 경로는 그쪽으로 채워지므로 띄우지 않는다. 거리·심박은 워치가 재므로 요약 화면에는 넣지 않는다.
+export function locatingNotice(control: RunControlState | null, nowMs: number) {
+  if (
+    control?.recordingMode !== 'WATCH' ||
+    control.status !== 'RUNNING' ||
+    !control.startedAt
+  ) {
+    return null;
+  }
+  const at = control.live?.positionReceivedAt ?? null;
+  return at === null || nowMs - at > LOCATING_AFTER_MS ? '위치 확인 중' : null;
+}
+
 export function statusOf(mode: ControlMode) {
   switch (mode) {
     case 'pausing':
@@ -198,7 +215,7 @@ export function RunProgressScreen() {
   if (!run) {
     return <View style={styles.empty} />;
   }
-  const { config, sample, guidance, trail } = run;
+  const { config, sample, guidance, trail, trailParts } = run;
   const plan = config.plan;
   const total = plan?.distanceM ?? config.goalDistanceM;
   const goalPace = goalPaceOf(config);
@@ -276,6 +293,8 @@ export function RunProgressScreen() {
         <LiveMapPanel
           route={plan?.route}
           trail={trail}
+          trailParts={trailParts ?? undefined}
+          notice={locatingNotice(control, Date.now())}
           area={area}
           logo={logo}
         />

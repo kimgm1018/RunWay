@@ -408,7 +408,7 @@ function GroupRunProgressContent({
   if (!run) {
     return <View style={[styles.flex, styles.ground]} />;
   }
-  const { config, sample, trail } = run;
+  const { config, sample, trail, trailParts } = run;
   const goal = config.goalPaceSecPerKm ?? 360;
   const toResult = () => {
     leftForResult.current = true;
@@ -477,6 +477,7 @@ function GroupRunProgressContent({
           <LiveMapPanel
             route={config.plan?.route}
             trail={trail}
+            trailParts={trailParts ?? undefined}
             area={area}
             logo={logo}
           />
