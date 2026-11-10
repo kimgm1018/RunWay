@@ -127,6 +127,18 @@ class MelonPolicyTest {
   }
 
   @Test
+  fun `the card art takes the first web address and leaves the rest to the bitmap`() {
+    // S15P31E105-609: 멜론 CDN 고해상도 주소가 있으면 쓰고, 없으면 null(비트맵·기본 커버로 넘어감).
+    assertEquals(
+      "https://cdnimg.melon.co.kr/cm/album/images/1000.jpg",
+      MelonPolicy.webArtwork(null, " https://cdnimg.melon.co.kr/cm/album/images/1000.jpg ", "https://other/icon.png"),
+    )
+    assertEquals("http://cdn/a.jpg", MelonPolicy.webArtwork("content://melon/art/1", "http://cdn/a.jpg"))
+    assertEquals(null, MelonPolicy.webArtwork("content://melon/art/1", "file:///x.jpg", "", null))
+    assertEquals(null, MelonPolicy.webArtwork())
+  }
+
+  @Test
   fun `history puts the newest song first, once, up to the limit`() {
     var json = "[]"
     listOf("a", "b", "c", "a").forEach {
