@@ -313,8 +313,8 @@ test('the home has no background photo and keeps the profile photo as the avatar
 // Without a usable score the card has no sentence (S15P31E105-615): why in the report, the details with
 // their dashes, the button that fixes it and 러닝 시작하기.
 test.each([
-  ['newUser', ['데이터를 모으는 중이에요'], ['워치 동기화', '활동량']],
-  ['staleHealth', ['마지막 평가 10월 15일'], ['워치 동기화', '활동량']],
+  ['newUser', ['데이터를 모으는 중이에요'], null],
+  ['staleHealth', ['마지막 평가 10월 15일'], null],
   [
     'healthDenied',
     ['건강 데이터 권한이 없어요'],
@@ -338,10 +338,15 @@ test.each([
     expect(home).not.toContain('7h 12m');
     expect(home).not.toContain('항목의 평균');
     expect(home).not.toContain('운동량 항목에 반영됐어요.');
-    const [button, destination] = action;
-    expect(home).not.toContain(destination);
-    await press(screen, button);
-    expect(texts(screen)).toContain(destination);
+    if (action) {
+      const [button, destination] = action;
+      expect(home).not.toContain(destination);
+      await press(screen, button);
+      expect(texts(screen)).toContain(destination);
+    } else {
+      // Data collection/age cannot ask an already-ready watch to synchronize again.
+      expect(home).not.toContain('워치 동기화');
+    }
     await act(async () => screen.unmount());
   },
 );

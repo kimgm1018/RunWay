@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   Image,
   Modal,
@@ -31,7 +32,10 @@ import {
   type Repositories,
   type WatchConnection,
 } from '../../data';
-import { watchConnectionLabel } from '../../data/api/devices';
+import {
+  watchConnectionLabel,
+  watchReadinessDetail,
+} from '../../data/api/devices';
 import { errorCode } from '../../data/errors';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import type { SleepAccess } from '../../health/samsungSleep';
@@ -128,8 +132,8 @@ function Tile({
         switchTile
           ? { checked: on, disabled: !!disabled }
           : disabled
-            ? { disabled: true }
-            : undefined
+          ? { disabled: true }
+          : undefined
       }
       disabled={disabled}
       onPress={onPress}
@@ -204,6 +208,14 @@ export function SettingsScreen() {
   const { reload } = loaded;
   // Coming back from 1.7 shows the watch connected again, and from 8.1b the location mode.
   useFocusEffect(useCallback(() => reload(), [reload]));
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') reload();
+      });
+      return () => subscription.remove();
+    }, [reload]),
+  );
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
   // HEALTH_DATA consent (W05). Withdrawing asks first in a sheet; saving blocks a second tap.
@@ -414,7 +426,9 @@ export function SettingsScreen() {
             <Tile
               icon="smartwatch"
               name={watch.deviceName}
-              state={watchConnectionLabel(watch)}
+              state={[watchConnectionLabel(watch), watchReadinessDetail(watch)]
+                .filter(Boolean)
+                .join('\n')}
               onPress={() => {
                 if (watch.status === 'connected') {
                   disconnect(watch);

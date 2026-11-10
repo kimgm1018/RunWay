@@ -81,8 +81,15 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val inbox by lazy { WatchSessionInbox(app) }
   private val batches by lazy { WatchBatchStore(app) }
+  private val readiness by lazy { WatchReadinessProbe(app) }
 
   override fun getName() = "WatchSession"
+
+  @ReactMethod fun getWatchReadiness(nodeId: String, promise: Promise) {
+    scope.launch {
+      promise.resolve(readiness.read(nodeId))
+    }
+  }
 
   override fun initialize() {
     super.initialize()

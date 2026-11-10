@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   Image,
   RefreshControl,
@@ -31,6 +32,7 @@ import {
   type RunRecordSummary,
 } from '../../data';
 import { recordsChanged } from '../../data/recordsChanged';
+import { isWatchReady } from '../../data/api/devices';
 import { navigateTo, openGroupRunResult } from '../../navigation/navigateTo';
 import type { HomeStackParamList } from '../../navigation/types';
 import { fontFamily, homePalette, size } from '../../theme';
@@ -77,6 +79,7 @@ const loadToday = (repositories: Repositories) =>
   repositories.home.getTodayCondition();
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
+const loadWatch = (repositories: Repositories) => repositories.watch.getConnection();
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
 function Greeting({
@@ -234,7 +237,7 @@ function MenuBar({
 }
 
 // 2.1 준비도 on a past day (S15P31E105-594): that day's score when it has one, else a line saying it has none.
-function DayReadiness({ day, today }: { day: string; today: string }) {
+function DayReadiness({ day, today, watchReady }: { day: string; today: string; watchReady: boolean }) {
   const condition = useResource(
     useCallback(
       (repositories: Repositories) => repositories.home.getConditionOn(day),
@@ -263,7 +266,7 @@ function DayReadiness({ day, today }: { day: string; today: string }) {
       />
     );
   }
-  return <ReadinessPanel today={condition.data} todayDay={today} />;
+  return <ReadinessPanel today={condition.data} todayDay={today} watchReady={watchReady} />;
 }
 
 export function HomeScreen() {
@@ -279,19 +282,27 @@ export function HomeScreen() {
   // score.
   const sleep = useSamsungSleep();
   const notifications = useResource(loadNotifications);
+  const watch = useResource(loadWatch);
+  const watchReady = watch.status === 'ready' && isWatchReady(watch.data);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
   // (leaving 2.9 marks all read). The first focus is the first load.
   const refreshMe = me.refresh;
   const refreshNotifications = notifications.refresh;
+  const reloadWatch = watch.reload;
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (focused.current) {
         void refreshMe();
         void refreshNotifications();
+        reloadWatch();
       }
       focused.current = true;
-    }, [refreshMe, refreshNotifications]),
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') reloadWatch();
+      });
+      return () => subscription.remove();
+    }, [refreshMe, refreshNotifications, reloadWatch]),
   );
   // Notifications that did not load only leave the bell without its dot.
   const unread = (notifications.data?.unreadCount ?? 0) > 0;
@@ -356,7 +367,7 @@ export function HomeScreen() {
   const onRefresh = () => {
     recordsChanged();
     void sleep.refresh();
-    [me, condition, notifications].forEach(resource => {
+    [me, condition, notifications, watch].forEach(resource => {
       setPending(count => count + 1);
       resource.refresh().finally(() => setPending(count => count - 1));
     });
@@ -374,7 +385,7 @@ export function HomeScreen() {
   const readiness =
     day !== today ? (
       // Another day's 준비도 (S15P31E105-594 담당자 요청: 과거 날짜를 고르면 그날의 준비도).
-      <DayReadiness day={day} today={today} />
+      <DayReadiness day={day} today={today} watchReady={watchReady} />
     ) : condition.status === 'loading' ? (
       <ActivityIndicator style={styles.loading} color="#FFFFFF" />
     ) : condition.status === 'error' ? (
@@ -388,6 +399,7 @@ export function HomeScreen() {
       <ReadinessPanel
         today={condition.data}
         todayDay={today}
+        watchReady={watchReady}
         phoneSleep={{
           access: sleep.access,
           today: sleep.today,

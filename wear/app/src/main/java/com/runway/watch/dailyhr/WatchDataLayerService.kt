@@ -11,12 +11,18 @@ import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 import java.time.Instant
+import com.runway.watch.readiness.READINESS_QUERY_PATH
+import com.runway.watch.readiness.publishReadiness
 
 /** Receives the phone's DAILY_HR_RECEIVED ack and the health-consent DataItem; malformed input is ignored. */
 class WatchDataLayerService : WearableListenerService() {
     private val store by lazy { DailyHrStore.get(this) }
 
     override fun onMessageReceived(event: MessageEvent) {
+        if (event.path == READINESS_QUERY_PATH) {
+            runCatching { publishReadiness(this, event.data) }
+            return
+        }
         // Run-session messages (S15P31E105-256) go to the shared controller's queue; batch ACKs are applied at once.
         // Batch receipts and save ACKs (S15P31E105-311) and coaching guides (S15P31E105-257) go to the same place.
         if (event.path.startsWith(SessionPaths.PREFIX) || event.path.startsWith(DATA_PATH_PREFIX) ||

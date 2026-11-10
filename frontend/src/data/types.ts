@@ -853,7 +853,18 @@ export type RunningProfileChange = {
   pace?: PaceEntry;
 };
 
-export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
+export type WatchLinkState =
+  | 'connected'
+  | 'denied'
+  | 'disconnected'
+  | 'unknown';
+
+export type WatchReadinessReason =
+  | 'APP_MISSING_OR_OUTDATED'
+  | 'NO_RESPONSE'
+  | 'HEART_RATE_PERMISSION'
+  | 'ACTIVITY_PERMISSION'
+  | 'UNKNOWN';
 
 // Read from the watch on the phone, not from the server.
 export type WatchConnection = {
@@ -862,6 +873,10 @@ export type WatchConnection = {
   deviceName: string;
   lastSyncedAt: string | null;
   batteryPercent: number | null;
+  // Live app/permission evidence; transport connectivity alone does not mean ready.
+  readinessReasons?: WatchReadinessReason[];
+  // W02 registration is independent of the OS transport; W03 must survive a later status read.
+  registrationStatus?: 'registered' | 'unregistered' | 'unknown';
   permissions: Record<
     'heartRate' | 'location' | 'sleep' | 'activity',
     WatchLinkState

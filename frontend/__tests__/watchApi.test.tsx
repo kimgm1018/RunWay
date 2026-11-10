@@ -316,7 +316,7 @@ test('8.1 disconnects a reachable linked watch with W03', async () => {
   expect(texts(screen)).toContain('Galaxy Watch7');
   expect(
     last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
-  ).toBe('준비 미완료');
+  ).toBe('준비 미완료\n워치 앱 응답 없음');
 
   await press(screen, 'Galaxy Watch7');
 
@@ -351,7 +351,7 @@ test('8.1 re-registers a reachable watch with W01 after disconnect (S15P31E105-6
   expect(texts(screen)).toContain('Galaxy Watch7');
   expect(
     last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
-  ).toBe('준비 미완료');
+  ).toBe('준비 미완료\n워치 앱 응답 없음');
   await act(async () => screen.unmount());
 });
 
@@ -373,6 +373,27 @@ test('8.1 keeps the watch and says so when W03 fails', async () => {
   );
   expect(
     last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text,
-  ).toBe('준비 미완료');
+  ).toBe('준비 미완료\n워치 앱 응답 없음');
+  await act(async () => screen.unmount());
+});
+
+test('manual unlink remains unregistered after returning through home, until the user reconnects', async () => {
+  linked = true;
+  mockFindConnectedWatch.mockResolvedValue({ id: 'node-1', displayName: 'Galaxy Watch7' });
+  await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+  const screen = await launch(true);
+  await press(screen, '설정');
+  await press(screen, 'Galaxy Watch7');
+  expect(linked).toBe(false);
+
+  await press(screen, '뒤로');
+  await press(screen, '설정');
+  expect(last(screen, 'Galaxy Watch7', 'onPress').props.accessibilityValue.text).toBe('등록 안 됨');
+  expect(linked).toBe(false);
+  expect(sent().filter(call => call.startsWith('POST'))).toEqual([]);
+
+  await press(screen, 'Galaxy Watch7');
+  expect(linked).toBe(true);
+  expect(sent().filter(call => call.startsWith('POST'))).toEqual(['POST /devices']);
   await act(async () => screen.unmount());
 });

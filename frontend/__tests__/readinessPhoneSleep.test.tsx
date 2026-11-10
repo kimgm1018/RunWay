@@ -58,13 +58,13 @@ afterEach(() => {
   });
 });
 
-function texts(today: TodayCondition, phoneSleep?: PhoneSleep) {
+function texts(today: TodayCondition, phoneSleep?: PhoneSleep, watchReady = false) {
   let screen!: TestRenderer.ReactTestRenderer;
   act(() => {
     screen = TestRenderer.create(
       // The report's 어제 러닝 step reads runs, so the card sits in the app's data (S15P31E105-615).
       <DataProvider repositories={withoutRuns()}>
-        <ReadinessPanel today={today} phoneSleep={phoneSleep} />
+        <ReadinessPanel today={today} phoneSleep={phoneSleep} watchReady={watchReady} />
       </DataProvider>,
     );
   });
@@ -292,6 +292,19 @@ describe('2.1 수면 부분 표시', () => {
         onConnect: jest.fn(),
       }).buttons,
     ).toEqual(['워치 동기화']);
+  });
+
+  it.each(['collecting', 'stale', 'watchDisconnected'] as const)('hides the watch action after actual readiness is confirmed, even when R02 is %s', readinessState => {
+    const today = { ...base, readinessState };
+    const confirmed = texts(today, undefined, true);
+    expect(confirmed.buttons).toEqual([]);
+    expect(confirmed.all).not.toContain('연결된 워치가 없어요');
+    expect(texts(today, undefined, false).buttons).toHaveLength(1);
+  });
+
+  it('keeps health consent and Samsung Health actions when the watch is ready', () => {
+    expect(texts({ ...base, readinessState: 'permissionDenied' }, undefined, true).buttons).toEqual(['설정 열기']);
+    expect(texts(base, { ...granted(400), access: 'notRequested', today: { status: 'accessRequired' } }, true).buttons).toEqual(['삼성 헬스 연결']);
   });
 });
 
