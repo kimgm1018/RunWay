@@ -35,14 +35,12 @@ import {
 import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { MissingTarget } from './MissingTarget';
 import {
   fontFamily,
-  palette,
   size,
   spacing,
+  ThemeProvider,
   typography,
-  useTheme,
 } from '../../theme';
 import { ServiceMark, useMusicSource } from '../run/parts';
 import {
@@ -50,7 +48,15 @@ import {
   useRunControlState,
   type RunConfig,
 } from '../run/RunSession';
-import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
+import {
+  GroupCta,
+  groupLook,
+  NightBackground,
+  NumText,
+  Raised,
+  groupTone,
+} from './look';
+import { MissingTarget } from './MissingTarget';
 import { BottomFade, Initial } from './parts';
 import { BackButton } from '../../components/BackButton';
 
@@ -120,45 +126,47 @@ function useCountdown(target: string | null, now: Date) {
   ).padStart(2, '0')}`;
 }
 
-function PaceCard({ room }: { room: WaitingRoom }) {
+// 추천 공동 페이스 (runway-group-screen-designs 06, S15P31E105-594): a clock with the title and its basis under it,
+// the shared pace big in the middle, then under a line the run's own target pace and, when the server gives it,
+// the members' comfortable range, both centred.
+function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
   const pace = room.recommendedPaceSecPerKm;
   const range = room.comfortRange;
-  const share =
-    range && pace !== null
-      ? Math.max(
-          0,
-          Math.min(1, (range[1] - pace) / Math.max(range[1] - range[0], 1)),
-        )
-      : null;
   return (
-    <View style={groupPage.block}>
-      <View style={styles.rowBetween}>
-        <SectionLabel tone="mist">추천 공동 페이스</SectionLabel>
-        <AppText style={styles.noteStrong}>참가자 기록 기준</AppText>
+    <Raised tone="night" style={styles.card}>
+      <View style={styles.paceHead}>
+        <Icon name="clock" color={groupTone.text} size={22} />
+        <View>
+          <AppText style={styles.cardTitle}>추천 공동 페이스</AppText>
+          <AppText style={styles.noteText}>참가자 기록 기준</AppText>
+        </View>
       </View>
       {pace === null ? (
-        <AppText style={styles.noteText}>추천 정보 부족</AppText>
+        <AppText style={[styles.noteText, styles.center]}>
+          추천 정보 부족
+        </AppText>
       ) : (
-        <AppText style={styles.pace}>
+        <AppText style={[styles.pace, styles.center]}>
           {formatPace(pace)}
-          <AppText style={styles.paceUnit}> /km</AppText>
+          <AppText style={styles.paceUnit}>/km</AppText>
         </AppText>
       )}
-      {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
-      {range && share !== null ? (
-        <>
-          <View style={styles.range}>
-            <View style={styles.rangeFill} />
-            <View style={[styles.rangeMarker, { left: `${share * 100}%` }]} />
-          </View>
-          <View style={styles.rowBetween}>
-            <AppText style={styles.rangeEnd}>{formatPace(range[0])}</AppText>
-            <AppText style={styles.rangeLabel}>참가자 편한 범위</AppText>
-            <AppText style={styles.rangeEnd}>{formatPace(range[1])}</AppText>
-          </View>
-        </>
-      ) : null}
-    </View>
+      <View style={styles.paceFoot}>
+        <NumText
+          style={[styles.paceLine, styles.center]}
+          text={`목표 페이스 ${formatPace(run.goalPaceSecPerKm)} /km`}
+        />
+        {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
+        {range ? (
+          <NumText
+            style={[styles.noteText, styles.center]}
+            text={`참가자 편한 범위 ${formatPace(range[0])} – ${formatPace(
+              range[1],
+            )}`}
+          />
+        ) : null}
+      </View>
+    </Raised>
   );
 }
 
@@ -182,7 +190,6 @@ export function WaitingRoomScreen() {
 function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   const { ensureRunLogin } = useSession();
   const navigation = useNavigation();
-  const { colors } = useTheme();
   const { groupRuns, clock, watchSession } = useRepositories();
   const { start, joinGroup, leaveGroup } = useRunActions();
   const control = useRunControlState();
@@ -326,11 +333,9 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
 
   if (!run || !room) {
     return (
-      <SafeAreaView
-        style={[styles.root, { backgroundColor: colors.background }]}
-      >
+      <SafeAreaView style={[styles.root, { backgroundColor: groupTone.page }]}>
         <View style={styles.header}>
-          <BackButton onPress={() => navigation.goBack()} />
+          <BackButton tone="dark" onPress={() => navigation.goBack()} />
         </View>
         {data.status === 'error' ? (
           <EmptyState
@@ -340,7 +345,7 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
             onAction={data.reload}
           />
         ) : (
-          <ActivityIndicator style={styles.loading} />
+          <ActivityIndicator color={groupTone.sub} style={styles.loading} />
         )}
       </SafeAreaView>
     );
@@ -358,7 +363,9 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
       if (!isReady && /^\d+$/.test(groupRunId)) {
         const linked = await watchSession.getLinkedDevices();
         if (!linked) {
-          toast('워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요');
+          toast(
+            '워치를 연결해야 준비할 수 있어요. 설정 › 워치 연결에서 연결해 주세요',
+          );
           return;
         }
       }
@@ -394,143 +401,179 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   };
 
   return (
-    <View style={[styles.root, groupPage.page]}>
-      <StatusBar barStyle="dark-content" />
-      <SafeAreaView edges={['top']}>
-        <View style={styles.header}>
-          <BackButton onPress={() => navigation.goBack()} />
-          <AppText
-            accessibilityRole="header"
-            style={[styles.flex, styles.title]}
-          >
-            출발 준비
-          </AppText>
-          <AppText style={styles.timeLeft} accessibilityLabel="출발까지">
-            {timeLeft}
-          </AppText>
-        </View>
-      </SafeAreaView>
-      <ScrollView contentContainerStyle={styles.content}>
-        <PaceCard room={room} />
-        {watchProblem ? (
-          <AppText accessibilityLiveRegion="polite">{watchProblem}</AppText>
-        ) : null}
-        {watchError ? (
-          <AppText accessibilityLiveRegion="polite" style={styles.inset}>
-            {watchError}
-          </AppText>
-        ) : null}
-        {startRequested ? (
-          <AppText accessibilityLiveRegion="polite" style={styles.inset}>
-            출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
-          </AppText>
-        ) : null}
-        {run.isHost && !startRequested ? (
-          <View style={styles.hostStart}>
+    <ThemeProvider tone="dark">
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+        {/* The app's mist behind white cards (S15P31E105-594 담당자 결정). */}
+        <NightBackground />
+        <SafeAreaView edges={['top']}>
+          {/* 출발 준비 in the middle, then 출발까지 large under it (runway-group-screen-designs 06). */}
+          <View style={styles.header}>
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
+            <View style={styles.headerMiddle}>
+              <AppText accessibilityRole="header" style={styles.title}>
+                출발 준비
+              </AppText>
+            </View>
+            <View style={styles.headerSpace} />
+          </View>
+          {timeLeft ? (
+            <AppText style={styles.countdownLabel}>
+              {'출발까지 '}
+              <AppText style={styles.countdown}>{timeLeft}</AppText>
+            </AppText>
+          ) : null}
+        </SafeAreaView>
+        <ScrollView contentContainerStyle={styles.content}>
+          <PaceCard room={room} run={run} />
+          {/* The watch and start notices as the 시안's card (runway-group-screen-designs 10-4): a red pink warning for
+            the watch, a clock while the start is being confirmed. */}
+          {watchProblem ? (
+            <Raised tone="night" style={styles.notice}>
+              <Icon name="alert" color={groupTone.danger} size={20} />
+              <AppText
+                accessibilityLiveRegion="polite"
+                style={styles.noticeText}
+              >
+                {watchProblem}
+              </AppText>
+            </Raised>
+          ) : null}
+          {watchError ? (
+            <Raised tone="night" style={styles.notice}>
+              <Icon name="alert" color={groupTone.danger} size={20} />
+              <AppText
+                accessibilityLiveRegion="polite"
+                style={styles.noticeText}
+              >
+                {watchError}
+              </AppText>
+            </Raised>
+          ) : null}
+          {startRequested ? (
+            <Raised tone="night" style={styles.notice}>
+              <Icon name="clock" color={groupTone.accent} size={20} />
+              <AppText
+                accessibilityLiveRegion="polite"
+                style={styles.noticeText}
+              >
+                출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
+              </AppText>
+            </Raised>
+          ) : null}
+          {/* 6.5-MemberList (runway-group-screen-designs 06): one card, the counts on top with the ready count on the
+            right, then a row a member with lines between. */}
+          <Raised tone="night" style={styles.card}>
+            <View style={styles.membersHead}>
+              <Icon name="users" color={groupTone.text} size={18} />
+              <NumText
+                style={[styles.membersTitle, styles.flex]}
+                text={`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
+              />
+              <NumText
+                style={styles.readyCount}
+                text={`${room.readyCount}명 준비 완료`}
+              />
+            </View>
+            <View>
+              {room.participants.map((member, index) => (
+                <View
+                  key={member.userId}
+                  style={[styles.member, index > 0 && styles.memberLine]}
+                >
+                  <Initial name={member.nickname} index={index} size={36} />
+                  <View style={styles.flex}>
+                    <View style={styles.nameLine}>
+                      <AppText style={styles.memberName}>
+                        {member.nickname}
+                      </AppText>
+                      {member.isHost ? (
+                        <Icon name="crown" color={groupTone.sub} size={13} />
+                      ) : null}
+                      {member.isMe ? (
+                        <View style={styles.meBadge}>
+                          <AppText style={styles.meText}>나</AppText>
+                        </View>
+                      ) : null}
+                    </View>
+                    {member.isMe && member.readinessScore !== null ? (
+                      <NumText
+                        style={styles.readiness}
+                        text={`준비도 ${member.readinessScore}`}
+                      />
+                    ) : null}
+                  </View>
+                  {/* Ready in the 시안's mint outline, waiting in a grey one. */}
+                  {member.readyStatus === 'READY' ? (
+                    <View style={[styles.chip, styles.chipReady]}>
+                      <AppText style={styles.statusReady}>준비 완료</AppText>
+                    </View>
+                  ) : (
+                    <View style={[styles.chip, styles.chipWaiting]}>
+                      <AppText style={styles.statusWaiting}>대기 중</AppText>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </Raised>
+          {/* The leader's 그룹런 시작 under the members, the note under it (runway-group-screen-designs 06). */}
+          {run.isHost && !startRequested ? (
             <GroupCta
               navy
               title={starting ? '출발 요청 중…' : '그룹런 시작'}
               icon="check"
               onPress={requestStart}
             />
-          </View>
-        ) : null}
-        {/* 6.5-MemberList: a block under a grey band, rows without dividers. */}
-        <View style={groupPage.block}>
-          <View style={styles.rowBetween}>
-            <SectionLabel tone="mist">
-              {`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
-            </SectionLabel>
+          ) : null}
+          <View style={styles.noteRow}>
+            <Icon name="alert" color={groupTone.sub} size={14} />
             <AppText style={styles.noteText}>
-              {`${room.readyCount}명 준비 완료`}
+              그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
             </AppText>
           </View>
-          <View>
-            {room.participants.map((member, index) => (
-              <View key={member.userId} style={styles.member}>
-                <Initial name={member.nickname} index={index} size={36} mint />
-                <View style={styles.flex}>
-                  <View style={styles.nameLine}>
-                    <AppText style={styles.memberName}>
-                      {member.nickname}
-                    </AppText>
-                    {member.isHost ? (
-                      <Icon
-                        name="crown"
-                        color={groupLook.onLightSub}
-                        size={13}
-                      />
-                    ) : null}
-                    {member.isMe ? (
-                      <View style={styles.meBadge}>
-                        <AppText style={styles.meText}>나</AppText>
-                      </View>
-                    ) : null}
-                  </View>
-                  {member.isMe && member.readinessScore !== null ? (
-                    <AppText style={styles.readiness}>
-                      {`준비도 ${member.readinessScore}`}
-                    </AppText>
-                  ) : null}
-                </View>
-                <AppText
-                  style={
-                    member.readyStatus === 'READY'
-                      ? styles.statusReady
-                      : styles.statusWaiting
-                  }
-                >
-                  {member.readyStatus === 'READY' ? '준비 완료' : '대기 중'}
-                </AppText>
-              </View>
-            ))}
-          </View>
-        </View>
-        <AppText style={[styles.noteText, styles.note]}>
-          그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
-        </AppText>
-      </ScrollView>
-      <SafeAreaView edges={['bottom']} style={styles.footer}>
-        <BottomFade white />
-        <View style={styles.flex}>
-          {isReady ? (
-            <ReadyCancel onPress={toggleReady} />
-          ) : (
-            <GroupCta
-              navy
-              title="준비 완료"
-              icon="check"
-              onPress={toggleReady}
-            />
-          )}
-        </View>
-        {/* 6.5-ReadyBar: the music button is a flat navy circle beside it (S15P31E105-563). */}
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="음악"
-          onPress={() => navigateTo(navigation, 'MusicCard')}
-        >
-          <View style={styles.music}>
-            {source && source !== 'NONE' ? (
-              <ServiceMark service={source} size={30} />
+        </ScrollView>
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <BottomFade />
+          <View style={styles.flex}>
+            {isReady ? (
+              <ReadyCancel onPress={toggleReady} />
             ) : (
-              <Icon name="music" color={groupLook.onDark} size={20} />
+              <GroupCta
+                navy
+                title="준비 완료"
+                icon="check"
+                onPress={toggleReady}
+              />
             )}
           </View>
-        </PressableScale>
-      </SafeAreaView>
-      <Modal visible={count !== null} transparent animationType="fade">
-        <View style={[styles.overlay, { backgroundColor: colors.scrim }]}>
-          <AppText variant="heading" tone="accentText">
-            그룹장이 출발했어요
-          </AppText>
-          <AppText style={styles.count}>{count ?? ''}</AppText>
-          <AppText variant="body" tone="textSecondary">
-            내 기록이 함께 시작돼요
-          </AppText>
-        </View>
-      </Modal>
-    </View>
+          {/* 6.5-ReadyBar: the music button is a flat navy circle beside it (S15P31E105-563). */}
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="음악"
+            onPress={() => navigateTo(navigation, 'MusicCard')}
+          >
+            <View style={styles.music}>
+              {source && source !== 'NONE' ? (
+                <ServiceMark service={source} size={30} />
+              ) : (
+                <Icon name="music" color={groupLook.onDark} size={20} />
+              )}
+            </View>
+          </PressableScale>
+        </SafeAreaView>
+        {/* 출발 확인 (runway-group-screen-designs 10-3): the navy page, the title, the count in a mint ring. */}
+        <Modal visible={count !== null} transparent animationType="fade">
+          <View style={styles.overlay}>
+            <AppText style={styles.overlayTitle}>그룹장이 출발했어요</AppText>
+            <View style={styles.countRing}>
+              <AppText style={styles.count}>{count ?? ''}</AppText>
+            </View>
+            <AppText style={styles.overlaySub}>내 기록이 함께 시작돼요</AppText>
+          </View>
+        </Modal>
+      </View>
+    </ThemeProvider>
   );
 }
 
@@ -539,138 +582,164 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
   header: {
-    height: size.header,
+    minHeight: size.header,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
+    gap: spacing.md,
     paddingHorizontal: spacing.screen,
+    paddingVertical: 6,
   },
+  headerMiddle: { flex: 1, alignItems: 'center' },
+  headerSpace: { width: 44 },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 19,
     lineHeight: 26,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
-  timeLeft: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 16,
-    color: groupLook.onLight,
-  },
-  content: { paddingTop: spacing.md, paddingBottom: spacing.xxxl * 4 },
-  inset: { paddingHorizontal: 20, paddingBottom: spacing.lg },
-  // The leader's 그룹런 시작 between the pace and the members.
-  hostStart: { paddingHorizontal: 20, paddingBottom: 24 },
-  noteStrong: {
+  countdownLabel: {
+    textAlign: 'center',
+    paddingBottom: 4,
     fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupLook.onLightSub,
+    fontSize: 20,
+    lineHeight: 46,
+    color: groupTone.text,
+  },
+  // The time left large in Rajdhani, like the pace.
+  countdown: {
+    fontFamily: fontFamily.rajdhaniBold,
+    fontSize: 40,
+    color: groupTone.text,
+  },
+  content: {
+    paddingTop: spacing.md,
+    paddingHorizontal: 16,
+    paddingBottom: spacing.xxxl * 4,
+    gap: 12,
+  },
+  card: { borderRadius: 20, padding: 18, gap: 12 },
+  cardTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 23,
+    color: groupTone.text,
+  },
+  paceHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  center: { textAlign: 'center' },
+  paceFoot: {
+    gap: 4,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: groupTone.line,
+  },
+  paceLine: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 21,
+    color: groupTone.text,
   },
   noteText: {
     fontFamily: fontFamily.regular,
     fontSize: 12.5,
     lineHeight: 17,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // Big numbers stay Barlow Regular at the sheet's 60.
+  // The shared pace large in Rajdhani (S15P31E105-594 담당자 결정).
   pace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 60,
-    lineHeight: 66,
-    color: groupLook.onLight,
+    fontFamily: fontFamily.rajdhaniBold,
+    fontSize: 64,
+    lineHeight: 70,
+    color: groupTone.text,
   },
   paceUnit: {
-    fontFamily: fontFamily.regular,
-    fontSize: 14,
-    color: groupLook.onLightSub,
+    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontSize: 28,
+    color: groupTone.text,
   },
-  range: {
-    height: 8,
-    borderRadius: 4,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(2,5,14,0.08)',
-  },
-  rangeFill: {
-    position: 'absolute',
-    left: '25%',
-    right: '25%',
-    top: 0,
-    bottom: 0,
-    borderRadius: 4,
-    // Mint like 6.2's accent lines (담당자 요청, S15P31E105-563).
-    backgroundColor: palette.mintDeep,
-  },
-  rangeMarker: {
-    position: 'absolute',
-    width: 3,
-    height: 22,
-    borderRadius: 1.5,
-    marginLeft: -1.5,
-    backgroundColor: groupLook.onLight,
-  },
-  rangeEnd: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupLook.onLightSub2,
-  },
-  rangeLabel: {
+  membersHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  membersTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: groupLook.onLight,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupTone.text,
+  },
+  readyCount: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupTone.text,
   },
   // 6.5-MemberList rows.
   member: {
-    height: 50,
+    height: 58,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
+  memberLine: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: groupTone.line,
+  },
+  chip: {
+    height: 30,
+    minWidth: 76,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipReady: { borderWidth: 1.5, borderColor: groupTone.accent },
+  chipWaiting: { borderWidth: 1, borderColor: groupTone.muted },
   nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   memberName: {
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
+  // 나 as a small mint chip (민트는 작은 것에만, 담당자 요청).
   meBadge: {
     height: 18,
     paddingHorizontal: 6,
     borderRadius: 9,
     justifyContent: 'center',
-    backgroundColor: groupLook.navy,
+    backgroundColor: groupLook.mint,
   },
   meText: {
     fontFamily: fontFamily.bold,
     fontSize: 11,
     lineHeight: 14,
-    color: groupLook.onDark,
+    color: groupLook.onMint,
   },
   readiness: {
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
   statusReady: {
     fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupLook.onLight,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupTone.accent,
   },
   statusWaiting: {
-    fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupLook.onLightSub,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
+    lineHeight: 17,
+    color: groupTone.sub,
   },
-  note: { textAlign: 'center', paddingHorizontal: 20 },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
   footer: {
     position: 'absolute',
     left: 0,
@@ -689,14 +758,55 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupLook.navy,
-    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
+    backgroundColor: groupTone.quiet,
+  },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 18,
+  },
+  noticeText: {
+    flex: 1,
+    fontFamily: fontFamily.medium,
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: groupTone.text,
   },
   overlay: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xl,
+    backgroundColor: 'rgba(2,5,14,0.94)',
   },
-  count: { ...typography.metricHero, fontSize: 120, lineHeight: 130 },
+  overlayTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 24,
+    lineHeight: 32,
+    color: groupTone.text,
+  },
+  overlaySub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 15,
+    lineHeight: 21,
+    color: groupTone.sub,
+  },
+  countRing: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    borderWidth: 5,
+    borderColor: groupTone.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  count: {
+    ...typography.metricHero,
+    fontFamily: fontFamily.rajdhaniBold,
+    fontSize: 110,
+    lineHeight: 120,
+    color: groupTone.text,
+  },
 });

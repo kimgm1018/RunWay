@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   BackHandler,
   Pressable,
@@ -10,9 +10,9 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
-  Circle,
   Defs,
   LinearGradient,
+  Polygon,
   Polyline,
   Rect,
   Stop,
@@ -24,13 +24,11 @@ import {
   mistColors,
   Pop,
   useCountUp,
-  useToast,
 } from '../../components';
-import { errorCode, useRepositories } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import type { LngLat } from '../../geo';
-import { navigateTo, openRecord } from '../../navigation/navigateTo';
-import { fontFamily, k1, palette, spacing, ThemeProvider } from '../../theme';
+import { navigateTo } from '../../navigation/navigateTo';
+import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { comparisonResult, useFinalComparison } from './recordComparison';
 import { useRunControlState, useRunSession } from './RunSession';
 
@@ -40,8 +38,24 @@ const finishShare = 0.98;
 const outlineInset = 16;
 const outlineMinHeight = 90;
 
-// The run's path as a bare 2.2 white line without the map: a white start dot and a white end ring with an
-// ink rim (runway-running-handoff 4.5 달린 경로).
+// The 시안's colours on the running gradient (S15P31E105-594 담당자 결정: 배경은 시그니처 러닝 그라데이션): white type,
+// the app's mint for the pace, the route and the slashes, the group screens' red for a missed goal or a failed save,
+// and light tiles for the buttons on the gradient's pale foot.
+const resultLook = {
+  page: '#1A2E39',
+  text: '#FFFFFF',
+  sub: 'rgba(255,255,255,0.78)',
+  line: 'rgba(255,255,255,0.22)',
+  headLine: 'rgba(255,255,255,0.55)',
+  mint: '#4DFFD2',
+  danger: '#F15066',
+  ink: '#02050E',
+  tile: '#F7F9FA',
+  tileLine: '#A9B8C2',
+} as const;
+
+// The run's path as a mint line without the map (S15P31E105-594 담당자 시안), fitted into the box with the
+// latitude squeezed so the shape keeps its real proportions.
 function RouteOutline({
   route,
   width,
@@ -76,165 +90,160 @@ function RouteOutline({
       return `${x},${y}`;
     })
     .join(' ');
-  const start = project(route[0]);
-  const end = project(route[route.length - 1]);
   return (
     <Svg width={width} height={height} accessibilityLabel="달린 경로">
       <Polyline
         points={points}
-        stroke={palette.white}
-        strokeWidth={2.2}
+        stroke={resultLook.mint}
+        strokeWidth={3.5}
         fill="none"
         strokeLinejoin="round"
         strokeLinecap="round"
-      />
-      <Circle cx={start.x} cy={start.y} r={3.5} fill={palette.white} />
-      <Circle
-        cx={end.x}
-        cy={end.y}
-        r={5}
-        fill={palette.white}
-        stroke={k1.night}
-        strokeWidth={1.5}
       />
     </Svg>
   );
 }
 
-// One figure, centered: the number, its unit and a label under it. On the dark top half it is white
-// (distance, time); on the light foot it is ink (heart rate, cadence).
-function Metric({
+// One row of the record table (S15P31E105-594 담당자 시안 RUN RECORD): the name on the left, the figure in Rajdhani
+// right-aligned in the value column, its unit in the last column. The pace row is the mint one; a goal pace sits
+// under its name.
+function RecordRow({
   label,
   value,
   unit,
-  ink = false,
+  note,
+  accent = false,
+  valueLabel,
 }: {
   label: string;
   value: string;
   unit?: string;
-  ink?: boolean;
+  note?: string | null;
+  accent?: boolean;
+  valueLabel?: string;
 }) {
   return (
-    <View style={styles.metric}>
-      <AppText style={[styles.metricValue, ink && styles.inkValue]}>
+    <View style={styles.row}>
+      <View style={styles.rowName}>
+        <AppText style={styles.rowLabel}>{label}</AppText>
+        {note ? <AppText style={styles.rowNote}>{note}</AppText> : null}
+      </View>
+      <AppText
+        style={[styles.rowValue, accent && styles.rowValueAccent]}
+        accessibilityLabel={valueLabel}
+      >
         {value}
-        {unit ? (
-          <AppText style={[styles.metricUnit, ink && styles.inkSoft]}>
-            {` ${unit}`}
-          </AppText>
-        ) : null}
       </AppText>
-      <AppText style={[styles.metricLabel, ink && styles.inkSoft]}>
-        {label}
-      </AppText>
+      <AppText style={styles.rowUnit}>{unit ?? ''}</AppText>
     </View>
   );
 }
 
-const glassStops = [
-  { offset: 0, color: '#FFFFFF', opacity: 0.62 },
-  { offset: 0.55, color: '#FFFFFF', opacity: 0.28 },
-  { offset: 1, color: '#FFFFFF', opacity: 0.16 },
-];
-const navyStops = [
-  { offset: 0, color: '#1A2E39', opacity: 0.92 },
-  { offset: 0.6, color: '#02050E', opacity: 0.88 },
-  { offset: 1, color: '#02050E', opacity: 0.82 },
-];
+// The mint slashes under the table (시안): a run of slanted bars as wide as the screen allows.
+function Stripes() {
+  const [width, setWidth] = useState(0);
+  const bar = 7;
+  const gap = 7;
+  const lean = 6;
+  const height = 18;
+  const count = width > 0 ? Math.floor((width - lean) / (bar + gap)) : 0;
+  return (
+    <View
+      style={styles.stripes}
+      onLayout={event => setWidth(event.nativeEvent.layout.width)}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      {count > 0 ? (
+        <Svg width={width} height={height}>
+          {Array.from({ length: count }, (_, index) => {
+            const x = index * (bar + gap);
+            return (
+              <Polygon
+                key={index}
+                points={`${x + lean},0 ${x + lean + bar},0 ${
+                  x + bar
+                },${height} ${x},${height}`}
+                fill={resultLook.mint}
+              />
+            );
+          })}
+        </Svg>
+      ) : null}
+    </View>
+  );
+}
 
-// The 4.5 buttons: a white liquid glass, turning navy with white text while pressed (runway-running-handoff
-// ActionButtons). A button that cannot be used yet is faded; a saved course stays navy.
+// 오후 러닝 · 2026.11.10 (시안): when the run began, in KST like the rest of the app.
+function runDateLine(startedAt: string) {
+  const shifted = new Date(new Date(startedAt).getTime() + 9 * 60 * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const part = shifted.getUTCHours() < 12 ? '오전 러닝' : '오후 러닝';
+  return `${part} · ${shifted.getUTCFullYear()}.${pad(
+    shifted.getUTCMonth() + 1,
+  )}.${pad(shifted.getUTCDate())}`;
+}
+
+// 코스 러닝 그라데이션 (runway-running-handoff 공통): the 2.0M mist upside down, dark at the top. Its stops are eased
+// toward the foot so the record table stays on the dark and mid blue and the pale end lies under the buttons.
+const resultGradient = [...mistColors].reverse().map((color, index, all) => ({
+  color,
+  offset: Math.pow(index / (all.length - 1), 0.6),
+}));
+
+// 1분 단축 · 30초 단축 · 1분 20초 단축: how much sooner than the course's planned time.
+function savedTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes === 0) {
+    return `${rest}초 단축`;
+  }
+  return rest === 0 ? `${minutes}분 단축` : `${minutes}분 ${rest}초 단축`;
+}
+
+// The 4.5 buttons as the 시안: a light outlined tile and the mint 완료. A pressed tile darkens a little; a button that
+// cannot be used yet is faded.
 function ResultButton({
   title,
   onPress,
-  icon,
+  primary = false,
   disabled = false,
-  selected,
 }: {
   title: string;
   onPress: () => void;
-  icon?: 'bookmark' | 'check';
+  primary?: boolean;
   disabled?: boolean;
-  selected?: boolean;
 }) {
-  const [box, setBox] = useState<{ width: number; height: number } | null>(
-    null,
-  );
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
-      accessibilityState={{ disabled, selected }}
+      accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      onLayout={event => setBox(event.nativeEvent.layout)}
-      style={[styles.button, disabled && styles.dim]}
+      style={({ pressed }) => [
+        styles.button,
+        primary ? styles.buttonPrimary : styles.buttonPlain,
+        pressed && (primary ? styles.primaryPressed : styles.plainPressed),
+        disabled && styles.dim,
+      ]}
     >
-      {({ pressed }) => {
-        const navy = pressed || Boolean(selected);
-        const text = navy ? '#FFFFFF' : k1.night;
-        return (
-          <>
-            {box ? (
-              <Svg
-                style={StyleSheet.absoluteFill}
-                width={box.width}
-                height={box.height}
-              >
-                <Defs>
-                  <LinearGradient
-                    id={navy ? 'resultNavy' : 'resultGlass'}
-                    x1="0.33"
-                    y1="0"
-                    x2="0.67"
-                    y2="1"
-                  >
-                    {(navy ? navyStops : glassStops).map(stop => (
-                      <Stop
-                        key={stop.offset}
-                        offset={stop.offset}
-                        stopColor={stop.color}
-                        stopOpacity={stop.opacity}
-                      />
-                    ))}
-                  </LinearGradient>
-                </Defs>
-                <Rect
-                  width={box.width}
-                  height={box.height}
-                  fill={`url(#${navy ? 'resultNavy' : 'resultGlass'})`}
-                />
-              </Svg>
-            ) : null}
-            {icon ? <Icon name={icon} color={text} size={16} /> : null}
-            <AppText style={[styles.buttonText, { color: text }]}>
-              {title}
-            </AppText>
-          </>
-        );
-      }}
+      <AppText style={styles.buttonText}>{title}</AppText>
     </Pressable>
   );
 }
 
-// 코스 러닝 그라데이션 (runway-running-handoff 공통): the 2.0M mist upside down, dark at the top.
-const resultGradient = [...mistColors].reverse();
-
-// 4.5 러닝 결과 (코스) and 4.5F 자유 러닝 결과 (runway-running-handoff): the whole screen reads as one share card on
-// the dark-to-light gradient, with the four glass buttons at the foot.
+// 4.5 러닝 결과 (코스) and 4.5F 자유 러닝 결과 as the 담당자 시안 (S15P31E105-594, 배경은 진한 네이비 단색): the RunWay mark,
+// RUN RECORD with the day, the route drawn as a mint line without the map, the record table, the goal line and the
+// mint slashes, with 기록 공유 and 완료 at the foot (담당자 요청: 기록 보기 · 내 코스에 저장 삭제).
 export function RunResultScreen() {
   const navigation = useNavigation();
-  const { courses } = useRepositories();
-  const toast = useToast();
   const { run, retrySave } = useRunSession();
   const control = useRunControlState();
   const finalComparison = useFinalComparison(
     control?.sessionId ?? null,
     control?.comparison ?? null,
   );
-  // The saved course this result is bookmarked as: the planned course, or one made from a free run.
-  const [savedCourseId, setSavedCourseId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [area, setArea] = useState<{ width: number; height: number } | null>(
     null,
   );
@@ -242,24 +251,6 @@ export function RunResultScreen() {
     null,
   );
   const plan = run?.config.plan ?? null;
-
-  useEffect(() => {
-    if (!plan) {
-      return;
-    }
-    let active = true;
-    courses.getSaved().then(
-      saved => {
-        if (active && saved.some(item => item.id === plan.courseId)) {
-          setSavedCourseId(plan.courseId);
-        }
-      },
-      () => undefined,
-    );
-    return () => {
-      active = false;
-    };
-  }, [courses, plan]);
 
   // A finished run has nothing to go back to; back means 완료.
   useFocusEffect(
@@ -295,38 +286,6 @@ export function RunResultScreen() {
   const showGoal =
     goalAchieved !== null ? plan !== null : plan !== null && finished;
 
-  const toggleSaved = async () => {
-    setBusy(true);
-    try {
-      if (savedCourseId) {
-        await courses.unsave(savedCourseId);
-        setSavedCourseId(null);
-        toast('내 코스에서 뺐어요');
-      } else if (plan) {
-        await courses.save(plan.courseId);
-        setSavedCourseId(plan.courseId);
-        toast('내 코스에 저장했어요');
-      } else if (recordId) {
-        const { courseId } = await courses.saveFromRun({
-          recordId,
-          route: trail,
-          distanceM: summary.distanceM,
-          durationSec: summary.durationSec,
-        });
-        setSavedCourseId(courseId);
-        toast('내 코스에 저장했어요');
-      }
-    } catch (error) {
-      toast(
-        errorCode(error) === 'NOT_AVAILABLE'
-          ? '자유 러닝 코스 저장은 준비 중이에요'
-          : '내 코스를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요',
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <View
       style={styles.root}
@@ -341,8 +300,12 @@ export function RunResultScreen() {
         >
           <Defs>
             <LinearGradient id="resultBackdrop" x1="0" y1="0" x2="0" y2="1">
-              {resultGradient.map((color, index) => (
-                <Stop key={index} offset={index / 20} stopColor={color} />
+              {resultGradient.map(stop => (
+                <Stop
+                  key={stop.offset}
+                  offset={stop.offset}
+                  stopColor={stop.color}
+                />
               ))}
             </LinearGradient>
           </Defs>
@@ -353,33 +316,18 @@ export function RunResultScreen() {
           />
         </Svg>
       ) : null}
-      <SafeAreaView edges={['top', 'bottom']} style={styles.flex}>
+      <SafeAreaView edges={['top']} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content}>
+          {/* The RunWay logo in white (담당자 요청: Runway 로고), RUN RECORD and the day (시안). */}
           <ThemeProvider tone="dark">
-            <View style={styles.logo}>
-              <Logo width={150} />
+            <View style={styles.logo} accessibilityRole="header">
+              <Logo width={190} />
             </View>
           </ThemeProvider>
-          <View style={styles.hero}>
-            <AppText style={styles.pace} accessibilityLabel="평균 페이스">
-              {summary.averagePaceSecPerKm === null
-                ? '– –'
-                : formatPace(summary.averagePaceSecPerKm)}
-            </AppText>
-            <AppText style={styles.paceLabel}>
-              {config.goalPaceSecPerKm
-                ? `평균 페이스 /km · 목표 ${formatPace(
-                    config.goalPaceSecPerKm,
-                  )}`
-                : '평균 페이스 /km'}
-            </AppText>
-          </View>
-          <Metric
-            label="거리"
-            value={formatKm(achieved ? countedDistance : summary.distanceM)}
-            unit="km"
-          />
-          <Metric label="시간" value={formatDuration(summary.durationSec)} />
+          <AppText style={styles.recordTitle}>RUN RECORD</AppText>
+          <AppText style={styles.recordDate}>
+            {runDateLine(run.startedAt)}
+          </AppText>
           <View
             style={styles.outline}
             onLayout={event => {
@@ -398,9 +346,38 @@ export function RunResultScreen() {
               </View>
             ) : null}
           </View>
-          <View style={styles.footMetrics}>
-            <Metric
-              ink
+          <View style={styles.table}>
+            <View style={[styles.row, styles.headRow]}>
+              <AppText style={[styles.head, styles.rowName]}>METRIC</AppText>
+              <AppText style={[styles.head, styles.headValue]}>VALUE</AppText>
+              <AppText style={[styles.head, styles.headUnit]}>UNIT</AppText>
+            </View>
+            <RecordRow
+              accent
+              label="평균 페이스"
+              valueLabel="평균 페이스"
+              note={
+                config.goalPaceSecPerKm
+                  ? `목표 ${formatPace(config.goalPaceSecPerKm)}`
+                  : null
+              }
+              value={
+                summary.averagePaceSecPerKm === null
+                  ? '– –'
+                  : formatPace(summary.averagePaceSecPerKm)
+              }
+              unit="/km"
+            />
+            <RecordRow
+              label="거리"
+              value={formatKm(achieved ? countedDistance : summary.distanceM)}
+              unit="km"
+            />
+            <RecordRow
+              label="시간"
+              value={formatDuration(summary.durationSec)}
+            />
+            <RecordRow
               label="평균 심박"
               value={
                 summary.averageHeartRate === null
@@ -409,8 +386,7 @@ export function RunResultScreen() {
               }
               unit="bpm"
             />
-            <Metric
-              ink
+            <RecordRow
               label="평균 케이던스"
               value={
                 summary.averageCadence === null
@@ -420,24 +396,35 @@ export function RunResultScreen() {
               unit="spm"
             />
           </View>
+          {/* 목표 32:00 달성 · 1분 단축 (시안), with the same-point comparison under it when there is one. */}
           {showGoal && plan ? (
             <Pop active={achieved}>
-              <AppText style={styles.goalNote}>
-                {`목표 ${formatDuration(plan.expectedDurationSec)} `}
-                {achieved ? (
-                  '달성'
-                ) : (
-                  <AppText style={styles.missed}>미달성</AppText>
-                )}
-                {rivalResult ? ` · ${rivalResult}` : ''}
-              </AppText>
+              <View style={styles.goalRow}>
+                <AppText style={styles.goalNote}>
+                  {`목표 ${formatDuration(plan.expectedDurationSec)} `}
+                  {achieved ? (
+                    '달성'
+                  ) : (
+                    <AppText style={styles.missed}>미달성</AppText>
+                  )}
+                </AppText>
+                {/* The server may call it achieved on its own terms; a gain is shown only when there is one. */}
+                {achieved && summary.durationSec < plan.expectedDurationSec ? (
+                  <AppText style={styles.goalGain}>
+                    {savedTime(plan.expectedDurationSec - summary.durationSec)}
+                  </AppText>
+                ) : null}
+              </View>
             </Pop>
+          ) : null}
+          {rivalResult ? (
+            <AppText style={styles.rival}>{rivalResult}</AppText>
           ) : null}
           {/* Only a failed or unconfirmed save is shown (README 알려진 문제); saving and saved stay quiet. With the
               server the run is already stored, so a record not read back yet is 확인 못 함, not 저장 못 함. */}
           {saveState === 'failed' || saveState === 'unconfirmed' ? (
             <View style={styles.saveRow}>
-              <Icon name="alert" color={k1.coralText} size={14} />
+              <Icon name="alert" color={resultLook.danger} size={14} />
               <AppText style={styles.saveFailed}>
                 {saveState === 'failed'
                   ? '기록을 저장하지 못했어요'
@@ -457,40 +444,26 @@ export function RunResultScreen() {
               </Pressable>
             </View>
           ) : null}
+          <Stripes />
         </ScrollView>
-        <View style={styles.buttons}>
-          <View style={styles.buttonRow}>
-            <ResultButton
-              title="기록 보기"
-              disabled={saveState !== 'saved'}
-              onPress={() =>
-                recordId ? openRecord(navigation, recordId) : undefined
-              }
-            />
-            <ResultButton
-              title="기록 공유"
-              disabled={saveState !== 'saved' || !recordId}
-              // 7.3 shares this run's record, not just the newest one.
-              onPress={() =>
-                recordId
-                  ? navigation.navigate('PostWrite', { recordId })
-                  : undefined
-              }
-            />
-          </View>
-          <View style={styles.buttonRow}>
-            <ResultButton
-              title={savedCourseId ? '내 코스에 저장됨' : '내 코스에 저장'}
-              icon={savedCourseId ? 'check' : 'bookmark'}
-              selected={savedCourseId !== null}
-              disabled={busy || (!plan && !recordId)}
-              onPress={toggleSaved}
-            />
-            <ResultButton
-              title="완료"
-              onPress={() => navigateTo(navigation, 'Home')}
-            />
-          </View>
+      </SafeAreaView>
+      <SafeAreaView edges={['bottom']} style={styles.buttons}>
+        <View style={styles.buttonRow}>
+          <ResultButton
+            title="기록 공유"
+            disabled={saveState !== 'saved' || !recordId}
+            // 7.3 shares this run's record, not just the newest one.
+            onPress={() =>
+              recordId
+                ? navigation.navigate('PostWrite', { recordId })
+                : undefined
+            }
+          />
+          <ResultButton
+            primary
+            title="완료"
+            onPress={() => navigateTo(navigation, 'Home')}
+          />
         </View>
       </SafeAreaView>
     </View>
@@ -498,104 +471,168 @@ export function RunResultScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#1A2E39' },
+  root: { flex: 1, backgroundColor: resultLook.page },
   flex: { flex: 1 },
-  // Top 50, then 46 between the groups (runway-running-handoff 세로 간격); the route takes what is left.
   content: {
     flexGrow: 1,
-    alignItems: 'center',
-    paddingTop: 46,
-    paddingBottom: 18,
-    paddingHorizontal: 14,
+    paddingTop: 36,
+    paddingBottom: 24,
+    paddingHorizontal: 28,
   },
-  logo: { height: 22, justifyContent: 'center' },
-  hero: { alignItems: 'center', marginTop: 46 },
-  // Big numbers stay Barlow Regular, here at the mockup's 96.
-  pace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 96,
-    lineHeight: 100,
-    letterSpacing: -2,
-    color: '#F9F9F9',
+  logo: { alignItems: 'center', justifyContent: 'center' },
+  recordTitle: {
+    marginTop: 18,
+    textAlign: 'center',
+    fontFamily: fontFamily.rajdhaniBold,
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: 0.5,
+    color: resultLook.text,
   },
-  paceLabel: {
-    marginTop: 6,
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: 'rgba(255,255,255,0.85)',
-  },
-  metric: { alignItems: 'center', marginTop: 46 },
-  metricValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 30,
-    lineHeight: 34,
-    letterSpacing: -0.3,
-    color: '#F9F9F9',
-  },
-  metricUnit: { fontFamily: fontFamily.medium, fontSize: 14, color: '#F9F9F9' },
-  metricLabel: {
-    marginTop: 2,
+  recordDate: {
+    marginTop: 4,
+    textAlign: 'center',
     fontFamily: fontFamily.medium,
     fontSize: 13,
     lineHeight: 18,
-    color: 'rgba(255,255,255,0.8)',
+    color: resultLook.sub,
   },
-  inkValue: { fontSize: 26, lineHeight: 30, color: k1.night },
-  inkSoft: { color: '#3A4A57' },
+  // The route takes what the screen leaves, at least outlineMinHeight.
   outline: {
-    alignSelf: 'stretch',
+    alignSelf: 'center',
+    width: '60%',
     flex: 1,
     minHeight: outlineMinHeight,
-    marginTop: 46,
-    marginHorizontal: 24,
+    marginTop: 18,
   },
-  footMetrics: { flexDirection: 'row', gap: 44 },
+  table: { marginTop: 18 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 58,
+    borderBottomWidth: 1,
+    borderBottomColor: resultLook.line,
+  },
+  headRow: { minHeight: 32, borderBottomColor: resultLook.headLine },
+  head: {
+    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 1.2,
+    color: resultLook.sub,
+  },
+  headValue: { width: 128, textAlign: 'right' },
+  headUnit: { width: 64, textAlign: 'right' },
+  rowName: { flex: 1 },
+  rowLabel: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: resultLook.text,
+  },
+  rowNote: {
+    marginTop: 2,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: resultLook.sub,
+  },
+  rowValue: {
+    width: 128,
+    textAlign: 'right',
+    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontSize: 34,
+    lineHeight: 40,
+    color: resultLook.text,
+  },
+  rowValueAccent: { color: resultLook.mint },
+  rowUnit: {
+    width: 64,
+    alignSelf: 'flex-end',
+    paddingBottom: 10,
+    textAlign: 'right',
+    fontFamily: fontFamily.rajdhaniSemiBold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: resultLook.sub,
+  },
+  goalRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   goalNote: {
-    marginTop: 14,
-    textAlign: 'center',
     fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 20,
-    color: k1.night,
+    color: resultLook.text,
   },
-  missed: { color: k1.coralText },
+  goalGain: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 20,
+    color: resultLook.mint,
+  },
+  missed: { color: resultLook.danger },
+  rival: {
+    marginTop: 6,
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: resultLook.sub,
+  },
   saveRow: {
     marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.sm,
   },
   saveFailed: {
     fontFamily: fontFamily.medium,
     fontSize: 12.5,
-    color: k1.coralText,
+    color: resultLook.danger,
   },
   retry: {
     fontFamily: fontFamily.bold,
     fontSize: 12.5,
-    color: k1.night,
+    color: resultLook.text,
     textDecorationLine: 'underline',
   },
-  buttons: { paddingHorizontal: 14, paddingBottom: 14, gap: 8 },
+  stripes: { marginTop: 22, height: 18 },
+  // The four buttons on the gradient's pale foot (시안).
+  buttons: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 8,
+  },
   buttonRow: { flexDirection: 'row', gap: 8 },
   button: {
     flex: 1,
-    height: 50,
-    borderRadius: 25,
-    overflow: 'hidden',
+    height: 48,
+    borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    boxShadow:
-      'inset 0 1px 1px rgba(255,255,255,0.95), inset 0 -2px 6px rgba(255,255,255,0.35), 0 10px 26px rgba(30,45,60,0.14)',
   },
+  buttonPlain: {
+    backgroundColor: resultLook.tile,
+    borderColor: resultLook.tileLine,
+  },
+  buttonPrimary: {
+    backgroundColor: resultLook.mint,
+    borderColor: resultLook.mint,
+  },
+  plainPressed: { backgroundColor: '#E4EAEE' },
+  primaryPressed: { backgroundColor: '#3DE6BC', borderColor: '#3DE6BC' },
   buttonText: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 20,
+    color: resultLook.ink,
   },
   dim: { opacity: 0.45 },
 });

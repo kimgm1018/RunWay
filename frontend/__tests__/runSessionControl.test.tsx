@@ -182,10 +182,10 @@ test('종료 shows 종료 처리 중 then the result', async () => {
 
   await hold(screen, '종료');
   expect(texts(screen)).toContain('종료 처리 중');
-  expect(texts(screen)).not.toContain('평균 페이스 /km');
+  expect(texts(screen)).not.toContain('RUN RECORD');
 
-  await waitForText(screen, '평균 페이스 /km');
-  expect(texts(screen)).toContain('평균 페이스 /km');
+  await waitForText(screen, 'RUN RECORD');
+  expect(texts(screen)).toContain('RUN RECORD');
 });
 
 // --- 최종 리뷰 수정(F-5·F-6) ---
@@ -233,8 +233,8 @@ test('종료 pressed on the watch moves the progress screen to the result', asyn
       expectedVersion: 2,
     });
   });
-  await waitForText(screen, '평균 페이스 /km');
-  expect(texts(screen)).toContain('평균 페이스 /km');
+  await waitForText(screen, 'RUN RECORD');
+  expect(texts(screen)).toContain('RUN RECORD');
 });
 
 // --- 앱 재실행 복구 ---

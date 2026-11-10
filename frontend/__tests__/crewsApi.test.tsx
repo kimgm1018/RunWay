@@ -252,12 +252,35 @@ const sent = (method: string) =>
     .filter(([, init]) => init.method === method)
     .map(([address]) => new URL(address).pathname.replace(/^.*\/api\/v1/, ''));
 
+// A Text's whole line, nested Texts included (NumText draws the digits in their own Text, S15P31E105-594).
+function lineOf(children: unknown): string {
+  return [children]
+    .flat(Infinity as 1)
+    .map(child =>
+      typeof child === 'string' || typeof child === 'number'
+        ? String(child)
+        : child && typeof child === 'object' && 'props' in child
+        ? lineOf((child as { props: { children?: unknown } }).props.children)
+        : '',
+    )
+    .join('');
+}
+
 function texts(screen: Screen) {
-  return screen.root
-    .findAllByType(Text)
-    .flatMap(node => [node.props.children].flat())
-    .filter(child => typeof child === 'string' || typeof child === 'number')
-    .join(' ');
+  const nodes = screen.root.findAllByType(Text);
+  return [
+    ...nodes
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number'),
+    // Lines split into nested Texts, read whole too.
+    ...nodes
+      .filter(node =>
+        [node.props.children]
+          .flat()
+          .some(child => child && typeof child === 'object'),
+      )
+      .map(node => lineOf(node.props.children)),
+  ].join(' ');
 }
 
 // Stacks keep earlier screens mounted, so the newest match belongs to the top screen.
@@ -563,7 +586,8 @@ test('크루장 확인 후 한 번만 내보내고 목록과 인원을 갱신한
     });
     await settle();
     expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(1);
-    expect(texts(screen)).toContain('모집 중 1/30 · 승인제');
+    expect(texts(screen)).toContain('1 / 30명');
+    expect(texts(screen)).toContain('· 승인제');
     expect(
       screen.root.findAll(
         node => node.props.accessibilityLabel === '도윤 내보내기',
@@ -600,7 +624,8 @@ test.each([
       });
       await press(screen, '내보내기');
       expect(texts(screen)).toContain(message);
-      expect(texts(screen)).toContain('모집 중 2/30 · 승인제');
+      expect(texts(screen)).toContain('2 / 30명');
+      expect(texts(screen)).toContain('· 승인제');
       expect(crews.find(crew => crew.id === 42)!.members).toHaveLength(2);
       expect(labelled(screen, '도윤 내보내기')).toBeTruthy();
     } finally {

@@ -20,8 +20,8 @@ import {
 } from '../../data';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
-import { DarkSegmented } from './CrewJoinRequestsScreen';
-import { GroupCta, groupLook, groupPage, SectionLabel } from './look';
+import { PolicySegmented } from './CrewJoinRequestsScreen';
+import { GroupCta, groupTone, NightBackground, NumText } from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { KeyboardLift } from '../../components/KeyboardLift';
@@ -43,8 +43,8 @@ const policyNotes: Record<CrewJoinPolicy, string> = {
   INSTANT: '바로 가입은 신청하면 바로 멤버가 돼요.',
 };
 
-// A section with a line label and a note on the right: 필수, 검색해서 선택, 0 / 200 …, a full-width block under a
-// grey band on the white page (S15P31E105-563).
+// A section on the navy page as in the S15P31E105-594 담당자 시안: a plain white label 8 over its field, one after
+// another without bands; the note on the right (필수, 검색해서 선택 …) stays from before.
 function Field({
   title,
   note,
@@ -55,9 +55,11 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <View style={groupPage.block}>
+    <View style={styles.section}>
       <View style={styles.rowBetween}>
-        <SectionLabel tone="mist">{title}</SectionLabel>
+        <AppText style={styles.label} accessibilityRole="header">
+          {title}
+        </AppText>
         {note ? (
           <AppText style={styles.note} numberOfLines={1}>
             {note}
@@ -69,7 +71,7 @@ function Field({
   );
 }
 
-// The flat light grey pill an entry sits in (S15P31E105-563).
+// The field an entry sits in: a faint white panel on the navy page (S15P31E105-594 담당자 시안).
 function InputBox({
   children,
   tall = false,
@@ -84,7 +86,8 @@ function InputBox({
   );
 }
 
-// 지역: type to search the places and pick one; the picked place shows with a pin.
+// 지역: type to search the places and pick one; the picked place shows in a field with the mockup's ⌄.
+// While searching, the field and its results sit together in one panel, as in the mockup's 지역 검색 상태.
 export function AreaPicker({
   area,
   onPick,
@@ -131,22 +134,22 @@ export function AreaPicker({
         onPress={() => onPick(null)}
       >
         <InputBox>
-          <Icon name="mapPin" color={groupLook.onLight} size={18} />
           <AppText style={[styles.picked, styles.flex]}>{area.name}</AppText>
-          <Icon name="close" color={groupLook.onLightSub} size={16} />
+          <Icon name="chevronDown" color={groupTone.sub} size={18} />
         </InputBox>
       </Pressable>
     );
   }
+  const open = Boolean(query.trim());
   return (
-    <View style={styles.picker}>
-      <InputBox>
-        <Icon name="search" color={groupLook.onLightSub} size={16} />
+    <View style={[styles.picker, open && styles.pickerOpen]}>
+      <View style={[styles.inputBox, open && styles.searchBox]}>
+        <Icon name="search" color={groupTone.sub} size={16} />
         <TextInput
           accessibilityLabel="지역 검색"
           placeholder="동네나 장소 이름으로 검색"
-          placeholderTextColor={groupLook.onLightMuted}
-          selectionColor={groupLook.onLight}
+          placeholderTextColor={groupTone.muted}
+          selectionColor={groupTone.accent}
           value={query}
           onChangeText={text => {
             setQuery(text);
@@ -156,22 +159,24 @@ export function AreaPicker({
           }}
           style={styles.input}
         />
-      </InputBox>
-      {searching ? <AppText style={styles.sub}>검색 중이에요</AppText> : null}
+      </View>
+      {searching ? (
+        <AppText style={styles.pickerNote}>검색 중이에요</AppText>
+      ) : null}
       {failed ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="지역 검색 다시 시도"
           onPress={() => setAttempt(value => value + 1)}
         >
-          <AppText style={styles.sub}>
+          <AppText style={styles.pickerNote}>
             검색하지 못했어요. 눌러서 다시 시도해 주세요
           </AppText>
         </Pressable>
       ) : !searching && query.trim() && results.length === 0 ? (
-        <AppText style={styles.sub}>찾는 장소가 없어요</AppText>
+        <AppText style={styles.pickerNote}>찾는 장소가 없어요</AppText>
       ) : null}
-      {results.map(place => (
+      {results.map((place, index) => (
         <Pressable
           key={`${place.name}:${place.address}:${place.position.join(',')}`}
           accessibilityRole="button"
@@ -181,12 +186,12 @@ export function AreaPicker({
             setResults([]);
             onPick(place);
           }}
-          style={styles.result}
+          style={[styles.result, index > 0 && styles.resultLine]}
         >
-          <Icon name="mapPin" color={groupLook.onLightSub} size={16} />
+          <Icon name="mapPin" color={groupTone.sub} size={18} />
           <View style={styles.flex}>
             <AppText style={styles.picked}>{place.name}</AppText>
-            <AppText style={styles.sub}>{place.address}</AppText>
+            <NumText text={place.address} style={styles.cardSub} />
           </View>
         </Pressable>
       ))}
@@ -194,6 +199,7 @@ export function AreaPicker({
   );
 }
 
+// − and + inside the 모집 인원 field: plain white marks, 44 to tap (S15P31E105-594 담당자 시안).
 function StepButton({
   icon,
   label,
@@ -215,7 +221,7 @@ function StepButton({
       hitSlop={6}
       style={[styles.step, disabled && styles.dim]}
     >
-      <Icon name={icon} color={groupLook.onLight} size={20} />
+      <Icon name={icon} color={groupTone.text} size={20} />
     </PressableScale>
   );
 }
@@ -277,13 +283,14 @@ export function CrewCreateScreen() {
   };
 
   return (
-    // The white page with grey bands, like 6.2 (S15P31E105-563).
-    <ThemeProvider tone="light">
-      <View style={[styles.root, groupPage.page]}>
-        <StatusBar barStyle="dark-content" />
+    // The home's navy page with faint white panels (담당자 결정: 진한 네이비), laid out as the S15P31E105-594 담당자 시안.
+    <ThemeProvider tone="dark">
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+        <NightBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <BackButton tone="light" onPress={() => navigation.goBack()} />
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               크루 만들기
             </AppText>
@@ -294,7 +301,8 @@ export function CrewCreateScreen() {
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.content}
           >
-            {/* 대표 사진: the picked photo fills the box; tapping it picks another, × takes it out. */}
+            {/* 대표 사진: the mockup's centred tile; the picked photo fills it, tapping it picks another,
+                × takes it out. */}
             <View style={styles.photoBlock}>
               <PressableScale
                 accessibilityRole="button"
@@ -303,7 +311,7 @@ export function CrewCreateScreen() {
                 }
                 disabled={busy}
                 onPress={choosePhoto}
-                style={[styles.photo, photo && styles.photoPicked]}
+                style={styles.photo}
               >
                 {photo ? (
                   <Image
@@ -314,7 +322,7 @@ export function CrewCreateScreen() {
                   />
                 ) : (
                   <>
-                    <Icon name="camera" color={groupLook.onLight} size={20} />
+                    <Icon name="camera" color={groupTone.text} size={24} />
                     <AppText style={styles.photoText}>대표 사진 추가</AppText>
                   </>
                 )}
@@ -328,7 +336,7 @@ export function CrewCreateScreen() {
                   hitSlop={8}
                   style={styles.photoRemove}
                 >
-                  <Icon name="close" color={groupLook.onDark} size={14} />
+                  <Icon name="close" color={groupTone.text} size={14} />
                 </PressableScale>
               ) : null}
             </View>
@@ -337,8 +345,8 @@ export function CrewCreateScreen() {
                 <TextInput
                   accessibilityLabel="크루 이름"
                   placeholder="예: 광안리 주말 러너스"
-                  placeholderTextColor={groupLook.onLightMuted}
-                  selectionColor={groupLook.onLight}
+                  placeholderTextColor={groupTone.muted}
+                  selectionColor={groupTone.accent}
                   value={name}
                   onChangeText={setName}
                   maxLength={30}
@@ -349,16 +357,13 @@ export function CrewCreateScreen() {
             <Field title="지역" note="검색해서 선택">
               <AreaPicker area={area} onPick={setArea} />
             </Field>
-            <Field
-              title="소개"
-              note={`${description.length} / ${descriptionLimit}`}
-            >
+            <Field title="소개">
               <InputBox tall>
                 <TextInput
                   accessibilityLabel="소개"
                   placeholder="언제, 어디서, 어떤 페이스로 달리는지 적어 주세요"
-                  placeholderTextColor={groupLook.onLightMuted}
-                  selectionColor={groupLook.onLight}
+                  placeholderTextColor={groupTone.muted}
+                  selectionColor={groupTone.accent}
                   value={description}
                   onChangeText={setDescription}
                   maxLength={descriptionLimit}
@@ -366,48 +371,56 @@ export function CrewCreateScreen() {
                   textAlignVertical="top"
                   style={[styles.input, styles.multiline]}
                 />
+                {/* The count sits in the field's bottom right, where the mockup has 최대 200자. */}
+                <NumText
+                  text={`${description.length} / ${descriptionLimit}`}
+                  style={styles.counter}
+                />
               </InputBox>
             </Field>
             <Field
               title="가입 방식"
               note="만든 뒤 크루 관리에서 바꿀 수 있어요"
             >
-              <DarkSegmented
+              <PolicySegmented
                 options={policyOptions}
                 value={joinPolicy}
                 onChange={setJoinPolicy}
               />
               <AppText style={styles.sub}>{policyNotes[joinPolicy]}</AppText>
             </Field>
-            <View style={[groupPage.block, styles.capacityRow]}>
-              <View style={styles.flex}>
-                <SectionLabel tone="mist" style={styles.capacityLabel}>
-                  모집 인원
-                </SectionLabel>
+            {/* 모집 인원: the mockup's one field with − and + at its ends and the count in the middle. */}
+            <Field title="모집 인원">
+              <View style={[styles.inputBox, styles.capacityBox]}>
+                <StepButton
+                  icon="minus"
+                  label="모집 인원 줄이기"
+                  disabled={capacity <= minCapacity}
+                  onPress={() => setCapacity(value => value - 1)}
+                />
+                <View
+                  style={styles.flex}
+                  accessible
+                  accessibilityLabel={`모집 인원 ${capacity}명`}
+                >
+                  <NumText
+                    text={`${capacity}명`}
+                    style={styles.capacity}
+                    numberStyle={styles.capacityNumber}
+                  />
+                </View>
+                <StepButton
+                  icon="plus"
+                  label="모집 인원 늘리기"
+                  disabled={capacity >= maxCapacity}
+                  onPress={() => setCapacity(value => value + 1)}
+                />
               </View>
-              <StepButton
-                icon="minus"
-                label="모집 인원 줄이기"
-                disabled={capacity <= minCapacity}
-                onPress={() => setCapacity(value => value - 1)}
-              />
-              <AppText
-                style={styles.capacity}
-                accessibilityLabel={`모집 인원 ${capacity}명`}
-              >
-                {capacity}
-              </AppText>
-              <StepButton
-                icon="plus"
-                label="모집 인원 늘리기"
-                disabled={capacity >= maxCapacity}
-                onPress={() => setCapacity(value => value + 1)}
-              />
-            </View>
+            </Field>
           </ScrollView>
         </KeyboardLift>
         <SafeAreaView edges={['bottom']} style={styles.footer}>
-          <BottomFade white />
+          <BottomFade />
           <GroupCta
             navy
             title="크루 만들기"
@@ -421,9 +434,12 @@ export function CrewCreateScreen() {
   );
 }
 
-// A flat light grey field on the white page (S15P31E105-563): no edge light or shadow.
-const inputDark = {
-  backgroundColor: groupLook.lightFill,
+// A field on the navy page (S15P31E105-594 담당자 시안, home tone): a faint white panel with a faint white rim.
+const field = {
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: groupTone.cardLine,
+  backgroundColor: groupTone.card,
 };
 
 const styles = StyleSheet.create({
@@ -441,30 +457,30 @@ const styles = StyleSheet.create({
     fontSize: 19,
     lineHeight: 26,
     letterSpacing: -0.4,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
   // Room under the last section for the floating button.
-  content: { paddingBottom: 120 },
+  content: { paddingHorizontal: 20, paddingBottom: 120, gap: 18 },
   photoBlock: {
-    paddingHorizontal: 20,
-    paddingTop: spacing.md,
-    paddingBottom: 24,
+    alignSelf: 'center',
+    marginTop: spacing.md,
+    marginBottom: 6,
   },
-  // 6.3-PhotoUpload: a light glass box, 96 high.
+  // 6.3-PhotoUpload: a centred panel, the picked photo filling it.
   photo: {
-    height: 96,
+    width: 150,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: 24,
-    ...inputDark,
+    overflow: 'hidden',
+    ...field,
+    borderRadius: 14,
   },
-  // A picked photo fills the box edge to edge.
-  photoPicked: { height: 160, overflow: 'hidden' },
   photoRemove: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 8,
+    right: 8,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -473,40 +489,58 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(2,5,14,0.55)',
   },
   photoText: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 17,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
+  section: { gap: 8 },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  label: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupTone.text,
+  },
   note: {
     flexShrink: 1,
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onLightMuted,
+    color: groupTone.muted,
   },
   sub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
+  },
+  cardSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupTone.sub,
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     minHeight: 48,
-    paddingHorizontal: 18,
-    borderRadius: 24,
-    ...inputDark,
+    paddingHorizontal: 16,
+    ...field,
   },
-  inputBoxTall: { minHeight: 88, borderRadius: 20, alignItems: 'flex-start' },
+  inputBoxTall: {
+    minHeight: 96,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 0,
+    paddingBottom: 10,
+  },
   // No lineHeight: on Android it clips the top of a single-line input.
   input: {
     flex: 1,
@@ -514,43 +548,58 @@ const styles = StyleSheet.create({
     padding: 0,
     fontFamily: typography.input.fontFamily,
     fontSize: 15,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
-  multiline: { height: 88, paddingVertical: spacing.lg },
+  multiline: { flex: 0, height: 70, paddingTop: spacing.lg },
+  counter: {
+    alignSelf: 'flex-end',
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupTone.muted,
+  },
   picked: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
+  // The search state: one panel holding a lighter field and the results under it.
   picker: { gap: spacing.xs },
+  pickerOpen: { padding: 8, ...field },
+  searchBox: { backgroundColor: groupTone.inner },
+  pickerNote: {
+    paddingHorizontal: 10,
+    paddingVertical: spacing.sm,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupTone.sub,
+  },
   result: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xs,
+    paddingHorizontal: 10,
   },
-  // 모집 인원: the line label, then −  20  + in light glass circles.
-  capacityRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  capacityLabel: { alignSelf: 'flex-start' },
+  resultLine: { borderTopWidth: 1, borderTopColor: groupTone.line },
+  capacityBox: { paddingHorizontal: 4, minHeight: 52 },
   step: {
     width: 44,
     height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    ...inputDark,
   },
   dim: { opacity: 0.4 },
   capacity: {
-    minWidth: 56,
     textAlign: 'center',
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 34,
-    lineHeight: 42,
-    color: groupLook.onLight,
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 24,
+    color: groupTone.text,
   },
+  capacityNumber: { fontSize: 22 },
   footer: {
     position: 'absolute',
     left: 0,

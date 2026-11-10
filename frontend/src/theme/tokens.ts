@@ -181,6 +181,10 @@ export const fontFamily = {
   numberBold: 'Barlow-Bold',
   // 2.1 홈: the readiness score in dots and the figures in records.
   score: 'Doto-Black',
+  // 그룹 화면의 숫자 (S15P31E105-594 담당자 결정: 워치와 같은 Rajdhani).
+  rajdhaniMedium: 'Rajdhani-Medium',
+  rajdhaniSemiBold: 'Rajdhani-SemiBold',
+  rajdhaniBold: 'Rajdhani-Bold',
   mono: 'IBMPlexMono-Regular',
   monoMedium: 'IBMPlexMono-Medium',
 } as const;

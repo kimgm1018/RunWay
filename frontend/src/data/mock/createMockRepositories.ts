@@ -131,6 +131,19 @@ function fail(error: DataError, { latencyMs = 300 }: MockOptions) {
   });
 }
 
+// 2.1 준비도 on a given day (S15P31E105-594): the latest score on its own day, an earlier day's from the fixtures,
+// and nothing for any other day or a user without a score.
+function conditionOn(
+  scenario: MockScenario = 'default',
+  day: string,
+): TodayCondition | null {
+  const latest = conditionFor(scenario);
+  if (latest.readinessState === 'ready' && latest.date === day) {
+    return latest;
+  }
+  return scenario === 'default' ? fixtures.pastConditions[day] ?? null : null;
+}
+
 function conditionFor(scenario: MockScenario = 'default'): TodayCondition {
   switch (scenario) {
     case 'newUser':
@@ -632,6 +645,8 @@ export function createMockRepositories(
     },
     home: {
       getTodayCondition: () => respond(conditionFor(options.scenario), options),
+      getConditionOn: (day: string) =>
+        respond(conditionOn(options.scenario, day), options),
       getMonthlySummary: () => respond(fixtures.monthlySummary, options),
     },
     records: {

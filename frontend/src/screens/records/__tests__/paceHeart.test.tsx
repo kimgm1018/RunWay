@@ -211,7 +211,8 @@ test('앞면 러닝 결과: the lines, the four figures and 목표와 비교하�
   const words = wordsIn(front());
   const order = [
     '페이스와 심박 변화',
-    '달린 속도와 심박수의 변화를 함께 살펴보세요.',
+    // S15P31E105-594 담당자 시안: the lines are km averages, said under them.
+    '1km 구간 평균 기준',
     '거리',
     '시간',
     '평균 페이스',
@@ -243,11 +244,13 @@ test('뒷면 목표와 비교: the line, the two paces, the splits in range and 
     '평균 페이스는 목표와 비슷했어요.',
     '목표 페이스',
     '실제 평균 페이스',
-    // The splits as a chart off the target line, counted in its legend (담당자 요청: 말 대신 시각 자료로).
+    // 구간별 목표 비교 (S15P31E105-594 담당자 시안): the kms off the target line, counted under it.
+    '구간별 목표 비교',
+    '5개 구간 중 3개가 목표 범위 안',
     '범위 안 3',
     '빠름 1',
     '느림 1',
-    '목표 ±10초/km',
+    '구간 평균 비교 · 목표 ±10초/km',
     '러닝 결과 보기',
   ].map(text => words.indexOf(text));
   expect(order.every(at => at >= 0)).toBe(true);
@@ -309,9 +312,13 @@ test('a run without splits gives no split comparison', async () => {
   expect(words.join(' ')).not.toContain('범위 안');
 });
 
-test('a time goal is said without 달성 or 미달성', async () => {
+test('a time goal is not judged as 달성 or 미달성 on the back (S15P31E105-594 시안: pace only)', async () => {
   const { back, wordsIn } = await card({ targetDurationSec: 1827 });
-  expect(wordsIn(back())).toContain('목표 시간 30:27보다 19초 빨리 마쳤어요.');
+  const words = wordsIn(back()).join(' ');
+  expect(words).toContain('목표와 비교');
+  for (const word of ['달성', '미달성']) {
+    expect(words).not.toContain(word);
+  }
 });
 
 test('goalLine trusts server goalAchieved over the duration gap (S15P31E105-638)', () => {

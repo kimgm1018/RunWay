@@ -11,7 +11,7 @@ import { kmBands } from './paceHeart';
 // 2.1's 페이스와 심박 변화 (S15P31E105-615, 담당자 요청: 그래프를 주로, 한 평면에 두 그래프): pace and heart rate as two
 // lines in one plot along the run's distance, one band per km. Each line keeps its own scale, pace on the left (a lower number is faster and drawn
 // higher) and heart rate on the right, told apart by colour, the legend and the scale's colour. Only the flow is
-// shown; reading a moment off the lines is 기록 상세's.
+// shown.
 export const paceHeartLook = {
   pace: recordsLook.onCard,
   heart: '#FFB4A2',

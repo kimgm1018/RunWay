@@ -12,7 +12,7 @@ import type { RootStackParamList } from './types';
 
 type Navigate = Pick<NavigationProp<RootStackParamList>, 'navigate'>;
 
-// One of my runs in 2.1 기록 상세 (S15P31E105-564: 5.2 is part of 2.1).
+// One of my runs on 2.1 러닝 분석, on its day (S15P31E105-594: 기록 상세 is gone).
 export function openRecord(navigation: Navigate, recordId: string) {
   navigation.navigate(
     'MainTabs',

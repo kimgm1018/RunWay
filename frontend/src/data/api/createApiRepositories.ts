@@ -29,7 +29,7 @@ import {
   saveRunningProfile,
   updateBasic,
 } from './profile';
-import { createReadinessApi } from './readiness';
+import { createReadinessApi, createReadinessOnApi } from './readiness';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
 import { serverRequest } from './request';
@@ -97,6 +97,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     home: {
       getMonthlySummary,
       getTodayCondition: createReadinessApi({ now: () => new Date() }),
+      getConditionOn: createReadinessOnApi(),
     },
     records,
     // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.

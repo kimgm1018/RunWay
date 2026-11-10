@@ -92,30 +92,30 @@ test("2.1 shows today's R02 score and metrics without a made-up grade", async ()
   });
   const screen = await launch();
 
-  // R02 judges nothing (no level yet, readiness-formula 6절), so the card has no sentence; the report shows
-  // the records step by step (S15P31E105-615): 최근 러닝 → 지난밤 회복 → 오늘 준비도 with what went into it.
+  // R02 judges nothing (no level yet, readiness-formula 6절) and has no load, so the card has no sentence; it shows
+  // the score on its ring and the records that go into it (S15P31E105-594), with no item scores until R02 has them.
   let page = texts(screen);
   for (const text of [
+    '오늘의 준비도',
     '최근 러닝',
-    '지난밤 회복',
-    '안정 시 심박',
+    '준비도에 들어가는 기록',
+    '수면',
+    '안정 심박',
     '6h 35m',
     '75',
-    '점수에 들어간 기록',
     // R02 without a weekly load for today's score: no exercise with heart rate in 4 weeks (S15P31E105-599).
     '최근 4주 심박 기록 운동 없음',
-    '심박이 기록된 러닝·운동이 있으면 최근 운동량으로 점수에 들어가요.',
     '러닝 시작하기',
   ]) {
     expect(page).toContain(text);
   }
-  expect(page).not.toContain('평소');
+  // No item scores from R02 yet: no "왜 N점" breakdown or average.
+  expect(page).not.toContain('왜 75점인가요?');
+  expect(page).not.toContain('항목의 평균');
+  expect(page).not.toContain('평소보다');
   expect(page).toContain('61회/분');
   expect(page).not.toContain('7h 12m');
   expect(page).not.toContain('58회/분');
-  // No grade from R02, so the title names none.
-  expect(page).toContain('오늘 준비도');
-  expect(page).not.toContain('오늘 준비도 양호');
   expect(page).not.toContain('undefined');
   await act(async () => screen.unmount());
 });
@@ -134,9 +134,9 @@ test("2.1 shows only the measured metric when the day's sleep is missing", async
 
   const page = texts(screen);
   expect(page).toContain('61회/분');
-  // No sleep: a dash, and the score says it had no sleep record; nothing reads 0 or 정상.
+  // No sleep: a dash; nothing reads 0 or 정상.
   expect(page).toContain('– –');
-  expect(page).toContain('기록 없음');
+  expect(page).not.toContain('0h 0m');
   expect(page).not.toContain('7h 12m');
   await act(async () => screen.unmount());
 });

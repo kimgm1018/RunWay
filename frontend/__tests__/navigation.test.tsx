@@ -109,7 +109,7 @@ test('signed-out users move from start through login into the home tab', async (
   expect(home).toContain('민');
   // 2.1 준비도 leads with the day's sentence and 러닝 시작하기; the score folds under 자세히 보기 (S15P31E105-615).
   expect(home).toContain('러닝 시작하기');
-  expect(home).toContain('계획한 강도로 달려도 좋아요');
+  expect(home).toContain('최근 운동량이 평소보다 많아요.');
   for (const tab of ['홈', '러닝', '그룹', '커뮤니티', '프로필']) {
     expect(pressable(screen, tab).props.accessibilityRole).toBe('tab');
   }

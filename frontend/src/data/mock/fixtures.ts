@@ -124,10 +124,83 @@ export const todayCondition: TodayCondition = {
   sleepLabel: '충분',
   restingHeartRateLabel: '평소 수준',
   // S15P31E105-599: R02 weeklyTrainingLoad (TRIMP, rounded) and its band against usualWeeklyTrainingLoad.
-  weeklyLoad: '312',
-  weeklyLoadLabel: '평소와 비슷',
+  weeklyLoad: '600',
+  weeklyLoadLabel: '평소보다 많음',
   aiAdvice: '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
   lastAssessedDate: '2026-10-19',
+  // S15P31E105-594 담당자 시안: 600 against the usual 400 (×1.5), the days under it; 10/14 and 10/18 rest. The runs
+  // of 10/13 and 10/15 are the records'; the other days are Samsung Health exercise.
+  trainingLoad: {
+    weekly: 600,
+    usual: 400,
+    days: [
+      { date: '2026-10-13', load: 80 },
+      { date: '2026-10-14', load: null },
+      { date: '2026-10-15', load: 160 },
+      { date: '2026-10-16', load: 110 },
+      { date: '2026-10-17', load: 70 },
+      { date: '2026-10-18', load: null },
+      { date: '2026-10-19', load: 180 },
+    ],
+  },
+  // (93 + 80 + 72.5) / 3 = 81.83 → 82; ×1.5 is 72.5 on the load table (readiness-formula 5절).
+  scoreFactors: {
+    sleep: 93,
+    recovery: 80,
+    load: 72.5,
+    restingHrChangePct: 6.7,
+  },
+};
+
+// 2.1 준비도 on a past day (S15P31E105-594): a few earlier days with their own score, the days of the October runs
+// and one without a run. Any other day has no score.
+const pastCondition = (
+  date: string,
+  score: number,
+  factors: { sleep: number; recovery: number; load: number; change: number },
+  load: { weekly: number; usual: number },
+  label: string,
+): TodayCondition => ({
+  ...todayCondition,
+  date,
+  syncedAt: `${date}T06:40:00+09:00`,
+  readinessScore: score,
+  readinessSummary: null,
+  aiAdvice: null,
+  weeklyLoad: String(load.weekly),
+  weeklyLoadLabel: label,
+  trainingLoad: { ...load, days: null },
+  scoreFactors: {
+    sleep: factors.sleep,
+    recovery: factors.recovery,
+    load: factors.load,
+    restingHrChangePct: factors.change,
+  },
+  lastAssessedDate: date,
+});
+
+export const pastConditions: Record<string, TodayCondition> = {
+  '2026-10-18': pastCondition(
+    '2026-10-18',
+    84,
+    { sleep: 80, recovery: 90, load: 81, change: 3.4 },
+    { weekly: 420, usual: 400 },
+    '평소와 비슷',
+  ),
+  '2026-10-15': pastCondition(
+    '2026-10-15',
+    76,
+    { sleep: 70, recovery: 80, load: 78.5, change: 6.1 },
+    { weekly: 500, usual: 380 },
+    '평소보다 많음',
+  ),
+  '2026-10-13': pastCondition(
+    '2026-10-13',
+    91,
+    { sleep: 100, recovery: 90, load: 100, change: 4.2 },
+    { weekly: 280, usual: 380 },
+    '평소보다 적음',
+  ),
 };
 
 // 2.P′ 신규 사용자: no score until enough health data is collected.
@@ -144,6 +217,8 @@ export const collectingCondition: TodayCondition = {
   weeklyLoadLabel: null,
   aiAdvice: null,
   lastAssessedDate: null,
+  trainingLoad: null,
+  scoreFactors: null,
 };
 
 // 2.1 러닝 분석, October.
