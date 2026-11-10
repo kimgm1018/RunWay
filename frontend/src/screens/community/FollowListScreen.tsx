@@ -79,13 +79,13 @@ const closedBy = (error: unknown): 'locked' | 'gone' | null => {
     : null;
 };
 
-function Row({
-  item,
-  onPress,
-}: {
-  item: FollowListItem;
-  onPress: () => void;
-}) {
+function Row({ item, onPress }: { item: FollowListItem; onPress: () => void }) {
+  // A photo that does not load leaves the initial, as without one.
+  const [failed, setFailed] = useState<string | null>(null);
+  const photo =
+    item.profileImageUrl && item.profileImageUrl !== failed
+      ? item.profileImageUrl
+      : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -94,10 +94,11 @@ function Row({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
       <View style={styles.avatar}>
-        {item.profileImageUrl ? (
+        {photo ? (
           <Image
-            source={{ uri: item.profileImageUrl }}
+            source={{ uri: photo }}
             style={styles.photo}
+            onError={() => setFailed(photo)}
             accessibilityIgnoresInvertColors
           />
         ) : (
@@ -209,7 +210,9 @@ export function FollowListScreen() {
                   ...current.items,
                   ...page.items.filter(
                     item =>
-                      !current.items.some(shown => shown.userId === item.userId),
+                      !current.items.some(
+                        shown => shown.userId === item.userId,
+                      ),
                   ),
                 ],
                 nextCursor: page.nextCursor,

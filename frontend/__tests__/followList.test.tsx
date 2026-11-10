@@ -1,5 +1,5 @@
 import React from 'react';
-import { FlatList, Text } from 'react-native';
+import { FlatList, Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createMockRepositories, DataError } from '../src/data';
@@ -121,9 +121,7 @@ test('7.4b counts open 7.4c, its tabs switch lists, a row opens 7.4 and an unfol
   await settle(50);
   shown = texts(screen);
   expect(shown).toContain('eunseo_jog');
-  expect(
-    matching(screen, 'eunseo_jog 러너 프로필').length,
-  ).toBeGreaterThan(0);
+  expect(matching(screen, 'eunseo_jog 러너 프로필').length).toBeGreaterThan(0);
 
   await press(screen, 'eunseo_jog 러너 프로필');
   await settle(50);
@@ -169,6 +167,36 @@ test('a closed private profile has no list to open, and 7.4c shows the lock when
   // The list it came from reads again and is refused (the account went private meanwhile).
   expect(texts(screen)).toContain('비공개 계정이에요');
   expect(texts(screen)).toContain('팔로우 요청이 승인되면 목록이 보여요.');
+});
+
+// S15P31E105-620: a row's photo, and the initial when it does not load.
+test('7.4c shows a runner photo and falls back to the initial when it fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.runners.listFollows = async () => ({
+    items: [
+      {
+        userId: 'fan-photo',
+        nickname: 'photofan',
+        profileImageUrl: 'https://k15e105.p.ssafy.io/api/v1/images/a',
+      },
+    ],
+    nextCursor: null,
+  });
+  const screen = await openMyList(repositories);
+  const photos = () =>
+    screen.root
+      .findAllByType(Image)
+      .filter(
+        node =>
+          node.props.source?.uri ===
+          'https://k15e105.p.ssafy.io/api/v1/images/a',
+      );
+  expect(photos()).toHaveLength(1);
+  await act(async () => {
+    photos()[0].props.onError?.({ nativeEvent: { error: 'not found' } });
+  });
+  expect(photos()).toHaveLength(0);
+  expect(texts(screen)).toContain('P');
 });
 
 test('7.4c shows an empty list, retries a failed read and reads on page by page', async () => {
