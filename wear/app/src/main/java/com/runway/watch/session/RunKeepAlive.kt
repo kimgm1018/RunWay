@@ -2,10 +2,7 @@ package com.runway.watch.session
 
 import android.Manifest
 import android.app.ActivityManager
-import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -15,7 +12,14 @@ import android.location.LocationManager
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
-import com.runway.watch.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Keeps the watch process alive while a run is recorded (S15P31E105-311). Without it the OS ends the process as soon
@@ -111,7 +115,8 @@ object RunLocationHold {
 }
 
 /**
- * Health-type foreground service with an ongoing notification that opens the run screen. When [RunLocationHold]
+ * Health-type foreground service with an ongoing notification that opens the run screen; while this watch records the
+ * run it is also a Wear OS Ongoing Activity (S15P31E105-617). When [RunLocationHold]
  * allows it, it also holds the location type for the GPS exercise. If the OS still refuses that type, the service
  * starts as health only instead of crashing the run; the route then stays unknown.
  */
@@ -125,43 +130,37 @@ class RunForegroundService : Service() {
      */
     private var wake: PowerManager.WakeLock? = null
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var watcher: Job? = null
+    private var shown = OngoingRun.NONE
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (foreground) return START_NOT_STICKY
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "러닝 기록", NotificationManager.IMPORTANCE_LOW))
-        val open = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(applicationInfo.icon)
-            .setContentTitle("러닝 중")
-            .setContentText("기록을 휴대폰으로 보내고 있어요")
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setCategory(Notification.CATEGORY_WORKOUT)
-            .build()
+        // S15P31E105-617: the notification carries the Ongoing Activity while this watch records the run.
+        val sessions = RunSessions.get(this)
+        shown = OngoingRun.of(sessions.control.snapshot.value)
+        val notification = RunNotification.build(this, shown)
         val health = ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
         val location = RunLocationHold.allowed(this)
         RunLocationHold.held = if (location) {
             try {
-                startForeground(NOTIFICATION_ID, notification, health or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                startForeground(RunNotification.ID, notification, health or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
                 Log.i("RunSession", "run service location type held")
                 true
             } catch (e: Exception) {
                 // 백그라운드 위치 유형 시작 제한 등. 기록은 위치 없이 이어간다.
                 Log.w("RunSession", "location foreground refused: ${e.javaClass.simpleName}")
-                startForeground(NOTIFICATION_ID, notification, health)
+                startForeground(RunNotification.ID, notification, health)
                 false
             }
         } else {
-            startForeground(NOTIFICATION_ID, notification, health)
+            startForeground(RunNotification.ID, notification, health)
             false
         }
         foreground = true
+        follow(sessions)
         try {
             wake = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "runway:run")
@@ -173,7 +172,27 @@ class RunForegroundService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Re-posts the notification only when the ongoing kind changes (running ↔ paused ↔ none), never per snapshot. Run
+     * end, cancel, hand-over to the phone and lost measurement drop the Ongoing Activity even before the service stops.
+     */
+    private fun follow(sessions: RunSessions) {
+        watcher = scope.launch {
+            sessions.control.snapshot.map(OngoingRun::of).distinctUntilChanged().collect { run ->
+                if (run == shown) return@collect
+                shown = run
+                try {
+                    getSystemService(NotificationManager::class.java).notify(RunNotification.ID, RunNotification.build(this@RunForegroundService, run))
+                } catch (e: Exception) {
+                    Log.w("RunSession", "ongoing update failed: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
+        watcher?.cancel()
+        scope.cancel()
         try { wake?.takeIf { it.isHeld }?.release() } catch (_: Exception) { }
         wake = null
         RunLocationHold.held = false
@@ -181,8 +200,6 @@ class RunForegroundService : Service() {
     }
 
     private companion object {
-        const val CHANNEL_ID = "run_session"
-        const val NOTIFICATION_ID = 3110
         const val WAKE_MAX_MS = 4L * 60 * 60 * 1000
     }
 }

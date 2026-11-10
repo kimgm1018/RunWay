@@ -81,4 +81,11 @@ class ReadinessTest {
         assertEquals(listOf(BACKGROUND_LOCATION), backgroundLocationRequest(setOf(fine)))
         assertNull(backgroundLocationRequest(setOf(fine, BACKGROUND_LOCATION)))
     }
+
+    // S15P31E105-617: notifications (run Ongoing Activity) are a runtime permission only from API 33.
+    @Test fun notificationPermissionIsAskedFromApi33UntilGranted() {
+        assertNull(notificationPermissionRequest(32, emptySet()))
+        assertEquals(listOf(POST_NOTIFICATIONS), notificationPermissionRequest(33, emptySet()))
+        assertNull(notificationPermissionRequest(34, setOf(POST_NOTIFICATIONS)))
+    }
 }

@@ -37,6 +37,7 @@ fun WatchApp(
     readiness: StateFlow<Readiness> = remember { MutableStateFlow(Readiness()) },
     actions: ReadinessActions = ReadinessActions(),
     onExit: () -> Unit = {},
+    ambient: StateFlow<AmbientMode?> = remember { MutableStateFlow(null) },
 ) {
     val navigator = remember(control) { WatchNavigator(control) }
     val snapshot by control.snapshot.collectAsState()
@@ -45,11 +46,22 @@ fun WatchApp(
     val nav = WatchNavigation.reconcile(snapshot, navState)
     val route = WatchNavigation.route(snapshot, nav, ready)
     val canExit = WatchNavigation.canExit(route) && !nav.cancelOpen
+    val dim by ambient.collectAsState()
     BackHandler(enabled = !canExit) { navigator.back() }
     RunwayWatchTheme {
-        BasicSwipeToDismissBox(onDismissed = onExit, userSwipeEnabled = canExit) { isBackground ->
-            if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background))
-            else WatchScreen(route, snapshot, ready, actions, nav, navigator, onExit)
+        // S15P31E105-617: while ambient the low-power screen takes values only on each ambient update (or a route
+        // change), not on every snapshot. The navigator keeps the page, so waking returns to the page last seen.
+        val mode = dim
+        if (mode != null) {
+            val shown = remember(mode.tick, route, snapshot.state, snapshot.phoneRecording, snapshot.measurementLost) {
+                AmbientDisplay.of(snapshot, route)
+            }
+            AmbientScreen(shown, mode)
+        } else {
+            BasicSwipeToDismissBox(onDismissed = onExit, userSwipeEnabled = canExit) { isBackground ->
+                if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background))
+                else WatchScreen(route, snapshot, ready, actions, nav, navigator, onExit)
+            }
         }
     }
 }
