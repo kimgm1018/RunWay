@@ -171,7 +171,7 @@ byte를 돌려준다. `ROUTE_RESPONSE_CACHE=0`(끄기), `ROUTE_RESPONSE_CACHE_SI
 |---|---|---|
 | `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`, `RUNWAY_FAST_ROUTING`, `RUNWAY_GATE_FAST_CONTEXT` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
 | `ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, `ROUTE_RESPONSE_CACHE`, `ROUTE_RESPONSE_CACHE_SIZE`, `ROUTE_RESPONSE_CACHE_TTL_S`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
-| `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
+| `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR`, `RUNWAY_LAZY_ENV_LAYERS` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
 
 API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **app import가 성공한 뒤**의 상태다. Numba 예열(import 때
 컴파일)과 Numba cache 폴더 문제도 import 단계에서 실패한다.
@@ -190,6 +190,7 @@ API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **ap
 | `RUNWAY_ARRAY_SHAPES=0` | OAB/P2P 생성 disk 배열 graph → networkx | 같음(cold 느려짐) |
 | `RUNWAY_ARRAY_PAIR_FAST=0` | LOOP 배열 graph 생성의 배열/Numba 처리(full_status·component·key) → 기존 Python 반복문 | 같음(LOOP cold 느려짐) |
 | `RUNWAY_FAST_GRAPH=0` | fast graph builder → canonical builder | 같음(느려짐) |
+| `RUNWAY_LAZY_ENV_LAYERS=0` | 전국 창 env 레이어(gpkg)를 처음 쓸 때 읽기 → 창을 만들 때마다 읽기(S15P31E105-644. LOOP·OAB는 이 표를 쓰지 않음) | 같음(LOOP·OAB 첫 요청 느려짐) |
 | `RUNWAY_USABILITY_GATE=shadow` | Gate FAIL 제거 | **달라질 수 있음**(비상용) |
 | `RUNWAY_SOURCE_SNAPSHOT=0` | 검증된 extract snapshot 읽기 → 매번 PBF 파싱 | 같음(기동 약 3초 느려짐) |
 | `RUNWAY_ENV_PREPARED=0` | env 범위 polygon 1회 준비(prepared) → 요청마다 within | 같음(느려짐) |

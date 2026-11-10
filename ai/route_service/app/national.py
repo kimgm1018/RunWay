@@ -44,6 +44,11 @@ class NationalPipeline:
         # import/Numba 준비와 고정 창 엔진 생성을 ready 전에 끝낸다.
         self._pipeline(self.store.spec(WARMUP_LAT, WARMUP_LON, 5000))
         self._shape_cfg = self.active.shape_cfg
+        # S15P31E105-644: 창의 env 레이어는 처음 쓸 때 읽는다(region.LazyLayersEnv). 시작 창에서만 미리 읽어 gpkg가
+        # 열리는지 ready 전에 확인하고, 첫 P2P 요청이 GDAL 첫 열기 비용을 내지 않게 한다(값은 쓰지 않음).
+        env = getattr(getattr(self.active, 'data', None), 'env', None)
+        if isinstance(env, dict):
+            env.get('layers')
 
     def _pipeline(self, spec):
         if spec.key not in self._windows:
