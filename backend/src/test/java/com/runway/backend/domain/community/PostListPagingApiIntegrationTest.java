@@ -1,8 +1,6 @@
 package com.runway.backend.domain.community;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.hasKey;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -23,7 +21,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** S15P31E105-634 AC-3: CMT02 cursor·limit 페이지(순서·경계·필터 후 hasNext·잘못된 입력·무파라미터 전체 반환). */
+/** S15P31E105-634 AC-3: CMT02 cursor·limit 페이지(순서·경계·필터 후 hasNext·잘못된 입력), S15P31E105-647 무파라미터 기본 20개·U21 전체 유지. */
 class PostListPagingApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
@@ -42,17 +40,37 @@ class PostListPagingApiIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
-    void 파라미터가_없으면_전체를_주고_nextCursor는null_hasNext는false() throws Exception {
+    void 파라미터가_없으면_기본20개를_주고_nextCursor로_나머지를_이어받는다() throws Exception {
         List<Long> ids = posts(publicAuthorId, 25);
 
         list(viewerId)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(25))
+                .andExpect(jsonPath("$.items.length()").value(20))
                 .andExpect(jsonPath("$.items[0].id").value(ids.getLast()))
-                .andExpect(jsonPath("$.items[24].id").value(ids.getFirst()))
-                .andExpect(jsonPath("$", hasKey("nextCursor")))
-                .andExpect(jsonPath("$.nextCursor").value(nullValue()))
-                .andExpect(jsonPath("$.hasNext").value(false));
+                .andExpect(jsonPath("$.items[19].id").value(ids.get(5)))
+                .andExpect(jsonPath("$.nextCursor").isString())
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        JsonNode first = page(viewerId, null, null, null, null);
+        JsonNode rest = page(viewerId, first.get("nextCursor").asString(), null, null, null);
+        assertIds(rest, ids.get(4), ids.get(3), ids.get(2), ids.get(1), ids.get(0));
+        assertThat(rest.get("hasNext").asBoolean()).isFalse();
+        assertThat(rest.has("nextCursor")).isTrue();
+        assertThat(rest.get("nextCursor").isNull()).isTrue();
+    }
+
+    // U21 러너 프로필 게시물은 CMT02 기본 페이지와 분리돼 지금처럼 전체를 반환한다.
+    @Test
+    void 러너프로필_게시물은_20개를_넘어도_전체를_준다() throws Exception {
+        List<Long> ids = posts(publicAuthorId, 25);
+
+        mockMvc.perform(
+                        authorized(
+                                get("/api/v1/users/{userId}/profile", publicAuthorId), viewerId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.posts.length()").value(25))
+                .andExpect(jsonPath("$.posts[0].id").value(ids.getLast()))
+                .andExpect(jsonPath("$.posts[24].id").value(ids.getFirst()));
     }
 
     @Test

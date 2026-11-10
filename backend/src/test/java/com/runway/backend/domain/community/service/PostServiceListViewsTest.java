@@ -64,7 +64,8 @@ class PostServiceListViewsTest {
         when(postBookmarkRepository.findBookmarkedPostIds(eq(VIEWER), anyCollection()))
                 .thenReturn(List.of(3L, 17L));
 
-        PostListResponse response = postService.list(VIEWER, null, null, null, null);
+        // 페이지를 자르지 않는 전체 조회(U21 경로)로 30개를 한 번에 확인한다.
+        PostListResponse response = postService.list(VIEWER, null, null);
 
         assertThat(response.items()).hasSize(30);
         assertThat(response.items())

@@ -202,9 +202,9 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `scope` | string | X | `ALL` \| `FOLLOWING`. 기본값 `ALL`. FOLLOWING은 승인된 팔로우 대상 글 + **본인 글** 포함 |
 | `authorId` | integer (int64) | X | 특정 러너의 글만. 접근 가능한 게시물에만 적용 |
 | `cursor` | string | X | 이전 응답의 `nextCursor`(서버 발급 불투명 문자열). 같은 회원·같은 `scope`·`authorId`로만 사용 |
-| `limit` | integer | X | 한 페이지 최대 개수. 1~50, `cursor`만 있으면 기본 20 |
+| `limit` | integer | X | 한 페이지 최대 개수. 1~50, 기본 20 |
 
-`cursor`와 `limit`가 **둘 다 없으면** 페이지를 자르지 않고 전체를 반환한다(앱 페이지 연동 전 하위 호환, `nextCursor: null`, `hasNext: false`). 하나라도 있으면 페이지 규칙을 적용한다. 기본값을 20으로 바꾸는 것은 앱 연동 후속 업무다.
+파라미터가 모두 없어도 첫 페이지 20개를 반환한다(S15P31E105-647). 무파라미터 전체 반환 하위 호환은 제거했다. 다음 페이지는 응답 `nextCursor`를 `cursor`로 보낸다. U21 러너 프로필의 `posts`는 CMT02 요청이 아니므로 이 페이지 규칙과 무관하게 볼 수 있는 글 전체를 반환한다.
 
 ### Request Body
 
@@ -320,7 +320,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 ### 미정 사항
 
 - [ ] `regionCode` 필터 구현
-- `cursor`/`limit` 커서 페이지는 S15P31E105-634에서 구현했다. 파라미터 없는 요청의 기본 페이지 크기(현재 전체 반환) 전환은 앱 연동 후속 업무다.
+- `cursor`/`limit` 커서 페이지는 S15P31E105-634에서 구현했고, 파라미터 없는 요청의 기본 20개 페이지는 S15P31E105-647에서 적용했다.
 - [ ] `imageUrl` 응답
 - `commentCount`·`reactionCount`·`myReaction`은 S15P31E105-632에서 구현했다.
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정

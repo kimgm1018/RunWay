@@ -64,21 +64,27 @@ beforeEach(async () => {
 test('CMT02 empty feed stays empty instead of failing the screen', async () => {
   fetchMock.mockResolvedValue(respond(200, { items: [] }));
 
-  await expect(community().listFeed('ALL')).resolves.toEqual([]);
+  await expect(community().listFeed('ALL')).resolves.toEqual({
+    items: [],
+    nextCursor: null,
+  });
 });
 
 test('CMT02 missing items is an empty feed, not a load error', async () => {
   fetchMock.mockResolvedValue(respond(200, {}));
 
-  await expect(community().listFeed('FOLLOWING')).resolves.toEqual([]);
+  await expect(community().listFeed('FOLLOWING')).resolves.toEqual({
+    items: [],
+    nextCursor: null,
+  });
 });
 
 test('CMT02 lists the feed by scope with the counts the server does not give left out', async () => {
   fetchMock.mockResolvedValue(respond(200, { items: [post, mine] }));
 
-  const feed = await community().listFeed('FOLLOWING');
+  const { items: feed } = await community().listFeed('FOLLOWING');
 
-  expect(sent().url).toBe(`${base}/posts?scope=FOLLOWING`);
+  expect(sent().url).toBe(`${base}/posts?scope=FOLLOWING&limit=20`);
   expect(feed[0]).toMatchObject({
     id: '101',
     author: { userId: '9', handle: '서윤', nickname: '서윤' },
@@ -181,7 +187,7 @@ test('CMT10 and CMT11 like and unlike, and the feed remembers my like for the se
   });
 
   fetchMock.mockResolvedValue(respond(200, { items: [post] }));
-  expect((await api.listFeed('ALL'))[0].liked).toBe(true);
+  expect((await api.listFeed('ALL')).items[0].liked).toBe(true);
 
   fetchMock.mockResolvedValue(respond(200, {}));
   await api.setLiked('101', false);
@@ -213,14 +219,123 @@ test('CMT07 adds my comment', async () => {
   expect(comment).toMatchObject({ id: '4', author: { nickname: '나' } });
 });
 
-test('bookmarks have no API and stay on this phone', async () => {
+test('CMT16 and CMT17 bookmark and take it back on the server, which tells bookmarked', async () => {
   const api = community();
+  fetchMock.mockResolvedValue(respond(200, { postId: 101, bookmarked: true }));
   await api.setBookmarked('101', true);
-  fetchMock.mockResolvedValue(respond(200, { items: [post] }));
+  expect(sent(0)).toEqual({
+    url: `${base}/posts/101/bookmarks/me`,
+    method: 'PUT',
+    body: undefined,
+  });
 
-  expect((await api.listFeed('ALL'))[0].bookmarked).toBe(true);
-  // Only the feed went to the server.
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fetchMock.mockResolvedValue(respond(200, { postId: 101, bookmarked: false }));
+  await api.setBookmarked('101', false);
+  expect(sent(1)).toEqual({
+    url: `${base}/posts/101/bookmarks/me`,
+    method: 'DELETE',
+    body: undefined,
+  });
+
+  // Nothing is remembered on the phone: the server's bookmarked wins on every read.
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [
+        { ...post, bookmarked: true },
+        { ...mine, bookmarked: false },
+        { ...post, id: 103 },
+      ],
+      nextCursor: null,
+      hasNext: false,
+    }),
+  );
+  const { items } = await api.listFeed('ALL');
+  expect(items.map(item => item.bookmarked)).toEqual([true, false, false]);
+});
+
+test('a refused bookmark fails instead of being kept on the phone', async () => {
+  fetchMock.mockResolvedValue(
+    respond(404, { code: 'POST_NOT_FOUND', message: '' }),
+  );
+
+  await expect(community().setBookmarked('101', true)).rejects.toBeTruthy();
+});
+
+// S15P31E105-647: CMT02 · CMT18 · CMT19 read 20 a page with the server's cursor.
+const page = (items: unknown[], nextCursor: string | null, hasNext: boolean) =>
+  respond(200, { items, nextCursor, hasNext });
+
+test('CMT02 asks for 20 by scope, sends the cursor for the next page and stops at hasNext false', async () => {
+  const api = community();
+  fetchMock.mockResolvedValueOnce(page([post], 'c-1', true));
+  const first = await api.listFeed('ALL');
+  expect(sent(0).url).toBe(`${base}/posts?scope=ALL&limit=20`);
+  expect(first.nextCursor).toBe('c-1');
+  expect(first.items.map(item => item.id)).toEqual(['101']);
+
+  fetchMock.mockResolvedValueOnce(page([mine], 'c-2', false));
+  const last = await api.listFeed('ALL', 'c-1');
+  expect(sent(1).url).toBe(`${base}/posts?scope=ALL&limit=20&cursor=c-1`);
+  // A cursor without hasNext is not a next page.
+  expect(last.nextCursor).toBeNull();
+});
+
+test('CMT02 lists one runner by authorId with the cursor', async () => {
+  const api = community();
+  fetchMock.mockResolvedValue(page([post], 'a-1', true));
+
+  await expect(api.listAuthorPosts('9')).resolves.toMatchObject({
+    items: [{ id: '101', author: { userId: '9' } }],
+    nextCursor: 'a-1',
+  });
+  await api.listAuthorPosts('9', 'a-1');
+
+  expect(sent(0).url).toBe(`${base}/posts?authorId=9&limit=20`);
+  expect(sent(1).url).toBe(`${base}/posts?authorId=9&limit=20&cursor=a-1`);
+});
+
+test('CMT18 내 스크랩 and CMT19 좋아요 read my lists with the cursor and keep the post fields', async () => {
+  const api = community();
+  fetchMock.mockResolvedValue(
+    page([{ ...counted, bookmarked: true, myReaction: 'LIKE' }], 'b-1', true),
+  );
+
+  const bookmarks = await api.listMyBookmarks();
+  await api.listMyBookmarks('b-1');
+  const likes = await api.listMyLikes();
+  await api.listMyLikes('b-1');
+
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    `${base}/users/me/bookmarks?limit=20`,
+    `${base}/users/me/bookmarks?limit=20&cursor=b-1`,
+    `${base}/users/me/likes?limit=20`,
+    `${base}/users/me/likes?limit=20&cursor=b-1`,
+  ]);
+  for (const list of [bookmarks, likes]) {
+    expect(list.nextCursor).toBe('b-1');
+    expect(list.items[0]).toMatchObject({
+      id: '101',
+      bookmarked: true,
+      liked: true,
+      likeCount: 5,
+      commentCount: 2,
+      courseShared: true,
+    });
+  }
+});
+
+test('an empty or bare page of my lists is the last page with nothing in it', async () => {
+  fetchMock.mockResolvedValueOnce(respond(200, {}));
+  fetchMock.mockResolvedValueOnce(page([], null, false));
+
+  await expect(community().listMyLikes()).resolves.toEqual({
+    items: [],
+    nextCursor: null,
+  });
+  await expect(community().listMyBookmarks()).resolves.toEqual({
+    items: [],
+    nextCursor: null,
+  });
 });
 
 // S15P31E105-632: the counts, my like, the course choice and the photos come from the server.
@@ -258,7 +373,9 @@ test('CMT02 maps reactionCount, commentCount, myReaction, courseShared and the a
     }),
   );
 
-  const [first, second] = await community().listFeed('ALL');
+  const {
+    items: [first, second],
+  } = await community().listFeed('ALL');
 
   expect(first).toMatchObject({
     likeCount: 5,
@@ -290,7 +407,9 @@ test('my own post keeps its courseId but shows no course when I left it unshared
   );
   const api = community();
 
-  const [own] = await api.listFeed('ALL');
+  const {
+    items: [own],
+  } = await api.listFeed('ALL');
 
   expect(own.courseShared).toBe(false);
   // The course is still mine to share again on 7.3e.
@@ -321,7 +440,7 @@ test('the list courseId gives 7.1 the route without reading the post again', asy
     [129.2, 35.2],
   ]);
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-    `${base}/posts?scope=ALL`,
+    `${base}/posts?scope=ALL&limit=20`,
     `${base}/courses/21`,
   ]);
 });
@@ -336,7 +455,9 @@ test('the server myReaction wins over a like made earlier in the session', async
       items: [{ ...counted, myReaction: null, reactionCount: 4 }],
     }),
   );
-  const [read] = await api.listFeed('ALL');
+  const {
+    items: [read],
+  } = await api.listFeed('ALL');
 
   expect(read.liked).toBe(false);
   expect(read.likeCount).toBe(4);

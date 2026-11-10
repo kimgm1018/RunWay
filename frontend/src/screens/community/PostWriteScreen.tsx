@@ -32,6 +32,7 @@ import {
 } from '../../data';
 import { RunMap } from '../../components/RunMap';
 import { formatDuration, formatKm, formatPace } from '../../format';
+import { postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider, typography } from '../../theme';
@@ -307,6 +308,7 @@ export function PostWriteScreen() {
         onSubmit={async draft => {
           try {
             await community.create(record.data.id, draft);
+            postsChanged();
             toast('러닝 기록을 공유했어요');
             navigateTo(navigation, 'Community');
           } catch (error) {
@@ -372,6 +374,7 @@ export function PostEditScreen() {
         onSubmit={async draft => {
           try {
             await community.update(postId, draft);
+            postsChanged();
             toast('게시물을 수정했어요');
             navigation.goBack();
           } catch (error) {

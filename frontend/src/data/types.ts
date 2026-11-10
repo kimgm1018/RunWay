@@ -290,6 +290,9 @@ export type PostDetail = Post & { comments: PostComment[] };
 
 export type FeedScope = 'ALL' | 'FOLLOWING';
 
+// One page of posts (CMT02 · CMT18 · CMT19, S15P31E105-647); nextCursor is null on the last page.
+export type PostPage = { items: Post[]; nextCursor: string | null };
+
 // 7.3 기록 공유 and 7.3e 게시물 수정.
 export type PostDraft = { body: string | null; courseShared: boolean };
 
@@ -1294,7 +1297,16 @@ export type Repositories = {
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
   };
   community: {
-    listFeed: (scope: FeedScope) => Promise<Post[]>;
+    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page).
+    listFeed: (scope: FeedScope, cursor?: string | null) => Promise<PostPage>;
+    // CMT02 by authorId: one runner's posts, 20 a page.
+    listAuthorPosts: (
+      userId: string,
+      cursor?: string | null,
+    ) => Promise<PostPage>;
+    // CMT18 내 스크랩 · CMT19 내 좋아요, newest first, 20 a page.
+    listMyBookmarks: (cursor?: string | null) => Promise<PostPage>;
+    listMyLikes: (cursor?: string | null) => Promise<PostPage>;
     get: (postId: string) => Promise<PostDetail>;
     // The shared course's points for the post on screen in 7.1, drawn on the real map (C03 by the post's course,
     // S15P31E105-521); null without a course or when it cannot be read.
@@ -1305,6 +1317,7 @@ export type Repositories = {
     update: (postId: string, draft: PostDraft) => Promise<void>;
     remove: (postId: string) => Promise<void>;
     setLiked: (postId: string, liked: boolean) => Promise<void>;
+    // CMT16 스크랩 · CMT17 취소.
     setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
     // CMT07; parentId answers that root comment (parentCommentId).
     addComment: (

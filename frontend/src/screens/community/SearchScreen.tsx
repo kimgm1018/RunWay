@@ -51,8 +51,9 @@ const look = {
   skeleton: '#E4E6EB',
 } as const;
 
+// 탐색 shows the feed's first page (CMT02, 20 posts).
 const loadFeed = (repositories: Repositories) =>
-  repositories.community.listFeed('ALL');
+  repositories.community.listFeed('ALL').then(page => page.items);
 
 const minLength = 2;
 const waitMs = 300;

@@ -31,6 +31,7 @@ import {
   formatKm,
   formatPace,
 } from '../../format';
+import { postChanged, postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider } from '../../theme';
@@ -127,9 +128,15 @@ export function PostDetailScreen() {
       setPost(loaded);
     }
   }, [loaded]);
-  const { like, bookmark } = usePostChanges(next =>
-    setPost(current => (current ? { ...current, ...next } : current)),
-  );
+  // The feed under 7.2 shows the same like and bookmark (rolled back with it) without reading again.
+  const { like, bookmark } = usePostChanges(next => {
+    setPost(current => (current ? { ...current, ...next } : current));
+    postChanged(next.id, {
+      liked: next.liked,
+      likeCount: next.likeCount,
+      bookmarked: next.bookmarked,
+    });
+  });
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [replay, setReplay] = useState(false);
@@ -488,13 +495,14 @@ export function PostDetailScreen() {
           // The card shows the newest comment after the sheet changed them.
           reload();
         }}
-        onCountChange={(_, count) =>
+        onCountChange={(id, count) => {
           setPost(current =>
             current && current.commentCount !== null
               ? { ...current, commentCount: count }
               : current,
-          )
-        }
+          );
+          postChanged(id, { commentCount: count });
+        }}
       />
       <PostMenu
         visible={menu}
@@ -503,6 +511,7 @@ export function PostDetailScreen() {
         onDelete={async () => {
           try {
             await community.remove(postId);
+            postsChanged();
             setMenu(false);
             toast('게시물을 삭제했어요');
             navigation.goBack();

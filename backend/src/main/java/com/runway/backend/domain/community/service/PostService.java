@@ -95,15 +95,21 @@ public class PostService {
         return PostCreateResponse.from(post, session.courseId());
     }
 
-    /** U21 러너 프로필 등 페이지를 쓰지 않는 호출용. CMT02 무파라미터와 같이 전체를 반환한다. */
+    /**
+     * U21 러너 프로필 등 페이지를 쓰지 않는 서버 내부 호출용. 페이지를 자르지 않고 볼 수 있는 글 전체를 반환한다. CMT02는 S15P31E105-647부터
+     * 파라미터가 없어도 기본 20개 페이지를 적용하므로 이 경로와 분리한다.
+     */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PostListResponse list(long userId, String scope, Long authorId) {
-        return list(userId, scope, authorId, null, null);
+        requireExistingUser(userId);
+        boolean following = SCOPE_FOLLOWING.equals(resolveScope(scope));
+        List<Long> ids =
+                postPageQueryRepository.findVisiblePostIds(userId, following, authorId, null, null);
+        return PostListResponse.lastPage(toListItems(userId, ids));
     }
 
     /**
-     * CMT02. {@code cursor}·{@code limit}가 모두 없으면 지금처럼 전체를 반환한다(앱 페이지 연동 전 하위 호환). 하나라도 있으면 limit(기본 20,
-     * 최대 50)개씩 id 내림차순으로 자른다. 삭제·접근 불가 글은 SQL에서 먼저 제외하므로 한 페이지가 limit보다 적어도 hasNext는 정확하다. ID 조회와
+     * CMT02. limit(생략 시 기본 20, 최대 50)개씩 id 내림차순으로 자른다. 파라미터가 없어도 첫 페이지 20개다(S15P31E105-647). 삭제·접근 불가 글은 SQL에서 먼저 제외하므로 한 페이지가 limit보다 적어도 hasNext는 정확하다. ID 조회와
      * 게시물·집계 조회가 같은 스냅샷을 보도록 REPEATABLE READ로 읽는다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -112,13 +118,6 @@ public class PostService {
         requireExistingUser(userId);
         String resolvedScope = resolveScope(scope);
         boolean following = SCOPE_FOLLOWING.equals(resolvedScope);
-        if (cursor == null && limit == null) {
-            List<Long> ids =
-                    postPageQueryRepository.findVisiblePostIds(
-                            userId, following, authorId, null, null);
-            return PostListResponse.lastPage(toListItems(userId, ids));
-        }
-
         int pageSize = PostPageCursor.resolveLimit(limit);
         Long beforeId =
                 cursor == null
