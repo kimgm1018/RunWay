@@ -84,6 +84,16 @@ class WatchNavigationUiTest {
         assertEquals(emptyList<RunIntent>(), control.sent)
     }
 
+    /** A tap on the detail goes back to the page like back does, and sends nothing (S15P31E105-658). */
+    @Test fun tappingADetailReturnsToThePage() {
+        val control = launch(RunSnapshot(state = RunState.RUNNING, metrics = RunMetrics(distanceMeters = 2384.0)))
+        compose.onNodeWithContentDescription("거리 2.38 킬로미터").performClick()
+        compose.onNodeWithContentDescription(statusPage, substring = true).assertDoesNotExist()
+        compose.onRoot().performClick()
+        compose.onNodeWithContentDescription(statusPage, substring = true).assertExists()
+        assertEquals(emptyList<RunIntent>(), control.sent)
+    }
+
     @Test fun groupModeSwapsOnlyTheLaterPages() {
         launch(RunSnapshot(state = RunState.RUNNING, mode = RunMode.GROUP))
         compose.onRoot().performTouchInput { swipeLeft() }

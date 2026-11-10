@@ -4,16 +4,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Debug builds only: applies intents to synthetic data at once so screens and back navigation can
- * be checked on an emulator. No sensors, phone or server are involved. 256 replaces this with the
- * real controller. Each app launch starts a fresh run, so leaving the result screen with BACK and
- * reopening the app returns to standby (the real flow waits for the phone to prepare the next run).
+ * Test only (androidTest): applies intents to synthetic data at once so screens and back navigation can be checked
+ * without sensors, a phone or a server. The product app never selects it: [RunControls] returns the real session
+ * controller in every build type (S15P31E105-658).
  */
-object RunControls {
-    @Suppress("UNUSED_PARAMETER")
-    fun create(context: android.content.Context): RunControl = SimulatedRunControl()
-}
-
 class SimulatedRunControl(
     initial: RunSnapshot = RunSnapshot(
         state = RunState.READY, title = "민락수변공원 출발 5.0km",

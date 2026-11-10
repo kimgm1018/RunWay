@@ -77,7 +77,7 @@ private fun WatchScreen(
         WatchRoute.RUNNING -> when {
             snapshot.pendingCommand && snapshot.pendingIntent == RunIntent.PAUSE -> PauseRequestScreen(snapshot)
             nav.detail == RunDetail.RHYTHM -> RhythmManualScreen(snapshot, navigator::send, pause)
-            nav.detail != null -> RunDetailScreen(snapshot, nav.detail, pause)
+            nav.detail != null -> RunDetailScreen(snapshot, nav.detail, navigator::closeDetail, pause)
             else -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage, navigator::send, navigator::openDetail, pause)
         }
         WatchRoute.PAUSED ->
