@@ -20,6 +20,7 @@ import {
   type RunControl,
   type RunControlState,
 } from './runControl';
+import { speakCoaching, stopCoaching } from './coachingVoiceOutput';
 import { useSession } from '../../session/SessionProvider';
 import { createPaceChangeTracker, watchGroupStatus } from '../../watch/groupStatus';
 import type { LiveMetrics } from '../../watch/liveMetrics';
@@ -181,7 +182,10 @@ export function RunSessionProvider({
     watchSession,
     phoneLocation,
     groupRuns,
+    settings,
   } = useRepositories();
+  // 코칭 음성 알림(voiceCoachingEnabled). 러닝 제어를 만들 때 서버 설정을 읽어 둔다.
+  const voiceOn = useRef(false);
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
@@ -444,16 +448,31 @@ export function RunSessionProvider({
   const newControl = useCallback(() => {
     stopListening.current?.();
     controlRef.current?.dispose();
+    // 코칭 음성 알림 설정은 러닝 제어를 만들 때 읽는다(S15P31E105-579). 읽기 전이나 실패하면 읽지 않는다.
+    voiceOn.current = false;
+    settings
+      .get()
+      .then(value => {
+        voiceOn.current = value.voiceCoachingEnabled;
+      })
+      .catch(() => undefined);
     const next = createRunControl({
       session,
       watch: watchSession,
       location: phoneLocation,
+      voice: {
+        enabled: () => voiceOn.current,
+        speak: sentence => {
+          speakCoaching(sentence).catch(() => undefined);
+        },
+        stop: stopCoaching,
+      },
     });
     controlRef.current = next;
     stopListening.current = next.subscribe(setControl);
     setControl(next.getState());
     return next;
-  }, [phoneLocation, session, watchSession]);
+  }, [phoneLocation, session, settings, watchSession]);
 
   // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
   // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
