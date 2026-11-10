@@ -159,66 +159,66 @@ describe('createGapAlertTracker', () => {
       ...over,
     });
 
-  it('uses 150 m with a 30 m re-arm margin by default', () => {
-    expect([GROUP_GAP_ALERT_M, GROUP_GAP_REARM_MARGIN_M]).toEqual([150, 30]);
+  it('uses 50 m with a 30 m re-arm margin (re-arms below 20 m) by default', () => {
+    expect([GROUP_GAP_ALERT_M, GROUP_GAP_REARM_MARGIN_M]).toEqual([50, 30]);
   });
 
   it('tells the crossing once, names the last runner and keeps the notice until the gap closes', () => {
     const { next } = createGapAlertTracker();
-    expect(next(hostLive(100))).toBeNull();
-    expect(next(hostLive(150))).toBeNull();
-    expect(next(hostLive(160))).toEqual({ gapM: 160, memberName: '민수', isNew: true });
-    expect(next(hostLive(171.6))).toEqual({ gapM: 172, memberName: '민수', isNew: false });
-    expect(next(hostLive(140))).toEqual({ gapM: 140, memberName: '민수', isNew: false });
-    expect(next(hostLive(119))).toBeNull();
+    expect(next(hostLive(30))).toBeNull();
+    expect(next(hostLive(50))).toBeNull();
+    expect(next(hostLive(60))).toEqual({ gapM: 60, memberName: '민수', isNew: true });
+    expect(next(hostLive(71.6))).toEqual({ gapM: 72, memberName: '민수', isNew: false });
+    expect(next(hostLive(40))).toEqual({ gapM: 40, memberName: '민수', isNew: false });
+    expect(next(hostLive(19))).toBeNull();
   });
 
   it('does not tell again while the gap jitters around the threshold', () => {
     const { next } = createGapAlertTracker();
-    next(hostLive(100));
-    expect(next(hostLive(151))?.isNew).toBe(true);
-    for (const gap of [149, 152, 125, 151, 120, 155]) {
+    next(hostLive(30));
+    expect(next(hostLive(51))?.isNew).toBe(true);
+    for (const gap of [49, 52, 25, 51, 20, 55]) {
       expect(next(hostLive(gap))?.isNew).toBe(false);
     }
   });
 
   it('re-arms only below threshold - 30 m, then tells the next crossing', () => {
     const { next } = createGapAlertTracker();
-    next(hostLive(100));
-    expect(next(hostLive(160))?.isNew).toBe(true);
-    expect(next(hostLive(121))?.isNew).toBe(false);
-    expect(next(hostLive(119))).toBeNull();
-    expect(next(hostLive(130))).toBeNull();
-    expect(next(hostLive(151))).toEqual({ gapM: 151, memberName: '민수', isNew: true });
+    next(hostLive(30));
+    expect(next(hostLive(60))?.isNew).toBe(true);
+    expect(next(hostLive(21))?.isNew).toBe(false);
+    expect(next(hostLive(19))).toBeNull();
+    expect(next(hostLive(30))).toBeNull();
+    expect(next(hostLive(51))).toEqual({ gapM: 51, memberName: '민수', isNew: true });
   });
 
   it('stays quiet on the first value even when it is already wide', () => {
     const { next } = createGapAlertTracker();
     expect(next(hostLive(300))).toBeNull();
     expect(next(hostLive(310))).toBeNull();
-    expect(next(hostLive(100))).toBeNull();
-    expect(next(hostLive(160))?.isNew).toBe(true);
+    expect(next(hostLive(10))).toBeNull();
+    expect(next(hostLive(60))?.isNew).toBe(true);
   });
 
   it('starts over after a failed read or a new subscription (reconnect)', () => {
     const tracker = createGapAlertTracker();
-    tracker.next(hostLive(100));
+    tracker.next(hostLive(30));
     tracker.reset();
     expect(tracker.next(hostLive(200))).toBeNull();
     expect(tracker.next(hostLive(210))).toBeNull();
 
-    createGapAlertTracker().next(hostLive(100));
+    createGapAlertTracker().next(hostLive(30));
     expect(createGapAlertTracker().next(hostLive(200))).toBeNull();
   });
 
   it('does not tell a stale snapshot without a gap, and keeps its state through it', () => {
     const { next } = createGapAlertTracker();
-    next(hostLive(100));
+    next(hostLive(30));
     expect(next(hostLive(null))).toBeNull();
     expect(next(hostLive(Number.NaN))).toBeNull();
-    expect(next(hostLive(160))?.isNew).toBe(true);
+    expect(next(hostLive(60))?.isNew).toBe(true);
     expect(next(hostLive(null))).toBeNull();
-    expect(next(hostLive(165))?.isNew).toBe(false);
+    expect(next(hostLive(65))?.isNew).toBe(false);
   });
 
   it('tells only the host', () => {
@@ -230,14 +230,14 @@ describe('createGapAlertTracker', () => {
           member({ userId: '2', nickname: '나', isMe: true, isHost: false, rank: 2 }),
         ],
       });
-    next(asMember(100));
+    next(asMember(30));
     expect(next(asMember(200))).toBeNull();
     expect(next(asMember(220))).toBeNull();
   });
 
   it('only tells while the group runs', () => {
     const { next } = createGapAlertTracker();
-    next(hostLive(100, { status: 'SCHEDULED' }));
+    next(hostLive(30, { status: 'SCHEDULED' }));
     expect(next(hostLive(200, { status: 'SCHEDULED' }))).toBeNull();
     expect(next(hostLive(210))).toBeNull();
   });
@@ -252,8 +252,8 @@ describe('createGapAlertTracker', () => {
           member({ userId: '3', nickname: '지영', rank: 2 }),
         ],
       });
-    tie.next(tied(100));
-    expect(tie.next(tied(160))).toEqual({ gapM: 160, memberName: null, isNew: true });
+    tie.next(tied(30));
+    expect(tie.next(tied(60))).toEqual({ gapM: 60, memberName: null, isNew: true });
 
     const unknown = createGapAlertTracker();
     const noName = (spreadM: number) =>
@@ -263,8 +263,8 @@ describe('createGapAlertTracker', () => {
           member({ userId: '2', nickname: '알 수 없음', rank: 2 }),
         ],
       });
-    unknown.next(noName(100));
-    expect(unknown.next(noName(160))?.memberName).toBeNull();
+    unknown.next(noName(30));
+    expect(unknown.next(noName(60))?.memberName).toBeNull();
 
     const meLast = createGapAlertTracker();
     const last = (spreadM: number) =>
@@ -274,8 +274,8 @@ describe('createGapAlertTracker', () => {
           member({ userId: '2', nickname: '나', isMe: true, isHost: true, rank: 2 }),
         ],
       });
-    meLast.next(last(100));
-    expect(meLast.next(last(160))?.memberName).toBeNull();
+    meLast.next(last(30));
+    expect(meLast.next(last(60))?.memberName).toBeNull();
   });
 
   it('can use a demo threshold', () => {
@@ -287,7 +287,7 @@ describe('createGapAlertTracker', () => {
   });
 
   it('carries the gap notice in GROUP_STATUS', () => {
-    const gap = { gapM: 160, memberName: '민수', isNew: true };
+    const gap = { gapM: 60, memberName: '민수', isNew: true };
     expect(watchGroupStatus('77', live(), null, gap)?.gapWidened).toEqual(gap);
   });
 });

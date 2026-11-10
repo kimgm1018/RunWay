@@ -76,7 +76,7 @@ export function createPaceChangeTracker() {
 // 그룹 간격 벌어짐 알림(S15P31E105-629, 604와 같은 방식). 시연 때는 이 두 값만 바꾼다.
 // 선두–후미 거리가 GROUP_GAP_ALERT_M을 넘는 순간 1회 알리고, GROUP_GAP_ALERT_M - GROUP_GAP_REARM_MARGIN_M 아래로
 // 내려와야 다시 알릴 수 있다(히스테리시스: 기준 근처에서 흔들려도 다시 울리지 않는다).
-export const GROUP_GAP_ALERT_M = 150;
+export const GROUP_GAP_ALERT_M = 50;
 export const GROUP_GAP_REARM_MARGIN_M = 30;
 
 // api/groupRuns.ts가 닉네임을 모를 때 넣는 값. 이 값은 이름으로 보이지 않는다.
