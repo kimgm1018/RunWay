@@ -119,6 +119,9 @@ export type RunSplit = {
 export type RunRecordDetail = RunRecordSummary & {
   // [longitude, latitude] points; null for a run recorded without location.
   route: [number, number][] | null;
+  // The run's measured route (S11, S15P31E105-549) in parts split where the source changed or the position was
+  // lost; no line joins the parts. null when nothing measured was kept.
+  routeParts: [number, number][][] | null;
   // H02 targetDistanceM; null when the run had no distance goal (S15P31E105-638).
   targetDistanceM: number | null;
   targetDurationSec: number | null;
@@ -1107,6 +1110,17 @@ export type WatchSessionEvent =
       sessionId: string;
       scope: 'WATCH' | 'SERVER';
       clientSendAt: string | null;
+    }
+  // 워치 화면 표시값(S15P31E105-549 LIVE_METRICS). 표시 전용이며 저장·업로드·ACK하지 않는다. 측정하지 않은 값은 null.
+  | {
+      type: 'LIVE_METRICS';
+      sessionId: string;
+      measuredAt: string | null;
+      paceSecPerKm: number | null;
+      heartRateBpm: number | null;
+      cadenceSpm: number | null;
+      distanceM: number | null;
+      activeSec: number | null;
     }
   // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
   | {

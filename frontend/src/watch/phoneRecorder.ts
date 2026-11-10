@@ -2,8 +2,8 @@ import { errorCode, type DataErrorCode } from '../data/errors';
 import type { PhoneFix, PhoneLocation, Repositories } from '../data/types';
 import { gpsItem, MAX_ITEMS, phoneBatchBody, type BatchJson } from './phoneBatch';
 
-// 폰 인계 뒤 폰 기록(S15P31E105-464, devices-health.md 폰 인계 후 업로드·종료).
-// 폰 GPS를 최대 5초씩 모아 폰 deviceId의 GPS_POINT batch를 만들고 W07에 올린다. 일시정지 중의 위치는 기록하지 않는다.
+// 폰 GPS 기록(S15P31E105-464 폰 인계, S15P31E105-549 WATCH 모드 폰 GPS 보완. devices-health.md W07·폰 인계 후 업로드·종료).
+// 폰 GPS를 최대 5초씩 모아 폰 deviceId의 GPS_POINT batch를 만들고 W07에 올린다. 준비·일시정지 중의 위치는 기록하지 않는다.
 // 종료(finish)는 GPS를 멈추고 남은 점을 마지막 batch로 만든 뒤, 최대 2분 동안 모든 폰 batch의 COMMITTED를 확인한다.
 // batch는 앱 메모리에만 있다. 앱이 꺼지면 아직 올리지 못한 폰 위치는 남지 않는다.
 
@@ -155,7 +155,11 @@ export function createPhoneRecorder({
       }
       return location.start().catch(() => false);
     },
+    // 기록 중일 때만 남은 점을 batch로 닫는다. 같은 상태로 여러 번 불려도 미확인 batch를 그때마다 다시 보내지 않는다.
     pause: () => {
+      if (!collecting) {
+        return;
+      }
       collecting = false;
       flush();
     },

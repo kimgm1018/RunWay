@@ -5,6 +5,13 @@ import java.math.RoundingMode
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import kotlin.math.abs
+
+/**
+ * One watch GPS fix (S15P31E105-549): WGS84 degrees, horizontal accuracy and altitude in metres. A quality the device
+ * did not report stays null; nothing is assumed for it.
+ */
+data class GeoFix(val latitude: Double, val longitude: Double, val accuracyM: Double?, val altitudeM: Double?)
 
 /**
  * One reading as it reached the app (S15P31E105-311). Values the device did not measure stay null; nothing is
@@ -17,14 +24,17 @@ data class Reading(
     val cadenceSpm: Double? = null,
     val speedMps: Double? = null,
     val totalDistanceM: Double? = null,
+    /** A GPS fix; it becomes a GPS_POINT item of its own, never part of a METRIC_SAMPLE (S15P31E105-549). */
+    val location: GeoFix? = null,
 ) {
-    val hasValue: Boolean get() = heartRateBpm != null || cadenceSpm != null || speedMps != null || totalDistanceM != null
+    val hasMetric: Boolean get() = heartRateBpm != null || cadenceSpm != null || speedMps != null || totalDistanceM != null
+    val hasValue: Boolean get() = hasMetric || location != null
 
     /** Names of the values this reading carries, the keys of [BatchMarks.latest]. */
     val metrics: List<String>
         get() = listOfNotNull(
             heartRateBpm?.let { "heartRate" }, cadenceSpm?.let { "cadence" },
-            speedMps?.let { "speed" }, totalDistanceM?.let { "totalDistance" },
+            speedMps?.let { "speed" }, totalDistanceM?.let { "totalDistance" }, location?.let { "location" },
         )
 }
 
@@ -36,32 +46,62 @@ data class Reading(
 object BatchFormat {
     const val SCHEMA_VERSION = "1"
     const val MAX_MESSAGE_BYTES = 32 * 1024
+    /** Accuracy and altitude are NUMERIC(10,2) on the server: below 1e8 in absolute value. */
+    private const val MAX_QUALITY = 99_999_999.995
 
     /**
-     * Items for [readings]: readings with the same measuredAt become one item, others stay separate.
+     * Items for [readings]: readings with the same measuredAt become one METRIC_SAMPLE, others stay separate. A GPS fix
+     * becomes its own GPS_POINT at its own time, after the metric sample of that time (S15P31E105-549).
      * Values are rounded to the DB scale (devices-health.md W07 서버 검사 3) so the server never has to round.
      */
-    fun items(readings: List<Reading>): List<Map<String, Any?>> =
-        readings.filter { it.hasValue }
-            .groupBy { micros(it.measuredAt) }
-            .toSortedMap()
-            .map { (at, group) ->
-                fun pick(f: (Reading) -> Double?) = group.firstNotNullOfOrNull(f)
-                val hr = pick { it.heartRateBpm }?.takeIf { it > 0 }
-                linkedMapOf(
-                    "type" to "METRIC_SAMPLE",
-                    "measuredAt" to at.toString(),
-                    "elapsedDurationSec" to group.maxOf { it.elapsedSec }.coerceAtLeast(0),
-                    "heartRateBpm" to hr?.let { decimal(it, 2) },
-                    "cadenceSpm" to pick { it.cadenceSpm }?.let { decimal(it.coerceAtLeast(0.0), 2) },
-                    "speedMps" to pick { it.speedMps }?.let { decimal(it.coerceAtLeast(0.0), 3) },
-                    "gradePercent" to null,
-                    "totalDistanceM" to pick { it.totalDistanceM }?.let { decimal(it.coerceAtLeast(0.0), 2) },
-                    "routeProgressM" to null,
-                    "isHrMeasured" to (hr != null),
-                )
-            }
-            .filter { it["heartRateBpm"] != null || it["cadenceSpm"] != null || it["speedMps"] != null || it["totalDistanceM"] != null }
+    fun items(readings: List<Reading>): List<Map<String, Any?>> {
+        val metrics = readings.filter { it.hasMetric }.groupBy { micros(it.measuredAt) }
+        val points = readings.mapNotNull { r -> r.location?.let { micros(r.measuredAt) to it } }
+            .groupBy({ it.first }, { it.second })
+        val out = mutableListOf<Map<String, Any?>>()
+        for (at in (metrics.keys + points.keys).toSortedSet()) {
+            metrics[at]?.let { group -> metricItem(at, group)?.let(out::add) }
+            points[at]?.firstNotNullOfOrNull { gpsItem(at, it) }?.let(out::add)
+        }
+        return out
+    }
+
+    private fun metricItem(at: Instant, group: List<Reading>): Map<String, Any?>? {
+        fun pick(f: (Reading) -> Double?) = group.firstNotNullOfOrNull(f)
+        val hr = pick { it.heartRateBpm }?.takeIf { it > 0 }
+        val item = linkedMapOf(
+            "type" to "METRIC_SAMPLE",
+            "measuredAt" to at.toString(),
+            "elapsedDurationSec" to group.maxOf { it.elapsedSec }.coerceAtLeast(0),
+            "heartRateBpm" to hr?.let { decimal(it, 2) },
+            "cadenceSpm" to pick { it.cadenceSpm }?.let { decimal(it.coerceAtLeast(0.0), 2) },
+            "speedMps" to pick { it.speedMps }?.let { decimal(it.coerceAtLeast(0.0), 3) },
+            "gradePercent" to null,
+            "totalDistanceM" to pick { it.totalDistanceM }?.let { decimal(it.coerceAtLeast(0.0), 2) },
+            "routeProgressM" to null,
+            "isHrMeasured" to (hr != null),
+        )
+        val measured = item["heartRateBpm"] != null || item["cadenceSpm"] != null || item["speedMps"] != null || item["totalDistanceM"] != null
+        return if (measured) item else null
+    }
+
+    /**
+     * W07 GPS_POINT. Coordinates keep 6 decimals (about 0.1 m): with at most 15 significant digits and no value below
+     * 1e-6, the plain decimal is also the ECMAScript form the server hashes. A bad accuracy is sent as unknown.
+     */
+    private fun gpsItem(at: Instant, fix: GeoFix): Map<String, Any?>? {
+        val lat = fix.latitude
+        val lng = fix.longitude
+        if (!lat.isFinite() || !lng.isFinite() || lat !in -90.0..90.0 || lng !in -180.0..180.0) return null
+        return linkedMapOf(
+            "type" to "GPS_POINT",
+            "measuredAt" to at.toString(),
+            "coordinates" to listOf(decimal(lng, 6), decimal(lat, 6)),
+            // DB NUMERIC(10,2)를 넘는 품질 값은 batch 전체 422를 부르므로 모르는 값(null)으로 보낸다.
+            "accuracyM" to fix.accuracyM?.takeIf { it >= 0 && it < MAX_QUALITY }?.let { decimal(it, 2) },
+            "altitudeM" to fix.altitudeM?.takeIf { abs(it) < MAX_QUALITY }?.let { decimal(it, 2) },
+        )
+    }
 
     /** W07 hash: body without payloadHash, deviceId/sessionId as decimal strings, JCS, SHA-256, lowercase hex. */
     fun hash(id: String, deviceId: String, sessionId: String, items: List<Map<String, Any?>>): String {

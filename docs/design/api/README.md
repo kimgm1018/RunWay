@@ -14,7 +14,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [워치·건강 데이터](./devices-health.md) | 워치·건강 데이터 | 7 |
 | [운동 준비도](./readiness.md) | 운동 준비도 | 1 |
 | [러닝 코스](./courses.md) | 러닝 코스 | 5 |
-| [러닝 세션](./sessions.md) | 러닝 세션 | 10 |
+| [러닝 세션](./sessions.md) | 러닝 세션 | 11 |
 | [AI 페이스·실시간 분석·BPM](./pace-coaching.md) | AI 페이스·실시간 분석·BPM | 1 |
 | [러닝 기록·분석](./running-records.md) | 러닝 기록·분석 | 5 |
 | [그룹런](./group-runs.md) | 그룹런·만남 장소 검색 | 14 |
@@ -23,7 +23,7 @@ RunWay 서비스의 **클라이언트 공개 API 설계**이다. 저장소의 [1
 | [공통 파일](./files.md) | 이미지 업로드·조회 | 2 |
 | [알림함](./notifications.md) | 앱 내 알림 목록·전체 읽음 | 2 |
 
-총 **98개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
+총 **99개** 공개 API 설계. 크루 멤버 내보내기(M09)는 선택 기능이다. 내부 자동 처리와 개별 이벤트 종류·알림 **생성** 모듈은 이 수에 포함하지 않는다. SSE 접속 endpoint S10은 포함한다. [PLS01 만남 장소 검색](group-runs.md#pls01-만남-장소-검색)은 크루·그룹런·코스 위치 선택이 함께 사용한다.
 
 운영 워치·폰 batch의 서버 계약은 [W07](devices-health.md#w07-워치-운동-배치-동기화), 앱 간 MessageClient 계약은 [통합 설계 9장](../watch-mobile-server-integration.md#9-워치폰-messageclient-메시지-명세)을 따른다.
 
@@ -209,6 +209,7 @@ W06 부분 성공의 `errors[].code`는 `HealthRecordErrorCode`에서 관리하�
 | S08 | [러닝 설정·제어 기기 변경](./sessions.md#s08-러닝-설정제어-기기-변경) | PATCH | `/running-sessions/{sessionId}` | [sessions.md](./sessions.md) |
 | S09 | [러닝 세션 삭제](./sessions.md#s09-러닝-세션-삭제) | DELETE | `/running-sessions/{sessionId}` | [sessions.md](./sessions.md) |
 | S10 | [활성 러닝 이벤트 구독](./sessions.md#s10-활성-러닝-이벤트-구독) | GET | `/running-sessions/{sessionId}/events` | [sessions.md](./sessions.md) |
+| S11 | [러닝 경로 조회](./sessions.md#s11-러닝-경로-조회) | GET | `/running-sessions/{sessionId}/route` | [sessions.md](./sessions.md) |
 | P07 | [세션 BPM 조절](./pace-coaching.md#p07-세션-bpm-조절) | PUT | `/running-sessions/{sessionId}/bpm` | [pace-coaching.md](./pace-coaching.md) |
 | H01 | [러닝 기록 목록](./running-records.md#h01-러닝-기록-목록) | GET | `/running-records` | [running-records.md](./running-records.md) |
 | H02 | [러닝 기록 상세](./running-records.md#h02-러닝-기록-상세) | GET | `/running-records/{sessionId}` | [running-records.md](./running-records.md) |

@@ -64,6 +64,9 @@ type RunState = {
   sample: RunSample;
   guidance: RunGuidance | null;
   trail: [number, number][];
+  // The measured path split where the source changed or the position was lost (S15P31E105-549); null while the
+  // trail comes from the screen's own clock samples. The map draws no line across the breaks.
+  trailParts: [number, number][][] | null;
   status: 'running' | 'paused' | 'finished';
   summary: RunSummary | null;
   saveState: SaveState | null;
@@ -246,9 +249,17 @@ export function RunSessionProvider({
                   trail:
                     live && live.route.length > 0
                       ? live.route
+                      : live?.here
+                      ? [live.here]
                       : sample.position
                       ? [...current.trail, sample.position]
                       : current.trail,
+                  trailParts:
+                    live && live.route.length > 0
+                      ? live.routeParts
+                      : live?.here
+                      ? []
+                      : current.trailParts,
                 }
               : current,
           );
@@ -341,6 +352,7 @@ export function RunSessionProvider({
           sample: firstSample,
           guidance: null,
           trail: [],
+          trailParts: null,
           status: 'running',
           summary: null,
           saveState: null,
@@ -405,15 +417,28 @@ export function RunSessionProvider({
   }, [runClock]);
   // 새 실측값이 오면 다음 시계 틱을 기다리지 않고 바로 보인다. 평균 심박·케이던스는 받은 값으로 모은다.
   const live = control?.live ?? null;
+  // GPS 위치가 하나도 없을 때(실내 등) 대략 위치로 지금 위치 점만 찍는다. 경로·거리에는 쓰지 않는다(S15P31E105-549).
+  const approx = live?.here ? null : control?.approxPosition ?? null;
+  useEffect(() => {
+    if (!approx) {
+      return;
+    }
+    setRun(current =>
+      current && current.status !== 'finished' && current.trail.length <= 1
+        ? { ...current, trail: [approx], trailParts: [] }
+        : current,
+    );
+  }, [approx]);
   useEffect(() => {
     liveRef.current = live;
     if (!live) {
       return;
     }
-    if (live.heartRate !== null) {
+    // 위치만 새로 온 갱신(WATCH 기록 중 폰 GPS 보완)은 같은 심박·케이던스를 평균에 다시 넣지 않는다.
+    if (live.newSample && live.heartRate !== null) {
       readings.current.heartRates.push(live.heartRate);
     }
-    if (live.cadence !== null) {
+    if (live.newSample && live.cadence !== null) {
       readings.current.cadences.push(live.cadence);
     }
     setRun(current =>
@@ -421,7 +446,11 @@ export function RunSessionProvider({
         ? {
             ...current,
             sample: withLive(current.sample, live),
-            trail: live.route.length > 0 ? live.route : current.trail,
+            // 경로가 비어도(실내·정지) 지금 위치 점 하나는 보인다(S15P31E105-549).
+            trail:
+              live.route.length > 0 ? live.route : live.here ? [live.here] : current.trail,
+            trailParts:
+              live.route.length > 0 ? live.routeParts : live.here ? [] : current.trailParts,
           }
         : current,
     );

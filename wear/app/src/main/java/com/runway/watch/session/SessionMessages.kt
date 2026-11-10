@@ -36,6 +36,9 @@ object SessionPaths {
     /** G10 group standing relayed by the phone (9.3 GROUP_STATUS, S15P31E105-420). */
     const val GROUP_PREFIX = "/runway/v1/group/"
     const val GROUP_STATUS = "/runway/v1/group/status"
+
+    /** Display-only live values for the phone screen (9.3 LIVE_METRICS, S15P31E105-549). No ACK, never uploaded. */
+    const val LIVE_METRICS = "/runway/v1/data/live"
 }
 
 /** 9.3 targetBpm range for SET_BPM and COACHING_GUIDE. */
@@ -284,6 +287,27 @@ object SessionMessages {
         }
         return encode("COMMAND_RESULT", messageId, replyTo, sessionId, payload)
     }
+
+    /**
+     * 9.3 LIVE_METRICS (S15P31E105-549): the values the watch screen shows now, so the phone shows the same ones without
+     * waiting for the next batch. Display only: no ACK, no retry, never stored or uploaded. A value not measured is null.
+     */
+    fun liveMetrics(
+        messageId: String,
+        sessionId: String,
+        measuredAt: Instant?,
+        paceSecPerKm: Int?,
+        heartRateBpm: Int?,
+        cadenceSpm: Int?,
+        distanceM: Double?,
+        activeSec: Long?,
+    ): ByteArray = encode("LIVE_METRICS", messageId, null, sessionId, JSONObject()
+        .put("measuredAt", measuredAt?.toString() ?: JSONObject.NULL)
+        .put("paceSecPerKm", paceSecPerKm ?: JSONObject.NULL)
+        .put("heartRateBpm", heartRateBpm ?: JSONObject.NULL)
+        .put("cadenceSpm", cadenceSpm ?: JSONObject.NULL)
+        .put("distanceM", distanceM ?: JSONObject.NULL)
+        .put("activeSec", activeSec ?: JSONObject.NULL))
 
     private fun encode(type: String, messageId: String, replyTo: String?, sessionId: String, payload: JSONObject): ByteArray {
         val bytes = JSONObject()

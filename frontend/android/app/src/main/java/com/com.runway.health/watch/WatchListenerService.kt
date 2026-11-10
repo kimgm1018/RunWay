@@ -17,6 +17,11 @@ class WatchListenerService : WearableListenerService() {
       onBatch(event)
       return
     }
+    if (event.path == LIVE_METRICS_PATH) {
+      // Display only (S15P31E105-549): straight to JS when attached; dropped otherwise, the next one follows in a second.
+      liveJsEvent(event.data)?.let { WatchSessionModule.emitter?.invoke(it) }
+      return
+    }
     if (isSessionInboxPath(event.path)) {
       onSessionMessage(event)
       return
@@ -47,8 +52,9 @@ class WatchListenerService : WearableListenerService() {
         val receipt = localReceipt(message, sessionInbox.nextMessageId(), null)
         Tasks.await(Wearable.getMessageClient(this).sendMessage(event.sourceNodeId, COMMAND_RECEIVED_PATH, receipt), 10, TimeUnit.SECONDS)
       }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
       // Stored messages stay in the inbox; the watch resends unconfirmed results.
+      diag("RX session failed ${e.javaClass.simpleName}")
     }
   }
 
@@ -81,8 +87,9 @@ class WatchListenerService : WearableListenerService() {
         BatchStatus.FAILED ->
           Tasks.await(messages.sendMessage(event.sourceNodeId, ERROR_PATH, batchError(sessionInbox.nextMessageId(), batch)), 10, TimeUnit.SECONDS)
       }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
       // A stored batch is uploaded when JS drains it; the watch resends one it got no receipt for.
+      diag("RX batch failed ${e.javaClass.simpleName}")
     }
   }
 }

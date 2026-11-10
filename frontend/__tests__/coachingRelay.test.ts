@@ -44,7 +44,13 @@ const guide: CoachingGuide = {
   expiresAt: '2026-10-28T01:01:20Z',
 };
 
-function setup(options: { guideAckMs?: number; voice?: { enabled: () => boolean; speak: (text: string) => void; stop: () => void } } = {}) {
+function setup(
+  options: {
+    guideAckMs?: number;
+    serverPollMs?: number;
+    voice?: { enabled: () => boolean; speak: (text: string) => void; stop: () => void };
+  } = {},
+) {
   let current = view();
   const snapshots: { handler: ((snapshot: SessionSnapshot) => void) | null } = { handler: null };
   const unsubscribeEvents = jest.fn();
@@ -98,7 +104,12 @@ function setup(options: { guideAckMs?: number; voice?: { enabled: () => boolean;
   const control = createRunControl({
     session: session as unknown as Repositories['session'],
     watch: watch as unknown as Repositories['watchSession'],
-    timers: { resultWaitMs: 200, retryDelaysMs: [0, 5, 5], guideAckMs: options.guideAckMs ?? 10_000 },
+    timers: {
+      resultWaitMs: 200,
+      retryDelaysMs: [0, 5, 5],
+      guideAckMs: options.guideAckMs ?? 10_000,
+      serverPollMs: options.serverPollMs ?? 60_000,
+    },
     voice: options.voice,
   });
   const emit = (event: WatchSessionEvent) => listeners.forEach(listener => listener(event));
@@ -573,6 +584,45 @@ test('a paused run is not read to and pausing or disposing stops the voice', asy
   await control.sync();
   control.dispose();
   expect(voice.stop).toHaveBeenCalledTimes(2);
+});
+
+// S15P31E105-549 실기기 확인: S10이 폰에 오지 않으면 서버가 만든 코칭 명령이 같은 버전 자리를 차지해 일시정지가
+// 409 COMMAND_CONFLICT로 막혔다. 개인 러닝도 S02를 주기적으로 읽어 코칭을 전달하고, 막히면 바로 다시 읽는다.
+const pendingCoaching = () =>
+  view({
+    pendingCommand: {
+      commandId: guide.commandId,
+      action: 'COACHING',
+      expectedVersion: 3,
+      result: 'PENDING',
+      appliedAt: null,
+      reasonCode: null,
+      coachingId: guide.coachingId,
+      coachingGuide: guide,
+    },
+  });
+
+test('without any S10 event a running personal run reads S02 and relays the pending coaching to the watch', async () => {
+  const { control, session, watch, setCurrent } = setup({ serverPollMs: 20 });
+  await control.attach('201');
+  setCurrent(pendingCoaching());
+  await wait(80);
+  expect(session.get.mock.calls.length).toBeGreaterThan(1);
+  expect(watch.sendCoachingGuide).toHaveBeenCalledWith('201', guide);
+  control.dispose();
+});
+
+test('a pause refused with COMMAND_CONFLICT reads S02 at once and relays the coaching holding the slot', async () => {
+  const { control, session, watch, setCurrent } = setup();
+  await control.attach('201');
+  setCurrent(pendingCoaching());
+  session.requestControl.mockRejectedValueOnce(
+    new DataError('COMMAND_CONFLICT', '같은 제어 요청에 다른 내용이 이미 처리되었습니다.'),
+  );
+  await control.pause();
+  expect(control.getState().problem).toEqual({ kind: 'error', code: 'COMMAND_CONFLICT' });
+  expect(watch.sendCoachingGuide).toHaveBeenCalledWith('201', guide);
+  control.dispose();
 });
 
 // S15P31E105-528: S02·S10에 서버 운동시간이 오면 운동 시간의 기준점으로 둔다. 없으면 null(화면 시계).

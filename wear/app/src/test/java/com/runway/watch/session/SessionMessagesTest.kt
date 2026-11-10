@@ -158,4 +158,22 @@ class SessionMessagesTest {
         assertEquals("SERVER", query.getJSONObject("payload").getString("scope"))
         assertEquals("2026-10-28T01:00:00.123Z", query.getJSONObject("payload").getString("clientSendAt"))
     }
+
+    @Test
+    fun `live metrics carry the shown values and null for what was not measured`() {
+        // S15P31E105-549 LIVE_METRICS: display only, synthetic values.
+        val json = JSONObject(String(SessionMessages.liveMetrics(
+            "live:1", "7", Instant.parse("2026-11-10T01:00:05Z"), 360, 150, null, 1234.5, 300,
+        ), Charsets.UTF_8))
+        assertEquals("LIVE_METRICS", json.getString("type"))
+        assertEquals("7", json.get("sessionId").toString())
+        val payload = json.getJSONObject("payload")
+        assertEquals("2026-11-10T01:00:05Z", payload.getString("measuredAt"))
+        assertEquals(360, payload.getInt("paceSecPerKm"))
+        assertEquals(150, payload.getInt("heartRateBpm"))
+        assertTrue(payload.isNull("cadenceSpm"))
+        assertEquals(1234.5, payload.getDouble("distanceM"), 0.0)
+        assertEquals(300L, payload.getLong("activeSec"))
+        assertEquals("/runway/v1/data/live", SessionPaths.LIVE_METRICS)
+    }
 }

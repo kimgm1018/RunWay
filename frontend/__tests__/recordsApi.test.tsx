@@ -102,6 +102,16 @@ function serve(runs = true) {
     if (url.pathname.endsWith('/users/me/bookmarked-courses')) {
       return respond(200, { items: [] });
     }
+    // S11 (S15P31E105-549): run 101 has a watch part and, after a lost position, a phone part.
+    if (url.pathname.endsWith('/running-sessions/101/route')) {
+      return respond(200, {
+        sessionId: 101,
+        segments: [
+          { source: 'WATCH', coordinates: [[129.13, 35.15], [129.1301, 35.1501]] },
+          { source: 'PHONE', coordinates: [[129.131, 35.151], [129.1311, 35.1511]] },
+        ],
+      });
+    }
     const path = url.pathname.split('/running-records')[1];
     if (path === '/statistics/pace-trend') {
       return respond(200, {

@@ -59,6 +59,12 @@ type RunMapProps = {
   paceLabels?: string[];
   // 4.2: the path run so far, with the runner at its end. The course stays under it as a guide.
   trail?: LngLat[];
+  // The run so far in parts (S15P31E105-549): the source changed or the position was lost between them, so no line
+  // joins them. The trail still places me and the start; without parts it is drawn as one line.
+  trailParts?: LngLat[][];
+  // A record's measured route in parts, drawn like the course but never joined across the breaks (5.2, S15P31E105-549).
+  // route then holds the same points in order for the camera and the S · F poles.
+  routeParts?: LngLat[][];
   // A point the screen sets, not the GPS: the found place (자유 러닝, 2.0F) or the meeting place (6.4·6.9).
   position?: LngLat;
   // 6.6 · 6.6r: the other members.
@@ -421,6 +427,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     segmentPaces,
     paceLabels,
     trail,
+    trailParts,
+    routeParts,
     position,
     members,
     muted = false,
@@ -539,8 +547,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   }, [cameraLocked]);
 
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
+  // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
+  const recordParts = routeParts?.filter(part => part.length >= 2);
   const pieces = hasRoute
-    ? !running && segmentPaces && segmentPaces.length > 0
+    ? recordParts
+      ? recordParts
+      : !running && segmentPaces && segmentPaces.length > 0
       ? splitRoute(route, segmentPaces.length)
       : [route]
     : [];
@@ -557,6 +569,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       : routeLook.ink;
   const loop = hasRoute && isLoop(route);
   const hasTrail = !!trail && trail.length >= 2;
+  // The lines of the run so far: its parts when it has them, else the whole trail.
+  const trailLines = hasTrail
+    ? (trailParts ?? [trail]).filter(part => part.length >= 2)
+    : [];
+  // The shadow follows the same lines; a record in parts casts one per part.
+  const shadowLines = hasTrail
+    ? trailLines
+    : hasRoute && !muted
+    ? recordParts ?? [route]
+    : [];
 
   return (
     <NaverMapView
@@ -615,14 +637,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       locale="ko"
     >
       {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
-      {hasTrail || (hasRoute && !muted) ? (
+      {shadowLines.map((line, index) => (
         <NaverMapPathOverlay
-          coords={(hasTrail ? trail : (route as LngLat[])).map(toCoord)}
+          key={`shadow-${index}`}
+          coords={line.map(toCoord)}
           width={routeLook.shadowWidth}
           color={routeLook.shadow}
           zIndex={0}
         />
-      ) : null}
+      ))}
       {/* The course: a white ribbon round a thin centre line in the km colours, the part run in grey. While
           running it is a guide under the run. */}
       {pieces.length > 0 ? (
@@ -641,16 +664,17 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         />
       ) : null}
       {/* The run so far: the same ribbon in ink, from a white start. */}
-      {hasTrail ? (
+      {trailLines.map((line, index) => (
         <NaverMapPathOverlay
-          coords={trail.map(toCoord)}
+          key={`trail-${index}`}
+          coords={line.map(toCoord)}
           width={routeLook.centre}
           outlineWidth={routeLook.edge}
           color={ink}
           outlineColor={routeLook.ribbon}
           zIndex={2}
         />
-      ) : null}
+      ))}
       {hasTrail ? (
         <DotMarker
           at={trail[0]}

@@ -108,6 +108,32 @@ fun toJsEvent(message: SessionEnvelope): String {
     .toString()
 }
 
+/** LIVE_METRICS (S15P31E105-549): display-only values the watch screen shows now. Not stored, not acked, not uploaded. */
+const val LIVE_METRICS_PATH = "/runway/v1/data/live"
+
+private val LIVE_FIELDS = listOf("measuredAt", "paceSecPerKm", "heartRateBpm", "cadenceSpm", "distanceM", "activeSec")
+
+/** The JS event for a LIVE_METRICS message, with only the known display fields; null when it is not one. */
+fun liveJsEvent(bytes: ByteArray): String? = try {
+  if (bytes.size > MAX_SESSION_BYTES) null else {
+    val json = JSONObject(String(bytes, Charsets.UTF_8))
+    val payload = json.optJSONObject("payload")
+    // 워치는 정수 ID를 보낸다. 숫자로 오면 정수로 읽어 "7.0" 같은 문자열이 되지 않게 한다.
+    val sessionId = when (val raw = json.opt("sessionId")) {
+      is Number -> raw.toLong().toString()
+      is String -> raw
+      else -> null
+    }
+    if (json.optString("type") != "LIVE_METRICS" || payload == null || sessionId.isNullOrBlank()) null else {
+      val values = JSONObject()
+      for (name in LIVE_FIELDS) values.put(name, payload.opt(name) ?: JSONObject.NULL)
+      JSONObject().put("type", "LIVE_METRICS").put("sessionId", sessionId).put("payload", values).toString()
+    }
+  }
+} catch (_: Exception) {
+  null
+}
+
 /** Paths JS may send on: the session paths (SERVER_END included), ERROR, COACHING_GUIDE and GROUP_STATUS (9.2). */
 fun isSendablePath(path: String): Boolean =
   path.startsWith(SESSION_PATH_PREFIX) || path == ERROR_PATH || path == COACHING_GUIDE_PATH || path == GROUP_STATUS_PATH

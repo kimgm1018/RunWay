@@ -64,3 +64,23 @@ fun networkState(hasNetwork: Boolean, validated: Boolean): CheckState = when {
     validated -> CheckState.OK
     else -> CheckState.CHECKING
 }
+
+/** Watch GPS for the run route (S15P31E105-549). Fine location needs coarse in the same request (Android 12+). */
+val LOCATION_PERMISSIONS = listOf("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION")
+
+/**
+ * The location permissions to ask for, or null when fine location is granted. Optional: a run without it starts
+ * without GPS and leaves its route unknown, so it never counts in [permissionState].
+ */
+fun locationPermissionRequest(granted: Set<String>): List<String>? =
+    if (LOCATION_PERMISSIONS[0] in granted) null else LOCATION_PERMISSIONS.filter { it !in granted }
+
+/** Background location ("항상 허용", S15P31E105-549): lets a run started from the phone with the watch screen off use GPS. */
+const val BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION"
+
+/**
+ * Background location to ask for, alone and only after fine location (Android 11+ asks it on its own screen). Null
+ * once granted or while fine location is missing. Optional: without it watch GPS runs only when started on screen.
+ */
+fun backgroundLocationRequest(granted: Set<String>): List<String>? =
+    if (LOCATION_PERMISSIONS[0] !in granted || BACKGROUND_LOCATION in granted) null else listOf(BACKGROUND_LOCATION)

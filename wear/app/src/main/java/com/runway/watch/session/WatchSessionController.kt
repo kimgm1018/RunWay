@@ -183,6 +183,8 @@ class WatchSessionController(
     )
 
     suspend fun onMessage(message: SessionEnvelope) = mutex.withLock {
+        // 받은 제어 메시지 종류·명령 번호만 남긴다(S15P31E105-549). 주기적인 상태·수신 확인과 그룹 상태는 남기지 않는다.
+        if (message.type !in QUIET_TYPES) log("RX ${message.type} ${message.commandId() ?: "-"}")
         when (message.type) {
             "SESSION_PREPARE" -> onPrepare(message)
             "START_AUTHORIZED" -> onCommand(message, "START")
@@ -384,6 +386,7 @@ class WatchSessionController(
                 uploads.retryFailed(stored.sessionId)
             }
             // 같은 명령은 다시 실행하지 않는다. 실행 도중 끊겼다면 실제 적용 여부를 모르므로 UNKNOWN으로 남긴다.
+            log("$action $commandId replay stored=${stored.result} persisted=${stored.persisted}")
             sendResult(message.messageId, replayable(stored))
             return
         }
@@ -391,6 +394,7 @@ class WatchSessionController(
         val expected = message.payload.optLong("expectedVersion", -1)
         val reason = if (action == SET_BPM && bpm == null) INVALID_TARGET_BPM else rejectionReason(message.sessionId, action, expected)
         if (reason != null) {
+            log("$action $commandId rejected reason=$reason")
             val rejected = CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, reason, false, null, targetBpm = bpm)
             store.saveOutcome(rejected)
             noteBpm(rejected)
@@ -408,7 +412,7 @@ class WatchSessionController(
         // 보낸 뒤 결과를 보고한다. 폰에서 일시정지 후 종료하는 길이 막히지 않게 한다(S15P31E105-445).
         val lost = _state.value.measurementLost
         val startedMs = elapsedMs()
-        if (action == "END") log("END $commandId received confirmed=${_state.value.confirmed} lost=$lost")
+        log("$action $commandId received confirmed=${_state.value.confirmed} lost=$lost")
         val outcome = try {
             withTimeout(callTimeoutMs) {
                 when (action) {
@@ -429,7 +433,7 @@ class WatchSessionController(
             outcome(OutcomeResult.UNKNOWN, null, if (action == SET_BPM) CUE_FAILED else "EXERCISE_CALL_FAILED")
         }
         store.saveOutcome(outcome)
-        if (action == "END") log("END $commandId exercise=${outcome.result} reason=${outcome.reasonCode} after=${elapsedMs() - startedMs}ms")
+        log("$action $commandId exercise=${outcome.result} reason=${outcome.reasonCode} after=${elapsedMs() - startedMs}ms")
         if (outcome.result == OutcomeResult.APPLIED) {
             when (action) {
                 "START" -> {
@@ -618,7 +622,7 @@ class WatchSessionController(
             pendingBatchCount = pendingBatches,
         )
         val delivered = sendWithRetry(SessionPaths.COMMAND_RESULT, bytes)
-        if (end) log("END ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
+        log("${outcome.action} ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
         val current = _state.value
         if (outcome.persisted) {
             _state.value = current.copy(pending = null)
@@ -898,3 +902,6 @@ class WatchSessionController(
         const val GROUP_FLUSH_MS = 10_000L
     }
 }
+
+/** 주기적으로 오가 로그에 남기지 않는 메시지 종류. */
+private val QUIET_TYPES = setOf("GROUP_STATUS", "STATE_RESULT", "COMMAND_RECEIVED", "BATCH_RECEIVED", "BATCH_COMMITTED")

@@ -188,4 +188,27 @@ class WatchSessionMessagesTest {
     assertFalse(reply.getJSONObject("payload").getBoolean("persisted"))
     assertTrue(reply.getJSONObject("payload").isNull("stateVersion"))
   }
+
+  @Test
+  fun liveMetricsReachJsWithOnlyTheDisplayFields() {
+    // S15P31E105-549, synthetic values.
+    val bytes = JSONObject()
+      .put("type", "LIVE_METRICS").put("messageId", "live:1").put("sessionId", "7")
+      .put("payload", JSONObject().put("measuredAt", "2026-11-10T01:00:05Z").put("paceSecPerKm", 360)
+        .put("heartRateBpm", JSONObject.NULL).put("other", 1))
+      .toString().toByteArray(Charsets.UTF_8)
+    val event = JSONObject(liveJsEvent(bytes)!!)
+    assertEquals("LIVE_METRICS", event.getString("type"))
+    assertEquals("7", event.getString("sessionId"))
+    val payload = event.getJSONObject("payload")
+    assertEquals(360, payload.getInt("paceSecPerKm"))
+    assertTrue(payload.isNull("heartRateBpm"))
+    assertTrue(payload.isNull("cadenceSpm"))
+    assertFalse(payload.has("other"))
+    assertNull(liveJsEvent("{\"type\":\"STATE_RESULT\",\"sessionId\":\"7\",\"payload\":{}}".toByteArray()))
+    assertNull(liveJsEvent("not json".toByteArray()))
+    // 워치가 숫자 ID를 보내도 "7.0"이 아니라 "7"로 넘긴다(리뷰).
+    val numeric = JSONObject(liveJsEvent("{\"type\":\"LIVE_METRICS\",\"sessionId\":7,\"payload\":{}}".toByteArray())!!)
+    assertEquals("7", numeric.getString("sessionId"))
+  }
 }
