@@ -28,7 +28,8 @@ BE 쪽 계약 정본: `docs/design/api/ai-service.md` "Route 코스 생성 내�
 | `ready` | 200 | true | 정상 처리 |
 | `failed` | 503 | false | 503 `UNAVAILABLE` (재시작 필요) |
 
-응답 예: `{"ready": true, "phase": "ready", "load_s": 7.1, "warmup_s": 2.3}`. 컨테이너 healthcheck는 이 경로를 본다.
+응답 예: `{"ready": true, "phase": "ready", "load_s": 7.1, "warmup_s": 2.3, "response_cache": {"entries": 3, "hits": 1, "misses": 4, "puts": 3, "bytes": 61234}}`.
+컨테이너 healthcheck는 이 경로를 본다. `response_cache`는 추천 응답 cache 통계(5절)이며 cache를 끄거나 `ROUTE_DEBUG=1`이면 `null`이다.
 ready를 확인한 뒤에도 생성 요청이 `NOT_READY`/`BUSY`를 받을 수 있으므로 생성 응답의 오류도 처리한다.
 
 - 이 표는 **프로세스(app import)가 뜬 뒤**의 상태다. 잘못된 환경변수 값 일부와 Numba 컴파일·cache 폴더 문제는 import
@@ -184,6 +185,22 @@ Gate 검토 로그(서버 JSONL, 응답에는 없음): 요청마다 한 줄. `ga
   이 값은 Route가 **계산을 시작할 수 있는 마지막 시각**이다. 시작한 계산은 끝까지 가며 늦은 결과는 BE가 버린다.
   계산 중단·자원 회수는 MVP 범위 밖이다.
 - BE 자동 재시도는 0회(계약). 같은 입력은 같은 결과이므로 422 재시도는 의미가 없다.
+- 추천 응답 cache(S15P31E105-630, `app/response_cache.py`): BE가 15초를 넘겨 포기해도 Route는 시작한 계산을 끝까지 한다.
+  그 계산이 200으로 끝나면 응답 byte 전체를 **기본 10분·32개**(LRU) 저장하고, 같은 요청이 다시 오면 엔진을 부르지 않고 같은 byte를
+  돌려준다("다시 시도", 같은 조건 재요청). 같은 입력 + 같은 데이터 = 같은 결과이므로 응답 내용은 다시 계산한 것과 같다.
+  - key: 요청 본문 전체(`lat`, `lon`, `distance_km`, `filters`, `seed`, `shape`, `end_lat`, `end_lon`, 받은 값 그대로) + 서비스 설정
+    (데이터 모드·전국 자료 폴더·Gate 모드·graph builder·재추천 제외·debug). `X-Request-Deadline`과 요청 시각은 넣지 않는다.
+    데이터와 엔진 스위치는 시작 때 정해지고 cache는 프로세스 메모리에만 있어 재시작하면 비워진다.
+  - 재추천(seed 25 이상)도 저장한다. 응답은 (조건, seed)로 정해진다(뺄 이전 코스는 같은 규칙으로 정해짐, 2절). hit 때 그 응답의
+    TOP3를 재추천 cache에 다시 넣어 다음 재추천이 이전 코스를 다시 계산하지 않게 한다.
+  - 저장: 계산이 끝난 200 응답만. 4xx·5xx(`BUSY`, `TIMEOUT`, `NO_ROUTE` 등)와 예열 요청, `ROUTE_DEBUG=1` 응답(측정 시간이 들어 있음)은
+    저장하지 않는다. 마감이 지났거나 BE가 연결을 끊었어도 계산이 끝났으면 저장한다.
+  - lock: hit는 실행 슬롯을 기다리지 않는다(마감 확인보다 먼저 본다). miss는 예전처럼 슬롯을 기다리고, 슬롯을 잡은 뒤 한 번 더
+    cache를 본다(기다리는 사이 같은 요청이 끝났으면 다시 계산하지 않음).
+  - 로그(`runway.ai`, INFO): `route_response_cache miss key=<sha256 앞 12자리>`, `route_response_cache hit key=... stage=before_lock|after_lock bytes=...`.
+    좌표는 남기지 않는다. 통계는 ready 응답의 `response_cache`.
+  - BE의 `candidateToken`은 BE가 자기 시계·사용자 ID로 서명한다(`CourseCandidateSigner`). 운영 응답(`routes`, `notices`, `next_seed`)에는
+    시간에 따라 바뀌는 값이 없다. 만료 시각은 BE가 응답을 받은 때부터 센다.
 
 ## 6. 응답 크기 상한 (제안, 미확정)
 
@@ -215,6 +232,9 @@ BE 계약은 payload·문구 길이 상한을 실연동 전에 정하기로 했�
 | `RUNWAY_USABILITY_LOG_DIR` | `<코드 폴더>/reports/_usability_gate_log` | 안전 기준 검토 로그(JSONL, 요청 좌표 포함). 이미지는 `/tmp/...` |
 | `ROUTE_REROLL_EXCLUDE` | 1 | 0이면 재추천에서 이전 코스를 빼지 않는다(seed만 바꾸는 예전 재추천, 2절) |
 | `ROUTE_REROLL_CACHE_SIZE` | 256 | 재추천용 코스 결과 cache 칸 수(TTL 10분). 0이면 cache 없이 매번 다시 계산(결과 같음, 느려짐) |
+| `ROUTE_RESPONSE_CACHE` | 1 | 0이면 추천 응답 cache를 끈다(매번 계산, 예전 동작, 5절) |
+| `ROUTE_RESPONSE_CACHE_SIZE` | 32 | 추천 응답 cache 칸 수(응답 1개 보통 수십 KB, 최대 약 256 KB). 0 이상의 정수, 0이면 끔 |
+| `ROUTE_RESPONSE_CACHE_TTL_S` | 600 | 추천 응답 cache 유지 시간(초, 저장 시각부터). 유한한 양수만 허용 |
 | `NUMBA_CACHE_DIR` | | 이미지는 `/opt/route/numba_cache`(빌드 때 생성) |
 
 엔진 되돌리기 스위치(`RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_PAIR_FAST`,
