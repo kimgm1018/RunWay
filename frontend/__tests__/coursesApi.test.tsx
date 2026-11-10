@@ -444,8 +444,12 @@ test('3.1b shows the generated routes, asks again with nextSeed, and saves and r
     sent('POST').filter(path => path === '/courses/generated'),
   ).toHaveLength(1);
   page = texts(screen);
-  expect(page).toContain('오늘의 러닝 전략');
+  // The server has no pace plan: 2.0 shows the course itself, no mock strategy, and runs with the 3.1 goal
+  // (S15P31E105-635).
   expect(page).toContain('5.0km 코스');
+  expect(page).not.toContain('오늘의 러닝 전략');
+  expect(page).not.toContain('초반 안정');
+  expect(page).toContain('30분 달리기');
   expect(sent('GET')).toContain('/courses/11');
 });
 

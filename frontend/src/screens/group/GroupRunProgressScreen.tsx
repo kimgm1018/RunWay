@@ -15,7 +15,6 @@ import {
   type MusicState,
 } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
-import { useSession } from '../../session/SessionProvider';
 import { fontFamily, k1 } from '../../theme';
 import { controlModeOf, statusOf } from '../run/RunProgressScreen';
 import { RunControlBar } from '../run/live/RunControlBar';
@@ -36,6 +35,7 @@ import {
 } from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
 import { FooterButton } from './GroupRunDetailScreen';
+import { MissingTarget } from './MissingTarget';
 
 type Tab = 'summary' | 'group';
 
@@ -176,11 +176,29 @@ export function GroupRunProgressScreen({
 }: {
   initialTab?: Tab;
 }) {
+  const { run } = useRunSession();
+  const groupRunId = run?.config.groupRunId;
+  // Only a started group run opens here (6.5 starts it first). Without one no mock run is started
+  // (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="진행 중인 그룹런이 없어요" />;
+  }
+  return (
+    <GroupRunProgressContent initialTab={initialTab} groupRunId={groupRunId} />
+  );
+}
+
+function GroupRunProgressContent({
+  initialTab,
+  groupRunId,
+}: {
+  initialTab: Tab;
+  groupRunId: string;
+}) {
   const navigation = useNavigation();
   const { groupRuns, music } = useRepositories();
   const toast = useToast();
-  const { run, start, pause, resume, finish } = useRunSession();
-  const { ensureRunLogin } = useSession();
+  const { run, pause, resume, finish } = useRunSession();
   const [view, setView] = useState<LiveView>('numbers');
   // 6.6r opens on 그룹, after the four number pages.
   const [page, setPage] = useState(initialTab === 'group' ? 4 : 0);
@@ -193,23 +211,6 @@ export function GroupRunProgressScreen({
   const finishing = useRef(false);
   // 결과 화면으로 한 번만 넘어간다. 그룹장이 끝냈거나(SERVER_END) 내 종료가 서버에 저장되면 내 기록도 끝난다(S15P31E105-420).
   const leftForResult = useRef(false);
-  const groupRunId = run?.config.groupRunId ?? 'gr-today';
-
-  // Opened without a run: start a group run without a course.
-  useEffect(() => {
-    if (!run) {
-      if (!ensureRunLogin()) {
-        return;
-      }
-      start({
-        mode: 'GROUP',
-        plan: null,
-        groupRunId,
-        goalDistanceM: null,
-        goalPaceSecPerKm: 360,
-      });
-    }
-  }, [groupRunId, run, start, ensureRunLogin]);
   useFocusEffect(
     useCallback(
       () =>

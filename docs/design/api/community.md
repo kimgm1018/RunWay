@@ -22,7 +22,7 @@
 
 **응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. 저장·전송 정책이 미정인 보완 필드는 구현 완료 계약을 뜻하지 않는다. 확인 필요 필드의 생략은 기능 삭제나 최종 선택 필드 확정을 뜻하지 않는다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
 
-posts는 author_id와 필수 session_id를 가진다. courseId는 posts 컬럼이 아니라 posts.session_id → running_sessions.course_id에서 조회하며 자유러닝은 null이다. 댓글은 comments.parent_comment_id로 연결하고 좋아요는 post_likes 관계로 표현한다.
+posts는 author_id와 필수 session_id를 가진다. courseId는 posts 컬럼이 아니라 posts.session_id → running_sessions.course_id에서 조회하며 자유러닝은 null이다. 코스 공유 여부는 `posts.course_shared`(S15P31E105-632, V27)로 저장한다. 세션에 코스가 없으면 항상 false이며, false이면 작성자 외 조회자에게 `courseId`를 null로 준다. 댓글은 comments.parent_comment_id로 연결하고 좋아요는 post_likes 관계로 표현한다.
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
@@ -32,7 +32,7 @@ posts는 author_id와 필수 session_id를 가진다. courseId는 posts 컬럼�
 
 삭제된 게시물은 목록·검색·상세에서 제외한다. 댓글·좋아요 행은 보존하되 부모 게시물이 삭제됐으면 조회·추가·변경 요청을 POST_NOT_FOUND로 거절한다. 댓글·좋아요 쓰기는 부모 게시물을 잠그고 미삭제를 재검사한 뒤 처리하며 게시물→댓글/좋아요 순서를 유지한다. 삭제가 먼저 확정됐으면 후속 쓰기는 거절하고, 쓰기가 먼저면 이후 부모 삭제로 접근을 차단한다. 이미 화면에 표시된 내용은 다음 조회·갱신에서 제거한다.
 
-S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리한다. CMT01은 세션 잠금 아래 미삭제 여부를 확인하고 게시물을 생성한다. 기존 구현의 일반 조회만으로 이 경합이 검증됐다고 보지 않으며, 실제 잠금 반영·통합 검증은 후속 구현 대상이다.
+S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리한다. CMT01은 세션 잠금 아래 미삭제 여부를 확인하고 게시물을 생성한다. CMT04 수정과 CMT05 삭제도 같은 세션→게시물 순서로 잠그고 게시물 잠금 아래 미삭제를 재확인한 뒤 갱신해, 먼저 확정된 삭제나 다른 수정(`courseShared` 해제 등)을 낡은 값으로 덮지 않는다. CMT01·CMT04·CMT05의 이 잠금은 구현됐고 S09와의 경합을 통합 테스트로 확인했다. 댓글·좋아요 쓰기의 부모 게시물 잠금은 아직 구현되지 않았다(현재는 일반 조회로 미삭제만 확인).
 
 ## CMT01 게시물 작성
 
@@ -49,7 +49,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 ### 설명
 
-본인 완료 러닝 세션(`sessionId`)을 게시물로 공유한다. 세션 소유권·COMPLETED 상태 검증과 `body` 저장은 **구현됨**. `title`·`imageId` 저장과 `imageUrl` 응답은 명세에 두되 **미구현**이다.
+본인 완료 러닝 세션(`sessionId`)을 게시물로 공유한다. 세션 소유권·COMPLETED 상태 검증과 `body`·`courseShared` 저장은 **구현됨**. `title`·`imageId` 저장과 `imageUrl` 응답은 명세에 두되 **미구현**이다.
 
 ### 인증 및 권한
 
@@ -73,11 +73,13 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용 |
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
+| `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 세션에 코스가 없으면(자유 러닝) 값과 무관하게 false로 저장 |
 
 ```json
 {
   "sessionId": 101,
-  "body": "오늘 5km를 달렸어요."
+  "body": "오늘 5km를 달렸어요.",
+  "courseShared": true
 }
 ```
 
@@ -92,6 +94,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "authorId": 101,
   "sessionId": 101,
   "courseId": 101,
+  "courseShared": true,
   "createdAt": "2026-10-24T09:00:00Z"
 }
 ```
@@ -105,12 +108,13 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. 호출자(`X-User-Id`)로 설정 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
-| `courseId` | integer (int64) / null | X | 연결 세션의 `course_id` 파생값. 자유러닝은 null. 쓰기 입력이 아님 |
+| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. 작성자 본인 응답이므로 `courseShared`와 무관하게 세션 코스를 준다. 쓰기 입력이 아님 |
+| `courseShared` | boolean | O | 저장된 `posts.course_shared`. 세션에 코스가 없으면 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 
 **사용 흐름과 응답 판단**
 
-생성 게시물 ID로 상세 이동하고 저장한 본문·연결 세션을 확인한다. `courseId`는 쓰기 입력이 아닌 연결 세션의 읽기 전용 파생값이다.
+생성 게시물 ID로 상세 이동하고 저장한 본문·연결 세션을 확인한다. `courseId`는 쓰기 입력이 아닌 연결 세션의 읽기 전용 파생값이며, 코스 공유 여부는 `courseShared`로만 바꾼다.
 
 기능상 필요한 응답 필드 보완안(후속·미구현):
 
@@ -140,7 +144,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - 세션은 호출자 소유이고 상태가 COMPLETED여야 한다. 아니면 `403 RESOURCE_NOT_OWNED` 또는 `422 INVALID_POST`.
 - 공유 생성과 기록 삭제의 경합은 [공통 삭제 규칙](#운동-기록과-공유-게시물의-삭제)을 따른다. 세션 잠금 아래 미삭제·소유권·COMPLETED를 재검사하고 게시물 생성까지 같은 트랜잭션에서 처리한다.
 - `title`·`imageId`는 요청에 포함해도 되며 null/생략 가능하나 **현재 저장·검증하지 않는다**.
-- 코스 공유 선택·해제 요청은 없다. 공유한 세션에 코스가 있으면 응답 `courseId`는 그 세션의 코스를 참조하며 자유러닝은 null이다.
+- 코스 공유는 요청 `courseShared`로 선택·해제한다(S15P31E105-632). 생략하면 true로 저장한다. 세션에 코스가 없으면(자유 러닝) 값과 무관하게 false로 저장한다. 응답 `courseId`는 세션 코스를 참조하며 자유러닝은 null이다. `courseShared=false` 게시물의 `courseId`는 CMT02·CMT03에서 작성자 외 조회자에게 null이다. 자유 러닝 GPS 경로 공유는 범위 밖이다(S15P31E105-616).
 - 게시물별·연결 러닝 기록별 공개 설정은 없다. 공개(PUBLIC) 계정의 게시물은 전체에, 비공개(PRIVATE) 계정은 본인·승인된 팔로워에게만 제공한다. 대기 요청자는 접근할 수 없다.
 - 원본 H02 조회 권한을 타인에게 부여하지 않고 공유 표시용 요약만 제공한다. 경로 그림(`routePreview`)은 **미구현**.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
@@ -212,10 +216,16 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
       "sessionId": 101,
       "body": null,
       "regionCode": null,
+      "courseId": 101,
+      "courseShared": true,
       "createdAt": "2026-10-24T09:00:00Z",
+      "commentCount": 2,
+      "reactionCount": 3,
+      "myReaction": "LIKE",
       "author": {
         "userId": 101,
-        "nickname": "러너"
+        "nickname": "러너",
+        "profileImageUrl": "/api/v1/images/3f1c2a4e-0000-4000-8000-000000000101"
       },
       "recordSummary": {
         "distanceM": 5000,
@@ -241,6 +251,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `items[].id` | integer (int64) | O | `posts.id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
+| `items[].courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `items[].courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `items[].body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].imageKey` | string / null | X | `posts.image_key`. **미구현** — 이미지 연동 전까지 응답에 의존하지 않음 |
 | `items[].regionCode` | string / null | O | `posts.region_code` (VARCHAR(40)). NULL 허용. 목록 필터로는 미사용 |
@@ -254,12 +266,12 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `items[].author` | object | O | 최소 표시용 작성자 정보. 비공개 접근 검사 후 제공 |
+| `items[].author` | object | O | 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함). 비공개 접근 검사 후 제공 |
 | `items[].recordSummary` | object | O | 연결 세션에서 파생한 표시용 요약(거리·이동시간·평균 페이스). 원본 GPS 미포함 |
 | `items[].imageUrl` | string / null | X | **미구현** |
-| `items[].commentCount` | number | X | **미구현** |
-| `items[].reactionCount` | number | X | **미구현** |
-| `items[].myReaction` | string / object (확인 필요) | X | **미구현** |
+| `items[].commentCount` | integer | O | 삭제되지 않은(`deleted_at IS NULL`) 댓글 수. 대댓글 포함 |
+| `items[].reactionCount` | integer | O | `post_likes` 행 수 |
+| `items[].myReaction` | string / null | O | 조회자가 좋아요했으면 `"LIKE"`, 아니면 null(키는 항상 포함) |
 
 ### 오류 응답
 
@@ -281,7 +293,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - 공개(PUBLIC) 작성자 글은 전체에, 비공개(PRIVATE)는 본인·승인된 정방향 팔로워에게만 노출한다. 대기·거절·역방향 관계는 접근할 수 없다.
 - 이번 구현 필터: `scope`(`ALL` 기본, `FOLLOWING`), `authorId`. `FOLLOWING`에는 승인된 팔로우 대상 글과 **본인 글**을 포함한다.
 - `regionCode`·`cursor`·`limit`는 명세에 두되 **미구현**. 서버는 이 파라미터로 필터·페이징하지 않는다.
-- `recordSummary`는 연결 세션에서 파생한다. `imageUrl`·`commentCount`·`reactionCount`·`myReaction`·경로 그림은 **미구현**.
+- `recordSummary`는 연결 세션에서 파생한다. `commentCount`·`reactionCount`·`myReaction`·`author.profileImageUrl`·`courseShared`는 **구현됨**(S15P31E105-632). `imageUrl`·경로 그림은 **미구현**.
+- 작성자·세션·댓글 수·좋아요 수·조회자 좋아요는 게시물마다 따로 조회하지 않고 각각 IN 조회 한 번으로 모은다.
 - 원본 H02 조회 권한을 타인에게 부여하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -293,7 +306,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 - [ ] `regionCode` 필터 구현
 - [ ] `cursor`/`limit` 등 공통 페이지 형식
-- [ ] `imageUrl`·`commentCount`·`reactionCount`·`myReaction` 응답
+- [ ] `imageUrl` 응답
+- `commentCount`·`reactionCount`·`myReaction`은 S15P31E105-632에서 구현했다.
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
 - [ ] 인증 수단을 토큰으로 교체할 때 `X-User-Id` 제거
 
@@ -312,7 +326,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 ### 설명
 
-작성자 계정 PUBLIC/PRIVATE와 승인된 팔로우로 접근을 검사한다. 본문·세션 파생 `courseId`·`recordSummary`는 **구현됨**. `title`·`imageUrl`·`routePreviewImageUrl`·`commentCount`·`reactionCount`·`myReaction`은 명세에 두되 **미구현**이다.
+작성자 계정 PUBLIC/PRIVATE와 승인된 팔로우로 접근을 검사한다. 본문·세션 파생 `courseId`·`courseShared`·`recordSummary`·`commentCount`·`reactionCount`·`myReaction`·`author.profileImageUrl`은 **구현됨**. `title`·`imageUrl`·`routePreviewImageUrl`은 명세에 두되 **미구현**이다.
 
 ### 인증 및 권한
 
@@ -346,11 +360,16 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "authorId": 101,
   "sessionId": 101,
   "courseId": 101,
+  "courseShared": true,
   "createdAt": "2026-10-24T09:00:00Z",
   "updatedAt": "2026-10-24T09:00:00Z",
+  "commentCount": 2,
+  "reactionCount": 3,
+  "myReaction": null,
   "author": {
     "userId": 101,
-    "nickname": "러너"
+    "nickname": "러너",
+    "profileImageUrl": null
   },
   "recordSummary": {
     "distanceM": 5000,
@@ -370,12 +389,13 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. |
 | `routePreviewImageUrl` | string / null (제안) | X | **미구현** — 경로 표시용 이미지 참조. 원본 GPS로 대체하지 않음 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
-| `courseId` | integer (int64) / null | X | 연결 세션의 `course_id` 파생값. 자유러닝은 null |
+| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 | `updatedAt` | string (ISO 8601 UTC) | O | `posts.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
-| `reactionCount` | number | X | **미구현** |
-| `commentCount` | number | X | **미구현** |
-| `myReaction` | string / object (확인 필요) | X | **미구현** |
+| `reactionCount` | integer | O | `post_likes` 행 수 |
+| `commentCount` | integer | O | 삭제되지 않은(`deleted_at IS NULL`) 댓글 수. 대댓글 포함 |
+| `myReaction` | string / null | O | 조회자가 좋아요했으면 `"LIKE"`, 아니면 null(키는 항상 포함) |
 
 **사용 흐름과 응답 판단**
 
@@ -385,7 +405,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `author` | object | O | 작성자 최소 표시 정보 |
+| `author` | object | O | 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함) |
 | `recordSummary` | object | O | 연결 세션에서 파생한 표시요약. 원본 GPS 미포함 |
 | `imageUrl` | string / null | X | **미구현** — 게시물 업로드 이미지 표시 참조 |
 
@@ -408,7 +428,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 - `deleted_at`이 설정된 게시물은 `404 POST_NOT_FOUND`.
 - 공개(PUBLIC) 작성자 글은 전체에, 비공개(PRIVATE)는 본인·승인된 정방향 팔로워만 열람한다. 그 외는 `403 ACCOUNT_ACCESS_DENIED`.
-- `recordSummary`는 연결 세션에서 파생한다. `title`·`imageUrl`·`routePreviewImageUrl`·`commentCount`·`reactionCount`·`myReaction`은 **미구현**.
+- `recordSummary`는 연결 세션에서 파생한다. `commentCount`·`reactionCount`·`myReaction`·`courseShared`·`author.profileImageUrl`은 CMT02와 같은 규칙으로 **구현됨**. `title`·`imageUrl`·`routePreviewImageUrl`은 **미구현**.
 - 원본 H02 조회 권한을 타인에게 부여하지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -419,7 +439,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 ### 미정 사항
 
 - [ ] `title`·`imageUrl`·`routePreviewImageUrl` 응답
-- [ ] `commentCount`·`reactionCount`·`myReaction` 응답
+- `commentCount`·`reactionCount`·`myReaction`은 S15P31E105-632에서 구현했다.
 - [ ] HTTP 성공 코드 및 각 예외의 오류 코드 최종 확정
 - [ ] 인증 수단을 토큰으로 교체할 때 `X-User-Id` 제거
 
@@ -439,7 +459,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 ### 설명
 
-본인 글의 `body`만 수정한다. `title` 저장은 **미구현**이며, 연결 세션·코스는 수정하지 않는다.
+본인 글의 `body`와 코스 공유 여부(`courseShared`)를 수정한다. `title` 저장은 **미구현**이며, 연결 세션·코스 자체는 수정하지 않는다.
 
 ### 인증 및 권한
 
@@ -462,11 +482,13 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 저장하지 않음 |
-| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정) |
+| `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움 |
+| `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없으면 값과 무관하게 false로 저장 |
 
 ```json
 {
-  "body": "오늘 5km를 달렸어요."
+  "body": "오늘 5km를 달렸어요.",
+  "courseShared": false
 }
 ```
 
@@ -478,6 +500,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 {
   "id": 101,
   "body": "오늘 5km를 달렸어요.",
+  "courseShared": false,
   "updatedAt": "2026-10-24T09:00:00Z"
 }
 ```
@@ -489,11 +512,12 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `id` | integer (int64) | O | `posts.id` (BIGINT). 저장 값은 NULL 불가. |
 | `title` | string | X | **미구현** — 응답에 포함하지 않음 |
 | `body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `courseShared` | boolean | O | 저장된 `posts.course_shared`. 세션에 코스가 없으면 false |
 | `updatedAt` | string (ISO 8601 UTC) | O | `posts.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 
 **사용 흐름과 응답 판단**
 
-수정 후 저장된 `body`·`updatedAt`을 돌려주거나 상세 재조회로 복원한다. 연결 세션·코스는 수정하지 않는다.
+수정 후 저장된 `body`·`courseShared`·`updatedAt`을 돌려주거나 상세 재조회로 복원한다. 연결 세션·코스 자체는 수정하지 않는다.
 
 ### 오류 응답
 
@@ -511,13 +535,14 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - 공통 입력·서버 장애와 재시도 판단은 [오류 분류와 재시도 기준](README.md#오류-분류와-재시도-기준)을 함께 적용한다.
 - **중복·경합 점검:** 통신 시간초과는 저장 실패를 뜻하지 않는다. 동일 요청 재전송·다른 요청과의 충돌을 구분한다.
 
-**응답·복구 행동과의 연결:** 게시물 수정은 허용된 `body`에만 적용한다. `courseId` 입력을 받지 않으며 코스 공유 해제나 원본 러닝 세션 변경을 수행하지 않는다. `title`·이미지는 현재 저장하지 않는다.
+**응답·복구 행동과의 연결:** 게시물 수정은 허용된 `body`·`courseShared`에만 적용한다. `courseId` 입력을 받지 않으며 원본 러닝 세션·코스를 변경하지 않는다. 코스 공유 해제는 `courseShared=false`로 하고, 이후 작성자 외 조회자에게 `courseId`를 숨긴다. `title`·이미지는 현재 저장하지 않는다.
 
 ### 처리 규칙
 
 - 본인 글만 수정. 비작성자 → `403 NOT_AUTHOR`. 삭제된 글 → `404 POST_NOT_FOUND`.
 - `title`은 요청에 포함해도 **저장하지 않는다**(미구현).
-- 연결 `sessionId`·`courseId`는 수정하지 않는다.
+- 연결 `sessionId`·`courseId`는 수정하지 않는다. `courseShared`는 생략 시 유지하고, 세션에 코스가 없으면 요청 값과 무관하게 false로 둔다(V27 이전 자유 러닝 게시물도 수정 시 false가 된다).
+- `body` 생략 시 기존 본문을 유지한다(S15P31E105-632부터 생략과 null을 구분). `courseShared`만 보내도 본문은 바뀌지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
 ### 상태값
@@ -676,7 +701,12 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
       "authorId": 101,
       "parentCommentId": null,
       "body": "함께 달린 기록",
-      "createdAt": "2026-10-24T09:00:00Z"
+      "createdAt": "2026-10-24T09:00:00Z",
+      "author": {
+        "userId": 101,
+        "nickname": "러너",
+        "profileImageUrl": null
+      }
     }
   ]
 }
@@ -699,10 +729,11 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `items[].parentCommentId` | integer (int64) / null | O | `comments.parent_comment_id` (BIGINT). NULL이면 루트 댓글. NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].body` | string | O | `comments.body` (TEXT). 저장 값은 NULL 불가. |
 | `items[].createdAt` | string (ISO 8601 UTC) | O | `comments.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
+| `items[].author` | object | O | 댓글 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함). 탈퇴 회원은 `nickname`이 "탈퇴한 회원"이고 `profileImageUrl`은 null이다. 회원 행을 찾지 못한 경우에만 `nickname`·`profileImageUrl`이 모두 null. 댓글 작성자 집합으로 한 번에 조회 |
 
 **사용 흐름과 응답 판단**
 
-댓글 ID·부모 ID·작성자·본문·시각으로 목록을 표시한다. 서버는 평면 목록을 반환하며, 트리 구성은 클라이언트가 `parentCommentId`로 한다. 댓글이 0건이면 빈 `items`다.
+댓글 ID·부모 ID·작성자(`author` 닉네임·사진)·본문·시각으로 목록을 표시한다. 서버는 평면 목록을 반환하며, 트리 구성은 클라이언트가 `parentCommentId`로 한다. 댓글이 0건이면 빈 `items`다.
 
 ### 오류 응답
 
@@ -795,7 +826,12 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "authorId": 101,
   "parentCommentId": null,
   "body": "오늘 5km를 달렸어요.",
-  "createdAt": "2026-10-24T09:00:00Z"
+  "createdAt": "2026-10-24T09:00:00Z",
+  "author": {
+    "userId": 101,
+    "nickname": "러너",
+    "profileImageUrl": null
+  }
 }
 ```
 
@@ -809,10 +845,11 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `parentCommentId` | integer (int64) / null | O | `comments.parent_comment_id` (BIGINT). NULL이면 루트 댓글 |
 | `body` | string | O | `comments.body` (TEXT). 저장 값은 NULL 불가. |
 | `createdAt` | string (ISO 8601 UTC) | O | `comments.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
+| `author` | object | O | 호출자 작성자 표시 정보 `{ userId, nickname, profileImageUrl }`. `profileImageUrl`은 `users.profile_image_key`로 U21·U26/U27과 같은 방식으로 만든 사진 주소이며 사진이 없으면 null(키는 항상 포함). CMT06 `items[].author`와 같은 형식 |
 
 **사용 흐름과 응답 판단**
 
-작성 후 댓글을 바로 붙일 수 있는 ID·부모 ID·본문·작성자·시각을 반환한다.
+작성 후 댓글을 바로 붙일 수 있는 ID·부모 ID·본문·작성자(`author` 포함)·시각을 반환한다.
 
 ### 오류 응답
 
@@ -1395,7 +1432,8 @@ LIKE 적용 후 본인 반응과 최신 집계로 버튼·숫자를 갱신한다
   "users": [
     {
       "userId": 101,
-      "nickname": "러너"
+      "nickname": "러너",
+      "profileImageUrl": null
     }
   ],
   "crews": [
@@ -1423,6 +1461,7 @@ LIKE 적용 후 본인 반응과 최신 집계로 버튼·숫자를 갱신한다
 |---|---|:---:|---|
 | `users[].userId` | integer (int64) | O | 선택 시 U21로 이동할 회원 ID. |
 | `users[].nickname` | string | O | 러너 표시명. 비공개여도 검색용 최소 식별로 노출 가능. |
+| `users[].profileImageUrl` | string / null | O | U21·U26/U27과 같은 방식으로 만든 프로필 사진 주소. 사진이 없으면 null(키는 항상 포함). S15P31E105-632 |
 | `crews[].id` | integer (int64) | O | 선택 시 M02로 이동할 크루 ID. |
 | `crews[].name` | string | O | 크루 표시명. |
 
@@ -1444,7 +1483,7 @@ LIKE 적용 후 본인 반응과 최신 집계로 버튼·숫자를 갱신한다
 - `limit`은 합산 개수가 아니라 각 목록의 최대 개수다. `type`을 생략하면 러너와 크루를 각각 `limit`개까지 반환한다. 기본 20·상한 50.
 - 무한 스크롤은 응답 `page`의 커서 하나를 다음 요청 `cursor`로 보낸다. 이 커서는 러너와 크루의 다음 위치를 함께 담는다(Base64URL, 디코드 예: `u:<token>|c:<token>`). 축 token은 양수 id(다음 위치)·`0`(해당 축 소진)·`-`(해당 type에서 미조회)다. typed 검색(`USER`/`CREW`)이 발급한 `-` 축은 type을 바꿔 재요청해도 처음부터 조회한다.
 - 한 종류가 끝나면 그 배열은 빈 배열로 두고, 남은 종류만 이어서 반환한다.
-- 러너 검색 결과에서도 비공개 프로필 내용을 노출하지 않는다. 팔로우 요청에 필요한 최소 식별정보만 제공한다. 본인 저장 코스 별명은 통합 검색에 포함하지 않는다.
+- 러너 검색 결과에서도 비공개 프로필 내용을 노출하지 않는다. 팔로우 요청에 필요한 최소 식별정보(`userId`·`nickname`·`profileImageUrl`)만 제공한다. 프로필 사진은 U21처럼 공개 범위와 무관하게 식별용으로 제공한다. 본인 저장 코스 별명은 통합 검색에 포함하지 않는다.
 
 - 사용자 소유권·그룹 참가 권한·상태 전이·재요청 여부를 검증한다(적용 범위는 API별로 결정).
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.

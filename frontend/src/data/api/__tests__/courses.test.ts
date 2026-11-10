@@ -428,8 +428,20 @@ test('2.0 plans a chosen server course with its name, route and distance', async
     distanceM: 5000,
     route: loop,
     expectedDurationSec: 2000,
+    // No pace plan API yet: nothing from the mock plan stands in (S15P31E105-635).
+    segmentPacesSecPerKm: [],
+    strategy: null,
+    targetPaceSecPerKm: null,
+    caution: null,
   });
-  expect(plan.segmentPacesSecPerKm).toHaveLength(5);
+});
+
+test('2.0 has no plan before a course is picked, instead of the mock course (S15P31E105-635)', async () => {
+  serve(common);
+  const { courses } = api(400);
+
+  await expect(courses.getTodayPlan()).resolves.toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('2.0 names a course it never listed by its distance', async () => {
@@ -438,7 +450,7 @@ test('2.0 names a course it never listed by its distance', async () => {
 
   await courses.choose('9');
 
-  expect((await courses.getTodayPlan()).name).toBe('6.2km 코스');
+  expect((await courses.getTodayPlan())?.name).toBe('6.2km 코스');
 });
 
 // C01 then C10 (S15P31E105-526): the picked route is stored and runs as course 7.
@@ -503,7 +515,7 @@ test('saving and picking the same route asks C10 once and saves the stored cours
       .filter(call => call.url.pathname.endsWith('/bookmark'))
       .map(call => call.method),
   ).toEqual(['PUT', 'DELETE']);
-  expect((await courses.getTodayPlan()).courseId).toBe('7');
+  expect((await courses.getTodayPlan())?.courseId).toBe('7');
 });
 
 test('a route C10 turns down says so, and the next tap asks again', async () => {
@@ -526,7 +538,7 @@ test('a route C10 turns down says so, and the next tap asks again', async () => 
     'v1.1762311600.token-1',
     'v1.1762311600.token-1',
   ]);
-  expect((await courses.getTodayPlan()).courseId).toBe('7');
+  expect((await courses.getTodayPlan())?.courseId).toBe('7');
 });
 
 test('a free run cannot be saved as my course yet and says so (S15P31E105-529)', async () => {

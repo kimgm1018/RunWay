@@ -35,6 +35,7 @@ import {
 import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import {
   fontFamily,
   palette,
@@ -169,10 +170,18 @@ function ReadyCancel({ onPress }: { onPress: () => void }) {
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
 // members who pressed 준비 완료 start their own record 3 seconds later.
 export function WaitingRoomScreen() {
+  const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
+  const groupRunId = route.params?.groupRunId;
+  // Without an id the screen has nothing to show; no mock id stands in (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="그룹런을 찾을 수 없어요" />;
+  }
+  return <WaitingRoomContent groupRunId={groupRunId} />;
+}
+
+function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   const { ensureRunLogin } = useSession();
   const navigation = useNavigation();
-  const route = useRoute<RouteProp<RootStackParamList, 'WaitingRoom'>>();
-  const groupRunId = route.params?.groupRunId ?? 'gr-today';
   const { colors } = useTheme();
   const { groupRuns, clock, watchSession } = useRepositories();
   const { start, joinGroup, leaveGroup } = useRunActions();

@@ -102,12 +102,16 @@ export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const route = useRoute<RouteProp<RootStackParamList, 'PostDetail'>>();
-  const postId = route.params?.postId ?? 'post-seoyun-1019';
+  // Opened without a post, the page has nothing to show and offers the way back.
+  const postId = route.params?.postId ?? '';
   const toast = useToast();
   const { community, clock } = useRepositories();
   const detail = useResource(
     useCallback(
-      (repositories: Repositories) => loadPost(repositories, postId),
+      (repositories: Repositories) =>
+        postId
+          ? loadPost(repositories, postId)
+          : Promise.reject(new Error('게시물 없음')),
       [postId],
     ),
   );
@@ -175,12 +179,21 @@ export function PostDetailScreen() {
       {detail.status === 'error' && !post ? (
         <ThemeProvider tone="dark">
           <View style={[styles.flex, { paddingTop: insets.top + 64 }]}>
-            <EmptyState
-              icon="alert"
-              title="게시물을 불러오지 못했어요"
-              actionLabel="다시 시도"
-              onAction={reload}
-            />
+            {postId ? (
+              <EmptyState
+                icon="alert"
+                title="게시물을 불러오지 못했어요"
+                actionLabel="다시 시도"
+                onAction={reload}
+              />
+            ) : (
+              <EmptyState
+                icon="alert"
+                title="게시물을 찾을 수 없어요"
+                actionLabel="돌아가기"
+                onAction={() => navigation.goBack()}
+              />
+            )}
           </View>
         </ThemeProvider>
       ) : !post ? (
@@ -377,6 +390,7 @@ export function PostDetailScreen() {
               <Avatar
                 nickname={post.author.nickname}
                 userId={post.author.userId}
+                photo={post.author.profileImageUrl}
                 mine={post.isMine}
                 size={34}
               />

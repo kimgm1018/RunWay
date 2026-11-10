@@ -7,10 +7,12 @@ import com.runway.backend.domain.community.dto.response.CommentDeleteResponse;
 import com.runway.backend.domain.community.dto.response.CommentListItemResponse;
 import com.runway.backend.domain.community.dto.response.CommentListResponse;
 import com.runway.backend.domain.community.dto.response.CommentUpdateResponse;
+import com.runway.backend.domain.community.dto.response.PostAuthorResponse;
 import com.runway.backend.domain.community.entity.Comment;
 import com.runway.backend.domain.community.entity.Post;
 import com.runway.backend.domain.community.repository.CommentRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
+import com.runway.backend.domain.community.repository.CommunityUserQueryRepository.AuthorRow;
 import com.runway.backend.domain.notification.NotificationType;
 import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.exception.ApiException;
@@ -25,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -41,9 +46,17 @@ public class CommentService {
         requireExistingUser(userId);
         postService.requireReadablePost(userId, postId);
 
+        List<Comment> comments = commentRepository.findActiveByPostId(postId);
+        // 작성자 닉네임·사진은 댓글 작성자 집합으로 한 번에 조회한다.
+        Map<Long, AuthorRow> authors =
+                communityUserQueryRepository.findAuthorsByIds(
+                        comments.stream().map(Comment::getAuthorId).collect(Collectors.toSet()));
         List<CommentListItemResponse> items =
-                commentRepository.findActiveByPostId(postId).stream()
-                        .map(CommentListItemResponse::from)
+                comments.stream()
+                        .map(
+                                comment ->
+                                        CommentListItemResponse.from(
+                                                comment, author(comment, authors)))
                         .toList();
         return new CommentListResponse(items);
     }
@@ -71,7 +84,8 @@ public class CommentService {
                     "게시물에 새 댓글이 달렸습니다.",
                     "POST_COMMENT:" + comment.getId());
         }
-        return CommentCreateResponse.from(comment);
+        Map<Long, AuthorRow> authors = communityUserQueryRepository.findAuthorsByIds(Set.of(userId));
+        return CommentCreateResponse.from(comment, author(comment, authors));
     }
 
     @Transactional
@@ -96,6 +110,10 @@ public class CommentService {
         Instant deletedAt = Instant.now();
         comment.softDelete(deletedAt);
         return new CommentDeleteResponse(comment.getDeletedAt());
+    }
+
+    private static PostAuthorResponse author(Comment comment, Map<Long, AuthorRow> authors) {
+        return PostAuthorResponse.of(comment.getAuthorId(), authors.get(comment.getAuthorId()));
     }
 
     private void requireValidParent(long postId, long parentCommentId) {

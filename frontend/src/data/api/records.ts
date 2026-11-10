@@ -24,6 +24,13 @@ type ListItem = {
   movingDuration: number | null;
   averagePace: number | null;
   goalAchieved: boolean | null;
+  // H01 runType and the group run link (RunningRecordGroupResponse); group is null for solo runs (S15P31E105-635).
+  runType?: RunType | null;
+  group?: {
+    groupRunId: number;
+    crewName: string;
+    finisherCount: number;
+  } | null;
 };
 
 // `page` is the next page's cursor, left out on the last page.
@@ -95,7 +102,8 @@ function titleOf(startedAt: string) {
   return `${part} 러닝`;
 }
 
-// H01 leaves out the route thumbnail and the group's crew, so the row shows a blank thumbnail and the run time.
+// H01 leaves out the route thumbnail, so the row shows a blank thumbnail and the run time. The item's own runType
+// wins over the queried one; group keeps the crew and the group run id that opens 6.7 (S15P31E105-635).
 function toSummary(
   item: ListItem & { startedAt: string },
   runType: RunType,
@@ -112,8 +120,14 @@ function toSummary(
       roundPace(item.averagePace) ??
       (distanceM > 0 ? Math.round(durationSec / (distanceM / 1000)) : 0),
     shape: [],
-    runType,
-    group: null,
+    runType: item.runType ?? runType,
+    group: item.group
+      ? {
+          crewName: item.group.crewName,
+          finisherCount: item.group.finisherCount,
+          groupRunId: String(item.group.groupRunId),
+        }
+      : null,
     goalAchieved: item.goalAchieved,
   };
 }

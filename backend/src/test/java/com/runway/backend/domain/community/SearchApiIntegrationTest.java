@@ -2,6 +2,7 @@ package com.runway.backend.domain.community;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -106,7 +107,7 @@ class SearchApiIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
-    void 비공개계정도_userId와_nickname만_검색된다() throws Exception {
+    void 비공개계정도_userId와_nickname과_profileImageUrl만_검색된다() throws Exception {
         mockMvc.perform(
                         get("/api/v1/search")
                                 .param("q", "비공개")
@@ -116,8 +117,9 @@ class SearchApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.users.length()").value(1))
                 .andExpect(jsonPath("$.users[0].userId").value(privateRunner))
                 .andExpect(jsonPath("$.users[0].nickname").value("달리기비공개"))
+                .andExpect(jsonPath("$.users[0].profileImageUrl").value(nullValue()))
                 .andExpect(jsonPath("$.users[0].accountVisibility").doesNotExist())
-                .andExpect(jsonPath("$.users[0].length()").value(2));
+                .andExpect(jsonPath("$.users[0].length()").value(3));
     }
 
     @Test

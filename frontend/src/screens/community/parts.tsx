@@ -1,5 +1,6 @@
 import React, { useId, useState } from 'react';
 import {
+  Image,
   Pressable,
   Share,
   StyleSheet,
@@ -46,21 +47,26 @@ const mineFill = ['#3A5A6C', '#182E3D', '#091019'];
 const heroFill = ['#C4D4DC', '#8DACBA', '#5D8194'];
 
 // The first letter of the nickname on a mist circle, with no ring: the service has no stories (담당자 결정).
-// `hero` is the big 7.4 · 7.4b one.
+// `hero` is the big 7.4 · 7.4b one. `photo` is the runner's photo address (profileImageUrl): it fills the
+// circle, and a missing one or one that does not load leaves the letter.
 export function Avatar({
   nickname,
   userId,
   mine = false,
   size = 40,
   hero = false,
+  photo = null,
 }: {
   nickname: string;
   userId: string;
   mine?: boolean;
   size?: number;
   hero?: boolean;
+  photo?: string | null;
 }) {
   const fillId = useSvgId('avatar');
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   const light = hero && !mine;
   const fill = mine
     ? mineFill
@@ -75,19 +81,31 @@ export function Avatar({
         hero && styles.avatarHero,
       ]}
     >
-      <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
-      <AppText
-        style={[
-          styles.avatarText,
-          light && styles.avatarTextDark,
-          {
-            fontSize: Math.round(size * 0.38),
-            lineHeight: Math.round(size * 0.5),
-          },
-        ]}
-      >
-        {nickname.slice(0, 1)}
-      </AppText>
+      {shown ? (
+        <Image
+          testID="avatar-photo"
+          source={{ uri: shown }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+          onError={() => setFailed(shown)}
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <>
+          <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
+          <AppText
+            style={[
+              styles.avatarText,
+              light && styles.avatarTextDark,
+              {
+                fontSize: Math.round(size * 0.38),
+                lineHeight: Math.round(size * 0.5),
+              },
+            ]}
+          >
+            {nickname.slice(0, 1)}
+          </AppText>
+        </>
+      )}
     </View>
   );
 }
@@ -105,13 +123,16 @@ export function stamp(iso: string) {
 export const postedAt = (iso: string, now: Date) =>
   isSameDay(iso, now) ? formatRelative(iso, now) : formatMonthDay(iso);
 
-// Likes and bookmarks show at once and roll back if the server refuses.
+// Likes and bookmarks show at once and roll back if the server refuses. The count never goes below 0: the
+// server reads reactionCount and myReaction apart, so a like made elsewhere between them can come as 0 + LIKE.
 export function usePostChanges(onChange: (post: Post) => void) {
   const { community } = useRepositories();
   const like = async (post: Post) => {
     const liked = !post.liked;
     const likeCount =
-      post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1);
+      post.likeCount === null
+        ? null
+        : Math.max(0, post.likeCount + (liked ? 1 : -1));
     onChange({ ...post, liked, likeCount });
     try {
       await community.setLiked(post.id, liked);

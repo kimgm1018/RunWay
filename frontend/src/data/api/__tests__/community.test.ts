@@ -160,12 +160,12 @@ test('CMT01 shares a run by its session id; CMT04 and CMT05 edit and delete', as
   expect(sent(0)).toEqual({
     url: `${base}/posts`,
     method: 'POST',
-    body: { sessionId: 55, body: '첫 공유' },
+    body: { sessionId: 55, body: '첫 공유', courseShared: true },
   });
   expect(sent(1)).toEqual({
     url: `${base}/posts/103`,
     method: 'PATCH',
-    body: { body: '고친 글' },
+    body: { body: '고친 글', courseShared: true },
   });
   expect(sent(2)).toMatchObject({ url: `${base}/posts/103`, method: 'DELETE' });
 });
@@ -220,5 +220,247 @@ test('bookmarks have no API and stay on this phone', async () => {
 
   expect((await api.listFeed('ALL'))[0].bookmarked).toBe(true);
   // Only the feed went to the server.
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+// S15P31E105-632: the counts, my like, the course choice and the photos come from the server.
+const origin = base.replace(/^(https?:\/\/[^/]+).*$/, '$1');
+const counted = {
+  ...post,
+  courseId: 21,
+  courseShared: true,
+  commentCount: 2,
+  reactionCount: 5,
+  myReaction: 'LIKE',
+  author: {
+    userId: 9,
+    nickname: '서윤',
+    profileImageUrl: '/api/v1/images/31',
+  },
+};
+
+test('CMT02 maps reactionCount, commentCount, myReaction, courseShared and the author photo', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [
+        counted,
+        {
+          ...counted,
+          id: 104,
+          commentCount: 0,
+          reactionCount: 0,
+          myReaction: null,
+          courseShared: false,
+          courseId: null,
+          author: { userId: 10, nickname: null, profileImageUrl: null },
+        },
+      ],
+    }),
+  );
+
+  const [first, second] = await community().listFeed('ALL');
+
+  expect(first).toMatchObject({
+    likeCount: 5,
+    liked: true,
+    commentCount: 2,
+    courseShared: true,
+    author: {
+      userId: '9',
+      nickname: '서윤',
+      profileImageUrl: `${origin}/api/v1/images/31`,
+    },
+    record: { courseRun: true },
+  });
+  expect(second).toMatchObject({
+    likeCount: 0,
+    liked: false,
+    commentCount: 0,
+    courseShared: false,
+    author: { nickname: '러너', profileImageUrl: null },
+    record: { courseRun: false },
+  });
+});
+
+test('my own post keeps its courseId but shows no course when I left it unshared', async () => {
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [{ ...counted, ...mine, courseId: 21, courseShared: false }],
+    }),
+  );
+  const api = community();
+
+  const [own] = await api.listFeed('ALL');
+
+  expect(own.courseShared).toBe(false);
+  // The course is still mine to share again on 7.3e.
+  expect(own.record.courseRun).toBe(true);
+  // 7.1 draws no route for it, and asks nothing more.
+  await expect(api.getRoute(own.id)).resolves.toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test('the list courseId gives 7.1 the route without reading the post again', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.includes('/courses/')
+      ? respond(200, {
+          route: {
+            coordinates: [
+              [129.1, 35.1],
+              [129.2, 35.2],
+            ],
+          },
+        })
+      : respond(200, { items: [counted] }),
+  );
+  const api = community();
+
+  await api.listFeed('ALL');
+  await expect(api.getRoute('101')).resolves.toEqual([
+    [129.1, 35.1],
+    [129.2, 35.2],
+  ]);
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    `${base}/posts?scope=ALL`,
+    `${base}/courses/21`,
+  ]);
+});
+
+test('the server myReaction wins over a like made earlier in the session', async () => {
+  const api = community();
+  fetchMock.mockResolvedValue(respond(200, {}));
+  await api.setLiked('101', true);
+
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      items: [{ ...counted, myReaction: null, reactionCount: 4 }],
+    }),
+  );
+  const [read] = await api.listFeed('ALL');
+
+  expect(read.liked).toBe(false);
+  expect(read.likeCount).toBe(4);
+});
+
+test('CMT03 takes commentCount from the post and CMT06 comment authors with their photos', async () => {
+  fetchMock.mockImplementation(async (url: string) =>
+    url.endsWith('/comments')
+      ? respond(200, {
+          items: [
+            {
+              id: 5,
+              postId: 101,
+              authorId: 30,
+              author: {
+                userId: 30,
+                nickname: '하은',
+                profileImageUrl: '/api/v1/images/40',
+              },
+              parentCommentId: null,
+              body: '좋아요',
+              createdAt: post.createdAt,
+            },
+            {
+              id: 6,
+              postId: 101,
+              authorId: 31,
+              author: { userId: 31, nickname: null, profileImageUrl: null },
+              parentCommentId: null,
+              body: '저도요',
+              createdAt: post.createdAt,
+            },
+          ],
+        })
+      : url.includes('/courses/')
+      ? respond(200, { route: { coordinates: [] } })
+      : respond(200, { ...counted, commentCount: 7 }),
+  );
+
+  const detail = await community().get('101');
+
+  expect(detail.commentCount).toBe(7);
+  expect(detail.comments.map(comment => comment.author)).toEqual([
+    {
+      userId: '30',
+      handle: '하은',
+      nickname: '하은',
+      profileImageUrl: `${origin}/api/v1/images/40`,
+    },
+    { userId: '31', handle: '러너', nickname: '러너', profileImageUrl: null },
+  ]);
+});
+
+test('CMT07 names my comment by its author when the server sends it', async () => {
+  fetchMock.mockResolvedValue(
+    respond(201, {
+      id: 8,
+      postId: 101,
+      authorId: 7,
+      author: { userId: 7, nickname: '민준', profileImageUrl: null },
+      parentCommentId: null,
+      body: '같이 달려요',
+      createdAt: post.createdAt,
+    }),
+  );
+
+  const comment = await community().addComment('101', '같이 달려요');
+
+  expect(comment).toMatchObject({
+    isMine: true,
+    author: { userId: '7', nickname: '민준', profileImageUrl: null },
+  });
+});
+
+test('CMT01 and CMT04 send 코스도 함께 공유 off', async () => {
+  fetchMock.mockResolvedValue(respond(201, { id: 103 }));
+  const api = community();
+
+  await api.create('55', { body: null, courseShared: false });
+  await api.update('103', { body: null, courseShared: false });
+
+  expect(sent(0).body).toEqual({
+    sessionId: 55,
+    body: null,
+    courseShared: false,
+  });
+  expect(sent(1).body).toEqual({ body: null, courseShared: false });
+});
+
+test('7.3 previews the run course from C03 and a free run with no route, never the GPS track', async () => {
+  const records = createMockRepositories({ latencyMs: 0 }).records;
+  const gps: [number, number][] = [
+    [129.1, 35.1],
+    [129.2, 35.2],
+  ];
+  const detail = await records.getDetail(
+    (
+      await records.getRecent('recent', 1)
+    )[0].id,
+  );
+  const getDetail = jest
+    .fn()
+    .mockResolvedValueOnce({ ...detail, route: gps, courseId: '21' })
+    .mockResolvedValueOnce({ ...detail, route: gps, courseId: null });
+  const api = createCommunityApi({ records: { ...records, getDetail } });
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      route: {
+        coordinates: [
+          [129.5, 35.5],
+          [129.6, 35.6],
+        ],
+      },
+    }),
+  );
+
+  const courseRun = await api.getShareable('55');
+  const freeRun = await api.getShareable('56');
+
+  expect(courseRun.route).toEqual([
+    [129.5, 35.5],
+    [129.6, 35.6],
+  ]);
+  expect(sent(0).url).toBe(`${base}/courses/21`);
+  expect(freeRun).toMatchObject({ route: null, courseRun: false });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

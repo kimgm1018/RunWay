@@ -240,8 +240,14 @@ export type PostRecord = RunRecordSummary & {
   cadence: number | null;
 };
 
-// The community name is a handle like seoyun.run; the avatar shows the first letter of the nickname.
-export type PostAuthor = { userId: string; handle: string; nickname: string };
+// The community name is a handle like seoyun.run; the avatar shows the runner's photo (profileImageUrl),
+// or the first letter of the nickname without one.
+export type PostAuthor = {
+  userId: string;
+  handle: string;
+  nickname: string;
+  profileImageUrl?: string | null;
+};
 
 export type Post = {
   id: string;
@@ -251,7 +257,7 @@ export type Post = {
   record: PostRecord;
   courseShared: boolean;
   createdAt: string;
-  // null when the server does not count them yet (CMT02·CMT03); the screens then leave the number out.
+  // CMT02·CMT03 reactionCount and commentCount; null leaves the number out (an older server).
   likeCount: number | null;
   liked: boolean;
   commentCount: number | null;
@@ -357,19 +363,21 @@ export type GpsQuality = 'good' | 'weak' | 'none';
 export type CurrentPlace = {
   name: string;
   gps: GpsQuality;
-  // [longitude, latitude] as in GeoJSON.
-  position: [number, number];
+  // [longitude, latitude] as in GeoJSON; null when the phone could not find where it is (no permission, location
+  // off or no fix), and then gps is 'none' (S15P31E105-635).
+  position: [number, number] | null;
 };
 
-// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each.
+// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. The server has no pace plan yet,
+// so a server course leaves segmentPacesSecPerKm empty and strategy and targetPaceSecPerKm null (S15P31E105-635).
 export type CoursePlan = {
   courseId: string;
   name: string;
   distanceM: number;
   route: [number, number][];
   segmentPacesSecPerKm: number[];
-  strategy: string;
-  targetPaceSecPerKm: number;
+  strategy: string | null;
+  targetPaceSecPerKm: number | null;
   expectedDurationSec: number;
   caution: string | null;
 };
@@ -1098,7 +1106,8 @@ export type SearchRequest = {
 // Up to 20 of each kind per page. A kind not asked for, or used up, is an empty list.
 // cursor is null when nothing more is left.
 export type SearchPage = {
-  runners: { userId: string; nickname: string }[];
+  // profileImageUrl: the runner's photo address, or null without one.
+  runners: { userId: string; nickname: string; profileImageUrl: string | null }[];
   crews: { crewId: string; name: string }[];
   cursor: string | null;
 };
@@ -1174,8 +1183,9 @@ export type Repositories = {
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;
-    // 2.0's plan for the course picked last with choose(); a default course until then.
-    getTodayPlan: () => Promise<CoursePlan>;
+    // 2.0's plan for the course picked last with choose(). The server version answers null until a course is
+    // picked (and after the app restarts); the mock keeps a default course for the prototype.
+    getTodayPlan: () => Promise<CoursePlan | null>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,

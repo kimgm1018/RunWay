@@ -37,6 +37,7 @@ import {
 import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import {
   fontFamily,
   k1,
@@ -354,9 +355,17 @@ const loadCrew = (
 // 정원 마감 (6.2f → 6.2x), 승인 대기 or 가입한 크루 (→ 6.0). The leader sees the requests and
 // 크루 관리 instead, and saves the capacity with the bottom button (6.2m).
 export function CrewDetailScreen() {
-  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'CrewDetail'>>();
-  const crewId = route.params?.crewId ?? 'crew-gwangalli';
+  const crewId = route.params?.crewId;
+  // Without an id the screen has nothing to show; no mock id stands in (S15P31E105-635).
+  if (!crewId) {
+    return <MissingTarget title="크루를 찾을 수 없어요" />;
+  }
+  return <CrewDetailContent crewId={crewId} />;
+}
+
+function CrewDetailContent({ crewId }: { crewId: string }) {
+  const navigation = useNavigation();
   const { crews } = useRepositories();
   const toast = useToast();
   const { changed } = useGroupRunDraft();

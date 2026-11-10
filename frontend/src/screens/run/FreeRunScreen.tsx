@@ -25,7 +25,11 @@ function MapStart({ bottom }: { bottom: React.ReactNode }) {
     <MapScreenFrame
       renderMap={logo => (
         <RunMap
-          position={place.status === 'ready' ? place.data.position : undefined}
+          position={
+            place.status === 'ready'
+              ? place.data.position ?? undefined
+              : undefined
+          }
           area={{ top: 0.36, bottom: 0.36 }}
           logo={logo}
           view="lean"

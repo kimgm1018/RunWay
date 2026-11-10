@@ -21,6 +21,19 @@ export function openRecord(navigation: Navigate, recordId: string) {
   );
 }
 
+// 6.7 그룹런 결과 for a group run record (H01 group.groupRunId). Without the link the run opens as my own record,
+// never a mock result (S15P31E105-635). Returns false when the caller should open the record itself.
+export function openGroupRunResult(
+  navigation: Navigate,
+  group: { groupRunId: string } | null,
+) {
+  if (!group) {
+    return false;
+  }
+  navigation.navigate('GroupRunResult', { groupRunId: group.groupRunId });
+  return true;
+}
+
 // Tab screens live inside MainTabs, so a link to one goes through the tab instead of the root stack.
 // pop: React Navigation 7 otherwise leaves the screens stacked over the tabs (4.5 완료 → 홈, 6.4e 내 크루로).
 export function navigateTo(navigation: Navigate, name: RouteName) {

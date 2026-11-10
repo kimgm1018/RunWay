@@ -7,14 +7,20 @@ import type {
   Repositories,
 } from '../types';
 import { apiRequest } from './http';
+import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { tokenStore } from './tokenStore';
 
-// CMT01–CMT11 커뮤니티 (docs/design/api/community.md). The server has no like or comment counts, my
-// like, comment authors' names, handles or the run's route, place and heart rate yet, so those are
-// filled in below. Bookmarks have no API and stay on this phone for the session.
+// CMT01–CMT11 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
+// like and the author's photo; comments carry their author. The server has no handles or the run's
+// place and heart rate yet, so those are filled in below. Bookmarks have no API and stay on this phone
+// for the session.
 
-type AuthorResponse = { userId: number; nickname: string };
+type AuthorResponse = {
+  userId: number;
+  nickname: string | null;
+  profileImageUrl?: string | null;
+};
 
 type RecordSummaryResponse = {
   distanceM: number | null;
@@ -22,7 +28,8 @@ type RecordSummaryResponse = {
   averagePaceSecPerKm: number | null;
 };
 
-// CMT02 item; CMT03 adds courseId and updatedAt. U21 lists a runner's posts in the same shape.
+// CMT02 item and CMT03 (which adds updatedAt). U21 lists a runner's posts in the same shape. courseId is
+// null for a free run, or when the author did not share the course and I am not the author.
 export type PostResponse = {
   id: number;
   authorId: number;
@@ -31,6 +38,10 @@ export type PostResponse = {
   regionCode: string | null;
   createdAt: string;
   courseId?: number | null;
+  courseShared?: boolean;
+  commentCount?: number;
+  reactionCount?: number;
+  myReaction?: 'LIKE' | null;
   author: AuthorResponse;
   recordSummary: RecordSummaryResponse | null;
 };
@@ -38,16 +49,23 @@ export type PostResponse = {
 // C03, only the route (GeoJSON [longitude, latitude]).
 type CourseRouteResponse = { route: { coordinates: [number, number][] } };
 
+// A course's points for 7.2, 7.3 and 7.3e; a course that cannot be read leaves the page without them.
+const readCourseRoute = (courseId: number | string) =>
+  apiRequest<CourseRouteResponse>(`/courses/${courseId}`)
+    .then(course => course.route.coordinates)
+    .catch(() => null);
+
 type CommentResponse = {
   id: number;
   postId: number;
   authorId: number;
+  author?: AuthorResponse;
   parentCommentId: number | null;
   body: string;
   createdAt: string;
 };
 
-// A comment by someone other than me or the post's author has only an id.
+// A runner without a nickname (a closed account), or a comment from a server without its author.
 const unknownAuthor = '러너';
 const myName = '나';
 
@@ -71,11 +89,26 @@ function myUserId() {
 }
 
 // The nickname doubles as the handle: the server has no seoyun.run style id.
-const authorOf = (userId: number, nickname: string): PostAuthor => ({
+const authorOf = (
+  userId: number,
+  nickname: string | null,
+  profileImageUrl: string | null = null,
+): PostAuthor => ({
   userId: String(userId),
-  handle: nickname,
-  nickname,
+  handle: nickname ?? unknownAuthor,
+  nickname: nickname ?? unknownAuthor,
+  profileImageUrl: imageAddress(profileImageUrl),
 });
+
+// The course the post shares (courseShared, defaulting to a server without the flag): the author still
+// gets the courseId of a course left unshared, for 7.3e.
+const sharedCourseOf = (response: PostResponse) =>
+  (response.courseShared ?? true) && response.courseId != null
+    ? response.courseId
+    : null;
+
+const authorFrom = (author: AuthorResponse) =>
+  authorOf(author.userId, author.nickname, author.profileImageUrl);
 
 // Only the distance, moving time and pace come with a post, so the card leaves the rest blank and is
 // dated by the post.
@@ -113,7 +146,8 @@ export function createCommunityApi({
 }: {
   records: Repositories['records'];
 }): Repositories['community'] {
-  // Likes I made or took back in this session: the server does not say whether I liked a post.
+  // Likes I made or took back in this session, only for a server that leaves out myReaction: when the
+  // post carries myReaction, the server's value wins on every read.
   const likes = new Map<string, boolean>();
   const bookmarks = new Set<string>();
   // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
@@ -123,7 +157,7 @@ export function createCommunityApi({
   const readRoute = async (postId: string) => {
     const courseId = courseIds.has(postId)
       ? courseIds.get(postId)
-      : (await apiRequest<PostResponse>(`/posts/${postId}`)).courseId;
+      : sharedCourseOf(await apiRequest<PostResponse>(`/posts/${postId}`));
     if (courseId == null) {
       return null;
     }
@@ -135,19 +169,23 @@ export function createCommunityApi({
 
   const toPost = (response: PostResponse): Post => {
     const id = String(response.id);
-    courseIds.set(id, response.courseId ?? null);
+    // Only a shared course is drawn on 7.1 and 7.2.
+    const sharedCourse = sharedCourseOf(response);
+    courseIds.set(id, sharedCourse);
     return {
       id,
-      author: authorOf(response.author.userId, response.author.nickname),
+      author: authorFrom(response.author),
       isMine: String(response.authorId) === myUserId(),
       body: response.body,
       record: recordOf(response),
-      // There is no 코스도 함께 공유 flag; a run on a course shares it.
-      courseShared: response.courseId != null,
+      courseShared: sharedCourse !== null,
       createdAt: response.createdAt,
-      likeCount: null,
-      liked: likes.get(id) ?? false,
-      commentCount: null,
+      likeCount: response.reactionCount ?? null,
+      liked:
+        response.myReaction !== undefined
+          ? response.myReaction === 'LIKE'
+          : likes.get(id) ?? false,
+      commentCount: response.commentCount ?? null,
       bookmarked: bookmarks.has(id),
     };
   };
@@ -157,6 +195,19 @@ export function createCommunityApi({
     postAuthor: AuthorResponse,
   ): PostComment => {
     const me = String(response.authorId) === myUserId();
+    if (response.author) {
+      return {
+        id: String(response.id),
+        author: authorFrom(response.author),
+        isMine: me,
+        body: response.body,
+        createdAt: response.createdAt,
+        // Comment likes have no API.
+        likeCount: 0,
+        liked: false,
+      };
+    }
+    // Without the comment's author, only the post's author and I have a name.
     const nickname =
       response.authorId === postAuthor.userId
         ? postAuthor.nickname
@@ -191,18 +242,18 @@ export function createCommunityApi({
       ]);
       const items = listItems(commentsPage);
       const base = toPost(post);
-      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. A course that cannot
-      // be read leaves the post without a route rather than failing the page.
+      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. My own post also gets
+      // the course I left unshared (the server still gives me its courseId), so 7.3e can show what sharing it
+      // again would show; 7.2 draws it only while shared. A course that cannot be read leaves the post without
+      // a route rather than failing the page.
       const route =
-        post.courseId == null
+        post.courseId == null || !(base.courseShared || base.isMine)
           ? null
-          : await apiRequest<CourseRouteResponse>(`/courses/${post.courseId}`)
-              .then(course => course.route.coordinates)
-              .catch(() => null);
+          : await readCourseRoute(post.courseId);
       const detail: PostDetail = {
         ...base,
         record: { ...base.record, route },
-        commentCount: items.length,
+        commentCount: base.commentCount ?? items.length,
         comments: items.map(item => toComment(item, post.author)),
       };
       return detail;
@@ -228,28 +279,41 @@ export function createCommunityApi({
         throw new Error('공유할 기록 없음');
       }
       const detail = await records.getDetail(id);
+      // What 코스도 함께 공유 shares is the run's course (C03), not my GPS track, so 7.3 previews that course;
+      // a free run shares no route.
+      const route =
+        detail.courseId === null
+          ? null
+          : await readCourseRoute(detail.courseId);
       return {
         ...detail,
         place: '',
         courseRun: detail.courseId !== null,
-        route: detail.route,
+        route,
         averageHeartRate: null,
         cadence: null,
       };
     },
-    // CMT01 takes the run as its session id. 코스도 함께 공유 has no field, so it is not sent.
+    // CMT01 takes the run as its session id and 코스도 함께 공유 as courseShared; the server keeps it false
+    // for a free run.
     create: async (recordId, draft) => {
       const { id } = await apiRequest<{ id: number }>('/posts', {
         method: 'POST',
-        body: { sessionId: Number(recordId), body: draft.body },
+        body: {
+          sessionId: Number(recordId),
+          body: draft.body,
+          courseShared: draft.courseShared,
+        },
       });
       return { id: String(id) };
     },
     update: async (postId, draft) => {
       await apiRequest(`/posts/${postId}`, {
         method: 'PATCH',
-        body: { body: draft.body },
+        body: { body: draft.body, courseShared: draft.courseShared },
       });
+      // 7.1 reads the route again after the next list, under the new choice.
+      routes.delete(postId);
     },
     remove: async postId => {
       await apiRequest(`/posts/${postId}`, { method: 'DELETE' });
@@ -276,7 +340,9 @@ export function createCommunityApi({
       );
       return {
         id: String(comment.id),
-        author: authorOf(comment.authorId, myName),
+        author: comment.author
+          ? authorFrom(comment.author)
+          : authorOf(comment.authorId, myName),
         isMine: true,
         body: comment.body,
         createdAt: comment.createdAt,

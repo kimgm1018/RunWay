@@ -34,7 +34,7 @@ import {
   type RunRecordSummary,
 } from '../../data';
 import { recordsChanged } from '../../data/recordsChanged';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openGroupRunResult } from '../../navigation/navigateTo';
 import type { HomeStackParamList } from '../../navigation/types';
 import { fontFamily, homePalette, size } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -297,8 +297,7 @@ export function HomeScreen() {
   }, []);
   // A run on 러닝 기록, its month list or 러닝 분석 opens its own detail in 러닝 기록; a group run opens 6.7.
   const openRun = (run: RunRecordSummary) => {
-    if (run.runType === 'GROUP') {
-      navigateTo(navigation, 'GroupRunResult');
+    if (run.runType === 'GROUP' && openGroupRunResult(navigation, run.group)) {
       return;
     }
     setCalendar(false);

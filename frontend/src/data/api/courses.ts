@@ -167,7 +167,7 @@ export function createCoursesApi({
   usualPace,
   regions,
 }: {
-  // The 2.0 pace plan has no API yet; saving a free run as a course (4.5F) answers NOT_AVAILABLE.
+  // Saving a free run as a course (4.5F) has no API yet and answers NOT_AVAILABLE.
   mock: Repositories['courses'];
   usualPace: () => Promise<number | null>;
   regions: Regions;
@@ -369,17 +369,16 @@ export function createCoursesApi({
     return result;
   };
 
-  // 2.0 keeps the mock's pace plan; a server course brings its own name, distance and route.
+  // 2.0 shows only what the server knows about the chosen course: its name, distance, route and expected time.
+  // There is no pace plan API yet, so no mock strategy, caution or km paces stand in, and without a chosen server
+  // course (nothing picked yet, or after a restart) there is no plan (S15P31E105-635).
   const getTodayPlan: Repositories['courses']['getTodayPlan'] = async () => {
-    const plan = await mock.getTodayPlan();
     if (!chosen || !isServerId(chosen)) {
-      return plan;
+      return null;
     }
     const paceSecPerKm = await pace();
     const course = await detail(chosen, paceSecPerKm);
-    const km = Math.ceil(course.distanceM / 1000);
     const result: CoursePlan = {
-      ...plan,
       courseId: chosen,
       name:
         course.myAlias ??
@@ -387,14 +386,13 @@ export function createCoursesApi({
         `${kmLabel(course.distanceM)} 코스`,
       distanceM: course.distanceM,
       route: course.route.coordinates,
-      segmentPacesSecPerKm: Array.from(
-        { length: km },
-        (_, index) =>
-          plan.segmentPacesSecPerKm[index % plan.segmentPacesSecPerKm.length],
-      ),
+      segmentPacesSecPerKm: [],
+      strategy: null,
+      targetPaceSecPerKm: null,
       expectedDurationSec:
         course.estimatedDurationSec ??
         Math.round((course.distanceM / 1000) * paceSecPerKm),
+      caution: null,
     };
     return result;
   };

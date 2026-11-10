@@ -672,6 +672,7 @@ function ReplayChrome({
           <Avatar
             nickname={post.author.nickname}
             userId={post.author.userId}
+            photo={post.author.profileImageUrl}
             mine={post.isMine}
             size={44}
           />

@@ -340,10 +340,13 @@ CREATE TABLE "posts" (
 	"region_code"	VARCHAR(40)		NULL,
 	"deleted_at"	TIMESTAMPTZ		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"course_shared"	BOOLEAN	DEFAULT TRUE	NOT NULL
 );
 
 COMMENT ON COLUMN "posts"."region_code" IS '게시물 지역 코드. regions.region_code 참조. 시·군·구 단위. 미지정 시 NULL.';
+
+COMMENT ON COLUMN "posts"."course_shared" IS '연결 세션의 코스 공유 여부. FALSE이면 작성자 외 조회자에게 courseId를 숨긴다. 세션에 코스가 없으면 FALSE로 저장한다. 기존 게시물은 TRUE.';
 
 CREATE TABLE "coaching_decisions" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,

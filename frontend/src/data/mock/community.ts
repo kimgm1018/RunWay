@@ -1,5 +1,6 @@
 import { DataError } from '../errors';
 import type {
+  PostAuthor,
   PostComment,
   PostDetail,
   PostRecord,
@@ -135,8 +136,16 @@ export function createCommunityMock({
   };
   const postWith = (commentId: string) =>
     posts.find(post => post.comments.some(item => item.id === commentId));
+  // Authors carry their photo like CMT02 · CMT03 · CMT06 author.profileImageUrl.
+  const photoOf = (userId: string) =>
+    userId === me.userId ? myPhoto() : fixtures.runnerPhotos[userId] ?? null;
+  const withPhoto = (author: PostAuthor): PostAuthor => ({
+    ...author,
+    profileImageUrl: photoOf(author.userId),
+  });
   const view = ({ comments, ...post }: PostFixture) => ({
     ...post,
+    author: withPhoto(post.author),
     isMine: post.author.userId === me.userId,
     commentCount: comments.length,
   });
@@ -187,7 +196,7 @@ export function createCommunityMock({
       userId,
       handle: user?.handle ?? userId,
       nickname: user?.nickname ?? userId,
-      profileImageUrl: isMe ? myPhoto() : fixtures.runnerPhotos[userId] ?? null,
+      profileImageUrl: photoOf(userId),
       level: accessible ? profile.level : null,
       isMe,
       followerCount: accessible ? profile.followerCount : null,
@@ -227,6 +236,7 @@ export function createCommunityMock({
         ...view(post),
         comments: post.comments.map(comment => ({
           ...comment,
+          author: withPhoto(comment.author),
           isMine: comment.author.userId === me.userId,
         })),
       };
@@ -245,7 +255,8 @@ export function createCommunityMock({
           author: me,
           body: draft.body,
           record: shareableOf(record(recordId)),
-          courseShared: draft.courseShared,
+          // As CMT01: a free run keeps courseShared false.
+          courseShared: draft.courseShared && record(recordId).courseId !== null,
           createdAt: new Date().toISOString(),
           likeCount: 0,
           liked: false,
@@ -257,7 +268,10 @@ export function createCommunityMock({
       return respond({ id });
     },
     update: (postId, draft) => {
-      update(postId, { body: draft.body, courseShared: draft.courseShared });
+      update(postId, {
+        body: draft.body,
+        courseShared: draft.courseShared && find(postId).record.courseRun,
+      });
       return respond(undefined);
     },
     remove: postId => {
@@ -282,7 +296,7 @@ export function createCommunityMock({
     addComment: (postId, body) => {
       const comment: PostComment = {
         id: `comment-mine-${nextId++}`,
-        author: me,
+        author: withPhoto(me),
         isMine: true,
         body,
         createdAt: new Date().toISOString(),
@@ -382,8 +396,7 @@ export function createCommunityMock({
         items: ids.slice(start, end).map(id => ({
           userId: id,
           nickname: nicknameOf(id),
-          profileImageUrl:
-            id === me.userId ? myPhoto() : fixtures.runnerPhotos[id] ?? null,
+          profileImageUrl: photoOf(id),
         })),
         nextCursor: end < ids.length ? String(end) : null,
       });
