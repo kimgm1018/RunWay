@@ -107,6 +107,9 @@ type RunMapProps = {
   view?: RunMapView;
   // A course card's small map (S15P31E105-562): smaller start and finish poles.
   compact?: boolean;
+  // 그룹런 시안 (S15P31E105-673): the course and the run as a near-black line with a purple edge on the group
+  // screens; every other screen keeps its look.
+  groupLine?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -125,6 +128,9 @@ function coordsOf(line: LngLat[]) {
 }
 
 const ink = routeLook.ink;
+
+// The group screens' course line (그룹런 시안): near-black over a purple edge. Opaque, as every map colour must be.
+const groupLineLook = { ink: '#0B0E14', ribbon: '#B58CFF' } as const;
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
 const flatLayers = {
   BUILDING: false,
@@ -481,6 +487,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     rotatable = true,
     view = 'flat',
     compact = false,
+    groupLine = false,
     style,
   },
   ref,
@@ -516,7 +523,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
   const tilted = view !== 'flat';
-  const pathLook = tilted ? darkMapLook : routeLook;
+  const baseLook = tilted ? darkMapLook : routeLook;
+  const pathLook = groupLine
+    ? {
+        ...baseLook,
+        ink: groupLineLook.ink,
+        ribbon: groupLineLook.ribbon,
+        guide: groupLineLook.ink,
+      }
+    : baseLook;
   const me = running ? trail[trail.length - 1] : null;
   const heading = useRef(0);
   if (view === 'heading' && running) {
@@ -730,13 +745,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           pathParts={pieces.map((piece, index) => ({
             coords: coordsOf(piece),
             color: pieceColor(index),
-            outlineColor: tiltedGuide
-              ? darkMapLook.guideOutline
-              : pathLook.ribbon,
+            outlineColor:
+              tiltedGuide && !groupLine
+                ? darkMapLook.guideOutline
+                : pathLook.ribbon,
             passedColor: pathLook.passed,
-            passedOutlineColor: tiltedGuide
-              ? darkMapLook.guideOutline
-              : pathLook.ribbon,
+            passedOutlineColor:
+              tiltedGuide && !groupLine
+                ? darkMapLook.guideOutline
+                : pathLook.ribbon,
           }))}
           width={tiltedGuide ? darkMapLook.guideCentre : pathLook.centre}
           outlineWidth={tiltedGuide ? darkMapLook.guideEdge : pathLook.edge}

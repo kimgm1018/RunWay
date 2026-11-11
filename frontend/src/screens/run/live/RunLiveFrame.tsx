@@ -46,6 +46,7 @@ export function RunLiveFrame({
   notes,
   music,
   controls,
+  group = false,
 }: {
   title: string;
   status: { text: string; tone: LiveTone };
@@ -67,8 +68,12 @@ export function RunLiveFrame({
   notes?: React.ReactNode;
   music?: React.ReactNode;
   controls: React.ReactNode;
+  // 그룹런 시안 (S15P31E105-673): the group run's navy page, mint labels, word tabs over a mint line and the heavy
+  // Archivo figures. Personal and course runs keep their look.
+  group?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  const g = group ? groupStyles : null;
   const pager = useRef<PagerView>(null);
   const shown = Math.min(page, pages.length - 1);
   const go = (next: number) => {
@@ -104,7 +109,7 @@ export function RunLiveFrame({
 
   return (
     <View
-      style={styles.root}
+      style={[styles.root, g?.root]}
       onLayout={event => {
         // Read the height now: the event is not kept for the state update.
         const height = event.nativeEvent.layout.height;
@@ -126,7 +131,7 @@ export function RunLiveFrame({
         {/* On the map the top has no band: the map fills the screen to the very top and the title and the
             status float on it as small dark pills. */}
         <View
-          style={[styles.header, { paddingTop: insets.top + 8 }]}
+          style={[styles.header, g?.header, { paddingTop: insets.top + 8 }]}
           pointerEvents="box-none"
           onLayout={event => {
             // Read the height now: the event is not kept for the state update.
@@ -138,12 +143,18 @@ export function RunLiveFrame({
             style={[styles.titleRow, onMap && styles.titleRowMap]}
             pointerEvents="box-none"
           >
-            <View style={[styles.titleBox, onMap && styles.floating]}>
-              <AppText style={styles.title} numberOfLines={1}>
+            <View
+              style={[
+                styles.titleBox,
+                onMap && styles.floating,
+                onMap && g?.floating,
+              ]}
+            >
+              <AppText style={[styles.title, g?.title]} numberOfLines={1}>
                 {title}
               </AppText>
               {subtitle ? (
-                <AppText style={styles.device} numberOfLines={2}>
+                <AppText style={[styles.device, g?.device]} numberOfLines={2}>
                   {subtitle}
                 </AppText>
               ) : null}
@@ -154,6 +165,7 @@ export function RunLiveFrame({
                 status.tone === 'paused' && styles.statusPaused,
                 // On the light map the pill stays dark; the coral dot still says paused.
                 onMap && styles.statusFloating,
+                onMap && g?.statusFloating,
               ]}
               accessibilityLabel="기록 상태"
             >
@@ -197,7 +209,7 @@ export function RunLiveFrame({
           </PagerView>
           {pages.length > 1 ? (
             // The page names, not just dots, so a glance says which page is up.
-            <View style={styles.tabs} accessibilityRole="tablist">
+            <View style={[styles.tabs, g?.tabs]} accessibilityRole="tablist">
               {pages.map((item, index) => (
                 <Pressable
                   key={item.key}
@@ -206,12 +218,18 @@ export function RunLiveFrame({
                   accessibilityState={{ selected: index === shown }}
                   onPress={() => go(index)}
                   hitSlop={8}
-                  style={[styles.tab, index === shown && styles.tabOn]}
+                  style={[
+                    styles.tab,
+                    g?.tab,
+                    index === shown && (g ? g.tabOn : styles.tabOn),
+                  ]}
                 >
                   <AppText
                     style={[
                       styles.tabText,
+                      g?.tabText,
                       index === shown && styles.tabTextOn,
+                      index === shown && g?.tabTextOn,
                     ]}
                   >
                     {item.title}
@@ -225,8 +243,10 @@ export function RunLiveFrame({
         <View
           style={[
             styles.bottom,
+            g?.bottom,
             { paddingBottom: insets.bottom + 8 },
             onMap && styles.band,
+            onMap && g?.band,
           ]}
           onLayout={event => {
             // Read the height now: the event is not kept for the state update.
@@ -238,12 +258,24 @@ export function RunLiveFrame({
           {music}
           {onMap ? (
             <View style={styles.summary} accessibilityLabel="지도 요약">
-              {mapSummary.map(item => (
-                <View key={item.label} style={styles.summaryItem}>
+              {mapSummary.map((item, index) => (
+                <View
+                  key={item.label}
+                  style={[
+                    styles.summaryItem,
+                    g?.summaryItem,
+                    index > 0 && g?.summaryAfter,
+                  ]}
+                >
+                  {/* On a group run the label sits on top in mint. */}
+                  {g ? (
+                    <AppText style={g.summaryLabel}>{item.label}</AppText>
+                  ) : null}
                   <View style={styles.summaryLine}>
                     <AppText
                       style={[
                         styles.summaryValue,
+                        g?.summaryValue,
                         item.label === '운동 시간' &&
                           paused &&
                           styles.timePaused,
@@ -255,20 +287,28 @@ export function RunLiveFrame({
                       {item.value}
                     </AppText>
                     {item.unit ? (
-                      <AppText style={styles.summaryUnit}>{item.unit}</AppText>
+                      <AppText style={[styles.summaryUnit, g?.summaryUnit]}>
+                        {item.unit}
+                      </AppText>
                     ) : null}
                   </View>
-                  <AppText style={styles.timeLabel}>{item.label}</AppText>
+                  {g ? null : (
+                    <AppText style={styles.timeLabel}>{item.label}</AppText>
+                  )}
                 </View>
               ))}
             </View>
           ) : (
             <View style={styles.time}>
-              <AppText style={styles.timeLabel}>
+              <AppText style={[styles.timeLabel, g?.timeLabel]}>
                 운동 시간 · 일시정지 제외
               </AppText>
               <AppText
-                style={[styles.timeValue, paused && styles.timePaused]}
+                style={[
+                  styles.timeValue,
+                  g?.timeValue,
+                  paused && styles.timePaused,
+                ]}
                 accessibilityLabel="운동 시간"
               >
                 {formatDuration(elapsedSec)}
@@ -391,5 +431,98 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     color: liveLook.muted,
+  },
+});
+
+// 그룹런 시안 (S15P31E105-673) on top of the styles above.
+const groupInk = {
+  page: '#02050E',
+  text: '#FFFFFF',
+  sub: '#B9C0CA',
+  muted: '#8E97A8',
+  mint: '#4DFFD2',
+  line: 'rgba(255,255,255,0.12)',
+  rule: 'rgba(255,255,255,0.4)',
+} as const;
+
+const groupStyles = StyleSheet.create({
+  root: { backgroundColor: groupInk.page },
+  header: { paddingHorizontal: 19 },
+  floating: { borderRadius: 14, backgroundColor: groupInk.page },
+  statusFloating: { backgroundColor: groupInk.page },
+  title: {
+    fontFamily: fontFamily.black,
+    fontSize: 16,
+    lineHeight: 22,
+    color: groupInk.text,
+  },
+  device: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupInk.sub,
+  },
+  // Words on a line, the picked one bold over a mint line.
+  tabs: {
+    gap: 0,
+    marginHorizontal: 19,
+    paddingTop: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: groupInk.line,
+  },
+  tab: {
+    flex: 1,
+    height: 42,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+    marginBottom: -1,
+  },
+  tabOn: { borderBottomColor: groupInk.mint },
+  tabText: { fontFamily: fontFamily.bold, color: groupInk.muted },
+  tabTextOn: { fontFamily: fontFamily.black, color: groupInk.text },
+  bottom: { paddingHorizontal: 19 },
+  band: { backgroundColor: groupInk.page },
+  timeLabel: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupInk.sub,
+  },
+  timeValue: {
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 40,
+    lineHeight: 50,
+    letterSpacing: -1,
+    color: groupInk.text,
+  },
+  // The map's row: a mint label over each figure, a line between them.
+  summaryItem: { gap: 2 },
+  summaryAfter: {
+    paddingLeft: 12,
+    borderLeftWidth: 1,
+    borderLeftColor: groupInk.rule,
+  },
+  summaryLabel: {
+    fontFamily: fontFamily.black,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupInk.mint,
+  },
+  summaryValue: {
+    fontFamily: fontFamily.resultExtraBold,
+    fontSize: 26,
+    lineHeight: 34,
+    color: groupInk.text,
+  },
+  summaryUnit: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupInk.sub,
   },
 });

@@ -7,7 +7,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, { Circle, Polyline } from 'react-native-svg';
+import Svg, { Polyline, Rect } from 'react-native-svg';
 import {
   StackActions,
   useNavigation,
@@ -35,9 +35,18 @@ import {
 import { formatDotDateWeekday, formatKm } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
-import { GroupCta, groupTone, NightBackground, NumText, Raised } from './look';
+import { groupTone, NightBackground, NumText } from './look';
 import { BottomFade, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
+import {
+  ColorBar,
+  crewColor,
+  stand,
+  StandButton,
+  StandHeader,
+  standType,
+  UnderlineTabs,
+} from './stand';
 
 type Mode = 'COURSE' | 'FREE';
 
@@ -83,12 +92,11 @@ const loadOptions = (repositories: Repositories) =>
     repositories.groupRuns.searchPlaces(''),
   ]);
 
-// A 6.8 part's title in white on the navy page with an optional note on its right (S15P31E105-594 담당자 시안):
-// the mockup's plain bold labels between the cards, in place of the grey bands and left lines.
+// A 6.8 part's title in mint with an optional note on its right (그룹런 시안, S15P31E105-673).
 function Label({ title, note }: { title: string; note?: string }) {
   return (
     <View style={styles.label}>
-      <AppText style={styles.labelText} accessibilityRole="header">
+      <AppText style={[standType.label, styles.flex]} accessibilityRole="header">
         {title}
       </AppText>
       {note ? <AppText style={styles.note}>{note}</AppText> : null}
@@ -105,26 +113,13 @@ function ModeSwitch({
   value: Mode;
   onChange: (mode: Mode) => void;
 }) {
+  // Words on a line, the picked one bold over a mint line (그룹런 시안).
   return (
-    <View accessibilityRole="radiogroup" style={styles.modes}>
-      {modes.map(option => {
-        const selected = option.value === value;
-        return (
-          <Pressable
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityLabel={option.label}
-            accessibilityState={{ selected }}
-            onPress={() => onChange(option.value)}
-            style={[styles.mode, selected && styles.modeOn]}
-          >
-            <AppText style={selected ? styles.modeTextOn : styles.modeText}>
-              {option.label}
-            </AppText>
-          </Pressable>
-        );
-      })}
-    </View>
+    <UnderlineTabs
+      items={modes.map(option => ({ key: option.value, label: option.label }))}
+      active={value}
+      onSelect={onChange}
+    />
   );
 }
 
@@ -132,31 +127,39 @@ function ModeSwitch({
 // start dot to an open end ring on a faint tile inside the card, which reads well on the navy. Only the saved shape is drawn, with no map under
 // it, since a course carries no map image of its own.
 function CourseThumb({ shape }: { shape: [number, number][] }) {
-  const points = shape.map(([x, y]) => [8 + x * 72, 6 + y * 48] as const);
+  const points = shape.map(([x, y]) => [6 + x * 60, 6 + y * 34] as const);
   const first = points[0];
   const last = points[points.length - 1];
+  // The outline in mint on the bare page with small square ends (그룹런 시안).
   return (
     <View style={styles.thumb}>
-      <Svg width={88} height={60}>
+      <Svg width={72} height={46}>
         <Polyline
           points={points.map(point => point.join(',')).join(' ')}
           fill="none"
-          stroke={groupTone.accent}
+          stroke={stand.mint}
           strokeWidth={2.4}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
         {first ? (
-          <Circle cx={first[0]} cy={first[1]} r={3.6} fill={groupTone.accent} />
+          <Rect
+            x={first[0] - 3.5}
+            y={first[1] - 3.5}
+            width={7}
+            height={7}
+            fill={stand.mint}
+          />
         ) : null}
         {last ? (
-          <Circle
-            cx={last[0]}
-            cy={last[1]}
-            r={3.6}
-            fill={groupTone.page}
-            stroke={groupTone.text}
-            strokeWidth={1.8}
+          <Rect
+            x={last[0] - 3.5}
+            y={last[1] - 3.5}
+            width={7}
+            height={7}
+            fill={stand.page}
+            stroke={stand.text}
+            strokeWidth={1.6}
           />
         ) : null}
       </Svg>
@@ -183,7 +186,7 @@ function ChangeButton({
       style={styles.change}
     >
       <AppText style={styles.changeText}>{text}</AppText>
-      <Icon name="forward" color={groupTone.sub} size={16} />
+      <Icon name="forward" color={stand.text} size={16} />
     </Pressable>
   );
 }
@@ -209,9 +212,9 @@ function PickField({
       style={styles.flex}
     >
       <View style={styles.pick}>
-        <Icon name={icon} color={groupTone.sub} size={18} />
+        <Icon name={icon} color={stand.sub} size={18} />
         <NumText text={label} style={styles.pickLabel} numberOfLines={1} />
-        <Icon name="chevronDown" color={groupTone.sub} size={18} />
+        <Icon name="chevronDown" color={stand.text} size={18} />
       </View>
     </PressableScale>
   );
@@ -484,6 +487,7 @@ export function GroupRunCreateScreen() {
   };
 
   const crewName = (edited ? edited.crewName : crew?.name) ?? '';
+  const crewId = edited ? edited.crewId : crew?.id;
 
   if (options.status !== 'ready' || (editingId && editing.status !== 'ready')) {
     return (
@@ -529,38 +533,46 @@ export function GroupRunCreateScreen() {
     <View style={styles.root}>
       <NightBackground />
       <StatusBar barStyle="light-content" />
-      <SafeAreaView edges={['top']}>
-        <View style={styles.header}>
-          <BackButton tone="dark" onPress={() => navigation.goBack()} />
-          <AppText style={styles.title} accessibilityRole="header">
-            {editingId ? '그룹런 수정' : '그룹런 만들기'}
-          </AppText>
-        </View>
+      <SafeAreaView edges={['top']} style={styles.top}>
+        <StandHeader
+          title={editingId ? '그룹런 수정' : '그룹런 만들기'}
+          onBack={() => navigation.goBack()}
+          dim={sheet !== null}
+        />
       </SafeAreaView>
       <ScrollView contentContainerStyle={styles.content}>
-        {/* The crew as the mockup's top row. It only names the crew, so it has no chevron and no press. */}
+        {/* The crew as the top row over a heavier line, with its colour bar. It only names the crew, so it has no
+            chevron and no press. */}
         {crewName ? (
-          <Raised tone="night" style={styles.crewCard}>
-            <Icon name="users" color={groupTone.text} size={20} />
+          <View style={styles.crewCard}>
+            <View style={styles.iconCell}>
+              <Icon name="users" color={stand.sub} size={18} />
+            </View>
             <AppText style={styles.crew} numberOfLines={1}>
               {crewName}
             </AppText>
-          </Raised>
+            {crewId ? (
+              <ColorBar color={crewColor(crewId)} height={14} style={styles.crewBar} />
+            ) : null}
+          </View>
         ) : null}
         <Label title="코스" />
         <ModeSwitch value={mode} onChange={setMode} />
         {mode === 'COURSE' ? (
           // Without a course yet the card asks for one (S15P31E105-637).
-          <Raised tone="night" style={[styles.card, styles.courseCard]}>
+          <View style={[styles.card, styles.courseCard]}>
             {course ? (
               <CourseThumb shape={course.shape} />
             ) : (
               <View style={[styles.thumb, styles.thumbEmpty]}>
-                <Icon name="route" color={groupTone.sub} size={22} />
+                <Icon name="route" color={stand.sub} size={22} />
               </View>
             )}
             <View style={styles.flex}>
-              <AppText style={styles.rowTitle} numberOfLines={1}>
+              <AppText
+                style={course ? styles.courseName : styles.rowTitle}
+                numberOfLines={1}
+              >
                 {course?.name ?? '코스 선택'}
               </AppText>
               {course ? (
@@ -580,7 +592,7 @@ export function GroupRunCreateScreen() {
                 onPress={() => setSheet('course')}
               />
             </View>
-          </Raised>
+          </View>
         ) : null}
         {/* Both modes pick minutes: a course run's TIME goal, a free run's name. The mockup's 목표 시간 label
             names the chips that used to sit under 코스 without one. */}
@@ -608,8 +620,10 @@ export function GroupRunCreateScreen() {
           })}
         </View>
         <Label title="만나는 곳" note="상세 위치" />
-        <Raised tone="night" style={styles.card}>
-          <Icon name="mapPin" color={groupTone.text} size={20} />
+        <View style={styles.card}>
+          <View style={styles.iconCell}>
+            <Icon name="mapPin" color={stand.sub} size={18} />
+          </View>
           <View style={styles.flex}>
             <AppText style={styles.rowTitle} numberOfLines={1}>
               {draft.place?.name ?? '만나는 곳 선택'}
@@ -626,7 +640,7 @@ export function GroupRunCreateScreen() {
             label="만나는 곳 변경"
             onPress={() => navigation.navigate('MeetingPlace')}
           />
-        </Raised>
+        </View>
         <Label title="날짜·시간" />
         <View style={styles.picks}>
           {day ? (
@@ -645,19 +659,20 @@ export function GroupRunCreateScreen() {
           />
         </View>
         <Label title="공동 페이스" note="예상값 · 직접 입력하지 않아요" />
-        <Raised tone="night" style={styles.card}>
-          <Icon name="users" color={groupTone.text} size={20} />
+        <View style={styles.card}>
+          <View style={styles.iconCell}>
+            <Icon name="users" color={stand.sub} size={18} />
+          </View>
           <AppText style={styles.autoTitle}>자동 산출</AppText>
           <AppText style={[styles.rowDetail, styles.flex]}>
             지금 참가자 기록으로 낸 예상값이에요 · 참가·탈퇴·수정 때마다 다시 계산해요
           </AppText>
-        </Raised>
+        </View>
       </ScrollView>
       {/* 6.8-CreateCTA: the white main button (GroupCta navy) over the navy page's foot. */}
       <SafeAreaView edges={['bottom']} style={styles.footer}>
         <BottomFade />
-        <GroupCta
-          navy
+        <StandButton
           title={editingId ? '저장' : '그룹런 만들기'}
           icon={editingId ? 'check' : 'plus'}
           disabled={
@@ -704,7 +719,7 @@ export function GroupRunCreateScreen() {
                   >
                     <Icon
                       name="mapPin"
-                      color={selected ? groupTone.text : groupTone.sub}
+                      color={selected ? stand.text : stand.sub}
                       size={18}
                     />
                     <NumText
@@ -719,11 +734,7 @@ export function GroupRunCreateScreen() {
                     />
                     {selected ? (
                       <View style={styles.checkDot}>
-                        <Icon
-                          name="check"
-                          color={groupTone.onAccent}
-                          size={14}
-                        />
+                        <Icon name="check" color={stand.onMint} size={14} />
                       </View>
                     ) : null}
                   </View>
@@ -788,7 +799,7 @@ export function GroupRunCreateScreen() {
 }
 
 // The picker sheets' navy, a step above the page so the sheet stands off the scrim.
-const sheetNavy = groupTone.sheet;
+const sheetNavy = stand.sheet;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -806,218 +817,179 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     color: groupTone.text,
   },
+  top: { paddingHorizontal: 17 },
+  // 그룹런 시안 (S15P31E105-673): no cards, each part a row over a thin line under its mint label.
   content: {
-    paddingHorizontal: 16,
-    paddingTop: spacing.sm,
+    paddingHorizontal: 19,
+    paddingTop: 4,
     paddingBottom: spacing.xxxl * 4,
-    gap: 10,
   },
-  // The parts are faint white cards (Raised night) on the navy page, 14 round.
+  iconCell: { width: 30 },
+  // The crew over a heavier line.
   crewCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    height: 54,
-    paddingHorizontal: 16,
-    borderRadius: 14,
+    height: 46,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
   },
   crew: {
-    flex: 1,
-    fontFamily: fontFamily.bold,
+    flexShrink: 1,
+    fontFamily: fontFamily.black,
     fontSize: 16,
     lineHeight: 21,
-    color: groupTone.text,
+    color: stand.text,
   },
-  // A label sits further from the card above it than from its own.
+  crewBar: { marginLeft: 10 },
   label: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  labelText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupTone.text,
+    gap: 8,
+    marginTop: 12,
+    minHeight: 22,
   },
   note: {
     fontFamily: fontFamily.regular,
-    fontSize: 12.5,
+    fontSize: 12,
     lineHeight: 16,
-    color: groupTone.sub,
-  },
-  modes: {
-    flexDirection: 'row',
-    height: 46,
-    padding: 3,
-    gap: 3,
-    borderRadius: 14,
-    backgroundColor: groupTone.quiet,
-  },
-  mode: {
-    flex: 1,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modeOn: { backgroundColor: groupTone.button },
-  modeText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.sub,
-  },
-  modeTextOn: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.onButton,
+    color: stand.sub,
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    minHeight: 62,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 14,
+    minHeight: 56,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
   },
-  courseCard: { paddingLeft: 10, paddingVertical: 10 },
-  thumb: {
-    width: 88,
-    height: 60,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: groupTone.inner,
-  },
+  courseCard: { minHeight: 68, gap: 12 },
+  thumb: { width: 72, height: 46 },
   thumbEmpty: { alignItems: 'center', justifyContent: 'center' },
+  courseName: {
+    fontFamily: fontFamily.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    color: stand.sub,
+  },
   courseHint: {
     marginTop: 4,
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 18,
-    color: groupTone.sub,
+    color: stand.sub,
   },
   loading: { marginTop: spacing.xxxl },
   km: {
-    marginTop: 2,
-    fontFamily: fontFamily.numberBold,
-    fontSize: 28,
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 26,
     lineHeight: 32,
-    color: groupTone.text,
+    letterSpacing: -0.5,
+    color: stand.text,
   },
-  // 코스 변경 past a thin line, as in the mockup.
-  changeSide: {
-    alignSelf: 'stretch',
-    justifyContent: 'center',
-    paddingLeft: 12,
-    borderLeftWidth: 1,
-    borderLeftColor: groupTone.line,
+  changeSide: { justifyContent: 'center' },
+  change: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    minHeight: 44,
+    paddingLeft: 10,
   },
-  change: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   changeText: {
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.text,
+  },
+  rowTitle: {
+    fontFamily: fontFamily.black,
+    fontSize: 16,
+    lineHeight: 21,
+    color: stand.text,
+  },
+  // The course's start under its name, small and grey, over the distance.
+  rowDetail: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
+  },
+  // Four square-cornered choices, the picked one mint.
+  chips: { flexDirection: 'row', gap: 6, marginTop: 6 },
+  chip: {
+    height: 44,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: stand.glassLine,
+  },
+  chipOn: { borderColor: stand.mint, backgroundColor: stand.mint },
+  chipText: {
     fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 19,
-    color: groupTone.text,
-  },
-  rowTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15.5,
-    lineHeight: 21,
-    color: groupTone.text,
-  },
-  rowDetail: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: groupTone.sub,
-  },
-  chips: { flexDirection: 'row', gap: 8 },
-  chip: {
-    height: 46,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.card,
-  },
-  // The picked minute is a small chip, so it takes the mint (navy text on it).
-  chipOn: { borderColor: groupTone.accent, backgroundColor: groupTone.accent },
-  chipText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupTone.text,
+    color: stand.text,
   },
   chipTextOn: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupTone.onAccent,
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.onMint,
   },
-  picks: { flexDirection: 'row', gap: 10 },
+  // 날짜 · 시간: two fields over a heavier line each.
+  picks: { flexDirection: 'row', gap: 16 },
   pick: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    height: 50,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.card,
+    gap: 8,
+    height: 46,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
   },
   pickLabel: {
     flex: 1,
-    fontFamily: fontFamily.medium,
-    fontSize: 16,
-    lineHeight: 21,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 15,
+    lineHeight: 20,
+    color: stand.text,
   },
   autoTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 23,
-    color: groupTone.text,
+    marginRight: 12,
+    fontFamily: fontFamily.black,
+    fontSize: 16,
+    lineHeight: 21,
+    color: stand.text,
   },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 19,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
-  // 1. 코스 고르기: a row per saved course, the picked one edged and marked with a small mint ✓ dot (S15P31E105-594
-  // 담당자 시안). Every row keeps the border's room so picking does not shift the text.
+  // 1. 코스 고르기: a row per saved course between thin lines, the picked one with a small mint ✓ dot.
   courseRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     height: 54,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-    backgroundColor: groupTone.inner,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
   },
-  // The picked course edged in white (담당자 요청).
-  courseRowOn: { borderColor: groupTone.text },
+  courseRowOn: { borderBottomColor: stand.meLine },
   courseRowText: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupTone.sub,
+    color: stand.sub,
   },
   courseRowTextOn: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: groupTone.text,
+    color: stand.text,
   },
   checkDot: {
     width: 24,
@@ -1025,35 +997,32 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupTone.accent,
+    backgroundColor: stand.mint,
   },
   sheetList: { maxHeight: 360 },
   grid: { gap: 8 },
   gridRow: { flexDirection: 'row', gap: 8 },
+  // The date and time choices: square-cornered and outlined, the picked one mint.
   sheetChip: {
     height: 44,
     paddingHorizontal: 6,
-    borderRadius: 12,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.inner,
+    borderColor: stand.glassLine,
   },
-  sheetChipOn: {
-    borderColor: groupTone.accent,
-    backgroundColor: groupTone.accent,
-  },
+  sheetChipOn: { borderColor: stand.mint, backgroundColor: stand.mint },
   sheetChipText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.text,
+    fontFamily: fontFamily.bold,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: stand.text,
   },
   sheetChipTextOn: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.onAccent,
+    fontFamily: fontFamily.black,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: stand.onMint,
   },
 });

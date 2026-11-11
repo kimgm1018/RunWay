@@ -15,6 +15,7 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Text as SvgText } from 'react-native-svg';
 import { useSession } from '../../session/SessionProvider';
 import {
   AppText,
@@ -35,30 +36,27 @@ import {
 import { formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import {
-  fontFamily,
-  size,
-  spacing,
-  ThemeProvider,
-  typography,
-} from '../../theme';
+import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { ServiceMark, useMusicSource } from '../run/parts';
 import {
   useRunActions,
   useRunControlState,
   type RunConfig,
 } from '../run/RunSession';
-import {
-  GroupCta,
-  groupLook,
-  NightBackground,
-  NumText,
-  Raised,
-  groupTone,
-} from './look';
+import { groupTone, NightBackground, NumText } from './look';
 import { MissingTarget } from './MissingTarget';
 import { BottomFade, Initial } from './parts';
 import { BackButton } from '../../components/BackButton';
+import {
+  ColorBar,
+  Figure,
+  memberColors,
+  stand,
+  StandButton,
+  StandHeader,
+  StandTag,
+  standType,
+} from './stand';
 
 const countdownSeconds = 3;
 
@@ -126,53 +124,54 @@ function useCountdown(target: string | null, now: Date) {
   ).padStart(2, '0')}`;
 }
 
-// 추천 공동 페이스 (runway-group-screen-designs 06, S15P31E105-594): a clock with the title and its basis under it,
-// the shared pace big in the middle, then under a line the run's own target pace and, when the server gives it,
-// the members' comfortable range, both centred.
+// 추천 공동 페이스 (그룹런 시안, S15P31E105-673): the clock, the title and its basis on the left with the shared pace
+// big under them, then past a line the run's own target pace and, when the server gives it, the members'
+// comfortable range.
 function PaceCard({ room, run }: { room: WaitingRoom; run: GroupRunDetail }) {
   const pace = room.recommendedPaceSecPerKm;
   const range = room.comfortRange;
   return (
-    <Raised tone="night" style={styles.card}>
-      <View style={styles.paceHead}>
-        <Icon name="clock" color={groupTone.text} size={22} />
-        <View>
-          <AppText style={styles.cardTitle}>추천 공동 페이스</AppText>
-          <AppText style={styles.noteText}>참가자 기록 기준</AppText>
+    <View style={styles.paceRow}>
+      <View style={styles.paceMain}>
+        <View style={styles.paceHead}>
+          <Icon name="clock" color={stand.mint} size={16} />
+          <AppText style={standType.label}>추천 공동 페이스</AppText>
         </View>
+        <AppText style={styles.noteText}>참가자 기록 기준</AppText>
+        {pace === null ? (
+          <AppText style={[styles.noteText, styles.paceMissing]}>
+            추천 정보 부족
+          </AppText>
+        ) : (
+          <Figure value={formatPace(pace)} unit="/km" size={50} />
+        )}
       </View>
-      {pace === null ? (
-        <AppText style={[styles.noteText, styles.center]}>
-          추천 정보 부족
-        </AppText>
-      ) : (
-        <AppText style={[styles.pace, styles.center]}>
-          {formatPace(pace)}
-          <AppText style={styles.paceUnit}>/km</AppText>
-        </AppText>
-      )}
-      <View style={styles.paceFoot}>
-        <NumText
-          style={[styles.paceLine, styles.center]}
-          text={`목표 페이스 ${formatPace(run.goalPaceSecPerKm)} /km`}
-        />
+      <View style={styles.paceSide}>
+        <View>
+          <AppText style={standType.smallLabel}>목표 페이스</AppText>
+          <NumText
+            style={styles.paceLine}
+            text={`${formatPace(run.goalPaceSecPerKm)} /km`}
+          />
+        </View>
         {/* 편한 범위는 실서버가 제공하지 않으므로 임의의 ±20초 범위를 만들지 않는다. */}
         {range ? (
-          <NumText
-            style={[styles.noteText, styles.center]}
-            text={`참가자 편한 범위 ${formatPace(range[0])} – ${formatPace(
-              range[1],
-            )}`}
-          />
+          <View>
+            <AppText style={standType.smallLabel}>참가자 편한 범위</AppText>
+            <NumText
+              style={styles.paceLine}
+              text={`${formatPace(range[0])} – ${formatPace(range[1])}`}
+            />
+          </View>
         ) : null}
       </View>
-    </Raised>
+    </View>
   );
 }
 
-// After 준비 완료 the button turns into a soft white 준비 취소 (GroupCta navy's secondary, S15P31E105-563).
+// After 준비 완료 the button turns into an outlined 준비 취소.
 function ReadyCancel({ onPress }: { onPress: () => void }) {
-  return <GroupCta navy title="준비 취소" primary={false} onPress={onPress} />;
+  return <StandButton title="준비 취소" tone="outline" onPress={onPress} />;
 }
 
 // 6.5 출발 준비: waiting room, my readiness and the shared pace on one screen. Only the leader starts;
@@ -352,6 +351,8 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
   }
 
   const me = room.participants.find(member => member.isMe);
+  // Everyone's colour in the run's order, so 6.4 and 6.5 agree.
+  const colors = memberColors([...run.participants, ...room.participants]);
   const isReady = me?.readyStatus === 'READY';
   const toggleReady = async () => {
     if (readyBusy.current || startRequested || (!isReady && !ensureRunLogin()))
@@ -406,22 +407,14 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
         <StatusBar barStyle="light-content" />
         {/* The app's mist behind white cards (S15P31E105-594 담당자 결정). */}
         <NightBackground />
-        <SafeAreaView edges={['top']}>
-          {/* 출발 준비 in the middle, then 출발까지 large under it (runway-group-screen-designs 06). */}
-          <View style={styles.header}>
-            <BackButton tone="dark" onPress={() => navigation.goBack()} />
-            <View style={styles.headerMiddle}>
-              <AppText accessibilityRole="header" style={styles.title}>
-                출발 준비
-              </AppText>
-            </View>
-            <View style={styles.headerSpace} />
-          </View>
+        <SafeAreaView edges={['top']} style={styles.top}>
+          <StandHeader title="출발 준비" onBack={() => navigation.goBack()} />
+          {/* 출발까지 in mint on the left, the time left large on the right, over a heavier line. */}
           {timeLeft ? (
-            <AppText style={styles.countdownLabel}>
-              {'출발까지 '}
+            <View style={styles.countdownRow}>
+              <AppText style={[standType.label, styles.flex]}>출발까지</AppText>
               <AppText style={styles.countdown}>{timeLeft}</AppText>
-            </AppText>
+            </View>
           ) : null}
         </SafeAreaView>
         <ScrollView contentContainerStyle={styles.content}>
@@ -429,76 +422,79 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
           {/* The watch and start notices as the 시안's card (runway-group-screen-designs 10-4): a red pink warning for
             the watch, a clock while the start is being confirmed. */}
           {watchProblem ? (
-            <Raised tone="night" style={styles.notice}>
-              <Icon name="alert" color={groupTone.danger} size={20} />
+            <View style={styles.notice}>
+              <Icon name="alert" color={stand.danger} size={20} />
               <AppText
                 accessibilityLiveRegion="polite"
                 style={styles.noticeText}
               >
                 {watchProblem}
               </AppText>
-            </Raised>
+            </View>
           ) : null}
           {watchError ? (
-            <Raised tone="night" style={styles.notice}>
-              <Icon name="alert" color={groupTone.danger} size={20} />
+            <View style={styles.notice}>
+              <Icon name="alert" color={stand.danger} size={20} />
               <AppText
                 accessibilityLiveRegion="polite"
                 style={styles.noticeText}
               >
                 {watchError}
               </AppText>
-            </Raised>
+            </View>
           ) : null}
           {startRequested ? (
-            <Raised tone="night" style={styles.notice}>
-              <Icon name="clock" color={groupTone.accent} size={20} />
+            <View style={styles.notice}>
+              <Icon name="clock" color={stand.mint} size={20} />
               <AppText
                 accessibilityLiveRegion="polite"
                 style={styles.noticeText}
               >
                 출발 요청이 승인됐어요. 기기의 실제 시작을 확인하고 있어요.
               </AppText>
-            </Raised>
-          ) : null}
-          {/* 6.5-MemberList (runway-group-screen-designs 06): one card, the counts on top with the ready count on the
-            right, then a row a member with lines between. */}
-          <Raised tone="night" style={styles.card}>
-            <View style={styles.membersHead}>
-              <Icon name="users" color={groupTone.text} size={18} />
-              <NumText
-                style={[styles.membersTitle, styles.flex]}
-                text={`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
-              />
-              <NumText
-                style={styles.readyCount}
-                text={`${room.readyCount}명 준비 완료`}
-              />
             </View>
-            <View>
-              {room.participants.map((member, index) => (
+          ) : null}
+          {/* 6.5-MemberList (그룹런 시안): the counts with the ready count in mint on the right over a heavier line, then
+            a row a member: their colour dot and bar, the name, and 준비 완료 in mint or 대기 중 in grey. My row is lit in
+            mint. */}
+          <View style={styles.membersHead}>
+            <Icon name="users" color={stand.text} size={17} />
+            <NumText
+              style={[styles.membersTitle, styles.flex]}
+              text={`참가 신청 ${room.appliedCount}명 · 대기방 ${room.participantCount}명`}
+            />
+            <NumText
+              style={styles.readyCount}
+              text={`${room.readyCount}명 준비 완료`}
+            />
+          </View>
+          <View>
+            {room.participants.map(member => {
+              const color = colors.get(member.userId) ?? stand.sub;
+              return (
                 <View
                   key={member.userId}
-                  style={[styles.member, index > 0 && styles.memberLine]}
+                  style={[styles.member, member.isMe && styles.memberMe]}
                 >
-                  <Initial
-                    name={member.nickname}
-                    index={index}
-                    size={36}
-                    photo={member.profileImageUrl}
-                  />
+                  <View style={styles.dotCell}>
+                    <Initial
+                      name={member.nickname}
+                      color={color}
+                      size={32}
+                      photo={member.profileImageUrl}
+                    />
+                  </View>
+                  <ColorBar color={color} style={styles.memberBar} />
                   <View style={styles.flex}>
                     <View style={styles.nameLine}>
-                      <AppText style={styles.memberName}>
+                      <AppText style={standType.name}>
                         {member.nickname}
                       </AppText>
                       {member.isHost ? (
-                        <Icon name="crown" color={groupTone.sub} size={13} />
+                        <Icon name="crown" color={stand.sub} size={14} />
                       ) : null}
                       {member.isMe ? (
-                        <View style={styles.meBadge}>
-                          <AppText style={styles.meText}>나</AppText>
-                        </View>
+                        <StandTag label="나" style={styles.me} />
                       ) : null}
                     </View>
                     {member.isMe && member.readinessScore !== null ? (
@@ -508,31 +504,29 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
                       />
                     ) : null}
                   </View>
-                  {/* Ready in the 시안's mint outline, waiting in a grey one. */}
                   {member.readyStatus === 'READY' ? (
-                    <View style={[styles.chip, styles.chipReady]}>
+                    <View style={styles.ready}>
+                      <Icon name="check" color={stand.mint} size={14} />
                       <AppText style={styles.statusReady}>준비 완료</AppText>
                     </View>
                   ) : (
-                    <View style={[styles.chip, styles.chipWaiting]}>
-                      <AppText style={styles.statusWaiting}>대기 중</AppText>
-                    </View>
+                    <AppText style={styles.statusWaiting}>대기 중</AppText>
                   )}
                 </View>
-              ))}
-            </View>
-          </Raised>
-          {/* The leader's 그룹런 시작 under the members, the note under it (runway-group-screen-designs 06). */}
+              );
+            })}
+          </View>
+          {/* The leader's 그룹런 시작 under the members, the note under it. */}
           {run.isHost && !startRequested ? (
-            <GroupCta
-              navy
+            <StandButton
               title={starting ? '출발 요청 중…' : '그룹런 시작'}
               icon="check"
+              style={styles.start}
               onPress={requestStart}
             />
           ) : null}
           <View style={styles.noteRow}>
-            <Icon name="alert" color={groupTone.sub} size={14} />
+            <Icon name="alert" color={stand.sub} size={14} />
             <AppText style={styles.noteText}>
               그룹장이 출발을 요청하면 준비된 기기의 실제 시작을 확인해요
             </AppText>
@@ -544,8 +538,7 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
             {isReady ? (
               <ReadyCancel onPress={toggleReady} />
             ) : (
-              <GroupCta
-                navy
+              <StandButton
                 title="준비 완료"
                 icon="check"
                 onPress={toggleReady}
@@ -562,18 +555,33 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
               {source && source !== 'NONE' ? (
                 <ServiceMark service={source} size={30} />
               ) : (
-                <Icon name="music" color={groupLook.onDark} size={20} />
+                <Icon name="music" color={stand.text} size={20} />
               )}
             </View>
           </PressableScale>
         </SafeAreaView>
-        {/* 출발 확인 (runway-group-screen-designs 10-3): the navy page, the title, the count in a mint ring. */}
+        {/* 출발 확인 (그룹런 시안): the page dimmed, the title and the count as a big mint outlined figure. */}
         <Modal visible={count !== null} transparent animationType="fade">
           <View style={styles.overlay}>
             <AppText style={styles.overlayTitle}>그룹장이 출발했어요</AppText>
-            <View style={styles.countRing}>
-              <AppText style={styles.count}>{count ?? ''}</AppText>
-            </View>
+            <Svg
+              width={240}
+              height={250}
+              accessibilityLabel={count === null ? undefined : `${count}`}
+            >
+              <SvgText
+                x={120}
+                y={212}
+                textAnchor="middle"
+                fontFamily={fontFamily.resultBlack}
+                fontSize={230}
+                fill="none"
+                stroke={stand.mint}
+                strokeWidth={3}
+              >
+                {count === null ? '' : String(count)}
+              </SvgText>
+            </Svg>
             <AppText style={styles.overlaySub}>내 기록이 함께 시작돼요</AppText>
           </View>
         </Modal>
@@ -594,156 +602,121 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.screen,
     paddingVertical: 6,
   },
-  headerMiddle: { flex: 1, alignItems: 'center' },
-  headerSpace: { width: 44 },
-  title: {
-    fontFamily: fontFamily.bold,
-    fontSize: 19,
-    lineHeight: 26,
-    color: groupTone.text,
+  top: { paddingHorizontal: 19 },
+  // 출발까지 and the time left over a heavier line (그룹런 시안).
+  countdownRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    height: 52,
+    marginTop: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
   },
-  countdownLabel: {
-    textAlign: 'center',
-    paddingBottom: 4,
-    fontFamily: fontFamily.bold,
-    fontSize: 20,
-    lineHeight: 46,
-    color: groupTone.text,
-  },
-  // The time left large in Archivo, like the pace.
   countdown: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 40,
-    color: groupTone.text,
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 38,
+    lineHeight: 50,
+    letterSpacing: -1,
+    color: stand.text,
   },
   content: {
-    paddingTop: spacing.md,
-    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingHorizontal: 19,
     paddingBottom: spacing.xxxl * 4,
-    gap: 12,
   },
-  card: { borderRadius: 20, padding: 18, gap: 12 },
-  cardTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 23,
-    color: groupTone.text,
-  },
-  paceHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  center: { textAlign: 'center' },
-  paceFoot: {
-    gap: 4,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: groupTone.line,
+  // The shared pace on the left, the target and the range past a line on the right.
+  paceRow: { flexDirection: 'row', alignItems: 'stretch' },
+  paceMain: { width: 204 },
+  paceHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  paceMissing: { marginTop: 14 },
+  paceSide: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 2,
+    marginBottom: 6,
+    paddingLeft: 12,
+    borderLeftWidth: 1,
+    borderLeftColor: stand.rule,
   },
   paceLine: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 21,
-    color: groupTone.text,
+    fontFamily: fontFamily.numberBold,
+    fontSize: 16,
+    lineHeight: 22,
+    color: stand.text,
   },
   noteText: {
     fontFamily: fontFamily.regular,
-    fontSize: 12.5,
+    fontSize: 12,
     lineHeight: 17,
-    color: groupTone.sub,
+    color: stand.sub,
   },
-  rowBetween: {
+  membersHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 18,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
   },
-  // The shared pace large in Archivo (S15P31E105-662).
-  pace: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 64,
-    lineHeight: 70,
-    color: groupTone.text,
-  },
-  paceUnit: {
-    fontFamily: fontFamily.numberSemiBold,
-    fontSize: 28,
-    color: groupTone.text,
-  },
-  membersHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   membersTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: groupTone.text,
+    color: stand.text,
   },
   readyCount: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 13,
+    lineHeight: 18,
+    color: stand.mint,
   },
-  // 6.5-MemberList rows.
+  // 6.5-MemberList rows: 54 high between thin lines.
   member: {
-    height: 58,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
   },
-  memberLine: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: groupTone.line,
+  // My row lit in mint, reaching 10 past the page's sides.
+  memberMe: {
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    backgroundColor: stand.meFill,
+    borderBottomColor: stand.meLine,
   },
-  chip: {
-    height: 30,
-    minWidth: 76,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipReady: { borderWidth: 1.5, borderColor: groupTone.accent },
-  chipWaiting: { borderWidth: 1, borderColor: groupTone.muted },
-  nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  memberName: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupTone.text,
-  },
-  // 나 as a small mint chip (민트는 작은 것에만, 담당자 요청).
-  meBadge: {
-    height: 18,
-    paddingHorizontal: 6,
-    borderRadius: 9,
-    justifyContent: 'center',
-    backgroundColor: groupLook.mint,
-  },
-  meText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 11,
-    lineHeight: 14,
-    color: groupLook.onMint,
-  },
+  dotCell: { width: 52 },
+  memberBar: { marginLeft: 6, marginRight: 12 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  me: { alignSelf: 'center', height: 18, paddingHorizontal: 7 },
   readiness: {
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupTone.sub,
+    color: stand.sub,
   },
+  ready: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statusReady: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupTone.accent,
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.mint,
   },
   statusWaiting: {
     fontFamily: fontFamily.medium,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupTone.sub,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.muted,
   },
+  start: { marginTop: 18 },
   noteRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    marginTop: 12,
   },
   footer: {
     position: 'absolute',
@@ -752,66 +725,55 @@ const styles = StyleSheet.create({
     bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: 14,
+    gap: 8,
+    paddingHorizontal: 19,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
+  // A 50 glass circle beside the main button with the music service's mark.
   music: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: stand.glassLine,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupTone.quiet,
+    backgroundColor: stand.glass,
   },
   notice: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 16,
-    borderRadius: 18,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: stand.field,
   },
   noticeText: {
     flex: 1,
     fontFamily: fontFamily.medium,
-    fontSize: 14.5,
-    lineHeight: 21,
-    color: groupTone.text,
+    fontSize: 14,
+    lineHeight: 20,
+    color: stand.text,
   },
   overlay: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xl,
-    backgroundColor: 'rgba(2,5,14,0.94)',
+    gap: 8,
+    backgroundColor: 'rgba(2,5,14,0.92)',
   },
   overlayTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 24,
     lineHeight: 32,
-    color: groupTone.text,
+    color: stand.text,
   },
   overlaySub: {
     fontFamily: fontFamily.regular,
-    fontSize: 15,
-    lineHeight: 21,
-    color: groupTone.sub,
-  },
-  countRing: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 5,
-    borderColor: groupTone.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  count: {
-    ...typography.metricHero,
-    fontFamily: fontFamily.numberBold,
-    fontSize: 110,
-    lineHeight: 120,
-    color: groupTone.text,
+    fontSize: 14,
+    lineHeight: 20,
+    color: stand.sub,
   },
 });
