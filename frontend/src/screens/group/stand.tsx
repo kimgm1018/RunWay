@@ -96,6 +96,20 @@ export function memberColors(
   return colors;
 }
 
+// The bar before a name in 6.6 그룹's standings (S15P31E105-693; 6.7 완주 현황 keeps its state colours): a run takes up to 200
+// people, too many for a colour each, so only the first row (선두) is orange and the last (후미) purple, colours the
+// screens use for nothing else (mint is me and 완주, red is 중단); everyone else a quiet grey. One row alone is the leader.
+export const idleBar = 'rgba(255,255,255,0.2)';
+export const leadBar = '#FF9F1C';
+export const tailBar = '#B58CFF';
+
+export function standingBarColor(index: number, count: number) {
+  if (index === 0) {
+    return leadBar;
+  }
+  return index === count - 1 ? tailBar : idleBar;
+}
+
 // A crew's colour, the bar before its name on 6.0 and under a run's title. The screens that name a crew know its
 // id but not where it sits in my list, so the colour comes from the id.
 const crewPalette = [

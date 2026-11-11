@@ -34,7 +34,7 @@ import {
 } from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
 import { groupTone, NumText } from './look';
-import { ColorBar, memberColors, stand, StandButton } from './stand';
+import { ColorBar, stand, StandButton, standingBarColor } from './stand';
 import { MissingTarget } from './MissingTarget';
 
 type Tab = 'summary' | 'group';
@@ -84,8 +84,6 @@ function GroupPage({
   myPace: number | null;
 }) {
   const guide = live?.guidePaceSecPerKm ?? goal;
-  // Everyone's colour in the order the server lists them (그룹런 시안), before sorting by place.
-  const colors = memberColors(live?.members ?? []);
   const rows = live
     ? [...live.members].sort(
         (a, b) =>
@@ -175,7 +173,7 @@ function GroupPage({
               >
                 <NumText text={role} style={styles.role} />
                 <ColorBar
-                  color={colors.get(member.userId) ?? stand.sub}
+                  color={standingBarColor(index, rows.length)}
                   style={styles.bar}
                 />
                 <AppText
@@ -706,33 +704,33 @@ const styles = StyleSheet.create({
   mint: { color: stand.mint },
   head: {
     fontFamily: fontFamily.regular,
-    fontSize: 12.5,
-    lineHeight: 17,
+    fontSize: 13.5,
+    lineHeight: 18,
     color: stand.sub,
   },
   role: {
     width: 56,
     fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 19,
     color: stand.text,
   },
   bar: { marginRight: 12 },
   name: {
     fontFamily: fontFamily.black,
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 18.5,
+    lineHeight: 25,
     color: stand.text,
   },
   value: {
     fontFamily: fontFamily.resultExtraBold,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 16.5,
+    lineHeight: 22,
     color: stand.text,
     textAlign: 'right',
   },
-  gapCol: { width: 92, textAlign: 'right' },
-  paceCol: { width: 70, textAlign: 'right' },
+  gapCol: { width: 100, textAlign: 'right' },
+  paceCol: { width: 76, textAlign: 'right' },
   // The pause notice: the line beside an icon between thin lines, its action under it, centred and underlined.
   notice: {
     paddingTop: 10,
