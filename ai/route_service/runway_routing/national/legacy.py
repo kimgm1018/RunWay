@@ -31,3 +31,6 @@ RUNTIME['runway_routing/array_graph.py'] = '95881e3d9f779ea1d0608ad1710d2af2fdb5
 # 서로 다른 값 단위로(모두 같은 값). prep 배열은 같다.
 RUNTIME['runway_routing/graph.py'] = '6be7ccdfa59abc5a5b054b450f486bcd36c613de014b2d2abe0fdac9badc67d9'
 RUNTIME['runway_routing/array_graph.py'] = '54a4b3f9f8b596a081249249c4c773a8e88bda1c395ad2ee6e695fd0b095437e'
+# 653: P2P 도착점 찾기 disk mask의 같은 값 빠른 계산(prepared 원 판정·pair별 최단 선분 Numba 훑기·bool 표시 정렬 집합·
+# PE5 선 순서용 G node 순번을 필요한 node만). prep 배열은 같다.
+RUNTIME['runway_routing/substrate.py'] = '372e355962a2314bb6c792ed1aca854d05713d9e8ec37ab36f8c911fe4941f0c'
