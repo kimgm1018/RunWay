@@ -37,6 +37,10 @@ export const runTabRoutes = [
   'CourseStart',
   'CourseRun',
 ] as const;
+// The 러닝 tab opens on the 2.0F map (S15P31E105-683). 2.0M 러닝 방식 선택 stays registered, but nothing leads to it:
+// a course is picked from the map's 코스 설정 chip instead.
+export const runTabInitialRoute =
+  'FreeRun' satisfies (typeof runTabRoutes)[number];
 // 5.1 · 5.3 sit in the home tab, under its tab bar (runway-records, S15P31E105-465).
 export const homeTabRoutes = ['Records', 'Analysis'] as const;
 export const groupTabRoutes = ['MyCrews', 'CrewRecruit'] as const;
@@ -206,7 +210,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '자유 러닝',
     task: HOME,
     tab: 'RunTab',
-    links: ['RunMode', 'MusicCard', 'RunProgress'],
+    links: ['CourseStart', 'MusicCard', 'RunProgress'],
   },
   // 코스 러닝 opens on the map like 2.0F, with 코스 설정 in place of 목표 설정 (담당자 요청).
   CourseStart: {

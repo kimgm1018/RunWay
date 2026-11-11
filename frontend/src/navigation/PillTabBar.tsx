@@ -8,6 +8,7 @@ import { PressableScale } from '../components';
 import { useResource, type Repositories } from '../data';
 import { fontFamily, k1, size } from '../theme';
 import type { MainTabParamList } from './types';
+import { runTabInitialRoute } from './routes';
 
 type TabKey = keyof MainTabParamList;
 
@@ -58,6 +59,13 @@ const runOn = '#FFFFFF';
 
 // The run start screens hide the tab bar: their own start row sits at the foot (S15P31E105-517, 담당자 결정).
 const hiddenOn = ['FreeRun', 'CourseStart', 'CourseRun'];
+
+// The run tab's top screen; before its stack has a state of its own, it shows its first screen.
+function runFocusedRoute(
+  route: Parameters<typeof getFocusedRouteNameFromRoute>[0],
+) {
+  return getFocusedRouteNameFromRoute(route) ?? runTabInitialRoute;
+}
 
 const loadMe = (repositories: Repositories) => repositories.profile.getMe();
 
@@ -274,7 +282,10 @@ export function PillTabBar({ state, navigation }: BottomTabBarProps) {
   }, [refreshMe, state.index]);
   const photo = me.data?.profileImageUrl ?? null;
   const current = state.routes[state.index];
-  const shown = getFocusedRouteNameFromRoute(current);
+  const shown =
+    current.name === 'RunTab'
+      ? runFocusedRoute(current)
+      : getFocusedRouteNameFromRoute(current);
   if (shown && hiddenOn.includes(shown)) {
     return null;
   }

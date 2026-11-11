@@ -27,11 +27,7 @@ import {
   MistFill,
   useToast,
 } from '../../components';
-import {
-  errorCode,
-  useRepositories,
-  type RecommendedCourse,
-} from '../../data';
+import { errorCode, useRepositories, type RecommendedCourse } from '../../data';
 import { formatKm, formatPace, withoutDistance } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { BackGlassButton } from '../records/look';
@@ -40,6 +36,7 @@ import { MAX_REROLLS, useCourseSearch } from './CourseSearch';
 import { recommendFailureNotice } from './recommendFailure';
 import { useRequestTicket } from './requestTicket';
 import { RouteLine } from './RouteLine';
+import { RunMap } from '../../components/RunMap';
 
 // A fixed place, not my location (S15P31E105-494: no fixed point stands in for 현재 위치).
 const defaultSearch = {
@@ -152,16 +149,42 @@ function ChooseButton({
 }
 
 // The darker foot of a 3.1b card: clear for its top 38%, then deepening to 45% near-black.
-function CardFoot({ id, width }: { id: string; width: number }) {
+// Over the map (S15P31E105-683) the foot turns near-black sooner, so the white figures on it stay readable.
+function CardFoot({
+  id,
+  width,
+  deep = false,
+}: {
+  id: string;
+  width: number;
+  deep?: boolean;
+}) {
+  const stops = deep
+    ? [
+        [0, 0],
+        [0.18, 0.55],
+        [0.4, 0.88],
+        [1, 0.94],
+      ]
+    : [
+        [0, 0],
+        [0.38, 0],
+        [0.66, 0.25],
+        [1, 0.45],
+      ];
   return (
     <View style={styles.foot} pointerEvents="none">
       <Svg width={width} height={footHeight}>
         <Defs>
           <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset={0} stopColor="#06080B" stopOpacity={0} />
-            <Stop offset={0.38} stopColor="#06080B" stopOpacity={0} />
-            <Stop offset={0.66} stopColor="#06080B" stopOpacity={0.25} />
-            <Stop offset={1} stopColor="#06080B" stopOpacity={0.45} />
+            {stops.map(([offset, opacity]) => (
+              <Stop
+                key={offset}
+                offset={offset}
+                stopColor="#06080B"
+                stopOpacity={opacity}
+              />
+            ))}
           </LinearGradient>
         </Defs>
         <Rect width={width} height={footHeight} fill={`url(#${id})`} />
@@ -181,12 +204,17 @@ function Pill({ label, small = false }: { label: string; small?: boolean }) {
   );
 }
 
+// Where the course sits on a card's front: 70 under its top, clear of the 340 high foot.
+const routeTop = 70;
+const routeFoot = 340;
+
 // One 3.1b card: the course line on the front, the course detail on the back. Tapping turns it over.
 // Both faces are course cards (DESIGN.md 2-7), so everything on them reads the dark tone.
 function CourseCard({
   course,
   width,
   height,
+  live,
   goalPace,
   onChoose,
   onToggleSave,
@@ -194,6 +222,9 @@ function CourseCard({
   course: RecommendedCourse;
   width: number;
   height: number;
+  // The card in view draws the course on the map (S15P31E105-683, 담당자 요청); the others keep the mist and the bare
+  // line, so only one native map runs while the row is swiped.
+  live: boolean;
   // The pace asked for on 3.1, shown as 목표 6′00″/km.
   goalPace: number | null;
   onChoose: () => void;
@@ -236,10 +267,30 @@ function CourseCard({
         {/* runway-course-handoff 3.1b: the mist card with the bare course line, a darker foot and the details. */}
         <View style={[styles.faceCard, styles.mistCard]}>
           <MistFill id={`course${course.id}`} />
-          <View style={styles.route}>
-            <RouteLine route={course.route} thin />
-          </View>
-          <CardFoot id={`foot${course.id}`} width={width} />
+          {live && !back ? (
+            // The run map's look: bright, the mint course and its start, in a TextureView so the card's round
+            // corners clip it. It takes no touches, so a tap still turns the card over; turned over, it goes.
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <RunMap
+                route={course.route}
+                area={{ top: routeTop / height, bottom: routeFoot / height }}
+                logo={{ above: (height - routeFoot) / height }}
+                interactive={false}
+                look="mint"
+                textureView
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          ) : (
+            <View style={styles.route}>
+              <RouteLine route={course.route} thin />
+            </View>
+          )}
+          <CardFoot
+            id={`foot${course.id}`}
+            width={width}
+            deep={live && !back}
+          />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={course.saved ? '저장 해제' : '내 코스에 저장'}
@@ -688,6 +739,7 @@ export function RecommendedCoursesScreen() {
                       course={course}
                       width={cardWidth}
                       height={cardHeight}
+                      live={position === index}
                       goalPace={goalPace}
                       onChoose={() => choose(course)}
                       onToggleSave={() => toggleSave(course)}
@@ -771,10 +823,10 @@ const styles = StyleSheet.create({
   // The course line fills the upper part of the front.
   route: {
     position: 'absolute',
-    top: 70,
+    top: routeTop,
     left: 50,
     right: 50,
-    bottom: 340,
+    bottom: routeFoot,
   },
   foot: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   // A round 62 glass button (the mockup's 65×62 oval, README 알려진 문제).

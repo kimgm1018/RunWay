@@ -305,11 +305,10 @@ async function launch() {
   return screen!;
 }
 
-// 2.0M 코스 러닝 opens the map (2.0C), whose 코스 설정 opens 3.1 오늘의 러닝 (담당자 요청).
+// The run tab's map has 코스 설정 beside the goal, which opens 3.1 오늘의 러닝 (S15P31E105-683).
 async function openTodayRun() {
   const screen = await launch();
   await press(screen, '러닝');
-  await press(screen, '코스 러닝');
   await press(screen, '코스 설정');
   return screen;
 }
@@ -336,12 +335,12 @@ afterEach(async () => {
   }
 });
 
-test('2.0C opens my saved courses from the server beside 코스 설정 (S15P31E105-564)', async () => {
+test('코스 설정 opens my saved courses from the server on its 저장한 코스 tab (S15P31E105-683)', async () => {
   const screen = await launch();
   // 2.1 has no 저장한 코스 any more.
   expect(texts(screen)).not.toContain('저장한 코스');
   await press(screen, '러닝');
-  await press(screen, '코스 러닝');
+  await press(screen, '코스 설정');
   await press(screen, '저장한 코스');
   await settle();
   expect(texts(screen)).toContain('5.0km');

@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { AppText, Icon, LightGlass } from '../../components';
+import { StackActions, useNavigation } from '@react-navigation/native';
+import { AppText, BottomSheet } from '../../components';
 import { useRepositories, useResource, type Repositories } from '../../data';
 import type { RunRecordSummary } from '../../data/types';
 import {
@@ -9,15 +9,13 @@ import {
   formatDuration,
   formatKm,
   formatPace,
-  isNight,
   withoutDistance,
 } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
-import { fontFamily, radius, spacing, useTheme } from '../../theme';
+import { fontFamily, k1, ThemeProvider, useTheme } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
-import { coursePaceColors } from '../../components/mapRoute';
 import { RunMap } from '../../components/RunMap';
-import { PlaceCard, RunStartBar } from './parts';
+import { gpsLabels, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 import { RunGoalSheet } from './goal/RunGoalSheet';
 import {
@@ -28,47 +26,13 @@ import {
 } from './goal/runGoal';
 import { BackButton } from '../../components/BackButton';
 import { useCourseSearch } from '../course/CourseSearch';
+import { courseGoalOf, useRunGoalDraft } from './goal/RunGoalDraft';
 
 const loadPlan = (repositories: Repositories) =>
   repositories.courses.getTodayPlan();
 // Looked up apart from the plan, so a slow or failed GPS fix never holds the course back.
 const loadPlace = (repositories: Repositories) =>
   repositories.run.getCurrentPlace();
-
-function ChangeLink({ large = false }: { large?: boolean }) {
-  const navigation = useNavigation();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="코스 변경"
-      onPress={() => navigateTo(navigation, 'TodayRun')}
-      hitSlop={8}
-    >
-      <AppText
-        variant="captionStrong"
-        style={large ? styles.changeText : undefined}
-      >
-        변경
-      </AppText>
-    </Pressable>
-  );
-}
-
-// Legend for the segment colors: 빠름 ■■■ 느림, a small glass pill (runway-course-handoff PaceLegend).
-function PaceLegend() {
-  return (
-    <LightGlass radius={11} style={styles.legend}>
-      <AppText style={[styles.legendText, styles.legendStart]}>빠름</AppText>
-      {coursePaceColors.map(color => (
-        <View
-          key={color}
-          style={[styles.legendBar, { backgroundColor: color }]}
-        />
-      ))}
-      <AppText style={[styles.legendText, styles.legendEnd]}>느림</AppText>
-    </LightGlass>
-  );
-}
 
 // 경쟁 모드 (S15P31E105-422): pick one of my earlier runs on this course, or none. The server checks the pick
 // and compares the time to reach the same distance during the run; nothing shows when the course has no run yet.
@@ -170,14 +134,14 @@ function ComparisonPicker({
   );
 }
 
-// 2.0 코스 러닝 (낮) and 2.0N (밤): the chosen course with a pace per km, ready to start. By day the
-// runway-course-handoff screen: a glass strategy bar, the legend, the hollow pace-colored course and a
-// glass strategy sheet.
+// 2.0 코스 러닝: the chosen course, ready to start. Since S15P31E105-683 it is 2.0F's map with a course picked: 뒤로
+// alone at the top, the course one mint line with me in a bubble, and the course chip beside the goal under
+// 오늘의 전략 (or the course's figures).
 export function CourseRunScreen() {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const { clock } = useRepositories();
-  const night = isNight(clock.now());
+  // The run start map stays bright after sunset (S15P31E105-683), so its card keeps the day design too (담당자 요청).
+  const night = false;
   const resource = useResource(useCallback(loadPlan, []));
   const placeResource = useResource(useCallback(loadPlace, []));
   const plan = resource.status === 'ready' ? resource.data : null;
@@ -192,12 +156,45 @@ export function CourseRunScreen() {
   const { search } = useCourseSearch();
   const [picked, setGoal] = useState<RunGoal | null>(null);
   useEffect(() => setGoal(null), [search]);
+  // The goal set on the map comes first (S15P31E105-683), then the one typed on 3.1, then the plan's.
+  const draft = useRunGoalDraft();
   const goal: RunGoal = picked ??
+    courseGoalOf(draft.goal) ??
     goalFromSearch(search) ?? {
       kind: plan && !plan.targetPaceSecPerKm ? 'NONE' : 'PLAN',
     };
+  // A picked course that brings a goal of its own (3.1's 목표 or the plan's pace) while a different goal was set on the
+  // map: the user chooses which to run with, once per course (S15P31E105-683, 담당자 요청). Until then the map's stays.
+  const mapGoal = courseGoalOf(draft.goal);
+  const suggested: RunGoal | null =
+    goalFromSearch(search) ??
+    (plan?.targetPaceSecPerKm ? { kind: 'PLAN' } : null);
+  const askKey = plan
+    ? `${plan.courseId}|${JSON.stringify(suggested)}|${JSON.stringify(mapGoal)}`
+    : null;
+  const asked = useRef<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  useEffect(() => {
+    if (!askKey || asked.current === askKey) {
+      return;
+    }
+    asked.current = askKey;
+    setAsking(
+      !!mapGoal &&
+        !!suggested &&
+        JSON.stringify(mapGoal) !== JSON.stringify(suggested),
+    );
+    // mapGoal and suggested are in askKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askKey]);
+  // A goal set here goes back to the map too, so dropping the course keeps it; 추천 전략 belongs to the course.
+  const keep = (next: RunGoal) => {
+    setGoal(next);
+    if (next.kind !== 'PLAN') {
+      draft.setGoal(next);
+    }
+  };
   const [choosing, setChoosing] = useState(false);
-  const [startSignal, setStartSignal] = useState(0);
   const course = plan
     ? { distanceM: plan.distanceM, plannedPace: plan.targetPaceSecPerKm }
     : undefined;
@@ -222,40 +219,32 @@ export function CourseRunScreen() {
     />
   ) : null;
 
-  // Without a pace plan the course is one plain line.
-  const paces = plan?.segmentPacesSecPerKm.length
-    ? plan.segmentPacesSecPerKm
-    : undefined;
-  const title = plan
-    ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
-    : '';
-  const top = noCourse ? (
+  // A name that already says its distance (5.0km 코스) is not followed by it again.
+  const title = !plan
+    ? ''
+    : /\d\s*km/i.test(plan.name)
+    ? plan.name
+    : `${withoutDistance(plan.name)} · ${formatKm(plan.distanceM, 1)}km`;
+  // The course chip (S15P31E105-683): the picked course on the right of the goal; a tap changes it on 3.1, its ✕
+  // drops it and the same map goes back to a free run.
+  const courseChip = plan
+    ? {
+        label: title,
+        picked: true,
+        onPress: () => navigateTo(navigation, 'TodayRun'),
+        // Back to the map under it (or in its place), so the stack never holds two of the same map.
+        onClear: () => navigation.dispatch(StackActions.popTo('FreeRun')),
+      }
+    : {
+        label: '코스 설정',
+        picked: false,
+        onPress: () => navigateTo(navigation, 'TodayRun'),
+      };
+  // Only 뒤로 at the top, like 2.0F: the course is in its chip and where I am in the bubble on the map.
+  const top = (
     <View style={styles.nightTop}>
-      <BackButton tone={night ? 'dark' : 'light'} onPress={navigation.goBack} />
+      <BackButton onPress={navigation.goBack} />
     </View>
-  ) : !plan ? null : night && place ? (
-    <View style={styles.nightTop}>
-      <BackButton tone="dark" onPress={navigation.goBack} />
-      <View style={styles.flex}>
-        <PlaceCard name={place.name} gps={place.gps} />
-      </View>
-    </View>
-  ) : (
-    <>
-      <LightGlass radius={31} style={styles.topBar}>
-        <BackButton onPress={navigation.goBack} />
-        <View style={styles.flex}>
-          <AppText style={styles.kicker}>
-            {plan.strategy ? '오늘의 러닝 전략' : '코스 러닝'}
-          </AppText>
-          <AppText style={styles.topTitle} numberOfLines={1}>
-            {title}
-          </AppText>
-        </View>
-        <ChangeLink large />
-      </LightGlass>
-      {paces ? <PaceLegend /> : null}
-    </>
   );
 
   const bottom = noCourse ? (
@@ -269,16 +258,7 @@ export function CourseRunScreen() {
           코스를 추천받거나 저장한 코스에서 골라 주세요
         </AppText>
       </View>
-      <RunStartBar
-        night={night}
-        mode="COURSE"
-        config={null}
-        goal={{
-          label: '코스 설정',
-          title: '코스 설정',
-          onPress: () => navigateTo(navigation, 'TodayRun'),
-        }}
-      />
+      <RunStartBar night={night} config={null} course={courseChip} />
     </>
   ) : !plan ? (
     resource.status === 'error' ? (
@@ -286,44 +266,29 @@ export function CourseRunScreen() {
     ) : (
       <ActivityIndicator />
     )
-  ) : night ? (
-    <>
-      <View style={styles.row}>
-        <View style={[styles.tile, { backgroundColor: colors.surfaceMuted }]}>
-          <Icon name="route" color={colors.text} size={18} />
-        </View>
-        <View style={styles.flex}>
-          <AppText variant="label" tone="textTertiary">
-            코스 러닝
-          </AppText>
-          <AppText variant="heading" numberOfLines={1}>
-            {`${withoutDistance(plan.name)} · ${formatKm(plan.distanceM, 1)}km`}
-          </AppText>
-        </View>
-        <ChangeLink />
-      </View>
-      {picker}
-      <RunStartBar
-        night
-        mode="COURSE"
-        config={courseConfig}
-        goal={goalChip}
-        startSignal={startSignal}
-      />
-    </>
   ) : (
     <>
       {plan.strategy ? (
         <View>
-          <AppText style={styles.kickerSheet}>오늘의 전략</AppText>
           <AppText
-            style={styles.strategy}
+            style={[
+              styles.kickerSheet,
+              night && { color: colors.textSecondary },
+            ]}
+          >
+            오늘의 전략
+          </AppText>
+          <AppText
+            style={[styles.strategy, night && { color: colors.text }]}
             numberOfLines={1}
             adjustsFontSizeToFit
           >
             {plan.strategy}
           </AppText>
-          <AppText style={styles.goal} numberOfLines={1}>
+          <AppText
+            style={[styles.goal, night && { color: colors.textSecondary }]}
+            numberOfLines={1}
+          >
             {plan.targetPaceSecPerKm
               ? `목표 ${formatPace(
                   plan.targetPaceSecPerKm,
@@ -337,9 +302,16 @@ export function CourseRunScreen() {
       ) : (
         // A server course has no pace plan yet: only its own figures, no strategy (S15P31E105-635).
         <View>
-          <AppText style={styles.kickerSheet}>코스 정보</AppText>
           <AppText
-            style={styles.strategy}
+            style={[
+              styles.kickerSheet,
+              night && { color: colors.textSecondary },
+            ]}
+          >
+            코스 정보
+          </AppText>
+          <AppText
+            style={[styles.strategy, night && { color: colors.text }]}
             numberOfLines={1}
             adjustsFontSizeToFit
           >
@@ -351,33 +323,42 @@ export function CourseRunScreen() {
       )}
       {picker}
       <RunStartBar
-        night={false}
-        mode="COURSE"
+        night={night}
         config={courseConfig}
         goal={goalChip}
-        startSignal={startSignal}
+        course={courseChip}
       />
     </>
   );
 
   return (
     <>
-      <MapScreenFrame
-        renderMap={logo => (
-          <RunMap
-            route={plan?.route}
-            segmentPaces={paces}
-            // The km paces are labelled by day; after sunset the course is a plain white line.
-            paceLabels={night ? undefined : paces?.map(formatPace)}
-            area={{ top: 0.19, bottom: 0.56 }}
-            logo={logo}
-            view="lean"
-            style={StyleSheet.absoluteFill}
-          />
-        )}
-        top={top}
-        bottom={bottom}
-      />
+      <ThemeProvider tone="light">
+        <MapScreenFrame
+          renderMap={logo => (
+            <RunMap
+              // One mint line, the same as 2.0F's map (S15P31E105-683); the plan's km paces stay in 오늘의 전략.
+              route={plan?.route}
+              position={place?.position ?? undefined}
+              placeLabel={
+                place
+                  ? {
+                      title: place.name,
+                      sub: `현재 위치 · ${gpsLabels[place.gps]}`,
+                    }
+                  : undefined
+              }
+              area={{ top: 0.19, bottom: 0.56 }}
+              logo={logo}
+              view="lean"
+              look="mint"
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+          top={top}
+          bottom={bottom}
+        />
+      </ThemeProvider>
       <RunGoalSheet
         visible={choosing}
         onClose={() => setChoosing(false)}
@@ -385,15 +366,55 @@ export function CourseRunScreen() {
         goal={goal}
         course={course}
         onSet={next => {
-          setGoal(next);
+          keep(next);
           setChoosing(false);
-        }}
-        onStart={next => {
-          setGoal(next);
-          setChoosing(false);
-          setStartSignal(value => value + 1);
         }}
       />
+      {mapGoal && suggested ? (
+        <ThemeProvider tone="dark">
+          <BottomSheet
+            visible={asking}
+            onClose={() => setAsking(false)}
+            title="어떤 목표로 달릴까요?"
+            description="이 코스에는 추천 목표가 있어요."
+            background={k1.night}
+          >
+            <View style={styles.choices}>
+              {[
+                {
+                  label: '코스 추천 목표',
+                  goal: suggested,
+                  a11y: '코스 추천 목표로 달리기',
+                },
+                {
+                  label: '내가 정한 목표',
+                  goal: mapGoal,
+                  a11y: '내가 정한 목표 유지',
+                },
+              ].map(choice => (
+                <Pressable
+                  key={choice.label}
+                  accessibilityRole="button"
+                  accessibilityLabel={choice.a11y}
+                  onPress={() => {
+                    setGoal(choice.goal);
+                    setAsking(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.choice,
+                    pressed && styles.choicePressed,
+                  ]}
+                >
+                  <AppText style={styles.choiceKicker}>{choice.label}</AppText>
+                  <AppText style={styles.choiceValue} numberOfLines={1}>
+                    {goalLabel(choice.goal, plan?.targetPaceSecPerKm)}
+                  </AppText>
+                </Pressable>
+              ))}
+            </View>
+          </BottomSheet>
+        </ThemeProvider>
+      ) : null}
     </>
   );
 }
@@ -402,55 +423,7 @@ const ink = '#02050E';
 const grey = '#95969A';
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   nightTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  // The glass strategy bar: a bare back chevron, the course and 변경.
-  topBar: {
-    height: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 8,
-    paddingRight: 18,
-  },
-
-  kicker: {
-    fontFamily: fontFamily.regular,
-    fontSize: 12,
-    lineHeight: 16,
-    color: grey,
-  },
-  topTitle: {
-    fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    letterSpacing: -0.3,
-    color: ink,
-  },
-  changeText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 18,
-    color: ink,
-  },
-  legend: {
-    alignSelf: 'flex-end',
-    height: 22,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    boxShadow: '0 4px 14px rgba(30,45,60,0.12)',
-  },
-  legendText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 11,
-    lineHeight: 14,
-    color: ink,
-  },
-  legendStart: { marginRight: 2 },
-  legendEnd: { marginLeft: 2 },
-  legendBar: { width: 14, height: 5, borderRadius: 3 },
   picker: { gap: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: {
@@ -481,12 +454,24 @@ const styles = StyleSheet.create({
     color: '#67696E',
   },
   caution: { fontFamily: fontFamily.bold, color: '#D44A4A' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
-  tile: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
+  choices: { gap: 10 },
+  choice: {
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  choicePressed: { opacity: 0.7 },
+  choiceKicker: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: grey,
+  },
+  choiceValue: {
+    fontFamily: fontFamily.bold,
+    fontSize: 18,
+    lineHeight: 25,
+    color: ink,
   },
 });

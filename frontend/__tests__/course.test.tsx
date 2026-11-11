@@ -112,7 +112,7 @@ function withLocation(
   };
 }
 
-// Signs in and opens 3.1 오늘의 러닝 from 2.0M 코스 러닝.
+// Signs in and opens 3.1 오늘의 러닝 from the run tab's map.
 async function openTodayRun(
   scenario: MockScenario = 'default',
   repositories: Repositories = withLocation(
@@ -127,8 +127,7 @@ async function openTodayRun(
   });
   await settle();
   await press(screen!, '러닝');
-  await press(screen!, '코스 러닝');
-  // 코스 러닝 opens on the map (2.0C); 코스 설정 leads to 3.1 (담당자 요청).
+  // The run map's 코스 설정 chip leads to 3.1 (S15P31E105-683).
   await press(screen!, '코스 설정');
   return screen!;
 }
@@ -303,8 +302,13 @@ test('기준 위치를 지도에서 눌러 고르고, 취소하면 그대로 둔
     });
     await settle();
   };
-  // The conditions map is read-only; opening the picker enables map selection.
-  expect(map().props.onTapMap).toBeUndefined();
+  // A tap on the conditions map only folds 코스 조건 down to its title (S15P31E105-683); its title opens it
+  // again. Picking a place on the map is the picker's.
+  await tap(35.1532, 129.1186);
+  expect(() => labelled(screen, '코스 조건 펼치기')).not.toThrow();
+  expect(texts(screen)).toContain('기준 위치 설정하기');
+  await press(screen, '코스 조건 펼치기');
+  expect(() => labelled(screen, '코스 조건 접기')).not.toThrow();
 
   await press(screen, '기준 위치 ');
   expect(texts(screen)).toContain('출발 위치 선택');
@@ -320,7 +324,10 @@ test('기준 위치를 지도에서 눌러 고르고, 취소하면 그대로 둔
   await press(screen, '이 위치로 확정');
   expect(() => labelled(screen, '기준 위치 지도에서 고른 위치')).not.toThrow();
   expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
-  expect(map().props.onTapMap).toBeUndefined();
+  // Back on the conditions, a map tap folds them again rather than picking a place.
+  await tap(35.16, 129.12);
+  expect(() => labelled(screen, '코스 조건 펼치기')).not.toThrow();
+  expect(() => labelled(screen, '기준 위치 지도에서 고른 위치')).not.toThrow();
   await act(async () => screen.unmount());
 });
 
@@ -389,12 +396,51 @@ test('recommended courses turn over to their detail and lead to the course run',
       )[0]
       .props.onPress();
   });
-  await waitForText(screen, '오늘의 러닝 전략');
-  // The name already ends in its distance, so the bar shows it once.
+  await waitForText(screen, '오늘의 전략');
+  // The name already ends in its distance, so the course chip shows it once (S15P31E105-683).
   expect(texts(screen)).toContain('민락수변공원 출발 5.0km');
-  expect(texts(screen)).not.toContain('민락수변공원 출발 5.0km 5.0km');
-  expect(texts(screen)).toContain('오늘의 러닝 전략');
+  expect(texts(screen)).not.toContain('민락수변공원 출발 5.0km · 5.0km');
   await act(async () => screen.unmount());
+});
+
+test('a recommended course with a goal of its own asks whether to keep the goal set on the map (S15P31E105-683)', async () => {
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App
+        repositories={withLocation(createMockRepositories({ latencyMs: 0 }))}
+        initialSignedIn
+      />,
+    );
+  });
+  await settle();
+  // 5km in 30분 on the map: 6′00″/km on a course.
+  await press(screen!, '러닝');
+  await press(screen!, '목표 설정');
+  await press(screen!, '거리 목표 선택');
+  await press(screen!, '시간 목표 선택');
+  await press(screen!, '목표 설정 완료');
+  await press(screen!, '코스 설정');
+  await press(screen!, '코스 추천 받기');
+  await act(async () => {
+    screen!.root
+      .findAll(
+        node =>
+          node.props.accessibilityLabel === '이 코스로 달리기' &&
+          typeof node.props.onPress === 'function',
+      )[0]
+      .props.onPress();
+  });
+  // 3.1 asked for 30분, so the course brings that goal: the user picks which one to run with.
+  await waitForText(screen!, '어떤 목표로 달릴까요?');
+  expect(texts(screen!)).toContain('30분 달리기');
+  expect(texts(screen!)).toContain('6′00″/km로 달리기');
+  await press(screen!, '내가 정한 목표 유지');
+  expect(texts(screen!)).not.toContain('어떤 목표로 달릴까요?');
+  expect(labelled(screen!, '목표 설정').props.accessibilityHint).toBe(
+    '6′00″/km로 달리기',
+  );
+  await act(async () => screen!.unmount());
 });
 
 test.each([
@@ -433,8 +479,9 @@ test('saved courses show nicknames, undo an unsave and open the course run', asy
   await press(screen, '되돌리기');
   expect(texts(screen)).toContain('이기대 갈맷길');
   await press(screen, '민락수변 왕복, 5.4km 33분');
-  await waitForText(screen, '민락수변 왕복 5.4km');
-  expect(texts(screen)).toContain('민락수변 왕복 5.4km');
+  // The picked course in its chip beside the goal (S15P31E105-683).
+  await waitForText(screen, '민락수변 왕복 · 5.4km');
+  expect(texts(screen)).toContain('민락수변 왕복 · 5.4km');
   await act(async () => screen.unmount());
 });
 
