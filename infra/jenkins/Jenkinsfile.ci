@@ -286,6 +286,7 @@ pipeline {
                                             // 서비스·현재 모델 실행 소스·AI 이미지 설정이 바뀌면 검사한다.
                                             checkAI = common || files.any {
                                                 it.startsWith('ai/service/') ||
+                                                it.startsWith('ai/bpm/') ||
                                                 it.startsWith('ai/workspace/doyeon/gru/src/') ||
                                                 it.startsWith('infra/ai/')
                                             }

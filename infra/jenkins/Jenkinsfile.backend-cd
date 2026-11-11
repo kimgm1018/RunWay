@@ -120,6 +120,7 @@ pipeline {
             when { expression { env.CD_DEPLOY == 'true' } }
             steps {
                 sh '''
+                    BACKEND_API_ROUTES_FILE="$WORKSPACE/backend/build/generated/monitoring/api-routes.json" \
                     bash infra/backend/deploy.sh "$BACKEND_IMAGE" \
                         /home/ubuntu/runway/infra/backend/compose.yaml
                 '''
@@ -127,7 +128,7 @@ pipeline {
         }
         stage('Backend Archive') {
             steps {
-                archiveArtifacts artifacts: 'backend/build/libs/*.jar', fingerprint: true
+                archiveArtifacts artifacts: 'backend/build/libs/*.jar,backend/build/generated/monitoring/api-routes.json', fingerprint: true
             }
         }
     }

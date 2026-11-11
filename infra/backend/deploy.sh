@@ -16,6 +16,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 probe_image=python:3.12-alpine
 deployment_started=false
 previous_image_id=
+catalog_update_started=false
+previous_catalog=
 
 if [[ $compose_file != /* || ! -r $compose_file ]]; then
     echo '읽을 수 있는 배포 Compose 절대 경로가 필요합니다.' >&2
@@ -38,6 +40,14 @@ state_dir=${3:-/home/jenkins/agent/deploy-state/backend}
 mkdir -p "$state_dir"
 exec 9>"$state_dir/deploy.lock"
 flock -n 9 || { echo '이미 백엔드 배포가 진행 중입니다.' >&2; exit 2; }
+export BACKEND_API_ROUTES_DEPLOY_LOCK_HELD=true
+
+# CD가 전달한 검증 산출물은 교체 전에 검사하고, 목록도 같은 배포 잠금으로 관리한다.
+if [[ -n ${BACKEND_API_ROUTES_FILE:-} ]]; then
+    [[ -r $BACKEND_API_ROUTES_FILE ]] || { echo 'API 경로 산출물이 없습니다.' >&2; exit 2; }
+    bash "$script_dir/apply-api-routes.sh" validate "$BACKEND_API_ROUTES_FILE"
+    previous_catalog=$(bash "$script_dir/apply-api-routes.sh" current)
+fi
 
 # 지정한 이미지를 BACKEND_IMAGE에 넣어 같은 Compose 파일로 배포·복구한다.
 compose() {
@@ -81,6 +91,10 @@ next_image_id=$(docker image inspect --format '{{.Id}}' "$next_image")
 rollback() {
     local rc=$?
     trap - EXIT INT TERM
+    if [[ $catalog_update_started == true ]]; then
+        bash "$script_dir/apply-api-routes.sh" restore "$previous_catalog" \
+            || echo 'API 경로 목록 복구 실패: 수동 확인이 필요합니다.' >&2
+    fi
     if [[ $deployment_started == true ]]; then
         echo '배포 확인 실패: 이전 이미지로 백엔드를 복구합니다.' >&2
         if compose "$previous_image_id" up -d --no-deps --no-build --pull never backend \
@@ -103,6 +117,11 @@ trap 'exit 143' TERM
 deployment_started=true
 compose "$next_image" up -d --no-deps --no-build --pull never backend
 check_current "$next_image" "$next_image_id"
+
+if [[ -n ${BACKEND_API_ROUTES_FILE:-} ]]; then
+    catalog_update_started=true
+    bash "$script_dir/apply-api-routes.sh" apply "$BACKEND_API_ROUTES_FILE"
+fi
 
 # 성공한 이미지 이름은 다음 조회를 위해 영속 볼륨에 남긴다.
 # 수동 compose 실행 때도 이 이미지 이름을 BACKEND_IMAGE로 명시해야 한다.

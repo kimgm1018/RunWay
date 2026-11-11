@@ -1,5 +1,6 @@
 package com.runway.backend.global.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 
@@ -32,6 +33,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.sql.SQLException;
@@ -39,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -46,10 +49,16 @@ public class GlobalExceptionHandler {
     static final String TYPE_MISMATCH_REASON = "형식이 올바르지 않습니다.";
     static final String REQUIRED_REASON = "필수 값입니다.";
 
+    private static final Pattern API_ROUTE_PATTERN = Pattern.compile("/api/v1/[A-Za-z0-9_/{}.-]{1,160}");
+
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(ApiException.class)
-    ResponseEntity<ApiErrorResponse> handleApiException(ApiException exception) {
+    ResponseEntity<ApiErrorResponse> handleApiException(
+            ApiException exception, HttpServletRequest request) {
+        if (exception.status().is5xxServerError()) {
+            log.error("runway_route={} runway_error={}", safeRoute(request), exception.code());
+        }
         return ResponseEntity.status(exception.status()).body(ApiErrorResponse.of(exception));
     }
 
@@ -170,8 +179,9 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AsyncRequestTimeoutException.class)
-    ResponseEntity<ApiErrorResponse> handleTimeout(AsyncRequestTimeoutException exception) {
-        log.error("일시적으로 처리하지 못한 요청", exception);
+    ResponseEntity<ApiErrorResponse> handleTimeout(
+            AsyncRequestTimeoutException exception, HttpServletRequest request) {
+        logServerError(request, ErrorCode.SERVICE_UNAVAILABLE.code(), "일시적으로 처리하지 못한 요청", exception);
         return response(ErrorCode.SERVICE_UNAVAILABLE, Map.of());
     }
 
@@ -184,8 +194,9 @@ public class GlobalExceptionHandler {
         DataAccessResourceFailureException.class,
         CannotCreateTransactionException.class
     })
-    ResponseEntity<ApiErrorResponse> handleTransientDataAccess(Exception exception) {
-        log.error("일시적인 데이터 접근 장애", exception);
+    ResponseEntity<ApiErrorResponse> handleTransientDataAccess(
+            Exception exception, HttpServletRequest request) {
+        logServerError(request, ErrorCode.SERVICE_UNAVAILABLE.code(), "일시적인 데이터 접근 장애", exception);
         return response(ErrorCode.SERVICE_UNAVAILABLE, Map.of());
     }
 
@@ -195,21 +206,25 @@ public class GlobalExceptionHandler {
      * S15P31E105-294). 판별 목록은 {@link RetryableSqlStates}를 따른다. 그 밖의 분류되지 않은 SQL 오류는 500을 유지한다.
      */
     @ExceptionHandler(UncategorizedSQLException.class)
-    ResponseEntity<ApiErrorResponse> handleUncategorizedSql(UncategorizedSQLException exception) {
+    ResponseEntity<ApiErrorResponse> handleUncategorizedSql(
+            UncategorizedSQLException exception, HttpServletRequest request) {
         SQLException cause = exception.getSQLException();
         if (cause != null && RetryableSqlStates.contains(cause.getSQLState())) {
-            return handleTransientDataAccess(exception);
+            return handleTransientDataAccess(exception, request);
         }
-        return handleUnexpected(exception);
+        return handleUnexpected(exception, request);
     }
 
     @ExceptionHandler(ResponseStatusException.class)
-    ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException exception) {
+    ResponseEntity<ApiErrorResponse> handleResponseStatus(
+            ResponseStatusException exception, HttpServletRequest request) {
         HttpStatusCode status = exception.getStatusCode();
-        if (status.is5xxServerError()) {
-            log.error("처리하지 못한 예외", exception);
-        }
         ResponseEntity<ApiErrorResponse> known = knownStatus(status);
+        if (status.is5xxServerError()) {
+            ApiErrorResponse body = known == null ? null : known.getBody();
+            String code = body == null ? "UNKNOWN" : body.code();
+            logServerError(request, code, "처리하지 못한 예외", exception);
+        }
         if (known != null) {
             return known;
         }
@@ -217,11 +232,28 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception) {
+    ResponseEntity<ApiErrorResponse> handleUnexpected(
+            Exception exception, HttpServletRequest request) {
         ErrorCode guard = withdrawalGuard(exception);
         if (guard != null) return response(guard, Map.of());
-        log.error("처리하지 못한 예외", exception);
+        logServerError(request, ErrorCode.INTERNAL_ERROR.code(), "처리하지 못한 예외", exception);
         return response(ErrorCode.INTERNAL_ERROR, Map.of());
+    }
+
+    private static void logServerError(
+            HttpServletRequest request, String code, String message, Exception exception) {
+        log.error(
+                "runway_route={} runway_error={} {}",
+                safeRoute(request),
+                code,
+                message,
+                exception);
+    }
+
+    private static String safeRoute(HttpServletRequest request) {
+        Object matchedPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        String route = matchedPattern == null ? "unknown" : matchedPattern.toString();
+        return API_ROUTE_PATTERN.matcher(route).matches() ? route : "unknown";
     }
 
     private static ErrorCode withdrawalGuard(Throwable exception) {
