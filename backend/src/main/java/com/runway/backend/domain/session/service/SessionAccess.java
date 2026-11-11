@@ -201,7 +201,9 @@ class SessionAccess {
                         last,
                         groupEndedAt,
                         comparisonService.compare(session, serverSendAt),
-                        movingDurationSec);
+                        movingDurationSec,
+                        // 스냅샷마다 다시 읽어 러닝 중 설정 변경이 다음 스냅샷부터 워치에 반영되게 한다(S15P31E105-706).
+                        referenceRepository.rhythmCueEnabled(session.getId()));
         return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, serverSendAt);
     }
 

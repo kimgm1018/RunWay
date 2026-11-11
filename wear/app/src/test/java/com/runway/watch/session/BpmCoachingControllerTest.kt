@@ -81,10 +81,14 @@ class BpmCoachingControllerTest {
             """{"commandId":$commandId,"coachingId":$coachingId,"expectedVersion":$version,"targetBpm":$bpm,"recommendedPaceSecPerKm":360,"expiresAt":"$expiresAt"}""",
             messageId = "phone:g$commandId",
         )
-    private fun serverState(state: String, version: Long, bpm: Int?, clientSendAt: String? = null, serverIn: String? = null, serverOut: String? = null) =
+    private fun serverState(
+        state: String, version: Long, bpm: Int?, clientSendAt: String? = null, serverIn: String? = null, serverOut: String? = null,
+        rhythm: Boolean? = null,
+    ) =
         message(
             "STATE_RESULT",
             """{"scope":"SERVER","recordingMode":"WATCH","state":"$state","stateVersion":$version,"currentBpm":${bpm ?: "null"},""" +
+                (if (rhythm == null) "" else """"rhythmCueEnabled":$rhythm,""") +
                 """"pendingCommand":null,"lastCommand":null,"pendingBatchCount":0,""" +
                 """"clientSendAt":${clientSendAt.q()},"serverReceiveAt":${serverIn.q()},"serverSendAt":${serverOut.q()}}""",
         )
@@ -98,15 +102,80 @@ class BpmCoachingControllerTest {
     }
 
     /** Answers the last STATE_QUERY: server clock is watch + 3 s, 200 ms round trip (error bound 100 ms). */
-    private suspend fun WatchSessionController.answerClock(state: String = "RUNNING", version: Long = 2, bpm: Int? = 170) {
+    private suspend fun WatchSessionController.answerClock(
+        state: String = "RUNNING", version: Long = 2, bpm: Int? = 170, rhythm: Boolean? = null,
+    ) {
         val sentAt = Instant.parse(sender.last("STATE_QUERY").getJSONObject("payload").getString("clientSendAt"))
         val serverIn = sentAt.plusMillis(3_100)
         now = sentAt.plusMillis(200)
-        onMessage(serverState(state, version, bpm, sentAt.toString(), serverIn.toString(), serverIn.toString()))
+        onMessage(serverState(state, version, bpm, sentAt.toString(), serverIn.toString(), serverIn.toString(), rhythm))
     }
 
     private fun lastCoaching() = sender.last("COACHING_RESULT").getJSONObject("payload")
     private fun lastResult() = sender.last("COMMAND_RESULT").getJSONObject("payload")
+
+    // ---- BPM 안내 설정(S15P31E105-706) ----
+
+    @Test
+    fun `with the BPM guide off a coaching guide is applied without sound, pace and BPM are kept`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.answerClock(rhythm = false)
+        assertFalse(c.state.value.rhythmCueEnabled)
+        assertEquals("stop", player.calls.last())
+        player.calls.clear()
+
+        c.onMessage(guide(601, 9001, 2, bpm = 165))
+
+        assertEquals("APPLIED", lastCoaching().getString("result"))
+        assertEquals(165, c.state.value.currentBpm)
+        assertEquals(AppliedCoaching("601", "9001", 165, 360, previousBpm = 170), c.state.value.coaching)
+        assertTrue(player.calls.none { it.startsWith("play") })
+    }
+
+    @Test
+    fun `turning the BPM guide on or off mid-run takes effect on the next server snapshot, even at the same version`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.answerClock(rhythm = false)
+        assertEquals("stop", player.calls.last())
+
+        c.onMessage(serverState("RUNNING", 2, 170, rhythm = true))
+        assertTrue(c.state.value.rhythmCueEnabled)
+        assertEquals("play:170", player.calls.last())
+
+        c.onMessage(serverState("RUNNING", 2, 170, rhythm = false))
+        assertEquals("stop", player.calls.last())
+
+        // 값이 없는 스냅샷(이전 폰 앱)은 마지막 값을 유지한다.
+        c.onMessage(serverState("RUNNING", 2, 170))
+        assertFalse(c.state.value.rhythmCueEnabled)
+        assertTrue(player.calls.takeLast(1).none { it.startsWith("play") })
+    }
+
+    @Test
+    fun `a BPM the runner changed by hand plays even with the BPM guide off`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.answerClock(rhythm = false)
+
+        c.onMessage(apply("SET_BPM", 502, 2, bpm = 175))
+
+        assertEquals("APPLIED", lastResult().getString("result"))
+        assertTrue(c.state.value.rhythmCueEnabled)
+        assertEquals("play:175", player.calls.last())
+    }
+
+    @Test
+    fun `without the field the beat plays as before`() = runBlocking {
+        val c = controller()
+        c.running()
+        c.answerClock()
+        assertTrue(c.state.value.rhythmCueEnabled)
+        player.calls.clear()
+        c.onMessage(guide(601, 9001, 2, bpm = 165))
+        assertEquals(listOf("play:165"), player.calls)
+    }
 
     // ---- SET_BPM ----
 

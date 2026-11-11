@@ -100,6 +100,7 @@ abstract class RunningSessionIntegrationSupport {
         jdbc.update("DELETE FROM user_devices");
         jdbc.update("DELETE FROM daily_readiness");
         jdbc.update("DELETE FROM daily_health_metrics");
+        jdbc.update("DELETE FROM user_settings");
         jdbc.update("DELETE FROM users");
         userId = insertUser("AGREE");
         otherUserId = insertUser("AGREE");

@@ -514,7 +514,32 @@ test('sendServerState carries BPM, commands with the coaching guide, server time
     serverSendAt: '2026-10-28T01:01:00.010Z',
     comparison: null,
     analysis: { status: 'PENDING', summary: null },
+    rhythmCueEnabled: true,
   });
+});
+
+// S15P31E105-706: BPM 안내를 끈 사용자는 S02 rhythmCueEnabled=false를 그대로 워치에 넘긴다.
+test('sendServerState passes rhythmCueEnabled=false to the watch (S15P31E105-706)', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const view = {
+    sessionId: '201',
+    controlDeviceId: '101',
+    relayDeviceId: '102',
+    state: 'RUNNING' as const,
+    stateVersion: 3,
+    startedAt: '2026-10-28T01:00:01Z',
+    endedAt: null,
+    recordingMode: 'WATCH' as const,
+    pendingCommand: null,
+    lastCommand: null,
+    analysisStatus: 'PENDING',
+  };
+
+  await watch.sendServerState('201', { ...view, rhythmCueEnabled: false });
+  await watch.sendServerState('201', view);
+
+  expect(JSON.parse(native.send.mock.calls[0][3]).rhythmCueEnabled).toBe(false);
+  expect(JSON.parse(native.send.mock.calls[1][3]).rhythmCueEnabled).toBe(true);
 });
 
 test('sendServerState passes the S02 record comparison to the watch as it is (S15P31E105-422)', async () => {
