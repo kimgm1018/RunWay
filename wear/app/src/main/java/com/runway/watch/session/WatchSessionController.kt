@@ -135,6 +135,8 @@ class WatchSessionController(
     private val paceAlert: GroupPaceAlert = NoGroupPaceAlert,
 ) {
     private val mutex = Mutex()
+    /** When each command result was sent (monotonic ms), to log how long the server receipt took (S15P31E105-533). */
+    private val resultSentMs = mutableMapOf<String, Long>()
     private val _state = MutableStateFlow(
         store.prepared()?.let {
             WatchSessionState(sessionId = it.sessionId, confirmed = RunState.READY, stateVersion = it.stateVersion, groupRunId = it.groupRunId)
@@ -351,6 +353,9 @@ class WatchSessionController(
     private suspend fun onPrepare(message: SessionEnvelope) {
         val version = message.payload.optLong("stateVersion", -1)
         if (version < 1) return
+        // 시작 대기 측정(S15P31E105-533): 세션·버전·단계·소요만 남긴다.
+        val prepareMs = elapsedMs()
+        log("PREPARE ${message.sessionId} v$version received")
         // 측정 batch의 생산 기기 ID가 없으면 기록을 저장할 수 없으므로 준비하지 않는다(S15P31E105-311).
         val deviceId = message.deviceId()
         val ready = deviceId != null
@@ -375,6 +380,7 @@ class WatchSessionController(
             )
         }
         sendWithRetry(SessionPaths.PREPARED, SessionMessages.prepared(store.nextMessageId(), message.sessionId, version, ready, reason))
+        log("PREPARE ${message.sessionId} v$version replied ready=$ready after=${elapsedMs() - prepareMs}ms")
     }
 
     private suspend fun onCommand(message: SessionEnvelope, action: String) {
@@ -467,6 +473,10 @@ class WatchSessionController(
         }
         noteBpm(outcome)
         sendResult(message.messageId, outcome)
+        // 저장 확인이 오지 않은 결과가 쌓이지 않게 한다(진단용 값이라 잃어도 된다).
+        if (resultSentMs.size >= 32) resultSentMs.clear()
+        resultSentMs[commandId] = elapsedMs()
+        log("$action $commandId result sent after=${elapsedMs() - startedMs}ms")
         if (outcome.result == OutcomeResult.APPLIED && (action == "START" || action == "RESUME")) {
             // 시작·재개 때 서버 시각을 다시 추정해 코칭 만료 판단에 쓴다(D-8).
             sendStateQuery(message.sessionId)
@@ -648,6 +658,7 @@ class WatchSessionController(
         val version = if (message.payload.isNull("stateVersion")) null else message.payload.optLong("stateVersion")
         store.markPersisted(commandId, version)
         val outcome = store.outcome(commandId) ?: return
+        resultSentMs.remove(commandId)?.let { log("${outcome.action} $commandId receipt after=${elapsedMs() - it}ms") }
         val current = _state.value
         _state.value = current.copy(
             // SET_BPM·COACHING은 운동 상태를 바꾸지 않는다.

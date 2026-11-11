@@ -17,7 +17,8 @@ import java.util.function.Function;
 /** 테스트용 가짜 AI 서버(JDK HttpServer). 루프백에서만 연다. 응답 본문은 받은 요청 본문으로 만들 수 있다. 모든 값은 합성 데이터다. */
 public final class FakeAiServer implements AutoCloseable {
 
-    public record Received(String method, String path, String contentType, String body) {}
+    public record Received(
+            String method, String path, String contentType, String body, String deadline) {}
 
     private final HttpServer server;
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -44,7 +45,8 @@ public final class FakeAiServer implements AutoCloseable {
                                     exchange.getRequestMethod(),
                                     exchange.getRequestURI().getPath(),
                                     exchange.getRequestHeaders().getFirst("Content-Type"),
-                                    requestBody));
+                                    requestBody,
+                                    exchange.getRequestHeaders().getFirst("X-Request-Deadline")));
                     try {
                         Thread.sleep(delay.toMillis());
                     } catch (InterruptedException ex) {

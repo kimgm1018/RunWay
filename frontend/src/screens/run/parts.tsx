@@ -105,6 +105,8 @@ export function useMusicSource() {
 }
 
 const countdownSeconds = 3;
+// 목표가 바뀐 뒤 미리 준비를 시작하기까지 기다리는 시간(연속 변경은 마지막 목표만 준비한다, S15P31E105-533).
+const prepareDelayMs = 500;
 
 // 2.0·2.0F 하단 (S15P31E105-517, the reference's start row made RunWay's): the goal chip, then 러닝 방식 ·
 // 러닝 시작 (3초 카운트다운 후 4.2) · 음악, each side button named under it.
@@ -130,13 +132,64 @@ export function RunStartBar({
 }) {
   const navigation = useNavigation();
   const { colors } = useTheme();
-  const { start: startRun, recheck, abortStart, cancel } = useRunActions();
-  const { ensureRunLogin } = useSession();
+  const {
+    start: startRun,
+    recheck,
+    abortStart,
+    cancel,
+    prepare,
+    releasePrepared,
+  } = useRunActions();
+  const { ensureRunLogin, signedIn } = useSession();
   const control = useRunControlState();
   const focused = useIsFocused();
   // The countdown effect reads these through a ref so a re-render never restarts its timer.
-  const latest = useRef({ config, navigation, start: startRun });
-  latest.current = { config, navigation, start: startRun };
+  const latest = useRef({ config, navigation, start: startRun, prepare });
+  latest.current = { config, navigation, start: startRun, prepare };
+  // 미리 준비(S15P31E105-533): 목표가 정해진 채 이 화면에 있으면 세션 생성·AI 계획·워치 준비를 미리 끝내 둔다.
+  // 3초 카운트다운은 그대로이고, 카운트다운 뒤에는 시작 승인·워치 실행·저장 확인만 남는다. 목표를 바꾸는 동안에는
+  // 잠시 기다렸다가 마지막 목표로 준비한다. 이 화면이 준비한 세션은 시작하지 않고 떠나면 취소한다.
+  const prepareKey =
+    config && config.mode !== 'GROUP'
+      ? JSON.stringify([
+          config.mode,
+          config.plan?.courseId ?? null,
+          config.comparisonSessionId ?? null,
+          config.goalDistanceM,
+          config.goalDurationSec ?? null,
+          config.goalPaceSecPerKm,
+        ])
+      : null;
+  const preparedHere = useRef(false);
+  useEffect(() => {
+    if (!focused || !signedIn || prepareKey === null) {
+      return;
+    }
+    const wait = setTimeout(() => {
+      const chosen = latest.current.config;
+      if (chosen) {
+        preparedHere.current = true;
+        latest.current.prepare(chosen);
+      }
+    }, prepareDelayMs);
+    return () => clearTimeout(wait);
+  }, [focused, signedIn, prepareKey]);
+  const release = useRef(releasePrepared);
+  release.current = releasePrepared;
+  useEffect(() => {
+    if (!focused && preparedHere.current) {
+      preparedHere.current = false;
+      release.current();
+    }
+  }, [focused]);
+  useEffect(
+    () => () => {
+      if (preparedHere.current) {
+        release.current();
+      }
+    },
+    [],
+  );
   const [count, setCount] = useState<number | null>(null);
   // 이 화면에서 시작을 요청했고 아직 확정되지 않았다. 워치가 실제로 시작해 서버가 확정해야 4.2로 넘어간다.
   const [requested, setRequested] = useState(false);
