@@ -32,6 +32,8 @@ const scopes: { value: FeedScope; label: string }[] = [
 
 // The header row floats over the pages, under the status bar.
 const headerHeight = 48;
+// Where a page's own content starts, under the floating header.
+export const feedPageTop = (insetTop: number) => insetTop + headerHeight + 8;
 
 // 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope), one full-screen page per
 // post paged up and down (S15P31E105-561, 담당자 시안). 20 posts a page, the next read near the end
@@ -117,7 +119,7 @@ export function CommunityScreen() {
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
 
-  const pageTop = insets.top + headerHeight + 8;
+  const pageTop = feedPageTop(insets.top);
   // Above the floating tab bar.
   const pageBottom = insets.bottom + size.tabBar + size.tabBarInset * 2;
   return (

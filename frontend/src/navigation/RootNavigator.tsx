@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import {
   DarkTheme,
   DefaultTheme,
@@ -17,6 +18,7 @@ import { PlaceholderScreen } from '../screens/PlaceholderScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { communityScreens, MyProfileTabScreen } from '../screens/community';
 import { prefetchFeed } from '../screens/community/feedPrefetch';
+import { FeedMapWarmup } from '../screens/community/FeedMapWarmup';
 import { useRepositories } from '../data';
 import { settingsScreens } from '../screens/settings';
 import {
@@ -108,6 +110,8 @@ const runRoutes: ReadonlySet<RouteName> = new Set<RouteName>([
 ]);
 
 const noHeader = { headerShown: false } as const;
+// The tabs over the first community map warmed behind them (S15P31E105-665).
+const tabsStyle = { flex: 1 } as const;
 
 // 2.9 알림 rises from the bottom over 홈 (담당자 레퍼런스: 알림 페이지 영상). The page moves itself (see
 // NotificationsScreen), over a transparent screen so 홈 stays in view under it while it rises.
@@ -154,20 +158,38 @@ function renderTabBar(props: React.ComponentProps<typeof PillTabBar>) {
 
 function MainTabs() {
   useResumeRun();
-  // 커뮤니티's first page and its first courses are read ahead, so entering it draws at once.
+  // 커뮤니티's first page and its first courses are read ahead, and its first map drawn once behind the tabs, so
+  // entering it draws at once (S15P31E105-665).
   const { community } = useRepositories();
+  const [firstCourse, setFirstCourse] = React.useState<ReturnType<
+    typeof prefetchFeed
+  > | null>(null);
   React.useEffect(() => {
-    prefetchFeed(community);
+    setFirstCourse(prefetchFeed(community));
   }, [community]);
+  const [communityOpen, setCommunityOpen] = React.useState(false);
+  const tabListeners = React.useCallback(
+    ({ route }: { route: { name: string } }) => ({
+      focus: () => setCommunityOpen(route.name === 'CommunityTab'),
+    }),
+    [],
+  );
   return (
-    <Tabs.Navigator screenOptions={noHeader} tabBar={renderTabBar}>
-      {/* The tab bar draws the tabs in this order: 홈·커뮤니티·러닝·그룹·프로필 (S15P31E105-522). */}
-      <Tabs.Screen name="HomeTab" component={HomeTab} />
-      <Tabs.Screen name="CommunityTab" component={screens.Community} />
-      <Tabs.Screen name="RunTab" component={RunTab} />
-      <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
-      <Tabs.Screen name="ProfileTab" component={MyProfileTabScreen} />
-    </Tabs.Navigator>
+    <View style={tabsStyle}>
+      <FeedMapWarmup course={firstCourse} stop={communityOpen} />
+      <Tabs.Navigator
+        screenOptions={noHeader}
+        screenListeners={tabListeners}
+        tabBar={renderTabBar}
+      >
+        {/* The tab bar draws the tabs in this order: 홈·커뮤니티·러닝·그룹·프로필 (S15P31E105-522). */}
+        <Tabs.Screen name="HomeTab" component={HomeTab} />
+        <Tabs.Screen name="CommunityTab" component={screens.Community} />
+        <Tabs.Screen name="RunTab" component={RunTab} />
+        <Tabs.Screen name="GroupTab" component={GroupTabScreen} />
+        <Tabs.Screen name="ProfileTab" component={MyProfileTabScreen} />
+      </Tabs.Navigator>
+    </View>
   );
 }
 
