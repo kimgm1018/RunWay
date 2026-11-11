@@ -118,7 +118,7 @@ def _write_index(out_dir: Path, first: list[str]):
     index_path.write_text("window.RunwayDemoRecordingFiles = " + json.dumps(ordered, indent=2) + ";\n", encoding="utf-8")
 
 
-def make_samples(out_dir: Path, *, minutes: float = 12.0, settings=None) -> dict:
+def make_samples(out_dir: Path, *, minutes: float = 12.0, settings=None, group_runners: int = 2) -> dict:
     settings = settings or load_settings()
     out_dir = Path(out_dir)
     with tempfile.TemporaryDirectory() as tmp:
@@ -134,7 +134,7 @@ def make_samples(out_dir: Path, *, minutes: float = 12.0, settings=None) -> dict
             hr_reference={"hrMaxBpm": None, "rhrBpm": 60, "ageYears": 28, "recentPeakHrBpm": 186.0, "recentRunCount": 8},
             out_dir=out_dir, model=SyntheticPersonalModel(), course_file=course_file, settings=settings)
         group = build_group_recording(recording_id=GROUP_ID, label="그룹 러닝 리허설(합성 심박)", out_dir=out_dir,
-                                      course_file=course_file)
+                                      course_file=course_file, runners=group_runners)
     _write_index(out_dir, [PERSONAL_ID + ".js", GROUP_ID + ".js"])
     return {"personal": personal, "group": group}
 
@@ -143,9 +143,10 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path, default=SERVICE_DIR / "app" / "static" / "demo" / "recordings")
     parser.add_argument("--minutes", type=float, default=12.0)
+    parser.add_argument("--group-runners", type=int, default=2, help="그룹 샘플 러너 수(시연 인원, 기본 2명)")
     args = parser.parse_args(argv)
     try:
-        result = make_samples(args.out_dir, minutes=args.minutes)
+        result = make_samples(args.out_dir, minutes=args.minutes, group_runners=args.group_runners)
     except (OSError, ValueError) as exc:
         print(f"시연 샘플 만들기 실패: {exc}", file=sys.stderr)
         return 1

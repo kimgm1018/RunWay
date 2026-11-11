@@ -173,7 +173,7 @@
       return;
     }
     var defs = svg('defs', {}, elevation);
-    gradient(defs, 'elev-fill', [[0, '#8fa3b8', 0.32], [1, '#8fa3b8', 0.02]], true);
+    gradient(defs, 'elev-fill', [[0, '#7DA0B2', 0.32], [1, '#7DA0B2', 0.02]], true);
     var elevs = elevIdx.map(function (i) { return Number(points[i][2]); });
     var eMin = Math.min.apply(null, elevs), eMax = Math.max.apply(null, elevs), eSpan = (eMax - eMin) || 1;
     var ex = function (d) { return 4 + d / (length || 1) * (es.w - 8); };
@@ -243,8 +243,8 @@
     var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
 
     var defs = svg('defs', {}, chart);
-    gradient(defs, 'actual-fill', [[0, '#e8eef5', 0.16], [1, '#e8eef5', 0]], true);
-    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    gradient(defs, 'actual-fill', [[0, '#7DA0B2', 0.22], [1, '#7DA0B2', 0]], true);
+    gradient(defs, 'danger-fill', [[0, '#D44A4A', 0.26], [1, '#D44A4A', 0.04]], true);
 
     var step = (hi - lo) > 60 ? 20 : 10;
     for (var g = Math.ceil(lo / step) * step; g <= hi; g += step) {
@@ -343,7 +343,7 @@
     var x = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
     var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
     var defs = svg('defs', {}, chart);
-    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    gradient(defs, 'danger-fill', [[0, '#D44A4A', 0.26], [1, '#D44A4A', 0.04]], true);
     var step = (hi - lo) > 60 ? 20 : 10;
     for (var gv = Math.ceil(lo / step) * step; gv <= hi; gv += step) {
       svg('line', {x1: padL, x2: W - padR, y1: y(gv), y2: y(gv), class: 'svg-grid'}, chart);
