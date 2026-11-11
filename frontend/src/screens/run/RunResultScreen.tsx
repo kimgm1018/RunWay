@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BackHandler,
   Pressable,
@@ -10,6 +10,9 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText, Icon, Logo, Pop, useCountUp } from '../../components';
+import { runRouteOf } from '../../components/mapRoute';
+import { useRepositories } from '../../data';
+import { errorCode } from '../../data/errors';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
@@ -20,11 +23,11 @@ import {
   resultLook,
   resultType,
   ResultWatermark,
-  RouteArea,
   SideFigure,
   StatBlock,
 } from './resultLook';
 import { useRunControlState, useRunSession } from './RunSession';
+import { RunRouteMap } from '../records/RunRoute';
 
 // A course counts as 완주 once almost all of it is run; GPS rarely lands on the exact finish.
 const finishShare = 0.98;
@@ -53,12 +56,53 @@ function timeWords(seconds: number) {
   return rest === 0 ? `${minutes}분` : `${minutes}분 ${rest}초`;
 }
 
+// The route on 4.5 (S15P31E105-690): once the record is saved, the GPS route the server kept for it (S11, the watch
+// first, cut where the source changed or the position was lost); until then, or when it cannot be read, the line
+// the app gathered while running. Neither is ever joined across its breaks. A course run shows what was run, not
+// the planned course.
+function useResultRoute(
+  recordId: string | null,
+  trail: [number, number][],
+  trailParts: [number, number][][] | null,
+) {
+  const repositories = useRepositories();
+  const [server, setServer] = useState<[number, number][][] | null>(null);
+  useEffect(() => {
+    if (!recordId) {
+      return;
+    }
+    let active = true;
+    repositories.records.getRoute(recordId).then(
+      parts => {
+        if (active) {
+          setServer(parts);
+        }
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [recordId, repositories]);
+  return useMemo(
+    () =>
+      runRouteOf(recordId ? server : null) ??
+      runRouteOf(trailParts ?? (trail.length > 0 ? [trail] : null)),
+    [recordId, server, trail, trailParts],
+  );
+}
+
 // 4.5 러닝 결과 (코스) and 4.5F 자유 러닝 결과 as 시안 G3 · 경로 톤온톤 민트 (S15P31E105-661): the RunWay mark, the
-// handwritten #오후러닝 and the day, three blocks (페이스 · 시간 · 목표) with the other figures beside them, the route
-// with a square every kilometre, and 기록 공유 · 완료 at the foot.
+// handwritten #오후러닝 and the day, three blocks (페이스 · 시간 · 목표) with the other figures beside them, the run's
+// GPS route on the map with 경로 재생 (S15P31E105-690), and 기록 공유 · 완료 at the foot.
 export function RunResultScreen() {
   const navigation = useNavigation();
   const { run, retrySave } = useRunSession();
+  const { courses } = useRepositories();
+  const [courseSave, setCourseSave] = useState<
+    'idle' | 'saving' | 'saved' | 'failed'
+  >('idle');
+  const [courseSaveError, setCourseSaveError] = useState('');
   const control = useRunControlState();
   const finalComparison = useFinalComparison(
     control?.sessionId ?? null,
@@ -80,15 +124,57 @@ export function RunResultScreen() {
 
   // Hooks come before the early return below; the count is used only for an achieved goal.
   const countedDistance = useCountUp(run?.summary?.distanceM ?? 0);
+  const route = useResultRoute(
+    run?.recordId ?? null,
+    run?.trail ?? noTrail,
+    run?.trailParts ?? null,
+  );
+  const summaryOf = run?.summary ?? null;
+  const facts = useMemo(
+    () =>
+      run && summaryOf
+        ? {
+            id: run.recordId ?? run.startedAt,
+            title: plan ? plan.name : '자유 러닝',
+            startedAt: run.startedAt,
+            distanceM: summaryOf.distanceM,
+            durationSec: summaryOf.durationSec,
+            averagePaceSecPerKm: summaryOf.averagePaceSecPerKm,
+            cadence: summaryOf.averageCadence,
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [run?.recordId, run?.startedAt, plan, summaryOf],
+  );
+
+  const saveCourse = async () => {
+    if (!run?.recordId || courseSave === 'saving' || courseSave === 'saved')
+      return;
+    setCourseSave('saving');
+    try {
+      await courses.saveFromRun(run.recordId);
+      setCourseSave('saved');
+      setCourseSaveError('');
+    } catch (error) {
+      setCourseSave('failed');
+      const code = errorCode(error);
+      setCourseSaveError(
+        code === 'COURSE_GRADE_NOT_READY' || code === 'COURSE_GRADE_UNAVAILABLE'
+          ? '경사 정보를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.'
+          : code === 'VALIDATION_ERROR'
+          ? '코스로 만들 GPS 경로가 부족해요.'
+          : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  };
 
   if (!run?.summary) {
     return <View style={styles.root} />;
   }
-  const { summary, config, trail, saveState, recordId, goalAchieved } = run;
+  const { summary, config, saveState, recordId, goalAchieved } = run;
   const finished = plan
     ? summary.distanceM >= plan.distanceM * finishShare
     : false;
-  const shape = plan ? plan.route : trail;
   const day = runDay(run.startedAt);
   // 4.5 비교 결과: 서버가 계산한 같은 지점 도달 시간 차이(S15P31E105-422).
   const rivalResult = comparisonResult(finalComparison);
@@ -233,31 +319,72 @@ export function RunResultScreen() {
               </Pressable>
             </View>
           ) : null}
-          <RouteArea route={shape} style={styles.route} />
+          {facts ? (
+            <RunRouteMap
+              route={route}
+              facts={facts}
+              tone="result"
+              style={styles.route}
+            />
+          ) : null}
+          {courseSave === 'saved' ? (
+            <AppText style={styles.courseMessage}>
+              내 코스에 저장했어요.
+            </AppText>
+          ) : courseSave === 'failed' ? (
+            <AppText style={[styles.courseMessage, styles.danger]}>
+              {courseSaveError}
+            </AppText>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
       <SafeAreaView edges={['bottom']} style={styles.buttons}>
-        <ResultButton
-          title="기록 공유"
-          disabled={saveState !== 'saved' || !recordId}
-          // 7.3 shares this run's record, not just the newest one.
-          onPress={() =>
-            recordId
-              ? navigation.navigate('PostWrite', { recordId })
-              : undefined
-          }
-        />
-        <ResultButton
-          primary
-          title="완료"
-          onPress={() => navigateTo(navigation, 'Home')}
-        />
+        {!plan ? (
+          <View style={styles.buttonRow}>
+            <ResultButton
+              title={
+                courseSave === 'saving'
+                  ? '코스 저장 중'
+                  : courseSave === 'saved'
+                  ? '코스 저장 완료'
+                  : '코스로 정하기'
+              }
+              disabled={
+                saveState !== 'saved' ||
+                !recordId ||
+                courseSave === 'saving' ||
+                courseSave === 'saved'
+              }
+              onPress={() => {
+                void saveCourse();
+              }}
+            />
+          </View>
+        ) : null}
+        <View style={styles.buttonRow}>
+          <ResultButton
+            title="기록 공유"
+            disabled={saveState !== 'saved' || !recordId}
+            // 7.3 shares this run's record, not just the newest one.
+            onPress={() =>
+              recordId
+                ? navigation.navigate('PostWrite', { recordId })
+                : undefined
+            }
+          />
+          <ResultButton
+            primary
+            title="완료"
+            onPress={() => navigateTo(navigation, 'Home')}
+          />
+        </View>
       </SafeAreaView>
     </View>
   );
 }
 
 const blockWidth = 300;
+const noTrail: [number, number][] = [];
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: resultLook.page },
@@ -321,21 +448,28 @@ const styles = StyleSheet.create({
     color: resultLook.text,
     textDecorationLine: 'underline',
   },
-  // The route takes what the screen leaves, between a small and the 시안's size.
+  // The route's map takes what the screen leaves, between a small and a tall map (S15P31E105-690).
   route: {
-    alignSelf: 'center',
-    width: 254,
-    maxWidth: '100%',
+    alignSelf: 'stretch',
     flex: 1,
-    minHeight: 120,
-    maxHeight: 220,
+    minHeight: 180,
+    maxHeight: 260,
     marginTop: 18,
   },
   buttons: {
-    flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 14,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  courseMessage: {
+    textAlign: 'center',
+    color: resultLook.text,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
   },
 });

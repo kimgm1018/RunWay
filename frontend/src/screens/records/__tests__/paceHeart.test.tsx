@@ -1,7 +1,12 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { ToastProvider } from '../../../components';
-import type { RunRecordDetail, RunSplit } from '../../../data';
+import {
+  createMockRepositories,
+  DataProvider,
+  type RunRecordDetail,
+  type RunSplit,
+} from '../../../data';
 import { compareWithGoal, kmBands, measured } from '../paceHeart';
 import { goalLine, RecordView } from '../RecordView';
 import { RevealTopContext, revealOffset } from '../revealTop';
@@ -172,17 +177,19 @@ async function card(change: Partial<RunRecordDetail> = {}) {
   let screen!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     screen = TestRenderer.create(
-      <ToastProvider>
-        <RevealTopContext.Provider value={revealTop}>
-          <RecordView
-            layout="home"
-            record={record(change)}
-            chartHeight={0}
-            onOpen={onOpen}
-            openLabel="아침 러닝 열기"
-          />
-        </RevealTopContext.Provider>
-      </ToastProvider>,
+      <DataProvider repositories={createMockRepositories({ latencyMs: 0 })}>
+        <ToastProvider>
+          <RevealTopContext.Provider value={revealTop}>
+            <RecordView
+              layout="home"
+              record={record(change)}
+              chartHeight={0}
+              onOpen={onOpen}
+              openLabel="아침 러닝 열기"
+            />
+          </RevealTopContext.Provider>
+        </ToastProvider>
+      </DataProvider>,
     );
   });
   const faceOf = (testID: string) =>

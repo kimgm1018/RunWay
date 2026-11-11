@@ -43,6 +43,8 @@ export type PostResponse = {
   regionCode: string | null;
   createdAt: string;
   courseId?: number | null;
+  // True when the course is the private one made from this very free run (S15P31E105-616); an older server leaves it out.
+  courseFromFreeRun?: boolean;
   courseShared?: boolean;
   commentCount?: number;
   reactionCount?: number;
@@ -68,6 +70,7 @@ export const postPageSize = 20;
 type CourseRouteResponse = {
   route: { coordinates: [number, number][] };
   basemap?: unknown;
+  unmeasuredEdges?: number[] | null;
 };
 
 // A course's points for 7.2, 7.3 and 7.3e; a course that cannot be read leaves the page without them.
@@ -166,7 +169,7 @@ export function recordOf(response: PostResponse): PostRecord {
     group: null,
     goalAchieved: null,
     place: '',
-    courseRun: response.courseId != null,
+    courseRun: response.courseId != null && !response.courseFromFreeRun,
     // The route comes with 7.2 (C03 by the post's course), not with the list.
     route: null,
     averageHeartRate: null,
@@ -233,6 +236,7 @@ export function createCommunityApi({
     return {
       route: course.route.coordinates,
       basemap: basemapOf(course.basemap),
+      unmeasuredEdges: course.unmeasuredEdges ?? [],
     };
   };
 
@@ -248,6 +252,7 @@ export function createCommunityApi({
       body: response.body,
       record: recordOf(response),
       courseShared: sharedCourse !== null,
+      courseId: sharedCourse === null ? null : String(sharedCourse),
       createdAt: response.createdAt,
       likeCount: response.reactionCount ?? null,
       liked:
@@ -389,18 +394,21 @@ export function createCommunityApi({
       return {
         ...detail,
         place: '',
-        courseRun: detail.courseId !== null,
+        courseRun: detail.courseId !== null && !detail.courseFromFreeRun,
         route,
         averageHeartRate: null,
         cadence: null,
       };
     },
-    // CMT01 takes the run as its session id and 코스도 함께 공유 as courseShared; the server keeps it false
-    // for a free run.
+    // CMT01 can create the private course from a free run when sharing is requested.
     // The region 7.3 showed goes along only with a shared course (S15P31E105-687).
     create: async (recordId, draft) => {
       const regionCode = draft.courseShared ? draft.regionCode : null;
-      const { id } = await apiRequest<{ id: number }>('/posts', {
+      const response = await apiRequest<{
+        id: number;
+        courseShared: boolean;
+        courseShareFailureReason?: string | null;
+      }>('/posts', {
         method: 'POST',
         body: {
           sessionId: Number(recordId),
@@ -409,7 +417,11 @@ export function createCommunityApi({
           ...(regionCode ? { regionCode } : {}),
         },
       });
-      return { id: String(id) };
+      return {
+        id: String(response.id),
+        courseShared: response.courseShared,
+        courseShareFailureReason: response.courseShareFailureReason ?? null,
+      };
     },
     update: async (postId, draft) => {
       await apiRequest(`/posts/${postId}`, {

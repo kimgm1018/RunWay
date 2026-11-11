@@ -43,7 +43,8 @@ public final class RunningSessionMapper {
                 serverReceiveAt,
                 serverSendAt,
                 recordingMode(session),
-                snapshot.groupEndedAt());
+                snapshot.groupEndedAt(),
+                snapshot.rhythmCueEnabled());
     }
 
     /**

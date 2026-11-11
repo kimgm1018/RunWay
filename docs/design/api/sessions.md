@@ -162,6 +162,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
 | `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
+| `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 
 ```json
 {
@@ -192,7 +193,8 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
   "serverReceiveAt": "2026-10-28T01:00:00Z",
   "serverSendAt": "2026-10-28T01:00:00.010Z",
   "recordingMode": "WATCH",
-  "groupEndedAt": null
+  "groupEndedAt": null,
+  "rhythmCueEnabled": true
 }
 ```
 
@@ -302,6 +304,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
 | `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
+| `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 
 pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보내지 않음):
 
@@ -346,7 +349,8 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
   "serverReceiveAt": "2026-10-28T01:00:00Z",
   "serverSendAt": "2026-10-28T01:00:00.010Z",
   "recordingMode": "WATCH",
-  "groupEndedAt": null
+  "groupEndedAt": null,
+  "rhythmCueEnabled": true
 }
 ```
 
@@ -1363,7 +1367,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 | 공유 게시물 | 피드·검색·프로필 목록에서 제외, 상세·댓글·좋아요 접근은 POST_NOT_FOUND |
 | 댓글·좋아요 | 행을 연쇄 삭제하지 않음. 삭제된 부모 게시물을 통한 조회·추가·변경 차단 |
 | 그룹 결과 | 참가 관계·참가 인원·확정 집계·순위 유지. 내부 집계에는 보존 원본을 사용하지만 삭제된 개인 기록의 상세 열람 권한을 부여하지 않음 |
-| 공용 코스 | 기존 source_session_id·경로·상태 유지. 개인 기록 삭제로 코스 원본 삭제·차단하지 않음 |
+| 코스 | 공용 코스는 기존 source_session_id·경로·상태를 유지한다. 이 기록에서 명시적으로 생성한 개인 코스도 기록과 별개로 보존한다. 이미 저장한 사용자의 코스 북마크는 게시물 삭제·공유 해제로 제거하지 않는다. 단, 원본 기록 삭제 후 새 게시물 공유는 할 수 없다. 회원탈퇴 시 개인 코스 처리는 U18을 따른다. |
 
 새 비교 대상 검증·참조 저장은 대상 세션 잠금 아래 미삭제를 확인한다. 여러 세션을 잠글 때는 ID 순서를 사용한다. 삭제가 먼저면 새 선택을 거절하고, 참조가 먼저면 위 기존 참조 규칙을 따른다.
 
@@ -1524,7 +1528,7 @@ JWT·본인 세션을 확인한다. 위치 동의는 가입 필수 항목이라 
 4. 측정 시각 순으로 잇되, 출처가 바뀌거나 이웃 위치의 간격이 60초를 넘으면 새 조각을 시작한다. 결측 구간을 직선으로 채우지 않는다.
 5. 같은 조각의 같은 측정 시각 위치는 하나만 쓴다. 응답 위치가 2,000개를 넘으면 조각마다 위치 수에 비례한 개수(조각당 최소 2개)로 처음·끝을 유지하며 균등 간격으로 줄인다. 조각당 최소 개수 때문에 작은 조각이 아주 많으면 2,000개를 조금 넘을 수 있다. 표시용 축약이며 저장된 원본은 바꾸지 않는다.
 6. 거리·페이스·그룹 순위는 이 경로로 계산하지 않는다. 기존대로 METRIC_SAMPLE 누적거리를 사용한다.
-7. 일시정지 구간을 따로 거르지 않는다. 워치는 일시정지 중 위치를 만들지 않고 폰은 서버 상태가 PAUSED가 되면 기록을 멈추므로, 폰이 PAUSED를 받기 전 몇 초의 위치가 남을 수 있다.
+7. S11 원본 러닝 경로는 일시정지 구간을 따로 거르지 않는다. 워치는 일시정지 중 위치를 만들지 않고 폰은 서버 상태가 PAUSED가 되면 기록을 멈추므로, 폰이 PAUSED를 받기 전 몇 초의 위치가 남을 수 있다. [C11 개인 코스 변환](courses.md#c11-완료-기록을-개인-코스로-저장)은 별도 계약으로 적용된 PAUSE~RESUME 시각의 위치를 제외하고 측정하지 않은 연결부를 표시한다.
 
 ### 오류 응답
 

@@ -6,7 +6,7 @@ import type { ReadinessState, TodayCondition } from '../../data';
 import type { SleepAccess, TodaySleep } from '../../health/samsungSleep';
 import type { TodayRestingHr } from '../../health/samsungRestingHr';
 import { formatMonthDay, formatSleep } from '../../format';
-import { navigateTo } from '../../navigation/navigateTo';
+import { navigateTo, openRunTab } from '../../navigation/navigateTo';
 import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
 import { recordsLook } from '../records/look';
@@ -175,9 +175,10 @@ export function ReadinessPanel({
   const { action, note: fallbackNote } = states[today.readinessState];
   const stateAction =
     watchReady && action?.route === 'WatchConnect' ? null : action;
-  const stateNote = watchReady && today.readinessState === 'watchDisconnected'
-    ? '데이터를 모으는 중이에요'
-    : fallbackNote;
+  const stateNote =
+    watchReady && today.readinessState === 'watchDisconnected'
+      ? '데이터를 모으는 중이에요'
+      : fallbackNote;
   // Server health consent off: nothing health-related is shown, and the card keeps 설정 열기.
   const consented = today.readinessState !== 'permissionDenied';
   const r02Sleep = ready && today.sleepMinutes !== null;
@@ -417,12 +418,12 @@ export function ReadinessPanel({
         </Pressable>
       ) : null}
 
-      {/* The card's last and main action (담당자 요청: 맨 밑에 러닝 시작하기): the run tab's first step, 2.0M. Nothing
-          there is changed by readiness (담당자 요청서: 자동 변경 없음). */}
+      {/* The card's last and main action (담당자 요청: 맨 밑에 러닝 시작하기): the run tab's map (2.0F), with no 러닝 방식
+          선택 on the way (S15P31E105-683). Nothing there is changed by readiness (담당자 요청서: 자동 변경 없음). */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="러닝 시작하기"
-        onPress={() => navigateTo(navigation, 'RunMode')}
+        onPress={() => openRunTab(navigation)}
         style={({ pressed }) => [styles.action, pressed && styles.pressed]}
       >
         <AppText style={styles.actionText}>러닝 시작하기</AppText>

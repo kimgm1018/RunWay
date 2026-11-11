@@ -36,7 +36,7 @@ import {
   type SavedCourse,
 } from '../../data';
 import { formatKm } from '../../format';
-import { shapeOfRoute, type LngLat } from '../../geo';
+import { routeSections, shapeOfRoute, type LngLat } from '../../geo';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, palette, spacing } from '../../theme';
 import { CourseTabs } from './CourseTabs';
@@ -149,11 +149,13 @@ export function CourseGlyph({
   shape,
   km,
   tone = 'white',
+  unmeasuredEdges = [],
 }: {
   shape: [number, number][];
   // The course's length, for the km dots. Left out, none are drawn.
   km?: number;
   tone?: keyof typeof glyphInk;
+  unmeasuredEdges?: number[];
 }) {
   const route = drawableShape(shape);
   if (route.length === 0) {
@@ -161,6 +163,8 @@ export function CourseGlyph({
   }
   const color = glyphInk[tone];
   const points = route.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
+  const sections = routeSections(route, unmeasuredEdges);
+  const toPoints = (line: LngLat[]) => line.map(([x, y]) => `${x * 100},${y * 100}`).join(' ');
   const [startX, startY] = route[0];
   const line = route.length > 1;
   const end = route[route.length - 1];
@@ -201,16 +205,18 @@ export function CourseGlyph({
           strokeLinecap="round"
         />
       ) : null}
-      {line ? (
-        <Polyline
-          points={points}
-          fill="none"
-          stroke={color}
-          strokeWidth={1.8}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      ) : null}
+      {line ? (unmeasuredEdges.length ? (
+        <>
+          {sections.measured.map((part, index) => (
+            <Polyline key={`measured-${index}`} points={toPoints(part)} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+          ))}
+          {sections.connectors.map((part, index) => (
+            <Polyline key={`gap-${index}`} points={toPoints(part)} fill="none" stroke="#8A979E" strokeWidth={1.8} strokeDasharray="3 2" />
+          ))}
+        </>
+      ) : (
+        <Polyline points={points} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" />
+      )) : null}
       {line
         ? kmMarks(km).map(share => {
             const [x, y] = pointAlong(route, share);
@@ -309,6 +315,7 @@ export function basemapImageFrame(
 export function CourseMapThumb({
   route,
   basemap,
+  unmeasuredEdges,
   load,
   shape,
   km,
@@ -317,6 +324,7 @@ export function CourseMapThumb({
 }: {
   route?: LngLat[] | null;
   basemap?: CourseBasemap | null;
+  unmeasuredEdges?: number[];
   load?: () => Promise<CourseMapData | null>;
   shape: [number, number][];
   km?: number;
@@ -352,10 +360,12 @@ export function CourseMapThumb({
   const map = basemap ?? loaded?.basemap ?? null;
   // An image that failed is not asked again; the card keeps the outline (a new address tries again).
   const [failed, setFailed] = useState<string | null>(null);
-  const image = map && failed !== map.imageUrl ? map.imageUrl : null;
+  const image = map && failed !== map.imageUrl && !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length
+    ? map.imageUrl : null;
   // The outline stays until the image has loaded, so a slow image never leaves the card without its course.
   const [shown, setShown] = useState<string | null>(null);
-  const imageShown = !!image && shown === image;
+  // The server thumbnail is a single-colour route; use the SVG until it supports grey connectors.
+  const imageShown = !!image && shown === image && !(unmeasuredEdges ?? loaded?.unmeasuredEdges)?.length;
   const outline = useMemo(
     () => (points ? shapeOfRoute(points) : shape),
     [points, shape],
@@ -401,7 +411,7 @@ export function CourseMapThumb({
             },
           ]}
         >
-          <CourseGlyph shape={outline} km={km} tone="ink" />
+          <CourseGlyph shape={outline} km={km} tone="ink" unmeasuredEdges={unmeasuredEdges ?? loaded?.unmeasuredEdges} />
         </View>
       )}
       <Svg style={StyleSheet.absoluteFill} width="100%" height="100%">
@@ -484,6 +494,7 @@ function SavedCard({
       <CourseMapThumb
         route={course.route}
         basemap={course.basemap}
+        unmeasuredEdges={course.unmeasuredEdges}
         shape={course.shape}
         km={course.distanceM / 1000}
         area={{ top: 44 / height, bottom: (height - 128) / height }}

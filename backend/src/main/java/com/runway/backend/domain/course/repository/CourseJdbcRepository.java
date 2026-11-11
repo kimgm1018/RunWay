@@ -28,6 +28,36 @@ public class CourseJdbcRepository {
         return count != null && count > 0;
     }
 
+    /** 공유 철회·게시글 삭제와 북마크 생성의 순서를 세션 잠금으로 직렬화한다. */
+    public void lockPrivateSourceSession(long courseId) {
+        jdbcTemplate.query(
+                """
+                SELECT s.id FROM courses c JOIN running_sessions s ON s.id=c.source_session_id
+                WHERE c.id=? AND c.is_private=true FOR UPDATE OF s
+                """,
+                rs -> {},
+                courseId);
+    }
+
+    /** 소유자, 저장한 사용자, 현재 공유 게시글의 독자에게만 개인 코스를 공개한다. */
+    public boolean canRead(long userId, long courseId) {
+        Boolean allowed = jdbcTemplate.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM courses c WHERE c.id=? AND (
+                  c.is_private=false OR c.creator_id=?
+                  OR EXISTS (SELECT 1 FROM course_bookmarks b WHERE b.course_id=c.id AND b.user_id=?)
+                  OR EXISTS (SELECT 1 FROM posts p
+                    JOIN running_sessions s ON s.id=p.session_id
+                    JOIN users u ON u.id=p.author_id
+                    LEFT JOIN user_settings us ON us.user_id=u.id
+                    WHERE s.course_id=c.id AND p.deleted_at IS NULL AND p.course_shared=true
+                      AND u.account_status='ACTIVE' AND u.withdrawn_at IS NULL
+                      AND (us.account_visibility='PUBLIC' OR EXISTS (
+                        SELECT 1 FROM user_follows f WHERE f.followee_id=u.id
+                          AND f.follower_id=? AND f.is_approved=true)))))
+                """, Boolean.class, courseId, userId, userId, userId);
+        return Boolean.TRUE.equals(allowed);
+    }
+
     public boolean existsUserById(long userId) {
         Integer count =
                 jdbcTemplate.queryForObject(
@@ -48,7 +78,9 @@ public class CourseJdbcRepository {
                                elevation_profile::text AS elevation_profile_json,
                                status::text AS status,
                                merged_into_course_id,
-                               region_code
+                               region_code,
+                               unmeasured_edges::text AS unmeasured_edges_json,
+                               is_private
                         FROM courses
                         WHERE id = ?
                         """,
@@ -79,6 +111,7 @@ public class CourseJdbcRepository {
                         SELECT id, status::text AS status
                         FROM courses
                         WHERE ST_AsEWKB(route::geometry) = ST_AsEWKB(ST_GeogFromText(?)::geometry)
+                          AND is_private = false
                         ORDER BY (status = 'ACTIVE') DESC, id
                         LIMIT 1
                         """,
@@ -187,6 +220,7 @@ public class CourseJdbcRepository {
                        ST_Distance(c.start_position, ST_GeogFromText(?)) AS start_distance_m
                 FROM courses c
                 WHERE c.status = 'ACTIVE'::courses_status_enum
+                  AND c.is_private = false
                   AND ST_DWithin(c.start_position, ST_GeogFromText(?), ?)
                   AND c.distance BETWEEN ? AND ?
                 """);
@@ -272,7 +306,9 @@ public class CourseJdbcRepository {
                 rs.getString("elevation_profile_json"),
                 rs.getString("status"),
                 mergedInto,
-                rs.getString("region_code"));
+                rs.getString("region_code"),
+                rs.getString("unmeasured_edges_json"),
+                rs.getBoolean("is_private"));
     }
 
     private static BookmarkedCourseRow mapBookmarkedCourseRow(ResultSet rs) throws SQLException {
@@ -311,7 +347,9 @@ public class CourseJdbcRepository {
             String elevationProfileJson,
             String status,
             Long mergedIntoCourseId,
-            String regionCode) {}
+            String regionCode,
+            String unmeasuredEdgesJson,
+            boolean isPrivate) {}
 
     public record BookmarkedCourseRow(
             long bookmarkId,

@@ -450,6 +450,7 @@ export function FeedPage({
   // list carries no points, so the page on screen asks for them; until they come the page is the map's light
   // ground. The drawn map stays for a post without a course, and for a course whose points could not be read.
   const [route, setRoute] = useState<LngLat[] | null>(record.route);
+  const [unmeasuredEdges, setUnmeasuredEdges] = useState<number[]>([]);
   const [routeMissing, setRouteMissing] = useState(false);
   const mapOn = active || nearby;
   const wantsRoute = mapOn && post.courseShared && !route;
@@ -463,6 +464,7 @@ export function FeedPage({
       .then(map => {
         if (live) {
           setRoute(map?.route ?? null);
+          setUnmeasuredEdges(map?.unmeasuredEdges ?? []);
           setRouteMissing(!map || map.route.length < 2);
         }
       })
@@ -520,6 +522,7 @@ export function FeedPage({
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <RunMap
             route={realMap}
+            unmeasuredEdges={unmeasuredEdges}
             view="lean"
             interactive={false}
             // The course between the author row and the run's words; the NAVER logo sits just over the words.

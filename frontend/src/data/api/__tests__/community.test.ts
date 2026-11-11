@@ -154,12 +154,16 @@ test('CMT03 and CMT06 open a post with its comments and who wrote them', async (
 });
 
 test('CMT01 shares a run by its session id; CMT04 and CMT05 edit and delete', async () => {
-  fetchMock.mockResolvedValue(respond(201, { id: 103 }));
+  fetchMock.mockResolvedValue(respond(201, { id: 103, courseShared: true }));
   const api = community();
 
   await expect(
     api.create('55', { body: '첫 공유', courseShared: true }),
-  ).resolves.toEqual({ id: '103' });
+  ).resolves.toEqual({
+    id: '103',
+    courseShared: true,
+    courseShareFailureReason: null,
+  });
   await api.update('103', { body: '고친 글', courseShared: true });
   await api.remove('103');
 
@@ -399,6 +403,61 @@ test('CMT02 maps reactionCount, commentCount, myReaction, courseShared and the a
   });
 });
 
+// S15P31E105-616: a free run shared with a course has a courseId, but it is not a course run.
+test.each([
+  [21, true, false],
+  [21, false, true],
+  [21, undefined, true],
+  [null, undefined, false],
+])(
+  'courseId %p with courseFromFreeRun %p gives courseRun %p',
+  async (courseId, courseFromFreeRun, courseRun) => {
+    fetchMock.mockResolvedValue(
+      respond(200, { items: [{ ...counted, courseId, courseFromFreeRun }] }),
+    );
+
+    const {
+      items: [item],
+    } = await community().listFeed('ALL');
+
+    expect(item.record.courseRun).toBe(courseRun);
+  },
+);
+
+test('getShareable treats the private course of a free run as no course run', async () => {
+  const { records } = createMockRepositories({ latencyMs: 0 });
+  const detail = await records.getDetail(
+    (
+      await records.getRecent('recent', 1)
+    )[0].id,
+  );
+  const getDetail = jest.fn().mockResolvedValue({
+    ...detail,
+    courseId: '21',
+    courseFromFreeRun: true,
+  });
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      route: {
+        coordinates: [
+          [129.5, 35.5],
+          [129.6, 35.6],
+        ],
+      },
+    }),
+  );
+
+  const shareable = await createCommunityApi({
+    records: { ...records, getDetail },
+  }).getShareable('55');
+
+  expect(shareable.courseRun).toBe(false);
+  expect(shareable.route).toEqual([
+    [129.5, 35.5],
+    [129.6, 35.6],
+  ]);
+});
+
 test('my own post keeps its courseId but shows no course when I left it unshared', async () => {
   fetchMock.mockResolvedValue(
     respond(200, {
@@ -441,6 +500,7 @@ test('the list courseId gives 7.1 the route without reading the post again', asy
       [129.2, 35.2],
     ],
     basemap: null,
+    unmeasuredEdges: [],
   });
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
     `${base}/posts?scope=ALL&limit=20`,
@@ -844,11 +904,16 @@ test('getRoute reads the course with its basemap once per post', async () => {
   await expect(api.getRoute('101')).resolves.toEqual({
     route,
     basemap,
+    unmeasuredEdges: [],
   });
   await api.getRoute('101');
   expect(
     fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/courses/31')),
   ).toHaveLength(1);
-  await expect(api.getRoute('102')).resolves.toEqual({ route, basemap: null });
+  await expect(api.getRoute('102')).resolves.toEqual({
+    route,
+    basemap: null,
+    unmeasuredEdges: [],
+  });
   await expect(api.getRoute('103')).resolves.toBeNull();
 });

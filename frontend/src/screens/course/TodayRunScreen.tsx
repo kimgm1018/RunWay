@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   ScrollView,
   StatusBar,
@@ -240,6 +241,19 @@ export function TodayRunScreen() {
       locate();
     }
   }, [locate]);
+  const [recenter, setRecenter] = useState(0);
+  // A tap on the map folds 코스 조건 down to its title so the map shows; a tap on the title opens it again
+  // (S15P31E105-683, 담당자 요청).
+  const [folded, setFolded] = useState(false);
+  const [panelHeight, setPanelHeight] = useState(0);
+  const foldOffset = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(foldOffset, {
+      toValue: folded ? Math.max(0, panelHeight - foldedPeek) : 0,
+      duration: 240,
+      useNativeDriver: true,
+    }).start();
+  }, [foldOffset, folded, panelHeight]);
   const [picking, setPicking] = useState<'origin' | 'destination' | null>(null);
   const openPicker = (kind: 'origin' | 'destination') => setPicking(kind);
   const oneWay = preferences?.shape === 'point_to_point';
@@ -376,6 +390,10 @@ export function TodayRunScreen() {
         // The NAVER logo just over the sheet, on the left (S15P31E105-429).
         logo={{ above: 0.715 }}
         view="lean"
+        // The bright mint map with me as the mint pin, the same as the run start map (S15P31E105-683).
+        look="mint"
+        recenterSignal={recenter}
+        onTapMap={() => setFolded(true)}
         style={StyleSheet.absoluteFill}
       />
       {/* Keep the tabs and controls interactive above the map. */}
@@ -390,7 +408,11 @@ export function TodayRunScreen() {
             icon="locate"
             accessibilityLabel="현재 위치로"
             disabled={locating}
-            onPress={locate}
+            onPress={() => {
+              // Back to me at once, even after the map was moved by hand; a new fix then moves it again if I moved.
+              setRecenter(value => value + 1);
+              locate();
+            }}
             style={styles.locate}
           />
         </View>
@@ -401,10 +423,27 @@ export function TodayRunScreen() {
         >
           {/* A deep navy card (담당자 요청) read in the dark tone, its condition cards white. */}
           <ThemeProvider tone="dark">
-            <View style={styles.panel}>
-              <AppText variant="title" style={styles.panelTitle}>
-                코스 조건
-              </AppText>
+            <Animated.View
+              style={[
+                styles.panel,
+                { transform: [{ translateY: foldOffset }] },
+              ]}
+              onLayout={event =>
+                setPanelHeight(event.nativeEvent.layout.height)
+              }
+            >
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  folded ? '코스 조건 펼치기' : '코스 조건 접기'
+                }
+                onPress={() => setFolded(value => !value)}
+                hitSlop={8}
+              >
+                <AppText variant="title" style={styles.panelTitle}>
+                  코스 조건
+                </AppText>
+              </Pressable>
               <ScrollView
                 style={styles.panelScroll}
                 contentContainerStyle={styles.content}
@@ -494,7 +533,7 @@ export function TodayRunScreen() {
                   onPress={recommend}
                 />
               </View>
-            </View>
+            </Animated.View>
           </ThemeProvider>
         </SafeAreaView>
       </SafeAreaView>
@@ -737,7 +776,9 @@ function PanelContent({
 
   return (
     <View style={styles.list}>
-      <AppText variant="label" tone="textSecondary">코스 형태</AppText>
+      <AppText variant="label" tone="textSecondary">
+        코스 형태
+      </AppText>
       <View style={styles.chips} accessibilityRole="radiogroup">
         {courseShapeOptions.map(option => (
           <Chip
@@ -818,6 +859,9 @@ const iceSub = 'rgba(232,238,244,0.62)';
 
 // Navy value and ticks on the white boxes.
 const whiteRuler = { color: k1.night, mutedColor: 'rgba(2,5,14,0.32)' };
+
+// What stays of 코스 조건 folded down: its title, as a handle to open it again.
+const foldedPeek = 64;
 
 const styles = StyleSheet.create({
   white: { backgroundColor: '#FFFFFF' },

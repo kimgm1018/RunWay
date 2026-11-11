@@ -9,6 +9,7 @@ import {
   type RunRecordDraft,
 } from '../src/data';
 import { formatDotDate, formatDuration } from '../src/format';
+import { RunMap } from '../src/components/RunMap';
 import { controlModeOf } from '../src/screens/run/RunProgressScreen';
 import type { RunControlState } from '../src/screens/run/runControl';
 
@@ -134,14 +135,20 @@ async function startRun(
     await press(screen!, label);
   };
   if (kind === 'course') {
-    // 러닝 → 2.0C 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-564).
+    // 러닝(2.0F) → 코스 설정(3.1) → 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-683).
     await open('러닝', '홈 탭');
-    await open('코스 러닝', '러닝 방식 선택');
-    await open('저장한 코스', '코스 러닝 시작');
+    await open('코스 설정', '러닝 지도');
+    await open('저장한 코스', '코스 설정');
     await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
+    // The free run map stays mounted under 2.0 in the run tab: wait for 2.0's own start row (its course chip)
+    // so 러닝 시작 below is the course run's (S15P31E105-683).
+    await settleUntil(
+      screen!,
+      () => shows(screen!, '코스 변경'),
+      '2.0 코스 러닝',
+    );
   } else {
     await open('러닝', '홈 탭');
-    await open('자유 러닝', '러닝 방식 선택');
   }
   await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
   await press(screen!, '러닝 시작');
@@ -276,6 +283,53 @@ test('a free run result offers 기록 공유 once saved, and a failed save offer
   await act(async () => failed.unmount());
 });
 
+// S15P31E105-690: once saved, 4.5 draws the GPS route the server kept for the record (S11) in its parts; when that
+// cannot be read it draws the line the app gathered, and 경로 재생 opens over either.
+test('the result maps the saved record route, or the app trail when the route cannot be read', async () => {
+  const server: [number, number][][] = [
+    [
+      [129.1, 35.15],
+      [129.1, 35.152],
+    ],
+    [
+      [129.101, 35.153],
+      [129.101, 35.155],
+    ],
+  ];
+  const asked: string[] = [];
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  repositories.records.getRoute = async recordId => {
+    asked.push(recordId);
+    return server;
+  };
+  const screen = await startRun('free', 'default', repositories);
+  await press(screen, '일시정지');
+  await hold(screen, '종료');
+  await settle();
+  const mapOf = (shown: Screen) => {
+    const maps = shown.root.findAllByType(RunMap);
+    return maps[maps.length - 1];
+  };
+  expect(asked).toHaveLength(1);
+  expect(mapOf(screen).props.routeParts).toEqual(server);
+  expect(labelled(screen, '경로 재생')).toBeTruthy();
+  await act(async () => screen.unmount());
+
+  const failing = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  failing.records.getRoute = () => Promise.reject(new Error('S11 실패'));
+  const fallback = await startRun('free', 'default', failing);
+  // Long enough for the trail to be a route worth drawing (runRouteOf).
+  await settle(1500);
+  await press(fallback, '일시정지');
+  await hold(fallback, '종료');
+  await settle();
+  const parts = mapOf(fallback).props.routeParts as [number, number][][];
+  expect(parts.length).toBeGreaterThan(0);
+  expect(parts).not.toEqual(server);
+  expect(texts(fallback)).not.toContain('경로 기록이 없어요');
+  await act(async () => fallback.unmount());
+});
+
 // S15P31E105-529: with the server the finished run is its session's record (H02). The result confirms it with the
 // session id, shows the server's totals, and a record not read back yet is 확인 못 함 with 다시 확인.
 test('the result uses the server record of the session, and an unconfirmed one offers 다시 확인', async () => {
@@ -345,9 +399,16 @@ async function courseStartGoal(pick: boolean) {
     await press(screen!, label);
   };
   await open('러닝', '홈 탭');
-  await open('코스 러닝', '러닝 방식 선택');
-  await open('저장한 코스', '코스 러닝 시작');
+  await open('코스 설정', '러닝 지도');
+  await open('저장한 코스', '코스 설정');
   await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
+  // The free run map stays mounted under 2.0 in the run tab: wait for 2.0's own start row (its course chip)
+  // so 러닝 시작 below is the course run's (S15P31E105-683).
+  await settleUntil(
+    screen!,
+    () => shows(screen!, '코스 변경'),
+    '2.0 코스 러닝',
+  );
   const chip = `${formatDotDate(first.startedAt)} ${formatDuration(
     first.durationSec,
   )} 기록과 비교`;

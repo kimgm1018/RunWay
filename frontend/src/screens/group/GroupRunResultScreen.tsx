@@ -73,7 +73,7 @@ function StateNote({
 }
 
 // 6.7 그룹런 결과: who finished the goal fixed at the start, without ranks. In the tone of 4.5 시안 G3
-// (S15P31E105-661 담당자 결정: 그룹런 결과도 같은 톤): the navy page, the RunWay mark with the handwritten #그룹런 and
+// (S15P31E105-661 담당자 결정: 그룹런 결과도 같은 톤): the navy page, the RunWay mark with GROUP RUN and
 // the run's title, the group's figures in the G3 blocks, the course with a square every kilometre, 완주 현황 as ruled
 // rows, and square 공유 · 완료 at the foot.
 export function GroupRunResultScreen() {
@@ -183,12 +183,12 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
               tone="dark"
             />
           </View>
-          {/* The RunWay mark, the handwritten #그룹런 and the run's title, as the head of 시안 G3. */}
+          {/* The RunWay mark, GROUP RUN in Archivo (S15P31E105-701: 손글씨 #그룹런 대신) and the run's title. */}
           <View style={styles.head}>
             <ThemeProvider tone="dark">
               <Logo width={150} />
             </ThemeProvider>
-            <AppText style={styles.tag}>#그룹런</AppText>
+            <AppText style={styles.tag}>GROUP RUN</AppText>
             <AppText style={styles.title} numberOfLines={1}>
               {result.title}
             </AppText>
@@ -198,7 +198,8 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
               caps="GROUP"
               value={averagePace === null ? '– –' : formatPace(averagePace)}
               valueLabel="그룹 평균 페이스"
-              script="그룹 평균"
+              script="Average"
+              scriptSize={30}
             >
               <SideFigure
                 label="함께 달린 거리"
@@ -213,7 +214,8 @@ function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
             <StatBlock
               caps="FINISHED"
               value={`${finished}/${rows.length}`}
-              script="완주"
+              script="Completed"
+              scriptSize={30}
             >
               <View style={styles.sidePair}>
                 <SideFigure
@@ -309,13 +311,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   head: { alignItems: 'center' },
+  // GROUP RUN in the app's Latin face (Archivo, S15P31E105-701), mint and level.
   tag: {
-    marginTop: 4,
-    fontFamily: fontFamily.resultScript,
-    fontSize: 66,
-    lineHeight: 72,
+    marginTop: 10,
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 44,
+    lineHeight: 54,
+    letterSpacing: -0.5,
     color: resultLook.mint,
-    transform: [{ rotate: '-4deg' }],
   },
   title: {
     marginTop: 2,

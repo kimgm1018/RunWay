@@ -20,7 +20,8 @@ public record SessionSnapshot(
         SessionControlEvent lastCommand,
         Instant groupEndedAt,
         RunningSessionResponse.RecordComparison comparison,
-        Integer movingDurationSec) {
+        Integer movingDurationSec,
+        boolean rhythmCueEnabled) {
 
     public SessionSnapshot {
         segments = List.copyOf(segments);

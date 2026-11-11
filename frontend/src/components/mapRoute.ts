@@ -1,4 +1,4 @@
-import { distanceM, type LngLat } from '../geo';
+import { distanceM, routeLengthM, type LngLat } from '../geo';
 
 // How a course is coloured on the map (RunMap) and in the 2.0 legend.
 
@@ -60,10 +60,89 @@ export const darkMapLook = {
   unpassed: 'rgba(0,0,0,0)',
 };
 
+// The run start map (2.0F · 2.0 · 3.1, S15P31E105-683): the tilted view at full brightness, the course a RunWay mint
+// ribbon, and me as 6.9's mint pin.
+export const mintMapLook = {
+  ...darkMapLook,
+  lightness: 0,
+  // 담당자 경로 시안 (S15P31E105-683): a wide mint ribbon round a pale mint centre line, edged in deep teal.
+  ink: '#B8FFEC',
+  ribbon: '#4DFFD2',
+  shadow: '#06231E',
+  centre: 2.4,
+  edge: 4,
+  shadowWidth: 14,
+  me: '#4DFFD2',
+  meRing: '#02050E',
+};
+
+// A run's measured route (S11 parts, or the app's own trail) is shown on a map and played back only when its parts
+// of two or more points cover at least this much (S15P31E105-690): an indoor run, or one that never found GPS, has
+// none or only a few metres of drift, and gets the 경로 없음 notice instead of an empty map.
+export const shortRouteM = 50;
+
+// GPS wanders a few metres either side of the way actually run, so a raw trace zigzags and now and then jumps out
+// and back. The map and the replay draw a calmer line (S15P31E105-690); the stored points, the distance and the pace
+// are untouched. A point is a spike when both its legs are longer than spikeM and its neighbours lie much closer to
+// each other than to it; the rest is averaged with smoothReach points on either side, the ends kept where they are.
+export const spikeM = 20;
+const spikeShare = 0.5;
+const smoothReach = 2;
+
+export function calmRunPart(part: LngLat[]): LngLat[] {
+  const kept: LngLat[] = [];
+  part.forEach((point, index) => {
+    const before = kept[kept.length - 1];
+    const after = part[index + 1];
+    if (before && after) {
+      const out = distanceM(before, point);
+      const back = distanceM(point, after);
+      const shortest = Math.min(out, back);
+      if (
+        shortest > spikeM &&
+        distanceM(before, after) < shortest * spikeShare
+      ) {
+        return;
+      }
+    }
+    kept.push(point);
+  });
+  return kept.map((point, index) => {
+    if (index === 0 || index === kept.length - 1) {
+      return point;
+    }
+    const reach = Math.min(smoothReach, index, kept.length - 1 - index);
+    let lng = 0;
+    let lat = 0;
+    for (let at = index - reach; at <= index + reach; at += 1) {
+      lng += kept[at][0];
+      lat += kept[at][1];
+    }
+    const count = reach * 2 + 1;
+    return [lng / count, lat / count];
+  });
+}
+
+// The parts kept for the map, calmed and never joined across their breaks, and the same points in order as one line
+// for the camera and the S · F poles. null when there is nothing worth drawing.
+export type RunRoute = { parts: LngLat[][]; route: LngLat[] };
+export function runRouteOf(
+  parts: LngLat[][] | null | undefined,
+): RunRoute | null {
+  const kept = (parts ?? []).filter(part => part.length >= 2);
+  const length = kept.reduce((sum, part) => sum + routeLengthM(part), 0);
+  if (length < shortRouteM) {
+    return null;
+  }
+  const calm = kept.map(calmRunPart);
+  return { parts: calm, route: calm.length === 1 ? calm[0] : calm.flat() };
+}
+
 // A course that ends where it starts carries one SF mark; otherwise S at the start and F at the end.
 export const loopWithinM = 60;
 export const isLoop = (route: LngLat[]) =>
-  route.length >= 2 && distanceM(route[0], route[route.length - 1]) <= loopWithinM;
+  route.length >= 2 &&
+  distanceM(route[0], route[route.length - 1]) <= loopWithinM;
 
 // Picks the colour of one km from where its pace sits between the fastest and the slowest km.
 export function paceColor(

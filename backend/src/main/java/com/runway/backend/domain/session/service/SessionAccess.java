@@ -1,6 +1,7 @@
 package com.runway.backend.domain.session.service;
 
 import com.runway.backend.domain.device.entity.DeviceType;
+import com.runway.backend.domain.course.repository.CourseJdbcRepository;
 import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import com.runway.backend.domain.session.entity.ControlAction;
 import com.runway.backend.domain.session.entity.ControlResult;
@@ -55,6 +56,7 @@ class SessionAccess {
     private final SessionControlEventRepository controlEventRepository;
     private final SessionReferenceRepository referenceRepository;
     private final RecordComparisonService comparisonService;
+    private final CourseJdbcRepository courseJdbcRepository;
 
     /**
      * 그룹 연결 세션은 그룹 행을 먼저 잠근다. 잠금 전 확인과 잠금 후 재확인 사이에 삭제·소유 정보가 바뀌었을 수 있으므로 잠근 행으로 다시 판정한다. 그 사이 그룹
@@ -131,7 +133,7 @@ class SessionAccess {
         }
     }
 
-    CourseInfo requireUsableCourse(Long courseId) {
+    CourseInfo requireUsableCourse(long userId, Long courseId) {
         if (courseId == null) {
             return null;
         }
@@ -140,6 +142,9 @@ class SessionAccess {
                         .lockCourse(courseId)
                         .orElseThrow(() -> new ApiException(ErrorCode.COURSE_NOT_FOUND));
         if (!course.isActive()) {
+            throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
+        }
+        if (!courseJdbcRepository.canRead(userId, courseId)) {
             throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
         }
         return course;
@@ -196,7 +201,9 @@ class SessionAccess {
                         last,
                         groupEndedAt,
                         comparisonService.compare(session, serverSendAt),
-                        movingDurationSec);
+                        movingDurationSec,
+                        // 스냅샷마다 다시 읽어 러닝 중 설정 변경이 다음 스냅샷부터 워치에 반영되게 한다(S15P31E105-706).
+                        referenceRepository.rhythmCueEnabled(session.getId()));
         return RunningSessionMapper.toResponse(snapshot, serverReceiveAt, serverSendAt);
     }
 

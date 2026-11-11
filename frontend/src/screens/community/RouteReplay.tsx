@@ -37,6 +37,7 @@ import {
   bearingOf,
   distanceM as legLengthM,
   routeLengthM,
+  routeSections,
   type LngLat,
 } from '../../geo';
 import { formatPace } from '../../format';
@@ -47,6 +48,62 @@ import { Avatar, recordLabel, stamp } from './parts';
 // 코스 재생 (S15P31E105-561, 담당자 레퍼런스): from 7.2 the run plays back on a close-up map that follows the runner
 // from the start, the path drawn behind them, with the distance counting up and the pace, time and steps under it.
 // A tap pauses and resumes; at the end a tap plays it again.
+
+// What a replay plays (S15P31E105-690): a community post's run (7.2), or my own run from 4.5 러닝 결과 and the 5.1
+// record card. Made once per post or record, so the playback does not restart as the screen re-renders.
+export type ReplayRun = {
+  // Seeds the drawn map when there are no real points.
+  key: string;
+  // 코스 재생 for a shared course, 경로 재생 for my measured run: the replay's buttons say which.
+  kind: '코스' | '경로';
+  title: string;
+  byline: string;
+  startedAt: string;
+  shareMessage: string;
+  runner: {
+    nickname: string;
+    userId: string;
+    photo: string | null;
+    mine: boolean;
+  };
+  distanceM: number;
+  durationSec: number;
+  averagePaceSecPerKm: number | null;
+  // Steps per minute, for the 걸음 count; null without a watch.
+  cadence: number | null;
+  // The run's shape in a 0–1 box, for the drawn map.
+  shape: [number, number][];
+  // The real points: a post's course as one line, or a measured run in parts that are never joined across their
+  // breaks. null plays the shape on the drawn map.
+  parts: LngLat[][] | null;
+};
+
+export function replayOfPost(post: Post): ReplayRun {
+  const record = post.record;
+  return {
+    key: post.id,
+    kind: '코스',
+    title: recordLabel(record, post.courseShared),
+    byline: post.author.handle,
+    startedAt: record.startedAt,
+    shareMessage: `${post.author.handle}님의 러닝 · ${recordLabel(
+      record,
+      post.courseShared,
+    )} · 평균 페이스 ${formatPace(record.averagePaceSecPerKm)}/km`,
+    runner: {
+      nickname: post.author.nickname,
+      userId: post.author.userId,
+      photo: post.author.profileImageUrl ?? null,
+      mine: post.isMine,
+    },
+    distanceM: record.distanceM,
+    durationSec: record.durationSec,
+    averagePaceSecPerKm: record.averagePaceSecPerKm,
+    cadence: record.cadence,
+    shape: record.shape,
+    parts: record.route && record.route.length >= 2 ? [record.route] : null,
+  };
+}
 
 // The whole route spans this many screens, so the camera has somewhere to follow.
 const zoom = 3;
@@ -102,21 +159,21 @@ const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 
 // Without the route's real points: the run's shape on a drawn map.
 function ShapeReplay({
-  post,
+  run,
   visible,
   onClose,
 }: {
-  post: Post;
+  run: ReplayRun;
   visible: boolean;
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
   const canvas = { width: width * zoom, height: height * zoom };
   const route = useMemo(
-    () => lay(post.record.shape, canvas.width, canvas.height),
-    [post.record.shape, canvas.width, canvas.height],
+    () => lay(run.shape, canvas.width, canvas.height),
+    [run.shape, canvas.width, canvas.height],
   );
-  const playMs = replayPlayMs(post.record.distanceM);
+  const playMs = replayPlayMs(run.distanceM);
   const [shown, setShown] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
@@ -125,7 +182,7 @@ function ShapeReplay({
   // rate; the drawn path and the numbers follow the JS one (담당자 요청: 레퍼런스처럼 매끄럽게).
   const camera = useRef(new Animated.Value(0)).current;
   const draw = useRef(new Animated.Value(0)).current;
-  const run = useRef<Animated.CompositeAnimation | null>(null);
+  const motion = useRef<Animated.CompositeAnimation | null>(null);
 
   const start = useCallback(
     (from: number) => {
@@ -137,7 +194,7 @@ function ShapeReplay({
       at.current = from;
       setPlaying(true);
       setDone(false);
-      run.current = Animated.parallel([
+      motion.current = Animated.parallel([
         Animated.timing(camera, {
           toValue: 1,
           duration,
@@ -151,7 +208,7 @@ function ShapeReplay({
           useNativeDriver: false,
         }),
       ]);
-      run.current.start(({ finished }) => {
+      motion.current.start(({ finished }) => {
         if (finished) {
           at.current = 1;
           setShown(1);
@@ -179,13 +236,13 @@ function ShapeReplay({
   // Every opening plays from the start; closing stops it.
   useEffect(() => {
     if (!visible) {
-      run.current?.stop();
+      motion.current?.stop();
       return;
     }
     openedAt.current = Date.now();
     setShown(0);
     start(0);
-    return () => run.current?.stop();
+    return () => motion.current?.stop();
   }, [visible, camera, draw, start]);
 
   // When it opened: the finger that pressed 코스 재생 lifts over this screen, and that is not a tap on it.
@@ -200,7 +257,7 @@ function ShapeReplay({
       return;
     }
     if (playing) {
-      run.current?.stop();
+      motion.current?.stop();
       // Holds the map exactly where the path stopped.
       camera.setValue(at.current);
       setPlaying(false);
@@ -259,7 +316,11 @@ function ShapeReplay({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={
-          done ? '코스 다시 재생' : playing ? '재생 일시정지' : '재생 계속'
+          done
+            ? `${run.kind} 다시 재생`
+            : playing
+            ? '재생 일시정지'
+            : '재생 계속'
         }
         onPress={toggle}
         style={styles.root}
@@ -276,7 +337,7 @@ function ShapeReplay({
           ]}
         >
           <StillMap
-            seed={post.id}
+            seed={run.key}
             width={canvas.width}
             height={canvas.height}
             scale={1.6}
@@ -330,12 +391,12 @@ function ShapeReplay({
         </Animated.View>
 
         <ReplayChrome
-          post={post}
+          run={run}
           shown={shown}
           playing={playing}
           done={done}
           onClose={onClose}
-          speedup={replaySpeedup(post.record.durationSec, playMs)}
+          speedup={replaySpeedup(run.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
@@ -397,7 +458,30 @@ function overviewOf(route: LngLat[], width: number, height: number) {
 // Each leg's length and the whole length, measured once per route (S15P31E105-686): the playback asks for a
 // point and two headings ten times a second, and measuring every leg again each time slowed long runs.
 const measured = new WeakMap<LngLat[], { legs: number[]; total: number }>();
-function measure(route: LngLat[]) {
+const measuredWithGaps = new WeakMap<
+  LngLat[],
+  Map<string, { legs: number[]; total: number }>
+>();
+function measure(route: LngLat[], unmeasuredEdges: number[] = []) {
+  if (unmeasuredEdges.length) {
+    const key = unmeasuredEdges.join(',');
+    const cached = measuredWithGaps.get(route)?.get(key);
+    if (cached) return cached;
+    const gaps = new Set(unmeasuredEdges);
+    const legs = route
+      .slice(1)
+      .map((point, index) =>
+        gaps.has(index) ? 0 : legLengthM(route[index], point),
+      );
+    const result = {
+      legs,
+      total: legs.reduce((sum, length) => sum + length, 0),
+    };
+    const routes = measuredWithGaps.get(route) ?? new Map();
+    routes.set(key, result);
+    measuredWithGaps.set(route, routes);
+    return result;
+  }
   let found = measured.get(route);
   if (!found) {
     const legs = route
@@ -411,8 +495,12 @@ function measure(route: LngLat[]) {
 
 // The point `progress` (0–1) of the way along the route, by distance: the end of walkAlong's path, from the
 // measured legs.
-export function pointAt(route: LngLat[], progress: number): LngLat {
-  const { legs, total } = measure(route);
+export function pointAt(
+  route: LngLat[],
+  progress: number,
+  unmeasuredEdges: number[] = [],
+): LngLat {
+  const { legs, total } = measure(route, unmeasuredEdges);
   let left = total * Math.min(1, Math.max(0, progress));
   if (route.length < 2 || left <= 0) {
     return route[0];
@@ -420,7 +508,7 @@ export function pointAt(route: LngLat[], progress: number): LngLat {
   for (let index = 1; index < route.length; index += 1) {
     const [from, to] = [route[index - 1], route[index]];
     const length = legs[index - 1];
-    if (left <= length) {
+    if (length > 0 && left <= length) {
       const t = length === 0 ? 0 : left / length;
       return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
     }
@@ -429,10 +517,41 @@ export function pointAt(route: LngLat[], progress: number): LngLat {
   return route[route.length - 1];
 }
 
+// A run in parts as one line for the replay (S15P31E105-690): the parts joined in order, and the edges that join
+// one part to the next as unmeasured edges, so the pin crosses a break at once and no line is drawn over it. Parts
+// of fewer than two points are left out.
+const noEdges: number[] = [];
+export function lineOfParts(parts: LngLat[][]): {
+  route: LngLat[];
+  unmeasuredEdges: number[];
+} {
+  const kept = parts.filter(part => part.length >= 2);
+  if (kept.length <= 1) {
+    return { route: kept[0] ?? [], unmeasuredEdges: noEdges };
+  }
+  const unmeasuredEdges: number[] = [];
+  let count = 0;
+  kept.forEach((part, index) => {
+    count += part.length;
+    if (index < kept.length - 1) {
+      unmeasuredEdges.push(count - 1);
+    }
+  });
+  return { route: kept.flat(), unmeasuredEdges };
+}
+
 // The heading `progress` of the way along, looking a little ahead (back from the end).
-function headingAt(route: LngLat[], progress: number) {
-  const from = pointAt(route, Math.min(progress, 1 - lookAhead));
-  const to = pointAt(route, Math.min(1, progress + lookAhead));
+function headingAt(
+  route: LngLat[],
+  progress: number,
+  unmeasuredEdges: number[] = [],
+) {
+  const from = pointAt(
+    route,
+    Math.min(progress, 1 - lookAhead),
+    unmeasuredEdges,
+  );
+  const to = pointAt(route, Math.min(1, progress + lookAhead), unmeasuredEdges);
   return bearingOf(from, to);
 }
 
@@ -443,23 +562,54 @@ function turnToward(current: number, target: number, rate: number) {
 }
 
 function MapReplay({
-  post,
+  run,
   route,
+  unmeasuredEdges,
+  drawConnectors,
   visible,
   onClose,
 }: {
-  post: Post;
+  run: ReplayRun;
   route: LngLat[];
+  unmeasuredEdges: number[];
+  // 7.2 joins a course's unmeasured edges with a thin grey line (S15P31E105-552); my run's breaks stay empty
+  // (S15P31E105-690).
+  drawConnectors: boolean;
   visible: boolean;
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const playMs = replayPlayMs(post.record.distanceM);
+  const playMs = replayPlayMs(run.distanceM);
   const coords = useMemo(
     () => route.map(([longitude, latitude]) => ({ latitude, longitude })),
     [route],
   );
+  const replaySections = useMemo(() => {
+    if (!unmeasuredEdges.length) return null;
+    const { measured: parts, connectors } = routeSections(
+      route,
+      unmeasuredEdges,
+    );
+    const total = measure(route, unmeasuredEdges).total;
+    let start = 0;
+    return {
+      total,
+      parts: parts.map(part => {
+        const length = routeLengthM(part);
+        const result = {
+          part: part.map(([longitude, latitude]) => ({ latitude, longitude })),
+          start,
+          length,
+        };
+        start += length;
+        return result;
+      }),
+      connectors: connectors.map(part =>
+        part.map(([longitude, latitude]) => ({ latitude, longitude })),
+      ),
+    };
+  }, [route, unmeasuredEdges]);
   const size = useRef({ width, height });
   size.current = { width, height };
   const [camera, setCamera] = useState(() => overviewOf(route, width, height));
@@ -479,9 +629,11 @@ function MapReplay({
   const at = useRef(0);
   const heading = useRef(0);
   const openedAt = useRef(0);
-  // The post reloads under the replay (a new array each time); the timeline keys on opening, not on that.
+  // The post reloads under the replay (a new run each time); the timeline keys on opening, not on that.
   const path = useRef(route);
   path.current = route;
+  const edges = useRef(unmeasuredEdges);
+  edges.current = unmeasuredEdges;
 
   // Every opening: the overview at once, then the swoop in to the start, turned to the way ahead.
   useEffect(() => {
@@ -490,7 +642,7 @@ function MapReplay({
     }
     openedAt.current = Date.now();
     at.current = 0;
-    heading.current = headingAt(path.current, 0);
+    heading.current = headingAt(path.current, 0, edges.current);
     setShown(0);
     setDone(false);
     setPlaying(false);
@@ -549,13 +701,27 @@ function MapReplay({
     setMotion({ duration: tickMs, easing: 'Linear' });
     const step = () => {
       const progress = Math.min(1, from + (Date.now() - began) / playMs);
+      if (replaySections) {
+        const partAt = (value: number) =>
+          replaySections.parts.findIndex(
+            part => value * replaySections.total <= part.start + part.length,
+          );
+        setMotion({
+          duration: partAt(at.current) === partAt(progress) ? tickMs : 0,
+          easing: 'Linear',
+        });
+      }
       at.current = progress;
       heading.current = turnToward(
         heading.current,
-        headingAt(path.current, progress),
+        headingAt(path.current, progress, unmeasuredEdges),
         turnRate,
       );
-      const [longitude, latitude] = pointAt(path.current, progress);
+      const [longitude, latitude] = pointAt(
+        path.current,
+        progress,
+        unmeasuredEdges,
+      );
       setCamera({ latitude, longitude, ...close, bearing: heading.current });
       setShown(progress);
       if (progress >= 1) {
@@ -566,7 +732,7 @@ function MapReplay({
     step();
     const timer = setInterval(step, tickMs);
     return () => clearInterval(timer);
-  }, [visible, playing, playMs]);
+  }, [visible, playing, playMs, replaySections, unmeasuredEdges]);
 
   // The outro: a beat on the finish, then the camera rises, levels and turns north to the whole course, now drawn.
   useEffect(() => {
@@ -589,7 +755,7 @@ function MapReplay({
     if (done) {
       // Again from the start: the course is wiped and the camera swoops back in from the overview.
       at.current = 0;
-      heading.current = headingAt(route, 0);
+      heading.current = headingAt(route, 0, unmeasuredEdges);
       setShown(0);
       setDone(false);
       setIntro(true);
@@ -601,7 +767,7 @@ function MapReplay({
   };
 
   // Every replay line draws only the part already run: the rest is fully transparent (a part-see-through colour
-  // drew solid black on Android), and all of them share `progress`.
+  // drew solid black on Android).
   const reveal = { color: darkMapLook.unpassed, progress: shown };
 
   return (
@@ -616,7 +782,7 @@ function MapReplay({
         accessibilityRole="button"
         accessibilityLabel={
           done
-            ? '코스 다시 재생'
+            ? `${run.kind} 다시 재생`
             : playing || intro
             ? '재생 일시정지'
             : '재생 계속'
@@ -665,7 +831,18 @@ function MapReplay({
                 later, and removing them first (a feed switch) crashed in its getChildAt. */}
             {ready ? (
               <>
-                {outline ? (
+                {drawConnectors &&
+                  replaySections?.connectors.map((part, index) => (
+                    <NaverMapPathOverlay
+                      key={`connector-${index}`}
+                      coords={part}
+                      width={3}
+                      color="#8A979E"
+                      outlineWidth={0}
+                      zIndex={0}
+                    />
+                  ))}
+                {outline && !replaySections ? (
                   // The whole course, thin and grey, over the opening overview; under the run's lines.
                   <NaverMapPathOverlay
                     coords={coords}
@@ -676,61 +853,114 @@ function MapReplay({
                   />
                 ) : null}
                 {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
-                <NaverMapPathOverlay
-                  coords={coords}
-                  width={darkMapLook.glowOuterWidth}
-                  {...reveal}
-                  passedColor={darkMapLook.glowOuter}
-                  outlineWidth={0}
-                  zIndex={1}
-                />
-                <NaverMapPathOverlay
-                  coords={coords}
-                  width={darkMapLook.glowInnerWidth}
-                  {...reveal}
-                  passedColor={darkMapLook.glowInner}
-                  outlineWidth={0}
-                  zIndex={2}
-                />
-                <NaverMapPathOverlay
-                  coords={coords}
-                  width={darkMapLook.coreWidth}
-                  {...reveal}
-                  passedColor={darkMapLook.ink}
-                  outlineColor={darkMapLook.unpassed}
-                  passedOutlineColor={darkMapLook.ribbon}
-                  outlineWidth={darkMapLook.coreEdge}
-                  zIndex={3}
-                />
+                {!replaySections ? (
+                  <NaverMapPathOverlay
+                    coords={coords}
+                    width={darkMapLook.glowOuterWidth}
+                    {...reveal}
+                    passedColor={darkMapLook.glowOuter}
+                    outlineWidth={0}
+                    zIndex={1}
+                  />
+                ) : null}
+                {!replaySections ? (
+                  <NaverMapPathOverlay
+                    coords={coords}
+                    width={darkMapLook.glowInnerWidth}
+                    {...reveal}
+                    passedColor={darkMapLook.glowInner}
+                    outlineWidth={0}
+                    zIndex={2}
+                  />
+                ) : null}
+                {!replaySections ? (
+                  <NaverMapPathOverlay
+                    coords={coords}
+                    width={darkMapLook.coreWidth}
+                    {...reveal}
+                    passedColor={darkMapLook.ink}
+                    outlineColor={darkMapLook.unpassed}
+                    passedOutlineColor={darkMapLook.ribbon}
+                    outlineWidth={darkMapLook.coreEdge}
+                    zIndex={3}
+                  />
+                ) : null}
+                {replaySections?.parts.map((part, index) => {
+                  const progress =
+                    part.length > 0
+                      ? Math.max(
+                          0,
+                          Math.min(
+                            1,
+                            (shown * replaySections.total - part.start) /
+                              part.length,
+                          ),
+                        )
+                      : 0;
+                  return (
+                    <NaverMapPathOverlay
+                      key={`measured-${index}`}
+                      coords={part.part}
+                      width={darkMapLook.coreWidth}
+                      color={darkMapLook.unpassed}
+                      progress={progress}
+                      passedColor={darkMapLook.ink}
+                      outlineColor={darkMapLook.unpassed}
+                      passedOutlineColor={darkMapLook.ribbon}
+                      outlineWidth={darkMapLook.coreEdge}
+                      zIndex={3}
+                    />
+                  );
+                })}
               </>
             ) : null}
           </NaverMapView>
         </View>
         <ReplayChrome
-          post={post}
+          run={run}
           shown={shown}
           playing={playing || intro}
           done={done}
           onClose={onClose}
           accent={darkMapLook.ink}
-          speedup={replaySpeedup(post.record.durationSec, playMs)}
+          speedup={replaySpeedup(run.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
   );
 }
 
-// 코스 재생: on the real map when the post brings its course's points, on the drawn map otherwise.
-export function RouteReplay(props: {
-  post: Post;
-  visible: boolean;
-  onClose: () => void;
-}) {
-  const route = props.post.record.route;
-  return route && route.length >= 2 ? (
-    <MapReplay {...props} route={route} />
+// 코스 재생 · 경로 재생: on the real map when the run brings its points, on the drawn map otherwise. 7.2 passes its
+// post (and a derived course's unmeasured edges, S15P31E105-552); 4.5 and 5.1 pass my run in its parts
+// (S15P31E105-690), played as one line whose breaks are unmeasured edges, never drawn.
+export function RouteReplay({
+  visible,
+  onClose,
+  ...source
+}: { visible: boolean; onClose: () => void } & (
+  | { post: Post; unmeasuredEdges?: number[] }
+  | { run: ReplayRun }
+)) {
+  const post = 'post' in source ? source.post : null;
+  const given = 'run' in source ? source.run : null;
+  const postEdges = 'post' in source ? source.unmeasuredEdges : undefined;
+  const run = useMemo(() => given ?? replayOfPost(post as Post), [given, post]);
+  const line = useMemo(() => lineOfParts(run.parts ?? []), [run]);
+  const edges = useMemo(
+    () => (post ? postEdges ?? noEdges : line.unmeasuredEdges),
+    [post, postEdges, line],
+  );
+  return line.route.length >= 2 ? (
+    <MapReplay
+      run={run}
+      route={line.route}
+      unmeasuredEdges={edges}
+      drawConnectors={!!post}
+      visible={visible}
+      onClose={onClose}
+    />
   ) : (
-    <ShapeReplay {...props} />
+    <ShapeReplay run={run} visible={visible} onClose={onClose} />
   );
 }
 
@@ -743,7 +973,7 @@ const pulseMs = 1400;
 // The playback re-renders this many times a second, so only the counters follow `shown`: the bands, the pin and
 // the title are kept apart and drawn again only when what they show changes (S15P31E105-686).
 function ReplayChrome({
-  post,
+  run,
   shown,
   playing,
   done,
@@ -751,7 +981,7 @@ function ReplayChrome({
   accent = darkMapLook.ink,
   speedup = null,
 }: {
-  post: Post;
+  run: ReplayRun;
   shown: number;
   playing: boolean;
   done: boolean;
@@ -763,25 +993,29 @@ function ReplayChrome({
 }) {
   const insets = useSafeAreaInsets();
   const percent = Math.round(Math.min(1, Math.max(0, shown)) * 100);
-  const record = post.record;
-  const km = ((record.distanceM * shown) / 1000).toFixed(2);
-  const seconds = record.durationSec * shown;
+  const km = ((run.distanceM * shown) / 1000).toFixed(2);
+  const seconds = run.durationSec * shown;
   const strides =
-    record.cadence === null
-      ? null
-      : Math.round((record.cadence * seconds) / 60);
+    run.cadence === null ? null : Math.round((run.cadence * seconds) / 60);
   return (
     <>
       <ReplayBands />
       <ReplayPin
-        nickname={post.author.nickname}
-        userId={post.author.userId}
-        photo={post.author.profileImageUrl}
-        mine={post.isMine}
+        nickname={run.runner.nickname}
+        userId={run.runner.userId}
+        photo={run.runner.photo}
+        mine={run.runner.mine}
         playing={playing}
         accent={accent}
       />
-      <ReplayHeader post={post} onClose={onClose} />
+      <ReplayHeader
+        title={run.title}
+        byline={run.byline}
+        startedAt={run.startedAt}
+        shareMessage={run.shareMessage}
+        closeLabel={`${run.kind} 재생 닫기`}
+        onClose={onClose}
+      />
 
       <View
         style={[styles.foot, { paddingBottom: insets.bottom + 24 }]}
@@ -789,7 +1023,9 @@ function ReplayChrome({
       >
         {/* 페이스가 주인공 (담당자 요청): the run's average pace big, the distance counting up beside time and steps. */}
         <AppText style={styles.pace}>
-          {formatPace(record.averagePaceSecPerKm)}
+          {run.averagePaceSecPerKm === null
+            ? '– –'
+            : formatPace(run.averagePaceSecPerKm)}
         </AppText>
         <AppText style={styles.paceUnit}>평균 페이스 (/KM)</AppText>
         <View style={styles.row}>
@@ -889,9 +1125,9 @@ const ReplayPin = memo(function Pin({
   playing,
   accent,
 }: {
-  nickname: Post['author']['nickname'];
-  userId: Post['author']['userId'];
-  photo: Post['author']['profileImageUrl'];
+  nickname: string;
+  userId: string;
+  photo: string | null;
   mine: boolean;
   playing: boolean;
   accent: string;
@@ -965,21 +1201,23 @@ const ReplayPin = memo(function Pin({
 
 // The title with 공유 · 닫기.
 const ReplayHeader = memo(function Header({
-  post,
+  title,
+  byline,
+  startedAt,
+  shareMessage,
+  closeLabel,
   onClose,
 }: {
-  post: Post;
+  title: string;
+  byline: string;
+  startedAt: string;
+  shareMessage: string;
+  closeLabel: string;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const record = post.record;
   const share = () =>
-    Share.share({
-      message: `${post.author.handle}님의 러닝 · ${recordLabel(
-        record,
-        post.courseShared,
-      )} · 평균 페이스 ${formatPace(record.averagePaceSecPerKm)}/km`,
-    }).catch(() => undefined);
+    Share.share({ message: shareMessage }).catch(() => undefined);
   return (
     <View
       style={[styles.header, { top: insets.top + 10 }]}
@@ -987,13 +1225,13 @@ const ReplayHeader = memo(function Header({
     >
       <View style={styles.headerText} pointerEvents="none">
         <AppText style={styles.title} numberOfLines={1}>
-          {recordLabel(record, post.courseShared)}
+          {title}
         </AppText>
         <AppText style={styles.byline} numberOfLines={1}>
-          {post.author.handle}
+          {byline}
         </AppText>
         <AppText style={styles.date} numberOfLines={1}>
-          {stamp(record.startedAt)}
+          {stamp(startedAt)}
         </AppText>
       </View>
       <Pressable
@@ -1007,7 +1245,7 @@ const ReplayHeader = memo(function Header({
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="코스 재생 닫기"
+        accessibilityLabel={closeLabel}
         onPress={onClose}
         hitSlop={6}
         style={({ pressed }) => [styles.round, pressed && styles.pressed]}

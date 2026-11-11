@@ -60,7 +60,8 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
                         .header("Authorization", "Bearer " + body.get("accessToken").asString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.voiceCoachingEnabled").value(false))
-                .andExpect(jsonPath("$.bpmGuideEnabled").value(false))
+                // S15P31E105-706: BPM 안내만 기본 켬이다.
+                .andExpect(jsonPath("$.bpmGuideEnabled").value(true))
                 .andExpect(jsonPath("$.locationRecordingMode").value("OFF"))
                 .andExpect(jsonPath("$.notifications.groupRun").value(false))
                 .andExpect(jsonPath("$.notifications.community").value(false));
@@ -83,10 +84,10 @@ class SignupApiIntegrationTest extends AuthIntegrationSupport {
         for (String key :
                 new String[] {
                     "voice_coaching_enabled",
-                    "bpm_guide_enabled",
                     "group_notifications_enabled",
                     "community_notifications_enabled"
                 }) assertThat(settings.get(key)).isEqualTo(false);
+        assertThat(settings.get("bpm_guide_enabled")).isEqualTo(true);
         assertThat(settings.get("location_collection_mode").toString()).isEqualTo("OFF");
         assertThat(settings.get("account_visibility").toString()).isEqualTo("PRIVATE");
         assertThat(

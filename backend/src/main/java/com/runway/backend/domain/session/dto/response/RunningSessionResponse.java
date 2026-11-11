@@ -28,7 +28,12 @@ public record RunningSessionResponse(
         Instant serverReceiveAt,
         Instant serverSendAt,
         String recordingMode,
-        Instant groupEndedAt) {
+        Instant groupEndedAt,
+        /**
+         * 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 bpmGuideEnabled가 켜져 있거나 이 세션에서 사용자가 BPM을 직접 바꿔
+         * 적용한 적(SET_BPM APPLIED)이 있으면 true. 코칭 명령의 페이스·단계·BPM 값은 이 값과 무관하게 그대로다(S15P31E105-706).
+         */
+        boolean rhythmCueEnabled) {
 
     public record Goal(
             Long courseId,

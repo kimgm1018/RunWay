@@ -90,6 +90,7 @@ class RunningRecordAccessHelperTest {
                 null,
                 null,
                 null,
-                deletedAt);
+                deletedAt,
+                false);
     }
 }

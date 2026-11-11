@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { AppText, Icon, useToast, WordWrap } from '../../components';
+import type { RunRoute } from '../../components/mapRoute';
 import type { RunRecordDetail, RunSplit } from '../../data';
 import {
   formatClockTime,
@@ -16,6 +17,7 @@ import { compareWithGoal, kmBands, measured } from './paceHeart';
 import { paceHeartLook } from './PaceHeartPreview';
 import { kstDay } from './parts';
 import { useRevealTop } from './revealTop';
+import { RunRouteMap, type RunRouteFacts } from './RunRoute';
 import { TargetSplitChart } from './TargetSplitChart';
 
 // 2.1 홈 러닝 분석 (S15P31E105-615; S15P31E105-594 담당자 시안 "러닝 분석 앞뒤"): one run seen two ways on a card that
@@ -508,10 +510,17 @@ export function HomeRecord({
   record,
   onOpen,
   openLabel,
+  action,
+  route,
+  facts,
 }: {
   record: RunRecordDetail;
   onOpen?: () => void;
   openLabel?: string;
+  action?: React.ReactNode;
+  // The run's GPS route with 경로 재생 above the card (S15P31E105-690); without facts no map is shown.
+  route?: RunRoute | null;
+  facts?: RunRouteFacts;
 }) {
   const seen = measured(record.splits);
   // 요청서 5 사용자 상태별 표시: one line under the lines for what is missing.
@@ -649,6 +658,17 @@ export function HomeRecord({
   return (
     <View style={styles.root}>
       <RunRow record={record} onOpen={onOpen} openLabel={openLabel} />
+      {action}
+      {/* The run's route right under its row (S15P31E105-690): the card below keeps its taller face's height, so a
+          map under it would sit after a gap. */}
+      {facts ? (
+        <RunRouteMap
+          route={route ?? null}
+          facts={facts}
+          tone="card"
+          style={styles.route}
+        />
+      ) : null}
       <View ref={cardTop} collapsable={false}>
         <FlipCard
           front={front}
@@ -662,6 +682,7 @@ export function HomeRecord({
 
 const styles = StyleSheet.create({
   root: { gap: 14 },
+  route: { height: 200 },
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
   runRow: {

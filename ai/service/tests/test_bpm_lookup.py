@@ -142,3 +142,124 @@ def test_db_failure_still_gives_average_bpm_with_warning():
     r = go(decide_body(), CachedDbBpmLookup(FakeDb(fail=True))).response
     assert r.decision.cue_bpm == tb.target_bpm(r.decision.recommended_pace_sec_per_km, CALC.prior).bpm
     assert UNAVAILABLE_WARNING in r.warnings
+
+
+# --- 세션 캐시(BPM_LOOKUP_CACHE_ENABLED) ------------------------------------------
+
+def _states():
+    """같은 세션이 진행되는 동안의 DB 모습. 켬·끔 조회기에 똑같이 넣는다."""
+    return [
+        dict(current_bpm=158, windows=[], events=[]),                                         # 아직 구간 없음
+        dict(current_bpm=162, windows=[window(500, 0, n=2)], events=[]),                      # 일정 구간 아님, BPM 바뀜
+        dict(current_bpm=165, windows=[window(500, 0, n=2), window(500, 1, speed=2.78, cadence=157.0)], events=[]),
+        dict(current_bpm=170, windows=[window(500, 1, speed=2.78, cadence=157.0), window(500, 4, cadence=171.0)],
+             events=[event(500, 3, 170)]),                                                    # 첫 1분 뒤 BPM 변경
+        dict(current_bpm=None, windows=[window(500, 1, cadence=180.0)], events=[event(500, 0.5, 175)]),
+    ]
+
+
+def _run_states(db, lookup):
+    out = []
+    for st in _states():
+        db.session = {"user_id": 7, "current_bpm": st["current_bpm"]}
+        db.windows, db.events = st["windows"], st["events"]
+        out.append((lookup.get_for_session(500), go(decide_body(), lookup).response.decision.cue_bpm))
+    return out
+
+
+def test_session_cache_gives_same_cue_bpm_as_old_path():
+    for runs, past in (([], []), ([11], [window(11, 3, cadence=176.0)])):                     # 처음 사용자 / 기록 사용자
+        on_db = FakeDb(runs=runs, windows=past, events=[event(11, 1, 175)])
+        off_db = FakeDb(runs=runs, windows=past, events=[event(11, 1, 175)])
+        on = _run_states(on_db, CachedDbBpmLookup(on_db, session_cache=True))
+        off = _run_states(off_db, CachedDbBpmLookup(off_db, session_cache=False))
+        assert on == off
+        assert on[2][0].bpm_input.first_minute.cue_bpm == 165.0                               # 찾을 때의 current_bpm
+
+
+def test_session_sql_is_skipped_after_first_minute_is_known():
+    db = FakeDb(session={"user_id": 7, "current_bpm": 158}, windows=[])
+    lookup = CachedDbBpmLookup(db, session_cache=True)
+    lookup.get_for_session(500)
+    assert db.calls.count(BPM_SESSION_SQL) == 1 and db.calls.count(BPM_EVENTS_SQL) == 0       # 일정 구간 없으면 이벤트 안 읽음
+    lookup.get_for_session(500)
+    assert db.calls.count(BPM_SESSION_SQL) == 2                                                # 첫 1분 전에는 매번 읽음
+    db.windows = [window(500, 0)]
+    lookup.get_for_session(500)                                                                # 첫 1분을 찾음
+    before = len(db.calls)
+    for _ in range(5):
+        lookup.get_for_session(500)
+    assert db.calls[before:] == []                                                             # 이후 DB 0회(지난 기록은 300초 캐시)
+
+
+def test_cache_off_env_keeps_old_sql_path(monkeypatch):
+    monkeypatch.setenv("BPM_LOOKUP_CACHE_ENABLED", "false")
+    db = FakeDb(session={"user_id": 7, "current_bpm": 158}, windows=[])
+    lookup = CachedDbBpmLookup(db)
+    assert lookup.session_cache is False
+    lookup.get_for_session(500)
+    assert db.calls == [BPM_SESSION_SQL, BPM_RUNS_SQL, BPM_WINDOWS_SQL, BPM_EVENTS_SQL]       # 예전 순서 그대로
+    db.windows = [window(500, 0)]
+    lookup.get_for_session(500)
+    db.calls.clear()
+    lookup.get_for_session(500)
+    assert db.calls == [BPM_SESSION_SQL]                                                       # 매번 세션 SQL
+    monkeypatch.setenv("BPM_LOOKUP_CACHE_ENABLED", "true")
+    assert CachedDbBpmLookup(db).session_cache is True
+    monkeypatch.delenv("BPM_LOOKUP_CACHE_ENABLED")
+    assert CachedDbBpmLookup(db).session_cache is True                                        # 기본 켬
+
+
+def test_session_cache_expires_and_is_bounded():
+    now = [0.0]
+    db = FakeDb(session={"user_id": 7, "current_bpm": 158}, windows=[window(s, 0) for s in (1, 2, 3)])
+    lookup = CachedDbBpmLookup(db, session_cache=True, session_ttl_sec=10, max_entries=2, monotonic=lambda: now[0])
+    lookup.get_for_session(1)
+    lookup.get_for_session(1)
+    assert db.calls.count(BPM_SESSION_SQL) == 1
+    now[0] = 11.0                                                                              # 만료
+    lookup.get_for_session(1)
+    assert db.calls.count(BPM_SESSION_SQL) == 2
+    lookup.get_for_session(2)
+    lookup.get_for_session(3)
+    assert len(lookup._users) <= 2 and len(lookup._first) <= 2                                 # 상한
+    assert 1 not in lookup._users
+    n = db.calls.count(BPM_SESSION_SQL)
+    lookup.get_for_session(1)                                                                  # 밀려난 세션은 다시 읽음
+    assert db.calls.count(BPM_SESSION_SQL) == n + 1
+
+
+def test_evicted_first_minute_is_recomputed_with_current_bpm():
+    db = FakeDb(session={"user_id": 7, "current_bpm": 158}, windows=[window(1, 0), window(2, 0)])
+    lookup = CachedDbBpmLookup(db, session_cache=True, max_entries=1)
+    a = lookup.get_for_session(1).bpm_input.first_minute
+    lookup.get_for_session(2)                                                                  # 1의 첫 1분이 밀려남
+    b = lookup.get_for_session(1).bpm_input.first_minute
+    assert a == b and b.cue_bpm == 158.0                                                       # current_bpm 없이 계산하지 않음
+
+
+def test_session_cache_is_thread_safe():
+    import threading
+    db = FakeDb(session={"user_id": 7, "current_bpm": 158}, runs=[11],
+                windows=[window(11, 3, cadence=176.0)] + [window(s, 0) for s in range(100, 140)],
+                events=[event(11, 1, 175)])
+    lookup = CachedDbBpmLookup(db, session_cache=True, max_entries=8)
+    want = {s: CachedDbBpmLookup(FakeDb(session=db.session, runs=db.runs, windows=db.windows, events=db.events),
+                                 session_cache=False).get_for_session(s) for s in range(100, 140)}
+    errors, got = [], []
+
+    def worker(k):
+        try:
+            for i in range(200):
+                s = 100 + (i * 7 + k) % 40
+                got.append((s, lookup.get_for_session(s)))
+        except Exception as exc:   # pragma: no cover
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(k,)) for k in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and all(r == want[s] for s, r in got)
+    assert len(lookup._users) <= 8 and len(lookup._first) <= 8
