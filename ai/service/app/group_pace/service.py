@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 
-from app.decide.service import _user_hr_lookup, recent_inputs
+from app.decide.service import _apply_readiness, _user_hr_lookup_full, recent_inputs
 from app.gru_gb import apply_gb, is_identity, personal_weight
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
@@ -81,10 +81,11 @@ def _fill_detail(detail: dict, *, paces, baseline, chosen, requests, hr_members,
 
 def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_lookup=None,
                          hr_threshold_lookup_configured: bool = True, detail: dict | None = None,
-                         gru_gb_enabled: bool = False) -> GroupPaceResponse:
+                         gru_gb_enabled: bool = False, readiness_lookup=None) -> GroupPaceResponse:
     """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다.
 
     gru_gb_enabled=True면 회원마다 자기 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
+    readiness_lookup(S15P31E105-676, 기본 None=꺼짐): 회원마다 자기 오늘 준비도·민감도로 자기 허용선만 낮춘다.
     """
     current = body.current_group_pace_sec_per_km
     paces = candidate_paces(current, DELTAS)
@@ -97,6 +98,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
     requests = []
     warnings = []
     member_gb = []
+    member_readiness = []
 
     for member in body.participants:
         if not member.active:
@@ -123,9 +125,11 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             excluded += 1
             warnings.append("PARTICIPANT_DATA_UNUSABLE")
             continue
-        ref, threshold_warnings, gb = _user_hr_lookup(
+        ref, threshold_warnings, gb, row = _user_hr_lookup_full(
             member.user_id, hr_threshold_lookup, cfg, configured=hr_threshold_lookup_configured)
         warnings.extend(threshold_warnings)
+        ref, readiness, readiness_warnings = _apply_readiness(member.user_id, ref, row, readiness_lookup, body.now)
+        warnings.extend(readiness_warnings)
         # 백엔드가 계산한 그룹 진행률을 사용하며, 없으면 출발 시점 기준으로 판단한다.
         allow = allow_at(body.progress_ratio or 0.0, ref, cfg)
         mean_grade = sum(member.future_grade_pct) / 24 if grade_known else None
@@ -133,6 +137,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             warnings.append("GRADE_UNKNOWN")
         requests.append(request)
         member_gb.append(gb)
+        member_readiness.append(readiness)
         # AI04 여유 표 방향은 최근 6칸이 전부 있을 때만 평균 속도로 분류한다.
         past_speeds = member.history.speed_mps[-6:]
         mean_past = _mean(tuple(past_speeds)) if len(past_speeds) == 6 else None
@@ -153,6 +158,11 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
                     applied = not is_identity(gb[0], gb[1])
                     member["gruGb"] = {"applied": applied, "supportN": gb[2],
                                        "weight": personal_weight(gb[2], gb[0], gb[1])}
+            if readiness_lookup is not None:
+                # 676 시연 기록: 회원별 오늘 준비도·허용 심박 감소·개인 c 비중(꺼져 있으면 넣지 않음)
+                for member, adjust in zip(detail["members"], member_readiness):
+                    member["readiness"] = {"score": adjust.score, "adjustBpm": round(adjust.drop_bpm, 3),
+                                           "weight": round(adjust.weight, 4)} if adjust is not None else None
         return GroupPaceResponse(
             group_pace_sec_per_km=pace, changed=changed,
             direction=("SLOW" if pace > current else "FAST") if changed else "HOLD", reason=reason,

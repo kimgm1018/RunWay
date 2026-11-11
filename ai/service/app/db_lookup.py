@@ -86,7 +86,10 @@ HR_THRESHOLD_COLUMNS = ("user_id", "personalization_version", "hr_danger_bpm", "
 # S15P31E105-641: 같은 행 summary_u_json의 GRU g·b 두 값만 꺼낸다(키가 없으면 NULL, 추가 조회 없음).
 HR_THRESHOLD_GRU_GB_EXPRS = ("summary_u_json->>'gruGain' AS gru_gain",
                              "summary_u_json->>'gruOffsetBpm' AS gru_offset_bpm",
-                             "summary_u_json->>'gruSupportN' AS gru_support_n")
+                             "summary_u_json->>'gruSupportN' AS gru_support_n",
+                             # S15P31E105-676: 같은 행의 준비도 민감도 c_user와 러닝 수(키가 없으면 NULL → 사전값).
+                             "summary_u_json->>'readinessSensitivity' AS readiness_sensitivity",
+                             "summary_u_json->>'readinessSupportN' AS readiness_support_n")
 HR_THRESHOLD_SQL = (f"SELECT {', '.join(HR_THRESHOLD_COLUMNS + HR_THRESHOLD_GRU_GB_EXPRS)}\n"
                     f"FROM {PERSONALIZATION_TABLE}\n"
                     "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1")
