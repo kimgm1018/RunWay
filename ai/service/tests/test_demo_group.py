@@ -163,3 +163,13 @@ def test_offline_group_replay_tells_the_demo_story(tmp_path):
     assert rec["traces"][0]["decision"]["fromPaceSecPerKm"] == 370
     assert (tmp_path / "group_test.js").read_text(encoding="utf-8").startswith("window.RunwayDemoRecordings.push(")
     assert "group_test.js" in (tmp_path / "index.js").read_text(encoding="utf-8")
+
+
+def test_offline_group_replay_runner_count_follows_demo_size(tmp_path):
+    from tools.offline_group_replay import build_group_recording
+    rec = build_group_recording(recording_id="group_two", label="합성", out_dir=tmp_path, runners=2)
+    assert all(len(t["group"]["members"]) == 2 for t in rec["traces"])       # 시연 2명이면 판정판도 2행
+    codes = [t["decision"]["reasonCode"] for t in rec["traces"]]
+    assert "SPEED_UP" in codes and "SLOW_DOWN" in codes                       # 마지막 러너가 감속 이야기를 맡는다
+    with pytest.raises(ValueError):
+        build_group_recording(recording_id="group_zero", label="합성", out_dir=tmp_path, runners=0)

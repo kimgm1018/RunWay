@@ -83,9 +83,20 @@ def _write_index(out_dir: Path, recording_id: str):
     index_path.write_text("window.RunwayDemoRecordingFiles = " + json.dumps(names, indent=2) + ";\n", encoding="utf-8")
 
 
+# 시연 인원(2명 등)에 맞춰 러너 수를 바꿀 수 있다. 마지막 러너가 7분부터 심박이 오르는 사람(감속 이야기)이다.
+_CALM_RUNNERS = [(118, 0.42), (124, 0.40), (116, 0.43), (122, 0.41), (119, 0.40), (125, 0.42), (117, 0.41), (123, 0.43)]
+
+
+def _make_runners(count: int) -> list:
+    calm = [Runner(rest, gain) for rest, gain in _CALM_RUNNERS[:count - 1]]
+    return calm + [Runner(121, 0.41, surge_at=7.0 * 60, surge_per_min=8.0, surge_max=13.0)]
+
+
 def build_group_recording(*, recording_id: str, label: str, out_dir: Path, minutes: float = 12.0,
                           start_pace: float = 370.0, goal_pace: float = 350.0, policy=None, model=None,
-                          course_file: Path | None = None, group_run_id: int = 900001) -> dict:
+                          course_file: Path | None = None, group_run_id: int = 900001, runners: int = 3) -> dict:
+    if not 1 <= runners <= 9:
+        raise ValueError("러너 수는 1~9명이어야 합니다")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", recording_id):
         raise ValueError("id는 영문, 숫자, 밑줄, 하이픈만 쓸 수 있습니다")
     if policy is None:
@@ -93,7 +104,7 @@ def build_group_recording(*, recording_id: str, label: str, out_dir: Path, minut
         policy = build_policy(settings.margin_table_path, "gru")
     synthetic = model is None
     model = model or SyntheticModel()
-    runners = [Runner(118, 0.42), Runner(124, 0.40), Runner(121, 0.41, surge_at=7.0 * 60, surge_per_min=8.0, surge_max=13.0)]
+    runners = _make_runners(runners)
     t0 = datetime(2026, 11, 13, 9, 0, tzinfo=timezone.utc)
     pace = start_pace
     histories = [{"hrBpm": [], "speedMps": [], "gradePct": []} for _ in runners]
@@ -148,10 +159,12 @@ def main(argv=None) -> int:
     parser.add_argument("--start-pace", type=float, default=370.0, help="출발 추천 공동 pace(초/km)")
     parser.add_argument("--goal-pace", type=float, default=350.0, help="목표 pace(초/km)")
     parser.add_argument("--course-file", type=Path)
+    parser.add_argument("--runners", type=int, default=3, help="러너 수(1~9). 시연 인원에 맞춘다")
     args = parser.parse_args(argv)
     try:
         rec = build_group_recording(recording_id=args.id, label=args.label, out_dir=args.out_dir, minutes=args.minutes,
-                                    start_pace=args.start_pace, goal_pace=args.goal_pace, course_file=args.course_file)
+                                    start_pace=args.start_pace, goal_pace=args.goal_pace, course_file=args.course_file,
+                                    runners=args.runners)
     except (OSError, ValueError) as exc:
         print(f"그룹 재생 기록 만들기 실패: {exc}", file=sys.stderr)
         return 1
