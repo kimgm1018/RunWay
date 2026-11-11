@@ -22,6 +22,7 @@ query=$(cat)
 printf '%s\n' "$query" >> "$MOCK_DIR/sql"
 if [[ $query == *running_sessions* ]]; then echo "${RUNNING_SESSIONS_RESULT:-t}"
 elif [[ $query == *user_profiles* ]]; then echo "${USER_PROFILES_RESULT:-t}"
+elif [[ $query == *daily_readiness* ]]; then echo "${READINESS_RESULT:-t}"
 elif [[ $query == *running_metric_samples* ]]; then echo "${BPM_RESULT:-t}"
 elif [[ $query == *has_database_privilege* ]]; then echo "${GRANT_RESULT:-t}"
 elif [[ $query == *GRANT* ]]; then echo "${GRANT_RESULT:-t}"; else echo "${READY_RESULT:-t}"; fi
@@ -67,6 +68,22 @@ class ReadonlyGrantTests(unittest.TestCase):
 
     def test_running_sessions_privilege_failure_stops_deployment(self):
         self.env["RUNNING_SESSIONS_RESULT"] = "f"
+        result = self.run_grant()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("to_regclass", (self.root / "sql").read_text())
+
+    def test_daily_readiness_is_granted_read_only_before_waiting(self):
+        # 676 준비도 민감도: daily_readiness는 V1부터 있으므로 V10 대기 전에 읽기만 준다.
+        result = self.run_grant()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sql = (self.root / "sql").read_text()
+        self.assertIn("GRANT SELECT ON public.daily_readiness TO runway_ai", sql)
+        self.assertIn("NOT has_table_privilege('runway_ai', 'public.daily_readiness', 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                      sql)
+        self.assertLess(sql.index("public.daily_readiness TO runway_ai"), sql.index("to_regclass"))
+
+    def test_daily_readiness_privilege_failure_stops_deployment(self):
+        self.env["READINESS_RESULT"] = "f"
         result = self.run_grant()
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("to_regclass", (self.root / "sql").read_text())

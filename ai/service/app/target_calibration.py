@@ -36,6 +36,8 @@ from typing import Iterable
 
 import numpy as np
 
+from app.readiness_adjust import ratio_drop
+
 CALIBRATION_DEFINITION = "target_hr_ratio_p85_global_blend_prior20_running_sessions_avg_hr_v1"
 # V2 Train 5-fold 상수 모형(서버 target_calib_20261103/full_20261103T031938Z_q0.80-0.80-0.50).
 DEFAULT_GLOBAL_RATIO = 0.9421864262333622
@@ -152,6 +154,10 @@ def calibrate_reference(ref, personalization):
     calibration = load_target_calibration()
     target = calibration.target_bpm(ref.sustain_bpm, getattr(personalization, "target_hr_history_median_bpm", None),
                                     getattr(personalization, "target_hr_history_run_count", 0))
+    # S15P31E105-676: 준비도가 낮은 날 목표 비율을 Δ/hr_ref(hr_ref = 비율을 곱하는 P85, 최대 2%) 낮춘다. Δ=0이면 그대로.
+    drop = ratio_drop(getattr(personalization, "readiness_drop_bpm", 0.0) or 0.0, ref.sustain_bpm)
+    if drop > 0.0:
+        target = target - drop * ref.sustain_bpm
     return replace(ref, sustain_bpm=float(target))
 
 
@@ -159,8 +165,12 @@ def calibration_warnings(personalization) -> list[str]:
     calibration = load_target_calibration()
     count = getattr(personalization, "target_hr_history_run_count", 0)
     k = "inf" if math.isinf(calibration.k) else f"{calibration.k:g}"
-    return [f"TARGET_HR_CALIB_GLOBAL_RATIO={calibration.global_ratio:.4f}", f"TARGET_HR_CALIB_K={k}",
-            f"TARGET_HR_CALIB_HISTORY_RUNS={count}"]
+    warnings = [f"TARGET_HR_CALIB_GLOBAL_RATIO={calibration.global_ratio:.4f}", f"TARGET_HR_CALIB_K={k}",
+                f"TARGET_HR_CALIB_HISTORY_RUNS={count}"]
+    # 676: 기능이 켜져 있고 오늘 준비도가 있을 때만 적용한 감소 bpm을 알린다(꺼져 있으면 목록이 이전과 같다).
+    if getattr(personalization, "readiness_score", None) is not None:
+        warnings.append(f"READINESS_ADJUST_BPM={getattr(personalization, 'readiness_drop_bpm', 0.0):.2f}")
+    return warnings
 
 
 __all__ = ["CALIBRATION_DEFINITION", "DEFAULT_GLOBAL_RATIO", "DEFAULT_HISTORY_SCALE", "DEFAULT_K",

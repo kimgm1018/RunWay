@@ -24,7 +24,7 @@ from app.inference import ApiError
 from app.ode_schemas import PlanGradeSegment
 from app.policy.config import load_policy_config
 from app.policy.hr_reference import blend_hr_thresholds
-from app import target_calibration
+from app import readiness_adjust, target_calibration
 from app.schemas import CamelModel
 from app.planner import prerun_planner
 from app.population_bundle import EMPTY_MODE_POLICY_VERSION, PopulationBundle
@@ -158,6 +158,9 @@ class UserPersonalizationSnapshot:
     # AI09 속도 보정 v_ref(running_sessions 최근 20회 이동 속도 중앙값). 없으면 Train 기본값을 쓴다.
     speed_ref_mps: float | None = None
     speed_ref_run_count: int = 0
+    # S15P31E105-676 준비도(READINESS_ADJUST_ENABLED일 때만): 오늘 R과 허용 심박 감소 Δ(bpm). 목표 비율을 Δ/hr_ref 낮춘다.
+    readiness_score: float | None = None
+    readiness_drop_bpm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -1149,6 +1152,7 @@ def build_personal_plan(
     population_mode: str = "off",
     runner_profile_lookup=None,
     runner_blend_k: dict[str, float] | None = None,
+    readiness_lookup=None,
 ) -> PersonalPlanResponse:
     """Build from an ODE bundle or a provenance-bearing train-cohort mean plan."""
     free_run = body.course_id is None
@@ -1192,6 +1196,8 @@ def build_personal_plan(
             course_warnings.append(speed_warning)
     if personalization is not None:
         personalization = replace(personalization, speed_ref_mps=speed_ref[0], speed_ref_run_count=speed_ref[1])
+    # 676: 준비도 민감도 c_user는 본인 개인화 행 summaryU에서만 읽는다(평균 묶음 경로로 바뀌기 전에 잡아 둔다).
+    own_summary = (personalization.payload or {}).get("summaryU") if personalization is not None else None
     if personalization is not None and personalization.payload is None:
         personalization = None
     enabled = personal_plan_enabled()
@@ -1227,6 +1233,15 @@ def build_personal_plan(
             personalization, personalization_lookup, body.user_id, cutoff=datetime.now(timezone.utc))
         if history_warning:
             course_warnings.append(history_warning)
+        # S15P31E105-676: 오늘 준비도가 낮으면 목표 심박 비율을 낮춘다(조회기 None = 기능 꺼짐 → 변화 없음).
+        if readiness_lookup is not None and body.user_id is not None and personalization is not None:
+            summary = own_summary if isinstance(own_summary, dict) else {}
+            adjust, readiness_warnings = readiness_adjust.user_adjustment(
+                readiness_lookup, body.user_id, datetime.now(timezone.utc),
+                summary.get(readiness_adjust.SENSITIVITY_KEY), summary.get(readiness_adjust.SUPPORT_KEY))
+            personalization = replace(personalization, readiness_score=adjust.score,
+                                      readiness_drop_bpm=adjust.drop_bpm)
+            course_warnings.extend(readiness_warnings)
 
     # S15P31E105-403: 목표 없는 요청은 온보딩 러닝 프로필 기준을 쓴다(app/runner_baseline.py). ODE는 목표 없이
     # 한 번만 풀고, 그 구간 pace에 공통 배율을 곱해 섞은 완주시간에 맞춘다(목표 경로와 같은 finalize 재사용).

@@ -48,6 +48,8 @@ services:
       # 코드 기본값은 꺼짐이고 배포 기본값은 켬(641 게이트 통과). 끄려면 GRU_GB_PERSONALIZATION_ENABLED=false.
       GRU_GB_PERSONALIZATION_ENABLED: "${GRU_GB_PERSONALIZATION_ENABLED:-true}"
       GRU_GB_MAX_WINDOWS: "${GRU_GB_MAX_WINDOWS:-3000}"
+      # 준비도 민감도 c(S15P31E105-676): 준비도 낮은 날 허용 심박을 조금 낮춤(daily_readiness 읽기). 기본 꺼짐, 켜기는 팀 결정.
+      READINESS_ADJUST_ENABLED: "${READINESS_ADJUST_ENABLED:-false}"
       # 무거운 요청 대기열 두 줄: 계획(AI05·AI09)과 개인화(AI06). 대기 한도는 공통.
       HEAVY_MAX_CONCURRENCY: "${HEAVY_MAX_CONCURRENCY:-1}"
       HEAVY_PERSONALIZE_MAX_CONCURRENCY: "${HEAVY_PERSONALIZE_MAX_CONCURRENCY:-1}"

@@ -10,6 +10,7 @@ from decimal import Decimal
 from app.ai_logging import log_ai_error
 from app.db_lookup import DatabaseUnavailable, HR_THRESHOLD_SQL, MISSING_RELATION_SQLSTATES
 from app.gru_gb import parse_gb, parse_support_n
+from app.readiness_adjust import parse_sensitivity
 
 log = logging.getLogger("runway.ai")
 UNAVAILABLE_WARNING = "HR_THRESHOLD_LOOKUP_UNAVAILABLE"
@@ -26,6 +27,9 @@ class HrThresholdLookupResult:
     gru_gain: float = 1.0
     gru_offset_bpm: float = 0.0
     gru_support_n: int = 0
+    # S15P31E105-676 준비도 민감도(같은 행 summaryU). 없거나 잘못되면 None·0 → 사전값.
+    readiness_sensitivity: float | None = None
+    readiness_support_n: int = 0
 
     @property
     def has_thresholds(self) -> bool:
@@ -69,7 +73,9 @@ class CachedDbHrThresholdLookup:
             return HrThresholdLookupResult()
 
         gain, offset = parse_gb(row.get("gru_gain"), row.get("gru_offset_bpm"))
-        gb = {"gru_gain": gain, "gru_offset_bpm": offset, "gru_support_n": parse_support_n(row.get("gru_support_n"))}
+        gb = {"gru_gain": gain, "gru_offset_bpm": offset, "gru_support_n": parse_support_n(row.get("gru_support_n")),
+              "readiness_sensitivity": parse_sensitivity(row.get("readiness_sensitivity")),
+              "readiness_support_n": parse_support_n(row.get("readiness_support_n"))}
         danger = _bpm(row.get("hr_danger_bpm"))
         sustain = _bpm(row.get("hr_sustain_bpm"))
         count = row.get("hr_threshold_run_count")

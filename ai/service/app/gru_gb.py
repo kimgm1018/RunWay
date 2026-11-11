@@ -118,6 +118,14 @@ def support_pairs(model, frames, *, limit: int | None = None):
     주 모델(미래 경사 있음)로 계산하고, 경사가 없어 주 모델 창이 하나도 없으면 미래 경사 없는 모델로 계산한다.
     창 수가 limit에 닿으면 더 오래된 런은 쓰지 않는다.
     """
+    runs = support_pairs_by_run(model, frames, limit=limit)
+    if not runs:
+        return np.zeros(0), np.zeros(0), 0
+    return np.concatenate([x for _, x, _ in runs]), np.concatenate([y for _, _, y in runs]), len(runs)
+
+
+def support_pairs_by_run(model, frames, *, limit: int | None = None) -> list[tuple[int, np.ndarray, np.ndarray]]:
+    """support_pairs와 같은 창을 런별로 나눠 [(frames 위치, x, y)]로 돌려준다(S15P31E105-676 준비도 민감도)."""
     predictor = model.predictor
     limit = max_windows() if limit is None else max(1, int(limit))
     keys = [key for key in ("main", "nograde") if key in predictor.models]
@@ -128,8 +136,8 @@ def support_pairs(model, frames, *, limit: int | None = None):
     with nullcontext() if getattr(model, "_mutation_free", False) else model.lock:
         for key in keys:
             weight, bias = predictor.base[key]
-            xs, ys, used, total = [], [], 0, 0
-            for frame in frames:
+            runs, total = [], 0
+            for frame_index, frame in enumerate(frames):
                 if total >= limit:
                     break
                 features = predictor.support_features([frame], key)
@@ -143,13 +151,12 @@ def support_pairs(model, frames, *, limit: int | None = None):
                 m_np = m.cpu().numpy()
                 if not m_np.any():
                     continue
-                xs.append(x.cpu().numpy().astype(np.float64)[m_np])
-                ys.append((y.cpu().numpy().astype(np.float64) * std)[m_np])
-                used += 1
+                runs.append((frame_index, x.cpu().numpy().astype(np.float64)[m_np],
+                             (y.cpu().numpy().astype(np.float64) * std)[m_np]))
                 total += take
-            if used:
-                return np.concatenate(xs), np.concatenate(ys), used
-    return np.zeros(0), np.zeros(0), 0
+            if runs:
+                return runs
+    return []
 
 
 def compute_gb(model, frames, *, limit: int | None = None) -> dict:
@@ -173,4 +180,4 @@ def add_gb_to_summary(result: dict, body, model) -> None:
 
 __all__ = ["GAIN_KEY", "OFFSET_KEY", "SUPPORT_KEY", "add_gb_to_summary", "apply_gb", "compute_gb", "fit_gb",
            "gru_gb_enabled", "is_identity", "parse_gb", "parse_support_n", "personal_weight", "shrink_gb",
-           "support_pairs"]
+           "support_pairs", "support_pairs_by_run"]
