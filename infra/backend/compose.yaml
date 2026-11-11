@@ -41,8 +41,22 @@ services:
         export BACKEND_JWT_SECRET_BASE64="$$(cat /run/secrets/jwt_secret_base64)"
         export BACKEND_DOCS_PASSWORD_HASH="$$(cat /run/secrets/docs_password_hash)"
         export BACKEND_REDIS_PASSWORD="$$(cat /run/secrets/redis_app_password)"
+        # 고정된 환경변수만 읽고 파일 내용을 셸 코드로 실행하지 않는다.
+        while IFS= read -r setting || [ -n "$$setting" ]; do
+          case "$$setting" in
+            BACKEND_PLACE_SEARCH_ENABLED=*|BACKEND_NAVER_SEARCH_CLIENT_ID=*|BACKEND_NAVER_SEARCH_CLIENT_SECRET=*|BACKEND_NAVER_MAPS_KEY_ID=*|BACKEND_NAVER_MAPS_KEY=*)
+              export "$$setting"
+              ;;
+          esac
+        done < /run/secrets/place_search_env
         exec java -jar /app/app.jar
     volumes:
+      - type: bind
+        source: /home/ubuntu/runway/secrets/backend/place-search.env
+        target: /run/secrets/place_search_env
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: /home/ubuntu/runway/data/images
         target: /data/images
