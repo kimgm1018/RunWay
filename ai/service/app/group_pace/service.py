@@ -197,8 +197,23 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         cap = body.start_recommended_pace_sec_per_km
     since_change = ((body.now - body.last_change.changed_at).total_seconds()
                     if body.last_change is not None else None)
-    selection = PaceSelector(paces, current, uppers, allows, blocked).select(
-        danger=bool(danger), cap=cap, elapsed_sec=body.elapsed_sec, since_change_sec=since_change)
+    if body.pace_mode == "GOAL" and body.goal_pace_sec_per_km is not None:
+        # 목표 페이스 모드(S15P31E105-680): 허용·주의선 대신 위험 심박만 본다. 판정선은 회원별 위험 심박, 상한은 여유 없는 예측이다.
+        # 지금·느린 후보는 기존 위험 조건과 같은 120초 예측을 쓴다(30·60초 예측은 늦춰도 거의 그대로라 쓰면 매번 FLOOR로
+        # 연속 감속한다, 리뷰 B-1). 빠른(회복) 후보만 세 지평선 최대로 보수적으로 본다. 회복은 목표까지만 한다.
+        if requests:
+            raw = predictions[:, :, 2].copy()
+            raw[:, :baseline] = predictions[:, :baseline, :].max(axis=2)
+        else:
+            raw = np.empty((0, len(paces)))
+        dangers = np.asarray([member[0].danger_bpm for member in hr_members])
+        goal_danger = bool(np.any(raw[:, baseline] >= dangers)) if requests else False
+        selection = PaceSelector(paces, current, raw, dangers, blocked).select(
+            danger=goal_danger, cap=body.goal_pace_sec_per_km, elapsed_sec=body.elapsed_sec,
+            since_change_sec=since_change, warmup_exempt=goal_danger)
+    else:
+        selection = PaceSelector(paces, current, uppers, allows, blocked).select(
+            danger=bool(danger), cap=cap, elapsed_sec=body.elapsed_sec, since_change_sec=since_change)
     if selection.cap_missing:
         warnings.append("RECOVERY_CAP_MISSING")
     return response(selection.index, selection.reason)

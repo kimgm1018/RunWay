@@ -649,7 +649,7 @@ export function GroupRunCreateScreen() {
           <Icon name="users" color={groupTone.text} size={20} />
           <AppText style={styles.autoTitle}>자동 산출</AppText>
           <AppText style={[styles.rowDetail, styles.flex]}>
-            지금 참가자 기록으로 낸 예상값이에요 · 출발 직전 다시 계산해요
+            지금 참가자 기록으로 낸 예상값이에요 · 참가·탈퇴·수정 때마다 다시 계산해요
           </AppText>
         </Raised>
       </ScrollView>

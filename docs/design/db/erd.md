@@ -191,7 +191,7 @@
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
 | `group_run_participants` | 그룹런 참가 회원과 개인 러닝 세션 연결. 대기방 준비 여부(`ready`) 포함 |
-| `group_run_pace_state` | 그룹런별 AI10 공동 페이스·AI09 시작 추천 페이스와 마지막 변경 상태. 그룹런당 최대 1행 |
+| `group_run_pace_state` | 그룹런별 AI10 공동 페이스·AI09 시작 추천 페이스·방장 페이스 모드와 마지막 변경 상태. 그룹런당 최대 1행 |
 
 #### group_run_pace_state — 그룹런 공동 페이스 상태 (S15P31E105-585, V22)
 
@@ -205,10 +205,15 @@
 | last_change_at | TIMESTAMPTZ NULL | 마지막 페이스 변경 시각 |
 | struggling_count | INTEGER NOT NULL DEFAULT 0, CHECK >= 0 | 마지막 AI10 결과의 어려움을 겪는 참가자 수 |
 | updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 상태 갱신 시각 |
+| pace_mode | VARCHAR(8) NOT NULL DEFAULT 'TOGETHER', CHECK IN ('TOGETHER', 'GOAL') | 방장이 출발 전에 고른 페이스 모드(S15P31E105-680, V33). TOGETHER = max(목표, AI 추천), GOAL = 목표 유지·위험 시만 감속 |
+| ai_recommended_pace_sec_per_km | INTEGER NULL, CHECK > 0 | 시작 계산 대상의 AI09 계획 페이스 중 가장 느린 값(초/km). 성공 전·재계산 중 NULL |
+| pace_basis_user_id | BIGINT NULL, FK users.id ON DELETE SET NULL | AI 추천의 기준 회원(가장 느린 계획의 주인) |
+| slower_than_goal_count | INTEGER NULL, CHECK >= 0 | 시작 계산 대상 중 AI09 계획이 목표 페이스보다 느린 회원 수. 목표가 없으면 NULL |
+| start_requested_at | TIMESTAMPTZ NULL | 시작 재계산 요청 시각. 성공·포기 시 NULL. 값이 있고 120초 안(DB 시계)이면 계산 중으로 본다 |
 
 - `last_change_direction`과 `last_change_at`은 모두 NULL이거나 모두 값이 있어야 한다.
 - `trg_group_run_pace_state_updated_at` BEFORE UPDATE 트리거가 공통 `set_updated_at()` 함수로 갱신 시각을 기록한다.
-- 기준 SQL은 Flyway V22와 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
+- 기준 SQL은 Flyway V22·V33과 동일한 테이블·제약·트리거 정의를 사용한다. erd.png·온라인 ERD는 아직 미갱신이다.
 
 #### course_segment_difficulties — 코스 구간 난이도 비율 (S15P31E105-297, 2026-11-06)
 

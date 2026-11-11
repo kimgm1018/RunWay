@@ -648,6 +648,28 @@ export type GroupRunDetail = GroupRunSummary & {
     byNickname: string;
     byRole: string;
   } | null;
+  // S15P31E105-680 공동 페이스 카드. Absent from the mock and while the feature is off.
+  pace?: GroupPaceInfo | null;
+};
+
+// S15P31E105-680 공동 페이스 모드: 함께 완주(max(목표, AI 추천)) / 목표 페이스(목표 유지, 위험할 때만 감속).
+export type GroupPaceMode = 'TOGETHER' | 'GOAL';
+
+// S15P31E105-680 공동 페이스 카드 (G03). The server leaves these out while group pace is off.
+export type GroupPaceInfo = {
+  mode: GroupPaceMode;
+  // 지금 적용되는 공동 페이스 (G03 groupGuidePaceSecPerKm). null when nobody has a pace yet.
+  appliedSecPerKm: number | null;
+  // AI 추천: the slowest candidate's pre-run plan. null before or while calculating.
+  aiSecPerKm: number | null;
+  // 방장 목표 (from distance and duration). null without a goal.
+  goalSecPerKm: number | null;
+  basis: 'MEMBER' | 'GOAL' | 'MEDIAN';
+  // Whose plan the AI recommendation comes from.
+  basisNickname: string | null;
+  calculating: boolean;
+  // Candidates whose plan is slower than the goal, for the 목표 페이스 warning.
+  slowerThanGoalCount: number | null;
 };
 
 // 6.5 출발 준비.
@@ -1364,6 +1386,8 @@ export type Repositories = {
       draft: Omit<GroupRunDraft, 'crewId'>,
     ) => Promise<void>;
     // G13 cancelMessage: the host's note, sent once as the cancel notification body (not stored).
+    // G17 방장 페이스 모드 (S15P31E105-680): before the run only; the server recalculates.
+    setPaceMode?: (groupRunId: string, mode: GroupPaceMode) => Promise<void>;
     cancel: (
       groupRunId: string,
       reason: GroupRunCancelReason,
