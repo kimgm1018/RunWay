@@ -12,6 +12,7 @@ import type {
   WaitingRoom,
 } from '../types';
 import { apiRequest } from './http';
+import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { searchPlaces } from './places';
 
@@ -50,6 +51,8 @@ type ParticipantItem = {
   isHost: boolean;
   readyStatus: 'READY' | 'WAITING';
   readinessScore?: number | null;
+  // F02 path of the participant's photo, null without one (S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 type CourseResponse = {
@@ -228,6 +231,7 @@ export function createGroupRunsApi({
         readyStatus: item.readyStatus,
         // 준비도는 기존 화면에서 본인 값만 표시한다.
         readinessScore: item.readinessScore ?? null,
+        profileImageUrl: imageAddress(item.profileImageUrl),
       }));
     const participantCount = roster.participantCount ?? items.length;
     const readyCount =

@@ -788,6 +788,121 @@ class CrewApiIntegrationTest extends SharedContextIntegrationSupport {
         org.junit.jupiter.api.Assertions.assertEquals(2L, approved);
     }
 
+    // S15P31E105-636 AC-1·AC-2: 크루 대표 사진과 사람 프로필 사진 주소. 사진이 없으면 키는 두고 null.
+    @Test
+    void 크루_사진과_구성원_프로필_사진_주소() throws Exception {
+        String crewImageId = "0b6f4a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
+        String profileImageId = "7c8d9e0f-1a2b-4c3d-9e8f-7a6b5c4d3e2f";
+        String crewUrl = "/api/v1/images/" + crewImageId;
+        String profileUrl = "/api/v1/images/" + profileImageId;
+        long photoCrewId = createCrew(userId, "사진 크루", 10);
+        long plainCrewId = createCrew(userId, "기본 크루", 10);
+        jdbc.update(
+                "UPDATE crews SET image_key = ? WHERE id = ?",
+                "images/crew/" + userId + "/" + crewImageId + ".jpg",
+                photoCrewId);
+        jdbc.update(
+                "UPDATE users SET profile_image_key = ? WHERE id = ?",
+                "images/profile/" + userId + "/" + profileImageId + ".png",
+                userId);
+        long applicantId = insertUser("photo_applicant", "신청자", uniquePhone());
+
+        // M01 검색
+        mockMvc.perform(
+                        get("/api/v1/crews")
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId))
+                                .param("q", "사진"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].imageUrl").value(crewUrl));
+        // M02 상세: 있는 크루는 주소, 없는 크루는 null 키
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}", photoCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imageUrl").value(crewUrl));
+        String plainDetail =
+                mockMvc.perform(
+                                get("/api/v1/crews/{crewId}", plainCrewId)
+                                        .header(
+                                                "Authorization",
+                                                SecurityTestSupport.bearer(applicantId)))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(plainDetail).contains("\"imageUrl\":null");
+        // M10 내 크루
+        String myCrews =
+                mockMvc.perform(
+                                get("/api/v1/users/me/crews")
+                                        .header("Authorization", SecurityTestSupport.bearer(userId)))
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                jsonPath("$.items[?(@.id==" + photoCrewId + ")].imageUrl")
+                                        .value(crewUrl))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(myCrews).contains("\"imageUrl\":null");
+
+        // M05 가입 신청 목록: 사진 없는 신청자는 null 키
+        mockMvc.perform(
+                        post("/api/v1/crews/{crewId}/join-requests", photoCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                .andExpect(status().isOk());
+        String requests =
+                mockMvc.perform(
+                                get("/api/v1/crews/{crewId}/join-requests", photoCrewId)
+                                        .header("Authorization", SecurityTestSupport.bearer(userId)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.items.length()").value(1))
+                        .andExpect(jsonPath("$.items[0].userId").value(applicantId))
+                        .andExpect(jsonPath("$.items[0].nickname").value("신청자"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(requests).contains("\"profileImageUrl\":null");
+        // 신청자가 사진을 올리면 다음 조회부터 주소가 온다.
+        String applicantImageId = "1d2c3b4a-5f6e-4d7c-8b9a-a1b2c3d4e5f6";
+        jdbc.update(
+                "UPDATE users SET profile_image_key = ? WHERE id = ?",
+                "images/profile/" + applicantId + "/" + applicantImageId + ".jpg",
+                applicantId);
+        mockMvc.perform(
+                        get("/api/v1/crews/{crewId}/join-requests", photoCrewId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId)))
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath("$.items[0].profileImageUrl")
+                                .value("/api/v1/images/" + applicantImageId));
+
+        // M07 멤버 목록: 크루장 사진 주소, 사진을 지운 회원은 null 키
+        mockMvc.perform(
+                        patch("/api/v1/crews/{crewId}/join-requests/{userId}", photoCrewId, applicantId)
+                                .header("Authorization", SecurityTestSupport.bearer(userId))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"status":"APPROVED"}
+                                        """))
+                .andExpect(status().isOk());
+        jdbc.update("UPDATE users SET profile_image_key = NULL WHERE id = ?", applicantId);
+        String members =
+                mockMvc.perform(
+                                get("/api/v1/crews/{crewId}/members", photoCrewId)
+                                        .header("Authorization", SecurityTestSupport.bearer(applicantId)))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.items.length()").value(2))
+                        .andExpect(
+                                jsonPath("$.items[?(@.userId==" + userId + ")].profileImageUrl")
+                                        .value(profileUrl))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        assertThat(members).contains("\"profileImageUrl\":null");
+    }
+
     private String uniquePhone() {
         long n = Math.floorMod(System.nanoTime(), 100_000_000L);
         return String.format("010%08d", n);

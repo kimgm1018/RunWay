@@ -30,6 +30,7 @@ import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing } from '../../theme';
 import {
   canEnterRoom,
+  CrewPhoto,
   dDay,
   formatSchedule,
   startsIn,
@@ -189,6 +190,7 @@ function CrewPanel({
     return (
       <View style={styles.crewHeader}>
         {/* Not faded: half opacity was hard to read. '승인 대기' tells the state. */}
+        <CrewPhoto photo={crew.imageUrl} size={40} />
         <View style={styles.flex}>
           <AppText style={styles.crewName} numberOfLines={1}>
             {crew.name}
@@ -210,10 +212,12 @@ function CrewPanel({
           accessibilityRole="button"
           accessibilityLabel={`${crew.name} 크루 상세`}
           onPress={() => navigation.navigate('CrewDetail', { crewId: crew.id })}
-          style={styles.flex}
+          style={[styles.flex, styles.photoRow]}
         >
-          {/* Name only: the area and the member count are on 6.2 (담당자 요청). */}
-          <AppText style={styles.crewName} numberOfLines={1}>
+          {/* Name only: the area and the member count are on 6.2 (담당자 요청). The crew photo sits left of
+              it when the crew has one (S15P31E105-636). */}
+          <CrewPhoto photo={crew.imageUrl} size={40} />
+          <AppText style={[styles.crewName, styles.flex]} numberOfLines={1}>
             {crew.name}
           </AppText>
         </Pressable>
@@ -568,6 +572,7 @@ const styles = StyleSheet.create({
     color: groupTone.onButton,
   },
   crewCard: { paddingHorizontal: 16, paddingVertical: 14, borderRadius: 20 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   crewHeader: {
     minHeight: 40,
     flexDirection: 'row',

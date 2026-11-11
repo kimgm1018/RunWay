@@ -412,6 +412,7 @@ export function GroupRunDetailScreen() {
                             name={member.nickname}
                             index={index}
                             size={26}
+                            photo={member.profileImageUrl}
                             style={styles.overlap}
                           />
                         ))}
@@ -471,7 +472,15 @@ export function GroupRunDetailScreen() {
                   <FitLine run={run} />
                   {run.isHost ? (
                     <View style={styles.hostRow}>
-                      <Initial name="나" index={0} size={28} />
+                      <Initial
+                        name="나"
+                        index={0}
+                        size={28}
+                        photo={
+                          run.participants.find(member => member.isMe)
+                            ?.profileImageUrl
+                        }
+                      />
                       <AppText style={[styles.muted, styles.flex]}>
                         내가 만든 그룹런
                       </AppText>

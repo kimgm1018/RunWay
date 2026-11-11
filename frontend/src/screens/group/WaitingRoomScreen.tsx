@@ -481,7 +481,12 @@ function WaitingRoomContent({ groupRunId }: { groupRunId: string }) {
                   key={member.userId}
                   style={[styles.member, index > 0 && styles.memberLine]}
                 >
-                  <Initial name={member.nickname} index={index} size={36} />
+                  <Initial
+                    name={member.nickname}
+                    index={index}
+                    size={36}
+                    photo={member.profileImageUrl}
+                  />
                   <View style={styles.flex}>
                     <View style={styles.nameLine}>
                       <AppText style={styles.memberName}>

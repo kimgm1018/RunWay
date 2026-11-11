@@ -41,6 +41,7 @@ import { MissingTarget } from './MissingTarget';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { joinPolicyLabels } from './CrewDetailScreen';
 import { groupTone, NightBackground, NumText } from './look';
+import { PhotoOr } from './parts';
 import { BackButton } from '../../components/BackButton';
 
 const levelLabels: Record<SelfReportedLevel, string> = {
@@ -124,11 +125,15 @@ function RequestRow({
   const { clock } = useRepositories();
   return (
     <View style={styles.card}>
-      <AppText style={styles.name}>
-        {request.loginId
-          ? `${request.nickname} · ${request.loginId}`
-          : request.nickname}
-      </AppText>
+      {/* The applicant's photo by the name when they have one (S15P31E105-636). */}
+      <View style={styles.photoRow}>
+        <PhotoOr photo={request.profileImageUrl} size={32} fallback={null} />
+        <AppText style={[styles.name, styles.flex]}>
+          {request.loginId
+            ? `${request.nickname} · ${request.loginId}`
+            : request.nickname}
+        </AppText>
+      </View>
       <View style={styles.requestBottom}>
         <NumText
           text={requestLine(request, clock.now())}
@@ -413,6 +418,7 @@ const styles = StyleSheet.create({
   },
   content: { paddingHorizontal: 20, paddingBottom: 48, gap: 18 },
   // A faint white panel with a faint white rim on the navy page.
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   card: {
     gap: 10,
     padding: 16,

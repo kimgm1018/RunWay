@@ -9,6 +9,7 @@ import com.runway.backend.domain.crew.entity.CrewStatus;
 import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.crew.repository.UserExistsRepository.UserDisplay;
 import com.runway.backend.domain.grouprun.dto.request.CancelGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.CreateGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
@@ -245,6 +246,12 @@ public class GroupRunService {
         return toDetail(row, participantCount, comfortRange, myFit);
     }
 
+    // 사용자 행이 없으면 닉네임은 기존처럼 빈 문자열, 사진은 null(S15P31E105-636).
+    private static UserDisplay displayOf(Map<Long, UserDisplay> users, long userId) {
+        UserDisplay user = users.get(userId);
+        return user == null ? new UserDisplay("", null) : user;
+    }
+
     private static Integer toScore(BigDecimal score) {
         return score == null ? null : score.setScale(0, RoundingMode.HALF_UP).intValue();
     }
@@ -402,8 +409,8 @@ public class GroupRunService {
         requireApprovedActiveCrewMember(row.crewId(), userId);
         List<GroupRunParticipantRow> participants =
                 participantJdbcRepository.findByGroupRunId(groupRunId);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         participants.stream().map(GroupRunParticipantRow::userId).toList());
         // readyStatus(대기방 준비 버튼)와 별개로 각 참가자의 최신 준비도를 붙인다. 미산출·미동의는 null.
         Map<Long, BigDecimal> readiness =
@@ -417,10 +424,11 @@ public class GroupRunService {
                                                 p.userId(),
                                                 p.sessionId(),
                                                 p.joinedAt(),
-                                                nicknames.getOrDefault(p.userId(), ""),
+                                                displayOf(users, p.userId()).nickname(),
                                                 p.userId() == row.hostId(),
                                                 ReadyStatus.fromReady(p.ready()).name(),
-                                                toScore(readiness.get(p.userId()))))
+                                                toScore(readiness.get(p.userId())),
+                                                displayOf(users, p.userId()).profileImageUrl()))
                         .toList();
         // 대기방 인원 = 참가 행 전체(session null 포함). readyCount는 그중 준비 완료(S15P31E105-499).
         int readyCount = (int) participants.stream().filter(GroupRunParticipantRow::ready).count();

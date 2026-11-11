@@ -68,6 +68,22 @@ class CrewSettingsIntegrationTest extends SharedContextIntegrationSupport {
         assertEquals(21, capacityOf(crewId));
     }
 
+    // S15P31E105-636 AC-1: M12 응답(M02와 같은 본문)에도 크루 대표 사진 주소가 남는다.
+    @Test
+    void 설정_변경_응답에_크루_사진_주소가_있다() throws Exception {
+        long crewId = createCrew(ownerId, "사진 설정 크루", 10, null);
+        String imageId = "2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b";
+        jdbc.update(
+                "UPDATE crews SET image_key = ? WHERE id = ?",
+                "images/crew/" + ownerId + "/" + imageId + ".jpg",
+                crewId);
+
+        updateSettings(ownerId, crewId, "{\"capacity\":12}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capacity").value(12))
+                .andExpect(jsonPath("$.imageUrl").value("/api/v1/images/" + imageId));
+    }
+
     // AC-2
     @Test
     void 가입방식_변경은_저장되고_정원은_그대로다() throws Exception {

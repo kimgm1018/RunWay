@@ -519,6 +519,8 @@ export type MyCrew = {
   area: string;
   memberCount: number;
   membership: 'MEMBER' | 'PENDING';
+  // 크루 대표 사진 주소(M10 imageUrl, S15P31E105-636). Without one the card shows the name only.
+  imageUrl?: string | null;
 };
 
 // 6.1 크루 모집 card (M01). myMembership is null for a crew I have not asked to join.
@@ -530,6 +532,8 @@ export type CrewListItem = {
   capacity: number;
   memberCount: number;
   myMembership: MyCrew['membership'] | null;
+  // 크루 대표 사진 주소(M01·M02 imageUrl, S15P31E105-636), null without one.
+  imageUrl?: string | null;
 };
 
 // 6.2 구성원 row (M07). Pace is the member's recent average, null before their first run.
@@ -539,6 +543,8 @@ export type CrewMember = {
   isOwner: boolean;
   isMe: boolean;
   recentPaceSecPerKm: number | null;
+  // The member's photo address (M07 profileImageUrl, S15P31E105-636); the first letter shows without one.
+  profileImageUrl?: string | null;
 };
 
 // 6.2a 가입 방식, saved on the server (M03 on create, M12 on change; S15P31E105-570).
@@ -578,6 +584,8 @@ export type CrewJoinRequest = {
   // 첫 크루: the applicant has never been in a crew.
   firstCrew: boolean;
   requestedAt: string;
+  // The applicant's photo address (M05 profileImageUrl, S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 // A group run as listed on 6.0 and opened on 6.4 (G02·G03).
@@ -619,6 +627,8 @@ export type GroupRunParticipant = {
   isMe: boolean;
   readyStatus: 'READY' | 'WAITING';
   readinessScore: number | null;
+  // The participant's photo address (G07 profileImageUrl, S15P31E105-636).
+  profileImageUrl?: string | null;
 };
 
 // 6.4 그룹런 상세 (G03 with G07 participants).
