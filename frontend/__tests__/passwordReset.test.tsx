@@ -119,11 +119,10 @@ async function launch() {
 async function reachNewPassword(screen: Screen, password = 'newpass123') {
   await press(screen, '시작하기');
   await press(screen, '비밀번호를 잊으셨나요?');
-  await press(screen, '전화번호로 찾기');
   await type(screen, '전화번호', fixtures.account.phoneNumber);
   await press(screen, '인증번호 받기');
-  await type(screen, '인증번호', fixtures.verificationCode);
-  expect(texts(screen)).toContain('인증됐어요');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(texts(screen)).toContain('인증 완료');
   await type(screen, '새 비밀번호', password);
   await type(screen, '새 비밀번호 확인', password);
 }
@@ -132,6 +131,28 @@ beforeEach(async () => {
   fetchMock.mockReset();
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.clear();
+});
+
+test('the new password shows the same rules as sign-up', async () => {
+  // S15P31E105-627: 회원가입과 같은 안 글씨·조건별 ✓·일치 안내.
+  serve([]);
+  const screen = await launch();
+  await press(screen, '시작하기');
+  await press(screen, '비밀번호를 잊으셨나요?');
+  await type(screen, '전화번호', fixtures.account.phoneNumber);
+  await press(screen, '인증번호 받기');
+  await type(screen, '인증번호 6자리', fixtures.verificationCode);
+  expect(last(screen, '새 비밀번호', 'onChangeText').props.placeholder).toBe('영문, 숫자 포함 8자 이상');
+  expect(texts(screen)).not.toContain('영문 · 숫자 · 8자 이상');
+  await type(screen, '새 비밀번호', 'newpass');
+  expect(texts(screen)).toContain('✓ 영문 · 숫자 · 8자 이상');
+  await type(screen, '새 비밀번호', 'newpass123');
+  expect(texts(screen)).toContain('✓ 사용할 수 있는 비밀번호예요');
+  await type(screen, '새 비밀번호 확인', 'newpass12');
+  expect(texts(screen)).toContain('비밀번호가 일치하지 않아요');
+  await type(screen, '새 비밀번호 확인', 'newpass123');
+  expect(texts(screen)).toContain('✓ 비밀번호가 일치해요');
+  await act(async () => screen.unmount());
 });
 
 test.each([
@@ -148,12 +169,12 @@ test.each([
     expect(texts(screen)).toContain(
       '비밀번호를 바꾸지 못했어요. 인증번호를 다시 받아 주세요.',
     );
-    expect(texts(screen)).not.toContain('인증됐어요');
+    expect(texts(screen)).not.toContain('인증 완료');
     // The number step works again: a new code can be requested and verified.
     expect(isDisabled(screen, '인증번호 받기')).toBe(false);
     await press(screen, '인증번호 받기');
     expect(texts(screen)).toContain('03:00');
-    await type(screen, '인증번호', fixtures.verificationCode);
+    await type(screen, '인증번호 6자리', fixtures.verificationCode);
     await type(screen, '새 비밀번호', 'newpass123');
     await type(screen, '새 비밀번호 확인', 'newpass123');
     await press(screen, '변경하고 로그인하기');
@@ -170,7 +191,7 @@ test('a U30 registration answer keeps its own message', async () => {
 
   expect(texts(screen)).toContain('가입되지 않은 전화번호예요');
   expect(texts(screen)).toContain('처음이신가요?');
-  expect(texts(screen)).not.toContain('인증됐어요');
+  expect(texts(screen)).not.toContain('인증 완료');
   await act(async () => screen.unmount());
 });
 
@@ -180,7 +201,7 @@ test('a password the server turns down keeps the verification and asks for a new
   await reachNewPassword(screen);
   await press(screen, '변경하고 로그인하기');
 
-  expect(texts(screen)).toContain('인증됐어요');
+  expect(texts(screen)).toContain('인증 완료');
   expect(texts(screen)).toContain('공백 없이 8~20자로 입력해 주세요');
   expect(texts(screen)).not.toContain('인증번호를 다시 받아 주세요');
   await type(screen, '새 비밀번호', 'otherpass123');
@@ -200,7 +221,7 @@ test('a lost U30 answer keeps the verification so the change can be sent again',
   expect(texts(screen)).toContain(
     '비밀번호를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.',
   );
-  expect(texts(screen)).toContain('인증됐어요');
+  expect(texts(screen)).toContain('인증 완료');
   await press(screen, '변경하고 로그인하기');
   expect(resetCalls()).toBe(2);
   await act(async () => screen.unmount());

@@ -1,20 +1,29 @@
 import type {
+  CommentLike,
+  CourseMapData,
   Post,
   PostAuthor,
   PostComment,
   PostDetail,
+  PostPage,
   PostRecord,
   Repositories,
 } from '../types';
+import { basemapOf } from './basemap';
 import { apiRequest } from './http';
+import { imageAddress } from './images';
 import { listItems } from './listItems';
 import { tokenStore } from './tokenStore';
 
-// CMT01–CMT11 커뮤니티 (docs/design/api/community.md). The server has no like or comment counts, my
-// like, comment authors' names, handles or the run's route, place and heart rate yet, so those are
-// filled in below. Bookmarks have no API and stay on this phone for the session.
+// CMT01–CMT19 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
+// like, my bookmark and the author's photo; comments carry their author. The server has no handles or the
+// run's place and heart rate yet, so those are filled in below.
 
-type AuthorResponse = { userId: number; nickname: string };
+type AuthorResponse = {
+  userId: number;
+  nickname: string | null;
+  profileImageUrl?: string | null;
+};
 
 type RecordSummaryResponse = {
   distanceM: number | null;
@@ -22,7 +31,8 @@ type RecordSummaryResponse = {
   averagePaceSecPerKm: number | null;
 };
 
-// CMT02 item; CMT03 adds courseId and updatedAt. U21 lists a runner's posts in the same shape.
+// CMT02 item and CMT03 (which adds updatedAt). U21 lists a runner's posts in the same shape. courseId is
+// null for a free run, or when the author did not share the course and I am not the author.
 export type PostResponse = {
   id: number;
   authorId: number;
@@ -31,23 +41,62 @@ export type PostResponse = {
   regionCode: string | null;
   createdAt: string;
   courseId?: number | null;
+  courseShared?: boolean;
+  commentCount?: number;
+  reactionCount?: number;
+  myReaction?: 'LIKE' | null;
+  // S15P31E105-634: whether I bookmarked it (CMT16 · CMT17); an older server leaves it out.
+  bookmarked?: boolean;
   author: AuthorResponse;
   recordSummary: RecordSummaryResponse | null;
 };
 
-// C03, only the route (GeoJSON [longitude, latitude]).
-type CourseRouteResponse = { route: { coordinates: [number, number][] } };
+// CMT02 · CMT18 · CMT19 page. nextCursor is null when hasNext is false.
+type PostListResponse = {
+  items?: PostResponse[] | null;
+  nextCursor?: string | null;
+  hasNext?: boolean;
+};
 
+// The app reads 20 a page (S15P31E105-647 D-3).
+export const postPageSize = 20;
+
+// C03, only the route (GeoJSON [longitude, latitude]) and its map thumbnail (S15P31E105-612, missing on an older
+// server).
+type CourseRouteResponse = {
+  route: { coordinates: [number, number][] };
+  basemap?: unknown;
+};
+
+// A course's points for 7.2, 7.3 and 7.3e; a course that cannot be read leaves the page without them.
+const readCourseRoute = (courseId: number | string) =>
+  apiRequest<CourseRouteResponse>(`/courses/${courseId}`)
+    .then(course => course.route.coordinates)
+    .catch(() => null);
+
+// CMT06 item and CMT07. S15P31E105-633 adds deleted, reactionCount and myReaction; a deleted root kept for its
+// replies comes without authorId, author and body. An older server leaves the new fields out.
 type CommentResponse = {
   id: number;
   postId: number;
-  authorId: number;
+  authorId: number | null;
+  author?: AuthorResponse | null;
   parentCommentId: number | null;
-  body: string;
+  body: string | null;
   createdAt: string;
+  deleted?: boolean;
+  reactionCount?: number;
+  myReaction?: 'LIKE' | null;
 };
 
-// A comment by someone other than me or the post's author has only an id.
+// CMT14 · CMT15.
+type CommentReactionResponse = {
+  commentId: number;
+  reactionCount: number;
+  myReaction: 'LIKE' | null;
+};
+
+// A runner without a nickname (a closed account), or a comment from a server without its author.
 const unknownAuthor = '러너';
 const myName = '나';
 
@@ -71,11 +120,26 @@ function myUserId() {
 }
 
 // The nickname doubles as the handle: the server has no seoyun.run style id.
-const authorOf = (userId: number, nickname: string): PostAuthor => ({
+const authorOf = (
+  userId: number,
+  nickname: string | null,
+  profileImageUrl: string | null = null,
+): PostAuthor => ({
   userId: String(userId),
-  handle: nickname,
-  nickname,
+  handle: nickname ?? unknownAuthor,
+  nickname: nickname ?? unknownAuthor,
+  profileImageUrl: imageAddress(profileImageUrl),
 });
+
+// The course the post shares (courseShared, defaulting to a server without the flag): the author still
+// gets the courseId of a course left unshared, for 7.3e.
+const sharedCourseOf = (response: PostResponse) =>
+  (response.courseShared ?? true) && response.courseId != null
+    ? response.courseId
+    : null;
+
+const authorFrom = (author: AuthorResponse) =>
+  authorOf(author.userId, author.nickname, author.profileImageUrl);
 
 // Only the distance, moving time and pace come with a post, so the card leaves the rest blank and is
 // dated by the post.
@@ -113,77 +177,116 @@ export function createCommunityApi({
 }: {
   records: Repositories['records'];
 }): Repositories['community'] {
-  // Likes I made or took back in this session: the server does not say whether I liked a post.
+  // Likes I made or took back in this session, only for a server that leaves out myReaction: when the
+  // post carries myReaction, the server's value wins on every read.
   const likes = new Map<string, boolean>();
-  const bookmarks = new Set<string>();
   // The course of each post the list brought, and the routes read for 7.1 (S15P31E105-521): paging back to a
   // post does not ask again.
   const courseIds = new Map<string, number | null>();
-  const routes = new Map<string, Promise<[number, number][] | null>>();
-  const readRoute = async (postId: string) => {
+  const routes = new Map<string, Promise<CourseMapData | null>>();
+  const readRoute = async (postId: string): Promise<CourseMapData | null> => {
     const courseId = courseIds.has(postId)
       ? courseIds.get(postId)
-      : (await apiRequest<PostResponse>(`/posts/${postId}`)).courseId;
+      : sharedCourseOf(await apiRequest<PostResponse>(`/posts/${postId}`));
     if (courseId == null) {
       return null;
     }
     const course = await apiRequest<CourseRouteResponse>(
       `/courses/${courseId}`,
     );
-    return course.route.coordinates;
+    return {
+      route: course.route.coordinates,
+      basemap: basemapOf(course.basemap),
+    };
   };
 
   const toPost = (response: PostResponse): Post => {
     const id = String(response.id);
-    courseIds.set(id, response.courseId ?? null);
+    // Only a shared course is drawn on 7.1 and 7.2.
+    const sharedCourse = sharedCourseOf(response);
+    courseIds.set(id, sharedCourse);
     return {
       id,
-      author: authorOf(response.author.userId, response.author.nickname),
+      author: authorFrom(response.author),
       isMine: String(response.authorId) === myUserId(),
       body: response.body,
       record: recordOf(response),
-      // There is no 코스도 함께 공유 flag; a run on a course shares it.
-      courseShared: response.courseId != null,
+      courseShared: sharedCourse !== null,
       createdAt: response.createdAt,
-      likeCount: null,
-      liked: likes.get(id) ?? false,
-      commentCount: null,
-      bookmarked: bookmarks.has(id),
+      likeCount: response.reactionCount ?? null,
+      liked:
+        response.myReaction !== undefined
+          ? response.myReaction === 'LIKE'
+          : likes.get(id) ?? false,
+      commentCount: response.commentCount ?? null,
+      bookmarked: response.bookmarked ?? false,
     };
   };
 
+  // postAuthor names the comment's author when the server leaves it out: only the post's author and I are known.
   const toComment = (
     response: CommentResponse,
-    postAuthor: AuthorResponse,
+    postAuthor: AuthorResponse | null,
   ): PostComment => {
+    const shared = {
+      id: String(response.id),
+      parentId:
+        response.parentCommentId == null
+          ? null
+          : String(response.parentCommentId),
+      createdAt: response.createdAt,
+    };
+    if (response.deleted || response.authorId == null) {
+      return {
+        ...shared,
+        deleted: true,
+        author: null,
+        isMine: false,
+        body: '',
+        likeCount: 0,
+        liked: false,
+      };
+    }
     const me = String(response.authorId) === myUserId();
     const nickname =
-      response.authorId === postAuthor.userId
+      postAuthor && response.authorId === postAuthor.userId
         ? postAuthor.nickname
         : me
         ? myName
         : unknownAuthor;
     return {
-      id: String(response.id),
-      author: authorOf(response.authorId, nickname),
+      ...shared,
+      deleted: false,
+      author: response.author
+        ? authorFrom(response.author)
+        : authorOf(response.authorId, nickname),
       isMine: me,
-      body: response.body,
-      createdAt: response.createdAt,
-      // Comment likes have no API.
-      likeCount: 0,
-      liked: false,
+      body: response.body ?? '',
+      likeCount: Math.max(0, response.reactionCount ?? 0),
+      liked: response.myReaction === 'LIKE',
+    };
+  };
+
+  const readPage = async (
+    path: string,
+    query: Record<string, string>,
+    cursor: string | null | undefined,
+  ): Promise<PostPage> => {
+    const page = await apiRequest<PostListResponse | null>(path, {
+      query: { ...query, limit: postPageSize, cursor: cursor ?? undefined },
+    });
+    return {
+      items: listItems(page).map(toPost),
+      nextCursor: page?.hasNext && page.nextCursor ? page.nextCursor : null,
     };
   };
 
   return {
-    listFeed: async scope => {
-      const items = listItems(
-        await apiRequest<{ items: PostResponse[] }>('/posts', {
-          query: { scope },
-        }),
-      );
-      return items.map(toPost);
-    },
+    listFeed: (scope, cursor) => readPage('/posts', { scope }, cursor),
+    listAuthorPosts: (userId, cursor) =>
+      readPage('/posts', { authorId: userId }, cursor),
+    listMyBookmarks: cursor => readPage('/users/me/bookmarks', {}, cursor),
+    listMyLikes: cursor => readPage('/users/me/likes', {}, cursor),
     get: async postId => {
       const [post, commentsPage] = await Promise.all([
         apiRequest<PostResponse>(`/posts/${postId}`),
@@ -191,19 +294,25 @@ export function createCommunityApi({
       ]);
       const items = listItems(commentsPage);
       const base = toPost(post);
-      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. A course that cannot
-      // be read leaves the post without a route rather than failing the page.
+      // 7.2 shows the shared course on the real map (S15P31E105-561): its points from C03. My own post also gets
+      // the course I left unshared (the server still gives me its courseId), so 7.3e can show what sharing it
+      // again would show; 7.2 draws it only while shared. A course that cannot be read leaves the post without
+      // a route rather than failing the page.
+      // A shared course 7.1 already read is not asked for again (사용자 요청: 7.2 지도를 바로).
+      const known = base.courseShared ? routes.get(postId) : undefined;
+      const knownRoute = known ? (await known)?.route ?? null : null;
       const route =
-        post.courseId == null
+        post.courseId == null || !(base.courseShared || base.isMine)
           ? null
-          : await apiRequest<CourseRouteResponse>(`/courses/${post.courseId}`)
-              .then(course => course.route.coordinates)
-              .catch(() => null);
+          : knownRoute ?? (await readCourseRoute(post.courseId));
+      const comments = items.map(item => toComment(item, post.author));
       const detail: PostDetail = {
         ...base,
         record: { ...base.record, route },
-        commentCount: items.length,
-        comments: items.map(item => toComment(item, post.author)),
+        // A deleted root kept for its replies is not a comment to count.
+        commentCount:
+          base.commentCount ?? comments.filter(item => !item.deleted).length,
+        comments,
       };
       return detail;
     },
@@ -228,28 +337,41 @@ export function createCommunityApi({
         throw new Error('공유할 기록 없음');
       }
       const detail = await records.getDetail(id);
+      // What 코스도 함께 공유 shares is the run's course (C03), not my GPS track, so 7.3 previews that course;
+      // a free run shares no route.
+      const route =
+        detail.courseId === null
+          ? null
+          : await readCourseRoute(detail.courseId);
       return {
         ...detail,
         place: '',
         courseRun: detail.courseId !== null,
-        route: detail.route,
+        route,
         averageHeartRate: null,
         cadence: null,
       };
     },
-    // CMT01 takes the run as its session id. 코스도 함께 공유 has no field, so it is not sent.
+    // CMT01 takes the run as its session id and 코스도 함께 공유 as courseShared; the server keeps it false
+    // for a free run.
     create: async (recordId, draft) => {
       const { id } = await apiRequest<{ id: number }>('/posts', {
         method: 'POST',
-        body: { sessionId: Number(recordId), body: draft.body },
+        body: {
+          sessionId: Number(recordId),
+          body: draft.body,
+          courseShared: draft.courseShared,
+        },
       });
       return { id: String(id) };
     },
     update: async (postId, draft) => {
       await apiRequest(`/posts/${postId}`, {
         method: 'PATCH',
-        body: { body: draft.body },
+        body: { body: draft.body, courseShared: draft.courseShared },
       });
+      // 7.1 reads the route again after the next list, under the new choice.
+      routes.delete(postId);
     },
     remove: async postId => {
       await apiRequest(`/posts/${postId}`, { method: 'DELETE' });
@@ -262,26 +384,35 @@ export function createCommunityApi({
       });
       likes.set(postId, liked);
     },
+    // CMT16 스크랩 · CMT17 취소, both idempotent.
     setBookmarked: async (postId, bookmarked) => {
-      if (bookmarked) {
-        bookmarks.add(postId);
-      } else {
-        bookmarks.delete(postId);
-      }
+      await apiRequest(`/posts/${postId}/bookmarks/me`, {
+        method: bookmarked ? 'PUT' : 'DELETE',
+      });
     },
-    addComment: async (postId, body) => {
+    // CMT07; a reply names its root as parentCommentId (left out for a root comment).
+    addComment: async (postId, body, parentId) => {
       const comment = await apiRequest<CommentResponse>(
         `/posts/${postId}/comments`,
-        { method: 'POST', body: { body } },
+        {
+          method: 'POST',
+          body: parentId
+            ? { body, parentCommentId: Number(parentId) }
+            : { body },
+        },
       );
+      const added = toComment(comment, null);
       return {
-        id: String(comment.id),
-        author: authorOf(comment.authorId, myName),
+        ...added,
+        // Without its author, my new comment is still mine.
+        author: comment.author
+          ? added.author
+          : authorOf(comment.authorId ?? 0, myName),
+        parentId:
+          comment.parentCommentId == null
+            ? parentId ?? null
+            : String(comment.parentCommentId),
         isMine: true,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        likeCount: 0,
-        liked: false,
       };
     },
     updateComment: async (commentId, body) => {
@@ -293,6 +424,26 @@ export function createCommunityApi({
     },
     removeComment: async commentId => {
       await apiRequest(`/comments/${commentId}`, { method: 'DELETE' });
+    },
+    // CMT14 좋아요 · CMT15 취소: the server's count and my like after the change.
+    setCommentLiked: async (commentId, liked): Promise<CommentLike> => {
+      const reaction = await apiRequest<CommentReactionResponse>(
+        `/comments/${commentId}/reactions/me`,
+        {
+          method: liked ? 'PUT' : 'DELETE',
+          body: liked ? { reactionType: 'LIKE' } : undefined,
+        },
+      );
+      return {
+        likeCount:
+          typeof reaction?.reactionCount === 'number'
+            ? Math.max(0, reaction.reactionCount)
+            : null,
+        liked:
+          reaction?.myReaction !== undefined
+            ? reaction.myReaction === 'LIKE'
+            : liked,
+      };
     },
   };
 }

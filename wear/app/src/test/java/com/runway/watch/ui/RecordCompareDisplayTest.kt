@@ -17,7 +17,7 @@ class RecordCompareDisplayTest {
     @Test fun aheadShowsMinusSecondsAndSaysFaster() {
         val v = gap(852_000, 873_000)
         assertEquals(CompareTrend.AHEAD, v.trend)
-        assertEquals("−21″", v.gap)
+        assertEquals("−21”", v.gap)
         assertEquals("지난번보다 빨라요", v.headline)
         assertEquals("지난 기록보다 21초 빠름", v.description)
         assertEquals("10.13 기록과 비교", v.caption)
@@ -28,7 +28,7 @@ class RecordCompareDisplayTest {
     @Test fun behindByMinutesShowsPlusMinutesAndSaysSlower() {
         val v = gap(938_000, 873_000)
         assertEquals(CompareTrend.BEHIND, v.trend)
-        assertEquals("+1′05″", v.gap)
+        assertEquals("+1’05”", v.gap)
         assertEquals("지난번보다 느려요", v.headline)
         assertEquals("지난 기록보다 1분 5초 느림", v.description)
         assertTrue(v.marker < .5f)
@@ -37,7 +37,7 @@ class RecordCompareDisplayTest {
     @Test fun subSecondGapIsEven() {
         val v = gap(873_400, 873_000)
         assertEquals(CompareTrend.EVEN, v.trend)
-        assertEquals("0″", v.gap)
+        assertEquals("0”", v.gap)
         assertEquals("지난번과 같아요", v.headline)
         assertEquals(.5f, v.marker, 0f)
     }

@@ -30,7 +30,7 @@ import {
   typography,
 } from '../../theme';
 import { FooterButton } from './GroupRunDetailScreen';
-import { groupLook } from './look';
+import { groupLook, groupTone, NumText } from './look';
 import { Tag, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
@@ -42,8 +42,10 @@ const formatDistance = (meters: number | null) =>
     ? `${(meters / 1000).toFixed(1)}km`
     : `${Math.round(meters)}m`;
 
-// A point picked on the map has no place name or address yet (no reverse geocoding), so it shows its
-// coordinates; its distance is known only once my location is.
+// Map taps have no reverse geocoding (group-runs.md). Keep a fixed address placeholder instead of
+// lat/lng text so the saved meetingAddress is not mistaken for a road address (S15P31E105-637).
+const mapPickedAddress = '지도에서 선택한 위치';
+
 function mapPlace(
   position: LngLat,
   name: string,
@@ -51,7 +53,7 @@ function mapPlace(
 ): MeetingPlace {
   return {
     name,
-    address: `${position[1].toFixed(5)}, ${position[0].toFixed(5)}`,
+    address: mapPickedAddress,
     position,
     distanceM: me ? distanceM(me, position) : null,
   };
@@ -67,8 +69,9 @@ async function locationAllowed() {
   return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-// 이 위치로 정하기 (6.9-PlaceSheet): a flat navy pill with a white circle ✓ at its end, like the other group
-// buttons (S15P31E105-563).
+// 이 위치로 정하기 (6.9-PlaceSheet): a flat pill with a circle ✓ at its end, like the other group buttons
+// (S15P31E105-563). On the navy sheet it is the home's white button with navy text and a navy circle
+// (S15P31E105-594 담당자 결정: 진한 네이비 톤, 큰 버튼은 흰색).
 function ConfirmButton({
   disabled,
   onPress,
@@ -88,7 +91,7 @@ function ConfirmButton({
         <View style={[styles.confirmContent, disabled && styles.dimmed]}>
           <AppText style={styles.confirmText}>이 위치로 정하기</AppText>
           <View style={styles.confirmIcon}>
-            <Icon name="check" color={groupLook.onLight} size={18} />
+            <Icon name="check" color={groupTone.text} size={18} />
           </View>
         </View>
       </View>
@@ -100,7 +103,8 @@ function ConfirmButton({
 // by a tap on the Naver map, or at my location (S15P31E105-415); the map keeps it under the pin.
 // runway-group-handoff: the light map with a navy pin,
 // and light glass for the search, the buttons and the sheet. The sheet shows the picked place's own
-// address and distance.
+// address and distance. S15P31E105-594 담당자 시안: the search results as rows of their own and the digits in
+// Archivo; the colours stay as they were (담당자 결정: 색은 그대로, 구성만 시안대로).
 export function MeetingPlaceScreen() {
   const navigation = useNavigation();
   const { groupRuns } = useRepositories();
@@ -206,12 +210,19 @@ export function MeetingPlaceScreen() {
                 </AppText>
               </LightGlass>
             ) : null}
-            <Icon
-              name="mapPin"
-              color={groupLook.onLight}
-              size={44}
-              strokeWidth={2.4}
-            />
+            {/* The mockup's mint pin, kept readable on the light map: a mint fill under the old navy outline
+                (S15P31E105-594 담당자 요청). */}
+            <View style={styles.pinIcon}>
+              <Icon name="mapPin" color={groupLook.mint} size={44} solid />
+              <View style={StyleSheet.absoluteFill}>
+                <Icon
+                  name="mapPin"
+                  color={groupLook.onLight}
+                  size={44}
+                  strokeWidth={2.4}
+                />
+              </View>
+            </View>
           </View>
         </View>
         <SafeAreaView
@@ -240,21 +251,26 @@ export function MeetingPlaceScreen() {
               />
             </LightGlass>
           </View>
+          {/* The mockup's results: each place a light glass row of its own under the search. */}
           {query ? (
-            <LightGlass radius={22} style={styles.results}>
+            <View style={styles.results}>
               {searching ? (
-                <AppText style={[styles.sub, styles.noResult]}>
-                  검색 중이에요
-                </AppText>
+                <LightGlass radius={16}>
+                  <AppText style={[styles.sub, styles.noResult]}>
+                    검색 중이에요
+                  </AppText>
+                </LightGlass>
               ) : searchFailed ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="장소 검색 다시 시도"
                   onPress={() => setAttempt(value => value + 1)}
                 >
-                  <AppText style={[styles.sub, styles.noResult]}>
-                    검색하지 못했어요. 눌러서 다시 시도해 주세요
-                  </AppText>
+                  <LightGlass radius={16}>
+                    <AppText style={[styles.sub, styles.noResult]}>
+                      검색하지 못했어요. 눌러서 다시 시도해 주세요
+                    </AppText>
+                  </LightGlass>
                 </Pressable>
               ) : results.length ? (
                 results.map(place => (
@@ -265,28 +281,34 @@ export function MeetingPlaceScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={place.name}
                     onPress={() => choose(place)}
-                    style={styles.result}
                   >
-                    <Icon
-                      name="mapPin"
-                      color={groupLook.onLightSub}
-                      size={16}
-                    />
-                    <View style={styles.flex}>
-                      <AppText style={styles.resultName}>{place.name}</AppText>
-                      <AppText style={styles.sub}>{place.address}</AppText>
-                    </View>
-                    <AppText style={styles.sub}>
-                      {formatDistance(place.distanceM)}
-                    </AppText>
+                    <LightGlass radius={16} style={styles.result}>
+                      <Icon
+                        name="mapPin"
+                        color={groupLook.onLightSub}
+                        size={16}
+                      />
+                      <View style={styles.flex}>
+                        <AppText style={styles.resultName}>
+                          {place.name}
+                        </AppText>
+                        <NumText text={place.address} style={styles.sub} />
+                      </View>
+                      <NumText
+                        text={formatDistance(place.distanceM)}
+                        style={styles.sub}
+                      />
+                    </LightGlass>
                   </Pressable>
                 ))
               ) : (
-                <AppText style={[styles.sub, styles.noResult]}>
-                  찾는 장소가 없어요
-                </AppText>
+                <LightGlass radius={16}>
+                  <AppText style={[styles.sub, styles.noResult]}>
+                    찾는 장소가 없어요
+                  </AppText>
+                </LightGlass>
               )}
-            </LightGlass>
+            </View>
           ) : null}
           {!confirming && !query ? (
             <View style={styles.locate}>
@@ -298,127 +320,133 @@ export function MeetingPlaceScreen() {
             </View>
           ) : null}
         </SafeAreaView>
-        {/* 6.9-PlaceSheet: a light glass sheet with corners of 32. The keyboard lifts it (S15P31E105-473). */}
+        {/* 6.9-PlaceSheet: a sheet with corners of 32. The keyboard lifts it (S15P31E105-473). */}
         <KeyboardLift style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={styles.sheet}>
-            {/* A white sheet like 6.4's (S15P31E105-563). */}
+            {/* A navy sheet with white text over the light map (S15P31E105-594 담당자 결정: 진한 네이비 톤). The dark
+                theme draws its fields, the ✓ 위치 확정 tag and the FooterButtons light: 확정 white with navy text. */}
             <LightGlass
               radius={32}
-              solid="#FFFFFF"
+              solid={sheetNavy}
               style={[styles.sheetGlass, styles.sheetSolid]}
             >
-              <SafeAreaView edges={['bottom']}>
-                <View style={styles.handle} />
-                {confirming && picked ? (
-                  <View style={styles.sheetBody}>
-                    <View style={styles.confirmed}>
-                      <Tag label="✓ 위치 확정" tone="accent" />
-                      <AppText
-                        style={[styles.sub, styles.flex]}
-                        numberOfLines={1}
-                      >
-                        {picked.address}
-                      </AppText>
-                    </View>
-                    <TextField
-                      label="장소 이름"
-                      value={placeName}
-                      onChangeText={setPlaceName}
-                    />
-                    <TextField
-                      label="찾아오는 법 · 선택"
-                      placeholder="예: 편의점 앞 계단, 민트색 모자"
-                      value={note}
-                      onChangeText={setNote}
-                    />
-                    <View style={styles.buttons}>
-                      <FooterButton
-                        title="다시 고르기"
-                        onPress={() => setConfirming(false)}
+              <ThemeProvider tone="dark">
+                <SafeAreaView edges={['bottom']}>
+                  <View style={styles.handle} />
+                  {confirming && picked ? (
+                    <View style={styles.sheetBody}>
+                      <View style={styles.confirmed}>
+                        <Tag label="✓ 위치 확정" tone="accent" />
+                        <NumText
+                          text={picked.address}
+                          style={[styles.sheetSub, styles.flex]}
+                          numberOfLines={1}
+                        />
+                      </View>
+                      <TextField
+                        label="장소 이름"
+                        value={placeName}
+                        onChangeText={setPlaceName}
                       />
-                      <FooterButton
-                        title="확정"
-                        primary
-                        disabled={!placeName.trim()}
+                      <TextField
+                        label="찾아오는 법 · 선택"
+                        placeholder="예: 편의점 앞 계단, 민트색 모자"
+                        value={note}
+                        onChangeText={setNote}
+                      />
+                      <View style={styles.buttons}>
+                        <FooterButton
+                          title="다시 고르기"
+                          onPress={() => setConfirming(false)}
+                        />
+                        <FooterButton
+                          title="확정"
+                          primary
+                          disabled={!placeName.trim()}
+                          onPress={() => {
+                            setPlace({
+                              ...picked,
+                              name: placeName.trim(),
+                              note: note.trim() || null,
+                            });
+                            navigation.goBack();
+                          }}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.sheetBody}>
+                      {!query ? (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={styles.nearby}
+                        >
+                          {results.map(place => {
+                            const selected = place.name === picked?.name;
+                            return (
+                              <PressableScale
+                                key={place.name}
+                                accessibilityRole="radio"
+                                accessibilityLabel={place.name}
+                                accessibilityState={{ selected }}
+                                onPress={() => setPicked(place)}
+                              >
+                                <View
+                                  style={[
+                                    styles.nearbyChip,
+                                    selected && styles.nearbyChipOn,
+                                  ]}
+                                >
+                                  <AppText
+                                    style={[
+                                      styles.chipText,
+                                      selected && styles.chipTextOn,
+                                    ]}
+                                  >
+                                    {place.name}
+                                  </AppText>
+                                </View>
+                              </PressableScale>
+                            );
+                          })}
+                        </ScrollView>
+                      ) : null}
+                      {picked ? (
+                        <View style={styles.pickedRow}>
+                          <Icon
+                            name="mapPin"
+                            color={groupTone.text}
+                            size={18}
+                          />
+                          <View style={styles.flex}>
+                            <AppText style={styles.placeName}>
+                              {picked.name}
+                            </AppText>
+                            <NumText
+                              text={picked.address}
+                              style={styles.sheetSub}
+                            />
+                          </View>
+                          {Number.isFinite(picked.distanceM) ? (
+                            <NumText
+                              text={formatDistance(picked.distanceM)}
+                              style={styles.distance}
+                            />
+                          ) : null}
+                        </View>
+                      ) : null}
+                      <ConfirmButton
+                        disabled={!picked}
                         onPress={() => {
-                          setPlace({
-                            ...picked,
-                            name: placeName.trim(),
-                            note: note.trim() || null,
-                          });
-                          navigation.goBack();
+                          setPlaceName(picked?.name ?? '');
+                          setConfirming(true);
                         }}
                       />
                     </View>
-                  </View>
-                ) : (
-                  <View style={styles.sheetBody}>
-                    {!query ? (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.nearby}
-                      >
-                        {results.map(place => {
-                          const selected = place.name === picked?.name;
-                          return (
-                            <PressableScale
-                              key={place.name}
-                              accessibilityRole="radio"
-                              accessibilityLabel={place.name}
-                              accessibilityState={{ selected }}
-                              onPress={() => setPicked(place)}
-                            >
-                              <View
-                                style={[
-                                  styles.nearbyChip,
-                                  selected && styles.nearbyChipOn,
-                                ]}
-                              >
-                                <AppText
-                                  style={[
-                                    styles.chipText,
-                                    selected && styles.chipTextOn,
-                                  ]}
-                                >
-                                  {place.name}
-                                </AppText>
-                              </View>
-                            </PressableScale>
-                          );
-                        })}
-                      </ScrollView>
-                    ) : null}
-                    {picked ? (
-                      <View style={styles.pickedRow}>
-                        <Icon
-                          name="mapPin"
-                          color={groupLook.onLight}
-                          size={18}
-                        />
-                        <View style={styles.flex}>
-                          <AppText style={styles.placeName}>
-                            {picked.name}
-                          </AppText>
-                          <AppText style={styles.sub}>{picked.address}</AppText>
-                        </View>
-                        {Number.isFinite(picked.distanceM) ? (
-                          <AppText style={styles.distance}>
-                            {formatDistance(picked.distanceM)}
-                          </AppText>
-                        ) : null}
-                      </View>
-                    ) : null}
-                    <ConfirmButton
-                      disabled={!picked}
-                      onPress={() => {
-                        setPlaceName(picked?.name ?? '');
-                        setConfirming(true);
-                      }}
-                    />
-                  </View>
-                )}
-              </SafeAreaView>
+                  )}
+                </SafeAreaView>
+              </ThemeProvider>
             </LightGlass>
           </View>
         </KeyboardLift>
@@ -426,6 +454,9 @@ export function MeetingPlaceScreen() {
     </ThemeProvider>
   );
 }
+
+// The sheet's navy, a step above the page navy so it stands off the map's edge.
+const sheetNavy = groupTone.sheet;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -494,8 +525,8 @@ const styles = StyleSheet.create({
     color: groupLook.onLight,
   },
   results: {
+    gap: spacing.sm,
     marginHorizontal: spacing.screen,
-    paddingVertical: spacing.sm,
   },
   result: {
     flexDirection: 'row',
@@ -516,6 +547,13 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: groupLook.onLightSub,
   },
+  // The sheet's small lines, on the navy.
+  sheetSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: groupTone.sub,
+  },
   noResult: { padding: spacing.xl, textAlign: 'center' },
   locate: {
     alignItems: 'flex-end',
@@ -532,7 +570,7 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     marginTop: 7.5,
-    backgroundColor: 'rgba(2,5,14,0.18)',
+    backgroundColor: groupTone.line,
   },
   sheetBody: {
     paddingHorizontal: 16,
@@ -546,17 +584,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     borderRadius: 16,
     justifyContent: 'center',
-    backgroundColor: groupLook.lightFill,
+    borderWidth: 1,
+    borderColor: groupTone.cardLine,
+    backgroundColor: groupTone.inner,
   },
-  nearbyChipOn: { backgroundColor: groupLook.navy },
+  // A picked place is a small chip, so it takes the mint (navy text on it).
+  nearbyChipOn: {
+    borderColor: groupTone.accent,
+    backgroundColor: groupTone.accent,
+  },
   chipText: {
     fontFamily: fontFamily.bold,
     fontSize: 12.5,
     lineHeight: 16,
     letterSpacing: -0.3,
-    color: groupLook.onLightSub2,
+    color: groupTone.text,
   },
-  chipTextOn: { color: groupLook.onDark },
+  chipTextOn: { color: groupTone.onAccent },
   pickedRow: {
     minHeight: 42,
     flexDirection: 'row',
@@ -569,21 +613,21 @@ const styles = StyleSheet.create({
     fontSize: 17.5,
     lineHeight: 23,
     letterSpacing: -0.4,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
   distance: {
-    fontFamily: fontFamily.numberRegular,
+    fontFamily: fontFamily.regular,
     fontSize: 14.5,
-    color: groupLook.onLightSub,
+    lineHeight: 19,
+    color: groupTone.sub,
   },
   confirm: {
     height: 56,
     borderRadius: 28,
     justifyContent: 'center',
-    backgroundColor: groupLook.navy,
-    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
+    backgroundColor: groupTone.button,
   },
-  sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.18)' },
+  sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.28)' },
   confirmContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -595,16 +639,17 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: 16,
     lineHeight: 21,
-    color: groupLook.onDark,
+    color: groupTone.onButton,
   },
   confirmIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: groupTone.onButton,
     alignItems: 'center',
     justifyContent: 'center',
   },
   confirmed: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   buttons: { flexDirection: 'row', gap: spacing.md },
+  pinIcon: { width: 44, height: 44 },
 });

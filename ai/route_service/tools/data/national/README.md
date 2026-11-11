@@ -46,3 +46,19 @@ Linux `/usr/bin/time -v`로 실제 최고 RSS와 빌드 시간을 측정해야 �
 
 NumPy 2.5.4의 mmap/고급 인덱싱 문서는 Context7의 `/numpy/numpy/v2.5.4`로 2026-11-09 확인했다.
 선택 위치 인덱싱은 창 크기의 복사본을 만들며 원본 mmap은 `mmap_mode='r', allow_pickle=False`로 연다.
+
+## 건물 layer (S15P31E105-612, 선택)
+
+저장 코스 평면 PNG 썸네일(`POST /internal/v1/basemaps` `detail=full`)의 건물은 store와 별도인 `buildings/` 폴더에서 읽는다.
+없거나 읽을 수 없으면(고장·잘림·layer 다름) 건물 없이 응답한다(`buildings_available=false`, 경고 로그). 서비스 폴더에서 원본 PBF로 만든다.
+
+```powershell
+python -m tools.data.national.build_buildings --pbf C:\data\south-korea.osm.pbf --out C:\data\national-bundle\buildings
+```
+
+출력은 `buildings.gpkg`(layer `buildings`, EPSG:4326 MultiPolygon, `osm_id`, `height_m`, 공간 색인)와 `metadata.json`
+(원본 이름·md5·sha256·PBF header 시각·건물 수·생성 시각)이다. 임시 이름에 쓴 뒤 `os.replace`로 바꾼다.
+node 위치 색인 기본값은 `sparse_mem_array`(node당 16 byte)이고, 메모리가 모자라면 `--index sparse_file_array,<파일 경로>`를 쓴다.
+건물은 20,000개씩(`--batch`) 이어 쓴다. 형식·높이 규칙은 [API.md](../../../API.md) "건물 자료 파일" 절을 따른다.
+대한민국 전체 PBF의 실제 빌드 시간·최고 RSS는 아직 측정하지 않았다.
+pyosmium `FileProcessor.with_locations/with_areas/with_filter` 사용법은 Context7 `/osmcode/pyosmium`(버전 미지정 최신 문서)으로 2026-11-10 확인했고, 설치된 osmium 4.3.2의 `file_processor.py` 소스에서 같은 동작(영역 filter는 1차 relation 수집에만, `with_filter`는 조립된 면에도 적용)을 확인했다.

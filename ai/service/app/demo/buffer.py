@@ -12,6 +12,17 @@ IDLE_EXPIRE_SEC = 1800.0
 MAX_SUBSCRIBERS = 2
 MAX_ROUTE_POINTS = 10000
 MAX_COURSE_SUMMARY_POINTS = 500
+# 그룹 러닝 스트림 키. Nginx 경로(/v1/demo/sessions/(latest|[0-9]+)/events)를 바꾸지 않도록 숫자 키를 쓰고,
+# 개인 세션 ID와 겹치지 않게 큰 값을 더한다. 콘솔은 ?group=<groupRunId>를 이 키로 바꿔 연결한다.
+GROUP_KEY_OFFSET = 9_000_000_000_000
+
+
+def group_key(group_run_id: int) -> int:
+    return GROUP_KEY_OFFSET + int(group_run_id)
+
+
+def is_group_key(key: int) -> bool:
+    return key >= GROUP_KEY_OFFSET
 
 
 def _time(value: str) -> datetime:
@@ -20,9 +31,10 @@ def _time(value: str) -> datetime:
 
 class DemoBuffer:
     def __init__(self, boot_id: str, *, allowlist: frozenset[int] | None,
-                 now: Callable[[], datetime]):
+                 now: Callable[[], datetime], group_allowlist: frozenset[int] | None = None):
         self.boot_id = boot_id
         self.allowlist = allowlist
+        self.group_allowlist = group_allowlist
         self.now = now
         self._lock = threading.Lock()
         self._seq = 0
@@ -33,6 +45,8 @@ class DemoBuffer:
         self._subscribers: dict[int, int] = {}
 
     def allowed(self, session_id: int) -> bool:
+        if is_group_key(session_id):
+            return self.group_allowlist is None or session_id - GROUP_KEY_OFFSET in self.group_allowlist
         return self.allowlist is None or session_id in self.allowlist
 
     def next_seq(self) -> int:

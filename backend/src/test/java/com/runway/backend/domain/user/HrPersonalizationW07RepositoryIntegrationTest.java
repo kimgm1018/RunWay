@@ -24,6 +24,7 @@ class HrPersonalizationW07RepositoryIntegrationTest extends HrPersonalizationInt
     void cleanUp() {
         jdbc.update("DELETE FROM running_route_points");
         jdbc.update("DELETE FROM running_metric_samples");
+        jdbc.update("DELETE FROM exercise_training_loads");
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM user_devices");
     }

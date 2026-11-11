@@ -14,14 +14,14 @@ import {
 } from '@react-navigation/native';
 import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppText, Backdrop } from '../../components';
+import { AppText } from '../../components';
 import type { GroupTabRouteName } from '../../navigation/routes';
 import type { MainTabParamList } from '../../navigation/types';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
 import { GroupIntro, groupIntroSeen, markGroupIntroSeen } from './GroupIntro';
 import { MyCrewsPage } from './GroupScreen';
-import { groupLook, insetTrackLight, Raised } from './look';
+import { groupTone, NightBackground, Raised } from './look';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 // 내 크루 is the left page, 크루 모집 the right one.
@@ -54,7 +54,7 @@ export function GroupTabs({
         style={styles.tab}
       >
         {selected ? (
-          <Raised tone="navy" style={styles.tabOn}>
+          <Raised tone="whiteFlat" style={styles.tabOn}>
             {text}
           </Raised>
         ) : (
@@ -147,28 +147,29 @@ export function GroupTabScreen() {
   }
 
   return (
-    // 6.0 · 6.1 sit on the mist like 홈 and 러닝 (S15P31E105-483), so the tab bar's move between tabs keeps one
-    // background; only the crew cards stay navy.
-    <ThemeProvider tone="light">
+    // 6.0 · 6.1 on the home card's navy (S15P31E105-594 담당자 결정), white text and faint white cards.
+    <ThemeProvider tone="dark">
       <View style={styles.root}>
-        <StatusBar barStyle="dark-content" />
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Backdrop />
-        </View>
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <View style={styles.root}>
-            <GroupTabs active={page} onSelect={select} />
-          </View>
+        <StatusBar barStyle="light-content" />
+        {/* The home card's navy behind the group screens (S15P31E105-594 담당자 결정: 진한 네이비 배경). */}
+        <NightBackground />
+        {/* 그룹 title with search on its right, the tabs full width under it (S15P31E105-594 담당자 시안). */}
+        <View style={[styles.titleRow, { paddingTop: insets.top }]}>
+          <AppText style={styles.title} accessibilityRole="header">
+            그룹
+          </AppText>
           <GlassIconButton
             icon="search"
-            tone="light"
+            tone="dark"
             accessibilityLabel={
               page === 1 ? '크루 검색 열기' : '내 크루 검색 열기'
             }
             accessibilityState={{ expanded: searching[page] }}
             onPress={() => setSearchingOn(page, true)}
-            style={styles.search}
           />
+        </View>
+        <View style={styles.header}>
+          <GroupTabs active={page} onSelect={select} />
         </View>
         <PagerView
           ref={pager}
@@ -205,11 +206,22 @@ export function GroupTabScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  // The tabs and the round search button beside them, 16 from the screen edges.
-  header: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  title: {
+    fontFamily: fontFamily.bold,
+    fontSize: 24,
+    lineHeight: 32,
+    letterSpacing: -0.5,
+    color: groupTone.text,
+  },
+  // The tabs, 16 from the screen edges.
+  header: {
     paddingHorizontal: 16,
     marginBottom: spacing.md,
   },
@@ -217,12 +229,12 @@ const styles = StyleSheet.create({
   tabs: {
     flexDirection: 'row',
     height: 44,
-    marginTop: 3,
     padding: 4,
     gap: 4,
     borderRadius: 22,
-    backgroundColor: groupLook.lightButton,
-    boxShadow: insetTrackLight,
+    borderWidth: 1,
+    borderColor: groupTone.cardLine,
+    backgroundColor: groupTone.card,
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   tabOn: {
@@ -237,9 +249,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     letterSpacing: -0.3,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
-  tabTextOn: { color: groupLook.onDark },
-  // As tall as the tabs, flat like the round buttons on the crew cards.
-  search: { marginTop: 3 },
+  tabTextOn: { color: groupTone.onButton },
 });

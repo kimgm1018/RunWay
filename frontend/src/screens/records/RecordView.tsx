@@ -10,6 +10,7 @@ import {
 } from '../../format';
 import { fontFamily } from '../../theme';
 import { BarLabel, recordsLook } from './look';
+import { HomeRecord } from './HomeAnalysis';
 import { SplitChart, type SplitMetric } from './SplitChart';
 
 // 19초 or 1분 50초.
@@ -20,25 +21,6 @@ export function formatGap(seconds: number) {
     : `${rounded}초`;
 }
 
-export const metrics: { value: SplitMetric; label: string }[] = [
-  { value: 'pace', label: '페이스' },
-  { value: 'heartRate', label: '심박' },
-  { value: 'cadence', label: '케이던스' },
-];
-
-// 5.2's 페이스 · 심박 · 케이던스 tabs: 심박 · 케이던스 only when the run measured them.
-export function metricOptions(record: RunRecordDetail) {
-  return metrics.filter(
-    metric =>
-      metric.value === 'pace' ||
-      record.splits.some(split =>
-        metric.value === 'heartRate'
-          ? split.averageHeartRate !== null
-          : split.averageCadence !== null,
-      ),
-  );
-}
-
 function average(values: (number | null)[]) {
   const known = values.filter((value): value is number => value !== null);
   return known.length
@@ -46,19 +28,43 @@ function average(values: (number | null)[]) {
     : null;
 }
 
-// 목표 30:00 달성 · 19초 단축, or the miss; null without a goal.
-function goalLine(record: RunRecordDetail) {
-  if (record.targetDurationSec === null) {
+// 목표 30:00 달성 · 19초 단축, or a distance goal; trusts H02 goalAchieved (S15P31E105-638).
+export function goalLine(record: RunRecordDetail) {
+  if (record.goalAchieved === null) {
     return null;
   }
-  const gap = record.targetDurationSec - record.durationSec;
-  const target = formatDuration(record.targetDurationSec);
-  return gap >= 0
-    ? { text: `목표 ${target} 달성 · ${formatGap(gap)} 단축`, achieved: true }
-    : {
-        text: `목표 ${target} 미달성 · ${formatGap(gap)} 늦음`,
-        achieved: false,
+  const achieved = record.goalAchieved;
+  if (record.targetDurationSec !== null) {
+    const gap = record.targetDurationSec - record.durationSec;
+    const target = formatDuration(record.targetDurationSec);
+    if (achieved) {
+      return {
+        text:
+          gap >= 0
+            ? `목표 ${target} 달성 · ${formatGap(gap)} 단축`
+            : `목표 ${target} 달성`,
+        achieved: true,
       };
+    }
+    return {
+      text:
+        gap < 0
+          ? `목표 ${target} 미달성 · ${formatGap(gap)} 늦음`
+          : `목표 ${target} 미달성`,
+      achieved: false,
+    };
+  }
+  if (record.targetDistanceM !== null) {
+    const target = `${formatKm(record.targetDistanceM)}km`;
+    return {
+      text: achieved ? `목표 ${target} 달성` : `목표 ${target} 미달성`,
+      achieved,
+    };
+  }
+  return {
+    text: achieved ? '목표 달성' : '목표 미달성',
+    achieved,
+  };
 }
 
 // 목표보다 5초 빠름 beside the average pace, when the run had a target pace.
@@ -75,7 +81,7 @@ function paceNote(record: RunRecordDetail) {
   return `목표보다 ${formatGap(gap)} ${gap > 0 ? '빠름' : '느림'}`;
 }
 
-// The date chip (no RUNWAY, 담당자 결정), the run's name and the goal line: the top of the 5.1 and 5.2 cards.
+// The date chip (no RUNWAY, 담당자 결정), the run's name and the goal line: the top of the 5.1 card.
 function CardHead({ record }: { record: RunRecordDetail }) {
   const goal = goalLine(record);
   return (
@@ -111,21 +117,13 @@ function Figure({
   label: string;
   value: string;
   unit?: string;
-  size: 'big' | 'mid' | 'small';
+  size: 'big' | 'small';
 }) {
   return (
     <View>
       <BarLabel label={label} />
       <View style={styles.figureValue}>
-        <AppText
-          style={
-            size === 'big'
-              ? styles.big
-              : size === 'mid'
-              ? styles.mid
-              : styles.small
-          }
-        >
+        <AppText style={size === 'big' ? styles.big : styles.small}>
           {value}
           {unit ? (
             <AppText style={size === 'big' ? styles.unitBig : styles.unit}>
@@ -138,10 +136,9 @@ function Figure({
   );
 }
 
-// The body of the 5.1 and 5.2 cards (runway-records 2차, white on the frost card the frame draws). 5.1 (layout
-// records): the head, the average pace large, the split graph and 거리 · 시간 under a line; no metric tabs there
-// (담당자 결정). 5.2 (layout detail): the head, the three figures in a row, a line, then the graph of the metric its
-// tabs picked. onOpen makes the 5.1 body a link to 5.2.
+// The body of the 5.1 card (runway-records 2차, white on the frost card the frame draws): the head, the average pace
+// large, the split graph and 거리 · 시간 under a line; no metric tabs there (담당자 결정). onOpen makes the body a link.
+// 5.2's layout (기록 상세) was dropped with its screen (S15P31E105-594 담당자 결정).
 export function RecordView({
   record,
   chartHeight,
@@ -154,9 +151,13 @@ export function RecordView({
   chartHeight: number;
   onOpen?: () => void;
   openLabel?: string;
-  layout?: 'records' | 'detail';
+  // home: 2.1 홈 최근 러닝 (S15P31E105-615).
+  layout?: 'records' | 'home';
   metric?: SplitMetric;
 }) {
+  if (layout === 'home') {
+    return <HomeRecord record={record} onOpen={onOpen} openLabel={openLabel} />;
+  }
   const reference =
     metric === 'pace'
       ? record.targetPaceSecPerKm
@@ -188,44 +189,6 @@ export function RecordView({
     />
   );
   const note = paceNote(record);
-
-  if (layout === 'detail') {
-    return (
-      <View>
-        <View>
-          <CardHead record={record} />
-          <View style={styles.figures}>
-            <Figure
-              size="mid"
-              label="평균 페이스"
-              value={formatPace(record.averagePaceSecPerKm)}
-              unit="/km"
-            />
-            <Figure
-              size="mid"
-              label="거리"
-              value={formatKm(record.distanceM)}
-              unit="km"
-            />
-            <Figure
-              size="mid"
-              label="시간"
-              value={formatDuration(record.durationSec)}
-            />
-          </View>
-          <View style={[styles.rule, styles.ruleGap]}>
-            {/* 구간 페이스 · 구간 심박 · 구간 케이던스, after the tab chosen above. */}
-            <BarLabel
-              label={`구간 ${
-                metrics.find(item => item.value === metric)?.label ?? '페이스'
-              }`}
-            />
-          </View>
-          <View style={styles.chartGap}>{chart}</View>
-        </View>
-      </View>
-    );
-  }
 
   const body = (
     <>
@@ -341,27 +304,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  ruleGap: { paddingTop: 18 },
-  figures: {
-    marginTop: 22,
-    marginBottom: 20,
-    flexDirection: 'row',
-    gap: 22,
-  },
   figureValue: { marginTop: 3 },
   big: {
     fontFamily: fontFamily.bold,
     fontSize: 34,
     lineHeight: 40,
     letterSpacing: -1,
-    color: recordsLook.onCard,
-    includeFontPadding: false,
-  },
-  mid: {
-    fontFamily: fontFamily.bold,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.6,
     color: recordsLook.onCard,
     includeFontPadding: false,
   },

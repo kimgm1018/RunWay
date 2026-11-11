@@ -10,6 +10,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
 import { now } from '../src/data/mock/fixtures';
+import { shapeOfRoute } from '../src/geo';
+import {
+  CourseGlyph,
+  CourseMapThumb,
+} from '../src/screens/course/SavedCoursesScreen';
 
 // 3.1b 추천 코스, 3.1c 저장한 코스 and 2.1 저장한 코스 against the server (dataSource 'api'): C01·C03·C07·C08·C09.
 
@@ -359,17 +364,27 @@ test('3.1c shows the server list and an unsave goes to the server', async () => 
   expect(sent('PUT')).toEqual(['/courses/9/bookmark']);
 });
 
-test('3.1c draws each saved course on its own map from the C03 points (S15P31E105-562)', async () => {
+// S15P31E105-612: the card gets the C03 points and draws them as its outline, with no Naver map (S15P31E105-562
+// drew a compact RunMap here). This C03 has no basemap (an older server), so the card is the plain outline, not a
+// map image.
+test('3.1c draws each saved course from the C03 points without a Naver map', async () => {
   const screen = await openTodayRun();
   await press(screen, '저장한 코스');
-  const maps = screen.root.findAll(
-    node =>
-      typeof node.type !== 'string' &&
-      Array.isArray(node.props.route) &&
-      node.props.compact === true,
+  const thumbs = screen.root.findAllByType(CourseMapThumb);
+  expect(thumbs.length).toBeGreaterThan(0);
+  expect(thumbs[0].props.route).toEqual(loop);
+  expect(thumbs[0].props.basemap).toBeNull();
+  expect(thumbs[0].findByType(CourseGlyph).props.shape).toEqual(
+    shapeOfRoute(loop),
   );
-  expect(maps.length).toBeGreaterThan(0);
-  expect(maps[0].props.route).toEqual(loop);
+  expect(
+    screen.root.findAll(
+      node =>
+        typeof node.type !== 'string' &&
+        Array.isArray(node.props.route) &&
+        node.props.compact === true,
+    ),
+  ).toHaveLength(0);
 });
 
 test('3.1c puts the course back when the server keeps it', async () => {
@@ -444,8 +459,12 @@ test('3.1b shows the generated routes, asks again with nextSeed, and saves and r
     sent('POST').filter(path => path === '/courses/generated'),
   ).toHaveLength(1);
   page = texts(screen);
-  expect(page).toContain('오늘의 러닝 전략');
+  // The server has no pace plan: 2.0 shows the course itself, no mock strategy, and runs with the 3.1 goal
+  // (S15P31E105-635).
   expect(page).toContain('5.0km 코스');
+  expect(page).not.toContain('오늘의 러닝 전략');
+  expect(page).not.toContain('초반 안정');
+  expect(page).toContain('30분 달리기');
   expect(sent('GET')).toContain('/courses/11');
 });
 
@@ -750,4 +769,42 @@ test('저장 중 연속 클릭해도 U12는 한 번만 보낸다', async () => {
   } finally {
     release?.();
   }
+});
+
+// S15P31E105-659: 편도에서는 지도를 눌러 출발·도착을 바로 정한다.
+test('편도에서 지도를 누르면 표시된 카드의 위치가 바뀌고 추천 요청에 그대로 전달된다', async () => {
+  const screen = await openTodayRun();
+  const tap = async (latitude: number, longitude: number) => {
+    await act(async () =>
+      screen.root
+        .findAll(node => typeof node.props.onTapMap === 'function')
+        .pop()!
+        .props.onTapMap({ latitude, longitude }),
+    );
+  };
+  const hasMapTap = () =>
+    screen.root.findAll(node => typeof node.props.onTapMap === 'function')
+      .length > 0;
+  // 순환·왕복에서는 지도를 눌러도 위치가 정해지지 않는다.
+  expect(hasMapTap()).toBe(false);
+  await press(screen, '코스 형태 설정');
+  await press(screen, '편도');
+  await press(screen, '조건 목록으로');
+  // 편도를 고르면 도착 카드가 표시되고, 지도를 누르면 선택 화면 없이 도착지가 정해진다.
+  expect(
+    labelled(screen, '도착 위치 선택').props.accessibilityState.selected,
+  ).toBe(true);
+  await tap(35.16, 129.14);
+  expect(labelled(screen, '코스 추천 받기').props.disabled).toBe(false);
+  // 기준 카드를 한 번 눌러 표시하면 다음 터치는 출발지를 바꾸고 도착지는 그대로다.
+  await press(screen, '기준 위치 현재 위치');
+  await tap(35.152, 129.119);
+  await press(screen, '코스 추천 받기');
+  expect(recommendationBodies()[0]).toMatchObject({
+    latitude: 35.152,
+    longitude: 129.119,
+    shape: 'point_to_point',
+    endLatitude: 35.16,
+    endLongitude: 129.14,
+  });
 });

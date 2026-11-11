@@ -147,6 +147,8 @@ public class PostRunAnalysisService {
         analysisRepository.replaceSplits(sessionId, result.splits());
         session.completeAnalysis(result.stats(), now());
         events.publishEvent(SessionStreamChanged.analysis(sessionId));
+        // S15P31E105-599: 커밋 후 러닝 부하 저장(TrainingLoadListener). 분석 결과와 별도 트랜잭션이며 실패해도 분석에 영향이 없다.
+        events.publishEvent(new RunningSessionAnalyzedEvent(sessionId));
         // 커밋 전에 flush해 제약 위반을 이 트랜잭션의 실패(→ FAILED)로 다룬다.
         sessionRepository.flush();
     }

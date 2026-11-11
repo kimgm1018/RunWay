@@ -1,8 +1,12 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
-import { createMockRepositories, type MockScenario } from '../src/data';
+import {
+  createMockRepositories,
+  type AppNotification,
+  type MockScenario,
+} from '../src/data';
 
 jest.mock(
   'react-native-safe-area-context',
@@ -13,12 +17,35 @@ jest.setTimeout(30000);
 
 type Screen = TestRenderer.ReactTestRenderer;
 
+// A Text's whole line, nested Texts included (NumText draws the digits in their own Text, S15P31E105-594).
+function lineOf(children: unknown): string {
+  return [children]
+    .flat(Infinity as 1)
+    .map(child =>
+      typeof child === 'string' || typeof child === 'number'
+        ? String(child)
+        : child && typeof child === 'object' && 'props' in child
+        ? lineOf((child as { props: { children?: unknown } }).props.children)
+        : '',
+    )
+    .join('');
+}
+
 function texts(screen: Screen) {
-  return screen.root
-    .findAllByType(Text)
-    .flatMap(node => [node.props.children].flat())
-    .filter(child => typeof child === 'string' || typeof child === 'number')
-    .join(' ');
+  const nodes = screen.root.findAllByType(Text);
+  return [
+    ...nodes
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number'),
+    // Lines split into nested Texts, read whole too.
+    ...nodes
+      .filter(node =>
+        [node.props.children]
+          .flat()
+          .some(child => child && typeof child === 'object'),
+      )
+      .map(node => lineOf(node.props.children)),
+  ].join(' ');
 }
 
 function labelled(screen: Screen, label: string, prop = 'onPress') {
@@ -78,35 +105,92 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   // 인사말 in one line; the old logo row, its avatar button and 러닝 시작 are gone.
   expect(home).toContain('반가워요 민준님 👋');
   expect(() => labelled(screen, '내 프로필')).toThrow();
-  // 준비도 first, about today only: 오늘 · the date with no calendar to open (S15P31E105-574), and the week held
-  // on today; then the score, its grade, sleep, resting heart rate and the weekly load.
+  // 준비도 first, on today; like every menu it has the date line and its calendar (S15P31E105-594 담당자 요청: 과거
+  // 날짜를 고르면 그날의 준비도), and the card names today as 오늘의 준비도 with the day.
   expect(home).toContain('10월 19일 월요일');
-  expect(home).toContain('오늘 · 10월 19일 월요일');
-  expect(() => labelled(screen, '달력 열기')).toThrow();
+  expect(home).toContain('오늘의 준비도');
+  expect(labelled(screen, '달력 열기')).toBeTruthy();
   expect(stateOf(screen, '10월 19일')?.selected).toBe(true);
   // The menu: three pills, each its name with an icon; 기록 상세 is no longer one of them.
-  for (const menu of ['준비도', '러닝 기록', '러닝 분석']) {
+  for (const menu of ['준비도', '월별 기록', '러닝 분석']) {
     expect(labelled(screen, menu).props.accessibilityRole).toBe('button');
   }
+  // 준비도 · 러닝 분석 · 러닝 기록, left to right (S15P31E105-615, 담당자 요청).
+  const order = screen.root
+    .findAll(
+      node =>
+        node.props.accessibilityRole === 'button' &&
+        ['준비도', '러닝 분석', '월별 기록'].includes(
+          node.props.accessibilityLabel,
+        ),
+    )
+    .map(node => node.props.accessibilityLabel)
+    .filter((label, index, all) => all.indexOf(label) === index);
+  expect(order).toEqual(['준비도', '러닝 분석', '월별 기록']);
   expect(stateOf(screen, '준비도')?.selected).toBe(true);
   expect(() => labelled(screen, '기록 상세')).toThrow();
   expect(() => labelled(screen, '과거 러닝 기록')).toThrow();
+  // 준비도 (S15P31E105-594 담당자 시안): the load sentence and the score on its ring, the notice, 최근 러닝 with the
+  // week's load by day against the usual week, 왜 82점인가요? with the item scores, and 러닝 시작하기 at the foot.
   for (const text of [
+    // The score's grade on top, the load against the usual week under it (S15P31E105-594 담당자 요청).
+    '준비도 양호',
+    '최근 운동량이 평소보다 많아요.',
     '82',
-    '오늘 준비도 양호',
-    '계획한 강도로 달려도 좋아요',
-    '7h 12m',
-    '58 bpm',
-    '적정',
-    '오늘은 5km를 6′00″ 페이스로 시작해도 좋아요.',
+    '100점 기준',
+    '운동량 항목에 반영됐어요.',
+    '최근 러닝',
+    '50% 증가',
+    '10.13 – 10.19 · 날짜별 운동 부하',
+    '휴식',
+    '180',
+    '오늘',
+    '최근 7일',
+    '600',
+    '평소',
+    '400',
+    '평소 = 최근 28일의 주간 평균',
+    '왜 82점인가요?',
+    '수면 · 최근 3일 반영',
+    '93점',
+    '안정 심박 · 평소 대비 +6.7%',
+    '최근 운동량 · 평소의 1.5배',
+    '72.5점',
+    '세 항목의 평균',
+    '평균 81.83점을 반올림했어요.',
+    '러닝 시작하기',
   ]) {
     expect(home).toContain(text);
   }
-  for (const gone of ['러닝 시작', '저장한 코스', '지난 러닝']) {
+  // The newest day is picked: its line says what the bar is; another bar picks its own day. 10/14 has no run and
+  // no load, so it is a rest day; 10/15's run is in the records.
+  expect(home).toContain('10월 19일 · 운동 기록 · 운동 부하 180');
+  await press(screen, '15일 운동 부하');
+  expect(texts(screen)).toContain('10월 15일 · 러닝 1회 · 운동 부하 160');
+  await press(screen, '14일 운동 부하');
+  expect(texts(screen)).toContain('10월 14일 · 휴식 기록 · 운동 부하 0');
+  // 부하란? opens and closes what the word means.
+  await press(screen, '부하란?');
+  expect(texts(screen)).toContain('심박 구간');
+  await press(screen, '부하란?');
+  expect(texts(screen)).not.toContain('심박 구간');
+  // 왜 82점인가요? folds away.
+  await press(screen, '왜 82점인가요?');
+  expect(texts(screen)).not.toContain('세 항목의 평균');
+  await press(screen, '왜 82점인가요?');
+  // 러닝 시작하기 is the card's last part and goes to the run tab's first step, 2.0M.
+  const card = texts(screen);
+  expect(card.lastIndexOf('러닝 시작하기')).toBeGreaterThan(
+    card.lastIndexOf('세 항목의 평균'),
+  );
+  await press(screen, '러닝 시작하기');
+  expect(texts(screen)).toContain('오늘은 어떻게 달릴까요?');
+  await press(screen, '홈');
+  for (const gone of ['저장한 코스', '지난 러닝']) {
     expect(home).not.toContain(gone);
   }
-  // 러닝 기록 shows the day on the date line: no run on 10.19, then 10.15's run.
-  await press(screen, '러닝 기록');
+  // 러닝 분석 shows the day's run card (S15P31E105-615): no run on 10.19, then 10.15's run.
+  await press(screen, '러닝 분석');
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
   // Today needs no 오늘 button.
   expect(() => labelled(screen, '오늘로 이동')).toThrow();
@@ -118,37 +202,36 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   await waitForText(screen, '민락수변공원 출발');
   // A past day offers 오늘.
   expect(labelled(screen, '오늘로 이동')).toBeTruthy();
-  // The card opens that run's detail on the same screen (no more turning over), with the 페이스 · 심박 · 케이던스
-  // tabs and the run's buttons, while the menu stays on 러닝 기록.
-  await press(screen, labelOf(screen, '민락수변공원 출발'));
-  await waitForText(screen, '내 코스에 저장');
-  expect(texts(screen)).not.toContain('10월 기록');
-  expect(stateOf(screen, '러닝 기록')?.selected).toBe(true);
-  for (const text of [
-    '페이스',
-    '심박',
-    '케이던스',
-    '평균 페이스',
-    '29:41',
-    '내 코스에 저장',
-    '기록 공유',
-    '기록 삭제',
-  ]) {
+  // The card is the run itself: no 기록 상세 to open, no 페이스 · 심박 · 케이던스 tabs (S15P31E105-594 담당자 결정).
+  for (const text of ['평균 페이스', '29:41', '목표와 비교하기']) {
     expect(texts(screen)).toContain(text);
   }
-  expect(texts(screen)).not.toContain('내 기록');
-  // 기록으로 돌아가기 goes back to the day as it was.
-  await press(screen, '기록으로 돌아가기');
+  for (const gone of ['기록 상세 보기', '케이던스', '기록 삭제', '기록으로 돌아가기']) {
+    expect(texts(screen)).not.toContain(gone);
+  }
+  // 월별 기록 shows that day's month.
+  await press(screen, '월별 기록');
   expect(texts(screen)).toContain('10월 15일 목요일');
-  expect(texts(screen)).not.toContain('기록 삭제');
-  expect(labelled(screen, '이 달 기록 전체 보기')).toBeTruthy();
-  // 러닝 분석 keeps the day, and 준비도 in between does not reset it.
+  await waitForText(screen, '10월 기록');
+  // 러닝 분석 keeps the day, and 준비도 shows that day's score (S15P31E105-594 담당자 요청: 과거 날짜를 고르면 그날의
+  // 준비도) without resetting it.
   await press(screen, '러닝 분석');
-  await waitForText(screen, '러닝 분석 | 10월 15일');
+  await waitForText(screen, '민락수변공원 출발');
   await press(screen, '준비도');
-  expect(texts(screen)).toContain('오늘 준비도 양호');
-  expect(texts(screen)).toContain('오늘 · 10월 19일 월요일');
-  await press(screen, '러닝 기록');
+  expect(texts(screen)).toContain('10월 15일 목요일 기준');
+  expect(texts(screen)).not.toContain('오늘의 준비도');
+  expect(texts(screen)).toContain('왜 76점인가요?');
+  // A day without a score says so.
+  await press(screen, '10월 14일');
+  expect(texts(screen)).toContain('이 날의 준비도 기록이 없어요');
+  // On the navy card in the card's white text, not the light screens' dark text that vanished on it (S15P31E105-660
+  // 실기기 확인).
+  const none = screen.root
+    .findAllByType(Text)
+    .find(node => node.props.children === '이 날의 준비도 기록이 없어요');
+  expect(StyleSheet.flatten(none?.props.style)?.color).toBe('#FFFFFF');
+  await press(screen, '10월 15일');
+  await press(screen, '월별 기록');
   expect(texts(screen)).toContain('10월 15일 목요일');
   // 오늘 brings the date back to today.
   await press(screen, '오늘로 이동');
@@ -164,16 +247,6 @@ function stateOf(screen: Screen, label: string) {
       node.props.accessibilityState !== undefined,
   );
   return matches[matches.length - 1]?.props.accessibilityState;
-}
-
-// The run card's label starts with the run's name.
-function labelOf(screen: Screen, name: string) {
-  return screen.root.find(
-    node =>
-      typeof node.props.accessibilityLabel === 'string' &&
-      node.props.accessibilityLabel.startsWith(`${name}, `) &&
-      typeof node.props.onPress === 'function',
-  ).props.accessibilityLabel as string;
 }
 
 // 저장한 코스 left 2.1 for 2.0C, beside 코스 설정 (S15P31E105-564).
@@ -243,42 +316,43 @@ test('the home has no background photo and keeps the profile photo as the avatar
 });
 
 // Each state without a usable score says why and turns 러닝 시작 into what fixes it (2.1 핸드오프 ConditionCard).
+// Without a usable score the card has no sentence (S15P31E105-615): why in the report, the details with
+// their dashes, the button that fixes it and 러닝 시작하기.
 test.each([
-  [
-    'newUser',
-    ['오늘 준비도', '데이터를 모으는 중이에요'],
-    ['워치 동기화', '심박수'],
-  ],
-  [
-    'staleHealth',
-    ['오늘 준비도', '마지막 평가 10월 15일'],
-    ['워치 동기화', '심박수'],
-  ],
+  ['newUser', ['데이터를 모으는 중이에요'], null],
+  ['staleHealth', ['마지막 평가 10월 15일'], null],
   [
     'healthDenied',
-    ['오늘 준비도', '건강 데이터 권한이 없어요'],
+    ['건강 데이터 권한이 없어요'],
     ['설정 열기', '계정 공개 범위'],
   ],
-  [
-    'watchDisconnected',
-    ['오늘 준비도', '연결된 워치가 없어요'],
-    ['워치 연결', '심박수'],
-  ],
+  ['watchDisconnected', ['연결된 워치가 없어요'], ['워치 연결', '활동량']],
 ] as const)(
   'home readiness shows the %s state without a score',
   async (scenario, lines, action) => {
     const screen = await render(scenario);
-    const home = texts(screen);
+    let home = texts(screen);
+    expect(home).toContain('러닝 시작하기');
+    expect(home).not.toContain('계획한 강도로 달려도 좋아요');
     for (const line of lines) {
       expect(home).toContain(line);
     }
-    expect(home).toContain('– –');
+    home = texts(screen);
+    expect(home).toContain('오늘의 준비도');
+    // No score: dashes, never 0, and no breakdown of a score that is not there.
+    expect(home).toContain('--');
     expect(home).not.toContain('7h 12m');
-    expect(home).not.toContain('오늘 준비도 양호');
-    const [button, destination] = action;
-    expect(home).not.toContain(destination);
-    await press(screen, button);
-    expect(texts(screen)).toContain(destination);
+    expect(home).not.toContain('항목의 평균');
+    expect(home).not.toContain('운동량 항목에 반영됐어요.');
+    if (action) {
+      const [button, destination] = action;
+      expect(home).not.toContain(destination);
+      await press(screen, button);
+      expect(texts(screen)).toContain(destination);
+    } else {
+      // Data collection/age cannot ask an already-ready watch to synchronize again.
+      expect(home).not.toContain('워치 동기화');
+    }
     await act(async () => screen.unmount());
   },
 );
@@ -339,6 +413,89 @@ test('an empty inbox shows the 2.9b empty state', async () => {
   expect(texts(screen)).toContain('아직 받은 알림이 없어요');
   expect(() => labelled(screen, '모두 읽음')).toThrow();
   await act(async () => screen.unmount());
+});
+
+test('FOLLOW_REQUEST opens the approve/reject sheet, not only the runner profile', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const request: AppNotification = {
+    id: 'noti-follow-request',
+    kind: 'FOLLOW_REQUEST',
+    message: 'dohyun_r님의 팔로우 요청이 도착했습니다.',
+    createdAt: '2026-10-19T12:40:00+09:00',
+    read: false,
+    // N01 targetId is the requester users.id (notifications.md), not the request id.
+    targetId: 'user-dohyun',
+  };
+  repositories.notifications.list = async () => ({
+    items: [request],
+    unreadCount: 1,
+    nextCursor: null,
+  });
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '알림');
+  await press(
+    screen!,
+    '읽지 않음, 팔로우 요청, dohyun_r님의 팔로우 요청이 도착했습니다.',
+  );
+  await settle(50);
+  expect(texts(screen!)).toContain(
+    '승인하면 맞팔로우 없이도 내 게시물을 볼 수 있어요.',
+  );
+  expect(texts(screen!)).toContain('dohyun_r');
+  expect(() => labelled(screen!, 'dohyun_r 승인')).not.toThrow();
+  await act(async () => screen!.unmount());
+});
+
+test('알림 더 보기 loads the next N01 page', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const first: AppNotification = {
+    id: 'noti-page-1',
+    kind: 'POST_COMMENT',
+    message: '서연님이 내 게시물에 댓글을 남겼어요: 첫 페이지',
+    createdAt: '2026-10-19T12:40:00+09:00',
+    read: false,
+    targetId: 'post-minjun-1015',
+  };
+  const second: AppNotification = {
+    id: 'noti-page-2',
+    kind: 'NEW_FOLLOWER',
+    message: '지우님이 나를 팔로우했어요',
+    createdAt: '2026-10-19T11:40:00+09:00',
+    read: true,
+    targetId: 'user-jiwoo',
+  };
+  repositories.notifications.list = async cursor =>
+    cursor
+      ? { items: [second], unreadCount: 1, nextCursor: null }
+      : { items: [first], unreadCount: 1, nextCursor: 'page-2' };
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(
+      <App repositories={repositories} initialSignedIn />,
+    );
+  });
+  await settle();
+  await settle();
+  await press(screen!, '알림');
+  expect(texts(screen!)).toContain('첫 페이지');
+  // Emphasis splits "지우님" into its own Text node, so assert the non-bold rest.
+  expect(texts(screen!)).not.toContain('나를 팔로우했어요');
+  // loadMore is async; await the button handler so the next page is merged before assert.
+  await act(async () => {
+    await labelled(screen!, '더 보기').props.onPress();
+  });
+  await settle();
+  expect(texts(screen!)).toContain('나를 팔로우했어요');
+  expect(texts(screen!)).toContain('지우님');
+  expect(() => labelled(screen!, '더 보기')).toThrow();
+  await act(async () => screen!.unmount());
 });
 
 test('run mode leads to course recommendations and a free run with a countdown', async () => {
@@ -551,6 +708,8 @@ test('2.1 준비도 does not call an older score today’s and shows a value not
       // Made the day before, without a sleep value but with a real 0 elsewhere untouched.
       date: '2026-10-18',
       sleepMinutes: null,
+      // No item scores: the records themselves show, a missing one as a dash.
+      scoreFactors: null,
     }));
   let screen: Screen;
   await act(async () => {
@@ -560,16 +719,25 @@ test('2.1 준비도 does not call an older score today’s and shows a value not
   });
   await settle();
   await settle();
-  const page = texts(screen!);
+  let page = texts(screen!);
   // Today stays on the date line; the card names the score's own day.
-  expect(page).toContain('오늘 10월 19일 월요일');
+  expect(page).toContain('10월 19일 월요일');
   expect(page).toContain('10월 18일 일요일 기준');
-  expect(page).not.toContain('오늘 준비도');
-  expect(page).toContain('준비도 양호');
+  // No sentence about today comes of another day's score; its values keep that day's date (S15P31E105-615).
+  // No sentence of its own: the neutral line is gone (담당자 요청).
+  expect(page).not.toContain('오늘의 달리기를 준비해 보세요');
+  expect(page).not.toContain('계획한 강도로 달려도 좋아요');
+  // The card names that day, not today (S15P31E105-594).
+  expect(page).not.toContain('오늘의 준비도');
+  expect(page).toContain('준비도');
+  // Days that do not end on the score's day are not drawn under it.
+  expect(page).not.toContain('날짜별 운동 부하');
+  expect(page).toContain('10.12 – 10.18 · 최근 7일 운동 부하');
+  page = texts(screen!);
   // The missing value is a dash; why it is missing is each metric's own line (S15P31E105-572).
   expect(page).toContain('– –');
   // No label under a value that is not there.
   expect(page).not.toContain('충분');
-  expect(page).toContain('58 bpm');
+  expect(page).toContain('58회/분');
   await act(async () => screen!.unmount());
 });

@@ -6,6 +6,7 @@ import com.runway.watch.cue.GroupPaceAlert
 import com.runway.watch.cue.NoGroupPaceAlert
 import com.runway.watch.cue.RhythmPlayer
 import com.runway.watch.cue.SilentRhythm
+import com.runway.watch.run.AnalysisReport
 import com.runway.watch.run.GroupNotice
 import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.GroupPosition
@@ -32,8 +33,8 @@ sealed interface WatchProblem {
     data class Rejected(val action: String, val reasonCode: String?) : WatchProblem
     /** Execution or its save could not be confirmed. Never shown as success or failure. */
     data class Unconfirmed(val action: String) : WatchProblem
-    /** The phone could not process a watch request (ERROR message). */
-    data class Refused(val code: String) : WatchProblem
+    /** The phone could not process a watch request (ERROR message). [action] is the request it answered, when one was waiting. */
+    data class Refused(val code: String, val action: String? = null) : WatchProblem
     data object PhoneUnreachable : WatchProblem
 }
 
@@ -75,6 +76,8 @@ data class WatchSessionState(
     val phoneRecording: Boolean = false,
     /** The server's record comparison from the last STATE_RESULT(scope=SERVER) (S15P31E105-422). */
     val comparison: RecordComparison = RecordComparison.NotSelected,
+    /** The server's analysis status and summary from the last STATE_RESULT(scope=SERVER).analysis (S15P31E105-663). */
+    val analysis: AnalysisReport? = null,
     /** The group run this session belongs to (SESSION_PREPARE.groupRunId); null for a personal run (S15P31E105-420). */
     val groupRunId: String? = null,
     /** The group as the phone relayed it from G10 (GROUP_STATUS); null until one arrives. Never computed here. */
@@ -171,6 +174,8 @@ class WatchSessionController(
     private var groupFlushedMs: Long? = null
     /** The last pace change alerted, with its G10 updatedAt, so a resent GROUP_STATUS does not buzz again (S15P31E105-604). */
     private var groupAlerted: Pair<Instant?, GroupNotice.PaceChanged>? = null
+    /** The last widened-group crossing alerted, with its G10 updatedAt, so a resend does not buzz again (S15P31E105-629). */
+    private var groupGapAlerted: Pair<Instant?, GroupNotice.GapWidened>? = null
 
     private data class UnsavedEnd(
         val sessionId: String,
@@ -181,6 +186,8 @@ class WatchSessionController(
     )
 
     suspend fun onMessage(message: SessionEnvelope) = mutex.withLock {
+        // 받은 제어 메시지 종류·명령 번호만 남긴다(S15P31E105-549). 주기적인 상태·수신 확인과 그룹 상태는 남기지 않는다.
+        if (message.type !in QUIET_TYPES) log("RX ${message.type} ${message.commandId() ?: "-"}")
         when (message.type) {
             "SESSION_PREPARE" -> onPrepare(message)
             "START_AUTHORIZED" -> onCommand(message, "START")
@@ -196,7 +203,7 @@ class WatchSessionController(
                 val bpm = current.bpmRequest?.takeIf { current.pending?.action == SET_BPM && it.status == BpmRequestStatus.REQUESTING }
                 _state.value = current.copy(
                     pending = null,
-                    problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN")),
+                    problem = WatchProblem.Refused(message.payload.optString("code", "UNKNOWN"), current.pending?.action),
                     bpmRequest = bpm?.copy(status = BpmRequestStatus.REJECTED) ?: current.bpmRequest,
                 )
             }
@@ -382,6 +389,7 @@ class WatchSessionController(
                 uploads.retryFailed(stored.sessionId)
             }
             // 같은 명령은 다시 실행하지 않는다. 실행 도중 끊겼다면 실제 적용 여부를 모르므로 UNKNOWN으로 남긴다.
+            log("$action $commandId replay stored=${stored.result} persisted=${stored.persisted}")
             sendResult(message.messageId, replayable(stored))
             return
         }
@@ -389,6 +397,7 @@ class WatchSessionController(
         val expected = message.payload.optLong("expectedVersion", -1)
         val reason = if (action == SET_BPM && bpm == null) INVALID_TARGET_BPM else rejectionReason(message.sessionId, action, expected)
         if (reason != null) {
+            log("$action $commandId rejected reason=$reason")
             val rejected = CommandOutcome(message.sessionId, commandId, action, OutcomeResult.REJECTED, null, reason, false, null, targetBpm = bpm)
             store.saveOutcome(rejected)
             noteBpm(rejected)
@@ -406,7 +415,7 @@ class WatchSessionController(
         // 보낸 뒤 결과를 보고한다. 폰에서 일시정지 후 종료하는 길이 막히지 않게 한다(S15P31E105-445).
         val lost = _state.value.measurementLost
         val startedMs = elapsedMs()
-        if (action == "END") log("END $commandId received confirmed=${_state.value.confirmed} lost=$lost")
+        log("$action $commandId received confirmed=${_state.value.confirmed} lost=$lost")
         val outcome = try {
             withTimeout(callTimeoutMs) {
                 when (action) {
@@ -427,7 +436,7 @@ class WatchSessionController(
             outcome(OutcomeResult.UNKNOWN, null, if (action == SET_BPM) CUE_FAILED else "EXERCISE_CALL_FAILED")
         }
         store.saveOutcome(outcome)
-        if (action == "END") log("END $commandId exercise=${outcome.result} reason=${outcome.reasonCode} after=${elapsedMs() - startedMs}ms")
+        log("$action $commandId exercise=${outcome.result} reason=${outcome.reasonCode} after=${elapsedMs() - startedMs}ms")
         if (outcome.result == OutcomeResult.APPLIED) {
             when (action) {
                 "START" -> {
@@ -616,7 +625,7 @@ class WatchSessionController(
             pendingBatchCount = pendingBatches,
         )
         val delivered = sendWithRetry(SessionPaths.COMMAND_RESULT, bytes)
-        if (end) log("END ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
+        log("${outcome.action} ${outcome.commandId} result=$wire pending=$pendingBatches delivered=$delivered")
         val current = _state.value
         if (outcome.persisted) {
             _state.value = current.copy(pending = null)
@@ -701,6 +710,9 @@ class WatchSessionController(
             phoneRecording = phone,
             // 기록 비교는 batch 저장마다 같은 버전으로 온다. 버전이 낮은 스냅샷은 위에서 이미 버렸다.
             comparison = message.comparison(),
+            // 분석 상태는 stateVersion을 올리지 않아 같은 버전으로 다시 온다(S15P31E105-663). 필드가 없으면 알던 값을 둔다.
+            analysis = if (state != RunState.COMPLETED) null
+            else message.analysis() ?: if (sameSession) current.analysis else null,
             groupRunId = if (sameSession) current.groupRunId
             else store.prepared()?.takeIf { it.sessionId == message.sessionId }?.groupRunId,
             group = if (sameSession) current.group else null,
@@ -761,10 +773,20 @@ class WatchSessionController(
         val change = update.paceChanged?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
         val notice = change ?: (before.notice as? GroupNotice.PaceChanged)
             ?.takeIf { phase == GroupPhase.RUNNING && it.toSecondsPerKm == newPace }
+        var buzz = false
         if (change != null && groupAlerted != (update.updatedAt to change)) {
             groupAlerted = update.updatedAt to change
-            paceAlert.paceChanged()
+            buzz = true
         }
+        // 그룹장 폰이 보낸 간격 벌어짐만 표시한다(S15P31E105-629). 넘은 순간(gapWidenedNew)의 현황에만 진동하고, 같은 현황의
+        // 재전달은 다시 울리지 않는다. 폰이 더 보내지 않으면(다시 좁혀짐·지연) 표시를 지운다.
+        val gap = update.gapWidened?.takeIf { phase == GroupPhase.RUNNING }
+        if (gap != null && update.gapWidenedNew && groupGapAlerted != (update.updatedAt to gap)) {
+            groupGapAlerted = update.updatedAt to gap
+            buzz = true
+        }
+        // 같은 현황에 둘 다 오면 진동은 한 번만 울린다(연달아 울리면 뒤 진동이 앞 진동을 끊는다). 표시는 둘 다 남는다.
+        if (buzz) paceAlert.paceChanged()
         _state.value = current.copy(
             group = GroupStatus(
                 phase = phase,
@@ -772,6 +794,7 @@ class WatchSessionController(
                 position = position,
                 leaderToLastGapMeters = update.leaderToLastGapMeters,
                 notice = notice,
+                gapNotice = gap,
                 rankedCount = update.rankedCount,
             ),
         )
@@ -811,6 +834,7 @@ class WatchSessionController(
         groupUpdatedAt = null
         groupReceivedMs = null
         groupAlerted = null
+        groupGapAlerted = null
     }
 
     /**
@@ -884,3 +908,6 @@ class WatchSessionController(
         const val GROUP_FLUSH_MS = 10_000L
     }
 }
+
+/** 주기적으로 오가 로그에 남기지 않는 메시지 종류. */
+private val QUIET_TYPES = setOf("GROUP_STATUS", "STATE_RESULT", "COMMAND_RECEIVED", "BATCH_RECEIVED", "BATCH_COMMITTED")

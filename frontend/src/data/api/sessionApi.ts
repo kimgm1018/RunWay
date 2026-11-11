@@ -1,6 +1,7 @@
 import type {
   BpmApproval,
   CoachingGuide,
+  CoachingLevel,
   CommandApproval,
   ControlAction,
   ControlResultCode,
@@ -32,7 +33,13 @@ type ServerGuide = {
   targetBpm: number;
   recommendedPaceSecPerKm: number;
   expiresAt: string;
+  coachingLevel?: string | null;
 };
+
+// 알 수 없는 단계는 없는 것(null)으로 본다. 음성 안내는 null을 OK로 읽는다(S15P31E105-579).
+const LEVELS: readonly CoachingLevel[] = ['OK', 'CAUTION', 'DANGER'];
+const level = (value: string | null | undefined): CoachingLevel | null =>
+  LEVELS.includes(value as CoachingLevel) ? (value as CoachingLevel) : null;
 
 type ServerCommand = {
   commandId: number;
@@ -67,6 +74,8 @@ export type ServerSession = {
   serverSendAt?: string | null;
   // S15P31E105-420에서 읽는다. 이전 응답에는 없을 수 있어 선택으로 둔다.
   groupEndedAt?: string | null;
+  // S15P31E105-643. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  movingDurationSec?: number | null;
 };
 
 const id = (value: string) => Number(value);
@@ -82,6 +91,7 @@ function guide(value: ServerGuide | null | undefined): CoachingGuide | null {
         targetBpm: value.targetBpm,
         recommendedPaceSecPerKm: value.recommendedPaceSecPerKm,
         expiresAt: value.expiresAt,
+        coachingLevel: level(value.coachingLevel),
       };
 }
 
@@ -121,6 +131,12 @@ export function sessionView(value: ServerSession): RunningSessionView {
     serverReceiveAt: value.serverReceiveAt ?? null,
     serverSendAt: value.serverSendAt ?? null,
     groupEndedAt: value.groupEndedAt ?? null,
+    movingDurationSec:
+      typeof value.movingDurationSec === 'number' &&
+      Number.isFinite(value.movingDurationSec) &&
+      value.movingDurationSec >= 0
+        ? value.movingDurationSec
+        : null,
   };
 }
 

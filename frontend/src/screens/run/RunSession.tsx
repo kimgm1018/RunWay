@@ -15,13 +15,20 @@ import {
   type RunSample,
   type SessionGoalDraft,
 } from '../../data';
+import { recordsChanged } from '../../data/recordsChanged';
 import {
   createRunControl,
   type RunControl,
   type RunControlState,
 } from './runControl';
+import { runClockSec, type RunClock } from './runClock';
+import { speakCoaching, stopCoaching } from './coachingVoiceOutput';
 import { useSession } from '../../session/SessionProvider';
-import { createPaceChangeTracker, watchGroupStatus } from '../../watch/groupStatus';
+import {
+  createGapAlertTracker,
+  createPaceChangeTracker,
+  watchGroupStatus,
+} from '../../watch/groupStatus';
 import type { LiveMetrics } from '../../watch/liveMetrics';
 
 export type RunConfig = {
@@ -57,10 +64,15 @@ type RunState = {
   sample: RunSample;
   guidance: RunGuidance | null;
   trail: [number, number][];
+  // The measured path split where the source changed or the position was lost (S15P31E105-549); null while the
+  // trail comes from the screen's own clock samples. The map draws no line across the breaks.
+  trailParts: [number, number][][] | null;
   status: 'running' | 'paused' | 'finished';
   summary: RunSummary | null;
   saveState: SaveState | null;
   recordId: string | null;
+  // H02 goalAchieved once the session record is read back; null until then (S15P31E105-638).
+  goalAchieved: boolean | null;
 };
 
 type RunActions = {
@@ -106,6 +118,15 @@ export function withLive(sample: RunSample, live: LiveMetrics | null): RunSample
     position:
       live.route.length > 0 ? live.route[live.route.length - 1] : sample.position,
   };
+}
+
+// 운동 시간은 서버가 준 기준점이 있으면 그 값으로 맞춘다(S15P31E105-528). 없으면 화면 기록의 일시정지 제외 시계 그대로다.
+export function withClock(
+  sample: RunSample,
+  clock: RunClock | null,
+  nowMs: number,
+): RunSample {
+  return clock ? { ...sample, elapsedSec: runClockSec(clock, nowMs) } : sample;
 }
 
 // Actions stay the same object for the whole session, so screens that only start a run (2.0's
@@ -181,7 +202,11 @@ export function RunSessionProvider({
     watchSession,
     phoneLocation,
     groupRuns,
+    settings,
+    records,
   } = useRepositories();
+  // 코칭 음성 알림(voiceCoachingEnabled). 러닝 제어를 만들 때 서버 설정을 읽어 둔다.
+  const voiceOn = useRef(false);
   const { signedIn } = useSession();
   const [run, setRun] = useState<RunState | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
@@ -193,6 +218,8 @@ export function RunSessionProvider({
   });
   // The newest measured values from the run control; the tracker's ticks are drawn under them.
   const liveRef = useRef<LiveMetrics | null>(null);
+  // 서버 기준 운동 시간의 기준점(S15P31E105-528). 시계 틱마다 이 값으로 운동 시간을 다시 계산한다.
+  const clockRef = useRef<RunClock | null>(null);
 
   const track = useCallback(
     (from: RunSample, route: [number, number][] | null) => {
@@ -202,7 +229,11 @@ export function RunSessionProvider({
         route,
         (tick, guidance) => {
           const live = liveRef.current;
-          const sample = withLive(tick, live);
+          const sample = withClock(
+            withLive(tick, live),
+            clockRef.current,
+            Date.now(),
+          );
           // With measured values the readings come in as they arrive (below), not once per tick.
           if (!live && sample.heartRate !== null) {
             readings.current.heartRates.push(sample.heartRate);
@@ -219,9 +250,17 @@ export function RunSessionProvider({
                   trail:
                     live && live.route.length > 0
                       ? live.route
+                      : live?.here
+                      ? [live.here]
                       : sample.position
                       ? [...current.trail, sample.position]
                       : current.trail,
+                  trailParts:
+                    live && live.route.length > 0
+                      ? live.routeParts
+                      : live?.here
+                      ? []
+                      : current.trailParts,
                 }
               : current,
           );
@@ -256,6 +295,10 @@ export function RunSessionProvider({
                 ...current,
                 saveState: 'saved',
                 recordId,
+                goalAchieved:
+                  server?.goalAchieved !== undefined
+                    ? server.goalAchieved
+                    : current.goalAchieved,
                 // The result shows the server's totals where it has them, as 기록 보기 does.
                 summary:
                   server && current.summary
@@ -277,6 +320,8 @@ export function RunSessionProvider({
               }
             : current,
         );
+        // Home list · calendar · analysis reload without a pull (S15P31E105-638).
+        recordsChanged();
       } catch (error) {
         const saveState: SaveState =
           errorCode(error) === 'SAVE_UNCONFIRMED' ? 'unconfirmed' : 'failed';
@@ -308,10 +353,12 @@ export function RunSessionProvider({
           sample: firstSample,
           guidance: null,
           trail: [],
+          trailParts: null,
           status: 'running',
           summary: null,
           saveState: null,
           recordId: null,
+          goalAchieved: null,
         };
         setRun(next);
         track(firstSample, config.plan?.route ?? null);
@@ -324,21 +371,21 @@ export function RunSessionProvider({
         );
       },
       resume: () => {
-        const run = latest.current;
-        if (!run) {
+        const current = latest.current;
+        if (!current) {
           return;
         }
-        setRun({ ...run, status: 'running' });
-        track(run.sample, run.config.plan?.route ?? null);
+        setRun({ ...current, status: 'running' });
+        track(current.sample, current.config.plan?.route ?? null);
       },
       finish: () => {
-        const run = latest.current;
-        if (!run) {
+        const current = latest.current;
+        if (!current) {
           return;
         }
         stopTracking.current?.();
         stopTracking.current = null;
-        const { elapsedSec, distanceM } = run.sample;
+        const { elapsedSec, distanceM } = current.sample;
         const summary: RunSummary = {
           durationSec: elapsedSec,
           distanceM,
@@ -347,7 +394,7 @@ export function RunSessionProvider({
           averageHeartRate: average(readings.current.heartRates),
           averageCadence: average(readings.current.cadences),
         };
-        const finished: RunState = { ...run, status: 'finished', summary };
+        const finished: RunState = { ...current, status: 'finished', summary };
         setRun(finished);
         save(finished, summary, sessionIdOf(finished));
       },
@@ -356,17 +403,43 @@ export function RunSessionProvider({
   );
 
   const [control, setControl] = useState<RunControlState | null>(null);
+  // 서버 기준점이 바뀌면(새 S02·S10) 다음 틱을 기다리지 않고 맞춘다. 일시정지 중에도 서버 값으로 맞춘다.
+  const runClock = control?.clock ?? null;
+  useEffect(() => {
+    clockRef.current = runClock;
+    if (!runClock) {
+      return;
+    }
+    setRun(current =>
+      current && current.status !== 'finished'
+        ? { ...current, sample: withClock(current.sample, runClock, Date.now()) }
+        : current,
+    );
+  }, [runClock]);
   // 새 실측값이 오면 다음 시계 틱을 기다리지 않고 바로 보인다. 평균 심박·케이던스는 받은 값으로 모은다.
   const live = control?.live ?? null;
+  // GPS 위치가 하나도 없을 때(실내 등) 대략 위치로 지금 위치 점만 찍는다. 경로·거리에는 쓰지 않는다(S15P31E105-549).
+  const approx = live?.here ? null : control?.approxPosition ?? null;
+  useEffect(() => {
+    if (!approx) {
+      return;
+    }
+    setRun(current =>
+      current && current.status !== 'finished' && current.trail.length <= 1
+        ? { ...current, trail: [approx], trailParts: [] }
+        : current,
+    );
+  }, [approx]);
   useEffect(() => {
     liveRef.current = live;
     if (!live) {
       return;
     }
-    if (live.heartRate !== null) {
+    // 위치만 새로 온 갱신(WATCH 기록 중 폰 GPS 보완)은 같은 심박·케이던스를 평균에 다시 넣지 않는다.
+    if (live.newSample && live.heartRate !== null) {
       readings.current.heartRates.push(live.heartRate);
     }
-    if (live.cadence !== null) {
+    if (live.newSample && live.cadence !== null) {
       readings.current.cadences.push(live.cadence);
     }
     setRun(current =>
@@ -374,7 +447,11 @@ export function RunSessionProvider({
         ? {
             ...current,
             sample: withLive(current.sample, live),
-            trail: live.route.length > 0 ? live.route : current.trail,
+            // 경로가 비어도(실내·정지) 지금 위치 점 하나는 보인다(S15P31E105-549).
+            trail:
+              live.route.length > 0 ? live.route : live.here ? [live.here] : current.trail,
+            trailParts:
+              live.route.length > 0 ? live.routeParts : live.here ? [] : current.trailParts,
           }
         : current,
     );
@@ -444,16 +521,32 @@ export function RunSessionProvider({
   const newControl = useCallback(() => {
     stopListening.current?.();
     controlRef.current?.dispose();
+    // 코칭 음성 알림 설정은 러닝 제어를 만들 때 읽는다(S15P31E105-579). 읽기 전이나 실패하면 읽지 않는다.
+    voiceOn.current = false;
+    settings
+      .get()
+      .then(value => {
+        voiceOn.current = value.voiceCoachingEnabled;
+      })
+      .catch(() => undefined);
     const next = createRunControl({
       session,
       watch: watchSession,
+      records,
       location: phoneLocation,
+      voice: {
+        enabled: () => voiceOn.current,
+        speak: sentence => {
+          speakCoaching(sentence).catch(() => undefined);
+        },
+        stop: stopCoaching,
+      },
     });
     controlRef.current = next;
     stopListening.current = next.subscribe(setControl);
     setControl(next.getState());
     return next;
-  }, [phoneLocation, session, watchSession]);
+  }, [phoneLocation, records, session, settings, watchSession]);
 
   // 로그아웃·계정 전환: 이전 계정의 러닝 제어와 화면 기록을 남기지 않는다. 워치·러닝 서비스의 운동은 그대로 두어
   // 같은 계정으로 다시 로그인하면 아래 복원으로 이어받는다.
@@ -540,17 +633,27 @@ export function RunSessionProvider({
     // 이 조회 동안 본 공동 페이스 변경만 알린다(S15P31E105-604). 다시 구독하면 새로 시작해 지난 변경은 울리지 않는다.
     // 전송에 실패한 변경은 다시 보내지 않는다. 다음 현황에서 최신값만 조용히 반영된다.
     const paceChange = createPaceChangeTracker();
+    // 그룹장 폰만 선두–후미 간격 벌어짐을 알린다(S15P31E105-629, 같은 규칙). 기준은 groupStatus.ts GROUP_GAP_ALERT_M.
+    const gapAlert = createGapAlertTracker();
     return groupRuns.watchLive(
       groupRunId,
       value => {
-        const status = watchGroupStatus(groupRunId, value, paceChange.next(value));
+        const status = watchGroupStatus(
+          groupRunId,
+          value,
+          paceChange.next(value),
+          gapAlert.next(value),
+        );
         if (status) {
           send(sessionId, status).catch(() => undefined);
         }
       },
       // 조회 실패는 보내지 않는다. 워치가 받지 못한 시간만큼 마지막 값을 지연으로 표시한다.
       // 공동 페이스 비교 기준도 비워, 실패 뒤 첫 값은 조용히 반영한다(S15P31E105-604).
-      () => paceChange.reset(),
+      () => {
+        paceChange.reset();
+        gapAlert.reset();
+      },
     );
   }, [groupActive, groupLink, groupRuns, watchSession]);
 
@@ -636,9 +739,9 @@ export function RunSessionProvider({
         }
       },
       retrySave: () => {
-        const run = latest.current;
-        if (run?.summary) {
-          save(run, run.summary, sessionIdOf(run));
+        const current = latest.current;
+        if (current?.summary) {
+          save(current, current.summary, sessionIdOf(current));
         }
       },
       cancel: () => {

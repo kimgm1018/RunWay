@@ -176,6 +176,12 @@ def _route_through_exact(rg, seq: list, mult: dict, reuse_penalty: float, memo: 
             M = np.asarray(M, dtype=np.float64)
         used = np.zeros(len(csr.length), dtype=np.int64)
         search = shortest_path.bidirectional_numba
+        H = rg.H
+        if shortest_path.ASTAR and getattr(H, "csr", None) is csr and getattr(H, "xy", None) is not None:
+            # A* (S15P31E105-621): same legs as bidirectional (near ties fall back to it), 4-5x fewer expansions.
+            # h needs a lower bound on every edge's M: min over this call's M (fixed for all legs below).
+            xy, min_mult = H.xy, float(M.min()) if len(M) else 1.0
+            search = lambda c, a_, b_, M_, u_, p_: shortest_path.astar_numba(c, xy, a_, b_, M_, u_, p_, min_mult)
     else:
         used = [0] * len(csr.length)
         search = shortest_path.bidirectional
@@ -423,6 +429,15 @@ def path_length(rg, s: int, t: int) -> float:
     if s == t:
         return 0
     ti = csr.index.get(t)
+    H = rg.H
+    if (ti is not None and shortest_path.ENGINE == "numba" and shortest_path.ASTAR
+            and getattr(H, "csr", None) is csr and getattr(H, "xy", None) is not None):
+        # S15P31E105-626: 같은 최단 경로의 같은 합(A*, 비용 = length). 거의 같은 경로가 있으면(None) 아래 Dijkstra.
+        g = shortest_path.astar_length_numba(csr, H.xy, csr.index[s], ti)
+        if g is not None:
+            if not np.isfinite(g):
+                raise nx.NetworkXNoPath(f"Node {t} not reachable from {s}")
+            return g if isinstance(csr.length, np.ndarray) else float(g)
     dist, _ = _dijkstra_csr(csr, csr.index[s], None, None, -1 if ti is None else ti)
     if ti is None or ti not in dist:
         raise nx.NetworkXNoPath(f"Node {t} not reachable from {s}")

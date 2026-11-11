@@ -29,7 +29,7 @@ import {
   saveRunningProfile,
   updateBasic,
 } from './profile';
-import { createReadinessApi } from './readiness';
+import { createReadinessApi, createReadinessOnApi } from './readiness';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
 import { serverRequest } from './request';
@@ -41,7 +41,13 @@ import { createSessionEvents } from './sessionEvents';
 import { createLinkedDevices } from './sessionDevices';
 import { createNativeWatchSession } from '../../watch/watchSession';
 import { createPhoneLocation } from '../../watch/phoneLocation';
+import {
+  readWatchReadiness,
+  readPhoneHealthPermissions,
+} from '../../watch/watchReadiness';
 import { createAccountApi } from './account';
+import { createCurrentPlace } from './currentPlace';
+import { registerApiIdentityCacheClear } from './identityCache';
 
 // Repositories backed by the server. Each API task swaps its mock here for the server version; the rest stay on mock data.
 export function createApiRepositories(mockOptions?: MockOptions): Repositories {
@@ -58,15 +64,19 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     crews,
     listMine: myCrews,
     myId,
+    clearMyId,
   } = createCrewsApi({
     mock: mock.crews,
     regions,
   });
+  registerApiIdentityCacheClear(clearMyId);
   // One native session bridge for run control and for W01/settings connection probes (S15P31E105-571).
   const watchSession = {
     ...createNativeWatchSession(),
     getLinkedDevices: createLinkedDevices(serverRequest),
   };
+  // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464)과 러닝 시작 화면의 현재 위치(S15P31E105-635)가 같은 모듈을 쓴다.
+  const phoneLocation = createPhoneLocation();
   return {
     ...mock,
     // U28~U30 휴대전화 인증·비밀번호 재설정 (S15P31E105-560): no auth call stays on mock data.
@@ -91,6 +101,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     home: {
       getMonthlySummary,
       getTodayCondition: createReadinessApi({ now: () => new Date() }),
+      getConditionOn: createReadinessOnApi(),
     },
     records,
     // 8.1 건강정보 수집: W05 reads and W04 saves the HEALTH_DATA consent.
@@ -122,11 +133,15 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     watch: createWatchApi(mock.watch, {
       findConnectedWatch: async () =>
         (await watchSession.getConnectedWatch?.()) ?? null,
+      readReadiness: readWatchReadiness,
+      readPhonePermissions: readPhoneHealthPermissions,
     }),
     // 실제 모드의 화면 기록은 일시정지 제외 시계만 센다(S15P31E105-517). 거리·페이스·심박·케이던스·위치는 폰이 받은
     // 워치 batch(또는 인계 후 폰 GPS)의 실측값으로 채우고(runControl live), 목업 값이나 목업 길 안내는 만들지 않는다.
     run: {
       ...mock.run,
+      // 2.0F · 2.0C · 2.0 현재 위치는 폰 GPS로 찾고, 찾지 못하면 목업 장소 대신 '위치를 확인할 수 없어요'를 보여준다.
+      getCurrentPlace: createCurrentPlace(phoneLocation),
       startTracking: (from, route, onSample) =>
         mock.run.startTracking(from, route, tick =>
           onSample(
@@ -145,7 +160,7 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
       saveRecord: saveRunRecord,
     },
     // 폰 인계 뒤 폰 GPS 기록(S15P31E105-464).
-    phoneLocation: createPhoneLocation(),
+    phoneLocation,
     crews,
     groupRuns: createGroupRunsApi({
       mock: mock.groupRuns,

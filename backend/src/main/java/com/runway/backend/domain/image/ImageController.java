@@ -26,6 +26,14 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class ImageController {
 
+    /**
+     * 코스 썸네일 PNG(S15P31E105-612 B-4) 캐시 정책. 키가 그릴 때마다 새 UUID라 내용이 바뀌지 않는다. 썸네일 조회를 로그인 사용자로
+     * 제한하게 되면 이 값 하나를 {@code "private, max-age=31536000, immutable"}로 바꾼다. 다른 이미지는 {@code no-store}다.
+     */
+    static final String COURSE_BASEMAP_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+    static final String DEFAULT_CACHE_CONTROL = "no-store";
+
     private final ImageService imageService;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -46,7 +54,11 @@ public class ImageController {
         StoredImage image = imageService.load(viewerId, imageId);
         InputStreamResource body = new InputStreamResource(image.content());
         return ResponseEntity.ok()
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header(
+                        HttpHeaders.CACHE_CONTROL,
+                        ImageService.isCourseBasemap(image)
+                                ? COURSE_BASEMAP_CACHE_CONTROL
+                                : DEFAULT_CACHE_CONTROL)
                 .header(HttpHeaders.VARY, HttpHeaders.AUTHORIZATION)
                 .header(HttpHeaders.CONTENT_TYPE, image.contentType())
                 .contentLength(image.contentLength())

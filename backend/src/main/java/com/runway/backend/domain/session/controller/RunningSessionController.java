@@ -10,11 +10,13 @@ import com.runway.backend.domain.session.dto.response.ControlApprovalResponse;
 import com.runway.backend.domain.session.dto.response.ControlResultResponse;
 import com.runway.backend.domain.session.dto.response.DeletedSessionResponse;
 import com.runway.backend.domain.session.dto.response.PreparedResponse;
+import com.runway.backend.domain.session.dto.response.RunningRouteResponse;
 import com.runway.backend.domain.session.dto.response.RunningSessionResponse;
 import com.runway.backend.domain.session.entity.ControlAction;
 import com.runway.backend.domain.session.service.RunningSessionControlService;
 import com.runway.backend.domain.session.service.RunningSessionService;
 import com.runway.backend.domain.session.service.SessionBpmService;
+import com.runway.backend.domain.session.service.SessionRouteService;
 import com.runway.backend.global.auth.CurrentUserIdResolver;
 import com.runway.backend.global.security.AuthenticatedUser;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -49,6 +51,7 @@ public class RunningSessionController {
     private final RunningSessionService runningSessionService;
     private final RunningSessionControlService runningSessionControlService;
     private final SessionBpmService sessionBpmService;
+    private final SessionRouteService sessionRouteService;
 
     @ApiResponse(
             responseCode = "201",
@@ -80,6 +83,15 @@ public class RunningSessionController {
         Instant receivedAt = Instant.now();
         long userId = CurrentUserIdResolver.requireUserId(user);
         return runningSessionService.get(userId, sessionId, receivedAt);
+    }
+
+    /** S11 표시용 경로(S15P31E105-549). 원본 GPS가 아니라 출처를 고른 좌표 조각이다. */
+    @GetMapping("/{sessionId}/route")
+    public RunningRouteResponse route(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable @Positive long sessionId) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return sessionRouteService.route(userId, sessionId);
     }
 
     /** REPORT_PREPARED는 확인한 버전만, 나머지 작업은 변경 후 전체 상태를 반환한다. */

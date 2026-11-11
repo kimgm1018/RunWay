@@ -433,3 +433,40 @@ test('saved courses show nicknames, undo an unsave and open the course run', asy
   expect(texts(screen)).toContain('민락수변 왕복 5.4km');
   await act(async () => screen.unmount());
 });
+
+test('MERGED and BLOCKED saved courses are not started as a normal run', async () => {
+  const repositories = withLocation(createMockRepositories({ latencyMs: 0 }));
+  const saved = await repositories.courses.getSaved();
+  repositories.courses.getSaved = async () => [
+    {
+      ...saved[0],
+      id: 'merged-1',
+      myAlias: '합쳐진 코스',
+      status: 'MERGED',
+      mergedIntoCourseId: '11',
+    },
+    {
+      ...saved[0],
+      id: 'blocked-1',
+      myAlias: '막힌 코스',
+      status: 'BLOCKED',
+      mergedIntoCourseId: null,
+    },
+  ];
+  const choose = jest.spyOn(repositories.courses, 'choose');
+  const screen = await openTodayRun('default', repositories);
+  await press(screen, '저장한 코스');
+
+  await press(screen, '합쳐진 코스, 5.0km 30분');
+  expect(texts(screen)).toContain(
+    '이 코스는 다른 코스로 합쳐졌어요. 대표 코스를 다시 골라 주세요',
+  );
+  expect(choose).not.toHaveBeenCalled();
+
+  await press(screen, '막힌 코스, 5.0km 30분');
+  expect(texts(screen)).toContain(
+    '이 코스는 사용할 수 없어요. 다른 코스를 골라 주세요',
+  );
+  expect(choose).not.toHaveBeenCalled();
+  await act(async () => screen.unmount());
+});

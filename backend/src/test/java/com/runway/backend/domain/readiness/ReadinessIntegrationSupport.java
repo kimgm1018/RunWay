@@ -69,6 +69,7 @@ abstract class ReadinessIntegrationSupport {
     void resetData() throws InterruptedException {
         awaitEvaluations();
         jdbc.update("DELETE FROM daily_readiness");
+        jdbc.update("DELETE FROM exercise_training_loads");
         jdbc.update("DELETE FROM daily_health_metrics");
         jdbc.update("DELETE FROM users");
         userId = insertUser("AGREE");

@@ -51,8 +51,9 @@ const look = {
   skeleton: '#E4E6EB',
 } as const;
 
+// 탐색 shows the feed's first page (CMT02, 20 posts).
 const loadFeed = (repositories: Repositories) =>
-  repositories.community.listFeed('ALL');
+  repositories.community.listFeed('ALL').then(page => page.items);
 
 const minLength = 2;
 const waitMs = 300;
@@ -67,7 +68,13 @@ const filters: { type: SearchType; label: string; placeholder: string }[] = [
 
 type Row =
   | { kind: 'band'; key: string; label: string }
-  | { kind: 'runner'; key: string; userId: string; name: string }
+  | {
+      kind: 'runner';
+      key: string;
+      userId: string;
+      name: string;
+      photo: string | null;
+    }
   | { kind: 'crew'; key: string; crewId: string; name: string }
   | { kind: 'gap'; key: string };
 
@@ -92,6 +99,7 @@ function rowsOf(found: Found, type: SearchType): Row[] {
         key: `runner-${runner.userId}`,
         userId: runner.userId,
         name: runner.nickname,
+        photo: runner.profileImageUrl,
       }),
     );
   }
@@ -289,15 +297,18 @@ export function SearchScreen() {
         }
         style={({ pressed }) => [styles.person, pressed && styles.pressed]}
       >
-        <View style={[styles.mark, runner ? styles.avatar : styles.crewMark]}>
-          {runner ? (
-            <AppText style={styles.initial}>
-              {item.name.slice(0, 1).toUpperCase()}
-            </AppText>
-          ) : (
+        {item.kind === 'runner' ? (
+          <Avatar
+            nickname={item.name.toUpperCase()}
+            userId={item.userId}
+            photo={item.photo}
+            size={48}
+          />
+        ) : (
+          <View style={[styles.mark, styles.crewMark]}>
             <Icon name="users" color="#FFFFFF" size={22} strokeWidth={1.9} />
-          )}
-        </View>
+          </View>
+        )}
         <View style={styles.nameBox}>
           <Highlighted name={item.name} query={words} />
           <AppText style={styles.personSub}>{runner ? '러너' : '크루'}</AppText>
@@ -457,6 +468,7 @@ export function SearchScreen() {
                 <Avatar
                   nickname={author.nickname}
                   userId={author.userId}
+                  photo={author.profileImageUrl}
                   size={48}
                 />
                 <View style={styles.nameBox}>
@@ -558,6 +570,7 @@ function ExploreCard({
         <Avatar
           nickname={post.author.nickname}
           userId={post.author.userId}
+          photo={post.author.profileImageUrl}
           mine={post.isMine}
           size={22}
         />
@@ -710,14 +723,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: look.mark,
   },
-  avatar: { borderRadius: 24 },
   crewMark: { borderRadius: 14 },
-  initial: {
-    fontFamily: fontFamily.bold,
-    fontSize: 18,
-    lineHeight: 24,
-    color: '#FFFFFF',
-  },
   nameBox: { flex: 1 },
   name: {
     fontFamily: fontFamily.medium,

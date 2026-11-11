@@ -4,12 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material3.Text
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
@@ -22,6 +17,7 @@ import com.runway.watch.ui.format.MetricFormat
 import com.runway.watch.ui.format.MetricText
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
+import com.runway.watch.ui.theme.px
 
 data class PaceCoachingView(
     /** Guide pace of the last applied coaching; missing ("– –") until one is applied. */
@@ -86,47 +82,110 @@ object PaceCoachingDisplay {
     }
 }
 
+/** Drawn range of the rhythm dots on the coaching faces (unconfirmed.md: 150–190 is the design's range). */
+object BpmScale {
+    const val LOW = 150
+    const val HIGH = 190
+
+    fun fraction(bpm: Int?): Float? = bpm?.takeIf { it in LOW..HIGH }?.let { (it - LOW).toFloat() / (HIGH - LOW) }
+}
+
 /**
- * 9.5: guide pace, target rhythm BPM and the cue of the last applied coaching, plus −/+ to ask for a rhythm BPM
- * change. A press only sends a request; the beat changes when the server-approved command is applied.
+ * 9.5 페이스 코칭: the last applied coaching guide (guide pace, target rhythm BPM, cue). '적용됨' only when the watch
+ * really plays that BPM. The previous guide value and an auto-coaching on/off state are not delivered, so they are not
+ * shown (TODO(S15P31E105-613): add when the contract carries them). 직접 조절 opens 9.5b.
  */
 @Composable
-internal fun PaceCoachingPage(snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onIntent: (RunIntent) -> Unit) {
+internal fun PaceCoachingPage(
+    snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit, onManual: () -> Unit,
+) {
     val view = PaceCoachingDisplay.from(snapshot)
-    RoundScreen(spacing = 3.dp, focused = visible) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("페이스 코칭", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-            if (view.dummy) Chip(PaceCoachingDisplay.DUMMY_BADGE)
+    val status = RunStatusDisplay.from(snapshot)
+    val guide = snapshot.coaching
+    val canOpen = !view.currentRhythm.missing || guide != null
+    WatchFace(
+        rim = RunStatusDisplay.rim(status),
+        ticks = BpmScale.fraction(snapshot.metrics.rhythm?.beatsPerMinute),
+        pages = PageDots(count, index),
+        handle = pauseHandle(status, onPause),
+        focused = visible,
+        bottomButton = { BottomButton("직접 조절", onManual, enabled = canOpen && !snapshot.phoneRecording, kind = ButtonKind.SECONDARY) },
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(px(8)), verticalAlignment = Alignment.CenterVertically) {
+            Caption("페이스 코칭")
+            if (view.dummy) StatusChip(PaceCoachingDisplay.DUMMY_BADGE, announce = false)
         }
-        if (view.serverLost) StatusLine(PaceCoachingDisplay.SERVER_LOST to StatusTone.WARNING)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-            Text("안내", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-            MetricValue(view.guidePace, 24)
+        if (view.serverLost) {
+            StatusIcons(listOf(StatusItem(StatusKind.SERVER, StatusLevel.CHECKING, PaceCoachingDisplay.SERVER_LOST)))
+            BodyText(PaceCoachingDisplay.SERVER_LOST)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-            Text("목표 ${MetricFormat.RHYTHM_LABEL}", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-            MetricValue(view.targetRhythm.copy(symbol = null, unit = null), 13, emphasized = false)
+        if (guide == null) {
+            Title("코칭 안내를 기다려요")
+            InlineMetric(view.currentRhythm, sizePx = 44)
+            return@WatchFace
         }
-        view.cue?.let {
-            Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                style = RunwayType.Body.copy(fontWeight = FontWeight.Bold), color = RunwayColors.Content, textAlign = TextAlign.Center)
+        LabeledValue("안내", view.guidePace)
+        LabeledValue(MetricFormat.RHYTHM_LABEL, view.targetRhythm.copy(symbol = null, unit = null))
+        view.cue?.let { BodyText(it, RunwayColors.Content, announce = true) }
+        val line = view.status ?: if (snapshot.metrics.rhythm == guide.target) "✓ ${guide.target.beatsPerMinute} BPM 적용됨" else null
+        line?.let { BodyText(it, RunwayColors.Content, announce = true) }
+    }
+}
+
+@Composable
+private fun LabeledValue(label: String, value: MetricText) {
+    Row(horizontalArrangement = Arrangement.spacedBy(px(10)), verticalAlignment = Alignment.Bottom) {
+        Caption(label)
+        InlineMetric(value, sizePx = 48)
+    }
+}
+
+/**
+ * 9.5b 직접 조절 and its request states. A press only sends a request; the beat changes when the server-approved
+ * command is applied. Requesting (9.5d) locks −/+ and names the sound still playing; a refusal (9.5e) keeps the
+ * current BPM; an unknown result (9.5g) shows the chosen and the last confirmed value apart and never a success check.
+ * 자동으로 돌아가기 (9.5f) is left out until an auto-return mode exists in the contract.
+ */
+@Composable
+internal fun RhythmManualScreen(snapshot: RunSnapshot, onIntent: (RunIntent) -> Unit, onPause: () -> Unit) {
+    val view = PaceCoachingDisplay.from(snapshot)
+    val change = snapshot.bpmChange
+    val current = snapshot.metrics.rhythm?.beatsPerMinute
+    val requesting = change?.status == BpmChangeStatus.REQUESTING
+    val shown = if (requesting) change!!.target.beatsPerMinute else current
+    WatchFace(
+        rim = RunStatusDisplay.rim(RunStatusDisplay.from(snapshot)),
+        ticks = BpmScale.fraction(shown),
+        handle = pauseHandle(RunStatusDisplay.from(snapshot), onPause),
+    ) {
+        val target = change?.target?.beatsPerMinute
+        when (change?.status) {
+            BpmChangeStatus.REQUESTING -> StatusChip("$target BPM 요청 중", ChipLead.BUSY)
+            BpmChangeStatus.REJECTED -> BodyText("$target BPM 적용 안 됨", RunwayColors.Warning, strong = true, announce = true)
+            BpmChangeStatus.UNKNOWN -> BodyText("$target BPM 적용 확인 불가", RunwayColors.Content, strong = true, announce = true)
+            BpmChangeStatus.APPLIED, null -> BodyText("직접 조절 중", RunwayColors.Content, strong = true)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            RoundButton("리듬 BPM 낮추기", { onIntent(RunIntent.BPM_DOWN) }, kind = ButtonKind.SECONDARY, enabled = view.canDecrease, size = 40) {
-                Text("−", style = RunwayType.Title, color = it)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AdjustButton("리듬 BPM 낮추기", "−", view.canDecrease) { onIntent(RunIntent.BPM_DOWN) }
+            val text = MetricFormat.rhythm(shown?.let(::RhythmBpm))
+            Column(Modifier.padding(horizontal = px(4)), horizontalAlignment = Alignment.CenterHorizontally) {
+                // While requesting, the number is the asked value, not yet the beat: white, not mint.
+                HeroNumber(text.value, 84, (if (requesting) "요청 " else "") + text.description,
+                    color = when {
+                        text.missing -> RunwayColors.ContentDim
+                        requesting -> RunwayColors.Content
+                        else -> RunwayColors.Primary
+                    })
+                Text(MetricFormat.RHYTHM_LABEL, style = RunwayType.Label, color = RunwayColors.ContentSecondary)
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(MetricFormat.RHYTHM_LABEL, style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-                MetricValue(view.currentRhythm.copy(unit = null), 20)
-            }
-            RoundButton("리듬 BPM 높이기", { onIntent(RunIntent.BPM_UP) }, kind = ButtonKind.SECONDARY, enabled = view.canIncrease, size = 40) {
-                Text("+", style = RunwayType.Title, color = it)
-            }
+            AdjustButton("리듬 BPM 높이기", "+", view.canIncrease) { onIntent(RunIntent.BPM_UP) }
         }
-        view.status?.let {
-            Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                style = RunwayType.Caption, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
+        when (change?.status) {
+            BpmChangeStatus.REQUESTING -> current?.let { BodyText("지금 소리 $it BPM") }
+            BpmChangeStatus.REJECTED -> current?.let { BodyText("$it BPM 유지") }
+            BpmChangeStatus.UNKNOWN -> BodyText("선택 $target · 마지막 확인 ${current ?: MetricFormat.MISSING}")
+            BpmChangeStatus.APPLIED -> BodyText("✓ $target BPM 적용됨", RunwayColors.Content)
+            null -> Unit
         }
-        PageIndicator(count, index)
     }
 }

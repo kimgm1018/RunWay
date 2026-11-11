@@ -1,7 +1,10 @@
+import { threadComments, withoutComment } from '../commentThread';
 import { DataError } from '../errors';
 import type {
+  PostAuthor,
   PostComment,
   PostDetail,
+  PostPage,
   PostRecord,
   Repositories,
   RunnerProfile,
@@ -18,6 +21,8 @@ const me = fixtures.communityUsers.me;
 const requestPage = 10;
 // U26 · U27 read 20 a page.
 const followPage = 20;
+// CMT02 · CMT18 · CMT19 read 20 a page (S15P31E105-647).
+const postPage = 20;
 
 // My run as a post card. The mock has no heart rate or cadence totals, so a watch run gets
 // the 7.3 sheet's values.
@@ -31,6 +36,16 @@ function shareableOf(record: RecordFixture): PostRecord {
     cadence: record.watch ? 170 : null,
   };
 }
+
+// A deleted root kept for its replies: no author, text or likes (CMT06).
+const deletedPlace = (comment: PostFixture['comments'][number]) => ({
+  ...comment,
+  deleted: true,
+  author: null,
+  body: '',
+  likeCount: 0,
+  liked: false,
+});
 
 // 7.x 커뮤니티 mock: posts, likes, bookmarks, comments and follows kept in memory.
 export function createCommunityMock({
@@ -76,6 +91,28 @@ export function createCommunityMock({
     ]),
   );
   let nextId = 1;
+  // CMT02 newest first; the key also places a cursor, so a post taken out between pages skips nothing.
+  const postKey = (post: PostFixture) => `${post.createdAt}|${post.id}`;
+  const byNewest = (list: PostFixture[]) =>
+    [...list].sort((a, b) => postKey(b).localeCompare(postKey(a)));
+  // CMT18 · CMT19 list in the order I bookmarked or liked, newest first: each mark gets the next number. The
+  // fixtures' marks count up from the oldest post.
+  let markCount = 0;
+  const marked = (list: PostFixture[]) =>
+    new Map(
+      byNewest(list)
+        .reverse()
+        .map(post => [post.id, ++markCount] as const),
+    );
+  const bookmarkMarks = marked(posts.filter(post => post.bookmarked));
+  const likeMarks = marked(posts.filter(post => post.liked));
+  const setMark = (marks: Map<string, number>, postId: string, on: boolean) => {
+    if (on) {
+      marks.set(postId, ++markCount);
+    } else {
+      marks.delete(postId);
+    }
+  };
   // 7.4b 팔로우 요청: answered ones leave the list (U24 lists PENDING only).
   let followRequests = fixtures.myFollowRequests.map(request => ({
     ...request,
@@ -135,13 +172,62 @@ export function createCommunityMock({
   };
   const postWith = (commentId: string) =>
     posts.find(post => post.comments.some(item => item.id === commentId));
+  // A live comment (not a deleted root's place) and its post, or the server's COMMENT_NOT_FOUND.
+  const liveComment = (commentId: string) => {
+    const post = postWith(commentId);
+    const comment = post?.comments.find(item => item.id === commentId);
+    return post && comment && !comment.deleted ? { post, comment } : null;
+  };
+  // Authors carry their photo like CMT02 · CMT03 · CMT06 author.profileImageUrl.
+  const photoOf = (userId: string) =>
+    userId === me.userId ? myPhoto() : fixtures.runnerPhotos[userId] ?? null;
+  const withPhoto = (author: PostAuthor): PostAuthor => ({
+    ...author,
+    profileImageUrl: photoOf(author.userId),
+  });
   const view = ({ comments, ...post }: PostFixture) => ({
     ...post,
+    author: withPhoto(post.author),
     isMine: post.author.userId === me.userId,
-    commentCount: comments.length,
+    // As CMT02 · CMT03: a deleted root kept for its replies is not counted.
+    commentCount: comments.filter(comment => !comment.deleted).length,
   });
   const following = (userId: string) =>
     userId === me.userId || profiles.get(userId)?.followStatus === 'FOLLOWING';
+  // As the server: a private runner's posts only once they approve me.
+  const visible = (post: PostFixture) => {
+    const profile = profiles.get(post.author.userId);
+    return (
+      !profile?.isPrivate ||
+      post.author.userId === me.userId ||
+      profile.followStatus === 'FOLLOWING'
+    );
+  };
+  // 20 a page from a list sorted by key, newest first; the cursor is the last key given, as the server's.
+  const pageOf = (
+    list: PostFixture[],
+    keyOf: (post: PostFixture) => string,
+    cursor?: string | null,
+  ): PostPage => {
+    const from = cursor ? list.findIndex(post => keyOf(post) < cursor) : 0;
+    const start = from === -1 ? list.length : from;
+    const page = list.slice(start, start + postPage);
+    return {
+      items: page.map(view),
+      nextCursor:
+        start + postPage < list.length ? keyOf(page[page.length - 1]) : null,
+    };
+  };
+  const feedPage = (list: PostFixture[], cursor?: string | null) =>
+    pageOf(byNewest(list.filter(visible)), postKey, cursor);
+  const markPage = (marks: Map<string, number>, cursor?: string | null) => {
+    const keyOf = (post: PostFixture) =>
+      String(marks.get(post.id) ?? 0).padStart(10, '0');
+    const list = posts
+      .filter(post => marks.has(post.id) && visible(post))
+      .sort((a, b) => keyOf(b).localeCompare(keyOf(a)));
+    return pageOf(list, keyOf, cursor);
+  };
   const record = (recordId: string | null) => {
     const mine = records();
     const found = recordId ? mine.find(item => item.id === recordId) : mine[0];
@@ -187,7 +273,7 @@ export function createCommunityMock({
       userId,
       handle: user?.handle ?? userId,
       nickname: user?.nickname ?? userId,
-      profileImageUrl: isMe ? myPhoto() : fixtures.runnerPhotos[userId] ?? null,
+      profileImageUrl: photoOf(userId),
       level: accessible ? profile.level : null,
       isMe,
       followerCount: accessible ? profile.followerCount : null,
@@ -214,27 +300,45 @@ export function createCommunityMock({
   };
 
   const community: Repositories['community'] = {
-    listFeed: scope =>
+    listFeed: (scope, cursor) =>
       respond(
-        posts
-          .filter(post => scope === 'ALL' || following(post.author.userId))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .map(view),
+        feedPage(
+          posts.filter(
+            post => scope === 'ALL' || following(post.author.userId),
+          ),
+          cursor,
+        ),
       ),
+    listAuthorPosts: (userId, cursor) =>
+      respond(
+        feedPage(
+          posts.filter(post => post.author.userId === userId),
+          cursor,
+        ),
+      ),
+    listMyBookmarks: cursor => respond(markPage(bookmarkMarks, cursor)),
+    listMyLikes: cursor => respond(markPage(likeMarks, cursor)),
     get: postId => {
       const post = find(postId);
       const detail: PostDetail = {
         ...view(post),
-        comments: post.comments.map(comment => ({
+        // As CMT06: each root followed by its replies.
+        comments: threadComments(post.comments).map(({ comment }) => ({
           ...comment,
-          isMine: comment.author.userId === me.userId,
+          author: comment.author ? withPhoto(comment.author) : null,
+          isMine: comment.author?.userId === me.userId,
         })),
       };
       return respond(detail);
     },
     getRoute: postId => {
       const post = find(postId);
-      return respond(post.courseShared ? post.record.route : null);
+      // The mock's posts all run round 민락수변공원, so a shared course gets that map image.
+      return respond(
+        post.courseShared && post.record.route
+          ? { route: post.record.route, basemap: fixtures.minrakBasemap }
+          : null,
+      );
     },
     getShareable: recordId => respond(shareableOf(record(recordId))),
     create: (recordId, draft) => {
@@ -245,7 +349,9 @@ export function createCommunityMock({
           author: me,
           body: draft.body,
           record: shareableOf(record(recordId)),
-          courseShared: draft.courseShared,
+          // As CMT01: a free run keeps courseShared false.
+          courseShared:
+            draft.courseShared && record(recordId).courseId !== null,
           createdAt: new Date().toISOString(),
           likeCount: 0,
           liked: false,
@@ -257,7 +363,10 @@ export function createCommunityMock({
       return respond({ id });
     },
     update: (postId, draft) => {
-      update(postId, { body: draft.body, courseShared: draft.courseShared });
+      update(postId, {
+        body: draft.body,
+        courseShared: draft.courseShared && find(postId).record.courseRun,
+      });
       return respond(undefined);
     },
     remove: postId => {
@@ -267,6 +376,7 @@ export function createCommunityMock({
     setLiked: (postId, liked) => {
       const post = find(postId);
       if (post.liked !== liked) {
+        setMark(likeMarks, postId, liked);
         update(postId, {
           liked,
           likeCount:
@@ -276,13 +386,33 @@ export function createCommunityMock({
       return respond(undefined);
     },
     setBookmarked: (postId, bookmarked) => {
+      const post = posts.find(item => item.id === postId);
+      if (post && post.bookmarked !== bookmarked) {
+        setMark(bookmarkMarks, postId, bookmarked);
+      }
       update(postId, { bookmarked });
       return respond(undefined);
     },
-    addComment: (postId, body) => {
+    // CMT07: a reply answers a live root of the same post (the server's INVALID_PARENT_COMMENT otherwise).
+    addComment: (postId, body, parentId) => {
+      const parent = parentId
+        ? find(postId).comments.find(item => item.id === parentId)
+        : null;
+      if (parentId && (!parent || parent.deleted || parent.parentId)) {
+        return fail(
+          new DataError(
+            'INVALID_PARENT_COMMENT',
+            '답글을 달 수 없는 댓글',
+            null,
+            422,
+          ),
+        );
+      }
       const comment: PostComment = {
         id: `comment-mine-${nextId++}`,
-        author: me,
+        parentId: parentId ?? null,
+        deleted: false,
+        author: withPhoto(me),
         isMine: true,
         body,
         createdAt: new Date().toISOString(),
@@ -294,12 +424,12 @@ export function createCommunityMock({
     },
     // CMT08 · CMT09 answer the same errors as the server.
     updateComment: (commentId, body) => {
-      const post = postWith(commentId);
-      const comment = post?.comments.find(item => item.id === commentId);
-      if (!post || !comment) {
+      const found = liveComment(commentId);
+      if (!found) {
         return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
       }
-      if (comment.author.userId !== me.userId) {
+      const { post, comment } = found;
+      if (comment.author?.userId !== me.userId) {
         return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
       }
       const text = body.trim();
@@ -313,19 +443,39 @@ export function createCommunityMock({
       });
       return respond(text);
     },
+    // A root with replies stays as a deleted place; one without leaves, as does a deleted place whose last
+    // reply goes (CMT06 D-1).
     removeComment: commentId => {
-      const post = postWith(commentId);
-      const comment = post?.comments.find(item => item.id === commentId);
-      if (!post || !comment) {
+      const found = liveComment(commentId);
+      if (!found) {
         return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
       }
-      if (comment.author.userId !== me.userId) {
+      const { post, comment } = found;
+      if (comment.author?.userId !== me.userId) {
         return fail(new DataError('NOT_AUTHOR', '내 댓글이 아님'));
       }
       update(post.id, {
-        comments: post.comments.filter(item => item.id !== commentId),
+        comments: withoutComment(post.comments, commentId, deletedPlace),
       });
       return respond(undefined);
+    },
+    // CMT14 · CMT15: idempotent, and my own comment can be liked too.
+    setCommentLiked: (commentId, liked) => {
+      const found = liveComment(commentId);
+      if (!found) {
+        return fail(new DataError('COMMENT_NOT_FOUND', '댓글 없음'));
+      }
+      const { post, comment } = found;
+      const likeCount =
+        comment.liked === liked
+          ? comment.likeCount
+          : Math.max(0, comment.likeCount + (liked ? 1 : -1));
+      update(post.id, {
+        comments: post.comments.map(item =>
+          item.id === commentId ? { ...item, liked, likeCount } : item,
+        ),
+      });
+      return respond({ likeCount, liked });
     },
   };
 
@@ -375,15 +525,15 @@ export function createCommunityMock({
       ) {
         return fail(new DataError('ACCOUNT_ACCESS_DENIED', '비공개 계정'));
       }
-      const ids = kind === 'followers' ? followersOf(userId) : followingOf(userId);
+      const ids =
+        kind === 'followers' ? followersOf(userId) : followingOf(userId);
       const start = cursor ? Number(cursor) : 0;
       const end = start + followPage;
       return respond({
         items: ids.slice(start, end).map(id => ({
           userId: id,
           nickname: nicknameOf(id),
-          profileImageUrl:
-            id === me.userId ? myPhoto() : fixtures.runnerPhotos[id] ?? null,
+          profileImageUrl: photoOf(id),
         })),
         nextCursor: end < ids.length ? String(end) : null,
       });

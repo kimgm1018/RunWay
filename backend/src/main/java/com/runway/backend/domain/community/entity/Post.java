@@ -36,6 +36,9 @@ public class Post {
     @Column(name = "region_code", length = 40)
     private String regionCode;
 
+    @Column(name = "course_shared", nullable = false)
+    private boolean courseShared;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -46,13 +49,19 @@ public class Post {
     private Instant updatedAt;
 
     public static Post create(
-            long authorId, long sessionId, String body, String imageKey, String regionCode) {
+            long authorId,
+            long sessionId,
+            String body,
+            String imageKey,
+            String regionCode,
+            boolean courseShared) {
         Post post = new Post();
         post.authorId = authorId;
         post.sessionId = sessionId;
         post.body = body;
         post.imageKey = imageKey;
         post.regionCode = regionCode;
+        post.courseShared = courseShared;
         return post;
     }
 
@@ -66,6 +75,10 @@ public class Post {
 
     public void updateBody(String body) {
         this.body = body;
+    }
+
+    public void updateCourseShared(boolean courseShared) {
+        this.courseShared = courseShared;
     }
 
     public void softDelete(Instant deletedAt) {

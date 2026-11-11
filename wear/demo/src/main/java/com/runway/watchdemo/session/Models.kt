@@ -2,7 +2,7 @@ package com.runway.watchdemo.session
 
 enum class SessionState { STARTING, RUNNING, STOPPING, COMPLETED, INTERRUPTED, FAILED }
 enum class UploadState { PENDING, UPLOADING, UPLOADED, FAILED }
-enum class MetricKind { STEPS, STEPS_TOTAL, CADENCE, DISTANCE, DISTANCE_TOTAL, SPEED, HEART_RATE, STEP_LENGTH }
+enum class MetricKind { STEPS, STEPS_TOTAL, CADENCE, DISTANCE, DISTANCE_TOTAL, SPEED, HEART_RATE, STEP_LENGTH, VO2_MAX }
 data class MetricSample(
     val kind: MetricKind, val startElapsedMs: Long, val endElapsedMs: Long,
     val value: Double?, val unit: String, val source: String = "health_services",
@@ -67,6 +67,7 @@ object MeasurementSupport {
         MetricKind.SPEED -> "Speed"
         MetricKind.HEART_RATE -> "HeartRate"
         MetricKind.STEP_LENGTH -> "Stride Length"
+        MetricKind.VO2_MAX -> "Vo2 Max"
         }]
         // Old keys mixed support and availability. Only their AVAILABLE value implies support.
         return if (legacy == "AVAILABLE") SupportStatus.SUPPORTED else SupportStatus.fromWire(legacy)

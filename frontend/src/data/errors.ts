@@ -68,10 +68,17 @@ export const dataErrorCodes = [
   'EDIT_NOT_ALLOWED',
   // G01·G04 목표 환산 실패 (422).
   'INVALID_GOAL',
+  // CMT01 게시: the run is deleted or not completed (S15P31E105-633). CMT04 수정: the post is gone.
+  'INVALID_POST',
+  'POST_NOT_FOUND',
+  // 회원탈퇴 후 게시물 상세 직접 접근 (community.md, users.md U18).
+  'WITHDRAWN_POST',
   // CMT08 · CMT09 댓글 수정·삭제 (docs/design/api/community.md).
   'EMPTY_COMMENT',
   'NOT_AUTHOR',
   'COMMENT_NOT_FOUND',
+  // CMT07 답글: the root is deleted, gone or itself a reply (422).
+  'INVALID_PARENT_COMMENT',
   // U18 탈퇴 비밀번호 불일치.
   'INVALID_PASSWORD',
   // U18 회원탈퇴 (users.md, S15P31E105-523): 먼저 정리할 크루·그룹런·운동이 있음(409), 동의 없음(422),
@@ -83,6 +90,8 @@ export const dataErrorCodes = [
   'SESSION_NOT_FOUND',
   'SESSION_FORBIDDEN',
   'DEVICE_FORBIDDEN',
+  // W02·W03·S01·G16: 기기가 없거나 다른 회원의 기기 (devices-health.md, sessions.md).
+  'DEVICE_NOT_FOUND',
   'ACTIVE_SESSION_EXISTS',
   'STALE_STATE',
   'COMMAND_PENDING',
@@ -93,6 +102,8 @@ export const dataErrorCodes = [
   'CONTROL_DEVICE_CHANGED',
   'UPLOAD_PENDING',
   'COURSE_INACCESSIBLE',
+  // C03·C07·C08·S01: 없는 코스 (courses.md, sessions.md).
+  'COURSE_NOT_FOUND',
   // P07 폰으로 기록 전환(PHONE_FALLBACK) 뒤의 BPM 요청 (pace-coaching.md, S15P31E105-257).
   'COACHING_UNAVAILABLE',
   // W07 워치 운동 배치 동기화: 같은 ID의 다른 내용, 본문 규칙 위반 (S15P31E105-311).
@@ -108,6 +119,8 @@ export const dataErrorCodes = [
   'UNSUPPORTED_MEDIA_TYPE',
   'INVALID_FILE',
   'INVALID_IMAGE',
+  // F02 보호 이미지: 없거나 열람 권한·참조 근거 없음 (files.md).
+  'IMAGE_NOT_FOUND',
   // 3.1 현재 위치 on the phone (S15P31E105-494): no permission, location off, no fix in time, no location at all.
   'LOCATION_PERMISSION_DENIED',
   'LOCATION_DISABLED',

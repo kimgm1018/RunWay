@@ -7,173 +7,658 @@
   var animationRunning = false;
   var queuedUpdate = null;
   var zoomEnabled = false;
+  var lastRendered = null;
+  var lastTopTraceId = null;
+  var ANIMATION_MS = 1900;      // 후보 등장 → 판정 → 선택 강조까지. 라이브 판단 간격(15초 이상)보다 훨씬 짧다
+  var VERDICT_MS = 1150;
 
+  function L() { return root.RunwayDemoLogic; }
   function byId(id) { return document.getElementById(id); }
-  function put(id, value) { var el = byId(id); if (el) el.textContent = value == null ? '—' : String(value); }
+  function put(id, value) { var el = byId(id); if (el) el.textContent = value == null ? '—' : String(value); return el; }
+  function putBump(id, value) {
+    var el = byId(id);
+    if (!el) return;
+    var text = value == null ? '—' : String(value);
+    if (el.textContent !== text) {
+      el.textContent = text;
+      el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    }
+  }
   function clear(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
-  function svg(name, attrs) {
-    var el = document.createElementNS(ns, name);
-    Object.keys(attrs || {}).forEach(function (key) { el.setAttribute(key, String(attrs[key])); });
-    return el;
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text != null) node.textContent = text;
+    return node;
   }
-  function line(parent, points, color, width, dash) {
-    if (!points.length) return;
-    parent.appendChild(svg('polyline', {points: points.map(function (p) { return p[0] + ',' + p[1]; }).join(' '),
-      fill: 'none', stroke: color, 'stroke-width': width || 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-      'stroke-dasharray': dash || ''}));
+  function svg(name, attrs, parent) {
+    var node = document.createElementNS(ns, name);
+    Object.keys(attrs || {}).forEach(function (key) { node.setAttribute(key, String(attrs[key])); });
+    if (parent) parent.appendChild(node);
+    return node;
   }
-  function formatNumber(value, digits) {
-    var number = Number(value);
-    return Number.isFinite(number) ? number.toFixed(digits == null ? 0 : digits) : '—';
+  function svgText(parent, attrs, text) { var t = svg('text', attrs, parent); t.textContent = text; return t; }
+  function pathOf(points) {
+    return points.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
   }
+  function num(value) { var n = Number(value); return value != null && Number.isFinite(n) ? n : null; }
+  function formatNumber(value, digits) { var n = num(value); return n == null ? '—' : n.toFixed(digits == null ? 0 : digits); }
   function deltaText(value) {
-    var number = Number(value);
-    if (!Number.isFinite(number)) return '—';
-    return number > 0 ? '+' + Math.round(number) : number < 0 ? '−' + Math.abs(Math.round(number)) : '0';
+    var n = num(value);
+    if (n == null) return '—';
+    return n > 0 ? '+' + Math.round(n) : n < 0 ? '−' + Math.abs(Math.round(n)) : '±0';
   }
-  function stageText(stage, speed) {
-    if (stage === 'L3') return '재생 ' + (speed || 1) + '×';
-    return stage || '대기';
+  function sizeSvg(node) {
+    var box = node.getBoundingClientRect();
+    var w = Math.max(80, Math.round(box.width)), h = Math.max(40, Math.round(box.height));
+    node.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    return {w: w, h: h};
+  }
+  function gradient(defs, id, stops, vertical) {
+    var g = svg('linearGradient', {id: id, x1: 0, y1: 0, x2: vertical ? 0 : 1, y2: vertical ? 1 : 0}, defs);
+    stops.forEach(function (s) { svg('stop', {offset: s[0], 'stop-color': s[1], 'stop-opacity': s[2]}, g); });
   }
 
+  // ── 머리글·상태 ─────────────────────────
   function setHeader(modelLabel, policyVersion) {
     put('model-label', modelLabel || '예측기 대기');
-    put('policy-label', '정책 ' + (policyVersion || 'mpc-v0.4.1') + ' · 같은 정책, 예측기만 다름');
+    put('policy-label', '정책 ' + (policyVersion || L().DEFAULT_POLICY_VERSION));
   }
 
-  function setStage(stage, speed) { put('stage-badge', stageText(stage, speed)); }
+  function setStage(stage, speed) {
+    var badge = byId('stage-badge');
+    var kind = !stage ? 'idle' : stage === 'L3' ? 'replay' : 'live';
+    if (badge) badge.setAttribute('data-kind', kind);
+    put('stage-text', kind === 'replay' ? '재생 ' + (speed || 1) + '×' : kind === 'live' ? 'LIVE' : '대기');
+  }
 
   function setBanner(banner) {
-    var el = byId('banner');
-    if (!el) return;
-    if (!banner) {
-      el.textContent = '';
-      el.className = 'banner hidden';
-      return;
-    }
-    el.textContent = banner.text || '';
-    el.className = 'banner ' + (banner.kind || '');
+    var node = byId('banner');
+    if (!node) return;
+    if (!banner) { node.textContent = ''; node.className = 'banner hidden'; return; }
+    if (node.textContent === (banner.text || '') && node.classList.contains(banner.kind || '_')) return;
+    node.textContent = banner.text || '';
+    node.className = 'banner ' + (banner.kind || '');
   }
 
-  function setConnection(text) { put('connection-state', text); }
+  function setConnection(text) {
+    put('connection-state', text);
+    var dot = byId('conn-dot');
+    if (dot) {
+      var value = String(text || '');
+      dot.className = 'conn-dot' + (/끊김|거부|못했/.test(value) ? ' off' : /연결됨|정적 재생/.test(value) ? ' on' : '');
+    }
+    var sub = byId('waiting-sub');
+    if (sub) sub.textContent = /정적 재생/.test(String(text)) ? '재생을 누르면 판단 기록이 흐르기 시작합니다' : String(text || '');
+  }
+
+  function setWaiting(waiting) { document.body.classList.toggle('is-waiting', !!waiting); }
+
+  // ── 코스 지도·고도 ───────────────────────
+  function progressOf(course, trace) {
+    if (!trace || !trace.input) return null;
+    var d = num(trace.input.routeProgressM);
+    if (d == null) d = num(trace.input.distanceM);
+    if (d == null) return null;
+    var length = num(course.lengthM);
+    var pts = course.points;
+    if (length == null) length = num(pts[pts.length - 1][3]) || 0;
+    return length > 0 ? Math.max(0, Math.min(length, d)) : null;
+  }
+
+  function splitAt(points, dists, d) {
+    // d까지 지난 점들과 그 위치(보간)를 돌려준다
+    if (d == null) return {done: [], at: null};
+    var done = [points[0]];
+    for (var i = 1; i < points.length; i += 1) {
+      if (dists[i] >= d) {
+        var span = dists[i] - dists[i - 1];
+        var f = span > 0 ? (d - dists[i - 1]) / span : 0;
+        var at = [points[i - 1][0] + f * (points[i][0] - points[i - 1][0]), points[i - 1][1] + f * (points[i][1] - points[i - 1][1])];
+        done.push(at);
+        return {done: done, at: at};
+      }
+      done.push(points[i]);
+    }
+    return {done: done, at: points[points.length - 1]};
+  }
 
   function drawCourse(course, trace) {
     var map = byId('course-map');
     var elevation = byId('elevation');
+    if (!map || !elevation) return;
     clear(map); clear(elevation);
-    var points = course && Array.isArray(course.points) ? course.points : [];
+    var ms = sizeSvg(map), es = sizeSvg(elevation);
+    var raw = course && Array.isArray(course.points) ? course.points : [];
+    var points = raw.filter(function (p) { return Array.isArray(p) && num(p[0]) != null && num(p[1]) != null; });
+    var context = document.querySelector('.context');
+    if (context) context.classList.toggle('no-course', points.length < 2);
     if (points.length < 2) {
-      map.appendChild(svg('text', {x: 240, y: 140, 'text-anchor': 'middle', fill: '#8ba1b5'})).textContent = '코스 데이터 없음';
-      elevation.appendChild(svg('text', {x: 240, y: 65, 'text-anchor': 'middle', fill: '#8ba1b5'})).textContent = '고도 데이터 없음';
+      svgText(map, {x: ms.w / 2, y: ms.h / 2 - 6, 'text-anchor': 'middle', class: 'svg-empty'}, '코스 데이터 없음');
+      svgText(map, {x: ms.w / 2, y: ms.h / 2 + 16, 'text-anchor': 'middle', class: 'svg-legend'}, '후보·예측·안내는 그대로 동작합니다');
+      put('course-meta', '—');
       return;
     }
-    var lonMin = Math.min.apply(null, points.map(function (p) { return p[0]; }));
-    var lonMax = Math.max.apply(null, points.map(function (p) { return p[0]; }));
-    var latMin = Math.min.apply(null, points.map(function (p) { return p[1]; }));
-    var latMax = Math.max.apply(null, points.map(function (p) { return p[1]; }));
-    var lonSpan = lonMax - lonMin || 1;
-    var latSpan = latMax - latMin || 1;
-    var mapPoints = points.map(function (p) {
-      return [24 + (p[0] - lonMin) / lonSpan * 432, 20 + (latMax - p[1]) / latSpan * 240];
-    });
-    line(map, mapPoints, '#56d2eb', 4);
-    map.appendChild(svg('circle', {cx: mapPoints[0][0], cy: mapPoints[0][1], r: 6, fill: '#66dda5'}));
-    map.appendChild(svg('circle', {cx: mapPoints[mapPoints.length - 1][0], cy: mapPoints[mapPoints.length - 1][1], r: 6, fill: '#ff777e'}));
-    var distance = trace && trace.input ? Number(trace.input.routeProgressM == null ? trace.input.distanceM : trace.input.routeProgressM) : 0;
-    var routeLength = Number(course.lengthM) || Number(points[points.length - 1][3]) || 0;
-    var target = routeLength > 0 ? Math.max(0, Math.min(1, distance / routeLength)) : 0;
-    var current = mapPoints[Math.min(mapPoints.length - 1, Math.round(target * (mapPoints.length - 1)))];
-    map.appendChild(svg('circle', {cx: current[0], cy: current[1], r: 9, fill: '#f2f5f8', stroke: '#172b3b', 'stroke-width': 4}));
+    var hasDist = points.every(function (p) { return num(p[3]) != null; });
+    var dists = hasDist ? points.map(function (p) { return Number(p[3]); }) : points.map(function (_, i) { return i; });
+    if (!hasDist) course = Object.assign({}, course, {lengthM: course.lengthM || null});
+    var meanLat = points.reduce(function (s, p) { return s + Number(p[1]); }, 0) / points.length;
+    var kx = Math.cos(meanLat * Math.PI / 180);
+    var xs = points.map(function (p) { return Number(p[0]) * kx; }), ys = points.map(function (p) { return Number(p[1]); });
+    var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs), yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+    var pad = 22;
+    var scale = Math.min((ms.w - 2 * pad) / ((xMax - xMin) || 1e-9), (ms.h - 2 * pad) / ((yMax - yMin) || 1e-9));
+    var ox = (ms.w - (xMax - xMin) * scale) / 2, oy = (ms.h - (yMax - yMin) * scale) / 2;
+    var mapPts = points.map(function (_, i) { return [ox + (xs[i] - xMin) * scale, oy + (yMax - ys[i]) * scale]; });
+    var routePath = pathOf(mapPts);
+    svg('path', {d: routePath, class: 'svg-course-shadow'}, map);
+    svg('path', {d: routePath, class: 'svg-course'}, map);
+    var progress = hasDist ? progressOf(course, trace) : null;
+    var split = splitAt(mapPts, dists, progress);
+    if (split.done.length > 1) svg('path', {d: pathOf(split.done), class: 'svg-course-done'}, map);
+    svg('circle', {cx: mapPts[0][0], cy: mapPts[0][1], r: 6, class: 'svg-start'}, map);
+    if (split.at) {
+      svg('circle', {cx: split.at[0], cy: split.at[1], r: 9, class: 'svg-runner-ring'}, map);
+      svg('circle', {cx: split.at[0], cy: split.at[1], r: 8, class: 'svg-runner'}, map);
+    }
+    var length = hasDist ? dists[dists.length - 1] : null;
+    var meta = length ? (length / 1000).toFixed(2) + ' km 코스' : '코스';
+    if (progress != null && length) meta += ' · ' + Math.round(progress / length * 100) + '% 지점';
+    put('course-meta', meta);
 
-    var elevatedPoints = points.filter(function (p) { return p[2] != null && Number.isFinite(Number(p[2])); });
-    if (elevatedPoints.length < 2) {
-      elevation.appendChild(svg('text', {x: 240, y: 65, 'text-anchor': 'middle', fill: '#8ba1b5'})).textContent = '고도 데이터 없음';
+    var elevIdx = [];
+    points.forEach(function (p, i) { if (num(p[2]) != null) elevIdx.push(i); });
+    if (elevIdx.length < 2 || !hasDist) {
+      svgText(elevation, {x: es.w / 2, y: es.h / 2 + 5, 'text-anchor': 'middle', class: 'svg-legend'}, '고도 데이터 없음');
       return;
     }
-    var elevations = elevatedPoints.map(function (p) { return Number(p[2]); });
-    var eMin = Math.min.apply(null, elevations);
-    var eMax = Math.max.apply(null, elevations);
-    var eSpan = eMax - eMin || 1;
-    var elevPoints = elevatedPoints.map(function (p) {
-      var d = Number(p[3]) || 0;
-      var x = routeLength > 0 ? 18 + Math.max(0, Math.min(1, d / routeLength)) * 444 : 18;
-      return [x, 106 - (Number(p[2]) - eMin) / eSpan * 88];
-    });
-    line(elevation, elevPoints, '#f2ba64', 3);
+    var defs = svg('defs', {}, elevation);
+    gradient(defs, 'elev-fill', [[0, '#8fa3b8', 0.32], [1, '#8fa3b8', 0.02]], true);
+    var elevs = elevIdx.map(function (i) { return Number(points[i][2]); });
+    var eMin = Math.min.apply(null, elevs), eMax = Math.max.apply(null, elevs), eSpan = (eMax - eMin) || 1;
+    var ex = function (d) { return 4 + d / (length || 1) * (es.w - 8); };
+    var ey = function (v) { return es.h - 4 - (v - eMin) / eSpan * (es.h - 14); };
+    var ePts = elevIdx.map(function (i) { return [ex(dists[i]), ey(Number(points[i][2]))]; });
+    svg('path', {d: pathOf(ePts) + ' L' + ePts[ePts.length - 1][0].toFixed(1) + ' ' + es.h + ' L' + ePts[0][0].toFixed(1) + ' ' + es.h + ' Z', class: 'svg-elev'}, elevation);
+    if (progress != null) {
+      var doneE = ePts.filter(function (p) { return p[0] <= ex(progress); });
+      if (doneE.length > 1) svg('path', {d: pathOf(doneE), class: 'svg-elev-done'}, elevation);
+      svg('line', {x1: ex(progress), x2: ex(progress), y1: 0, y2: es.h, class: 'svg-elev-now'}, elevation);
+    }
+    svgText(elevation, {x: es.w - 6, y: 12, 'text-anchor': 'end', class: 'svg-legend'}, '고도 ' + Math.round(eMin) + '–' + Math.round(eMax) + ' m');
   }
 
-  function drawChart(trace) {
+  // ── 심박 그래프 ─────────────────────────
+  var PAST_SEC = 360, FUTURE_SEC = 140, HORIZONS = [30, 60, 120];
+
+  function actualSeries(trace, traces) {
+    var now = num(trace.elapsedSec);
+    var tail = trace.input && trace.input.tail && Array.isArray(trace.input.tail.hrBpm) ? trace.input.tail.hrBpm : [];
+    var series = [];
+    if (now != null) {
+      var tailStart = now - (tail.length - 1) * 5;
+      (traces || []).forEach(function (t) {
+        var at = num(t.elapsedSec), hr = num(t.input && t.input.hrNowBpm);
+        if (at != null && hr != null && at < tailStart && at >= now - PAST_SEC) series.push([at, hr]);
+      });
+      series.sort(function (a, b) { return a[0] - b[0]; });
+      tail.forEach(function (v, i) { if (num(v) != null) series.push([tailStart + i * 5, Number(v)]); });
+    } else {
+      tail.forEach(function (v, i) { if (num(v) != null) series.push([-(tail.length - 1 - i) * 5, Number(v)]); });
+    }
+    return series;
+  }
+
+  function drawChart(trace, traces) {
     var chart = byId('hr-chart');
     if (!chart) return;
     clear(chart);
-    var input = trace && trace.input || {};
-    var actual = input.tail && Array.isArray(input.tail.hrBpm) ? input.tail.hrBpm.filter(function (v) { return v != null; }).map(Number) : [];
-    var candidates = Array.isArray(trace && trace.candidates) ? trace.candidates : [];
-    var chosenIndex = trace && trace.decision && trace.decision.chosenIndex;
+    var size = sizeSvg(chart);
+    var W = size.w, H = size.h;
+    if (!trace) return;
+    if (trace.group) { drawGroupChart(chart, W, H, trace, traces); return; }
+    var now = num(trace.elapsedSec) == null ? 0 : Number(trace.elapsedSec);
+    var actual = actualSeries(trace, traces);
+    var candidates = Array.isArray(trace.candidates) ? trace.candidates : [];
+    var chosenIndex = trace.decision && trace.decision.chosenIndex;
     var chosen = Number.isInteger(chosenIndex) ? candidates[chosenIndex] : null;
-    var predictions = chosen && Array.isArray(chosen.predHrBpm) ? chosen.predHrBpm.map(Number) : [];
-    var allowBpm = trace && trace.reference && Number(trace.reference.allowBpm);
-    var values = actual.concat(predictions).filter(Number.isFinite);
+    var allow = num(trace.reference && trace.reference.allowBpm);
+    var hrNow = num(trace.input && trace.input.hrNowBpm);
+    if (hrNow == null && actual.length) hrNow = actual[actual.length - 1][1];
+    var values = actual.map(function (p) { return p[1]; });
+    if (hrNow != null) values.push(hrNow);
+    candidates.forEach(function (c) { (c.predHrBpm || []).forEach(function (v) { if (num(v) != null) values.push(Number(v)); }); });
+    if (chosen) (chosen.upperHrBpm || []).forEach(function (v) { if (num(v) != null) values.push(Number(v)); });
     if (!values.length) {
-      chart.appendChild(svg('text', {x: 450, y: 125, 'text-anchor': 'middle', fill: '#8ba1b5'})).textContent = '심박 입력을 기다리고 있습니다';
+      svgText(chart, {x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'svg-empty'}, '심박 입력을 기다리고 있습니다');
       return;
     }
-    if (Number.isFinite(allowBpm)) values.push(allowBpm);   // 확대 보기에서도 허용선이 화면 안에 있게 한다
+    if (allow != null) values.push(allow);
     var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values);
-    if (zoomEnabled) { lo -= 4; hi += 4; } else { lo = Math.min(100, lo - 5); hi = Math.max(210, hi + 5); }
-    if (hi - lo < 1) hi = lo + 1;
-    var y = function (v) { return 220 - (v - lo) / (hi - lo) * 190; };
-    [0, 1, 2, 3].forEach(function (i) {
-      var yy = 28 + i * 58;
-      chart.appendChild(svg('line', {x1: 46, y1: yy, x2: 890, y2: yy, stroke: '#21374b', 'stroke-width': 1}));
-      chart.appendChild(svg('text', {x: 40, y: yy + 4, 'text-anchor': 'end', fill: '#8ba1b5', 'font-size': 12}))
-        .textContent = String(Math.round(lo + (220 - yy) / 190 * (hi - lo)));
+    if (zoomEnabled) { lo -= 3; hi += 3; } else { lo -= 7; hi += 6; }
+    if (hi - lo < 28) { var mid = (hi + lo) / 2; lo = mid - 14; hi = mid + 14; }
+    var padL = 46, padR = 86, padT = 14, padB = 26;
+    var t0 = now - PAST_SEC, t1 = now + FUTURE_SEC;
+    var x = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
+    var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
+
+    var defs = svg('defs', {}, chart);
+    gradient(defs, 'actual-fill', [[0, '#e8eef5', 0.16], [1, '#e8eef5', 0]], true);
+    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+
+    var step = (hi - lo) > 60 ? 20 : 10;
+    for (var g = Math.ceil(lo / step) * step; g <= hi; g += step) {
+      svg('line', {x1: padL, x2: W - padR, y1: y(g), y2: y(g), class: 'svg-grid'}, chart);
+      svgText(chart, {x: padL - 8, y: y(g) + 4, 'text-anchor': 'end', class: 'svg-axis'}, String(g));
+    }
+    [-360, -240, -120, 0, 120].forEach(function (s) {
+      svgText(chart, {x: x(now + s), y: H - 6, 'text-anchor': 'middle', class: 'svg-axis'}, s === 0 ? '지금' : (s > 0 ? '+' : '−') + Math.abs(s / 60) + '분');
     });
-    if (Number.isFinite(allowBpm)) {
-      line(chart, [[46, y(allowBpm)], [890, y(allowBpm)]], '#ffd166', 2, '7 6');
-      chart.appendChild(svg('text', {x: 886, y: y(allowBpm) - 6, 'text-anchor': 'end', fill: '#ffd166', 'font-size': 12}))
-        .textContent = '허용 ' + Math.round(allowBpm);
+    if (allow != null && y(allow) > padT) {
+      svg('rect', {x: padL, y: padT, width: W - padL - padR, height: Math.max(0, y(allow) - padT), class: 'svg-danger-zone'}, chart);
     }
-    var actualPts = actual.map(function (v, i) { return [50 + (actual.length <= 1 ? 0 : i / (actual.length - 1)) * 520, y(v)]; });
-    line(chart, actualPts, '#54d7e8', 3);
-    if (actualPts.length) chart.appendChild(svg('circle', {cx: actualPts[actualPts.length - 1][0], cy: actualPts[actualPts.length - 1][1], r: 5, fill: '#54d7e8'}));
-    var startX = actualPts.length ? actualPts[actualPts.length - 1][0] : 570;
-    var predPts = predictions.map(function (v, i) { return [startX + (i + 1) * 105, y(v)]; });
-    if (predPts.length && actualPts.length) predPts.unshift(actualPts[actualPts.length - 1]);
-    line(chart, predPts, '#6eabff', 4);
-    predPts.slice(actualPts.length ? 1 : 0).forEach(function (p) { chart.appendChild(svg('circle', {cx: p[0], cy: p[1], r: 4, fill: '#6eabff'})); });
-    if (chosen && Array.isArray(chosen.upperHrBpm)) {
-      chosen.upperHrBpm.slice(0, 3).forEach(function (v, i) {
-        if (v != null && predPts[i + (actualPts.length ? 1 : 0)]) {
-          var pt = predPts[i + (actualPts.length ? 1 : 0)];
-          chart.appendChild(svg('circle', {cx: pt[0], cy: y(Number(v)), r: 3, fill: 'none', stroke: '#ff777e', 'stroke-width': 2}));
-        }
+    svg('line', {x1: x(now), x2: x(now), y1: padT, y2: H - padB, class: 'svg-now'}, chart);
+
+    // 지난 판단들의 2분 뒤 예측: 실측선 위에 남겨 예측이 맞았는지 보이게 한다
+    (traces || []).forEach(function (t) {
+      var at = num(t.elapsedSec);
+      var idx = t.decision && t.decision.chosenIndex;
+      var c = Number.isInteger(idx) && t.candidates ? t.candidates[idx] : null;
+      if (at == null || !c || !c.predHrBpm || num(c.predHrBpm[2]) == null || t === trace) return;
+      var target = at + 120;
+      if (target < t0 || target > now) return;
+      svg('circle', {cx: x(target), cy: y(Number(c.predHrBpm[2])), r: 4, class: 'svg-past-pred'}, chart);
+    });
+
+    if (actual.length > 1) {
+      var aPts = actual.map(function (p) { return [x(p[0]), y(p[1])]; });
+      svg('path', {d: pathOf(aPts) + ' L' + aPts[aPts.length - 1][0].toFixed(1) + ' ' + (H - padB) + ' L' + aPts[0][0].toFixed(1) + ' ' + (H - padB) + ' Z', class: 'svg-actual-area'}, chart);
+      svg('path', {d: pathOf(aPts), class: 'svg-actual'}, chart);
+    }
+    var start = hrNow != null ? [x(now), y(hrNow)] : null;
+    function predPoints(c) {
+      var pts = start ? [start] : [];
+      (c.predHrBpm || []).forEach(function (v, i) { if (num(v) != null && HORIZONS[i] != null) pts.push([x(now + HORIZONS[i]), y(Number(v))]); });
+      return pts;
+    }
+    candidates.forEach(function (c, i) {
+      if (i === chosenIndex) return;
+      var pts = predPoints(c);
+      if (pts.length > 1) svg('path', {d: pathOf(pts), class: 'svg-alt' + (c.passed === false ? ' rejected' : '')}, chart);
+    });
+    if (chosen) {
+      var pPts = predPoints(chosen);
+      var uPts = start ? [start] : [];
+      (chosen.upperHrBpm || []).forEach(function (v, i) { if (num(v) != null && HORIZONS[i] != null) uPts.push([x(now + HORIZONS[i]), y(Number(v))]); });
+      if (uPts.length > 1 && pPts.length === uPts.length) {
+        svg('path', {d: pathOf(uPts.concat(pPts.slice().reverse())) + ' Z', class: 'svg-band'}, chart);
+      }
+      if (pPts.length > 1) svg('path', {d: pathOf(pPts), class: 'svg-pred'}, chart);
+      var end = pPts[pPts.length - 1];
+      if (end && pPts.length > 1) {
+        svg('circle', {cx: end[0], cy: end[1], r: 6, class: 'svg-pred-dot'}, chart);
+        svgText(chart, {x: end[0] + 10, y: end[1] + 7, class: 'svg-pred-label'}, Math.round(Number(chosen.predHrBpm[2])) + '');
+      }
+    }
+    if (allow != null) {
+      svg('line', {x1: padL, x2: W - padR + 4, y1: y(allow), y2: y(allow), class: 'svg-allow'}, chart);
+      svgText(chart, {x: W - padR + 10, y: y(allow) + 5, class: 'svg-allow-label'}, '허용 ' + Math.round(allow));
+    }
+    if (start) svg('circle', {cx: start[0], cy: start[1], r: 6, class: 'svg-dot'}, chart);
+  }
+
+  // 그룹: 러너마다 심박 선, 가장 빠듯한 러너 강조, 고른 공동 페이스의 2분 뒤 예측, 그 러너의 허용선
+  function drawGroupChart(chart, W, H, trace, traces) {
+    var g = trace.group, now = num(trace.elapsedSec) || 0;
+    var members = g.members || [];
+    var series = members.map(function (m) {
+      var pts = [];
+      (traces || []).forEach(function (t) {
+        var at = num(t.elapsedSec);
+        if (!t.group || at == null || at < now - PAST_SEC || at > now) return;
+        var mm = (t.group.members || []).filter(function (x) { return x.label === m.label; })[0];
+        if (mm && num(mm.hrNowBpm) != null && at < now - 115) pts.push([at, Number(mm.hrNowBpm)]);
       });
+      (m.hrTail || []).forEach(function (v, i, arr) { if (num(v) != null) pts.push([now - (arr.length - 1 - i) * 5, Number(v)]); });
+      pts.sort(function (a, b) { return a[0] - b[0]; });
+      return pts;
+    });
+    var chosen = g.chosenIndex;
+    var worst = g.worstIndex;
+    var values = [];
+    series.forEach(function (pts) { pts.forEach(function (p) { values.push(p[1]); }); });
+    members.forEach(function (m) {
+      var row = m.predHrBpm && m.predHrBpm[chosen];
+      (row || []).forEach(function (v) { if (num(v) != null) values.push(Number(v)); });
+      if (num(m.allowBpm) != null) values.push(Number(m.allowBpm));
+    });
+    if (!values.length) {
+      svgText(chart, {x: W / 2, y: H / 2, 'text-anchor': 'middle', class: 'svg-empty'}, '심박 입력을 기다리고 있습니다');
+      return;
     }
+    var lo = Math.min.apply(null, values) - 6, hi = Math.max.apply(null, values) + 5;
+    if (hi - lo < 28) { var mid = (hi + lo) / 2; lo = mid - 14; hi = mid + 14; }
+    var padL = 46, padR = 96, padT = 14, padB = 26;
+    var t0 = now - PAST_SEC, t1 = now + FUTURE_SEC;
+    var x = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
+    var y = function (v) { return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
+    var defs = svg('defs', {}, chart);
+    gradient(defs, 'danger-fill', [[0, '#ff4f62', 0.22], [1, '#ff4f62', 0.03]], true);
+    var step = (hi - lo) > 60 ? 20 : 10;
+    for (var gv = Math.ceil(lo / step) * step; gv <= hi; gv += step) {
+      svg('line', {x1: padL, x2: W - padR, y1: y(gv), y2: y(gv), class: 'svg-grid'}, chart);
+      svgText(chart, {x: padL - 8, y: y(gv) + 4, 'text-anchor': 'end', class: 'svg-axis'}, String(gv));
+    }
+    [-360, -240, -120, 0, 120].forEach(function (sec) {
+      svgText(chart, {x: x(now + sec), y: H - 6, 'text-anchor': 'middle', class: 'svg-axis'},
+        sec === 0 ? '지금' : (sec > 0 ? '+' : '−') + Math.abs(sec / 60) + '분');
+    });
+    var wm = Number.isInteger(worst) ? members[worst] : null;
+    var allow = wm ? num(wm.allowBpm) : null;
+    if (allow != null && y(allow) > padT) {
+      svg('rect', {x: padL, y: padT, width: W - padL - padR, height: Math.max(0, y(allow) - padT), class: 'svg-danger-zone'}, chart);
+    }
+    svg('line', {x1: x(now), x2: x(now), y1: padT, y2: H - padB, class: 'svg-now'}, chart);
+    var order = members.map(function (_, i) { return i; }).sort(function (a, b) { return (a === worst) - (b === worst); });
+    order.forEach(function (i) {
+      var m = members[i], pts = series[i], isWorst = i === worst;
+      if (pts.length > 1) {
+        svg('path', {d: pathOf(pts.map(function (p) { return [x(p[0]), y(p[1])]; })), class: isWorst ? 'svg-member worst' : 'svg-member'}, chart);
+      }
+      var row = m.predHrBpm && m.predHrBpm[chosen];
+      var last = pts.length ? pts[pts.length - 1] : null;
+      if (row && last) {
+        var pp = [[x(now), y(last[1])]];
+        row.forEach(function (v, k) { if (num(v) != null && HORIZONS[k] != null) pp.push([x(now + HORIZONS[k]), y(Number(v))]); });
+        svg('path', {d: pathOf(pp), class: isWorst ? 'svg-pred' : 'svg-member-pred'}, chart);
+        var end = pp[pp.length - 1];
+        svg('circle', {cx: end[0], cy: end[1], r: isWorst ? 6 : 4, class: isWorst ? 'svg-pred-dot' : 'svg-member-dot'}, chart);
+        svgText(chart, {x: end[0] + 10, y: end[1] + 5, class: isWorst ? 'svg-pred-label' : 'svg-member-label'},
+          m.label.replace('러너 ', 'R') + ' ' + Math.round(Number(row[2])));
+      }
+      if (last) svg('circle', {cx: x(now), cy: y(last[1]), r: isWorst ? 6 : 4, class: isWorst ? 'svg-dot' : 'svg-member-dot'}, chart);
+    });
+    if (allow != null) {
+      svg('line', {x1: padL, x2: W - padR + 4, y1: y(allow), y2: y(allow), class: 'svg-allow'}, chart);
+      svgText(chart, {x: W - padR + 10, y: y(allow) - 6, class: 'svg-allow-label'}, '허용 ' + Math.round(allow));
+    }
+  }
+
+  // ── 후보 카드 ───────────────────────────
+  function pct(value, range) {
+    return Math.max(0, Math.min(100, (value - range.lo) / (range.hi - range.lo) * 100));
   }
 
   function candidateCards(trace, animate) {
     var host = byId('candidate-list');
     if (!host) return [];
     clear(host);
+    host.classList.remove('animating', 'pending');
     var candidates = Array.isArray(trace && trace.candidates) ? trace.candidates : [];
     var chosen = trace && trace.decision && trace.decision.chosenIndex;
-    return candidates.map(function (candidate, index) {
-      var card = document.createElement('article');
-      card.className = 'candidate-card' + (animate ? '' : ' revealed');
-      var delta = document.createElement('span');
-      delta.textContent = deltaText(candidate.deltaSecPerKm);
-      var pace = document.createElement('strong');
-      pace.textContent = root.RunwayDemoLogic.formatPace(candidate.paceSecPerKm) + '/km';
-      var detail = document.createElement('small');
-      var hr = candidate.predHrBpm && candidate.predHrBpm.length > 2 ? Math.round(candidate.predHrBpm[2]) + ' bpm' : '예측 대기';
-      detail.textContent = hr + (candidate.passed === false ? ' · ' + (candidate.rejectReason || '안전 기준 미통과') : ' · 안전 기준 통과');
-      card.appendChild(delta); card.appendChild(pace); card.appendChild(detail);
-      if (index === chosen) card.classList.add('recommended');
-      if (candidate.passed === false && !animate) card.classList.add('rejected');
+    var allow = num(trace && trace.reference && trace.reference.allowBpm);
+    var range = L().gaugeRange(candidates, allow);
+    var many = candidates.length > 6;
+    host.style.gridTemplateColumns = 'repeat(' + Math.max(1, candidates.length) + ', minmax(0, 1fr))';
+    host.setAttribute('data-density', many ? 'many' : 'few');
+    var summary = L().candidateSummary(candidates);
+    put('candidate-meta', (summary.text ? summary.text + ' · ' : '') + 'GRU 2분 뒤 예측 심박');
+    var cards = candidates.map(function (candidate, index) {
+      var isChosen = index === chosen;
+      var rejected = candidate.passed === false;
+      var card = el('article', 'cand' + (isChosen ? ' chosen' : '') + (rejected && !isChosen ? ' rejected' : ''));
+      card.style.setProperty('--i', String(index));
+      var top = el('div', 'cand-top');
+      top.appendChild(el('span', 'cand-delta', deltaText(candidate.deltaSecPerKm)));
+      top.appendChild(el('span', 'cand-tag', isChosen ? '선택' : rejected ? (many ? '탈락' : L().rejectReasonText(candidate.rejectReason)) : '통과'));
+      card.appendChild(top);
+      var pace = el('div', 'cand-pace', L().formatPace(candidate.paceSecPerKm));
+      pace.appendChild(el('small', null, '/km'));
+      card.appendChild(pace);
+      var gauge = el('div', 'gauge');
+      var pred = candidate.predHrBpm && num(candidate.predHrBpm[2]);
+      var peak = num(candidate.peakUpperBpm);
+      if (range && pred != null) {
+        var p = pct(pred, range);
+        if (peak != null && peak > pred) {
+          var band = el('div', 'bar-band');
+          band.style.bottom = p + '%';
+          band.style.height = (pct(peak, range) - p) + '%';
+          gauge.appendChild(band);
+        }
+        var bar = el('div', 'bar-pred');
+        bar.style.height = p + '%';
+        gauge.appendChild(bar);
+        var label = el('div', 'gauge-hr', String(Math.round(pred)));
+        label.appendChild(el('small', null, 'bpm'));
+        label.style.bottom = Math.min(Math.max(p, 6), 92) + '%';
+        gauge.appendChild(label);
+        if (allow != null && pred >= allow) card.classList.add('over');
+      } else {
+        gauge.appendChild(el('div', 'gauge-hr', '—')).style.bottom = '40%';
+      }
+      if (range && allow != null) {
+        var line = el('div', 'allow-line');
+        line.style.bottom = pct(allow, range) + '%';
+        gauge.appendChild(line);
+      }
+      card.appendChild(gauge);
+      var foot = el('div', 'cand-foot');
+      if (many && rejected && !isChosen) {
+        foot.textContent = L().rejectReasonText(candidate.rejectReason) + (peak != null ? ' · 상한 ' + Math.round(peak) : '');
+      } else if (peak != null) {
+        foot.appendChild(document.createTextNode('상한 '));
+        foot.appendChild(el('b', null, String(Math.round(peak))));
+        foot.appendChild(document.createTextNode(allow != null ? (peak >= allow ? ' ≥ ' : ' < ') + '허용 ' + Math.round(allow) : ''));
+      } else {
+        foot.textContent = rejected ? L().rejectReasonText(candidate.rejectReason) : '';
+      }
+      card.appendChild(foot);
       host.appendChild(card);
       return card;
     });
+    if (animate && cards.length) host.classList.add('animating', 'pending');
+    return cards;
+  }
+
+  // ── 그룹 판정판(AI10) ───────────────────
+  function groupBoard(trace) {
+    var board = byId('group-board');
+    var list = byId('candidate-list');
+    var matrix = L().groupMatrix(trace && trace.group);
+    if (!board) return;
+    if (!matrix) { board.classList.add('hidden'); if (list) list.classList.remove('hidden'); return; }
+    if (list) list.classList.add('hidden');
+    board.classList.remove('hidden');
+    clear(board);
+    var candidates = trace.group.candidates;
+    var baseline = trace.group.baselineIndex;
+    board.style.setProperty('--cols', String(candidates.length));
+    board.style.setProperty('--rows', String(matrix.rows.length));
+    board.appendChild(el('div', 'gb-head gb-corner', '러너 · 지금 심박'));
+    candidates.forEach(function (c, j) {
+      var ok = matrix.columnsPassed[j];
+      var head = el('div', 'gb-head' + (j === matrix.chosenIndex ? ' chosen' : '') + (j === baseline ? ' current' : '') +
+        (ok === false ? ' col-fail' : ''), deltaText(c.deltaSecPerKm));
+      head.appendChild(el('small', null, L().formatPace(c.paceSecPerKm)));
+      head.appendChild(el('i', 'gb-mark', j === matrix.chosenIndex ? '선택' : ok === false ? '✕' : ok ? '✓' : ''));
+      board.appendChild(head);
+    });
+    var cellIndex = 0;
+    matrix.rows.forEach(function (row, i) {
+      var worst = i === matrix.worstIndex;
+      var name = el('div', 'gb-name');
+      name.appendChild(el('span', 'gb-who', row.label));
+      name.appendChild(el('b', 'gb-hr', row.hrNow != null ? String(Math.round(row.hrNow)) : '—'));
+      name.appendChild(el('small', null, row.allow != null ? '허용 ' + Math.round(row.allow) : ''));
+      if (worst) { name.classList.add('gb-row-worst'); name.setAttribute('title', '가장 빠듯한 러너'); }
+      board.appendChild(name);
+      row.cells.forEach(function (cell, j) {
+        var cls = 'gb-cell' + (cell.passed === false ? ' fail' : cell.headroom != null && cell.headroom < 3 ? ' tight' : '') +
+          (j === matrix.chosenIndex ? ' col-chosen' : '') + (worst ? ' gb-row-worst' : '');
+        var node = el('div', cls);
+        node.style.setProperty('--i', String(cellIndex++));
+        node.appendChild(el('b', null, cell.pred != null ? String(Math.round(cell.pred)) : '—'));
+        node.appendChild(el('small', null, cell.headroom == null ? '' : (cell.headroom > 0 ? '여유 ' : '초과 ') + Math.abs(Math.round(cell.headroom))));
+        board.appendChild(node);
+      });
+    });
+    put('candidate-meta', '러너 ' + matrix.rows.length + '명 × ' + L().candidateSummary(candidates).text +
+      ' · 칸 = 2분 뒤 예측 심박 / 허용선까지 여유(상한 기준)');
+  }
+
+  // ── 판단 기록 ───────────────────────────
+  var STATUS_TEXT = {HR_STALE: '입력 지연', SAFETY: '위험 심박', INPUT_INSUFFICIENT: '입력 부족', PAUSED: '일시정지', NOT_RUNNING: '정지'};
+
+  function addRecords(traces, animate) {
+    var list = byId('record-list');
+    if (!list) return;
+    clear(list);
+    var rows = (traces || []).slice(-40).reverse();
+    rows.forEach(function (trace, index) {
+      var item = el('li', 'record-item' + (index === 0 ? ' latest' : ''));
+      if (index === 0 && animate && trace.traceId !== lastTopTraceId) item.classList.add('enter');
+      item.setAttribute('data-trace-id', trace.traceId || '');
+      var at = num(trace.elapsedSec);
+      var time = el('time', null, at != null ? L().formatElapsed(at) : '—');
+      if (at == null) {
+        var date = new Date(trace.inputAsOf || '');
+        if (!Number.isNaN(date.getTime())) time.textContent = date.toLocaleTimeString('ko-KR', {hour12: false});
+      }
+      item.appendChild(time);
+      var kind = L().actionKind(trace);
+      var act = el('span', 'rec-act', {up: '▲', down: '▼', hold: '■', ease: '▼▼'}[kind] || '·');
+      act.setAttribute('data-action', kind);
+      item.appendChild(act);
+      var decision = trace.decision || {};
+      item.appendChild(el('strong', null, decision.recommendedPaceSecPerKm != null ? L().formatPace(decision.recommendedPaceSecPerKm) : '—'));
+      var hr = el('span', 'rec-hr');
+      var c = Number.isInteger(decision.chosenIndex) && trace.candidates ? trace.candidates[decision.chosenIndex] : null;
+      var pred = c && c.predHrBpm && num(c.predHrBpm[2]);
+      if (trace.group) {
+        if (decision.changed) hr.appendChild(document.createTextNode(L().formatPace(decision.fromPaceSecPerKm) + ' → '));
+        hr.appendChild(el('b', null, decision.reasonLabel || ''));
+        var g = trace.group, w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+        if (w && w.hrNowBpm != null) hr.appendChild(document.createTextNode(' · ' + w.label + ' ' + Math.round(w.hrNowBpm)));
+      } else if (pred != null) {
+        hr.appendChild(document.createTextNode('예측 '));
+        hr.appendChild(el('b', null, String(Math.round(pred))));
+        var allow = num(trace.reference && trace.reference.allowBpm);
+        if (allow != null) hr.appendChild(document.createTextNode(' / 허용 ' + Math.round(allow)));
+      } else {
+        hr.textContent = decision.reasonText || '';
+      }
+      item.appendChild(hr);
+      item.appendChild(el('span', 'rec-status', trace.status && trace.status !== 'OK' ? (STATUS_TEXT[trace.status] || trace.status) : ''));
+      list.appendChild(item);
+    });
+    lastTopTraceId = rows.length ? rows[0].traceId : null;
+    put('record-count', (traces || []).length);
+  }
+
+  function addRestartMarker() {
+    var list = byId('record-list');
+    if (!list || list.querySelector('.restart-marker')) return;
+    var marker = el('li', 'restart-marker', 'AI 재시작');
+    list.insertBefore(marker, list.firstChild);
+  }
+
+  // ── 상단 숫자 ───────────────────────────
+  var PERSONAL_LABELS = {'label-hr': '현재 심박', 'label-pace': '실측 페이스', 'label-distance': '거리', 'unit-distance': 'km',
+    'kicker-text': '지금 러너에게 갈 안내', 'guide-side-label': '이 페이스의 2분 뒤 예측'};
+  var GROUP_LABELS = {'label-hr': '가장 빠듯한 러너 심박', 'label-pace': '이전 공동 페이스', 'label-distance': '그룹 인원', 'unit-distance': '명',
+    'kicker-text': '지금 그룹에 갈 공동 페이스', 'guide-side-label': '가장 빠듯한 러너 2분 뒤 예측'};
+  function setLabels(group) {
+    var labels = group ? GROUP_LABELS : PERSONAL_LABELS;
+    Object.keys(labels).forEach(function (id) { put(id, labels[id]); });
+  }
+
+  function heroNumbers(trace, stage) {
+    setLabels(!!trace.group);
+    if (trace.group) { groupHero(trace); return; }
+    var input = trace.input || {};
+    var allow = num(trace.reference && trace.reference.allowBpm);
+    var hr = num(input.hrNowBpm);
+    putBump('metric-hr', hr != null ? Math.round(hr) : '—');
+    put('metric-allow', allow != null ? '허용선 ' + Math.round(allow) + ' bpm' : '허용선 —');
+    var hrCard = document.querySelector('.stat-hr');
+    if (hrCard) {
+      hrCard.classList.toggle('over', hr != null && allow != null && hr >= allow);
+      var heart = hrCard.querySelector('.heart');
+      if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
+    }
+    putBump('metric-pace', input.paceNowSecPerKm != null ? L().formatPace(input.paceNowSecPerKm) : '—');
+    var grade = num(input.gradeNext120sPct);
+    put('metric-grade', '다음 2분 경사 ' + (grade != null ? (grade > 0 ? '+' : '') + grade.toFixed(1) + '%' : '—'));
+    var distance = num(input.distanceM);
+    putBump('metric-distance', distance != null ? (distance / 1000).toFixed(2) : '—');
+    var remaining = num(input.remainingM);
+    put('metric-remaining', remaining != null ? '남은 거리 ' + (remaining / 1000).toFixed(2) + ' km' : '남은 거리 —');
+    putBump('metric-elapsed', L().formatElapsed(trace.elapsedSec));
+    var latency = trace.latency || {};
+    var text = '판단 ' + (latency.decideMs != null ? formatNumber(latency.decideMs, 0) + ' ms' : '—');
+    if (stage !== 'L3' && latency.inputLagMs != null) text += ' · 입력 지연 ' + (Number(latency.inputLagMs) / 1000).toFixed(1) + ' s';
+    put('metric-latency', text);
+  }
+
+  function groupHero(trace) {
+    var g = trace.group, d = trace.decision || {};
+    var w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+    var hr = w ? num(w.hrNowBpm) : null, allow = w ? num(w.allowBpm) : null;
+    putBump('metric-hr', hr != null ? Math.round(hr) : '—');
+    put('metric-allow', w ? w.label + ' · 허용선 ' + (allow != null ? Math.round(allow) : '—') + ' bpm' : '허용선 —');
+    var hrCard = document.querySelector('.stat-hr');
+    if (hrCard) {
+      hrCard.classList.toggle('over', hr != null && allow != null && hr >= allow);
+      var heart = hrCard.querySelector('.heart');
+      if (heart) heart.style.setProperty('--beat', hr ? (60 / hr).toFixed(3) + 's' : '0s');
+    }
+    putBump('metric-pace', d.fromPaceSecPerKm != null ? L().formatPace(d.fromPaceSecPerKm) : '—');
+    put('metric-grade', g.goalPaceSecPerKm != null ? '목표 ' + L().formatPace(g.goalPaceSecPerKm) + '/km' : '목표 —');
+    var hrCount = (g.members || []).length;
+    putBump('metric-distance', hrCount + (g.paceOnlyCount || 0));
+    put('metric-remaining', '심박 판단 ' + hrCount + '명' + (g.paceOnlyCount ? ' · 페이스만 ' + g.paceOnlyCount : '') +
+      (g.excludedCount ? ' · 제외 ' + g.excludedCount : ''));
+    putBump('metric-elapsed', L().formatElapsed(trace.elapsedSec));
+    var latency = trace.latency || {};
+    put('metric-latency', latency.decideMs != null ? '판단 ' + formatNumber(latency.decideMs, 0) + ' ms · 30초마다' : '30초마다 판단');
+  }
+
+  function guideBlock(trace, options) {
+    var guide = L().guideCard(trace);
+    var decision = trace.decision || {};
+    var from = byId('guide-from');
+    if (from) {
+      var showFrom = !!trace.group && decision.changed && decision.fromPaceSecPerKm != null;
+      from.textContent = showFrom ? L().formatPace(decision.fromPaceSecPerKm) + ' →' : '';
+      from.classList.toggle('hidden', !showFrom);
+      var card = document.querySelector('.guide-card');
+      if (card) card.classList.toggle('has-from', showFrom);
+    }
+    if (trace.group) {
+      var g = trace.group, w = Number.isInteger(g.worstIndex) && g.members ? g.members[g.worstIndex] : null;
+      var gp = w && Number.isInteger(g.chosenIndex) && w.predHr120Bpm ? num(w.predHr120Bpm[g.chosenIndex]) : null;
+      put('guide-pace', decision.recommendedPaceSecPerKm != null ? L().formatPace(decision.recommendedPaceSecPerKm) : '—');
+      var act = put('guide-action', guide.actionText);
+      if (act) act.setAttribute('data-action', guide.actionKind || 'idle');
+      put('guide-delivery', options.replay ? '재생' : guide.deliveryText);
+      put('guide-pred', gp != null ? Math.round(gp) : '—');
+      put('guide-allow', w && w.allowBpm != null ? Math.round(w.allowBpm) : '—');
+      var gs = byId('guide-side');
+      if (gs) gs.classList.toggle('over', gp != null && w && gp >= w.allowBpm);
+      return;
+    }
+    put('guide-pace', decision.recommendedPaceSecPerKm != null ? L().formatPace(decision.recommendedPaceSecPerKm) : '—');
+    var action = put('guide-action', guide.actionText === '—' ? '대기' : guide.actionText);
+    if (action) action.setAttribute('data-action', guide.actionKind || 'idle');
+    put('guide-delivery', options.replay ? '재생' : guide.deliveryText);
+    var chosen = Number.isInteger(decision.chosenIndex) && trace.candidates ? trace.candidates[decision.chosenIndex] : null;
+    var pred = chosen && chosen.predHrBpm ? num(chosen.predHrBpm[2]) : num(decision.predictedHr120Bpm);
+    var allow = num(trace.reference && trace.reference.allowBpm);
+    put('guide-pred', pred != null ? Math.round(pred) : '—');
+    put('guide-allow', allow != null ? Math.round(allow) : '—');
+    var side = byId('guide-side');
+    if (side) side.classList.toggle('over', pred != null && allow != null && pred >= allow);
   }
 
   function reasonLine(trace) {
@@ -182,105 +667,65 @@
     put('reason-line', reason);
   }
 
-  function addRecords(traces) {
-    var list = byId('record-list');
-    if (!list) return;
-    clear(list);
-    var rows = (traces || []).slice(-60).reverse();
-    rows.forEach(function (trace) {
-      var item = document.createElement('li');
-      item.className = 'record-item';
-      item.setAttribute('data-trace-id', trace.traceId || '');
-      var time = document.createElement('time');
-      var date = new Date(trace.inputAsOf || '');
-      time.textContent = Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('ko-KR', {hour12: false});
-      var title = document.createElement('strong');
-      var decision = trace.decision || {};
-      title.textContent = decision.action === 'EASE_OFF' ? '속도 낮추기' : decision.recommendedPaceSecPerKm != null
-        ? root.RunwayDemoLogic.formatPace(decision.recommendedPaceSecPerKm) + '/km' : trace.status || '판단 대기';
-      var status = document.createElement('span');
-      status.textContent = trace.status || '';
-      item.appendChild(time); item.appendChild(title); item.appendChild(status);
-      list.appendChild(item);
-    });
-    put('record-count', rows.length);
-  }
-
-  function addRestartMarker() {
-    var list = byId('record-list');
-    if (!list || list.querySelector('.restart-marker')) return;
-    var marker = document.createElement('li');
-    marker.className = 'restart-marker';
-    marker.textContent = 'AI 재시작';
-    list.insertBefore(marker, list.firstChild);
-  }
-
   function applyTrace(trace, traces, options) {
     var started = performance.now();
     var stage = options.stage || trace.stage || (latestSnapshot && latestSnapshot.stage);
+    setWaiting(false);
     setStage(stage, options.replaySpeed || trace.replaySpeed || 1);
-    var guide = root.RunwayDemoLogic.guideCard(trace);
-    put('guide-pace', guide.paceText);
-    put('guide-action', guide.actionText);
-    put('guide-delivery', options.replay ? '재생' : guide.deliveryText);
-    put('metric-hr', trace.input && trace.input.hrNowBpm != null ? Math.round(trace.input.hrNowBpm) + ' bpm' : '—');
-    put('metric-pace', trace.input && trace.input.paceNowSecPerKm != null ? root.RunwayDemoLogic.formatPace(trace.input.paceNowSecPerKm) + '/km' : '—');
-    put('metric-grade', trace.input && trace.input.gradeNext120sPct != null ? formatNumber(trace.input.gradeNext120sPct, 1) + '%' : '—');
-    var elapsed = Number(trace.elapsedSec);
-    var minutes = Number.isFinite(elapsed) ? Math.floor(elapsed / 60) + ':' + String(Math.floor(elapsed % 60)).padStart(2, '0') : '—';
-    put('metric-distance', formatNumber(trace.input && trace.input.distanceM, 0) + ' m · ' + minutes);
-    var lag = stage === 'L3' || !trace.latency || trace.latency.inputLagMs == null ? '—' : formatNumber(trace.latency.inputLagMs, 0) + ' ms';
-    var decide = trace.latency && trace.latency.decideMs != null ? formatNumber(trace.latency.decideMs, 1) + ' ms' : '—';
-    put('metric-latency', lag + ' · ' + decide);
+    heroNumbers(trace, stage);
     var modelLabel = options.modelLabel || trace.modelVersion || '대기';
     if (String(modelLabel).indexOf('예측기') !== 0) modelLabel = '예측기: ' + modelLabel;
-    setHeader(modelLabel, options.policyVersion || trace.policyVersion || 'mpc-v0.4.1');
+    setHeader(modelLabel, L().policyVersionOf(trace, {policyVersion: options.policyVersion}));
     put('runner-label', latestSnapshot && latestSnapshot.label || '러너');
-    var cards = candidateCards(trace, options.animate === true);
-    drawChart(trace);
+    var animate = options.animate === true;
+    var mode = L().modeOf(trace);
+    var chip = put('mode-chip', mode.label);
+    if (chip) chip.setAttribute('data-kind', mode.kind);
+    var cards = candidateCards(trace, animate && !trace.group);
+    groupBoard(trace);
+    var board = byId('group-board');
+    if (board) {
+      board.classList.remove('animating');
+      if (animate && trace.group) { void board.offsetWidth; board.classList.add('animating'); }
+    }
+    lastRendered = {trace: trace, traces: traces};
+    drawChart(trace, traces);
     drawCourse(latestSnapshot && latestSnapshot.course, trace);
-    addRecords(traces);
-    if (options.restartMarker) addRestartMarker();
-    var check = root.RunwayDemoLogic.checkText(trace.check120);
+    if (!animate) { addRecords(traces, false); if (options.restartMarker) addRestartMarker(); }
+    var check = L().checkText(trace.check120);
     var checkLine = document.querySelector('.check-line');
-    if (checkLine) checkLine.textContent = check || '비교 대기';
-    put('mae-line', trace.mae10MinBpm == null ? '10분 평균 실차 —' : '10분 평균 실차 ' + formatNumber(trace.mae10MinBpm, 1) + ' bpm');
-    var banner = root.RunwayDemoLogic.bannerFor({trace: trace, nowMs: Date.now(), serverOffsetMs: options.serverOffsetMs || 0,
+    if (checkLine) checkLine.textContent = check || '2분 전 예측 비교 대기';
+    put('mae-line', trace.mae10MinBpm == null ? '10분 평균 오차 —' : '10분 평균 오차 ' + formatNumber(trace.mae10MinBpm, 1) + ' bpm');
+    var banner = L().bannerFor({trace: trace, nowMs: Date.now(), serverOffsetMs: options.serverOffsetMs || 0,
       lastMessageAtMs: options.lastMessageAtMs, stage: stage});
     setBanner(banner);
     root.__demoMetrics = root.__demoMetrics || {};
     root.__demoMetrics.renderLagMs = Math.max(0, performance.now() - started);
-    if (options.animate) {
-      animationRunning = true;
-      cards.forEach(function (card, index) {
-        timerIds.push(setTimeout(function () { card.classList.add('revealed'); }, 300 * (index + 1)));
-      });
-      timerIds.push(setTimeout(function () {
-        cards.forEach(function (card, index) {
-          var candidate = (trace.candidates || [])[index];
-          if (candidate && candidate.passed === false) card.classList.add('rejected');
-        });
-      }, 2100));
-      timerIds.push(setTimeout(function () {
-        if (Number.isInteger(trace.decision && trace.decision.chosenIndex) && cards[trace.decision.chosenIndex]) {
-          cards[trace.decision.chosenIndex].classList.add('recommended');
-        }
-      }, 2500));
-      timerIds.push(setTimeout(function () {
-        reasonLine(trace);
-      }, 2800));
-      timerIds.push(setTimeout(function () {
-        animationRunning = false;
-        timerIds = [];
-        if (queuedUpdate) {
-          var queued = queuedUpdate;
-          queuedUpdate = null;
-          renderTrace(queued.trace, queued.traces, queued.options);
-        }
-      }, 3000));
-    } else {
+    if (!animate) { guideBlock(trace, options); reasonLine(trace); return; }
+    animationRunning = true;
+    var host = byId('candidate-list');
+    timerIds.push(setTimeout(function () {
+      if (host) host.classList.remove('pending');
+      var chosenIndex = trace.decision && trace.decision.chosenIndex;
+      if (Number.isInteger(chosenIndex) && cards[chosenIndex]) cards[chosenIndex].classList.add('pulse');
+      // 후보 판정이 끝난 뒤에 안내를 바꾼다: 예측 → 판정 → 안내 순서가 화면에서 보이게
+      guideBlock(trace, options);
       reasonLine(trace);
-    }
+      addRecords(traces, true);
+      if (options.restartMarker) addRestartMarker();
+      var guideCardEl = document.querySelector('.guide-card');
+      if (guideCardEl) { guideCardEl.classList.remove('flash'); void guideCardEl.offsetWidth; guideCardEl.classList.add('flash'); }
+    }, VERDICT_MS));
+    timerIds.push(setTimeout(function () {
+      if (host) host.classList.remove('animating');
+      animationRunning = false;
+      timerIds = [];
+      if (queuedUpdate) {
+        var queued = queuedUpdate;
+        queuedUpdate = null;
+        renderTrace(queued.trace, queued.traces, queued.options);
+      }
+    }, ANIMATION_MS));
   }
 
   function renderTrace(trace, traces, options) {
@@ -311,22 +756,71 @@
     timerIds = [];
     queuedUpdate = null;
     animationRunning = false;
-    ['metric-hr', 'metric-pace', 'metric-grade', 'metric-distance', 'metric-latency'].forEach(function (id) { put(id, '—'); });
-    put('guide-pace', '—/km'); put('guide-action', '대기'); put('guide-delivery', '대기');
+    lastRendered = null;
+    lastTopTraceId = null;
+    ['metric-hr', 'metric-pace', 'metric-distance', 'metric-elapsed'].forEach(function (id) { put(id, '—'); });
+    put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —');
+    put('metric-remaining', '남은 거리 —'); put('metric-latency', '판단 —');
+    var hrCard = document.querySelector('.stat-hr');
+    if (hrCard) hrCard.classList.remove('over');
+    put('guide-pace', '—');
+    var action = put('guide-action', '대기');
+    if (action) action.setAttribute('data-action', 'idle');
+    put('guide-delivery', '대기');
+    put('guide-pred', '—'); put('guide-allow', '—');
     put('reason-line', '판단 기록을 기다리고 있습니다.');
-    put('record-count', '0'); put('mae-line', '10분 평균 실차 —');
+    put('record-count', '0'); put('mae-line', '10분 평균 오차 —');
+    var checkLine = document.querySelector('.check-line');
+    if (checkLine) checkLine.textContent = '2분 전 예측 비교 대기';
     clear(byId('record-list')); clear(byId('candidate-list')); clear(byId('hr-chart'));
+    put('candidate-meta', 'GRU가 예측한 2분 뒤 심박');
+    groupBoard(null);
+    setLabels(false);
+    var fromEl = byId('guide-from');
+    if (fromEl) fromEl.classList.add('hidden');
+    var guideEl = document.querySelector('.guide-card');
+    if (guideEl) guideEl.classList.remove('has-from');
     setBanner(null);
+    setWaiting(true);
     renderSnapshot(snapshot || {});
   }
 
   function setZoom(value) {
     zoomEnabled = !!value;
-    var traces = root.__demoState && root.__demoState.traces || [];
-    if (traces.length) drawChart(traces[traces.length - 1]);
+    if (lastRendered) drawChart(lastRendered.trace, lastRendered.traces);
+  }
+
+  // 그래프·지도는 그릴 때의 픽셀 크기로 좌표를 잡는다. 칸 크기가 바뀌면(프로젝터 전환·전체 화면·창 크기)
+  // 다음 판단을 기다리지 않고 한 프레임 안에 다시 그린다.
+  var redrawFrame = null;
+  function redrawSized() {
+    if (redrawFrame) return;
+    redrawFrame = (root.requestAnimationFrame || setTimeout)(function () {
+      redrawFrame = null;
+      drawChart(lastRendered && lastRendered.trace, lastRendered && lastRendered.traces);
+      drawCourse(latestSnapshot && latestSnapshot.course, lastRendered && lastRendered.trace);
+    });
+  }
+  root.addEventListener('resize', redrawSized);
+  if (typeof root.ResizeObserver === 'function') {
+    var sizes = new WeakMap();
+    var observer = new root.ResizeObserver(function (entries) {
+      var changed = entries.some(function (entry) {
+        var box = entry.contentRect;
+        var key = Math.round(box.width) + 'x' + Math.round(box.height);
+        if (sizes.get(entry.target) === key) return false;
+        sizes.set(entry.target, key);
+        return true;
+      });
+      if (changed) redrawSized();
+    });
+    ['.chart-wrap', '.map-wrap', '.elev-wrap'].forEach(function (selector) {
+      var node = document.querySelector(selector);
+      if (node) observer.observe(node);
+    });
   }
 
   root.RunwayDemoRender = {setHeader: setHeader, setStage: setStage, setBanner: setBanner,
     setConnection: setConnection, renderSnapshot: renderSnapshot, renderTrace: renderTrace,
-    updateCourse: updateCourse, reset: reset, setZoom: setZoom};
+    updateCourse: updateCourse, reset: reset, setZoom: setZoom, setWaiting: setWaiting};
 }(window));

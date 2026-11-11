@@ -5,10 +5,13 @@ import com.runway.backend.domain.course.dto.request.BookmarkCourseRequest;
 import com.runway.backend.domain.course.dto.request.GradeSegment;
 import com.runway.backend.domain.course.dto.request.GeneratedCourseSaveCommand;
 import com.runway.backend.domain.course.dto.request.SaveGeneratedCourseRequest;
+import com.runway.backend.domain.course.basemap.CourseBasemapRepository;
 import com.runway.backend.domain.course.dto.response.BookmarkCourseResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseItemResponse;
 import com.runway.backend.domain.course.dto.response.BookmarkedCourseListResponse;
+import com.runway.backend.domain.course.dto.response.CourseBasemapResponse;
 import com.runway.backend.domain.course.dto.response.CourseDetailResponse;
+import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.course.dto.response.GeneratedCourseSaveResult;
 import com.runway.backend.domain.course.dto.response.SaveGeneratedCourseResponse;
 import com.runway.backend.domain.course.dto.response.UnbookmarkCourseResponse;
@@ -59,6 +62,7 @@ public class CourseService {
     private final JsonMapper jsonMapper;
     private final CourseCandidateSigner candidateSigner;
     private final ApplicationEventPublisher eventPublisher;
+    private final CourseBasemapRepository courseBasemapRepository;
 
     @Transactional(readOnly = true)
     public CourseDetailResponse getDetail(long userId, long courseId, Double targetPaceSecPerKm) {
@@ -87,7 +91,27 @@ public class CourseService {
                 environmentTags,
                 estimatedDurationSec,
                 course.status(),
-                course.mergedIntoCourseId());
+                course.mergedIntoCourseId(),
+                findBasemap(courseId));
+    }
+
+    /** 저장된 썸네일. 생성 전·실패한 코스, 범위 밖이라 이미지가 없는 코스는 null이다(상세 조회는 실패시키지 않음). */
+    private CourseBasemapResponse findBasemap(long courseId) {
+        return courseBasemapRepository
+                .find(courseId)
+                .map(
+                        stored -> {
+                            String imageUrl = ImageService.publicUrlFromKey(stored.imageKey());
+                            if (imageUrl == null) {
+                                return null;
+                            }
+                            return new CourseBasemapResponse(
+                                    imageUrl,
+                                    stored.osmDataTimestamp() == null
+                                            ? null
+                                            : stored.osmDataTimestamp().toString());
+                        })
+                .orElse(null);
     }
 
     /**

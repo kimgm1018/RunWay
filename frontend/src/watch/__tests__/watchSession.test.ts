@@ -187,7 +187,30 @@ test('sendGroupStatus relays G10 values unchanged and drops non-finite numbers',
     updatedAt: '2026-11-09T01:05:00Z',
     rankedCount: 2,
     paceChanged: { from: 360, to: 370 },
+    gapWidened: null,
   });
+});
+
+test('sendGroupStatus relays the host gap notice and sends null without one', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const base = {
+    groupRunId: '77',
+    phase: 'RUNNING' as const,
+    guidePaceSecPerKm: 370,
+    standing: null,
+    stale: false,
+    leaderToLastGapM: 160,
+    updatedAt: '2026-11-09T01:05:00Z',
+    rankedCount: 2,
+  };
+
+  await watch.sendGroupStatus!('201', { ...base, gapWidened: { gapM: 160.4, memberName: '민수 "A"', isNew: true } });
+  await watch.sendGroupStatus!('201', { ...base, gapWidened: { gapM: Number.NaN, memberName: null, isNew: true } });
+  await watch.sendGroupStatus!('201', base);
+
+  expect(JSON.parse(native.send.mock.calls[0][3]).gapWidened).toEqual({ gapM: 160, memberName: '민수 "A"', isNew: true });
+  expect(JSON.parse(native.send.mock.calls[1][3]).gapWidened).toBeNull();
+  expect(JSON.parse(native.send.mock.calls[2][3]).gapWidened).toBeNull();
 });
 
 test('sendGroupStatus sends paceChanged as null when the phone saw no change', async () => {
@@ -490,6 +513,7 @@ test('sendServerState carries BPM, commands with the coaching guide, server time
     serverReceiveAt: '2026-10-28T01:01:00Z',
     serverSendAt: '2026-10-28T01:01:00.010Z',
     comparison: null,
+    analysis: { status: 'PENDING', summary: null },
   });
 });
 
@@ -522,6 +546,48 @@ test('sendServerState passes the S02 record comparison to the watch as it is (S1
   expect(payload.comparison).toEqual(comparison);
 });
 
+// S15P31E105-663: 분석 상태는 S02 값 그대로, 요약은 READY일 때만 H02 값 그대로 옮긴다.
+test('sendServerState carries the analysis status, and the H02 summary only when READY (S15P31E105-663)', async () => {
+  const watch = load().createNativeWatchSession({ emitter: emitter() });
+  const view = {
+    sessionId: '201',
+    controlDeviceId: '101',
+    relayDeviceId: '102',
+    state: 'COMPLETED' as const,
+    stateVersion: 4,
+    startedAt: '2026-10-28T01:00:01Z',
+    endedAt: '2026-10-28T01:30:01Z',
+    recordingMode: 'WATCH' as const,
+    pendingCommand: null,
+    lastCommand: null,
+  };
+  const summary = {
+    distanceM: 5012,
+    movingDurationSec: 1800,
+    averagePaceSecPerKm: 359,
+    averageHeartRate: 151,
+    goalAchieved: true,
+  };
+
+  await watch.sendServerState('201', { ...view, analysisStatus: 'READY' }, null, summary);
+  await watch.sendServerState('201', { ...view, analysisStatus: 'PROCESSING' }, null, summary);
+  await watch.sendServerState('201', { ...view, analysisStatus: 'READY' }, null, {
+    ...summary,
+    averageHeartRate: null,
+    goalAchieved: null,
+  });
+
+  const analysis = (index: number) => JSON.parse(native.send.mock.calls[index][3]).analysis;
+  expect(analysis(0)).toEqual({ status: 'READY', summary });
+  // READY가 아니면 요약이 와도 보내지 않는다.
+  expect(analysis(1)).toEqual({ status: 'PROCESSING', summary: null });
+  // 없는 값은 null 그대로이고 만들어 채우지 않는다.
+  expect(analysis(2)).toEqual({
+    status: 'READY',
+    summary: { ...summary, averageHeartRate: null, goalAchieved: null },
+  });
+});
+
 // 폰 인계(S15P31E105-464): 수신 차단은 저장 확인이 없는 batch 이벤트를 돌려주고, 위치 유형은 켤 때만 전달한다.
 test('blockBatches returns the frozen batches; setRunActive passes the location type', async () => {
   const extra = native as unknown as Record<string, jest.Mock>;
@@ -543,4 +609,32 @@ test('blockBatches returns the frozen batches; setRunActive passes the location 
   await watch.setRunActive(true, '201', { location: true });
   await watch.setRunActive(false, undefined, { location: true });
   expect(native.setRunActive.mock.calls).toEqual([[true, '201', true], [false, null, false]]);
+});
+
+test('LIVE_METRICS reach the listener as display values without an inbox ack (S15P31E105-549)', async () => {
+  const events = emitter();
+  const watch = load().createNativeWatchSession({ emitter: events });
+  const received: WatchSessionEvent[] = [];
+  watch.subscribe(event => received.push(event));
+  await flush();
+
+  events.fire({
+    type: 'LIVE_METRICS',
+    sessionId: '201',
+    payload: { measuredAt: '2026-11-10T01:00:05Z', paceSecPerKm: 360, heartRateBpm: null, cadenceSpm: 170, distanceM: 1234.5, activeSec: 'x' },
+  });
+
+  expect(received).toEqual([
+    {
+      type: 'LIVE_METRICS',
+      sessionId: '201',
+      measuredAt: '2026-11-10T01:00:05Z',
+      paceSecPerKm: 360,
+      heartRateBpm: null,
+      cadenceSpm: 170,
+      distanceM: 1234.5,
+      activeSec: null,
+    },
+  ]);
+  expect(native.ackInbox).not.toHaveBeenCalled();
 });

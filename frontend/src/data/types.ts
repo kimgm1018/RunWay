@@ -29,6 +29,28 @@ export type TodayCondition = {
   aiAdvice: string | null;
   // 2.P′ 오래된 데이터: when the last score was made.
   lastAssessedDate: string | null;
+  // S15P31E105-594 2.1 준비도 (담당자 시안): the score day's training load (TRIMP). Null without one.
+  trainingLoad?: TrainingLoad | null;
+  // The formula's item scores (readiness-formula 3~5절) behind the score; null until R02 sends them.
+  scoreFactors?: ScoreFactors | null;
+};
+
+export type TrainingLoad = {
+  // D-6~D sum and the usual week (28 days, readiness-formula 7.2); usual is null without history.
+  weekly: number;
+  usual: number | null;
+  // D-6~D oldest first. load is null on a day with no exercise (not 0, which is exercise below Zone 1). The whole
+  // list is null until R02 sends it.
+  days: { date: string; load: number | null }[] | null;
+};
+
+export type ScoreFactors = {
+  // S, R, L (0–100, two decimals); null when the item was left out (readiness-formula 7.3).
+  sleep: number | null;
+  recovery: number | null;
+  load: number | null;
+  // R's today-against-usual resting heart rate change, in percent.
+  restingHrChangePct: number | null;
 };
 
 // 2.1 러닝 분석 card.
@@ -97,8 +119,15 @@ export type RunSplit = {
 export type RunRecordDetail = RunRecordSummary & {
   // [longitude, latitude] points; null for a run recorded without location.
   route: [number, number][] | null;
+  // The run's measured route (S11, S15P31E105-549) in parts split where the source changed or the position was
+  // lost; no line joins the parts. null when nothing measured was kept.
+  routeParts: [number, number][][] | null;
+  // H02 targetDistanceM; null when the run had no distance goal (S15P31E105-638).
+  targetDistanceM: number | null;
   targetDurationSec: number | null;
   targetPaceSecPerKm: number | null;
+  // H02 averageHeartRate (bpm, rounded); null when the run measured no heart rate (S15P31E105-615).
+  averageHeartRate: number | null;
   aiAdvice: string | null;
   splits: RunSplit[];
   // The planned course, if the run followed one.
@@ -129,6 +158,9 @@ export type PaceTrend = {
   changeSecPerKm: number | null;
 };
 
+// C03·C09 courses.status. Only ACTIVE is runnable for a new start (SYS-002).
+export type CourseStatus = 'ACTIVE' | 'MERGED' | 'BLOCKED';
+
 export type SavedCourse = {
   id: string;
   name: string;
@@ -139,6 +171,25 @@ export type SavedCourse = {
   shape: [number, number][];
   // The course as GeoJSON [longitude, latitude] points (C03 route), for the card's map (S15P31E105-562).
   route: [number, number][];
+  // C09·C03 status. Missing on older mocks means ACTIVE.
+  status?: CourseStatus;
+  // C09·C03: set when status is MERGED so the representative course can be named.
+  mergedIntoCourseId?: string | null;
+  // The course's map thumbnail (C03 basemap, S15P31E105-612); null or left out draws the outline only.
+  basemap?: CourseBasemap | null;
+};
+
+// C03 basemap (S15P31E105-612): a server-rendered 600×900 (2:3) PNG of the flat OpenStreetMap map round a course with
+// the course already drawn on it, its course centred at (0.5, 0.30) of the image, the longer side about 0.42 of its
+// width. `imageUrl` is ready to load (a relative path is made whole); `osmDataTimestamp` is when the OSM data was cut.
+export type CourseBasemap = {
+  imageUrl: string;
+  osmDataTimestamp: string | null;
+};
+// A course's points with its basemap, for a card that asks for them (7.4 기록 카드).
+export type CourseMapData = {
+  route: [number, number][];
+  basemap: CourseBasemap | null;
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
@@ -238,8 +289,14 @@ export type PostRecord = RunRecordSummary & {
   cadence: number | null;
 };
 
-// The community name is a handle like seoyun.run; the avatar shows the first letter of the nickname.
-export type PostAuthor = { userId: string; handle: string; nickname: string };
+// The community name is a handle like seoyun.run; the avatar shows the runner's photo (profileImageUrl),
+// or the first letter of the nickname without one.
+export type PostAuthor = {
+  userId: string;
+  handle: string;
+  nickname: string;
+  profileImageUrl?: string | null;
+};
 
 export type Post = {
   id: string;
@@ -249,7 +306,7 @@ export type Post = {
   record: PostRecord;
   courseShared: boolean;
   createdAt: string;
-  // null when the server does not count them yet (CMT02·CMT03); the screens then leave the number out.
+  // CMT02·CMT03 reactionCount and commentCount; null leaves the number out (an older server).
   likeCount: number | null;
   liked: boolean;
   commentCount: number | null;
@@ -258,18 +315,32 @@ export type Post = {
 
 export type PostComment = {
   id: string;
-  author: PostAuthor;
+  // The root comment a reply sits under (CMT06 parentCommentId); null for a root comment. Replies go one level deep.
+  parentId: string | null;
+  // A deleted root kept in place for its replies (S15P31E105-633): it has no author or text, shows as
+  // '삭제된 댓글입니다' and is never counted.
+  deleted: boolean;
+  // null only on a deleted root.
+  author: PostAuthor | null;
   // Mine shows 7.2's 댓글 수정·삭제 menu (CMT08·CMT09).
   isMine: boolean;
   body: string;
   createdAt: string;
+  // CMT06 reactionCount and myReaction === 'LIKE' (CMT14 · CMT15).
   likeCount: number;
   liked: boolean;
 };
 
+// What CMT14 · CMT15 answer: the comment's like count (null when the server leaves it out) and my like after
+// the change.
+export type CommentLike = { likeCount: number | null; liked: boolean };
+
 export type PostDetail = Post & { comments: PostComment[] };
 
 export type FeedScope = 'ALL' | 'FOLLOWING';
+
+// One page of posts (CMT02 · CMT18 · CMT19, S15P31E105-647); nextCursor is null on the last page.
+export type PostPage = { items: Post[]; nextCursor: string | null };
 
 // 7.3 기록 공유 and 7.3e 게시물 수정.
 export type PostDraft = { body: string | null; courseShared: boolean };
@@ -344,10 +415,12 @@ export type AppNotification = {
   targetId: string;
 };
 
-// N01: the newest page of the inbox and the unread count across all of it.
+// N01: one page of the inbox and the unread count across all of it.
 export type NotificationList = {
   items: AppNotification[];
   unreadCount: number;
+  // Null on the last page (N01 nextCursor / hasNext).
+  nextCursor: string | null;
 };
 
 export type GpsQuality = 'good' | 'weak' | 'none';
@@ -355,19 +428,21 @@ export type GpsQuality = 'good' | 'weak' | 'none';
 export type CurrentPlace = {
   name: string;
   gps: GpsQuality;
-  // [longitude, latitude] as in GeoJSON.
-  position: [number, number];
+  // [longitude, latitude] as in GeoJSON; null when the phone could not find where it is (no permission, location
+  // off or no fix), and then gps is 'none' (S15P31E105-635).
+  position: [number, number] | null;
 };
 
-// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each.
+// 2.0 코스 러닝: the course split into 1km segments with a recommended pace each. The server has no pace plan yet,
+// so a server course leaves segmentPacesSecPerKm empty and strategy and targetPaceSecPerKm null (S15P31E105-635).
 export type CoursePlan = {
   courseId: string;
   name: string;
   distanceM: number;
   route: [number, number][];
   segmentPacesSecPerKm: number[];
-  strategy: string;
-  targetPaceSecPerKm: number;
+  strategy: string | null;
+  targetPaceSecPerKm: number | null;
   expectedDurationSec: number;
   caution: string | null;
 };
@@ -417,6 +492,8 @@ export type SavedRunRecord = {
     averagePaceSecPerKm: number | null;
     averageHeartRate: number | null;
     averageCadence: number | null;
+    // H02 goalAchieved after save; null when the run had no goal (S15P31E105-638).
+    goalAchieved: boolean | null;
   } | null;
 };
 
@@ -596,6 +673,8 @@ export type GroupRunLive = {
     // G10 앞·뒤 인원(S15P31E105-420 워치 전달). 서버가 주지 않으면 null.
     aheadCount?: number | null;
     behindCount?: number | null;
+    // G07 참가자 isHost. 그룹장 폰만 간격 벌어짐 알림을 보낸다(S15P31E105-629). 모르면 없음.
+    isHost?: boolean;
   }[];
   // G10 updatedAt. 워치가 늦게 온 현황을 구분하는 기준이다(S15P31E105-420).
   updatedAt?: string | null;
@@ -701,6 +780,8 @@ export type MusicState = {
   library: MusicLibrary | null;
   // Spotify plays chosen tracks only with Premium (2.7S).
   premium: boolean;
+  // Android: the Spotify account RunWay connected through the Spotify app, shown in 2.8 (S15P31E105-573).
+  spotifyAccount?: string;
 };
 
 // U01 로그인 · U15 회원가입 response.
@@ -747,7 +828,7 @@ export type LoginIdAvailability = {
   reason: 'DUPLICATED' | null;
 };
 
-// U28·U29 휴대전화 인증 (users.md), used by 1.3 회원가입 and 1.2q 전화번호로 찾기.
+// U28·U29 휴대전화 인증 (users.md), used by 1.3 회원가입 and 1.2q 비밀번호 찾기.
 export type PhoneVerificationPurpose = 'SIGN_UP' | 'PASSWORD_RESET';
 
 export type PhoneCodeRequest = {
@@ -787,7 +868,18 @@ export type RunningProfileChange = {
   pace?: PaceEntry;
 };
 
-export type WatchLinkState = 'connected' | 'denied' | 'disconnected';
+export type WatchLinkState =
+  | 'connected'
+  | 'denied'
+  | 'disconnected'
+  | 'unknown';
+
+export type WatchReadinessReason =
+  | 'APP_MISSING_OR_OUTDATED'
+  | 'NO_RESPONSE'
+  | 'HEART_RATE_PERMISSION'
+  | 'ACTIVITY_PERMISSION'
+  | 'UNKNOWN';
 
 // Read from the watch on the phone, not from the server.
 export type WatchConnection = {
@@ -796,6 +888,10 @@ export type WatchConnection = {
   deviceName: string;
   lastSyncedAt: string | null;
   batteryPercent: number | null;
+  // Live app/permission evidence; transport connectivity alone does not mean ready.
+  readinessReasons?: WatchReadinessReason[];
+  // W02 registration is independent of the OS transport; W03 must survive a later status read.
+  registrationStatus?: 'registered' | 'unregistered' | 'unknown';
   permissions: Record<
     'heartRate' | 'location' | 'sleep' | 'activity',
     WatchLinkState
@@ -869,6 +965,9 @@ export type SessionCommand = {
   coachingGuide?: CoachingGuide | null;
 };
 
+// AI04 코칭 단계(sessions.md coaching 객체 coachingLevel, S15P31E105-503).
+export type CoachingLevel = 'OK' | 'CAUTION' | 'DANGER';
+
 // S02 coaching 객체 = COACHING_GUIDE payload (sessions.md "coaching 객체 필드", 9.3).
 export type CoachingGuide = {
   commandId: string;
@@ -877,6 +976,8 @@ export type CoachingGuide = {
   targetBpm: number;
   recommendedPaceSecPerKm: number;
   expiresAt: string;
+  // 앱의 음성 안내만 쓴다(S15P31E105-579). 워치 COACHING_GUIDE payload에는 넣지 않는다. 저장된 값이 없으면 null.
+  coachingLevel?: CoachingLevel | null;
 };
 
 // S02 comparison 객체(sessions.md "기록 비교", S15P31E105-422). 서버가 계산한 같은 거리 도달 운동시간이며 앱·워치는 다시 계산하지 않는다.
@@ -918,6 +1019,18 @@ export type RunningSessionView = {
   serverSendAt?: string | null;
   // S02 groupEndedAt: 종료된 그룹런의 종료 기준시각. 개인런·진행 중 그룹런은 null(S15P31E105-420).
   groupEndedAt?: string | null;
+  // 서버가 serverSendAt 기준으로 계산한 일시정지 제외 운동시간(초, S15P31E105-643). 시작 전이거나 서버가 아직 주지
+  // 않으면 null이고, 앱은 화면 시계로 센다(S15P31E105-528).
+  movingDurationSec?: number | null;
+};
+
+// STATE_RESULT analysis.summary(S15P31E105-663): H02 값을 그대로 옮긴다. 폰·워치는 계산하지 않는다.
+export type WatchResultSummary = {
+  distanceM: number | null;
+  movingDurationSec: number | null;
+  averagePaceSecPerKm: number | null;
+  averageHeartRate: number | null;
+  goalAchieved: boolean | null;
 };
 
 // GROUP_STATUS payload(9.3, S15P31E105-420): G10 현황 중 워치 화면에 쓰는 값. 폰은 옮기기만 하고 계산하지 않는다.
@@ -939,6 +1052,9 @@ export type WatchGroupStatus = {
   rankedCount: number | null;
   // 폰이 연속 조회에서 본 공동 페이스 변경(S15P31E105-604). 워치는 이 값이 있을 때만 알림·진동한다. 없으면 null.
   paceChanged?: { from: number; to: number } | null;
+  // 그룹장 폰이 본 선두–후미 간격 벌어짐(S15P31E105-629). 기준을 넘은 뒤 다시 내려오기 전까지 매번 넣고,
+  // 넘은 순간의 현황에만 isNew=true다. 워치는 isNew일 때만 진동한다. 그룹장이 아니거나 벌어지지 않았으면 null.
+  gapWidened?: { gapM: number; memberName: string | null; isNew: boolean } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
@@ -1034,6 +1150,17 @@ export type WatchSessionEvent =
       scope: 'WATCH' | 'SERVER';
       clientSendAt: string | null;
     }
+  // 워치 화면 표시값(S15P31E105-549 LIVE_METRICS). 표시 전용이며 저장·업로드·ACK하지 않는다. 측정하지 않은 값은 null.
+  | {
+      type: 'LIVE_METRICS';
+      sessionId: string;
+      measuredAt: string | null;
+      paceSecPerKm: number | null;
+      heartRateBpm: number | null;
+      cadenceSpm: number | null;
+      distanceM: number | null;
+      activeSec: number | null;
+    }
   // 워치 측정 batch(S15P31E105-311). body는 워치가 해시한 W07 본문 원문이며 그대로 업로드한다(값을 로그에 남기지 않는다).
   | {
       type: 'BATCH_DATA';
@@ -1084,7 +1211,8 @@ export type SearchRequest = {
 // Up to 20 of each kind per page. A kind not asked for, or used up, is an empty list.
 // cursor is null when nothing more is left.
 export type SearchPage = {
-  runners: { userId: string; nickname: string }[];
+  // profileImageUrl: the runner's photo address, or null without one.
+  runners: { userId: string; nickname: string; profileImageUrl: string | null }[];
   crews: { crewId: string; name: string }[];
   cursor: string | null;
 };
@@ -1139,6 +1267,8 @@ export type Repositories = {
   };
   home: {
     getTodayCondition: () => Promise<TodayCondition>;
+    // 2.1 준비도 on a past day (S15P31E105-594); null when that day has no score.
+    getConditionOn: (day: string) => Promise<TodayCondition | null>;
     getMonthlySummary: () => Promise<MonthlyRunSummary>;
   };
   records: {
@@ -1147,6 +1277,8 @@ export type Repositories = {
     // month is YYYY-MM.
     getMonth: (month: string, filter: RecordFilter) => Promise<RecordMonth>;
     getDetail: (recordId: string) => Promise<RunRecordDetail>;
+    // H02 요약만 가볍게 읽는다. 종료 직후 워치 결과 화면에 옮길 값이라 구간·경로는 읽지 않는다(S15P31E105-663).
+    getResultSummary: (recordId: string) => Promise<WatchResultSummary>;
     // baseDate is any day (YYYY-MM-DD) inside the period.
     getStatistics: (
       period: AnalysisPeriod,
@@ -1160,8 +1292,9 @@ export type Repositories = {
   };
   courses: {
     getSaved: () => Promise<SavedCourse[]>;
-    // 2.0's plan for the course picked last with choose(); a default course until then.
-    getTodayPlan: () => Promise<CoursePlan>;
+    // 2.0's plan for the course picked last with choose(). The server version answers null until a course is
+    // picked (and after the app restarts); the mock keeps a default course for the prototype.
+    getTodayPlan: () => Promise<CoursePlan | null>;
     getPreferences: () => Promise<RecommendationPreferences>;
     savePreferences: (
       value: RecommendationPreferences,
@@ -1256,22 +1389,43 @@ export type Repositories = {
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
   };
   community: {
-    listFeed: (scope: FeedScope) => Promise<Post[]>;
+    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page).
+    listFeed: (scope: FeedScope, cursor?: string | null) => Promise<PostPage>;
+    // CMT02 by authorId: one runner's posts, 20 a page.
+    listAuthorPosts: (
+      userId: string,
+      cursor?: string | null,
+    ) => Promise<PostPage>;
+    // CMT18 내 스크랩 · CMT19 내 좋아요, newest first, 20 a page.
+    listMyBookmarks: (cursor?: string | null) => Promise<PostPage>;
+    listMyLikes: (cursor?: string | null) => Promise<PostPage>;
     get: (postId: string) => Promise<PostDetail>;
     // The shared course's points for the post on screen in 7.1, drawn on the real map (C03 by the post's course,
-    // S15P31E105-521); null without a course or when it cannot be read.
-    getRoute: (postId: string) => Promise<[number, number][] | null>;
+    // S15P31E105-521), with its map thumbnail for the 7.4 card (S15P31E105-612); null without a course or when it
+    // cannot be read.
+    getRoute: (postId: string) => Promise<CourseMapData | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
     create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
     update: (postId: string, draft: PostDraft) => Promise<void>;
     remove: (postId: string) => Promise<void>;
     setLiked: (postId: string, liked: boolean) => Promise<void>;
+    // CMT16 스크랩 · CMT17 취소.
     setBookmarked: (postId: string, bookmarked: boolean) => Promise<void>;
-    addComment: (postId: string, body: string) => Promise<PostComment>;
+    // CMT07; parentId answers that root comment (parentCommentId).
+    addComment: (
+      postId: string,
+      body: string,
+      parentId?: string | null,
+    ) => Promise<PostComment>;
     // CMT08 · CMT09 on one of my comments; updateComment answers with the saved text.
     updateComment: (commentId: string, body: string) => Promise<string>;
     removeComment: (commentId: string) => Promise<void>;
+    // CMT14 좋아요 · CMT15 취소 on a comment.
+    setCommentLiked: (
+      commentId: string,
+      liked: boolean,
+    ) => Promise<CommentLike>;
   };
   // 7.4 · 7.4b (U21–U23). userId null is me.
   runners: {
@@ -1298,7 +1452,8 @@ export type Repositories = {
     find: (request: SearchRequest) => Promise<SearchPage>;
   };
   notifications: {
-    list: () => Promise<NotificationList>;
+    // N01: cursor null/omitted reads the newest page (limit 50).
+    list: (cursor?: string | null) => Promise<NotificationList>;
     markAllRead: () => Promise<void>;
   };
   run: {
@@ -1449,10 +1604,18 @@ export type Repositories = {
     // G12 그룹 종료로 서버가 승인한 개인 END를 SERVER_END로 전달만 한다(9.3, S15P31E105-420).
     sendServerEnd?: (
       sessionId: string,
-      end: { commandId: string; expectedVersion: number; endedAt: string; reason: string },
+      end: {
+        commandId: string;
+        expectedVersion: number;
+        endedAt: string;
+        reason: string;
+      },
     ) => Promise<void>;
     // G10 현황을 GROUP_STATUS로 전달만 한다(9.3, S15P31E105-420).
-    sendGroupStatus?: (sessionId: string, status: WatchGroupStatus) => Promise<void>;
+    sendGroupStatus?: (
+      sessionId: string,
+      status: WatchGroupStatus,
+    ) => Promise<void>;
     // SET_BPM 승인 명령을 COMMAND_REQUEST(APPLY)로 전달만 한다.
     sendBpmCommand: (sessionId: string, approval: BpmApproval) => Promise<void>;
     // COACHING_GUIDE. 같은 미확정 명령의 결과 확인용 재전달에도 쓴다.
@@ -1461,10 +1624,12 @@ export type Repositories = {
       guide: CoachingGuide,
     ) => Promise<void>;
     // STATE_RESULT(scope=SERVER). clientSendAt은 워치 STATE_QUERY의 값, 서버 스냅샷 전달이면 null.
+    // summary는 분석이 READY일 때만 H02에서 읽어 옮기는 요약이며, 없으면 null(S15P31E105-663).
     sendServerState: (
       sessionId: string,
       session: RunningSessionView,
       clientSendAt?: string | null,
+      summary?: WatchResultSummary | null,
     ) => Promise<void>;
     // ERROR: 워치 요청을 처리하지 못한 이유(9.3). 예: 워치 CANCEL에 서버가 COMMAND_PENDING.
     sendError: (

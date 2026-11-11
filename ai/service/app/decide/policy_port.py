@@ -29,10 +29,9 @@ class PolicyInput:
     hr_thresholds: "HrThresholds | None" = None
     # 러너의 실측 속도로 2분을 달린다고 본 예측 심박(30/60/120초). 코칭 단계 판정용, 끄면 None(S15P31E105-504).
     actual_pred_hr_bpm: tuple[float, float, float] | None = None
-    # 넘친 만큼 늦추기·빨라지기용으로 AI가 안에서 덧붙여 예측한 페이스(S15P31E105-506). 폭 오름차순.
-    # 느린 쪽은 max(안내, 실측 페이스) + 폭, 빠른 쪽은 안내 − 폭. delta_sec_per_km는 안내(anchor) 기준.
-    extra_slow: tuple["PolicyCandidate", ...] = ()
-    extra_fast: tuple["PolicyCandidate", ...] = ()
+    # 러너가 안내보다 느릴 때 max(안내, 실측 페이스) + (10, 20, 30, 45, 60)초/km 페이스(같은 GRU 호출로 예측).
+    # 있으면 감속 후보는 요청 후보 대신 이 행을 쓴다(S15P31E105-624 수정 1). delta_sec_per_km는 안내 기준.
+    slow_rows: tuple["PolicyCandidate", ...] = ()
 
 
 @dataclass(frozen=True)

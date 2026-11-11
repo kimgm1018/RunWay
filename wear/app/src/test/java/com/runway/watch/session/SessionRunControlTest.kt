@@ -1,9 +1,14 @@
 package com.runway.watch.session
 
 import com.runway.watch.run.AnalysisStatus
+import com.runway.watch.run.GoalEvaluation
+import com.runway.watch.run.HeartRate
+import com.runway.watch.run.RunSummary
 import com.runway.watch.run.BpmChange
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
+import com.runway.watch.run.ControlProblem
+import com.runway.watch.run.ControlProblemKind
 import com.runway.watch.run.RecordComparison
 import com.runway.watch.run.CoachingGuide
 import com.runway.watch.run.RhythmBpm
@@ -94,6 +99,17 @@ class SessionRunControlTest {
         assertFalse(control.snapshot.value.pendingCommand)
         assertNull(control.snapshot.value.pendingIntent)
         assertEquals("휴대폰에서 처리하지 못했어요", control.snapshot.value.notice)
+        // The screens also get which request the phone refused (S15P31E105-613).
+        assertEquals(ControlProblem(ControlProblemKind.REFUSED, RunIntent.CANCEL), control.snapshot.value.problem)
+        assertEquals(
+            ControlProblem(ControlProblemKind.UNCONFIRMED, RunIntent.PAUSE),
+            SessionRunControl.problem(WatchSessionState(problem = WatchProblem.Unconfirmed("PAUSE"))),
+        )
+        assertEquals(
+            ControlProblem(ControlProblemKind.REJECTED, RunIntent.START),
+            SessionRunControl.problem(WatchSessionState(problem = WatchProblem.Rejected("START", null))),
+        )
+        assertNull(SessionRunControl.problem(WatchSessionState(problem = WatchProblem.PhoneUnreachable)))
         assertEquals(RunState.READY, control.snapshot.value.state)
 
         control.send(RunIntent.CANCEL)
@@ -241,5 +257,87 @@ class SessionRunControlTest {
         startedRun()
         controller.onMessage(message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"WATCH","state":"RUNNING","stateVersion":2,"currentBpm":null}"""))
         assertEquals(RecordComparison.NotSelected, control.snapshot.value.comparison)
+    }
+
+    // ── S15P31E105-663: 종료 뒤 서버 분석 상태·요약이 결과 화면에 그대로 반영된다.
+    private suspend fun endedRun() {
+        startedRun()
+        control.send(RunIntent.END)
+        controller.onMessage(message("COMMAND_REQUEST", """{"phase":"APPLY","commandId":502,"action":"END","expectedVersion":2,"targetBpm":null,"coachingId":null}"""))
+        controller.onMessage(message("COMMAND_RECEIVED", """{"commandId":502,"persisted":true,"stateVersion":3}"""))
+    }
+
+    private suspend fun completedWith(analysis: String?, version: Long = 3) {
+        val field = if (analysis == null) "" else ""","analysis":$analysis"""
+        controller.onMessage(
+            message("STATE_RESULT", """{"scope":"SERVER","recordingMode":"WATCH","state":"COMPLETED","stateVersion":$version,"currentBpm":null$field}"""),
+        )
+    }
+
+    @Test
+    fun `an ended run waits for analysis until the server says otherwise, with no values`() = runBlocking {
+        endedRun()
+        val result = control.snapshot.value.result!!
+        assertEquals(SaveStatus.SAVED, result.save)
+        assertEquals(AnalysisStatus.PENDING, result.analysis)
+        assertNull(result.summary)
+    }
+
+    @Test
+    fun `the analysis status follows the server and READY brings the H02 summary (S15P31E105-663)`() = runBlocking {
+        endedRun()
+        completedWith("""{"status":"PROCESSING","summary":null}""")
+        assertEquals(AnalysisStatus.PROCESSING, control.snapshot.value.result!!.analysis)
+        assertNull(control.snapshot.value.result!!.summary)
+
+        // 같은 stateVersion으로 다시 와도 갱신한다.
+        completedWith(
+            """{"status":"READY","summary":{"distanceM":5012.5,"movingDurationSec":1800,"averagePaceSecPerKm":358.6,"averageHeartRate":151,"goalAchieved":true}}""",
+        )
+        val result = control.snapshot.value.result!!
+        assertEquals(AnalysisStatus.READY, result.analysis)
+        assertEquals(
+            RunSummary(distanceMeters = 5012.5, elapsedMs = 1_800_000, averagePaceSecondsPerKm = 359, averageHeartRate = HeartRate(151)),
+            result.summary,
+        )
+        assertEquals(GoalEvaluation(true), result.goal)
+    }
+
+    @Test
+    fun `a failed analysis shows as failed and READY without values keeps them missing`() = runBlocking {
+        endedRun()
+        completedWith("""{"status":"FAILED","summary":null}""")
+        assertEquals(AnalysisStatus.FAILED, control.snapshot.value.result!!.analysis)
+
+        completedWith("""{"status":"READY","summary":null}""")
+        val result = control.snapshot.value.result!!
+        assertEquals(AnalysisStatus.READY, result.analysis)
+        assertNull(result.summary)
+        assertNull(result.goal)
+    }
+
+    @Test
+    fun `missing or invalid summary values stay missing instead of being made up`() = runBlocking {
+        endedRun()
+        completedWith(
+            """{"status":"READY","summary":{"distanceM":-3,"movingDurationSec":null,"averagePaceSecPerKm":0,"averageHeartRate":null,"goalAchieved":null}}""",
+        )
+        val result = control.snapshot.value.result!!
+        assertEquals(RunSummary(), result.summary)
+        assertNull(result.goal)
+    }
+
+    @Test
+    fun `an unknown or legacy analysis status is no analysis, and a snapshot without the field keeps what was known`() = runBlocking {
+        endedRun()
+        completedWith("""{"status":"READY","summary":{"distanceM":1000,"movingDurationSec":300,"averagePaceSecPerKm":300,"averageHeartRate":140,"goalAchieved":false}}""")
+        // 필드가 없는 스냅샷(이전 폰)은 알던 값을 지우지 않는다.
+        completedWith(null)
+        assertEquals(AnalysisStatus.READY, control.snapshot.value.result!!.analysis)
+
+        // 모르는 상태나 LEGACY는 분석 상태 없음으로 보지만 이미 받은 값은 그대로 둔다.
+        completedWith("""{"status":"LEGACY","summary":null}""")
+        completedWith("""{"status":"LATER","summary":null}""")
+        assertEquals(AnalysisStatus.READY, control.snapshot.value.result!!.analysis)
     }
 }

@@ -20,14 +20,20 @@ import { RunMap } from '../../components/RunMap';
 import { PlaceCard, RunStartBar } from './parts';
 import type { RunConfig } from './RunSession';
 import { RunGoalSheet } from './goal/RunGoalSheet';
-import { goalConfig, goalLabel, type RunGoal } from './goal/runGoal';
+import {
+  goalConfig,
+  goalFromSearch,
+  goalLabel,
+  type RunGoal,
+} from './goal/runGoal';
 import { BackButton } from '../../components/BackButton';
+import { useCourseSearch } from '../course/CourseSearch';
 
-const loadCourse = (repositories: Repositories) =>
-  Promise.all([
-    repositories.courses.getTodayPlan(),
-    repositories.run.getCurrentPlace(),
-  ]);
+const loadPlan = (repositories: Repositories) =>
+  repositories.courses.getTodayPlan();
+// Looked up apart from the plan, so a slow or failed GPS fix never holds the course back.
+const loadPlace = (repositories: Repositories) =>
+  repositories.run.getCurrentPlace();
 
 function ChangeLink({ large = false }: { large?: boolean }) {
   const navigation = useNavigation();
@@ -172,12 +178,24 @@ export function CourseRunScreen() {
   const { colors } = useTheme();
   const { clock } = useRepositories();
   const night = isNight(clock.now());
-  const resource = useResource(useCallback(loadCourse, []));
-  const [plan, place] = resource.status === 'ready' ? resource.data : [];
+  const resource = useResource(useCallback(loadPlan, []));
+  const placeResource = useResource(useCallback(loadPlace, []));
+  const plan = resource.status === 'ready' ? resource.data : null;
+  // Loaded, but no course was picked yet (or the app restarted since): 2.0 asks for one (S15P31E105-635).
+  const noCourse = resource.status === 'ready' && !plan;
+  const place =
+    placeResource.status === 'ready' ? placeResource.data : undefined;
   const [comparisonSessionId, setComparison] = useState<string | null>(null);
   // 운동 목표 (S15P31E105-517): the course keeps its distance; 추천 전략 runs the plan's pace, or a time or a pace
-  // of the user's own.
-  const [goal, setGoal] = useState<RunGoal>({ kind: 'PLAN' });
+  // of the user's own. The goal typed on 3.1 comes along with its course (S15P31E105-635); a plan without a pace
+  // of its own starts without one.
+  const { search } = useCourseSearch();
+  const [picked, setGoal] = useState<RunGoal | null>(null);
+  useEffect(() => setGoal(null), [search]);
+  const goal: RunGoal = picked ??
+    goalFromSearch(search) ?? {
+      kind: plan && !plan.targetPaceSecPerKm ? 'NONE' : 'PLAN',
+    };
   const [choosing, setChoosing] = useState(false);
   const [startSignal, setStartSignal] = useState(0);
   const course = plan
@@ -204,10 +222,18 @@ export function CourseRunScreen() {
     />
   ) : null;
 
+  // Without a pace plan the course is one plain line.
+  const paces = plan?.segmentPacesSecPerKm.length
+    ? plan.segmentPacesSecPerKm
+    : undefined;
   const title = plan
     ? `${withoutDistance(plan.name)} ${formatKm(plan.distanceM, 1)}km`
     : '';
-  const top = !plan ? null : night && place ? (
+  const top = noCourse ? (
+    <View style={styles.nightTop}>
+      <BackButton tone={night ? 'dark' : 'light'} onPress={navigation.goBack} />
+    </View>
+  ) : !plan ? null : night && place ? (
     <View style={styles.nightTop}>
       <BackButton tone="dark" onPress={navigation.goBack} />
       <View style={styles.flex}>
@@ -219,18 +245,42 @@ export function CourseRunScreen() {
       <LightGlass radius={31} style={styles.topBar}>
         <BackButton onPress={navigation.goBack} />
         <View style={styles.flex}>
-          <AppText style={styles.kicker}>오늘의 러닝 전략</AppText>
+          <AppText style={styles.kicker}>
+            {plan.strategy ? '오늘의 러닝 전략' : '코스 러닝'}
+          </AppText>
           <AppText style={styles.topTitle} numberOfLines={1}>
             {title}
           </AppText>
         </View>
         <ChangeLink large />
       </LightGlass>
-      <PaceLegend />
+      {paces ? <PaceLegend /> : null}
     </>
   );
 
-  const bottom = !plan ? (
+  const bottom = noCourse ? (
+    <>
+      <View>
+        <AppText style={styles.kickerSheet}>코스 러닝</AppText>
+        <AppText style={styles.strategy} numberOfLines={1} adjustsFontSizeToFit>
+          아직 고른 코스가 없어요
+        </AppText>
+        <AppText style={styles.goal}>
+          코스를 추천받거나 저장한 코스에서 골라 주세요
+        </AppText>
+      </View>
+      <RunStartBar
+        night={night}
+        mode="COURSE"
+        config={null}
+        goal={{
+          label: '코스 설정',
+          title: '코스 설정',
+          onPress: () => navigateTo(navigation, 'TodayRun'),
+        }}
+      />
+    </>
+  ) : !plan ? (
     resource.status === 'error' ? (
       <AppText tone="danger">코스를 불러오지 못했어요</AppText>
     ) : (
@@ -263,20 +313,42 @@ export function CourseRunScreen() {
     </>
   ) : (
     <>
-      <View>
-        <AppText style={styles.kickerSheet}>오늘의 전략</AppText>
-        <AppText style={styles.strategy} numberOfLines={1} adjustsFontSizeToFit>
-          {plan.strategy}
-        </AppText>
-        <AppText style={styles.goal} numberOfLines={1}>
-          {`목표 ${formatPace(plan.targetPaceSecPerKm)} · 예상 ${formatDuration(
-            plan.expectedDurationSec,
-          )}`}
-          {plan.caution ? (
-            <AppText style={styles.caution}>{` · ${plan.caution}`}</AppText>
-          ) : null}
-        </AppText>
-      </View>
+      {plan.strategy ? (
+        <View>
+          <AppText style={styles.kickerSheet}>오늘의 전략</AppText>
+          <AppText
+            style={styles.strategy}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {plan.strategy}
+          </AppText>
+          <AppText style={styles.goal} numberOfLines={1}>
+            {plan.targetPaceSecPerKm
+              ? `목표 ${formatPace(
+                  plan.targetPaceSecPerKm,
+                )} · 예상 ${formatDuration(plan.expectedDurationSec)}`
+              : `예상 ${formatDuration(plan.expectedDurationSec)}`}
+            {plan.caution ? (
+              <AppText style={styles.caution}>{` · ${plan.caution}`}</AppText>
+            ) : null}
+          </AppText>
+        </View>
+      ) : (
+        // A server course has no pace plan yet: only its own figures, no strategy (S15P31E105-635).
+        <View>
+          <AppText style={styles.kickerSheet}>코스 정보</AppText>
+          <AppText
+            style={styles.strategy}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {`${formatKm(plan.distanceM, 1)}km · 예상 ${formatDuration(
+              plan.expectedDurationSec,
+            )}`}
+          </AppText>
+        </View>
+      )}
       {picker}
       <RunStartBar
         night={false}
@@ -294,11 +366,9 @@ export function CourseRunScreen() {
         renderMap={logo => (
           <RunMap
             route={plan?.route}
-            segmentPaces={plan?.segmentPacesSecPerKm}
+            segmentPaces={paces}
             // The km paces are labelled by day; after sunset the course is a plain white line.
-            paceLabels={
-              night ? undefined : plan?.segmentPacesSecPerKm.map(formatPace)
-            }
+            paceLabels={night ? undefined : paces?.map(formatPace)}
             area={{ top: 0.19, bottom: 0.56 }}
             logo={logo}
             view="lean"

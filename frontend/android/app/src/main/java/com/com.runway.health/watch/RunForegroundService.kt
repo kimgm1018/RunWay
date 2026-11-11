@@ -35,13 +35,23 @@ class RunForegroundService : Service() {
     val notification = Notification.Builder(this, CHANNEL_ID)
       .setSmallIcon(applicationInfo.icon)
       .setContentTitle("러닝 중")
-      .setContentText(if (location) "폰에서 기록하고 있어요" else "워치와 기록을 주고받고 있어요")
+      // S15P31E105-549: 워치 기록 중에도 위치 유형을 켜므로 위치 여부로 기록 기기를 말하지 않는다.
+      .setContentText("러닝 기록을 저장하고 있어요")
       .setContentIntent(open)
       .setOngoing(true)
       .build()
-    val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-      (if (location) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
-    startForeground(NOTIFICATION_ID, notification, types)
+    val device = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+    if (location) {
+      try {
+        startForeground(NOTIFICATION_ID, notification, device or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+      } catch (_: Exception) {
+        // Android 14+ may refuse the location type (started from the background, location off). The relay keeps
+        // running without it; phone GPS may then stop with the screen off and the route stays unknown (S15P31E105-549).
+        startForeground(NOTIFICATION_ID, notification, device)
+      }
+    } else {
+      startForeground(NOTIFICATION_ID, notification, device)
+    }
     return START_NOT_STICKY
   }
 

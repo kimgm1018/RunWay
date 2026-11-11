@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import { recordOf, type PostResponse } from './community';
 import { apiRequest } from './http';
+import { imageAddress } from './images';
 
 // 7.4 러너 프로필 · 7.4b 내 프로필 (U21), 팔로우 · 취소 (U22 · U23) and 팔로우 요청 (U24 · U25),
 // docs/design/api/users.md. U21 has no month summary or 팔로우 요청 count: someone else's month is worked
@@ -56,7 +57,11 @@ const followRequestsPath = '/users/me/follow-requests';
 
 // U26 · U27 item: a runner on the other side of an approved follow.
 type FollowListResponse = {
-  items: { userId: number; nickname: string | null; profileImageUrl: string | null }[];
+  items: {
+    userId: number;
+    nickname: string | null;
+    profileImageUrl: string | null;
+  }[];
   nextCursor: string | null;
   hasNext: boolean;
 };
@@ -156,7 +161,7 @@ export function createRunnersApi({
       // The nickname doubles as the handle, as on posts: the server has no seoyun.run style id.
       handle: nickname,
       nickname,
-      profileImageUrl: response.profileImageUrl ?? null,
+      profileImageUrl: imageAddress(response.profileImageUrl),
       level: accessible ? response.runningLevel ?? null : null,
       isMe,
       followerCount: accessible ? response.followerCount ?? null : null,
@@ -191,7 +196,7 @@ export function createRunnersApi({
         items: page.items.map(item => ({
           userId: String(item.userId),
           nickname: item.nickname ?? unknownNickname,
-          profileImageUrl: item.profileImageUrl ?? null,
+          profileImageUrl: imageAddress(item.profileImageUrl),
         })),
         nextCursor: page.hasNext ? page.nextCursor : null,
       };

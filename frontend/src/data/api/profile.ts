@@ -1,8 +1,7 @@
-import { appConfig } from '../../config';
 import { DataError, errorCode } from '../errors';
 import type { Gender, Repositories, RunningProfile } from '../types';
 import { apiRequest } from './http';
-import { uploadImage } from './images';
+import { imageAddress, uploadImage } from './images';
 
 // U04 response, and U05's without loginId and status (docs/design/api/users.md).
 type MeResponse = {
@@ -15,14 +14,6 @@ type MeResponse = {
 };
 
 const mePath = '/users/me';
-
-// The server gives the F02 path (/api/v1/images/…); the photo is public, so the full address is enough.
-const serverOrigin = appConfig.apiBaseUrl.replace(
-  /^(https?:\/\/[^/]+).*$/,
-  '$1',
-);
-const imageAddress = (path: string | null) =>
-  path === null || /^https?:\/\//.test(path) ? path : serverOrigin + path;
 
 // U04 내 프로필 조회 for 2.1, 8.1 and the community.
 export const getMe: Repositories['profile']['getMe'] = async () => {

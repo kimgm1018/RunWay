@@ -5,9 +5,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.wear.compose.material3.Text
+import com.runway.watch.navigation.RunDetail
 import com.runway.watch.readiness.CheckState
 import com.runway.watch.run.FeedStatus
 import com.runway.watch.run.RunMode
@@ -15,11 +18,14 @@ import com.runway.watch.run.RunSnapshot
 import com.runway.watch.ui.component.*
 import com.runway.watch.ui.format.MetricFormat
 import com.runway.watch.ui.format.MetricText
+import com.runway.watch.ui.theme.HeroSize
 import com.runway.watch.ui.theme.RunwayColors
 import com.runway.watch.ui.theme.RunwayType
+import androidx.wear.compose.material3.Text
+import com.runway.watch.ui.theme.px
 
 /** A metric as shown while running. [delayed] values are the last ones received and are dimmed. */
-data class LiveMetric(val text: MetricText, val delayed: Boolean = false)
+data class LiveMetric(val text: MetricText, val delayed: Boolean = false, val status: FeedStatus = FeedStatus.LIVE)
 
 data class RunStatusView(
     val pace: LiveMetric,
@@ -27,31 +33,43 @@ data class RunStatusView(
     val elapsed: LiveMetric,
     val heartRate: LiveMetric,
     val cadence: LiveMetric,
-    /**
-     * The only status spelled out on the face. Sensor states show through the values alone (dimmed
-     * or "– –") so a glance mid-run is not crowded; TalkBack still names each state.
-     */
+    /** The watch lost the phone: control results cannot be confirmed (9.2d). */
     val phoneLost: Boolean,
     /**
      * The watch reports no internet. Saving cannot be confirmed meanwhile; the run is not said to
      * continue offline or to be recovered later (online MVP).
      */
     val offline: Boolean,
-    /** False for a free run: no ring, so no remaining distance or achievement is implied. */
+    /** False for a free run: the distance arc keeps only its track, so no remaining distance or achievement is implied. */
     val hasGoal: Boolean,
-    /** Null while location is not arriving, so the ring keeps only its track. */
+    /** Null while location is not arriving, so the arc keeps only its track. */
     val ringProgress: Float?,
     /** A request (pause) is accepted but not applied yet; the run is not shown as paused. */
     val pending: Boolean,
-    /** No server state for 45 s during the run (S15P31E105-257, D-8). */
+    /** No server state for 45 s during the run (S15P31E105-257, D-8; 9.2e). */
     val serverLost: Boolean = false,
     /** The watch stopped recording after an app restart; the phone carries the run on (S15P31E105-445). */
     val measurementLost: Boolean = false,
-    /** The run was handed to the phone: the face says so and tapping does not ask to pause (S15P31E105-464). */
+    /** The run was handed to the phone: the face says so and the handle does not ask to pause (S15P31E105-464). */
     val phoneRecording: Boolean = false,
-    /** Rhythm chip text, always labelled "리듬 BPM" so it is never read as heart rate (D-10). */
+    /** Rhythm text, always labelled "리듬 BPM" so it is never read as heart rate (D-10). */
     val rhythmLabel: String = "",
+    /** Pace dots 0..1 over the drawn 8’00”–4’00” range; null when there is no live pace or it is outside (9.2c). */
+    val paceTicks: Float? = null,
+    /** A live pace the dots cannot show (9.2c): the number stays, the dots go out. */
+    val paceOutOfRange: Boolean = false,
 )
+
+/** The drawn range of the pace dots (tokens.md pace_ticks: 8’00” → 4’00”). A user-based range is a design follow-up. */
+object PaceScale {
+    const val SLOWEST = 480
+    const val FASTEST = 240
+
+    fun fraction(secondsPerKm: Int?): Float? = secondsPerKm?.takeIf { it in FASTEST..SLOWEST }
+        ?.let { (SLOWEST - it).toFloat() / (SLOWEST - FASTEST) }
+
+    fun outOfRange(secondsPerKm: Int?): Boolean = secondsPerKm != null && secondsPerKm > 0 && secondsPerKm !in FASTEST..SLOWEST
+}
 
 /** Derives 9.2 from the snapshot only. Values that did not arrive are never filled in. */
 object RunStatusDisplay {
@@ -59,12 +77,19 @@ object RunStatusDisplay {
     const val MEASUREMENT_LOST = "측정 끊김 · 폰에서 이어가기"
     /** The run was handed to the phone (S15P31E105-464). */
     const val PHONE_RECORDING = "폰에서 기록 중이에요"
+    const val PHONE_LOST = "제어 결과를 확인할 수 없어요"
+    const val SERVER_DELAY = "기록 비교·그룹 정보가 멈췄어요"
+    const val OFFLINE = "오프라인 · 저장 미확인"
+    const val OUT_OF_RANGE = "페이스 눈금 범위 밖"
+    const val LOCATION_LATE = "위치 확인 지연 · 페이스 계산 대기"
 
     fun from(snapshot: RunSnapshot, online: CheckState = CheckState.UNKNOWN): RunStatusView {
         val m = snapshot.metrics
         val feeds = m.feeds
+        val pace = live(MetricFormat.pace(m.paceSecondsPerKm), feeds.location, "페이스")
+        val livePace = m.paceSecondsPerKm.takeIf { feeds.location == FeedStatus.LIVE && !pace.text.missing }
         return RunStatusView(
-            pace = live(MetricFormat.pace(m.paceSecondsPerKm), feeds.location, "페이스"),
+            pace = pace,
             distance = live(MetricFormat.distance(m.distanceMeters), feeds.location, "거리"),
             elapsed = LiveMetric(MetricFormat.duration(m.elapsedMs)),
             heartRate = live(MetricFormat.heartRate(m.heartRate), feeds.heartRate, "심박수"),
@@ -78,7 +103,25 @@ object RunStatusDisplay {
             measurementLost = snapshot.measurementLost,
             phoneRecording = snapshot.phoneRecording,
             rhythmLabel = PaceCoachingDisplay.rhythmLabel(m.rhythm),
+            paceTicks = PaceScale.fraction(livePace),
+            paceOutOfRange = PaceScale.outOfRange(livePace),
         )
+    }
+
+    /** Rim of the running faces: tl = goal distance progress only (see [RimValues]). Dimmed while location is late. */
+    fun rim(view: RunStatusView): RimValues =
+        RimValues(tl = view.ringProgress, dim = view.distance.delayed)
+
+    /** True when any measurement source is not live: the face switches to the per-source board (9.2b). */
+    fun degraded(view: RunStatusView): Boolean =
+        listOf(view.distance, view.heartRate, view.cadence).any { it.status != FeedStatus.LIVE }
+
+    /** Words under a value on the 9.2b board. Only an existing feed state; no seconds-ago without a timestamp. */
+    fun feedLabel(status: FeedStatus): String = when (status) {
+        FeedStatus.LIVE -> "정상"
+        FeedStatus.DELAYED -> "지연"
+        FeedStatus.NO_SIGNAL -> "수신 없음"
+        FeedStatus.STOPPED -> "수집 중단"
     }
 
     private fun label(status: FeedStatus): String? = when (status) {
@@ -90,73 +133,171 @@ object RunStatusDisplay {
 
     private fun live(text: MetricText, status: FeedStatus, name: String): LiveMetric = when (status) {
         FeedStatus.LIVE -> LiveMetric(text)
-        FeedStatus.DELAYED -> if (text.missing) LiveMetric(text) else LiveMetric(text.copy(description = "${text.description}, 지연"), delayed = true)
+        FeedStatus.DELAYED -> if (text.missing) LiveMetric(text, status = status)
+        else LiveMetric(text.copy(description = "${text.description}, 지연"), delayed = true, status = status)
         // A value kept from before the source dropped is not a measurement now.
         FeedStatus.NO_SIGNAL, FeedStatus.STOPPED ->
-            LiveMetric(text.copy(value = MetricFormat.MISSING, missing = true, description = "$name ${label(status)}"))
+            LiveMetric(text.copy(value = MetricFormat.MISSING, missing = true, description = "$name ${label(status)}"), status = status)
+    }
+
+    /** Status icons for the sources with a problem or being checked; normal sources stay hidden. */
+    fun statusItems(view: RunStatusView): List<StatusItem> = buildList {
+        if (view.phoneLost) add(StatusItem(StatusKind.PHONE, StatusLevel.PROBLEM, "휴대폰 연결 끊김"))
+        if (view.serverLost) add(StatusItem(StatusKind.SERVER, StatusLevel.CHECKING, "서버 연결 지연"))
+        else if (view.offline) add(StatusItem(StatusKind.SERVER, StatusLevel.PROBLEM, "인터넷 연결 없음"))
+        when (view.distance.status) {
+            FeedStatus.LIVE -> Unit
+            FeedStatus.DELAYED -> add(StatusItem(StatusKind.GPS, StatusLevel.CHECKING, "위치 지연"))
+            else -> add(StatusItem(StatusKind.GPS, StatusLevel.PROBLEM, "위치 ${feedLabel(view.distance.status)}"))
+        }
+        when (view.heartRate.status) {
+            FeedStatus.LIVE -> Unit
+            FeedStatus.DELAYED -> add(StatusItem(StatusKind.HEART, StatusLevel.CHECKING, "심박 지연"))
+            else -> add(StatusItem(StatusKind.HEART, StatusLevel.PROBLEM, "심박 ${feedLabel(view.heartRate.status)}"))
+        }
     }
 }
 
-/** 9.2: the edge ring is distance progress toward a goal; tapping the face asks to pause. */
+/** Right handle while running: ❚❚ asks to pause once; locked with a spinner while any request waits. */
+internal fun pauseHandle(view: RunStatusView, onPause: () -> Unit): HandleSpec? = when {
+    view.phoneRecording -> null
+    view.pending -> HandleSpec(HandleIcon.BUSY, "요청 확인 중", false, onPause)
+    else -> HandleSpec(HandleIcon.PAUSE, "일시정지", true, onPause)
+}
+
+/**
+ * 9.2 운동 현황: pace as the key number over the pace dots, distance and time below. The upper-left arc is goal distance
+ * progress. Tapping a value opens its detail (9.2-1~3); the heart mark on the left edge opens heart rate and cadence
+ * (9.2-4). Link and sensor problems stay on this page as icons and one line (no forced screen change).
+ */
 @Composable
 internal fun RunStatusPage(
     snapshot: RunSnapshot, count: Int, index: Int, visible: Boolean, onPause: () -> Unit,
-    online: CheckState = CheckState.UNKNOWN,
+    online: CheckState = CheckState.UNKNOWN, onDetail: (RunDetail) -> Unit = {},
 ) {
     val view = RunStatusDisplay.from(snapshot, online)
-    RoundScreen(
-        Modifier.clickable(enabled = !view.pending && !view.phoneRecording, onClickLabel = "일시정지", role = Role.Button, onClick = onPause),
-        background = { if (view.hasGoal) ProgressRing(view.ringProgress) }, spacing = 1.dp, focused = visible,
-    ) {
-        StatusHeader(view)
-        Text("실제 페이스", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        LiveValue(view.pace, 34)
-        GuidePace(snapshot)
-        Row(Modifier.padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                LiveValue(view.distance, 13)
-                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
-                    Text(MetricFormat.HEART_LABEL, style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-                    LiveValue(view.heartRate, 13)
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                LiveValue(view.elapsed, 13)
-                LiveValue(view.cadence, 13)
-            }
+    val degraded = RunStatusDisplay.degraded(view)
+    Box(Modifier.fillMaxSize()) {
+        WatchFace(
+            rim = RunStatusDisplay.rim(view),
+            ticks = if (degraded) null else view.paceTicks,
+            pages = PageDots(count, index),
+            handle = pauseHandle(view, onPause),
+            focused = visible,
+        ) {
+            StatusIcons(RunStatusDisplay.statusItems(view))
+            if (degraded) DegradedBoard(view, onDetail) else StatusBoard(view, onDetail)
         }
-        Chip(view.rhythmLabel, description = MetricFormat.rhythm(snapshot.metrics.rhythm).description)
-        PageIndicator(count, index)
+        // Heart mark on the left edge: a 48dp target for 9.2-4.
+        Box(
+            Modifier.align(Alignment.CenterStart).padding(top = px(36)).size(48.dp)
+                .clickable(role = Role.Button, onClickLabel = "심박·케이던스 보기") { onDetail(RunDetail.BODY) }
+                .semantics { contentDescription = "심박·케이던스 보기" },
+        )
+    }
+}
+
+@Composable
+private fun StatusBoard(view: RunStatusView, onDetail: (RunDetail) -> Unit) {
+    when {
+        view.phoneLost -> BodyText(RunStatusDisplay.PHONE_LOST, RunwayColors.Warning, strong = true, announce = true)
+        view.serverLost -> BodyText(RunStatusDisplay.SERVER_DELAY, announce = true)
+        view.offline -> BodyText(RunStatusDisplay.OFFLINE, announce = true)
+    }
+    Box(Modifier.clickable(role = Role.Button, onClickLabel = "페이스 자세히") { onDetail(RunDetail.PACE) }) {
+        HeroMetric(view.pace.text, HeroSize.PACE, unit = null, dim = view.pace.delayed)
+    }
+    if (view.paceOutOfRange) Caption(RunStatusDisplay.OUT_OF_RANGE)
+    if (view.phoneLost || view.serverLost || view.offline) return
+    Divider()
+    CellRow {
+        InlineMetric(view.distance.text, color = if (view.distance.delayed) RunwayColors.ContentDim else null,
+            modifier = Modifier.clickable(role = Role.Button, onClickLabel = "거리 자세히") { onDetail(RunDetail.DISTANCE) })
+        InlineMetric(view.elapsed.text,
+            modifier = Modifier.clickable(role = Role.Button, onClickLabel = "운동 시간 자세히") { onDetail(RunDetail.TIME) })
+    }
+}
+
+/** 9.2b: each source with its own state. No estimate is made up; a late value is the last one received, dimmed. */
+@Composable
+private fun DegradedBoard(view: RunStatusView, onDetail: (RunDetail) -> Unit) {
+    // Smaller than the normal hero: four sources and their states have to fit under it.
+    HeroMetric(view.pace.text, 72, unit = null, dim = view.pace.delayed)
+    if (view.distance.status != FeedStatus.LIVE) {
+        BodyText(RunStatusDisplay.LOCATION_LATE, RunwayColors.Warning, announce = true)
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(px(28))) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(px(2))) {
+            FeedCell(view.distance, Modifier.clickable { onDetail(RunDetail.DISTANCE) })
+            FeedCell(view.heartRate, Modifier.clickable { onDetail(RunDetail.BODY) }, warnWhenOff = true)
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(px(2))) {
+            FeedCell(view.elapsed, Modifier.clickable { onDetail(RunDetail.TIME) })
+            FeedCell(view.cadence, Modifier.clickable { onDetail(RunDetail.BODY) })
+        }
+    }
+}
+
+@Composable
+private fun FeedCell(metric: LiveMetric, modifier: Modifier, warnWhenOff: Boolean = false) {
+    val off = metric.status != FeedStatus.LIVE
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        InlineMetric(metric.text, sizePx = 40, color = if (off) RunwayColors.ContentDim else null)
+        // An off heart sensor is a warning (pink, like the heart mark); the other sources only say their state.
+        Text(RunStatusDisplay.feedLabel(metric.status), style = RunwayType.Label,
+            color = if (off && warnWhenOff) RunwayColors.Warning else RunwayColors.ContentSecondary)
     }
 }
 
 /**
- * One line so the face never grows past the round screen: a pending request first (it lasts only
- * until confirmed), then the phone link, then the internet. No GPS item, since a GPS dot that never changes would
- * claim a fix the values may contradict.
+ * 9.2-1~4: one value large, opened from the status page. Not a page: no page dots, back returns to the page it came
+ * from. The handle stays so pausing never needs a detour.
  */
 @Composable
-private fun StatusHeader(view: RunStatusView) = when {
-    view.pending -> Text("요청 확인 중", style = RunwayType.Caption, color = RunwayColors.Content, maxLines = 1)
-    view.phoneRecording -> StatusLine(RunStatusDisplay.PHONE_RECORDING to StatusTone.NORMAL)
-    view.measurementLost -> StatusLine(RunStatusDisplay.MEASUREMENT_LOST to StatusTone.WARNING)
-    view.phoneLost -> StatusLine("폰 연결 끊김" to StatusTone.WARNING)
-    view.serverLost -> StatusLine(PaceCoachingDisplay.SERVER_LOST to StatusTone.WARNING)
-    view.offline -> StatusLine("오프라인 · 저장 미확인" to StatusTone.WARNING)
-    else -> StatusLine("폰" to StatusTone.NORMAL)
+internal fun RunDetailScreen(
+    snapshot: RunSnapshot, detail: RunDetail, onClose: () -> Unit = {}, onPause: () -> Unit,
+) {
+    val view = RunStatusDisplay.from(snapshot)
+    // A tap anywhere but the pause handle goes back to the status page, as back does (S15P31E105-658).
+    WatchFace(modifier = Modifier.clickable(role = Role.Button, onClickLabel = "현황으로 돌아가기", onClick = onClose), rim = RunStatusDisplay.rim(view), ticks = if (detail == RunDetail.PACE) view.paceTicks else null,
+        handle = pauseHandle(view, onPause)) {
+        when (detail) {
+            RunDetail.PACE -> {
+                HeroMetric(view.pace.text, HeroSize.PACE, unit = null, dim = view.pace.delayed)
+                if (view.paceOutOfRange) Caption(RunStatusDisplay.OUT_OF_RANGE)
+                GuideLine(snapshot)
+            }
+            RunDetail.DISTANCE -> HeroMetric(view.distance.text, HeroSize.SHORT, dim = view.distance.delayed)
+            RunDetail.TIME -> HeroMetric(view.elapsed.text, HeroSize.forText(view.elapsed.text.value))
+            RunDetail.BODY -> {
+                InlineHero(view.heartRate.text, "bpm", RunwayColors.Primary)
+                Divider(180)
+                InlineHero(view.cadence.text, null, RunwayColors.Content)
+            }
+            RunDetail.RHYTHM -> Unit
+        }
+        if (detail == RunDetail.DISTANCE && view.distance.status != FeedStatus.LIVE) Caption(RunStatusDisplay.feedLabel(view.distance.status))
+    }
 }
 
 @Composable
-private fun LiveValue(metric: LiveMetric, size: Int) = MetricValue(metric.text, size, emphasized = !metric.delayed)
+private fun InlineHero(text: MetricText, unit: String?, color: Color) {
+    InlineMetric(text, sizePx = 88, unit = unit ?: text.unit, color = if (text.missing) RunwayColors.ContentDim else color)
+}
 
-// Guide pace is the last applied coaching's (S15P31E105-257); details are on the pace coaching page. A group run
-// shows the group's shared pace instead, so the runner never sees two guide paces at once.
+/**
+ * "안내 6’00” 리듬 172 BPM" under the pace detail. A group run shows the group's shared pace instead, so the runner never
+ * sees two guide paces at once.
+ */
 @Composable
-private fun GuidePace(snapshot: RunSnapshot) {
+private fun GuideLine(snapshot: RunSnapshot) {
     val group = snapshot.mode == RunMode.GROUP
-    val pace = if (group) GroupRunDisplay.status(snapshot).guidePaceSecondsPerKm else snapshot.metrics.guidePaceSecondsPerKm
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(if (group) "공동" else "안내", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        MetricValue(MetricFormat.pace(pace), 11, emphasized = false)
+    val pace = MetricFormat.pace(if (group) GroupRunDisplay.status(snapshot).guidePaceSecondsPerKm else snapshot.metrics.guidePaceSecondsPerKm)
+    val rhythm = MetricFormat.rhythm(snapshot.metrics.rhythm)
+    Row(horizontalArrangement = Arrangement.spacedBy(px(6)), verticalAlignment = Alignment.Bottom) {
+        Caption(if (group) "공동" else "안내")
+        InlineMetric(pace, sizePx = 36)
+        Caption("리듬")
+        InlineMetric(rhythm.copy(symbol = null, unit = null), sizePx = 36)
     }
 }

@@ -1,0 +1,1798 @@
+[
+ {
+  "id": "FrStandbyEta",
+  "code": "9.1",
+  "title": "대기 · 개인 러닝 (예상 완주 시간)",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1_StandbyEta.png",
+  "source": "design-source/project/FrStandbyEta.dc.html",
+  "description": "",
+  "change_from_original": "",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrStandby",
+  "code": "9.1",
+  "title": "대기 · 개인 러닝",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1_Standby.png",
+  "source": "design-source/project/FrStandby.dc.html",
+  "description": "",
+  "change_from_original": "",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrStartRequest",
+  "code": "9.1c",
+  "title": "시작 요청 중",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1c_StartRequest.png",
+  "source": "design-source/project/FrStartRequest.dc.html",
+  "description": "기기 실행이 확인돼야 기록 중으로 넘어감. 요청 중 버튼 잠금(중복 요청 방지).",
+  "change_from_original": "단계 ‘서버 승인’→‘서버 확인’, 하단 버튼 ‘요청 취소’→잠금 ‘시작 확인 중’ (원본 보조 버튼 모양)",
+  "needs_confirmation": [
+   "요청 취소 경로가 계약에 있는지"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrStartFailed",
+  "code": "9.1d",
+  "title": "시작 실패",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1d_StartFailed.png",
+  "source": "design-source/project/FrStartFailed.dc.html",
+  "description": "",
+  "change_from_original": "단계 이름만 ‘서버 확인’으로 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "실패 사유별 문구"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrStartUnknown",
+  "code": "9.1e",
+  "title": "시작 확인 안 됨 (추가)",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1e_StartUnknown.png",
+  "source": "design-source/project/FrStartUnknown.dc.html",
+  "description": "결과를 모를 때 실패·성공을 단정하지 않음. 이 상태에서는 휴대폰 인계를 제공하지 않음.",
+  "change_from_original": "추가 · 원본 9.1d 틀 + 미확인 점선 원 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "미확인 판정까지 대기 시간",
+   "상태 재조회 계약"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrStandbyGroup",
+  "code": "9.1",
+  "title": "대기 · 그룹런",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1_StandbyGroup.png",
+  "source": "design-source/project/FrStandbyGroup.dc.html",
+  "description": "",
+  "change_from_original": "",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrStandbyEmpty",
+  "code": "9.1",
+  "title": "대기 · 준비된 러닝 없음",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1_StandbyEmpty.png",
+  "source": "design-source/project/FrStandbyEmpty.dc.html",
+  "description": "",
+  "change_from_original": "",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrConnectionIssue",
+  "code": "9.1b",
+  "title": "휴대폰 연결 없음",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1b_ConnectionIssue.png",
+  "source": "design-source/project/FrConnectionIssue.dc.html",
+  "description": "",
+  "change_from_original": "정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrNotReady",
+  "code": "9.1b",
+  "title": "준비 안 됨 · 센서 권한",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1b_NotReady.png",
+  "source": "design-source/project/FrNotReady.dc.html",
+  "description": "",
+  "change_from_original": "정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrLocationWait",
+  "code": "9.1f",
+  "title": "위치 확인 중 (추가)",
+  "section": "러닝 전 · 시작",
+  "file": "screens/9.1f_LocationWait.png",
+  "source": "design-source/project/FrLocationWait.dc.html",
+  "description": "위치 확인 지연(이 화면) · 권한 없음(9.1b 틀) · 위치 데이터 없음 · 다른 기기 GPS 보완을 구분.",
+  "change_from_original": "추가 · 원본 9.1b 틀 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "위치 없이 시작 허용 조건",
+   "위치 없이 시작 시 거리·페이스 계산 주체",
+   "휴대폰 GPS 보완 지원 여부"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrRunStatus",
+  "code": "9.2",
+  "title": "운동 현황 (1/3) · 색 테마 조절",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.2_RunStatus.png",
+  "source": "design-source/project/FrRunStatus.dc.html",
+  "description": "페이지 1쪽. 오른쪽 손잡이 = 일시정지 요청(한 번 누름). 안쪽 눈금 = 현재 페이스(8′00″–4′00″ 시안 범위). 왼쪽 위 호 = 목표 거리 진행, 오른쪽 위 = 목표 시간 진행.",
+  "change_from_original": "‘♪’ → ‘리듬’, 오른쪽 일시정지 손잡이 추가(원본 더보기 손잡이 모양), 페이스 76→96px·나머지 축소·하트 앱 핑크(사용자 요청) · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "심박·케이던스 호의 기준 범위(현재는 시안 위치 표시일 뿐 완료율·점수 아님)"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.52,
+   "pages": 3,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrPaceCoaching",
+  "code": "9.5",
+  "title": "페이스 코칭 (2/3)",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.5_PaceCoaching.png",
+  "source": "design-source/project/FrPaceCoaching.dc.html",
+  "description": "‘6′10″ → 6′00″’는 코칭 안내값의 변경이며 실제 속도 변화가 아님. ‘적용됨’은 기기 적용 확인 후에만.",
+  "change_from_original": "‘이전 안내 → 새 안내’ 줄 추가, ‘페이스’→‘안내’, ‘BPM’→‘리듬 BPM’, 일시정지 손잡이 추가",
+  "needs_confirmation": [
+   "SET_BPM 60–220 · 1 BPM 최신 계약",
+   "이전 안내값 필드 제공 여부"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.55,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRecordCompare",
+  "code": "9.6",
+  "title": "기록 비교 (3/3) · 같은 거리",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.6_RecordCompare.png",
+  "source": "design-source/project/FrRecordCompare.dc.html",
+  "description": "비교 기록을 고른 러닝에만 있는 3쪽. 고르지 않으면 페이지 점 2개(9.2a).",
+  "change_from_original": "‘현재/과거’ → ‘지금/지난 기록’, 일시정지 손잡이 추가",
+  "needs_confirmation": [
+   "비교 기록 선택 위치(휴대폰)"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRecordCompareWaiting",
+  "code": "9.6b",
+  "title": "기록 비교 · 계산 중",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.6b_RecordCompareWaiting.png",
+  "source": "design-source/project/FrRecordCompareWaiting.dc.html",
+  "description": "",
+  "change_from_original": "일시정지 손잡이 추가",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRunStatusFree",
+  "code": "9.2a",
+  "title": "운동 현황 · 자유 러닝·비교 없음 (1/2, 추가)",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.2a_RunStatusFree.png",
+  "source": "design-source/project/FrRunStatusFree.dc.html",
+  "description": "목표가 없으면 거리·시간 호를 채우지 않음(빈 트랙). 비교 기록이 없으면 페이지 점 2개.",
+  "change_from_original": "추가 · 9.2와 같은 화면, 목표 호 비움·페이지 수 2 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.52,
+   "pages": 2,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRunStatusRange",
+  "code": "9.2c",
+  "title": "운동 현황 · 눈금 범위 밖 페이스 (추가)",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.2c_RunStatusRange.png",
+  "source": "design-source/project/FrRunStatusRange.dc.html",
+  "description": "숫자는 실제 값 유지, 눈금(8′00″–4′00″)으로 표현할 수 없으면 눈금을 끄고 ‘범위 밖’ 표시. 눈금 재설계는 잔여 문제.",
+  "change_from_original": "추가 · 9.2 틀 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "실제 페이스 표시 범위"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRunStatusDegraded",
+  "code": "9.2b",
+  "title": "운동 현황 · 위치 지연·심박 오래된 값",
+  "section": "개인 러닝 중 · 운동 현황(1) → 페이스 코칭(2) → 기록 비교(3)",
+  "file": "screens/9.2b_RunStatusDegraded.png",
+  "source": "design-source/project/FrRunStatusDegraded.dc.html",
+  "description": "근거 없는 추정값을 쓰지 않음: 거리는 마지막 값 + 경과 시간.",
+  "change_from_original": "‘GPS 신호 약함’→‘위치 확인 지연’, 거리 ‘추정’→‘12초 전’, 일시정지 손잡이 추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "지연 판정 기준(초)"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM",
+    "dim": true
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrMetricPace",
+  "code": "9.2-1",
+  "title": "상세 · 현재 페이스",
+  "section": "지표 상세 · 현황 수치를 누르면 열림 (페이지 아님 · 뒤로 = 현황)",
+  "file": "screens/9.2-1_MetricPace.png",
+  "source": "design-source/project/FrMetricPace.dc.html",
+  "description": "현황(9.2)에서 수치를 누르면 열리는 상세. 페이지 점 없음, 뒤로 가기 = 현황.",
+  "change_from_original": "페이지 점 4개 → 없음(상세), ‘♪’ → ‘리듬’, 일시정지 손잡이 추가, 테두리 심박 아이콘 앱 핑크(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.52,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrMetricDistance",
+  "code": "9.2-2",
+  "title": "상세 · 거리",
+  "section": "지표 상세 · 현황 수치를 누르면 열림 (페이지 아님 · 뒤로 = 현황)",
+  "file": "screens/9.2-2_MetricDistance.png",
+  "source": "design-source/project/FrMetricDistance.dc.html",
+  "description": "현황(9.2)에서 수치를 누르면 열리는 상세. 페이지 점 없음, 뒤로 가기 = 현황.",
+  "change_from_original": "페이지 점 4개 → 없음(상세 화면), 일시정지 손잡이 추가",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrMetricTime",
+  "code": "9.2-3",
+  "title": "상세 · 운동 시간",
+  "section": "지표 상세 · 현황 수치를 누르면 열림 (페이지 아님 · 뒤로 = 현황)",
+  "file": "screens/9.2-3_MetricTime.png",
+  "source": "design-source/project/FrMetricTime.dc.html",
+  "description": "현황(9.2)에서 수치를 누르면 열리는 상세. 페이지 점 없음, 뒤로 가기 = 현황.",
+  "change_from_original": "페이지 점 4개 → 없음(상세 화면), 일시정지 손잡이 추가",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrMetricBody",
+  "code": "9.2-4",
+  "title": "상세 · 심박·케이던스",
+  "section": "지표 상세 · 현황 수치를 누르면 열림 (페이지 아님 · 뒤로 = 현황)",
+  "file": "screens/9.2-4_MetricBody.png",
+  "source": "design-source/project/FrMetricBody.dc.html",
+  "description": "현황(9.2)에서 수치를 누르면 열리는 상세. 페이지 점 없음, 뒤로 가기 = 현황.",
+  "change_from_original": "페이지 점 4개 → 없음(상세 화면), 일시정지 손잡이 추가, 하트 앱 핑크(#FF5C7A, 사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingManual",
+  "code": "9.5b",
+  "title": "리듬 BPM 직접 조절",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5b_CoachingManual.png",
+  "source": "design-source/project/FrCoachingManual.dc.html",
+  "description": "−/+ 1 BPM. ‘자동으로 돌아가기’는 모드 전환이 정의되지 않아 기본안에서 뺌(9.5f 대안).",
+  "change_from_original": "하단 ‘자동으로 돌아가기’ 제거(확인 필요 대안으로 분리), ‘BPM’→‘리듬 BPM’, 페이지 점 0 → 3(코칭 2쪽 안), 일시정지 손잡이",
+  "needs_confirmation": [
+   "수동 변경이 자동 코칭보다 계속 우선하는지",
+   "SET_BPM 범위 60–220"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.6,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingRequest",
+  "code": "9.5d",
+  "title": "리듬 변경 요청 중 (추가)",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5d_CoachingRequest.png",
+  "source": "design-source/project/FrCoachingRequest.dc.html",
+  "description": "요청 중 −/+ 잠금. 실제 재생 중인 소리는 이전 값으로 따로 표시.",
+  "change_from_original": "추가 · 9.5b 틀",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.6,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingRejected",
+  "code": "9.5e",
+  "title": "리듬 변경 거절 (추가)",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5e_CoachingRejected.png",
+  "source": "design-source/project/FrCoachingRejected.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 9.5b 틀",
+  "needs_confirmation": [
+   "거절 사유 제공 여부"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.6,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingUnknown",
+  "code": "9.5g",
+  "title": "리듬 적용 확인 불가 (추가)",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5g_CoachingUnknown.png",
+  "source": "design-source/project/FrCoachingUnknown.dc.html",
+  "description": "성공 체크를 쓰지 않음. 선택값과 마지막으로 확인된 적용값을 나눠 표시.",
+  "change_from_original": "추가 · 원본 칸·하단 버튼",
+  "needs_confirmation": [
+   "적용 확인 대기 시간"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.6,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingManualAlt",
+  "code": "9.5f",
+  "title": "직접 조절 · 자동 복귀 대안 (확인 필요)",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5f_CoachingManualAlt.png",
+  "source": "design-source/project/FrCoachingManualAlt.dc.html",
+  "description": "원본 9.5b. 자동 복귀 모드 전환이 계약에 정의될 때만 쓰는 대안.",
+  "change_from_original": "원본 버튼 유지, 대안으로 분리",
+  "needs_confirmation": [
+   "자동 복귀 조건·모드 전환 정의"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": 0.6,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrCoachingPaused",
+  "code": "9.5c",
+  "title": "코칭 중단",
+  "section": "코칭 · 리듬 BPM 상태",
+  "file": "screens/9.5c_CoachingPaused.png",
+  "source": "design-source/project/FrCoachingPaused.dc.html",
+  "description": "",
+  "change_from_original": "일시정지 손잡이만 추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "심박 미수신 시 코칭 중단 정책",
+   "‘지금 다시 켜기’ 동작 정의"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM",
+    "dim": true
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupPace",
+  "code": "9.7",
+  "title": "그룹 공동 페이스 (그룹 2/3)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.7_GroupPace.png",
+  "source": "design-source/project/FrGroupPace.dc.html",
+  "description": "공동 페이스(그룹)와 내 리듬 BPM(개인)을 구분. 갱신 시각은 서버 타임스탬프가 있을 때만.",
+  "change_from_original": "‘6′20″ → 6′10″ 변경’→‘이전 → 새’, ‘♪ 168 BPM’→‘내 리듬 168 BPM’, 일시정지 손잡이 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "갱신 타임스탬프 제공 여부"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 1,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupPosition",
+  "code": "9.8",
+  "title": "진행 순서·간격 (그룹 3/3)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.8_GroupPosition.png",
+  "source": "design-source/project/FrGroupPosition.dc.html",
+  "description": "‘그룹 위치’→‘진행 순서·간격’. 거리는 코스 누적 진행도 차이이며 직선 거리·지도 좌표가 아님.",
+  "change_from_original": "제목·라벨: ‘앞 2명/뒤 5명’(인원)과 ‘바로 앞/바로 뒤’(거리 대상)를 분리, ‘15초 전 기준’ 삭제(타임스탬프 없으면 표시 안 함), 일시정지 손잡이 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "gap 기준(코스 진행도) 제공 여부"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupOrderTie",
+  "code": "9.8b",
+  "title": "진행 순서 · 공동 순위 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.8b_GroupOrderTie.png",
+  "source": "design-source/project/FrGroupOrderTie.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 9.8 틀 + 원본 칩 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupOrderStale",
+  "code": "9.8c",
+  "title": "진행 순서 · 데이터 지연 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.8c_GroupOrderStale.png",
+  "source": "design-source/project/FrGroupOrderStale.dc.html",
+  "description": "stale은 GPS 끊김이 아니라 데이터 지연·순위 집합 제외일 수 있어 원인을 단정하지 않음.",
+  "change_from_original": "추가 · 값 흐리게(원본 오래된 값 표현) · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "stale 의미(지연 vs 집합 제외)"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupOrderUnavailable",
+  "code": "9.8d",
+  "title": "진행 순서 · 순위 산정 불가 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.8d_GroupOrderUnavailable.png",
+  "source": "design-source/project/FrGroupOrderUnavailable.dc.html",
+  "description": "",
+  "change_from_original": "추가",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupOrderNoMe",
+  "code": "9.8e",
+  "title": "진행 순서 · 내 데이터 없음 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.8e_GroupOrderNoMe.png",
+  "source": "design-source/project/FrGroupOrderNoMe.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 2,
+   "more": true
+  }
+ },
+ {
+  "id": "FrGroupStartRequest",
+  "code": "9.7a",
+  "title": "그룹 출발 · 내 기록 시작 확인 중 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.7a_GroupStartRequest.png",
+  "source": "design-source/project/FrGroupStartRequest.dc.html",
+  "description": "그룹이 출발해도 내 기기 실행 확인 전에는 기록 중으로 보이지 않게 함.",
+  "change_from_original": "추가 · 9.1c 틀",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": "0.00 KM"
+   },
+   "tr": {
+    "f": 0,
+    "label": "00:00"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrGroupEnded",
+  "code": "9.7b",
+  "title": "그룹 전체 종료 (추가)",
+  "section": "그룹 러닝 중 · 운동 현황(1, 개인과 공용) → 공동 페이스(2) → 진행 순서·간격(3)",
+  "file": "screens/9.7b_GroupEnded.png",
+  "source": "design-source/project/FrGroupEnded.dc.html",
+  "description": "서버 종료 알림 · 내 측정 중지 · 내 기록 저장 확인을 따로 표시. 개인 종료 경로(일시정지 → 종료)는 그대로 둠.",
+  "change_from_original": "추가 · 원본 단계 표시",
+  "needs_confirmation": [
+   "그룹 종료 시 내 측정 자동 중지 여부",
+   "그룹런 중 개인 종료 범위"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrPauseRequest",
+  "code": "9.3a",
+  "title": "일시정지 요청 중",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3a_PauseRequest.png",
+  "source": "design-source/project/FrPauseRequest.dc.html",
+  "description": "기기 정지 확인 전에는 ‘일시정지됨’으로 바꾸지 않음. 손잡이는 잠김(중복 요청 방지).",
+  "change_from_original": "단계 이름 ‘서버 확인/워치 정지’, 잠긴 손잡이 표시",
+  "needs_confirmation": [
+   "실행 미확인 판정 시간"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrPaused",
+  "code": "9.3",
+  "title": "일시정지됨",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3_Paused.png",
+  "source": "design-source/project/FrPaused.dc.html",
+  "description": "정지 확정 후에만. 재개 = 하단 버튼, 종료 = 오른쪽 손잡이(■) → 종료 확인. 게이지는 흐리게 고정(라이브 아님).",
+  "change_from_original": "‘5′55″’→‘평균 5′55″’, 더보기(⋮)→종료(■) 손잡이(같은 모양), 테두리 호 흐리게·심박/케이던스 비움",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrResumeRequest",
+  "code": "9.3c",
+  "title": "재개 요청 중 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3c_ResumeRequest.png",
+  "source": "design-source/project/FrResumeRequest.dc.html",
+  "description": "재개 확인 전에는 ‘재개됨’으로 바꾸지 않음. 확인 후 마지막으로 보던 쪽으로.",
+  "change_from_original": "추가 · 9.3 틀, 하단 버튼 잠금",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrEndConfirm",
+  "code": "9.3b",
+  "title": "종료 확인",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3b_EndConfirm.png",
+  "source": "design-source/project/FrEndConfirm.dc.html",
+  "description": "뒤로 가기 = 취소(종료·재개하지 않음).",
+  "change_from_original": "게이지만 정지 표현(흐리게), 취소 버튼 실패 색(사용자 요청) · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrEndRequest",
+  "code": "9.3d",
+  "title": "종료 요청 중 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3d_EndRequest.png",
+  "source": "design-source/project/FrEndRequest.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 원본 단계 표시",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrControlUnknown",
+  "code": "9.3e",
+  "title": "제어 실행 미확인 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3e_ControlUnknown.png",
+  "source": "design-source/project/FrControlUnknown.dc.html",
+  "description": "요청 결과를 모를 때 성공·실패를 단정하지 않음. 재개·종료 미확인도 같은 틀.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "상태 재조회 계약"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0,
+   "more": false
+  }
+ },
+ {
+  "id": "FrRunPhoneLost",
+  "code": "9.2d",
+  "title": "기록 중 · 휴대폰 연결 끊김 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.2d_RunPhoneLost.png",
+  "source": "design-source/project/FrRunPhoneLost.dc.html",
+  "description": "‘즉시 강제 종료’ 문구 삭제. 연결 문제만으로 종료·유실·저장 성공을 단정하지 않고 오프라인 전체 복구도 약속하지 않음.",
+  "change_from_original": "추가 · 9.2b 틀 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "끊김 중 일시정지 요청 처리",
+   "휴대폰 인계(S08) 진입 위치"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrRunServerDelay",
+  "code": "9.2e",
+  "title": "기록 중 · 서버 연결 지연 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.2e_RunServerDelay.png",
+  "source": "design-source/project/FrRunServerDelay.dc.html",
+  "description": "휴대폰↔서버 문제를 워치↔휴대폰 끊김과 구분.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM"
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "152 BPM"
+   },
+   "br": {
+    "f": 0.86,
+    "label": "172 SPM"
+   },
+   "ticks": -1,
+   "pages": 3,
+   "page": 0,
+   "more": true
+  }
+ },
+ {
+  "id": "FrTakeOverPhone",
+  "code": "9.3f",
+  "title": "휴대폰 인계 완료 (추가)",
+  "section": "제어 · 일시정지 · 재개 · 종료 · 연결 · 휴대폰 인계",
+  "file": "screens/9.3f_TakeOverPhone.png",
+  "source": "design-source/project/FrTakeOverPhone.dc.html",
+  "description": "S08 TAKE_OVER_PHONE: 실제 시작이 확인된 운동에서 사용자 선택 + 서버 확인 후에만. 닫기는 운동 취소가 아님.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [
+   "인계를 워치에서 고를 수 있는지",
+   "인계 서버 확인 신호"
+  ],
+  "rim": {
+   "tl": {
+    "f": 0.68,
+    "label": "3.42 KM",
+    "dim": true
+   },
+   "tr": {
+    "f": 0.68,
+    "label": "20:14",
+    "dim": true
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrSaving",
+  "code": "9.4a",
+  "title": "저장 확인 중 (최대 2분)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4a_Saving.png",
+  "source": "design-source/project/FrSaving.dc.html",
+  "description": "2분은 종료 시점부터 한 번만 셈(화면이 바뀌어도 다시 시작하지 않음). 닫기는 진행 취소가 아님.",
+  "change_from_original": "하단 ‘닫기’(흰색) 추가, 케이던스 호 비움",
+  "needs_confirmation": [
+   "2분 기준 시점"
+  ],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0.78,
+    "label": "148 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrAnalyzing",
+  "code": "9.4b",
+  "title": "분석 중",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4b_Analyzing.png",
+  "source": "design-source/project/FrAnalyzing.dc.html",
+  "description": "결과는 휴대폰에서도 확인 가능.",
+  "change_from_original": "하단 ‘닫기’(흰색) 추가",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0.78,
+    "label": "148 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultReady",
+  "code": "9.4",
+  "title": "결과 · 목표 달성",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4_ResultReady.png",
+  "source": "design-source/project/FrResultReady.dc.html",
+  "description": "달성 배지는 서버 goalAchieved 기준. ‘5초 빠름’은 페이스 비교일 뿐 달성 판정이 아님.",
+  "change_from_original": "‘목표 6′00″ · 5초 빠름’→‘목표 페이스보다 5초 빠름’, 하단 ‘닫기’(흰색) 추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0.78,
+    "label": "148 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultMissed",
+  "code": "9.4c",
+  "title": "결과 · 목표 미달 (추가)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4c_ResultMissed.png",
+  "source": "design-source/project/FrResultMissed.dc.html",
+  "description": "목표 거리 미완료는 페이스와 무관하게 달성 아님.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0.84,
+    "label": "4.20 KM"
+   },
+   "tr": {
+    "f": 0.87,
+    "label": "26:02"
+   },
+   "bl": {
+    "f": 0.8,
+    "label": "151 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultNoGoal",
+  "code": "9.4d",
+  "title": "결과 · 목표 없음 (추가)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4d_ResultNoGoal.png",
+  "source": "design-source/project/FrResultNoGoal.dc.html",
+  "description": "목표가 없으면 거리·시간 호를 채우지 않음.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 0,
+    "label": ""
+   },
+   "tr": {
+    "f": 0,
+    "label": ""
+   },
+   "bl": {
+    "f": 0.78,
+    "label": ""
+   },
+   "br": {
+    "f": 0,
+    "label": ""
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultGoalUnknown",
+  "code": "9.4e",
+  "title": "결과 · 목표 평가 미확인 (추가)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4e_ResultGoalUnknown.png",
+  "source": "design-source/project/FrResultGoalUnknown.dc.html",
+  "description": "성공 배지를 띄우지 않음.",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0.78,
+    "label": "148 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultPartial",
+  "code": "9.4f",
+  "title": "결과 · 일부 지표 부족 (추가)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4f_ResultPartial.png",
+  "source": "design-source/project/FrResultPartial.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultAnalysisFailed",
+  "code": "9.4g",
+  "title": "결과 · 저장됨, 분석 실패 (추가)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4g_ResultAnalysisFailed.png",
+  "source": "design-source/project/FrResultAnalysisFailed.dc.html",
+  "description": "",
+  "change_from_original": "추가 · 정보 줄임(사용자 요청)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0.78,
+    "label": "148 BPM"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ },
+ {
+  "id": "FrResultUnconfirmed",
+  "code": "9.4",
+  "title": "결과 · 저장 미확인 (2분 초과)",
+  "section": "기록 마무리 · 분석 · 결과",
+  "file": "screens/9.4_ResultUnconfirmed.png",
+  "source": "design-source/project/FrResultUnconfirmed.dc.html",
+  "description": "저장 성공·유실을 단정하지 않음. ‘다시 연결됨’은 ‘저장됨’이 아님.",
+  "change_from_original": "저장 확인 단계: 실패(!) → 미확인(점선 ?)",
+  "needs_confirmation": [],
+  "rim": {
+   "tl": {
+    "f": 1,
+    "label": "5.01 KM"
+   },
+   "tr": {
+    "f": 1,
+    "label": "29:40"
+   },
+   "bl": {
+    "f": 0,
+    "label": "– –"
+   },
+   "br": {
+    "f": 0,
+    "label": "– –"
+   },
+   "ticks": -1,
+   "pages": 0,
+   "page": 0
+  }
+ }
+]

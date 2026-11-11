@@ -21,7 +21,11 @@ export function createSearchMock({
   const me = fixtures.communityUsers.me.userId;
   const runners = Object.values(fixtures.communityUsers)
     .filter(user => user.userId !== me)
-    .map(user => ({ userId: user.userId, nickname: user.handle }));
+    .map(user => ({
+      userId: user.userId,
+      nickname: user.handle,
+      profileImageUrl: fixtures.runnerPhotos[user.userId] ?? null,
+    }));
   const crews = fixtures.crewDirectory.map(crew => ({
     crewId: crew.id,
     name: crew.name,

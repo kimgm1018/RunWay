@@ -1,6 +1,7 @@
 import type { MusicState, Repositories } from '../types';
 import {
   signInToSpotify,
+  signInWithSpotifyApp,
   SpotifyError,
   spotifyTokens,
   type SpotifyFailure,
@@ -66,9 +67,50 @@ export function withSpotifyRemote(
     return (await base.getState()).source === 'SPOTIFY';
   }
   async function needWebSignIn() {
-    if (!(await spotifyTokens.load())) {
+    const tokens = await spotifyTokens.load();
+    if (!tokens) {
       throw new SpotifyError('SCOPE_REQUIRED');
     }
+    // S15P31E105-573: a browser sign-in may be another account than the phone's Spotify app, which App Remote
+    // plays for; the lists wait for a sign-in through the app instead of showing that account's.
+    if (remote.authorize && tokens.via !== 'app') {
+      throw new SpotifyError('ACCOUNT_CHECK');
+    }
+  }
+  // A list read with the saved permission; one Spotify stopped refreshing is told apart from never having it.
+  async function readList<T>(read: () => Promise<T>) {
+    await needWebSignIn();
+    try {
+      return await read();
+    } catch (error) {
+      throw error instanceof SpotifyError && error.reason === 'SIGNED_OUT'
+        ? new SpotifyError('LIBRARY_EXPIRED', error.message)
+        : error;
+    }
+  }
+  // S15P31E105-573: the Spotify app's own sign-in grants App Remote and the lists at once, for the account App
+  // Remote uses. Without it (a bridge with no app sign-in) the lists keep the browser sign-in.
+  async function signInOnPhone(epoch: number) {
+    if (!remote.authorize) {
+      await signInToSpotify(clientId);
+      return;
+    }
+    const tokens = await signInWithSpotifyApp(clientId, remote.authorize);
+    if (epoch !== remoteConsent.version()) {
+      throw new SpotifyError('CANCELED');
+    }
+    await spotifyTokens.save(tokens);
+    if (epoch !== remoteConsent.version()) {
+      // RunWay signed out while the tokens were being written.
+      await spotifyTokens.clear();
+      throw new SpotifyError('CANCELED');
+    }
+  }
+  async function account(): Promise<Partial<MusicState>> {
+    const tokens = await spotifyTokens.load();
+    return tokens?.via === 'app' && tokens.account
+      ? { spotifyAccount: tokens.account.name }
+      : {};
   }
   async function connect(interactive: boolean) {
     if (!connecting) {
@@ -89,12 +131,13 @@ export function withSpotifyRemote(
     ) {
       await remoteConsent.clear();
       await remote.disconnect();
-      if (problem.reason === 'USER_NOT_REGISTERED') {
-        await spotifyTokens.clear();
-      }
+      // The Spotify app may be signed in to another account now, so the lists do not keep the old one's tokens.
+      await spotifyTokens.clear();
     }
     return new SpotifyStateError(problem, {
       ...state,
+      // A canceled account check keeps the account still connected on display.
+      ...(await account()),
       linked: false,
       library: null,
       nowPlaying: null,
@@ -105,6 +148,10 @@ export function withSpotifyRemote(
     });
   }
   async function getState(): Promise<MusicState> {
+    const state = await readState();
+    return { ...state, ...(await account()) };
+  }
+  async function readState(): Promise<MusicState> {
     const epoch = remoteConsent.version();
     const state = await base.getState();
     const installed = await remote.installed();
@@ -143,7 +190,16 @@ export function withSpotifyRemote(
       throw await broken(state, error);
     }
   }
-  async function resolveSpotify() {
+  // The Spotify app shows its consent on every sign-in, even one already given (Galaxy S22, 573), so only an
+  // explicit connection or account check signs in again. A dropped connection with this phone's sign-in kept
+  // (2.7b 다시 연결) only reconnects App Remote.
+  async function signInKept() {
+    return (
+      (await remoteConsent.load()) &&
+      (await spotifyTokens.load())?.via === 'app'
+    );
+  }
+  async function resolveSpotify({ signIn = true } = {}) {
     const epoch = remoteConsent.version();
     const state = await base.getState();
     if (!(await remote.installed())) {
@@ -153,6 +209,10 @@ export function withSpotifyRemote(
     try {
       if (epoch !== remoteConsent.version()) {
         throw new SpotifyError('CANCELED');
+      }
+      if (remote.authorize && signIn) {
+        // One consent for playback and the lists; App Remote then connects without asking again.
+        await signInOnPhone(epoch);
       }
       await connect(true);
       if (!(await remoteConsent.save(epoch))) {
@@ -282,28 +342,24 @@ export function withSpotifyRemote(
         await base.reconnect();
         return getState();
       }
-      return resolveSpotify();
+      return resolveSpotify({ signIn: !(await signInKept()) });
     },
     play: command('play'),
     pause: command('pause'),
     next: command('next'),
     previous: command('previous'),
-    connectLibrary: async () => {
-      await signInToSpotify(clientId);
-    },
+    connectLibrary: () => signInOnPhone(remoteConsent.version()),
     getPlaylists: async () => {
       if (!(await onSpotify())) {
         return base.getPlaylists();
       }
-      await needWebSignIn();
-      return web.getPlaylists();
+      return readList(web.getPlaylists);
     },
     getRecentTracks: async () => {
       if (!(await onSpotify())) {
         return base.getRecentTracks();
       }
-      await needWebSignIn();
-      return web.getRecentTracks();
+      return readList(web.getRecentTracks);
     },
     // A playlist counts as started once a different song plays (its first song may be the one already on).
     playPlaylist: async playlistId => {

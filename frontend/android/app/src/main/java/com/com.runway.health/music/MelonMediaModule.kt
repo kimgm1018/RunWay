@@ -430,9 +430,15 @@ class MelonMediaModule(private val app: ReactApplicationContext) : ReactContextB
     0
   }
 
-  // 메타데이터의 앨범 아트 비트맵을 캐시에 곡별 파일로 저장해 file:// URI로 넘긴다. 마지막 곡 하나만 남긴다.
-  // 비트맵이 없으면 멜론이 준 아트 URI를 그대로 넘기고, 그것도 없으면 null(2.7 기본 커버).
+  // 멜론 CDN의 고해상도 웹 아트 주소가 있으면 그대로 넘긴다(S15P31E105-609). 비트맵(약 250px)을 카드 크기로 늘리면 흐리다.
+  // 웹 주소가 없으면 메타데이터의 앨범 아트 비트맵을 캐시에 곡별 파일로 저장해 file:// URI로 넘긴다. 마지막 곡 하나만 남긴다.
+  // 비트맵도 없으면 멜론이 준 아트 URI를 그대로 넘기고, 그것도 없으면 null(2.7 기본 커버).
   private fun artwork(id: String, metadata: MediaMetadata): String? {
+    MelonPolicy.webArtwork(
+      metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI),
+      metadata.getString(MediaMetadata.METADATA_KEY_ART_URI),
+      metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI),
+    )?.let { return it }
     val bitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
       ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
     if (bitmap == null) {

@@ -176,3 +176,8 @@ require('./src/config').appConfig.dataSource = 'mock';
 beforeEach(() => {
   require('./src/screens/group/GroupIntro').setGroupIntroSeenForTest(true);
 });
+
+// AppText draws figure and Latin runs in Archivo as nested Texts (S15P31E105-662). Component tests read a line's
+// text straight from its Text node, so the split stays off here (global is globalThis in Jest); latinRuns.test.tsx turns it
+// on to test it.
+global.__RUNWAY_LATIN_SPLIT__ = false;

@@ -9,10 +9,14 @@
   RUNWAY_USABILITY_LOG_DIR      Gate 검토 로그(JSONL) 폴더. 기본: <코드 root>/reports/_usability_gate_log
   ROUTE_REROLL_EXCLUDE=0        재추천에서 이전 코스 제외를 끈다(기본 1; 끄면 seed만 바꾸는 예전 재추천, S15P31E105-383)
   ROUTE_REROLL_CACHE_SIZE       재추천 제외용 코스 결과 cache 칸 수(기본 256, TTL 10분, 0이면 cache 없이 매번 다시 계산)
+  ROUTE_RESPONSE_CACHE=0        추천 성공 응답 cache를 끈다(기본 1, S15P31E105-630, app/response_cache.py)
+  ROUTE_RESPONSE_CACHE_SIZE     추천 성공 응답 cache 칸 수(기본 32, 0이면 끔)
+  ROUTE_RESPONSE_CACHE_TTL_S    추천 성공 응답 cache 유지 시간(초, 기본 600, 유한한 양수만 허용)
   ROUTE_RELEASE_ANON_MIB        다른 조건 요청 전 graph 캐시를 비울 익명 메모리 기준(MiB, 기본 1024, 0이면 항상 비움)
 엔진이 읽는 값(참고): RUNWAY_DATA_DIR, RUNWAY_GRAPH_CACHE_SIZE, RUNWAY_MASK_CACHE_SIZE, RUNWAY_NETWORK_STORE,
-  RUNWAY_SOURCE_SNAPSHOT, RUNWAY_SP_ENGINE, RUNWAY_SP_KERNEL, RUNWAY_ARRAY_LOOP, RUNWAY_ARRAY_SHAPES, RUNWAY_ARRAY_PAIR_FAST,
-  RUNWAY_ENV_PREPARED, RUNWAY_ADAPTER_LEAN_ROUTING, RUNWAY_P2P_SUBSTRATE, NUMBA_CACHE_DIR.
+  RUNWAY_SOURCE_SNAPSHOT, RUNWAY_SP_ENGINE, RUNWAY_SP_KERNEL, RUNWAY_SP_ASTAR, RUNWAY_ARRAY_LOOP, RUNWAY_ARRAY_SHAPES, RUNWAY_ARRAY_PAIR_FAST,
+  RUNWAY_ENV_PREPARED, RUNWAY_ADAPTER_LEAN_ROUTING, RUNWAY_FAST_ROUTING, RUNWAY_GATE_FAST_CONTEXT, RUNWAY_P2P_SUBSTRATE,
+  NUMBA_CACHE_DIR.
 """
 import math
 import os
@@ -49,6 +53,9 @@ class Settings:
     national_dir: Path | None = None
     window_cache_size: int = 1
     release_anon_mib: float = 1024.0
+    response_cache: bool = True         # 추천 성공 응답 cache(S15P31E105-630). 끄면 매번 계산(예전 동작)
+    response_cache_size: int = 32       # 그 cache 칸 수(0이면 끔)
+    response_cache_ttl_s: float = 600.0  # 그 cache 유지 시간(초)
 
     def __post_init__(self):
         if self.data_mode not in ('busan', 'national'):
@@ -58,6 +65,12 @@ class Settings:
         if (not isinstance(self.release_anon_mib, (int, float)) or isinstance(self.release_anon_mib, bool)
                 or not math.isfinite(self.release_anon_mib) or self.release_anon_mib < 0):
             raise ValueError('ROUTE_RELEASE_ANON_MIB must be a finite number >= 0')
+        if (not isinstance(self.response_cache_size, int) or isinstance(self.response_cache_size, bool)
+                or self.response_cache_size < 0):
+            raise ValueError('ROUTE_RESPONSE_CACHE_SIZE must be an integer >= 0')
+        if (not isinstance(self.response_cache_ttl_s, (int, float)) or isinstance(self.response_cache_ttl_s, bool)
+                or not math.isfinite(self.response_cache_ttl_s) or self.response_cache_ttl_s <= 0):
+            raise ValueError('ROUTE_RESPONSE_CACHE_TTL_S must be a finite number > 0')
         if self.data_mode == 'national' and (self.national_dir is None or not self.national_dir.is_dir()):
             raise ValueError('ROUTE_NATIONAL_DIR must be an existing directory in national mode')
 
@@ -75,6 +88,14 @@ def load_settings() -> Settings:
         release_anon_mib = float(os.getenv('ROUTE_RELEASE_ANON_MIB', '1024'))
     except ValueError:
         raise ValueError('ROUTE_RELEASE_ANON_MIB must be a finite number >= 0') from None
+    try:
+        response_cache_size = int(os.getenv('ROUTE_RESPONSE_CACHE_SIZE', '32'))
+    except ValueError:
+        raise ValueError('ROUTE_RESPONSE_CACHE_SIZE must be an integer >= 0') from None
+    try:
+        response_cache_ttl_s = float(os.getenv('ROUTE_RESPONSE_CACHE_TTL_S', '600'))
+    except ValueError:
+        raise ValueError('ROUTE_RESPONSE_CACHE_TTL_S must be a finite number > 0') from None
     return Settings(
         debug=_flag("ROUTE_DEBUG", False),
         warmup=_flag("ROUTE_WARMUP", True),
@@ -88,4 +109,7 @@ def load_settings() -> Settings:
         national_dir=Path(os.environ['ROUTE_NATIONAL_DIR']) if os.getenv('ROUTE_NATIONAL_DIR', '').strip() else None,
         window_cache_size=int(os.getenv('ROUTE_WINDOW_CACHE_SIZE', '1')),
         release_anon_mib=release_anon_mib,
+        response_cache=_flag('ROUTE_RESPONSE_CACHE', True),
+        response_cache_size=response_cache_size,
+        response_cache_ttl_s=response_cache_ttl_s,
     )

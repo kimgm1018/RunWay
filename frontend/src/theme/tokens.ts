@@ -175,14 +175,19 @@ export const fontFamily = {
   medium: 'NotoSansKR-Medium',
   bold: 'NotoSansKR-Bold',
   black: 'NotoSansKR-Black',
-  numberRegular: 'Barlow-Regular',
-  numberMedium: 'Barlow-Medium',
-  numberSemiBold: 'Barlow-SemiBold',
-  numberBold: 'Barlow-Bold',
-  // 2.1 홈: the readiness score in dots and the figures in records.
-  score: 'Doto-Black',
-  mono: 'IBMPlexMono-Regular',
-  monoMedium: 'IBMPlexMono-Medium',
+  // Figures and Latin across the app in Archivo at width 125 (S15P31E105-662 담당자 결정: 결과 화면 시안과 같은
+  // 폰트). Static cuts of the variable font, since React Native cannot set its width axis. Barlow, Rajdhani, Doto and
+  // IBM Plex Mono are gone.
+  numberRegular: 'ArchivoExpanded-Regular',
+  numberMedium: 'ArchivoExpanded-Medium',
+  numberSemiBold: 'ArchivoExpanded-SemiBold',
+  numberBold: 'ArchivoExpanded-Bold',
+  // 4.5 러닝 결과 시안 G3 (S15P31E105-661): the heavier Archivo cuts and the handwriting. The handwriting is for the
+  // result screens only (담당자 결정).
+  resultBold: 'ArchivoExpanded-Bold',
+  resultExtraBold: 'ArchivoExpanded-ExtraBold',
+  resultBlack: 'ArchivoExpanded-Black',
+  resultScript: 'NanumBrush',
 } as const;
 
 // Android picks a weight by file, so each variant names its family instead of setting fontWeight.

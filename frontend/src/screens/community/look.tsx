@@ -63,29 +63,34 @@ export function LineLabel({ children }: { children: React.ReactNode }) {
 }
 
 // 코스도 함께 공유 (7.3 · 7.3e): a navy track with a white knob when on, pale mist off. dark: over 7.3's dark map
-// (S15P31E105-563), the feed's neon mint track with a navy knob when on, faint white off.
+// (S15P31E105-563), the feed's neon mint track with a navy knob when on, faint white off. disabled: fixed
+// where it stands and faded (a free run has no course to share yet).
 export function CourseToggle({
   label,
   value,
   onChange,
   dark = false,
+  disabled = false,
 }: {
   label: string;
   value: boolean;
   onChange: (value: boolean) => void;
   dark?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
       onPress={() => onChange(!value)}
       hitSlop={8}
       style={[
         styles.track,
         value ? styles.trackOn : styles.trackOff,
         dark && (value ? styles.trackOnDark : styles.trackOffDark),
+        disabled && styles.disabled,
       ]}
     >
       <View

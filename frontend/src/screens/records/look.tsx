@@ -33,6 +33,8 @@ export const recordsLook = {
   onCardSub: 'rgba(255,255,255,0.75)',
   onCardMuted: 'rgba(255,255,255,0.72)',
   onCardLine: 'rgba(255,255,255,0.25)',
+  // 2.1 홈's one accent on the navy card (S15P31E105-594 담당자 결정): mint, the feed's route colour.
+  mint: '#4DFFD2',
 } as const;
 
 // The 1.1 background with its runner (담당자 결정: 시안대로 사진, 1.1과 같은 배경). The mockup sees the runner
@@ -653,7 +655,7 @@ const styles = StyleSheet.create({
   monthTextOn: { color: '#FFFFFF' },
   monthCellTall: { height: 58 },
   cellSub: {
-    fontFamily: fontFamily.mono,
+    fontFamily: fontFamily.numberRegular,
     fontSize: 10.5,
     lineHeight: 13,
     color: recordsLook.sub,

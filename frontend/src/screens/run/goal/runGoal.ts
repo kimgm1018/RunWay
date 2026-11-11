@@ -1,3 +1,4 @@
+import type { CourseSearch } from '../../../data/types';
 import { formatPace } from '../../../format';
 
 // 러닝 목표 설정(S15P31E105-517, 레퍼런스의 Workout goal을 RunWay에 맞춘 것). 서버 목표는 거리·시간·페이스 중
@@ -121,4 +122,16 @@ export function goalConfig(
         goalPaceSecPerKm: goal.paceSecPerKm,
       };
   }
+}
+
+// The goal typed on 3.1 (목표 시간 or 목표 페이스) for the course picked from its results (S15P31E105-635); null
+// without a 3.1 search, so 2.0 falls back to its own default.
+export function goalFromSearch(search: CourseSearch | null): RunGoal | null {
+  if (search?.goalInputType === 'TIME' && search.targetDurationSec) {
+    return { kind: 'TIME', durationSec: search.targetDurationSec };
+  }
+  if (search?.goalInputType === 'PACE' && search.targetPaceSecPerKm) {
+    return { kind: 'PACE', paceSecPerKm: search.targetPaceSecPerKm };
+  }
+  return null;
 }

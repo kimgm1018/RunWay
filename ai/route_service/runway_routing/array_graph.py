@@ -3,6 +3,7 @@
 No NetworkX G/H objects are constructed here. Read-only views expose only the
 operations used by canonical generation/features; NetworkX rollback uses legacy graphs.
 """
+from bisect import bisect_left, bisect_right
 from collections.abc import Mapping
 import os
 
@@ -14,13 +15,23 @@ from shapely.ops import transform
 
 from . import graph as legacy
 from . import shortest_path
+from . import array_pair_kernels as K
 from .array_components import component_layout, component_layout_fast
+from .env_flags import flag as env_flag
+from .fast_unique import sorted_unique
 
 # S15P31E105-437: 작업판 생성의 Python 반복문을 배열/Numba로(결과 같음). "0"이면 기존 반복문(rollback, 재시작 필요).
 _FAST_FLAG = os.environ.get("RUNWAY_ARRAY_PAIR_FAST", "1")
 if _FAST_FLAG not in ("0", "1"):
     raise ValueError("RUNWAY_ARRAY_PAIR_FAST must be 0 or 1")
 FAST = _FAST_FLAG == "1"
+# S15P31E105-645 (env_flags 규칙, import 시 읽음, 둘 다 결과 같음):
+#   RUNWAY_ARRAY_PAIR_KERNELS=0  build_array_pair의 처음 나온 순서 번호·pair별 가장 짧은 간선을 다시 np.unique·lexsort로,
+#                                G node 번호 dict를 다시 dict comprehension으로
+#   RUNWAY_ADAPTER_REUSE=0       요청 graph(populate_adapter)가 G의 node 번호 dict를 복사하고, 첫 간선을 G 간선 전체 lexsort로,
+#                                양 끝 번호를 searchsorted로 다시 찾는다(예전 경로)
+PAIR_KERNELS = env_flag("RUNWAY_ARRAY_PAIR_KERNELS")
+ADAPTER_REUSE = env_flag("RUNWAY_ADAPTER_REUSE")
 
 
 class _Selection:
@@ -33,14 +44,14 @@ class _Selection:
         self.sel = np.logical_or.reduceat(inside[sc.ref_pos], sc.ptr[:-1])
         if not self.sel.any():
             raise legacy.InsufficientResponseError("No data elements in server response. Check query location/filters and log.")
-        cand = np.unique(sc.ref_pos[self.sel[S.way_of_ref]])
+        cand = sorted_unique(sc.ref_pos[self.sel[S.way_of_ref]])
         self.disk_ll = legacy.busan._disk_ll(cx, cy, radius)
         self.keep = np.zeros(len(S.ids), bool)
         self.keep[cand[shapely.intersects_xy(self.disk_ll, S.lon[cand], S.lat[cand])]] = True
         if not self.keep.any():
             raise ValueError("Found no graph nodes within the requested polygon.")
         self.seg = np.flatnonzero(self.sel[S.seg_w] & self.keep[S.seg_a] & self.keep[S.seg_b])
-        self.g_nodes = np.unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
+        self.g_nodes = sorted_unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
 
     def g_nodes_in_set_order(self):
         """build_array_pair의 g_nodes(= S.pos_of(list(_g_node_rank())))를 dict 없이 만든다.
@@ -271,7 +282,10 @@ class ArrayG:
         self.source, self.positions = source, g_nodes
         S = source.S
         self.node_ids = S.ids[g_nodes]
-        self.node_index = {int(n): i for i, n in enumerate(self.node_ids)}
+        if PAIR_KERNELS:   # 같은 dict(같은 Python int key, 같은 값, 같은 삽입 순서)를 C 반복으로
+            self.node_index = dict(zip(self.node_ids.tolist(), range(len(self.node_ids))))
+        else:
+            self.node_index = {int(n): i for i, n in enumerate(self.node_ids)}
         self.lon, self.lat = S.lon[g_nodes], S.lat[g_nodes]
         self.nodes = _Nodes(self.node_ids.tolist(), self.node_index, self.lon, self.lat)
         self._node = self.nodes
@@ -322,23 +336,47 @@ class ArrayG:
         """CanonicalRoutingGraph._load without iterating/materializing G attribute dicts."""
         S = self.source.S
         cg.full = self
-        cg.node_ids, cg.node_index = self.node_ids.copy(), dict(self.node_index)
+        # S15P31E105-645: node 번호 dict는 G와 같은 내용이고 둘 다 읽기만 한다(get/[]). 복사하지 않고 같은 객체를 쓴다.
+        cg.node_ids, cg.node_index = self.node_ids.copy(), (self.node_index if ADAPTER_REUSE else dict(self.node_index))
         cg.lon, cg.lat = self.lon.copy(), self.lat.copy()
         cg.x, cg.y = cg._to_utm.transform(cg.lon, cg.lat)
         cg.node_highway = np.full(len(cg.node_ids), None, dtype=object)
         ways = S.seg_w[self.seg]
         # Canonical retains the first directed G edge for each unordered node pair+way.
-        triples = np.column_stack((np.minimum(self.a, self.b), np.maximum(self.a, self.b), ways))
-        _, first = np.unique(triples, axis=0, return_index=True)
-        first.sort()
+        # S15P31E105-621: np.unique(rows, axis=0, return_index=True) + sort == each distinct (lo, hi, way)'s first
+        # position, ascending. A stable lexsort + run starts gives the same indices without the row-view unique.
+        first = self._adapter_first(S) if ADAPTER_REUSE else None
+        if first is None:
+            lo, hi = np.minimum(self.a, self.b), np.maximum(self.a, self.b)
+            o = np.lexsort((ways, hi, lo))
+            lo_o, hi_o, w_o = lo[o], hi[o], ways[o]
+            start = np.ones(len(o), bool)
+            start[1:] = (lo_o[1:] != lo_o[:-1]) | (hi_o[1:] != hi_o[:-1]) | (w_o[1:] != w_o[:-1])
+            first = np.sort(o[start])
         e = self.source.way_table.iloc[ways[first]].reset_index(drop=True).copy()
-        u = np.fromiter((cg.node_index[int(S.ids[p])] for p in self.a[first]), np.int64, len(first))
-        v = np.fromiter((cg.node_index[int(S.ids[p])] for p in self.b[first]), np.int64, len(first))
+        if ADAPTER_REUSE:
+            # S15P31E105-645: G node 번호 = 창 node 위치 -> self.positions 안 위치(g_rank). 아래 searchsorted와 같은 값.
+            g_rank = np.full(len(S.ids), -1, np.int64)
+            g_rank[np.asarray(self.positions)] = np.arange(len(self.positions))
+            u, v = g_rank[self.a[first]], g_rank[self.b[first]]
+            if len(first) and ((u < 0).any() or (v < 0).any()):
+                raise KeyError("populate_adapter: edge end outside the graph nodes")   # the dict lookup's error
+        else:
+            # cg.node_index[S.ids[p]] == p's position in self.positions (node_ids = S.ids[positions], ids are unique):
+            # the same values by searchsorted instead of one dict lookup per edge.
+            gord = np.argsort(self.positions, kind="stable")
+            gpos = np.asarray(self.positions)[gord]
+            ia, ib = np.searchsorted(gpos, self.a[first]), np.searchsorted(gpos, self.b[first])
+            if len(first) and not (gpos[np.minimum(ia, len(gpos) - 1)] == self.a[first]).all()                 or len(first) and not (gpos[np.minimum(ib, len(gpos) - 1)] == self.b[first]).all():
+                raise KeyError("populate_adapter: edge end outside the graph nodes")   # the dict lookup's error
+            u, v = gord[ia].astype(np.int64), gord[ib].astype(np.int64)
         e["u"], e["v"] = np.minimum(u, v), np.maximum(u, v)
         e["osm_u"], e["osm_v"] = cg.node_ids[e["u"]], cg.node_ids[e["v"]]
         e["length"] = S.seg_len[self.seg[first]].astype(float)
         e["recovered"] = False
         cg.edges_all = e
+        # S15P31E105-640: edges_all 행마다 그 행을 만든 창 segment 위치(env 거리 조회용, graph.attach_env)
+        cg.edges_all_seg = np.asarray(self.seg[first], np.int64)
         pairs = pd.unique(e["u"].to_numpy() * 10**7 + e["v"].to_numpy())
         cg.full_degree = np.zeros(len(cg.node_ids), dtype=np.int32)
         np.add.at(cg.full_degree, pairs // 10**7, 1)
@@ -346,6 +384,33 @@ class ArrayG:
         cg.coverage_wgs = cg._coverage
         cg.coverage_utm = transform(cg._to_utm.transform, cg._coverage)
         cg.coverage_boundary_utm = cg.coverage_utm.boundary
+
+
+    def _adapter_first(self, S):
+        """populate_adapter의 first(서로 다른 (lo, hi, way)마다 G 순서로 처음 나온 간선 위치, 오름차순)를 창 segment 단위로.
+
+        G 간선은 선택된 segment마다 정방향·역방향 두 개이고 둘의 (lo, hi, way)는 그 segment의 값과 같다. 그래서
+        segment마다 G에서 처음 나온 위치(두 방향 중 앞)를 구하고, segment를 (lo, hi, way) 한 정수 key로 안정 정렬해
+        묶음마다 가장 앞 위치를 고르면 G 간선 전체(2배 길이) 3열 lexsort와 같은 위치 집합이 된다. key가 int64를 넘을 수
+        있거나 Numba가 없거나 segment마다 두 방향이 아니면 None(기존 lexsort)."""
+        n, nw = len(S.ids), len(S.sc.way_ids)
+        if n == 0 or nw == 0 or n * n * nw >= 2 ** 62:
+            return None
+        seg = np.asarray(self.seg, np.int64)
+        pos = K.first_position(seg, len(S.seg_w))
+        if pos is None:
+            return None
+        segs = np.flatnonzero(pos >= 0)
+        if 2 * len(segs) != len(seg):
+            return None
+        sa, sb = S.seg_a[segs].astype(np.int64), S.seg_b[segs].astype(np.int64)
+        key = (np.minimum(sa, sb) * n + np.maximum(sa, sb)) * nw + S.seg_w[segs].astype(np.int64)
+        if not len(key):
+            return np.empty(0, np.int64)
+        o = np.argsort(key, kind="stable")
+        ko = key[o]
+        starts = np.flatnonzero(np.r_[True, ko[1:] != ko[:-1]])
+        return np.sort(np.minimum.reduceat(pos[segs][o], starts))
 
 
 class ArrayCSR:
@@ -371,13 +436,18 @@ def build_array_pair(source, lat, lon, radius, region):
     g_order = np.lexsort((event, pair_first[inverse], g_rank[a]))
     G = ArrayG(source, g_nodes, a[g_order], b[g_order], sg[g_order], reverse[g_order], (lat, lon, radius, region))
     flat = np.column_stack((a[g_order], b[g_order])).ravel()
-    nodes, first = np.unique(flat, return_index=True)
-    projected = np.full(n, -1, np.int64)
-    projected[nodes[np.argsort(first)]] = np.arange(len(nodes))
+    fr = K.first_rank(flat, n) if PAIR_KERNELS else None
+    if fr is not None:   # S15P31E105-645: 처음 나온 순번(아래 np.unique + argsort와 같은 배열)을 한 번 훑어서
+        projected, nodes, first = fr[0], None, None
+    else:
+        nodes, first = np.unique(flat, return_index=True)
+        projected = np.full(n, -1, np.int64)
+        projected[nodes[np.argsort(first)]] = np.arange(len(nodes))
     order = np.lexsort((event, pair_first[inverse], projected[a]))
     # full_status는 다른 결과와 독립이다. 배열 경로는 임시 배열이 커서, 작업판(H·CSR·component)이 쌓이기 전에 먼저 만든다
     # (메모리 최대치를 기존 이하로 유지; 값·순서는 그대로).
-    full_status = _full_status(source, a[order], b[order], sg[order]) if FAST else None
+    # S15P31E105-640: dict 대신 정렬 배열 조회(_StatusMap). 같은 key에 같은 status 집합을 돌려준다.
+    full_status = _StatusMap(source, G, g_rank[a[order]], g_rank[b[order]], sg[order]) if FAST else None
     run = order[S.runnable[S.seg_w[sg[order]]]]
     if not len(run):
         # Canonical route_graph_fast fails when its empty waypoint array indexes
@@ -385,26 +455,35 @@ def build_array_pair(source, lat, lon, radius, region):
         raise IndexError("arrays used as indices must be of integer (or boolean) type")
     ra, rb, rs = a[run], b[run], sg[run]
     key = np.minimum(ra, rb) * n + np.maximum(ra, rb)
-    uniq, first = np.unique(key, return_index=True)
     lengths = S.seg_len[rs]
-    by_shortest = np.lexsort((np.arange(len(run)), lengths, key))
-    keep = np.r_[True, key[by_shortest][1:] != key[by_shortest][:-1]]
-    best = by_shortest[keep]
+    sk = K.shortest_per_key(key, lengths) if PAIR_KERNELS else None
+    if sk is not None:   # S15P31E105-645: key 안정 정렬 한 번 + 훑기(아래 np.unique·lexsort와 같은 first·best)
+        first, best = sk
+        uniq = by_shortest = keep = None
+    else:
+        uniq, first = np.unique(key, return_index=True)
+        by_shortest = np.lexsort((np.arange(len(run)), lengths, key))
+        keep = np.r_[True, key[by_shortest][1:] != key[by_shortest][:-1]]
+        best = by_shortest[keep]
     flat = np.column_stack((ra, rb)).ravel()
-    hn, hi = np.unique(flat, return_index=True)
-    hn = hn[np.argsort(hi)]
-    h_rank = np.full(n, -1, np.int64)
-    h_rank[hn] = np.arange(len(hn))
+    fr = K.first_rank(flat, n) if PAIR_KERNELS else None
+    if fr is not None:
+        h_rank, hn, hi = fr[0], fr[1], None
+    else:
+        hn, hi = np.unique(flat, return_index=True)
+        hn = hn[np.argsort(hi)]
+        h_rank = np.full(n, -1, np.int64)
+        h_rank[hn] = np.arange(len(hn))
     ha, hb = ra[first], rb[first]
     other = ha != hb
     aa, bb = np.r_[ha, hb[other]], np.r_[hb, ha[other]]
-    pair = np.r_[np.arange(len(uniq)), np.arange(len(uniq))[other]]
+    pair = np.r_[np.arange(len(first)), np.arange(len(first))[other]]
     horder = np.lexsort((np.r_[first, first[other]], h_rank[aa]))
     aa, bb, pair = aa[horder], bb[horder], pair[horder]
     _, edge_first = np.unique(pair, return_index=True)
     edge_order = np.argsort(edge_first)
-    eid = np.empty(len(uniq), np.int64)
-    eid[edge_order] = np.arange(len(uniq))
+    eid = np.empty(len(first), np.int64)
+    eid[edge_order] = np.arange(len(first))
     csr = ArrayCSR()
     csr.ids = S.ids[hn].tolist()
     ptr = np.r_[0, np.cumsum(np.bincount(h_rank[aa], minlength=len(hn)))]
@@ -449,6 +528,74 @@ def build_array_pair(source, lat, lon, radius, region):
     rg._route_csr = csr
     rg._array_snap_endpoints = (xy[H.eu], xy[H.ev])
     return G, rg
+
+
+class _StatusMap(Mapping):
+    """rg.full_status를 dict 없이: {(작은 id, 큰 id): {status, ...}} 읽기 전용 Mapping (S15P31E105-640).
+
+    _full_status(같은 입력)와 key 집합과 각 key의 status 집합이 같다(Mapping ==). 원래 dict는 무방향 pair마다 tuple과
+    set을 만들어 서울 21.1 km에서 약 1.1–1.3 s(1 CPU)와 큰 메모리를 썼다. 소비자는 생성기 route_features의
+    full_status.get(_key(a, b), set())뿐이라, (G 노드 번호 pair, status 번호)를 정렬해 두고 조회 때 bisect로 찾는다.
+    G 노드 번호는 G.node_index(id -> 번호, 이미 있는 dict)로 얻는다. get은 매번 새 set을 돌려준다(읽기만 하는 호출자).
+    한 번 찾은 key는 _memo에 둔다(같은 key -> 같은 set 객체, 원래 dict와 같음).
+    순회(iter/items) 순서는 pair 번호 순이다(원래는 첫 등장 순; 순서를 쓰는 곳은 없고 graph.routegraph_sig는 정렬한다)."""
+
+    def __init__(self, source, G, ga, gb, osg):
+        n = len(G.node_ids)
+        K = len(source.status_objs)
+        st = source.status_code[source.S.seg_w[osg]]
+        combo = sorted_unique((np.minimum(ga, gb) * n + np.maximum(ga, gb)) * K + st)
+        pk = combo // K
+        self._keys, self._codes = pk.tolist(), (combo % K).tolist()
+        self._uniq = sorted_unique(pk)
+        self._n, self._objs, self._index, self._ids = n, source.status_objs, G.node_index, G.node_ids
+        self._memo = {}
+
+    def _range(self, key):
+        try:
+            a, b = key
+            if a > b:                      # dict key는 (작은 id, 큰 id)뿐이다
+                return None
+        except (TypeError, ValueError):
+            return None
+        ia, ib = self._index.get(a), self._index.get(b)
+        if ia is None or ib is None:
+            return None
+        k = min(ia, ib) * self._n + max(ia, ib)
+        i = bisect_left(self._keys, k)
+        if i == len(self._keys) or self._keys[i] != k:
+            return None
+        return i, bisect_right(self._keys, k, i)
+
+    def get(self, key, default=None):
+        # 한 번 찾은 key는 기억한다(같은 graph에서 후보마다 같은 pair를 다시 묻는다). 원래 dict처럼 같은 key에는 같은 set 객체.
+        hit = self._memo.get(key, _MISSING)        # hash 안 되는 key는 원래 dict.get처럼 TypeError
+        if hit is _MISSING:
+            r = self._range(key)
+            if r is None:
+                hit = None
+            else:
+                objs = self._objs
+                hit = {objs[c] for c in self._codes[r[0]:r[1]]}
+            self._memo[key] = hit
+        return default if hit is None else hit
+
+    def __getitem__(self, key):
+        r = self.get(key)
+        if r is None:
+            raise KeyError(key)
+        return r
+
+    def __contains__(self, key):
+        return self.get(key) is not None
+
+    def __len__(self):
+        return len(self._uniq)
+
+    def __iter__(self):
+        ids, n = self._ids, self._n
+        ia, ib = ids[self._uniq // n], ids[self._uniq % n]
+        return iter(zip(np.minimum(ia, ib).tolist(), np.maximum(ia, ib).tolist()))
 
 
 def _full_status(source, oa, ob, osg):

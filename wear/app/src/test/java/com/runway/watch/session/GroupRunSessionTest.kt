@@ -84,11 +84,13 @@ class GroupRunSessionTest {
         sessionId: String = "201",
         changedFrom: Int? = null,
         messageId: String = "phone:1",
+        gap: String? = null,
     ) = message(
         "GROUP_STATUS",
         """{"groupRunId":$groupRunId,"phase":"$phase","guidePaceSecPerKm":${pace ?: "null"},"standing":${standing ?: "null"},""" +
             """"stale":$stale,"leaderToLastGapM":85.0,"updatedAt":"$updatedAt",""" +
-            """"paceChanged":${if (changedFrom != null) """{"from":$changedFrom,"to":$pace}""" else "null"}}""",
+            """"paceChanged":${if (changedFrom != null) """{"from":$changedFrom,"to":$pace}""" else "null"},""" +
+            """"gapWidened":${gap ?: "null"}}""",
         sessionId = sessionId,
         messageId = messageId,
     )
@@ -266,6 +268,64 @@ class GroupRunSessionTest {
         })
         assertEquals(390, c.state.value.group!!.guidePaceSecondsPerKm)
         assertNull(c.state.value.group!!.notice)
+        assertEquals(0, buzzes)
+    }
+
+    @Test
+    fun `the leader's widened group is shown and buzzes once at the crossing only`() = runBlocking {
+        val c = controller()
+        c.groupRunning()
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:00Z"))
+        assertNull(c.state.value.group!!.gapNotice)
+
+        val crossed = """{"gapM":160,"memberName":"민수","isNew":true}"""
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:03Z", gap = crossed))
+        assertEquals(GroupNotice.GapWidened(160, "민수"), c.state.value.group!!.gapNotice)
+        assertEquals(1, buzzes)
+
+        // 같은 현황의 재전달, 기준 위에 머무는 동안의 현황(isNew=false)은 다시 울리지 않고 표시만 갱신한다.
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:03Z", gap = crossed, messageId = "phone:2"))
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:06Z", gap = """{"gapM":172,"memberName":"민수","isNew":false}"""))
+        assertEquals(GroupNotice.GapWidened(172, "민수"), c.state.value.group!!.gapNotice)
+        assertEquals(1, buzzes)
+
+        // 폰이 더 보내지 않으면(다시 좁혀짐) 표시를 지우고, 다시 넘은 새 현황에서만 다시 울린다.
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:09Z"))
+        assertNull(c.state.value.group!!.gapNotice)
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:30Z", gap = """{"gapM":151,"memberName":null,"isNew":true}"""))
+        assertEquals(GroupNotice.GapWidened(151, null), c.state.value.group!!.gapNotice)
+        assertEquals(2, buzzes)
+    }
+
+    @Test
+    fun `a pace change and a widened group on one update both show and buzz once`() = runBlocking {
+        val c = controller()
+        c.groupRunning()
+        c.onMessage(status(pace = 360, updatedAt = "2026-11-09T01:05:00Z"))
+        c.onMessage(status(pace = 370, changedFrom = 360, updatedAt = "2026-11-09T01:05:03Z",
+            gap = """{"gapM":160,"memberName":"민수","isNew":true}"""))
+
+        assertEquals(GroupNotice.PaceChanged(360, 370), c.state.value.group!!.notice)
+        assertEquals(GroupNotice.GapWidened(160, "민수"), c.state.value.group!!.gapNotice)
+        assertEquals(1, buzzes)
+    }
+
+    @Test
+    fun `a widened group that is not new, waiting or malformed does not buzz`() = runBlocking {
+        val c = controller()
+        c.groupRunning()
+        // 워치가 다시 붙은 뒤 이미 벌어진 상태로 받은 현황: 표시만 하고 울리지 않는다.
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:00Z", gap = """{"gapM":200,"memberName":" ","isNew":false}"""))
+        assertEquals(GroupNotice.GapWidened(200, null), c.state.value.group!!.gapNotice)
+        // 거리가 없거나 음수면 버린다.
+        c.onMessage(status(updatedAt = "2026-11-09T01:05:03Z", gap = """{"gapM":-1,"memberName":"민수","isNew":true}"""))
+        assertNull(c.state.value.group!!.gapNotice)
+        assertEquals(0, buzzes)
+
+        val waiting = controller()
+        waiting.groupRunning()
+        waiting.onMessage(status(phase = "WAITING", updatedAt = "2026-11-09T01:06:00Z", gap = """{"gapM":160,"memberName":"민수","isNew":true}"""))
+        assertNull(waiting.state.value.group!!.gapNotice)
         assertEquals(0, buzzes)
     }
 

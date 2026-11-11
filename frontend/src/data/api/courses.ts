@@ -1,6 +1,7 @@
 import type {
   CoursePlan,
   CourseRecommendations,
+  CourseStatus,
   EnvironmentType,
   RecommendedCourse,
   Repositories,
@@ -11,6 +12,8 @@ import { DataError } from '../errors';
 import { courseShapeOptions } from '../coursePreferences';
 import { getCoursePreferences, saveCoursePreferences } from './preferences';
 import type { Regions } from './regions';
+import { shapeOfRoute } from '../../geo';
+import { basemapOf } from './basemap';
 
 // C01·C03·C07·C08·C09·C10 코스 (docs/design/api/courses.md). Public courses have no name: the spec names them by
 // region (sido + sigungu + 코스), and my bookmark alias goes on top of that.
@@ -28,16 +31,28 @@ type DetailResponse = {
   environmentTags: EnvironmentType[];
   // Only with targetPaceSecPerKm.
   estimatedDurationSec?: number;
-  status: 'ACTIVE' | 'MERGED' | 'BLOCKED';
+  status: CourseStatus;
+  mergedIntoCourseId: number | null;
+  // The map thumbnail `{ imageUrl, osmDataTimestamp }` (S15P31E105-612); null until the server has made it,
+  // missing on an older server.
+  basemap?: unknown;
 };
 
 type BookmarkItem = {
   id: number;
   regionCode: string | null;
   status: string;
+  mergedIntoCourseId?: number | null;
   myAlias: string | null;
   distanceM: number;
 };
+
+const courseStatuses: readonly CourseStatus[] = ['ACTIVE', 'MERGED', 'BLOCKED'];
+
+const statusOf = (value: string | undefined): CourseStatus =>
+  courseStatuses.includes(value as CourseStatus)
+    ? (value as CourseStatus)
+    : 'ACTIVE';
 
 // C01 (courses.md 코스 생성 후속): routes made for this search, not stored courses. index is not a course id.
 type GradeSegment = {
@@ -89,24 +104,9 @@ const isServerId = (courseId: string) => /^\d+$/.test(courseId);
 // A C01 route on 3.1b, stored by C10 when it is picked or saved.
 const isGeneratedId = (courseId: string) => courseId.startsWith('generated:');
 
-// The same 0–1 box as the mock thumbnails (y grows downward).
+// The same 0–1 box as the mock thumbnails (y grows downward, the course centred).
 function shapeOf(route: [number, number][]): [number, number][] {
-  if (route.length === 0) {
-    return [];
-  }
-  const xs = route.map(point => point[0]);
-  const ys = route.map(point => point[1]);
-  const [minX, maxX, minY, maxY] = [
-    Math.min(...xs),
-    Math.max(...xs),
-    Math.min(...ys),
-    Math.max(...ys),
-  ];
-  const span = Math.max(maxX - minX, maxY - minY, 1e-6);
-  return route.map(([x, y]) => [
-    0.1 + ((x - minX) / span) * 0.8,
-    0.9 - ((y - minY) / span) * 0.8,
-  ]);
+  return route.length === 0 ? [] : shapeOfRoute(route);
 }
 
 // Straight-line metres between two [longitude, latitude] points; close enough at course scale.
@@ -167,7 +167,7 @@ export function createCoursesApi({
   usualPace,
   regions,
 }: {
-  // The 2.0 pace plan has no API yet; saving a free run as a course (4.5F) answers NOT_AVAILABLE.
+  // Saving a free run as a course (4.5F) has no API yet and answers NOT_AVAILABLE.
   mock: Repositories['courses'];
   usualPace: () => Promise<number | null>;
   regions: Regions;
@@ -179,6 +179,7 @@ export function createCoursesApi({
   // C01 routes by card id, and the course id C10 gave each one stored so far.
   const candidates = new Map<string, Candidate>();
   const stored = new Map<string, Promise<string>>();
+  let recommendationSequence = 0;
 
   // C10 stores the picked route, or hands back the course with exactly the same points (reused). Asking again
   // for the same card reuses the answer; a failure lets the next tap ask again.
@@ -244,12 +245,23 @@ export function createCoursesApi({
 
   const getSaved: Repositories['courses']['getSaved'] = async () => {
     const [items, paceSecPerKm] = await Promise.all([bookmarks(), pace()]);
-    return Promise.all(
+    // One C03 failure must not drop the whole list (S15P31E105-638).
+    const settled = await Promise.allSettled(
       items.map(async (item): Promise<SavedCourse> => {
+        const bookmarkStatus = statusOf(item.status);
+        const bookmarkMerged =
+          item.mergedIntoCourseId == null
+            ? null
+            : String(item.mergedIntoCourseId);
         const [course, name] = await Promise.all([
           detail(item.id, paceSecPerKm),
           nameOf(item.id, item.regionCode, item.distanceM),
         ]);
+        const status = statusOf(course.status ?? bookmarkStatus);
+        const mergedIntoCourseId =
+          course.mergedIntoCourseId == null
+            ? bookmarkMerged
+            : String(course.mergedIntoCourseId);
         return {
           id: String(item.id),
           name,
@@ -261,8 +273,14 @@ export function createCoursesApi({
           ),
           shape: shapeOf(course.route.coordinates),
           route: course.route.coordinates,
+          status,
+          mergedIntoCourseId,
+          basemap: basemapOf(course.basemap),
         };
       }),
+    );
+    return settled.flatMap(result =>
+      result.status === 'fulfilled' ? [result.value] : [],
     );
   };
 
@@ -313,6 +331,9 @@ export function createCoursesApi({
         },
       },
     );
+    // seed/index can repeat after a location change or a new search. Keep each
+    // answer in its own namespace, including when requests finish out of order.
+    const recommendationId = ++recommendationSequence;
     // The goal pace from 3.1, or my usual pace, for the expected time on each card.
     const paceSecPerKm =
       search.goalInputType === 'PACE' && search.targetPaceSecPerKm
@@ -323,7 +344,7 @@ export function createCoursesApi({
     const courses = answer.courses.map((item): RecommendedCourse => {
       const route = item.route.coordinates;
       const heights = heightsOf(item.elevationProfile);
-      const id = `generated:${seed}:${item.index}`;
+      const id = `generated:${recommendationId}:${seed}:${item.index}`;
       const name = `${kmLabel(item.distanceM)} 코스`;
       candidates.set(id, {
         candidateToken: item.candidateToken,
@@ -369,17 +390,16 @@ export function createCoursesApi({
     return result;
   };
 
-  // 2.0 keeps the mock's pace plan; a server course brings its own name, distance and route.
+  // 2.0 shows only what the server knows about the chosen course: its name, distance, route and expected time.
+  // There is no pace plan API yet, so no mock strategy, caution or km paces stand in, and without a chosen server
+  // course (nothing picked yet, or after a restart) there is no plan (S15P31E105-635).
   const getTodayPlan: Repositories['courses']['getTodayPlan'] = async () => {
-    const plan = await mock.getTodayPlan();
     if (!chosen || !isServerId(chosen)) {
-      return plan;
+      return null;
     }
     const paceSecPerKm = await pace();
     const course = await detail(chosen, paceSecPerKm);
-    const km = Math.ceil(course.distanceM / 1000);
     const result: CoursePlan = {
-      ...plan,
       courseId: chosen,
       name:
         course.myAlias ??
@@ -387,14 +407,13 @@ export function createCoursesApi({
         `${kmLabel(course.distanceM)} 코스`,
       distanceM: course.distanceM,
       route: course.route.coordinates,
-      segmentPacesSecPerKm: Array.from(
-        { length: km },
-        (_, index) =>
-          plan.segmentPacesSecPerKm[index % plan.segmentPacesSecPerKm.length],
-      ),
+      segmentPacesSecPerKm: [],
+      strategy: null,
+      targetPaceSecPerKm: null,
       expectedDurationSec:
         course.estimatedDurationSec ??
         Math.round((course.distanceM / 1000) * paceSecPerKm),
+      caution: null,
     };
     return result;
   };

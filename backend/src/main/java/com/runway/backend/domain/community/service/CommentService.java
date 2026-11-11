@@ -7,10 +7,13 @@ import com.runway.backend.domain.community.dto.response.CommentDeleteResponse;
 import com.runway.backend.domain.community.dto.response.CommentListItemResponse;
 import com.runway.backend.domain.community.dto.response.CommentListResponse;
 import com.runway.backend.domain.community.dto.response.CommentUpdateResponse;
+import com.runway.backend.domain.community.dto.response.PostAuthorResponse;
 import com.runway.backend.domain.community.entity.Comment;
 import com.runway.backend.domain.community.entity.Post;
+import com.runway.backend.domain.community.repository.CommentLikeRepository;
 import com.runway.backend.domain.community.repository.CommentRepository;
 import com.runway.backend.domain.community.repository.CommunityUserQueryRepository;
+import com.runway.backend.domain.community.repository.CommunityUserQueryRepository.AuthorRow;
 import com.runway.backend.domain.notification.NotificationType;
 import com.runway.backend.domain.notification.service.NotificationService;
 import com.runway.backend.global.exception.ApiException;
@@ -24,13 +27,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class CommentService {
 
     private final CommentRepository commentRepository;
+    private final CommentLikeRepository commentLikeRepository;
     private final CommunityUserQueryRepository communityUserQueryRepository;
     private final PostService postService;
     private final NotificationService notificationService;
@@ -41,11 +51,65 @@ public class CommentService {
         requireExistingUser(userId);
         postService.requireReadablePost(userId, postId);
 
+        List<Comment> comments = orderRepliesAfterRoot(commentRepository.findVisibleByPostId(postId));
+        List<Comment> active = comments.stream().filter(comment -> !comment.isDeleted()).toList();
+        // 작성자·좋아요 수·내 좋아요는 표시할 댓글 집합으로 각각 한 번에 조회한다(N+1 없음).
+        Map<Long, AuthorRow> authors =
+                communityUserQueryRepository.findAuthorsByIds(
+                        active.stream().map(Comment::getAuthorId).collect(Collectors.toSet()));
+        Set<Long> activeIds = active.stream().map(Comment::getId).collect(Collectors.toSet());
+        Map<Long, Long> reactionCounts = new HashMap<>();
+        Set<Long> liked = new HashSet<>();
+        if (!activeIds.isEmpty()) {
+            commentLikeRepository
+                    .countByCommentIds(activeIds)
+                    .forEach(row -> reactionCounts.put(row.getCommentId(), row.getTotal()));
+            liked.addAll(commentLikeRepository.findLikedCommentIds(userId, activeIds));
+        }
         List<CommentListItemResponse> items =
-                commentRepository.findActiveByPostId(postId).stream()
-                        .map(CommentListItemResponse::from)
+                comments.stream()
+                        .map(
+                                comment ->
+                                        comment.isDeleted()
+                                                ? CommentListItemResponse.deletedPlaceholder(
+                                                        comment)
+                                                : CommentListItemResponse.from(
+                                                        comment,
+                                                        author(comment, authors),
+                                                        reactionCounts.getOrDefault(
+                                                                comment.getId(), 0L),
+                                                        liked.contains(comment.getId())))
                         .toList();
         return new CommentListResponse(items);
+    }
+
+    /**
+     * 원댓글은 조회 순서(createdAt·id 오름차순)대로 두고, 각 원댓글 바로 뒤에 그 대댓글을 같은 순서로 붙인다. 부모가 목록에 없는 대댓글(정상
+     * 경로로는 생기지 않음)은 버리지 않고 끝에 둔다.
+     */
+    private static List<Comment> orderRepliesAfterRoot(List<Comment> comments) {
+        Map<Long, List<Comment>> replies = new HashMap<>();
+        Set<Long> rootIds = new HashSet<>();
+        for (Comment comment : comments) {
+            if (comment.isRoot()) {
+                rootIds.add(comment.getId());
+            } else {
+                replies.computeIfAbsent(comment.getParentCommentId(), key -> new ArrayList<>())
+                        .add(comment);
+            }
+        }
+        List<Comment> ordered = new ArrayList<>(comments.size());
+        List<Comment> orphans = new ArrayList<>();
+        for (Comment comment : comments) {
+            if (comment.isRoot()) {
+                ordered.add(comment);
+                ordered.addAll(replies.getOrDefault(comment.getId(), List.of()));
+            } else if (!rootIds.contains(comment.getParentCommentId())) {
+                orphans.add(comment);
+            }
+        }
+        ordered.addAll(orphans);
+        return ordered;
     }
 
     @Transactional
@@ -71,7 +135,8 @@ public class CommentService {
                     "게시물에 새 댓글이 달렸습니다.",
                     "POST_COMMENT:" + comment.getId());
         }
-        return CommentCreateResponse.from(comment);
+        Map<Long, AuthorRow> authors = communityUserQueryRepository.findAuthorsByIds(Set.of(userId));
+        return CommentCreateResponse.from(comment, author(comment, authors));
     }
 
     @Transactional
@@ -96,6 +161,10 @@ public class CommentService {
         Instant deletedAt = Instant.now();
         comment.softDelete(deletedAt);
         return new CommentDeleteResponse(comment.getDeletedAt());
+    }
+
+    private static PostAuthorResponse author(Comment comment, Map<Long, AuthorRow> authors) {
+        return PostAuthorResponse.of(comment.getAuthorId(), authors.get(comment.getAuthorId()));
     }
 
     private void requireValidParent(long postId, long parentCommentId) {

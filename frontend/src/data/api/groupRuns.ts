@@ -87,6 +87,7 @@ type LiveResponse = {
 type ResultsResponse = {
   distanceM?: number | null;
   averagePaceSecPerKm?: number | null;
+  maxGapM?: number | null;
   targetDistanceM: number | null;
   analysis: { status: string };
   hasUnconfirmedStarts: boolean;
@@ -133,8 +134,8 @@ function poll<T>(
 }
 
 // G01 needs a title and 6.8 has none, so it reads like the prototype's: ‘토요일, 함께 5km’. A free run's
-// minutes live only here, as the server keeps no goal without a distance.
-function titleOf(draft: GroupRunDraft) {
+// minutes live only here, as the server keeps no goal without a distance (S15P31E105-637: update도 동일).
+function titleOf(draft: Omit<GroupRunDraft, 'crewId'> | GroupRunDraft) {
   const weekday = ['일', '월', '화', '수', '목', '금', '토'][
     new Date(Date.parse(draft.scheduledAt) + kstOffsetMs).getUTCDay()
   ];
@@ -333,17 +334,26 @@ export function createGroupRunsApi({
         };
       }
       const names = new Map(mine.map(crew => [crew.id, crew.name]));
-      const lists = await Promise.all(
+      // One crew or run detail failing must not blank the whole 6.0 tab
+      // (S15P31E105-637). G02 pages follow nextCursor until exhausted.
+      const crewOutcomes = await Promise.allSettled(
         mine.map(async crew => {
           if (crew.membership !== 'MEMBER') {
-            return { crew, groupRuns: [] };
+            return { crew, groupRuns: [] as GroupRunSummary[] };
           }
-          const items = listItems(
-            await apiRequest<{ items: ListItem[] }>('/group-runs', {
-              query: { crewId: crew.id, limit: pageLimit },
-            }),
-          );
-          const runs = await Promise.all(
+          const items: ListItem[] = [];
+          let cursor: string | undefined;
+          do {
+            const page = await apiRequest<{
+              items?: ListItem[] | null;
+              nextCursor?: string | null;
+            }>('/group-runs', {
+              query: { crewId: crew.id, limit: pageLimit, cursor },
+            });
+            items.push(...listItems(page));
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor);
+          const runOutcomes = await Promise.allSettled(
             items
               .filter(
                 item =>
@@ -359,14 +369,22 @@ export function createGroupRunsApi({
                 );
               }),
           );
-          return {
-            crew,
-            groupRuns: runs.sort(
+          const runs = runOutcomes
+            .flatMap(result =>
+              result.status === 'fulfilled' ? [result.value] : [],
+            )
+            .sort(
               (a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt),
-            ),
-          };
+            );
+          return { crew, groupRuns: runs };
         }),
       );
+      const lists = mine.map((crew, index) => {
+        const outcome = crewOutcomes[index];
+        return outcome.status === 'fulfilled'
+          ? outcome.value
+          : { crew, groupRuns: [] };
+      });
       const now = Date.now();
       const upcoming =
         lists
@@ -440,8 +458,10 @@ export function createGroupRunsApi({
       await apiRequest(`/group-runs/${groupRunId}`, {
         method: 'PATCH',
         // 6.8 does not show the saved 찾아오는 법, so an empty note leaves it as it is.
+        // Free-run minutes are title-only (no duration goal without distance); refresh title on edit.
         body: {
           ...placeAndTime(draft),
+          title: titleOf(draft),
           description: draft.meetingNote ?? undefined,
         },
       });
@@ -567,6 +587,11 @@ export function createGroupRunsApi({
                 loaded.participants.find(
                   member => member.userId === String(item.userId),
                 )?.nickname ?? unknownNickname,
+              // 그룹장 폰만 간격 벌어짐 알림을 보낸다(S15P31E105-629).
+              isHost:
+                loaded.participants.find(
+                  member => member.userId === String(item.userId),
+                )?.isHost === true,
               isMe: String(item.userId) === loaded.me,
               gapM:
                 own && usable(own) && usable(item)
@@ -644,7 +669,7 @@ export function createGroupRunsApi({
         // 서버 집계를 그대로 사용하며, 미제공 값은 임의로 계산하지 않는다.
         distanceM: result.distanceM ?? null,
         averagePaceSecPerKm: result.averagePaceSecPerKm ?? null,
-        maxGapM: null,
+        maxGapM: result.maxGapM ?? null,
         analysisStatus: result.analysis.status,
         hasUnconfirmedStarts: result.hasUnconfirmedStarts,
         // 공유는 내 기록을 지정해 연다. 최근 기록으로 짐작하면 다른 기록이 붙거나 불러오지 못한다.

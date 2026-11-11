@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Linking, NativeModules, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import {
@@ -122,6 +122,73 @@ test('8.1 tiles switch at once and 8.1b picks where the location is recorded', a
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-638: a successful U20 with a failed companion GET keeps the switch.
+test('8.1 keeps the switch when save lands but the companion read fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  repositories.settings.update = async change => {
+    if (change.bpmGuideEnabled === false) {
+      throw new DataError('SAVE_UNCONFIRMED', 'companion GET failed');
+    }
+    throw new DataError('SERVER_ERROR', 'unexpected');
+  };
+  const screen = await openSettings(repositories);
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await press(screen, 'BPM 리듬 가이드');
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    false,
+  );
+  expect(texts(screen)).toContain('저장했어요. 최신 설정을 불러오지 못했어요');
+  expect(texts(screen)).not.toContain(
+    '설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요',
+  );
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-638: while one switch is saving, further taps are ignored.
+test('8.1 ignores a second switch tap while a save is in flight', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  let updates = 0;
+  const realUpdate = repositories.settings.update;
+  repositories.settings.update = async change => {
+    updates += 1;
+    await gate;
+    return realUpdate(change);
+  };
+  const screen = await openSettings(repositories);
+  await act(async () => {
+    labelled(screen, '코칭 음성 알림').props.onPress();
+  });
+  await settle();
+  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.disabled).toBe(
+    true,
+  );
+  await act(async () => {
+    labelled(screen, '코칭 음성 알림').props.onPress();
+    labelled(screen, 'BPM 리듬 가이드').props.onPress();
+  });
+  expect(updates).toBe(1);
+  await act(async () => {
+    release();
+  });
+  await settle();
+  await settle();
+  expect(updates).toBe(1);
+  expect(labelled(screen, '코칭 음성 알림').props.accessibilityState.checked).toBe(
+    false,
+  );
+  // Fixture starts with bpmGuideEnabled true; the ignored tap must leave it there.
+  expect(labelled(screen, 'BPM 리듬 가이드').props.accessibilityState.checked).toBe(
+    true,
+  );
+  await act(async () => screen.unmount());
+});
+
 test('8.1 건강정보 수집 asks before withdrawing and gives consent again at once', async () => {
   const screen = await openSettings();
   expect(stateOf(screen, '건강정보 수집')).toBe('동의함');
@@ -217,6 +284,67 @@ test('8.1 opens 회원탈퇴 when the settings cannot be read', async () => {
   await act(async () => screen.unmount());
 });
 
+// S15P31E105-612 8.1c 데이터 라이선스: the OSM notice and copyright link, and the NAVER Map SDK's legal screens through
+// the Android RunwayNaverMapLegal module (left out without it, as on iOS).
+describe('8.1c 데이터 라이선스', () => {
+  const openURL = jest.spyOn(Linking, 'openURL');
+  beforeEach(() => openURL.mockReset().mockResolvedValue(true));
+  afterEach(() => {
+    delete (NativeModules as Record<string, unknown>).RunwayNaverMapLegal;
+  });
+  afterAll(() => openURL.mockRestore());
+
+  test('shows the OpenStreetMap notice and opens its copyright page', async () => {
+    const screen = await openSettings();
+    expect(stateOf(screen, '데이터 라이선스')).toBe('지도 데이터');
+    await press(screen, '데이터 라이선스');
+    await settle(50);
+    const page = texts(screen);
+    expect(page).toContain('Map data from OpenStreetMap');
+    expect(page).toContain(
+      '코스 썸네일의 지도(도로·건물·물·녹지)는 OpenStreetMap 기여자의 데이터(ODbL)로 그립니다.',
+    );
+    // No native module (iOS, tests): the NAVER part is left out.
+    expect(page).not.toContain('법적 공지');
+    expect(page).not.toContain('오픈소스 라이선스');
+    await press(screen, 'OpenStreetMap 저작권');
+    expect(openURL).toHaveBeenCalledWith(
+      'https://www.openstreetmap.org/copyright',
+    );
+    await act(async () => screen.unmount());
+  });
+
+  test('opens the NAVER Map legal notice and open source licences on Android', async () => {
+    const legal = {
+      showLegalNotice: jest.fn(async () => undefined),
+      showOpenSourceLicense: jest.fn(async () => undefined),
+    };
+    (NativeModules as Record<string, unknown>).RunwayNaverMapLegal = legal;
+    const screen = await openSettings();
+    await press(screen, '데이터 라이선스');
+    await settle(50);
+    expect(texts(screen)).toContain('네이버 지도');
+    await press(screen, '법적 공지');
+    expect(legal.showLegalNotice).toHaveBeenCalledTimes(1);
+    await press(screen, '오픈소스 라이선스');
+    expect(legal.showOpenSourceLicense).toHaveBeenCalledTimes(1);
+    await act(async () => screen.unmount());
+  });
+
+  test('stays reachable when the settings cannot be read', async () => {
+    const repositories = createMockRepositories({ latencyMs: 0 });
+    repositories.settings.get = async () => {
+      throw new DataError('SERVER_ERROR', '503');
+    };
+    const screen = await openSettings(repositories);
+    expect(texts(screen)).toContain('설정을 불러오지 못했어요');
+    await press(screen, '데이터 라이선스');
+    await settle(50);
+    expect(texts(screen)).toContain('Map data from OpenStreetMap');
+    await act(async () => screen.unmount());
+  });
+});
+
 test('8.2 saves the nickname from the foot and opens with it again', async () => {
   const screen = await openSettings();
   await press(screen, '뒤로');
@@ -255,7 +383,9 @@ test('8.4 keeps 다음 off while a crew I lead must be handed over first (users.
   expect(page).toContain('크루장인 크루가 있어요');
   expect(page).toContain('민락 야경 러너스');
   // The confirmed policy has no automatic successor: the server's blocker says to hand it over or dissolve it.
-  expect(page).toContain('크루장을 다른 멤버에게 넘기거나 크루를 해산한 뒤 탈퇴할 수 있어요.');
+  expect(page).toContain(
+    '크루장을 다른 멤버에게 넘기거나 크루를 해산한 뒤 탈퇴할 수 있어요.',
+  );
   expect(page).not.toContain('가장 오래된 멤버');
   expect(page).toContain('먼저 정리해야 탈퇴할 수 있어요');
   await press(screen, '탈퇴 동의');

@@ -48,14 +48,14 @@ def test_caution_when_actual_pace_would_cross_allow_line():
     response, model = decide(330, 220, 155.0)
     assert response.decision.coaching_level == "CAUTION"
     assert response.decision.recommended_pace_sec_per_km == pytest.approx(330)         # 안내로 돌아오라는 뜻
-    assert model.batches[-1]["future_speed"].shape[0] == 6                             # 후보 5 + 실측 1(늦추거나 올릴 때만 두 번째 호출, 506)
-    assert model.batches[-1]["future_speed"][5] == pytest.approx(1000.0 / 220)
+    assert model.batches[-1]["future_speed"].shape[0] == 10                            # 후보 9 + 실측 1, GRU 한 번(624)
+    assert model.batches[-1]["future_speed"][9] == pytest.approx(1000.0 / 220)
 
 
 def test_actual_pace_check_can_be_turned_off():
     response, model = decide(330, 220, 155.0, check=False)
     assert response.decision.coaching_level == "OK"
-    assert model.batches[-1]["future_speed"].shape[0] == 5                             # 덧붙인 행 없음
+    assert model.batches[-1]["future_speed"].shape[0] == 9                             # 덧붙인 행 없음
 
 
 def test_overpace_is_caution_even_when_check_is_off():
@@ -64,13 +64,14 @@ def test_overpace_is_caution_even_when_check_is_off():
         assert "OVERPACE" in response.warnings and response.decision.coaching_level == "CAUTION"
 
 
-def test_ok_does_not_slow_down_for_goal_but_caution_still_can():
+def test_ahead_of_goal_never_slows_down_for_goal():
     ok, _ = decide(340, 340, 140.0, **AHEAD)                                          # 목표보다 앞섬, 심박 여유
     assert ok.decision.coaching_level == "OK"
     assert ok.decision.reason == "HOLD" and ok.decision.recommended_pace_sec_per_km == pytest.approx(340)
     caution, _ = decide(340, 310, RISING, **AHEAD)
     assert caution.decision.coaching_level == "CAUTION"
-    assert caution.decision.reason == "SLOW_DOWN_GOAL"                                 # 기존 동작 유지
+    # AI10과 같은 규칙(624): 목표보다 앞선다는 이유로는 늦추지 않는다. 늦추기는 심박 때문일 때만이다.
+    assert caution.decision.reason == "HOLD" and caution.decision.recommended_pace_sec_per_km == pytest.approx(340)
 
 
 def test_danger_on_dangerous_heart_rate():

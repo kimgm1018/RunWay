@@ -1,5 +1,6 @@
 package com.runway.backend.domain.session;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -7,9 +8,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.runway.backend.domain.coaching.decide.FakePaceDecider;
+import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedPostgres;
 
+import java.time.Duration;
+import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +55,8 @@ abstract class RunningSessionIntegrationSupport {
     @Autowired protected JdbcTemplate jdbc;
     @Autowired protected FakePaceDecider paceDecider;
     @Autowired protected FakePersonalPacePlan personalPlan;
+    @Autowired private ReadinessEvaluationDispatcher readinessDispatcher;
+    @Autowired private com.runway.backend.domain.readiness.trainingload.TrainingLoadDispatcher trainingLoadDispatcher;
 
     protected long userId;
     protected long otherUserId;
@@ -59,8 +66,19 @@ abstract class RunningSessionIntegrationSupport {
     protected long otherPhoneId;
     private int seq;
 
+    /**
+     * S15P31E105-599: 분석 → 러닝 부하 저장 → 준비도 평가가 비동기로 이어진다. 같은 DB를 쓰는 다른 컨텍스트의 테스트 초기화와 겹치지 않도록 테스트가
+     * 끝날 때 부하·준비도 순으로 기다린다. 분석 대기는 분석을 실제로 돌리는 테스트가 자기 {@code @AfterEach}에서 먼저 한다(하위 클래스가 먼저
+     * 실행됨). 분석 실행기를 mock으로 바꾸는 테스트가 있어 여기서는 기다리지 않는다.
+     */
+    @AfterEach
+    void awaitAsyncWork() throws InterruptedException {
+        assertThat(trainingLoadDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+        assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+    }
+
     @BeforeEach
-    void resetData() {
+    void resetData() throws InterruptedException {
         paceDecider.reset();
         personalPlan.reset();
         jdbc.update("DELETE FROM posts");
@@ -72,10 +90,16 @@ abstract class RunningSessionIntegrationSupport {
         jdbc.update("DELETE FROM group_run_participants");
         jdbc.update("DELETE FROM group_runs");
         jdbc.update("DELETE FROM crews");
+        // S15P31E105-599: 종료 후 분석 뒤 러닝 부하 저장이 운동 부하·일별 건강 행을 만들고 준비도 평가를 넘긴다. 평가가 끝난 뒤 지운다.
+        assertThat(trainingLoadDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+        assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+        jdbc.update("DELETE FROM exercise_training_loads");
         // One DELETE removes both ends of the self-FK; do not mutate retired owners during cleanup.
         jdbc.update("DELETE FROM running_sessions");
         jdbc.update("DELETE FROM courses");
         jdbc.update("DELETE FROM user_devices");
+        jdbc.update("DELETE FROM daily_readiness");
+        jdbc.update("DELETE FROM daily_health_metrics");
         jdbc.update("DELETE FROM users");
         userId = insertUser("AGREE");
         otherUserId = insertUser("AGREE");
@@ -174,6 +198,24 @@ abstract class RunningSessionIntegrationSupport {
                 expectedVersion,
                 result,
                 result);
+    }
+
+    /** APPLIED PAUSE/RESUME을 지정 시각으로 넣는다(S15P31E105-643 movingDurationSec). */
+    protected long insertAppliedCommand(
+            long sessionId, long deviceId, String action, long expectedVersion, Instant appliedAt) {
+        return jdbc.queryForObject(
+                """
+                INSERT INTO session_control_events(session_id,device_id,action,target_bpm,expected_version,result,applied_at)
+                VALUES (?,?,?::session_control_events_action_enum,null,?,
+                        'APPLIED'::session_control_events_result_enum,?)
+                RETURNING id
+                """,
+                Long.class,
+                sessionId,
+                deviceId,
+                action,
+                expectedVersion,
+                java.sql.Timestamp.from(appliedAt));
     }
 
     protected long insertGroupRun(String status, boolean ended) {

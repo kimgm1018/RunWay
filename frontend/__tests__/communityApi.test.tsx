@@ -81,21 +81,47 @@ const post = {
   },
 };
 
+// S15P31E105-632's post (CMT02·CMT03): its counts, my reaction, whether the course goes along and the author's
+// photo. The tests above keep the older server's post without them.
+const newShape = {
+  courseId: null,
+  courseShared: true,
+  commentCount: 1,
+  reactionCount: 3,
+  myReaction: null,
+  author: {
+    userId: 9,
+    nickname: '서윤',
+    profileImageUrl: 'https://img.test/9.jpg',
+  },
+};
+// Comments from the same server name their authors.
+const commentAuthor = (userId: number, nickname: string) =>
+  newServer ? { author: { userId, nickname, profileImageUrl: null } } : {};
+let newServer = false;
+let extra: Record<string, unknown> = {};
+
 function serve() {
   fetchMock.mockImplementation(
     async (url: string, init: { method: string }) => {
       const path = new URL(url).pathname.replace(/^.*\/api\/v1/, '');
+      const current = { ...post, ...extra };
       if (path === '/posts') {
-        return respond(200, { items: [post] });
+        return respond(200, { items: [current] });
       }
       if (path === '/posts/101') {
-        return respond(200, { ...post, courseId: null, updatedAt: createdAt });
+        return respond(200, {
+          courseId: null,
+          ...current,
+          updatedAt: createdAt,
+        });
       }
       if (path === '/posts/101/comments' && init.method === 'POST') {
         return respond(201, {
           id: 2,
           postId: 101,
           authorId: 7,
+          ...commentAuthor(7, '민준'),
           parentCommentId: null,
           body: '같이 달려요',
           createdAt,
@@ -108,12 +134,16 @@ function serve() {
               id: 1,
               postId: 101,
               authorId: 30,
+              ...commentAuthor(30, '하은'),
               parentCommentId: null,
               body: '부럽다',
               createdAt,
             },
           ],
         });
+      }
+      if (path === '/comments/2' && init.method === 'DELETE') {
+        return respond(200, { deletedAt: createdAt });
       }
       if (path === '/posts/101/reactions/me') {
         return respond(200, { postId: 101, userId: 7 });
@@ -153,6 +183,8 @@ beforeEach(async () => {
     doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'],
   });
   fetchMock.mockReset();
+  newServer = false;
+  extra = {};
   globalThis.fetch = fetchMock as unknown as typeof fetch;
   await tokenStore.save({
     accessToken: `header.${payload}.signature`,
@@ -301,4 +333,86 @@ test('the 댓글 sheet edits and deletes my comment through CMT08 · CMT09 and k
   expect(page).toContain('댓글을 삭제했어요');
   expect(page).not.toContain('다음 주에 같이 달려요');
   expect(menus()).toBe(0);
+});
+
+// The heart's count as 7.1 draws it beside the heart.
+const likeCount = (screen: Screen) => {
+  const hearts = screen.root.findAll(
+    node =>
+      (node.props.label === '좋아요' || node.props.label === '좋아요 취소') &&
+      'count' in node.props,
+  );
+  return hearts[hearts.length - 1].props.count;
+};
+
+const hasLabel = (screen: Screen, label: string) =>
+  screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === label &&
+      typeof node.props.onPress === 'function',
+  ).length > 0;
+
+test('7.1 shows the counts, my like and the photo the server gives, and counts my like', async () => {
+  newServer = true;
+  extra = newShape;
+  const screen = await openCommunity();
+  expect(likeCount(screen)).toBe(3);
+  expect(texts(screen)).toContain('댓글 1개 모두 보기');
+  expect(
+    screen.root.findAll(
+      node => node.props.source?.uri === 'https://img.test/9.jpg',
+    ).length,
+  ).toBeGreaterThan(0);
+
+  await press(screen, '좋아요');
+  expect(likeCount(screen)).toBe(4);
+  await press(screen, '좋아요 취소');
+  expect(likeCount(screen)).toBe(3);
+  const calls = fetchMock.mock.calls
+    .filter(([url]) => String(url).endsWith('/reactions/me'))
+    .map(([, init]) => init.method);
+  expect(calls).toEqual(['PUT', 'DELETE']);
+});
+
+test('7.1 never shows a like count below 0 when the server gives 0 with my like', async () => {
+  newServer = true;
+  // reactionCount and myReaction are read apart, so a like made elsewhere between them comes as 0 + LIKE.
+  extra = { ...newShape, reactionCount: 0, myReaction: 'LIKE' };
+  const screen = await openCommunity();
+  expect(hasLabel(screen, '좋아요 취소')).toBe(true);
+  expect(likeCount(screen)).toBe(0);
+
+  await press(screen, '좋아요 취소');
+  expect(likeCount(screen)).toBe(0);
+  expect(texts(screen)).not.toContain('-1');
+});
+
+test('adding and deleting my comment in the 댓글 sheet updates the server count on 7.1', async () => {
+  newServer = true;
+  extra = newShape;
+  const screen = await openCommunity();
+  await press(screen, '댓글 1개 모두 보기');
+  let page = texts(screen);
+  expect(page).toContain('부럽다');
+  expect(page).toContain('하은');
+
+  await act(async () => {
+    labelled(screen, '댓글 입력', 'onChangeText').props.onChangeText(
+      '같이 달려요',
+    );
+  });
+  await press(screen, '게시');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('같이 달려요');
+  expect(page).toContain('댓글 2개 모두 보기');
+
+  await press(screen, '댓글 메뉴');
+  await press(screen, '삭제');
+  await press(screen, '삭제');
+  await settle(50);
+  page = texts(screen);
+  expect(page).toContain('댓글을 삭제했어요');
+  expect(page).toContain('댓글 1개 모두 보기');
+  expect(page).not.toContain('댓글 2개 모두 보기');
 });

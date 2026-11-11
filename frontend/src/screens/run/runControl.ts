@@ -2,6 +2,9 @@ import { DataError, errorCode, type DataErrorCode } from '../../data/errors';
 import { createBatchRelay } from '../../watch/batchRelay';
 import { createLiveMetrics, type LiveMetrics } from '../../watch/liveMetrics';
 import { createPhoneRecorder, type PhoneRecorder } from '../../watch/phoneRecorder';
+import { gpsItem } from '../../watch/phoneBatch';
+import { createCoachingAnnouncer, type CoachingVoiceOut } from './coachingAnnouncer';
+import { runClockOf, type RunClock } from './runClock';
 import type {
   BpmApproval,
   CoachingGuide,
@@ -15,6 +18,7 @@ import type {
   SessionGoalDraft,
   SessionSnapshot,
   SessionStatus,
+  WatchResultSummary,
   WatchSessionEvent,
 } from '../../data/types';
 
@@ -63,6 +67,11 @@ export type RunControlState = {
   watchLost: boolean;
   // 폰 기록 중 폰 GPS를 받는지. 권한·GPS가 없으면 'off'이고 기록은 시간만 이어간다.
   phoneGps: 'on' | 'off' | null;
+  // GPS 위치가 하나도 없을 때(실내 등) 지도에 점만 찍을 대략 위치(S15P31E105-549). 폰의 Wi-Fi·기지국 위치를 포함한
+  // 현재 위치 한 번이며, 경로·거리·서버 업로드에는 쓰지 않는다. GPS 위치가 오면 더 쓰지 않는다.
+  approxPosition: [number, number] | null;
+  // 서버 기준 운동 시간의 기준점(S15P31E105-528). 서버가 운동시간을 주지 않으면 null이고 화면은 폰 시계로 센다.
+  clock: RunClock | null;
 };
 
 // 폰 인계를 안내할지: 워치로 실제 시작한 RUNNING/PAUSED 세션에서 워치 단절·측정 끊김이 보이거나, 워치가 제어 결과를
@@ -119,6 +128,8 @@ export type RunControl = {
 type Deps = {
   session: Repositories['session'];
   watch: Repositories['watchSession'];
+  // 종료 뒤 분석이 READY일 때 H02 요약을 워치 결과 화면에 옮긴다(S15P31E105-663). 없으면 상태만 옮긴다.
+  records?: Pick<Repositories['records'], 'getResultSummary'>;
   // 폰 인계 뒤 폰 GPS. 없으면 폰 기록은 시간만 이어간다.
   location?: PhoneLocation;
   // 폰 batch ID(UUID v4).
@@ -140,13 +151,28 @@ type Deps = {
     phoneFinishWaitMs?: number;
     // 그룹 세션의 S02 조회 주기(S15P31E105-420). S10이 오지 않아도 서버가 승인한 출발·종료를 찾는다.
     groupPollMs?: number;
+    // GPS 위치가 없을 때 대략 위치(지도 점)를 다시 묻는 주기(S15P31E105-549).
+    approxEveryMs?: number;
+    // 개인 러닝 중 S02 조회 주기. S10이 오지 않아도 서버 코칭 명령을 워치에 전달한다(S15P31E105-549).
+    serverPollMs?: number;
+    // 종료 뒤 분석 상태 조회 주기와 상한(S15P31E105-663). 상한 뒤에는 워치의 STATE_QUERY로만 답한다.
+    analysisPollMs?: number;
+    analysisMaxMs?: number;
   };
+  // 코칭 음성 안내(S15P31E105-579). 없으면 읽지 않는다.
+  voice?: CoachingVoiceOut;
 };
 
 type ResultEvent = Extract<WatchSessionEvent, { type: 'COMMAND_RESULT' }>;
 type CoachingResultEvent = Extract<WatchSessionEvent, { type: 'COACHING_RESULT' }>;
 
 const noop = () => undefined;
+
+// 실기기 진단(S15P31E105-549): 제어 단계·명령 번호·오류 코드만 남긴다. 건강값·좌표·토큰은 남기지 않는다.
+// 릴리스 번들에서도 logcat ReactNativeJS 태그로 보인다.
+const diag = (line: string) => {
+  console.info(`[RunWay] ${line}`);
+};
 
 const TERMINAL: SessionStatus[] = ['COMPLETED', 'CANCELLED', 'INTERRUPTED'];
 // SERVER_END.reason(9.3): 그룹장이 그룹 전체를 끝냈다(G12).
@@ -171,6 +197,8 @@ const initialState: RunControlState = {
   recordingMode: null,
   watchLost: false,
   phoneGps: null,
+  approxPosition: null,
+  clock: null,
 };
 
 const emptyGoal: SessionGoalDraft = {
@@ -211,10 +239,12 @@ const randomId = () => {
 export function createRunControl({
   session,
   watch,
+  records,
   location = noLocation,
   newId = randomId,
   now = () => Date.now(),
   timers,
+  voice,
 }: Deps): RunControl {
   const resultWaitMs = timers?.resultWaitMs ?? watch.timing?.resultWaitMs ?? 30_000;
   const endResultWaitMs = timers?.endResultWaitMs ?? watch.timing?.endResultWaitMs ?? 120_000;
@@ -225,6 +255,13 @@ export function createRunControl({
   const watchCheckMs = timers?.watchCheckMs ?? 10_000;
   const watchQuietMs = timers?.watchQuietMs ?? 30_000;
   const groupPollMs = timers?.groupPollMs ?? 3_000;
+  // 개인 러닝 중 S02 조회 주기(S10 보완, S15P31E105-549).
+  const serverPollMs = timers?.serverPollMs ?? 5_000;
+  // 종료 뒤 분석이 끝날 때까지 S02를 5초마다 최대 3분 조회한다(S15P31E105-663).
+  const analysisPollMs = timers?.analysisPollMs ?? 5_000;
+  const analysisMaxMs = timers?.analysisMaxMs ?? 180_000;
+  // GPS 위치가 없을 때 대략 위치를 다시 묻는 주기.
+  const approxEveryMs = timers?.approxEveryMs ?? 15_000;
 
   let state = initialState;
   let devices: LinkedDevices | null = null;
@@ -248,6 +285,10 @@ export function createRunControl({
   // ── 워치 BPM·서버 코칭 중계(S15P31E105-257). 코칭 값은 화면 상태(coaching·currentBpm)로도 보이지만, 중계 결과로 problem·pending은 바꾸지 않는다.
   // 워치에 보낸 SET_BPM 승인 명령. 시간 초과 뒤 늦게 온 결과도 보고한다.
   let bpmInflight: BpmApproval | null = null;
+  // 코칭 음성 안내(S15P31E105-579): 워치가 적용한 코칭(폰 기록이면 새로 받은 코칭)을 읽는다. 결과 이벤트에는 페이스가 없어
+  // S10/S02에서 본 코칭을 commandId로 기억해 둔다.
+  const announcer = voice ? createCoachingAnnouncer(voice) : null;
+  const knownGuides = new Map<string, CoachingGuide>();
   // 워치에 전달 중인 코칭 명령. 같은 명령은 결과를 기다리는 동안 다시 보내지 않고, 재연결 때만 다시 보낸다.
   let guideWait: { commandId: string; timer: ReturnType<typeof setTimeout> | null } | null = null;
   // 서버 저장을 확인한 코칭 결과(commandId → 저장 후 버전). 같은 결과를 다시 받으면 저장 확인만 다시 보낸다.
@@ -267,9 +308,23 @@ export function createRunControl({
   let eventsFor: string | null = null;
   // ── 폰 인계 후 폰 기록(S15P31E105-464).
   let recorder: PhoneRecorder | null = null;
+  // 기록기의 세션·폰 기기 ID. 둘 중 하나가 바뀌면 새 기록기를 만든다.
   let recorderFor: string | null = null;
+  // 폰 위치를 5초 batch를 기다리지 않고 바로 화면에 반영하는 구독(S15P31E105-549). 표시 전용이며 업로드는 기록기 batch만 한다.
+  let fixView: (() => void) | null = null;
+  const stopFixView = () => {
+    fixView?.();
+    fixView = null;
+  };
+  // 인계 뒤 러닝 서비스 위치 유형·GPS를 다시 켠 세션.
+  let phoneServiceFor: string | null = null;
   // 폰이 실행한 제어 명령(commandId → 실제 적용 시각·종료 저장 확인). 같은 명령을 다시 실행하지 않는다.
   const phoneDone = new Map<string, { appliedAt: string; uploadComplete: boolean }>();
+  // ── GPS 위치가 없을 때의 대략 위치 조회 주기.
+  let approxTimer: ReturnType<typeof setInterval> | null = null;
+  let approxBusy = false;
+  // 대략 위치 조회에서 위치 권한이 거절됐는지. 거절되면 이 화면에서는 다시 묻지 않는다.
+  let approxDenied = false;
   // ── 워치 단절 감시. 마지막으로 워치 batch를 받은(또는 감시를 시작한) 시각.
   let lastWatchDataAt = Date.now();
   let watchTimer: ReturnType<typeof setInterval> | null = null;
@@ -313,32 +368,51 @@ export function createRunControl({
       live = createLiveMetrics();
       liveFor = sessionId;
     }
-    const next = live.ingest(body, from, Date.now());
+    const next = live.ingest(body, from, Date.now(), phoneMode() ? 'PHONE' : 'WATCH');
     if (next) {
       setState({ live: next });
     }
   };
   const active = () => state.status === 'RUNNING' || state.status === 'PAUSED';
 
-  // 폰 기록 모드인 진행 중 세션 동안 폰 GPS 기록을 서버 상태(실행 중인 폰 명령이 없을 때)에 맞춘다.
+  // 이 폰(relay PHONE)의 기기 ID. 인계 후에는 제어기기도 이 폰이다.
+  const phoneDeviceId = () =>
+    (phoneMode() ? controlDeviceId ?? relayDeviceId : relayDeviceId) ?? devices?.phoneDeviceId ?? null;
+
+  // 폰 GPS를 다시 켜고 결과를 화면 상태에 남긴다. 권한을 나중에 받았을 때도 부른다.
+  const startGps = (target: PhoneRecorder) => {
+    target.start().then(on => {
+      if (recorder === target) {
+        setState({ phoneGps: on ? 'on' : 'off' });
+      }
+    }, noop);
+  };
+
+  // 진행 중 세션 동안 폰 GPS 기록을 서버 상태에 맞춘다(S15P31E105-549, 통합 설계 2장 GPS 출처 선택).
+  // WATCH 모드에서도 폰은 자기 deviceId로 GPS batch를 올리고, 서버·화면이 구간별로 워치 위치를 우선한다.
+  // 준비(READY) 중에는 GPS만 켜 두고 기록하지 않으며, 실제 운동(RUNNING) 동안의 위치만 batch에 넣는다.
+  // 인계 뒤에도 생산 기기는 같은 폰이므로 같은 기록기를 이어 쓴다.
   const syncPhone = () => {
-    const want = !disposed && state.sessionId && phoneMode() && active() ? state.sessionId : null;
+    const deviceId = phoneDeviceId();
+    const ongoing = !disposed && state.sessionId && state.status && !TERMINAL.includes(state.status);
+    const want = ongoing && deviceId ? `${state.sessionId}|${deviceId}` : null;
     if (recorder && recorderFor !== want) {
       recorder.dispose();
       recorder = null;
       recorderFor = null;
+      stopFixView();
     }
-    if (!want) {
+    if (!want || !deviceId) {
       return;
     }
+    const sessionId = state.sessionId as string;
     if (!recorder) {
       const next = createPhoneRecorder({
-        sessionId: want,
-        // 인계 후 제어기기는 이 세션의 중계 폰이다. 폰 GPS는 폰 자신의 deviceId로 batch를 만든다.
-        deviceId: controlDeviceId ?? relayDeviceId ?? '',
+        sessionId,
+        deviceId,
         location,
         upload: body => {
-          ingestLive(want, body, 'PHONE');
+          ingestLive(sessionId, body, 'PHONE');
           return session.uploadBatch(body);
         },
         newId,
@@ -347,16 +421,29 @@ export function createRunControl({
       });
       recorder = next;
       recorderFor = want;
-      // 화면이 꺼져도 폰 GPS를 받도록 러닝 서비스에 위치 유형을 켠다.
-      watch.setRunActive(true, want, { location: true }).catch(noop);
-      next.start().then(on => {
-        if (recorder === next) {
-          setState({ phoneGps: on ? 'on' : 'off' });
+      fixView = location.subscribe(fix => {
+        // 실제 운동 중의 위치만 보인다(기록기와 같은 기준). batch로 다시 와도 같은 측정 시각·좌표는 한 번만 들어간다.
+        const item = state.status === 'RUNNING' ? gpsItem(fix) : null;
+        if (item) {
+          ingestLive(sessionId, JSON.stringify({ items: [item] }), 'PHONE');
         }
-      }, noop);
+      });
+      startGps(next);
+    }
+    if (phoneMode() && phoneServiceFor !== sessionId) {
+      // 인계 직후: 화면이 꺼져도 폰 GPS를 받도록 러닝 서비스 위치 유형을 다시 켜고, 인계 때 받은 권한으로 GPS를 다시 켠다.
+      // 이 시각 이후의 폰 위치만 화면 거리에 더한다(인계 전 위치는 워치 기록 중 보완용).
+      phoneServiceFor = sessionId;
+      if (liveFor !== sessionId) {
+        live = createLiveMetrics();
+        liveFor = sessionId;
+      }
+      live.setPhoneSince(Date.now());
+      watch.setRunActive(true, sessionId, { location: true }).catch(noop);
+      startGps(recorder);
     }
     // 승인받은 폰 명령을 실행·보고하는 동안에는 그 실행 결과가 서버 상태보다 앞선다.
-    if (inflight || recorder.finished()) {
+    if ((phoneMode() && inflight) || recorder.finished()) {
       return;
     }
     if (state.status === 'RUNNING') {
@@ -395,34 +482,82 @@ export function createRunControl({
     }
   };
 
+  // 진행 중인데 GPS 위치(워치·폰, 정확도 무관)가 아직 하나도 없으면 대략 현재 위치를 주기적으로 받아 점만 표시한다.
+  const fetchApprox = () => {
+    if (approxBusy || disposed) {
+      return;
+    }
+    approxBusy = true;
+    location
+      .current()
+      .then(
+        fix => {
+          if (!disposed && !state.live?.here && active()) {
+            setState({ approxPosition: [fix.longitude, fix.latitude] });
+          }
+        },
+        error => {
+          // 위치 권한이 없으면 이 세션에서는 다시 묻지 않는다(15초마다 권한 창이 뜨지 않게).
+          if (errorCode(error) === 'LOCATION_PERMISSION_DENIED') {
+            approxDenied = true;
+            syncApprox();
+          }
+        },
+      )
+      .finally(() => {
+        approxBusy = false;
+      });
+  };
+
+  function syncApprox() {
+    const want = !disposed && !approxDenied && !!state.sessionId && active() && !state.live?.here;
+    if (want && approxTimer === null) {
+      fetchApprox();
+      approxTimer = setInterval(fetchApprox, approxEveryMs);
+      (approxTimer as unknown as { unref?: () => void }).unref?.();
+    } else if (!want && approxTimer !== null) {
+      clearInterval(approxTimer);
+      approxTimer = null;
+    }
+  }
+
   const setState = (change: Partial<RunControlState>) => {
     state = { ...state, ...change };
     if (state.recordingMode !== 'WATCH' && state.watchLost) {
       state = { ...state, watchLost: false };
     }
     listeners.forEach(listener => listener(state));
+    announcer?.setRunning(!disposed && state.status === 'RUNNING');
     syncEvents();
     syncPhone();
     syncWatchCheck();
     syncGroupPoll();
+    syncApprox();
   };
 
-  // 그룹 참가 세션이 끝나기 전까지 S02를 주기적으로 읽어 S10 스냅샷과 같이 처리한다. 다른 조작 중에는 건너뛴다.
+  // S02를 주기적으로 읽어 S10 스냅샷과 같이 처리한다. 다른 조작 중에는 건너뛴다.
+  // 그룹 참가 세션은 끝나기 전까지 groupPollMs(3초)마다 읽는다(S15P31E105-420).
+  // 개인 러닝도 운동 중(RUNNING/PAUSED)에는 serverPollMs(5초)마다 읽는다(S15P31E105-549 실기기 확인): 실기기에서 S10이 폰에
+  // 도착하지 않아 서버가 만든 AI 코칭 명령이 워치로 전달되지 못했고, 그 명령이 같은 버전 자리를 차지해 일시정지·종료가
+  // 409 COMMAND_CONFLICT로 막혔다. S02 조회로 같은 스냅샷 처리를 하면 코칭이 전달되고 자리가 풀린다.
+  let pollEvery: number | null = null;
   function syncGroupPoll() {
-    const want =
-      !disposed &&
-      groupRunId !== null &&
-      !!state.sessionId &&
-      !!state.status &&
-      !TERMINAL.includes(state.status);
-    if (want && groupTimer === null) {
-      groupTimer = setInterval(() => {
-        pollGroup().catch(noop);
-      }, groupPollMs);
-      (groupTimer as unknown as { unref?: () => void }).unref?.();
-    } else if (!want && groupTimer !== null) {
+    const ongoing = !disposed && !!state.sessionId && !!state.status && !TERMINAL.includes(state.status);
+    const every =
+      ongoing && groupRunId !== null ? groupPollMs : ongoing && active() ? serverPollMs : null;
+    if (every === pollEvery) {
+      return;
+    }
+    if (groupTimer !== null) {
       clearInterval(groupTimer);
       groupTimer = null;
+    }
+    pollEvery = every;
+    if (every !== null) {
+      groupTimer = setInterval(() => {
+        pollGroup().catch(noop);
+      }, every);
+      (groupTimer as unknown as { unref?: () => void }).unref?.();
     }
   }
 
@@ -442,12 +577,20 @@ export function createRunControl({
 
   // 서버 상태를 한 번에 반영한다. extra로 진행 표시를 함께 바꿔 "운동 중인데 시작 확인 중" 같은 중간 상태를 내보내지 않는다.
   const applyView = (view: RunningSessionView, extra: Partial<RunControlState> = {}) => {
+    const cmd = (c: RunningSessionView['pendingCommand']) =>
+      c ? `${c.action}:${c.commandId}:${c.result}:v${c.expectedVersion}` : '-';
+    diag(
+      `view ${view.state} v${view.stateVersion} pending=${cmd(view.pendingCommand)} last=${cmd(view.lastCommand)} coaching=${view.coaching ? 'yes' : 'no'}`,
+    );
     controlDeviceId = view.controlDeviceId;
     relayDeviceId = view.relayDeviceId;
     groupEndedAt = view.groupEndedAt ?? null;
+    if (view.state === 'COMPLETED') {
+      trackAnalysis(view.sessionId);
+    }
     setState({
       // 다른 세션에 붙으면 이전 세션의 실측값을 남기지 않는다.
-      ...(view.sessionId !== state.sessionId ? { live: null } : {}),
+      ...(view.sessionId !== state.sessionId ? { live: null, approxPosition: null } : {}),
       sessionId: view.sessionId,
       status: view.state,
       stateVersion: view.stateVersion,
@@ -457,6 +600,7 @@ export function createRunControl({
       coaching: view.coaching ?? null,
       currentBpm: view.currentBpm ?? null,
       recordingMode: view.recordingMode,
+      clock: runClockOf(view, Date.now()),
       ...extra,
     });
   };
@@ -585,6 +729,11 @@ export function createRunControl({
     }
     reported.add(event.commandId);
     const sessionId = state.sessionId;
+    // WATCH 모드 종료: 워치 batch뿐 아니라 이 폰이 만든 GPS batch까지 저장 확인한 뒤 uploadComplete를 보낸다(9.3 COMMAND_RESULT).
+    const phoneSaved =
+      action === 'END' && event.result === 'APPLIED' && !phoneMode() && recorder
+        ? await recorder.finish()
+        : true;
     try {
       const saved = await call(() =>
         session.reportResult(sessionId, action, {
@@ -595,10 +744,14 @@ export function createRunControl({
           appliedAt: event.appliedAt,
           reasonCode: event.reasonCode,
           ...(action === 'END'
-            ? { uploadComplete: event.uploadComplete === true && event.pendingBatchCount === 0 }
+            ? {
+                uploadComplete:
+                  event.uploadComplete === true && event.pendingBatchCount === 0 && phoneSaved,
+              }
             : {}),
         }),
       );
+      diag(`${action} ${event.commandId} reported ${saved.result} v${saved.session.stateVersion}`);
       // 폰이 실행한 명령(인계 후)은 워치에 저장 확인을 보내지 않는다.
       if (!phoneMode()) {
         await watch
@@ -626,6 +779,7 @@ export function createRunControl({
     } catch (error) {
       reported.delete(event.commandId);
       const code = errorCode(error);
+      diag(`${action} ${event.commandId} report failed ${code}`);
       if (code === 'UPLOAD_PENDING') {
         setState({ problem: { kind: 'saveUnconfirmed', reason: 'UPLOAD_PENDING' } });
         return;
@@ -661,8 +815,9 @@ export function createRunControl({
             reason: GROUP_END_REASON,
           })
         : watch.sendCommand(sessionId, approval);
-    await sending.catch(() => undefined);
+    await sending.catch(error => diag(`${approval.action} ${approval.commandId} send failed ${errorCode(error)}`));
     const event = await waiting;
+    diag(`${approval.action} ${approval.commandId} watch result ${event ? event.result : 'TIMEOUT'}`);
     if (!event) {
       setState({
         problem:
@@ -995,11 +1150,21 @@ export function createRunControl({
         comparison: view.comparison ?? null,
         coaching: view.coaching ?? null,
         currentBpm: view.currentBpm ?? null,
+        clock: runClockOf(view, Date.now()),
       });
     }
     watch.sendServerState(sessionId, view, null).catch(noop);
     relayServerCommand(view);
+    for (const seen of [view.pendingCommand?.coachingGuide, view.coaching]) {
+      if (seen) {
+        knownGuides.set(seen.commandId, seen);
+      }
+    }
     if (view.recordingMode === 'PHONE_FALLBACK') {
+      // 폰으로 기록 중이면 워치 적용이 없으므로 새로 받은 코칭을 안내한다(S15P31E105-579).
+      if (view.coaching) {
+        announcer?.applied(view.coaching);
+      }
       return;
     }
     const guide = view.pendingCommand?.coachingGuide ?? view.coaching ?? null;
@@ -1012,11 +1177,83 @@ export function createRunControl({
     deliverGuide(sessionId, guide);
   }
 
+  // 분석이 READY일 때만 H02 요약을 읽는다. 읽지 못하면 null이며 값을 만들어 채우지 않는다(S15P31E105-663).
+  async function summaryFor(view: RunningSessionView): Promise<WatchResultSummary | null> {
+    if (view.analysisStatus !== 'READY' || !records) {
+      return null;
+    }
+    try {
+      return await records.getResultSummary(view.sessionId);
+    } catch {
+      return null;
+    }
+  }
+
+  // 종료(COMPLETED)된 세션의 분석 상태를 워치 결과 화면에 알린다(S15P31E105-663, 통합 설계 STATE_RESULT.analysis).
+  // S02를 일정 간격으로 조회해 상태가 바뀔 때마다 한 번 보내고 READY·FAILED·LEGACY에서 멈춘다. 상한을 넘기면 멈추고,
+  // 이후는 워치가 다시 물을 때(STATE_QUERY) 답한다. 분석 계산은 서버가 하며 여기서는 옮기기만 한다.
+  let analysisFor: string | null = null;
+  let analysisTimer: ReturnType<typeof setTimeout> | null = null;
+  const stopAnalysis = () => {
+    if (analysisTimer !== null) {
+      clearTimeout(analysisTimer);
+      analysisTimer = null;
+    }
+    analysisFor = null;
+  };
+  const trackAnalysis = (sessionId: string) => {
+    if (analysisFor === sessionId) {
+      return;
+    }
+    stopAnalysis();
+    analysisFor = sessionId;
+    const startedAt = now();
+    let sent: string | null = null;
+    let summaryTries = 0;
+    const tick = async () => {
+      analysisTimer = null;
+      if (disposed || analysisFor !== sessionId || state.sessionId !== sessionId) {
+        return;
+      }
+      let finished = false;
+      try {
+        const view = await call(() => session.get(sessionId));
+        if (disposed || analysisFor !== sessionId) {
+          return;
+        }
+        const status = view.analysisStatus;
+        const summary = await summaryFor(view);
+        // READY인데 요약을 못 읽었으면 몇 번 더 읽어 본 뒤에 보낸다.
+        const wait = status === 'READY' && !summary && ++summaryTries < 3;
+        if (!wait && status !== sent) {
+          sent = status;
+          await watch.sendServerState(sessionId, view, null, summary).catch(noop);
+        }
+        finished = !wait && ['READY', 'FAILED', 'LEGACY'].includes(status);
+      } catch {
+        // 다음 조회에서 다시 시도한다.
+      }
+      if (finished || disposed || analysisFor !== sessionId) {
+        return;
+      }
+      if (now() - startedAt >= analysisMaxMs) {
+        analysisFor = null;
+        return;
+      }
+      analysisTimer = setTimeout(tick, analysisPollMs);
+    };
+    analysisTimer = setTimeout(tick, 0);
+  };
+
   // 워치 STATE_QUERY(scope=SERVER): S02를 조회해 서버 시각·BPM·명령과 함께 답한다. clientSendAt은 그대로 돌려준다.
   async function answerState(sessionId: string, clientSendAt: string | null) {
     try {
       const view = await call(() => session.get(sessionId));
-      await watch.sendServerState(sessionId, view, clientSendAt);
+      const summary = await summaryFor(view);
+      // 요약이 없으면 기존 호출 모양 그대로 보낸다(S15P31E105-663).
+      await (summary
+        ? watch.sendServerState(sessionId, view, clientSendAt, summary)
+        : watch.sendServerState(sessionId, view, clientSendAt));
     } catch (error) {
       const code = errorCode(error);
       await watch
@@ -1035,6 +1272,7 @@ export function createRunControl({
     }
     const sessionId = state.sessionId;
     setState({ pending: { action, commandId: null }, problem: null });
+    diag(`${action} request v${state.stateVersion} mode=${state.recordingMode}`);
     let approval: CommandApproval;
     try {
       approval = await call(() =>
@@ -1045,12 +1283,20 @@ export function createRunControl({
       );
     } catch (error) {
       const code = errorCode(error);
+      diag(`${action} request failed ${code}`);
       if (RESYNC.includes(code)) {
         await refresh().catch(() => undefined);
+      }
+      if (code === 'COMMAND_CONFLICT') {
+        // 같은 버전 자리에 서버가 만든 명령(AI 코칭)이 남아 있다. 바로 S02를 읽어 그 명령을 워치에 전달해 자리를 풀게 한다.
+        await call(() => session.get(sessionId))
+          .then(view => onSnapshot({ event: 'POLL', session: view, reconnected: true }))
+          .catch(noop);
       }
       setState({ pending: null, problem: { kind: 'error', code } });
       return;
     }
+    diag(`${action} approved ${approval.commandId} ${approval.result}`);
     setState({ pending: { action, commandId: approval.commandId } });
     if (phoneMode() && (approval.result === 'PENDING' || approval.result === 'UNKNOWN')) {
       // UNKNOWN(응답 유실 뒤 재요청)도 폰이 실행하지 않았다면 지금 실행하고, 실행했다면 보관한 결과로 보고한다.
@@ -1132,7 +1378,15 @@ export function createRunControl({
       await attachTo(String(activeId));
       lastGoal = null;
     }
-    await watch.setRunActive(true, state.sessionId ?? undefined).catch(() => undefined);
+    // 준비 화면에서 경로용 위치 권한을 묻고 러닝 서비스에 위치 유형을 켠다. 거절해도 러닝은 이어가며 경로만 남지 않는다.
+    // 폰 화면이 앞에 있을 때 켜 두어야 워치에서 시작해도 화면이 꺼진 채 폰 GPS를 받는다(백그라운드 위치 서비스 시작 제한).
+    const granted = await location.requestPermission().catch(() => false);
+    await watch
+      .setRunActive(true, state.sessionId ?? undefined, { location: true })
+      .catch(() => undefined);
+    if (granted && recorder) {
+      startGps(recorder);
+    }
     return true;
   }
 
@@ -1144,7 +1398,7 @@ export function createRunControl({
     const ended = state.status !== null && TERMINAL.includes(state.status);
     await watch
       .setRunActive(!ended, ended ? undefined : sessionId, {
-        location: !ended && view.recordingMode === 'PHONE_FALLBACK',
+        location: !ended,
       })
       .catch(() => undefined);
     if (ended) {
@@ -1197,6 +1451,13 @@ export function createRunControl({
     devices = await watch.getLinkedDevices();
     await attachTo(sessionId);
     lastGoal = goal;
+    // 대기방에서 준비 완료한 그룹 러닝도 경로용 위치 권한을 묻는다(S15P31E105-549). 거절해도 러닝은 이어간다.
+    if (await location.requestPermission().catch(() => false)) {
+      await watch.setRunActive(true, sessionId, { location: true }).catch(noop);
+      if (recorder) {
+        startGps(recorder);
+      }
+    }
     if (state.sessionId !== sessionId || state.status !== 'READY' || inflight) {
       return;
     }
@@ -1363,6 +1624,30 @@ export function createRunControl({
     if (disposed) {
       return;
     }
+    if (event.type === 'LIVE_METRICS') {
+      // 워치 화면 표시값(S15P31E105-549): 화면 숫자만 맞추고 기록·업로드에는 쓰지 않는다. 인계 뒤에는 무시한다.
+      if (event.sessionId === state.sessionId && !phoneMode()) {
+        lastWatchDataAt = Date.now();
+        if (liveFor !== event.sessionId) {
+          live = createLiveMetrics();
+          liveFor = event.sessionId;
+        }
+        const next = live.show(
+          {
+            measuredAt: event.measuredAt,
+            heartRate: event.heartRateBpm,
+            cadence: event.cadenceSpm,
+            distanceM: event.distanceM,
+            paceSecPerKm: event.paceSecPerKm,
+          },
+          Date.now(),
+        );
+        if (next) {
+          setState({ live: next });
+        }
+      }
+      return;
+    }
     if (event.type === 'BATCH_DATA') {
       if (event.sessionId === state.sessionId) {
         lastWatchDataAt = Date.now();
@@ -1426,6 +1711,11 @@ export function createRunControl({
       if (guideWait?.commandId === event.commandId && guideWait.timer) {
         clearTimeout(guideWait.timer);
         guideWait.timer = null;
+      }
+      // 워치가 실제로 적용한 코칭만 읽는다(S15P31E105-579). 같은 결과가 다시 와도 announcer가 한 번만 다룬다.
+      const applied = knownGuides.get(event.commandId);
+      if (event.result === 'APPLIED' && event.sessionId === state.sessionId && applied) {
+        announcer?.applied(applied);
       }
       if (!state.sessionId) {
         earlyCoaching.set(event.commandId, event);
@@ -1542,9 +1832,18 @@ export function createRunControl({
       }),
     dispose: () => {
       disposed = true;
+      stopAnalysis();
+      announcer?.reset();
+      knownGuides.clear();
       recorder?.dispose();
       recorder = null;
       recorderFor = null;
+      stopFixView();
+      phoneServiceFor = null;
+      if (approxTimer !== null) {
+        clearInterval(approxTimer);
+        approxTimer = null;
+      }
       if (watchTimer !== null) {
         clearInterval(watchTimer);
         watchTimer = null;

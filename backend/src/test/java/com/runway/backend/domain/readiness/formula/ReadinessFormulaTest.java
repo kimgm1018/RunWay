@@ -354,6 +354,64 @@ class ReadinessFormulaTest {
         }
     }
 
+    /** 599 AC-5. 부하 이력이 28일보다 짧으면 이력 일수 H로 평소 주간 부하를 나눈다(28일 합 × 7 ÷ H, H는 7~28). */
+    @Nested
+    class 부하_이력_보정 {
+
+        private final List<DailyHealthInput> inputs =
+                List.of(day(9, null, null, "100"), day(0, null, null, "100"));
+
+        @Test
+        void 첫_부하가_10일_전이면_평소는_합_x_7_나누기_10이다() {
+            // 평소 = 200 × 7 / 10 = 140, 최근 7일 100 → 비율 0.71 → 100
+            ReadinessScore score =
+                    ReadinessFormula.evaluate(D, inputs, D.minusDays(9)).orElseThrow();
+
+            assertThat(score.loadScore()).isEqualByComparingTo("100");
+            assertThat(ReadinessFormula.usualWeeklyLoad(bd("200"), 10)).isEqualByComparingTo("140.00");
+        }
+
+        @Test
+        void 첫_부하를_모르면_28일_이력으로_본다() {
+            // 평소 = 200 / 4 = 50, 최근 7일 100 → 비율 2.0 → 50
+            assertThat(ReadinessFormula.evaluate(D, inputs).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+            assertThat(ReadinessFormula.evaluate(D, inputs, null).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+        }
+
+        @Test
+        void 이력이_28일_이상이면_기존_값과_같다() {
+            assertThat(ReadinessFormula.evaluate(D, inputs, D.minusDays(40)).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+            assertThat(ReadinessFormula.evaluate(D, inputs, D.minusDays(27)).orElseThrow().loadScore())
+                    .isEqualByComparingTo("50");
+        }
+
+        @Test
+        void 이력이_7일보다_짧아도_7일로_나눈다() {
+            // 오늘 하루 100: H = 7 → 평소 100, 비율 1.0 → 100
+            ReadinessScore score =
+                    ReadinessFormula.evaluate(D, List.of(day(0, null, null, "100")), D).orElseThrow();
+
+            assertThat(score.loadScore()).isEqualByComparingTo("100");
+        }
+
+        @ParameterizedTest
+        @CsvSource({"0, 7", "6, 7", "7, 8", "9, 10", "27, 28", "28, 28", "100, 28"})
+        void 이력_일수는_7에서_28_사이다(int firstLoadDaysBefore, int expected) {
+            assertThat(ReadinessFormula.historyDays(D, D.minusDays(firstLoadDaysBefore)))
+                    .isEqualTo(expected);
+        }
+
+        @Test
+        void 이력_보정에서도_구간_경계는_나눗셈_없이_비교한다() {
+            // H = 14: 비율 = 최근 7일 × 14 / (7 × 28일 합). 28일 합 200, 최근 7일 120 → 1.2 정확히 → 90
+            assertThat(ReadinessFormula.loadRatioScore(bd("120"), bd("200"), 14))
+                    .isEqualByComparingTo("90");
+        }
+    }
+
     @Nested
     class 상한 {
 
@@ -361,6 +419,107 @@ class ReadinessFormulaTest {
         @CsvSource({"100, 100", "70, 100", "69.99, 84", "50, 84", "49.99, 69", "30, 69", "29.99, 49", "0, 49"})
         void 최저_항목에_따라_상한이_정해진다(String lowest, String expected) {
             assertThat(ReadinessFormula.cap(bd(lowest))).isEqualByComparingTo(expected);
+        }
+    }
+
+    /** S15P31E105-639 AC-3·AC-4. 항목 점수와 R 변화율을 함께 돌려주고, 최종 점수와 항목 점수의 관계가 성립한다. */
+    @Nested
+    class 항목_점수와_변화율 {
+
+        @ParameterizedTest
+        @CsvSource({
+            "52.5, 5.0, 90", // 평소 50 → +5.0%(상단 포함 90)
+            "48, -4.0, 100", // 평소보다 낮으면 음수
+            "52.85, 5.0, 90", // 평소 50.333… → +5.0%(4.9999…가 아니라 정확히 5)
+            "52.52, 5.1, 80", // +5.04% → 올림 5.1. R도 5% 초과라 80(HALF_UP이면 5.0으로 보여 90처럼 읽힌다)
+            "50.01, 0.1, 100", // +0.02% → 올림 0.1
+            "47.98, -4.0, 100" // −4.04% → +∞ 방향 올림 −4.0
+        })
+        void R_변화율은_R_계산과_같은_평소_RHR로_구해_소수_첫째_자리로_올림한다(
+                String todayRhr, String expectedPct, String expectedR) {
+            boolean uneven = todayRhr.equals("52.85");
+            List<DailyHealthInput> inputs =
+                    List.of(
+                            day(0, null, todayRhr, null),
+                            day(1, null, "50", null),
+                            day(2, null, "50", null),
+                            day(3, null, uneven ? "51" : "50", null));
+
+            ReadinessScore score = ReadinessFormula.evaluate(D, inputs).orElseThrow();
+
+            assertThat(score.restingHrChangePct()).isEqualByComparingTo(expectedPct);
+            assertThat(score.restingHrChangePct().scale()).isEqualTo(1);
+            assertThat(score.recoveryScore()).isEqualByComparingTo(expectedR);
+        }
+
+        /** 리뷰 A-1·B-1 회귀: 표시 변화율로 판단한 R 구간이 실제 R 점수와 항상 같다. 평소 RHR 두 종류에 대해 0.01bpm 간격으로 확인한다. */
+        @Test
+        void 표시_변화율로_판단한_구간이_R_점수와_항상_같다() {
+            for (String third : new String[] {"50", "51"}) {
+                for (int hundredths = 4500; hundredths <= 6200; hundredths++) {
+                    String today = BigDecimal.valueOf(hundredths, 2).toPlainString();
+                    List<DailyHealthInput> inputs =
+                            List.of(
+                                    day(0, null, today, null),
+                                    day(1, null, "50", null),
+                                    day(2, null, "50", null),
+                                    day(3, null, third, null));
+
+                    ReadinessScore score = ReadinessFormula.evaluate(D, inputs).orElseThrow();
+
+                    assertThat(score.recoveryScore())
+                            .as("today=%s baseline3=%s pct=%s", today, third, score.restingHrChangePct())
+                            .isEqualByComparingTo(stepOfDisplayedPct(score.restingHrChangePct()));
+                }
+            }
+        }
+
+        /** 산식 4절 표를 표시값(소수 첫째 자리)에 그대로 적용한 점수. */
+        private BigDecimal stepOfDisplayedPct(BigDecimal pct) {
+            int[][] steps = {{3, 100}, {5, 90}, {8, 80}, {12, 65}, {15, 50}};
+            for (int[] step : steps) {
+                if (pct.compareTo(BigDecimal.valueOf(step[0])) <= 0) {
+                    return BigDecimal.valueOf(step[1]);
+                }
+            }
+            return BigDecimal.valueOf(35);
+        }
+
+        @Test
+        void R이_제외되면_변화율도_null이다() {
+            // 평소 RHR 2일뿐 → R 제외, 수면만 계산
+            List<DailyHealthInput> inputs =
+                    List.of(
+                            day(0, "420", "60", null),
+                            day(1, null, "60", null),
+                            day(2, null, "60", null));
+
+            ReadinessScore score = ReadinessFormula.evaluate(D, inputs).orElseThrow();
+
+            assertThat(score.recoveryScore()).isNull();
+            assertThat(score.restingHrChangePct()).isNull();
+            assertThat(score.sleepScore()).isEqualByComparingTo("100");
+        }
+
+        @Test
+        void 세_항목의_평균에_최저_항목_상한을_적용한_값이_최종_점수다() {
+            // S: 오늘 6h(70)만 → 70. R: 평소 50, 오늘 56(+12%) → 65. L: 최근 7일만 부하 → 이력 보정 없음(28일) 비율 4 → 35
+            List<DailyHealthInput> inputs =
+                    List.of(
+                            day(0, "360", "56", "100"),
+                            day(1, null, "50", null),
+                            day(2, null, "50", null),
+                            day(3, null, "50", null));
+
+            ReadinessScore score = ReadinessFormula.evaluate(D, inputs).orElseThrow();
+
+            assertThat(score.sleepScore()).isEqualByComparingTo("70");
+            assertThat(score.recoveryScore()).isEqualByComparingTo("65");
+            assertThat(score.loadScore()).isEqualByComparingTo("35");
+            assertThat(score.restingHrChangePct()).isEqualByComparingTo("12.0");
+            // 평균 56.67, 최저 35 → 상한 69 → 56.67
+            assertThat(score.readinessScore()).isEqualByComparingTo("56.67");
+            assertThat(score.confidence()).isEqualTo(ReadinessConfidence.HIGH);
         }
     }
 }

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Animated,
-  BackHandler,
   Image,
   RefreshControl,
   ScrollView,
@@ -19,13 +19,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AppText,
-  EmptyState,
   FadeIn,
   Icon,
   PressableScale,
   useReduceMotion,
   useToast,
-  type IconName,
 } from '../../components';
 import {
   useRepositories,
@@ -34,24 +32,19 @@ import {
   type RunRecordSummary,
 } from '../../data';
 import { recordsChanged } from '../../data/recordsChanged';
-import { navigateTo } from '../../navigation/navigateTo';
+import { isWatchReady } from '../../data/api/devices';
+import { navigateTo, openGroupRunResult } from '../../navigation/navigateTo';
 import type { HomeStackParamList } from '../../navigation/types';
 import { fontFamily, homePalette, size } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
-import {
-  frostCard,
-  recordsFrame,
-  recordsLook,
-  RecordsBackdrop,
-} from '../records/look';
+import { frostCard, recordsFrame, recordsLook } from '../records/look';
+import { StartBackground } from '../onboarding/StartScreen';
 import { kstDay, kstMonth } from '../records/parts';
 import {
   CalendarPanel,
   DateLine,
-  longDay,
   WeekStrip,
 } from '../records/DatePicker';
-import { DayRecordDetail } from '../records/DayRecords';
 import { AnalysisPanel } from './AnalysisPanel';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
@@ -64,11 +57,12 @@ import { RecordsPanel } from './RecordsPanel';
 
 type Menu = 'readiness' | 'records' | 'analysis';
 
-// Every menu is its icon on the left and its name (S15P31E105-574): one size and stroke for the three icons.
-const menus: { value: Menu; label: string; icon: IconName }[] = [
-  { value: 'readiness', label: '준비도', icon: 'heartPulse' },
-  { value: 'records', label: '러닝 기록', icon: 'clock' },
-  { value: 'analysis', label: '러닝 분석', icon: 'activity' },
+// Every menu is its name alone, the chosen one over a mint line (S15P31E105-594 담당자 레퍼런스; icons dropped).
+// 준비도 · 러닝 분석 · 월별 기록 (S15P31E105-615, 담당자 요청; 월별 기록 S15P31E105-594 담당자 요청).
+const menus: { value: Menu; label: string }[] = [
+  { value: 'readiness', label: '준비도' },
+  { value: 'analysis', label: '러닝 분석' },
+  { value: 'records', label: '월별 기록' },
 ];
 
 const menuHeight = 54;
@@ -85,6 +79,7 @@ const loadToday = (repositories: Repositories) =>
   repositories.home.getTodayCondition();
 const loadNotifications = (repositories: Repositories) =>
   repositories.notifications.list();
+const loadWatch = (repositories: Repositories) => repositories.watch.getConnection();
 
 // 반가워요 민준님 👋 in one line beside the profile photo (담당자 요청).
 function Greeting({
@@ -178,6 +173,7 @@ function MenuBar({
           }}
           scrollEventThrottle={32}
         >
+          {/* The chosen part's mint line under its name (S15P31E105-594 담당자 레퍼런스), moved by its index. */}
           <Animated.View
             pointerEvents="none"
             style={[
@@ -187,10 +183,13 @@ function MenuBar({
                 transform: [{ translateX: Animated.multiply(slide, part) }],
               },
             ]}
-          />
+          >
+            <View style={styles.menuLine} />
+          </Animated.View>
           {menus.map((menu, index) => {
             const selected = menu.value === value;
-            const color = '#FFFFFF';
+            // The chosen name is white and bold over its mint line, the others a quieter white (S15P31E105-594).
+            const color = selected ? '#FFFFFF' : recordsLook.onCardMuted;
             return (
               <PressableScale
                 key={menu.value}
@@ -204,12 +203,9 @@ function MenuBar({
                   const { x, width } = event.nativeEvent.layout;
                   places.current[menu.value] = { x, width };
                 }}
-                style={[
-                  styles.menuPart,
-                  { width: part },
-                  index > 0 && styles.menuDivided,
-                ]}
+                style={[styles.menuPart, { width: part }]}
               >
+                {index > 0 ? <View style={styles.menuDivider} /> : null}
                 <View style={styles.menuFace}>
                   <View
                     style={styles.menuInner}
@@ -220,13 +216,13 @@ function MenuBar({
                       setContent(widest => Math.max(widest, measured));
                     }}
                   >
-                    <Icon
-                      name={menu.icon}
-                      color={color}
-                      size={17}
-                      strokeWidth={2}
-                    />
-                    <AppText style={[styles.menuText, { color }]}>
+                    <AppText
+                      style={[
+                        styles.menuText,
+                        !selected && styles.menuTextOff,
+                        { color },
+                      ]}
+                    >
                       {menu.label}
                     </AppText>
                   </View>
@@ -240,8 +236,75 @@ function MenuBar({
   );
 }
 
-// A run opened in 기록 상세: its own day and id, so the 러닝 기록 date under it stays as it was.
-type Detail = { day: string; runId: string };
+// A message inside the navy 준비도 card (S15P31E105-660 실기기 확인). The shared EmptyState draws dark text for light
+// screens, which vanished on the card, so this one uses the card's own white text.
+function CardMessage({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: 'alert' | 'heartPulse';
+  title: string;
+  description?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={styles.message}>
+      <View style={styles.messageIcon}>
+        <Icon name={icon} color={recordsLook.onCard} size={22} strokeWidth={1.7} />
+      </View>
+      <AppText style={styles.messageTitle}>{title}</AppText>
+      {description ? (
+        <AppText style={styles.messageText}>{description}</AppText>
+      ) : null}
+      {actionLabel && onAction ? (
+        <PressableScale
+          onPress={onAction}
+          accessibilityRole="button"
+          style={styles.messageAction}
+        >
+          <AppText style={styles.messageActionText}>{actionLabel}</AppText>
+        </PressableScale>
+      ) : null}
+    </View>
+  );
+}
+
+// 2.1 준비도 on a past day (S15P31E105-594): that day's score when it has one, else a line saying it has none.
+function DayReadiness({ day, today, watchReady }: { day: string; today: string; watchReady: boolean }) {
+  const condition = useResource(
+    useCallback(
+      (repositories: Repositories) => repositories.home.getConditionOn(day),
+      [day],
+    ),
+  );
+  if (condition.status === 'loading') {
+    return <ActivityIndicator style={styles.loading} color="#FFFFFF" />;
+  }
+  if (condition.status === 'error') {
+    return (
+      <CardMessage
+        icon="alert"
+        title="준비도를 불러오지 못했어요"
+        actionLabel="다시 시도"
+        onAction={condition.reload}
+      />
+    );
+  }
+  if (!condition.data) {
+    return (
+      <CardMessage
+        icon="heartPulse"
+        title="이 날의 준비도 기록이 없어요"
+        description="준비도는 건강 기록이 모인 날에 계산돼요"
+      />
+    );
+  }
+  return <ReadinessPanel today={condition.data} todayDay={today} watchReady={watchReady} />;
+}
 
 export function HomeScreen() {
   const navigation = useNavigation();
@@ -256,30 +319,35 @@ export function HomeScreen() {
   // score.
   const sleep = useSamsungSleep();
   const notifications = useResource(loadNotifications);
+  const watch = useResource(loadWatch);
+  const watchReady = watch.status === 'ready' && isWatchReady(watch.data);
   // Back from 8.2 the greeting shows the saved nickname and photo, and back from 2.9 the bell loses its dot
   // (leaving 2.9 marks all read). The first focus is the first load.
   const refreshMe = me.refresh;
   const refreshNotifications = notifications.refresh;
+  const reloadWatch = watch.reload;
   const focused = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (focused.current) {
         void refreshMe();
         void refreshNotifications();
+        reloadWatch();
       }
       focused.current = true;
-    }, [refreshMe, refreshNotifications]),
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') reloadWatch();
+      });
+      return () => subscription.remove();
+    }, [refreshMe, refreshNotifications, reloadWatch]),
   );
   // Notifications that did not load only leave the bell without its dot.
   const unread = (notifications.data?.unreadCount ?? 0) > 0;
 
   const [menu, setMenu] = useState<Menu>('readiness');
-  // The date of 러닝 기록 and 러닝 분석; 준비도 does not change it.
+  // The date of every menu: 준비도 and 러닝 분석 show that day's, 월별 기록 its month (S15P31E105-594 담당자 요청).
   const [day, setDay] = useState(today);
   const [runId, setRunId] = useState<string | null>(null);
-  // 러닝 기록's month list, kept while a detail is open.
-  const [monthList, setMonthList] = useState(false);
-  const [detail, setDetail] = useState<Detail | null>(null);
   const [calendar, setCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(kstMonth(today));
   const choose = (next: string) => {
@@ -287,43 +355,22 @@ export function HomeScreen() {
     setRunId(null);
   };
 
-  // Where the 러닝 기록 card was scrolled, to come back to it from a detail.
   const card = useRef<ScrollView>(null);
-  const recordsY = useRef(0);
-  const closeDetail = useCallback(() => {
-    setDetail(null);
-    const y = recordsY.current;
-    // The 러닝 기록 card stayed mounted under the detail, so it is laid out again at once.
-    setTimeout(() => card.current?.scrollTo({ y, animated: false }), 0);
-  }, []);
-  // A run on 러닝 기록, its month list or 러닝 분석 opens its own detail in 러닝 기록; a group run opens 6.7.
-  const openRun = (run: RunRecordSummary) => {
-    if (run.runType === 'GROUP') {
-      navigateTo(navigation, 'GroupRunResult');
-      return;
-    }
+  // A run opens on 러닝 분석 on its own day (S15P31E105-594 담당자 결정: 기록 상세 화면은 없앰); a group run opens 6.7.
+  const showRun = (runDay: string, id: string) => {
     setCalendar(false);
-    setMenu('records');
-    setDetail({ day: kstDay(run.startedAt), runId: run.id });
+    setDay(runDay);
+    setRunId(id);
+    setMenu('analysis');
     card.current?.scrollTo({ y: 0, animated: false });
   };
-  // Android back leaves the detail first, as 기록으로 돌아가기 does.
-  useFocusEffect(
-    useCallback(() => {
-      if (!detail) {
-        return undefined;
-      }
-      const subscription = BackHandler.addEventListener(
-        'hardwareBackPress',
-        () => {
-          closeDetail();
-          return true;
-        },
-      );
-      return () => subscription.remove();
-    }, [detail, closeDetail]),
-  );
-  // 4.5 기록 보기 and 7.4 open one of my runs here, in 기록 상세 on its day (S15P31E105-564: 5.2 is part of 2.1).
+  const openRun = (run: RunRecordSummary) => {
+    if (run.runType === 'GROUP' && openGroupRunResult(navigation, run.group)) {
+      return;
+    }
+    showRun(kstDay(run.startedAt), run.id);
+  };
+  // 4.5 기록 보기, 7.4 and 5.x open one of my runs here, on 러닝 분석 on its day.
   const opened = route.params?.recordId;
   const mounted = useRef(true);
   useEffect(
@@ -340,17 +387,12 @@ export function HomeScreen() {
       .getDetail(opened)
       .then(record => {
         if (mounted.current) {
-          const runDay = kstDay(record.startedAt);
-          setCalendar(false);
-          setDay(runDay);
-          setRunId(record.id);
-          setMenu('records');
-          setDetail({ day: runDay, runId: record.id });
+          showRun(kstDay(record.startedAt), record.id);
         }
       })
       .catch(() => {
         if (mounted.current) {
-          toast('기록을 불러오지 못했어요. 러닝 기록에서 다시 열어 주세요');
+          toast('기록을 불러오지 못했어요. 월별 기록에서 다시 열어 주세요');
         }
       });
     // Read once: the same run can be opened again later.
@@ -362,7 +404,7 @@ export function HomeScreen() {
   const onRefresh = () => {
     recordsChanged();
     void sleep.refresh();
-    [me, condition, notifications].forEach(resource => {
+    [me, condition, notifications, watch].forEach(resource => {
       setPending(count => count + 1);
       resource.refresh().finally(() => setPending(count => count - 1));
     });
@@ -370,23 +412,21 @@ export function HomeScreen() {
 
   const barBottom = Math.max(insets.bottom, size.tabBarInset);
   const menuBottom = barBottom + size.tabBar + menuGap;
-  // 날짜 · 달력 belong to 러닝 기록 and 러닝 분석, not to 준비도 or an open detail.
-  const picking = menu !== 'readiness' && !detail;
-  // A menu closes the calendar to show its card; 러닝 기록 again leaves an open detail.
+  // A menu closes the calendar to show its card.
   const pickMenu = (next: Menu) => {
     setCalendar(false);
-    if (detail) {
-      setDetail(null);
-    }
     setMenu(next);
   };
-  const showCalendar = calendar && picking;
+  const showCalendar = calendar;
 
   const readiness =
-    condition.status === 'loading' ? (
+    day !== today ? (
+      // Another day's 준비도 (S15P31E105-594 담당자 요청: 과거 날짜를 고르면 그날의 준비도).
+      <DayReadiness day={day} today={today} watchReady={watchReady} />
+    ) : condition.status === 'loading' ? (
       <ActivityIndicator style={styles.loading} color="#FFFFFF" />
     ) : condition.status === 'error' ? (
-      <EmptyState
+      <CardMessage
         icon="alert"
         title="오늘 컨디션을 불러오지 못했어요"
         actionLabel="다시 시도"
@@ -396,11 +436,13 @@ export function HomeScreen() {
       <ReadinessPanel
         today={condition.data}
         todayDay={today}
+        watchReady={watchReady}
         phoneSleep={{
           access: sleep.access,
           today: sleep.today,
           heartAccess: sleep.heartAccess,
           restingHr: sleep.todayRestingHr,
+          exerciseAccess: sleep.exerciseAccess,
           requesting: sleep.requesting,
           onConnect: () => {
             void sleep.request();
@@ -412,7 +454,10 @@ export function HomeScreen() {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" />
-      <RecordsBackdrop />
+      {/* S15P31E105-594 (담당자 결정): 1.1's background without the runner, so the card reads evenly. */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <StartBackground />
+      </View>
       <View style={[styles.head, { paddingTop: insets.top + 10 }]}>
         <Greeting
           nickname={me.data?.nickname ?? ''}
@@ -431,82 +476,38 @@ export function HomeScreen() {
         />
       </View>
       <View style={styles.date}>
-        {menu === 'readiness' ? (
-          // 준비도 is about today only (S15P31E105-574): the week stays on today, and another day opens that
-          // day's 러닝 기록 instead (담당자 요청: 준비도에도 날짜 줄).
-          <>
-            <View style={styles.todayLine}>
-              <View style={styles.todayTag}>
-                <AppText style={styles.todayTagText}>오늘</AppText>
-              </View>
-              <AppText style={styles.todayText}>{longDay(today)}</AppText>
-            </View>
-            <WeekStrip
-              value={today}
-              today={today}
-              onChange={next => {
-                if (next !== today) {
-                  choose(next);
-                  setMenu('records');
-                }
-              }}
-            />
-          </>
-        ) : detail ? (
-          <View style={styles.todayLine}>
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="기록으로 돌아가기"
-              hitSlop={6}
-              onPress={closeDetail}
-              style={styles.backPill}
-            >
-              <Icon
-                name="back"
-                color={recordsLook.ink}
-                size={15}
-                strokeWidth={2.2}
+        <>
+          <View style={styles.dateRow}>
+            <View style={styles.flex}>
+              <DateLine
+                value={day}
+                open={calendar}
+                month={calendarMonth}
+                onToggle={() => {
+                  setCalendarMonth(kstMonth(day));
+                  setCalendar(open => !open);
+                }}
               />
-              <AppText style={styles.backText}>기록으로 돌아가기</AppText>
-            </PressableScale>
-            <AppText style={styles.detailDay} numberOfLines={1}>
-              {longDay(detail.day)}
-            </AppText>
-          </View>
-        ) : (
-          <>
-            <View style={styles.dateRow}>
-              <View style={styles.flex}>
-                <DateLine
-                  value={day}
-                  open={calendar}
-                  month={calendarMonth}
-                  onToggle={() => {
-                    setCalendarMonth(kstMonth(day));
-                    setCalendar(open => !open);
-                  }}
-                />
-              </View>
-              {day !== today && !calendar ? (
-                // A past date goes back to today in one tap; it fades in as the date leaves today.
-                <FadeIn appearKey="today">
-                  <PressableScale
-                    accessibilityRole="button"
-                    accessibilityLabel="오늘로 이동"
-                    hitSlop={6}
-                    onPress={() => choose(today)}
-                    style={styles.todayButton}
-                  >
-                    <AppText style={styles.todayButtonText}>오늘</AppText>
-                  </PressableScale>
-                </FadeIn>
-              ) : null}
             </View>
-            {calendar ? null : (
-              <WeekStrip value={day} today={today} onChange={choose} />
-            )}
-          </>
-        )}
+            {day !== today && !calendar ? (
+              // A past date goes back to today in one tap; it fades in as the date leaves today.
+              <FadeIn appearKey="today">
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="오늘로 이동"
+                  hitSlop={6}
+                  onPress={() => choose(today)}
+                  style={styles.todayButton}
+                >
+                  <AppText style={styles.todayButtonText}>오늘</AppText>
+                </PressableScale>
+              </FadeIn>
+            ) : null}
+          </View>
+          {calendar ? null : (
+            <WeekStrip value={day} today={today} onChange={choose} />
+          )}
+        </>
       </View>
       <View style={[frostCard, styles.card, { marginBottom: menuBottom }]}>
         {showCalendar ? (
@@ -535,12 +536,6 @@ export function HomeScreen() {
             ref={card}
             contentContainerStyle={styles.cardContent}
             showsVerticalScrollIndicator={false}
-            onScroll={event => {
-              if (menu === 'records' && !detail) {
-                recordsY.current = event.nativeEvent.contentOffset.y;
-              }
-            }}
-            scrollEventThrottle={32}
             refreshControl={
               <RefreshControl
                 refreshing={pending > 0}
@@ -551,36 +546,21 @@ export function HomeScreen() {
             }
           >
             {menu === 'records' ? (
-              <>
-                {/* Kept mounted under an open detail, so coming back finds the same date, run, list and place. */}
-                <View style={detail ? styles.hidden : null}>
-                  <FadeIn appearKey={monthList ? 'month' : 'day'}>
-                    <RecordsPanel
-                      day={day}
-                      runId={runId}
-                      list={monthList}
-                      onRun={setRunId}
-                      onList={setMonthList}
-                      onOpen={openRun}
-                    />
-                  </FadeIn>
-                </View>
-                {detail ? (
-                  <FadeIn appearKey={`detail:${detail.runId}`}>
-                    <DayRecordDetail
-                      day={detail.day}
-                      runId={detail.runId}
-                      onRun={id => setDetail({ ...detail, runId: id })}
-                    />
-                  </FadeIn>
-                ) : null}
-              </>
+              <FadeIn appearKey="month">
+                <RecordsPanel day={day} onOpen={openRun} />
+              </FadeIn>
             ) : (
               <FadeIn appearKey={menu}>
                 {menu === 'readiness' ? (
                   readiness
                 ) : (
-                  <AnalysisPanel day={day} onDay={choose} onOpen={openRun} />
+                  <AnalysisPanel
+                    day={day}
+                    runId={runId}
+                    onRun={setRunId}
+                    onOpen={openRun}
+                    onShowList={() => pickMenu('records')}
+                  />
                 )}
               </FadeIn>
             )}
@@ -636,33 +616,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  // 준비도's 오늘 · 11월 9일 월요일, and the detail's way back: one line where the date line is.
-  todayLine: {
-    minHeight: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  todayTag: {
-    height: 24,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    justifyContent: 'center',
-    backgroundColor: recordsLook.ink,
-  },
-  todayTagText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: '#FFFFFF',
-  },
-  todayText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    letterSpacing: -0.3,
-    color: recordsLook.ink,
-  },
   todayButton: {
     height: 30,
     paddingHorizontal: 14,
@@ -676,37 +629,53 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: recordsLook.ink,
   },
-  backPill: {
-    height: 32,
-    paddingLeft: 10,
-    paddingRight: 14,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.78)',
-  },
-  backText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: recordsLook.ink,
-  },
-  detailDay: {
-    flexShrink: 1,
-    fontFamily: fontFamily.medium,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: recordsLook.ink,
-  },
+  // S15P31E105-594 (담당자 결정): the card is the menu's navy, solid, so its white text reads on any background.
   card: {
     flex: 1,
+    backgroundColor: recordsLook.ink,
     marginTop: recordsFrame.gap,
     marginHorizontal: recordsFrame.side,
     overflow: 'hidden',
   },
   cardContent: { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 },
   loading: { marginTop: 120 },
+  message: { alignItems: 'center', gap: 10, paddingHorizontal: 24, paddingVertical: 96 },
+  messageIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  messageTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: 17,
+    lineHeight: 24,
+    color: recordsLook.onCard,
+    textAlign: 'center',
+  },
+  messageText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: recordsLook.onCardMuted,
+    textAlign: 'center',
+  },
+  messageAction: {
+    marginTop: 8,
+    height: 40,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  messageActionText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 18,
+    color: recordsLook.onCard,
+  },
   calendar: { flex: 1, backgroundColor: '#FFFFFF' },
   calendarContent: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 8 },
   hidden: { display: 'none' },
@@ -714,20 +683,32 @@ const styles = StyleSheet.create({
   menuInCard: { flexShrink: 0 },
   menu: { flexGrow: 1 },
   menuPart: { height: menuHeight },
-  menuDivided: {
-    borderLeftWidth: frostCard.borderWidth,
-    borderLeftColor: frostCard.borderColor,
+  // A short line between the names, as in 담당자 레퍼런스.
+  menuDivider: {
+    position: 'absolute',
+    left: 0,
+    top: menuHeight * 0.32,
+    height: menuHeight * 0.36,
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   menuFace: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   menuInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  // The chosen part's navy, under the names, moved by its index.
   menuSlider: {
     position: 'absolute',
     left: 0,
     top: 0,
     height: menuHeight,
-    backgroundColor: recordsLook.ink,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 7,
+  },
+  menuLine: {
+    width: '42%',
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: recordsLook.mint,
   },
   menuText: {
     fontFamily: fontFamily.bold,
@@ -735,4 +716,5 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     letterSpacing: -0.3,
   },
+  menuTextOff: { fontFamily: fontFamily.medium },
 });

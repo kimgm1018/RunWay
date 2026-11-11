@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   StyleSheet,
   useWindowDimensions,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Svg, {
   Circle,
   Defs,
@@ -15,13 +16,7 @@ import Svg, {
   RadialGradient,
   Stop,
 } from 'react-native-svg';
-import {
-  AppText,
-  Button,
-  Icon,
-  Screen,
-  type IconName,
-} from '../../components';
+import { AppText, Button, Icon, Screen, type IconName } from '../../components';
 import {
   useRepositories,
   useResource,
@@ -29,7 +24,10 @@ import {
   type WatchConnection,
   type WatchLinkState,
 } from '../../data';
-import { watchConnectionLabel } from '../../data/api/devices';
+import {
+  watchConnectionLabel,
+  watchReadinessDetail,
+} from '../../data/api/devices';
 import { navigateTo } from '../../navigation/navigateTo';
 import { useSession } from '../../session/SessionProvider';
 import {
@@ -55,11 +53,17 @@ const permissions: {
   key: keyof WatchConnection['permissions'];
   title: string;
   icon: IconName;
+  source: string;
 }[] = [
-  { key: 'heartRate', title: '심박수', icon: 'heartPulse' },
-  { key: 'location', title: '위치', icon: 'mapPin' },
-  { key: 'sleep', title: '수면', icon: 'moon' },
-  { key: 'activity', title: '활동량', icon: 'activity' },
+  {
+    key: 'heartRate',
+    title: '심박수',
+    icon: 'heartPulse',
+    source: '워치 센서',
+  },
+  { key: 'location', title: '위치', icon: 'mapPin', source: '휴대폰 GPS' },
+  { key: 'sleep', title: '수면', icon: 'moon', source: '삼성 헬스' },
+  { key: 'activity', title: '활동량', icon: 'activity', source: '워치 활동' },
 ];
 
 // 2×2 grid: 심박수 · 위치 on top, 수면 · 활동량 below.
@@ -69,6 +73,7 @@ const stateLabels: Record<WatchLinkState, string> = {
   connected: '연결됨',
   denied: '권한 거부',
   disconnected: '연결 끊김',
+  unknown: '미확인',
 };
 
 const loadConnection = (repositories: Repositories) =>
@@ -234,10 +239,12 @@ function PermissionCard({
   title,
   icon,
   state,
+  source,
 }: {
   title: string;
   icon: IconName;
   state: WatchLinkState;
+  source: string;
 }) {
   const { colors } = useTheme();
   const tint =
@@ -253,10 +260,13 @@ function PermissionCard({
       style={styles.permission}
     >
       <AppText style={styles.permissionTitle}>{title}</AppText>
+      <AppText variant="caption" tone="textSecondary">
+        {source}
+      </AppText>
       <AppText
         style={[
           styles.permissionState,
-          state !== 'connected' && { color: colors.danger },
+          state === 'denied' && { color: colors.danger },
         ]}
       >
         {stateLabels[state]}
@@ -276,6 +286,18 @@ export function WatchConnectScreen() {
   const session = useSession();
   const finishOnboarding = useFinishOnboarding();
   const loaded = useResource(useCallback(loadConnection, []));
+  const { reload } = loaded;
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) firstFocus.current = false;
+      else reload();
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') reload();
+      });
+      return () => subscription.remove();
+    }, [reload]),
+  );
   const [connection, setConnection] = useState<WatchConnection | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -301,9 +323,9 @@ export function WatchConnectScreen() {
   const error = loaded.status === 'error' || failed;
   const busy = loaded.status === 'loading' || reconnecting;
   const connected = connection?.status === 'connected';
+  const detail = connection ? watchReadinessDetail(connection) : null;
   return (
     <Screen
-      scroll={false}
       background={onboardingScreen.background}
       contentStyle={styles.content}
       header={
@@ -378,9 +400,33 @@ export function WatchConnectScreen() {
             <Battery percent={connection.batteryPercent} />
           </View>
         ) : null}
+        {detail ? (
+          <AppText
+            variant="caption"
+            tone="textSecondary"
+            style={styles.readinessDetail}
+          >
+            {detail}
+            {connection?.readinessReasons?.some(
+              reason =>
+                reason === 'HEART_RATE_PERMISSION' ||
+                reason === 'ACTIVITY_PERMISSION',
+            )
+              ? '\n워치의 RunWay 앱에서 건강정보 동의를 확인하고 ‘권한 허용’을 눌러 주세요.'
+              : '\n워치에서 RunWay 앱을 열고 다시 확인해 주세요.'}
+          </AppText>
+        ) : null}
+        {connection && !busy ? (
+          <Button
+            title="다시 확인"
+            variant="text"
+            size="small"
+            onPress={reload}
+          />
+        ) : null}
       </View>
       {/* The cards and the slider reach the lower part of the mist background, which stays light. */}
-      {/* The cards sit centered between the status line and the slider, with equal room above and below. */}
+      {/* Keep the cards in normal scroll flow; a missing-permission notice must not squeeze them into the footer. */}
       <View style={styles.cardsArea}>
         {error ? (
           <View style={styles.errorBox}>
@@ -404,6 +450,7 @@ export function WatchConnectScreen() {
                     title={item.title}
                     icon={item.icon}
                     state={connection.permissions[item.key]}
+                    source={item.source}
                   />
                 ))}
               </View>
@@ -466,7 +513,8 @@ const styles = StyleSheet.create({
   },
   batteryBar: { flex: 1, borderRadius: 0.5 },
   batteryNub: { width: 1.5, height: 4, borderRadius: 1, marginLeft: 1 },
-  cardsArea: { flex: 1, justifyContent: 'center' },
+  cardsArea: { marginTop: spacing.lg },
+  readinessDetail: { textAlign: 'center', marginTop: spacing.sm },
   // All four cards fit the width with the screen's side margins, instead of scrolling sideways.
   permissions: { gap: spacing.md },
   permissionRow: { flexDirection: 'row', gap: spacing.md },

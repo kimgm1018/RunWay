@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -15,18 +15,15 @@ import {
 } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
-import {
-  useRepositories,
-  useResource,
-  type FeedScope,
-  type Post,
-  type Repositories,
-} from '../../data';
+import { useRepositories, type FeedScope, type Post } from '../../data';
+import { onPostChanged, takePostsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, size, spacing, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
 import { FeedPage, feedLook } from './FeedPage';
+import { takePrefetchedFeed } from './feedPrefetch';
 import { PostMenu } from './parts';
+import { usePostPages } from './usePostPages';
 
 const scopes: { value: FeedScope; label: string }[] = [
   { value: 'ALL', label: '전체' },
@@ -37,7 +34,8 @@ const scopes: { value: FeedScope; label: string }[] = [
 const headerHeight = 48;
 
 // 7.1 커뮤니티: the runs people shared, everyone's or only those I follow (CMT02 scope), one full-screen page per
-// post paged up and down (S15P31E105-561, 담당자 시안).
+// post paged up and down (S15P31E105-561, 담당자 시안). 20 posts a page, the next read near the end
+// (S15P31E105-647).
 export function CommunityScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -50,37 +48,74 @@ export function CommunityScreen() {
   const toast = useToast();
   const { community } = useRepositories();
   const [scope, setScope] = useState<FeedScope>('ALL');
-  const feed = useResource(
+  // A new scope starts again from its first page.
+  const feed = usePostPages(
     useCallback(
-      (repositories: Repositories) => repositories.community.listFeed(scope),
-      [scope],
+      (cursor: string | null) => {
+        // The first 전체 page may have been read ahead from another tab; if that read failed, read it again.
+        const ahead =
+          cursor === null && scope === 'ALL' ? takePrefetchedFeed() : null;
+        return ahead
+          ? ahead.catch(() => community.listFeed(scope, cursor))
+          : community.listFeed(scope, cursor);
+      },
+      [community, scope],
     ),
   );
-  const { reload } = feed;
-  // Coming back from 7.3 or 7.3e shows new posts and edits.
-  useFocusEffect(useCallback(() => reload(), [reload]));
-  // The last list stays while it reloads, and likes change it at once.
-  const [posts, setPosts] = useState<Post[] | null>(null);
-  const loaded = feed.status === 'ready' ? feed.data : null;
-  useEffect(() => {
-    if (loaded) {
-      setPosts(loaded);
-    }
-  }, [loaded]);
+  const { refresh, update } = feed;
+  const list = useRef<FlatList<Post>>(null);
   // The page on screen, back to the first with a new scope. Away from 7.1 (7.2 over it, another tab) no page
   // keeps a map up.
   const [shownPage, setShownPage] = useState(0);
   useEffect(() => setShownPage(0), [scope]);
+  // Coming back from 7.2, a profile or another tab keeps the posts read so far and the page on screen. Only after
+  // a post was written (7.3), edited (7.3e) or deleted elsewhere is the first page read again, the last list on
+  // screen until it comes; then the feed is back at its first post. The first focus is the first load itself, so
+  // a change before it is already in. A refresh that fails keeps the list and says so.
+  const focusedBefore = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      const changed = takePostsChanged();
+      if (focusedBefore.current && changed) {
+        refresh().then(result => {
+          if (result === 'refreshed') {
+            setShownPage(0);
+            list.current?.scrollToOffset({ offset: 0, animated: false });
+          } else if (result === 'failed') {
+            toast('새 게시물을 불러오지 못했어요');
+          }
+        });
+      }
+      focusedBefore.current = true;
+    }, [refresh, toast]),
+  );
+  // Likes, bookmarks and comment counts changed on 7.2 show in place. A server post without a count keeps none.
+  useEffect(
+    () =>
+      onPostChanged((postId, change) =>
+        update(postId, post => ({
+          ...post,
+          ...change,
+          commentCount:
+            post.commentCount === null
+              ? null
+              : change.commentCount ?? post.commentCount,
+        })),
+      ),
+    [update],
+  );
   const focused = useIsFocused();
+  // The pages around the one on screen draw their maps only after its map is up, so on entering 커뮤니티 the first
+  // map does not share the phone with two more (사용자 요청: 첫 진입을 빠르게). Leaving the feed starts it over.
+  const [firstMapUp, setFirstMapUp] = useState(false);
+  useEffect(() => {
+    if (!focused) {
+      setFirstMapUp(false);
+    }
+  }, [focused]);
+  const markFirstMapUp = useCallback(() => setFirstMapUp(true), []);
   const [menuFor, setMenuFor] = useState<Post | null>(null);
   const [commentsFor, setCommentsFor] = useState<Post | null>(null);
-
-  const replace = (next: Post) =>
-    setPosts(current =>
-      current
-        ? current.map(post => (post.id === next.id ? next : post))
-        : current,
-    );
 
   const pageTop = insets.top + headerHeight + 8;
   // Above the floating tab bar.
@@ -103,16 +138,16 @@ export function CommunityScreen() {
               icon="alert"
               title="게시물을 불러오지 못했어요"
               actionLabel="다시 시도"
-              onAction={reload}
+              onAction={feed.retry}
             />
           </View>
         </ThemeProvider>
-      ) : !posts ? (
+      ) : feed.status === 'loading' ? (
         <ActivityIndicator
           color={feedLook.white}
           style={[styles.loading, { marginTop: pageTop + spacing.xxxl }]}
         />
-      ) : posts.length === 0 ? (
+      ) : feed.empty ? (
         <ThemeProvider tone="dark">
           <View style={[styles.state, { paddingTop: pageTop }]}>
             <EmptyState
@@ -129,24 +164,61 @@ export function CommunityScreen() {
         <FlatList
           // A new scope starts at its first post.
           key={scope}
-          data={posts}
+          ref={list}
+          data={feed.posts}
           keyExtractor={post => post.id}
+          // Two pages before the end the next 20 are read; nothing after the last page.
+          onEndReached={feed.loadMore}
+          onEndReachedThreshold={2}
           pagingEnabled
           showsVerticalScrollIndicator={false}
           decelerationRate="fast"
           // A few pages either side, so a quick swipe never lands on an empty page.
           windowSize={5}
           initialNumToRender={4}
+          // Android detaches the pages off screen by default, and a detached native map does not start; the pages
+          // around the one on screen keep theirs attached so their maps are drawn before a swipe brings them in.
+          removeClippedSubviews={false}
           getItemLayout={(_, index) => ({
             length: pageSize.height,
             offset: pageSize.height * index,
             index,
           })}
           // The page the feed settles on is the one that draws the real map (S15P31E105-521).
-          onMomentumScrollEnd={event =>
-            setShownPage(
-              Math.round(event.nativeEvent.contentOffset.y / pageSize.height),
-            )
+          onMomentumScrollEnd={event => {
+            const page = Math.round(
+              event.nativeEvent.contentOffset.y / pageSize.height,
+            );
+            setShownPage(page);
+            // FlatList does not ask for the end again by itself after a failed page: settling near the end
+            // tries the same page again.
+            if (feed.moreError && page >= feed.posts.length - 3) {
+              feed.loadMore();
+            }
+          }}
+          // Under the last page: the next page on its way, or a way to ask for it again.
+          ListFooterComponent={
+            feed.loadingMore ? (
+              <ActivityIndicator
+                color={feedLook.white}
+                style={[styles.more, { marginBottom: pageBottom }]}
+              />
+            ) : feed.moreError ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="다음 게시물 다시 불러오기"
+                onPress={feed.retry}
+                style={({ pressed }) => [
+                  styles.more,
+                  { marginBottom: pageBottom },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <AppText style={styles.regionText}>
+                  더 불러오지 못했어요 · 다시 시도
+                </AppText>
+              </Pressable>
+            ) : null
           }
           renderItem={({ item, index }) => (
             <FeedPage
@@ -155,10 +227,14 @@ export function CommunityScreen() {
               height={pageSize.height}
               top={pageTop}
               bottom={pageBottom}
-              onChange={replace}
+              onChange={feed.replace}
               onMenu={() => setMenuFor(item)}
               onComments={() => setCommentsFor(item)}
               active={focused && index === shownPage}
+              nearby={
+                focused && firstMapUp && Math.abs(index - shownPage) === 1
+              }
+              onMapShown={markFirstMapUp}
             />
           )}
         />
@@ -228,15 +304,9 @@ export function CommunityScreen() {
         post={commentsFor}
         onClose={() => setCommentsFor(null)}
         onCountChange={(postId, commentCount) =>
-          setPosts(current =>
-            current
-              ? current.map(item =>
-                  // A server post without a count keeps none.
-                  item.id === postId && item.commentCount !== null
-                    ? { ...item, commentCount }
-                    : item,
-                )
-              : current,
+          feed.update(postId, item =>
+            // A server post without a count keeps none.
+            item.commentCount !== null ? { ...item, commentCount } : item,
           )
         }
       />
@@ -254,7 +324,7 @@ export function CommunityScreen() {
             await community.remove(menuFor.id);
             setMenuFor(null);
             toast('게시물을 삭제했어요');
-            reload();
+            feed.remove(menuFor.id);
           } catch {
             toast('게시물을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요');
           }
@@ -270,6 +340,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.6 },
   loading: { alignSelf: 'center' },
+  // The footer under the last page, above the floating tab bar (S15P31E105-647).
+  more: { alignSelf: 'center', paddingVertical: spacing.xxl },
   state: { flex: 1 },
   header: {
     position: 'absolute',

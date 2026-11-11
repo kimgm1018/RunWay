@@ -37,6 +37,7 @@ import {
 import {
   DataError,
   useRepositories,
+  type CourseMapData,
   type FollowListKind,
   useResource,
   type Repositories,
@@ -203,7 +204,7 @@ function Letter({
 // The sharp letter's foot fades out so the info area starts calm, with a dark tint deepening below it.
 function HeroBackdrop({
   initial,
-  photo,
+  photo: address,
   heroHeight,
   scrollY,
 }: {
@@ -214,6 +215,9 @@ function HeroBackdrop({
   scrollY: Animated.Value;
 }) {
   const { width, height } = useWindowDimensions();
+  // A photo that does not load leaves the gradient and the letter, as without one.
+  const [failed, setFailed] = useState<string | null>(null);
+  const photo = address && address !== failed ? address : null;
   // Wider than the screen so the blur does not fade in at the sides.
   const blurWidth = width + 120;
   const blurred = scrollY.interpolate({
@@ -241,6 +245,7 @@ function HeroBackdrop({
             source={{ uri: photo }}
             style={styles.fill}
             resizeMode="cover"
+            onError={() => setFailed(photo)}
             accessibilityIgnoresInvertColors
           />
           {/* A large photo barely softens under blurRadius alone, so on Android filter: blur is added
@@ -384,7 +389,7 @@ function RunTile({
 }: {
   record: RunRecordSummary;
   width: number;
-  loadRoute?: () => Promise<[number, number][] | null>;
+  loadRoute?: () => Promise<CourseMapData | null>;
   onPress: () => void;
 }) {
   const detail = record.group
@@ -407,7 +412,7 @@ function RunTile({
         pressed && styles.tilePressed,
       ]}
     >
-      {/* The run on the real map (S15P31E105-562), the words over its dark foot. */}
+      {/* The run on its map (S15P31E105-612), the words over its dark foot. */}
       <CourseMapThumb
         load={loadRoute}
         shape={record.shape}
@@ -629,7 +634,8 @@ function Profile({
                       key={record.id}
                       record={record}
                       width={tileWidth}
-                      // H01 carries no points: a shared run asks its post (CMT), my own run its record (H02).
+                      // H01 carries no points: a shared run asks its post (CMT, with the course's map image),
+                      // my own run its record (H02, no basemap: the outline only).
                       loadRoute={
                         postId
                           ? () => community.getRoute(postId)
@@ -637,13 +643,17 @@ function Profile({
                           ? () =>
                               recordsRepo
                                 .getDetail(record.id)
-                                .then(detail => detail.route)
+                                .then(detail =>
+                                  detail.route
+                                    ? { route: detail.route, basemap: null }
+                                    : null,
+                                )
                           : undefined
                       }
                       onPress={() =>
                         postId
                           ? navigation.navigate('PostDetail', { postId })
-                          : // My own run opens in 2.1 기록 상세 (S15P31E105-564).
+                          : // My own run opens on 2.1 러닝 분석 (S15P31E105-594).
                           profile.isMe
                           ? openRecord(navigation, record.id)
                           : undefined

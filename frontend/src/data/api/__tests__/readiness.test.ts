@@ -1,5 +1,5 @@
 import { appConfig } from '../../../config';
-import { createReadinessApi } from '../readiness';
+import { createReadinessApi, createReadinessOnApi, weeklyLoadLabel } from '../readiness';
 import { tokenStore } from '../tokenStore';
 
 const fetchMock = jest.fn();
@@ -20,6 +20,14 @@ const latest = (
     restingHrSource?: string | null;
     sleepDurationMin?: number | null;
     healthUpdatedAt?: string | null;
+    weeklyTrainingLoad?: number | null;
+    usualWeeklyTrainingLoad?: number | null;
+    // S15P31E105-594: asked of the server, not in the contract yet.
+    dailyTrainingLoads?: { date: string; load: number | null }[] | null;
+    sleepScore?: number | null;
+    recoveryScore?: number | null;
+    loadScore?: number | null;
+    restingHrChangePct?: number | null;
   } = {},
 ) => ({
   id: 101,
@@ -29,6 +37,8 @@ const latest = (
   restingHrBpm: 58.4,
   sleepDurationMin: 431.6,
   healthUpdatedAt: '2026-11-01T21:05:00Z',
+  weeklyTrainingLoad: null,
+  usualWeeklyTrainingLoad: null,
   ...health,
 });
 
@@ -68,6 +78,9 @@ test('R02 for today (KST) is the score with that day\'s own sleep and resting he
     restingHeartRate: 58,
     lastAssessedDate: '2026-11-02',
     ...unbacked,
+    // No training load or item scores in this answer (S15P31E105-594).
+    trainingLoad: null,
+    scoreFactors: null,
   });
   const [requested, init] = fetchMock.mock.calls[0];
   expect(requested).toBe(
@@ -261,5 +274,216 @@ test('a server without the metric fields leaves them unknown, not undefined', as
     sleepMinutes: null,
     restingHeartRate: null,
     syncedAt: null,
+  });
+});
+
+// S15P31E105-599 (T-9): 주간 부하 is R02's last-7-day load, rounded, with its band against the usual week.
+test.each([
+  [79.9, 100, '평소보다 적음'],
+  [80, 100, '평소와 비슷'],
+  [120, 100, '평소와 비슷'],
+  [120.01, 100, '평소보다 많음'],
+  [160, 100, '평소보다 많음'],
+  [160.01, 100, '많이 많음'],
+  [0, 100, '평소보다 적음'],
+  [50, null, '평소 기록 없음'],
+  [50, 0, '평소 기록 없음'],
+])('weekly load %s against usual %s is %s', (weekly, usual, label) => {
+  expect(weeklyLoadLabel(weekly, usual)).toBe(label);
+});
+
+test("R02 training load fills today's 주간 부하", async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', { weeklyTrainingLoad: 312.46, usualWeeklyTrainingLoad: 280.5 }),
+    ),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    readinessState: 'ready',
+    weeklyLoad: '312',
+    weeklyLoadLabel: '평소와 비슷',
+  });
+});
+
+test('R02 without training load (or a server before it) leaves 주간 부하 empty', async () => {
+  fetchMock.mockResolvedValue(respond(200, latest('2026-11-02')));
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
+  });
+
+  const old: Record<string, unknown> = { ...latest('2026-11-02') };
+  delete old.weeklyTrainingLoad;
+  delete old.usualWeeklyTrainingLoad;
+  fetchMock.mockResolvedValue(respond(200, old));
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
+  });
+});
+
+test('R02 training load and item scores feed 2.1 준비도 (S15P31E105-594)', async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', {
+        weeklyTrainingLoad: 600,
+        usualWeeklyTrainingLoad: 400,
+        // Out of order on purpose; null is a day without exercise.
+        dailyTrainingLoads: [
+          { date: '2026-11-02', load: 180 },
+          { date: '2026-10-27', load: 80 },
+          { date: '2026-10-28', load: null },
+          { date: '2026-10-29', load: 160 },
+          { date: '2026-10-30', load: 110 },
+          { date: '2026-10-31', load: 70 },
+          { date: '2026-11-01', load: null },
+        ],
+        sleepScore: 90,
+        recoveryScore: 80,
+        loadScore: 72.5,
+        restingHrChangePct: 6.7,
+      }),
+    ),
+  );
+
+  const condition = await getTodayCondition();
+  expect(condition.trainingLoad?.weekly).toBe(600);
+  expect(condition.trainingLoad?.usual).toBe(400);
+  expect(condition.trainingLoad?.days?.map(day => day.date)).toEqual([
+    '2026-10-27',
+    '2026-10-28',
+    '2026-10-29',
+    '2026-10-30',
+    '2026-10-31',
+    '2026-11-01',
+    '2026-11-02',
+  ]);
+  expect(condition.trainingLoad?.days?.[1]).toEqual({
+    date: '2026-10-28',
+    load: null,
+  });
+  expect(condition.scoreFactors).toEqual({
+    sleep: 90,
+    recovery: 80,
+    load: 72.5,
+    restingHrChangePct: 6.7,
+  });
+});
+
+test('R02 with a malformed daily list or no item scores leaves them out', async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-11-02', {
+        weeklyTrainingLoad: 600,
+        usualWeeklyTrainingLoad: 400,
+        dailyTrainingLoads: [{ date: 'yesterday', load: 10 }],
+        sleepScore: null,
+        recoveryScore: null,
+        loadScore: null,
+      }),
+    ),
+  );
+
+  const condition = await getTodayCondition();
+  expect(condition.trainingLoad).toEqual({
+    weekly: 600,
+    usual: 400,
+    days: null,
+  });
+  expect(condition.scoreFactors).toBeNull();
+});
+
+test("an earlier day's training load is not shown as today's", async () => {
+  fetchMock.mockResolvedValue(
+    respond(
+      200,
+      latest('2026-10-30', { weeklyTrainingLoad: 312, usualWeeklyTrainingLoad: 280 }),
+    ),
+  );
+
+  await expect(getTodayCondition()).resolves.toMatchObject({
+    readinessState: 'stale',
+    weeklyLoad: null,
+    weeklyLoadLabel: null,
+  });
+});
+
+describe('2.1 준비도 on a past day from R03 (S15P31E105-660)', () => {
+  const getConditionOn = createReadinessOnApi();
+
+  test("asks R03 for that day and shows that day's own score, metrics and load", async () => {
+    fetchMock.mockResolvedValue(
+      respond(
+        200,
+        latest('2026-10-27', {
+          restingHrBpm: 60.2,
+          restingHrSource: 'SAMSUNG_HEALTH',
+          sleepDurationMin: 419.6,
+          weeklyTrainingLoad: 150,
+          usualWeeklyTrainingLoad: 150,
+          dailyTrainingLoads: [
+            { date: '2026-10-21', load: null },
+            { date: '2026-10-22', load: 100 },
+            { date: '2026-10-23', load: null },
+            { date: '2026-10-24', load: null },
+            { date: '2026-10-25', load: 50 },
+            { date: '2026-10-26', load: null },
+            { date: '2026-10-27', load: null },
+          ],
+          recoveryScore: 85,
+        }),
+      ),
+    );
+
+    await expect(getConditionOn('2026-10-27')).resolves.toMatchObject({
+      date: '2026-10-27',
+      readinessState: 'ready',
+      readinessScore: 75,
+      restingHeartRate: 60,
+      restingHeartRateLabel: '삼성 헬스',
+      sleepMinutes: 420,
+      weeklyLoad: '150',
+      weeklyLoadLabel: '평소와 비슷',
+      trainingLoad: { weekly: 150, usual: 150 },
+      scoreFactors: { recovery: 85 },
+      lastAssessedDate: '2026-10-27',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [requested, init] = fetchMock.mock.calls[0];
+    expect(requested).toBe(
+      `${appConfig.apiBaseUrl}/readiness-assessments/dates/2026-10-27`,
+    );
+    expect(init.method).toBe('GET');
+    expect(init.headers.Authorization).toBe('Bearer access-1');
+  });
+
+  test('a day without a result is no score that day, not mock values', async () => {
+    fetchMock.mockResolvedValue(
+      respond(404, { code: 'ASSESSMENT_NOT_FOUND', message: '', details: {} }),
+    );
+    await expect(getConditionOn('2026-10-29')).resolves.toBeNull();
+  });
+
+  test('no health consent is also no score that day (660 사용자 결정)', async () => {
+    fetchMock.mockResolvedValue(
+      respond(403, { code: 'CONSENT_REQUIRED', message: '', details: {} }),
+    );
+    await expect(getConditionOn('2026-10-29')).resolves.toBeNull();
+  });
+
+  test('an answer for another day is not shown as the chosen day', async () => {
+    fetchMock.mockResolvedValue(respond(200, latest('2026-10-30')));
+    await expect(getConditionOn('2026-10-29')).resolves.toBeNull();
+  });
+
+  test('any other failure is a load error', async () => {
+    fetchMock.mockResolvedValue(
+      respond(500, { code: 'INTERNAL_ERROR', message: '', details: {} }),
+    );
+    await expect(getConditionOn('2026-10-29')).rejects.toThrow();
   });
 });

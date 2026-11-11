@@ -48,6 +48,13 @@ object ReadinessRules {
  */
 fun runPermissions(sdk: Int): List<String> = requiredPermissions(sdk).filterNot { it.endsWith("_BACKGROUND") }
 
+data class SensorPermissions(val heartRate: Boolean, val activity: Boolean)
+
+fun sensorPermissions(sdk: Int, granted: Set<String>): SensorPermissions = SensorPermissions(
+    heartRate = (if (sdk >= 36) "android.permission.health.READ_HEART_RATE" else "android.permission.BODY_SENSORS") in granted,
+    activity = "android.permission.ACTIVITY_RECOGNITION" in granted,
+)
+
 /**
  * What "권한 허용" asks for: only the missing run permissions, never the daily background one, which
  * the launch sequence asks for separately. Null when nothing for a run is missing.
@@ -64,3 +71,34 @@ fun networkState(hasNetwork: Boolean, validated: Boolean): CheckState = when {
     validated -> CheckState.OK
     else -> CheckState.CHECKING
 }
+
+/** Watch GPS for the run route (S15P31E105-549). Fine location needs coarse in the same request (Android 12+). */
+val LOCATION_PERMISSIONS = listOf("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION")
+
+/**
+ * The location permissions to ask for, or null when fine location is granted. Optional: a run without it starts
+ * without GPS and leaves its route unknown, so it never counts in [permissionState].
+ */
+fun locationPermissionRequest(granted: Set<String>): List<String>? =
+    if (LOCATION_PERMISSIONS[0] in granted) null else LOCATION_PERMISSIONS.filter { it !in granted }
+
+/** Background location ("항상 허용", S15P31E105-549): lets a run started from the phone with the watch screen off use GPS. */
+const val BACKGROUND_LOCATION = "android.permission.ACCESS_BACKGROUND_LOCATION"
+
+/**
+ * Background location to ask for, alone and only after fine location (Android 11+ asks it on its own screen). Null
+ * once granted or while fine location is missing. Optional: without it watch GPS runs only when started on screen.
+ */
+fun backgroundLocationRequest(granted: Set<String>): List<String>? =
+    if (LOCATION_PERMISSIONS[0] !in granted || BACKGROUND_LOCATION in granted) null else listOf(BACKGROUND_LOCATION)
+
+/** Notification permission, a runtime one from API 33. */
+const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
+
+/**
+ * Notification permission to ask for, or null below API 33 or once granted (S15P31E105-617). Optional: without it the
+ * run is still recorded, but the run notification and its Ongoing Activity stay hidden, so turning the screen on shows
+ * the watch face instead of the run.
+ */
+fun notificationPermissionRequest(sdk: Int, granted: Set<String>): List<String>? =
+    if (sdk < 33 || POST_NOTIFICATIONS in granted) null else listOf(POST_NOTIFICATIONS)

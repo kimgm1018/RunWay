@@ -31,7 +31,11 @@ import {
   formatKm,
   formatPace,
 } from '../../format';
-import { navigateTo, openRecord } from '../../navigation/navigateTo';
+import {
+  navigateTo,
+  openGroupRunResult,
+  openRecord,
+} from '../../navigation/navigateTo';
 import { fontFamily } from '../../theme';
 import {
   MonthPicker,
@@ -482,10 +486,15 @@ export function AnalysisScreen() {
     setMode(next);
   };
 
-  const open = (record: RunRecordSummary) =>
-    record.runType === 'GROUP'
-      ? navigateTo(navigation, 'GroupRunResult')
-      : openRecord(navigation, record.id);
+  const open = (record: RunRecordSummary) => {
+    if (
+      record.runType === 'GROUP' &&
+      openGroupRunResult(navigation, record.group)
+    ) {
+      return;
+    }
+    openRecord(navigation, record.id);
+  };
 
   // ↻ turns the card over (runway-records 2차, 담당자 결정): a quarter turn away, the other face swapped in
   // while the card stands on its edge, then a quarter turn back. A tap during the turn waits for it.
@@ -852,7 +861,7 @@ const styles = StyleSheet.create({
     color: recordsLook.onCardSub,
   },
   rowMeta: {
-    fontFamily: fontFamily.monoMedium,
+    fontFamily: fontFamily.numberMedium,
     fontSize: 13.5,
     lineHeight: 18,
     color: recordsLook.onCard,

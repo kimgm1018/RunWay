@@ -6,6 +6,8 @@ import com.runway.watch.run.BpmChange
 import com.runway.watch.run.BpmChangeStatus
 import com.runway.watch.run.Coaching
 import com.runway.watch.run.CoachingGuide
+import com.runway.watch.run.ControlProblem
+import com.runway.watch.run.ControlProblemKind
 import com.runway.watch.run.RhythmBpm
 import com.runway.watch.run.GroupStatus
 import com.runway.watch.run.RunMetrics
@@ -133,7 +135,16 @@ class SessionRunControl(
             measurementLost = session.measurementLost,
             phoneRecording = session.phoneRecording,
             comparison = session.comparison,
+            problem = problem(session),
         )
+
+        /** The same problem the notice line names, for screens that show it as a state (S15P31E105-613). */
+        fun problem(session: WatchSessionState): ControlProblem? = when (val p = session.problem) {
+            is WatchProblem.Rejected -> ControlProblem(ControlProblemKind.REJECTED, intentOf(p.action))
+            is WatchProblem.Unconfirmed -> ControlProblem(ControlProblemKind.UNCONFIRMED, intentOf(p.action))
+            is WatchProblem.Refused -> ControlProblem(ControlProblemKind.REFUSED, p.action?.let(::intentOf))
+            WatchProblem.PhoneUnreachable, null -> null
+        }
 
         /** The run intent a pending request action stands for; null for actions without one (BPM change, coaching). */
         private fun intentOf(action: String): RunIntent? = when (action) {
@@ -161,13 +172,19 @@ class SessionRunControl(
         }
 
         /**
-         * 서버가 종료를 저장했으면 저장 완료·분석 대기(분석 계산은 S15P31E105-312), 종료나 마지막 기록 저장을 확인하지 못했으면
+         * 서버가 종료를 저장했으면 저장 완료와 서버가 알려 준 분석 상태(분석 계산은 S15P31E105-312, 전달은 S15P31E105-663), 종료나 마지막 기록 저장을 확인하지 못했으면
          * 저장 미확인.
          */
         fun result(session: WatchSessionState, upload: UploadState = UploadState()): RunResult? = when {
             upload.unconfirmed && (session.confirmed == RunState.COMPLETED || session.pending?.action == "END") ->
                 RunResult(save = SaveStatus.UNCONFIRMED)
-            session.confirmed == RunState.COMPLETED -> RunResult(save = SaveStatus.SAVED, analysis = AnalysisStatus.PENDING)
+            session.confirmed == RunState.COMPLETED -> RunResult(
+                save = SaveStatus.SAVED,
+                // 서버가 알려 준 분석 상태와 요약만 쓴다. 받은 것이 없으면 분석 대기이며 값을 만들지 않는다(S15P31E105-663).
+                analysis = session.analysis?.status ?: AnalysisStatus.PENDING,
+                summary = session.analysis?.summary,
+                goal = session.analysis?.goal,
+            )
             (session.problem as? WatchProblem.Unconfirmed)?.action == "END" -> RunResult(save = SaveStatus.UNCONFIRMED)
             else -> null
         }

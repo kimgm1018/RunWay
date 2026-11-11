@@ -24,7 +24,9 @@ class MainApplication : Application(), ReactApplication {
           add(WatchSessionPackage())
           add(MelonMediaPackage())
           add(PlaceNamePackage())
+          add(RunwayNaverMapLegalPackage())
           add(SpotifyRemotePackage())
+          add(CoachingVoicePackage())
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
         },

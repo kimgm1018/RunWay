@@ -79,16 +79,18 @@ class CoachingInputAssemblerTest {
     }
 
     @Test
-    void 후보는_기준_페이스_대비_순서대로_5개이고_24칸_속도를_가진다() {
+    void 후보는_기준_페이스_대비_순서대로_9개이고_24칸_속도를_가진다() {
         PaceDecideRequest request = request(source(steadySamples()));
 
         // 실측 평균 2.5m/s = 400초/km
         assertThat(request.context().anchorPaceSecPerKm()).isEqualByComparingTo("400.00");
         assertThat(request.candidates())
                 .extracting(c -> c.paceSecPerKm().toPlainString())
-                .containsExactly("390.00", "395.00", "400.00", "405.00", "410.00");
+                .containsExactly(
+                        "370.00", "380.00", "390.00", "400.00", "410.00", "420.00", "430.00", "445.00",
+                        "460.00");
         PaceDecideRequest.Candidate first = request.candidates().get(0);
-        assertThat(first.futureSpeedMps()).hasSize(24).containsOnly(1000.0 / 390.0);
+        assertThat(first.futureSpeedMps()).hasSize(24).containsOnly(1000.0 / 370.0);
         assertThat(first.futureGradePct()).isNull();
     }
 
@@ -196,7 +198,7 @@ class CoachingInputAssemblerTest {
 
         // 진행거리는 누적거리 750m. 기준 페이스 후보(400초/km)는 2.5m/s로 5초마다 12.5m 간다.
         assertThat(request.context().routeProgressM()).isEqualTo(750.0);
-        List<Double> grade = request.candidates().get(2).futureGradePct();
+        List<Double> grade = request.candidates().get(3).futureGradePct();
         assertThat(grade).hasSize(24);
         assertThat(grade.get(0)).isEqualTo(7.0); // 762.5m
         assertThat(grade.get(23)).isEqualTo(10.0); // 1050m

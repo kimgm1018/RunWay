@@ -83,6 +83,10 @@ SELF_TEST = ("haeundae", 5000)
 # 값은 env_flags.flag 규칙: 없으면 1, "0"/"1" 외의 값은 ValueError(import 실패)
 ENV_PREPARED = env_flag("RUNWAY_ENV_PREPARED")
 LEAN_ROUTING = env_flag("RUNWAY_ADAPTER_LEAN_ROUTING")
+#   RUNWAY_FAST_ROUTING=0          _build_routing: pandas 정렬·중복 제거와 pair_to_eid dict(S15P31E105-626 이전 경로)
+FAST_ROUTING = env_flag("RUNWAY_FAST_ROUTING")
+#   RUNWAY_FAST_EDGE_ARRAYS=0      prepare_edge_arrays: 문자열 열 np.isin을 edge마다(S15P31E105-645 이전 경로)
+FAST_EDGE_ARRAYS = env_flag("RUNWAY_FAST_EDGE_ARRAYS")
 
 
 def _s(v):
@@ -96,6 +100,59 @@ def _s(v):
 
 
 # ------------------------------------------------------------------ request graph (adapter layout)
+def _routing_rows(e) -> np.ndarray | None:
+    """_build_routing의 pandas 처리(RUNNABLE 거르기 → length 정렬 → (u, v)별 첫 행 → (u, v) 정렬)와 같은 edges_all 행 위치
+    (S15P31E105-626). pandas sort_values(한 열)는 NaN이 없으면 np.argsort(kind="quicksort")와 같은 순서이므로 같은 호출로
+    같은 순서를 얻고, 안정 정렬한 (u, v) key의 첫 행이 drop_duplicates(keep="first")의 행이다. (u, v)는 중복이 없어지므로
+    마지막 정렬은 key 순서 그대로다. edges_all의 index가 0..n-1이 아니거나 length에 NaN이 있으면 None(기존 경로)."""
+    if not isinstance(e.index, pd.RangeIndex) or e.index.start != 0 or e.index.step != 1:
+        return None
+    L = e["length"].to_numpy()
+    if L.dtype.kind != "f" or np.isnan(L).any():
+        return None
+    pos = np.flatnonzero((e["runway_status"] == RUNNABLE).to_numpy())
+    o = pos[np.argsort(L[pos], kind="quicksort")]
+    u, v = e["u"].to_numpy(np.int64)[o], e["v"].to_numpy(np.int64)[o]
+    n = int(max(u.max(), v.max())) + 1 if len(o) else 1
+    key = u * n + v
+    s = np.argsort(key, kind="stable")
+    ks = key[s]
+    first = np.ones(len(s), bool)
+    first[1:] = ks[1:] != ks[:-1]
+    return o[s[first]]
+
+
+class _PairIndex:
+    """pair_to_eid dict {(u, v): eid}와 같은 조회(.get)를 정렬된 key 배열로 한다(S15P31E105-626). redges는 (u, v) 순으로
+    정렬되어 있으므로 key = u * N + v도 오름차순이고, eid = 그 위치다. 46만 개 dict를 요청마다 만들지 않는다."""
+
+    def __init__(self, u, v, n: int):
+        self._n = int(n)
+        self._k = np.asarray(u, np.int64) * self._n + np.asarray(v, np.int64)
+
+    def get(self, key, default=None):
+        a, b = key
+        if not (0 <= a < self._n and 0 <= b < self._n):
+            return default
+        k = int(a) * self._n + int(b)
+        if int(a) != a or int(b) != b:
+            return default
+        i = int(np.searchsorted(self._k, k))
+        return i if i < len(self._k) and self._k[i] == k else default
+
+    def __getitem__(self, key):
+        i = self.get(key)
+        if i is None:
+            raise KeyError(key)
+        return i
+
+    def __contains__(self, key) -> bool:
+        return self.get(key) is not None
+
+    def __len__(self) -> int:
+        return len(self._k)
+
+
 class CanonicalRoutingGraph:
     """The canonical classified disk graph (all statuses, WGS84 MultiDiGraph) in node-index layout.
 
@@ -152,17 +209,24 @@ class CanonicalRoutingGraph:
 
     def _build_routing(self) -> None:
         e = self.edges_all
-        run = e[e["runway_status"] == RUNNABLE].copy()
-        # Simple graph: per node pair keep the shortest RUNNABLE way segment (74 pairs have parallels).
-        run = run.sort_values("length").drop_duplicates(["u", "v"], keep="first")
-        run = run.sort_values(["u", "v"]).reset_index().rename(columns={"index": "all_idx"})
+        sel = _routing_rows(e) if FAST_ROUTING and LEAN_ROUTING else None
+        if sel is not None:
+            run = e.take(sel).reset_index().rename(columns={"index": "all_idx"})
+        else:
+            run = e[e["runway_status"] == RUNNABLE].copy()
+            # Simple graph: per node pair keep the shortest RUNNABLE way segment (74 pairs have parallels).
+            run = run.sort_values("length").drop_duplicates(["u", "v"], keep="first")
+            run = run.sort_values(["u", "v"]).reset_index().rename(columns={"index": "all_idx"})
         run["length"] = run["length"].clip(lower=0.1)  # csgraph drops zero-weight arcs
         self.redges = run  # routing edges; row index = eid
         E, N = len(run), len(self.node_ids)
         u, v = run["u"].to_numpy(), run["v"].to_numpy()
         if LEAN_ROUTING:
             # 아래 arc 배열·CSR·components·KD-tree는 읽는 곳이 없다(grep: runway_routing/analysis/app/tools).
-            self.pair_to_eid = {(int(a), int(b)): i for i, (a, b) in enumerate(zip(u, v))}
+            if FAST_ROUTING:
+                self.pair_to_eid = _PairIndex(u, v, N)
+            else:
+                self.pair_to_eid = {(int(a), int(b)): i for i, (a, b) in enumerate(zip(u, v))}
             return
         self.arc_src = np.concatenate([u, v])
         self.arc_dst = np.concatenate([v, u])
@@ -199,7 +263,12 @@ def attach_env(cg: CanonicalRoutingGraph, env: dict, thresholds: dict, cache=Non
     e = cg.redges
     stats = None
     if cache is not None:
-        d, missing = cache.lookup(e)
+        seg = getattr(cg, "edges_all_seg", None)
+        if seg is not None and hasattr(cache, "lookup_segments"):
+            # S15P31E105-640: 배열 graph는 edge가 나온 창 segment를 안다. key 검색 없이 같은 행을 읽는다.
+            d, missing = cache.lookup_segments(seg[e["all_idx"].to_numpy()])
+        else:
+            d, missing = cache.lookup(e)
         if missing.any():  # not in the cache: compute exactly as before
             sub = _Segments(cg.x, cg.y, e["u"].to_numpy()[missing], e["v"].to_numpy()[missing])
             d[missing] = edge_distances(sub, env["layers"])[[f"{c}_dist_m" for c in ENV_CLASSES]].to_numpy()
@@ -246,9 +315,30 @@ def _env_inner(cg, env: dict, thresholds: dict):
     return inner
 
 
+class _Codes:
+    """np.isin(values, test)를 서로 다른 값에서 한 번 계산하고 edge로 펼친다(S15P31E105-645).
+
+    pd.factorize는 같은 값(==, hash)을 한 번호로 묶으므로 각 edge의 isin 결과는 그 번호 대표값의 결과와 같다.
+    결측(None/NaN)은 번호 -1이고 그 결과는 na(결측일 때 기존 식의 값)다."""
+
+    def __init__(self, values):
+        self.codes, self.uniq = pd.factorize(values, use_na_sentinel=True)
+        self.uniq = np.asarray(self.uniq, dtype=object)
+
+    def isin(self, test, na=False):
+        return self.spread(np.isin(self.uniq, test), na)
+
+    def spread(self, per_value, na=False):
+        """서로 다른 값마다의 bool -> edge마다의 bool. 번호 -1(결측)은 맨 뒤에 붙인 na 칸을 가리킨다."""
+        return np.r_[np.asarray(per_value, bool), bool(na)][self.codes]
+
+
 def prepare_edge_arrays(graph) -> None:
     """Per routing edge numpy arrays used by features, generation bias and scoring."""
     e = graph.redges
+    if FAST_EDGE_ARRAYS:
+        _prepare_edge_arrays_codes(graph, e)
+        return
     hw = e["highway"].fillna("").to_numpy()
     fw = e["footway"].to_numpy()
     tun = e["tunnel"].to_numpy()
@@ -263,6 +353,31 @@ def prepare_edge_arrays(graph) -> None:
                   | ((hw == "footway") & ~np.isin(fw, list(STREET_FOOTWAY))))
     A["bridge"] = (pd.notna(br) & (br != "no")).astype(bool)
     A["tunnel"] = (pd.notna(tun) & ~np.isin(tun.astype(str), list(NOT_A_TUNNEL))).astype(bool)
+    A["recovered"] = e["recovered"].to_numpy(bool)
+    for f in ENV_FLAGS:
+        A[f] = e[f].to_numpy(bool) if f in e.columns else np.zeros(len(e), bool)
+    graph.ea = A
+
+
+def _prepare_edge_arrays_codes(graph, e) -> None:
+    """prepare_edge_arrays와 같은 key·순서·값(bool 배열)을 문자열 열의 서로 다른 값 단위 isin으로 만든다(S15P31E105-645).
+
+    hw는 fillna("") 뒤라 결측이 없다. footway의 결측(NaN)은 기존 np.isin에서 어떤 문자열과도 같지 않아 False다.
+    tunnel은 기존 식 notna & ~isin(str(값))이라 결측이면 False, 아니면 str(대표값)으로 같은 판정을 한다."""
+    hw = _Codes(e["highway"].fillna("").to_numpy())
+    fw = _Codes(e["footway"].to_numpy())
+    tun = _Codes(e["tunnel"].to_numpy())
+    br = e["bridge"].to_numpy()
+    A = {"length": e["length"].to_numpy(float), "u": e["u"].to_numpy(), "osmid": e["osmid"].to_numpy()}
+    for h in ("footway", "pedestrian", "path", "track", "steps", "cycleway", "residential", "service",
+              "unclassified", "living_street", "tertiary", "secondary", "primary"):
+        A[f"hw_{h}"] = hw.isin([h, f"{h}_link"])
+    A["major"] = hw.isin(list(MAJOR))
+    A["walk_dedicated"] = hw.isin(list(WALK_DEDICATED))
+    A["trail"] = (hw.isin(["path", "track", "pedestrian"])
+                  | (hw.isin(["footway"]) & ~fw.isin(list(STREET_FOOTWAY))))
+    A["bridge"] = (pd.notna(br) & (br != "no")).astype(bool)
+    A["tunnel"] = tun.spread(~np.isin(tun.uniq.astype(str), list(NOT_A_TUNNEL)), na=False)
     A["recovered"] = e["recovered"].to_numpy(bool)
     for f in ENV_FLAGS:
         A[f] = e[f].to_numpy(bool) if f in e.columns else np.zeros(len(e), bool)

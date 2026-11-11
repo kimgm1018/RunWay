@@ -85,6 +85,26 @@ beforeEach(async () => {
   await tokenStore.save({ accessToken: 'access-1', refreshToken: 'refresh-1' });
 });
 
+test('clearMyId drops the cached U04 id so the next call refetches', async () => {
+  const ids: number[] = [];
+  fetchMock.mockImplementation(async (address: string) => {
+    const path = new URL(address).pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/users/me') {
+      const id = ids.length === 0 ? 101 : 202;
+      ids.push(id);
+      return respond(200, { id, nickname: 'n', loginId: 'n' });
+    }
+    throw new Error(`unexpected request ${address}`);
+  });
+  const { myId, clearMyId } = api();
+  await expect(myId()).resolves.toBe('101');
+  await expect(myId()).resolves.toBe('101');
+  expect(ids).toEqual([101]);
+  clearMyId();
+  await expect(myId()).resolves.toBe('202');
+  expect(ids).toEqual([101, 202]);
+});
+
 test('M01 searches by name and maps membership and region', async () => {
   serve((path, _init, url) =>
     path === '/crews' && url.searchParams.get('q') === '광안리'

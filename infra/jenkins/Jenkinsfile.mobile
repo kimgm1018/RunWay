@@ -50,7 +50,7 @@ pipeline {
                         sh 'pnpm install --frozen-lockfile --store-dir /home/jenkins/agent/.pnpm-store'
                         sh 'pnpm typecheck'
                         sh 'pnpm lint'
-                        sh 'pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'
+                        sh 'pnpm exec jest --ci --maxWorkers=2 --cacheDirectory=/home/jenkins/agent/.cache/jest'
                     }
                 }
             }

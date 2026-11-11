@@ -29,7 +29,7 @@ def test_stale_input_is_insufficient():
 def test_guide_pace_maps_to_coaching_columns():
     o = go()
     d = o.response.decision
-    assert d.chosen_index == 2 and d.predicted_hr_120_bpm == o.pred_hr[2][2]
+    assert d.chosen_index == 3 and d.predicted_hr_120_bpm == o.pred_hr[3][2]   # 안내 그대로 후보(624: 9개 중 3번)
     assert d.based_on_state_version == 7 and d.route_progress_m == 2310.0
     assert d.expires_at == T0 + timedelta(seconds=20)
 
@@ -50,8 +50,8 @@ def test_recent_cells_and_candidate_fields():
     p = FakePolicy(); go(policy=p)
     inp = p.calls[-1]
     assert len(inp.recent_cells) == 12 and inp.recent_cells[-1] == (150.0, 3.0)
-    assert [c.delta_sec_per_km for c in inp.candidates] == [-10, -5, 0, 5, 10]
-    assert inp.candidates[0].future_speed_mps == pytest.approx(1000 / 330)
+    assert [c.delta_sec_per_km for c in inp.candidates] == [-30, -20, -10, 0, 10, 20, 30, 45, 60]
+    assert inp.candidates[0].future_speed_mps == pytest.approx(1000 / 310)
 
 
 def test_policy_error_is_decision_failed():

@@ -1,4 +1,5 @@
 import type { AppSettings, Repositories } from '../types';
+import { DataError } from '../errors';
 import { apiRequest } from './http';
 
 // AppSettings comes from two server resources (docs/design/api/users.md):
@@ -31,25 +32,68 @@ const get: Repositories['settings']['get'] = async () => {
 };
 
 // A switch on 8.1 sends only the field it changed: U20 for the app part, U14 for 계정 공개.
-// Both PATCHes answer with their whole part, and the part left alone is read again,
-// so the screen always gets the full AppSettings the server now holds.
+// Writes run first; the untouched part is read after. A failed companion GET must not look like
+// a failed save (S15P31E105-638) — that is SAVE_UNCONFIRMED so 8.1 can keep the optimistic value.
 const update: Repositories['settings']['update'] = async change => {
   const { isPrivate, ...appChange } = change;
   const changesApp = Object.keys(appChange).length > 0;
-  const [app, privacy] = await Promise.all([
-    changesApp
-      ? apiRequest<AppPart>(appPath, { method: 'PATCH', body: appChange }).then(
-          toApp,
-        )
-      : getApp(),
-    isPrivate !== undefined
-      ? apiRequest<PrivacyPart>(privacyPath, {
-          method: 'PATCH',
-          body: { isPrivate },
-        }).then(toPrivacy)
-      : getPrivacy(),
-  ]);
-  return { ...app, ...privacy };
+  const changesPrivacy = isPrivate !== undefined;
+
+  let app: AppPart | undefined;
+  let privacy: PrivacyPart | undefined;
+
+  const writes: Promise<void>[] = [];
+  if (changesApp) {
+    writes.push(
+      apiRequest<AppPart>(appPath, { method: 'PATCH', body: appChange })
+        .then(toApp)
+        .then(saved => {
+          app = saved;
+        }),
+    );
+  }
+  if (changesPrivacy) {
+    writes.push(
+      apiRequest<PrivacyPart>(privacyPath, {
+        method: 'PATCH',
+        body: { isPrivate },
+      })
+        .then(toPrivacy)
+        .then(saved => {
+          privacy = saved;
+        }),
+    );
+  }
+  await Promise.all(writes);
+
+  const reads: Promise<void>[] = [];
+  if (!app) {
+    reads.push(
+      getApp().then(loaded => {
+        app = loaded;
+      }),
+    );
+  }
+  if (!privacy) {
+    reads.push(
+      getPrivacy().then(loaded => {
+        privacy = loaded;
+      }),
+    );
+  }
+  try {
+    await Promise.all(reads);
+  } catch (error) {
+    // The PATCH already landed; 8.1 must not roll the switch back as a save failure.
+    throw new DataError(
+      'SAVE_UNCONFIRMED',
+      '설정을 저장했지만 최신 값을 다시 읽지 못했어요',
+      null,
+      error instanceof DataError ? error.status : null,
+    );
+  }
+
+  return { ...app!, ...privacy! };
 };
 
 export const settingsApi: Repositories['settings'] = { get, update };

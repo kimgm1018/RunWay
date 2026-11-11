@@ -17,10 +17,14 @@ services:
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/letsencrypt:ro
       - ../frontend/landing:/usr/share/nginx/landing:ro
+      # /admin/demo/ 기본 인증 파일(htpasswd-demo). git에 넣지 않으며, 없으면 그 경로만 500으로 막힌다.
+      - ./nginx/secrets:/etc/nginx/secrets:ro
     networks:
       - service
       - jenkins
       - monitoring-proxy
+      # MPC 시연 콘솔(ai:8000). AI 스택이 만든 외부 네트워크라 AI를 먼저 한 번 배포해야 한다.
+      - ai
 
 networks:
   monitoring-proxy:
@@ -31,3 +35,6 @@ networks:
   jenkins:
     external: true
     name: runway-ci_default
+  ai:
+    external: true
+    name: runway-ai_default

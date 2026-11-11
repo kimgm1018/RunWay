@@ -149,6 +149,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `currentBpm` | integer / null | O | 확정된 현재 박자(60~220). 값이 없거나 폰 기록으로 전환하면 null |
 | `startedAt` | string (date-time, UTC) / null | O | 실제 시작시각. 시작 전 null |
 | `endedAt` | string (date-time, UTC) / null | O | 실제 종료시각. 종료 전 null |
+| `movingDurationSec` | integer / null | O | 일시정지를 제외한 운동시간(초). 시작 전(`startedAt` null)은 null. 진행 중·일시정지 중은 실제 시작부터 `serverSendAt`까지, 종료 세션은 `endedAt`까지에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 그 기준 시각까지 일시정지로 본다. 기준 시각보다 늦은 `appliedAt`의 PAUSE는 이 응답 기준 구간에 들어가지 않는다. 이름은 [기록 API `movingDurationSec`](running-records.md)와 같으나, 기록 API는 분석 저장 컬럼을 읽고 S02/S10은 조회 시점에 이벤트로 재계산한다(S15P31E105-643) |
 | `goal` | object | O | 현재 목표. courseId / comparisonSessionId / targetDistanceM / targetDurationSec / targetPaceSecPerKm는 S01과 같은 타입이며 미설정 값은 null |
 | `plan` | object / null | O | 초기 페이스 계획과 구간 계획(pace_plans / pace_plan_segments). 무목표 자유러닝은 null |
 | `analysis` | object | O | 분석 준비 상태 객체 |
@@ -172,6 +173,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
   "currentBpm": null,
   "startedAt": null,
   "endedAt": null,
+  "movingDurationSec": null,
   "goal": {
     "courseId": null,
     "comparisonSessionId": null,
@@ -283,6 +285,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `currentBpm` | integer / null | O | 확정된 현재 박자(60~220). 값이 없거나 폰 기록으로 전환하면 null |
 | `startedAt` | string (date-time, UTC) / null | O | 실제 시작시각. 시작 전 null |
 | `endedAt` | string (date-time, UTC) / null | O | 실제 종료시각. 종료 전 null |
+| `movingDurationSec` | integer / null | O | 일시정지를 제외한 운동시간(초). 시작 전(`startedAt` null)은 null. 진행 중·일시정지 중은 실제 시작부터 `serverSendAt`까지, 종료 세션은 `endedAt`까지에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는 PAUSE는 그 기준 시각까지 일시정지로 본다. 기준 시각보다 늦은 `appliedAt`의 PAUSE는 이 응답 기준 구간에 들어가지 않는다. 이름은 [기록 API `movingDurationSec`](running-records.md)와 같으나, 기록 API는 분석 저장 컬럼을 읽고 S02/S10은 조회 시점에 이벤트로 재계산한다(S15P31E105-643) |
 | `goal` | object | O | 현재 목표. courseId / comparisonSessionId / targetDistanceM / targetDurationSec / targetPaceSecPerKm는 S01과 같은 타입이며 미설정 값은 null |
 | `plan` | object / null | O | 초기 페이스 계획과 구간 계획(pace_plans / pace_plan_segments). 무목표 자유러닝은 null |
 | `analysis` | object | O | 분석 준비 상태 객체 |
@@ -320,6 +323,7 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
   "currentBpm": null,
   "startedAt": null,
   "endedAt": null,
+  "movingDurationSec": null,
   "goal": {
     "courseId": null,
     "comparisonSessionId": null,
@@ -1341,6 +1345,7 @@ READY → CANCELLED. 이미 CANCELLED인 본인 세션의 같은 취소 재요�
 2. 삭제 조건을 확인한 뒤 `session_id=대상 세션`이고 `author_id=본인`인 연결 게시물을 ID 순서로 잠근다. 같은 세션을 참조하는 타인 게시물이 있다면 자동 삭제하지 않고 정합성 오류(`500 INTERNAL_ERROR`)로 전체 롤백한다.
 3. 세션과 아직 삭제되지 않은 본인 연결 게시물에 같은 삭제 시각을 저장하고 한 트랜잭션으로 확정한다. 이미 삭제된 게시물의 삭제 시각은 바꾸지 않는다. 연결 게시물이 없어도 세션은 삭제할 수 있다.
 4. 하나라도 실패하면 세션·게시물 변경을 모두 롤백한다. 별도 HTTP 요청을 이어 호출해 부분 삭제하지 않는다. 응답이 유실된 후 재삭제가 404라면, 본인 기록 조회에서도 삭제 여부를 확인한다.
+5. 삭제가 커밋되면 별도 트랜잭션에서 그 러닝의 운동 부하(`exercise_training_loads`)를 지우고 해당 날짜의 일별 부하를 다시 계산한다(S15P31E105-599, [준비도 산식 5-1](../readiness-formula.md#5-1-zone-기준과-운동-부하-수집-s15p31e105-599-2026-11-10-사용자-결정)). 이 처리의 실패는 삭제 응답에 영향을 주지 않으며 로그만 남긴다.
 
 공유 게시물 생성(CMT01)은 같은 세션 잠금 아래 소유권·COMPLETED·미삭제 여부를 검사하고 게시물을 저장한다. 생성이 먼저 확정되면 S09가 그 게시물도 함께 삭제하고, S09가 먼저 확정되면 이후 생성은 INVALID_POST로 거절한다. 두 경로 모두 세션→게시물 순서를 유지한다.
 
@@ -1456,6 +1461,80 @@ data: {"sessionId":201,"state":"RUNNING","stateVersion":2,"currentBpm":165}
 ### 상태값
 
 세션·분석 상태 enum은 S02, 이벤트 이름은 위 Response 표를 따른다. 새 코칭 생성 자체는 stateVersion을 바꾸지 않는다.
+
+## S11 러닝 경로 조회
+
+`GET /api/v1/running-sessions/{sessionId}/route`
+
+| 항목 | 값 |
+| --- | --- |
+| 단계 | 1차 MVP |
+| 인증 | 본인 회원 |
+| 관련 요구사항 | REC-001 / GRP-008 |
+| 미정 사항 | 없음 — S15P31E105-549 확정(2026-11-10) |
+
+### 설명
+
+본인 러닝에서 W07로 저장한 GPS 위치를 [통합 설계 9.7](../watch-mobile-server-integration.md#서버-기준-시각과-gps)의 구간별 출처 선택 규칙으로 골라 지도 표시용 좌표 조각으로 돌려준다. 기록 상세(H02 화면)와 진행 중 화면이 같은 기준으로 경로를 그리기 위한 API다. 원본 GPS 다운로드가 아니므로 측정 시각·정확도·고도·기기 ID는 응답하지 않는다.
+
+### 인증 및 권한
+
+JWT·본인 세션을 확인한다. 위치 동의는 가입 필수 항목이라 다시 검사하지 않으며, 건강정보 동의 여부로 거절하지 않는다. 좌표는 로그에 남기지 않는다.
+
+### Path Parameters
+
+| 필드 | 타입 | 필수 | 설명 |
+| --- | --- | :---: | --- |
+| `sessionId` | integer (int64) | O | 본인 러닝 세션 ID. 양의 정수 |
+
+### Request Body
+
+없음
+
+### Response
+
+`200 OK`
+
+```json
+{
+  "sessionId": 101,
+  "segments": [
+    { "source": "WATCH", "coordinates": [[127.027612, 37.497912], [127.027901, 37.498105]] },
+    { "source": "PHONE", "coordinates": [[127.028512, 37.498611], [127.028790, 37.498832]] }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `sessionId` | integer (int64) | 요청한 세션 ID |
+| `segments` | object[] | 측정 시각 순서의 경로 조각. 위치가 없으면 빈 배열이며 404로 바꾸지 않는다 |
+| `segments[].source` | string | `WATCH`/`PHONE`. 조각을 만든 위치의 기기 유형(`user_devices.device_type`). 기기 정보가 없는 위치는 PHONE |
+| `segments[].coordinates` | number[][] | WGS84 `[경도, 위도]` 배열. 한 조각 안에서만 선으로 잇는다. 한 점만 있는 조각도 그대로 둔다 |
+
+### 경로 선택 규칙
+
+1. 실제 시작 이후 위치만 쓴다. `started_at` 이상, 종료했으면 `ended_at` 이하인 위치다. 시작 전 세션(`started_at` 없음)은 빈 경로다.
+2. 정확도(`accuracy`)가 30m를 넘는 위치는 제외한다. 정확도를 보내지 않은 위치는 품질을 가정하지 않고 사용한다.
+3. 워치 위치를 우선한다. 폰 위치는 측정 시각 ±15초 안에 사용할 수 있는 워치 위치가 없을 때만 쓴다. PHONE_FALLBACK 이후처럼 워치 위치가 없는 구간은 폰 위치로 채운다.
+4. 측정 시각 순으로 잇되, 출처가 바뀌거나 이웃 위치의 간격이 60초를 넘으면 새 조각을 시작한다. 결측 구간을 직선으로 채우지 않는다.
+5. 같은 조각의 같은 측정 시각 위치는 하나만 쓴다. 응답 위치가 2,000개를 넘으면 조각마다 위치 수에 비례한 개수(조각당 최소 2개)로 처음·끝을 유지하며 균등 간격으로 줄인다. 조각당 최소 개수 때문에 작은 조각이 아주 많으면 2,000개를 조금 넘을 수 있다. 표시용 축약이며 저장된 원본은 바꾸지 않는다.
+6. 거리·페이스·그룹 순위는 이 경로로 계산하지 않는다. 기존대로 METRIC_SAMPLE 누적거리를 사용한다.
+7. 일시정지 구간을 따로 거르지 않는다. 워치는 일시정지 중 위치를 만들지 않고 폰은 서버 상태가 PAUSED가 되면 기록을 멈추므로, 폰이 PAUSED를 받기 전 몇 초의 위치가 남을 수 있다.
+
+### 오류 응답
+
+| HTTP·코드 | 발생 조건 |
+| --- | --- |
+| `400 VALIDATION_ERROR` | sessionId가 양의 int64 정수가 아님 |
+| `401 UNAUTHORIZED` | 인증 실패·탈퇴 회원 |
+| `403 SESSION_FORBIDDEN` | 본인 소유가 아닌 세션 |
+| `404 SESSION_NOT_FOUND` | 세션이 없거나 삭제됨 |
+| `503 SERVICE_UNAVAILABLE` | 저장소 일시 장애. 같은 요청으로 제한 재시도 |
+
+### 처리 규칙
+
+읽기 전용 단일 트랜잭션에서 세션과 위치를 조회한다. 진행 중 세션도 조회할 수 있으며, 응답 뒤에 저장되는 W07 batch는 다음 조회에 반영된다. 세션 상태를 바꾸거나 잠그지 않는다.
 
 ## 세션 제어 공통 계약
 

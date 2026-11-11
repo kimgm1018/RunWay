@@ -52,7 +52,7 @@ pipeline {
         stage('Mobile Tests') {
             steps {
                 dir('frontend') {
-                    sh 'pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'
+                    sh 'pnpm exec jest --ci --maxWorkers=2 --cacheDirectory=/home/jenkins/agent/.cache/jest'
                 }
             }
         }

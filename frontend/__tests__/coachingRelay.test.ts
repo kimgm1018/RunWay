@@ -44,7 +44,13 @@ const guide: CoachingGuide = {
   expiresAt: '2026-10-28T01:01:20Z',
 };
 
-function setup(options: { guideAckMs?: number } = {}) {
+function setup(
+  options: {
+    guideAckMs?: number;
+    serverPollMs?: number;
+    voice?: { enabled: () => boolean; speak: (text: string) => void; stop: () => void };
+  } = {},
+) {
   let current = view();
   const snapshots: { handler: ((snapshot: SessionSnapshot) => void) | null } = { handler: null };
   const unsubscribeEvents = jest.fn();
@@ -98,7 +104,13 @@ function setup(options: { guideAckMs?: number } = {}) {
   const control = createRunControl({
     session: session as unknown as Repositories['session'],
     watch: watch as unknown as Repositories['watchSession'],
-    timers: { resultWaitMs: 200, retryDelaysMs: [0, 5, 5], guideAckMs: options.guideAckMs ?? 10_000 },
+    timers: {
+      resultWaitMs: 200,
+      retryDelaysMs: [0, 5, 5],
+      guideAckMs: options.guideAckMs ?? 10_000,
+      serverPollMs: options.serverPollMs ?? 60_000,
+    },
+    voice: options.voice,
   });
   const emit = (event: WatchSessionEvent) => listeners.forEach(listener => listener(event));
   const snapshot = (next: RunningSessionView, reconnected = false) =>
@@ -481,4 +493,151 @@ test('S10 record comparison updates the run state at the same version and reache
   snapshot(view({ stateVersion: 2, comparison: { ...comparison, status: 'WAITING', distanceM: null } }));
   await wait();
   expect(control.getState().comparison).toEqual(comparison);
+});
+
+// ── 코칭 음성 안내(S15P31E105-579): 워치가 적용한 코칭만, 폰 기록이면 새로 받은 코칭을 읽는다.
+function voiceSetup(enabled = true) {
+  const voice = { enabled: jest.fn(() => enabled), speak: jest.fn(), stop: jest.fn() };
+  return { voice, ...setup({ voice }) };
+}
+
+const coachingAt = (
+  commandId: string,
+  pace: number,
+  level: 'OK' | 'CAUTION' | 'DANGER' | null,
+): CoachingGuide => ({ ...guide, commandId, recommendedPaceSecPerKm: pace, coachingLevel: level });
+
+test('a coaching the watch applied is read; the first one, a repeat and an ignored one are not', async () => {
+  const { control, voice, snapshot, emit } = voiceSetup();
+  await control.attach('201');
+
+  const first = coachingAt('801', 360, 'OK');
+  snapshot(view({ coaching: first }));
+  emit(coachingResult({ commandId: '801' }));
+  await wait();
+  expect(voice.speak).not.toHaveBeenCalled();
+
+  const slower = coachingAt('802', 370, 'CAUTION');
+  snapshot(view({ stateVersion: 5, coaching: slower }));
+  // 워치가 적용하기 전에는 읽지 않는다.
+  expect(voice.speak).not.toHaveBeenCalled();
+  emit(coachingResult({ commandId: '802' }));
+  await wait();
+  expect(voice.speak).toHaveBeenCalledTimes(1);
+  expect(voice.speak).toHaveBeenCalledWith('심박이 오르고 있어요. 6분 10초 페이스로 늦춰 주세요.');
+
+  // 같은 결과가 다시 와도 한 번만 읽는다.
+  emit(coachingResult({ commandId: '802' }));
+  // 워치가 적용하지 않은 코칭은 읽지 않는다.
+  snapshot(view({ stateVersion: 7, coaching: coachingAt('803', 400, 'DANGER') }));
+  emit(coachingResult({ commandId: '803', result: 'IGNORED', appliedAt: null }));
+  await wait();
+  expect(voice.speak).toHaveBeenCalledTimes(1);
+  control.dispose();
+});
+
+test('with the voice setting off a coaching is applied but not read', async () => {
+  const { control, voice, snapshot, emit, session } = voiceSetup(false);
+  await control.attach('201');
+  snapshot(view({ coaching: coachingAt('811', 360, 'OK') }));
+  emit(coachingResult({ commandId: '811' }));
+  snapshot(view({ stateVersion: 5, coaching: coachingAt('812', 400, 'DANGER') }));
+  emit(coachingResult({ commandId: '812' }));
+  await wait();
+  expect(voice.speak).not.toHaveBeenCalled();
+  // 결과 저장(P07)은 그대로 한다.
+  expect(session.reportBpmResult).toHaveBeenCalledTimes(2);
+  control.dispose();
+});
+
+test('recording on the phone reads a new coaching without a watch result', async () => {
+  const { control, voice, snapshot, watch } = voiceSetup();
+  await control.attach('201');
+  snapshot(view({ recordingMode: 'PHONE_FALLBACK', coaching: coachingAt('821', 360, 'CAUTION') }));
+  snapshot(view({ recordingMode: 'PHONE_FALLBACK', stateVersion: 5, coaching: coachingAt('822', 340, 'OK') }));
+  // 같은 코칭이 다음 스냅샷에 다시 와도 한 번만 읽는다.
+  snapshot(view({ recordingMode: 'PHONE_FALLBACK', stateVersion: 6, coaching: coachingAt('822', 340, 'OK') }));
+  await wait();
+  expect(watch.sendCoachingGuide).not.toHaveBeenCalled();
+  expect(voice.speak).toHaveBeenCalledTimes(1);
+  expect(voice.speak).toHaveBeenCalledWith('여유가 있어요. 5분 40초 페이스로 올려도 좋아요.');
+  control.dispose();
+});
+
+test('a paused run is not read to and pausing or disposing stops the voice', async () => {
+  const { control, voice, snapshot, emit, setCurrent } = voiceSetup();
+  await control.attach('201');
+  snapshot(view({ coaching: coachingAt('831', 360, 'OK') }));
+  emit(coachingResult({ commandId: '831' }));
+  await wait();
+
+  setCurrent(view({ state: 'PAUSED', stateVersion: 10 }));
+  await control.sync();
+  expect(control.getState().status).toBe('PAUSED');
+  expect(voice.stop).toHaveBeenCalledTimes(1);
+  snapshot(view({ state: 'PAUSED', stateVersion: 10, coaching: coachingAt('832', 400, 'DANGER') }));
+  emit(coachingResult({ commandId: '832' }));
+  await wait();
+  expect(voice.speak).not.toHaveBeenCalled();
+
+  setCurrent(view({ state: 'RUNNING', stateVersion: 12 }));
+  await control.sync();
+  control.dispose();
+  expect(voice.stop).toHaveBeenCalledTimes(2);
+});
+
+// S15P31E105-549 실기기 확인: S10이 폰에 오지 않으면 서버가 만든 코칭 명령이 같은 버전 자리를 차지해 일시정지가
+// 409 COMMAND_CONFLICT로 막혔다. 개인 러닝도 S02를 주기적으로 읽어 코칭을 전달하고, 막히면 바로 다시 읽는다.
+const pendingCoaching = () =>
+  view({
+    pendingCommand: {
+      commandId: guide.commandId,
+      action: 'COACHING',
+      expectedVersion: 3,
+      result: 'PENDING',
+      appliedAt: null,
+      reasonCode: null,
+      coachingId: guide.coachingId,
+      coachingGuide: guide,
+    },
+  });
+
+test('without any S10 event a running personal run reads S02 and relays the pending coaching to the watch', async () => {
+  const { control, session, watch, setCurrent } = setup({ serverPollMs: 20 });
+  await control.attach('201');
+  setCurrent(pendingCoaching());
+  await wait(80);
+  expect(session.get.mock.calls.length).toBeGreaterThan(1);
+  expect(watch.sendCoachingGuide).toHaveBeenCalledWith('201', guide);
+  control.dispose();
+});
+
+test('a pause refused with COMMAND_CONFLICT reads S02 at once and relays the coaching holding the slot', async () => {
+  const { control, session, watch, setCurrent } = setup();
+  await control.attach('201');
+  setCurrent(pendingCoaching());
+  session.requestControl.mockRejectedValueOnce(
+    new DataError('COMMAND_CONFLICT', '같은 제어 요청에 다른 내용이 이미 처리되었습니다.'),
+  );
+  await control.pause();
+  expect(control.getState().problem).toEqual({ kind: 'error', code: 'COMMAND_CONFLICT' });
+  expect(watch.sendCoachingGuide).toHaveBeenCalledWith('201', guide);
+  control.dispose();
+});
+
+// S15P31E105-528: S02·S10에 서버 운동시간이 오면 운동 시간의 기준점으로 둔다. 없으면 null(화면 시계).
+test('the server running time from S02 and S10 becomes the clock base', async () => {
+  const { control, snapshot, setCurrent } = setup();
+  setCurrent(view({ movingDurationSec: 600 }));
+  await control.attach('201');
+  expect(control.getState().clock).toMatchObject({ movingSec: 600, running: true });
+
+  snapshot(view({ stateVersion: 4, state: 'PAUSED', movingDurationSec: 630 }));
+  expect(control.getState().clock).toMatchObject({ movingSec: 630, running: false });
+  // 더 오래된 버전의 스냅샷으로는 되돌리지 않는다.
+  snapshot(view({ stateVersion: 2, movingDurationSec: 100 }));
+  expect(control.getState().clock).toMatchObject({ movingSec: 630 });
+  snapshot(view({ stateVersion: 5 }));
+  expect(control.getState().clock).toBeNull();
+  control.dispose();
 });

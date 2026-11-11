@@ -32,7 +32,7 @@ class RunLocationModule(private val app: ReactApplicationContext) : ReactContext
   @ReactMethod fun addListener(@Suppress("UNUSED_PARAMETER") eventName: String) = Unit
   @ReactMethod fun removeListeners(@Suppress("UNUSED_PARAMETER") count: Double) = Unit
 
-  /** Resolves false without the fine location permission or a GPS provider; the run then keeps time only. */
+  /** Resolves false without the fine location permission or an enabled GPS provider; the route then stays unknown. */
   @SuppressLint("MissingPermission")
   @ReactMethod fun start(promise: Promise) {
     if (app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -41,7 +41,10 @@ class RunLocationModule(private val app: ReactApplicationContext) : ReactContext
     }
     try {
       val manager = app.getSystemService(LocationManager::class.java)
-      if (manager == null || !manager.allProviders.contains(LocationManager.GPS_PROVIDER)) {
+      // 위치 서비스가 꺼져 있으면 갱신이 오지 않으므로 GPS 없음으로 알린다(S15P31E105-549: 위치 미확인).
+      if (manager == null || !manager.allProviders.contains(LocationManager.GPS_PROVIDER) ||
+        !manager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+      ) {
         promise.resolve(false)
         return
       }

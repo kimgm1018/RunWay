@@ -129,13 +129,14 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 
 ## AI04 — 러닝 중 페이스 결정
 
-`POST /v1/pace/decide` — 정책 v0.4.3(`mpc-v0.4.3`) + GRU. 매 요청은 후보 5개(`anchorPaceSecPerKm` 대비 −10, −5, 0, +5, +10 sec/km)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
+`POST /v1/pace/decide` — 정책 v0.5.0(`mpc-v0.5.0`) + GRU. 매 요청은 후보 9개(`anchorPaceSecPerKm` 대비 −30, −20, −10, 0, +10, +20, +30, +45, +60 sec/km, 그룹 페이스 AI10과 같음)다. AI04 timeout 기본 제안은 3초이며 백엔드는 timeout 뒤 같은 batch를 재시도하지 않고 새 W07 batch에서 판단한다.
 
 **응답 시간·동시 처리(S15P31E105-440, 2026-11-05 측정).** CPU 1개, uvicorn worker 1, 스레드 1, 실제 GRU(`db59d414`), 합성 데이터 기준이다. AI04 1회는 p50 12~20 ms, p99 14~27 ms로 history 1~1440칸·plan 유무에 따른 차이는 거의 없다(1칸 `PLAN_HOLD`는 약 3 ms, 시작 뒤 첫 호출은 약 55 ms). 5초 주기 동시 사용자는 AI04만 받으면 200명까지 p99 1초 이하이고 약 250~300명부터 3초를 넘는다. 같은 프로세스에서 AI09·AI06이 쉬지 않고 돌면 50명 p99 0.58 s, 100명에서 1.1%가 3초를 넘는다. **백엔드 호출 기준: timeout 3초, 세션당 동시 1건, timeout·연결 오류·5xx는 재시도 없이 다음 W07 batch로 넘긴다. 컨테이너(1 vCPU)당 동시 러닝 50명이 계획 기준이다.** uvicorn 기본 keep-alive 5초와 5초 호출 주기가 겹쳐 드물게 연결이 끊기므로 백엔드 유휴 연결 정리를 4초 이하로 두거나 AI 실행 명령에 `--timeout-keep-alive 15`를 준다. 단, 목표 BPM 조회(S15P31E105-438)와 학습 심박 기준 조회는 DB를 부르는 동안 프로세스 공용 lock을 잡고 실패를 캐시하지 않는다. 스텁 DB 실측(50명)은 DB 정상 p99 74 ms, 쿼리 100 ms면 p50 3.98 s·70.8%가 3초 초과, DB 응답 없음이면 p50 12.0 s·98.9%가 3초 초과였다(응답은 200 + `BPM_RECORDS_UNAVAILABLE`). S15P31E105-500에서 두 조회의 DB 호출을 lock 밖으로 뺐다(캐시를 읽고 쓸 때만 lock). 세션 조회 캐시와 실패 차단은 아직 없다.
 
 - v0.4.1: HR 입력 지연 기준을 15초에서 20초로 바꿈(팀 명세 정렬, S15P31E105-413).
 - v0.4.2: 코칭 단계 `decision.coachingLevel` 추가, OK면 목표보다 앞서도 늦추지 않음, 위험 감속 권고 하한(걷기 경계 11:07/km), `WALK_ADVISED` 삭제(S15P31E105-504). 위험 감속 권고가 안내보다 빨라지지 않게 고친 것(S15P31E105-497)도 이 버전부터 반영된 것으로 본다.
-- v0.4.3: 넘친 만큼 늦추기·빨라지기, 감속 쿨다운 120초, 안내 미준수 처리, 위험 감속 권고를 실측 기준으로(S15P31E105-506). 아래 "심박 감속·빨라지기(넘친 만큼)".
+- v0.4.3: 넘친 만큼 늦추기·빨라지기, 감속 쿨다운 120초, 안내 미준수 처리, 위험 감속 권고를 실측 기준으로(S15P31E105-506).
+- v0.5.0: 페이스 선택을 그룹 페이스 AI10과 같은 규칙·같은 코드(`app/pace_selector.py`)로 바꿈. 후보 9개, 두 번째 GRU 호출 없음, 목표보다 앞선다는 이유의 감속(`SLOW_DOWN_GOAL`)과 계획 넘겨주기 선택(`PLAN_HOLD`/`PLAN_BLEND` 사유) 없음(S15P31E105-624). 아래 "페이스 선택".
 
 ### Request Body
 
@@ -209,32 +210,31 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 - 감속 권고는 지금 안내보다 빠르지 않고(S15P31E105-497), 이어져도 걷기 경계보다 느려지지 않는다(S15P31E105-504). 걷기·멈춤 권고는 두지 않으며 `WALK_ADVISED` 경고는 없앴다.
 - 처음 위험이 되면 단계가 `DANGER`로 바뀌므로 페이스가 같아도 백엔드가 알린다(S15P31E105-503). 위험이 이어지면 코칭 없이 2분이 지날 때 백엔드가 지금 안내를 다시 보낸다(아래 "백엔드와의 관계").
 
-### 심박 감속·빨라지기(넘친 만큼)
+### 페이스 선택
 
-S15P31E105-506(인계 I-23, 팀 검토 2026-11-06). 예전에는 후보 간격(±5·±10초/km)이 작고 상한을 30·60·120초 중 최대로 비교해, 늦춰야 할 때 "얼마나 늦출지"를 가르지 못하고 늘 +5를 골라 30초마다 5초씩 늦추는 메시지가 이어졌다. 실측으로 10~30초/km 감속은 2분 뒤 심박이 1~2 bpm, 60초/km는 약 11 bpm 내려간다(같은 조건 GRU 약 7 bpm).
+S15P31E105-624(v0.5.0). 개인 코칭도 그룹 페이스 AI10과 **같은 선택 규칙·같은 코드**(`ai/service/app/pace_selector.py`)를 쓴다. 예전 후보(±5·±10초/km)는 GRU 2분 예측 차이가 0.4~1.2 bpm뿐이라 여유(4.9~7.5 bpm) 안에 묻혀 사실상 지금 심박만으로 결정됐다(S15P31E105-495).
 
-**넘친 만큼 늦추기** (gate `SLOW_ONLY`, 쿨다운 밖)
-- 느린 페이스 = max(안내, 최근 실측 pace) + 폭. 폭은 정책 `hr_slow_steps_sec_per_km` 5~60초/km(5초 간격)다. 러너가 안내보다 느리면 실측 기준이라 실측보다 빠른 "감속"을 내지 않는다.
-- 각 페이스의 상한 = 2분 뒤 예측 + 감속 전용 여유분 `hr_slow_margin_120_bpm`(안내 그대로 후보의 경사 칸: 평지 4.89, 오르막 5.98, 내리막 6.65, 모름 7.46 bpm, 팀 감속 잔차 측정). 30·60초 예측은 늦춰도 거의 그대로라 쓰지 않고, 여유 표의 DECEL 칸은 늦출수록 커져 쓰지 않는다.
-- 상한이 허용선 아래가 되는 **가장 작은 폭**을 고르고, 없으면 가장 큰 폭(+60)이다. 걷기 경계(11:07)보다 느려지면 하한에서 멈추고 `coachingLevel=DANGER`로 올린다.
-- 출발 뒤 `early_slow_cap_sec`(180초) 동안은 `early_slow_cap_sec_per_km`(10초/km)까지만 늦춘다(위험 감속은 예외). 출발 직후 크게 늦췄다가 되돌아오는 일을 줄인다.
-- 추천이 요청 후보가 아니면 `decision.chosenIndex=null`이고, `predictedHr*Bpm`은 그 페이스의 예측이다. 응답 `candidates[]`는 요청 후보 5개 그대로다.
+- 후보: 기준 G(`anchorPaceSecPerKm`, 지금 안내) + (−30, −20, −10, 0, +10, +20, +30, +45, +60)초/km. GRU는 9개 + 실측 1행을 **한 번** 부른다.
+- 상한: 늦추는 후보는 2분 뒤 예측 + 감속 여유 `hr_slow_margin_120_bpm`(그 후보의 미래 경사 칸: 평지 4.89, 오르막 5.98, 내리막 6.65, 모름 7.46 bpm). 유지·빠른 후보는 세 지평선마다 예측 + 잔차 여유 표(최근 실측 속도 대비 방향·경사)의 최대.
+- 통과: 상한 < 허용선(`pacing`의 P85~P98 사이 진행률 곡선, 마지막 400 m는 위험 기준). 빨라지는 후보는 허용선 − 3 bpm도 통과해야 한다.
+- 지금 안내가 통과하지 못하면 통과하는 **가장 빠른 느린 후보**, 없으면 가장 느린 후보(+60)다(`SLOW_DOWN_HR`). 걷기 경계(11:07)보다 느려지면 하한에서 멈추고 `coachingLevel=DANGER`로 올린다(이때 `chosenIndex=null`, `predictedHr*Bpm`은 고른 후보의 예측).
+- 지금 안내가 통과하면 목표에 필요한 페이스(`goal`·`plan`으로 구한 값)까지, 30초/km 안에서 통과하는 가장 빠른 후보로 한 번에 올린다(`SPEED_UP_GOAL`, 마지막 400 m면 `SPRINT`). 목표가 없거나 닿을 수 없거나(`GOAL_UNREACHABLE`) 입력이 늦으면(`HR_STALE`) 올리지 않는다. 목표보다 앞선다는 이유로는 늦추지 않는다.
+- 쿨다운: 안내가 바뀐 뒤(`guidePaceSetAt`, 없으면 `lastCoaching.appliedAt`)와 재개(`resumedAt`) 뒤 120초는 바꾸지 않는다(`reason=HOLD`, 심박이 허용선 이상이면 `reasonText` "심박 반응 대기…", `coachingLevel=CAUTION`). 위험 심박은 정책 앞단의 SAFETY(`EASE_OFF`)가 쿨다운과 무관하게 먼저 낸다.
+- 워밍업: `activeSec` 180초 전에는 +10초/km까지만 늦춘다. 10초/km 미만 변화는 유지다.
+- AI04 전용 보정(리드 결정 2026-11-10, AI10은 그대로):
+  - 감속 기준: 러너가 안내보다 느리면(최근 실측 pace > 안내) 느린 후보는 max(안내, 실측) + (10, 20, 30, 45, 60)초/km이다. 이 행들은 같은 GRU 호출에 덧붙여 예측하고, 고르면 `chosenIndex=null`, `predictedHr*Bpm`은 그 페이스의 예측이다. 응답 `candidates[]`는 요청 9개 그대로다.
+  - 위험: 안내 그대로 후보의 2분 예측 자체(여유 없이)가 허용선 이상이면 쿨다운 중에도 늦추고 출발 180초 +10 상한도 걸지 않는다.
+- 응답 `candidates[]`는 요청 후보 9개 그대로이고, 각 `passed`는 위 통과 규칙(빠른 후보는 −3 bpm 포함), `rejectReason`은 `UPPER_OVER_ALLOW` 또는 `SAFETY`, `score`는 선택에 쓴 상한 − 허용선(음수일수록 여유, 표시용)이다.
+- 정책 설정의 `hr_slow_steps_sec_per_km`, `speed_up_steps_sec_per_km`, `early_slow_cap_*`, `hr_slow_cooldown_sec`, `hold_sec`는 v0.5.0 선택에 쓰지 않는다(호환을 위해 검증만 유지). 쿨다운·워밍업 값은 AI10과 같은 상수다.
 
-**넘친 만큼 빨라지기** (gate `ALL`, 목표보다 늦어 `SPEED_UP_GOAL`일 때)
-- 빠른 페이스 = 안내 − 폭(`speed_up_steps_sec_per_km` 5~60초/km). 상한은 지금처럼 세 지평선 최대 + 여유 표(빠른 쪽은 보수적으로 둔다).
-- 상한이 허용선 − band(3 bpm) 아래이고 목표에 필요한 페이스보다 빠르지 않은 **가장 빠른 페이스**로 한 번에 올린다. 언덕 뒤 5초씩 30초마다 되돌아오던 메시지를 줄인다.
-
-**쿨다운과 간격**
-- 안내 페이스가 바뀐 뒤 `hr_slow_cooldown_sec`(120초) 동안은 더 늦추지 않는다(후보 `rejectReason=SLOW_IN_HOLD`, 심박 반응 60~105초). 이때 `reason=HOLD`, `reasonText`는 "심박 반응 대기…", `coachingLevel=CAUTION`, `publishSuggested=false`다. 목표 감속도 같다.
-- 빨라지기는 안내 변경·재개 뒤 `hold_sec`(60초) 동안 막는다(`ACCEL_IN_HOLD`, 메시지 간격 최소 60초).
-- 안내가 바뀐 시각은 `guidePaceSetAt`, 없으면 `lastCoaching.appliedAt`이다. 둘 다 없으면 쿨다운·간격이 없다. 위험 감속 권고(`EASE_OFF`)는 기다리지 않는다.
-
-**안내 미준수**
+**안내 미준수**(AI04 전용, 그대로)
 - 심박 감속이 필요한데(`SLOW_ONLY`) 러너가 안내보다 `not_following_sec_per_km`(10초/km) 이상 빠르면, 안내를 더 늦추지 않고 같은 안내를 다시 알리며 단계를 한 칸 올린다(보통 CAUTION → DANGER). `reason=SLOW_DOWN_HR`, `publishSuggested=true`, 경고 `GUIDE_NOT_FOLLOWED`, `reasonText`는 "안내를 따르지 않음…".
 - 안내가 바뀐 뒤 `not_following_grace_sec`(60초)는 러너가 따라올 시간으로 두고 판단하지 않는다. 그 뒤로는 쿨다운 중에도 같게 둔다.
 - 위험 단계(`EASE_OFF`)는 위 실측 기준 공식으로 같은 효과를 낸다.
 
-**예측 호출**: 첫 GRU 호출(요청 후보 5개 + 실측 1행)로 판단하고, 늦추거나(`SLOW_DOWN_HR`) 올릴 때(`SPEED_UP_GOAL`)만 느린·빠른 페이스 12행을 두 번째 호출로 예측해 다시 판단한다. 대부분의 판단(유지·쿨다운)은 한 번만 부른다. 두 번째 호출이 실패하면 첫 판단(요청 후보 안에서 고른 것)을 쓰고 로그 `EXTRA_PACE_PREDICTION_FAILED`를 남긴다. 합성 시뮬레이션에서 판단 1회 평균 약 18~20 ms로 수정 전과 비슷했다(CPU 1스레드).
+**비교(S15P31E105-624)**: 같은 입력에서 이전(v0.4.3)과 새 규칙의 허용선 초과 시간·10분당 페이스 변경 수·목표 대비 평균 감속·결정이 다른 수는 S15P31E105-624 MR 본문에 남긴다. V2 Val 40회(폐루프): 허용선 초과 2.85% → 3.73%, 10분당 변경 0.85 → 0.65회, 같은 입력 결정 30.5% 다름. 리드 실기기 6회: 목표 대비 평균 감속 +95 → +20초/km.
+
+아래 표는 v0.4.3(S15P31E105-506) 때의 기록이다.
 
 **합성 러너 시뮬레이션** (`ai/service/tools/simulate_hr_loop.py`, 실제 GRU, 15분, 백엔드 30초 발행 간격·단계 변경 발행(503) 흉내, 러너 심박은 합성 수식: 속도 기울기 25 bpm/(m/s)로 60초/km 감속이 2분 뒤 −11 bpm, 시간 상수 40초, 허용선 163)
 
@@ -262,11 +262,11 @@ S15P31E105-506(인계 I-23, 팀 검토 2026-11-06). 예전에는 후보 간격(�
 
 | 값 | 판정 | `recommendedPaceSecPerKm` |
 | --- | --- | --- |
-| `OK` | 아래 둘 다 아님. 러너가 안내보다 빨라도 막지 않는다 | 보통 지금 안내 그대로. 심박 여유가 있으면 목표보다 앞서 있다는 이유로 늦추지 않는다(`SLOW_DOWN_GOAL` 대신 안내 유지). 목표에 뒤처지면 올리는 판단(`SPEED_UP_GOAL`)은 그대로 |
-| `CAUTION` | 안내 페이스로도 예측 상한이 허용선 이상(`SLOW_DOWN_HR` gate), 과속 감지 `OVERPACE`, 또는 러너가 지금 실측 속도로 2분 달릴 때의 예측 상한이 허용선 이상 | 안내로 돌아오라는 뜻. 추천은 MPC 판단 그대로라 보통 지금 안내이고, 안내 페이스로도 허용선 이상이면 넘친 만큼 늦추며(`SLOW_DOWN_HR`), 목표보다 앞서 있으면 늦출 수도 있다(`SLOW_DOWN_GOAL`) |
+| `OK` | 아래 둘 다 아님. 러너가 안내보다 빨라도 막지 않는다 | 보통 지금 안내 그대로. 목표보다 앞서 있다는 이유로는 늦추지 않는다. 목표에 뒤처지면 올리는 판단(`SPEED_UP_GOAL`)은 그대로 |
+| `CAUTION` | 안내 페이스로도 예측 상한이 허용선 이상(`SLOW_DOWN_HR` gate), 과속 감지 `OVERPACE`, 또는 러너가 지금 실측 속도로 2분 달릴 때의 예측 상한이 허용선 이상 | 안내로 돌아오라는 뜻. 추천은 MPC 판단 그대로라 보통 지금 안내이고, 안내 페이스로도 허용선 이상이면 통과하는 가장 빠른 느린 후보로 늦춘다(`SLOW_DOWN_HR`, 쿨다운 중이면 안내 유지) |
 | `DANGER` | 위험 심박(`action=EASE_OFF`, `status=SAFETY`), 심박 감속이 걷기 경계 하한에 닿음, 또는 심박 감속이 필요한데 러너가 안내를 따르지 않음(S15P31E105-506) | 위 감속 권고, 하한 페이스, 또는 같은 안내 |
 
-- 실측 속도 예측: 요청 후보 5개는 그대로 두고, 안내 그대로 후보(`anchorPaceSecPerKm`)를 복사해 미래 속도만 최근 실측 평균 속도로 바꾼 행을 GRU 배치에 덧붙여 같은 호출로 예측한다. 여유분(margin)과 경사는 그 후보와 같은 칸을 쓴다. 실측 속도가 걷기 경계 미만이면 덧붙이지 않는다.
+- 실측 속도 예측: 요청 후보 9개는 그대로 두고, 안내 그대로 후보(`anchorPaceSecPerKm`)를 복사해 미래 속도만 최근 실측 평균 속도로 바꾼 행을 GRU 배치에 덧붙여 같은 호출로 예측한다. 여유분(margin)과 경사는 그 후보와 같은 칸을 쓴다. 실측 속도가 걷기 경계 미만이면 덧붙이지 않는다.
 - 설정: `policy_v03.json`의 `actual_pace_check_enabled`(기본 true). 배포에서 환경변수 `AI04_ACTUAL_PACE_CHECK_ENABLED=true|false`로 바꿀 수 있다. 끄면 실측 속도 예측을 하지 않고, `CAUTION`은 `SLOW_DOWN_HR` gate와 `OVERPACE`로만 정한다. GRU가 작은 페이스 차이를 잘 구분하지 못하는 문제가 해결되기 전에는 운영에서 결과를 보고 켤지 정한다.
 - 기록이 한 칸뿐인 경로(예측 없음)는 실측 심박이 위험 기준 이상이면 `DANGER`, 아니면 `OK`다. 판단이 없으면(`decision=null`, `NOT_RUNNING` 등) 단계도 없다.
 - OK와 CAUTION은 추천 페이스가 같을 수 있다. 백엔드는 단계가 바뀌면 페이스·BPM이 같아도 발행하기로 한다(S15P31E105-503).
@@ -291,7 +291,7 @@ GRU 개인화가 설정상 꺼져 있으면(`GRU_PERSONALIZATION_ENABLED=false`,
 
 ### 러닝 초반 계획 넘겨주기
 
-`context.activeSec`가 `plan_hold_sec`(잠정 60초) 전이면 계획 pace를 유지하고(`PLAN_HOLD`), `plan_blend_end_sec`(잠정 180초)까지 계획 비중 w를 1→0으로 줄이며 MPC와 섞는다(`PLAN_BLEND`). 그 뒤는 기존 MPC다(`MPC`). 넘겨주기 단계의 결과는 후보 5개 중 하나(섞은 값에 가장 가까운 후보, 같으면 느린 쪽)이고, SAFETY와 심박 gate가 먼저다. 계획 pace는 `context.plan`과 `goal`로 구한 지금 구간 목표 pace이며, 계획이 없으면 현재 안내 pace를 유지한다. 단계는 `pacing.handoverPhase`, `pacing.planWeight`로 알린다. 60/180초는 V2 Val 재생 평가로 조정 예정(잠정)이다.
+`pacing.handoverPhase`, `pacing.planWeight`는 `context.activeSec` 기준 단계(`plan_hold_sec` 60초 전 `PLAN_HOLD`, `plan_blend_end_sec` 180초까지 `PLAN_BLEND`, 그 뒤 `MPC`)를 알리기만 한다. v0.5.0부터는 고르는 후보를 바꾸지 않는다(S15P31E105-624). 출발 직후에는 백엔드 기준 페이스가 계획 구간 pace이고, 심박이 허용선 아래면 그대로 유지하며, 출발 180초 동안은 감속을 +10초/km까지만 한다(위 "페이스 선택"의 워밍업). 기록이 한 칸뿐인 `PLAN_HOLD` 경로(예측 없음)는 그대로다.
 
 **고려사항(팀 합의 필요):** 백엔드가 AI04 호출 시 사전 계획 구간 비율(`context.plan`)과 예상 완주시간(`goal.targetDurationSec` = personal-plan `predictedFinishSec`, M-A)을 넘겨야 함. 넘기지 않으면 계획 유지 구간은 현재 안내 pace 유지로 동작한다.
 
@@ -369,7 +369,7 @@ AI 서버는 AI04 판단 결과를 DB에 직접 쓰지 않는다. 발행·저장
 | `userId` | 건강정보 동의 사용자만(동의하지 않으면 자동 코칭 자체를 하지 않는다). `context.bpm`·`hrReference`는 보내지 않는다 |
 | 시간 상한·실패 | 연결 1초, 전체 3초. timeout·연결 실패·4xx·5xx·응답 형식 위반은 저장 없이 끝내고 재시도하지 않는다. 로그에는 HTTP 상태·`code`·실패 종류만 남긴다 |
 | 확정 | 세션 잠금 아래에서 `stateVersion`이 호출 때와 같고 `decision.basedOnStateVersion`과도 같은지, 발행 전제(RUNNING·워치 기록·동의·그룹 미종료·미확정 명령 없음)를 다시 확인한다 |
-| 발행 규칙 | `decision=null`·`NOT_RUNNING`은 저장하지 않는다. 2분 재평가 시점에 `publishSuggested=true`면 AI 판단을 보내고, `false`면 AI가 고른 페이스 대신 **현재 안내 페이스·현재 BPM을 그대로** 유지 안내로 보낸다(작은 차이가 쌓여 안내가 한쪽으로 밀리지 않게, 2026-11-05 사용자 확정). 현재 BPM이 아직 없으면(출발 직후) AI 판단을 그대로 보내 BPM을 처음 정한다. 이어지는 `EASE_OFF`가 현재 안내보다 10초/km 미만으로만 느리면 2분 재평가에서도 현재 안내를 유지한다. 유지 안내에는 AI 예측 심박을 저장하지 않는다(단계는 AI 값을 저장). 2분 전에는 `publishSuggested=true`이고 (페이스 또는 BPM이 현재 안내와 다르거나, APPLIED 마지막 코칭의 `coachingLevel`과 AI `coachingLevel`이 둘 다 non-null이며 다를 때) 보내며, 마지막 적용(시작·재개·코칭) 후 30초가 지나야 한다. 한쪽 단계가 null이면 단계 변경으로 보지 않는다(S15P31E105-503). 첫 `EASE_OFF`는 30초 제한의 예외이며, 직전에 보낸 코칭도 `EASE_OFF`였으면 30초를 지키고 현재 안내보다 10초/km 이상 느릴 때만 보낸다(직전 종류는 서버 메모리에 기억, 재시작 시 초기화. 2026-11-05 사용자 확정) |
+| 발행 규칙 | `decision=null`·`NOT_RUNNING`은 저장하지 않는다. 2분 재평가 시점에 `publishSuggested=true`면 AI 판단을 보내고, `false`면 AI가 고른 페이스 대신 **현재 안내 페이스·현재 BPM을 그대로** 유지 안내로 보낸다(작은 차이가 쌓여 안내가 한쪽으로 밀리지 않게, 2026-11-05 사용자 확정). 현재 BPM이 아직 없으면(출발 직후) AI 판단을 그대로 보내 BPM을 처음 정한다. 이어지는 `EASE_OFF`가 현재 안내보다 10초/km 미만으로만 느리면 2분 재평가에서도 현재 안내를 유지한다. 유지 안내에는 AI 예측 심박을 저장하지 않는다(단계는 AI 값을 저장). 2분 전에는 `publishSuggested=true`이고 (페이스 또는 BPM이 현재 안내와 다르거나, APPLIED 마지막 코칭의 `coachingLevel`과 AI `coachingLevel`이 둘 다 non-null이며 다를 때) 보낸다. AI가 안내 페이스를 바꾼 `GUIDE_PACE`는 바로 보낸다(페이스 변경의 120초 쿨다운·10초/km 유지는 AI04가 한 곳에서 맡는다, S15P31E105-624). 페이스가 그대로이고 단계·BPM만 바뀌는 발행은 마지막 적용(시작·재개·코칭) 후 30초가 지나야 한다. 한쪽 단계가 null이면 단계 변경으로 보지 않는다(S15P31E105-503). 첫 `EASE_OFF`는 30초 제한의 예외이며, 직전에 보낸 코칭도 `EASE_OFF`였으면 30초를 지키고 현재 안내보다 10초/km 이상 느릴 때만 보낸다(직전 종류는 서버 메모리에 기억, 재시작 시 초기화. 2026-11-05 사용자 확정) |
 | BPM | 러닝 시작 뒤 사용자가 직접 바꾼 BPM(`SET_BPM`, 적용시각 ≥ 시작시각)이 적용된 적이 있으면 AI `cueBpm` 대신 현재 BPM을 러닝이 끝날 때까지 유지한다(페이스 안내는 계속, 2026-11-05 사용자 확정). `cueBpm=null`이면 현재 BPM으로 보내고, 현재 BPM도 없으면 보내지 않는다(N7-2 백엔드 기준). 작은 BPM 변화는 백엔드가 따로 거르지 않는다(AI는 같은 지난 기록·같은 추천 페이스면 같은 `cueBpm`을 준다, S15P31E105-462 합의) |
 | 저장 | `coaching_decisions`에 `elapsed_duration=elapsedSec`, 추천 페이스, 보낸 BPM, 예측 심박 30/60/120, `route_progress=decision.routeProgressM`, `based_on_state_version`, `expires_at = min(생성 + 20초, inputAsOf + 20초, decision.expiresAt)`, `coaching_level=decision.coachingLevel`(없으면 null). 남은 유효시간이 5초 미만이면 보내지 않는다. `EASE_OFF`도 같은 방식으로 저장한다(O5 백엔드 기준). model/policy 버전은 저장하지 않는다(O6 미적용) |
 | 설정 | `BACKEND_AI_BASE_URL`(`runway.coaching.ai.base-url`). AI06(`runway.ai.hr.base-url`)과 같은 HR 추론 서버 주소 변수를 함께 쓴다. 코스 추천 Route는 `BACKEND_ROUTE_BASE_URL`로 별도다. 비면 기동은 하고 자동 코칭을 하지 않는다. 더미 추천으로 대체하지 않는다 |
@@ -912,6 +912,17 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 
 남은 확인 항목은 URL/본문, shape별 오류 매핑, Gate enforce·snap·거리 기준, 위 두 가지 보완 제안이다. “경로만 반환”은 공간 데이터가 coords뿐이라는 안이다. 실제 확인자·일자·합의/수정 내용을 남기기 전 Jira 370의 담당 확인 완료 조건은 충족하지 않는다. 이 문서 리뷰용 AI 에이전트 검토를 Route 담당자의 확인으로 대신하지 않는다.
 
+## Route 썸네일 지도 바탕 내부 계약
+
+[S15P31E105-612](https://ssafy.atlassian.net/browse/S15P31E105-612), [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md). 백엔드 전용 내부 API다. 코스 저장 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 호출해 받은 지형지물로 썸네일 PNG를 그린다. 세부 구현·상수는 [Route API.md](../../../ai/route_service/API.md)를 따른다.
+
+- **요청:** `POST /internal/v1/basemaps`, `{"bbox": [west, south, east, north], "detail": "thumb" | "full", "meters_per_pixel": number}`(WGS84, 기본 `thumb`). `meters_per_pixel`(0 초과 100 이하, 선택)은 썸네일 그림의 축척으로, 그림에서 보이지 않을 작은 건물(1.5 px²보다 작음)·산책로(5 m/px 초과)·이면도로(8 m/px 초과)를 빼는 데 쓴다. 없으면 bbox 폭/600. 서쪽<동쪽, 남쪽<북쪽, 한 변 8 km 이하, 경도·위도 폭 각 1° 이하. 코스 경로 자체는 보내지 않는다. 백엔드는 `full`만 쓴다.
+- **처리(`full`):** 전국 OSM 자료(`store/network` 도로, `store/envcache/layers.gpkg` 강·물·해안·해변·공원·녹지)와 건물 자료(`buildings/buildings.gpkg`)를 bbox로 자르고 단순화한다. 해안선(육지 왼쪽·바다 오른쪽)으로 바다 면(`sea`)을 만든다. 개수 99개 제한은 없고, 상세 요청은 한 번에 1개만 처리한다(다른 요청은 최대 8초 기다린 뒤 `503 BUSY`). 지형지물 40,000개·좌표 300,000개·응답 약 7.5 MB 상한을 넘으면 작은 건물부터 뺀다. 읽기 전용이며 추천 엔진 lock을 잡지 않고 외부 인터넷을 쓰지 않는다. 건물 자료가 없거나 읽을 수 없으면(손상·레이어 없음) 건물 없이 `buildings_available: false`로 응답한다. 오류 로그에는 좌표·경로를 남기지 않는다.
+- **성공 200(`full`):** `{"osm_data_timestamp", "buildings_available": bool, "buildings_osm_data_timestamp", "features": [{"kind", "geometry", "road_class"(도로), "height_m"(건물)}]}`. kind는 `sea`·`green`·`park`·`beach`·`water`·`river`·`coast`·`road`·`building`. `thumb`은 기존 99개 이하 응답이다.
+- **오류:** 기존 Route 오류 형식. `400 VALIDATION_ERROR`(bbox·detail 형식·크기), `422 OUT_OF_AREA`(전국 자료 범위 밖), `503 NOT_READY`·`UNAVAILABLE`·`BUSY`, `500 INTERNAL`.
+- **백엔드 처리:** 그림에 보이는 땅 영역 + 여백 8%(축마다 7.9 km·1° 이하)로 요청한다. 서버 기동 시 일괄 채우기는 Route `GET /internal/v1/ready`가 준비될 때까지 기다린 뒤 시작한다. 연결 1초·요청 15초·응답 8 MB 상한. 성공이면 PNG를 그려 저장, `OUT_OF_AREA`면 그림 없이 저장, 그 밖의 실패·형식 오류는 저장하지 않는다. 기동 시 일괄 채우기 중 Route가 잠깐 멈춘 실패(연결 실패·시간 초과·5xx)는 대기열이 빈 뒤 1분(`backfill-retry-delay`) 기다려 한 번 더 시도하고, 그래도 실패하거나 저장 이벤트에서 실패한 코스는 다음 기동 때 다시 시도한다. 일괄 채우기 작업 사이에는 2초(`backfill-interval`)를 쉬고, 새로 저장한 코스를 먼저 처리한다.
+- **건물 자료:** Geofabrik 한국 OSM에서 `tools/data/national/build_buildings.py`로 만든 `buildings.gpkg`(EPSG:4326, `height_m`)와 `metadata.json`을 전국 자료 마운트의 `buildings/`에 둔다. 2026-11-10 운영 서버에 1,383,390동(OSM 2026-11-08 기준)을 추가했다.
+
 ## DB 대응 요약
 
 | AI 응답 | DB 테이블·컬럼 |
@@ -933,7 +944,7 @@ Route 담당 확인: **일부 완료.** 2026-11-05 370 리뷰에 대한 AI 팀 �
 1. **S01 / S08**: 잠금 안에서 AI05를 동기 호출하지 않는다. 백엔드는 추천 페이스를 목표 페이스 → 목표 시간 ÷ 목표 거리 → 목표 시간 ÷ 코스 거리 순으로 직접 계산한다. 구간 비율은 `SegmentDifficultyProvider` 구현 Bean이 코스별로 미리 계산·저장된 `segmentDifficultyRatios`를 읽는다. AI05는 계획 표시와 사전 난이도 계산에 쓸 수 있지만 잠금 경로의 원격 의존성으로 두지 않는다.
    - **코스 구간 난이도 비율 사전 계산(S15P31E105-297, 2026-11-06 확정):** 비율은 코스 지형만으로 정한다(AI 팀 답, S15P31E105-442 본문 2026-11-05). 생성 코스 저장(C10·내부 저장)이 커밋되면 백엔드 전용 실행기가 트랜잭션 밖에서 AI05를 한 번 호출한다. 요청은 `courseId`, 저장 경사 `gradeProfile`(`courses.elevation_profile` 그대로), 기준 `targetPaceSecPerKm=360`이며 `userId`는 보내지 않는다(비율은 목표와 무관하고 기준 페이스는 AI05 필수 입력을 채우는 값). 응답 `segmentDifficultyRatios` 개수가 ⌈코스 거리/1000⌉이고 모두 양수일 때만 `plannerVersion`과 함께 `course_segment_difficulties`에 저장한다. 별도 상·하한은 두지 않는다. 응답 `warnings`에 `COURSE_PACE_RATIO_MISSING`이 있으면 경사가 반영되지 않은 균등 값이므로 저장하지 않는다. 경사 없는 코스·ACTIVE가 아닌 코스·구간 1개 이하(비율 미사용)·45km 초과 코스·이미 저장된 코스는 호출하지 않는다. AI05는 경사 끝 거리로 비율 개수를 정하므로 ⌈경사 끝/1000⌉이 ⌈코스 거리/1000⌉과 다른 코스(경사 끝은 코스 거리 ±0.99m 허용)도 호출하지 않는다. 시간 상한은 연결 1초·전체 45초(AI 계획 대기열 대기 30초보다 길게)이고 실행기는 AI 기본 동시 실행 수에 맞춰 1개 스레드다. 재시도하지 않는다. 실패·형식 위반은 저장하지 않고, 같은 경로를 다시 저장하면 다시 시도한다. 기능 배포 전에 저장된 코스의 일괄 계산(백필)은 후속이다.
    - **현재 한계:** AI05 비율은 경사 구간 `basePaceRatio`(Route 제공 예정)의 거리 가중 평균이다. 이 값을 만드는 곳이 없고 `courses.elevation_profile`에도 저장하지 않으므로 지금 AI05는 모든 비율을 1.0으로 주고 `COURSE_PACE_RATIO_MISSING` 경고를 붙인다. 백엔드는 이 응답을 저장하지 않으므로 현재 세션 계획은 균등 분배다. AI05가 경고 없이 경사 비율을 주게 되면 백엔드 변경 없이 그 뒤 저장(재사용 포함)되는 코스부터 반영된다.
-2. **W07 → AI04**: 백엔드가 batch를 저장한 뒤 최신 history/context와 5개 후보를 만들어 AI04를 호출한다. 백엔드가 stateVersion을 다시 확인하고 필요한 결정만 저장·발행한다. timeout 후 오래된 본문을 재전송하지 않는다. AI04 호출은 DB 트랜잭션·세션 잠금 밖에서 한다. 상세는 [백엔드 호출 구현](#백엔드-호출-구현-s15p31e105-421).
+2. **W07 → AI04**: 백엔드가 batch를 저장한 뒤 최신 history/context와 9개 후보를 만들어 AI04를 호출한다. 백엔드가 stateVersion을 다시 확인하고 필요한 결정만 저장·발행한다. timeout 후 오래된 본문을 재전송하지 않는다. AI04 호출은 DB 트랜잭션·세션 잠금 밖에서 한다. 상세는 [백엔드 호출 구현](#백엔드-호출-구현-s15p31e105-421).
 3. **러닝 종료 → AI06**: 백엔드가 동의된 support 세션을 모아 개인화 요청을 보낸다. 버전 JSON 저장·재시도·실패 상태는 별도 백엔드 계약으로 결정한다.
 4. **시연 전용**: Demo player → AI08, 브라우저 console → AI07. 실제 앱/백엔드 동작과 분리한다.
 

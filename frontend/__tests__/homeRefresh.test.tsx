@@ -67,8 +67,9 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   const today = jest.spyOn(repositories.home, 'getTodayCondition');
   const me = jest.spyOn(repositories.profile, 'getMe');
   const notifications = jest.spyOn(repositories.notifications, 'list');
+  const watch = jest.spyOn(repositories.watch, 'getConnection');
   const screen = await launch(repositories);
-  const before = [today, me, notifications].map(spy => spy.mock.calls.length);
+  const before = [today, me, notifications, watch].map(spy => spy.mock.calls.length);
 
   // The readiness reload is held so the screen can be checked mid-refresh.
   let release = () => {};
@@ -82,18 +83,18 @@ test('2.1 pull to refresh loads every section again and keeps the cards on scree
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(true);
-  expect(texts(screen)).toContain('오늘 준비도 양호');
-  expect(texts(screen)).toContain('러닝 기록');
+  expect(texts(screen)).toContain('최근 운동량이 평소보다 많아요.');
+  expect(texts(screen)).toContain('월별 기록');
 
   await act(async () => release());
   await settle();
   await settle();
 
   expect(refreshControl(screen).props.refreshing).toBe(false);
-  [today, me, notifications].forEach((spy, index) =>
+  [today, me, notifications, watch].forEach((spy, index) =>
     expect(spy.mock.calls.length).toBeGreaterThan(before[index]),
   );
-  expect(texts(screen)).toContain('오늘 준비도 양호');
+  expect(texts(screen)).toContain('최근 운동량이 평소보다 많아요.');
 });
 
 test('2.1 keeps the home on screen when only the notifications fail', async () => {
@@ -102,9 +103,9 @@ test('2.1 keeps the home on screen when only the notifications fail', async () =
   const screen = await launch(repositories);
 
   const page = texts(screen);
-  expect(page).toContain('오늘 준비도 양호');
+  expect(page).toContain('최근 운동량이 평소보다 많아요.');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('러닝 기록');
+  expect(page).toContain('월별 기록');
   expect(page).not.toContain('불러오지 못했어요');
 });
 
@@ -118,5 +119,43 @@ test('2.1 says when today’s condition did not load, with the other sections st
   const page = texts(screen);
   expect(page).toContain('오늘 컨디션을 불러오지 못했어요');
   expect(page).toContain('러닝 분석');
-  expect(page).toContain('러닝 기록');
+  expect(page).toContain('월별 기록');
+});
+
+test('2.1 refresh hides watch sync after actual readiness, and restores it when the next check fails', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const condition = await repositories.home.getTodayCondition();
+  jest.spyOn(repositories.home, 'getTodayCondition').mockResolvedValue({
+    ...condition,
+    readinessState: 'collecting',
+    readinessScore: null,
+  });
+  const previous = await repositories.watch.getConnection();
+  const readWatch = jest.spyOn(repositories.watch, 'getConnection').mockResolvedValue({
+    ...previous,
+    status: 'connected',
+    readinessReasons: ['NO_RESPONSE'],
+    permissions: { ...previous.permissions, heartRate: 'unknown', activity: 'unknown' },
+  });
+  const screen = await launch(repositories);
+  expect(texts(screen)).toContain('워치 동기화');
+
+  readWatch.mockResolvedValue({
+    ...previous,
+    status: 'connected',
+    readinessReasons: [],
+    permissions: { ...previous.permissions, heartRate: 'connected', activity: 'connected' },
+  });
+  await act(async () => refreshControl(screen).props.onRefresh());
+  await settle();
+  await settle();
+  expect(texts(screen)).not.toContain('워치 동기화');
+  expect(texts(screen)).toContain('데이터를 모으는 중이에요');
+
+  readWatch.mockRejectedValue(offline());
+  await act(async () => refreshControl(screen).props.onRefresh());
+  await settle();
+  await settle();
+  expect(texts(screen)).toContain('워치 동기화');
+  expect(texts(screen)).not.toContain('불러오지 못했어요');
 });

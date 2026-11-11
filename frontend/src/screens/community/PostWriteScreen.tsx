@@ -22,6 +22,7 @@ import {
   useToast,
 } from '../../components';
 import {
+  errorCode,
   useRepositories,
   useResource,
   type PostDraft,
@@ -29,7 +30,9 @@ import {
   type Repositories,
   type RunnerProfile,
 } from '../../data';
+import { RunMap } from '../../components/RunMap';
 import { formatDuration, formatKm, formatPace } from '../../format';
+import { postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider, typography } from '../../theme';
@@ -39,6 +42,30 @@ import { Avatar, recordLabel, stamp } from './parts';
 import { KeyboardLift } from '../../components/KeyboardLift';
 
 const bodyLimit = 500;
+
+// What a failed 게시 (CMT01) or 저장 (CMT04) says, by the server's reason (S15P31E105-633).
+export function postFailure(error: unknown, action: '게시' | '저장') {
+  switch (errorCode(error)) {
+    // CMT01: the run was deleted or never completed, or is not mine.
+    case 'INVALID_POST':
+      return '삭제됐거나 완료되지 않은 기록은 공유할 수 없어요';
+    case 'RESOURCE_NOT_OWNED':
+      return '내 러닝 기록만 공유할 수 있어요';
+    // CMT04: the post is gone, or is someone else's.
+    case 'POST_NOT_FOUND':
+      return '이미 삭제된 게시물이에요';
+    case 'NOT_AUTHOR':
+      return '내가 쓴 게시물만 수정할 수 있어요';
+    case 'VALIDATION_ERROR':
+      return '글 내용을 확인해 주세요';
+    case 'NETWORK_ERROR':
+      return '인터넷 연결을 확인한 뒤 다시 시도해 주세요';
+    default:
+      return action === '게시'
+        ? '게시하지 못했어요. 잠시 후 다시 시도해 주세요'
+        : '저장하지 못했어요. 잠시 후 다시 시도해 주세요';
+  }
+}
 
 // 7.3 and 7.3e: what I write, laid over the run as it will show in the 7.1 feed (S15P31E105-563, 담당자 요청: 지금
 // 커뮤니티 화면처럼): the dark map with the route in neon when the course goes along, the run's numbers and title at
@@ -61,8 +88,19 @@ function Composer({
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
   const [body, setBody] = useState(initial.body ?? '');
-  const [courseShared, setCourseShared] = useState(initial.courseShared);
+  // A free run has no course to share yet: the switch stays off (자유 러닝 경로 공유는 S15P31E105-616).
+  const free = !record.courseRun;
+  const [courseShared, setCourseShared] = useState(
+    initial.courseShared && !free,
+  );
   const [busy, setBusy] = useState(false);
+  // The course that would be shared, on the real map (S15P31E105-632): record.route is the course (C03), never my
+  // GPS track. Without its points, the drawn shape marked 예시 경로, or nothing when there is no shape either.
+  const realMap =
+    courseShared && record.route !== null && record.route.length >= 2
+      ? record.route
+      : null;
+  const drawnShape = courseShared && !realMap && record.shape.length >= 2;
   const submit = async () => {
     setBusy(true);
     try {
@@ -78,11 +116,25 @@ function Composer({
   ].filter(Boolean);
   return (
     <>
-      <MapBackdrop seed={record.id} width={width} height={height} />
-      {courseShared ? (
-        <RouteLine shape={record.shape} width={width} height={height} />
-      ) : null}
-      <Shade width={width} height={height} />
+      {realMap ? (
+        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+          <RunMap
+            route={realMap}
+            view="lean"
+            interactive={false}
+            area={{ top: 0.18, bottom: 0.55 }}
+            style={[StyleSheet.absoluteFill, styles.mapGround]}
+          />
+        </View>
+      ) : (
+        <>
+          <MapBackdrop seed={record.id} width={width} height={height} />
+          {drawnShape ? (
+            <RouteLine shape={record.shape} width={width} height={height} />
+          ) : null}
+        </>
+      )}
+      <Shade width={width} height={height} strong={realMap !== null} />
       <SafeAreaView edges={['top']}>
         <View style={styles.header}>
           <PressableScale
@@ -123,7 +175,12 @@ function Composer({
         >
           <View>
             <View style={styles.writer}>
-              <Avatar nickname={me.nickname} userId={me.userId} mine />
+              <Avatar
+                nickname={me.nickname}
+                userId={me.userId}
+                photo={me.profileImageUrl}
+                mine
+              />
               <AppText style={styles.handle}>{me.handle}</AppText>
             </View>
             <View style={styles.bodyField}>
@@ -139,8 +196,8 @@ function Composer({
                 style={styles.bodyInput}
               />
             </View>
-            {courseShared ? (
-              // The mock routes are examples, so the page says so (as on 7.1).
+            {drawnShape ? (
+              // The drawn shape is not the real map, so the page says so (as on 7.1).
               <AppText style={styles.example}>예시 경로</AppText>
             ) : null}
           </View>
@@ -168,15 +225,16 @@ function Composer({
               <View style={styles.flex}>
                 <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
                 <AppText style={styles.shareNote}>
-                  이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이
-                  보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는
-                  사람이 내 코스에 저장할 수 있어요
+                  {free
+                    ? '자유 러닝 경로 공유는 준비 중이에요'
+                    : '이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이 내 코스에 저장할 수 있어요'}
                 </AppText>
               </View>
               <CourseToggle
                 label="코스도 함께 공유"
                 value={courseShared}
                 onChange={setCourseShared}
+                disabled={free}
                 dark
               />
             </View>
@@ -250,10 +308,11 @@ export function PostWriteScreen() {
         onSubmit={async draft => {
           try {
             await community.create(record.data.id, draft);
+            postsChanged();
             toast('러닝 기록을 공유했어요');
             navigateTo(navigation, 'Community');
-          } catch {
-            toast('게시하지 못했어요. 잠시 후 다시 시도해 주세요');
+          } catch (error) {
+            toast(postFailure(error, '게시'));
           }
         }}
       />
@@ -315,10 +374,11 @@ export function PostEditScreen() {
         onSubmit={async draft => {
           try {
             await community.update(postId, draft);
+            postsChanged();
             toast('게시물을 수정했어요');
             navigation.goBack();
-          } catch {
-            toast('저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+          } catch (error) {
+            toast(postFailure(error, '저장'));
           }
         }}
       />
@@ -329,6 +389,7 @@ export function PostEditScreen() {
 // 7.3 · 7.3e over the feed's dark map: white words, a see-through dark field, no cards or dividers.
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: feedLook.ground },
+  mapGround: { backgroundColor: feedLook.ground },
   flex: { flex: 1 },
   loading: { marginTop: 48 },
   // 상단 56: 취소 and 게시 as words, the title in the middle.

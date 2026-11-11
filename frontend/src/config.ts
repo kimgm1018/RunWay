@@ -8,6 +8,7 @@ export const appConfig = {
   // Client ID of the RunWay app in the Spotify Developer Dashboard (redirect URI runway://spotify-callback).
   // Sign-in uses PKCE without a client secret, so the ID may live in the app. Empty keeps Spotify on mock data.
   spotifyClientId: 'a9edc207ef2848cda30cfddb639da6a2',
-  // The installed Android build bundles JS without __DEV__, so the developer menu is a flag; turn it off before release.
-  developerMenu: true,
+  // The developer menu (component gallery, health and map PoCs) shows in dev builds only; release bundles set
+  // __DEV__ to false (S15P31E105-635).
+  developerMenu: __DEV__,
 };

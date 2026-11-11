@@ -78,7 +78,23 @@ function refresh(session: number): Promise<void> {
           refreshExpiresAt: next.refreshExpiresAt,
         });
         if (!stored) throw sessionError();
-      } catch {
+      } catch (error) {
+        // Network and temporary 5xx are not proof the refresh token is dead; keep the session
+        // so the caller can retry without forcing logout (S15P31E105-638).
+        if (
+          error instanceof DataError &&
+          (error.code === 'NETWORK_ERROR' || error.code === 'SERVER_ERROR')
+        ) {
+          // Keep the code/status for retry UI, but drop server details so refresh
+          // bodies (tokens) never leak into logged/stringified errors.
+          throw new DataError(
+            error.code,
+            error.message,
+            error.failedCount,
+            error.status,
+            null,
+          );
+        }
         expire(session);
         throw sessionError();
       }

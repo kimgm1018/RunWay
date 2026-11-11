@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.runway.backend.domain.community.dto.request.CreatePostRequest;
 import com.runway.backend.domain.community.service.PostService;
+import com.runway.backend.domain.readiness.service.ReadinessEvaluationDispatcher;
+import com.runway.backend.domain.readiness.trainingload.TrainingLoadDispatcher;
 import com.runway.backend.domain.session.service.RunningSessionService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.support.SharedContextIntegrationSupport;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -15,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +31,8 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
     @Autowired private PostService postService;
     @Autowired private RunningSessionService runningSessionService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private TrainingLoadDispatcher trainingLoadDispatcher;
+    @Autowired private ReadinessEvaluationDispatcher readinessDispatcher;
 
     private long userId;
     private long watchId;
@@ -39,11 +45,22 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
         phoneId = insertDevice(userId, "PHONE");
     }
 
+    /**
+     * S09는 커밋 뒤 러닝 부하 재계산(TrainingLoadDispatcher)을 별도 스레드에 넘기고, 그 결과가 준비도 재평가(ReadinessEvaluationDispatcher)로
+     * 이어질 수 있다. 이 작업이 남은 채 다음 반복의 공용 TRUNCATE가 시작되면 잠금이 엇갈려 deadlock이 날 수 있으므로(CI repetition 2 of 10
+     * 실패), 테스트마다 두 실행기가 비워질 때까지 기다린다. 부하 작업이 준비도 작업을 만들 수 있어 부하 실행기를 먼저 기다린다.
+     */
+    @AfterEach
+    void awaitAsyncSideWork() throws InterruptedException {
+        assertThat(trainingLoadDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+        assertThat(readinessDispatcher.awaitIdle(Duration.ofSeconds(30))).isTrue();
+    }
+
     @RepeatedTest(10)
     void CMT01과_S09가_겹쳐도_삭제된_세션에_미삭제_게시물이_남지_않는다() throws Exception {
         long sessionId =
                 insertCompletedSession(userId, watchId, phoneId, "READY");
-        CreatePostRequest request = new CreatePostRequest(sessionId, "경합 게시물", null, null, null);
+        CreatePostRequest request = new CreatePostRequest(sessionId, "경합 게시물", null, null, null, null);
 
         List<String> results =
                 runTogether(
@@ -134,6 +151,7 @@ class PostCreateSessionDeleteConcurrencyIntegrationTest extends SharedContextInt
             return results;
         } finally {
             pool.shutdownNow();
+            assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
         }
     }
 

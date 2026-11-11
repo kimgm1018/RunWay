@@ -1,5 +1,6 @@
-import React, { useId, useState } from 'react';
+import React, { useId, useRef, useState } from 'react';
 import {
+  Image,
   Pressable,
   Share,
   StyleSheet,
@@ -8,7 +9,12 @@ import {
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { AppText, Icon, Logo, MistFill } from '../../components';
-import { useRepositories, type Post, type PostRecord } from '../../data';
+import {
+  useRepositories,
+  type Post,
+  type PostRecord,
+  type Repositories,
+} from '../../data';
 import {
   formatClockTime,
   formatDuration,
@@ -46,21 +52,26 @@ const mineFill = ['#3A5A6C', '#182E3D', '#091019'];
 const heroFill = ['#C4D4DC', '#8DACBA', '#5D8194'];
 
 // The first letter of the nickname on a mist circle, with no ring: the service has no stories (담당자 결정).
-// `hero` is the big 7.4 · 7.4b one.
+// `hero` is the big 7.4 · 7.4b one. `photo` is the runner's photo address (profileImageUrl): it fills the
+// circle, and a missing one or one that does not load leaves the letter.
 export function Avatar({
   nickname,
   userId,
   mine = false,
   size = 40,
   hero = false,
+  photo = null,
 }: {
   nickname: string;
   userId: string;
   mine?: boolean;
   size?: number;
   hero?: boolean;
+  photo?: string | null;
 }) {
   const fillId = useSvgId('avatar');
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
   const light = hero && !mine;
   const fill = mine
     ? mineFill
@@ -75,19 +86,31 @@ export function Avatar({
         hero && styles.avatarHero,
       ]}
     >
-      <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
-      <AppText
-        style={[
-          styles.avatarText,
-          light && styles.avatarTextDark,
-          {
-            fontSize: Math.round(size * 0.38),
-            lineHeight: Math.round(size * 0.5),
-          },
-        ]}
-      >
-        {nickname.slice(0, 1)}
-      </AppText>
+      {shown ? (
+        <Image
+          testID="avatar-photo"
+          source={{ uri: shown }}
+          style={{ width: size, height: size, borderRadius: size / 2 }}
+          onError={() => setFailed(shown)}
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <>
+          <MistFill id={fillId} colors={fill} style={styles.fillBleed} />
+          <AppText
+            style={[
+              styles.avatarText,
+              light && styles.avatarTextDark,
+              {
+                fontSize: Math.round(size * 0.38),
+                lineHeight: Math.round(size * 0.5),
+              },
+            ]}
+          >
+            {nickname.slice(0, 1)}
+          </AppText>
+        </>
+      )}
     </View>
   );
 }
@@ -105,29 +128,121 @@ export function stamp(iso: string) {
 export const postedAt = (iso: string, now: Date) =>
   isSameDay(iso, now) ? formatRelative(iso, now) : formatMonthDay(iso);
 
-// Likes and bookmarks show at once and roll back if the server refuses.
-export function usePostChanges(onChange: (post: Post) => void) {
-  const { community } = useRepositories();
-  const like = async (post: Post) => {
+// What happens once the server took a like or bookmark back: 내 스크랩 · 좋아요 take the post out (S15P31E105-647 D-2).
+export type PostChangeOptions = {
+  onUnbookmarked?: (post: Post) => void;
+  onUnliked?: (post: Post) => void;
+};
+
+// One like or bookmark of one post on its way to the server. Taps while it is on its way only change what is
+// wanted (shown at once); the server gets one request at a time until it holds the last thing wanted.
+type PostToggle = {
+  // The last state tapped, and the post shown for it.
+  want: boolean;
+  // The state the server holds, and the post shown for each state.
+  server: boolean;
+  shown: Map<boolean, Post>;
+  done: Promise<void>;
+};
+
+// The toggles on their way, by `like:` or `bookmark:` and the post id.
+export type PostToggles = Map<string, PostToggle>;
+
+// Likes and bookmarks show at once and roll back if the server refuses. The count never goes below 0: the
+// server reads reactionCount and myReaction apart, so a like made elsewhere between them can come as 0 + LIKE.
+// S15P31E105-647: taps on the same post while a request is on its way never send a second request at the same
+// time, and a post leaves 내 스크랩 · 좋아요 only when the last tap took it back and the server agreed.
+export function postChanges(
+  community: Pick<Repositories['community'], 'setLiked' | 'setBookmarked'>,
+  onChange: (post: Post) => void,
+  options: PostChangeOptions = {},
+  toggles: PostToggles = new Map(),
+) {
+  const toggle = (
+    key: string,
+    current: boolean,
+    post: Post,
+    next: Post,
+    send: (value: boolean) => Promise<void>,
+    taken: ((post: Post) => void) | undefined,
+  ) => {
+    onChange(next);
+    const wanted = !current;
+    const running = toggles.get(key);
+    if (running) {
+      running.want = wanted;
+      running.shown.set(wanted, next);
+      return running.done;
+    }
+    const entry: PostToggle = {
+      want: wanted,
+      server: current,
+      shown: new Map([
+        [current, post],
+        [wanted, next],
+      ]),
+      done: Promise.resolve(),
+    };
+    toggles.set(key, entry);
+    entry.done = (async () => {
+      try {
+        while (entry.want !== entry.server) {
+          const value = entry.want;
+          try {
+            await send(value);
+          } catch {
+            // Back to what the server still holds; a tap made meanwhile is dropped with it.
+            onChange(entry.shown.get(entry.server)!);
+            return;
+          }
+          entry.server = value;
+        }
+      } finally {
+        toggles.delete(key);
+      }
+      if (!entry.server && entry.server !== current) {
+        taken?.(entry.shown.get(false)!);
+      }
+    })();
+    return entry.done;
+  };
+
+  const like = (post: Post) => {
     const liked = !post.liked;
     const likeCount =
-      post.likeCount === null ? null : post.likeCount + (liked ? 1 : -1);
-    onChange({ ...post, liked, likeCount });
-    try {
-      await community.setLiked(post.id, liked);
-    } catch {
-      onChange(post);
-    }
+      post.likeCount === null
+        ? null
+        : Math.max(0, post.likeCount + (liked ? 1 : -1));
+    return toggle(
+      `like:${post.id}`,
+      post.liked,
+      post,
+      { ...post, liked, likeCount },
+      value => community.setLiked(post.id, value),
+      options.onUnliked,
+    );
   };
-  const bookmark = async (post: Post) => {
-    onChange({ ...post, bookmarked: !post.bookmarked });
-    try {
-      await community.setBookmarked(post.id, !post.bookmarked);
-    } catch {
-      onChange(post);
-    }
-  };
+  // CMT16 · CMT17; the server's bookmarked shows again with the next read.
+  const bookmark = (post: Post) =>
+    toggle(
+      `bookmark:${post.id}`,
+      post.bookmarked,
+      post,
+      { ...post, bookmarked: !post.bookmarked },
+      value => community.setBookmarked(post.id, value),
+      options.onUnbookmarked,
+    );
   return { like, bookmark };
+}
+
+export function usePostChanges(
+  onChange: (post: Post) => void,
+  options?: PostChangeOptions,
+) {
+  const { community } = useRepositories();
+  // Kept across renders, so a tap on a post whose request is still on its way joins it.
+  const toggles = useRef<PostToggles>(new Map()).current;
+  return postChanges(community, onChange, options, toggles);
 }
 
 // 민락수변공원 출발 5.0km · 완주. Without the course shared, only the distance shows (COM-003).

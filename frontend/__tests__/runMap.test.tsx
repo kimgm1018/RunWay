@@ -270,3 +270,62 @@ test('the heading follows the last stretch of the run and holds while standing',
   // A step of a few metres keeps the heading it had.
   expect(headingOf([north, [127.00002, 37.5003]], 135)).toBe(135);
 });
+
+// S15P31E105-549: a measured path in parts is drawn part by part, never joined across a lost position.
+test('a trail in parts draws each part on its own, with its shadow', () => {
+  const first: LngLat[] = [route[0], route[1]];
+  const second: LngLat[] = [route[2], route[3]];
+  const root = render(<RunMap trail={route} trailParts={[first, second, [route[3]]]} />);
+  const paths = overlays(root, 'naver-map-path');
+  // Two shadows and two ink lines; the single point part draws nothing.
+  expect(paths).toHaveLength(4);
+  expect(paths.map(props => props.coords.length)).toEqual([2, 2, 2, 2]);
+});
+
+test('a record route in parts goes to the multipath as separate parts with one shadow each', () => {
+  const first: LngLat[] = [route[0], route[1]];
+  const second: LngLat[] = [route[2], route[3]];
+  const root = render(<RunMap route={route} routeParts={[first, second]} interactive={false} />);
+  expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
+  expect(overlays(root, 'naver-map-path')).toHaveLength(2);
+  expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
+});
+
+// A-3/B-3 (S15P31E105-549 review): parts of one point each never become one joined line.
+test('a record route of single-point parts draws no line between them', () => {
+  const root = render(
+    <RunMap route={[route[0], route[2]]} routeParts={[[route[0]], [route[2]]]} interactive={false} />,
+  );
+  expect(overlays(root, 'naver-map-multipath')).toHaveLength(0);
+  expect(overlays(root, 'naver-map-path')).toHaveLength(0);
+});
+
+// S15P31E105-659: 편도 추천 조건 화면은 출발·도착 두 끝점을 함께 보여 준다.
+test('a start and a destination stand on S and F poles', () => {
+  const start: LngLat = [129.13, 35.15];
+  const end: LngLat = [129.2, 35.2];
+  const root = render(<RunMap position={start} destination={end} />);
+  expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
+  const markers = overlays(root, 'naver-map-marker');
+  expect(markers).toHaveLength(2);
+  expect(markers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ latitude: 35.15, longitude: 129.13 }),
+      expect.objectContaining({ latitude: 35.2, longitude: 129.2 }),
+    ]),
+  );
+});
+
+test('without a destination only the start dot shows; a course or run ignores the destination', () => {
+  const start: LngLat = [129.13, 35.15];
+  const alone = render(<RunMap position={start} />);
+  expect(texts(alone)).not.toContain('S');
+  expect(texts(alone)).not.toContain('F');
+  expect(count(alone, 'naver-map-marker')).toBe(1);
+
+  const withCourse = render(
+    <RunMap route={route} position={start} destination={[129.2, 35.2]} />,
+  );
+  expect(texts(withCourse)).toContain('F');
+  expect(count(withCourse, 'naver-map-marker')).toBe(2);
+});

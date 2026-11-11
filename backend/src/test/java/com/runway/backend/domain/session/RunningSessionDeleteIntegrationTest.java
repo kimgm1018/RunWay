@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.sql.Timestamp;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -51,6 +52,39 @@ class RunningSessionDeleteIntegrationTest extends RunningSessionIntegrationSuppo
                                 String.class,
                                 interrupted))
                 .isEqualTo("INTERRUPTED");
+    }
+
+    /** S15P31E105-599 S09 5항, 리뷰 A-7: 삭제 API가 커밋 후 그 러닝의 운동 부하를 지우고 일별 부하를 비운다. */
+    @Autowired
+    private com.runway.backend.domain.readiness.trainingload.TrainingLoadDispatcher trainingLoadDispatcher;
+
+    @Test
+    void 삭제하면_그_러닝의_운동_부하를_지운다() throws Exception {
+        long id = insertSession(userId, "COMPLETED", 7, watchId, phoneId, "READY", null);
+        jdbc.update("UPDATE running_sessions SET ended_at = started_at + interval '10 minutes' WHERE id=?", id);
+        jdbc.update(
+                """
+                INSERT INTO exercise_training_loads(user_id, source, running_session_id, started_at, ended_at,
+                    metric_date, zone1_seconds, zone2_seconds, zone3_seconds, zone4_seconds, zone5_seconds,
+                    training_load)
+                SELECT user_id, 'RUNWAY_SESSION', id, started_at, ended_at, DATE '2026-11-01', 0, 0, 600, 0, 0, 30
+                FROM running_sessions WHERE id=?
+                """,
+                id);
+        jdbc.update(
+                "INSERT INTO daily_health_metrics(user_id, metric_date, daily_training_load) VALUES (?, DATE '2026-11-01', 30)",
+                userId);
+
+        mockMvc.perform(deleteRequest(userId, id)).andExpect(status().isOk());
+        assertThat(trainingLoadDispatcher.awaitIdle(java.time.Duration.ofSeconds(15))).isTrue();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_training_loads", Integer.class)).isZero();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT daily_training_load FROM daily_health_metrics WHERE user_id=?",
+                                java.math.BigDecimal.class,
+                                userId))
+                .isNull();
     }
 
     @Test

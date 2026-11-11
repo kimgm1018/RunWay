@@ -12,13 +12,26 @@ import type { RootStackParamList } from './types';
 
 type Navigate = Pick<NavigationProp<RootStackParamList>, 'navigate'>;
 
-// One of my runs in 2.1 기록 상세 (S15P31E105-564: 5.2 is part of 2.1).
+// One of my runs on 2.1 러닝 분석, on its day (S15P31E105-594: 기록 상세 is gone).
 export function openRecord(navigation: Navigate, recordId: string) {
   navigation.navigate(
     'MainTabs',
     { screen: 'HomeTab', params: { screen: 'Home', params: { recordId } } },
     { pop: true },
   );
+}
+
+// 6.7 그룹런 결과 for a group run record (H01 group.groupRunId). Without the link the run opens as my own record,
+// never a mock result (S15P31E105-635). Returns false when the caller should open the record itself.
+export function openGroupRunResult(
+  navigation: Navigate,
+  group: { groupRunId: string } | null,
+) {
+  if (!group) {
+    return false;
+  }
+  navigation.navigate('GroupRunResult', { groupRunId: group.groupRunId });
+  return true;
 }
 
 // Tab screens live inside MainTabs, so a link to one goes through the tab instead of the root stack.

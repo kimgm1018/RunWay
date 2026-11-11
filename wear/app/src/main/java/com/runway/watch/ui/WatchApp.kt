@@ -6,40 +6,30 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.BasicSwipeToDismissBox
-import androidx.wear.compose.material3.Text
 import com.runway.watch.navigation.NavState
+import com.runway.watch.navigation.Overlay
+import com.runway.watch.navigation.RunDetail
 import com.runway.watch.navigation.RunPage
 import com.runway.watch.navigation.WatchNavigation
 import com.runway.watch.navigation.WatchNavigator
 import com.runway.watch.navigation.WatchRoute
 import com.runway.watch.readiness.CheckState
 import com.runway.watch.readiness.Readiness
-import com.runway.watch.readiness.ReadinessIssue
 import com.runway.watch.readiness.ReadinessRules
 import com.runway.watch.run.*
-import com.runway.watch.ui.component.*
-import com.runway.watch.ui.format.MetricFormat
 import com.runway.watch.ui.screen.ResultScreen
 import com.runway.watch.ui.theme.RunwayColors
-import com.runway.watch.ui.theme.RunwayType
 import com.runway.watch.ui.theme.RunwayWatchTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Watch app host. The visible route comes from the confirmed run state; taps only send intents.
- * Screen bodies here are the shared skeleton; 265~269, 256 and 257 fill in their own details.
- * System swipe-to-dismiss is off, so swiping right closes the app through [onExit] only where
- * [WatchNavigation.canExit] allows it; during a run the swipe stays with the running pages.
+ * Watch app host. The visible route comes from the confirmed run state; taps only send intents. Screens follow the
+ * confirmed watch design (docs/design/watch-handoff, S15P31E105-613). System swipe-to-dismiss is off, so swiping
+ * right closes the app through [onExit] only where [WatchNavigation.canExit] allows it; during a run the swipe stays
+ * with the running pages and back never resumes or ends the run.
  */
 @Composable
 fun WatchApp(
@@ -47,6 +37,7 @@ fun WatchApp(
     readiness: StateFlow<Readiness> = remember { MutableStateFlow(Readiness()) },
     actions: ReadinessActions = ReadinessActions(),
     onExit: () -> Unit = {},
+    ambient: StateFlow<AmbientMode?> = remember { MutableStateFlow(null) },
 ) {
     val navigator = remember(control) { WatchNavigator(control) }
     val snapshot by control.snapshot.collectAsState()
@@ -54,12 +45,23 @@ fun WatchApp(
     val navState by navigator.state.collectAsState()
     val nav = WatchNavigation.reconcile(snapshot, navState)
     val route = WatchNavigation.route(snapshot, nav, ready)
-    val canExit = WatchNavigation.canExit(route)
+    val canExit = WatchNavigation.canExit(route) && !nav.cancelOpen
+    val dim by ambient.collectAsState()
     BackHandler(enabled = !canExit) { navigator.back() }
     RunwayWatchTheme {
-        BasicSwipeToDismissBox(onDismissed = onExit, userSwipeEnabled = canExit) { isBackground ->
-            if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background))
-            else WatchScreen(route, snapshot, ready, actions, nav, navigator)
+        // S15P31E105-617: while ambient the low-power screen takes values only on each ambient update (or a route
+        // change), not on every snapshot. The navigator keeps the page, so waking returns to the page last seen.
+        val mode = dim
+        if (mode != null) {
+            val shown = remember(mode.tick, route, snapshot.state, snapshot.phoneRecording, snapshot.measurementLost) {
+                AmbientDisplay.of(snapshot, route)
+            }
+            AmbientScreen(shown, mode)
+        } else {
+            BasicSwipeToDismissBox(onDismissed = onExit, userSwipeEnabled = canExit) { isBackground ->
+                if (isBackground) Box(Modifier.fillMaxSize().background(RunwayColors.Background))
+                else WatchScreen(route, snapshot, ready, actions, nav, navigator, onExit)
+            }
         }
     }
 }
@@ -67,210 +69,60 @@ fun WatchApp(
 @Composable
 private fun WatchScreen(
     route: WatchRoute, snapshot: RunSnapshot, readiness: Readiness, actions: ReadinessActions,
-    nav: NavState, navigator: WatchNavigator,
+    nav: NavState, navigator: WatchNavigator, onExit: () -> Unit,
 ) {
-    when (route) {
-        WatchRoute.STANDBY -> StandbyScreen(snapshot, readiness, onCancel = { navigator.send(RunIntent.CANCEL) }) {
-            navigator.send(RunIntent.START)
-        }
-        // OS pairing and the app link are checked on the phone; server registration is never shown as this link.
-        WatchRoute.CONNECTION_ISSUE -> Notice("휴대폰 연결이 없어요", "휴대폰 블루투스와\nRunWay 앱을 확인해 주세요", StatusTone.WARNING) {
-            PillButton("다시 연결", { navigator.send(RunIntent.RECONNECT_PHONE) }, enabled = !snapshot.pendingCommand)
-        }
-        WatchRoute.NOT_READY -> ReadinessScreen(ReadinessRules.issue(readiness), actions)
-        WatchRoute.RUNNING -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage, navigator::send) { navigator.send(RunIntent.PAUSE) }
-        WatchRoute.PAUSED -> PausedScreen(snapshot, onEnd = navigator::openEndConfirm) { navigator.send(RunIntent.RESUME) }
-        WatchRoute.END_CONFIRM -> EndConfirmScreen(snapshot, onCancel = { navigator.back() }) { navigator.send(RunIntent.END) }
-        WatchRoute.RESULT -> ResultScreen(snapshot)
-    }
-}
-
-@Composable
-private fun StandbyScreen(snapshot: RunSnapshot, readiness: Readiness, onCancel: () -> Unit = {}, onStart: () -> Unit) {
-    RoundScreen {
-        StandbyStatus(readiness)
-        if (!StandbyDisplay.hasPreparedRun(snapshot)) {
-            Text("휴대폰에서 러닝을 준비해 주세요", style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
-            return@RoundScreen
-        }
-        Text(snapshot.title ?: if (snapshot.mode == RunMode.GROUP) "그룹런" else "러닝",
-            style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center, maxLines = 2)
-        if (snapshot.mode == RunMode.GROUP) return@RoundScreen GroupStandby(snapshot)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetricValue(MetricFormat.pace(snapshot.metrics.guidePaceSecondsPerKm), 12, emphasized = false)
-            MetricValue(MetricFormat.rhythm(snapshot.metrics.rhythm), 12, emphasized = false)
-        }
-        val view = StandbyDisplay.from(snapshot)
-        RoundButton(view.startLabel, onStart, Modifier.padding(top = 4.dp),
-            enabled = view.startEnabled, size = 60, caption = view.startCaption) { Icon(WatchIcon.PLAY, it, 22) }
-        ControlNotice(snapshot.notice.takeUnless { snapshot.pendingCommand })
-        view.cancelLabel?.let { PillButton(it, onCancel, enabled = view.cancelEnabled) }
-    }
-}
-
-/** What the personal standby buttons show; [cancelLabel] is null when there is no cancel button. */
-data class StandbyView(
-    val startLabel: String,
-    val startEnabled: Boolean,
-    val startCaption: Boolean,
-    val cancelLabel: String?,
-    val cancelEnabled: Boolean,
-)
-
-/**
- * Standby buttons by the request in flight (S15P31E105-436): only a pending start reads 시작 확인 중, a pending
- * cancel keeps the cancel button as 취소 확인 중, and while anything is pending neither button can be pressed.
- * A refusal or error ends the pending state, so the buttons come back and the notice line explains it.
- *
- * Only a READY run can start (S15P31E105-457). 9.1 shows just the run the phone prepared and the watch has no
- * cancelled screen of its own, so a run the server cancelled (S07) goes back to the no-run prompt
- * '휴대폰에서 러닝을 준비해 주세요' instead of keeping its title and start button. The phone's next
- * SESSION_PREPARE makes the new session READY, which brings the start button back.
- */
-object StandbyDisplay {
-    /** False with no session or a finished one (CANCELLED): standby then asks for a run from the phone. */
-    fun hasPreparedRun(snapshot: RunSnapshot): Boolean = snapshot.state == RunState.READY
-
-    fun from(snapshot: RunSnapshot): StandbyView {
-        if (!hasPreparedRun(snapshot)) return StandbyView("시작", false, false, null, false)
-        // 준비된 개인 러닝은 시작 전에 취소할 수 있다(S07, 휴대폰이 서버에 요청).
-        if (!snapshot.pendingCommand) {
-            return StandbyView("시작", true, false, "취소", true)
-        }
-        return when (snapshot.pendingIntent) {
-            RunIntent.CANCEL -> StandbyView("시작", false, false, "취소 확인 중", false)
-            RunIntent.START -> StandbyView("시작 확인 중", false, true, null, false)
-            else -> StandbyView("확인 중", false, true, null, false)
-        }
-    }
-}
-
-/** Callbacks for the fixes the watch itself can start; the rest are done on the phone. */
-data class ReadinessActions(
-    /** Asks for the run permissions again, or opens app settings when the OS no longer asks. */
-    val requestPermission: () -> Unit = {},
-    /** Reads consent, permissions and the network again, e.g. after the runner fixed them on the phone. */
-    val recheck: () -> Unit = {},
-)
-
-/**
- * The phone link and the internet as two items. Server registration is not listed: it is a
- * separate step from the Bluetooth link, and an unknown internet state shows nothing rather than
- * a ready mark. The phone still checks the server round trip before it allows the start.
- */
-@Composable
-private fun StandbyStatus(readiness: Readiness) {
-    val internet = when (readiness.online) {
-        CheckState.OK -> "인터넷"
-        CheckState.CHECKING -> "인터넷 확인 중"
-        CheckState.UNKNOWN, CheckState.MISSING -> null
-    }
-    if (internet == null) StatusLine("휴대폰 연결됨" to StatusTone.NORMAL)
-    else StatusLine("폰" to StatusTone.NORMAL, internet to StatusTone.NORMAL)
-}
-
-/**
- * 9.1b: one missing prerequisite at a time, with what the runner should do. Nothing here claims
- * a run can go on offline or that records are recovered later.
- */
-@Composable
-private fun ReadinessScreen(issue: ReadinessIssue?, actions: ReadinessActions) {
-    val recheck: @Composable RowScope.() -> Unit = { PillButton("다시 확인", actions.recheck, kind = ButtonKind.SECONDARY) }
-    when (issue) {
-        ReadinessIssue.CONSENT -> Notice("동의가 필요해요", "휴대폰 RunWay 앱에서\n건강정보 수집에\n동의해 주세요", StatusTone.WARNING, recheck)
-        ReadinessIssue.PERMISSION -> Notice("센서 권한이 필요해요", "심박·활동 인식 권한을\n허용해 주세요", StatusTone.WARNING) {
-            PillButton("권한 허용", actions.requestPermission)
-        }
-        ReadinessIssue.REGISTRATION -> Notice("워치 등록이 필요해요", "휴대폰 RunWay 앱에서\n워치를 등록해 주세요", StatusTone.WARNING, recheck)
-        ReadinessIssue.OFFLINE -> Notice("인터넷 연결이 없어요", "연결 전에는 러닝을\n시작할 수 없어요", StatusTone.WARNING, recheck)
+    val pause = { navigator.send(RunIntent.PAUSE) }
+    when (WatchNavigation.overlay(snapshot, nav)) {
+        Overlay.PHONE_RECORDING -> return PhoneRecordingScreen(snapshot, onExit)
+        Overlay.CONTROL_UNKNOWN -> return ControlUnknownScreen(snapshot, snapshot.problem?.intent, navigator::acknowledgeProblem)
+        // The personal end path stays reachable from 9.7b: its ■ handle opens the same 9.3b confirmation.
+        Overlay.GROUP_ENDED -> if (route != WatchRoute.END_CONFIRM) return GroupEndedScreen(snapshot, pause, navigator::openEndConfirm)
         null -> Unit
     }
+    when (route) {
+        WatchRoute.STANDBY -> StandbyScreen(
+            snapshot, nav.cancelOpen, onMore = navigator::openCancel,
+            onCancel = { navigator.send(RunIntent.CANCEL); navigator.openCancel(false) },
+        ) { navigator.send(RunIntent.START) }
+        WatchRoute.CONNECTION_ISSUE -> ConnectionIssueScreen(snapshot.pendingCommand) { navigator.send(RunIntent.RECONNECT_PHONE) }
+        WatchRoute.NOT_READY -> ReadinessScreen(ReadinessRules.issue(readiness), actions)
+        WatchRoute.RUNNING -> when {
+            snapshot.pendingCommand && snapshot.pendingIntent == RunIntent.PAUSE -> PauseRequestScreen(snapshot)
+            nav.detail == RunDetail.RHYTHM -> RhythmManualScreen(snapshot, navigator::send, pause)
+            nav.detail != null -> RunDetailScreen(snapshot, nav.detail, navigator::closeDetail, pause)
+            else -> RunPager(snapshot, readiness.online, nav.page, navigator::showPage, navigator::send, navigator::openDetail, pause)
+        }
+        WatchRoute.PAUSED ->
+            if (snapshot.pendingCommand && snapshot.pendingIntent == RunIntent.END) EndRequestScreen(snapshot)
+            else PausedScreen(snapshot, onEnd = navigator::openEndConfirm) { navigator.send(RunIntent.RESUME) }
+        WatchRoute.END_CONFIRM ->
+            if (snapshot.pendingCommand && snapshot.pendingIntent == RunIntent.END) EndRequestScreen(snapshot)
+            else EndConfirmScreen(snapshot, onCancel = { navigator.back() }) { navigator.send(RunIntent.END) }
+        WatchRoute.RESULT -> ResultScreen(snapshot, onExit)
+    }
 }
 
 /**
- * A group run starts only when the leader starts it (G09), so there is no start button here. A
- * runner who was not ready when the group left is told so instead of being started late.
+ * Running pages: personal 운동 현황 → 페이스 코칭 → 기록 비교 (only with a chosen comparison), group 운동 현황 →
+ * 공동 페이스 → 진행 순서·간격. The pager only has the pages that exist, so nothing moves to a page of the other mode.
  */
 @Composable
-private fun GroupStandby(snapshot: RunSnapshot) {
-    val group = GroupRunDisplay.status(snapshot)
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
-        Text("공동", style = RunwayType.Caption, color = RunwayColors.ContentSecondary)
-        MetricValue(MetricFormat.pace(group.guidePaceSecondsPerKm), 12, emphasized = false)
-    }
-    val (title, detail) = when (group.phase) {
-        // 워치는 폰에서 준비 완료한 뒤에만 그룹으로 준비된다(S15P31E105-420).
-        GroupPhase.WAITING -> "그룹장이 출발하면\n함께 시작해요" to "준비 완료됐어요\n출발을 기다려요"
-        GroupPhase.RUNNING -> "그룹이 이미 출발했어요" to "내 기록은\n시작되지 않았어요"
-        GroupPhase.FINISHED, GroupPhase.FORCE_FINISHED -> "그룹런이 끝났어요" to "내 기록은\n시작되지 않았어요"
-    }
-    Text(title, Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-        style = RunwayType.Body.copy(fontWeight = FontWeight.Bold), color = RunwayColors.Content, textAlign = TextAlign.Center)
-    Text(detail, style = RunwayType.Body, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
-}
-
-@Composable
 private fun RunPager(
-    snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onIntent: (RunIntent) -> Unit, onPause: () -> Unit,
+    snapshot: RunSnapshot, online: CheckState, page: Int, onPage: (Int) -> Unit, onIntent: (RunIntent) -> Unit,
+    onDetail: (RunDetail) -> Unit, onPause: () -> Unit,
 ) {
     val pages = WatchNavigation.pages(snapshot)
-    val pager = rememberPagerState(initialPage = page) { pages.size }
+    val pager = rememberPagerState(initialPage = page.coerceIn(0, pages.lastIndex)) { pages.size }
     LaunchedEffect(page) { if (pager.currentPage != page) pager.animateScrollToPage(page) }
     LaunchedEffect(pager) { snapshotFlow { pager.currentPage }.collect(onPage) }
     HorizontalPager(pager, Modifier.fillMaxSize()) { index ->
         val visible = pager.currentPage == index
         when (pages[index]) {
-            RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause, online)
-            RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible)
-            RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible)
-            RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible)
-            RunPage.PACE_COACHING -> PaceCoachingPage(snapshot, pages.size, index, visible, onIntent)
+            RunPage.STATUS -> RunStatusPage(snapshot, pages.size, index, visible, onPause, online, onDetail)
+            RunPage.PACE_COACHING -> PaceCoachingPage(snapshot, pages.size, index, visible, onPause) { onDetail(RunDetail.RHYTHM) }
+            RunPage.RECORD_COMPARE -> RecordComparePage(snapshot, pages.size, index, visible, onPause)
+            RunPage.GROUP_PACE -> GroupPacePage(snapshot, pages.size, index, visible, onPause)
+            RunPage.GROUP_POSITION -> GroupPositionPage(snapshot, pages.size, index, visible, onPause)
         }
-    }
-}
-
-@Composable
-private fun PausedScreen(snapshot: RunSnapshot, onEnd: () -> Unit, onResume: () -> Unit) {
-    val m = snapshot.metrics
-    RoundScreen {
-        Chip("일시정지", inverted = true)
-        MetricValue(MetricFormat.distance(m.distanceMeters), 36)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetricValue(MetricFormat.duration(m.elapsedMs), 13, emphasized = false)
-            MetricValue(MetricFormat.pace(m.paceSecondsPerKm), 13, emphasized = false)
-        }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            // 폰으로 넘긴 운동은 폰에서만 재개·종료한다(S15P31E105-464).
-            val controllable = !snapshot.pendingCommand && !snapshot.phoneRecording
-            RoundButton("종료", onEnd, kind = ButtonKind.SECONDARY, enabled = controllable, caption = true) { Icon(WatchIcon.STOP, it, 16) }
-            RoundButton("재개", onResume, enabled = controllable, caption = true) { Icon(WatchIcon.PLAY, it, 18) }
-        }
-        ControlNotice(snapshot.notice)
-    }
-}
-
-/** 9.3b: icon buttons only; ✕ just goes back to the pause screen. */
-@Composable
-private fun EndConfirmScreen(snapshot: RunSnapshot, onCancel: () -> Unit, onEnd: () -> Unit) {
-    val m = snapshot.metrics
-    RoundScreen(spacing = 6.dp) {
-        Text("러닝을 종료할까요?", style = RunwayType.Title, color = RunwayColors.Content, textAlign = TextAlign.Center)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            MetricValue(MetricFormat.distance(m.distanceMeters), 12, emphasized = false)
-            MetricValue(MetricFormat.duration(m.elapsedMs), 12, emphasized = false)
-        }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            RoundButton("취소", onCancel, kind = ButtonKind.SECONDARY) { Icon(WatchIcon.CLOSE, it, 18) }
-            RoundButton("종료", onEnd, enabled = !snapshot.pendingCommand && !snapshot.phoneRecording) { Icon(WatchIcon.CHECK, it, 20) }
-        }
-        ControlNotice(snapshot.notice)
-    }
-}
-
-/** One line for a request in flight, a refusal or an unconfirmed command; never shown as success (S15P31E105-256). */
-@Composable
-private fun ControlNotice(text: String?) {
-    if (text != null) {
-        Text(text, style = RunwayType.Caption, color = RunwayColors.ContentSecondary, textAlign = TextAlign.Center)
     }
 }

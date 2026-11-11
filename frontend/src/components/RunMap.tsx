@@ -15,6 +15,7 @@ import {
   type Camera,
 } from '@mj-studio/react-native-naver-map';
 import { bearingOf, distanceM, type LngLat } from '../geo';
+import { latinRuns } from './AppText';
 import { fontFamily, k1, palette } from '../theme';
 import {
   coursePaceColors,
@@ -59,8 +60,17 @@ type RunMapProps = {
   paceLabels?: string[];
   // 4.2: the path run so far, with the runner at its end. The course stays under it as a guide.
   trail?: LngLat[];
+  // The run so far in parts (S15P31E105-549): the source changed or the position was lost between them, so no line
+  // joins them. The trail still places me and the start; without parts it is drawn as one line.
+  trailParts?: LngLat[][];
+  // A record's measured route in parts, drawn like the course but never joined across the breaks (5.2, S15P31E105-549).
+  // route then holds the same points in order for the camera and the S · F poles.
+  routeParts?: LngLat[][];
   // A point the screen sets, not the GPS: the found place (자유 러닝, 2.0F) or the meeting place (6.4·6.9).
   position?: LngLat;
+  // S15P31E105-659 편도 코스 추천: the chosen end point. With it the screen's `position` becomes the start: both
+  // stand on poles (S and F) and the camera fits the two. Ignored while a course or a run is shown.
+  destination?: LngLat;
   // 6.6 · 6.6r: the other members.
   members?: RunMapMember[];
   // 6.4 취소된 그룹런: the course in grey.
@@ -82,6 +92,9 @@ type RunMapProps = {
   onTapMap?: (point: LngLat) => void;
   // 6.9: the centre of the visible part once the camera stops (after following my location).
   onCameraIdle?: (center: LngLat) => void;
+  // Once, when the first view has been set and the camera has come to rest there: the map can be uncovered
+  // without the course jumping into place on screen (7.1 피드).
+  onShown?: () => void;
   // 4.2 지도 보기 (S15P31E105-517): the user dragged or zoomed the map, so the screen stops following.
   onUserMove?: () => void;
   // Leaves the camera where the user put it; while true the map does not fit what it shows.
@@ -377,7 +390,7 @@ function PoleMarker({
               finish && styles.poleTextFinish,
             ]}
           >
-            {label}
+            {latinRuns(label, styles.poleText)}
           </Text>
         </View>
         <View style={[styles.poleStem, { height: stem }]} />
@@ -421,7 +434,10 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     segmentPaces,
     paceLabels,
     trail,
+    trailParts,
+    routeParts,
     position,
+    destination,
     members,
     muted = false,
     showLocation = false,
@@ -432,6 +448,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     interactive = true,
     onTapMap,
     onCameraIdle,
+    onShown,
     onUserMove,
     cameraLocked = false,
     rotatable = true,
@@ -448,6 +465,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   const running = !!trail && trail.length > 0;
   const hasRoute = !!route && route.length >= 2;
+  // The two chosen end points, shown while there is no course and no run (S15P31E105-659).
+  const endpoints = !!destination && !hasRoute && !running;
 
   // The camera follows whatever the screen shows; it moves only when that changes.
   const fitted = fitTo?.length
@@ -456,6 +475,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         ...(route ?? []),
         ...(trail ?? []),
         ...(position ? [position] : []),
+        ...(destination && !route?.length && !running ? [destination] : []),
         ...(members ?? []).map(member => member.position),
       ]);
   const { region, padding } = lowerToLogo(
@@ -504,10 +524,14 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     padding?.bottom ?? 0
   }|${view}|${bearing}`;
   const shownKey = useRef('');
+  const everShown = useRef(false);
+  const shownSaid = useRef(false);
   // Camera calls sent before the native map is ready are dropped, so they wait for it.
   const [ready, setReady] = useState(false);
   // The tilted views move the camera through the camera prop: the fit command lays the map flat.
   const [camera, setCamera] = useState<Camera>();
+  // The first view lands at once rather than gliding there, so the map is shown sooner; later moves glide.
+  const [glides, setGlides] = useState(false);
   useEffect(() => {
     if (
       !ready ||
@@ -520,17 +544,27 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     }
     // One frame later, so the new padding reaches the native map before the camera moves.
     const frame = requestAnimationFrame(() => {
+      const first = !everShown.current;
+      everShown.current = true;
       shownKey.current = key;
       if (target) {
         setCamera(target);
       } else {
-        map.current?.animateRegionTo({ ...region, duration: 300 });
+        map.current?.animateRegionTo({ ...region, duration: first ? 0 : 300 });
       }
     });
     return () => cancelAnimationFrame(frame);
     // region and target are rebuilt every render; key says when they really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, ready, height, mapWidth, cameraLocked]);
+  // After the first camera has reached the native map, later ones glide.
+  useEffect(() => {
+    if (!camera || glides) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => setGlides(true));
+    return () => cancelAnimationFrame(frame);
+  }, [camera, glides]);
   // Once the user moves the map the shown view is theirs; following again fits it afresh.
   useEffect(() => {
     if (cameraLocked) {
@@ -539,8 +573,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   }, [cameraLocked]);
 
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
+  // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
+  const recordParts = routeParts?.filter(part => part.length >= 2);
   const pieces = hasRoute
-    ? !running && segmentPaces && segmentPaces.length > 0
+    ? recordParts
+      ? recordParts
+      : !running && segmentPaces && segmentPaces.length > 0
       ? splitRoute(route, segmentPaces.length)
       : [route]
     : [];
@@ -557,6 +595,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       : routeLook.ink;
   const loop = hasRoute && isLoop(route);
   const hasTrail = !!trail && trail.length >= 2;
+  // The lines of the run so far: its parts when it has them, else the whole trail.
+  const trailLines = hasTrail
+    ? (trailParts ?? [trail]).filter(part => part.length >= 2)
+    : [];
+  // The shadow follows the same lines; a record in parts casts one per part.
+  const shadowLines = hasTrail
+    ? trailLines
+    : hasRoute && !muted
+    ? recordParts ?? [route]
+    : [];
 
   return (
     <NaverMapView
@@ -572,7 +620,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       initialRegion={fitted}
       // While the user holds the camera (지도 보기 moved by hand) the map leaves it where they put it.
       camera={tilted && !cameraLocked ? camera : undefined}
-      animationDuration={300}
+      animationDuration={glides ? 300 : 0}
       customStyleId={customStyleId}
       mapType="Basic"
       // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
@@ -599,8 +647,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           : undefined
       }
       onCameraIdle={
-        onCameraIdle
-          ? ({ latitude, longitude }) => onCameraIdle([longitude, latitude])
+        onCameraIdle || onShown
+          ? ({ latitude, longitude }) => {
+              onCameraIdle?.([longitude, latitude]);
+              // The first rest after the first view was sent (a tilted view waits for its camera prop).
+              if (
+                onShown &&
+                !shownSaid.current &&
+                everShown.current &&
+                (!tilted || camera)
+              ) {
+                shownSaid.current = true;
+                onShown();
+              }
+            }
           : undefined
       }
       isScrollGesturesEnabled={interactive}
@@ -615,14 +675,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       locale="ko"
     >
       {/* The soft shadow under the ribbon on top: the course, or the run while running. A muted course has none. */}
-      {hasTrail || (hasRoute && !muted) ? (
+      {shadowLines.map((line, index) => (
         <NaverMapPathOverlay
-          coords={(hasTrail ? trail : (route as LngLat[])).map(toCoord)}
+          key={`shadow-${index}`}
+          coords={line.map(toCoord)}
           width={routeLook.shadowWidth}
           color={routeLook.shadow}
           zIndex={0}
         />
-      ) : null}
+      ))}
       {/* The course: a white ribbon round a thin centre line in the km colours, the part run in grey. While
           running it is a guide under the run. */}
       {pieces.length > 0 ? (
@@ -641,16 +702,17 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         />
       ) : null}
       {/* The run so far: the same ribbon in ink, from a white start. */}
-      {hasTrail ? (
+      {trailLines.map((line, index) => (
         <NaverMapPathOverlay
-          coords={trail.map(toCoord)}
+          key={`trail-${index}`}
+          coords={line.map(toCoord)}
           width={routeLook.centre}
           outlineWidth={routeLook.edge}
           color={ink}
           outlineColor={routeLook.ribbon}
           zIndex={2}
         />
-      ) : null}
+      ))}
       {hasTrail ? (
         <DotMarker
           at={trail[0]}
@@ -691,16 +753,26 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               >
                 <View style={[styles.pill, { width }]}>
                   <View style={styles.pillNumber}>
-                    <Text style={styles.pillNumberText}>{index + 1}</Text>
+                    <Text style={styles.pillNumberText}>
+                      {latinRuns(index + 1, styles.pillNumberText)}
+                    </Text>
                   </View>
-                  <Text style={styles.pillText}>{label}</Text>
+                  <Text style={styles.pillText}>
+                    {latinRuns(label, styles.pillText)}
+                  </Text>
                 </View>
               </NaverMapMarkerOverlay>
             );
           })
         : null}
       {/* Me: at the end of the run, or on the place the screen set when there is no course. */}
-      {running || (position && !hasRoute) ? (
+      {endpoints ? (
+        <>
+          <PoleMarker at={destination as LngLat} label="F" finish />
+          {position ? <PoleMarker at={position} label="S" /> : null}
+        </>
+      ) : null}
+      {running || (position && !hasRoute && !endpoints) ? (
         <DotMarker
           at={running ? trail[trail.length - 1] : (position as LngLat)}
           dot={{
@@ -733,9 +805,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 ring={palette.white}
                 ringWidth={2}
               />
-              <Text
-                style={[styles.memberName, styles.memberNameLight]}
-              >
+              <Text style={[styles.memberName, styles.memberNameLight]}>
                 {member.label}
               </Text>
             </View>

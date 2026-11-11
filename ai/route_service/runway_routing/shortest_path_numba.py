@@ -170,6 +170,7 @@ class _Arrays:
         self.hn = np.zeros((2, cap), np.int64)
         self.out = np.zeros(max(n, 1), np.int64)
         self.meta = np.zeros(1, np.int64)
+        self.x = self.y = None                                     # A* 좌표(csr 노드 순서), astar()가 처음 부를 때 채운다
 
 
 def arrays(csr) -> _Arrays:
@@ -187,6 +188,129 @@ def bidirectional(csr, s: int, t: int, M: np.ndarray, used: np.ndarray, pen: flo
     return None if k < 0 else a.out[:k].tolist()
 
 
+# ------------------------------------------------------------------ A* (S15P31E105-621)
+# 요약: 같은 구간 비용(L*M*(1+pen*used))의 A*. 확장 노드가 4–5배 줄어 탐색이 빠르다.
+# h(v) = hscale * 직선거리(UTM), hscale = 0.995 * min(M). 비용 >= L * min(M) >= 직선거리 * min(M)이고 0.995는
+# OSM 측지 길이와 UTM 거리 차이(축척 계수, 국내 <0.2 %)의 여유라 h는 admissible이며 consistent하다.
+# 동점 처리: A*는 길이가 (거의) 같은 경로가 둘 이상일 때 bidirectional과 다른 것을 고를 수 있다. 그래서 탐색 중에
+# 어떤 노드에 다른 경로로 상대 오차 tie_eps 안의 같은 비용이 나오면 그 노드에 표시하고, 찾은 경로의 노드 중 하나라도
+# 표시되어 있으면(-2) 그 구간만 bidirectional로 다시 찾는다. 거의 같은 다른 경로가 있으면 그 경로는 찾은 경로와 어느
+# 노드에서 다시 만나고, 그 노드의 두 이전 노드는 h의 여유(0.5 %) 때문에 t보다 먼저 확장되므로 표시가 빠지지 않는다.
+# 최단 경로가 하나뿐이면(차이가 tie_eps보다 크면) 두 알고리즘의 답은 같다. 그러니 결과는 bidirectional과 같다.
+# mark rows 0 / 1 = closed / seen, val row 0 = g, pred row 0, heap row 0: bidirectional과 같은 작업 배열을 쓴다.
+_ASIG = ("int64(int64[::1], int64[::1], int64[::1], float64[::1], float64[::1], int64[::1], float64, int64, int64, "
+         "float64[::1], float64[::1], float64, float64, int64[:, ::1], float64[:, ::1], int64[:, ::1], "
+         "float64[:, ::1], int64[:, ::1], int64[:, ::1], int64[::1], int64[::1])")
+
+
+@njit(_ASIG, cache=True)
+def _astar(ptr, nbr, ned, L, M, used, pen, s, t, X, Y, hscale, tie_eps, mark, val, pred, hd, hc, hn, out, meta):
+    """Path length written to out[:k] (node indices s .. t), -1 when there is no path, -2 when a near tie decided a
+    node of the found path, -3 when a closed node would improve (the caller then runs _bidirectional for this leg).
+    Heap order (f, counter). mark row 2 = near-tie stamp."""
+    if s == t:
+        out[0] = s
+        return 1
+    meta[0] += 1
+    stamp = meta[0]
+    size = np.zeros(2, np.int64)
+    tx, ty = X[t], Y[t]
+    mark[1, s] = stamp
+    val[0, s] = 0.0
+    pred[0, s] = -1
+    c = 0
+    _push(hd, hc, hn, size, 0, hscale * np.hypot(X[s] - tx, Y[s] - ty), c, s)
+    c += 1
+    while size[0] > 0:
+        v = hn[0, 0]
+        _pop(hd, hc, hn, size, 0)
+        if mark[0, v] == stamp:
+            continue
+        mark[0, v] = stamp
+        if v == t:
+            k = 0
+            x = t
+            while x != -1:
+                if mark[2, x] == stamp:                      # a near tie decided a node of this path
+                    return -2
+                out[k] = x
+                k += 1
+                x = pred[0, x]
+            i, j = 0, k - 1
+            while i < j:
+                out[i], out[j] = out[j], out[i]
+                i += 1
+                j -= 1
+            return k
+        gv = val[0, v]
+        pv = pred[0, v]
+        for jj in range(ptr[v], ptr[v + 1]):
+            w = nbr[jj]
+            if w == pv:                                      # back along v's own tree edge: not another path to w
+                continue
+            e = ned[jj]
+            nd = gv + L[e] * M[e] * (1 + pen * used[e])
+            if mark[1, w] == stamp:
+                gw = val[0, w]
+                if abs(nd - gw) <= tie_eps * max(nd, gw):
+                    mark[2, w] = stamp                       # two (almost) equal ways into w: checked on the path
+                    continue
+                if nd >= gw:
+                    continue
+                if mark[0, w] == stamp:                      # a closed node improved: h was not consistent here
+                    return -3
+            mark[1, w] = stamp
+            val[0, w] = nd
+            pred[0, w] = v
+            _push(hd, hc, hn, size, 0, nd + hscale * np.hypot(X[w] - tx, Y[w] - ty), c, w)
+            c += 1
+    return -1
+
+
+TIE_EPS = 1e-9            # 상대 오차. 합산 순서 차이(약 1e-13)보다 훨씬 크고 실제 길이 차이(mm 단위)보다 훨씬 작다.
+STATS = {"astar": 0, "fallback": 0}
+
+
+def astar(csr, xy, s: int, t: int, M: np.ndarray, used: np.ndarray, pen: float, min_mult: float) -> list | None:
+    """bidirectional()과 같은 결과(같은 경로). xy: csr 노드 순서의 UTM 좌표 (n, 2). min_mult = M.min().
+    pen < 0 이거나 min_mult <= 0이면 h가 하한이 아니므로 bidirectional을 그대로 쓴다."""
+    if pen < 0 or not min_mult > 0:
+        return bidirectional(csr, s, t, M, used, pen)
+    a = arrays(csr)
+    if a.x is None:
+        xy = np.asarray(xy, dtype=np.float64)
+        a.x, a.y = np.ascontiguousarray(xy[:, 0]), np.ascontiguousarray(xy[:, 1])
+    k = _astar(a.ptr, a.nbr, a.ned, a.length, M, used, float(pen), s, t, a.x, a.y, 0.995 * float(min_mult), TIE_EPS,
+               a.mark, a.val, a.pred, a.hd, a.hc, a.hn, a.out, a.meta)
+    STATS["astar"] += 1
+    if k <= -2:
+        STATS["fallback"] += 1
+        return bidirectional(csr, s, t, M, used, pen)
+    return None if k < 0 else a.out[:k].tolist()
+
+
+def astar_length(csr, xy, s: int, t: int):
+    """출발 s → 도착 t의 최단 거리(비용 = length)를 A*로 구한다(S15P31E105-626, candidates.path_length용).
+    M = 1, used = 0, pen = 0이면 비용 L[e] * 1.0 * (1 + 0.0 * 0) == L[e]이고, g는 0에서 경로 순서대로 더한 값이라
+    Python Dijkstra의 dist[t]와 같은 경로면 bit 단위로 같다. 반환: g(float64), 경로 없음이면 inf,
+    거의 같은 다른 경로가 있거나(-2) h가 어긋나면(-3) None(호출자가 기존 Dijkstra로 다시 계산)."""
+    a = arrays(csr)
+    if a.x is None:
+        xy = np.asarray(xy, dtype=np.float64)
+        a.x, a.y = np.ascontiguousarray(xy[:, 0]), np.ascontiguousarray(xy[:, 1])
+    ones = getattr(a, "ones", None)
+    if ones is None:
+        ones = a.ones = np.ones(len(a.length), np.float64)
+        a.zero_used = np.zeros(len(a.length), np.int64)
+    k = _astar(a.ptr, a.nbr, a.ned, a.length, ones, a.zero_used, 0.0, s, t, a.x, a.y, 0.995, TIE_EPS,
+               a.mark, a.val, a.pred, a.hd, a.hc, a.hn, a.out, a.meta)
+    if k <= -2:
+        return None
+    if k < 0:
+        return np.inf
+    return a.val[0, t]
+
+
 def warm_up() -> None:
     """Run the compiled kernel once on a 3-node graph (loads / links the machine code at start-up, not on a request)."""
     class _Tiny:
@@ -199,3 +323,7 @@ def warm_up() -> None:
     got = bidirectional(tiny, 0, 2, np.ones(2), np.zeros(2, np.int64), 4.0)
     if got != [0, 1, 2]:
         raise RuntimeError(f"numba D-exact warm-up returned {got}")
+    xy = np.array([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]])
+    got = astar(tiny, xy, 0, 2, np.ones(2), np.zeros(2, np.int64), 4.0, 1.0)
+    if got != [0, 1, 2]:
+        raise RuntimeError(f"numba A* warm-up returned {got}")

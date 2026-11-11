@@ -13,12 +13,35 @@ jest.setTimeout(60000);
 
 type Screen = TestRenderer.ReactTestRenderer;
 
+// A Text's whole line, nested Texts included (NumText draws the digits in their own Text, S15P31E105-594).
+function lineOf(children: unknown): string {
+  return [children]
+    .flat(Infinity as 1)
+    .map(child =>
+      typeof child === 'string' || typeof child === 'number'
+        ? String(child)
+        : child && typeof child === 'object' && 'props' in child
+        ? lineOf((child as { props: { children?: unknown } }).props.children)
+        : '',
+    )
+    .join('');
+}
+
 function texts(screen: Screen) {
-  return screen.root
-    .findAllByType(Text)
-    .flatMap(node => [node.props.children].flat())
-    .filter(child => typeof child === 'string' || typeof child === 'number')
-    .join(' ');
+  const nodes = screen.root.findAllByType(Text);
+  return [
+    ...nodes
+      .flatMap(node => [node.props.children].flat())
+      .filter(child => typeof child === 'string' || typeof child === 'number'),
+    // Lines split into nested Texts, read whole too.
+    ...nodes
+      .filter(node =>
+        [node.props.children]
+          .flat()
+          .some(child => child && typeof child === 'object'),
+      )
+      .map(node => lineOf(node.props.children)),
+  ].join(' ');
 }
 
 // Stacks keep earlier screens mounted, so the newest match belongs to the top screen.
@@ -195,7 +218,7 @@ test('6.0 pins the next run, lists each crew and joins a run; 6.0b points to cre
   expect(page).toContain('혼자 달리던 길, 같이 달려 볼까요');
   expect(page).toContain('내 근처 크루 8곳이 모집 중');
   await press(empty, '크루 모집 보러 가기');
-  expect(texts(empty)).toContain('광안리 새벽 크루 18/30명');
+  expect(labelled(empty, '광안리 새벽 크루, 모집 중 18/30명')).toBeTruthy();
   await act(async () => empty.unmount());
 });
 
@@ -203,10 +226,11 @@ test('6.1 lists every crew, open ones before full ones, and searches by name or 
   const screen = await openGroup();
   await press(screen, '크루 모집');
   let page = texts(screen);
-  expect(page).toContain('광안리 새벽 크루 18/30명');
+  // The count is a line under the name (S15P31E105-594); the card's label holds all three.
+  expect(labelled(screen, '광안리 새벽 크루, 모집 중 18/30명')).toBeTruthy();
   expect(page).toContain('해운대 선셋 런');
   expect(page.indexOf('남천 회복 조깅')).toBeLessThan(
-    page.indexOf('정원 마감 수영강 하프 크루 200/200명'),
+    page.indexOf('정원 마감 수영강 하프 크루'),
   );
   // 내 근처 is gone: the server has no location filter.
   expect(() => labelled(screen, '내 근처')).toThrow();
@@ -217,12 +241,13 @@ test('6.1 lists every crew, open ones before full ones, and searches by name or 
   await type(screen, '크루 검색', '해운대');
   page = texts(screen);
   expect(page).toContain('해운대 선셋 런');
-  expect(page).not.toContain('광안리 새벽 크루 18/30명');
+  // 내 크루 stays rendered beside it, so the recruiting card is checked by its label.
+  expect(() => labelled(screen, '광안리 새벽 크루, 모집 중 18/30명')).toThrow();
   await type(screen, '크루 검색', '없는 크루');
   expect(texts(screen)).toContain('찾는 크루가 없어요');
   // Closing the search clears it.
   await press(screen, '검색 닫기');
-  expect(texts(screen)).toContain('광안리 새벽 크루 18/30명');
+  expect(labelled(screen, '광안리 새벽 크루, 모집 중 18/30명')).toBeTruthy();
   await act(async () => screen.unmount());
 });
 
@@ -232,7 +257,7 @@ test('6.0·6.1 sit side by side in one pager: swipes and tab taps switch pages a
   // Both pages are rendered, so the next one is already there under the finger.
   let page = texts(screen);
   expect(page).toContain('광안리 새벽 크루');
-  expect(page).toContain('광안리 새벽 크루 18/30명');
+  expect(page).toContain('18/30명');
 
   // Halfway through a swipe the tab already shows the page coming in.
   await act(async () => {
@@ -290,7 +315,8 @@ test('6.2 shows my crew, the leader view (6.2m) and a full crew that cannot take
   await press(screen, '크루 모집');
   await press(screen, '광안리 새벽 크루, 모집 중 18/30명');
   let page = texts(screen);
-  expect(page).toContain('모집 중 18/30 · 승인제');
+  expect(page).toContain('18 / 30명');
+  expect(page).toContain('· 승인제');
   expect(page).toContain('성윤');
   expect(page).not.toContain('민준 (나)');
   expect(() =>
@@ -307,7 +333,7 @@ test('6.2 shows my crew, the leader view (6.2m) and a full crew that cannot take
 
   await press(screen, '뒤로');
   await press(screen, '수영강 하프 크루, 정원 마감 200/200명');
-  expect(texts(screen)).toContain('정원 마감 200/200');
+  expect(texts(screen)).toContain('200 / 200명');
   await press(screen, '가입 신청 · 정원 마감');
   page = texts(screen);
   expect(page).toContain('정원이 가득 찼어요');
@@ -424,7 +450,8 @@ test('6.2m saves the capacity and 6.2a approves a request and switches to 바로
   expect(save().props.disabled).toBe(false);
   await press(screen, '저장');
   await settle(50);
-  expect(texts(screen)).toContain('모집 중 24/26 · 승인제');
+  expect(texts(screen)).toContain('24 / 26명');
+  expect(texts(screen)).toContain('· 승인제');
 
   await press(screen, '가입 신청 2건');
   let page = texts(screen);
@@ -442,7 +469,8 @@ test('6.2m saves the capacity and 6.2a approves a request and switches to 바로
   await press(screen, '뒤로');
   await settle(50);
   page = texts(screen);
-  expect(page).toContain('모집 중 25/26 · 바로 가입');
+  expect(page).toContain('25 / 26명');
+  expect(page).toContain('· 바로 가입');
   expect(page).toContain('가입 신청 1건');
   await act(async () => screen.unmount());
 });
@@ -452,7 +480,8 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   await press(screen, '토요일 아침, 함께 5km, 10.24 토 07:00');
   let page = texts(screen);
   for (const text of [
-    '6명 참가',
+    // 참가 6명 · 크루 멤버 18명 중 on one row with its icon (S15P31E105-594 담당자 시안).
+    '참가 6명',
     'D-5',
     '광안리 새벽 크루',
     '10.24 토 07:00',
@@ -470,7 +499,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   }
   expect(page).not.toContain('내가 만든 그룹런');
   await press(screen, '참가 취소');
-  expect(texts(screen)).toContain('5명 참가');
+  expect(texts(screen)).toContain('참가 5명');
   await press(screen, '뒤로');
 
   await press(screen, '수요일 회복 조깅, 10.28 수 06:30');
@@ -487,7 +516,7 @@ test('6.4 shows a run and its creator cancels it through 6.4c and 6.4d to 6.4e',
   page = texts(screen);
   expect(page).toContain('취소됨');
   expect(page).toContain('사유 · 날씨');
-  expect(page).toContain('크루 멤버 18명에게 취소 알림을 보냈어요');
+  expect(page).toContain('크루 멤버 17명에게 취소 알림을 보냈어요');
   await press(screen, '내 크루로');
   expect(texts(screen)).not.toContain('수요일 회복 조깅');
   await act(async () => screen.unmount());
@@ -589,7 +618,9 @@ test('6.5 → 6.6 (paused in place) → 6.7: ready, start together, see members 
   } finally {
     await act(async () => screen.unmount());
   }
-});
+  // The whole 6.5 → 6.7 flow runs on the mock's real-time start and tracking timers. Two Jest workers on the CI
+  // agent's two CPUs (S15P31E105-667) took it past 60 s, so it alone gets 120 s.
+}, 120000);
 
 test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   const screen = await openGroup();
@@ -611,7 +642,8 @@ test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
 
   await press(screen, '광안리 주말 러너스 크루 상세');
   page = texts(screen);
-  expect(page).toContain('모집 중 1/21 · 승인제');
+  expect(page).toContain('1 / 21명');
+  expect(page).toContain('· 승인제');
   expect(page).toContain('민준 (나)');
   expect(page).toContain('가입 신청 0건');
   await act(async () => screen.unmount());

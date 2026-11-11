@@ -12,7 +12,18 @@ export type RemotePlayback = {
     artworkUri: string | null;
   } | null;
 };
+// A Spotify app sign-in (Android auth library SSO) for an authorization code bound to `codeChallenge` (S256).
+export type AppAuthorizationRequest = {
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+  codeChallenge: string;
+  state: string;
+};
+export type AppAuthorization = { code: string; state: string };
 export type SpotifyRemoteBridge = {
+  // Rejects with { code: CANCELED | DENIED | APP_UPDATE_REQUIRED | INSTALL_REQUIRED | FAILED }.
+  authorize?(request: AppAuthorizationRequest): Promise<AppAuthorization>;
   installed(): Promise<boolean>;
   openApp?(): Promise<void>;
   connect(clientId: string, interactive: boolean): Promise<void>;

@@ -79,9 +79,20 @@ def test_dev_response_and_predict_calls(name):
     expected = copy.deepcopy(DEV_RESPONSES[name])
     # S15P31E105-506에서 바뀐 값만 맞춘다: 정책 버전(mpc-v0.4.3)과 위험 감속 권고 공식
     # max(안내, 실측 + 30)(캡처는 497의 max(실측, 안내) + 30 = 370). 이 경우 안내 340, 실측 3.0 m/s(333.3).
-    expected["response"]["policyVersion"] = policy.policy_version
+    expected["response"]["policyVersion"] = policy.policy_version   # 624에서 mpc-v0.5.0
     if name == "running_safety":
         expected["response"]["decision"]["recommendedPaceSecPerKm"] = max(340.0, 1000.0 / 3.0 + 30.0)
+    if name not in WALK_CASES and expected["response"]["candidates"]:
+        # S15P31E105-624: 후보가 5개(−10~+10)에서 AI10과 같은 9개(−30~+60)로 바뀌었다. 안내 그대로 후보는 dev 캡처
+        # 2번 → 3번이고 예측·상한·통과는 같다. score는 "선택 상한 − 허용선"(표시용)으로 바뀌어 비교하지 않는다.
+        old_base = expected["response"]["candidates"][2]
+        actual = json.loads(outcome.response.model_dump_json(by_alias=True))
+        assert len(actual["candidates"]) == 9
+        new_base = dict(actual["candidates"][3])
+        assert {k: v for k, v in new_base.items() if k != "score"} == {k: v for k, v in old_base.items() if k != "score"}
+        expected["response"]["candidates"] = actual["candidates"]
+        if expected["response"]["decision"]["chosenIndex"] == 2:
+            expected["response"]["decision"]["chosenIndex"] = 3
     if name in WALK_CASES:
         expected["response"]["candidates"] = []
         if name == "walk_user_personalization":

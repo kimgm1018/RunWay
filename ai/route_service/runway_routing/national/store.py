@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 import numpy as np
+from ..fast_unique import sorted_unique
 from .fit import window_spec
 
 class OutOfArea(ValueError):
@@ -59,12 +60,12 @@ def select_window(grid, net, cells):
     cp = grid['cell_offsets']
     inner = grid['cell_node_idx'][gather_ranges(cp[p], cp[p+1])]
     nptr = net['node_way_ptr']
-    ways = np.unique(net['node_way_idx'][gather_ranges(nptr[inner], nptr[inner+1])])
+    ways = sorted_unique(net['node_way_idx'][gather_ranges(nptr[inner], nptr[inner+1])])
     if not len(ways):
         raise NoRoad('NO_ROAD_NEARBY: 창에 way가 없음')
     rp, sp = net['ref_ptr'], net['way_seg_ptr']
     refs = gather_ranges(rp[ways], rp[ways+1])
-    nodes = np.unique(net['ref_pos'][refs])
+    nodes = sorted_unique(net['ref_pos'][refs])
     segments = gather_ranges(sp[ways], sp[ways+1])
     return {'ways': ways, 'nodes': nodes, 'refs': refs, 'segments': segments}
 
@@ -247,12 +248,25 @@ class WindowEnvCache:
         self.dtype = np.dtype([('a', '<i8'), ('b', '<i8'), ('w', '<i8')])
         keys = np.empty(len(a), self.dtype)
         keys['a'], keys['b'], keys['w'] = np.minimum(a, b), np.maximum(a, b), n['way_ids'][n['seg_w']]
-        order = np.argsort(keys, kind='stable')
+        # S15P31E105-626: 구조체 배열의 안정 argsort는 필드 (a, b, w) 순 사전식 비교라 lexsort((w, b, a))와 같은
+        # 순서다(둘 다 안정 정렬). lexsort가 5–6배 빠르다(서울 21.1 km 창 약 0.3 s → 0.05 s).
+        order = np.lexsort((keys['w'], keys['b'], keys['a']))
         sorted_keys = keys[order]
         keep = np.r_[True, sorted_keys[1:] != sorted_keys[:-1]] if len(order) else np.empty(0, bool)
         self.keys, self.dist_dm = sorted_keys[keep], window.dist_dm[order[keep]]
+        # S15P31E105-640: 창 segment 위치 -> 그 segment key의 조회 결과 행(lookup이 찾는 행과 같은 행). edge가 나온
+        # segment를 알면 구조체 배열 searchsorted 없이 같은 거리를 꺼낸다(lookup_segments).
+        self.seg_row = np.empty(len(order), np.int64)
+        self.seg_row[order] = np.cumsum(keep) - 1 if len(order) else np.empty(0, np.int64)
         self.load_seconds = time.perf_counter()-t
         self.prov = {'created_utc': window.store.manifest['created_utc'], 'segments': len(self.keys)}
+
+    def lookup_segments(self, seg):
+        """lookup과 같은 (거리, 빠짐) 결과를 창 segment 위치로 찾는다. 창의 모든 segment는 key가 있으므로 빠짐은 없다.
+        seg: redges 행마다 그 edge를 만든 이 창의 segment 위치."""
+        dm = self.dist_dm[self.seg_row[seg]]
+        out = np.where(dm == -1, np.inf, dm / 10)
+        return out, np.zeros(len(seg), bool)
 
     def lookup(self, redges):
         a = redges['osm_u'].to_numpy(np.int64)

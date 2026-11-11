@@ -6,7 +6,7 @@ from demo_fakes import decide_body
 
 def test_valid_request_parses():
     req = DecideRequest.model_validate(decide_body())
-    assert req.context.input_as_of.tzinfo is not None and len(req.candidates) == 5
+    assert req.context.input_as_of.tzinfo is not None and len(req.candidates) == 9
 
 
 def test_rejects_four_candidates():
@@ -15,8 +15,9 @@ def test_rejects_four_candidates():
 
 
 def test_rejects_wrong_deltas():
-    b = decide_body(); b["candidates"][2]["paceSecPerKm"] = 341
-    with pytest.raises(ValidationError, match="−10, −5, 0, \\+5, \\+10"): DecideRequest.model_validate(b)
+    b = decide_body(); b["candidates"][3]["paceSecPerKm"] = 341
+    with pytest.raises(ValidationError, match="−30, −20, −10, 0, \\+10, \\+20, \\+30, \\+45, \\+60"):
+        DecideRequest.model_validate(b)
 
 
 def test_rejects_naive_datetime():

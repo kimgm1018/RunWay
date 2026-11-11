@@ -30,6 +30,9 @@ class DemoConfig:
     replay: dict[int, RunProfile]
     session_allowlist: frozenset[int] | None
     skip_payload_hash_device_ids: frozenset[int]
+    # 그룹 러닝(AI10): null이면 모든 그룹, 목록이면 그 groupRunId만 기록한다
+    group_allowlist: frozenset[int] | None = None
+    group_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,9 +66,13 @@ def load_demo_config(path: Path) -> DemoConfig:
         replay[session_id] = _profile(item, base)
     allow = raw.get("sessionAllowlist")
     skip = raw.get("skipPayloadHashDeviceIds", [])
+    group_allow = raw.get("groupAllowlist")
+    group_label = raw.get("groupLabel")
     return DemoConfig(stage, live, replay,
                       frozenset(map(int, allow)) if allow is not None else None,
-                      frozenset(map(int, skip)))
+                      frozenset(map(int, skip)),
+                      frozenset(map(int, group_allow)) if group_allow is not None else None,
+                      str(group_label) if group_label else None)
 
 
 def load_demo_settings() -> DemoSettings:

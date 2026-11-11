@@ -148,6 +148,25 @@ public final class PostRunAnalysisCalculator {
         }
     }
 
+    /**
+     * S02·S10용 운동시간(초). {@code startedAt}부터 {@code until}까지 경과에서 APPLIED PAUSE~RESUME 구간을 뺀다. RESUME 없는
+     * PAUSE는 {@code until}까지 일시정지로 본다. 시작 전({@code startedAt} null)이거나 기준 시각이 없으면 null.
+     *
+     * <p>종료 세션은 {@code until=endedAt}으로 부르며, 종료 후 분석({@link #calculate})의 movingDuration과 같은 반올림을 쓴다.
+     */
+    public static Integer movingDurationSec(
+            Instant startedAt, Instant until, List<PauseResumeEvent> pauseResumeEvents) {
+        if (startedAt == null || until == null) {
+            return null;
+        }
+        Instant end = until.isBefore(startedAt) ? startedAt : until;
+        List<PauseInterval> pauses = pauseIntervals(pauseResumeEvents, startedAt, end);
+        long elapsedMs = ChronoUnit.MILLIS.between(startedAt, end);
+        long pausedMs =
+                pauses.stream().mapToLong(p -> ChronoUnit.MILLIS.between(p.start(), p.end())).sum();
+        return toSeconds(Math.max(0, elapsedMs - pausedMs));
+    }
+
     /** 시작부터 t까지의 운동시간(초). 일시정지 구간은 제외한다. */
     static double movingSecondsAt(
             Instant t, Instant startedAt, Instant endedAt, List<PauseInterval> pauses) {

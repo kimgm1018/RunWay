@@ -80,6 +80,7 @@ POST /internal/v1/routes/recommendations: 현재 위치 · 목표 거리 · shap
 | 경로 | 한 줄 역할 |
 |---|---|
 | `app/reroll.py` | 재추천 제외용 코스 결과 cache(TTL 10분, TOP3 edge id만)와 seed → 되돌아볼 묶음 수 |
+| `app/response_cache.py` | 추천 성공 응답 전체 cache(기본 32개·10분, 같은 요청은 슬롯 대기·계산 없이 같은 byte, S15P31E105-630) |
 | `app/main.py` | 엔드포인트(`/internal/v1/...`), 준비 상태(로드 → 예열 → ready), 실행 슬롯 기본 최대 8초 대기(`ROUTE_LOCK_WAIT_S`, `BUSY`)·`X-Request-Deadline`으로 대기 제한(`TIMEOUT`), 응답 조립(운영은 BE 계약의 최소 필드, `ROUTE_DEBUG=1`이면 전체 + debug) |
 | `app/config.py` / `schemas.py` / `errors.py` / `ai_logging.py` | 환경변수 / 요청 형식 / 오류 코드·메시지 / `runway.ai` 로그 |
 | `runway_routing/pipeline.py` | 엔진 전체 흐름(`RoutePipeline.run`), rollback 스위치 |
@@ -157,6 +158,8 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 
 모두 프로세스 시작 시 1회 읽는다(바꾸면 재시작). 서비스 설정(`ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, Gate 로그 폴더)은 [API.md](API.md) 7절.
 `ROUTE_LOCK_WAIT_S`는 실행 슬롯 대기 상한(초)이며 기본값은 `8.0`이다. 유한한 양수만 허용하며 요청 마감이 더 가까우면 그때까지만 기다린다.
+추천 응답 cache(S15P31E105-630, `app/response_cache.py`)는 끝난 계산의 200 응답을 기본 32개·10분 저장해 같은 요청에 슬롯 대기 없이 같은
+byte를 돌려준다. `ROUTE_RESPONSE_CACHE=0`(끄기), `ROUTE_RESPONSE_CACHE_SIZE`(칸 수, 0이면 끔), `ROUTE_RESPONSE_CACHE_TTL_S`(초)로 바꾼다(API.md 5·7절).
 
 **값 검사(S15P31E105-441):** 아래 on/off 스위치(`*_SUBSTRATE`, `ARRAY_*`, `FAST_GRAPH`, `ENV_PREPARED`,
 `ADAPTER_LEAN_ROUTING`)는 없으면 기본(켜짐), `"1"`이면 켬, `"0"`이면 끔이고 **그 밖의 값(`false`, `off`, 공백 포함 등)은
@@ -166,8 +169,8 @@ docker run --cpus 1 --memory 1.5g --read-only --tmpfs /tmp -p 8000:8000 runway-r
 
 | 환경변수 | 읽는 때 | 잘못된 값이면 |
 |---|---|---|
-| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
-| `ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
+| `RUNWAY_SP_ENGINE`, `RUNWAY_SP_KERNEL`, `RUNWAY_SP_ASTAR`, `RUNWAY_GRAPH_CACHE_SIZE`, `RUNWAY_ENV_PREPARED`, `RUNWAY_ADAPTER_LEAN_ROUTING`, `RUNWAY_FAST_ROUTING`, `RUNWAY_GATE_FAST_CONTEXT`, `RUNWAY_ARRAY_PAIR_KERNELS`, `RUNWAY_ADAPTER_REUSE`, `RUNWAY_FAST_EDGE_ARRAYS` | `app.main` import 때(엔진 모듈 import) | **app import 실패**: 프로세스가 뜨지 않음(live도 없음) |
+| `ROUTE_DEBUG`, `ROUTE_WARMUP`, `ROUTE_LOCK_WAIT_S`, `ROUTE_RESPONSE_CACHE`, `ROUTE_RESPONSE_CACHE_SIZE`, `ROUTE_RESPONSE_CACHE_TTL_S`, `RUNWAY_FAST_GRAPH` | `app.main` import 때(`load_settings`) | **app import 실패** |
 | `RUNWAY_MASK_CACHE_SIZE`, `RUNWAY_USABILITY_GATE`, `RUNWAY_P2P_SUBSTRATE`, `RUNWAY_ARRAY_SHAPES`, `RUNWAY_ARRAY_LOOP`, `RUNWAY_ARRAY_PAIR_FAST`, `RUNWAY_NETWORK_STORE`, `RUNWAY_SOURCE_SNAPSHOT`, `RUNWAY_DATA_DIR` | 엔진 로드 때(`Engine.start`) | phase `failed`, 추천 503 `UNAVAILABLE` |
 
 API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **app import가 성공한 뒤**의 상태다. Numba 예열(import 때
@@ -175,10 +178,17 @@ API.md 1절의 준비 상태 표(loading → warming → ready | failed)는 **ap
 
 | 환경변수 | 끄는 것 | 추천 결과 |
 |---|---|---|
+| `ROUTE_RESPONSE_CACHE=0` | 추천 응답 cache(S15P31E105-630) | 같음(같은 요청도 매번 계산) |
 | `ROUTE_REROLL_EXCLUDE=0` | 재추천에서 이전 2개 응답 코스 빼기(S15P31E105-383, `app/reroll.py`) | 첫 요청(seed 1~24) 같음, 재추천은 예전(seed만 바꿈) 결과 |
 | `RUNWAY_P2P_SUBSTRATE=0` | P2P 배열 substrate → networkx | 같음(느려짐) |
 | `RUNWAY_SP_KERNEL=nx` | D-exact → networkx 최단 경로 | 같음(느려짐) |
 | `RUNWAY_SP_ENGINE=python` | Numba D-exact → Python D-exact | 같음(느려짐), Numba import·컴파일 없음 |
+| `RUNWAY_SP_ASTAR=0` | 구간 탐색 Numba A* → Numba bidirectional(S15P31E105-621. A*도 동점 근처면 bidirectional로 다시 찾음) | 같음(생성 느려짐) |
+| `RUNWAY_FAST_ROUTING=0` | 요청 graph routing edge 준비의 배열 정렬·`pair_to_eid` 배열 조회 → pandas 정렬·dict(S15P31E105-626) | 같음(첫 요청 느려짐) |
+| `RUNWAY_GATE_FAST_CONTEXT=0` | Gate context의 incident 배열 색인 → `usability_gate.build_context` Python 반복(S15P31E105-626) | 같음(첫 요청 느려짐) |
+| `RUNWAY_ARRAY_PAIR_KERNELS=0` | 생성 disk(`build_array_pair`)의 처음 나온 순번·pair별 최단 간선 Numba 훑기, G node 번호 dict 만들기 → np.unique·lexsort·dict comprehension(S15P31E105-645) | 같음(첫 요청 느려짐) |
+| `RUNWAY_ADAPTER_REUSE=0` | 요청 graph(`populate_adapter`)가 G의 node 번호 dict를 같이 쓰고 첫 간선을 창 segment 단위로 고르기 → dict 복사·G 간선 전체 lexsort·searchsorted(S15P31E105-645) | 같음(첫 요청 느려짐) |
+| `RUNWAY_FAST_EDGE_ARRAYS=0` | `prepare_edge_arrays`의 문자열 열 판정을 서로 다른 값 단위로 → edge마다 `np.isin`(S15P31E105-645) | 같음(첫 요청 느려짐) |
 | `RUNWAY_ARRAY_LOOP=0` | LOOP 배열 graph → 기존 NetworkX G/H 준비 | 같음(첫 요청 느려짐), Numba 탐색은 유지 |
 | `RUNWAY_ARRAY_SHAPES=0` | OAB/P2P 생성 disk 배열 graph → networkx | 같음(cold 느려짐) |
 | `RUNWAY_ARRAY_PAIR_FAST=0` | LOOP 배열 graph 생성의 배열/Numba 처리(full_status·component·key) → 기존 Python 반복문 | 같음(LOOP cold 느려짐) |

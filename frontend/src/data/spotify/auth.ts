@@ -3,6 +3,7 @@ import 'react-native-get-random-values';
 import { sha256 } from 'js-sha256';
 import { AppState, Linking } from 'react-native';
 import * as Keychain from 'react-native-keychain';
+import type { AppAuthorization, AppAuthorizationRequest } from './remoteBridge';
 
 export const spotifyRedirectUri = 'runway://spotify-callback';
 
@@ -18,11 +19,21 @@ const scopes = [
   'user-read-recently-played',
 ];
 
+// App Remote's playback grant, asked for with the list scopes in one Spotify app consent (S15P31E105-573).
+const appRemoteScope = 'app-remote-control';
+
+// The Spotify account the tokens belong to, shown so the user can check it (GET /me).
+export type SpotifyAccount = { id: string; name: string };
+
 export type SpotifyTokens = {
   accessToken: string;
   refreshToken: string;
   // Epoch milliseconds.
   expiresAt: number;
+  // 'app': signed in through the Spotify app on this phone, the account App Remote uses. Missing for a browser
+  // sign-in, whose account can differ from the phone's.
+  via?: 'app';
+  account?: SpotifyAccount;
 };
 
 // Why a Spotify call failed, so the screens can say what to do.
@@ -35,6 +46,14 @@ export type SpotifyFailure =
   | 'NO_ACTIVE_DEVICE'
   // Signed in before 내 재생 목록 · 최근 들은 곡 asked for their scopes: Spotify answers 403 until a new sign-in.
   | 'SCOPE_REQUIRED'
+  // The list permission was granted once, but Spotify no longer refreshes it (revoked or expired).
+  | 'LIBRARY_EXPIRED'
+  // Lists signed in through the browser, whose account may not be the Spotify app's on this phone.
+  | 'ACCOUNT_CHECK'
+  // The user declined Spotify's consent, as opposed to closing it (CANCELED).
+  | 'DENIED'
+  // The Spotify app on this phone cannot sign in with PKCE yet.
+  | 'APP_UPDATE_REQUIRED'
   | 'FAILED';
 
 export class SpotifyError extends Error {
@@ -156,11 +175,21 @@ export const spotifyTokens = {
     try {
       const saved = await Keychain.getGenericPassword({ service });
       const value = saved ? JSON.parse(saved.password) : null;
+      const account = value?.account;
       current =
         typeof value?.accessToken === 'string' &&
         typeof value?.refreshToken === 'string' &&
         typeof value?.expiresAt === 'number'
-          ? value
+          ? {
+              accessToken: value.accessToken,
+              refreshToken: value.refreshToken,
+              expiresAt: value.expiresAt,
+              ...(value.via === 'app' ? { via: 'app' as const } : {}),
+              ...(typeof account?.id === 'string' &&
+              typeof account?.name === 'string'
+                ? { account: { id: account.id, name: account.name } }
+                : {}),
+            }
           : null;
     } catch {
       current = null;
@@ -235,6 +264,83 @@ export async function signInToSpotify(clientId: string) {
   return tokens;
 }
 
+const appFailures: Partial<Record<string, SpotifyFailure>> = {
+  CANCELED: 'CANCELED',
+  DENIED: 'DENIED',
+  APP_UPDATE_REQUIRED: 'APP_UPDATE_REQUIRED',
+  USER_NOT_REGISTERED: 'USER_NOT_REGISTERED',
+};
+
+async function accountOf(accessToken: string): Promise<SpotifyAccount> {
+  let response: Response;
+  try {
+    response = await fetch('https://api.spotify.com/v1/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new SpotifyError('FAILED', 'network');
+  }
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new SpotifyError(
+      /the user is not registered for this application/i.test(text)
+        ? 'USER_NOT_REGISTERED'
+        : 'FAILED',
+      `GET /me ${response.status}`,
+    );
+  }
+  const me = await response.json();
+  const id = String(me?.id ?? '');
+  return { id, name: me?.display_name || id };
+}
+
+// S15P31E105-573 Android: one consent in the Spotify app for App Remote and the lists, as the account signed in
+// there. The app gets only the S256 challenge; the code comes back here and is exchanged with the verifier,
+// like the browser sign-in (Authorization Code with PKCE).
+export async function signInWithSpotifyApp(
+  clientId: string,
+  authorize: (request: AppAuthorizationRequest) => Promise<AppAuthorization>,
+): Promise<SpotifyTokens> {
+  const verifier = randomToken(32);
+  const state = randomToken(16);
+  let answer: AppAuthorization;
+  try {
+    answer = await authorize({
+      clientId,
+      redirectUri: spotifyRedirectUri,
+      scopes: [...scopes, appRemoteScope],
+      codeChallenge: codeChallenge(verifier),
+      state,
+    });
+  } catch (error) {
+    const code = (error as { code?: string } | null)?.code ?? '';
+    throw new SpotifyError(appFailures[code] ?? 'FAILED', code || undefined);
+  }
+  if (answer.state !== state || !answer.code) {
+    throw new SpotifyError('FAILED', 'state mismatch');
+  }
+  let tokens: SpotifyTokens;
+  try {
+    tokens = await requestTokens({
+      client_id: clientId,
+      grant_type: 'authorization_code',
+      code: answer.code,
+      redirect_uri: spotifyRedirectUri,
+      code_verifier: verifier,
+    });
+  } catch (error) {
+    // A rejected exchange right after consent is not a sign-out of an earlier session.
+    throw error instanceof SpotifyError && error.reason === 'SIGNED_OUT'
+      ? new SpotifyError('FAILED', error.message)
+      : error;
+  }
+  return {
+    ...tokens,
+    via: 'app',
+    account: await accountOf(tokens.accessToken),
+  };
+}
+
 // An access token good for the next minute, refreshed when it is about to run out. null when signed out.
 export async function spotifyAccessToken(
   clientId: string,
@@ -248,14 +354,18 @@ export async function spotifyAccessToken(
     return tokens.accessToken;
   }
   try {
-    const next = await requestTokens(
-      {
-        client_id: clientId,
-        grant_type: 'refresh_token',
-        refresh_token: tokens.refreshToken,
-      },
-      tokens.refreshToken,
-    );
+    const next = {
+      // The same account and sign-in, with new tokens.
+      ...tokens,
+      ...(await requestTokens(
+        {
+          client_id: clientId,
+          grant_type: 'refresh_token',
+          refresh_token: tokens.refreshToken,
+        },
+        tokens.refreshToken,
+      )),
+    };
     await spotifyTokens.save(next);
     return next.accessToken;
   } catch (error) {

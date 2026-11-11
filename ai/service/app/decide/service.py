@@ -3,11 +3,12 @@ import logging
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import numpy as np
 
+from app.pace_selector import DELTAS
 from app.decide.policy_port import PacePolicy, PolicyCandidate, PolicyInput, PolicyOutput
 from app.decide.schemas import CandidateResult, DecideRequest, DecideResponse, Decision, Pacing
 from app.inference import ApiError, check_sufficient, free_run_warnings, to_batch
@@ -19,6 +20,9 @@ from app.policy.config import load_policy_config
 from app.policy.hr_reference import HrThresholds, blend_hr_thresholds
 from app.policy.mpc_policy import ease_off_pace, handover_phase, plan_pace, progress
 from app.bpm_cue import CUE_BPM_UNAVAILABLE
+
+
+SLOW_STEPS_SEC_PER_KM = tuple(d for d in DELTAS if d > 0)
 
 
 @dataclass(frozen=True)
@@ -46,7 +50,7 @@ def recent_inputs(history) -> tuple[float | None, float | None, float | None]:
 
 
 def _anchor_index(body: DecideRequest) -> int:
-    """안내(기준 페이스) 그대로인 후보의 위치. 후보는 −10, −5, 0, +5, +10 순서라 보통 2다."""
+    """안내(기준 페이스) 그대로인 후보의 위치. 후보는 기준 + DELTAS(−30 … +60) 순서라 보통 3이다."""
     anchor = body.context.anchor_pace_sec_per_km
     return min(range(len(body.candidates)), key=lambda i: abs(body.candidates[i].pace_sec_per_km - anchor))
 
@@ -249,15 +253,20 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
         return _outcome(body, "NOT_RUNNING", response, None, None, received_at, at, begin, None, None)
 
     # 코칭 단계용: 러너가 실측 속도로 2분 달리는 행을 하나 덧붙여 같은 GRU 호출로 함께 예측한다(S15P31E105-504).
-    # 요청 후보 5개는 그대로다. 걷기·정지는 위에서 NOT_RUNNING으로 끝내므로 이 경로에 오지 않는다.
+    # 요청 후보는 그대로다. 걷기·정지는 위에서 NOT_RUNNING으로 끝내므로 이 경로에 오지 않는다.
     actual_speed = (speed_now if getattr(cfg, "actual_pace_check_enabled", False) and speed_now is not None
                     and speed_now >= cfg.walk_speed_mps else None)
-    n_actual = 1 if actual_speed is not None else 0
-    n_rows = len(body.candidates) + n_actual
+    # 감속 기준(S15P31E105-624 수정 1): 러너가 안내보다 느리면 max(안내, 실측) + 폭으로 늦춰야 실제로 느려진다.
+    # 그 페이스들을 안내 그대로 후보를 복사한 행으로 같은 GRU 호출에 덧붙인다(두 번째 호출 없음).
+    anchor_pace = body.context.anchor_pace_sec_per_km
+    slow_paces = ([pace_now + d for d in SLOW_STEPS_SEC_PER_KM]
+                  if pace_now is not None and pace_now > anchor_pace + 0.5 else [])
+    extra_speeds = ([actual_speed] if actual_speed is not None else []) + [1000.0 / q for q in slow_paces]
+    n_rows = len(body.candidates) + len(extra_speeds)
 
     def model_batch() -> dict:
         batch = to_batch(body, free_run_grade_policy)
-        return _speed_rows(batch, [actual_speed], _anchor_index(body), keep=True) if actual_speed is not None else batch
+        return _speed_rows(batch, extra_speeds, _anchor_index(body), keep=True) if extra_speeds else batch
 
     model_start = time.perf_counter()
     personalization_warning = None
@@ -307,6 +316,13 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
     pred_hr = tuple(tuple(float(v) for v in row) for row in prediction[:len(body.candidates)])
     actual_pred = (tuple(float(v) for v in prediction[len(body.candidates)])
                    if actual_speed is not None else None)
+    slow_start = len(body.candidates) + (1 if actual_speed is not None else 0)
+    slow_grade = body.candidates[_anchor_index(body)].future_grade_pct
+    slow_rows = tuple(
+        PolicyCandidate(delta_sec_per_km=int(round(q - anchor_pace)), pace_sec_per_km=q, future_speed_mps=1000.0 / q,
+                        pred_hr_bpm=tuple(float(v) for v in prediction[slow_start + j]),
+                        future_grade_pct=tuple(slow_grade) if slow_grade is not None else None)
+        for j, q in enumerate(slow_paces))
     decided_at = now()
     recent_cells = tuple(zip(body.history.hr_bpm[-12:], body.history.speed_mps[-12:]))
     candidates = tuple(
@@ -319,51 +335,11 @@ def run_decide(body: DecideRequest, model: HRModel, policy: PacePolicy, *, recei
         ) for i, c in enumerate(body.candidates)
     )
     policy_input = PolicyInput(decided_at, age, hr_now, speed_now, pace_now, recent_cells, body.context,
-                               candidates, thresholds, actual_pred_hr_bpm=actual_pred)
+                               candidates, thresholds, actual_pred_hr_bpm=actual_pred, slow_rows=slow_rows)
     try:
         output = policy.decide(policy_input)
     except Exception as exc:
         raise ApiError(500, "DECISION_FAILED", "판단 중 오류가 발생했습니다.") from None
-
-    # 넘친 만큼 늦추기·빨라지기(S15P31E105-506): 늦추거나 올릴 때만 느린 페이스 max(안내, 실측) + 폭과 빠른 페이스
-    # 안내 − 폭을 두 번째 GRU 호출로 예측해 다시 판단한다. 대부분의 판단(유지·쿨다운)은 한 번만 부른다.
-    # 두 번째 예측이 실패하면 첫 판단(요청 후보 안에서 고른 것)을 그대로 쓴다.
-    if (output.reason in ("SLOW_DOWN_HR", "SPEED_UP_GOAL") and "GUIDE_NOT_FOLLOWED" not in output.warnings
-            and (getattr(cfg, "hr_slow_steps_sec_per_km", ()) or getattr(cfg, "speed_up_steps_sec_per_km", ()))):
-        anchor_pace = body.context.anchor_pace_sec_per_km
-        guide_pace = body.context.current_guide_pace_sec_per_km or anchor_pace
-        slow_base = max(guide_pace, pace_now) if pace_now is not None else guide_pace
-        slow_paces = ([slow_base + d for d in cfg.hr_slow_steps_sec_per_km]
-                      if output.reason == "SLOW_DOWN_HR" else [])
-        fast_paces = ([anchor_pace - d for d in cfg.speed_up_steps_sec_per_km
-                       if anchor_pace - d > 0 and 1000.0 / (anchor_pace - d) <= 10.0]
-                      if output.reason == "SPEED_UP_GOAL" else [])
-        paces = slow_paces + fast_paces
-        anchor_index = _anchor_index(body)
-        extra_start = time.perf_counter()
-        try:
-            batch = _speed_rows(to_batch(body, free_run_grade_policy), [1000.0 / q for q in paces],
-                                anchor_index, keep=False)
-            extra_pred = np.asarray(model.predict_with_state(batch, personalization.state) if personalized
-                                    else model.predict(batch), dtype=float)
-            if extra_pred.shape != (len(paces), 3) or not np.isfinite(extra_pred).all():
-                raise ValueError("추가 페이스 예측 출력이 올바르지 않습니다.")
-        except Exception as exc:
-            log_ai_error("EXTRA_PACE_PREDICTION_FAILED", "/v1/pace/decide", exc, level=logging.WARNING)
-            extra_pred = None
-        model_ms += (time.perf_counter() - extra_start) * 1000.0
-        if extra_pred is not None:
-            grade = body.candidates[anchor_index].future_grade_pct
-            rows = tuple(
-                PolicyCandidate(delta_sec_per_km=int(round(q - anchor_pace)), pace_sec_per_km=q,
-                                future_speed_mps=1000.0 / q, pred_hr_bpm=tuple(float(v) for v in extra_pred[k]),
-                                future_grade_pct=tuple(grade) if grade is not None else None)
-                for k, q in enumerate(paces))
-            policy_input = replace(policy_input, extra_slow=rows[:len(slow_paces)], extra_fast=rows[len(slow_paces):])
-            try:
-                output = policy.decide(policy_input)
-            except Exception:
-                raise ApiError(500, "DECISION_FAILED", "판단 중 오류가 발생했습니다.") from None
 
     results = []
     for i, candidate in enumerate(body.candidates):

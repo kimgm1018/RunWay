@@ -59,7 +59,10 @@ const regions = {
 type Route = (
   url: URL,
   init: { method: string; body?: string },
-) => ReturnType<typeof respond> | undefined;
+) =>
+  | ReturnType<typeof respond>
+  | Promise<ReturnType<typeof respond>>
+  | undefined;
 
 function serve(route: Route) {
   fetchMock.mockImplementation(
@@ -180,6 +183,51 @@ test('C09 saved courses get a region name, my alias, a shape and the time at my 
   });
 });
 
+// S15P31E105-612: C03 brings the map image for the card, its relative address made whole; an unreadable one and
+// an older server's missing field are null.
+test('C09 saved courses carry the C03 basemap, null when C03 has none', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7' && init.method === 'GET') {
+      return respond(200, {
+        ...detail(7),
+        basemap: {
+          imageUrl: '/api/v1/courses/7/basemap.png',
+          osmDataTimestamp: '2026-11-01T00:00:00Z',
+        },
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved[0].basemap).toEqual({
+    imageUrl: 'https://k15e105.p.ssafy.io/api/v1/courses/7/basemap.png',
+    osmDataTimestamp: '2026-11-01T00:00:00Z',
+  });
+  expect(saved[1].basemap).toBeNull();
+});
+
+test('C09 saved courses drop a basemap whose image cannot be loaded', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/7' && init.method === 'GET') {
+      return respond(200, {
+        ...detail(7),
+        basemap: { imageUrl: '', osmDataTimestamp: null },
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved[0].basemap).toBeNull();
+});
+
 test('without a running profile the expected time uses 6′00″', async () => {
   serve(common);
   const { courses } = api(null);
@@ -187,6 +235,80 @@ test('without a running profile the expected time uses 6′00″', async () => {
   const saved = await courses.getSaved();
 
   expect(saved[0].expectedMinutes).toBe(30);
+});
+
+test('getSaved keeps the other courses when one C03 detail fails', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/courses/9' && init.method === 'GET') {
+      return respond(500, { code: 'INTERNAL_ERROR', message: 'detail failed' });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved.map(item => item.id)).toEqual(['7']);
+  expect(saved[0]).toMatchObject({
+    status: 'ACTIVE',
+    mergedIntoCourseId: null,
+  });
+});
+
+test('getSaved keeps MERGED and BLOCKED with status, not as plain ACTIVE runs', async () => {
+  serve((url, init) => {
+    const path = url.pathname.replace(/^.*\/api\/v1/, '');
+    if (path === '/users/me/bookmarked-courses') {
+      return respond(200, {
+        items: [
+          {
+            id: 7,
+            regionCode: '26500',
+            status: 'MERGED',
+            mergedIntoCourseId: 11,
+            myAlias: '옛 코스',
+            distanceM: 5000,
+          },
+          {
+            id: 9,
+            regionCode: null,
+            status: 'BLOCKED',
+            mergedIntoCourseId: null,
+            myAlias: null,
+            distanceM: 6200.5,
+          },
+        ],
+      });
+    }
+    const match = path.match(/^\/courses\/(\d+)$/);
+    if (match && init.method === 'GET') {
+      const id = Number(match[1]);
+      return respond(200, {
+        ...detail(id, {
+          status: id === 7 ? 'MERGED' : 'BLOCKED',
+          mergedIntoCourseId: id === 7 ? 11 : null,
+        }),
+      });
+    }
+    return common(url, init);
+  });
+  const { courses } = api(400);
+
+  const saved = await courses.getSaved();
+
+  expect(saved).toEqual([
+    expect.objectContaining({
+      id: '7',
+      status: 'MERGED',
+      mergedIntoCourseId: '11',
+    }),
+    expect.objectContaining({
+      id: '9',
+      status: 'BLOCKED',
+      mergedIntoCourseId: null,
+    }),
+  ]);
 });
 
 const search: CourseSearch = {
@@ -410,7 +532,9 @@ test('C08 failures reach the screen', async () => {
     respond(404, { code: 'COURSE_NOT_FOUND', message: '', details: {} }),
   );
   const { courses } = api();
-  await expect(courses.unsave('7')).rejects.toMatchObject({ code: 'UNKNOWN' });
+  await expect(courses.unsave('7')).rejects.toMatchObject({
+    code: 'COURSE_NOT_FOUND',
+  });
 });
 
 test('2.0 plans a chosen server course with its name, route and distance', async () => {
@@ -428,8 +552,20 @@ test('2.0 plans a chosen server course with its name, route and distance', async
     distanceM: 5000,
     route: loop,
     expectedDurationSec: 2000,
+    // No pace plan API yet: nothing from the mock plan stands in (S15P31E105-635).
+    segmentPacesSecPerKm: [],
+    strategy: null,
+    targetPaceSecPerKm: null,
+    caution: null,
   });
-  expect(plan.segmentPacesSecPerKm).toHaveLength(5);
+});
+
+test('2.0 has no plan before a course is picked, instead of the mock course (S15P31E105-635)', async () => {
+  serve(common);
+  const { courses } = api(400);
+
+  await expect(courses.getTodayPlan()).resolves.toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('2.0 names a course it never listed by its distance', async () => {
@@ -438,7 +574,7 @@ test('2.0 names a course it never listed by its distance', async () => {
 
   await courses.choose('9');
 
-  expect((await courses.getTodayPlan()).name).toBe('6.2km 코스');
+  expect((await courses.getTodayPlan())?.name).toBe('6.2km 코스');
 });
 
 // C01 then C10 (S15P31E105-526): the picked route is stored and runs as course 7.
@@ -503,7 +639,7 @@ test('saving and picking the same route asks C10 once and saves the stored cours
       .filter(call => call.url.pathname.endsWith('/bookmark'))
       .map(call => call.method),
   ).toEqual(['PUT', 'DELETE']);
-  expect((await courses.getTodayPlan()).courseId).toBe('7');
+  expect((await courses.getTodayPlan())?.courseId).toBe('7');
 });
 
 test('a route C10 turns down says so, and the next tap asks again', async () => {
@@ -526,7 +662,7 @@ test('a route C10 turns down says so, and the next tap asks again', async () => 
     'v1.1762311600.token-1',
     'v1.1762311600.token-1',
   ]);
-  expect((await courses.getTodayPlan()).courseId).toBe('7');
+  expect((await courses.getTodayPlan())?.courseId).toBe('7');
 });
 
 test('a free run cannot be saved as my course yet and says so (S15P31E105-529)', async () => {
@@ -602,4 +738,167 @@ test('편도 도착지가 없으면 추천 요청을 보내지 않는다', async
     api().courses.recommend({ ...search, shape: 'point_to_point' }),
   ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// S15P31E105-655: seed/index identify a slot, not a candidate across C01 answers.
+const relocatedSearch: CourseSearch = {
+  ...search,
+  origin: { name: '다른 출발점', position: oneWay[0] },
+};
+const relocatedAnswer = {
+  ...generatedAnswer,
+  courses: [
+    {
+      ...generatedAnswer.courses[0],
+      route: { type: 'LineString', coordinates: oneWay },
+      candidateToken: 'v1.1762311600.relocated',
+    },
+  ],
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+const responseFor = (body: { longitude: number }) =>
+  body.longitude === search.origin.position[0]
+    ? generatedAnswer
+    : relocatedAnswer;
+
+function relocatedRoute(url: URL, init: { method: string; body?: string }) {
+  if (url.pathname.endsWith('/courses/recommendations')) {
+    return respond(200, responseFor(JSON.parse(init.body!)));
+  }
+  if (url.pathname.endsWith('/courses/generated')) {
+    const { candidateToken } = JSON.parse(init.body!);
+    return respond(200, {
+      courseId:
+        candidateToken === relocatedAnswer.courses[0].candidateToken ? 9 : 7,
+      reused: false,
+    });
+  }
+  if (url.pathname.endsWith('/bookmark')) {
+    return respond(200, { bookmarked: true });
+  }
+  return common(url, init);
+}
+
+test.each(['choose', 'save'] as const)(
+  'a new location with the same seed/index gets its own C10 route after %s',
+  async action => {
+    serve(relocatedRoute);
+    const { courses } = api();
+    const first = (await courses.recommend(search)).courses[0];
+    await courses[action](first.id);
+    const second = (await courses.recommend(relocatedSearch)).courses[0];
+    await courses.save(second.id);
+    await courses.choose(second.id);
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.route).toEqual(oneWay);
+    expect(posted().map(call => call.body)).toEqual([
+      {
+        candidateToken: generatedAnswer.courses[0].candidateToken,
+        route: generatedAnswer.courses[0].route,
+        distanceM: generatedAnswer.courses[0].distanceM,
+        elevationProfile: generatedAnswer.courses[0].elevationProfile,
+      },
+      {
+        candidateToken: relocatedAnswer.courses[0].candidateToken,
+        route: relocatedAnswer.courses[0].route,
+        distanceM: relocatedAnswer.courses[0].distanceM,
+        elevationProfile: relocatedAnswer.courses[0].elevationProfile,
+      },
+    ]);
+    expect(
+      calls()
+        .filter(call => call.url.pathname.endsWith('/bookmark'))
+        .pop()?.url.pathname,
+    ).toMatch(/\/courses\/9\/bookmark$/);
+    expect(await courses.getTodayPlan()).toMatchObject({
+      courseId: '9',
+      route: oneWay,
+    });
+  },
+);
+
+test('a late C01 answer cannot replace a newer card candidate', async () => {
+  const late = deferred<ReturnType<typeof respond>>();
+  const started = deferred<void>();
+  serve((url, init) => {
+    if (
+      url.pathname.endsWith('/courses/recommendations') &&
+      JSON.parse(init.body!).longitude === search.origin.position[0]
+    ) {
+      started.resolve();
+      return late.promise;
+    }
+    return relocatedRoute(url, init);
+  });
+  const { courses } = api();
+  const pending = courses.recommend(search);
+  await started.promise;
+  const second = (await courses.recommend(relocatedSearch)).courses[0];
+  late.resolve(respond(200, generatedAnswer));
+  const first = (await pending).courses[0];
+  await courses.choose(second.id);
+  await courses.save(first.id);
+
+  expect(first.id).not.toBe(second.id);
+  expect(posted().map(call => call.body.route.coordinates)).toEqual([
+    oneWay,
+    loop,
+  ]);
+  expect(await courses.getTodayPlan()).toMatchObject({
+    courseId: '9',
+    route: oneWay,
+  });
+});
+
+test('a late C10 for an older card keeps its own mapping and the new card stays deduplicated', async () => {
+  const late = deferred<ReturnType<typeof respond>>();
+  const started = deferred<void>();
+  serve((url, init) => {
+    if (
+      url.pathname.endsWith('/courses/generated') &&
+      JSON.parse(init.body!).candidateToken ===
+        generatedAnswer.courses[0].candidateToken
+    ) {
+      started.resolve();
+      return late.promise;
+    }
+    return relocatedRoute(url, init);
+  });
+  const { courses } = api();
+  const first = (await courses.recommend(search)).courses[0];
+  const pending = courses.save(first.id);
+  await started.promise;
+  const second = (await courses.recommend(relocatedSearch)).courses[0];
+  try {
+    expect(second.id).not.toBe(first.id);
+    // B must finish while A is still pending; do not depend on microtask order.
+    await Promise.all([courses.choose(second.id), courses.save(second.id)]);
+  } finally {
+    late.resolve(respond(200, { courseId: 7, reused: false }));
+    await pending;
+  }
+  await courses.save(second.id);
+
+  expect(posted().map(call => call.body.route.coordinates)).toEqual([
+    loop,
+    oneWay,
+  ]);
+  expect(
+    calls()
+      .filter(call => call.url.pathname.endsWith('/bookmark'))
+      .map(call => call.url.pathname.match(/courses\/(\d+)\//)?.[1]),
+  ).toEqual(['9', '7', '9']);
+  expect(await courses.getTodayPlan()).toMatchObject({
+    courseId: '9',
+    route: oneWay,
+  });
 });

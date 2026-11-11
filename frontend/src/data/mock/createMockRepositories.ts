@@ -131,6 +131,19 @@ function fail(error: DataError, { latencyMs = 300 }: MockOptions) {
   });
 }
 
+// 2.1 준비도 on a given day (S15P31E105-594): the latest score on its own day, an earlier day's from the fixtures,
+// and nothing for any other day or a user without a score.
+function conditionOn(
+  scenario: MockScenario = 'default',
+  day: string,
+): TodayCondition | null {
+  const latest = conditionFor(scenario);
+  if (latest.readinessState === 'ready' && latest.date === day) {
+    return latest;
+  }
+  return scenario === 'default' ? fixtures.pastConditions[day] ?? null : null;
+}
+
 function conditionFor(scenario: MockScenario = 'default'): TodayCondition {
   switch (scenario) {
     case 'newUser':
@@ -632,13 +645,14 @@ export function createMockRepositories(
     },
     home: {
       getTodayCondition: () => respond(conditionFor(options.scenario), options),
+      getConditionOn: (day: string) =>
+        respond(conditionOn(options.scenario, day), options),
       getMonthlySummary: () => respond(fixtures.monthlySummary, options),
     },
     records: {
       getRecent: (sort, limit) =>
         respond(
           records
-            .filter(run => run.runType === 'SOLO')
             .map(toSummary)
             .sort(recordOrder[sort])
             .slice(0, limit),
@@ -661,6 +675,23 @@ export function createMockRepositories(
         return record
           ? respond(toDetail(record, saved), options)
           : fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
+      },
+      getResultSummary: recordId => {
+        const record = records.find(run => run.id === recordId);
+        if (!record) {
+          return fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
+        }
+        const detail = toDetail(record, saved);
+        return respond(
+          {
+            distanceM: detail.distanceM,
+            movingDurationSec: detail.durationSec,
+            averagePaceSecPerKm: detail.averagePaceSecPerKm,
+            averageHeartRate: detail.averageHeartRate,
+            goalAchieved: detail.goalAchieved,
+          },
+          options,
+        );
       },
       getStatistics: (period, baseDate) =>
         respond(statisticsOf(records, period, baseDate), options),
@@ -783,13 +814,15 @@ export function createMockRepositories(
         records.find(record => record.groupRunId === groupRunId) ?? null,
     }),
     notifications: {
-      list: () => {
+      // N01 pages of 50; the mock inbox is smaller, so one page is the whole list.
+      list: (_cursor = null) => {
         const items =
           options.scenario === 'noNotifications' ? [] : notifications;
         return respond(
           {
             items,
             unreadCount: items.filter(item => !item.read).length,
+            nextCursor: null,
           },
           options,
         );

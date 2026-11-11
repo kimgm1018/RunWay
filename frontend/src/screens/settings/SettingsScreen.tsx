@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   Image,
   Modal,
@@ -31,7 +32,11 @@ import {
   type Repositories,
   type WatchConnection,
 } from '../../data';
-import { watchConnectionLabel } from '../../data/api/devices';
+import {
+  watchConnectionLabel,
+  watchReadinessDetail,
+} from '../../data/api/devices';
+import { errorCode } from '../../data/errors';
 import { setWatchHealthConsent } from '../../health/watchHealth';
 import type { SleepAccess } from '../../health/samsungSleep';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
@@ -106,6 +111,7 @@ function Tile({
   name,
   state,
   on,
+  disabled,
   onPress,
 }: {
   icon: IconName;
@@ -113,6 +119,7 @@ function Tile({
   state: string;
   // Set for a switch tile; left out for a tile that opens something.
   on?: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   const switchTile = on !== undefined;
@@ -121,9 +128,20 @@ function Tile({
       accessibilityRole={switchTile ? 'switch' : 'button'}
       accessibilityLabel={name}
       accessibilityValue={{ text: state }}
-      accessibilityState={switchTile ? { checked: on } : undefined}
+      accessibilityState={
+        switchTile
+          ? { checked: on, disabled: !!disabled }
+          : disabled
+          ? { disabled: true }
+          : undefined
+      }
+      disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.tile,
+        disabled && styles.leaving,
+        pressed && !disabled && styles.pressed,
+      ]}
     >
       <View>
         <Icon
@@ -190,12 +208,23 @@ export function SettingsScreen() {
   const { reload } = loaded;
   // Coming back from 1.7 shows the watch connected again, and from 8.1b the location mode.
   useFocusEffect(useCallback(() => reload(), [reload]));
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') reload();
+      });
+      return () => subscription.remove();
+    }, [reload]),
+  );
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [watch, setWatch] = useState<WatchConnection | null>(null);
   // HEALTH_DATA consent (W05). Withdrawing asks first in a sheet; saving blocks a second tap.
   const [health, setHealth] = useState<boolean | null>(null);
   const [askWithdraw, setAskWithdraw] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
+  // S15P31E105-638: one U20·U14 at a time so rapid taps cannot race the optimistic UI.
+  const [savingSettings, setSavingSettings] = useState(false);
+  const savingSettingsRef = useRef(false);
   // True while U03 runs (5 seconds at most), so 로그아웃 is not sent twice.
   const [leaving, setLeaving] = useState(false);
   const logOut = () => {
@@ -250,9 +279,11 @@ export function SettingsScreen() {
   };
 
   const change = async (next: Partial<AppSettings>) => {
-    if (!settings) {
+    if (!settings || savingSettingsRef.current) {
       return;
     }
+    savingSettingsRef.current = true;
+    setSavingSettings(true);
     const before = settings;
     setSettings({
       ...settings,
@@ -261,9 +292,17 @@ export function SettingsScreen() {
     });
     try {
       setSettings(await settingsApi.update(next));
-    } catch {
-      setSettings(before);
-      toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+    } catch (error) {
+      // PATCH landed but the untouched companion GET failed — keep the optimistic value.
+      if (errorCode(error) === 'SAVE_UNCONFIRMED') {
+        toast('저장했어요. 최신 설정을 불러오지 못했어요');
+      } else {
+        setSettings(before);
+        toast('설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요');
+      }
+    } finally {
+      savingSettingsRef.current = false;
+      setSavingSettings(false);
     }
   };
   const disconnect = async (current: WatchConnection) => {
@@ -281,6 +320,21 @@ export function SettingsScreen() {
       });
     } catch {
       toast('연결을 해제하지 못했어요. 잠시 후 다시 시도해 주세요');
+    }
+  };
+  // S15P31E105-625: after W03, tap again to W01 when a Data Layer node is reachable.
+  // No node → 1.7 (same as before). Samsung Wearable pairing/list picking stays out of scope.
+  const reconnect = async () => {
+    try {
+      const next = await watchApi.reconnect();
+      setWatch(next);
+      if (next.status === 'connected') {
+        toast(`${next.deviceName}을(를) 다시 등록했어요`);
+        return;
+      }
+      navigateTo(navigation, 'WatchConnect');
+    } catch {
+      toast('다시 등록하지 못했어요. 잠시 후 다시 시도해 주세요');
     }
   };
 
@@ -311,6 +365,20 @@ export function SettingsScreen() {
     </View>
   );
   const onOff = (on: boolean) => (on ? '켜기' : '끄기');
+  // S15P31E105-612: the map data notices need none of the settings either, so they show on a failed read too.
+  const about = (
+    <>
+      <Band>정보</Band>
+      <Tiles>
+        <Tile
+          icon="note"
+          name="데이터 라이선스"
+          state="지도 데이터"
+          onPress={() => navigateTo(navigation, 'DataLicense')}
+        />
+      </Tiles>
+    </>
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -334,6 +402,7 @@ export function SettingsScreen() {
             actionLabel="다시 시도"
             onAction={reload}
           />
+          {about}
           {accountLinks}
         </ScrollView>
       ) : !settings || !watch ? (
@@ -349,6 +418,7 @@ export function SettingsScreen() {
               name="코칭 음성 알림"
               state={onOff(settings.voiceCoachingEnabled)}
               on={settings.voiceCoachingEnabled}
+              disabled={savingSettings}
               onPress={() =>
                 change({ voiceCoachingEnabled: !settings.voiceCoachingEnabled })
               }
@@ -358,6 +428,7 @@ export function SettingsScreen() {
               name="BPM 리듬 가이드"
               state={onOff(settings.bpmGuideEnabled)}
               on={settings.bpmGuideEnabled}
+              disabled={savingSettings}
               onPress={() =>
                 change({ bpmGuideEnabled: !settings.bpmGuideEnabled })
               }
@@ -366,16 +437,20 @@ export function SettingsScreen() {
 
           <Band>기기</Band>
           <Tiles>
-            {/* Connected, a tap lets go of the watch (with 실행 취소); let go, it opens 1.7 to connect. */}
+            {/* Connected → W03 (실행 취소 = W01). Disconnected → W01 when a node is nearby, else 1.7. */}
             <Tile
               icon="smartwatch"
               name={watch.deviceName}
-              state={watchConnectionLabel(watch)}
-              onPress={() =>
-                watch.status === 'connected'
-                  ? disconnect(watch)
-                  : navigateTo(navigation, 'WatchConnect')
-              }
+              state={[watchConnectionLabel(watch), watchReadinessDetail(watch)]
+                .filter(Boolean)
+                .join('\n')}
+              onPress={() => {
+                if (watch.status === 'connected') {
+                  disconnect(watch);
+                } else {
+                  reconnect();
+                }
+              }}
             />
             <Tile
               icon="heart"
@@ -442,6 +517,7 @@ export function SettingsScreen() {
               name="계정 공개 범위"
               state={settings.isPrivate ? '비공개' : '공개'}
               on={!settings.isPrivate}
+              disabled={savingSettings}
               onPress={() => change({ isPrivate: !settings.isPrivate })}
             />
             <Tile
@@ -459,6 +535,7 @@ export function SettingsScreen() {
               name="그룹런 알림"
               state={onOff(settings.notifications.groupRun)}
               on={settings.notifications.groupRun}
+              disabled={savingSettings}
               onPress={() =>
                 change({
                   notifications: {
@@ -473,6 +550,7 @@ export function SettingsScreen() {
               name="커뮤니티 알림"
               state={onOff(settings.notifications.community)}
               on={settings.notifications.community}
+              disabled={savingSettings}
               onPress={() =>
                 change({
                   notifications: {
@@ -510,6 +588,7 @@ export function SettingsScreen() {
             </>
           ) : null}
 
+          {about}
           {accountLinks}
         </ScrollView>
       )}

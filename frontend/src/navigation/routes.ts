@@ -28,7 +28,6 @@ export const authRoutes = [
   'ProfilePace',
   'WatchChoice',
   'WatchConnect',
-  'PasswordFind',
   'PasswordPhone',
 ] as const;
 
@@ -74,6 +73,7 @@ export const mainRoutes = [
   'RunningBaselineEdit',
   'Settings',
   'LocationSetting',
+  'DataLicense',
   'WatchConnect',
   'Withdraw',
   'WithdrawPassword',
@@ -115,7 +115,8 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '1.2',
     title: '로그인',
     task: ONBOARDING,
-    links: ['PasswordFind', 'SignUp', 'signIn'],
+    // 비밀번호를 잊으셨나요? → 1.2q 전화번호 입력으로 바로 간다(1.2p 안내 화면 제거, S15P31E105-627).
+    links: ['PasswordPhone', 'SignUp', 'signIn'],
   },
   SignUp: {
     code: '1.3',
@@ -164,12 +165,6 @@ export const routes: Record<RouteName, RouteInfo> = {
     title: '워치 연결',
     task: ONBOARDING,
     links: ['signIn'],
-  },
-  PasswordFind: {
-    code: '1.2p',
-    title: '비밀번호 찾기',
-    task: ONBOARDING,
-    links: ['PasswordPhone'],
   },
   PasswordPhone: {
     code: '1.2q',
@@ -273,7 +268,7 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '4.5',
     title: '러닝 결과',
     task: RUN,
-    // 기록 보기 opens the run in 2.1 기록 상세 (S15P31E105-564).
+    // 기록 보기 opens the run on 2.1 러닝 분석 (S15P31E105-594: 기록 상세 is gone).
     links: ['Home', 'PostWrite'],
   },
 
@@ -450,11 +445,24 @@ export const routes: Record<RouteName, RouteInfo> = {
     code: '8.1',
     title: '설정',
     task: SETTINGS,
-    links: ['LocationSetting', 'WatchConnect', 'Withdraw', 'signOut'],
+    links: [
+      'LocationSetting',
+      'DataLicense',
+      'WatchConnect',
+      'Withdraw',
+      'signOut',
+    ],
   },
   LocationSetting: {
     code: '8.1b',
     title: '위치 기록',
+    task: SETTINGS,
+    links: ['Settings'],
+  },
+  // S15P31E105-612: OpenStreetMap's notice for the course cards' maps and the NAVER Map SDK's legal screens.
+  DataLicense: {
+    code: '8.1c',
+    title: '데이터 라이선스',
     task: SETTINGS,
     links: ['Settings'],
   },

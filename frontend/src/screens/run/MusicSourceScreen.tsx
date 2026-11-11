@@ -196,9 +196,25 @@ export function MusicSourceScreen() {
           </AppText>
         </View>
         {music.canStartWithoutTrack ? (
-          <AppText style={styles.accountHint}>
-            휴대폰 Spotify 앱의 계정으로 연결해요
-          </AppText>
+          <View style={styles.account}>
+            <AppText style={[styles.accountHint, styles.accountText]}>
+              {state?.spotifyAccount
+                ? // S15P31E105-573: the account RunWay plays and lists for; it changes in the Spotify app.
+                  `Spotify 계정 ${state.spotifyAccount}로 연결돼 있어요. 계정은 Spotify 앱에서 바꾼 뒤 다시 연결해 주세요`
+                : '휴대폰 Spotify 앱의 계정으로 연결해요'}
+            </AppText>
+            {state?.spotifyAccount && state.services.SPOTIFY === 'CONNECTED' ? (
+              // Signs in through the Spotify app again, as whoever is signed in there now.
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Spotify 다시 연결"
+                onPress={() => fix('SPOTIFY')}
+                style={[styles.fix, styles.accountFix]}
+              >
+                <AppText style={styles.fixText}>다시 연결</AppText>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
         {!state ? (
           <ActivityIndicator style={styles.loading} color={ink} />
@@ -264,6 +280,9 @@ export function MusicSourceScreen() {
 
 const styles = StyleSheet.create({
   accountHint: { marginTop: 8, color: ink, fontSize: 12 },
+  account: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  accountText: { flex: 1 },
+  accountFix: { marginTop: 8 },
   card: {
     padding: 20,
     borderRadius: 30,

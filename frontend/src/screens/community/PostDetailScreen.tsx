@@ -18,8 +18,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
 import {
+  countComments,
   useRepositories,
   useResource,
+  type PostComment,
   type PostDetail,
   type Repositories,
 } from '../../data';
@@ -29,14 +31,16 @@ import {
   formatKm,
   formatPace,
 } from '../../format';
+import { postChanged, postsChanged } from '../../data/postsChanged';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
 import { fontFamily, ThemeProvider } from '../../theme';
 import { CommentSheet } from './comments';
-import { feedLook, MapBackdrop, RouteLine } from './FeedPage';
+import { feedLook, MapBackdrop, RouteLine, useMapCover } from './FeedPage';
 import { communityLook } from './look';
 import { RouteReplay } from './RouteReplay';
 import { RunMap } from '../../components/RunMap';
+import type { LngLat } from '../../geo';
 import {
   Avatar,
   placeLine,
@@ -102,12 +106,16 @@ export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const route = useRoute<RouteProp<RootStackParamList, 'PostDetail'>>();
-  const postId = route.params?.postId ?? 'post-seoyun-1019';
+  // Opened without a post, the page has nothing to show and offers the way back.
+  const postId = route.params?.postId ?? '';
   const toast = useToast();
   const { community, clock } = useRepositories();
   const detail = useResource(
     useCallback(
-      (repositories: Repositories) => loadPost(repositories, postId),
+      (repositories: Repositories) =>
+        postId
+          ? loadPost(repositories, postId)
+          : Promise.reject(new Error('게시물 없음')),
       [postId],
     ),
   );
@@ -121,12 +129,51 @@ export function PostDetailScreen() {
       setPost(loaded);
     }
   }, [loaded]);
-  const { like, bookmark } = usePostChanges(next =>
-    setPost(current => (current ? { ...current, ...next } : current)),
-  );
+  // The feed under 7.2 shows the same like and bookmark (rolled back with it) without reading again.
+  const { like, bookmark } = usePostChanges(next => {
+    setPost(current => (current ? { ...current, ...next } : current));
+    postChanged(next.id, {
+      liked: next.liked,
+      likeCount: next.likeCount,
+      bookmarked: next.bookmarked,
+    });
+  });
+  // The course's points as 7.1 already read them (getRoute keeps them), so the map is drawn as the page opens
+  // rather than after the post, its comments and its course are read again (사용자 요청).
+  const [routeAhead, setRouteAhead] = useState<LngLat[] | null>(null);
+  useEffect(() => {
+    if (!postId) {
+      return;
+    }
+    let live = true;
+    // A post the repository cannot find may throw at once rather than reject; either way the page waits for the post.
+    Promise.resolve()
+      .then(() => community.getRoute(postId))
+      .then(map => {
+        if (live && map && map.route.length >= 2) {
+          setRouteAhead(map.route);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [community, postId]);
+  // Once the post is read it decides: its own points while shared, none when it is not.
+  const mapRoute = post
+    ? post.courseShared
+      ? post.record.route ?? routeAhead
+      : null
+    : routeAhead;
+  const hasMap = !!mapRoute && mapRoute.length >= 2;
+  const { uncover, coverView } = useMapCover(hasMap, 'post-map-cover');
   const [menu, setMenu] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [replay, setReplay] = useState(false);
+  // The comment bar's real height: the phone's bottom bar adds to it, so the sheet's foot keeps that much room
+  // (S15P31E105-619). Until it is laid out, the bar's height over the bottom inset stands in.
+  const [barHeight, setBarHeight] = useState(0);
+  const footRoom = (barHeight || barBase + insets.bottom) + 24;
 
   const openAuthor = (current: PostDetail) =>
     current.isMine
@@ -143,21 +190,37 @@ export function PostDetailScreen() {
     }).catch(() => undefined);
 
   const mapHeight = Math.round(height * mapShare);
-  const commentCount = post ? post.commentCount ?? post.comments.length : 0;
-  const latest = post?.comments[post.comments.length - 1] ?? null;
+  const commentCount = post
+    ? post.commentCount ?? countComments(post.comments)
+    : 0;
+  // The newest comment still there; a deleted root kept for its replies is not one.
+  const latest =
+    post?.comments.reduce<PostComment | null>(
+      (newest, comment) =>
+        comment.deleted || !comment.author
+          ? newest
+          : !newest || comment.createdAt >= newest.createdAt
+          ? comment
+          : newest,
+      null,
+    ) ?? null;
 
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
-      {post && post.courseShared && post.record.route ? (
+      {hasMap && mapRoute ? (
         // The shared course on the real map (담당자 요청), fitted between the header and the sheet.
-        <RunMap
-          route={post.record.route}
-          interactive={false}
-          area={{ top: 0.14, bottom: mapShare - 0.04 }}
-          view="lean"
-          style={StyleSheet.absoluteFill}
-        />
+        <>
+          <RunMap
+            route={mapRoute}
+            interactive={false}
+            area={{ top: 0.14, bottom: mapShare - 0.04 }}
+            view="lean"
+            style={StyleSheet.absoluteFill}
+            onShown={uncover}
+          />
+          {coverView}
+        </>
       ) : post ? (
         // No real points (the server list, or a post without its course): the run's shape on the drawn map.
         <>
@@ -175,12 +238,21 @@ export function PostDetailScreen() {
       {detail.status === 'error' && !post ? (
         <ThemeProvider tone="dark">
           <View style={[styles.flex, { paddingTop: insets.top + 64 }]}>
-            <EmptyState
-              icon="alert"
-              title="게시물을 불러오지 못했어요"
-              actionLabel="다시 시도"
-              onAction={reload}
-            />
+            {postId ? (
+              <EmptyState
+                icon="alert"
+                title="게시물을 불러오지 못했어요"
+                actionLabel="다시 시도"
+                onAction={reload}
+              />
+            ) : (
+              <EmptyState
+                icon="alert"
+                title="게시물을 찾을 수 없어요"
+                actionLabel="돌아가기"
+                onAction={() => navigation.goBack()}
+              />
+            )}
           </View>
         </ThemeProvider>
       ) : !post ? (
@@ -205,7 +277,12 @@ export function PostDetailScreen() {
                 </View>
               ) : null}
             </Pressable>
-            <View style={[styles.sheet, { minHeight: height - mapHeight }]}>
+            <View
+              style={[
+                styles.sheet,
+                { minHeight: height - mapHeight, paddingBottom: footRoom },
+              ]}
+            >
               <View style={styles.handle} />
               <View style={styles.stats}>
                 <Stat
@@ -332,7 +409,7 @@ export function PostDetailScreen() {
                   <Icon name="forward" color={look.sub} size={16} />
                 </View>
                 <AppText style={styles.commentPreview} numberOfLines={2}>
-                  {latest
+                  {latest?.author
                     ? `${latest.author.handle}  ${latest.body}`
                     : '아직 댓글이 없어요\n첫 댓글을 남겨 보세요'}
                 </AppText>
@@ -377,6 +454,7 @@ export function PostDetailScreen() {
               <Avatar
                 nickname={post.author.nickname}
                 userId={post.author.userId}
+                photo={post.author.profileImageUrl}
                 mine={post.isMine}
                 size={34}
               />
@@ -407,6 +485,9 @@ export function PostDetailScreen() {
           {/* 레퍼런스 하단: 좋아요 and a comment field that opens the comments. */}
           <View
             style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}
+            onLayout={event =>
+              setBarHeight(Math.ceil(event.nativeEvent.layout.height))
+            }
           >
             <Pressable
               accessibilityRole="button"
@@ -460,13 +541,14 @@ export function PostDetailScreen() {
           // The card shows the newest comment after the sheet changed them.
           reload();
         }}
-        onCountChange={(_, count) =>
+        onCountChange={(id, count) => {
           setPost(current =>
             current && current.commentCount !== null
               ? { ...current, commentCount: count }
               : current,
-          )
-        }
+          );
+          postChanged(id, { commentCount: count });
+        }}
       />
       <PostMenu
         visible={menu}
@@ -475,6 +557,7 @@ export function PostDetailScreen() {
         onDelete={async () => {
           try {
             await community.remove(postId);
+            postsChanged();
             setMenu(false);
             toast('게시물을 삭제했어요');
             navigation.goBack();
@@ -486,6 +569,9 @@ export function PostDetailScreen() {
     </View>
   );
 }
+
+// The comment bar without the bottom inset: 10 + the 46 field + 10, and its 1 top line.
+const barBase = 67;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: feedLook.ground },
@@ -542,8 +628,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
     paddingTop: 10,
-    // Room for the comment bar at the foot.
-    paddingBottom: 96,
   },
   handle: {
     alignSelf: 'center',

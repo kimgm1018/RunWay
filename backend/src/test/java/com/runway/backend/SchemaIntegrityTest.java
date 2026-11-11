@@ -193,6 +193,8 @@ class SchemaIntegrityTest {
                             + ")";
             case "post_likes" ->
                     "INSERT INTO post_likes(user_id,post_id) VALUES (" + user + "," + post + ")";
+            case "post_bookmarks" ->
+                    "INSERT INTO post_bookmarks(user_id,post_id) VALUES (" + user + "," + post + ")";
             case "user_follows" ->
                     "INSERT INTO user_follows(follower_id,followee_id) VALUES ("
                             + user
@@ -266,13 +268,13 @@ class SchemaIntegrityTest {
                                 "SELECT count(*) FROM information_schema.tables WHERE"
                                     + " table_schema='public' AND table_type='BASE TABLE' AND"
                                     + " table_name<>'spatial_ref_sys'"))
-                .isEqualTo(33);
+                .isEqualTo(37);
         assertThat(
                         number(
                                 "SELECT count(*) FROM information_schema.columns WHERE"
                                     + " table_schema='public' AND column_name='id' AND"
                                     + " is_identity='YES' AND identity_generation='ALWAYS'"))
-                .isEqualTo(33);
+                .isEqualTo(37);
         assertThat(user).isPositive();
         assertThat(otherUser).isGreaterThan(user);
         rejects(
@@ -291,6 +293,7 @@ class SchemaIntegrityTest {
                 "daily_readiness",
                 "course_bookmarks",
                 "post_likes",
+                "post_bookmarks",
                 "user_follows",
                 "course_environment_tags",
                 "group_run_participants",

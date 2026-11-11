@@ -82,6 +82,8 @@ class RoutePipeline:
         # rollback 환경변수(프로세스 시작 시 읽음, 바꾸면 서버 재시작):
         #   RUNWAY_ARRAY_LOOP=0     LOOP 배열 view -> 기존 G/H 생성, 추천 결과는 유지
         #   RUNWAY_SP_ENGINE=python  Numba kernel -> 기존 Python D-exact
+        #   RUNWAY_SP_ASTAR=0       구간 탐색 A* -> Numba bidirectional만, 추천 결과는 유지(느려짐)
+        #   RUNWAY_FAST_ROUTING=0, RUNWAY_GATE_FAST_CONTEXT=0  요청 graph·Gate context 준비를 예전 pandas·Python 경로로 -> 결과 동일
         #   RUNWAY_P2P_SUBSTRATE=0  여기서 읽음. P2P app-max disk를 networkx로            -> 결과 동일, P2P cold 느려짐
         #   RUNWAY_SP_KERNEL=nx     shortest_path import 시 읽음. 최단 경로를 networkx로    -> 결과 동일, 생성 느려짐
         #   RUNWAY_FAST_GRAPH=0     app(config.py)이 읽어 fast=False로 전달. canonical builder -> 결과 동일, cold 느려짐

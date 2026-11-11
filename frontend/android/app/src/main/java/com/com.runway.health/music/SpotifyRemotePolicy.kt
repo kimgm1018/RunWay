@@ -13,6 +13,15 @@ internal object SpotifyRemotePolicy {
   // 2.7 내 재생 목록 · 최근 들은 곡 play a playlist or a song, nothing else.
   fun playableUri(uri: String): Boolean = playable.matches(uri)
 
+  // S15P31E105-573: the Spotify app returns a PKCE-bound code from this version on (auth library's own threshold).
+  fun supportsPkce(versionCode: Int, minimum: Int): Boolean = versionCode >= minimum
+
+  // A closed sign-in comes back as RESULT_CANCELED; the library's getResponse() would call it EMPTY.
+  fun authorizationCanceled(resultCode: Int): Boolean = resultCode == android.app.Activity.RESULT_CANCELED
+
+  // The sign-in's OAuth error: declining the consent is told apart from other failures.
+  fun authorizationFailure(error: String?): String = if (error == "access_denied") "DENIED" else "FAILED"
+
   fun failure(type: String, message: String): String = when {
     message.contains("user is not registered for this application", ignoreCase = true) -> "USER_NOT_REGISTERED"
     message.contains("premium required", ignoreCase = true) -> "PREMIUM_REQUIRED"

@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.ui.tooling)
     implementation(libs.core.splashscreen)
+    // S15P31E105-617: 러닝 중 Ongoing Activity(화면을 켜면 러닝 화면으로 복귀)와 Ambient 저전력 화면.
+    implementation(libs.wear.ongoing)
+    implementation(libs.wear)
     implementation(libs.ui)
     implementation(libs.ui.graphics)
     implementation(libs.ui.tooling.preview)

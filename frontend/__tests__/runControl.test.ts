@@ -571,3 +571,143 @@ test('a watch batch for the running session shows its measured values, and anoth
   await wait();
   expect(control.getState().live?.heartRate).toBe(148);
 });
+
+// S15P31E105-663: 종료 뒤 분석 상태를 워치 결과 화면에 알린다.
+function endedRun(sequence: string[]) {
+  const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0 });
+  let reads = 0;
+  const base = repositories.session;
+  const session = {
+    ...base,
+    // 종료된 뒤의 조회마다 분석 상태가 순서대로 바뀐다.
+    get: async (id: string) => {
+      const view = await base.get(id);
+      if (view.state !== 'COMPLETED') {
+        return view;
+      }
+      const status = sequence[Math.min(reads, sequence.length - 1)];
+      reads += 1;
+      return { ...view, analysisStatus: status };
+    },
+  };
+  const sent: { status: string; summary: unknown }[] = [];
+  const watch = {
+    ...repositories.watchSession,
+    sendServerState: async (
+      _sessionId: string,
+      view: { analysisStatus: string },
+      _clientSendAt?: string | null,
+      summary?: unknown,
+    ) => {
+      sent.push({ status: view.analysisStatus, summary: summary ?? null });
+    },
+  };
+  const summaryCalls: string[] = [];
+  const records = {
+    getResultSummary: async (id: string) => {
+      summaryCalls.push(id);
+      return {
+        distanceM: 5012,
+        movingDurationSec: 1800,
+        averagePaceSecPerKm: 359,
+        averageHeartRate: 151,
+        goalAchieved: true,
+      };
+    },
+  };
+  const control = createRunControl({
+    session,
+    watch,
+    records,
+    timers: { resultWaitMs: 200, endResultWaitMs: 300, retryDelaysMs: [0, 5, 5], analysisPollMs: 5, analysisMaxMs: 300 },
+  });
+  return { control, sent, summaryCalls, repositories };
+}
+
+test('after the end the watch hears each analysis change once, READY with the H02 summary, then it stops', async () => {
+  const { control, sent, summaryCalls } = endedRun(['PENDING', 'PENDING', 'PROCESSING', 'READY', 'READY']);
+  await started(control);
+  await control.finish();
+  expect(control.getState().status).toBe('COMPLETED');
+  await wait(150);
+
+  expect(sent.map(item => item.status)).toEqual(['PENDING', 'PROCESSING', 'READY']);
+  // 요약은 READY에서만 읽고 보낸다.
+  expect(sent.map(item => item.summary)).toEqual([
+    null,
+    null,
+    { distanceM: 5012, movingDurationSec: 1800, averagePaceSecPerKm: 359, averageHeartRate: 151, goalAchieved: true },
+  ]);
+  expect(summaryCalls).toHaveLength(1);
+  // READY 뒤에는 더 조회하지 않는다.
+  const count = sent.length;
+  await wait(60);
+  expect(sent).toHaveLength(count);
+  control.dispose();
+});
+
+test('a failed analysis is sent as FAILED without a summary and stops', async () => {
+  const { control, sent, summaryCalls } = endedRun(['PROCESSING', 'FAILED']);
+  await started(control);
+  await control.finish();
+  await wait(120);
+  expect(sent).toEqual([
+    { status: 'PROCESSING', summary: null },
+    { status: 'FAILED', summary: null },
+  ]);
+  expect(summaryCalls).toEqual([]);
+  control.dispose();
+});
+
+test('the analysis poll stops at its limit and a later STATE_QUERY still gets the current status', async () => {
+  const { control, sent, repositories } = endedRun(['PROCESSING']);
+  await started(control);
+  await control.finish();
+  await wait(400);
+  // 상한(300ms) 뒤에는 조회를 멈추고 같은 상태는 다시 보내지 않았다.
+  expect(sent).toEqual([{ status: 'PROCESSING', summary: null }]);
+  const before = sent.length;
+  await wait(50);
+  expect(sent).toHaveLength(before);
+
+  (repositories.watchSession as unknown as { emit: (event: unknown) => void }).emit({
+    type: 'STATE_QUERY',
+    sessionId: control.getState().sessionId,
+    scope: 'SERVER',
+    clientSendAt: '2026-11-10T00:00:00Z',
+  });
+  await wait(50);
+  expect(sent).toHaveLength(before + 1);
+  expect(sent[sent.length - 1]).toEqual({ status: 'PROCESSING', summary: null });
+  control.dispose();
+});
+
+test('without H02 the READY state is still sent after a few tries, with no summary', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, watchLatencyMs: 0 });
+  const base = repositories.session;
+  const session = {
+    ...base,
+    get: async (id: string) => {
+      const view = await base.get(id);
+      return view.state === 'COMPLETED' ? { ...view, analysisStatus: 'READY' } : view;
+    },
+  };
+  const sent: unknown[] = [];
+  const watch = {
+    ...repositories.watchSession,
+    sendServerState: async (_id: string, view: { analysisStatus: string }, _at?: string | null, summary?: unknown) => {
+      sent.push({ status: view.analysisStatus, summary: summary ?? null });
+    },
+  };
+  const control = createRunControl({
+    session,
+    watch,
+    records: { getResultSummary: async () => Promise.reject(new Error('down')) },
+    timers: { resultWaitMs: 200, endResultWaitMs: 300, retryDelaysMs: [0, 5, 5], analysisPollMs: 5, analysisMaxMs: 300 },
+  });
+  await started(control);
+  await control.finish();
+  await wait(150);
+  expect(sent).toEqual([{ status: 'READY', summary: null }]);
+  control.dispose();
+});

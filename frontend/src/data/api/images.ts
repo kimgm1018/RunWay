@@ -1,3 +1,4 @@
+import { appConfig } from '../../config';
 import { apiRequest } from './http';
 
 export type ImagePurpose = 'PROFILE' | 'CREW' | 'POST';
@@ -27,3 +28,14 @@ export function uploadImage(file: ImageFile, purpose: ImagePurpose) {
     timeoutMs: 60_000,
   });
 }
+
+// The server gives photos as the F02 path (/api/v1/images/…, ImageService.publicUrl). F02 is public, so the
+// full address is enough for <Image>; an address that is already absolute is kept as it is.
+const serverOrigin = appConfig.apiBaseUrl.replace(
+  /^(https?:\/\/[^/]+).*$/,
+  '$1',
+);
+export const imageAddress = (path: string | null | undefined) =>
+  path == null || /^https?:\/\//.test(path)
+    ? path ?? null
+    : serverOrigin + path;

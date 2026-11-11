@@ -54,8 +54,9 @@ cases.each { name, files, forceBuild, apk, bundle ->
 println "APK/JS bundle selection: ${cases.size()} cases passed"
 
 // Execute the actual stage closures with recorded Jenkins steps. Shell commands are not run.
-def executePipeline(List files, boolean manual = false) {
-    def result = [stages: [], commands: [], credentials: 0]
+def executePipeline(List files, boolean manual = false, int staleAfter = -1) {
+    def mrChecks = 0
+    def result = [stages: [], commands: [], credentials: 0, nodes: [], timeouts: []]
     def environment = [
         gitlabMergeRequestIid: manual ? null : '189',
         gitlabTargetBranch: 'dev', gitlabMergeRequestLastCommit: 'source',
@@ -67,7 +68,8 @@ def executePipeline(List files, boolean manual = false) {
         pipeline: { Closure body -> body() }, stages: { Closure body -> body() },
         steps: { Closure body -> body() }, script: { Closure body -> body() },
         stage: { String name, Closure body -> result.stages << name; body() },
-        node: { String label, Closure body -> body() },
+        node: { String label, Closure body -> result.nodes << label; body() },
+        timeout: { Map args, Closure body -> result.timeouts << args.time; body() },
         dir: { String path, Closure body -> body() },
         gitlabCommitStatus: { Map args, Closure body -> body() },
         updateGitlabCommitStatus: { Map args -> },
@@ -79,6 +81,11 @@ def executePipeline(List files, boolean manual = false) {
         parallel: { Map branches -> branches.values().each { it() } },
         error: { message -> throw new AssertionError(message.toString()) },
         sh: { args ->
+            // staleAfter: 몇 번째 MR ref 확인부터 새 커밋이 올라온 것으로 응답할지 (-1이면 항상 최신).
+            if (args instanceof Map && args.returnStatus && args.script.contains('refs/remotes/origin/mr/')) {
+                mrChecks++
+                return staleAfter >= 0 && mrChecks > staleAfter ? 1 : 0
+            }
             if (args instanceof Map && args.returnStdout) {
                 if (args.script.contains('git diff')) return files.join('\u0000')
                 return args.script.contains('rev-parse HEAD') ? 'source\n' : 'target\n'
@@ -87,7 +94,11 @@ def executePipeline(List files, boolean manual = false) {
             return 0
         },
     ])
-    new GroovyShell(jenkinsLoader, context).parse(new File('infra/jenkins/Jenkinsfile.ci')).run()
+    try {
+        new GroovyShell(jenkinsLoader, context).parse(new File('infra/jenkins/Jenkinsfile.ci')).run()
+    } catch (AssertionError err) {
+        result.error = err
+    }
     return result
 }
 
@@ -106,7 +117,7 @@ scenarios.each { name, files, manual, apk, bundle ->
     assert result.stages.contains('Mobile Typecheck and Lint'): name
     assert result.commands.contains('sh ../infra/jenkins/check-mobile-static.sh'): name
     assert result.stages.contains('Mobile Tests'): name
-    assert result.commands.contains('pnpm exec jest --ci --runInBand --cacheDirectory=/home/jenkins/agent/.cache/jest'): name
+    assert result.commands.contains('pnpm exec jest --ci --maxWorkers=2 --cacheDirectory=/home/jenkins/agent/.cache/jest'): name
     assert result.stages.contains('Mobile APK Build') == apk: name
     assert result.commands.contains('sh infra/jenkins/build-mobile-apk.sh') == apk: name
     assert (result.credentials > 0) == apk: name
@@ -115,3 +126,21 @@ scenarios.each { name, files, manual, apk, bundle ->
 }
 assert !executePipeline(['docs/development/git-convention.md']).stages.contains('Mobile Tests')
 println "Pipeline execution: ${scenarios.size() + 1} scenarios passed"
+
+// 통합 CI는 동시 실행하고, 노드 대기를 뺀 영역 실행 시간만 60분으로 제한한다.
+def ciText = new File('infra/jenkins/Jenkinsfile.ci').text
+assert !ciText.contains('disableConcurrentBuilds()')
+def concurrent = executePipeline(['frontend/App.tsx'])
+assert concurrent.error == null: concurrent.error
+assert concurrent.nodes == ['backend || mobile || watch || ai', 'mobile']: concurrent.nodes
+assert concurrent.timeouts == [60]
+
+// 모바일 노드를 기다리는 동안 같은 MR에 새 커밋이 올라오면 이전 커밋은 검사하지 않고 실패로 끝낸다.
+def stale = executePipeline(['frontend/App.tsx'], false, 1)
+assert stale.error?.message?.contains('새 커밋'): stale.error
+assert stale.stages.contains('Mobile Checkout')
+assert !stale.stages.contains('Mobile Dependencies')
+// 수동 실행은 MR ref를 확인하지 않는다.
+def manualRun = executePipeline([], true, 0)
+assert manualRun.error == null: manualRun.error
+println "Concurrency and stale MR: 3 scenarios passed"

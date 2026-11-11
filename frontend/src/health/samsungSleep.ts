@@ -319,12 +319,12 @@ export type SleepUploadResult =
 // No answer or 503: the same request may be resent. Three tries per run, then wait for the next run (as 281).
 export const sleepRetryDelaysMs = [2_000, 10_000];
 
-const transient = (error: unknown) =>
+export const transient = (error: unknown) =>
   error instanceof DataError &&
   (error.code === 'NETWORK_ERROR' || error.status === 503);
 
 // A 200 is only trusted when its counts add up to what was sent.
-function countsAddUp(response: SleepSyncResponse, sent: number) {
+export function countsAddUp(response: SleepSyncResponse, sent: number) {
   return (
     !!response &&
     Array.isArray(response.errors) &&

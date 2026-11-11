@@ -1,7 +1,7 @@
 """정책 후보 pace와 각 후보의 2분 속도·경사를 만든다."""
 from app.demo.course import CourseProfile
 
-DELTAS_SEC_PER_KM = (-10, -5, 0, 5, 10)
+from app.pace_selector import DELTAS as DELTAS_SEC_PER_KM  # AI04 후보와 같다(S15P31E105-624)
 
 
 def future_grades(course: CourseProfile | None, distance_m: float, speed_mps: float) -> list[float] | None:

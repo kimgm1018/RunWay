@@ -21,7 +21,7 @@ public class UserSearchRepository {
             String escapedQuery, long afterId, int fetchSize) {
         return jdbcTemplate.query(
                 """
-                SELECT id, nickname
+                SELECT id, nickname, profile_image_key
                 FROM users
                 WHERE account_status = 'ACTIVE'
                   AND withdrawn_at IS NULL
@@ -30,11 +30,15 @@ public class UserSearchRepository {
                 ORDER BY id ASC
                 LIMIT ?
                 """,
-                (rs, rowNum) -> new UserSearchRow(rs.getLong("id"), rs.getString("nickname")),
+                (rs, rowNum) ->
+                        new UserSearchRow(
+                                rs.getLong("id"),
+                                rs.getString("nickname"),
+                                rs.getString("profile_image_key")),
                 "%" + escapedQuery + "%",
                 afterId,
                 fetchSize);
     }
 
-    public record UserSearchRow(long id, String nickname) {}
+    public record UserSearchRow(long id, String nickname, String profileImageKey) {}
 }

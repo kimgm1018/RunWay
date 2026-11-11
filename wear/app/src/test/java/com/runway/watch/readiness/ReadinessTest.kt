@@ -62,4 +62,30 @@ class ReadinessTest {
         assertEquals(CHECKING, networkState(hasNetwork = true, validated = false))
         assertEquals(OK, networkState(hasNetwork = true, validated = true))
     }
+
+    // S15P31E105-549: location is asked for the route but never blocks a run.
+    @Test fun locationIsAskedUntilFineLocationIsGranted() {
+        val fine = "android.permission.ACCESS_FINE_LOCATION"
+        val coarse = "android.permission.ACCESS_COARSE_LOCATION"
+        assertEquals(listOf(fine, coarse), locationPermissionRequest(emptySet()))
+        assertEquals(listOf(fine), locationPermissionRequest(setOf(coarse)))
+        assertNull(locationPermissionRequest(setOf(fine, coarse)))
+        val run = setOf("android.permission.health.READ_HEART_RATE", "android.permission.ACTIVITY_RECOGNITION")
+        assertEquals(OK, permissionState(36, run))
+    }
+
+    // S15P31E105-549: "항상 허용" is asked alone, only after fine location, and never blocks a run.
+    @Test fun backgroundLocationIsAskedAloneAfterFineLocation() {
+        val fine = "android.permission.ACCESS_FINE_LOCATION"
+        assertNull(backgroundLocationRequest(emptySet()))
+        assertEquals(listOf(BACKGROUND_LOCATION), backgroundLocationRequest(setOf(fine)))
+        assertNull(backgroundLocationRequest(setOf(fine, BACKGROUND_LOCATION)))
+    }
+
+    // S15P31E105-617: notifications (run Ongoing Activity) are a runtime permission only from API 33.
+    @Test fun notificationPermissionIsAskedFromApi33UntilGranted() {
+        assertNull(notificationPermissionRequest(32, emptySet()))
+        assertEquals(listOf(POST_NOTIFICATIONS), notificationPermissionRequest(33, emptySet()))
+        assertNull(notificationPermissionRequest(34, setOf(POST_NOTIFICATIONS)))
+    }
 }

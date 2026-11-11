@@ -24,6 +24,15 @@ type ListItem = {
   movingDuration: number | null;
   averagePace: number | null;
   goalAchieved: boolean | null;
+  // Optional 0–1 thumbnail outline when the server sends one (H01 leaves it out today).
+  shape?: [number, number][] | null;
+  // H01 runType and the group run link (RunningRecordGroupResponse); group is null for solo runs (S15P31E105-635).
+  runType?: RunType | null;
+  group?: {
+    groupRunId: number;
+    crewName: string;
+    finisherCount: number;
+  } | null;
 };
 
 // `page` is the next page's cursor, left out on the last page.
@@ -62,6 +71,25 @@ type StatisticsResponse = {
 };
 
 const path = '/running-records';
+
+// S11 표시용 경로(sessions.md S11, S15P31E105-549): 서버가 구간별로 워치 위치를 우선해 고르고 출처 전환·공백에서 끊은 조각.
+type RouteResponse = {
+  sessionId: number;
+  segments: { source: 'WATCH' | 'PHONE'; coordinates: [number, number][] }[];
+};
+
+// 경로가 없거나 읽지 못하면 null이다. 경로 하나 때문에 기록 상세 전체를 실패로 보이지 않는다.
+async function routePartsOf(sessionId: string): Promise<[number, number][][] | null> {
+  try {
+    const response = await apiRequest<RouteResponse>(`/running-sessions/${sessionId}/route`);
+    const parts = (response?.segments ?? [])
+      .map(segment => segment.coordinates)
+      .filter(part => Array.isArray(part) && part.length > 0);
+    return parts.length > 0 ? parts : null;
+  } catch {
+    return null;
+  }
+}
 // The server's largest H01 page.
 const pageLimit = 50;
 const kstOffsetMs = 9 * 60 * 60 * 1000;
@@ -95,13 +123,24 @@ function titleOf(startedAt: string) {
   return `${part} 러닝`;
 }
 
-// H01 leaves out the route thumbnail and the group's crew, so the row shows a blank thumbnail and the run time.
+// H01 usually leaves out the route thumbnail; when shape points arrive, keep them for the row glyph.
+// The item's own runType wins over the queried one; group keeps the crew and the group run id that opens 6.7
+// (S15P31E105-635).
 function toSummary(
   item: ListItem & { startedAt: string },
   runType: RunType,
 ): RunRecordSummary {
   const distanceM = item.totalDistance ?? 0;
   const durationSec = item.movingDuration ?? 0;
+  const shape = Array.isArray(item.shape)
+    ? item.shape.filter(
+        (point): point is [number, number] =>
+          Array.isArray(point) &&
+          point.length >= 2 &&
+          typeof point[0] === 'number' &&
+          typeof point[1] === 'number',
+      )
+    : [];
   return {
     id: String(item.id),
     title: titleOf(item.startedAt),
@@ -111,9 +150,15 @@ function toSummary(
     averagePaceSecPerKm:
       roundPace(item.averagePace) ??
       (distanceM > 0 ? Math.round(durationSec / (distanceM / 1000)) : 0),
-    shape: [],
-    runType,
-    group: null,
+    shape,
+    runType: item.runType ?? runType,
+    group: item.group
+      ? {
+          crewName: item.group.crewName,
+          finisherCount: item.group.finisherCount,
+          groupRunId: String(item.group.groupRunId),
+        }
+      : null,
     goalAchieved: item.goalAchieved,
   };
 }
@@ -210,14 +255,24 @@ export function createRecordsApi() {
   }
 
   const records: Repositories['records'] = {
-    // 2.1 과거 러닝 기록 lists my solo runs.
+    // Newest runs across solo and group (first-run tip and 5.1 start day; S15P31E105-638).
     getRecent: async (sort, limit) => {
-      const page = await apiRequest<ListResponse>(path, {
-        query: { runType: 'SOLO', sort: sortParam[sort], limit },
-      });
-      return remember(
-        started(listItems(page)).map(item => toSummary(item, 'SOLO')),
+      const lists = await Promise.all(
+        (['SOLO', 'GROUP'] as const).map(runType =>
+          apiRequest<ListResponse>(path, {
+            query: { runType, sort: sortParam[sort], limit },
+          }).then(page =>
+            started(listItems(page)).map(item => toSummary(item, runType)),
+          ),
+        ),
       );
+      const order = (a: RunRecordSummary, b: RunRecordSummary) =>
+        sort === 'distance'
+          ? b.distanceM - a.distanceM
+          : sort === 'pace'
+          ? a.averagePaceSecPerKm - b.averagePaceSecPerKm
+          : newestFirst(a, b);
+      return remember(lists.flat().sort(order).slice(0, limit));
     },
     getMonth: async (month, filter) => {
       const [summary, runs] = await Promise.all([
@@ -230,12 +285,25 @@ export function createRecordsApi() {
         records: remember(runs),
       };
     },
-    // The route map, AI advice and 내 코스 link have no server source yet, so 5.2 hides them.
+    // AI advice and the 내 코스 link have no server source yet, so 5.2 hides them. The measured route comes from S11;
+    // a record's id is its session id (H02).
+    // H02만 읽는다(S15P31E105-663). 목록·구간·경로 조회 없이 종료 직후 워치에 옮길 요약만 만든다.
+    getResultSummary: async recordId => {
+      const detail = await apiRequest<DetailResponse>(`${path}/${recordId}`);
+      return {
+        distanceM: detail.actualDistanceM,
+        movingDurationSec: detail.movingDurationSec,
+        averagePaceSecPerKm: roundPace(detail.averagePaceSecPerKm),
+        averageHeartRate: detail.averageHeartRate,
+        goalAchieved: detail.goalAchieved,
+      };
+    },
     getDetail: async recordId => {
-      const [detail, { splits }, summary] = await Promise.all([
+      const [detail, { splits }, summary, routeParts] = await Promise.all([
         apiRequest<DetailResponse>(`${path}/${recordId}`),
         apiRequest<{ splits: RunSplit[] }>(`${path}/${recordId}/splits`),
         known.get(recordId) ?? findSummary(recordId),
+        routePartsOf(recordId),
       ]);
       // H02 answered, so H01 lists the run; this only guards a run removed in between.
       if (!summary) {
@@ -248,9 +316,16 @@ export function createRecordsApi() {
         averagePaceSecPerKm:
           roundPace(detail.averagePaceSecPerKm) ?? summary.averagePaceSecPerKm,
         goalAchieved: detail.goalAchieved,
+        // 내 코스 저장(saveFromRun)에 쓰는 route는 서버 저장 API가 없어 그대로 비운다.
         route: null,
+        routeParts,
+        targetDistanceM: detail.targetDistanceM,
         targetDurationSec: detail.targetDurationSec,
         targetPaceSecPerKm: roundPace(detail.targetPaceSecPerKm),
+        averageHeartRate:
+          detail.averageHeartRate === null
+            ? null
+            : Math.round(detail.averageHeartRate),
         aiAdvice: null,
         splits: splits.map(split => ({
           ...split,

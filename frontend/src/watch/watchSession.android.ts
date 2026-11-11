@@ -7,6 +7,7 @@ import type {
   SessionCommand,
   SessionGoalDraft,
   WatchGroupStatus,
+  WatchResultSummary,
   WatchSessionEvent,
 } from '../data/types';
 
@@ -52,6 +53,29 @@ type NativeBatch = {
   itemCount: number;
   body: string;
 };
+
+// 표시 전용 LIVE_METRICS(S15P31E105-549). 네이티브 수신함을 거치지 않으므로 ACK하지 않는다.
+type NativeLive = { type: 'LIVE_METRICS'; sessionId: string; payload: Record<string, unknown> };
+
+const numberOrNull = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+function toLiveEvent(raw: NativeLive): WatchSessionEvent | null {
+  const payload = raw.payload;
+  if (!payload || typeof payload !== 'object' || raw.sessionId == null) {
+    return null;
+  }
+  return {
+    type: 'LIVE_METRICS',
+    sessionId: String(raw.sessionId),
+    measuredAt: typeof payload.measuredAt === 'string' ? payload.measuredAt : null,
+    paceSecPerKm: numberOrNull(payload.paceSecPerKm),
+    heartRateBpm: numberOrNull(payload.heartRateBpm),
+    cadenceSpm: numberOrNull(payload.cadenceSpm),
+    distanceM: numberOrNull(payload.distanceM),
+    activeSec: numberOrNull(payload.activeSec),
+  };
+}
 
 function toBatchEvent(raw: NativeBatch): WatchSessionEvent | null {
   if (typeof raw.body !== 'string' || typeof raw.batchId !== 'string') {
@@ -108,6 +132,15 @@ function paceChangedJson(change: WatchGroupStatus['paceChanged']) {
   return from !== null && to !== null ? JSON.stringify({ from, to }) : 'null';
 }
 
+// S15P31E105-629: 그룹장 폰이 본 간격 벌어짐. 거리가 없으면 보내지 않는다(null). 이름은 JSON 문자열로 옮긴다.
+function gapWidenedJson(gap: WatchGroupStatus['gapWidened']) {
+  const gapM = finiteOrNull(gap?.gapM ?? null);
+  if (!gap || gapM === null || gapM < 0) {
+    return 'null';
+  }
+  return JSON.stringify({ gapM: Math.round(gapM), memberName: gap.memberName ?? null, isNew: gap.isNew === true });
+}
+
 // GROUP_STATUS payload(9.3). 그룹런 ID는 숫자 토큰 그대로 넣고, 값은 받은 그대로 옮긴다.
 function groupStatusJson(status: WatchGroupStatus) {
   const standing = status.standing
@@ -127,7 +160,9 @@ function groupStatusJson(status: WatchGroupStatus) {
     `"updatedAt":${JSON.stringify(status.updatedAt)},` +
     `"rankedCount":${JSON.stringify(finiteOrNull(status.rankedCount))},` +
     // S15P31E105-604: 폰이 본 공동 페이스 변경. 워치는 이 값이 있을 때만 진동한다.
-    `"paceChanged":${paceChangedJson(status.paceChanged)}}`
+    `"paceChanged":${paceChangedJson(status.paceChanged)},` +
+    // S15P31E105-629: 그룹장에게만 오는 간격 벌어짐. 워치는 isNew일 때만 진동한다.
+    `"gapWidened":${gapWidenedJson(status.gapWidened)}}`
   );
 }
 
@@ -144,6 +179,19 @@ function guideJson(guide: CoachingGuide) {
     `"recommendedPaceSecPerKm":${JSON.stringify(guide.recommendedPaceSecPerKm)},` +
     `"expiresAt":${JSON.stringify(guide.expiresAt)}}`
   );
+}
+
+// STATE_RESULT analysis(S15P31E105-663): S02 analysis.status와, READY일 때만 H02에서 읽은 요약. 값은 그대로 옮긴다.
+function analysisJson(status: string, summary: WatchResultSummary | null) {
+  const show = status === 'READY' ? summary : null;
+  const number = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  const body = show
+    ? `{"distanceM":${number(show.distanceM)},"movingDurationSec":${number(show.movingDurationSec)},` +
+      `"averagePaceSecPerKm":${number(show.averagePaceSecPerKm)},"averageHeartRate":${number(show.averageHeartRate)},` +
+      `"goalAchieved":${typeof show.goalAchieved === 'boolean' ? show.goalAchieved : null}}`
+    : 'null';
+  return `{"status":${JSON.stringify(status)},"summary":${body}}`;
 }
 
 // STATE_RESULT comparison = S02 기록 비교 객체(sessions.md "기록 비교"). 알려진 필드만 옮긴다.
@@ -267,7 +315,14 @@ export function createNativeWatchSession(
   const unsavedResults = new Map<string, string[]>();
 
   // 수신함에 남은 메시지는 리스너가 붙기 전까지 지우지 않는다(subscribe 때 drain으로 다시 받는다).
-  const handle = (input: NativeEvent | NativeBatch) => {
+  const handle = (input: NativeEvent | NativeBatch | NativeLive) => {
+    if (input.type === 'LIVE_METRICS') {
+      const live = toLiveEvent(input as NativeLive);
+      if (live) {
+        listeners.forEach(listener => listener(live));
+      }
+      return;
+    }
     if (input.type === 'BATCH_DATA') {
       // batch는 수신함이 아니라 네이티브 batch 저장소에 남는다. 리스너가 없으면 subscribe 때 다시 받는다.
       const batch = toBatchEvent(input as NativeBatch);
@@ -302,7 +357,7 @@ export function createNativeWatchSession(
 
   source.addListener(EVENT, json => {
     try {
-      handle(JSON.parse(json) as NativeEvent | NativeBatch);
+      handle(JSON.parse(json) as NativeEvent | NativeBatch | NativeLive);
     } catch {
       // 형식이 맞지 않는 이벤트는 버린다. 값은 로그에 남기지 않는다.
     }
@@ -447,7 +502,12 @@ export function createNativeWatchSession(
       send('/runway/v1/error', 'ERROR', sessionId, JSON.stringify({ code, retryable, failedType })),
 
     // S02/S10 스냅샷을 그대로 옮긴다. 서버 시각이 없는 상태(취소 응답 등)는 null로 보낸다.
-    sendServerState: (sessionId, session: RunningSessionView, clientSendAt = null) =>
+    sendServerState: (
+      sessionId,
+      session: RunningSessionView,
+      clientSendAt = null,
+      summary = null,
+    ) =>
       send(
         'state-result',
         'STATE_RESULT',
@@ -461,7 +521,9 @@ export function createNativeWatchSession(
           `"serverReceiveAt":${JSON.stringify(session.serverReceiveAt ?? null)},` +
           `"serverSendAt":${JSON.stringify(session.serverSendAt ?? null)},` +
           // S02 기록 비교를 그대로 옮긴다(S15P31E105-422). 워치는 다시 계산하지 않는다.
-          `"comparison":${comparisonJson(session.comparison ?? null)}}`,
+          `"comparison":${comparisonJson(session.comparison ?? null)},` +
+          // S02 분석 상태와 H02 요약을 옮긴다(S15P31E105-663). 워치는 계산하지 않는다.
+          `"analysis":${analysisJson(session.analysisStatus, summary)}}`,
       ),
 
     subscribe: listener => {

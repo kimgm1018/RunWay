@@ -19,7 +19,7 @@ class PaceCoachingDisplayTest {
 
     @Test fun showsTheGuidePaceTargetRhythmCueAndDummyBadge() {
         val v = PaceCoachingDisplay.from(snapshot())
-        assertEquals("5′58″", v.guidePace.value)
+        assertEquals("5’58”", v.guidePace.value)
         assertEquals("165", v.targetRhythm.value)
         assertEquals("목표 리듬 165 BPM", v.targetRhythm.description)
         assertEquals("리듬 BPM 165로 조정", v.cue)

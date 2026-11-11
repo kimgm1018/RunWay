@@ -130,13 +130,24 @@ export function toDetail(
     course =>
       course.id === record.courseId || course.id === `course-${record.id}`,
   );
+  const splits = splitsOf(record);
+  const heart = splits
+    .map(split => split.averageHeartRate)
+    .filter((value): value is number => value !== null);
   return {
     ...toSummary(record),
     route: record.route,
+    routeParts: record.route && record.route.length > 1 ? [record.route] : null,
+    // Mock fixtures keep no separate distance goal; course runs still expose duration goals.
+    targetDistanceM: null,
     targetDurationSec: record.targetDurationSec,
     targetPaceSecPerKm: record.targetPaceSecPerKm,
+    // The mock keeps no run average, so it is the splits' (H02 has its own).
+    averageHeartRate: heart.length
+      ? Math.round(heart.reduce((sum, value) => sum + value, 0) / heart.length)
+      : null,
     aiAdvice: record.aiAdvice,
-    splits: splitsOf(record),
+    splits,
     courseId: record.courseId,
     myCourseId: mine?.id ?? null,
   };

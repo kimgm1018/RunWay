@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
   EmptyState,
+  Icon,
   PressableScale,
   useToast,
 } from '../../components';
@@ -36,9 +37,10 @@ import {
   isSameDay,
 } from '../../format';
 import type { RootStackParamList } from '../../navigation/types';
+import { MissingTarget } from './MissingTarget';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { joinPolicyLabels } from './CrewDetailScreen';
-import { groupLook, groupPage, SectionLabel } from './look';
+import { groupTone, NightBackground, NumText } from './look';
 import { BackButton } from '../../components/BackButton';
 
 const levelLabels: Record<SelfReportedLevel, string> = {
@@ -52,9 +54,9 @@ const policyOptions = (['APPROVAL', 'INSTANT'] as const).map(value => ({
   label: joinPolicyLabels[value],
 }));
 
-// 가입 방식 on the dark screens (6.2a-JoinModeCard, 6.3): the picked option a raised white pill on a
-// pressed-in track, like the 6.0 · 6.1 tabs. Same roles and labels as Segmented.
-export function DarkSegmented<T extends string>({
+// 가입 방식 (6.2a, 6.3) on the navy page (S15P31E105-594 담당자 시안, home tone): a quiet faint white track with the
+// picked option filled white with navy text. Same roles and labels as Segmented.
+export function PolicySegmented<T extends string>({
   options,
   value,
   onChange,
@@ -67,13 +69,6 @@ export function DarkSegmented<T extends string>({
     <View accessibilityRole="radiogroup" style={styles.segments}>
       {options.map(option => {
         const selected = option.value === value;
-        const label = (
-          <AppText
-            style={[styles.segmentText, selected && styles.segmentTextOn]}
-          >
-            {option.label}
-          </AppText>
-        );
         return (
           <Pressable
             key={option.value}
@@ -81,9 +76,13 @@ export function DarkSegmented<T extends string>({
             accessibilityLabel={option.label}
             accessibilityState={{ selected }}
             onPress={() => onChange(option.value)}
-            style={styles.segment}
+            style={[styles.segment, selected && styles.segmentOn]}
           >
-            {selected ? <View style={styles.segmentOn}>{label}</View> : label}
+            <AppText
+              style={[styles.segmentText, selected && styles.segmentTextOn]}
+            >
+              {option.label}
+            </AppText>
           </Pressable>
         );
       })}
@@ -108,8 +107,9 @@ function requestLine(request: CrewJoinRequest, now: Date) {
     .join(' · ');
 }
 
-// One request without dividers (6.2a-PendingRequests): on the white page 승인 is flat navy and 거절 flat grey
-// (S15P31E105-563).
+// One request as its own faint white panel on the navy page (S15P31E105-594 담당자 시안): the name on top,
+// then its line with 거절 quiet and 승인 in the mockup's mint (navy text) on the right. The line keeps the date in it (중급 · 최근 5km 5′56″ · 3분 전 신청), so it is not
+// split off to the top right as in the mockup, and the mockup has no initial tile, so it is left out.
 function RequestRow({
   request,
   canApprove,
@@ -123,44 +123,40 @@ function RequestRow({
 }) {
   const { clock } = useRepositories();
   return (
-    <View style={styles.row}>
-      <View style={styles.initial}>
-        <AppText style={styles.initialText}>
-          {request.nickname.slice(0, 1)}
-        </AppText>
+    <View style={styles.card}>
+      <AppText style={styles.name}>
+        {request.loginId
+          ? `${request.nickname} · ${request.loginId}`
+          : request.nickname}
+      </AppText>
+      <View style={styles.requestBottom}>
+        <NumText
+          text={requestLine(request, clock.now())}
+          style={[styles.cardSub, styles.flex]}
+        />
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${request.nickname} 거절`}
+          disabled={busy}
+          onPress={() => onDecide(false)}
+        >
+          <View style={[styles.decide, styles.decideQuiet]}>
+            <AppText style={styles.decideTextLight}>거절</AppText>
+          </View>
+        </PressableScale>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`${request.nickname} 승인`}
+          accessibilityState={{ disabled: !canApprove }}
+          disabled={busy || !canApprove}
+          onPress={() => onDecide(true)}
+          style={[!canApprove && styles.locked]}
+        >
+          <View style={[styles.decide, styles.decideMint]}>
+            <AppText style={styles.decideTextOnMint}>승인</AppText>
+          </View>
+        </PressableScale>
       </View>
-      <View style={styles.flex}>
-        <AppText style={styles.name}>
-          {request.loginId
-            ? `${request.nickname} · ${request.loginId}`
-            : request.nickname}
-        </AppText>
-        <AppText style={styles.sub}>
-          {requestLine(request, clock.now())}
-        </AppText>
-      </View>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${request.nickname} 거절`}
-        disabled={busy}
-        onPress={() => onDecide(false)}
-      >
-        <View style={[styles.decide, styles.decideGrey]}>
-          <AppText style={styles.decideTextDark}>거절</AppText>
-        </View>
-      </PressableScale>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${request.nickname} 승인`}
-        accessibilityState={{ disabled: !canApprove }}
-        disabled={busy || !canApprove}
-        onPress={() => onDecide(true)}
-        style={[!canApprove && styles.locked]}
-      >
-        <View style={[styles.decide, styles.decideNavy]}>
-          <AppText style={styles.decideTextLight}>승인</AppText>
-        </View>
-      </PressableScale>
     </View>
   );
 }
@@ -173,9 +169,17 @@ const loadRequests = (repositories: Repositories, crewId: string) =>
 // 6.2a 가입 신청 관리 (crew leader only): 가입 방식 and the requests waiting for a decision.
 // Approving is locked once the crew is full (M06).
 export function CrewJoinRequestsScreen() {
-  const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'CrewJoinRequests'>>();
-  const crewId = route.params?.crewId ?? 'crew-minrak-night';
+  const crewId = route.params?.crewId;
+  // Without an id the screen has nothing to show; no mock id stands in (S15P31E105-635).
+  if (!crewId) {
+    return <MissingTarget title="크루를 찾을 수 없어요" />;
+  }
+  return <CrewJoinRequestsContent crewId={crewId} />;
+}
+
+function CrewJoinRequestsContent({ crewId }: { crewId: string }) {
+  const navigation = useNavigation();
   const { crews } = useRepositories();
   const toast = useToast();
   const crewResource = useResource(
@@ -268,13 +272,14 @@ export function CrewJoinRequestsScreen() {
   const canApprove = crew ? crew.memberCount < crew.capacity : false;
 
   return (
-    // The white page with grey bands, like 6.2 (S15P31E105-563).
-    <ThemeProvider tone="light">
-      <View style={[styles.root, groupPage.page]}>
-        <StatusBar barStyle="dark-content" />
+    // The home's navy page with faint white panels (담당자 결정: 진한 네이비), laid out as the S15P31E105-594 담당자 시안.
+    <ThemeProvider tone="dark">
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+        <NightBackground />
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>
-            <BackButton tone="light" onPress={() => navigation.goBack()} />
+            <BackButton tone="dark" onPress={() => navigation.goBack()} />
             <AppText style={styles.headerTitle} accessibilityRole="header">
               가입 신청
             </AppText>
@@ -291,27 +296,30 @@ export function CrewJoinRequestsScreen() {
             onAction={reloadAll}
           />
         ) : !crew || !requests ? (
-          <ActivityIndicator style={styles.loading} />
+          <ActivityIndicator color={groupTone.sub} style={styles.loading} />
         ) : (
           <ScrollView contentContainerStyle={styles.content}>
-            <View style={styles.titleBlock}>
+            {/* 6.2a-CrewHero as a panel. The mockup's crew photo is left out: the crew data has none. */}
+            <View style={[styles.card, styles.heroCard]}>
               <AppText style={styles.title}>{crew.name}</AppText>
-              <AppText style={styles.summary}>
-                {'멤버 '}
-                <AppText style={styles.summaryStrong}>
-                  {crew.memberCount}
-                </AppText>
-                {` / ${crew.capacity}명 · ${joinPolicyLabels[crew.joinPolicy]}`}
-              </AppText>
+              <NumText
+                text={`멤버 ${crew.memberCount} / ${crew.capacity}명 · ${
+                  joinPolicyLabels[crew.joinPolicy]
+                }`}
+                style={styles.summary}
+                numberStyle={styles.summaryStrong}
+              />
             </View>
-            <View style={groupPage.block}>
+            <View style={styles.section}>
               <View style={styles.rowBetween}>
-                <SectionLabel tone="mist">가입 방식</SectionLabel>
+                <AppText style={styles.label} accessibilityRole="header">
+                  가입 방식
+                </AppText>
                 <AppText style={styles.note} numberOfLines={1}>
                   크루 상세·신청 화면에 같이 표시돼요
                 </AppText>
               </View>
-              <DarkSegmented
+              <PolicySegmented
                 options={policyOptions}
                 value={crew.joinPolicy}
                 onChange={changePolicy}
@@ -321,34 +329,49 @@ export function CrewJoinRequestsScreen() {
                 바로 멤버가 돼요.
               </AppText>
             </View>
-            <View style={groupPage.block}>
-              <View style={styles.rowBetween}>
-                <SectionLabel tone="mist">대기 중인 신청</SectionLabel>
-                <AppText style={styles.count}>{`${requests.length}건`}</AppText>
+            {/* The mockup's thin line between 가입 방식 and the requests. */}
+            <View style={styles.divider} />
+            <View style={styles.section}>
+              {/* 대기 중인 신청 3건 as one big line, as in the mockup. */}
+              <View style={styles.requestsHead}>
+                <AppText
+                  style={styles.requestsTitle}
+                  accessibilityRole="header"
+                >
+                  대기 중인 신청
+                </AppText>
+                <NumText
+                  text={`${requests.length}건`}
+                  style={styles.requestsTitle}
+                />
               </View>
               {requests.length === 0 ? (
-                <AppText style={[styles.sub, styles.none]}>
-                  아직 대기 중인 신청이 없어요
-                </AppText>
-              ) : (
-                <View>
-                  {requests.map(request => (
-                    <RequestRow
-                      key={request.userId}
-                      request={request}
-                      canApprove={canApprove}
-                      busy={busy}
-                      onDecide={approve => decide(request, approve)}
-                    />
-                  ))}
+                <View style={styles.card}>
+                  <AppText style={styles.cardSub}>
+                    아직 대기 중인 신청이 없어요
+                  </AppText>
                 </View>
+              ) : (
+                requests.map(request => (
+                  <RequestRow
+                    key={request.userId}
+                    request={request}
+                    canApprove={canApprove}
+                    busy={busy}
+                    onDecide={approve => decide(request, approve)}
+                  />
+                ))
               )}
             </View>
-            <AppText style={[styles.sub, styles.approvalNote]}>
-              승인하면 신청자에게 알림이 가고 내 크루 목록에 크루와 그룹런이
-              보여요. 거절하면 신청자에게 거절 알림이 가고, 다른 크루에 다시
-              신청할 수 있어요. 정원이 차면 승인 버튼이 잠겨요.
-            </AppText>
+            {/* 6.2a-ApprovalNote with the mockup's round info mark. */}
+            <View style={styles.approvalNote}>
+              <Icon name="alert" color={groupTone.sub} size={16} />
+              <AppText style={[styles.sub, styles.flex]}>
+                승인하면 신청자에게 알림이 가고 내 크루 목록에 크루와 그룹런이
+                보여요. 거절하면 신청자에게 거절 알림이 가고, 다른 크루에 다시
+                신청할 수 있어요. 정원이 차면 승인 버튼이 잠겨요.
+              </AppText>
+            </View>
           </ScrollView>
         )}
       </View>
@@ -373,142 +396,143 @@ const styles = StyleSheet.create({
     fontSize: 19,
     lineHeight: 26,
     letterSpacing: -0.4,
-    color: groupLook.onLight,
+    color: groupTone.text,
   },
   ownerOnly: {
     height: 26,
     paddingHorizontal: 11,
     borderRadius: 13,
     justifyContent: 'center',
-    backgroundColor: groupLook.navy,
+    backgroundColor: groupTone.quiet,
   },
   ownerOnlyText: {
     fontFamily: fontFamily.bold,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onDark,
+    color: groupTone.text,
   },
-  content: { paddingBottom: 48 },
-  // 6.2a-CrewHero: the crew name and its member line, over the first band.
-  titleBlock: {
-    gap: spacing.xs,
-    marginTop: spacing.md,
-    paddingHorizontal: 20,
-    paddingBottom: 24,
+  content: { paddingHorizontal: 20, paddingBottom: 48, gap: 18 },
+  // A faint white panel with a faint white rim on the navy page.
+  card: {
+    gap: 10,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: groupTone.cardLine,
+    backgroundColor: groupTone.card,
   },
+  // 6.2a-CrewHero.
+  heroCard: { gap: spacing.xs, marginTop: spacing.sm },
   title: {
     fontFamily: fontFamily.bold,
-    fontSize: 30,
-    lineHeight: 38,
-    letterSpacing: -0.6,
-    color: groupLook.onLight,
+    fontSize: 22,
+    lineHeight: 29,
+    letterSpacing: -0.4,
+    color: groupTone.text,
   },
   summary: {
     fontFamily: fontFamily.regular,
     fontSize: 15,
     lineHeight: 21,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
-  summaryStrong: { fontFamily: fontFamily.bold, color: groupLook.onLight },
+  summaryStrong: { color: groupTone.text },
+  section: { gap: 10 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: groupTone.line,
+  },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
   },
+  label: {
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupTone.text,
+  },
   note: {
     flexShrink: 1,
     fontFamily: fontFamily.regular,
     fontSize: 12,
     lineHeight: 16,
-    color: groupLook.onLightMuted,
-  },
-  count: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupLook.onLightSub,
+    color: groupTone.muted,
   },
   sub: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
     lineHeight: 19,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
-  // 가입 방식 switch: 44 high on a pressed-in track (6.2a-JoinModeCard).
+  // 가입 방식 switch: a quiet track, the picked half white.
   segments: {
     flexDirection: 'row',
-    height: 44,
-    padding: 4,
-    gap: 4,
-    borderRadius: 22,
-    backgroundColor: groupLook.lightFill,
+    height: 46,
+    padding: 3,
+    gap: 3,
+    borderRadius: 12,
+    backgroundColor: groupTone.quiet,
   },
-  segment: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  segmentOn: {
-    alignSelf: 'stretch',
+  segment: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupLook.navy,
   },
+  segmentOn: { backgroundColor: groupTone.button },
   segmentText: {
     fontFamily: fontFamily.bold,
     fontSize: 15,
     lineHeight: 20,
-    color: groupLook.onLightSub,
+    color: groupTone.sub,
   },
-  segmentTextOn: { color: groupLook.onDark },
-  // 6.2a-PendingRequests rows.
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: spacing.lg,
-  },
-  initial: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: groupLook.lightFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  initialText: {
+  segmentTextOn: { color: groupTone.onButton },
+  requestsHead: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  requestsTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupLook.onLight,
+    fontSize: 20,
+    lineHeight: 27,
+    letterSpacing: -0.4,
+    color: groupTone.text,
   },
+  // 6.2a-PendingRequests cards.
   name: {
     fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    color: groupLook.onLight,
+    fontSize: 17,
+    lineHeight: 23,
+    color: groupTone.text,
   },
+  cardSub: {
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: groupTone.sub,
+  },
+  requestBottom: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   decide: {
-    height: 38,
-    paddingHorizontal: 14,
-    borderRadius: 19,
+    height: 34,
+    paddingHorizontal: 16,
+    borderRadius: 10,
     justifyContent: 'center',
   },
-  decideNavy: { backgroundColor: groupLook.navy },
-  decideGrey: { backgroundColor: groupLook.lightFill },
+  decideMint: { backgroundColor: groupTone.accent },
+  decideQuiet: { backgroundColor: groupTone.quiet },
+  decideTextOnMint: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 19,
+    color: groupTone.onAccent,
+  },
   decideTextLight: {
     fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 19,
-    color: groupLook.onDark,
-  },
-  decideTextDark: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupLook.navy,
+    color: groupTone.text,
   },
   locked: { opacity: 0.5 },
-  none: { paddingVertical: spacing.xl },
   // 6.2a-ApprovalNote.
-  approvalNote: { paddingHorizontal: 20 },
+  approvalNote: { flexDirection: 'row', gap: 8, paddingHorizontal: 4 },
 });

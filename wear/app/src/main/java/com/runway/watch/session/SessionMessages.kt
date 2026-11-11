@@ -1,9 +1,14 @@
 package com.runway.watch.session
 
+import com.runway.watch.run.AnalysisReport
+import com.runway.watch.run.AnalysisStatus
+import com.runway.watch.run.GoalEvaluation
 import com.runway.watch.run.GroupNotice
 import com.runway.watch.run.GroupPhase
 import com.runway.watch.run.GroupStanding
+import com.runway.watch.run.HeartRate
 import com.runway.watch.run.RecordComparison
+import com.runway.watch.run.RunSummary
 import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
@@ -36,6 +41,9 @@ object SessionPaths {
     /** G10 group standing relayed by the phone (9.3 GROUP_STATUS, S15P31E105-420). */
     const val GROUP_PREFIX = "/runway/v1/group/"
     const val GROUP_STATUS = "/runway/v1/group/status"
+
+    /** Display-only live values for the phone screen (9.3 LIVE_METRICS, S15P31E105-549). No ACK, never uploaded. */
+    const val LIVE_METRICS = "/runway/v1/data/live"
 }
 
 /** 9.3 targetBpm range for SET_BPM and COACHING_GUIDE. */
@@ -115,6 +123,43 @@ data class SessionEnvelope(
                 val to = c.wholeNumber("to")?.takeIf { it > 0 }?.toInt() ?: return@let null
                 GroupNotice.PaceChanged(from, to).takeIf { from != to }
             },
+            gapWidened = gapWidened(),
+            gapWidenedNew = payload.optJSONObject("gapWidened")?.optBoolean("isNew", false) == true && gapWidened() != null,
+        )
+    }
+
+    /** GROUP_STATUS.gapWidened (S15P31E105-629); a missing or negative distance drops it. A blank name is no name. */
+    private fun gapWidened(): GroupNotice.GapWidened? = payload.optJSONObject("gapWidened")?.let { g ->
+        val meters = g.wholeNumber("gapM")?.takeIf { it >= 0 }?.toInt() ?: return@let null
+        val name = if (!g.has("memberName") || g.isNull("memberName")) null else g.optString("memberName").trim().takeIf { it.isNotEmpty() }
+        GroupNotice.GapWidened(meters, name)
+    }
+
+    /**
+     * STATE_RESULT(scope=SERVER).analysis (S15P31E105-663, integration doc STATE_RESULT): the server's analysis status and,
+     * only when READY, the H02 summary the phone relayed. Null when the field is absent (an older phone), the status is
+     * unknown or LEGACY. Nothing is computed here; a missing or invalid value stays null and is shown as missing.
+     */
+    fun analysis(): AnalysisReport? {
+        val a = payload.optJSONObject("analysis") ?: return null
+        val status = when (a.optString("status")) {
+            "PENDING" -> AnalysisStatus.PENDING
+            "PROCESSING" -> AnalysisStatus.PROCESSING
+            "READY" -> AnalysisStatus.READY
+            "FAILED" -> AnalysisStatus.FAILED
+            else -> return null
+        }
+        if (status != AnalysisStatus.READY) return AnalysisReport(status)
+        val s = a.optJSONObject("summary") ?: return AnalysisReport(status)
+        val distance = s.nullableDistance("distanceM")?.value
+        val moving = s.wholeNumber("movingDurationSec")
+        val pace = (s.opt("averagePaceSecPerKm") as? Number)?.toDouble()?.takeIf { it.isFinite() && it > 0 }?.let { Math.round(it).toInt() }
+        val heart = (s.opt("averageHeartRate") as? Number)?.toDouble()?.takeIf { it.isFinite() && it > 0 }?.let { HeartRate(Math.round(it).toInt()) }
+        val achieved = if (s.has("goalAchieved") && !s.isNull("goalAchieved")) s.opt("goalAchieved") as? Boolean else null
+        return AnalysisReport(
+            status = status,
+            summary = RunSummary(distanceMeters = distance, elapsedMs = moving?.let { it * 1000 }, averagePaceSecondsPerKm = pace, averageHeartRate = heart),
+            goal = achieved?.let { GoalEvaluation(it) },
         )
     }
 
@@ -276,6 +321,27 @@ object SessionMessages {
         return encode("COMMAND_RESULT", messageId, replyTo, sessionId, payload)
     }
 
+    /**
+     * 9.3 LIVE_METRICS (S15P31E105-549): the values the watch screen shows now, so the phone shows the same ones without
+     * waiting for the next batch. Display only: no ACK, no retry, never stored or uploaded. A value not measured is null.
+     */
+    fun liveMetrics(
+        messageId: String,
+        sessionId: String,
+        measuredAt: Instant?,
+        paceSecPerKm: Int?,
+        heartRateBpm: Int?,
+        cadenceSpm: Int?,
+        distanceM: Double?,
+        activeSec: Long?,
+    ): ByteArray = encode("LIVE_METRICS", messageId, null, sessionId, JSONObject()
+        .put("measuredAt", measuredAt?.toString() ?: JSONObject.NULL)
+        .put("paceSecPerKm", paceSecPerKm ?: JSONObject.NULL)
+        .put("heartRateBpm", heartRateBpm ?: JSONObject.NULL)
+        .put("cadenceSpm", cadenceSpm ?: JSONObject.NULL)
+        .put("distanceM", distanceM ?: JSONObject.NULL)
+        .put("activeSec", activeSec ?: JSONObject.NULL))
+
     private fun encode(type: String, messageId: String, replyTo: String?, sessionId: String, payload: JSONObject): ByteArray {
         val bytes = JSONObject()
             .put("protocolVersion", PROTOCOL_VERSION)
@@ -311,4 +377,10 @@ data class GroupUpdate(
      * row. Null on the first read, null→value, the same value, or a resend; the watch alerts only when this is set.
      */
     val paceChanged: GroupNotice.PaceChanged? = null,
+    /**
+     * GROUP_STATUS.gapWidened (S15P31E105-629): sent only to the group leader while the group stays stretched past the
+     * phone's threshold. [gapWidenedNew] is true only on the update where it crossed; the watch buzzes only then.
+     */
+    val gapWidened: GroupNotice.GapWidened? = null,
+    val gapWidenedNew: Boolean = false,
 )

@@ -1,6 +1,9 @@
 package com.runway.backend.domain.readiness;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.runway.backend.domain.readiness.service.ReadinessEvaluationService;
@@ -72,6 +75,98 @@ class ReadinessAutoEvaluationIntegrationTest extends ReadinessIntegrationSupport
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst().get("id")).isEqualTo(firstId);
         assertThat((BigDecimal) rows.getFirst().get("readiness_score")).isEqualByComparingTo("100.00");
+    }
+
+    /** S15P31E105-639 AC-3·AC-4. 자동 평가가 항목 점수와 R 변화율을 점수와 함께 저장하고 R02가 반환한다. */
+    @Test
+    void W06_평가_후_R02가_저장된_항목_점수와_R_변화율을_반환한다() throws Exception {
+        LocalDate date = today();
+        insertBaseline(userId, date, 7, "60");
+
+        mockMvc.perform(healthRequest(userId, healthBody(estimate(date, 1, "66"))))
+                .andExpect(status().isOk());
+        awaitEvaluations();
+
+        // R만 계산: 평소 60, 오늘 66 → +10.0% → 65. S·L 제외 → null, 최종 = min(65, cap(65)=84) = 65
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readinessScore").value(65.00))
+                .andExpect(jsonPath("$.readinessConfidence").value("LOW"))
+                .andExpect(jsonPath("$", hasKey("sleepScore")))
+                .andExpect(jsonPath("$.sleepScore", nullValue()))
+                .andExpect(jsonPath("$.recoveryScore").value(65.00))
+                .andExpect(jsonPath("$", hasKey("loadScore")))
+                .andExpect(jsonPath("$.loadScore", nullValue()))
+                .andExpect(jsonPath("$.restingHrChangePct").value(10.0));
+    }
+
+    /** S15P31E105-639 AC-3·AC-5. 재평가로 항목이 빠지면 같은 행의 항목 점수를 null로 덮어쓰고 점수와 짝이 맞는다. */
+    @Test
+    void 재평가로_제외된_항목은_null로_갱신되고_점수와_항목이_맞는다() {
+        LocalDate date = today();
+        insertBaseline(userId, date, 7, "60");
+        insertHealth(userId, date, "66", "420");
+
+        evaluationService.evaluate(userId, date);
+
+        // S 100(7h), R 65 → 평균 82.5, 최저 65 → 상한 84 → 82.50, MEDIUM
+        Map<String, Object> first = componentRow(userId, date);
+        assertThat((BigDecimal) first.get("readiness_score")).isEqualByComparingTo("82.50");
+        assertThat(first.get("confidence")).isEqualTo("MEDIUM");
+        assertThat((BigDecimal) first.get("sleep_score")).isEqualByComparingTo("100.00");
+        assertThat((BigDecimal) first.get("recovery_score")).isEqualByComparingTo("65.00");
+        assertThat(first.get("load_score")).isNull();
+        assertThat((BigDecimal) first.get("rhr_change_pct")).isEqualByComparingTo("10.0");
+
+        jdbc.update(
+                "UPDATE daily_health_metrics SET sleep_duration_min=NULL WHERE user_id=? AND metric_date=?",
+                userId,
+                date);
+        evaluationService.evaluate(userId, date);
+
+        Map<String, Object> second = componentRow(userId, date);
+        assertThat(second.get("id")).isEqualTo(first.get("id"));
+        assertThat((BigDecimal) second.get("readiness_score")).isEqualByComparingTo("65.00");
+        assertThat(second.get("confidence")).isEqualTo("LOW");
+        assertThat(second.get("sleep_score")).isNull();
+        assertThat((BigDecimal) second.get("recovery_score")).isEqualByComparingTo("65.00");
+        assertThat((BigDecimal) second.get("rhr_change_pct")).isEqualByComparingTo("10.0");
+    }
+
+    /** 리뷰 A-4. 세 항목으로 평가·저장한 결과를 R02가 그대로 반환하고, 항목 평균과 6-1 상한으로 점수가 맞는다. */
+    @Test
+    void 세_항목으로_평가한_결과를_R02가_반환하고_점수와_항목이_맞는다() throws Exception {
+        LocalDate date = today();
+        insertBaseline(userId, date, 7, "50");
+        insertHealth(userId, date, "56", "360");
+        jdbc.update(
+                "UPDATE daily_health_metrics SET daily_training_load=100 WHERE user_id=? AND metric_date=?",
+                userId,
+                date);
+
+        evaluationService.evaluate(userId, date);
+
+        // S 6h → 70. R +12.0% → 65. L 첫 부하가 D라 이력 7일, 최근 7일 100 ÷ 평소 100 = 1.0 → 100.
+        // 평균 (70+65+100)/3 = 78.333…, 최저 65 → 상한 84 → 78.33, HIGH
+        mockMvc.perform(latestRequest(userId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.readinessScore").value(78.33))
+                .andExpect(jsonPath("$.readinessConfidence").value("HIGH"))
+                .andExpect(jsonPath("$.sleepScore").value(70.00))
+                .andExpect(jsonPath("$.recoveryScore").value(65.00))
+                .andExpect(jsonPath("$.loadScore").value(100.00))
+                .andExpect(jsonPath("$.restingHrChangePct").value(12.0))
+                .andExpect(jsonPath("$.weeklyTrainingLoad").value(100.00))
+                .andExpect(jsonPath("$.dailyTrainingLoads[6].load").value(100.00));
+    }
+
+    private Map<String, Object> componentRow(long user, LocalDate date) {
+        return jdbc.queryForMap(
+                "SELECT id, readiness_score, readiness_confidence::text AS confidence, sleep_score,"
+                        + " recovery_score, load_score, rhr_change_pct FROM daily_readiness"
+                        + " WHERE user_id=? AND readiness_date=?",
+                user,
+                date);
     }
 
     @Test

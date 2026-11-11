@@ -71,8 +71,11 @@
   }
 
   function zoomDeltas(candidates) {
-    if (!Array.isArray(candidates) || candidates.length < 3 || !candidates[2].predHrBpm) return [];
-    var base = candidates[2].predHrBpm[2];
+    if (!Array.isArray(candidates)) return [];
+    // 안내 그대로 후보(deltaSecPerKm 0). 후보가 9개(S15P31E105-624)면 3번, 옛 기록(5개)이면 2번이다.
+    var zero = candidates.filter(function (c) { return c && c.deltaSecPerKm === 0; })[0] || candidates[2];
+    if (!zero || !zero.predHrBpm) return [];
+    var base = zero.predHrBpm[2];
     return candidates.map(function (candidate) {
       return candidate.predHrBpm && candidate.predHrBpm[2] != null && base != null
         ? candidate.predHrBpm[2] - base : null;
@@ -92,9 +95,73 @@
     var candidate = (trace.candidates || [])[decision.chosenIndex];
     var delta = candidate && candidate.deltaSecPerKm;
     var actionText = action === 'EASE_OFF' ? '속도 낮추기' : delta === 0 ? '유지' : delta < 0 ? '가속' : delta > 0 ? '감속' : '—';
+    if (decision.reasonLabel) actionText = decision.reasonLabel;   // 그룹 AI10: 가속·감속·정상 · 유지·쿨다운·워밍업
     var delivery = trace.coaching && trace.coaching.delivery;
     var deliveryText = {WATCH: '워치 적용', NOT_DELIVERED: '워치 미전달', REPLAY: '재생'}[delivery] || '워치 미전달';
-    return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText};
+    return {paceText: formatPace(decision.recommendedPaceSecPerKm) + '/km', actionText: actionText, deliveryText: deliveryText,
+      actionKind: actionKind(trace)};
+  }
+
+  // 화면에 따로 버전이 오지 않을 때 쓰는 현재 정책 버전(app/policy/policy_v03.json policy_version)
+  var DEFAULT_POLICY_VERSION = 'mpc-v0.4.3';
+
+  function policyVersionOf(trace, recording) {
+    var fromTrace = trace && trace.policyVersion;
+    var fromRecording = recording && recording.policyVersion;
+    return fromTrace || fromRecording || DEFAULT_POLICY_VERSION;
+  }
+
+  // 정책 탈락 이유(app/policy/mpc_policy.py reject_reason)를 화면 문구로 바꾼다
+  var REJECT_TEXT = {
+    UPPER_OVER_ALLOW: '허용선 초과',
+    GATE_SLOW_ONLY: '감속만 허용',
+    GATE_HOLD_OR_SLOW: '가속 금지',
+    HR_STALE: '입력 지연',
+    ACCEL_IN_HOLD: '안내 유지 중',
+    SLOW_IN_HOLD: '감속 대기',
+    SAFETY: '위험 심박'
+  };
+
+  function rejectReasonText(reason) {
+    if (!reason) return '안전 기준 미통과';
+    return REJECT_TEXT[reason] || String(reason);
+  }
+
+  // 안내 방향: up 가속 · hold 유지 · down 감속 · ease 위험 감속 · idle 판단 없음
+  function actionKind(trace) {
+    var decision = trace && trace.decision || {};
+    if (decision.action === 'EASE_OFF') return 'ease';
+    if (decision.direction) return {FAST: 'up', SLOW: 'down', HOLD: 'hold'}[decision.direction] || 'idle';
+    var candidate = (trace && trace.candidates || [])[decision.chosenIndex];
+    var delta = candidate && Number(candidate.deltaSecPerKm);
+    if (!candidate || !Number.isFinite(delta)) return 'idle';
+    return delta < 0 ? 'up' : delta > 0 ? 'down' : 'hold';
+  }
+
+  function formatElapsed(sec) {
+    var value = Number(sec);
+    if (sec == null || !Number.isFinite(value) || value < 0) return '—';
+    value = Math.floor(value);
+    var h = Math.floor(value / 3600), m = Math.floor(value % 3600 / 60), s = value % 60;
+    var mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    return (h > 0 ? h + ':' : '') + mm + ':' + String(s).padStart(2, '0');
+  }
+
+  // 후보 막대의 공통 세로 범위. 허용선과 모든 예측·상한이 들어가고, 허용선이 위쪽 3/4 근처에 오게 한다
+  function gaugeRange(candidates, allowBpm) {
+    var values = [];
+    (candidates || []).forEach(function (c) {
+      if (c && Array.isArray(c.predHrBpm) && c.predHrBpm[2] != null) values.push(Number(c.predHrBpm[2]));
+      if (c && c.peakUpperBpm != null) values.push(Number(c.peakUpperBpm));
+    });
+    var allow = Number(allowBpm);
+    if (allowBpm != null && Number.isFinite(allow)) values.push(allow);
+    values = values.filter(Number.isFinite);
+    if (!values.length) return null;
+    var max = Math.max.apply(null, values), min = Math.min.apply(null, values);
+    var hi = max + 18;
+    var lo = Math.min(min - 12, hi - 46);
+    return {lo: lo, hi: hi};
   }
 
   // 서버 데모 버퍼(app/demo/buffer.py WINDOW_SEC)와 같은 값. 두 값이 같은지는 테스트로 확인한다
@@ -133,7 +200,82 @@
     });
   }
 
+  function signedSec(value) {
+    var n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return '—';
+    return n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0';
+  }
+
+  // 후보 개수·간격은 데이터에서 읽는다(개인 AI04 5개, 그룹 AI10 9개 등). 화면에 고정 문구를 두지 않는다
+  function candidateSummary(candidates) {
+    var deltas = (candidates || []).map(function (c) { return c && Number(c.deltaSecPerKm); }).filter(Number.isFinite);
+    if (!deltas.length) return {count: (candidates || []).length, text: ''};
+    var lo = Math.min.apply(null, deltas), hi = Math.max.apply(null, deltas);
+    return {count: candidates.length, min: lo, max: hi,
+      text: '후보 ' + candidates.length + '개 · ' + signedSec(lo) + ' ~ ' + signedSec(hi) + '초/km'};
+  }
+
+  // 어떤 판단기가 낸 기록인지: trace.group이 있으면 그룹 공동 페이스(AI10), 아니면 개인 페이스(AI04)
+  function modeOf(trace) {
+    if (trace && (trace.group || trace.kind === 'GROUP')) {
+      return {kind: 'group', label: trace.group && trace.group.label || '그룹 공동 페이스 · AI10'};
+    }
+    return {kind: 'personal', label: '개인 페이스 · AI04'};
+  }
+
+  // 그룹 판단(app/demo/group_trace.py build_group_trace):
+  // trace.group = {candidates:[{deltaSecPerKm, paceSecPerKm, passed}], chosenIndex, worstIndex,
+  //                members:[{label, hrNowBpm, allowBpm, predHr120Bpm[], upperHrBpm[], passed[]}]}
+  // 행 = 멤버, 열 = 후보. 칸 = 120초 예측 심박과 허용선까지 남은 bpm(상한 기준, 음수면 초과).
+  function groupMatrix(group) {
+    if (!group || !Array.isArray(group.members) || !Array.isArray(group.candidates)) return null;
+    var chosen = Number.isInteger(group.chosenIndex) ? group.chosenIndex : null;
+    var worst = null, worstHeadroom = Infinity;
+    var rows = group.members.map(function (member, index) {
+      var allow = Number(member && member.allowBpm);
+      var uppers = member && Array.isArray(member.upperHrBpm) ? member.upperHrBpm : [];
+      var preds = member && Array.isArray(member.predHr120Bpm) ? member.predHr120Bpm : [];
+      var passes = member && Array.isArray(member.passed) ? member.passed : [];
+      var cells = group.candidates.map(function (_, j) {
+        var upper = uppers[j] == null ? NaN : Number(uppers[j]);
+        var pred = preds[j] == null ? NaN : Number(preds[j]);
+        var headroom = Number.isFinite(upper) && Number.isFinite(allow) ? allow - upper : null;
+        var passed = typeof passes[j] === 'boolean' ? passes[j] : headroom == null ? null : headroom > 0;
+        return {upper: Number.isFinite(upper) ? upper : null, pred: Number.isFinite(pred) ? pred : null,
+          headroom: headroom, passed: passed};
+      });
+      var atChosen = chosen != null && cells[chosen] ? cells[chosen].headroom : null;
+      if (atChosen != null && atChosen < worstHeadroom) { worstHeadroom = atChosen; worst = index; }
+      var hr = Number(member && member.hrNowBpm);
+      return {label: member && member.label || '멤버 ' + (index + 1), allow: Number.isFinite(allow) ? allow : null,
+        hrNow: member && member.hrNowBpm != null && Number.isFinite(hr) ? hr : null, cells: cells};
+    });
+    if (Number.isInteger(group.worstIndex) && rows[group.worstIndex]) worst = group.worstIndex;
+    var columns = group.candidates.map(function (c, j) {
+      if (typeof c.passed === 'boolean') return c.passed;
+      return rows.length ? rows.every(function (r) { return r.cells[j].passed !== false; }) : null;
+    });
+    return {rows: rows, chosenIndex: chosen, worstIndex: worst, columnsPassed: columns};
+  }
+
+  // 그룹 러닝 스트림 키(app/demo/buffer.py GROUP_KEY_OFFSET과 같은 값, 테스트로 확인). Nginx 숫자 경로를 그대로 쓴다
+  var GROUP_KEY_OFFSET = 9000000000000;
+
+  // ?session=<id>가 있으면 그 세션, ?group=<groupRunId>면 그룹 스트림, 둘 다 없으면 가장 최근 세션
+  function streamRef(params) {
+    var session = params.get('session');
+    if (session) return session;
+    var group = params.get('group');
+    if (group && /^[0-9]+$/.test(group)) return String(GROUP_KEY_OFFSET + Number(group));
+    return 'latest';
+  }
+
   var RunwayDemoLogic = {
+    GROUP_KEY_OFFSET: GROUP_KEY_OFFSET,
+    streamRef: streamRef,
+    candidateSummary: candidateSummary,
+    modeOf: modeOf,
+    groupMatrix: groupMatrix,
     recordingOptionTexts: recordingOptionTexts,
     parseSseChunk: parseSseChunk,
     backoffMs: backoffMs,
@@ -143,7 +285,13 @@
     formatPace: formatPace,
     guideCard: guideCard,
     mergeTraces: mergeTraces,
-    TRACE_WINDOW_SEC: TRACE_WINDOW_SEC
+    TRACE_WINDOW_SEC: TRACE_WINDOW_SEC,
+    DEFAULT_POLICY_VERSION: DEFAULT_POLICY_VERSION,
+    policyVersionOf: policyVersionOf,
+    rejectReasonText: rejectReasonText,
+    actionKind: actionKind,
+    formatElapsed: formatElapsed,
+    gaugeRange: gaugeRange
   };
 
   root.RunwayDemoLogic = RunwayDemoLogic;

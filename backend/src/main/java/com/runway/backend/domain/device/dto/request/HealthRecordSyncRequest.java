@@ -13,12 +13,17 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
@@ -29,7 +34,8 @@ import java.util.regex.Pattern;
  * errors에 index·code·field·reason을 담는다. 오류에는 값 원문을 넣지 않는다.
  *
  * <p>provider별 허용 type: {@code RUNWAY_WATCH} → {@code DAILY_HR_ESTIMATE}, {@code SAMSUNG_HEALTH} → {@code
- * DAILY_SLEEP_SUMMARY}(S15P31E105-572)·{@code DAILY_RESTING_HR}(S15P31E105-600, 한 요청에 섞을 수 있음). provider와 맞지 않는
+ * DAILY_SLEEP_SUMMARY}(S15P31E105-572)·{@code DAILY_RESTING_HR}(S15P31E105-600)·{@code EXERCISE_HR_SUMMARY}
+ * (S15P31E105-599, 한 요청에 섞을 수 있음). provider와 맞지 않는
  * type은 레코드 오류 UNSUPPORTED_RECORD_TYPE이다. {@code SAMSUNG_HEALTH}는 type이 문자열 {@code DAILY_RESTING_HR}일 때만 안정 심박
  * 형식으로, 그 밖에는 수면 형식으로 검증한다(572의 기존 판정 유지).
  *
@@ -45,6 +51,33 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
     public static final String TYPE_DAILY_SLEEP_SUMMARY = "DAILY_SLEEP_SUMMARY";
     public static final String TYPE_DAILY_RESTING_HR = "DAILY_RESTING_HR";
     public static final String METHOD_DAILY_LOWER_10PCT_V1 = "DAILY_LOWER_10PCT_MINUTE_MEAN_V1";
+    public static final String TYPE_EXERCISE_HR_SUMMARY = "EXERCISE_HR_SUMMARY";
+
+    /** 운동 요약 metricDate 허용 과거 범위(S15P31E105-599): 서버 UTC 오늘 −29일. 폰의 28일 가져오기와 시간대 차이를 감안한 값. */
+    public static final int EXERCISE_MAX_PAST_DAYS = 29;
+
+    /** bpm 30~220 정수 구간 수. heartRateSeconds 길이 상한. */
+    static final int MAX_HR_BUCKETS = 191;
+
+    /** 운동 1건 최대 길이(초). */
+    static final long MAX_EXERCISE_SECONDS = 24 * 3600L;
+
+    /** 초 합 허용 여유(초). 폰은 샘플당 최대 60초까지 센다. */
+    static final long HR_SECONDS_SLACK = 60;
+
+    private static final Pattern EXERCISE_ID = Pattern.compile("^[A-Za-z0-9._:-]{1,128}$");
+
+    private static final List<String> EXERCISE_RECORD_KEYS =
+            List.of(
+                    "type",
+                    "exerciseId",
+                    "metricDate",
+                    "startedAt",
+                    "endedAt",
+                    "heartRateSeconds",
+                    "computedAt");
+
+    private static final Set<String> HR_BUCKET_KEYS = Set.of("bpm", "seconds");
 
     /** 폰 안정 심박 계산에 필요한 최소 유효 분 수(S15P31E105-600 D-4). */
     static final int MIN_VALID_MINUTE_COUNT = 30;
@@ -104,7 +137,11 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
                     .build();
 
     public sealed interface ParsedRecord
-            permits DailyHrEstimate, DailySleepSummary, SamsungRestingHr, Rejected {
+            permits DailyHrEstimate,
+                    DailySleepSummary,
+                    SamsungRestingHr,
+                    ExerciseHrSummary,
+                    Rejected {
         /** 저장 대상 날짜. 거절 레코드는 저장하지 않으므로 null이다. */
         default LocalDate lockDate() {
             return null;
@@ -131,6 +168,24 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
 
     /** 삼성 헬스 심박으로 폰이 계산한 날짜별 안정 심박. method·validMinuteCount·computedAt은 검증만 하고 저장하지 않는다. */
     public record SamsungRestingHr(LocalDate metricDate, BigDecimal restingHrBpm)
+            implements ParsedRecord {
+        @Override
+        public LocalDate lockDate() {
+            return metricDate;
+        }
+    }
+
+    /**
+     * 삼성 헬스 운동 1건의 bpm별 머문 초(S15P31E105-599). 시각은 DB 정밀도(마이크로초)로 자른다. computedAt은 검증만 하고 저장하지 않는다.
+     *
+     * @param heartRateSeconds bpm(30~220 정수) → 머문 초(양수), bpm 오름차순
+     */
+    public record ExerciseHrSummary(
+            String exerciseId,
+            LocalDate metricDate,
+            Instant startedAt,
+            Instant endedAt,
+            SortedMap<Integer, Integer> heartRateSeconds)
             implements ParsedRecord {
         @Override
         public LocalDate lockDate() {
@@ -230,6 +285,7 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
         }
 
         LocalDate earliest = today.minusDays(MAX_PAST_DAYS);
+        LocalDate exerciseEarliest = today.minusDays(EXERCISE_MAX_PAST_DAYS);
         LocalDate latest = today.plusDays(MAX_FUTURE_DAYS);
         List<ParsedRecord> records = new ArrayList<>(recordsNode.size());
         for (int i = 0; i < recordsNode.size(); i++) {
@@ -240,7 +296,10 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
                                 ? parseRecord(node, earliest, latest)
                                 : isRestingHr(node)
                                         ? parseRestingHrRecord(node, earliest, latest)
-                                        : parseSleepRecord(node, earliest, latest));
+                                        : isType(node, TYPE_EXERCISE_HR_SUMMARY)
+                                                ? parseExerciseRecord(
+                                                        node, exerciseEarliest, latest)
+                                                : parseSleepRecord(node, earliest, latest));
             } catch (RecordViolation v) {
                 records.add(new Rejected(new RecordError(i, v.code, v.field, v.reason)));
             }
@@ -299,8 +358,88 @@ public record HealthRecordSyncRequest(String provider, List<ParsedRecord> record
     }
 
     private static boolean isRestingHr(JsonNode record) {
+        return isType(record, TYPE_DAILY_RESTING_HR);
+    }
+
+    private static boolean isType(JsonNode record, String expected) {
         JsonNode type = record.get("type");
-        return type != null && type.isString() && TYPE_DAILY_RESTING_HR.equals(type.stringValue());
+        return type != null && type.isString() && expected.equals(type.stringValue());
+    }
+
+    /**
+     * 검사 순서: 정의되지 않은 키 → 필수 키 → exerciseId → metricDate → startedAt → endedAt(시작 이후·24시간 이하) → heartRateSeconds
+     * (배열 1~191개, 원소 {bpm, seconds} 객체, bpm 30~220 정수·중복 없음, seconds 1~86400 정수, 초 합 ≤ 길이 + 60) → computedAt.
+     */
+    private static ExerciseHrSummary parseExerciseRecord(
+            JsonNode record, LocalDate earliest, LocalDate latest) {
+        for (String name : record.propertyNames()) {
+            if (!EXERCISE_RECORD_KEYS.contains(name)) {
+                throw invalid(null, "UNKNOWN_FIELD");
+            }
+        }
+        for (String key : EXERCISE_RECORD_KEYS) {
+            if (!record.has(key)) {
+                throw invalid(key, "REQUIRED");
+            }
+        }
+        JsonNode id = record.get("exerciseId");
+        if (!id.isString()) {
+            throw invalid("exerciseId", "INVALID_TYPE");
+        }
+        if (!EXERCISE_ID.matcher(id.stringValue()).matches()) {
+            throw invalid("exerciseId", "INVALID_FORMAT");
+        }
+        LocalDate metricDate = metricDate(record.get("metricDate"), earliest, latest);
+        Instant startedAt = utcInstant(record.get("startedAt"), "startedAt");
+        Instant endedAt = utcInstant(record.get("endedAt"), "endedAt");
+        if (endedAt.isBefore(startedAt)
+                || Duration.between(startedAt, endedAt).toSeconds() > MAX_EXERCISE_SECONDS) {
+            throw invalid("endedAt", "OUT_OF_RANGE");
+        }
+        long durationSeconds = Duration.between(startedAt, endedAt).toSeconds();
+        String field = "heartRateSeconds";
+        JsonNode buckets = record.get(field);
+        if (!buckets.isArray()) {
+            throw invalid(field, "INVALID_TYPE");
+        }
+        if (buckets.isEmpty() || buckets.size() > MAX_HR_BUCKETS) {
+            throw invalid(field, "OUT_OF_RANGE");
+        }
+        SortedMap<Integer, Integer> histogram = new TreeMap<>();
+        long total = 0;
+        for (JsonNode bucket : buckets) {
+            if (!bucket.isObject()
+                    || !HR_BUCKET_KEYS.equals(Set.copyOf(bucket.propertyNames()))) {
+                throw invalid(field, "INVALID_FORMAT");
+            }
+            int bpm = intIn(bucket.get("bpm"), field, 30, 220);
+            int seconds = intIn(bucket.get("seconds"), field, 1, (int) MAX_EXERCISE_SECONDS);
+            if (histogram.put(bpm, seconds) != null) {
+                throw invalid(field, "INVALID_FORMAT");
+            }
+            total += seconds;
+        }
+        if (total > durationSeconds + HR_SECONDS_SLACK) {
+            throw invalid(field, "OUT_OF_RANGE");
+        }
+        computedAt(record.get("computedAt"));
+        return new ExerciseHrSummary(
+                id.stringValue(),
+                metricDate,
+                startedAt.truncatedTo(ChronoUnit.MICROS),
+                endedAt.truncatedTo(ChronoUnit.MICROS),
+                Collections.unmodifiableSortedMap(histogram));
+    }
+
+    private static Instant utcInstant(JsonNode node, String field) {
+        if (!node.isString() || !UTC_INSTANT.matcher(node.stringValue()).matches()) {
+            throw invalid(field, "INVALID_FORMAT");
+        }
+        try {
+            return Instant.parse(node.stringValue());
+        } catch (DateTimeException e) {
+            throw invalid(field, "INVALID_FORMAT");
+        }
     }
 
     private static SamsungRestingHr parseRestingHrRecord(

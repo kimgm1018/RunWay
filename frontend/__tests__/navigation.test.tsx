@@ -107,8 +107,9 @@ test('signed-out users move from start through login into the home tab', async (
   const home = texts(screen);
   // The signed-in runner shows as the header avatar's initial (2.1 has no greeting, S15P31E105-382).
   expect(home).toContain('민');
-  expect(home).toContain('오늘 준비도');
-  expect(home).toContain('82');
+  // 2.1 준비도 leads with the day's sentence and 러닝 시작하기; the score folds under 자세히 보기 (S15P31E105-615).
+  expect(home).toContain('러닝 시작하기');
+  expect(home).toContain('최근 운동량이 평소보다 많아요.');
   for (const tab of ['홈', '러닝', '그룹', '커뮤니티', '프로필']) {
     expect(pressable(screen, tab).props.accessibilityRole).toBe('tab');
   }
@@ -120,18 +121,16 @@ test('watch connection opened from settings returns home instead of signing in',
   const screen = await render({ initialSignedIn: true });
   await press(screen, '설정');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  // 8.3: the watch tile lets go of the watch; once let go, it opens 1.7, which reconnects it.
+  // 8.1: disconnect, then the same tile re-registers (S15P31E105-625) without opening 1.7 first.
   await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('등록/연결 끊김');
   await press(screen, 'Galaxy Watch7');
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  // 1.7 ends in buttons now (S15P31E105-447): 다시 연결, then 시작하기.
-  await press(screen, '다시 연결');
-  await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
-  expect(texts(screen)).toContain('82%');
-  await press(screen, '시작하기');
-  expect(texts(screen)).toContain('오늘 준비도');
+  expect(texts(screen)).toContain('연결됨');
+  expect(texts(screen)).toContain('Galaxy Watch7');
+  await press(screen, '뒤로');
+  expect(texts(screen)).toContain('러닝 시작하기');
   await act(async () => screen.unmount());
 });
 

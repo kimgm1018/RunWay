@@ -43,7 +43,11 @@ CREATE TABLE "daily_readiness" (
 	"readiness_score"	NUMERIC(7,2)		NOT NULL,
 	"readiness_confidence"	"daily_readiness_readiness_confidence_enum"		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"sleep_score"	NUMERIC(7,2)		NULL,
+	"recovery_score"	NUMERIC(7,2)		NULL,
+	"load_score"	NUMERIC(7,2)		NULL,
+	"rhr_change_pct"	NUMERIC(7,1)		NULL
 );
 
 COMMENT ON COLUMN "daily_readiness"."id" IS '러닝 준비도 ID';
@@ -59,6 +63,15 @@ COMMENT ON COLUMN "daily_readiness"."readiness_confidence" IS '준비도 신뢰 
 COMMENT ON COLUMN "daily_readiness"."created_at" IS '생성일시';
 
 COMMENT ON COLUMN "daily_readiness"."updated_at" IS '수정일시';
+
+-- S15P31E105-639 (V30): 자동 평가가 readiness_score와 같은 upsert로 저장하는 항목 점수와 R 변화율. V30 이전 결과는 NULL이다.
+COMMENT ON COLUMN "daily_readiness"."sleep_score" IS '수면 항목 점수 S(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."recovery_score" IS '회복 항목 점수 R(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."load_score" IS '훈련 부하 항목 점수 L(0~100). 계산에서 제외되면 NULL';
+
+COMMENT ON COLUMN "daily_readiness"."rhr_change_pct" IS 'R 계산에 쓴 평소(D-7~D-1 평균) 대비 기준일 안정시 심박 변화율(%). R이 제외되면 NULL';
 
 CREATE TABLE "users" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -340,10 +353,13 @@ CREATE TABLE "posts" (
 	"region_code"	VARCHAR(40)		NULL,
 	"deleted_at"	TIMESTAMPTZ		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"course_shared"	BOOLEAN	DEFAULT TRUE	NOT NULL
 );
 
 COMMENT ON COLUMN "posts"."region_code" IS '게시물 지역 코드. regions.region_code 참조. 시·군·구 단위. 미지정 시 NULL.';
+
+COMMENT ON COLUMN "posts"."course_shared" IS '연결 세션의 코스 공유 여부. FALSE이면 작성자 외 조회자에게 courseId를 숨긴다. 세션에 코스가 없으면 FALSE로 저장한다. 기존 게시물은 TRUE.';
 
 CREATE TABLE "coaching_decisions" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
@@ -1271,6 +1287,9 @@ CREATE INDEX idx_running_metric_samples_session_elapsed ON running_metric_sample
 -- S15P31E105-597 (V23): 세션별 허용 시각 이하 최신 측정 표본 조회(G10 그룹런 실시간 순위의 최신 누적 거리·최신 측정 시각, 참가자당 2회)용.
 CREATE INDEX idx_running_metric_samples_session_measured ON running_metric_samples (running_session_id, measured_at DESC, id DESC);
 
+-- S15P31E105-549 (V31): 세션별 GPS 위치의 측정 시각 순 조회(S11 러닝 경로 조회, 개인화 변환기)용. FK 인덱스가 없어 전체 스캔하던 조회다.
+CREATE INDEX idx_running_route_points_session_measured ON running_route_points (running_session_id, measured_at, id);
+
 -- S15P31E105-534 (V20): 팔로우받는 회원 기준 승인 여부별 관계 최신순 조회(U26 팔로워 목록·U24 받은 요청·팔로워 수)용. FK 인덱스가 없어 전체 스캔하던 조회다.
 CREATE INDEX idx_user_follows_followee_created ON user_follows (followee_id, is_approved, created_at DESC, id DESC);
 
@@ -1319,6 +1338,38 @@ COMMENT ON COLUMN "course_segment_difficulties"."distance_m" IS '비율 계산 �
 COMMENT ON COLUMN "course_segment_difficulties"."ratios" IS '0m부터 1km 구간 순서의 양수 상대 비율 배열(마지막은 남은 거리). 클수록 힘든 구간이며 절대 크기는 의미가 없다.';
 COMMENT ON COLUMN "course_segment_difficulties"."planner_version" IS '계산한 AI05 plannerVersion. 계산 방식이 바뀐 뒤 재계산 대상을 찾는 데 쓴다.';
 COMMENT ON COLUMN "course_segment_difficulties"."created_at" IS '저장일시';
+
+-- S15P31E105-612 (V32): 코스 썸네일 PNG(서버가 OSM 지형지물·건물로 그림)의 이미지 볼륨 키. 코스당 1행. courses PK·set_updated_at() 정의 이후.
+CREATE TABLE "course_basemaps" (
+    "id" BIGINT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    "course_id" BIGINT NOT NULL,
+    "image_key" VARCHAR(1024) NULL,
+    "osm_data_timestamp" TIMESTAMPTZ NULL,
+    "buildings_osm_data_timestamp" TIMESTAMPTZ NULL,
+    "render_version" VARCHAR(40) NOT NULL,
+    "created_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    "updated_at" TIMESTAMPTZ DEFAULT now() NOT NULL,
+    CONSTRAINT "PK_COURSE_BASEMAPS" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_course_basemaps_course" UNIQUE ("course_id"),
+    CONSTRAINT "FK_courses_TO_course_basemaps_1"
+        FOREIGN KEY ("course_id") REFERENCES "courses" ("id") ON DELETE CASCADE
+);
+
+-- 이미지 조회(F02)는 이미지 ID로 썸네일 행을 찾는다. 키의 파일 이름({uuid}.png) 식 색인으로 테이블 전체를 읽지 않는다.
+CREATE INDEX "idx_course_basemaps_image_file" ON "course_basemaps" (split_part("image_key", '/', 4));
+
+CREATE TRIGGER "trg_course_basemaps_updated_at"
+    BEFORE UPDATE ON "course_basemaps"
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+COMMENT ON TABLE "course_basemaps" IS '코스 썸네일 PNG(서버가 OSM 지형지물·건물로 그린 그림). 코스당 1행이며 사용자와 무관하다.';
+COMMENT ON COLUMN "course_basemaps"."course_id" IS '코스 ID. 코스당 1행(UNIQUE)';
+COMMENT ON COLUMN "course_basemaps"."image_key" IS '썸네일 PNG의 이미지 볼륨 키(images/course-basemap/{course_id}/{uuid}.png). Route가 범위 밖(OUT_OF_AREA)이라고 답하면 NULL로 저장해 다시 시도하지 않는다.';
+COMMENT ON COLUMN "course_basemaps"."osm_data_timestamp" IS 'Route 전국 자료의 OSM 데이터 기준 시각. 알 수 없으면 NULL';
+COMMENT ON COLUMN "course_basemaps"."buildings_osm_data_timestamp" IS 'Route 건물 자료의 OSM 데이터 기준 시각. 건물 자료가 없거나 알 수 없으면 NULL';
+COMMENT ON COLUMN "course_basemaps"."render_version" IS '썸네일 그리기 방식 버전. 현재 버전과 다르면 기동 시 일괄 채우기가 다시 그린다';
+COMMENT ON COLUMN "course_basemaps"."created_at" IS '저장일시';
+COMMENT ON COLUMN "course_basemaps"."updated_at" IS '수정일시';
 
 
 -- S15P31E105-248: serialize resource writes with withdrawal, without new tables.
@@ -1448,3 +1499,193 @@ CREATE TABLE group_run_pace_state (
 CREATE TRIGGER trg_group_run_pace_state_updated_at
     BEFORE UPDATE ON group_run_pace_state
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- S15P31E105-599 (V26): 운동 1건의 심박 Zone 부하(Edwards TRIMP). RunWay 러닝은 종료 후 분석이 끝나면 서버가 저장한 심박 샘플로,
+-- 삼성 헬스 과거 운동은 W06 EXERCISE_HR_SUMMARY(폰이 보낸 bpm별 머문 시간)로 계산해 넣는다.
+-- daily_health_metrics.daily_training_load는 날짜별로 이 테이블의 합을 다시 계산한 값이다(RunWay 러닝과 시간이 겹치는 삼성 헬스 운동 제외).
+CREATE TABLE "exercise_training_loads" (
+	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
+	"user_id"	BIGINT		NOT NULL,
+	"source"	VARCHAR(20)		NOT NULL,
+	"running_session_id"	BIGINT		NULL,
+	"external_id"	VARCHAR(128)		NULL,
+	"started_at"	TIMESTAMPTZ		NOT NULL,
+	"ended_at"	TIMESTAMPTZ		NOT NULL,
+	"metric_date"	DATE		NOT NULL,
+	"zone1_seconds"	INTEGER		NOT NULL,
+	"zone2_seconds"	INTEGER		NOT NULL,
+	"zone3_seconds"	INTEGER		NOT NULL,
+	"zone4_seconds"	INTEGER		NOT NULL,
+	"zone5_seconds"	INTEGER		NOT NULL,
+	"training_load"	NUMERIC(12,4)		NOT NULL,
+	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
+	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+);
+
+COMMENT ON COLUMN "exercise_training_loads"."id" IS '운동 부하 ID';
+
+COMMENT ON COLUMN "exercise_training_loads"."user_id" IS '회원 ID';
+
+COMMENT ON COLUMN "exercise_training_loads"."source" IS '출처. RUNWAY_SESSION(RunWay 러닝 심박 샘플) 또는 SAMSUNG_HEALTH(W06 삼성 헬스 운동 요약)';
+
+COMMENT ON COLUMN "exercise_training_loads"."running_session_id" IS 'RunWay 러닝 ID. RUNWAY_SESSION만';
+
+COMMENT ON COLUMN "exercise_training_loads"."external_id" IS '폰이 만든 삼성 헬스 운동 식별자. SAMSUNG_HEALTH만';
+
+COMMENT ON COLUMN "exercise_training_loads"."started_at" IS '운동 시작 시각. RunWay 러닝과 겹침 판정에 쓴다';
+
+COMMENT ON COLUMN "exercise_training_loads"."ended_at" IS '운동 종료 시각';
+
+COMMENT ON COLUMN "exercise_training_loads"."metric_date" IS '일별 부하를 넣을 날짜. RunWay 러닝은 시작 시각의 Asia/Seoul 날짜, 삼성 헬스는 폰 시간대 시작 날짜';
+
+COMMENT ON COLUMN "exercise_training_loads"."zone1_seconds" IS '심박 Zone1 머문 시간(초)';
+
+COMMENT ON COLUMN "exercise_training_loads"."zone2_seconds" IS '심박 Zone2 머문 시간(초)';
+
+COMMENT ON COLUMN "exercise_training_loads"."zone3_seconds" IS '심박 Zone3 머문 시간(초)';
+
+COMMENT ON COLUMN "exercise_training_loads"."zone4_seconds" IS '심박 Zone4 머문 시간(초)';
+
+COMMENT ON COLUMN "exercise_training_loads"."zone5_seconds" IS '심박 Zone5 머문 시간(초)';
+
+COMMENT ON COLUMN "exercise_training_loads"."training_load" IS '운동 부하(Edwards TRIMP, Zone 분 × Zone 번호 합)';
+
+COMMENT ON COLUMN "exercise_training_loads"."created_at" IS '생성일시';
+
+COMMENT ON COLUMN "exercise_training_loads"."updated_at" IS '수정일시';
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "PK_EXERCISE_TRAINING_LOADS" PRIMARY KEY (
+	"id"
+);
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "FK_users_TO_exercise_training_loads_1" FOREIGN KEY (
+	"user_id"
+)
+REFERENCES "users" (
+	"id"
+);
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "FK_running_sessions_TO_exercise_training_loads_1" FOREIGN KEY (
+	"running_session_id"
+)
+REFERENCES "running_sessions" (
+	"id"
+);
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "uq_exercise_training_loads_running_session_id" UNIQUE ("running_session_id");
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "uq_exercise_training_loads_user_id_source_external_id" UNIQUE ("user_id", "source", "external_id");
+
+ALTER TABLE "exercise_training_loads" ADD CONSTRAINT "ck_exercise_training_loads_values"
+    CHECK (
+        (("source" = 'RUNWAY_SESSION' AND "running_session_id" IS NOT NULL AND "external_id" IS NULL)
+         OR ("source" = 'SAMSUNG_HEALTH' AND "running_session_id" IS NULL AND "external_id" IS NOT NULL))
+        AND "ended_at" >= "started_at"
+        AND "zone1_seconds" >= 0 AND "zone2_seconds" >= 0 AND "zone3_seconds" >= 0
+        AND "zone4_seconds" >= 0 AND "zone5_seconds" >= 0
+        AND "training_load" >= 0 AND "training_load" <> 'NaN'::numeric
+    );
+
+CREATE INDEX "idx_exercise_training_loads_user_id_metric_date" ON "exercise_training_loads" ("user_id", "metric_date");
+
+CREATE INDEX "idx_exercise_training_loads_user_id_started_at" ON "exercise_training_loads" ("user_id", "started_at");
+
+CREATE TRIGGER "trg_exercise_training_loads_updated_at"
+    BEFORE UPDATE ON "exercise_training_loads"
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 탈퇴(V17)와 같은 쓰기 차단. 탈퇴 회원 행에 부하를 새로 넣거나 바꾸지 않는다. 탈퇴 정리(WithdrawalRepository.scrub)가 이 테이블 행을 지운다.
+CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON "exercise_training_loads"
+    FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner('user', 'user_id');
+
+-- S15P31E105-633 (V28): 댓글 좋아요(CMT14·CMT15). post_likes와 같은 구조·제약·삭제 정책을 따른다.
+-- 댓글 삭제는 soft delete(comments.deleted_at)라 좋아요 행은 남기고 조회에서 제외한다(post_likes와 같음).
+CREATE TABLE "comment_likes" (
+	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
+	"comment_id"	BIGINT		NOT NULL,
+	"user_id"	BIGINT		NOT NULL,
+	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+);
+
+COMMENT ON TABLE "comment_likes" IS '회원과 댓글의 좋아요 관계. 행 존재가 LIKE 반응이다';
+
+COMMENT ON COLUMN "comment_likes"."id" IS '댓글 좋아요 ID';
+
+COMMENT ON COLUMN "comment_likes"."comment_id" IS '댓글 ID';
+
+COMMENT ON COLUMN "comment_likes"."user_id" IS '좋아요한 회원 ID';
+
+COMMENT ON COLUMN "comment_likes"."created_at" IS '생성일시';
+
+ALTER TABLE "comment_likes" ADD CONSTRAINT "PK_COMMENT_LIKES" PRIMARY KEY (
+	"id"
+);
+
+ALTER TABLE "comment_likes" ADD CONSTRAINT "FK_comments_TO_comment_likes_1" FOREIGN KEY (
+	"comment_id"
+)
+REFERENCES "comments" (
+	"id"
+);
+
+ALTER TABLE "comment_likes" ADD CONSTRAINT "FK_users_TO_comment_likes_1" FOREIGN KEY (
+	"user_id"
+)
+REFERENCES "users" (
+	"id"
+);
+
+ALTER TABLE "comment_likes" ADD CONSTRAINT "uq_comment_likes_comment_id_user_id" UNIQUE ("comment_id", "user_id");
+
+-- 탈퇴 정리(U18)의 회원별 삭제(DELETE ... WHERE user_id=?)가 전체 스캔하지 않도록 user_id 선두 인덱스를 둔다.
+CREATE INDEX "idx_comment_likes_user_id" ON "comment_likes" ("user_id");
+
+-- 탈퇴(V17)와 같은 쓰기 차단. post_likes와 같이 탈퇴 회원 행을 새로 넣거나 바꾸지 않는다.
+CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON "comment_likes"
+    FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner('user', 'user_id');
+
+-- S15P31E105-634 (V29): 게시물 스크랩(저장) 관계. post_likes와 같은 구조·제약·탈퇴 쓰기 차단이며 CMT16·CMT17로 등록·해제한다.
+-- 내 스크랩 목록(CMT18)은 저장 시각 최신 순, 내 좋아요 목록(CMT19)은 post_likes.created_at 최신 순으로 아래 인덱스를 사용한다.
+CREATE TABLE "post_bookmarks" (
+	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,
+	"post_id"	BIGINT		NOT NULL,
+	"user_id"	BIGINT		NOT NULL,
+	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL
+);
+
+COMMENT ON TABLE "post_bookmarks" IS '회원의 게시물 스크랩(저장) 관계. 본인만 목록을 본다';
+
+COMMENT ON COLUMN "post_bookmarks"."id" IS '스크랩 ID';
+
+COMMENT ON COLUMN "post_bookmarks"."post_id" IS '게시물 ID';
+
+COMMENT ON COLUMN "post_bookmarks"."user_id" IS '저장한 회원 ID';
+
+COMMENT ON COLUMN "post_bookmarks"."created_at" IS '저장 시각. 내 스크랩 목록 정렬 기준';
+
+ALTER TABLE "post_bookmarks" ADD CONSTRAINT "PK_POST_BOOKMARKS" PRIMARY KEY (
+	"id"
+);
+
+ALTER TABLE "post_bookmarks" ADD CONSTRAINT "FK_posts_TO_post_bookmarks_1" FOREIGN KEY (
+	"post_id"
+)
+REFERENCES "posts" (
+	"id"
+);
+
+ALTER TABLE "post_bookmarks" ADD CONSTRAINT "FK_users_TO_post_bookmarks_1" FOREIGN KEY (
+	"user_id"
+)
+REFERENCES "users" (
+	"id"
+);
+
+ALTER TABLE "post_bookmarks" ADD CONSTRAINT "uq_post_bookmarks_post_id_user_id" UNIQUE ("post_id", "user_id");
+
+CREATE INDEX "idx_post_bookmarks_user_id_created_at" ON "post_bookmarks" ("user_id", "created_at" DESC, "id" DESC);
+
+CREATE INDEX "idx_post_likes_user_id_created_at" ON "post_likes" ("user_id", "created_at" DESC, "id" DESC);
+
+CREATE TRIGGER rw_active_owner BEFORE INSERT OR UPDATE ON "post_bookmarks"
+    FOR EACH ROW EXECUTE FUNCTION runway_guard_active_owner('user', 'user_id');

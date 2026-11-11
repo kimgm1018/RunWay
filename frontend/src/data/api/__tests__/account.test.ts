@@ -79,6 +79,13 @@ test('a withdrawal that went through with the pictures still being cleaned up co
   await expect(account.withdraw('runway123')).resolves.toBeUndefined();
 });
 
+test('U18 UNAUTHORIZED after the account is already gone counts as done', async () => {
+  fetchMock
+    .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED', message: '' }))
+    .mockResolvedValueOnce(respond(401, { code: 'UNAUTHORIZED', message: '' }));
+  await expect(account.withdraw('runway123')).resolves.toBeUndefined();
+});
+
 test.each([
   [401, 'INVALID_PASSWORD'],
   [409, 'WITHDRAWAL_CONFLICT'],

@@ -13,10 +13,20 @@
     <!-- S15P31E105-311: keeps the run process alive while batches are recorded and sent. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <!-- S15P31E105-549: run route from the watch GPS through Health Services; the run service keeps the location type. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- 폰에서 시작해 워치 화면이 꺼져 있어도 워치 GPS를 쓰도록 "항상 허용"을 묻는다(사용자 결정 2026-11-10). 선택 권한. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <!-- Readiness: follow the watch's default network before a run (S15P31E105-265). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- S15P31E105-257: rhythm BPM cue vibrates on every beat while running. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- S15P31E105-549: 러닝 중 화면이 꺼져도 CPU를 깨워 두어 측정값을 바로 받는다(시험). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- S15P31E105-617: 러닝 알림과 그 Ongoing Activity(화면을 켜면 러닝 화면으로 복귀)는 API 33+에서 알림 권한이 있어야 보인다. 선택 권한. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -48,7 +58,7 @@
         <service
             android:name=".session.RunForegroundService"
             android:exported="false"
-            android:foregroundServiceType="health" />
+            android:foregroundServiceType="health|location" />
 
         <service
             android:name=".dailyhr.PassiveHrService"
@@ -60,6 +70,10 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:path="/runway/v1/state/readiness-query"
+                    android:scheme="wear" />
                 <data
                     android:host="*"
                     android:pathPrefix="/runway/v1/health/"

@@ -55,6 +55,11 @@ export function createAccountApi(): Repositories['account'] {
         ) {
           return;
         }
+        // DELETE may have succeeded while the response was lost; a retry then sees UNAUTHORIZED
+        // once the account (and its tokens) are gone — treat that as done (S15P31E105-638).
+        if (error instanceof DataError && error.code === 'UNAUTHORIZED') {
+          return;
+        }
         throw error;
       }
     },

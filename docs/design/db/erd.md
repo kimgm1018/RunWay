@@ -1,6 +1,6 @@
 # RunWay ERD 설명서
 
-기준: 2026-11-09 · ERD ver.3 · **33개 테이블 / 305개 컬럼 / 57개 FK**
+기준: 2026-11-10 · ERD ver.3 · **36개 테이블 / 329개 컬럼 / 63개 FK**
 
 회원이 러닝을 준비하고 기록한 결과를 코스·크루·게시글로 연결하는 데이터 구조다. 이 문서는 팀원이 구조와 정책을 빠르게 파악하기 위한 요약이다. 전체 컬럼·타입·NULL 정의는 SQL을 기준으로 확인한다.
 
@@ -32,7 +32,8 @@
 | `user_settings` | 코칭·알림 사용 여부, 위치 수집 모드, 계정의 기록 공개 범위 |
 | `user_devices` | 회원의 PHONE/WATCH 연결 관계와 연결·해제 시각 |
 | `daily_health_metrics` | 회원·날짜별 수면, 안정시 심박, 운동 부하 등의 건강 요약 |
-| `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도 |
+| `exercise_training_loads` | 운동 1건의 심박 Zone 부하(Edwards TRIMP). RunWay 러닝 또는 삼성 헬스 운동. 일별 부하의 원천 (S15P31E105-599, V26) |
+| `daily_readiness` | 회원·날짜별 준비도 점수와 분석 신뢰도. 계산에 쓴 항목 점수 `sleep_score`·`recovery_score`·`load_score`와 R 변화율 `rhr_change_pct`(모두 NULL 가능, S15P31E105-639, V30)를 점수와 같은 upsert로 저장한다. 제외된 항목과 V30 이전 결과는 NULL |
 
 #### user_recommendation_preferences — 추천 기본값 (설계 S15P31E105-386 / 구현 S15P31E105-245, 2026-11-03 확정)
 
@@ -73,7 +74,7 @@
 
 #### daily_health_metrics — 날짜별 건강 요약
 
-`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이다.
+`(user_id, metric_date)`로 회원·날짜당 한 행이다. 현재 W06이 채우는 값은 `rhr_bpm`·`sleep_duration_min`이고, `daily_training_load`는 `exercise_training_loads`에서 날짜별로 다시 계산한 값이다(S15P31E105-599).
 
 | 컬럼 | 타입·NULL | 용도 |
 | --- | --- | --- |
@@ -81,7 +82,27 @@
 | rhr_revision | INTEGER NULL | `rhr_bpm` 워치 추정값의 revision. 1 이상(CHECK). 같은 날짜는 저장된 값보다 큰 revision만 갱신하며 미저장이거나 삼성 헬스 값이면 NULL(S15P31E105-252, V9) |
 | rhr_source | VARCHAR(20) NULL | `rhr_bpm` 출처. `RUNWAY_WATCH`·`SAMSUNG_HEALTH`(CHECK). W06은 값과 함께 항상 채운다. 출처가 NULL인 값(W06 밖에서 넣은 값)은 워치 값처럼 삼성 헬스 값이 덮어쓰지 않는다. 같은 날짜는 워치 값이 우선한다. V25 이전 값은 `RUNWAY_WATCH`로 채웠다(S15P31E105-600, V25) |
 
-운동 부하·최대 심박은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+| daily_training_load | NUMERIC(12,4) NULL | 하루 운동 부하(Edwards TRIMP 합). 그 날짜의 RunWay 러닝 부하 + RunWay 러닝과 시간이 겹치지 않는 삼성 헬스 운동 부하. 해당 운동이 없으면 NULL이며 준비도는 0으로 본다. 부하만 있는 날은 다른 건강 컬럼이 NULL인 행이 생긴다(S15P31E105-599) |
+
+최대 심박(`max_heart_rate`)은 아직 받는 API가 없어 NULL이다. 저장·순서 역전 처리는 [기기·건강 API W06](../api/devices-health.md#w06-samsung-health-데이터-동기화)을 따른다.
+
+#### exercise_training_loads — 운동 1건의 부하 (S15P31E105-599, V26)
+
+운동 1건마다 한 행이다. 산식은 [준비도 산식 5절](../readiness-formula.md#5-훈련-부하-점수-l)을 따른다.
+
+| 컬럼 | 타입·NULL | 용도 |
+| --- | --- | --- |
+| source | VARCHAR(20) | `RUNWAY_SESSION`(러닝 종료 후 분석이 끝난 RunWay 러닝의 심박 샘플) 또는 `SAMSUNG_HEALTH`(W06 `EXERCISE_HR_SUMMARY`). CHECK |
+| running_session_id | BIGINT NULL, UNIQUE | `RUNWAY_SESSION`만. 러닝 1건당 최대 1행 |
+| external_id | VARCHAR(128) NULL | `SAMSUNG_HEALTH`만. 폰이 만든 운동 식별자. `(user_id, source, external_id)` UNIQUE |
+| started_at · ended_at | TIMESTAMPTZ | 운동 시각. RunWay 러닝과 겹치는 삼성 헬스 운동을 일별 합에서 빼는 데 쓴다(겹침: 시작 < 상대 종료 이고 종료 > 상대 시작) |
+| metric_date | DATE | 일별 부하를 넣을 날짜. RunWay 러닝은 시작 시각의 Asia/Seoul 날짜, 삼성 헬스는 폰 시간대 시작 날짜 |
+| zone1_seconds~zone5_seconds | INTEGER, 0 이상 | Zone별 머문 초 |
+| training_load | NUMERIC(12,4), 0 이상 | Zone 분 × Zone 번호의 합 |
+
+- 심박이 측정되지 않은 RunWay 러닝은 행을 만들지 않는다. 러닝을 삭제(S09)하면 행을 지운다.
+- 부하는 저장 시점의 HRmax·안정 심박으로 계산하며 이후 다시 계산하지 않는다.
+- 회원 탈퇴 시 지운다(탈퇴 쓰기 차단 트리거 `rw_active_owner` 적용).
 
 ### 러닝·페이스 코칭
 
@@ -89,7 +110,7 @@
 | --- | --- |
 | `running_sessions` | 한 회원의 한 번의 러닝. 초기 목표·상태·실제 결과. course_id가 없으면 자유러닝 |
 | `running_metric_samples` | 세션별 측정 시점의 심박·케이던스·속도·누적 거리 등. 세션별 경과시간 순 조회(AI04 실시간 코칭 history)는 `(running_session_id, elapsed_duration)` 인덱스 `idx_running_metric_samples_session_elapsed`(V13)를 쓴다. 세션별 측정 시각 역순 최신 표본 조회(G10 그룹런 실시간 순위)는 `(running_session_id, measured_at DESC, id DESC)` 인덱스 `idx_running_metric_samples_session_measured`(V23)를 쓴다 |
-| `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도 |
+| `running_route_points` | 세션별 측정 시각과 GPS 위치·정확도·고도. 세션별 측정 시각 순 조회(S11 러닝 경로 조회, 개인화 변환기)는 `(running_session_id, measured_at, id)` 인덱스 `idx_running_route_points_session_measured`(V31)를 쓴다 |
 | `running_session_splits` | 종료 후 1km 단위 실측 구간 집계(H03). 원본 샘플에서 한 번 계산해 덮어써 저장 |
 | `sync_batches` | 기기에서 받은 배치의 식별·해시·수신/반영 상태 |
 | `session_control_events` | 시작·일시정지·재개·종료·수동/AI BPM 명령과 실제 결과, 명령 중복 판정 |
@@ -165,6 +186,7 @@
 | `course_environment_tags` | 코스의 환경 코드. PARK/RIVERSIDE/URBAN/BEACH/TRACK |
 | `course_bookmarks` | 회원의 코스 저장 관계와 개인 별칭 custom_name |
 | `course_segment_difficulties` | 코스 지형 기준 1km 구간 난이도 비율(AI05). 코스당 1행이며 세션 초기 계획의 구간 페이스 배분에 쓴다 |
+| `course_basemaps` | 코스 썸네일 PNG(서버가 OSM 지도와 코스 선을 그림)의 이미지 볼륨 키와 OSM 자료 시점·그리기 버전. 코스당 1행 |
 | `crews` | 지속적인 모임. 크루장·정원·지역·활성 상태·가입 방식(`join_policy` APPROVAL/INSTANT, 기본 APPROVAL) |
 | `crew_memberships` | 크루 가입 요청·승인·거절·탈퇴 관계 |
 | `group_runs` | 크루에서 여는 개별 러닝 일정·호스트·공동 목표. 코스는 선택 |
@@ -203,14 +225,32 @@
 - 비율은 사용자와 무관한 지형 값이다. 개인 비율(AI09)은 저장하지 않는다(S15P31E105-442 범위).
 - 기준 SQL·Flyway V15를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다. 계산·사용 규칙은 [sessions.md 초기 계획](../api/sessions.md)과 [ai-service.md 백엔드 호출 순서](../api/ai-service.md#백엔드-호출-순서)를 따른다.
 
+#### course_basemaps — 코스 썸네일 PNG (S15P31E105-612, 2026-11-10)
+
+| 컬럼 | 타입·제약 | 용도 |
+| --- | --- | --- |
+| id | BIGINT GENERATED ALWAYS AS IDENTITY PK | 행 ID |
+| course_id | BIGINT NOT NULL UNIQUE, FK courses.id ON DELETE CASCADE | 코스. 코스당 1행 |
+| image_key | VARCHAR(1024) NULL | 썸네일 PNG의 이미지 볼륨 키(`images/course-basemap/{course_id}/{uuid}.png`). 전국 자료 범위 밖이면 NULL(재시도 안 함) |
+| osm_data_timestamp | TIMESTAMPTZ NULL | 도로·면 전국 OSM 자료 시점 |
+| buildings_osm_data_timestamp | TIMESTAMPTZ NULL | 건물 자료 OSM 시점. 건물 자료가 없으면 NULL |
+| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v1`). 다르면 기동 시 일괄 채우기가 다시 그린다 |
+| created_at / updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장·수정 시각(`set_updated_at()` 트리거) |
+
+- 코스 저장 커밋 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 Route 상세 모드로 지형지물·건물을 받아 600×900 PNG를 그리고 이미지 볼륨([ADR-0016](../../adr/0016-image-volume-storage.md))에 저장한다. Route 실패·그리기·저장 실패는 행을 만들지 않는다.
+- C03 `basemap.imageUrl`은 이 키의 이미지 ID로 만든 `/api/v1/images/{id}`이며, 이미지 조회는 이 테이블이 참조하는 키만 허용한다. 결정 근거는 [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md).
+- 기준 SQL·Flyway V32를 함께 반영한다. erd.png·온라인 ERD는 아직 미갱신이다.
+
 ### 지역·커뮤니티·알림
 
 | 테이블 | 역할과 주요 연결 |
 | --- | --- |
 | `regions` | 지역 코드와 시·도/시·군·구 이름 |
-| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수 |
+| `posts` | 회원의 러닝 기록 공유 게시글. session_id는 필수. `course_shared`(BOOLEAN NOT NULL DEFAULT TRUE, V27)는 연결 세션 코스 공유 여부 |
 | `comments` | 게시글 댓글. parent_comment_id가 없으면 일반 댓글, 있으면 대댓글 |
 | `post_likes` | 회원과 게시글의 좋아요 관계 |
+| `comment_likes` | 회원과 댓글의 좋아요 관계. 행 존재가 LIKE. UNIQUE(comment_id,user_id), FK comments·users, 탈퇴 정리용 `idx_comment_likes_user_id`(user_id), post_likes와 같은 탈퇴 쓰기 차단 트리거(회원 상태만 검사). 부모 삭제 재확인은 V17 가드 대상(`comments`·`post_likes`)이 아니므로 서비스의 저장 전 확인과 조회 시 삭제 댓글 제외에 의존한다. 확인 직후 댓글 삭제가 커밋되면 삭제된 댓글에 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-633, V28) |
+| `post_bookmarks` | 회원의 게시글 스크랩(저장) 관계. post_likes와 같은 구조·유니크 제약·탈퇴 쓰기 차단(회원 상태 검사)이며 본인만 목록을 본다. 다만 V17 가드의 부모 게시물 삭제 재확인은 `comments`·`post_likes`에만 적용되므로, 스크랩은 서비스의 저장 전 확인과 목록 조회의 삭제 글 제외에 의존한다. 확인 직후 게시물 삭제가 커밋되면 삭제된 글에 보이지 않는 행이 남을 수 있다. 탈퇴 정리(U18)에서 post_likes와 함께 본인 행을 삭제한다 (S15P31E105-634, V29) |
 | `user_follows` | 팔로우 요청/성립 관계와 승인 여부 |
 | `follow_request_history` | 요청별 최종 처리 결과와 재전송 판별. 자동 삭제하지 않음 |
 | `notifications` | 수신 회원·메시지·발송/읽음 상태·알림 종류·클릭 이동 대상·중복 방지 키(`dedupe_key`) |
@@ -221,7 +261,7 @@
 - **세션 제어:** 세션의 현재 제어기기와 중계 폰은 각각 `user_devices`를 참조한다. 제어 기록은 세션·실행기기에 연결되며, 코칭 명령은 `(session_id, coaching_id)` 복합 FK로 같은 세션의 코칭만 참조한다.
 - **코스 등록:** 완료된 본인 세션의 경로를 코스로 등록하고, 이후 여러 세션과 북마크가 같은 코스를 참조한다. 코스 원본과 회원별 북마크는 별개다.
 - **그룹런:** 크루 → 그룹런 → 참가 관계 → 각 참가자의 개인 세션. 그룹 전체 종료와 개인 러닝 종료는 별개다. 참가 시점에는 개인 세션이 없어도 된다.
-- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다.
+- **기록 공유:** 회원 → 게시글 → 연결 러닝 세션. 댓글·좋아요가 게시글에 연결된다. 현재 posts에는 독립 post_type·title·course_id 컬럼이 없다. 코스는 연결 세션의 course_id로 찾고, `posts.course_shared`(S15P31E105-632, V27)로 공유 여부만 저장한다. 세션에 코스가 없으면 FALSE로 저장하고, FALSE이면 작성자 외 조회자에게 코스 ID를 주지 않는다. V27 이전 게시물은 TRUE로 채운다.
 - **지역:** 코스·크루·게시글의 region_code는 regions.region_code를 FK로 참조한다. regions.region_code는 UNIQUE이며, 존재하지 않는 지역 코드 저장을 막는다. 코스 지역 미판정 상태의 NULL은 허용한다.
 
 모든 테이블의 PK는 `BIGINT GENERATED ALWAYS AS IDENTITY`다. DB가 값을 생성하며 PK 직접 지정은 기본 거부한다. FK 타입은 BIGINT를 유지한다. ID의 빈 번호는 정상이며 시각·원본 순서를 ID만으로 판단하지 않는다. 아래 UNIQUE로 회원별 단일 행과 관계 중복을 방지한다.
@@ -310,10 +350,14 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 | user_profiles / user_settings | 각각 user_id |
 | user_hr_personalization | user_id, personalization_version |
 | daily_health_metrics | user_id, metric_date |
+| exercise_training_loads | running_session_id / user_id, source, external_id |
 | daily_readiness | user_id, readiness_date |
 | course_bookmarks | user_id, course_id |
 | course_segment_difficulties | course_id |
+| course_basemaps | course_id |
 | post_likes | post_id, user_id |
+| comment_likes | comment_id, user_id |
+| post_bookmarks | post_id, user_id |
 | user_follows | follower_id, followee_id |
 | course_environment_tags | course_id, environment_type |
 | group_run_participants | group_run_id, user_id |
@@ -353,6 +397,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - 페이스 구간 순서는 양수, 시작거리는 0 이상, 종료거리는 시작거리보다 크고 추천 페이스는 양수다. 구간 사이의 겹침·빈 구간은 이 행 단위 CHECK만으로 보장하지 않는다.
 - 위 범위 검사를 적용한 NUMERIC 컬럼은 `NaN`도 거부한다. PostgreSQL에서 NaN은 일반 수보다 크게 비교되므로 하한 검사만으로는 차단되지 않는다. NULL 허용은 유지한다.
 - 자기 팔로우와 댓글의 자기 부모 참조를 CHECK로 금지한다. 댓글 부모는 `(post_id,parent_comment_id)` 복합 FK로 같은 게시물에 제한한다. 일반 댓글은 부모 NULL을 허용하고, 한 단계 대댓글 깊이는 서비스에서 검사한다.
+- 댓글 삭제는 soft delete다. 삭제된 원댓글은 삭제되지 않은 대댓글이 남아 있을 때만 CMT06에 `deleted: true` 자리로 보이고, 삭제된 댓글의 `comment_likes` 행은 남지만 집계·좋아요 대상에서 제외한다(S15P31E105-633).
 - 기존 `updated_at` 보유 테이블은 BEFORE UPDATE 트리거가 `clock_timestamp()`로 갱신한다. INSERT는 기존 기본값을 사용한다. JPA가 같은 컬럼의 수정 시각을 중복 관리하지 않는다.
 - Enum 허용 값은 보존하고 PostgreSQL 명명 타입으로 선언한다. PostGIS 확장 준비를 SQL에 명시한다. 운영 확장 설치 권한과 실행 책임은 배포 업무에서 결정한다.
 
@@ -384,7 +429,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 
 ### 회원탈퇴와 쓰기 경합 (S15P31E105-248)
 
-V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/좋아요/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
+V16은 login_id VARCHAR(64)·ACTIVE 닉네임 부분 UNIQUE, V17은 기존 테이블에 쓰기 guard 함수/트리거를 추가한다. 신규 정리 테이블은 없다. INSERT/UPDATE에서 직접 회원 자원은 users KEY SHARE NOWAIT, 세션 종속 자원은 부모 세션 잠금 뒤 ACTIVE·withdrawn_at 재검사를 수행하여 탈퇴 뒤 개인정보·멤버십·기기·심박 개인화가 재생성되지 않도록 한다. 댓글/게시물 좋아요(`post_likes`)/댓글 알림 신규 저장은 부모 게시물을 잠그고 삭제 여부를 재검사한다. 같은 함수를 쓰는 `comment_likes`(V28)·`post_bookmarks`(V29)는 회원 상태만 검사하고 부모 삭제는 재검사하지 않는다. 기존 FK·CHECK 오류는 유지하며 전용 guard 실패만 401/404로 매핑한다. 회원 `KEY SHARE NOWAIT`가 같은 회원 행의 `FOR UPDATE`(탈퇴·로그인·프로필 저장 등)와 겹친 잠금 실패(55P03)는 503이다. 일반 GET마다 공통 계정 조회를 추가하는 방식은 아니다.
 
 탈퇴 시 users의 NOT NULL은 유지하고 고정 대체값/로그인 ID 해시를 사용한다. 개인 건강/GPS 및 파생 개인화는 실제 삭제하고, 세션 ID·공용 코스·확정 그룹 결과의 최소 사실은 보존한다. 구체 제거/보존 목록은 users.md U18을 따른다. 이미지 삭제 재시도는 기존 WITHDRAWN과 파일 존재로 처리한다.
 

@@ -224,8 +224,13 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   await settle();
   const result = texts(screen);
   for (const text of [
-    // Stopped well before 5km, so the course is not 완주 and no goal line shows.
-    '평균 페이스 /km · 목표 6′00″',
+    // Stopped well before 5km, so the course is not 완주 and no planned-time goal shows. 시안 G3 blocks
+    // (S15P31E105-661): the third block falls back to the goal pace.
+    'PACE',
+    '평균 페이스',
+    'GOAL',
+    '목표 페이스',
+    '6′00″',
     '시간',
     '거리',
     '평균 심박',
@@ -238,32 +243,26 @@ test('pause stops the clock, 재개 carries on and a long press on 종료 shows 
   expect(result).not.toContain('달성');
   expect(textOf(screen, '평균 페이스')).toMatch(/^\d′\d\d″$/);
 
-  // The course is already one of mine, so the button starts saved and toggles off and on.
-  await press(screen, '내 코스에 저장됨');
-  expect(texts(screen)).toContain('내 코스에서 뺐어요');
-  await press(screen, '내 코스에 저장');
-  expect(texts(screen)).toContain('내 코스에 저장했어요');
+  // Only 기록 공유 and 완료 are left at the foot (S15P31E105-594 담당자 요청: 기록 보기 · 내 코스에 저장 삭제).
+  for (const removed of ['기록 보기', '내 코스에 저장', '내 코스에 저장됨']) {
+    expect(() => labelled(screen, removed)).toThrow();
+  }
+  expect(labelled(screen, '기록 공유')).toBeTruthy();
 
   await press(screen, '완료');
-  expect(texts(screen)).toContain('오늘 준비도');
+  expect(texts(screen)).toContain('러닝 시작하기');
   await act(async () => screen.unmount());
 });
 
-test('a free run result can be saved as my course, and a failed save offers 다시 저장', async () => {
+test('a free run result offers 기록 공유 once saved, and a failed save offers 다시 저장', async () => {
   const free = await startRun('free');
   expect(texts(free)).toContain('자유 러닝');
   expect(texts(free)).not.toContain('경쟁 모드');
   await press(free, '일시정지');
   await hold(free, '종료');
   await settle();
-  expect(texts(free)).toContain('평균 페이스 /km');
-  await press(free, '내 코스에 저장');
-  expect(texts(free)).toContain('내 코스에 저장했어요');
-  expect(texts(free)).toContain('내 코스에 저장됨');
-  // 기록 보기 opens the run just saved in 2.1's detail, with its way back to 러닝 기록 (S15P31E105-574).
-  await press(free, '기록 보기');
-  await settle();
-  expect(texts(free)).toContain('기록으로 돌아가기');
+  expect(texts(free)).toContain('PACE');
+  expect(labelled(free, '기록 공유').props.disabled).toBe(false);
   await act(async () => free.unmount());
 
   const failed = await startRun('free', 'recordSaveFailed');
@@ -296,6 +295,7 @@ test('the result uses the server record of the session, and an unconfirmed one o
         averagePaceSecPerKm: 356,
         averageHeartRate: 151,
         averageCadence: null,
+        goalAchieved: null,
       },
     };
   };
@@ -326,9 +326,6 @@ test('the result uses the server record of the session, and an unconfirmed one o
   expect(drafts[1].sessionId).toBe(drafts[0].sessionId);
   expect(labelled(screen, '기록 공유').props.disabled).toBe(false);
 
-  await press(screen, '내 코스에 저장');
-  expect(texts(screen)).toContain('자유 러닝 코스 저장은 준비 중이에요');
-  expect(texts(screen)).not.toContain('내 코스에 저장됨');
   await act(async () => screen.unmount());
 });
 

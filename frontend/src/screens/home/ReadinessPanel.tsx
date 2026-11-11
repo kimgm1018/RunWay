@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { AppText, Icon, useCountUp, type IconName } from '../../components';
+import { AppText, useCountUp, WordWrap } from '../../components';
 import type { ReadinessState, TodayCondition } from '../../data';
 import type { SleepAccess, TodaySleep } from '../../health/samsungSleep';
 import type { TodayRestingHr } from '../../health/samsungRestingHr';
@@ -11,11 +11,21 @@ import type { RouteName } from '../../navigation/routes';
 import { fontFamily } from '../../theme';
 import { recordsLook } from '../records/look';
 import { longDay } from '../records/DatePicker';
+import {
+  accent,
+  LoadCard,
+  LoadNotice,
+  ScoreReasons,
+  ScoreRing,
+  scoreText,
+  type ReasonRow,
+} from './ReadinessFlow';
+import { readinessGuide } from './readinessGuide';
 
-// 2.1 홈의 준비도 (S15P31E105-564, 담당자 결정): today's readiness on the frost card, laid out like 5.1's run
-// card. R02 gives only the latest score, so it is always today's whatever day the date line shows (담당자 결정:
-// 지난 날은 띄우지 않음). 러닝 시작 left with the old card (하단 탭에 러닝); a state without a usable score keeps the
-// button that fixes it.
+// 2.1 홈의 준비도 (S15P31E105-564; S15P31E105-615 담당자 요청서: 점수 나열 대신 "오늘 어떻게 달릴지"): on top the day's
+// sentence and its reasons in plain words, then the score and the metrics in full, and 러닝 시작하기 (2.0M) at the foot
+// (담당자 요청). R02 gives only the latest score, so it is always today's whatever day the date line shows (담당자 결정:
+// 지난 날은 띄우지 않음). A state without a usable score keeps the button that fixes it, under the main one.
 
 const states: Record<
   ReadinessState,
@@ -40,52 +50,18 @@ const states: Record<
   },
 };
 
-function Metric({
-  icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: IconName;
-  label: string;
-  value: string;
-  sub: string | null;
-}) {
-  return (
-    <View style={styles.metric}>
-      <View style={styles.metricLabel}>
-        <Icon
-          name={icon}
-          color={recordsLook.onCardLabel}
-          size={13}
-          strokeWidth={2}
-        />
-        <AppText style={styles.label}>{label}</AppText>
-      </View>
-      <AppText style={styles.metricValue}>{value}</AppText>
-      {sub ? <AppText style={styles.metricSub}>{sub}</AppText> : null}
-    </View>
-  );
-}
+// The score's grade on top (S15P31E105-594 담당자 요청: "준비도 양호, 보통 이런 느낌"). R02 has no grade yet
+// (readiness-formula 6절), so the card names the band of the score itself: 80 and up 양호, 60 and up 보통, else 낮음.
+export const gradeOf = (score: number) =>
+  score >= 80 ? '양호' : score >= 60 ? '보통' : '낮음';
 
-// The score on a 0–100 line: the filled part up to the score, a white dot at it.
-function Gauge({ score }: { score: number | null }) {
-  const share = score === null ? 0 : Math.max(0, Math.min(100, score)) / 100;
-  return (
-    <View style={styles.gauge}>
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${share * 100}%` }]} />
-      </View>
-      {score === null ? null : (
-        <View style={[styles.knob, { left: `${share * 100}%` }]} />
-      )}
-      <View style={styles.ends}>
-        <AppText style={styles.end}>0</AppText>
-        <AppText style={styles.end}>100</AppText>
-      </View>
-    </View>
-  );
-}
+// The top sentence for the week's load band (weeklyLoadLabel, S15P31E105-599).
+const loadSentences: Record<string, string> = {
+  '평소보다 적음': '최근 운동량이 평소보다 적어요.',
+  '평소와 비슷': '최근 운동량이 평소와 비슷해요.',
+  '평소보다 많음': '최근 운동량이 평소보다 많아요.',
+  '많이 많음': '최근 운동량이 평소보다 많이 많아요.',
+};
 
 // S15P31E105-572: Samsung Health sleep read on this phone. Without a score for today it still shows the latest
 // night (today's when there is one), with its source and wake date, and the card asks for sleep access when it is
@@ -96,8 +72,10 @@ export type PhoneSleep = {
   // S15P31E105-600: heart rate access and today's resting heart rate computed on this phone from Samsung Health.
   heartAccess?: SleepAccess | null;
   restingHr?: TodayRestingHr | null;
+  // S15P31E105-599: exercise read access for the weekly training load.
+  exerciseAccess?: SleepAccess | null;
   requesting: boolean;
-  // Asks for sleep and heart rate together (D-8).
+  // Asks for sleep, heart rate and exercise together (D-8).
   onConnect: () => void;
 };
 
@@ -159,18 +137,26 @@ export function ReadinessPanel({
   today,
   todayDay,
   phoneSleep,
+  watchReady = false,
 }: {
   today: TodayCondition;
   // Today in KST (YYYY-MM-DD), from 홈's clock.
   todayDay?: string;
   phoneSleep?: PhoneSleep;
+  // Fresh watch app response + sensor grants; R02 collecting/stale only describes health data.
+  watchReady?: boolean;
 }) {
   const navigation = useNavigation();
   // A score made on another day says so and is not called today's (S15P31E105-574): the score's own date against
   // today reads 'N월 N일 기준', not 오늘.
   const isToday = todayDay === undefined || today.date === todayDay;
   const ready = today.readinessState === 'ready';
-  const { action: stateAction, note: stateNote } = states[today.readinessState];
+  const { action, note: fallbackNote } = states[today.readinessState];
+  const stateAction =
+    watchReady && action?.route === 'WatchConnect' ? null : action;
+  const stateNote = watchReady && today.readinessState === 'watchDisconnected'
+    ? '데이터를 모으는 중이에요'
+    : fallbackNote;
   // Server health consent off: nothing health-related is shown, and the card keeps 설정 열기.
   const consented = today.readinessState !== 'permissionDenied';
   const r02Sleep = ready && today.sleepMinutes !== null;
@@ -195,7 +181,7 @@ export function ReadinessPanel({
     ? today.sleepLabel
     : null;
   // A missing 안정 심박 or 주간 부하 says why (2026-11-09 사용자 결정, 실기기 E2E). R02 gives the resting heart
-  // rate only for the score's own day, and nothing collects training load yet (readiness-formula 7.1).
+  // rate and the weekly training load only for the score's own day.
   // S15P31E105-600 (D-9): R02's value with its source first, then today's value computed on this phone from Samsung
   // Health heart rate, then why there is none.
   const r02RestingHeartRate =
@@ -209,7 +195,8 @@ export function ReadinessPanel({
       ? phoneSleep.restingHr
       : null;
   const restingHeartRate =
-    r02RestingHeartRate ?? (localRestingHr ? Math.round(localRestingHr.bpm) : null);
+    r02RestingHeartRate ??
+    (localRestingHr ? Math.round(localRestingHr.bpm) : null);
   const restingHeartRateSub =
     r02RestingHeartRate !== null
       ? today.restingHeartRateLabel
@@ -219,14 +206,36 @@ export function ReadinessPanel({
       ? null
       : (phoneSleep && phoneRestingHrNote(phoneSleep)) ??
         (ready ? '오늘 워치 기록 없음' : '준비도 계산 후 표시');
+  // S15P31E105-599: R02's last-7-day training load for today's score only (a stale score's load is not today's). A
+  // score for today without one means no exercise with heart rate in the last 4 weeks, unless exercise access is off.
+  const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
+  const weeklyLoadSub =
+    weeklyLoad !== null
+      ? today.weeklyLoadLabel
+      : !consented
+      ? null
+      : phoneSleep?.exerciseAccess === 'denied'
+      ? '삼성 헬스 권한 거부됨'
+      : phoneSleep?.exerciseAccess === 'revoked'
+      ? '삼성 헬스 권한 해제됨'
+      : ready
+      ? '최근 4주 심박 기록 운동 없음'
+      : '수집 전';
+  // Users who allowed sleep and heart rate before exercise was added (S15P31E105-600) get the button again.
   const connect =
     consented &&
     phoneSleep &&
     ((needsAccess(phoneSleep.access) && !r02Sleep) ||
-      (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null));
-  const weeklyLoad = ready && today.weeklyLoad ? today.weeklyLoad : null;
-  const weeklyLoadSub =
-    weeklyLoad !== null ? today.weeklyLoadLabel : consented ? '수집 전' : null;
+      (needsAccess(phoneSleep.heartAccess) && r02RestingHeartRate === null) ||
+      (needsAccess(phoneSleep.exerciseAccess) && weeklyLoad === null));
+  // 최근 운동량 shows one plain line (S15P31E105-615: 전문용어 노출 금지): the last 7 days and how it compares with
+  // usual, e.g. "30 · 많이 많음"; without a value, the reason instead.
+  const recentLoad =
+    weeklyLoad !== null
+      ? weeklyLoadSub
+        ? `${weeklyLoad} · ${weeklyLoadSub}`
+        : weeklyLoad
+      : null;
   // 2.P′ 오래된 데이터 says when the last score was made, when it is known.
   const note =
     today.readinessState === 'stale' && today.lastAssessedDate
@@ -234,60 +243,112 @@ export function ReadinessPanel({
       : stateNote;
   const score = ready ? today.readinessScore : null;
   const counted = Math.round(useCountUp(score ?? 0));
-  // R02 has no grade yet: the title names one only when the data has it (mock data).
-  const [grade, advice] = today.readinessSummary?.split(' · ') ?? [];
-  const title = isToday ? '오늘 준비도' : '준비도';
+  const guide = readinessGuide(today, { isToday });
+  // S15P31E105-594 담당자 요청: on top the score's grade (준비도 양호 · 보통 · 낮음), and under it the load against the
+  // usual week when there is one (the band R02's numbers already give, S15P31E105-599), else the data's own sentence.
+  // Both speak of the score's own day, which the date line names. Without a score, why there is none.
+  const trainingLoad = ready ? today.trainingLoad ?? null : null;
+  const loadSentence =
+    ready && today.weeklyLoadLabel
+      ? loadSentences[today.weeklyLoadLabel] ?? null
+      : null;
+  const headline = score !== null ? `준비도 ${gradeOf(score)}` : null;
+  const lead =
+    score === null
+      ? note
+      : loadSentence ??
+        (guide.judged
+          ? guide.title
+          : '운동 기록과 회복 상태를 함께 살펴보세요.');
+  const factors = ready ? today.scoreFactors ?? null : null;
+  const ratio =
+    trainingLoad && trainingLoad.usual !== null && trainingLoad.usual > 0
+      ? trainingLoad.weekly / trainingLoad.usual
+      : null;
+  const change = factors?.restingHrChangePct ?? null;
+  const rows: ReasonRow[] = [
+    {
+      name: '수면',
+      score: factors?.sleep ?? null,
+      detail: '최근 3일 반영',
+      value: sleepValue,
+      note: sleepSub,
+    },
+    {
+      name: '안정 심박',
+      score: factors?.recovery ?? null,
+      detail:
+        change === null
+          ? '평소 대비'
+          : `평소 대비 ${change > 0 ? '+' : ''}${scoreText(change)}%`,
+      value: restingHeartRate !== null ? `${restingHeartRate}회/분` : '– –',
+      note: restingHeartRateSub,
+    },
+    {
+      name: '최근 운동량',
+      score: factors?.load ?? null,
+      detail:
+        ratio === null
+          ? null
+          : `평소의 ${scoreText(Math.round(ratio * 10) / 10)}배`,
+      value: recentLoad ?? '– –',
+      note: recentLoad === null ? weeklyLoadSub : null,
+    },
+  ];
+  const { month, date } = {
+    month: Number(today.date.slice(5, 7)),
+    date: Number(today.date.slice(8, 10)),
+  };
   return (
     <View>
-      <View style={styles.chip}>
-        <AppText style={styles.chipText}>
-          {isToday
-            ? `오늘 · ${longDay(today.date)}`
-            : `${longDay(today.date)} 기준`}
+      <View style={styles.head}>
+        <AppText style={styles.headTitle}>
+          {isToday ? '오늘의 준비도' : '준비도'}
+        </AppText>
+        <AppText style={styles.headDate}>
+          {isToday ? `${month}월 ${date}일` : `${longDay(today.date)} 기준`}
         </AppText>
       </View>
-      <AppText style={styles.title}>
-        {ready && grade ? `${title} ${grade}` : title}
-      </AppText>
-      {ready && advice ? (
-        <AppText style={styles.subtitle}>{advice}</AppText>
-      ) : note ? (
-        <AppText style={styles.subtitle}>{note}</AppText>
+
+      <View style={styles.hero}>
+        <View style={styles.heroText}>
+          {headline ? (
+            <WordWrap text={headline} style={styles.headline} fontSize={24} />
+          ) : null}
+          {lead ? (
+            <View style={headline ? styles.leadBox : null}>
+              <WordWrap text={lead} style={styles.lead} fontSize={13.5} />
+            </View>
+          ) : null}
+        </View>
+        <ScoreRing score={score} counted={counted} />
+      </View>
+
+      {trainingLoad ? (
+        <LoadNotice
+          load={trainingLoad}
+          loadScored={typeof factors?.load === 'number'}
+        />
       ) : null}
 
-      <View style={styles.scoreBlock}>
-        <AppText style={styles.label}>준비도</AppText>
-        <AppText
-          style={styles.score}
-          accessibilityLabel={`준비도 ${score ?? '없음'}`}
-        >
-          {score === null ? '--' : String(counted)}
-          <AppText style={styles.scoreUnit}> /100</AppText>
-        </AppText>
-        <Gauge score={score} />
-      </View>
-
-      <View style={styles.metrics}>
-        <Metric icon="moon" label="수면" value={sleepValue} sub={sleepSub} />
-        <Metric
-          icon="heart"
-          label="안정 심박"
-          value={restingHeartRate !== null ? `${restingHeartRate} bpm` : '– –'}
-          sub={restingHeartRateSub}
-        />
-        <Metric
-          icon="activity"
-          label="주간 부하"
-          value={weeklyLoad ?? '– –'}
-          sub={weeklyLoadSub}
-        />
-      </View>
-
-      {ready && today.aiAdvice ? (
-        <View style={styles.advice}>
-          <AppText style={styles.label}>오늘의 조언</AppText>
-          <AppText style={styles.adviceText}>{today.aiAdvice}</AppText>
-        </View>
+      {consented ? (
+        <>
+          <LoadCard
+            day={today.date}
+            isToday={isToday}
+            load={trainingLoad}
+            reason={weeklyLoadSub}
+          />
+          <ScoreReasons
+            score={score}
+            title={
+              score !== null && factors
+                ? `왜 ${score}점인가요?`
+                : '준비도에 들어가는 기록'
+            }
+            rows={rows}
+          />
+        </>
       ) : null}
 
       {connect ? (
@@ -297,156 +358,97 @@ export function ReadinessPanel({
           accessibilityState={{ busy: phoneSleep.requesting }}
           disabled={phoneSleep.requesting}
           onPress={phoneSleep.onConnect}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
         >
-          <AppText style={styles.actionText}>삼성 헬스 연결</AppText>
+          <AppText style={styles.secondaryText}>삼성 헬스 연결</AppText>
         </Pressable>
       ) : stateAction ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={stateAction.title}
           onPress={() => navigateTo(navigation, stateAction.route)}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.secondary, pressed && styles.pressed]}
         >
-          <AppText style={styles.actionText}>{stateAction.title}</AppText>
+          <AppText style={styles.secondaryText}>{stateAction.title}</AppText>
         </Pressable>
       ) : null}
+
+      {/* The card's last and main action (담당자 요청: 맨 밑에 러닝 시작하기): the run tab's first step, 2.0M. Nothing
+          there is changed by readiness (담당자 요청서: 자동 변경 없음). */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="러닝 시작하기"
+        onPress={() => navigateTo(navigation, 'RunMode')}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+      >
+        <AppText style={styles.actionText}>러닝 시작하기</AppText>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    alignSelf: 'flex-start',
-    height: 24,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  chipText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 11.5,
-    lineHeight: 16,
-    color: 'rgba(255,255,255,0.92)',
-  },
-  title: {
-    marginTop: 14,
-    fontFamily: fontFamily.bold,
-    fontSize: 22,
-    lineHeight: 28,
-    letterSpacing: -0.5,
-    color: recordsLook.onCard,
-  },
-  subtitle: {
-    marginTop: 1,
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 21,
-    letterSpacing: -0.3,
-    color: recordsLook.onCardSub,
-  },
-  label: {
-    fontFamily: fontFamily.medium,
-    fontSize: 13.5,
-    lineHeight: 18,
-    color: recordsLook.onCardLabel,
-  },
-  scoreBlock: { marginTop: 26 },
-  score: {
-    marginTop: 2,
-    fontFamily: fontFamily.bold,
-    fontSize: 64,
-    lineHeight: 72,
-    letterSpacing: -2,
-    color: recordsLook.onCard,
-    includeFontPadding: false,
-  },
-  scoreUnit: {
-    fontFamily: fontFamily.bold,
-    fontSize: 18,
-    letterSpacing: 0,
-    color: recordsLook.onCardSub,
-  },
-  gauge: { marginTop: 14, height: 34 },
-  track: {
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  fill: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-  },
-  knob: {
-    position: 'absolute',
-    top: -4,
-    width: 16,
-    height: 16,
-    marginLeft: -8,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-  },
-  ends: {
-    marginTop: 6,
+  head: {
     flexDirection: 'row',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
   },
-  end: {
-    fontFamily: fontFamily.mono,
-    fontSize: 11,
-    lineHeight: 14,
-    color: recordsLook.onCardMuted,
-  },
-  metrics: {
-    marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: recordsLook.onCardLine,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  metric: { flex: 1 },
-  metricLabel: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  metricValue: {
-    marginTop: 4,
+  headTitle: {
     fontFamily: fontFamily.bold,
-    fontSize: 21,
-    lineHeight: 26,
-    letterSpacing: -0.5,
+    fontSize: 17,
+    lineHeight: 24,
     color: recordsLook.onCard,
   },
-  metricSub: {
-    marginTop: 1,
+  headDate: {
     fontFamily: fontFamily.medium,
-    fontSize: 12.5,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
+    color: recordsLook.onCardMuted,
+  },
+  hero: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroText: { flex: 1 },
+  headline: {
+    fontFamily: fontFamily.bold,
+    fontSize: 24,
+    lineHeight: 32,
+    letterSpacing: -0.7,
+    color: recordsLook.onCard,
+  },
+  leadBox: { marginTop: 10 },
+  lead: {
+    fontFamily: fontFamily.medium,
+    fontSize: 13.5,
+    lineHeight: 20,
     color: recordsLook.onCardSub,
   },
-  advice: {
+  secondary: {
     marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: recordsLook.onCardLine,
-    gap: 6,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  adviceText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 22,
-    letterSpacing: -0.3,
+  secondaryText: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14.5,
+    lineHeight: 20,
     color: recordsLook.onCard,
   },
   action: {
-    marginTop: 24,
-    height: 52,
+    marginTop: 12,
+    height: 54,
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    // The card's one accent, mint (담당자 결정, S15P31E105-594).
+    backgroundColor: accent,
   },
   pressed: { opacity: 0.75 },
   actionText: {

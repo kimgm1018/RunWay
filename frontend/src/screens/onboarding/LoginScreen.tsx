@@ -62,11 +62,16 @@ function describe(error: unknown): Failure {
 export function LoginScreen() {
   const navigation = useNavigation();
   const { auth } = useRepositories();
-  const { signIn, holdTokens } = useSession();
+  const { signIn, holdTokens, loginRequired } = useSession();
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+
+  // Session-expired Login is the stack root; goBack is a dead end, so offer Start instead (S15P31E105-638).
+  const onBack = loginRequired
+    ? () => navigateTo(navigation, 'Start')
+    : navigation.goBack;
 
   const submit = async () => {
     setLoading(true);
@@ -95,7 +100,7 @@ export function LoginScreen() {
   return (
     <Screen
       {...onboardingScreen}
-      header={<OnboardingHeader onBack={navigation.goBack} />}
+      header={<OnboardingHeader onBack={onBack} />}
       footer={
         <OnboardingFooter>
           <GoButton
@@ -158,7 +163,7 @@ export function LoginScreen() {
       </View>
       <TextLink
         title="비밀번호를 잊으셨나요?"
-        onPress={() => navigateTo(navigation, 'PasswordFind')}
+        onPress={() => navigateTo(navigation, 'PasswordPhone')}
         style={styles.forgot}
       />
     </Screen>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
 import {
   CommonActions,
   useFocusEffect,
@@ -15,8 +15,7 @@ import {
   type MusicState,
 } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
-import { useSession } from '../../session/SessionProvider';
-import { fontFamily, k1 } from '../../theme';
+import { fontFamily } from '../../theme';
 import { controlModeOf, statusOf } from '../run/RunProgressScreen';
 import { RunControlBar } from '../run/live/RunControlBar';
 import {
@@ -29,13 +28,14 @@ import {
   LiveMapPanel,
   LiveMusicRow,
   averagePace,
-  LiveNotice,
   metricPages,
   useRunHistory,
   type MusicCommand,
 } from '../run/live/RunLivePages';
 import { useRunSession } from '../run/RunSession';
 import { FooterButton } from './GroupRunDetailScreen';
+import { groupTone, NumText } from './look';
+import { MissingTarget } from './MissingTarget';
 
 type Tab = 'summary' | 'group';
 
@@ -55,7 +55,7 @@ function LoadAlert({
 }) {
   return (
     <View style={styles.alert} accessibilityLiveRegion="assertive">
-      <Icon name="heart" color={k1.coral} size={18} />
+      <Icon name="heart" color={groupTone.danger} size={18} />
       <View style={styles.flex}>
         <AppText style={styles.alertTitle}>
           {`멤버 ${alert.memberCount}명 페이스 조정 권고`}
@@ -92,6 +92,9 @@ function GroupPage({
           (b.gapM ?? -Infinity) - (a.gapM ?? -Infinity),
       )
     : [];
+  // Arranged as in 담당자 시안 (S15P31E105-594 담당자 시안) in the run screen's own colours (담당자 결정: 색은 그대로,
+  // 구성만 시안대로): the guide pace big with its unit apart, a line, then the spread; the table with its head
+  // over a line and a line between members.
   return (
     <View style={styles.page}>
       {live?.loadAlert ? <LoadAlert alert={live.loadAlert} /> : null}
@@ -99,32 +102,49 @@ function GroupPage({
         <AppText style={styles.label}>
           {guide === goal ? '공동 목표 페이스' : '지금 안내 페이스'}
         </AppText>
-        <AppText style={styles.big}>{`${formatPace(guide)}/km`}</AppText>
+        <View style={styles.bigLine}>
+          <AppText style={styles.big}>{formatPace(guide)}</AppText>
+          <AppText style={styles.bigUnit}>/km</AppText>
+        </View>
         {guide !== goal ? (
-          <AppText style={styles.sub}>
-            {`지금 안내 ${formatPace(guide)} · 출발 목표 ${formatPace(goal)}`}
-          </AppText>
+          <NumText
+            text={`지금 안내 ${formatPace(guide)} · 출발 목표 ${formatPace(
+              goal,
+            )}`}
+            style={styles.sub}
+          />
         ) : null}
         {live ? (
-          <AppText style={[styles.sub, live.inRange === false && styles.warn]}>
-            {`${
-              live.inRange === null
-                ? '현재 선두–후미 간격 '
-                : live.inRange
-                ? '그룹 범위 안이에요 · 선두–후미 '
-                : '그룹 범위를 벗어났어요 · 선두–후미 '
-            }${live.spreadM === null ? '미확인' : `${live.spreadM}m`}`}
-          </AppText>
+          <>
+            <View style={styles.rule} />
+            <NumText
+              text={`${
+                live.inRange === null
+                  ? '현재 선두–후미 간격 '
+                  : live.inRange
+                  ? '그룹 범위 안이에요 · 선두–후미 '
+                  : '그룹 범위를 벗어났어요 · 선두–후미 '
+              }${live.spreadM === null ? '미확인' : `${live.spreadM}m`}`}
+              style={[styles.spread, live.inRange === false && styles.warn]}
+            />
+          </>
         ) : null}
       </View>
+      {/* 조회 상태 (S15P31E105-594 담당자 시안): the line on a tile with an icon before it. */}
       {liveError ? (
-        <AppText style={styles.sub} accessibilityLiveRegion="polite">
-          최신 현황을 확인하지 못했어요. 연결 상태를 확인해 주세요.
-        </AppText>
+        <View style={[styles.tile, styles.noteRow]}>
+          <Icon name="alert" color={liveLook.sub} size={18} />
+          <AppText
+            style={[styles.sub, styles.flex]}
+            accessibilityLiveRegion="polite"
+          >
+            최신 현황을 확인하지 못했어요. 연결 상태를 확인해 주세요.
+          </AppText>
+        </View>
       ) : null}
       {live ? (
-        <View style={styles.tile}>
-          <View style={styles.row}>
+        <View style={[styles.tile, styles.table]}>
+          <View style={[styles.row, styles.headRow]}>
             <AppText style={[styles.head, styles.flex]}>
               순위 · 최신 현황
             </AppText>
@@ -143,27 +163,97 @@ function GroupPage({
               : '';
             const pace = member.paceSecPerKm ?? (member.isMe ? myPace : null);
             return (
-              <View key={member.userId} style={styles.row}>
-                <AppText style={styles.role}>{role}</AppText>
-                <AppText style={[styles.name, styles.flex]} numberOfLines={1}>
+              <View
+                key={member.userId}
+                style={[
+                  styles.row,
+                  styles.rowLine,
+                  member.isMe && styles.meRow,
+                ]}
+              >
+                <NumText
+                  text={role}
+                  style={[styles.role, member.isMe && styles.mint]}
+                />
+                <AppText
+                  style={[styles.name, styles.flex, member.isMe && styles.mint]}
+                  numberOfLines={1}
+                >
                   {member.isMe ? `${member.nickname} (나)` : member.nickname}
                 </AppText>
-                <AppText style={[styles.value, styles.gapCol]}>
-                  {member.isMe
-                    ? '–'
-                    : member.gapM === null
-                    ? '—'
-                    : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(
-                        member.gapM,
-                      )}m`}
-                </AppText>
-                <AppText style={[styles.value, styles.paceCol]}>
-                  {pace ? formatPace(pace) : '– –'}
-                </AppText>
+                <NumText
+                  text={
+                    member.isMe
+                      ? '–'
+                      : member.gapM === null
+                      ? '—'
+                      : `${member.gapM > 0 ? '↑' : '↓'} ${Math.abs(
+                          member.gapM,
+                        )}m`
+                  }
+                  style={[
+                    styles.value,
+                    styles.gapCol,
+                    !member.isMe &&
+                      member.gapM !== null &&
+                      member.gapM > 0 &&
+                      styles.mint,
+                  ]}
+                />
+                <NumText
+                  text={pace ? formatPace(pace) : '– –'}
+                  style={[
+                    styles.value,
+                    styles.paceCol,
+                    member.isMe && styles.mint,
+                  ]}
+                />
               </View>
             );
           })}
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+// The group's notice above the controls, arranged as the 일시정지 card of 담당자 시안 (S15P31E105-594 담당자 시안): the
+// line on a tile beside an icon, and its action (그룹 전체 강제 종료 · 그룹런 결과 보기) under a line, centred. It keeps
+// LiveNotice's colours and labels.
+function GroupNotice({
+  label,
+  text,
+  action,
+}: {
+  label: string;
+  text: string;
+  action?: { label: string; onPress: () => void } | null;
+}) {
+  return (
+    <View style={styles.notice}>
+      <View style={styles.noteRow}>
+        <Icon name="alert" color={liveLook.sub} size={18} />
+        <AppText
+          style={[styles.noticeText, styles.flex]}
+          accessibilityLabel={label}
+          accessibilityLiveRegion="polite"
+        >
+          {text}
+        </AppText>
+      </View>
+      {action ? (
+        <>
+          <View style={styles.rule} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={action.label}
+            onPress={action.onPress}
+            hitSlop={8}
+            style={styles.noticeButton}
+          >
+            <AppText style={styles.noticeAction}>{action.label}</AppText>
+          </Pressable>
+        </>
       ) : null}
     </View>
   );
@@ -176,11 +266,29 @@ export function GroupRunProgressScreen({
 }: {
   initialTab?: Tab;
 }) {
+  const { run } = useRunSession();
+  const groupRunId = run?.config.groupRunId;
+  // Only a started group run opens here (6.5 starts it first). Without one no mock run is started
+  // (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="진행 중인 그룹런이 없어요" />;
+  }
+  return (
+    <GroupRunProgressContent initialTab={initialTab} groupRunId={groupRunId} />
+  );
+}
+
+function GroupRunProgressContent({
+  initialTab,
+  groupRunId,
+}: {
+  initialTab: Tab;
+  groupRunId: string;
+}) {
   const navigation = useNavigation();
   const { groupRuns, music } = useRepositories();
   const toast = useToast();
-  const { run, start, pause, resume, finish } = useRunSession();
-  const { ensureRunLogin } = useSession();
+  const { run, pause, resume, finish } = useRunSession();
   const [view, setView] = useState<LiveView>('numbers');
   // 6.6r opens on 그룹, after the four number pages.
   const [page, setPage] = useState(initialTab === 'group' ? 4 : 0);
@@ -193,23 +301,6 @@ export function GroupRunProgressScreen({
   const finishing = useRef(false);
   // 결과 화면으로 한 번만 넘어간다. 그룹장이 끝냈거나(SERVER_END) 내 종료가 서버에 저장되면 내 기록도 끝난다(S15P31E105-420).
   const leftForResult = useRef(false);
-  const groupRunId = run?.config.groupRunId ?? 'gr-today';
-
-  // Opened without a run: start a group run without a course.
-  useEffect(() => {
-    if (!run) {
-      if (!ensureRunLogin()) {
-        return;
-      }
-      start({
-        mode: 'GROUP',
-        plan: null,
-        groupRunId,
-        goalDistanceM: null,
-        goalPaceSecPerKm: 360,
-      });
-    }
-  }, [groupRunId, run, start, ensureRunLogin]);
   useFocusEffect(
     useCallback(
       () =>
@@ -220,8 +311,9 @@ export function GroupRunProgressScreen({
             setLive(value);
           },
           () => {
+            // Keep the last good snapshot so a transient poll failure does not
+            // blank the board; only first-load failure leaves live null.
             setLiveError(true);
-            setLive(null);
           },
         ),
       [groupRunId, groupRuns],
@@ -279,7 +371,8 @@ export function GroupRunProgressScreen({
   );
   const status = useRef(run?.status);
   status.current = run?.status;
-  const endedRunId = run?.status === 'finished' ? run.config.groupRunId : undefined;
+  const endedRunId =
+    run?.status === 'finished' ? run.config.groupRunId : undefined;
   useEffect(() => {
     if (!endedRunId || leftForResult.current) {
       return;
@@ -315,7 +408,7 @@ export function GroupRunProgressScreen({
   if (!run) {
     return <View style={[styles.flex, styles.ground]} />;
   }
-  const { config, sample, trail } = run;
+  const { config, sample, trail, trailParts } = run;
   const goal = config.goalPaceSecPerKm ?? 360;
   const toResult = () => {
     leftForResult.current = true;
@@ -384,6 +477,7 @@ export function GroupRunProgressScreen({
           <LiveMapPanel
             route={config.plan?.route}
             trail={trail}
+            trailParts={trailParts ?? undefined}
             area={area}
             logo={logo}
           />
@@ -405,7 +499,7 @@ export function GroupRunProgressScreen({
         notes={
           <>
             {ended ? (
-              <LiveNotice
+              <GroupNotice
                 label="그룹런 종료 안내"
                 text="그룹런이 종료되었어요"
                 action={{
@@ -416,7 +510,7 @@ export function GroupRunProgressScreen({
               />
             ) : null}
             {paused ? (
-              <LiveNotice
+              <GroupNotice
                 label="그룹런 일시정지 안내"
                 text={
                   '일시정지·종료는 내 기록에만 적용돼요.\n다른 멤버는 계속 달려요.'
@@ -456,12 +550,24 @@ export function GroupRunProgressScreen({
           />
         }
       />
-      <BottomSheet
-        visible={confirming}
-        onClose={() => setConfirming(false)}
-        title="그룹런을 모두 끝낼까요?"
-        description="달리고 있는 멤버의 기록도 지금까지로 끝나요. 완주로 바뀌지는 않아요."
-      >
+      {/* 그룹 전체 종료 확인, centred as in 담당자 시안 (S15P31E105-594 담당자 시안): the red pink alert, the question, the
+          line, then 돌아가기 and 전체 종료 side by side. */}
+      <BottomSheet visible={confirming} onClose={() => setConfirming(false)}>
+        <View
+          style={[styles.sheetIcon, { backgroundColor: groupTone.dangerSoft }]}
+        >
+          <Icon name="alert" color={groupTone.danger} size={22} />
+        </View>
+        <AppText
+          variant="title"
+          accessibilityRole="header"
+          style={styles.sheetTitle}
+        >
+          그룹런을 모두 끝낼까요?
+        </AppText>
+        <AppText variant="body" tone="textSecondary" style={styles.center}>
+          달리고 있는 멤버의 기록도 지금까지로 끝나요. 완주로 바뀌지는 않아요.
+        </AppText>
         <View style={styles.sheetButtons}>
           <FooterButton title="돌아가기" onPress={() => setConfirming(false)} />
           <FooterButton
@@ -505,6 +611,7 @@ export function GroupRunPositionScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  center: { textAlign: 'center' },
   ground: { backgroundColor: liveLook.ground },
   page: { flex: 1, paddingHorizontal: 20, gap: 12 },
   tile: {
@@ -519,11 +626,20 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: liveLook.sub,
   },
+  bigLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  // Group screen numbers in Archivo (S15P31E105-662).
+  // The guide pace in the 시안's mint (S15P31E105-594 담당자 시안); the run screen is dark, so mint digits read.
   big: {
-    fontFamily: fontFamily.numberMedium,
-    fontSize: 32,
-    lineHeight: 40,
-    color: liveLook.text,
+    fontFamily: fontFamily.numberBold,
+    fontSize: 48,
+    lineHeight: 54,
+    color: groupTone.accent,
+  },
+  bigUnit: {
+    fontFamily: fontFamily.numberSemiBold,
+    fontSize: 18,
+    lineHeight: 22,
+    color: liveLook.muted,
   },
   sub: {
     fontFamily: fontFamily.regular,
@@ -531,14 +647,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: liveLook.sub,
   },
+  spread: {
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
+    lineHeight: 21,
+    color: liveLook.sub,
+  },
   warn: { color: liveLook.paused },
+  rule: { height: 1, marginVertical: 4, backgroundColor: liveLook.line },
+  noteRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   alert: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     padding: 14,
     borderRadius: 18,
-    backgroundColor: 'rgba(226, 135, 111, 0.16)',
+    backgroundColor: groupTone.dangerSoft,
   },
   alertTitle: {
     fontFamily: fontFamily.bold,
@@ -546,7 +670,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: liveLook.text,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 },
+  // The table runs edge to edge in its tile, its rows a line apart.
+  table: { paddingVertical: 4, gap: 0 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 40 },
+  headRow: { minHeight: 34 },
+  rowLine: { borderTopWidth: 1, borderTopColor: liveLook.line },
+  // My row lit as in the 시안: a faint mint band with my place, name and pace in mint; a member ahead (↑) in mint.
+  meRow: {
+    marginHorizontal: -14,
+    paddingHorizontal: 14,
+    backgroundColor: groupTone.accentSoft,
+  },
+  mint: { color: groupTone.accent },
   head: {
     fontFamily: fontFamily.medium,
     fontSize: 14,
@@ -567,13 +702,44 @@ const styles = StyleSheet.create({
     color: liveLook.text,
   },
   value: {
-    fontFamily: fontFamily.numberMedium,
-    fontSize: 16,
+    fontFamily: fontFamily.medium,
+    fontSize: 15,
     lineHeight: 20,
     color: liveLook.text,
     textAlign: 'right',
   },
   gapCol: { width: 100, textAlign: 'right' },
   paceCol: { width: 64, textAlign: 'right' },
+  notice: {
+    padding: 14,
+    gap: 10,
+    borderRadius: 18,
+    backgroundColor: liveLook.tile,
+  },
+  noticeText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    color: liveLook.sub,
+  },
+  noticeButton: { alignSelf: 'center' },
+  noticeAction: {
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    lineHeight: 20,
+    color: liveLook.text,
+    textDecorationLine: 'underline',
+  },
+  sheetIcon: {
+    alignSelf: 'center',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetTitle: { fontFamily: fontFamily.medium, textAlign: 'center' },
+  // 돌아가기 over 전체 종료, as in the 시안.
+  // Side by side like the other confirm sheets: FooterButton grows (flex 1), which a stack would not measure.
   sheetButtons: { flexDirection: 'row', gap: 10 },
 });

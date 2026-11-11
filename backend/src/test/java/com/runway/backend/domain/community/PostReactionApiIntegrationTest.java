@@ -8,16 +8,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.runway.backend.global.security.SecurityTestSupport;
 import com.runway.backend.support.SharedContextIntegrationSupport;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class PostReactionApiIntegrationTest extends SharedContextIntegrationSupport {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private long viewerId;
     private long publicAuthorId;
@@ -48,6 +58,37 @@ class PostReactionApiIntegrationTest extends SharedContextIntegrationSupport {
 
         publicPostId = insertPost(publicAuthorId, insertSession(publicAuthorId), "공개 글");
         privatePostId = insertPost(privateAuthorId, insertSession(privateAuthorId), "비공개 글");
+    }
+
+    /**
+     * 이미 좋아요한 글의 재요청은 INSERT(회원 행 NOWAIT 잠금 트리거)를 실행하지 않아, 같은 회원의 로그인·프로필 저장이 회원 행을 잠근 중에도
+     * 200이다. 대조로 새 좋아요는 같은 잠금에서 트리거가 실패해 503이다.
+     */
+    @Test
+    void upsert_repeatLike_succeedsWhileUserRowLocked() throws Exception {
+        long otherPostId = insertPost(publicAuthorId, insertSession(publicAuthorId), "다른 글");
+        putLike(viewerId, publicPostId).andExpect(status().isOk());
+
+        CommunityFixture.whileUserRowLocked(
+                jdbc,
+                transactionManager,
+                viewerId,
+                () -> {
+                    putLike(viewerId, publicPostId).andExpect(status().isOk());
+                    putLike(viewerId, otherPostId)
+                            .andExpect(status().isServiceUnavailable())
+                            .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"));
+                });
+        assertThat(countLikes(publicPostId, viewerId)).isOne();
+        assertThat(countLikes(otherPostId, viewerId)).isZero();
+    }
+
+    private ResultActions putLike(long userId, long postId) throws Exception {
+        return mockMvc.perform(
+                put("/api/v1/posts/{postId}/reactions/me", postId)
+                        .header("Authorization", SecurityTestSupport.bearer(userId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reactionType\":\"LIKE\"}"));
     }
 
     @Test
@@ -131,6 +172,62 @@ class PostReactionApiIntegrationTest extends SharedContextIntegrationSupport {
                                 .header("Authorization", SecurityTestSupport.bearer(viewerId)))
                 .andExpect(status().isOk());
         assertThat(countLikes(publicPostId, viewerId)).isZero();
+    }
+
+    // 같은 회원의 동시 PUT은 롤백 전용 트랜잭션(500) 없이 모두 200이고 행은 하나다. 취소 후 다시 반복해도 같다.
+    @Test
+    void upsert_concurrentSameUser_all200_andSingleRow() throws Exception {
+        int threads = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            for (int round = 0; round < 3; round++) {
+                CountDownLatch ready = new CountDownLatch(threads);
+                CountDownLatch start = new CountDownLatch(1);
+                List<Future<Integer>> futures = new ArrayList<>();
+                for (int i = 0; i < threads; i++) {
+                    futures.add(
+                            pool.submit(
+                                    () -> {
+                                        ready.countDown();
+                                        start.await();
+                                        return mockMvc.perform(
+                                                        put(
+                                                                        "/api/v1/posts/{postId}/reactions/me",
+                                                                        publicPostId)
+                                                                .header(
+                                                                        "Authorization",
+                                                                        SecurityTestSupport.bearer(
+                                                                                viewerId))
+                                                                .contentType(
+                                                                        MediaType.APPLICATION_JSON)
+                                                                .content(
+                                                                        """
+                                                                        {"reactionType":"LIKE"}
+                                                                        """))
+                                                .andExpect(jsonPath("$.postId").value((int) publicPostId))
+                                                .andExpect(jsonPath("$.userId").value((int) viewerId))
+                                                .andReturn()
+                                                .getResponse()
+                                                .getStatus();
+                                    }));
+                }
+                assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+                start.countDown();
+                for (Future<Integer> future : futures) {
+                    assertThat(future.get(30, TimeUnit.SECONDS)).isEqualTo(200);
+                }
+                assertThat(countLikes(publicPostId, viewerId)).isOne();
+
+                mockMvc.perform(
+                                delete("/api/v1/posts/{postId}/reactions/me", publicPostId)
+                                        .header("Authorization", SecurityTestSupport.bearer(viewerId)))
+                        .andExpect(status().isOk());
+                assertThat(countLikes(publicPostId, viewerId)).isZero();
+            }
+        } finally {
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test

@@ -11,97 +11,139 @@
   <script defer src="js/stream.js"></script>
   <script defer src="js/main.js"></script>
 </head>
-<body>
+<body class="is-waiting">
   <main class="console">
     <header class="topbar">
-      <div class="brand-block">
-        <div class="eyebrow">RUNWAY AI · LIVE DEMO</div>
-        <h1>러닝 페이스 판단</h1>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <div class="brand-name">RUNWAY <em>AI</em></div>
+          <h1>MPC 실시간 페이스 판단</h1>
+        </div>
       </div>
-      <div id="stage-badge" class="stage-badge">재생 대기</div>
+      <div id="stage-badge" class="stage-badge" data-kind="idle"><i aria-hidden="true"></i><span id="stage-text">대기</span></div>
+      <div id="mode-chip" class="mode-chip" data-kind="personal">개인 페이스 · AI04</div>
+      <div id="runner-label" class="runner-label">러너 대기</div>
+      <section id="banner" class="banner hidden" aria-live="polite"></section>
       <div class="version-block">
-        <div id="model-label" class="model-label">예측기: —</div>
-        <div id="policy-label" class="policy-label">정책 mpc-v0.4.1 · 같은 정책, 예측기만 다름</div>
+        <div id="model-label" class="model-label">예측기 대기</div>
+        <div id="policy-label" class="policy-label">정책 mpc-v0.4.3</div>
       </div>
     </header>
 
-    <section id="banner" class="banner hidden" aria-live="polite"></section>
-
-    <section id="auth-panel" class="auth-panel hidden">
-      <label for="token-input">시연 보기 토큰</label>
-      <input id="token-input" type="password" autocomplete="off" spellcheck="false">
-      <button id="token-save" type="button">연결</button>
-      <span>토큰은 이 탭에만 저장됩니다.</span>
+    <section class="hero">
+      <div class="guide-card">
+        <div class="kicker"><span id="kicker-text">지금 러너에게 갈 안내</span> <span id="guide-delivery" class="delivery">대기</span></div>
+        <div class="guide-main">
+          <span id="guide-from" class="guide-from hidden"></span>
+          <strong id="guide-pace" class="guide-pace">—</strong>
+          <span class="guide-unit">/km</span>
+          <span id="guide-action" class="action-pill" data-action="idle">대기</span>
+        </div>
+        <p id="reason-line" class="reason-line">판단 기록을 기다리고 있습니다.</p>
+        <div id="guide-side" class="guide-side">
+          <div id="guide-side-label" class="guide-side-label">이 페이스의 2분 뒤 예측</div>
+          <div class="guide-side-value"><span id="guide-pred">—</span><small>bpm</small></div>
+          <div class="guide-side-allow">허용 <b id="guide-allow">—</b></div>
+        </div>
+      </div>
+      <div class="stat stat-hr">
+        <span class="stat-label"><i class="heart" aria-hidden="true"></i><span id="label-hr">현재 심박</span></span>
+        <strong id="metric-hr" class="stat-value">—</strong>
+        <span class="stat-unit">bpm</span>
+        <span id="metric-allow" class="stat-sub">허용 —</span>
+      </div>
+      <div class="stat">
+        <span id="label-pace" class="stat-label">실측 페이스</span>
+        <strong id="metric-pace" class="stat-value">—</strong>
+        <span class="stat-unit">/km</span>
+        <span id="metric-grade" class="stat-sub">다음 2분 경사 —</span>
+      </div>
+      <div class="stat">
+        <span id="label-distance" class="stat-label">거리</span>
+        <strong id="metric-distance" class="stat-value">—</strong>
+        <span id="unit-distance" class="stat-unit">km</span>
+        <span id="metric-remaining" class="stat-sub">남은 거리 —</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">경과</span>
+        <strong id="metric-elapsed" class="stat-value">—</strong>
+        <span class="stat-unit">&nbsp;</span>
+        <span id="metric-latency" class="stat-sub">판단 —</span>
+      </div>
     </section>
 
-    <section id="replay-controls" class="replay-controls hidden" aria-label="재생 조작">
-      <label for="recording-select">기록</label>
-      <select id="recording-select"></select>
-      <button id="play-toggle" type="button">재생</button>
-      <label for="play-speed">속도</label>
-      <select id="play-speed">
-        <option value="1">1×</option>
-        <option value="4">4×</option>
-        <option value="16">16×</option>
-      </select>
-      <input id="progress" type="range" min="0" max="0" value="0" aria-label="재생 위치">
-      <output id="progress-label">0 / 0</output>
-    </section>
-
-    <section id="top-metrics" class="metrics-row">
-      <div class="metric"><span>현재 HR</span><strong id="metric-hr">—</strong></div>
-      <div class="metric"><span>실측 pace</span><strong id="metric-pace">—</strong></div>
-      <div class="metric"><span>다음 2분 경사</span><strong id="metric-grade">—</strong></div>
-      <div class="metric"><span>거리 · 경과</span><strong id="metric-distance">—</strong></div>
-      <div class="metric"><span>입력 지연 · 판단</span><strong id="metric-latency">—</strong></div>
-    </section>
-
-    <section class="workspace-grid">
-      <div class="analysis-column">
-        <section class="guide-panel panel">
-          <div class="section-kicker">지금 러너에게 갈 안내</div>
-          <div class="guide-content">
-            <strong id="guide-pace">—/km</strong>
-            <span id="guide-action">대기</span>
-            <span id="guide-delivery">—</span>
+    <section class="stage">
+      <div class="analysis">
+        <section class="panel candidates-panel">
+          <div class="panel-head">
+            <h2>페이스 후보 <small id="candidate-meta">GRU가 예측한 2분 뒤 심박</small></h2>
+            <div class="legend">
+              <span class="lg-chosen">선택</span><span class="lg-pass">통과</span><span class="lg-reject">탈락</span><span class="lg-allow">허용선</span>
+            </div>
           </div>
-          <p id="reason-line">판단 기록을 기다리고 있습니다.</p>
+          <div id="candidate-list" class="candidate-list"></div>
+          <!-- 그룹 판단(AI10)용. 데모 스트림에 그룹 기록이 들어오면(trace.group) 후보 카드 대신 보인다 -->
+          <div id="group-board" class="group-board hidden" aria-label="멤버별 후보 판정"></div>
         </section>
 
-        <section class="candidates-panel panel">
-          <div class="section-heading"><h2>pace 후보</h2><span>−10 · −5 · 0 · +5 · +10초/km</span></div>
-          <div id="candidate-list" class="candidate-list">
-            <article class="candidate-card"><span>−10</span><strong>예측 대기</strong><small>—</small></article>
-            <article class="candidate-card"><span>−5</span><strong>예측 대기</strong><small>—</small></article>
-            <article class="candidate-card"><span>0</span><strong>예측 대기</strong><small>—</small></article>
-            <article class="candidate-card"><span>+5</span><strong>예측 대기</strong><small>—</small></article>
-            <article class="candidate-card"><span>+10</span><strong>예측 대기</strong><small>—</small></article>
+        <section class="panel chart-panel">
+          <div class="panel-head">
+            <h2>심박 예측 <small>실측 · 예측(상한 띠) · 허용선</small></h2>
+            <div class="check-block">
+              <span class="check-line">2분 전 예측 비교 대기</span>
+              <span id="mae-line" class="mae-line">10분 평균 오차 —</span>
+            </div>
           </div>
-        </section>
-
-        <section class="chart-panel panel">
-          <div class="section-heading"><h2>심박 예측</h2><button id="zoom-toggle" type="button" aria-pressed="false">유지 대비 ±bpm 확대 보기</button></div>
-          <svg id="hr-chart" viewBox="0 0 900 250" role="img" aria-label="실측·예측 심박 그래프"></svg>
-          <div class="legend"><span class="legend-actual">실측</span><span class="legend-prediction">예측</span><span class="legend-allow">허용선 · 미검증</span><span class="legend-upper">상한(예측 + 여유)</span></div>
-          <div class="check-row"><span class="section-kicker">예측 → 실측</span><strong class="check-line">비교 대기</strong><span id="mae-line">10분 평균 오차 —</span></div>
+          <div class="chart-wrap"><svg id="hr-chart" role="img" aria-label="실측·예측 심박 그래프"></svg></div>
         </section>
       </div>
 
-      <aside class="context-column">
-        <section class="map-panel panel">
-          <div class="section-heading"><h2>코스</h2><span id="runner-label">러너 대기</span></div>
-          <svg id="course-map" viewBox="0 0 480 280" role="img" aria-label="코스 선과 현재 위치"></svg>
-          <svg id="elevation" viewBox="0 0 480 120" role="img" aria-label="코스 고도 단면"></svg>
+      <aside class="context">
+        <section class="panel map-panel">
+          <div class="panel-head"><h2>코스</h2><span id="course-meta" class="meta">—</span></div>
+          <div class="map-wrap"><svg id="course-map" role="img" aria-label="코스 선과 현재 위치"></svg></div>
+          <div class="elev-wrap"><svg id="elevation" role="img" aria-label="코스 고도 단면"></svg></div>
         </section>
-        <section class="records-panel panel">
-          <div class="section-heading"><h2>판단 기록</h2><span id="record-count">0</span></div>
+        <section class="panel records-panel">
+          <div class="panel-head"><h2>판단 기록</h2><span class="meta"><b id="record-count">0</b>건</span></div>
           <ol id="record-list" class="record-list"></ol>
         </section>
       </aside>
+
+      <div id="waiting" class="waiting" aria-live="polite">
+        <div class="waiting-card">
+          <div class="radar" aria-hidden="true"><span></span><span></span><span></span><i></i></div>
+          <div class="waiting-title">러너 대기 중…</div>
+          <div id="waiting-sub" class="waiting-sub">첫 판단 기록이 오면 바로 시작합니다</div>
+          <button id="waiting-play" class="waiting-play hidden" type="button">재생 시작</button>
+          <div id="waiting-hint" class="waiting-hint hidden">스페이스 키로도 재생·일시정지</div>
+          <section id="auth-panel" class="auth-panel hidden">
+            <label for="token-input">시연 보기 토큰</label>
+            <div class="auth-row">
+              <input id="token-input" type="password" autocomplete="off" spellcheck="false">
+              <button id="token-save" type="button">연결</button>
+            </div>
+            <span>토큰은 이 탭에만 저장됩니다.</span>
+          </section>
+        </div>
+      </div>
+
     </section>
 
     <footer class="footer-row">
-      <span id="connection-state">정적 재생 또는 라이브 연결 대기</span>
+      <span class="conn"><i id="conn-dot" class="conn-dot" aria-hidden="true"></i><span id="connection-state">정적 재생 또는 라이브 연결 대기</span></span>
+      <section id="replay-controls" class="replay-controls hidden" aria-label="재생 조작">
+        <select id="recording-select" aria-label="기록"></select>
+        <button id="play-toggle" type="button">재생</button>
+        <select id="play-speed" aria-label="속도">
+          <option value="1">1×</option>
+          <option value="4">4×</option>
+          <option value="16">16×</option>
+        </select>
+        <input id="progress" type="range" min="0" max="0" value="0" aria-label="재생 위치">
+        <output id="progress-label">0 / 0</output>
+      </section>
       <span id="debug-metrics" class="debug-metrics hidden"></span>
     </footer>
   </main>

@@ -14,23 +14,32 @@ import {
   type RouteProp,
 } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppText, EmptyState, Icon, PressableScale } from '../../components';
+import {
+  AppText,
+  EmptyState,
+  Icon,
+  type IconName,
+  Logo,
+} from '../../components';
+import { BackButton } from '../../components/BackButton';
+import { GlassIconButton } from '../../components/GlassIconButton';
 import { useRepositories, type GroupRunResult } from '../../data';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import type { RootStackParamList } from '../../navigation/types';
-import { fontFamily, palette, spacing, ThemeProvider } from '../../theme';
-import { RouteLine } from '../course/RouteLine';
-import { useRunSession } from '../run/RunSession';
+import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import {
-  crewCard,
-  groupLook,
-  MistBackground,
-  Raised,
-  SectionLabel,
-} from './look';
-import { BottomFade } from './parts';
-import { BackButton } from '../../components/BackButton';
+  MixedFigure,
+  ResultButton,
+  resultLook,
+  ResultWatermark,
+  RouteArea,
+  SideFigure,
+  StatBlock,
+} from '../run/resultLook';
+import { useRunSession } from '../run/RunSession';
+import { FinishStandings } from './FinishStandings';
+import { MissingTarget } from './MissingTarget';
 
 const stateOrder = {
   FINISHED: 0,
@@ -40,105 +49,51 @@ const stateOrder = {
   NOT_STARTED: 4,
 };
 
-// A figure with its unit and label under it, on the result card (6.7-StatTiles).
-function Stat({
-  label,
-  value,
-  unit,
+// 조회·분석 상태: a line of the result's state in a thin outlined box with an icon before it.
+function StateNote({
+  icon,
+  text,
+  live = false,
 }: {
-  label: string;
-  value: string;
-  unit?: string;
+  icon: IconName;
+  text: string;
+  live?: boolean;
 }) {
   return (
-    <View style={styles.stat}>
-      <View style={styles.statLine}>
-        <AppText style={styles.statValue}>{value}</AppText>
-        {unit ? <AppText style={styles.statUnit}>{unit}</AppText> : null}
-      </View>
-      <AppText style={styles.statLabel}>{label}</AppText>
-    </View>
-  );
-}
-
-// 6.7-ResultHero: the back button and the run's title chip, the group's average pace as the big number, and
-// the result line. The course loop stays faint behind it.
-function Hero({
-  title,
-  headline,
-  averagePace,
-  route,
-  onBack,
-}: {
-  title: string;
-  headline: string;
-  averagePace: number | null;
-  route: [number, number][] | null;
-  onBack: () => void;
-}) {
-  return (
-    <View style={styles.hero}>
-      {route ? (
-        <View style={styles.heroRoute} pointerEvents="none">
-          <RouteLine route={route} color={palette.mintDeep} />
-        </View>
-      ) : null}
-      <View style={styles.heroTop}>
-        <BackButton onPress={onBack} />
-        <View style={styles.titleChip}>
-          <AppText style={styles.titleText} numberOfLines={1}>
-            {title}
-          </AppText>
-        </View>
-      </View>
-      <AppText style={styles.heroLabel}>그룹 평균</AppText>
-      <View style={styles.heroLine}>
-        <AppText style={styles.heroPace}>
-          {averagePace === null ? '—' : formatPace(averagePace)}
-        </AppText>
-        <AppText style={styles.heroUnit}>/km</AppText>
-      </View>
-      <AppText style={styles.headline} accessibilityRole="header">
-        {headline}
+    <View style={styles.stateNote}>
+      <Icon name={icon} color={resultLook.sub} size={18} />
+      <AppText
+        style={[styles.stateText, styles.flex]}
+        accessibilityLiveRegion={live ? 'polite' : undefined}
+      >
+        {text}
       </AppText>
     </View>
   );
 }
 
-// 6.7 하단 버튼: flat navy pills, both alike, like the other group screens' buttons (S15P31E105-563).
-function NavyButton({
-  title,
-  onPress,
-}: {
-  title: string;
-  onPress: () => void;
-}) {
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.navyButton,
-        pressed && styles.navyButtonPressed,
-      ]}
-    >
-      <AppText style={styles.navyText}>{title}</AppText>
-    </PressableScale>
-  );
+// 6.7 그룹런 결과: who finished the goal fixed at the start, without ranks. In the tone of 4.5 시안 G3
+// (S15P31E105-661 담당자 결정: 그룹런 결과도 같은 톤): the navy page, the RunWay mark with the handwritten #그룹런 and
+// the run's title, the group's figures in the G3 blocks, the course with a square every kilometre, 완주 현황 as ruled
+// rows, and square 공유 · 완료 at the foot.
+export function GroupRunResultScreen() {
+  const route = useRoute<RouteProp<RootStackParamList, 'GroupRunResult'>>();
+  const { run } = useRunSession();
+  const groupRunId = route.params?.groupRunId ?? run?.config.groupRunId;
+  // A record opens its own group run (H01 group.groupRunId); no mock result stands in (S15P31E105-635).
+  if (!groupRunId) {
+    return <MissingTarget title="그룹런 결과를 찾을 수 없어요" />;
+  }
+  return <GroupRunResultContent groupRunId={groupRunId} />;
 }
 
-// 6.7 그룹런 결과: who finished the goal fixed at the start, without ranks. On the mist like 6.0 (담당자 요청,
-// S15P31E105-563): the result in navy at the top, then the figures and who finished on one soft white card.
-export function GroupRunResultScreen() {
+function GroupRunResultContent({ groupRunId }: { groupRunId: string }) {
   const navigation = useNavigation();
-  const route = useRoute<RouteProp<RootStackParamList, 'GroupRunResult'>>();
   const { groupRuns } = useRepositories();
   const { run } = useRunSession();
-  const groupRunId =
-    route.params?.groupRunId ?? run?.config.groupRunId ?? 'gr-today';
   const [result, setResult] = useState<GroupRunResult | null>(null);
   const [failed, setFailed] = useState(false);
+  const [height, setHeight] = useState(0);
   // 서버 결과는 G14를 바로 조회한다. 목업 결과만 기존 로컬 기록 저장을 기다린다.
   const saved =
     /^\d+$/.test(groupRunId) ||
@@ -172,10 +127,11 @@ export function GroupRunResultScreen() {
 
   if (!result) {
     return (
-      <ThemeProvider tone="light">
+      <ThemeProvider tone="dark">
         <View style={styles.root}>
-          <MistBackground />
-          <SafeAreaView style={styles.root}>
+          {/* Light status bar text on the navy page while the result loads, as on the result itself. */}
+          <StatusBar barStyle="light-content" />
+          <SafeAreaView style={styles.flex}>
             {failed ? (
               <EmptyState
                 icon="alert"
@@ -184,7 +140,10 @@ export function GroupRunResultScreen() {
                 onAction={load}
               />
             ) : (
-              <ActivityIndicator style={styles.loading} />
+              <ActivityIndicator
+                style={styles.loading}
+                color={resultLook.mint}
+              />
             )}
           </SafeAreaView>
         </View>
@@ -200,360 +159,213 @@ export function GroupRunResultScreen() {
   );
   const finished = rows.filter(row => row.goalAchieved).length;
   const mine = rows.find(row => row.isMe);
+  const routeLine = run?.config.plan?.route ?? null;
+  const averagePace = result.averagePaceSecPerKm;
 
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="dark-content" />
-      <MistBackground />
-      <SafeAreaView edges={['top']} style={styles.root}>
+    <View
+      style={styles.root}
+      onLayout={event => setHeight(event.nativeEvent.layout.height)}
+    >
+      <StatusBar barStyle="light-content" />
+      {height > 0 ? (
+        <ResultWatermark height={height} year={new Date().getFullYear()} />
+      ) : null}
+      <SafeAreaView edges={['top']} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Hero
-            title={result.title}
-            headline={
-              result.analysisStatus === 'PROCESSING' ||
-              result.hasUnconfirmedStarts
-                ? `현재 ${finished}명 완주 확인 · 나머지 기록 확인 중`
-                : `${rows.length}명 중 ${finished}명 완주했어요`
-            }
-            averagePace={result.averagePaceSecPerKm}
-            route={run?.config.plan?.route ?? null}
-            onBack={done}
-          />
-          {result.analysisStatus === 'PROCESSING' ? (
-            <AppText accessibilityLiveRegion="polite">
-              기록을 분석하고 있어요. 잠시 후 다시 조회해 주세요.
+          <View style={styles.header}>
+            <BackButton tone="dark" onPress={done} />
+            {/* The same round glass button as 뒤로, so the two corners match. */}
+            <GlassIconButton
+              icon="refresh"
+              accessibilityLabel="결과 새로고침"
+              onPress={load}
+              tone="dark"
+            />
+          </View>
+          {/* The RunWay mark, the handwritten #그룹런 and the run's title, as the head of 시안 G3. */}
+          <View style={styles.head}>
+            <ThemeProvider tone="dark">
+              <Logo width={150} />
+            </ThemeProvider>
+            <AppText style={styles.tag}>#그룹런</AppText>
+            <AppText style={styles.title} numberOfLines={1}>
+              {result.title}
             </AppText>
-          ) : null}
-          {result.analysisStatus === 'FAILED' ? (
-            <AppText>일부 기록 분석에 실패했어요.</AppText>
-          ) : null}
-          {result.hasUnconfirmedStarts ? (
-            <AppText>실제 시작이 확인되지 않은 참가자가 있어요.</AppText>
-          ) : null}
-          {/* The figures and 완주 현황 on one soft white card panel. */}
-          <Raised tone="card" style={styles.panel}>
-            <View style={styles.stats}>
-              <Stat
+          </View>
+          <View style={styles.blocks}>
+            <StatBlock
+              caps="GROUP"
+              value={averagePace === null ? '– –' : formatPace(averagePace)}
+              valueLabel="그룹 평균 페이스"
+              script="그룹 평균"
+            >
+              <SideFigure
                 label="함께 달린 거리"
                 value={
                   result.distanceM === null
-                    ? '—'
+                    ? '– –'
                     : formatKm(result.distanceM, 1)
                 }
-                unit="km"
+                unit="KM"
               />
-              <Stat
-                label="최대 간격"
-                value={result.maxGapM === null ? '—' : String(result.maxGapM)}
-                unit="m"
-              />
-              {/* 결과 새로고침 as a small round button at the card's top right (담당자 요청). */}
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="결과 새로고침"
-                onPress={load}
-                hitSlop={6}
-                style={crewCard.round}
-              >
-                <Icon name="refresh" color={groupLook.onDark} size={16} />
-              </PressableScale>
-            </View>
-            {/* 6.7-FinishStatus. */}
-            <View style={styles.finish}>
-              <View style={styles.rowBetween}>
-                <SectionLabel tone="mist" large>
-                  완주 현황
-                </SectionLabel>
+            </StatBlock>
+            <StatBlock
+              caps="FINISHED"
+              value={`${finished}/${rows.length}`}
+              script="완주"
+            >
+              <View style={styles.sidePair}>
+                <SideFigure
+                  label="최대 간격"
+                  value={
+                    result.maxGapM === null ? '– –' : String(result.maxGapM)
+                  }
+                  unit="M"
+                />
                 {mine ? (
-                  <AppText style={styles.mine}>
-                    {`내 기록 ${
+                  <SideFigure
+                    label="내 기록"
+                    value={
                       mine.durationSec === null
                         ? '미확인'
                         : formatDuration(mine.durationSec)
-                    }`}
-                  </AppText>
+                    }
+                  />
                 ) : null}
               </View>
-              {rows.map(row => (
-                <View key={row.userId} style={styles.row}>
-                  <View style={[styles.flex, styles.nameLine]}>
-                    <AppText
-                      style={[
-                        styles.name,
-                        row.state === 'RUNNING' && styles.running,
-                      ]}
-                    >
-                      {row.nickname}
-                    </AppText>
-                    {row.isMe ? (
-                      <View style={styles.meBadge}>
-                        <AppText style={styles.meText}>나</AppText>
-                      </View>
-                    ) : null}
-                  </View>
-                  {row.state === 'RUNNING' ? (
-                    <AppText style={styles.running}>달리는 중</AppText>
-                  ) : row.state === 'NOT_STARTED' ||
-                    row.state === 'UNCONFIRMED' ? (
-                    <AppText>
-                      {row.state === 'UNCONFIRMED' ? '시작 미확인' : '미시작'}
-                    </AppText>
-                  ) : row.goalAchieved === false || row.state === 'STOPPED' ? (
-                    // A run that stopped short of the goal is the flat navy pill (6.7-FinishStatus).
-                    <View style={styles.stopped}>
-                      <AppText style={styles.stoppedText}>
-                        {row.distanceM === null
-                          ? '중단 · 거리 미확인'
-                          : `${formatKm(row.distanceM, 1)}km에서 중단`}
-                      </AppText>
-                    </View>
-                  ) : (
-                    <View style={styles.nameLine}>
-                      <AppText style={styles.time}>
-                        {row.durationSec === null
-                          ? '기록 미확인'
-                          : formatDuration(row.durationSec)}
-                      </AppText>
-                      {row.goalAchieved === true ? (
-                        <Icon
-                          name="check"
-                          color={groupLook.onLight}
-                          size={14}
-                        />
-                      ) : null}
-                    </View>
-                  )}
-                </View>
-              ))}
-            </View>
-          </Raised>
+            </StatBlock>
+          </View>
+          <View accessibilityRole="header">
+            <MixedFigure
+              style={styles.headline}
+              numberStyle={styles.headlineNumber}
+              text={
+                result.analysisStatus === 'PROCESSING' ||
+                result.hasUnconfirmedStarts
+                  ? `현재 ${finished}명 완주 확인 · 나머지 기록 확인 중`
+                  : `${rows.length}명 중 ${finished}명 완주했어요`
+              }
+            />
+          </View>
+          {result.analysisStatus === 'PROCESSING' ? (
+            <StateNote
+              icon="activity"
+              text="기록을 분석하고 있어요. 잠시 후 다시 조회해 주세요."
+              live
+            />
+          ) : null}
+          {result.analysisStatus === 'FAILED' ? (
+            <StateNote icon="alert" text="일부 기록 분석에 실패했어요." />
+          ) : null}
+          {result.hasUnconfirmedStarts ? (
+            <StateNote
+              icon="alert"
+              text="실제 시작이 확인되지 않은 참가자가 있어요."
+            />
+          ) : null}
+          {routeLine ? (
+            <RouteArea route={routeLine} style={styles.route} />
+          ) : null}
+          {/* 완주 현황 as a race standings board (담당자 레퍼런스). */}
+          <FinishStandings rows={rows} />
           <AppText style={styles.note}>
             이번 내 기록은 내 기록 › 그룹런 탭에 남아요
           </AppText>
         </ScrollView>
       </SafeAreaView>
-      {/* 6.7-BottomActions: two flat navy pills over the mist's foot. */}
-      <SafeAreaView edges={['bottom']} style={styles.footer}>
-        <BottomFade mist />
-        <NavyButton
+      <SafeAreaView edges={['bottom']} style={styles.buttons}>
+        <ResultButton
           title="내 그룹런 기록 공유"
           // 내 그룹런 기록을 지정해 연다(S15P31E105-420). 기록이 없으면(미시작·목업) 기존처럼 최근 기록으로 연다.
           onPress={() =>
             result?.mySessionId
-              ? navigation.navigate('PostWrite', { recordId: result.mySessionId })
+              ? navigation.navigate('PostWrite', {
+                  recordId: result.mySessionId,
+                })
               : navigateTo(navigation, 'PostWrite')
           }
         />
-        <NavyButton title="완료" onPress={done} />
+        <ResultButton primary title="완료" onPress={done} />
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: resultLook.page },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  // The card grows down to the buttons however few runners there are. 6.7's text is a step or two over the
-  // handoff's (담당자 요청, S15P31E105-563).
   content: {
     flexGrow: 1,
-    paddingHorizontal: 15,
-    paddingTop: 15,
-    gap: 24,
-    paddingBottom: 176,
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 20,
+    gap: 18,
   },
-  // 6.7-ResultHero: 360 × 290.
-  hero: { minHeight: 290 },
-  // The loop sits light on the right of the big number, in the mint accent.
-  heroRoute: {
-    position: 'absolute',
-    top: 56,
-    bottom: 60,
-    left: 150,
-    right: 0,
-    opacity: 0.55,
-  },
-  heroTop: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-
-  titleChip: {
-    maxWidth: '64%',
-    height: 30,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    justifyContent: 'center',
-    backgroundColor: groupLook.navy,
+  head: { alignItems: 'center' },
+  tag: {
+    marginTop: 4,
+    fontFamily: fontFamily.resultScript,
+    fontSize: 66,
+    lineHeight: 72,
+    color: resultLook.mint,
+    transform: [{ rotate: '-4deg' }],
   },
-  titleText: {
+  title: {
+    marginTop: 2,
+    maxWidth: '100%',
     fontFamily: fontFamily.bold,
     fontSize: 13,
-    lineHeight: 17,
-    color: groupLook.onDark,
+    lineHeight: 18,
+    color: resultLook.sub,
   },
-  heroLabel: {
-    marginTop: 42,
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupLook.onLightSub,
+  blocks: {
+    alignSelf: 'center',
+    width: 300,
+    maxWidth: '100%',
+    marginTop: 8,
+    gap: 22,
   },
-  heroLine: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-  // Big numbers stay Barlow Regular.
-  heroPace: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 96,
-    lineHeight: 100,
-    letterSpacing: -3,
-    color: groupLook.onLight,
-  },
-  heroUnit: {
-    marginBottom: 14,
-    fontFamily: fontFamily.numberMedium,
-    fontSize: 17,
-    color: groupLook.onLightSub,
-  },
+  sidePair: { gap: 14 },
   headline: {
-    marginTop: 'auto',
-    paddingTop: spacing.xl,
-    fontFamily: fontFamily.bold,
-    fontSize: 26,
-    lineHeight: 33,
-    letterSpacing: -0.6,
-    color: groupLook.onLight,
+    textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 24,
   },
-  // The soft white card (Raised card, as 6.0's crews) holding the figures and 완주 현황.
-  panel: {
-    flexGrow: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 22,
-    borderRadius: 20,
-    gap: 24,
-  },
-  stats: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
-  stat: { flex: 1, gap: 4 },
-  statLine: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-  statValue: {
-    fontFamily: fontFamily.numberRegular,
-    fontSize: 34,
-    lineHeight: 38,
-    letterSpacing: -0.6,
-    color: groupLook.onLight,
-  },
-  statUnit: {
-    fontFamily: fontFamily.numberMedium,
-    fontSize: 15,
-    color: groupLook.onLightSub,
-  },
-  statLabel: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupLook.onLightSub,
-  },
-  finish: { gap: 8 },
-  rowBetween: {
+  headlineNumber: { fontSize: 18, color: resultLook.mint },
+  stateNote: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: resultLook.line,
   },
-  mine: {
+  stateText: {
     fontFamily: fontFamily.medium,
-    fontSize: 14,
+    fontSize: 13.5,
     lineHeight: 19,
-    color: groupLook.onLightSub2,
+    color: resultLook.text,
   },
-  row: { flexDirection: 'row', alignItems: 'center', height: 54 },
-  nameLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17,
-    lineHeight: 23,
-    color: groupLook.onLight,
-  },
-  running: {
-    fontFamily: fontFamily.regular,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupLook.onLightSub2,
-  },
-  meBadge: {
-    height: 20,
-    paddingHorizontal: 7,
-    borderRadius: 10,
-    justifyContent: 'center',
-    backgroundColor: groupLook.navy,
-  },
-  meText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12,
-    lineHeight: 15,
-    color: groupLook.onDark,
-  },
-  stopped: {
-    height: 28,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    justifyContent: 'center',
-    backgroundColor: groupLook.navy,
-  },
-  stoppedText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 14,
-    lineHeight: 18,
-    color: '#F9F9F9',
-  },
-  time: {
-    fontFamily: fontFamily.numberBold,
-    fontSize: 17,
-    letterSpacing: 0.2,
-    color: groupLook.onLight,
-  },
+  route: { alignSelf: 'center', width: 254, maxWidth: '100%', height: 170 },
   note: {
     textAlign: 'center',
     fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 19,
-    color: '#182E3D',
+    fontSize: 13,
+    lineHeight: 18,
+    color: resultLook.sub,
   },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+  buttons: {
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingTop: spacing.md,
-    paddingBottom: 12,
-  },
-  // Flat navy with a short drop, like GroupCta navy (S15P31E105-563).
-  navyButton: {
-    flex: 1,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: groupLook.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0 4px 12px rgba(2,5,14,0.16)',
-  },
-  // Pressed, it dims a little.
-  navyButtonPressed: {
-    opacity: 0.85,
-  },
-  navyText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    letterSpacing: -0.3,
-    color: '#F9F9F9',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 14,
   },
 });

@@ -132,8 +132,24 @@ test('every event carries a full snapshot; the first after connecting is marked 
     targetBpm: 170,
     recommendedPaceSecPerKm: 360,
     expiresAt: '2026-10-28T01:01:20Z',
+    // 서버가 단계를 보내지 않으면 없음(S15P31E105-579).
+    coachingLevel: null,
   });
   expect(statuses).toEqual(['connected']);
+  events.stop();
+});
+
+test('the coaching level is kept for the voice guide and an unknown one becomes null', () => {
+  const { last, snapshots, events } = setup();
+
+  last().fire('COACHING_GUIDE', {
+    data: snapshot({ coaching: { ...coaching(501, 701), coachingLevel: 'DANGER' } }),
+  });
+  last().fire('COACHING_GUIDE', {
+    data: snapshot({ stateVersion: 4, coaching: { ...coaching(502, 702), coachingLevel: 'PANIC' } }),
+  });
+
+  expect(snapshots.map(next => next.session.coaching?.coachingLevel)).toEqual(['DANGER', null]);
   events.stop();
 });
 

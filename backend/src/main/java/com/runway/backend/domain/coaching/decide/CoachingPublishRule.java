@@ -14,7 +14,11 @@ public final class CoachingPublishRule {
     /** 추천 유효시간. 생성 후 20초를 넘지 않는다(ck_coaching_context). */
     public static final Duration VALID_FOR = Duration.ofSeconds(20);
 
-    /** 2분 전 AI 주도 변경은 마지막 적용(코칭·재개·시작) 후 이만큼 지나야 보낸다. 첫 EASE_OFF만 예외(2026-11-05 사용자 확정). */
+    /**
+     * 페이스가 그대로인 발행(코칭 단계·BPM만 바뀜)과 이어지는 감속 권고(EASE_OFF)는 마지막 적용(코칭·재개·시작) 후 이만큼 지나야
+     * 보낸다. 첫 EASE_OFF는 예외(2026-11-05 사용자 확정). AI가 안내 페이스를 바꾸는 GUIDE_PACE에는 적용하지 않는다. 페이스 변경의
+     * 쿨다운(안내 변경·재개 뒤 120초)과 10초/km 미만 유지는 AI04가 그룹 페이스와 같은 규칙으로 한 곳에서 맡는다(S15P31E105-624).
+     */
     public static final Duration MIN_CHANGE_INTERVAL = Duration.ofSeconds(30);
 
     /** 감속 권고가 이어질 때 다시 보내려면 지금 안내보다 이만큼(초/km) 이상 느려야 한다. */
@@ -110,10 +114,12 @@ public final class CoachingPublishRule {
             // 같은 조정 판단을 연속 발행하지 않는다. 단계는 양쪽이 non-null이고 다를 때만 변경으로 본다(S15P31E105-503).
             return Optional.empty();
         }
-        // 첫 감속 권고만 30초 간격의 예외다. 감속 권고가 이어지면 일반 변경처럼 30초를 지키고, 지금 안내보다 10초/km 이상 느릴 때만 보낸다.
+        // 첫 감속 권고만 30초 간격의 예외다. 감속 권고가 이어지면 30초를 지키고, 지금 안내보다 10초/km 이상 느릴 때만 보낸다.
         // 러너가 안내를 따라 느려질 때마다 "실측 + 30초/km"가 반복돼 안내가 15초마다 계속 느려지지 않게 한다(리뷰 B-6, 2026-11-05 사용자 확정).
-        if ((!easeOff || previousEaseOff)
-                && now.isBefore(lastAppliedAt.plus(MIN_CHANGE_INTERVAL))) {
+        // AI가 안내 페이스를 바꾼 GUIDE_PACE는 AI04 쿨다운(120초)을 이미 거쳤으므로 여기서 다시 막지 않는다(S15P31E105-624).
+        boolean aiPaceChange = !easeOff && !samePace;
+        boolean rateLimited = easeOff ? previousEaseOff : !aiPaceChange;
+        if (rateLimited && now.isBefore(lastAppliedAt.plus(MIN_CHANGE_INTERVAL))) {
             return Optional.empty();
         }
         if (smallEaseOffStep) {

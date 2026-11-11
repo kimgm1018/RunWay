@@ -27,6 +27,7 @@ public final class RunningSessionMapper {
                 session.getCurrentBpm(),
                 session.getStartedAt(),
                 session.getEndedAt(),
+                snapshot.movingDurationSec(),
                 new RunningSessionResponse.Goal(
                         session.getCourseId(),
                         session.getComparisonSessionId(),

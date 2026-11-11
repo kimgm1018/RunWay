@@ -3,6 +3,7 @@ package com.runway.backend.domain.device.service;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.DailyHrEstimate;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.DailySleepSummary;
+import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.ExerciseHrSummary;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.ParsedRecord;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.Rejected;
 import com.runway.backend.domain.device.dto.request.HealthRecordSyncRequest.SamsungRestingHr;
@@ -10,6 +11,7 @@ import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse;
 import com.runway.backend.domain.device.dto.response.HealthRecordSyncResponse.RecordError;
 import com.runway.backend.domain.device.event.DailyHealthMetricsChangedEvent;
 import com.runway.backend.domain.device.repository.HealthRecordJdbcRepository;
+import com.runway.backend.domain.readiness.trainingload.TrainingLoadService;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
 
@@ -23,6 +25,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
@@ -42,6 +46,7 @@ public class HealthRecordSyncService {
 
     private final HealthRecordJdbcRepository repository;
     private final ApplicationEventPublisher events;
+    private final TrainingLoadService trainingLoads;
 
     @Transactional
     public HealthRecordSyncResponse sync(long userId, HealthRecordSyncRequest request) {
@@ -57,57 +62,79 @@ public class HealthRecordSyncService {
         int duplicate = 0;
         List<RecordError> errors = new ArrayList<>();
         TreeSet<LocalDate> changed = new TreeSet<>();
-        // 날짜 오름차순(같은 날짜는 요청 순서 유지)으로 저장해 같은 회원의 동시 요청이 행 잠금을 같은 순서로 잡게 한다. 요청마다 순서가 다르면
-        // 서로의 날짜 행을 기다리는 교착(40P01)이 생긴다. 응답 errors의 index는 요청 위치 그대로다.
-        for (ParsedRecord record : inLockOrder(request.records())) {
+        TreeSet<LocalDate> loadAffected = new TreeSet<>();
+        // S15P31E105-599: 운동 요약이 있으면 일별 행을 쓰기 전에 부하 잠금을 잡는다(회원 FOR SHARE → 부하 잠금 → 일별 행). 러닝 부하 저장과
+        // 같은 순서라 서로의 일별 행·잠금을 엇갈려 기다리지 않는다. 운동 요약은 일별 행을 쓰지 않으므로 먼저 저장해 일별 부하를 다시 계산할 날짜를
+        // 모은다.
+        if (request.records().stream().anyMatch(r -> r instanceof ExerciseHrSummary)) {
+            trainingLoads.lockForWrite(userId);
+        }
+        TreeMap<LocalDate, List<ParsedRecord>> byDate = new TreeMap<>();
+        for (ParsedRecord record : request.records()) {
             switch (record) {
                 case Rejected rejected -> errors.add(rejected.error());
-                case DailyHrEstimate estimate -> {
-                    if (repository.upsertRestingHr(
+                case ExerciseHrSummary exercise -> {
+                    if (trainingLoads.saveSamsungExercise(
                             userId,
-                            estimate.metricDate(),
-                            estimate.restingHrBpm(),
-                            estimate.revision())) {
+                            exercise.exerciseId(),
+                            exercise.metricDate(),
+                            exercise.startedAt(),
+                            exercise.endedAt(),
+                            exercise.heartRateSeconds(),
+                            loadAffected)) {
                         accepted++;
-                        changed.add(estimate.metricDate());
                     } else {
                         duplicate++;
                     }
                 }
-                case SamsungRestingHr restingHr -> {
-                    if (repository.upsertSamsungRestingHr(
-                            userId, restingHr.metricDate(), restingHr.restingHrBpm())) {
-                        accepted++;
-                        changed.add(restingHr.metricDate());
-                    } else {
-                        duplicate++;
-                    }
-                }
-                case DailySleepSummary sleep -> {
-                    if (repository.upsertSleep(
-                            userId, sleep.metricDate(), sleep.sleepDurationMin())) {
-                        accepted++;
-                        changed.add(sleep.metricDate());
-                    } else {
-                        duplicate++;
-                    }
-                }
+                default -> byDate.computeIfAbsent(record.lockDate(), d -> new ArrayList<>()).add(record);
             }
         }
+        for (LocalDate date : loadAffected) {
+            byDate.computeIfAbsent(date, d -> new ArrayList<>());
+        }
+        // 일별 행은 날짜 오름차순(같은 날짜는 요청 순서 유지, 그 날짜 부하 재계산은 마지막)으로 쓴다. 같은 회원의 동시 요청이 행 잠금을 같은 순서로
+        // 잡게 하기 위해서다. 요청마다 순서가 다르면 서로의 날짜 행을 기다리는 교착(40P01)이 생긴다. 응답 errors의 index는 요청 위치 그대로다.
+        List<LocalDate> loadChanged = new ArrayList<>();
+        for (Map.Entry<LocalDate, List<ParsedRecord>> entry : byDate.entrySet()) {
+            for (ParsedRecord record : entry.getValue()) {
+                boolean stored =
+                        switch (record) {
+                            case DailyHrEstimate estimate ->
+                                    repository.upsertRestingHr(
+                                            userId,
+                                            estimate.metricDate(),
+                                            estimate.restingHrBpm(),
+                                            estimate.revision());
+                            case SamsungRestingHr restingHr ->
+                                    repository.upsertSamsungRestingHr(
+                                            userId, restingHr.metricDate(), restingHr.restingHrBpm());
+                            case DailySleepSummary sleep ->
+                                    repository.upsertSleep(
+                                            userId, sleep.metricDate(), sleep.sleepDurationMin());
+                            default -> throw new IllegalStateException("unexpected record");
+                        };
+                if (stored) {
+                    accepted++;
+                    changed.add(entry.getKey());
+                } else {
+                    duplicate++;
+                }
+            }
+            // 운동 요약이 바꾼 날짜의 일별 부하를 다시 계산한다(RunWay 러닝과 겹치는 운동 제외).
+            if (loadAffected.contains(entry.getKey())
+                    && !trainingLoads.recomputeDaily(userId, List.of(entry.getKey())).isEmpty()) {
+                loadChanged.add(entry.getKey());
+            }
+        }
+        changed.addAll(loadChanged);
         if (!changed.isEmpty()) {
-            events.publishEvent(new DailyHealthMetricsChangedEvent(userId, List.copyOf(changed)));
+            events.publishEvent(
+                    new DailyHealthMetricsChangedEvent(
+                            userId, List.copyOf(changed), List.copyOf(loadChanged)));
         }
         errors.sort(Comparator.comparingInt(RecordError::index));
         return new HealthRecordSyncResponse(
                 accepted, duplicate, errors.size(), List.copyOf(errors));
-    }
-
-    /** 유효 레코드는 날짜 오름차순으로 안정 정렬하고 거절 레코드는 앞에 둔다(저장하지 않으므로 순서 무관). */
-    private static List<ParsedRecord> inLockOrder(List<ParsedRecord> records) {
-        List<ParsedRecord> ordered = new ArrayList<>(records);
-        ordered.sort(
-                Comparator.comparing(
-                        r -> r.lockDate() == null ? LocalDate.MIN : r.lockDate()));
-        return ordered;
     }
 }
