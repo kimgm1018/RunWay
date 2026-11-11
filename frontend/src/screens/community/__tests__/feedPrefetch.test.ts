@@ -57,3 +57,32 @@ test('the first shared courses are read ahead too', async () => {
   await takePrefetchedFeed(1);
   expect(getRoute.mock.calls).toEqual([['1']]);
 });
+
+test('gives the first readable shared course of the first posts, for the warm map', async () => {
+  const { listFeed, getRoute, repo } = community();
+  const post = (id: string, courseShared: boolean) => ({
+    id,
+    courseShared,
+    record: { route: null },
+  });
+  const route = [
+    [129.06, 35.15],
+    [129.07, 35.16],
+  ];
+  listFeed.mockResolvedValueOnce({
+    ...page,
+    items: [post('1', false), post('2', true), post('3', true)],
+  } as unknown as PostPage);
+  getRoute.mockResolvedValueOnce({ route } as never);
+  const course = prefetchFeed(repo, 0);
+  // Asked again while fresh, the same course.
+  expect(prefetchFeed(repo, 1)).toBe(course);
+  await expect(course).resolves.toEqual(route);
+  expect(getRoute.mock.calls).toEqual([['2']]);
+});
+
+test('no warm course when the first page cannot be read', async () => {
+  const { listFeed, repo } = community();
+  listFeed.mockRejectedValueOnce(new Error('offline'));
+  await expect(prefetchFeed(repo, 0)).resolves.toBeNull();
+});

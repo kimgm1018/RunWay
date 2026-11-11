@@ -55,6 +55,12 @@ export const feedLook = {
   faint: 'rgba(255,255,255,0.5)',
 };
 
+// Where a page's course sits on its real map: between the author row and the run's words. The first map warmed
+// ahead uses it too, so it loads the same place at the same zoom (S15P31E105-665).
+export function feedMapArea(top: number, height: number) {
+  return { top: (top + 80) / height, bottom: 0.6 };
+}
+
 // A number sequence from the post id, so a post keeps the same map on every visit.
 function seeded(seed: string) {
   let value = [...seed].reduce(
@@ -517,7 +523,7 @@ export function FeedPage({
             view="lean"
             interactive={false}
             // The course between the author row and the run's words; the NAVER logo sits just over the words.
-            area={{ top: (top + 80) / height, bottom: 0.6 }}
+            area={feedMapArea(top, height)}
             style={[StyleSheet.absoluteFill, styles.mapGround]}
             onShown={uncover}
           />
