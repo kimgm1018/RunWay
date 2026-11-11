@@ -43,6 +43,8 @@ export type PostResponse = {
   regionCode: string | null;
   createdAt: string;
   courseId?: number | null;
+  // True when the course is the private one made from this very free run (S15P31E105-616); an older server leaves it out.
+  courseFromFreeRun?: boolean;
   courseShared?: boolean;
   commentCount?: number;
   reactionCount?: number;
@@ -167,7 +169,7 @@ export function recordOf(response: PostResponse): PostRecord {
     group: null,
     goalAchieved: null,
     place: '',
-    courseRun: response.courseId != null,
+    courseRun: response.courseId != null && !response.courseFromFreeRun,
     // The route comes with 7.2 (C03 by the post's course), not with the list.
     route: null,
     averageHeartRate: null,
@@ -250,6 +252,7 @@ export function createCommunityApi({
       body: response.body,
       record: recordOf(response),
       courseShared: sharedCourse !== null,
+      courseId: sharedCourse === null ? null : String(sharedCourse),
       createdAt: response.createdAt,
       likeCount: response.reactionCount ?? null,
       liked:
@@ -391,7 +394,7 @@ export function createCommunityApi({
       return {
         ...detail,
         place: '',
-        courseRun: detail.courseId !== null,
+        courseRun: detail.courseId !== null && !detail.courseFromFreeRun,
         route,
         averageHeartRate: null,
         cadence: null,

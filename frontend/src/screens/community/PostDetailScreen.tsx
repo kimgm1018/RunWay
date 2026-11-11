@@ -17,6 +17,7 @@ import {
 } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, EmptyState, Icon, useToast } from '../../components';
+import { errorCode } from '../../data/errors';
 import {
   countComments,
   useRepositories,
@@ -97,6 +98,63 @@ function timeRange(post: PostDetail) {
   ).slice(0, 10)}`;
 }
 
+// 616: another runner's shared course, saved as mine (C07). A free run shares a private course, so it opens only
+// while the post stays shared; COURSE_NOT_FOUND then means it is gone or no longer visible to me.
+function SaveSharedCourse({ courseId }: { courseId: string }) {
+  const { courses } = useRepositories();
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'failed'>(
+    'idle',
+  );
+  const [message, setMessage] = useState('');
+  const save = async () => {
+    if (state === 'saving' || state === 'saved') {
+      return;
+    }
+    setState('saving');
+    try {
+      await courses.save(courseId);
+      setState('saved');
+      setMessage('내 코스에 저장했어요.');
+    } catch (error) {
+      setState('failed');
+      setMessage(
+        errorCode(error) === 'COURSE_NOT_FOUND'
+          ? '공유가 끝났거나 볼 수 없는 코스예요.'
+          : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  };
+  const done = state === 'saving' || state === 'saved';
+  return (
+    <View style={styles.saveCourse}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="내 코스에 저장"
+        accessibilityState={{ disabled: done }}
+        disabled={done}
+        onPress={() => {
+          void save();
+        }}
+        style={({ pressed }) => [
+          styles.saveCourseButton,
+          pressed && styles.pressed,
+        ]}
+      >
+        <AppText style={styles.saveCourseLabel}>
+          {state === 'saving'
+            ? '저장 중'
+            : state === 'saved'
+              ? '내 코스에 저장됨'
+              : '내 코스에 저장'}
+        </AppText>
+      </Pressable>
+      {message ? (
+        <AppText style={styles.saveCourseMessage}>{message}</AppText>
+      ) : null}
+    </View>
+  );
+}
+
 // 7.2 게시물 상세 (S15P31E105-561, 담당자 레퍼런스): the run's map fills the screen behind a white sheet that pulls up
 // over it: the numbers first, then the run's title and time, the post's words, 좋아요, the 댓글 card and 달성.
 // A comment bar stays at the foot; comments open in the same sheet as 7.1's. The post carries no splits, pace
@@ -164,7 +222,7 @@ export function PostDetailScreen() {
   // Once the post is read it decides: its own points while shared, none when it is not.
   const mapRoute = post
     ? post.courseShared
-      ? post.record.route ?? routeAhead
+      ? (post.record.route ?? routeAhead)
       : null
     : routeAhead;
   const hasMap = !!mapRoute && mapRoute.length >= 2;
@@ -193,7 +251,7 @@ export function PostDetailScreen() {
 
   const mapHeight = Math.round(height * mapShare);
   const commentCount = post
-    ? post.commentCount ?? countComments(post.comments)
+    ? (post.commentCount ?? countComments(post.comments))
     : 0;
   // The newest comment still there; a deleted root kept for its replies is not one.
   const latest =
@@ -202,8 +260,8 @@ export function PostDetailScreen() {
         comment.deleted || !comment.author
           ? newest
           : !newest || comment.createdAt >= newest.createdAt
-          ? comment
-          : newest,
+            ? comment
+            : newest,
       null,
     ) ?? null;
 
@@ -339,6 +397,10 @@ export function PostDetailScreen() {
               </AppText>
               {post.body ? (
                 <AppText style={styles.body}>{post.body}</AppText>
+              ) : null}
+
+              {post.courseShared && post.courseId && !post.isMine ? (
+                <SaveSharedCourse courseId={post.courseId} />
               ) : null}
 
               <View style={styles.likeRow}>
@@ -705,6 +767,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: look.ink,
+  },
+  saveCourse: { marginTop: 14, gap: 6 },
+  saveCourseButton: {
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: look.card,
+  },
+  saveCourseLabel: {
+    color: look.ink,
+    fontFamily: fontFamily.bold,
+    fontSize: 15,
+  },
+  saveCourseMessage: {
+    color: look.sub,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    textAlign: 'center',
   },
   likeRow: {
     marginTop: 16,

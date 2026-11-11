@@ -101,6 +101,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "authorId": 101,
   "sessionId": 101,
   "courseId": 101,
+  "courseFromFreeRun": true,
   "courseShared": true,
   "createdAt": "2026-10-24T09:00:00Z"
 }
@@ -116,6 +117,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. 호출자(`X-User-Id`)로 설정 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
 | `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성·공유 선택 후에는 ID가 있다. 작성자 본인 응답이므로 `courseShared`와 무관하게 세션 코스를 준다. 쓰기 입력이 아님 |
+| `courseFromFreeRun` | boolean | O | 연결 세션의 코스가 이 자유 러닝 기록으로 만든 개인 코스이면 true(`courses.source_session_id`=세션 ID). 코스가 없거나 일반 코스를 쓴 기록이면 false. `courseId`가 숨겨지는 조회자에게는 false. 항상 포함 |
 | `courseShareFailureReason` | string / null | O | 코스 공유를 요청했으나 생성할 수 없으면 `INSUFFICIENT_GPS` 또는 `GRADE_UNAVAILABLE`. 이때 게시물은 생성되고 `courseShared=false` |
 | `courseShared` | boolean | O | 저장된 `posts.course_shared`. 세션에 코스가 없으면 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
@@ -227,6 +229,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
       "body": null,
       "regionCode": null,
       "courseId": 101,
+      "courseFromFreeRun": true,
       "courseShared": true,
       "createdAt": "2026-10-24T09:00:00Z",
       "commentCount": 2,
@@ -266,6 +269,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `items[].authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성 후에는 ID가 있다. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `items[].courseFromFreeRun` | boolean | O | 연결 세션의 코스가 이 자유 러닝 기록으로 만든 개인 코스이면 true(`courses.source_session_id`=세션 ID). 코스가 없거나 일반 코스를 쓴 기록이면 false. `courseId`가 숨겨지는 조회자에게는 false. 항상 포함 |
 | `items[].courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `items[].body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].imageKey` | string / null | X | `posts.image_key`. **미구현** — 이미지 연동 전까지 응답에 의존하지 않음 |
@@ -377,6 +381,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
   "authorId": 101,
   "sessionId": 101,
   "courseId": 101,
+  "courseFromFreeRun": true,
   "courseShared": true,
   "createdAt": "2026-10-24T09:00:00Z",
   "updatedAt": "2026-10-24T09:00:00Z",
@@ -408,6 +413,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `routePreviewImageUrl` | string / null (제안) | X | **미구현** — 경로 표시용 이미지 참조. 원본 GPS로 대체하지 않음 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
 | `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성 후에는 ID가 있다. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `courseFromFreeRun` | boolean | O | 연결 세션의 코스가 이 자유 러닝 기록으로 만든 개인 코스이면 true(`courses.source_session_id`=세션 ID). 코스가 없거나 일반 코스를 쓴 기록이면 false. `courseId`가 숨겨지는 조회자에게는 false. 항상 포함 |
 | `courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 | `updatedAt` | string (ISO 8601 UTC) | O | `posts.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
@@ -502,7 +508,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 저장하지 않음 |
 | `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움 |
-| `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없으면 false로 저장. 자유러닝의 새 코스 생성은 CMT01 또는 C11에서 수행 |
+| `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없고 `true`이면 CMT01과 같은 변환을 시도한다. 변환 후에도 코스가 없으면(GPS·경사 자료 부족 등) 게시물은 유지하고 `false`로 저장한다(응답은 `courseShared`만 반환하며 실패 사유 필드는 없다) |
 
 ```json
 {
@@ -560,7 +566,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 - 본인 글만 수정. 비작성자 → `403 NOT_AUTHOR`. 삭제된 글 → `404 POST_NOT_FOUND`.
 - `title`은 요청에 포함해도 **저장하지 않는다**(미구현).
-- 연결 `sessionId`·`courseId`는 수정하지 않는다. `courseShared`는 생략 시 유지하고, 세션에 코스가 없으면 요청 값과 무관하게 false로 둔다. CMT04는 새 코스를 생성하지 않는다. 공유 해제·게시물 삭제는 이미 타인이 저장한 코스 북마크를 지우지 않는다.
+- 연결 `sessionId`·`courseId`는 수정하지 않는다. `courseShared`는 생략 시 유지하고, 변환 후에도 세션에 코스가 없으면 요청 값과 무관하게 false로 둔다. 세션에 코스가 없을 때 `courseShared=true` 요청이면 CMT01과 같은 변환(C11)을 시도하고, 실패하면 `courseShared=false`로 둔다. 공유 해제·게시물 삭제는 이미 타인이 저장한 코스 북마크를 지우지 않는다.
 - `body` 생략 시 기존 본문을 유지한다(S15P31E105-632부터 생략과 null을 구분). `courseShared`만 보내도 본문은 바뀌지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 
@@ -1933,6 +1939,7 @@ LIKE 적용 후 본인 반응과 최신 집계로 버튼·숫자를 갱신한다
       "authorId": 102,
       "sessionId": 201,
       "courseId": null,
+      "courseFromFreeRun": false,
       "courseShared": false,
       "body": "오늘 5km를 달렸어요.",
       "regionCode": null,

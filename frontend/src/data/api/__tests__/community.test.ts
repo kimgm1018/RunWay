@@ -403,6 +403,61 @@ test('CMT02 maps reactionCount, commentCount, myReaction, courseShared and the a
   });
 });
 
+// S15P31E105-616: a free run shared with a course has a courseId, but it is not a course run.
+test.each([
+  [21, true, false],
+  [21, false, true],
+  [21, undefined, true],
+  [null, undefined, false],
+])(
+  'courseId %p with courseFromFreeRun %p gives courseRun %p',
+  async (courseId, courseFromFreeRun, courseRun) => {
+    fetchMock.mockResolvedValue(
+      respond(200, { items: [{ ...counted, courseId, courseFromFreeRun }] }),
+    );
+
+    const {
+      items: [item],
+    } = await community().listFeed('ALL');
+
+    expect(item.record.courseRun).toBe(courseRun);
+  },
+);
+
+test('getShareable treats the private course of a free run as no course run', async () => {
+  const { records } = createMockRepositories({ latencyMs: 0 });
+  const detail = await records.getDetail(
+    (
+      await records.getRecent('recent', 1)
+    )[0].id,
+  );
+  const getDetail = jest.fn().mockResolvedValue({
+    ...detail,
+    courseId: '21',
+    courseFromFreeRun: true,
+  });
+  fetchMock.mockResolvedValue(
+    respond(200, {
+      route: {
+        coordinates: [
+          [129.5, 35.5],
+          [129.6, 35.6],
+        ],
+      },
+    }),
+  );
+
+  const shareable = await createCommunityApi({
+    records: { ...records, getDetail },
+  }).getShareable('55');
+
+  expect(shareable.courseRun).toBe(false);
+  expect(shareable.route).toEqual([
+    [129.5, 35.5],
+    [129.6, 35.6],
+  ]);
+});
+
 test('my own post keeps its courseId but shows no course when I left it unshared', async () => {
   fetchMock.mockResolvedValue(
     respond(200, {

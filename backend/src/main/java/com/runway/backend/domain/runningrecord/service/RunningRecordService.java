@@ -154,6 +154,7 @@ public class RunningRecordService {
                 session.averageCadence(),
                 session.goalAchieved(),
                 session.courseId(),
+                session.courseFromFreeRun(),
                 session.goalPace(),
                 session.comparisonSessionId());
     }

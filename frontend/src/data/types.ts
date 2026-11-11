@@ -132,6 +132,8 @@ export type RunRecordDetail = RunRecordSummary & {
   splits: RunSplit[];
   // The planned course, if the run followed one.
   courseId: string | null;
+  // True when courseId is the private course made from this free run, not a course the run followed (S15P31E105-616).
+  courseFromFreeRun?: boolean;
   // My saved course for this run (내 코스에 저장), or null when it is not saved.
   myCourseId: string | null;
 };
@@ -308,6 +310,8 @@ export type Post = {
   body: string | null;
   record: PostRecord;
   courseShared: boolean;
+  // The id of the shared course (null when the post does not share it); a viewer saves it as theirs (S15P31E105-616).
+  courseId?: string | null;
   createdAt: string;
   // CMT02·CMT03 reactionCount and commentCount; null leaves the number out (an older server).
   likeCount: number | null;

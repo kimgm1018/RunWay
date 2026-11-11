@@ -36,7 +36,11 @@ public class RunningSessionLookupRepository {
                 .query(
                         """
                         SELECT id, user_id, course_id, status::text AS status, deleted_at,
-                               total_distance, moving_duration, average_pace
+                               total_distance, moving_duration, average_pace,
+                               EXISTS (SELECT 1 FROM courses c
+                                WHERE c.id = running_sessions.course_id
+                                  AND c.source_session_id = running_sessions.id)
+                                   AS course_from_free_run
                         FROM running_sessions
                         WHERE id = ?
                         """
@@ -50,7 +54,8 @@ public class RunningSessionLookupRepository {
                                         toInstant(rs.getTimestamp("deleted_at")),
                                         rs.getBigDecimal("total_distance"),
                                         (Integer) rs.getObject("moving_duration"),
-                                        rs.getBigDecimal("average_pace")),
+                                        rs.getBigDecimal("average_pace"),
+                                        rs.getBoolean("course_from_free_run")),
                         sessionId)
                 .stream()
                 .findFirst();
@@ -66,7 +71,11 @@ public class RunningSessionLookupRepository {
         jdbcTemplate.query(
                 """
                 SELECT id, user_id, course_id, status::text AS status, deleted_at,
-                       total_distance, moving_duration, average_pace
+                       total_distance, moving_duration, average_pace,
+                       EXISTS (SELECT 1 FROM courses c
+                                WHERE c.id = running_sessions.course_id
+                                  AND c.source_session_id = running_sessions.id)
+                                   AS course_from_free_run
                 FROM running_sessions
                 WHERE id IN (%s)
                 """
@@ -81,7 +90,8 @@ public class RunningSessionLookupRepository {
                                     toInstant(rs.getTimestamp("deleted_at")),
                                     rs.getBigDecimal("total_distance"),
                                     (Integer) rs.getObject("moving_duration"),
-                                    rs.getBigDecimal("average_pace"));
+                                    rs.getBigDecimal("average_pace"),
+                                    rs.getBoolean("course_from_free_run"));
                     sessions.put(info.id(), info);
                 },
                 args);
@@ -100,7 +110,8 @@ public class RunningSessionLookupRepository {
             Instant deletedAt,
             BigDecimal totalDistance,
             Integer movingDuration,
-            BigDecimal averagePace) {
+            BigDecimal averagePace,
+            boolean courseFromFreeRun) {
 
         public boolean isCompleted() {
             return "COMPLETED".equals(status);

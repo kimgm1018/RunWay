@@ -50,6 +50,8 @@ type DetailResponse = {
   averageCadence: number | null;
   goalAchieved: boolean | null;
   courseId: number | null;
+  // True when courseId is the private course made from this free run (S15P31E105-616); an older server leaves it out.
+  courseFromFreeRun?: boolean;
   targetPaceSecPerKm: number | null;
   comparisonSessionId: number | null;
 };
@@ -333,6 +335,7 @@ export function createRecordsApi() {
           paceSecPerKm: roundPace(split.paceSecPerKm),
         })),
         courseId: detail.courseId === null ? null : String(detail.courseId),
+        courseFromFreeRun: detail.courseFromFreeRun,
         myCourseId: null,
       };
     },

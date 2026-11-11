@@ -14,5 +14,6 @@ public record RunningRecordDetailResponse(
         BigDecimal averageCadence,
         Boolean goalAchieved,
         Long courseId,
+        boolean courseFromFreeRun,
         BigDecimal targetPaceSecPerKm,
         Long comparisonSessionId) {}
