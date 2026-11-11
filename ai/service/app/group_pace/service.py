@@ -3,7 +3,8 @@ import os
 
 import numpy as np
 
-from app.decide.service import _thresholds_for_user, recent_inputs
+from app.decide.service import _user_hr_lookup, recent_inputs
+from app.gru_gb import apply_gb, is_identity, personal_weight
 from app.group_pace.schemas import GroupPaceRequest, GroupPaceResponse
 from app.inference import ApiError, check_sufficient, to_batch
 from app.pace_selector import DELTAS, PaceSelector, candidate_paces, upper_bound
@@ -79,8 +80,12 @@ def _fill_detail(detail: dict, *, paces, baseline, chosen, requests, hr_members,
 
 
 def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_lookup=None,
-                         hr_threshold_lookup_configured: bool = True, detail: dict | None = None) -> GroupPaceResponse:
-    """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다."""
+                         hr_threshold_lookup_configured: bool = True, detail: dict | None = None,
+                         gru_gb_enabled: bool = False) -> GroupPaceResponse:
+    """detail에 dict를 넘기면(시연 기록용) 후보·멤버별 계산값을 채운다. None이면 아무것도 하지 않는다.
+
+    gru_gb_enabled=True면 회원마다 자기 개인 g·b를 기본 GRU 출력에 적용한다(S15P31E105-641, 기본 꺼짐).
+    """
     current = body.current_group_pace_sec_per_km
     paces = candidate_paces(current, DELTAS)
     baseline = paces.index(current)
@@ -91,6 +96,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
     hr_members = []
     requests = []
     warnings = []
+    member_gb = []
 
     for member in body.participants:
         if not member.active:
@@ -117,7 +123,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             excluded += 1
             warnings.append("PARTICIPANT_DATA_UNUSABLE")
             continue
-        ref, threshold_warnings = _thresholds_for_user(
+        ref, threshold_warnings, gb = _user_hr_lookup(
             member.user_id, hr_threshold_lookup, cfg, configured=hr_threshold_lookup_configured)
         warnings.extend(threshold_warnings)
         # 백엔드가 계산한 그룹 진행률을 사용하며, 없으면 출발 시점 기준으로 판단한다.
@@ -126,6 +132,7 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
         if not grade_known:
             warnings.append("GRADE_UNKNOWN")
         requests.append(request)
+        member_gb.append(gb)
         # AI04 여유 표 방향은 최근 6칸이 전부 있을 때만 평균 속도로 분류한다.
         past_speeds = member.history.speed_mps[-6:]
         mean_past = _mean(tuple(past_speeds)) if len(past_speeds) == 6 else None
@@ -140,6 +147,12 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
             _fill_detail(detail, paces=paces, baseline=baseline, chosen=index, requests=requests, hr_members=hr_members,
                          uppers=uppers if hr_members else None,
                          predictions=predictions if requests else None)
+            if gru_gb_enabled:
+                # 641 시연 기록: 회원별 개인 g·b 적용 여부·비중·러닝 수(꺼져 있으면 넣지 않음)
+                for member, gb in zip(detail["members"], member_gb):
+                    applied = not is_identity(gb[0], gb[1])
+                    member["gruGb"] = {"applied": applied, "supportN": gb[2],
+                                       "weight": personal_weight(gb[2], gb[0], gb[1])}
         return GroupPaceResponse(
             group_pace_sec_per_km=pace, changed=changed,
             direction=("SLOW" if pace > current else "FAST") if changed else "HOLD", reason=reason,
@@ -155,6 +168,10 @@ def recommend_group_pace(body: GroupPaceRequest, model, policy, *, hr_threshold_
     danger = False
     if requests:
         predictions = _predict_all(model, requests, len(paces))
+        if gru_gb_enabled:
+            for i, (request, gb) in enumerate(zip(requests, member_gb)):
+                if not is_identity(gb[0], gb[1]):
+                    predictions[i] = apply_gb(predictions[i], request.history.hr_bpm[-1], gb[0], gb[1])
         for i, (ref, allow, measured_speed, mean_grade) in enumerate(hr_members):
             danger |= predictions[i, baseline, 2] >= ref.danger_bpm
             for j, pace in enumerate(paces):

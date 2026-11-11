@@ -573,9 +573,24 @@
     Object.keys(labels).forEach(function (id) { put(id, labels[id]); });
   }
 
+  // 641: GRU 개인 보정 표시. 기능이 꺼져 있으면 gruGb가 없어 숨긴다.
+  function gruLine(gb) {
+    var node = byId('metric-gru');
+    if (!node) return;
+    var on = !!(gb && gb.applied);
+    node.textContent = on ? '개인 보정 적용 중 (러닝 ' + gb.supportN + '회, 비중 ' + Math.round(Number(gb.weight) * 100) + '%)' : '';
+    node.classList.toggle('hidden', !on);
+  }
+
   function heroNumbers(trace, stage) {
     setLabels(!!trace.group);
-    if (trace.group) { groupHero(trace); return; }
+    if (trace.group) {
+      var gw = Number.isInteger(trace.group.worstIndex) && trace.group.members ? trace.group.members[trace.group.worstIndex] : null;
+      gruLine(gw && gw.gruGb);
+      groupHero(trace);
+      return;
+    }
+    gruLine(trace.gruGb);
     var input = trace.input || {};
     var allow = num(trace.reference && trace.reference.allowBpm);
     var hr = num(input.hrNowBpm);
@@ -759,7 +774,7 @@
     lastRendered = null;
     lastTopTraceId = null;
     ['metric-hr', 'metric-pace', 'metric-distance', 'metric-elapsed'].forEach(function (id) { put(id, '—'); });
-    put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —');
+    put('metric-allow', '허용선 —'); put('metric-grade', '다음 2분 경사 —'); gruLine(null);
     put('metric-remaining', '남은 거리 —'); put('metric-latency', '판단 —');
     var hrCard = document.querySelector('.stat-hr');
     if (hrCard) hrCard.classList.remove('over');

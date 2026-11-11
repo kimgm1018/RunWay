@@ -83,7 +83,12 @@ LIMIT %(limit)s"""
 
 HR_THRESHOLD_COLUMNS = ("user_id", "personalization_version", "hr_danger_bpm", "hr_sustain_bpm",
                         "hr_threshold_run_count")
-HR_THRESHOLD_SQL = (f"SELECT {', '.join(HR_THRESHOLD_COLUMNS)}\nFROM {PERSONALIZATION_TABLE}\n"
+# S15P31E105-641: 같은 행 summary_u_json의 GRU g·b 두 값만 꺼낸다(키가 없으면 NULL, 추가 조회 없음).
+HR_THRESHOLD_GRU_GB_EXPRS = ("summary_u_json->>'gruGain' AS gru_gain",
+                             "summary_u_json->>'gruOffsetBpm' AS gru_offset_bpm",
+                             "summary_u_json->>'gruSupportN' AS gru_support_n")
+HR_THRESHOLD_SQL = (f"SELECT {', '.join(HR_THRESHOLD_COLUMNS + HR_THRESHOLD_GRU_GB_EXPRS)}\n"
+                    f"FROM {PERSONALIZATION_TABLE}\n"
                     "WHERE user_id = %(user_id)s\nORDER BY personalization_version DESC\nLIMIT 1")
 
 # 제안 GRU 개인화 테이블. 팀 ERD가 바뀌면 이 상수와 변환 검사를 함께 갱신한다.
