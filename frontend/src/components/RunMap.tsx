@@ -644,7 +644,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       : segmentPaces?.length
       ? paceColor(segmentPaces[index], fastest, slowest, coursePaceColors)
       : pathLook.ink;
-  // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is lime.
+  // On the dark tilted map the course under a run is a dim, thin guide with a grey edge; only the run is mint.
   const tiltedGuide = running && tilted;
   const loop = hasRoute && isLoop(route);
   const hasTrail = !!trail && trail.length >= 2;
@@ -859,7 +859,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
             ring: palette.white,
             ringWidth: 3,
             glow: tilted
-              ? 'rgba(200, 255, 0, 0.18)'
+              ? 'rgba(77, 255, 210, 0.18)'
               : 'rgba(58, 90, 108, 0.16)',
             glowSize: 48,
           }}
@@ -942,15 +942,15 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     includeFontPadding: false,
   },
-  poleTextDark: { color: '#101707' },
+  poleTextDark: { color: '#071713' },
   poleTextFinish: { color: ink },
-  poleTextFinishDark: { color: '#101707' },
+  poleTextFinishDark: { color: '#071713' },
   poleStem: { width: 2, backgroundColor: ink },
   poleStemDark: { backgroundColor: darkMapLook.ink },
   poleFoot: {
     backgroundColor: 'rgba(2, 5, 14, 0.25)',
   },
-  poleFootDark: { backgroundColor: 'rgba(200, 255, 0, 0.24)' },
+  poleFootDark: { backgroundColor: 'rgba(77, 255, 210, 0.24)' },
   pill: {
     height: 26,
     borderRadius: 13,
@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   pillDark: {
-    backgroundColor: '#101707',
+    backgroundColor: '#071713',
     borderColor: darkMapLook.ink,
     borderWidth: 1,
   },
