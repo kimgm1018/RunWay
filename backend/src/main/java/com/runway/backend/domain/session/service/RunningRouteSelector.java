@@ -40,6 +40,21 @@ public final class RunningRouteSelector {
 
     /** points는 측정 시각 순이 아니어도 된다. 결과 위치 수가 maxPoints를 넘으면 조각 양 끝을 남기고 줄인다. */
     public static List<Segment> select(List<RoutePoint> points, int maxPoints) {
+        List<List<RoutePoint>> parts = selectTimed(points);
+        int total = parts.stream().mapToInt(List::size).sum();
+        List<Segment> segments = new ArrayList<>();
+        for (List<RoutePoint> part : parts) {
+            List<RoutePoint> kept = total > maxPoints ? thin(part, total, maxPoints) : part;
+            segments.add(
+                    new Segment(
+                            part.get(0).source(),
+                            kept.stream().map(p -> new double[] {p.longitude(), p.latitude()}).toList()));
+        }
+        return segments;
+    }
+
+    /** 원본 시각과 조각 경계를 보존한다. 코스 변환은 표시용 축소 결과 대신 이 값을 사용한다. */
+    public static List<List<RoutePoint>> selectTimed(List<RoutePoint> points) {
         List<RoutePoint> watch = points.stream().filter(p -> p.watch() && p.usable()).toList();
         List<Instant> watchTimes = watch.stream().map(RoutePoint::measuredAt).sorted().toList();
         List<RoutePoint> chosen = new ArrayList<>(watch);
@@ -67,16 +82,7 @@ public final class RunningRouteSelector {
             }
         }
 
-        int total = parts.stream().mapToInt(List::size).sum();
-        List<Segment> segments = new ArrayList<>();
-        for (List<RoutePoint> part : parts) {
-            List<RoutePoint> kept = total > maxPoints ? thin(part, total, maxPoints) : part;
-            segments.add(
-                    new Segment(
-                            part.get(0).source(),
-                            kept.stream().map(p -> new double[] {p.longitude(), p.latitude()}).toList()));
-        }
-        return segments;
+        return parts;
     }
 
     private static boolean nearWatch(List<Instant> sortedWatch, Instant at) {

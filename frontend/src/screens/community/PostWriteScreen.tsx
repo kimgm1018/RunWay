@@ -92,11 +92,8 @@ function Composer({
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
   const [body, setBody] = useState(initial.body ?? '');
-  // A free run has no course to share yet: the switch stays off (자유 러닝 경로 공유는 S15P31E105-616).
   const free = !record.courseRun;
-  const [courseShared, setCourseShared] = useState(
-    initial.courseShared && !free,
-  );
+  const [courseShared, setCourseShared] = useState(initial.courseShared);
   const [busy, setBusy] = useState(false);
   // The course that would be shared, on the real map (S15P31E105-632): record.route is the course (C03), never my
   // GPS track. Without its points, the drawn shape marked 예시 경로, or nothing when there is no shape either.
@@ -257,7 +254,7 @@ function Composer({
                 <AppText style={styles.shareTitle}>코스도 함께 공유</AppText>
                 <AppText style={styles.shareNote}>
                   {free
-                    ? '자유 러닝 경로 공유는 준비 중이에요'
+                    ? '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.'
                     : '이 게시물에 경로·출발/도착 지점과 코스 설명(출발지+거리)이 보여요 · 내 별명은 보이지 않아요 · 이 게시물을 볼 수 있는 사람이 내 코스에 저장할 수 있어요'}
                 </AppText>
               </View>
@@ -265,7 +262,6 @@ function Composer({
                 label="코스도 함께 공유"
                 value={courseShared}
                 onChange={setCourseShared}
-                disabled={free}
                 dark
               />
             </View>
@@ -347,9 +343,15 @@ export function PostWriteScreen() {
         regionAt={community.regionAt}
         onSubmit={async draft => {
           try {
-            await community.create(record.data.id, draft);
+            const created = await community.create(record.data.id, draft);
             postsChanged();
-            toast('러닝 기록을 공유했어요');
+            toast(
+              draft.courseShared && !created.courseShared
+                ? created.courseShareFailureReason === 'INSUFFICIENT_GPS'
+                  ? 'GPS 경로가 부족해 기록만 공유했어요. 코스 공유는 꺼졌어요.'
+                  : '코스를 만들지 못해 기록만 공유했어요. 코스 공유는 꺼졌어요.'
+                : '러닝 기록을 공유했어요',
+            );
             navigateTo(navigation, 'Community');
           } catch (error) {
             toast(postFailure(error, '게시'));

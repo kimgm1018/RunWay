@@ -87,3 +87,24 @@ export function shapeOfRoute(route: LngLat[]): [number, number][] {
   const project = routeProjector(route);
   return route.map(point => project(point));
 }
+
+// An edge index identifies the straight, unmeasured connector from point i to i+1.
+export function routeSections(route: LngLat[], unmeasuredEdges: number[] = []) {
+  const breaks = new Set(unmeasuredEdges.filter(index =>
+    Number.isInteger(index) && index >= 0 && index < route.length - 1,
+  ));
+  const measured: LngLat[][] = [];
+  const connectors: LngLat[][] = [];
+  let current: LngLat[] = route.length ? [route[0]] : [];
+  for (let index = 0; index < route.length - 1; index += 1) {
+    if (breaks.has(index)) {
+      if (current.length >= 2) measured.push(current);
+      connectors.push([route[index], route[index + 1]]);
+      current = [route[index + 1]];
+    } else {
+      current.push(route[index + 1]);
+    }
+  }
+  if (current.length >= 2) measured.push(current);
+  return { measured, connectors };
+}

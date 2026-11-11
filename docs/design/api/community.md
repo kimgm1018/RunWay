@@ -28,7 +28,7 @@
 
 **응답 해석:** 각 Response의 JSON은 기존 동작과 기능상 필요한 출력을 설명하는 검토용 예시다. 저장·전송 정책이 미정인 보완 필드는 구현 완료 계약을 뜻하지 않는다. 확인 필요 필드의 생략은 기능 삭제나 최종 선택 필드 확정을 뜻하지 않는다. `O`는 해당 응답 객체가 존재할 때 키를 포함함을 뜻하며, 값의 NULL 허용은 타입의 ` / null`로 구분한다. 조회 결과 자체가 없는 경우와 복구 행동은 해당 오류 응답 절을 따른다.
 
-posts는 author_id와 필수 session_id를 가진다. courseId는 posts 컬럼이 아니라 posts.session_id → running_sessions.course_id에서 조회하며 자유러닝은 null이다. 코스 공유 여부는 `posts.course_shared`(S15P31E105-632, V27)로 저장한다. 세션에 코스가 없으면 항상 false이며, false이면 작성자 외 조회자에게 `courseId`를 null로 준다. 댓글은 comments.parent_comment_id로 연결하고 좋아요는 post_likes 관계로 표현한다.
+posts는 author_id와 필수 session_id를 가진다. courseId는 posts 컬럼이 아니라 posts.session_id → running_sessions.course_id에서 조회한다. 자유러닝도 사용자가 코스로 저장했거나 게시물 작성에서 코스 공유를 선택하면 연결 세션에 개인 코스가 생긴다([C11](courses.md#c11-완료-기록을-개인-코스로-저장)). 코스 공유 여부는 `posts.course_shared`(S15P31E105-632, V27)로 저장한다. 세션에 코스가 없으면 false이며, false이면 작성자 외 조회자에게 `courseId`를 null로 준다. 댓글은 comments.parent_comment_id로 연결하고 좋아요는 post_likes 관계로 표현한다.
 
 자료형·NULL의 정본은 [schema.sql](../db/schema.sql), 표시·관계 설명은 [ERD](../db/erd.md)를 따른다. ERD 정합성 단계에서는 API 종류·개수·역할·오류 응답을 유지했다. 후속 오류 검토 내용은 각 오류 응답 절을 따른다.
 
@@ -79,7 +79,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `body` | string / null | O | `posts.body`에 저장. NULL·생략 허용 |
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
-| `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 세션에 코스가 없으면(자유 러닝) 값과 무관하게 false로 저장 |
+| `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 완료 자유러닝에 코스가 없고 true이면 코스 생성을 시도한다. GPS·경사 자료 부족으로 실패하면 게시물은 생성하고 false로 저장 |
 | `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). `posts.region_code`는 `regions.region_code` 외래키라 없는 코드는 저장되지 않는다(현재 별도 오류 매핑 없음 — 앱은 CMT12에서 받은 코드만 보낸다). 앱은 **코스를 함께 공유하는 글에만**(사용자 결정, S15P31E105-687) 공유 코스의 출발점을 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다. 경로를 숨긴 글·자유 러닝 글은 지역을 판정하지 않고 보내지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
 
 ```json
@@ -115,7 +115,8 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. 호출자(`X-User-Id`)로 설정 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
-| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. 작성자 본인 응답이므로 `courseShared`와 무관하게 세션 코스를 준다. 쓰기 입력이 아님 |
+| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성·공유 선택 후에는 ID가 있다. 작성자 본인 응답이므로 `courseShared`와 무관하게 세션 코스를 준다. 쓰기 입력이 아님 |
+| `courseShareFailureReason` | string / null | O | 코스 공유를 요청했으나 생성할 수 없으면 `INSUFFICIENT_GPS` 또는 `GRADE_UNAVAILABLE`. 이때 게시물은 생성되고 `courseShared=false` |
 | `courseShared` | boolean | O | 저장된 `posts.course_shared`. 세션에 코스가 없으면 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 
@@ -151,7 +152,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 - 세션은 호출자 소유이고 상태가 COMPLETED여야 한다. 아니면 `403 RESOURCE_NOT_OWNED` 또는 `422 INVALID_POST`.
 - 공유 생성과 기록 삭제의 경합은 [공통 삭제 규칙](#운동-기록과-공유-게시물의-삭제)을 따른다. 세션 잠금 아래 미삭제·소유권·COMPLETED를 재검사하고 게시물 생성까지 같은 트랜잭션에서 처리한다.
 - `title`·`imageId`는 요청에 포함해도 되며 null/생략 가능하나 **현재 저장·검증하지 않는다**.
-- 코스 공유는 요청 `courseShared`로 선택·해제한다(S15P31E105-632). 생략하면 true로 저장한다. 세션에 코스가 없으면(자유 러닝) 값과 무관하게 false로 저장한다. 응답 `courseId`는 세션 코스를 참조하며 자유러닝은 null이다. `courseShared=false` 게시물의 `courseId`는 CMT02·CMT03에서 작성자 외 조회자에게 null이다. 자유 러닝 GPS 경로 공유는 범위 밖이다(S15P31E105-616).
+- 코스 공유는 요청 `courseShared`로 선택·해제한다(S15P31E105-632). 생략하면 true다. 완료 자유러닝에 코스가 없을 때 true이면 C11과 같은 변환을 시도한다. GPS·경사 자료가 부족하면 게시물은 생성하되 `courseShared=false`, `courseShareFailureReason`을 응답해 사용자에게 이유를 알린다. `courseShared=false` 게시물의 `courseId`는 CMT02·CMT03에서 작성자 외 조회자에게 null이다. 코스 접근은 현재 게시물 접근권한 또는 이미 저장한 북마크에 따른다.
 - 게시물별·연결 러닝 기록별 공개 설정은 없다. 공개(PUBLIC) 계정의 게시물은 전체에, 비공개(PRIVATE) 계정은 본인·승인된 팔로워에게만 제공한다. 대기 요청자는 접근할 수 없다.
 - 원본 H02 조회 권한을 타인에게 부여하지 않고 공유 표시용 요약만 제공한다. 경로 그림(`routePreview`)은 **미구현**.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
@@ -264,7 +265,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `items[].id` | integer (int64) | O | `posts.id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
-| `items[].courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `items[].courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성 후에는 ID가 있다. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
 | `items[].courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `items[].body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].imageKey` | string / null | X | `posts.image_key`. **미구현** — 이미지 연동 전까지 응답에 의존하지 않음 |
@@ -406,7 +407,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `authorId` | integer (int64) | O | `posts.author_id` (BIGINT). 저장 값은 NULL 불가. |
 | `routePreviewImageUrl` | string / null (제안) | X | **미구현** — 경로 표시용 이미지 참조. 원본 GPS로 대체하지 않음 |
 | `sessionId` | integer (int64) | O | `posts.session_id` (BIGINT). 저장 값은 NULL 불가. |
-| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝은 null. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
+| `courseId` | integer (int64) / null | O | 연결 세션의 `course_id` 파생값. 자유러닝도 코스 생성 후에는 ID가 있다. `posts.course_shared`가 false이고 조회자가 작성자가 아니면 null. 작성자 본인에게는 수정 화면용으로 유지 |
 | `courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 | `updatedAt` | string (ISO 8601 UTC) | O | `posts.updated_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
@@ -501,7 +502,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 |---|---|:---:|---|
 | `title` | string | X | **미구현** — 요청에 포함해도 저장하지 않음 |
 | `body` | string / null | X | `posts.body` 수정. 생략 시 기존 값 유지(부분 수정). null·공백이면 본문을 비움 |
-| `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없으면 값과 무관하게 false로 저장 |
+| `courseShared` | boolean | X | `posts.course_shared` 수정. 생략·null이면 기존 값 유지. 세션에 코스가 없으면 false로 저장. 자유러닝의 새 코스 생성은 CMT01 또는 C11에서 수행 |
 
 ```json
 {
@@ -559,7 +560,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 - 본인 글만 수정. 비작성자 → `403 NOT_AUTHOR`. 삭제된 글 → `404 POST_NOT_FOUND`.
 - `title`은 요청에 포함해도 **저장하지 않는다**(미구현).
-- 연결 `sessionId`·`courseId`는 수정하지 않는다. `courseShared`는 생략 시 유지하고, 세션에 코스가 없으면 요청 값과 무관하게 false로 둔다(V27 이전 자유 러닝 게시물도 수정 시 false가 된다).
+- 연결 `sessionId`·`courseId`는 수정하지 않는다. `courseShared`는 생략 시 유지하고, 세션에 코스가 없으면 요청 값과 무관하게 false로 둔다. CMT04는 새 코스를 생성하지 않는다. 공유 해제·게시물 삭제는 이미 타인이 저장한 코스 북마크를 지우지 않는다.
 - `body` 생략 시 기존 본문을 유지한다(S15P31E105-632부터 생략과 null을 구분). `courseShared`만 보내도 본문은 바뀌지 않는다.
 - 예시는 **명세 구조를 보여주는 가상 값**이며, 확정되지 않은 제한·동기화 주기·AI 호출 주기를 의미하지 않는다.
 

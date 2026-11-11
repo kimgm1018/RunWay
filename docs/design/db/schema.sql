@@ -277,10 +277,15 @@ CREATE TABLE "courses" (
 	"merged_into_course_id"	BIGINT		NULL,
 	"created_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
 	"updated_at"	TIMESTAMPTZ	DEFAULT now()	NOT NULL,
-	"region_code"	VARCHAR(40)		NULL
+	"region_code"	VARCHAR(40)		NULL,
+	"is_private"	BOOLEAN	DEFAULT FALSE	NOT NULL,
+	"unmeasured_edges"	JSONB	DEFAULT '[]'::jsonb	NOT NULL
 );
 
 COMMENT ON COLUMN "courses"."region_code" IS '출발 좌표 기준 시·군·구 코드. regions.region_code(UNIQUE)를 외래키로 참조한다. 지역 판정 전 또는 실패 시 NULL을 허용한다. 코스 표시명은 시·도명 + 시·군·구명 + 코스로 조합한다.';
+
+CREATE UNIQUE INDEX uq_courses_source_session ON courses(source_session_id)
+    WHERE source_session_id IS NOT NULL;
 
 CREATE TABLE "course_environment_tags" (
 	"id"	BIGINT GENERATED ALWAYS AS IDENTITY		NOT NULL,

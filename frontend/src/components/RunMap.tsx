@@ -15,7 +15,7 @@ import {
   NaverMapViewRef,
   type Camera,
 } from '@mj-studio/react-native-naver-map';
-import { bearingOf, distanceM, type LngLat } from '../geo';
+import { bearingOf, distanceM, routeSections, type LngLat } from '../geo';
 import { latinRuns } from './AppText';
 import { Icon } from './Icon';
 import { fontFamily, k1, palette } from '../theme';
@@ -70,6 +70,7 @@ type RunMapProps = {
   // A record's measured route in parts, drawn like the course but never joined across the breaks (5.2, S15P31E105-549).
   // route then holds the same points in order for the camera and the S · F poles.
   routeParts?: LngLat[][];
+  unmeasuredEdges?: number[];
   // A point the screen sets, not the GPS: the found place (자유 러닝, 2.0F) or the meeting place (6.4·6.9).
   position?: LngLat;
   // S15P31E105-659 편도 코스 추천: the chosen end point. With it the screen's `position` becomes the start: both
@@ -560,6 +561,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     trail,
     trailParts,
     routeParts,
+    unmeasuredEdges,
     position,
     destination,
     members,
@@ -738,6 +740,9 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
   // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
   const recordParts = routeParts?.filter(part => part.length >= 2);
+  const sections = route && unmeasuredEdges?.length
+    ? routeSections(route, unmeasuredEdges)
+    : null;
   // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
   const kmCount = segmentPaces?.length ?? 0;
   const kmPieces = useMemo(
@@ -750,6 +755,8 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   const pieces = hasRoute
     ? recordParts
       ? recordParts
+      : sections
+      ? sections.measured
       : !running && kmPieces
       ? kmPieces
       : [route]
@@ -779,7 +786,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   const shadowLines = hasTrail
     ? trailLines
     : hasRoute && !muted
-    ? recordParts ?? [route]
+    ? recordParts ?? sections?.measured ?? [route]
     : [];
 
   return (
@@ -889,6 +896,15 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
               zIndex={1}
             />
           ) : null}
+          {sections?.connectors.map((line, index) => (
+            <NaverMapPathOverlay
+              key={`unmeasured-${index}`}
+              coords={coordsOf(line)}
+              width={pathLook.centre}
+              color="#8A979E"
+              zIndex={2}
+            />
+          ))}
           {/* The run so far: the same ribbon in ink, from a white start. */}
           {trailLines.map((line, index) => (
             <NaverMapPathOverlay

@@ -36,6 +36,7 @@ type DetailResponse = {
   // The map thumbnail `{ imageUrl, osmDataTimestamp }` (S15P31E105-612); null until the server has made it,
   // missing on an older server.
   basemap?: unknown;
+  unmeasuredEdges?: number[] | null;
 };
 
 type BookmarkItem = {
@@ -273,6 +274,7 @@ export function createCoursesApi({
           ),
           shape: shapeOf(course.route.coordinates),
           route: course.route.coordinates,
+          unmeasuredEdges: course.unmeasuredEdges ?? [],
           status,
           mergedIntoCourseId,
           basemap: basemapOf(course.basemap),
@@ -441,13 +443,14 @@ export function createCoursesApi({
       }
       await apiRequest(`/courses/${id}/bookmark`, { method: 'DELETE' });
     },
-    // A C01 route runs as the course C10 stores, so 2.0 and S01 get its id and route.
-    // A free run becomes a course on the server by itself (courses.md 러닝 경로 자동 코스 반영), which the server does
-    // not do yet and H02 has no course id for, so it cannot be saved as my course here (S15P31E105-529).
-    saveFromRun: () =>
-      Promise.reject(
-        new DataError('NOT_AVAILABLE', '자유 러닝 코스 저장 API 없음'),
-      ),
+    // The server derives a private course from the completed session's stored GPS.
+    saveFromRun: async recordId => {
+      const response = await apiRequest<{ courseId: number }>(
+        `/running-records/${recordId}/course`,
+        { method: 'PUT' },
+      );
+      return { courseId: String(response.courseId) };
+    },
     choose: async courseId => {
       const id = await serverIdOf(courseId);
       chosen = id;

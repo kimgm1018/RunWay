@@ -665,17 +665,18 @@ test('a route C10 turns down says so, and the next tap asks again', async () => 
   expect((await courses.getTodayPlan())?.courseId).toBe('7');
 });
 
-test('a free run cannot be saved as my course yet and says so (S15P31E105-529)', async () => {
+test('a completed run is saved as a private course from its server record', async () => {
+  serve((url, init) =>
+    url.pathname.endsWith('/running-records/701/course') && init.method === 'PUT'
+      ? respond(200, { courseId: 52 })
+      : common(url, init),
+  );
   const { courses } = api();
-  await expect(
-    courses.saveFromRun({
-      recordId: '701',
-      route: loop,
-      distanceM: 5000,
-      durationSec: 1800,
-    }),
-  ).rejects.toMatchObject({ code: 'NOT_AVAILABLE' });
-  expect(fetchMock).not.toHaveBeenCalled();
+  await expect(courses.saveFromRun('701')).resolves.toEqual({ courseId: '52' });
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/running-records/701/course'),
+    expect.objectContaining({ method: 'PUT' }),
+  );
 });
 
 test('a route this search never made cannot be stored and sends nothing', async () => {

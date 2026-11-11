@@ -782,7 +782,15 @@ export function createMockRepositories(
         saved = saved.filter(item => item.id !== courseId);
         return respond(undefined, options);
       },
-      saveFromRun: ({ recordId, route, distanceM, durationSec }) => {
+      saveFromRun: recordId => {
+        const record = records.find(run => run.id === recordId);
+        if (!record) {
+          return fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
+        }
+        const route = record.route ?? [];
+        if (route.length < 2) {
+          return fail(new DataError('VALIDATION_ERROR', '코스로 만들 경로가 부족해요'), options);
+        }
         const id = `course-${recordId}`;
         saved = [
           ...saved.filter(item => item.id !== id),
@@ -790,8 +798,8 @@ export function createMockRepositories(
             id,
             name: '자유 러닝 코스',
             myAlias: null,
-            distanceM: Math.round(distanceM),
-            expectedMinutes: Math.round(durationSec / 60),
+            distanceM: Math.round(record.distanceM),
+            expectedMinutes: Math.round(record.durationSec / 60),
             shape: shapeOf(route),
             route,
           },

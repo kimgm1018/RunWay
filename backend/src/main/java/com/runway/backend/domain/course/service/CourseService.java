@@ -69,6 +69,9 @@ public class CourseService {
         requireExistingUser(userId);
         CourseRow course =
                 courseJdbcRepository.findById(courseId).orElseThrow(CourseService::courseNotFound);
+        if (!courseJdbcRepository.canRead(userId, courseId)) {
+            throw courseNotFound();
+        }
 
         String myAlias =
                 courseBookmarkRepository
@@ -92,7 +95,8 @@ public class CourseService {
                 estimatedDurationSec,
                 course.status(),
                 course.mergedIntoCourseId(),
-                findBasemap(courseId));
+                findBasemap(courseId),
+                parseElevationProfile(course.unmeasuredEdgesJson()));
     }
 
     /** 저장된 썸네일. 생성 전·실패한 코스, 범위 밖이라 이미지가 없는 코스는 null이다(상세 조회는 실패시키지 않음). */
@@ -231,6 +235,10 @@ public class CourseService {
             long userId, long courseId, BookmarkCourseRequest request) {
         requireExistingUser(userId);
         requireCourseExists(courseId);
+        courseJdbcRepository.lockPrivateSourceSession(courseId);
+        if (!courseJdbcRepository.canRead(userId, courseId)) {
+            throw courseNotFound();
+        }
 
         BookmarkCourseRequest effective =
                 request == null ? BookmarkCourseRequest.omitted() : request;

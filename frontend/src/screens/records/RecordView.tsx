@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '../../components';
-import type { RunRecordDetail } from '../../data';
+import { useRepositories, type RunRecordDetail } from '../../data';
+import { errorCode } from '../../data/errors';
 import {
   formatDuration,
   formatKm,
@@ -156,7 +157,16 @@ export function RecordView({
   metric?: SplitMetric;
 }) {
   if (layout === 'home') {
-    return <HomeRecord record={record} onOpen={onOpen} openLabel={openLabel} />;
+    return (
+      <HomeRecord
+        record={record}
+        onOpen={onOpen}
+        openLabel={openLabel}
+        action={record.runType === 'SOLO' && !record.courseId
+          ? <SaveCourseButton key={record.id} recordId={record.id} />
+          : null}
+      />
+    );
   }
   const reference =
     metric === 'pace'
@@ -237,12 +247,58 @@ export function RecordView({
       ) : (
         <View>{body}</View>
       )}
+      {record.runType === 'SOLO' && !record.courseId ? (
+        <SaveCourseButton recordId={record.id} />
+      ) : null}
+    </View>
+  );
+}
+
+function SaveCourseButton({ recordId }: { recordId: string }) {
+  const { courses } = useRepositories();
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [message, setMessage] = useState('');
+  const save = async () => {
+    if (state === 'saving' || state === 'saved') return;
+    setState('saving');
+    try {
+      await courses.saveFromRun(recordId);
+      setState('saved');
+      setMessage('내 코스에 저장했어요.');
+    } catch (error) {
+      setState('failed');
+      const code = errorCode(error);
+      setMessage(
+        code === 'COURSE_GRADE_NOT_READY' || code === 'COURSE_GRADE_UNAVAILABLE'
+          ? '경사 정보를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.'
+          : code === 'VALIDATION_ERROR'
+            ? '코스로 만들 GPS 경로가 부족해요.'
+            : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  };
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="코스로 정하기"
+        accessibilityState={{ disabled: state === 'saving' || state === 'saved' }}
+        disabled={state === 'saving' || state === 'saved'}
+        onPress={() => { void save(); }}
+      >
+        <AppText style={styles.saveCourseLabel}>
+          {state === 'saving' ? '코스 저장 중' : state === 'saved' ? '코스 저장 완료' : '코스로 정하기'}
+        </AppText>
+      </Pressable>
+      {message ? <AppText style={styles.saveCourseMessage}>{message}</AppText> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   recordsRoot: { gap: 18 },
+  saveCourseLabel: { color: recordsLook.onCard, fontFamily: fontFamily.bold, textAlign: 'center' },
+  saveCourseMessage: { color: recordsLook.onCard, fontFamily: fontFamily.regular, textAlign: 'center', marginTop: 6 },
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
   headRow: {

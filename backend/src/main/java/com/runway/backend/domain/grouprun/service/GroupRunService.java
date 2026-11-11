@@ -116,7 +116,7 @@ public class GroupRunService {
         Integer courseDistanceM = null;
         Long courseId = request.courseId();
         if (courseId != null) {
-            courseDistanceM = requireAssignableCourseDistance(courseId);
+            courseDistanceM = requireAssignableCourseDistance(userId, courseId);
         }
 
         ResolvedGoals goals =
@@ -296,7 +296,7 @@ public class GroupRunService {
         if (request.courseIdPresent()) {
             courseId = request.courseId();
             if (courseId != null) {
-                courseDistanceFallback = requireAssignableCourseDistance(courseId);
+                courseDistanceFallback = requireAssignableCourseDistance(userId, courseId);
             }
         } else if (courseId != null && request.anyGoalFieldPresent()) {
             CourseRow course =
@@ -927,11 +927,17 @@ public class GroupRunService {
         }
     }
 
-    private Integer requireAssignableCourseDistance(long courseId) {
+    private Integer requireAssignableCourseDistance(long userId, long courseId) {
+        if (!courseJdbcRepository.canRead(userId, courseId)) {
+            throw courseNotFound();
+        }
         CourseRow course =
                 courseJdbcRepository
                         .findById(courseId)
                         .orElseThrow(GroupRunService::courseNotFound);
+        if (course.isPrivate()) {
+            throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
+        }
         if ("MERGED".equals(course.status()) || "BLOCKED".equals(course.status())) {
             throw new ApiException(ErrorCode.COURSE_INACCESSIBLE);
         }
