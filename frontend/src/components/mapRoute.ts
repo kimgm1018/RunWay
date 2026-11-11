@@ -43,16 +43,18 @@ export const darkMapLook = {
   guideEdge: 1.4,
   shadow: '#00785A',
   muted: '#9299A4',
-  centre: 3.2,
-  edge: 2.8,
+  // Widths (S15P31E105-691): halfway between 672's lines and the running screen's 8.8 dp centre with a 1.6 dp
+  // edge on each side; the border layers shrink together in their 672 proportions.
+  centre: 6,
+  edge: 1.9,
   shadowWidth: 12,
   // The replay's glowing trail: a wide dark halo, a narrower brighter one, then the mint core with a pale edge.
   glowOuter: '#003A2C',
-  glowOuterWidth: 24,
+  glowOuterWidth: 18,
   glowInner: '#00785A',
-  glowInnerWidth: 14,
-  coreWidth: 5,
-  coreEdge: 2,
+  glowInnerWidth: 12.2,
+  coreWidth: 6.9,
+  coreEdge: 1.2,
   // The whole course, thin and grey, over the opening overview only.
   outline: '#8C95A6',
   unpassed: 'rgba(0,0,0,0)',

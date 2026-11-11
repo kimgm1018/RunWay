@@ -138,6 +138,24 @@ test('the dark map course line is the designated neon mint', () => {
   ]);
 });
 
+// S15P31E105-691: the dark map's lines sit halfway between 672's and the running screen's 8.8 dp centre with a
+// 1.6 dp edge, so the border reads thinner.
+test('the dark map lines are halfway to the running screen line', () => {
+  const replayEdge = (darkMapLook.glowOuterWidth - darkMapLook.coreWidth) / 2;
+  expect(darkMapLook.coreWidth).toBeCloseTo((5 + 8.8) / 2, 1);
+  expect(replayEdge).toBeCloseTo(((24 - 5) / 2 + 1.6) / 2, 1);
+  expect(darkMapLook.coreWidth + 2 * darkMapLook.coreEdge).toBeLessThan(
+    darkMapLook.glowInnerWidth,
+  );
+  expect(darkMapLook.glowInnerWidth).toBeLessThan(darkMapLook.glowOuterWidth);
+  const detailEdge = (darkMapLook.shadowWidth - darkMapLook.centre) / 2;
+  expect(darkMapLook.centre).toBeCloseTo((3.2 + 8.8) / 2, 1);
+  expect(detailEdge).toBeCloseTo(((12 - 3.2) / 2 + 1.6) / 2, 1);
+  expect(darkMapLook.centre + 2 * darkMapLook.edge).toBeLessThan(
+    darkMapLook.shadowWidth,
+  );
+});
+
 test('a cancelled course is grey and casts no shadow', () => {
   const root = render(<RunMap route={route} muted />);
   expect(count(root, 'naver-map-path')).toBe(0);
