@@ -36,7 +36,9 @@ function open(goal: RunGoal, mode: 'FREE' | 'COURSE' = 'FREE') {
         onClose={() => undefined}
         mode={mode}
         goal={goal}
-        course={mode === 'COURSE' ? { distanceM: 5000, plannedPace: 360 } : undefined}
+        course={
+          mode === 'COURSE' ? { distanceM: 5000, plannedPace: 360 } : undefined
+        }
         onSet={onSet}
         onStart={onStart}
       />,
@@ -45,10 +47,34 @@ function open(goal: RunGoal, mode: 'FREE' | 'COURSE' = 'FREE') {
   return { root: renderer.root, onSet, onStart };
 }
 
-test('a card starts right away with its goal, and a course offers 추천 전략 · 시간 · 페이스', () => {
+test('free goal uses one checklist and keeps the course choices', () => {
   const free = open({ kind: 'NONE' });
-  act(() => labelled(free.root, '거리 목표로 바로 시작').props.onPress());
-  expect(free.onStart).toHaveBeenCalledWith({ kind: 'DISTANCE', distanceM: 5000 });
+  expect(texts(free.root)).toContain('선택하지 않으면 목표 없이 달려요');
+  act(() => labelled(free.root, '이 목표로 러닝 시작').props.onPress());
+  expect(free.onStart).toHaveBeenCalledWith({ kind: 'NONE' });
+  act(() => labelled(free.root, '거리 목표 선택').props.onPress());
+  expect(
+    labelled(free.root, '거리 목표 선택').props.accessibilityState.checked,
+  ).toBe(true);
+  act(() => labelled(free.root, '목표만 설정').props.onPress());
+  expect(free.onSet).toHaveBeenCalledWith({
+    kind: 'DISTANCE',
+    distanceM: 5000,
+  });
+  act(() => labelled(free.root, '시간 목표 선택').props.onPress());
+  expect(texts(free.root)).toContain('거리와 시간으로 계산한 페이스');
+  act(() => labelled(free.root, '이 목표로 러닝 시작').props.onPress());
+  expect(free.onStart).toHaveBeenLastCalledWith({
+    kind: 'PACER',
+    distanceM: 5000,
+    durationSec: 1800,
+  });
+  act(() => labelled(free.root, '거리 목표 선택').props.onPress());
+  act(() => labelled(free.root, '목표만 설정').props.onPress());
+  expect(free.onSet).toHaveBeenLastCalledWith({
+    kind: 'TIME',
+    durationSec: 1800,
+  });
 
   const course = open({ kind: 'PLAN' }, 'COURSE');
   const shown = texts(course.root);
@@ -66,9 +92,10 @@ test('a pacer whose pace no runner keeps says so and cannot be set or started', 
     distanceM: 12000,
     durationSec: 1800,
   });
-  act(() => labelled(root, '페이서 목표').props.onPress());
   expect(texts(root)).toContain('2′30″/km');
-  expect(texts(root)).toContain('페이스가 3′00″~15′00″/km 사이가 되도록 거리나 시간을 바꿔 주세요');
+  expect(texts(root)).toContain(
+    '페이스가 3′00″~15′00″/km 사이가 되도록 거리나 시간을 바꿔 주세요',
+  );
   expect(labelled(root, '이 목표로 러닝 시작').props.disabled).toBe(true);
   expect(labelled(root, '목표만 설정').props.disabled).toBe(true);
   expect(onSet).not.toHaveBeenCalled();

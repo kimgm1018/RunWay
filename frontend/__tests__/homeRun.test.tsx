@@ -531,14 +531,15 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await press(free, '자유 러닝');
   expect(texts(free)).toContain('민락수변공원 입구');
   expect(texts(free)).toContain('GPS 양호');
-  // 운동 목표 (S15P31E105-517): the chip opens the goal cards; 페이서 works the pace out of a distance and a time.
+  // 자유 러닝 목표는 한 화면에서 거리·시간을 체크해 조합한다.
   expect(texts(free)).toContain('목표 설정');
   await press(free, '목표 설정');
-  for (const text of ['운동 목표', '목표 없음', '거리', '시간', '페이서']) {
+  for (const text of ['운동 목표', '선택하지 않으면 목표 없이 달려요', '거리', '시간']) {
     expect(texts(free)).toContain(text);
   }
   expect(texts(free)).not.toContain('칼로리');
-  await press(free, '페이서 목표');
+  await press(free, '거리 목표 선택');
+  await press(free, '시간 목표 선택');
   expect(texts(free)).toContain('거리와 시간으로 계산한 페이스');
   expect(texts(free)).toContain('6′00″/km');
   // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.
