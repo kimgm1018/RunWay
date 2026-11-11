@@ -43,7 +43,7 @@ from scipy.spatial import cKDTree
 from shapely.geometry import Point, box
 from shapely.ops import transform
 
-from . import network_store, source_snapshot
+from . import network_store, source_snapshot, traffic_kernels
 from .env_flags import flag as env_flag
 from .data import ENV_CLASSES, REGIONS, RUNNABLE, UTM_CRS, _Segments, api, edge_distances, edge_flags
 
@@ -87,6 +87,8 @@ LEAN_ROUTING = env_flag("RUNWAY_ADAPTER_LEAN_ROUTING")
 FAST_ROUTING = env_flag("RUNWAY_FAST_ROUTING")
 #   RUNWAY_FAST_EDGE_ARRAYS=0      prepare_edge_arrays: 문자열 열 np.isin을 edge마다(S15P31E105-645 이전 경로)
 FAST_EDGE_ARRAYS = env_flag("RUNWAY_FAST_EDGE_ARRAYS")
+#   RUNWAY_TRAFFIC_DIST_FAST=0     traffic_node_distance: 격자 훑기(traffic_kernels.py) 대신 STRtree dwithin + shapely.distance
+TRAFFIC_DIST_FAST = env_flag("RUNWAY_TRAFFIC_DIST_FAST")
 
 
 def _s(v):
@@ -430,6 +432,11 @@ def traffic_node_distance(cg, cfg: dict) -> np.ndarray:
     if t.empty:
         return d
     u, v = t["u"].to_numpy(), t["v"].to_numpy()
+    if TRAFFIC_DIST_FAST:
+        # S15P31E105-677: 같은 GEOS 식의 격자 훑기(traffic_kernels.py). Numba가 없으면 None -> 아래 기존 식
+        fast = traffic_kernels.min_segment_distance(cg.x, cg.y, u, v, cfg["traffic"]["beside_m"] + 1.0, d)
+        if fast is not None:
+            return fast
     lines = shapely.linestrings(np.stack([np.c_[cg.x[u], cg.y[u]], np.c_[cg.x[v], cg.y[v]]], axis=1))
     pts = shapely.points(cg.x, cg.y)
     pi, li = shapely.STRtree(lines).query(pts, predicate="dwithin", distance=cfg["traffic"]["beside_m"] + 1.0)
