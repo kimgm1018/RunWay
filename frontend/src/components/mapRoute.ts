@@ -28,26 +28,28 @@ export const routeLook = {
 // Every colour is opaque: the Naver path overlay on Android drew part-see-through colours solid black (above).
 // Fully transparent (`unpassed`) is the one exception, and draws nothing (S15P31E105-561's replay).
 export const darkMapLook = {
-  // Dark enough for the lime to glow, light enough that the NAVER logo still reads on the map.
+  // Dark enough for the mint to glow, light enough that the NAVER logo still reads on the map.
   lightness: -0.3,
-  ink: '#C8FF00',
-  ribbon: '#E5FF8F',
+  // 코스 선 (담당자 지정): neon mint #4DFFD2 (RGB 77·255·210), the same as feedLook.route. The ribbon, shadow and
+  // glows are the same hue (165°) at the lightness the earlier lime's ones had (S15P31E105-691).
+  ink: '#4DFFD2',
+  ribbon: '#B3FFEC',
   passed: '#B4BDC4',
-  // The course under a run (heading · lean while running): dim and thin, so the lime run stays the one line
+  // The course under a run (heading · lean while running): dim and thin, so the mint run stays the one line
   // that reads.
-  guide: '#6E7868',
-  guideOutline: '#3A4036',
+  guide: '#687874',
+  guideOutline: '#36403E',
   guideCentre: 2.2,
   guideEdge: 1.4,
-  shadow: '#5D7800',
+  shadow: '#00785A',
   muted: '#9299A4',
   centre: 3.2,
   edge: 2.8,
   shadowWidth: 12,
-  // The replay's glowing trail: a wide dark halo, a narrower brighter one, then the lime core with a pale edge.
-  glowOuter: '#2C3A00',
+  // The replay's glowing trail: a wide dark halo, a narrower brighter one, then the mint core with a pale edge.
+  glowOuter: '#003A2C',
   glowOuterWidth: 24,
-  glowInner: '#5D7800',
+  glowInner: '#00785A',
   glowInnerWidth: 14,
   coreWidth: 5,
   coreEdge: 2,

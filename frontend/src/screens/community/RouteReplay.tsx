@@ -279,7 +279,7 @@ function ShapeReplay({
               stroke={darkMapLook.ribbon}
               strokeWidth={3}
             />
-            {/* The run glows as it is drawn: a soft wide halo, a pale edge, then the lime core. */}
+            {/* The run glows as it is drawn: a soft wide halo, a pale edge, then the mint core. */}
             <AnimatedPolyline
               points={line}
               fill="none"
@@ -630,7 +630,7 @@ function MapReplay({
                 zIndex={0}
               />
             ) : null}
-            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the lime core. */}
+            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
             <NaverMapPathOverlay
               coords={coords}
               width={darkMapLook.glowOuterWidth}
