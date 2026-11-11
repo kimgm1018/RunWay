@@ -49,6 +49,42 @@ class AiPersonalPacePlanClientTest {
         }
     }
 
+    // S15P31E105-533: 시간 초과로 끝난 첫 시도 뒤에는 남은 상한이 없으므로 다시 보내지 않는다(예전: 회당 상한 × 2회).
+    @Test
+    void timeoutCoversBothAttemptsTogether() {
+        try (var server = new FakeAiServer()) {
+            server.respond(200, OK).delay(Duration.ofSeconds(4));
+            long start = System.nanoTime();
+            assertThat(client(server, Duration.ofMillis(1500)).plan(73L, goal)).isEmpty();
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .isLessThan(Duration.ofMillis(2500));
+            assertThat(server.received()).hasSize(1);
+        }
+    }
+
+    @Test
+    void retryIsSkippedWhenTooLittleTimeRemains() {
+        try (var server = new FakeAiServer()) {
+            server.respond(503, "{}").delay(Duration.ofMillis(1000));
+            assertThat(client(server, Duration.ofMillis(1500)).plan(73L, goal)).isEmpty();
+            assertThat(server.received()).hasSize(1);
+        }
+    }
+
+    @Test
+    void bothAttemptsSendTheSameOverallDeadline() {
+        try (var server = new FakeAiServer()) {
+            server.respond(503, "{}");
+            long before = System.currentTimeMillis();
+            assertThat(client(server, Duration.ofSeconds(3)).plan(73L, goal)).isEmpty();
+            long after = System.currentTimeMillis();
+            assertThat(server.received()).hasSize(2);
+            String first = server.received().get(0).deadline();
+            assertThat(server.received().get(1).deadline()).isEqualTo(first);
+            assertThat(Long.parseLong(first)).isBetween(before + 3000, after + 3000);
+        }
+    }
+
     @Test
     void validationFailureDoesNotRetry() {
         try (var server = new FakeAiServer()) {
@@ -66,6 +102,8 @@ class AiPersonalPacePlanClientTest {
             assertThat(client(server, Duration.ofMillis(100)).plan(73L, goal)).isEmpty();
             assertThat(Duration.ofNanos(System.nanoTime() - start))
                     .isLessThan(Duration.ofSeconds(2));
+            // 상한이 1초보다 짧아도 첫 요청은 보낸다(재시도만 건너뛴다).
+            assertThat(server.received()).hasSize(1);
         }
     }
 

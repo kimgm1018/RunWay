@@ -568,7 +568,7 @@ ODE 오류 상태 코드는 유지한다. ODE가 준비되지 않았거나 입�
 
 ### Request Body
 
-선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다.
+선택 헤더 `X-Request-Deadline`은 epoch milliseconds 정수 문자열이다(Route 연동과 같은 형식). 백엔드는 "호출 시작 시각 + 전체 호출 상한"을 보낸다. 정수가 아니면 `400 VALIDATION_ERROR`(필드 이름 `X-Request-Deadline`)다. 마감이 대기열에 들어가기 전, 또는 대기열 슬롯을 얻은 뒤 계산을 시작하기 직전에 이미 지났으면 계산하지 않고 `503 DEADLINE_EXCEEDED`를 반환한다. 이미 시작한 계산은 중단하지 않는다. 헤더가 없으면 마감 검사를 하지 않는다. 백엔드의 세션 생성·목표 변경 호출은 재시도를 포함한 전체 상한 40초를 쓰고, 재시도에도 첫 시도와 같은 전체 마감을 보낸다. 같은 클라이언트를 쓰는 그룹 공동 페이스 계산(GroupPaceService)도 같은 상한을 적용받는다(S15P31E105-533, [sessions.md](sessions.md) "목표 검증·초기 계획·동의"의 초기 계획과 같은 값).
 
 허용하는 최상위 입력은 `courseId`, `userId`, `selectedGoal`뿐이다. 추가 필드는 `400 VALIDATION_ERROR`로 거절한다. `courseId`가 있으면 코스 러닝, 없으면(생략 또는 null) 자유러닝이다. `courseId`와 값이 있는 `userId`는 양수 int64이며, 현재 코드는 기존 호환을 위해 십진 숫자 문자열도 정수로 정규화한다.
 

@@ -35,6 +35,8 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // 화면이 꺼져도 끝없이 기다리는 요청이 없게 네이티브 HTTP 상한과 유휴 연결 정리를 둔다(S15P31E105-533).
+    RunwayHttpClient.install(this)
     loadReactNative(this)
   }
 }

@@ -121,6 +121,84 @@ async function countDown(
   return screen!;
 }
 
+// S15P31E105-533: 자유 러닝 화면에 들어가면 세션·워치를 미리 준비하고, 시작하지 않고 떠나면 그 세션을 취소한다.
+// 러닝 시작을 누르면 미리 만든 세션으로 시작해 세션을 다시 만들지 않는다.
+test('the free run screen prepares ahead, starts on the same session, and cancels it when left unstarted', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  const create = jest.spyOn(repositories.session, 'create');
+  const cancel = jest.spyOn(repositories.session, 'cancel');
+  const prepare = jest.spyOn(repositories.watchSession, 'prepare');
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
+  });
+  mounted = screen!;
+  await settle();
+  await settle();
+  await press(screen!, '러닝');
+  await press(screen!, '자유 러닝');
+  await settle(900);
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(prepare).toHaveBeenCalledTimes(1);
+
+  await press(screen!, '뒤로');
+  await settle(300);
+  expect(cancel).toHaveBeenCalledTimes(1);
+
+  await press(screen!, '자유 러닝');
+  await settle(900);
+  expect(create).toHaveBeenCalledTimes(2);
+  await press(screen!, '러닝 시작');
+  await waitForText(screen!, '운동 시간');
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(prepare).toHaveBeenCalledTimes(2);
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
+
+// 리뷰 A-1/B-1·A-2/B-3: 미리 준비의 S01이 아직 응답하지 않았을 때 시작하거나 화면을 떠나도 세션을 하나만 만들고,
+// 떠난 경우에는 응답 뒤 그 세션을 취소한다.
+async function openFreeRunWithSlowCreate(delayMs: number) {
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  const original = repositories.session.create;
+  const create = jest.fn(async (request: Parameters<typeof original>[0]) => {
+    await new Promise<void>(resolve => setTimeout(resolve, delayMs));
+    return original(request);
+  });
+  repositories.session.create = create;
+  const cancel = jest.spyOn(repositories.session, 'cancel');
+  let screen: Screen;
+  await act(async () => {
+    screen = TestRenderer.create(<App repositories={repositories} initialSignedIn />);
+  });
+  mounted = screen!;
+  await settle();
+  await settle();
+  await press(screen!, '러닝');
+  await press(screen!, '자유 러닝');
+  // 미리 준비 대기(0.5초)가 지나 S01을 보냈지만 아직 응답이 없다.
+  await settle(700);
+  expect(create).toHaveBeenCalledTimes(1);
+  return { screen: screen!, create, cancel };
+}
+
+test('러닝 시작 while the ahead-of-time S01 is still pending sends one S01 and starts on it', async () => {
+  // 3초 카운트다운이 S01 응답보다 먼저 끝나게 한다.
+  const { screen, create } = await openFreeRunWithSlowCreate(5000);
+  await press(screen, '러닝 시작');
+  await waitForText(screen, '운동 시간');
+  expect(create).toHaveBeenCalledTimes(1);
+});
+
+test('leaving while the ahead-of-time S01 is still pending cancels that session after it answers', async () => {
+  const { screen, create, cancel } = await openFreeRunWithSlowCreate(1500);
+  await press(screen, '뒤로');
+  for (let i = 0; i < 60 && cancel.mock.calls.length === 0; i += 1) {
+    await settle(50);
+  }
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
+
 test('러닝 시작 waits for the watch: 시작 확인 중 then the progress screen', async () => {
   controlTime();
   const screen = await countDown({ watchLatencyMs: 1500 }, '시작 확인 중');
@@ -132,8 +210,9 @@ test('러닝 시작 waits for the watch: 시작 확인 중 then the progress scr
   expect(texts(screen)).not.toContain('시작 확인 중');
 });
 
+// 미리 준비한 시작이 한 번 거절되면 다시 준비해 한 번 더 시작한다(S15P31E105-533). 그래도 거절되면 시작 화면에 남는다.
 test('a rejected start stays on the start screen with 다시 시작', async () => {
-  const screen = await countDown({ scenario: 'watchRejectsStart' }, '워치가 시작하지 못했어요');
+  const screen = await countDown({ scenario: 'watchAlwaysRejectsStart' }, '워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('워치가 시작하지 못했어요');
   expect(texts(screen)).toContain('다시 시작');
   expect(texts(screen)).not.toContain('운동 시간');

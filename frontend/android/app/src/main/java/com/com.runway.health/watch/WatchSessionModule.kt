@@ -82,6 +82,7 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
   private val inbox by lazy { WatchSessionInbox(app) }
   private val batches by lazy { WatchBatchStore(app) }
   private val readiness by lazy { WatchReadinessProbe(app) }
+  private val timers by lazy { RunTimersKeeper(app) }
 
   override fun getName() = "WatchSession"
 
@@ -296,6 +297,9 @@ class WatchSessionModule(private val app: ReactApplicationContext) : ReactContex
    * location type while the phone records the run itself after a takeover (S15P31E105-464).
    */
   @ReactMethod fun setRunActive(active: Boolean, sessionId: String?, location: Boolean, promise: Promise) {
+    // 러닝 중에는 화면이 꺼져도 JS 타이머(서버 조회·재시도·요청 시간 초과)가 멈추지 않게 한다(S15P31E105-533).
+    // 러닝 알림 시작이 실패해도 타이머 유지는 따로 맞춘다.
+    timers.set(active)
     try {
       inbox.setActiveSessionId(if (active) sessionId ?: inbox.activeSessionId() else null)
       val intent = Intent(app, RunForegroundService::class.java).putExtra(RunForegroundService.EXTRA_LOCATION, location)

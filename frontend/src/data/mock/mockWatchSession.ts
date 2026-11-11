@@ -12,6 +12,8 @@ export type MockWatchBehavior =
   | 'normal'
   // 첫 START만 거절한다(다시 준비한 뒤의 시작은 받는다).
   | 'rejectsStart'
+  // START를 매번 거절한다(다시 준비해도 시작하지 못함, S15P31E105-533).
+  | 'alwaysRejectsStart'
   // 명령을 처음 받았을 때는 응답하지 않고, 같은 명령을 다시 받으면 보관한 결과를 보낸다(재연결 후 재확인).
   | 'noResult'
   | 'duplicateResult'
@@ -70,6 +72,9 @@ export function createMockWatchSession(options: Options): MockWatchSession {
 
   const execute = (sessionId: string, approval: CommandApproval): WatchSessionEvent => {
     if (approval.action === 'START') {
+      if (options.behavior === 'alwaysRejectsStart') {
+        return rejected(sessionId, approval);
+      }
       if (options.behavior === 'rejectsStart' && !rejectedOnce) {
         rejectedOnce = true;
         return rejected(sessionId, approval);

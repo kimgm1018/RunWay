@@ -68,6 +68,8 @@ export type MockScenario =
   | 'recordSaveFailed'
   // S15P31E105-256 워치 러닝 제어: 워치가 시작을 거절함·결과를 보내지 않음·같은 결과를 두 번 보냄.
   | 'watchRejectsStart'
+  // 워치가 다시 준비한 뒤에도 시작을 거절함(S15P31E105-533).
+  | 'watchAlwaysRejectsStart'
   | 'watchNoResult'
   | 'watchDuplicateResult'
   // 워치가 준비하지 못함.
@@ -96,6 +98,8 @@ function watchBehavior(scenario: MockScenario = 'default'): MockWatchBehavior {
   switch (scenario) {
     case 'watchRejectsStart':
       return 'rejectsStart';
+    case 'watchAlwaysRejectsStart':
+      return 'alwaysRejectsStart';
     case 'watchNoResult':
       return 'noResult';
     case 'watchDuplicateResult':

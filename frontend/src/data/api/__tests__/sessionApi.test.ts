@@ -1,6 +1,6 @@
 import { DataError } from '../../errors';
 import type { ApiRequest } from '../request';
-import { createApiSessionRepository } from '../sessionApi';
+import { CREATE_TIMEOUT_MS, createApiSessionRepository } from '../sessionApi';
 
 // 299의 공통 요청 함수를 주입받아 sessions.md S01~S08 계약대로 호출하는지 확인한다.
 
@@ -32,6 +32,27 @@ const sessionResponse = {
   lastCommand: { commandId: 501, action: 'START', expectedVersion: 1, result: 'APPLIED', appliedAt: '2026-10-28T01:00:01Z', reasonCode: null },
   analysis: { status: 'PENDING' },
 };
+
+// S15P31E105-533: S01은 서버 AI 계획 상한(40초)보다 긴 상한으로 기다린다. 다른 요청은 공통 기본값을 쓴다.
+test('create waits longer than the server plan deadline; other calls keep the default', async () => {
+  const options: unknown[] = [];
+  const request = (async (_method: string, _path: string, _body?: unknown, option?: unknown) => {
+    options.push(option);
+    return { id: 201, status: 'READY', stateVersion: 1 };
+  }) as unknown as ApiRequest;
+  const repository = createApiSessionRepository(request);
+  await repository
+    .create({
+      controlDeviceId: '101',
+      relayDeviceId: '102',
+      goal: { courseId: null, comparisonSessionId: null, targetDistanceM: 5000, targetDurationSec: null, targetPaceSecPerKm: null },
+    })
+    .catch(() => undefined);
+  await repository.get('201').catch(() => undefined);
+  expect(options[0]).toEqual({ timeoutMs: CREATE_TIMEOUT_MS });
+  expect(CREATE_TIMEOUT_MS).toBeGreaterThan(40_000);
+  expect(options[1]).toBeUndefined();
+});
 
 test('requestControl posts the REQUEST body to the action path', async () => {
   const { calls, repository } = fake([
