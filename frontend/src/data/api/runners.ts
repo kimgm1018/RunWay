@@ -31,8 +31,10 @@ type ProfileResponse = {
 };
 
 const unknownNickname = '러너';
-// 7.4 · 7.4b show three runs.
+// 7.4 shows three shared runs. 7.4b shows four of mine and asks one more, so 더보기 shows only when
+// there are more (S15P31E105-682).
 const shownRuns = 3;
+const myRuns = 5;
 const kstOffsetMs = 9 * 60 * 60 * 1000;
 const kstMonth = (time: number) =>
   new Date(time + kstOffsetMs).toISOString().slice(0, 7);
@@ -127,7 +129,7 @@ export function createRunnersApi({
   async function mine() {
     const month = kstMonth(now().getTime());
     const [recent, summary, followRequests] = await Promise.all([
-      records.getRecent('recent', shownRuns),
+      records.getRecent('recent', myRuns),
       records.getStatistics('MONTH', `${month}-01`),
       requestCount(),
     ]);

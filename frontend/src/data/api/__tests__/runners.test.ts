@@ -225,7 +225,8 @@ test('7.4b reads U21 with my id and fills the month and recent runs from my reco
     // Two on the first page and more after it: 2건+.
     followRequests: { count: 2, more: true },
   });
-  expect(getRecent).toHaveBeenCalledWith('recent', 3);
+  // 7.4b shows four of my runs and asks one more to know about 더보기 (S15P31E105-682).
+  expect(getRecent).toHaveBeenCalledWith('recent', 5);
   expect(getStatistics).toHaveBeenCalledWith('MONTH', '2026-11-01');
 });
 

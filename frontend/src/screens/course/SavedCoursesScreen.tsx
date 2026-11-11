@@ -513,6 +513,30 @@ function SavedCard({
   );
 }
 
+// Opening a saved course, from 3.1c and from 7.4b (S15P31E105-682): it becomes the course run on 2.0C.
+export function useOpenSavedCourse() {
+  const navigation = useNavigation();
+  const { courses } = useRepositories();
+  const toast = useToast();
+  return async (course: SavedCourse) => {
+    // SYS-002: MERGED·BLOCKED are kept on the list for status guidance, not started as a normal run.
+    if (course.status === 'BLOCKED') {
+      toast('이 코스는 사용할 수 없어요. 다른 코스를 골라 주세요');
+      return;
+    }
+    if (course.status === 'MERGED') {
+      toast(
+        course.mergedIntoCourseId
+          ? '이 코스는 다른 코스로 합쳐졌어요. 대표 코스를 다시 골라 주세요'
+          : '이 코스는 다른 코스로 합쳐졌어요. 다른 코스를 골라 주세요',
+      );
+      return;
+    }
+    await courses.choose(course.id);
+    navigateTo(navigation, 'CourseRun');
+  };
+}
+
 // 3.1c 저장한 코스: my bookmarked courses, titled with my own nickname. runway-course-handoff: the glass
 // tabs in the same place as 3.1, then two columns of three cards that fill the screen.
 export function SavedCoursesScreen() {
@@ -530,23 +554,7 @@ export function SavedCoursesScreen() {
     }
   }, [resource.status, resource.data]);
 
-  const open = async (course: SavedCourse) => {
-    // SYS-002: MERGED·BLOCKED are kept on the list for status guidance, not started as a normal run.
-    if (course.status === 'BLOCKED') {
-      toast('이 코스는 사용할 수 없어요. 다른 코스를 골라 주세요');
-      return;
-    }
-    if (course.status === 'MERGED') {
-      toast(
-        course.mergedIntoCourseId
-          ? '이 코스는 다른 코스로 합쳐졌어요. 대표 코스를 다시 골라 주세요'
-          : '이 코스는 다른 코스로 합쳐졌어요. 다른 코스를 골라 주세요',
-      );
-      return;
-    }
-    await courses.choose(course.id);
-    navigateTo(navigation, 'CourseRun');
-  };
+  const open = useOpenSavedCourse();
   const unsave = async (course: SavedCourse) => {
     const before = items ?? [];
     setItems(before.filter(item => item.id !== course.id));

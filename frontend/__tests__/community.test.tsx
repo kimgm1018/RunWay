@@ -164,6 +164,8 @@ test('runs without a route keep 7.4, 7.4b and the feed open and draw no outline'
       })),
     };
   };
+  // 7.4b 저장한 코스 draws its own course outlines (S15P31E105-682); this test is about runs only.
+  repositories.courses.getSaved = async () => [];
   const listFeed = repositories.community.listFeed;
   repositories.community.listFeed = async (scope, cursor) => {
     const page = await listFeed(scope, cursor);
@@ -1241,6 +1243,115 @@ test('7.4 follows a runner, a private one takes a request, and 7.4b opens my run
   }
   expect(texts(screen)).toContain('2026.10.15 · 06:30');
   expect(texts(screen)).toContain('페이스와 심박 변화');
+});
+
+// Run tiles end in their distance; course tiles in their time.
+const runTiles = (screen: Screen) =>
+  screen.root.findAll(
+    node =>
+      typeof node.props.accessibilityLabel === 'string' &&
+      /, \d+\.\d+km$/.test(node.props.accessibilityLabel) &&
+      typeof node.props.onPress === 'function',
+  );
+
+// S15P31E105-682: 7.4b shows four runs and four saved courses, 더보기 only when there are more.
+test('7.4b shows four recent runs and four saved courses with 더보기, and a course opens its run', async () => {
+  const screen = await openCommunity();
+  await press(screen, '프로필');
+  await settle(50);
+  const page = texts(screen);
+  expect(page).toContain('최근 기록');
+  expect(page).toContain('저장한 코스');
+  // The mock has more than four runs and five saved courses.
+  expect(runTiles(screen)).toHaveLength(4);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
+
+  await press(screen, '최근 기록 더보기');
+  await settle(50);
+  expect(texts(screen)).toContain('내 기록');
+  await press(screen, '프로필');
+  await settle(50);
+
+  await press(screen, '저장한 코스 더보기');
+  await settle(50);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km 33분')).not.toThrow();
+  await press(screen, '프로필');
+  await settle(50);
+
+  // A course tile opens its course run.
+  await press(screen, '민락수변 왕복, 5.4km · 33분');
+  for (let tries = 0; tries < 40; tries++) {
+    if (texts(screen).includes('민락수변 왕복 5.4km')) {
+      break;
+    }
+    await settle(50);
+  }
+  expect(texts(screen)).toContain('민락수변 왕복 5.4km');
+});
+
+test('7.4b shows 더보기 only past four runs and four saved courses', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const getProfile = repositories.runners.getProfile;
+  repositories.runners.getProfile = async userId => {
+    const profile = await getProfile(userId);
+    return { ...profile, records: profile.records.slice(0, 4) };
+  };
+  // The mock answers on a timer, and this file runs fake timers.
+  const pending = repositories.courses.getSaved();
+  await settle(50);
+  const courses = await pending;
+  const many = [...courses, ...courses].map((course, index) => ({
+    ...course,
+    id: `${course.id}-${index}`,
+    name: `코스 ${index + 1}`,
+    myAlias: null,
+  }));
+  jest.spyOn(repositories.courses, 'getSaved').mockResolvedValue(many);
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(runTiles(screen)).toHaveLength(4);
+  expect(() => labelled(screen, '최근 기록 더보기')).toThrow();
+  expect(texts(screen)).toContain('코스 4');
+  expect(texts(screen)).not.toContain('코스 5');
+
+  await press(screen, '저장한 코스 더보기');
+  await settle(50);
+  expect(texts(screen)).toContain('코스 5');
+});
+
+test('7.4b shows no 저장한 코스 더보기 for four saved courses or fewer', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const pending = repositories.courses.getSaved();
+  await settle(50);
+  const courses = await pending;
+  jest
+    .spyOn(repositories.courses, 'getSaved')
+    .mockResolvedValue(courses.slice(0, 4));
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(() => labelled(screen, '민락수변 왕복, 5.4km · 33분')).not.toThrow();
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+});
+
+test('7.4b says when there are no saved courses or they did not load', async () => {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  // Every load fails until the server comes back (opening the tab loads twice: mount and focus).
+  const saved = jest
+    .spyOn(repositories.courses, 'getSaved')
+    .mockRejectedValue(new DataError('NETWORK_ERROR', '연결 없음'));
+  const screen = await openCommunity(repositories);
+  await press(screen, '프로필');
+  await settle(50);
+  expect(texts(screen)).toContain('저장한 코스를 불러오지 못했어요');
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
+
+  saved.mockResolvedValue([]);
+  await press(screen, '저장한 코스 다시 불러오기');
+  await settle(50);
+  expect(texts(screen)).toContain('아직 저장한 코스가 없어요');
+  expect(() => labelled(screen, '저장한 코스 더보기')).toThrow();
 });
 
 // S15P31E105-632: a runner's photo fills the avatar; a missing one or one that fails leaves the letter.
