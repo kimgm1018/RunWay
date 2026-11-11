@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
-import { AppText, Icon, WordWrap } from '../../components';
+import { AppText, Icon, useToast, WordWrap } from '../../components';
 import type { RunRecordDetail, RunSplit } from '../../data';
 import {
   formatClockTime,
@@ -527,6 +527,11 @@ export function HomeRecord({
     record.averagePaceSecPerKm,
     record.targetPaceSecPerKm,
   );
+  // S15P31E105-685: a run recorded without a target pace has nothing to compare, so the card stays on its front and a
+  // toast says why, instead of turning to a back with that one line.
+  const toast = useToast();
+  const noTarget = () =>
+    toast('목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요');
 
   const front = (turn: () => void) => (
     <View style={styles.panel}>
@@ -571,7 +576,10 @@ export function HomeRecord({
           )}
         </View>
       </View>
-      <TurnButton label="목표와 비교하기" onPress={turn} />
+      <TurnButton
+        label="목표와 비교하기"
+        onPress={goal.kind === 'noTarget' ? noTarget : turn}
+      />
     </View>
   );
 

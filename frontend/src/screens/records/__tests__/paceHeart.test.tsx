@@ -1,8 +1,15 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { ToastProvider } from '../../../components';
 import type { RunRecordDetail, RunSplit } from '../../../data';
 import { compareWithGoal, kmBands, measured } from '../paceHeart';
 import { goalLine, RecordView } from '../RecordView';
+
+// The card's 목표와 비교하기 toasts on a run without a target (S15P31E105-685), so it renders inside the toast layer.
+jest.mock(
+  'react-native-safe-area-context',
+  () => require('react-native-safe-area-context/jest/mock').default,
+);
 
 // S15P31E105-615: 2.1 홈 러닝 분석 — a card that turns: 앞면 러닝 결과 (both lines by km, the figures), 뒷면 목표와 비교
 // (the API's splits against the run's own target pace, ±10초/km). Values are synthetic.
@@ -162,13 +169,15 @@ async function card(change: Partial<RunRecordDetail> = {}) {
   let screen!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     screen = TestRenderer.create(
-      <RecordView
-        layout="home"
-        record={record(change)}
-        chartHeight={0}
-        onOpen={onOpen}
-        openLabel="아침 러닝 열기"
-      />,
+      <ToastProvider>
+        <RecordView
+          layout="home"
+          record={record(change)}
+          chartHeight={0}
+          onOpen={onOpen}
+          openLabel="아침 러닝 열기"
+        />
+      </ToastProvider>,
     );
   });
   const faceOf = (testID: string) =>
@@ -284,6 +293,34 @@ test('without a target pace the back says so and shows no figures or verdicts', 
     expect(words).not.toContain(text);
   }
   expect(words.join(' ')).not.toContain('범위 안');
+});
+
+// S15P31E105-685: nothing to compare, so 목표와 비교하기 keeps the card on its front and a toast says why.
+test('without a target pace 목표와 비교하기 does not turn the card and says there is no target', async () => {
+  const { screen, front, back, press } = await card({
+    targetPaceSecPerKm: null,
+  });
+  await press('목표와 비교하기');
+  expect(front().props.pointerEvents).toBe('auto');
+  expect(back().props.pointerEvents).toBe('none');
+  const shown = screen.root
+    .findAll(node => typeof node.props.children === 'string')
+    .map(node => node.props.children as string);
+  expect(shown).toContain(
+    '목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요',
+  );
+});
+
+test('with a target pace there is no such toast and the card turns', async () => {
+  const { screen, front, press } = await card();
+  await press('목표와 비교하기');
+  expect(front().props.pointerEvents).toBe('none');
+  const shown = screen.root
+    .findAll(node => typeof node.props.children === 'string')
+    .map(node => node.props.children as string);
+  expect(shown).not.toContain(
+    '목표 페이스 없이 기록한 러닝이라 비교할 목표가 없어요',
+  );
 });
 
 test('a run without heart rate keeps the pace comparison and says the heart rate was not measured', async () => {
