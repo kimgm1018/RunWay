@@ -1,4 +1,4 @@
-// master Push 후 제품 워치 앱을 검사하고 팀 테스트용 debug APK를 보관한다.
+// master Push 후 제품 워치 앱을 검사하고 랜딩 배포용 release APK를 보관한다.
 
 // 통합 CI 워치 검사와 같은 참조 저장소를 사용한다. 작업 폴더는 매번 비우고 Git 객체만 재사용한다.
 def watchGitReference() {
@@ -80,22 +80,32 @@ pipeline {
                 sh 'sh infra/jenkins/build-watch-apk.sh --stage lint'
             }
         }
-        stage('Watch APK Build') {
+        stage('Watch Debug APK') {
             steps {
-                sh 'sh infra/jenkins/build-watch-apk.sh --stage apk'
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage apk -PrunwayVersionCode="$BUILD_NUMBER"'
+                sh '''
+                    mkdir -p artifacts
+                    cp wear/app/build/outputs/apk/debug/app-debug.apk "artifacts/runway-watch-master-${APK_COMMIT}-${BUILD_NUMBER}.apk"
+                '''
+                archiveArtifacts artifacts: 'artifacts/runway-watch-master-*.apk', fingerprint: true
+            }
+        }
+        stage('Watch Release APK') {
+            steps {
+                sh 'sh infra/jenkins/build-watch-apk.sh --stage release -PrunwayVersionCode="$BUILD_NUMBER"'
             }
         }
         // 성공한 제품 APK만 커밋·빌드 번호로 구분해 Jenkins에 보관한다.
-        stage('Archive APK') {
+        stage('Archive Release APK') {
             steps {
                 sh '''
                     mkdir -p artifacts
-                    cp wear/app/build/outputs/apk/debug/app-debug.apk \
-                        "artifacts/runway-watch-master-${APK_COMMIT}-${BUILD_NUMBER}.apk"
-                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=debug\nmodule=wear/app\n' \
+                    cp wear/app/build/outputs/apk/release/app-release.apk artifacts/runway-watch.apk
+                    sha256sum artifacts/runway-watch.apk > artifacts/runway-watch.apk.sha256
+                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=release\nmodule=wear/app\n' \
                         "$APK_COMMIT" "$BUILD_NUMBER" > artifacts/build-info.txt
                 '''
-                archiveArtifacts artifacts: 'artifacts/*.apk,artifacts/build-info.txt', fingerprint: true
+                archiveArtifacts artifacts: 'artifacts/runway-watch.apk,artifacts/runway-watch.apk.sha256,artifacts/build-info.txt', fingerprint: true
             }
         }
     }

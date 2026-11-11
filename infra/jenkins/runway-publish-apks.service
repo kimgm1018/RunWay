@@ -1,0 +1,13 @@
+[Unit]
+Description=Publish the latest successful RunWay phone and watch release APKs
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/runway-publish-apks.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateNetwork=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/home/ubuntu/runway/frontend/landing/downloads

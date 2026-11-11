@@ -105,3 +105,6 @@ __pycache__/
 # Route 데이터 묶음과 다운로드 도구의 임시 빌드 파일
 /artifacts/route/
 /ai/route_service/artifacts/national/
+
+# Public Android APK and publish state
+/frontend/landing/downloads/
