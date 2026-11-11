@@ -81,7 +81,14 @@ async function launch(music?: Repositories['music']) {
   await waitFor(() => texts(screen).includes('멜론 열기'));
   return screen;
 }
+// No test here reaches the real Spotify. A call an earlier test left running would otherwise go out with the
+// synthetic token, come back 401 and clear the next test's saved sign-in mid-test (SCOPE_REQUIRED instead of the
+// screen it waits for). Offline, such a call fails as FAILED and leaves the tokens alone.
+const offline = (async () => {
+  throw new TypeError('offline in tests');
+}) as unknown as typeof fetch;
 beforeEach(async () => {
+  globalThis.fetch = offline;
   await spotifyTokens.clear();
 });
 afterEach(async () => {
@@ -89,6 +96,9 @@ afterEach(async () => {
     await act(async () => mounted?.unmount());
   }
   mounted = undefined;
+  globalThis.fetch = offline;
+});
+afterAll(() => {
   globalThis.fetch = realFetch;
 });
 function reply(status: number, body = '') {

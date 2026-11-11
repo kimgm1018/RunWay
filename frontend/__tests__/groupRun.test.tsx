@@ -618,7 +618,9 @@ test('6.5 → 6.6 (paused in place) → 6.7: ready, start together, see members 
   } finally {
     await act(async () => screen.unmount());
   }
-});
+  // The whole 6.5 → 6.7 flow runs on the mock's real-time start and tracking timers. Two Jest workers on the CI
+  // agent's two CPUs (S15P31E105-667) took it past 60 s, so it alone gets 120 s.
+}, 120000);
 
 test('6.3 makes a crew I lead, and 6.0 opens its own 6.2', async () => {
   const screen = await openGroup();
