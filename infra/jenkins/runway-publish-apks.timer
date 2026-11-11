@@ -1,0 +1,9 @@
+[Unit]
+Description=Check for a new RunWay phone and watch release APKs
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+
+[Install]
+WantedBy=timers.target

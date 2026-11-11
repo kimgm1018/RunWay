@@ -14,7 +14,7 @@ android {
         applicationId = "com.runway.health"
         minSdk = 30
         targetSdk = 37
-        versionCode = 1
+        versionCode = providers.gradleProperty("runwayVersionCode").getOrElse("1").toInt()
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -28,6 +28,8 @@ android {
 
     buildTypes {
         release {
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = true
                 packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
