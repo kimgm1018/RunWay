@@ -239,7 +239,7 @@
 | image_key | VARCHAR(1024) NULL | 썸네일 PNG의 이미지 볼륨 키(`images/course-basemap/{course_id}/{uuid}.png`). 전국 자료 범위 밖이면 NULL(재시도 안 함) |
 | osm_data_timestamp | TIMESTAMPTZ NULL | 도로·면 전국 OSM 자료 시점 |
 | buildings_osm_data_timestamp | TIMESTAMPTZ NULL | 건물 자료 OSM 시점. 건물 자료가 없으면 NULL |
-| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v1`). 다르면 기동 시 일괄 채우기가 다시 그린다 |
+| render_version | VARCHAR(40) NOT NULL | 그리기 방식 버전(현재 `flat-v2`: S15P31E105-698 민트 코스 선·바다 면 수정). 다르면 기동 시 일괄 채우기가 다시 그린다 |
 | created_at / updated_at | TIMESTAMPTZ NOT NULL DEFAULT now() | 저장·수정 시각(`set_updated_at()` 트리거) |
 
 - 코스 저장 커밋 뒤와 서버 기동 시 일괄 채우기에서 백엔드가 Route 상세 모드로 지형지물·건물을 받아 600×900 PNG를 그리고 이미지 볼륨([ADR-0016](../../adr/0016-image-volume-storage.md))에 저장한다. Route 실패·그리기·저장 실패는 행을 만들지 않는다.

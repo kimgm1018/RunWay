@@ -317,6 +317,54 @@ def test_no_sea_when_coastline_does_not_divide_bbox(tmp_path, coast):
     assert "sea" not in [f["kind"] for f in body["features"]]
 
 
+def _estuary_coast():
+    """S15P31E105-698 재현: 해안선이 강 하구(127.035~127.045)를 따라 bbox 위로 올라갔다 내려온다(동쪽으로 갈 때 남쪽이 바다).
+    강 면 가까운 서쪽 강둑 해안선(37.51~37.53)은 env layer에서 지워져 서쪽 강둑 선이 bbox 안 (127.035, 37.51)에서 끊긴다.
+    그 틈으로 서쪽 육지가 강물·바다와 한 조각이 되었다."""
+    from shapely.geometry import LineString
+    return [("coast", LineString([(127.00, 37.505), (127.035, 37.505), (127.035, 37.51)])),
+            ("coast", LineString([(127.045, 37.53), (127.045, 37.505), (127.08, 37.505)]))]
+
+
+def test_estuary_gap_does_not_paint_land(tmp_path):
+    from shapely.geometry import Point
+    body = B.build_basemap(fake_store(tmp_path, NO_ROADS, _estuary_coast()), tuple(BBOX))
+    assert_valid(body)
+    sea = _sea(body)
+    assert sea, "바다는 남는다"
+    west_land, east_land = Point(127.025, 37.515), Point(127.055, 37.515)
+    assert not any(s.contains(west_land) or s.contains(east_land) for s in sea), "육지를 바다로 칠하지 않는다"
+    assert any(s.contains(Point(127.04, 37.495)) for s in sea)
+
+
+def test_estuary_gap_full_detail_does_not_paint_land(tmp_path):
+    from shapely.geometry import Point
+    body = B.build_basemap(fake_store(tmp_path, NO_ROADS, _estuary_coast()), tuple(BBOX), detail="full")
+    sea = _sea(body)
+    assert sea and not any(s.contains(Point(127.025, 37.515)) for s in sea)
+
+
+def test_mixed_piece_left_unpainted_without_gap_links(tmp_path, monkeypatch):
+    # 틈을 잇지 못해 육지와 바다가 한 조각으로 남으면(육지 쪽 표가 섞임) 그 조각은 칠하지 않는다.
+    from shapely.geometry import Point
+    monkeypatch.setattr(B, "_gap_links", lambda coast_k, box_k: [])
+    body = B.build_basemap(fake_store(tmp_path, NO_ROADS, _estuary_coast()), tuple(BBOX))
+    assert_valid(body)
+    assert not any(s.contains(Point(127.025, 37.515)) for s in _sea(body))
+
+
+def test_gap_link_joins_coastline_end_to_next_start(tmp_path):
+    # 바다 쪽(남쪽)을 가로지르는 해안선이 bbox 안에서 끊겨도(127.035~127.045) 끝과 다음 시작을 이어 바다를 만든다.
+    from shapely.geometry import LineString, Point
+    coast = [("coast", LineString([(127.00, 37.505), (127.035, 37.505)])),
+             ("coast", LineString([(127.045, 37.506), (127.08, 37.506)]))]
+    body = B.build_basemap(fake_store(tmp_path, NO_ROADS, coast), tuple(BBOX))
+    assert_valid(body)
+    sea = _sea(body)
+    assert len(sea) == 1
+    assert sea[0].contains(Point(127.04, 37.495)) and not sea[0].contains(Point(127.04, 37.515))
+
+
 def test_sea_kept_first_in_coord_budget(tmp_path):
     # 좌표 상한을 넘는 도로가 많아도 바다 면(순위 0, 응답 맨 앞)은 남는다.
     store = fake_store(tmp_path, _budget_ways(), _coast_across())
