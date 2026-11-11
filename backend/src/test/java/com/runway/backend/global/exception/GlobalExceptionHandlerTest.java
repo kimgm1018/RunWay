@@ -15,7 +15,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.CannotAcquireLockException;
@@ -43,6 +46,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.HashMap;
 import java.util.Map;
 
+@ExtendWith(OutputCaptureExtension.class)
 @WebMvcTest(GlobalExceptionHandlerTest.FixtureController.class)
 @Import({
     GlobalExceptionHandlerTest.FixtureController.class,
@@ -53,6 +57,24 @@ import java.util.Map;
 class GlobalExceptionHandlerTest {
 
     @Autowired private MockMvc mvc;
+
+    @Test
+    void 서버오류로그는_경로패턴과_오류코드를_남긴다(CapturedOutput output) throws Exception {
+        mvc.perform(get("/api/v1/__test/courses/987654321")
+                        .header("Authorization", SecurityTestSupport.bearer(1))
+                        .param("token", "private-query-value"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+
+        mvc.perform(get("/__test/boom").header("Authorization", SecurityTestSupport.bearer(1)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+
+        org.assertj.core.api.Assertions.assertThat(output.getAll())
+                .contains("runway_route=/api/v1/__test/courses/{courseId} runway_error=INTERNAL_ERROR")
+                .contains("runway_route=unknown runway_error=INTERNAL_ERROR")
+                .doesNotContain("987654321", "private-query-value");
+    }
 
     @Test
     void 빈필수문자열은_필드오류로_400을반환한다() throws Exception {
@@ -362,7 +384,7 @@ class GlobalExceptionHandlerTest {
             throw new ApiException(ErrorCode.SESSION_NOT_FOUND, Map.of());
         }
 
-        @GetMapping("/__test/boom")
+        @GetMapping({"/__test/boom", "/api/v1/__test/courses/{courseId}"})
         void boom() {
             throw new IllegalStateException("SELECT secret FROM users");
         }

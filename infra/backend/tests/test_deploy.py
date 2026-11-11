@@ -68,7 +68,15 @@ case "$1 $2" in
     else
       printf '%s\n' 'HikariPool-1 - Start completed.' 'Started BackendApplication'
     fi ;;
-  'run --rm') [[ ${MOCK_FAIL:-} != http-500 ]] ;;
+  'run --rm')
+    case "${!#}" in
+      current) printf '%064d\n' 1 ;;
+      validate) [[ ${MOCK_FAIL:-} != catalog-invalid ]] ;;
+      install) [[ ${MOCK_FAIL:-} != catalog-apply ]] ;;
+      restore) exit 0 ;;
+      *) [[ ${MOCK_FAIL:-} != http-500 ]] ;;
+    esac ;;
+  'exec runway-nginx-1') [[ ${MOCK_FAIL:-} != catalog-reload ]] ;;
   *) exit 92 ;;
 esac
 '''
@@ -95,6 +103,49 @@ class DeploymentTests(unittest.TestCase):
         # 실제 인증정보 대신 테스트용 임시 경로만 자식 프로세스에 전달한다.
         self.env["MOCK_DIR"] = self.posix(self.path)
         self.env.pop("BACKEND_LEGACY_HEALTH_IMAGE_ID", None)
+
+    def test_catalog_validation_failure_does_not_replace_backend(self):
+        self.env["BACKEND_API_ROUTES_FILE"] = self.posix(self.path / "api-routes.json")
+        (self.path / "api-routes.json").write_text('["/api/v1/courses"]')
+        result = self.run_script("deploy.sh", ["runway-backend:test", self.posix(self.compose), self.posix(self.path / "state")], "catalog-invalid")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("up -d", self.calls())
+
+    def test_failed_catalog_apply_restores_catalog_and_backend(self):
+        self.env["BACKEND_API_ROUTES_FILE"] = self.posix(self.path / "api-routes.json")
+        (self.path / "api-routes.json").write_text('["/api/v1/courses"]')
+        result = self.run_script("deploy.sh", ["runway-backend:test", self.posix(self.compose), self.posix(self.path / "state")], "catalog-apply")
+        self.assertNotEqual(result.returncode, 0)
+        calls = self.calls()
+        self.assertIn("python - restore", calls)
+        self.assertIn("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa :: compose", calls)
+
+    def test_successful_catalog_apply_records_new_backend(self):
+        self.env["BACKEND_API_ROUTES_FILE"] = self.posix(self.path / "api-routes.json")
+        (self.path / "api-routes.json").write_text('["/api/v1/courses"]')
+        result = self.run_script("deploy.sh", ["runway-backend:test", self.posix(self.compose), self.posix(self.path / "state")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("python - install", self.calls())
+
+    def test_nginx_reload_failure_restores_catalog(self):
+        self.env["BACKEND_API_ROUTES_FILE"] = self.posix(self.path / "api-routes.json")
+        (self.path / "api-routes.json").write_text('["/api/v1/courses"]')
+        result = self.deploy("catalog-reload")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("python - restore", self.calls())
+        self.assertEqual((self.path / "active").read_text().strip(), "old")
+
+    def test_state_write_failure_restores_catalog_and_backend(self):
+        self.env["BACKEND_API_ROUTES_FILE"] = self.posix(self.path / "api-routes.json")
+        (self.path / "api-routes.json").write_text('["/api/v1/courses"]')
+        hook = self.path / "bash-env"
+        hook.write_text('mv() { return 1; }\n', encoding="utf-8", newline="\n")
+        self.env["BASH_ENV"] = self.posix(hook)
+        result = self.deploy()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("python - install", self.calls())
+        self.assertIn("python - restore", self.calls())
+        self.assertEqual((self.path / "active").read_text().strip(), "old")
 
     @staticmethod
     def posix(path):

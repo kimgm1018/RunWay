@@ -40,6 +40,38 @@ services:
     mem_limit: 512m
     logging: *rotating-logs
 
+  alloy:
+    user: "473:473"
+    image: grafana/alloy:v1.11.3
+    restart: unless-stopped
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    networks: [log-ingest]
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - type: bind
+        source: /var/lib/runway-monitoring/container-logs
+        target: /var/log/runway
+        read_only: true
+        bind:
+          create_host_path: false
+      - alloy_data:/var/lib/alloy
+    mem_limit: 256m
+    logging: *rotating-logs
+
+  loki:
+    networks: [default, log-ingest]
+    image: grafana/loki:3.6.3
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/runway.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/runway.yaml:ro
+      - loki_data:/loki
+    mem_limit: 512m
+    logging: *rotating-logs
+
   grafana:
     image: grafana/grafana:12.3.2
     restart: unless-stopped
@@ -57,6 +89,7 @@ services:
       - "127.0.0.1:13000:3000"
     volumes:
       - ./grafana/datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./grafana/loki-datasource.yaml:/etc/grafana/provisioning/datasources/loki.yaml:ro
       - ./grafana/provider.yaml:/etc/grafana/provisioning/dashboards/runway.yaml:ro
       - ./grafana/dashboard.json:/etc/grafana/dashboards/runway.json:ro
       - grafana_data:/var/lib/grafana
@@ -64,6 +97,8 @@ services:
     logging: *rotating-logs
 
 networks:
+  log-ingest:
+    internal: true
   monitoring-proxy:
     external: true
     name: runway_monitoring_proxy
@@ -71,3 +106,5 @@ networks:
 volumes:
   prometheus_data:
   grafana_data:
+  loki_data:
+  alloy_data:

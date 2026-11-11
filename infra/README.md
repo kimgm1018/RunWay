@@ -305,3 +305,13 @@ python infra/backup/download_backups.py --identity "개인 SSH 키 파일 경로
 
 참고: [PostgreSQL 17](https://www.postgresql.org/docs/17/backup-dump.html) · [ThinBackup](https://plugins.jenkins.io/thinBackup/) ·
 [Jenkins 백업 기준](https://www.jenkins.io/doc/book/system-administration/backing-up/) (2026-11-02 확인, GPG 2.4.4).
+
+## 컨테이너 모니터링
+
+EC2의 systemd 타이머가 Docker에서 컨테이너별 CPU·메모리와 Nginx·백엔드 로그를 읽는다. 지표는 Node Exporter가 읽는 `containers.prom`에 저장하고, 로그는 Nginx의 요청 방식·상태 코드와 백엔드의 경고 등급·로거 이름만 남긴다. Alloy는 가공된 로그 폴더만 읽어 Loki로 전달한다.
+
+Compose 실행 전에 `collect-container-observability.py`를 `/usr/local/libexec/runway/`에, `runway-container-observability.{service,timer}`를 `/etc/systemd/system/`에 설치한다. `sudo systemctl daemon-reload` 후 `sudo systemctl start runway-container-observability.service`로 첫 수집을 확인하고 `sudo systemctl enable --now runway-container-observability.timer`로 예약한다. 새 서버에서는 `runway-monitoring_alloy_data` 볼륨의 데이터 디렉터리를 Alloy 실행 계정(UID/GID 473)이 쓸 수 있도록 준비한다.
+
+API 경로 목록은 백엔드 통합 테스트가 실제 Spring MVC 등록 정보에서 `build/generated/monitoring/api-routes.json`으로 추출한다. CD는 이 파일로 Nginx 분류와 수집기 허용 목록을 함께 갱신하며, 배포 실패 시 이전 목록을 복구한다. 경로 문법을 지원하지 않으면 배포 전에 차단한다.
+
+최초 적용 전 EC2에 `/var/lib/runway-monitoring/routes`를 준비하고, 검증한 목록으로 `route_catalog.py`의 `install` 동작을 실행해 초기 버전을 생성한다. Nginx에는 이 폴더만 `/etc/nginx/runway-routes`로 읽기 전용 연결한다. 이후 목록은 CD가 관리하며, 미등록 주소는 `unknown`으로 표시한다.

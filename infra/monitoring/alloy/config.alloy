@@ -1,0 +1,35 @@
+local.file_match "runway" {
+  path_targets = [
+    {"__path__" = "/var/log/runway/nginx-*.log", "service" = "nginx"},
+    {"__path__" = "/var/log/runway/backend-backend-*.log", "service" = "backend-backend"},
+  ]
+}
+
+loki.source.file "runway" {
+  targets = local.file_match.runway.targets
+  forward_to = [loki.process.runway.receiver]
+}
+
+loki.process "runway" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.regex {
+    expression = "^(?P<time>\\S+) (?P<message>.*)$"
+  }
+  stage.timestamp {
+    source = "time"
+    format = "RFC3339Nano"
+  }
+  stage.output {
+    source = "message"
+  }
+  stage.label_drop {
+    values = ["filename"]
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -39,6 +39,25 @@ class BackendApplicationIntegrationTest {
     @Autowired private Environment environment;
     @Autowired private MockMvc mockMvc;
 
+    @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("requestMappingHandlerMapping")
+    private org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping mappings;
+
+    @Test
+    void 운영모니터링용_API패턴목록을_추출한다() throws Exception {
+        java.util.TreeSet<String> routes = new java.util.TreeSet<>();
+        mappings.getHandlerMethods().keySet().forEach(mapping ->
+                mapping.getPatternValues().stream()
+                        .filter(path -> path.startsWith("/api/v1/"))
+                        .forEach(routes::add));
+        assertThat(routes).contains("/api/v1/courses/{courseId}", "/api/v1/auth/login");
+        java.nio.file.Path target = java.nio.file.Path.of("build/generated/monitoring/api-routes.json");
+        java.nio.file.Files.createDirectories(target.getParent());
+        java.nio.file.Files.writeString(
+                target, tools.jackson.databind.json.JsonMapper.builder().build()
+                        .writeValueAsString(routes));
+    }
+
     @Test
     void 빈DB_기동_연결구성과확장을확인한다() {
         assertThat(jdbc.queryForObject("SELECT 1", Integer.class)).isEqualTo(1);

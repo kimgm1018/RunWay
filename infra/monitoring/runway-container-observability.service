@@ -1,0 +1,13 @@
+[Unit]
+Description=Collect RunWay container metrics and sanitized logs
+After=docker.service
+
+[Service]
+Type=oneshot
+StateDirectory=runway-monitoring
+ExecStart=/usr/bin/python3 /usr/local/libexec/runway/collect-container-observability.py
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+TimeoutStartSec=35

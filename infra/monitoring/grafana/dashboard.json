@@ -176,6 +176,93 @@
           "legendFormat": "{{service}}"
         }
       ]
+    },
+    {
+      "id": 7,
+      "title": "컨테이너별 CPU (코어 1개 = 100%)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "runway_container_cpu_percent",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "컨테이너별 메모리 사용량",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "runway-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "runway_container_memory_bytes",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "최근 API 요청 오류",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "runway-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 10
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"nginx\"} | logfmt | status >= 400 | route != \"unknown\" | route != \"\"",
+          "queryType": "range",
+          "editorMode": "code"
+        }
+      ]
     }
   ]
 }
