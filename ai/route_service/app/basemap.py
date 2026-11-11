@@ -7,7 +7,8 @@ POST /internal/v1/basemaps 가 쓴다. 요청 bbox(WGS84) 안의 바다·도로�
   도로 feature는 road_class(highway 값)를 함께 보낸다.
 - 강·물·해안·해변·공원·녹지: 저장소 envcache/layers.gpkg의 env layer(env_class)를 bbox로 읽는다.
 - 바다(sea): 해안선(coast 선, OSM 규칙상 진행 방향 왼쪽이 육지·오른쪽이 바다)으로 bbox 면을 나누고, 해안선 양쪽으로 조금 띄운
-  점의 투표로 바다 쪽 조각을 고른다. 해안선이 bbox를 나누지 못하면 바다 면은 없다.
+  점의 투표로 바다 쪽 조각을 고른다. 끊긴 해안선(강 하구에서 지운 구간)은 앞 선의 끝과 다음 선의 시작을 이어 자르고, 그래도
+  육지 쪽 표가 섞인 조각은 칠하지 않는다(S15P31E105-698). 해안선이 bbox를 나누지 못하면 바다 면은 없다.
 - 모든 도형은 bbox로 자르고 EPSG:5179(m)에서 단순화한 뒤 [lon, lat] 소수 5자리로 반올림한다.
 - 종류별 상한 뒤 전체 99개 상한(OSMF attribution guideline "fewer than 100 features").
 - 응답 크기 상한: 작은 면과 같은 기준(bbox 면적의 0.1 % 미만)의 면 구멍은 버리고, 전체 좌표 수가 MAX_TOTAL_COORDS를
@@ -45,6 +46,7 @@ MAX_FEATURES = 99
 # 도로 등급(앞이 더 중요). *_link, service, footway, path, cycleway, steps, track, pedestrian 등은 넣지 않는다.
 ROAD_CLASSES = ("motorway", "trunk", "primary", "secondary", "tertiary", "unclassified", "residential", "living_street")
 SEA_OFFSET_RATIO = 1e-4      # 바다 쪽 투표 점을 해안선에서 띄우는 거리 = bbox 긴 변 x 1e-4 (8 km면 0.8 m)
+SEA_MIXED_RATIO = 0.01       # 육지 쪽 표가 바다 쪽 표의 1 %를 넘는 조각은 육지와 바다가 섞인 조각으로 보고 칠하지 않는다
 ENV_KINDS = ("river", "water", "coast", "beach", "park", "green")
 MAX_SIDE_M = 8000.0          # bbox 한 변 상한(m)
 MAX_SPAN_DEG = 1.0           # bbox 경도·위도 폭 상한(도). 날짜변경선을 감싸는 입력에서 haversine 가로가 작아지는 것을 막는다
@@ -261,11 +263,49 @@ def _env_candidates(store, bbox):
     return [(kind, g) for kind, geom in zip(kinds, clipped) for g in _parts(geom)], coast
 
 
+def _gap_links(coast_k, box_k):
+    """끊긴 해안선을 잇는 선 목록(S15P31E105-698).
+    env layer는 강 하구를 따라 올라가는 해안선(강 면 100 m 안)을 지운다(fetch_env_layer._drop_estuary_coastline). 그래서 bbox
+    안에서 끊긴 해안선이 생기고, 그 틈으로 육지 조각과 바다 조각이 한 조각으로 이어지면 투표 합이 양수가 되어 육지까지 바다로
+    칠해졌다. OSM 해안선은 한 방향으로 이어지는 사슬이므로 끊긴 곳에는 앞 선의 끝(END)과 다음 선의 시작(START)이 남는다.
+    방향을 지켜 합친 선(directed line_merge)의 END와 START를 가까운 쌍부터 하나씩 직선으로 잇는다(OSM 해안선 복구 도구와 같은
+    방식). 둘 중 하나 이상이 bbox 안에 있고 거리가 bbox 긴 변 이하인 쌍만 잇는다. 잇는 선은 조각을 나누기만 하고 투표하지
+    않는다. 짝이 없는 끝은 그대로 두고 _sea_polygons의 섞임 검사가 막는다."""
+    import shapely
+    from shapely.geometry import LineString
+    # union_all(겹침 정리)은 선 방향을 지키지 않을 수 있어 쓰지 않는다. OSM 해안선 way는 끝점 node를 공유한다.
+    merged = [p for p in _parts(shapely.line_merge(shapely.multilinestrings(coast_k), directed=True))
+              if p.geom_type == "LineString" and not p.is_ring]
+    if not merged:
+        return []
+    ends = np.asarray([p.coords[-1][:2] for p in merged], np.float64)
+    starts = np.asarray([p.coords[0][:2] for p in merged], np.float64)
+    x0, y0, x1, y1 = box_k.bounds
+    limit = max(x1 - x0, y1 - y0)
+    e_in = shapely.contains_xy(box_k, ends[:, 0], ends[:, 1])
+    s_in = shapely.contains_xy(box_k, starts[:, 0], starts[:, 1])
+    dist = np.hypot(ends[:, None, 0] - starts[None, :, 0], ends[:, None, 1] - starts[None, :, 1])
+    ok = (e_in[:, None] | s_in[None, :]) & (dist <= limit) & (dist > 0)
+    # 같은 선의 끝과 시작도 잇는다(일부가 지워진 섬).
+    links, used_e, used_s = [], set(), set()
+    for k in np.argsort(dist, axis=None, kind="stable"):
+        i, j = divmod(int(k), len(merged))
+        if not ok[i, j]:
+            continue
+        if i in used_e or j in used_s:
+            continue
+        used_e.add(i); used_s.add(j)
+        links.append(LineString([ends[i], starts[j]]))
+    return links
+
+
 def _sea_polygons(coast_k, box_k, eps):
     """해안선(투영 m, OSM 방향 그대로)으로 투영 bbox 면 box_k를 나눈 조각 중 바다 쪽 조각 목록.
     선을 합쳐(linemerge) bbox를 조각내고, 해안선의 각 구간(bbox 안 부분) 가운데에서 오른쪽(바다)·왼쪽(육지)으로 eps만큼
-    띄운 점이 든 조각에 그 구간 길이만큼 +/- 표를 준다. 합이 양수인 조각이 바다다. 투표는 원래 구간 방향을 쓰므로
-    linemerge·자르기가 선 방향을 뒤집어도 영향이 없다. 해안선이 bbox를 나누지 못하면(조각 1개) 빈 목록."""
+    띄운 점이 든 조각에 그 구간 길이만큼 +/- 표를 준다. 바다 쪽 표가 있고 육지 쪽 표가 바다 쪽 표의 SEA_MIXED_RATIO 이하인
+    조각이 바다다. 투표는 원래 구간 방향을 쓰므로 linemerge·자르기가 선 방향을 뒤집어도 영향이 없다.
+    끊긴 해안선은 _gap_links로 이어서 자른다. 그래도 남은 틈으로 육지와 바다가 한 조각이 되면 그 조각에 육지 쪽 표도 함께
+    들어오므로 칠하지 않는다(육지를 바다로 칠하느니 바다를 비운다, S15P31E105-698). 해안선이 bbox를 나누지 못하면 빈 목록."""
     import shapely
     from shapely.errors import GEOSException
     from shapely.ops import split
@@ -273,7 +313,8 @@ def _sea_polygons(coast_k, box_k, eps):
         return []
     # 자를 선: bbox보다 조금 넓게 잘라 bbox 경계와 확실히 교차하게 한다(split은 경계와 선의 합집합을 다각형화한다).
     reach = box_k.buffer(eps * 1000)
-    cut = [p for p in _parts(shapely.intersection(shapely.line_merge(shapely.union_all(coast_k)), reach))
+    lines = shapely.union_all([*coast_k, *_gap_links(coast_k, box_k)])
+    cut = [p for p in _parts(shapely.intersection(shapely.line_merge(lines), reach))
            if p.geom_type == "LineString"]
     if not cut:
         return []
@@ -312,8 +353,9 @@ def _sea_polygons(coast_k, box_k, eps):
     rx, ry, lx, ly, wt = map(np.asarray, (rx, ry, lx, ly, wt))
     out = []
     for pc in pieces:
-        vote = (wt * shapely.contains_xy(pc, rx, ry)).sum() - (wt * shapely.contains_xy(pc, lx, ly)).sum()
-        if vote > 0:
+        sea = (wt * shapely.contains_xy(pc, rx, ry)).sum()
+        land = (wt * shapely.contains_xy(pc, lx, ly)).sum()
+        if sea > 0 and land <= sea * SEA_MIXED_RATIO:
             out.append(pc)
     return out
 

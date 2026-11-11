@@ -188,7 +188,49 @@ class CourseThumbnailRendererTest {
 
         int x = (int) Math.round(camera.screenX(LON));
         int y = (int) Math.round(camera.screenY(at(0, -300)[1]));
-        assertThat(image.getRGB(x, y) & 0xFFFFFF).isEqualTo(0x111111);
+        assertThat(image.getRGB(x, y) & 0xFFFFFF)
+                .isEqualTo(CourseThumbnailRenderer.COURSE_CENTRE.getRGB() & 0xFFFFFF);
+    }
+
+    @Test
+    void 코스는_러닝_지도와_같은_민트_리본으로_그린다() throws Exception {
+        // 동서 직선 코스: 코스 선을 가로지르는 세로줄에 테두리 → 리본 → 가운데 줄 → 리본 → 테두리 순서로 보인다.
+        List<double[]> course = straight(1_000);
+        ThumbnailCamera camera = ThumbnailCamera.fit(course);
+        BufferedImage image = decode(renderer.render(List.of(), course, camera));
+        int x = (int) Math.round(camera.screenX(LON));
+        int y = (int) Math.round(camera.screenY(course.get(0)[1]));
+
+        assertThat(CourseThumbnailRenderer.COURSE.getRGB() & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(CourseThumbnailRenderer.COURSE_CENTRE.getRGB() & 0xFFFFFF).isEqualTo(0xB8FFEC);
+        assertThat(CourseThumbnailRenderer.COURSE_SHADOW.getRGB() & 0xFFFFFF).isEqualTo(0x06231E);
+        assertThat(image.getRGB(x, y) & 0xFFFFFF).isEqualTo(0xB8FFEC);
+        double scale = CourseThumbnailRenderer.SCALE;
+        int ribbon = (int) Math.round((CourseThumbnailRenderer.COURSE_CENTRE_WIDTH + CourseThumbnailRenderer.COURSE_RIBBON_WIDTH) / 4 * scale);
+        int shadow = (int) Math.round((CourseThumbnailRenderer.COURSE_RIBBON_WIDTH + CourseThumbnailRenderer.COURSE_SHADOW_WIDTH) / 4 * scale);
+        assertThat(image.getRGB(x, y - ribbon) & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(image.getRGB(x, y + ribbon) & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(image.getRGB(x, y - shadow) & 0xFFFFFF).isEqualTo(0x06231E);
+        assertThat(image.getRGB(x, y + shadow) & 0xFFFFFF).isEqualTo(0x06231E);
+        int outside = (int) Math.ceil(CourseThumbnailRenderer.COURSE_SHADOW_WIDTH / 2 * scale) + 2;
+        assertThat(image.getRGB(x, y - outside) & 0xFFFFFF)
+                .isEqualTo(CourseThumbnailRenderer.GROUND.getRGB() & 0xFFFFFF);
+    }
+
+    @Test
+    void 출발점은_청록_테두리_안을_민트로_채운다() throws Exception {
+        List<double[]> course = loop();
+        ThumbnailCamera camera = ThumbnailCamera.fit(course);
+        BufferedImage image = decode(renderer.render(List.of(), course, camera));
+        double[] start = course.get(0);
+        double sx = camera.screenX(start[0]);
+        double sy = camera.screenY(start[1]);
+        double scale = CourseThumbnailRenderer.SCALE;
+        // 출발점(남서 모서리)에서 코스 선이 없는 남서쪽 대각선 방향으로 테두리 고리 가운데를 본다.
+        double ring = (CourseThumbnailRenderer.START_RADIUS + CourseThumbnailRenderer.START_FILL_RADIUS) / 2 * scale / Math.sqrt(2);
+
+        assertThat(image.getRGB((int) Math.round(sx), (int) Math.round(sy)) & 0xFFFFFF).isEqualTo(0x4DFFD2);
+        assertThat(image.getRGB((int) Math.round(sx - ring), (int) Math.round(sy + ring)) & 0xFFFFFF).isEqualTo(0x06231E);
     }
 
     // --- 축척(B-2) ---
