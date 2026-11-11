@@ -295,7 +295,8 @@ export function createCommunityMock({
               (distance ? Math.round(duration / (distance / 1000)) : null),
           }
         : { runCount: 0, totalDistanceM: 0, averagePaceSecPerKm: null },
-      records: accessible ? runs.slice(0, 3) : [],
+      // Five of mine (four shown, one telling 더보기, S15P31E105-682), three of someone else's, as the API.
+      records: accessible ? runs.slice(0, isMe ? 5 : 3) : [],
     };
   };
 
