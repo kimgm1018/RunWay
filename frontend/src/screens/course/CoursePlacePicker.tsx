@@ -130,6 +130,8 @@ export function CoursePlacePicker({
           <RunMap
             position={picked?.position ?? reference?.position}
             area={{ top: 0.5, bottom: 0.5 }}
+            // The picked point as the run map's mint pin (S15P31E105-683, 담당자 요청).
+            look="mint"
             cameraLocked={mapPoint !== null}
             onTapMap={position => {
               if (

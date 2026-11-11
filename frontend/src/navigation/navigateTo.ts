@@ -21,6 +21,12 @@ export function openRecord(navigation: Navigate, recordId: string) {
   );
 }
 
+// 러닝 시작하기 does what the 러닝 tab does (S15P31E105-683): the run tab's map as it was left (2.0F at first, or
+// 2.0 once a course is picked), so it never stacks a second map and 뒤로 still leaves for 홈.
+export function openRunTab(navigation: Navigate) {
+  navigation.navigate('MainTabs', { screen: 'RunTab' }, { pop: true });
+}
+
 // 6.7 그룹런 결과 for a group run record (H01 group.groupRunId). Without the link the run opens as my own record,
 // never a mock result (S15P31E105-635). Returns false when the caller should open the record itself.
 export function openGroupRunResult(

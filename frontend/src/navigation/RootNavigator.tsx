@@ -29,6 +29,7 @@ import {
 import { recordScreens } from '../screens/records';
 import { runScreens } from '../screens/run';
 import { RunSessionProvider, useRunResume } from '../screens/run/RunSession';
+import { RunGoalDraftProvider } from '../screens/run/goal/RunGoalDraft';
 import { useSession } from '../session/SessionProvider';
 import { fontFamily, useTheme } from '../theme';
 import { navigateTo } from './navigateTo';
@@ -38,6 +39,7 @@ import {
   groupTabRoutes,
   homeTabRoutes,
   mainRoutes,
+  runTabInitialRoute,
   runTabRoutes,
   type RouteName,
 } from './routes';
@@ -142,11 +144,27 @@ function HomeTab() {
   );
 }
 
+// The 러닝 tab opens straight on the 2.0F map (S15P31E105-683); 2.0M 러닝 방식 선택 is kept but no longer on the way.
+// 2.0F and 2.0 are one map with or without a course, so they fade into each other instead of sliding.
+const sameMap = { animation: 'fade' } as const;
+const mapRoutes: ReadonlySet<RouteName> = new Set<RouteName>([
+  'FreeRun',
+  'CourseRun',
+]);
+
 function RunTab() {
   return (
-    <RunStack.Navigator screenOptions={noHeader}>
+    <RunStack.Navigator
+      screenOptions={noHeader}
+      initialRouteName={runTabInitialRoute}
+    >
       {runTabRoutes.map(name => (
-        <RunStack.Screen key={name} name={name} component={screens[name]} />
+        <RunStack.Screen
+          key={name}
+          name={name}
+          component={screens[name]}
+          options={mapRoutes.has(name) ? sameMap : undefined}
+        />
       ))}
     </RunStack.Navigator>
   );
@@ -245,55 +263,60 @@ export function RootNavigator() {
       <SignUpDraftProvider>
         <CourseSearchProvider>
           <RunSessionProvider>
-            <GroupRunDraftProvider>
-              <Root.Navigator screenOptions={noHeader}>
-                {/* 1.7 워치 연결 exists in both groups; the key makes sign-in/out start a fresh stack instead of staying on it. */}
-                {signedIn ? (
-                  <Root.Group navigationKey="signed-in">
-                    <Root.Screen name="MainTabs" component={MainTabs} />
-                    {mainRoutes.map(route => (
-                      <Root.Screen
-                        key={route}
-                        name={route}
-                        component={screens[route]}
-                        options={
-                          modalRoutes.has(route)
-                            ? musicSheet
-                            : runRoutes.has(route)
-                            ? runScreen
-                            : route === 'Notifications'
-                            ? risingPage
-                            : undefined
-                        }
-                      />
-                    ))}
-                    {appConfig.developerMenu ? (
-                      <>
+            <RunGoalDraftProvider>
+              <GroupRunDraftProvider>
+                <Root.Navigator screenOptions={noHeader}>
+                  {/* 1.7 워치 연결 exists in both groups; the key makes sign-in/out start a fresh stack instead of staying on it. */}
+                  {signedIn ? (
+                    <Root.Group navigationKey="signed-in">
+                      <Root.Screen name="MainTabs" component={MainTabs} />
+                      {mainRoutes.map(route => (
                         <Root.Screen
-                          name="ComponentGallery"
-                          component={ComponentGalleryScreen}
+                          key={route}
+                          name={route}
+                          component={screens[route]}
+                          options={
+                            modalRoutes.has(route)
+                              ? musicSheet
+                              : runRoutes.has(route)
+                              ? runScreen
+                              : route === 'Notifications'
+                              ? risingPage
+                              : undefined
+                          }
                         />
+                      ))}
+                      {appConfig.developerMenu ? (
+                        <>
+                          <Root.Screen
+                            name="ComponentGallery"
+                            component={ComponentGalleryScreen}
+                          />
+                          <Root.Screen
+                            name="HealthPoc"
+                            getComponent={loadHealthPoc}
+                          />
+                          <Root.Screen
+                            name="MapPoc"
+                            getComponent={loadMapPoc}
+                          />
+                        </>
+                      ) : null}
+                    </Root.Group>
+                  ) : (
+                    <Root.Group navigationKey="signed-out">
+                      {signedOutRoutes.map(route => (
                         <Root.Screen
-                          name="HealthPoc"
-                          getComponent={loadHealthPoc}
+                          key={route}
+                          name={route}
+                          component={screens[route]}
                         />
-                        <Root.Screen name="MapPoc" getComponent={loadMapPoc} />
-                      </>
-                    ) : null}
-                  </Root.Group>
-                ) : (
-                  <Root.Group navigationKey="signed-out">
-                    {signedOutRoutes.map(route => (
-                      <Root.Screen
-                        key={route}
-                        name={route}
-                        component={screens[route]}
-                      />
-                    ))}
-                  </Root.Group>
-                )}
-              </Root.Navigator>
-            </GroupRunDraftProvider>
+                      ))}
+                    </Root.Group>
+                  )}
+                </Root.Navigator>
+              </GroupRunDraftProvider>
+            </RunGoalDraftProvider>
           </RunSessionProvider>
         </CourseSearchProvider>
       </SignUpDraftProvider>

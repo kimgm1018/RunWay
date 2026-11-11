@@ -119,7 +119,6 @@ test('2.0F says the location was not found and a tap looks again', async () => {
     .mockRejectedValueOnce(offline());
   const screen = await launch(repositories);
   await press(screen, '러닝');
-  await press(screen, '자유 러닝');
 
   expect(texts(screen)).toContain('못 찾았어요 · 다시 찾기');
   expect(texts(screen)).not.toContain('현재 위치를 찾는 중이에요');

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigation } from '@react-navigation/native';
 import type { RunRecordSummary } from '../../data';
-import { navigateTo } from '../../navigation/navigateTo';
+import { openRunTab } from '../../navigation/navigateTo';
 import { DayRecords } from '../records/DayRecords';
 
 // 2.1 홈의 러닝 분석 (S15P31E105-615, 담당자 요청: 페이스·심박 카드를 러닝 분석에, 이전 하루 요약은 없앰): the chosen
@@ -29,7 +29,7 @@ export function AnalysisPanel({
       onOpen={onOpen}
       onList={onShowList}
       home
-      onStartRun={() => navigateTo(navigation, 'RunMode')}
+      onStartRun={() => openRunTab(navigation)}
     />
   );
 }

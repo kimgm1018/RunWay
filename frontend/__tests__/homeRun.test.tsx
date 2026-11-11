@@ -182,13 +182,15 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   await press(screen, '왜 82점인가요?');
   expect(texts(screen)).not.toContain('세 항목의 평균');
   await press(screen, '왜 82점인가요?');
-  // 러닝 시작하기 is the card's last part and goes to the run tab's first step, 2.0M.
+  // 러닝 시작하기 is the card's last part and opens the run tab's map, 2.0F (S15P31E105-683).
   const card = texts(screen);
   expect(card.lastIndexOf('러닝 시작하기')).toBeGreaterThan(
     card.lastIndexOf('세 항목의 평균'),
   );
   await press(screen, '러닝 시작하기');
-  expect(texts(screen)).toContain('오늘은 어떻게 달릴까요?');
+  expect(texts(screen)).toContain('목표 설정');
+  expect(texts(screen)).not.toContain('오늘은 어떻게 달릴까요?');
+  await press(screen, '뒤로');
   await press(screen, '홈');
   for (const gone of ['저장한 코스', '지난 러닝']) {
     expect(home).not.toContain(gone);
@@ -253,10 +255,10 @@ function stateOf(screen: Screen, label: string) {
   return matches[matches.length - 1]?.props.accessibilityState;
 }
 
-// 저장한 코스 left 2.1 for 2.0C, beside 코스 설정 (S15P31E105-564).
+// 저장한 코스 is the second tab of 코스 설정, which sits beside the goal on the run map (S15P31E105-683).
 async function openSaved(screen: Screen) {
   await press(screen, '러닝');
-  await press(screen, '코스 러닝');
+  await press(screen, '코스 설정');
   await press(screen, '저장한 코스');
 }
 
@@ -504,31 +506,25 @@ test('알림 더 보기 loads the next N01 page', async () => {
   await act(async () => screen!.unmount());
 });
 
-test('run mode leads to course recommendations and a free run with a countdown', async () => {
+test('the run map leads to course recommendations and saved courses, and starts a free run with a countdown', async () => {
   const screen = await render();
   await press(screen, '러닝');
-  expect(texts(screen)).toContain('달릴까요?');
-  await press(screen, '코스 러닝');
-  // 2.0C first: the map with 코스 설정 in place of 목표 설정, and 러닝 시작 waits for a course (담당자 요청).
-  expect(texts(screen)).toContain('코스 설정');
-  expect(texts(screen)).not.toContain('목표 설정');
-  expect(labelled(screen, '러닝 시작').props.disabled).toBe(true);
-  // 저장한 코스 sits beside 코스 설정 and opens the saved list.
-  await press(screen, '저장한 코스');
-  expect(texts(screen)).toContain('광안대교 루프');
-  await press(screen, '뒤로');
-  // The round button left of 러닝 시작 turns it into a free run, and back again.
-  await press(screen, '자유 러닝으로 바꾸기');
+  // One map (S15P31E105-683): 목표 설정 and 코스 설정 side by side. No course is a free run, so 러닝 시작 is ready.
   expect(texts(screen)).toContain('목표 설정');
-  await press(screen, '코스 러닝으로 바꾸기');
   expect(texts(screen)).toContain('코스 설정');
+  expect(labelled(screen, '러닝 시작').props.disabled).toBe(false);
+  // 설정 sits left of 러닝 시작 where the 자유 ↔ 코스 switch was.
+  expect(() => labelled(screen, '코스 러닝으로 바꾸기')).toThrow();
+  expect(() => labelled(screen, '설정')).not.toThrow();
   await press(screen, '코스 설정');
   expect(texts(screen)).toContain('환경 · 여러 개 선택');
+  // 저장한 코스 is 코스 설정's second tab.
+  await press(screen, '저장한 코스');
+  expect(texts(screen)).toContain('광안대교 루프');
   await act(async () => screen.unmount());
 
   const free = await render();
   await press(free, '러닝');
-  await press(free, '자유 러닝');
   expect(texts(free)).toContain('민락수변공원 입구');
   expect(texts(free)).toContain('GPS 양호');
   // 자유 러닝 목표는 한 화면에서 거리·시간을 체크해 조합한다.
@@ -540,7 +536,7 @@ test('run mode leads to course recommendations and a free run with a countdown',
   expect(texts(free)).not.toContain('칼로리');
   await press(free, '거리 목표 선택');
   await press(free, '시간 목표 선택');
-  expect(texts(free)).toContain('거리와 시간으로 계산한 페이스');
+  expect(texts(free)).toContain('페이스 · 계산');
   expect(texts(free)).toContain('6′00″/km');
   // A screen reader steps the distance ruler: 5km → 5.5km makes the pace faster.
   await act(async () => {
@@ -554,7 +550,8 @@ test('run mode leads to course recommendations and a free run with a countdown',
   });
   expect(texts(free)).toContain('5.5km');
   expect(texts(free)).toContain('5′27″/km');
-  await press(free, '목표만 설정');
+  // The sheet only sets the goal; 러닝 시작 stays on the map (S15P31E105-683).
+  await press(free, '목표 설정 완료');
   expect(texts(free)).toContain('5.5km · 30분 · 5′27″/km');
   await press(free, '러닝 시작');
   expect(texts(free)).toContain('3');
@@ -564,40 +561,35 @@ test('run mode leads to course recommendations and a free run with a countdown',
   await act(async () => free.unmount());
 });
 
-test('course run shows the pace plan by day and the night layout after sunset', async () => {
-  const day = await render();
-  await openSaved(day);
-  await press(day, '광안대교 루프, 5.0km 30분');
-  await waitForText(day, '오늘의 러닝 전략');
-  const plan = texts(day);
-  for (const text of [
-    '오늘의 러닝 전략',
-    '광안대교 루프 5.0km',
-    '빠름',
-    '초반 안정 → 오르막 절제 → 후반 가속',
-    '2km 오르막 주의',
-  ]) {
-    expect(plan).toContain(text);
+test('a picked course shows on the same map: its chip beside the goal and today’s strategy, by day and after sunset', async () => {
+  for (const scenario of [undefined, 'night'] as const) {
+    const screen = await render(scenario);
+    await openSaved(screen);
+    await press(screen, '광안대교 루프, 5.0km 30분');
+    await waitForText(screen, '오늘의 전략');
+    const plan = texts(screen);
+    // The course chip on the right of the goal (S15P31E105-683); the plan's pace is the goal.
+    for (const text of [
+      '광안대교 루프 · 5.0km',
+      '오늘의 전략',
+      '초반 안정 → 오르막 절제 → 후반 가속',
+      '2km 오르막 주의',
+    ]) {
+      expect(plan).toContain(text);
+    }
+    expect(plan).toContain('6′00″');
+    // No pace colours on the one mint line.
+    expect(plan).not.toContain('빠름');
+    // ✕ drops the course: the same map, a free run again.
+    await press(screen, '코스 해제');
+    expect(texts(screen)).toContain('코스 설정');
+    await act(async () => screen.unmount());
   }
-  expect(plan).toContain('6′00″');
-  await act(async () => day.unmount());
-
-  const night = await render('night');
-  await openSaved(night);
-  await press(night, '광안대교 루프, 5.0km 30분');
-  await waitForText(night, '광안대교 루프 · 5.0km');
-  const dark = texts(night);
-  expect(dark).toContain('코스 러닝');
-  expect(dark).toContain('광안대교 루프 · 5.0km');
-  expect(dark).toContain('GPS 양호');
-  expect(dark).not.toContain('오늘의 러닝 전략');
-  await act(async () => night.unmount());
 });
 
 async function openMusic(scenario: MockScenario) {
   const screen = await render(scenario);
   await press(screen, '러닝');
-  await press(screen, '자유 러닝');
   await press(screen, '음악');
   return screen;
 }

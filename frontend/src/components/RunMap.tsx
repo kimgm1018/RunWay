@@ -17,11 +17,13 @@ import {
 } from '@mj-studio/react-native-naver-map';
 import { bearingOf, distanceM, type LngLat } from '../geo';
 import { latinRuns } from './AppText';
+import { Icon } from './Icon';
 import { fontFamily, k1, palette } from '../theme';
 import {
   coursePaceColors,
   darkMapLook,
   isLoop,
+  mintMapLook,
   paceColor,
   routeLook,
   splitRoute,
@@ -105,8 +107,18 @@ type RunMapProps = {
   rotatable?: boolean;
   // Flat unless the screen asks for the tilted view (S15P31E105-521).
   view?: RunMapView;
+  // mint: the run start map's look (S15P31E105-683), the tilted view kept bright with the course in mint.
+  look?: 'mint';
+  // The bubble over me on the run start map (S15P31E105-683): the place and a short note, standing on `position`,
+  // which then shows even with a course.
+  placeLabel?: { title: string; sub: string };
   // A course card's small map (S15P31E105-562): smaller start and finish poles.
   compact?: boolean;
+  // Raised by a 현재 위치로 button (S15P31E105-683): the camera goes back to what the map shows even when that has
+  // not changed, e.g. after the user moved the map by hand.
+  recenterSignal?: number;
+  // Android draws the map in a TextureView, so a parent's opacity and round corners apply to it (S15P31E105-683).
+  textureView?: boolean;
   // 그룹런 시안 (S15P31E105-673): the course and the run as a near-black line with a purple edge on the group
   // screens; every other screen keeps its look.
   groupLine?: boolean;
@@ -438,6 +450,82 @@ function PoleMarker({
   );
 }
 
+// Me on the mint map (S15P31E105-683, 담당자 요청): 6.9 만남 장소's pin, a mint fill under a navy outline, its tip
+// on the dot.
+const pinSize = 44;
+
+function MePin({ at }: { at: LngLat }) {
+  return (
+    <NaverMapMarkerOverlay
+      {...toCoord(at)}
+      width={pinSize}
+      height={pinSize}
+      // The tip of the drawn pin sits about 92% down its box.
+      anchor={{ x: 0.5, y: 0.92 }}
+      zIndex={3}
+    >
+      <View style={{ width: pinSize, height: pinSize }}>
+        <Icon name="mapPin" color={mintMapLook.me} size={pinSize} solid />
+        <View style={StyleSheet.absoluteFill}>
+          <Icon
+            name="mapPin"
+            color={mintMapLook.meRing}
+            size={pinSize}
+            strokeWidth={2.4}
+          />
+        </View>
+      </View>
+    </NaverMapMarkerOverlay>
+  );
+}
+
+// The bubble over me (S15P31E105-683): the place in bold, a short note under it, a tail down to the dot. A marker
+// drawn from a view keeps the size it is given, so the width follows the longer line.
+const bubbleHeight = 48;
+const bubbleTail = 8;
+// Clear of the pin standing on me.
+const bubbleLift = pinSize + 4;
+
+function PlaceBubble({
+  at,
+  title,
+  sub,
+}: {
+  at: LngLat;
+  title: string;
+  sub: string;
+}) {
+  const width = Math.min(
+    280,
+    44 + Math.max(title.length * 14, sub.length * 10.5),
+  );
+  const height = bubbleHeight + bubbleTail + bubbleLift;
+  return (
+    <NaverMapMarkerOverlay
+      {...toCoord(at)}
+      width={width}
+      height={height}
+      anchor={{ x: 0.5, y: 1 }}
+      zIndex={3}
+    >
+      <View style={[styles.bubbleBox, { width, height }]}>
+        <View style={[styles.bubble, { width }]}>
+          <View style={styles.bubbleDot} />
+          <View style={styles.flex}>
+            <Text style={styles.bubbleTitle} numberOfLines={1}>
+              {latinRuns(title, styles.bubbleTitle)}
+            </Text>
+            <Text style={styles.bubbleSub} numberOfLines={1}>
+              {latinRuns(sub, styles.bubbleSub)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.bubbleTail} />
+      </View>
+    </NaverMapMarkerOverlay>
+  );
+}
+
 function DotMarker({
   at,
   dot,
@@ -486,8 +574,12 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     cameraLocked = false,
     rotatable = true,
     view = 'flat',
+    look,
+    placeLabel,
     compact = false,
     groupLine = false,
+    textureView = false,
+    recenterSignal = 0,
     style,
   },
   ref,
@@ -523,7 +615,10 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 
   // The tilted views (S15P31E105-521). Heading needs a run to follow; without one it leans like the rest.
   const tilted = view !== 'flat';
-  const baseLook = tilted ? darkMapLook : routeLook;
+  const mint = look === 'mint';
+  const baseLook = mint ? mintMapLook : tilted ? darkMapLook : routeLook;
+  // The dark start, finish and pace marks belong to the dimmed map; the bright mint map keeps the day ones.
+  const darkMap = tilted && !mint;
   const pathLook = groupLine
     ? {
         ...baseLook,
@@ -608,6 +703,27 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     const frame = requestAnimationFrame(() => setGlides(true));
     return () => cancelAnimationFrame(frame);
   }, [camera, glides]);
+  // 현재 위치로: back to the shown view however the user moved the map, gliding there.
+  const recentered = useRef(recenterSignal);
+  useEffect(() => {
+    if (recentered.current === recenterSignal || !ready) {
+      return;
+    }
+    recentered.current = recenterSignal;
+    shownKey.current = key;
+    if (target) {
+      map.current?.animateCameraTo({
+        latitude: target.latitude,
+        longitude: target.longitude,
+        zoom: target.zoom,
+        duration: 300,
+      });
+    } else {
+      map.current?.animateRegionTo({ ...region, duration: 300 });
+    }
+    // region, target and key are rebuilt every render; only the signal asks for the move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenterSignal, ready]);
   // Once the user moves the map the shown view is theirs; following again fits it afresh.
   useEffect(() => {
     if (cameraLocked) {
@@ -682,7 +798,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       // The cards' small maps (compact) draw in Naver's lite mode, made for several still maps on one screen:
       // lighter to load, and a card's map takes no gestures anyway (S15P31E105-562).
       isLiteModeEnabled={compact && !tilted}
-      lightness={tilted ? darkMapLook.lightness : undefined}
+      lightness={darkMap ? darkMapLook.lightness : undefined}
       layerGroups={tilted ? tiltedLayers : flatLayers}
       buildingHeight={buildingHeight}
       locationOverlay={{ ...locationLook, isVisible: showLocation }}
@@ -725,6 +841,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       isTiltGesturesEnabled={false}
       isRotateGesturesEnabled={interactive && rotatable}
       isExtentBoundedInKorea
+      isUseTextureViewAndroid={textureView}
       isShowLocationButton={false}
       isShowZoomControls={false}
       isShowScaleBar={false}
@@ -789,12 +906,20 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
           {/* Where the course starts and ends, on poles: one SF for a loop, S and F otherwise. */}
           {hasRoute && !running ? (
             loop ? (
-              <PoleMarker
-                at={route[0]}
-                label="SF"
-                compact={compact}
-                darkMap={tilted}
-              />
+              // On the mint map a loop's start is marked by the mint pin alone, no SF pole (S15P31E105-683, 담당자
+              // 요청): the pin on me when the map shows me, else on the start. A course from A to B keeps its S and F.
+              mint ? (
+                position ? null : (
+                  <MePin at={route[0]} />
+                )
+              ) : (
+                <PoleMarker
+                  at={route[0]}
+                  label="SF"
+                  compact={compact}
+                  darkMap={darkMap}
+                />
+              )
             ) : (
               <>
                 <PoleMarker
@@ -802,13 +927,13 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                   label="F"
                   finish
                   compact={compact}
-                  darkMap={tilted}
+                  darkMap={darkMap}
                 />
                 <PoleMarker
                   at={route[0]}
                   label="S"
                   compact={compact}
-                  darkMap={tilted}
+                  darkMap={darkMap}
                 />
               </>
             )
@@ -832,7 +957,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                     <View
                       style={[
                         styles.pill,
-                        tilted && styles.pillDark,
+                        darkMap && styles.pillDark,
                         { width },
                       ]}
                     >
@@ -856,27 +981,47 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                 at={destination as LngLat}
                 label="F"
                 finish
-                darkMap={tilted}
+                darkMap={darkMap}
               />
               {position ? (
-                <PoleMarker at={position} label="S" darkMap={tilted} />
+                <PoleMarker at={position} label="S" darkMap={darkMap} />
               ) : null}
             </>
           ) : null}
-          {running || (position && !hasRoute && !endpoints) ? (
+          {running ||
+          (position && (placeLabel || (!hasRoute && !endpoints))) ? (
             <DotMarker
               at={running ? trail[trail.length - 1] : (position as LngLat)}
-              dot={{
-                size: 17,
-                fill: pathLook.ink,
-                ring: palette.white,
-                ringWidth: 3,
-                glow: tilted
-                  ? 'rgba(77, 255, 210, 0.18)'
-                  : 'rgba(58, 90, 108, 0.16)',
-                glowSize: 48,
-              }}
+              dot={
+                mint
+                  ? {
+                      size: 12,
+                      fill: ink,
+                      ring: palette.white,
+                      ringWidth: 2,
+                      glow: 'rgba(58, 90, 108, 0.16)',
+                      glowSize: 48,
+                    }
+                  : {
+                      size: 17,
+                      fill: pathLook.ink,
+                      ring: palette.white,
+                      ringWidth: 3,
+                      glow: tilted
+                        ? 'rgba(200, 255, 0, 0.18)'
+                        : 'rgba(58, 90, 108, 0.16)',
+                      glowSize: 48,
+                    }
+              }
             />
+          ) : null}
+          {/* Me on the mint map: 6.9's pin, at the end of the run while running (S15P31E105-683, 담당자 요청). */}
+          {mint && running ? <MePin at={trail[trail.length - 1]} /> : null}
+          {mint && position && !running && !endpoints ? (
+            <MePin at={position} />
+          ) : null}
+          {placeLabel && position && !running ? (
+            <PlaceBubble at={position} {...placeLabel} />
           ) : null}
           {/* The other members: a dot in their colour, the name on its right over a light halo. The name is
           drawn in the marker itself: the marker caption does not show on a marker drawn from a view. */}
@@ -901,7 +1046,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
                   <Text
                     style={[
                       styles.memberName,
-                      tilted ? styles.memberNameDark : styles.memberNameLight,
+                      darkMap ? styles.memberNameDark : styles.memberNameLight,
                     ]}
                   >
                     {member.label}
@@ -917,6 +1062,51 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
 });
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  bubbleBox: { alignItems: 'center' },
+  bubble: {
+    height: bubbleHeight,
+    borderRadius: 16,
+    backgroundColor: palette.white,
+    borderColor: '#D6DCE2',
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  bubbleDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: mintMapLook.me,
+    borderColor: mintMapLook.meRing,
+    borderWidth: 1.5,
+  },
+  bubbleTitle: {
+    color: ink,
+    fontFamily: fontFamily.bold,
+    fontSize: 14,
+    includeFontPadding: false,
+  },
+  bubbleSub: {
+    color: '#5A6069',
+    fontFamily: fontFamily.regular,
+    fontSize: 11,
+    includeFontPadding: false,
+    marginTop: 2,
+  },
+  bubbleTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: bubbleTail,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: palette.white,
+    marginTop: -1,
+  },
   member: {
     height: memberHeight,
     flexDirection: 'row',

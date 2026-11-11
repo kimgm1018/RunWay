@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -23,6 +23,7 @@ import {
   formatGoalDuration,
   goalDefaults,
   goalLimits,
+  maxGoalDistanceM,
   pacerPace,
   type GoalKind,
   type RunGoal,
@@ -59,6 +60,23 @@ function draftOf(kind: GoalKind, current: RunGoal): RunGoal {
   }
 }
 
+// A finish time or a pace on a course: each makes the other from the course's length.
+function finishAndPace(
+  goal: RunGoal,
+  course: { distanceM: number },
+): { durationSec: number; paceSecPerKm: number } {
+  const km = course.distanceM / 1000;
+  if (goal.kind === 'PACE') {
+    return {
+      durationSec: Math.round(km * goal.paceSecPerKm),
+      paceSecPerKm: goal.paceSecPerKm,
+    };
+  }
+  const durationSec =
+    goal.kind === 'TIME' ? goal.durationSec : goalDefaults.durationSec;
+  return { durationSec, paceSecPerKm: durationSec / km };
+}
+
 const titles: Record<GoalKind, string> = {
   NONE: '목표 없음',
   PLAN: '추천 전략',
@@ -66,9 +84,13 @@ const titles: Record<GoalKind, string> = {
   TIME: '시간',
   PACER: '페이서',
   PACE: '페이스',
+  DISTANCE_PACE: '거리 · 페이스',
+  TIME_PACE: '시간 · 페이스',
 };
 
-// 자유 러닝은 거리·시간 체크를 한 화면에서 조합한다. 코스 러닝은 기존 추천 전략·시간·페이스 화면을 유지한다.
+// 자유 러닝은 거리·시간 체크를 한 화면에서 조합한다. 코스 러닝은 거리가 정해져 있어 시간·페이스(계획이 있으면 추천
+// 전략) 중 하나를 고르고, 고르지 않으면 목표 없이 달린다. 두 시트 모두 목표만 정하고, 시작은 지도의 러닝 시작으로 한다
+// (S15P31E105-683).
 export function RunGoalSheet(props: {
   visible: boolean;
   onClose: () => void;
@@ -76,7 +98,6 @@ export function RunGoalSheet(props: {
   goal: RunGoal;
   course?: { distanceM: number; plannedPace: number | null };
   onSet: (goal: RunGoal) => void;
-  onStart: (goal: RunGoal) => void;
 }) {
   return props.mode === 'FREE' ? (
     <FreeGoalSheet {...props} />
@@ -91,7 +112,6 @@ function CourseGoalSheet({
   goal,
   course,
   onSet,
-  onStart,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -99,18 +119,47 @@ function CourseGoalSheet({
   goal: RunGoal;
   course?: { distanceM: number; plannedPace: number | null };
   onSet: (goal: RunGoal) => void;
-  onStart: (goal: RunGoal) => void;
 }) {
-  const { colors } = useTheme();
   const [detail, setDetail] = useState<RunGoal | null>(null);
+  // Without 추천 전략 the finish time is the only goal a course takes, so 목표 설정 opens its rulers at once
+  // (S15P31E105-683, 담당자 요청).
+  const only = !course?.plannedPace;
   useEffect(() => {
     if (!visible) {
       setDetail(null);
+    } else if (only) {
+      setDetail(
+        goal.kind === 'TIME' || goal.kind === 'PACE'
+          ? goal
+          : draftOf('TIME', goal),
+      );
     }
-  }, [visible]);
+    // The goal it opens with is read when the sheet opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, only]);
 
-  const kinds: GoalKind[] = ['PLAN', 'TIME', 'PACE'];
+  // 추천 전략 only when the course carries a pace plan; without one it would run with no goal at all.
+  // 완주 시간 and 페이스 are one goal on a course of fixed length (S15P31E105-683, 담당자 요청): one card, whose two
+  // rulers move each other.
+  const kinds: GoalKind[] = course?.plannedPace ? ['PLAN', 'TIME'] : ['TIME'];
+  const finishOf = (current: RunGoal): RunGoal =>
+    current.kind === 'TIME' || current.kind === 'PACE'
+      ? current
+      : draftOf('TIME', current);
   const rowOf = (kind: GoalKind): Row => {
+    if (kind === 'TIME' && course) {
+      const { durationSec, paceSecPerKm } = finishAndPace(
+        finishOf(goal),
+        course,
+      );
+      return {
+        kind,
+        kicker: '완주 시간 · 페이스',
+        value: formatDuration(durationSec),
+        note: `페이스 ${formatPace(paceSecPerKm)}/km`,
+        icon: 'clock',
+      };
+    }
     const draft = draftOf(kind, goal);
     switch (draft.kind) {
       case 'NONE':
@@ -159,6 +208,8 @@ function CourseGoalSheet({
           )}/km`,
           icon: 'trend',
         };
+      case 'DISTANCE_PACE':
+      case 'TIME_PACE':
       case 'PACE':
         return {
           kind,
@@ -184,7 +235,13 @@ function CourseGoalSheet({
       <BottomSheet
         visible={visible}
         onClose={close}
-        title={detail ? titles[detail.kind] : '운동 목표'}
+        title={
+          detail
+            ? course && (detail.kind === 'TIME' || detail.kind === 'PACE')
+              ? '목표 완주 시간'
+              : titles[detail.kind]
+            : '운동 목표'
+        }
         background={k1.night}
       >
         {detail ? (
@@ -192,17 +249,32 @@ function CourseGoalSheet({
             draft={detail}
             course={course}
             onChange={setDetail}
-            onBack={() => setDetail(null)}
+            onBack={only ? undefined : () => setDetail(null)}
             onSet={() => onSet(detail)}
-            onStart={() => onStart(detail)}
+            onClear={
+              only && goal.kind !== 'NONE'
+                ? () => onSet({ kind: 'NONE' })
+                : undefined
+            }
           />
         ) : (
           <ThemeProvider tone="light">
             <View style={styles.list}>
+              <ThemeProvider tone="dark">
+                <AppText
+                  variant="label"
+                  tone="textSecondary"
+                  style={styles.center}
+                >
+                  선택하지 않으면 목표 없이 달려요
+                </AppText>
+              </ThemeProvider>
               {kinds.map(kind => {
                 const row = rowOf(kind);
-                const selected = goal.kind === kind;
-                const simple = kind === 'NONE' || kind === 'PLAN';
+                const selected =
+                  goal.kind === kind ||
+                  (kind === 'TIME' && goal.kind === 'PACE');
+                const simple = kind === 'PLAN';
                 return (
                   <View
                     key={kind}
@@ -210,12 +282,17 @@ function CourseGoalSheet({
                   >
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${titles[kind]} 목표`}
+                      accessibilityLabel={
+                        kind === 'TIME'
+                          ? '완주 시간 목표'
+                          : `${titles[kind]} 목표`
+                      }
                       accessibilityState={{ selected }}
                       onPress={() =>
                         simple
-                          ? onSet(draftOf(kind, goal))
-                          : setDetail(draftOf(kind, goal))
+                          ? // 추천 전략 again takes it off.
+                            onSet(selected ? { kind: 'NONE' } : { kind })
+                          : setDetail(finishOf(goal))
                       }
                       style={styles.cardBody}
                     >
@@ -241,23 +318,24 @@ function CourseGoalSheet({
                         ) : null}
                       </View>
                     </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`${titles[kind]} 목표로 바로 시작`}
-                      onPress={() => onStart(draftOf(kind, goal))}
-                      hitSlop={6}
-                      style={[styles.play, { backgroundColor: colors.accent }]}
-                    >
-                      <Icon
-                        name="play"
-                        color={colors.onAccent}
-                        size={18}
-                        solid
-                      />
-                    </Pressable>
                   </View>
                 );
               })}
+              {goal.kind !== 'NONE' ? (
+                <ThemeProvider tone="dark">
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="목표 없이 달리기"
+                    onPress={() => onSet({ kind: 'NONE' })}
+                    hitSlop={8}
+                    style={styles.center}
+                  >
+                    <AppText variant="captionStrong" tone="textSecondary">
+                      목표 없이 달리기
+                    </AppText>
+                  </Pressable>
+                </ThemeProvider>
+              ) : null}
             </View>
           </ThemeProvider>
         )}
@@ -266,65 +344,165 @@ function CourseGoalSheet({
   );
 }
 
+type Measure = 'distance' | 'time' | 'pace';
+
+// The free goal's three measures as one record, whichever of them the goal holds.
+function measuresOf(goal: RunGoal) {
+  const has = (measure: Measure) =>
+    measure === 'distance'
+      ? goal.kind === 'DISTANCE' ||
+        goal.kind === 'PACER' ||
+        goal.kind === 'DISTANCE_PACE'
+      : measure === 'time'
+      ? goal.kind === 'TIME' ||
+        goal.kind === 'PACER' ||
+        goal.kind === 'TIME_PACE'
+      : goal.kind === 'PACE' ||
+        goal.kind === 'DISTANCE_PACE' ||
+        goal.kind === 'TIME_PACE';
+  return {
+    distanceM: 'distanceM' in goal ? goal.distanceM : goalDefaults.distanceM,
+    durationSec:
+      'durationSec' in goal ? goal.durationSec : goalDefaults.durationSec,
+    paceSecPerKm:
+      'paceSecPerKm' in goal ? goal.paceSecPerKm : goalDefaults.paceSecPerKm,
+    checked: (['distance', 'time', 'pace'] as Measure[]).filter(has),
+  };
+}
+
+// 자유 러닝 목표 (S15P31E105-683): 거리 · 시간 · 페이스, any one or two of them. With two, the third is worked out and
+// shown, its box closed: the server takes at most two.
 function FreeGoalSheet({
   visible,
   onClose,
   goal,
   onSet,
-  onStart,
 }: {
   visible: boolean;
   onClose: () => void;
   goal: RunGoal;
   onSet: (goal: RunGoal) => void;
-  onStart: (goal: RunGoal) => void;
 }) {
   const { height } = useWindowDimensions();
-  const [distanceM, setDistanceM] = useState(
-    goal.kind === 'DISTANCE' || goal.kind === 'PACER'
-      ? goal.distanceM
-      : goalDefaults.distanceM,
+  const [distanceM, setDistanceM] = useState(measuresOf(goal).distanceM);
+  const [durationSec, setDurationSec] = useState(measuresOf(goal).durationSec);
+  const [paceSecPerKm, setPaceSecPerKm] = useState(
+    measuresOf(goal).paceSecPerKm,
   );
-  const [durationSec, setDurationSec] = useState(
-    goal.kind === 'TIME' || goal.kind === 'PACER'
-      ? goal.durationSec
-      : goalDefaults.durationSec,
-  );
-  const [distanceChecked, setDistanceChecked] = useState(
-    goal.kind === 'DISTANCE' || goal.kind === 'PACER',
-  );
-  const [timeChecked, setTimeChecked] = useState(
-    goal.kind === 'TIME' || goal.kind === 'PACER',
-  );
+  const [checked, setChecked] = useState<Measure[]>(measuresOf(goal).checked);
   useEffect(() => {
     if (visible) {
-      setDistanceM(
-        goal.kind === 'DISTANCE' || goal.kind === 'PACER'
-          ? goal.distanceM
-          : goalDefaults.distanceM,
-      );
-      setDurationSec(
-        goal.kind === 'TIME' || goal.kind === 'PACER'
-          ? goal.durationSec
-          : goalDefaults.durationSec,
-      );
-      setDistanceChecked(goal.kind === 'DISTANCE' || goal.kind === 'PACER');
-      setTimeChecked(goal.kind === 'TIME' || goal.kind === 'PACER');
+      const opened = measuresOf(goal);
+      setDistanceM(opened.distanceM);
+      setDurationSec(opened.durationSec);
+      setPaceSecPerKm(opened.paceSecPerKm);
+      setChecked(opened.checked);
     }
   }, [visible, goal]);
+  const on = (measure: Measure) => checked.includes(measure);
+  const full = checked.length >= 2;
+  const toggle = (measure: Measure) =>
+    setChecked(current =>
+      current.includes(measure)
+        ? current.filter(item => item !== measure)
+        : current.length < 2
+        ? [...current, measure]
+        : current,
+    );
+  const km = distanceM / 1000;
+  // The one left out of two: worked out from the two chosen.
+  const worked: Measure | null = full
+    ? (['distance', 'time', 'pace'] as Measure[]).find(item => !on(item)) ??
+      null
+    : null;
+  const shownPace = worked === 'pace' ? durationSec / km : paceSecPerKm;
+  const shownDuration =
+    worked === 'time' ? Math.round(km * paceSecPerKm) : durationSec;
+  const shownDistance =
+    worked === 'distance'
+      ? Math.round((durationSec / paceSecPerKm) * 1000)
+      : distanceM;
   const selected: RunGoal =
-    distanceChecked && timeChecked
+    on('distance') && on('time')
       ? { kind: 'PACER', distanceM, durationSec }
-      : distanceChecked
+      : on('distance') && on('pace')
+      ? { kind: 'DISTANCE_PACE', distanceM, paceSecPerKm }
+      : on('time') && on('pace')
+      ? { kind: 'TIME_PACE', durationSec, paceSecPerKm }
+      : on('distance')
       ? { kind: 'DISTANCE', distanceM }
-      : timeChecked
+      : on('time')
       ? { kind: 'TIME', durationSec }
+      : on('pace')
+      ? { kind: 'PACE', paceSecPerKm }
       : { kind: 'NONE' };
-  const pace =
-    distanceChecked && timeChecked ? pacerPace(distanceM, durationSec) : null;
+  // A worked-out value no run keeps is not sent: a pace outside 3′00″~15′00″/km, a distance past 45km or a time past
+  // 5 hours (the server turns such a goal down, sessions.md 422 INVALID_GOAL).
   const unrealistic =
-    pace !== null &&
-    (pace < goalLimits.paceSec.min || pace > goalLimits.paceSec.max);
+    (worked === 'pace' &&
+      (shownPace < goalLimits.paceSec.min ||
+        shownPace > goalLimits.paceSec.max)) ||
+    (worked === 'distance' && shownDistance > maxGoalDistanceM) ||
+    (worked === 'time' && shownDuration > goalLimits.durationMin.max * 60);
+  const rows: {
+    measure: Measure;
+    title: string;
+    icon: IconName;
+    value: string;
+    ruler: React.ReactNode;
+  }[] = [
+    {
+      measure: 'distance',
+      title: '거리',
+      icon: 'mapPin',
+      value: formatGoalDistance(shownDistance),
+      ruler: (
+        <RulerPicker
+          label="목표 거리"
+          value={distanceM / 1000}
+          {...goalLimits.distanceKm}
+          format={value => formatGoalDistance(value * 1000)}
+          onChange={value => setDistanceM(Math.round(value * 1000))}
+          {...whiteRuler}
+        />
+      ),
+    },
+    {
+      measure: 'time',
+      title: '시간',
+      icon: 'clock',
+      value:
+        worked === 'time'
+          ? formatDuration(shownDuration)
+          : formatGoalDuration(shownDuration),
+      ruler: (
+        <RulerPicker
+          label="목표 시간"
+          value={durationSec / 60}
+          {...goalLimits.durationMin}
+          format={value => formatGoalDuration(value * 60)}
+          onChange={value => setDurationSec(Math.round(value * 60))}
+          {...whiteRuler}
+        />
+      ),
+    },
+    {
+      measure: 'pace',
+      title: '페이스',
+      icon: 'pulse',
+      value: `${formatPace(shownPace)}/km`,
+      ruler: (
+        <RulerPicker
+          label="목표 페이스"
+          value={paceSecPerKm}
+          {...goalLimits.paceSec}
+          format={value => `${formatPace(value)}/km`}
+          onChange={setPaceSecPerKm}
+          {...whiteRuler}
+        />
+      ),
+    },
+  ];
   return (
     <ThemeProvider tone="dark">
       <BottomSheet
@@ -340,111 +518,83 @@ function FreeGoalSheet({
             keyboardShouldPersistTaps="handled"
           >
             <AppText variant="label" tone="textSecondary" style={styles.center}>
-              선택하지 않으면 목표 없이 달려요
+              {full
+                ? '두 가지를 고르면 나머지는 계산돼요'
+                : '두 가지까지 고를 수 있어요 · 선택하지 않으면 목표 없이 달려요'}
             </AppText>
-            <WhiteBox
-              style={[styles.field, distanceChecked && styles.freeSelected]}
-            >
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityLabel="거리 목표 선택"
-                accessibilityState={{ checked: distanceChecked }}
-                onPress={() => setDistanceChecked(value => !value)}
-                style={styles.freeChoice}
-              >
-                <Icon name="mapPin" color={k1.night} size={20} />
-                <AppText variant="label">거리</AppText>
-                <AppText style={styles.freeValue}>
-                  {formatGoalDistance(distanceM)}
-                </AppText>
-                <View
+            {rows.map(row => {
+              const isOn = on(row.measure);
+              const isWorked = worked === row.measure;
+              return (
+                <WhiteBox
+                  key={row.measure}
                   style={[
-                    styles.freeCheckbox,
-                    distanceChecked && styles.freeCheckboxSelected,
+                    styles.field,
+                    isOn && styles.freeSelected,
+                    isWorked && styles.freeWorked,
                   ]}
                 >
-                  {distanceChecked ? (
-                    <Icon name="check" color="#FFFFFF" size={16} />
-                  ) : null}
-                </View>
-              </Pressable>
-              {distanceChecked ? (
-                <RulerPicker
-                  label="목표 거리"
-                  value={distanceM / 1000}
-                  {...goalLimits.distanceKm}
-                  format={value => formatGoalDistance(value * 1000)}
-                  onChange={value => setDistanceM(Math.round(value * 1000))}
-                  {...whiteRuler}
-                />
-              ) : null}
-            </WhiteBox>
-            <WhiteBox
-              style={[styles.field, timeChecked && styles.freeSelected]}
-            >
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityLabel="시간 목표 선택"
-                accessibilityState={{ checked: timeChecked }}
-                onPress={() => setTimeChecked(value => !value)}
-                style={styles.freeChoice}
-              >
-                <Icon name="clock" color={k1.night} size={20} />
-                <AppText variant="label">시간</AppText>
-                <AppText style={styles.freeValue}>
-                  {formatGoalDuration(durationSec)}
-                </AppText>
-                <View
-                  style={[
-                    styles.freeCheckbox,
-                    timeChecked && styles.freeCheckboxSelected,
-                  ]}
-                >
-                  {timeChecked ? (
-                    <Icon name="check" color="#FFFFFF" size={16} />
-                  ) : null}
-                </View>
-              </Pressable>
-              {timeChecked ? (
-                <RulerPicker
-                  label="목표 시간"
-                  value={durationSec / 60}
-                  {...goalLimits.durationMin}
-                  format={value => formatGoalDuration(value * 60)}
-                  onChange={value => setDurationSec(Math.round(value * 60))}
-                  {...whiteRuler}
-                />
-              ) : null}
-            </WhiteBox>
-            {pace !== null ? (
-              <WhiteBox
-                style={styles.derived}
-                accessibilityLabel="계산한 페이스"
-              >
-                <AppText style={styles.derivedValue}>{`${formatPace(
-                  pace,
-                )}/km`}</AppText>
-                <AppText variant="label" tone="textSecondary">
-                  거리와 시간으로 계산한 페이스
-                </AppText>
-              </WhiteBox>
-            ) : null}
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`${row.title} 목표 선택`}
+                    accessibilityHint={
+                      isWorked ? `계산한 ${row.title} ${row.value}` : undefined
+                    }
+                    accessibilityState={{ checked: isOn, disabled: isWorked }}
+                    disabled={isWorked}
+                    onPress={() => toggle(row.measure)}
+                    style={styles.freeChoice}
+                  >
+                    <Icon name={row.icon} color={k1.night} size={20} />
+                    <AppText variant="label">
+                      {isWorked ? `${row.title} · 계산` : row.title}
+                    </AppText>
+                    <AppText style={styles.freeValue}>{row.value}</AppText>
+                    <View
+                      style={[
+                        styles.freeCheckbox,
+                        isOn && styles.freeCheckboxSelected,
+                        isWorked && styles.freeCheckboxClosed,
+                      ]}
+                    >
+                      {isOn ? (
+                        <Icon name="check" color="#FFFFFF" size={16} />
+                      ) : null}
+                    </View>
+                  </Pressable>
+                  {isOn ? row.ruler : null}
+                </WhiteBox>
+              );
+            })}
             {unrealistic ? (
               <AppText
                 variant="captionStrong"
                 tone="danger"
                 style={styles.center}
                 accessibilityLiveRegion="polite"
-              >{`페이스가 ${formatPace(goalLimits.paceSec.min)}~${formatPace(
-                goalLimits.paceSec.max,
-              )}/km 사이가 되도록 거리나 시간을 바꿔 주세요`}</AppText>
+              >
+                {worked === 'pace'
+                  ? `페이스가 ${formatPace(
+                      goalLimits.paceSec.min,
+                    )}~${formatPace(
+                      goalLimits.paceSec.max,
+                    )}/km 사이가 되도록 거리나 시간을 바꿔 주세요`
+                  : worked === 'distance'
+                  ? `거리가 ${formatGoalDistance(
+                      maxGoalDistanceM,
+                    )}를 넘지 않도록 시간이나 페이스를 바꿔 주세요`
+                  : `시간이 ${formatGoalDuration(
+                      goalLimits.durationMin.max * 60,
+                    )}을 넘지 않도록 거리나 페이스를 바꿔 주세요`}
+              </AppText>
             ) : null}
+            {/* The sheet sets the goal; 러닝 시작 stays on the map under it (S15P31E105-683, 담당자 요청). */}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="이 목표로 러닝 시작"
+              accessibilityLabel="목표 설정 완료"
               accessibilityState={{ disabled: unrealistic }}
               disabled={unrealistic}
-              onPress={() => onStart(selected)}
+              onPress={() => onSet(selected)}
               style={[
                 styles.start,
                 styles.white,
@@ -452,19 +602,7 @@ function FreeGoalSheet({
               ]}
             >
               <AppText style={[styles.startText, { color: k1.night }]}>
-                러닝 시작
-              </AppText>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="목표만 설정"
-              accessibilityState={{ disabled: unrealistic }}
-              disabled={unrealistic}
-              onPress={() => onSet(selected)}
-              style={styles.center}
-            >
-              <AppText variant="captionStrong" tone="textSecondary">
-                목표만 설정
+                목표 설정 완료
               </AppText>
             </Pressable>
           </ScrollView>
@@ -495,14 +633,16 @@ function GoalDetail({
   onChange,
   onBack,
   onSet,
-  onStart,
+  onClear,
 }: {
   draft: RunGoal;
   course?: { distanceM: number; plannedPace: number | null };
   onChange: (goal: RunGoal) => void;
-  onBack: () => void;
+  // Left out when the detail is the only choice: there is no list to go back to.
+  onBack?: () => void;
   onSet: () => void;
-  onStart: () => void;
+  // 목표 없이 달리기, under 목표 설정 완료 when the detail opens on its own.
+  onClear?: () => void;
 }) {
   const { colors } = useTheme();
   const ruler = whiteRuler;
@@ -539,12 +679,46 @@ function GoalDetail({
       />
     </WhiteBox>
   );
-  // The pace the distance and the time make, or the course distance and the time.
+  // On a course the finish time and the pace are one goal: two rulers, each moving the other (S15P31E105-683). The
+  // ruler moved from outside glides there and reports the ticks it passes, so only the one in the hand counts.
+  const held = useRef<'time' | 'pace' | null>(null);
+  const letGo = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (letGo.current) {
+        clearTimeout(letGo.current);
+      }
+    },
+    [],
+  );
+  const hold = (which: 'time' | 'pace') => {
+    held.current = which;
+    if (letGo.current) {
+      clearTimeout(letGo.current);
+    }
+  };
+  const from = (which: 'time' | 'pace', apply: () => void) => {
+    if (held.current && held.current !== which) {
+      return;
+    }
+    apply();
+    if (letGo.current) {
+      clearTimeout(letGo.current);
+    }
+    letGo.current = setTimeout(() => {
+      held.current = null;
+    }, 700);
+  };
+  const finish =
+    course && (draft.kind === 'TIME' || draft.kind === 'PACE')
+      ? finishAndPace(draft, course)
+      : null;
+  // The pace the distance and the time make; on a course the pace ruler shows it.
   const derived =
     draft.kind === 'PACER'
       ? pacerPace(draft.distanceM, draft.durationSec)
-      : draft.kind === 'TIME' && course
-      ? pacerPace(course.distanceM, draft.durationSec)
+      : finish
+      ? finish.paceSecPerKm
       : null;
   // A distance and a time that make a pace no runner keeps (faster than 3′00″ or slower than 15′00″ per km) are
   // not sent: the server turns such a goal down (sessions.md 422 INVALID_GOAL).
@@ -553,28 +727,72 @@ function GoalDetail({
     (derived < goalLimits.paceSec.min || derived > goalLimits.paceSec.max);
   return (
     <View style={styles.detail}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="목표 목록으로"
-        onPress={onBack}
-        hitSlop={8}
-        style={styles.back}
-      >
-        <Icon name="back" color={colors.textSecondary} size={16} />
-        <AppText variant="captionStrong" tone="textSecondary">
-          목표 목록
-        </AppText>
-      </Pressable>
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="목표 목록으로"
+          onPress={onBack}
+          hitSlop={8}
+          style={styles.back}
+        >
+          <Icon name="back" color={colors.textSecondary} size={16} />
+          <AppText variant="captionStrong" tone="textSecondary">
+            목표 목록
+          </AppText>
+        </Pressable>
+      ) : null}
       {draft.kind === 'DISTANCE'
         ? distanceRuler(draft.distanceM, distanceM =>
             onChange({ ...draft, distanceM }),
           )
         : null}
-      {draft.kind === 'TIME'
-        ? durationRuler(draft.durationSec, durationSec =>
-            onChange({ ...draft, durationSec }),
-          )
-        : null}
+      {finish ? (
+        <>
+          <View onTouchStart={() => hold('time')}>
+            <WhiteBox style={styles.field}>
+              <AppText variant="label" tone="textSecondary">
+                완주 시간
+              </AppText>
+              <RulerPicker
+                label="목표 완주 시간"
+                value={finish.durationSec / 60}
+                {...goalLimits.durationMin}
+                format={value => formatDuration(value * 60)}
+                onChange={value =>
+                  from('time', () =>
+                    onChange({
+                      kind: 'TIME',
+                      durationSec: Math.round(value * 60),
+                    }),
+                  )
+                }
+                {...ruler}
+              />
+            </WhiteBox>
+          </View>
+          <View onTouchStart={() => hold('pace')}>
+            <WhiteBox style={styles.field}>
+              <AppText variant="label" tone="textSecondary">
+                페이스
+              </AppText>
+              <RulerPicker
+                label="목표 페이스"
+                value={finish.paceSecPerKm}
+                {...goalLimits.paceSec}
+                format={value => `${formatPace(value)}/km`}
+                onChange={paceSecPerKm =>
+                  from('pace', () => onChange({ kind: 'PACE', paceSecPerKm }))
+                }
+                {...ruler}
+              />
+            </WhiteBox>
+          </View>
+        </>
+      ) : draft.kind === 'TIME' ? (
+        durationRuler(draft.durationSec, durationSec =>
+          onChange({ ...draft, durationSec }),
+        )
+      ) : null}
       {draft.kind === 'PACER' ? (
         <>
           {distanceRuler(draft.distanceM, distanceM =>
@@ -585,7 +803,7 @@ function GoalDetail({
           )}
         </>
       ) : null}
-      {draft.kind === 'PACE' ? (
+      {draft.kind === 'PACE' && !finish ? (
         <WhiteBox style={styles.field}>
           <AppText variant="label" tone="textSecondary">
             페이스
@@ -600,7 +818,7 @@ function GoalDetail({
           />
         </WhiteBox>
       ) : null}
-      {derived !== null ? (
+      {derived !== null && !finish ? (
         <WhiteBox style={styles.derived} accessibilityLabel="계산한 페이스">
           <AppText style={styles.derivedValue}>{`${formatPace(
             derived,
@@ -624,19 +842,18 @@ function GoalDetail({
           )}/km 사이가 되도록 거리나 시간을 바꿔 주세요`}
         </AppText>
       ) : null}
-      {draft.kind === 'PACE' && course ? (
+      {finish && course ? (
         <AppText variant="label" tone="textSecondary" style={styles.center}>
-          {`예상 완주 ${formatDuration(
-            Math.round((course.distanceM / 1000) * draft.paceSecPerKm),
-          )}`}
+          {`코스 ${formatGoalDistance(course.distanceM)} 기준`}
         </AppText>
       ) : null}
+      {/* The sheet sets the goal; 러닝 시작 stays on the map under it (S15P31E105-683, 담당자 요청). */}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="이 목표로 러닝 시작"
+        accessibilityLabel="목표 설정 완료"
         accessibilityState={{ disabled: unrealistic }}
         disabled={unrealistic}
-        onPress={onStart}
+        onPress={onSet}
         style={({ pressed }) => [
           styles.start,
           styles.white,
@@ -644,22 +861,22 @@ function GoalDetail({
         ]}
       >
         <AppText style={[styles.startText, { color: k1.night }]}>
-          러닝 시작
+          목표 설정 완료
         </AppText>
       </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="목표만 설정"
-        accessibilityState={{ disabled: unrealistic }}
-        disabled={unrealistic}
-        onPress={onSet}
-        hitSlop={8}
-        style={styles.center}
-      >
-        <AppText variant="captionStrong" tone="textSecondary">
-          목표만 설정
-        </AppText>
-      </Pressable>
+      {onClear ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="목표 없이 달리기"
+          onPress={onClear}
+          hitSlop={8}
+          style={styles.center}
+        >
+          <AppText variant="captionStrong" tone="textSecondary">
+            목표 없이 달리기
+          </AppText>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -693,6 +910,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   freeCheckboxSelected: { backgroundColor: k1.night, borderColor: k1.night },
+  // The worked-out measure: its box closed and the row a little faded.
+  freeCheckboxClosed: { opacity: 0.35 },
+  freeWorked: { opacity: 0.75 },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -731,13 +951,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.numberBold,
     fontSize: 24,
     lineHeight: 30,
-  },
-  play: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   detail: { gap: 12 },
   back: { flexDirection: 'row', alignItems: 'center', gap: 4 },

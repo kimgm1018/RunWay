@@ -2,77 +2,86 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { BackButton } from '../../components/BackButton';
-import { useRepositories, useResource, type Repositories } from '../../data';
-import { isNight } from '../../format';
+import { useResource, type Repositories } from '../../data';
+import { ThemeProvider } from '../../theme';
 import { MapScreenFrame } from './MapScreenFrame';
 import { RunMap } from '../../components/RunMap';
 import { RunGoalSheet } from './goal/RunGoalSheet';
-import { goalConfig, goalLabel, type RunGoal } from './goal/runGoal';
-import { PlaceCard, RunStartBar } from './parts';
+import { goalConfig, goalLabel } from './goal/runGoal';
+import { useRunGoalDraft } from './goal/RunGoalDraft';
+import { gpsLabels, PlaceCard, RunStartBar } from './parts';
 import { navigateTo } from '../../navigation/navigateTo';
 
 const loadPlace = (repositories: Repositories) =>
   repositories.run.getCurrentPlace();
 
-// The map from where you are and the start row, without the tab bar (2.0F · 2.0C). The top shows the current
-// place; the bottom card holds the chip and 러닝 방식 · 러닝 시작 · 음악.
+// The map from where you are and the start row, without the tab bar (2.0F · 2.0C). Where I am stands in a bubble
+// over me on the bright mint map (S15P31E105-683); the bottom card holds the chips and 설정 · 러닝 시작 · 음악.
 function MapStart({ bottom }: { bottom: React.ReactNode }) {
   const navigation = useNavigation();
-  const { clock } = useRepositories();
-  const night = isNight(clock.now());
   const place = useResource(useCallback(loadPlace, []));
   return (
-    <MapScreenFrame
-      renderMap={logo => (
-        <RunMap
-          position={
-            place.status === 'ready'
-              ? place.data.position ?? undefined
-              : undefined
-          }
-          area={{ top: 0.36, bottom: 0.36 }}
-          logo={logo}
-          view="lean"
-          style={StyleSheet.absoluteFill}
-        />
-      )}
-      top={
-        <View style={styles.top}>
-          <BackButton
-            tone={night ? 'dark' : 'light'}
-            onPress={navigation.goBack}
+    // Day design whatever the hour: the map under it is the bright day map (S15P31E105-683).
+    <ThemeProvider tone="light">
+      <MapScreenFrame
+        renderMap={logo => (
+          <RunMap
+            position={
+              place.status === 'ready'
+                ? place.data.position ?? undefined
+                : undefined
+            }
+            placeLabel={
+              place.status === 'ready'
+                ? {
+                    title: place.data.name,
+                    sub: `현재 위치 · ${gpsLabels[place.data.gps]}`,
+                  }
+                : undefined
+            }
+            area={{ top: 0.4, bottom: 0.34 }}
+            logo={logo}
+            view="lean"
+            look="mint"
+            style={StyleSheet.absoluteFill}
           />
-          <View style={styles.flex}>
-            {place.status === 'ready' ? (
-              <PlaceCard name={place.data.name} gps={place.data.gps} />
-            ) : place.status === 'error' ? (
-              // A failed lookup stops saying it is still searching; a tap tries again.
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="현재 위치 다시 찾기"
-                onPress={place.reload}
-              >
-                <PlaceCard name="못 찾았어요 · 다시 찾기" gps="none" />
-              </Pressable>
-            ) : (
-              <PlaceCard name="현재 위치를 찾는 중이에요" gps="none" />
-            )}
+        )}
+        top={
+          <View style={styles.top}>
+            {/* The mint map stays bright after sunset too, so the light button. */}
+            <BackButton onPress={navigation.goBack} />
+            <View style={styles.flex}>
+              {/* Found, the place moves into the bubble over me on the map. */}
+              {place.status === 'ready' ? null : place.status === 'error' ? (
+                // A failed lookup stops saying it is still searching; a tap tries again.
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="현재 위치 다시 찾기"
+                  onPress={place.reload}
+                >
+                  <PlaceCard name="못 찾았어요 · 다시 찾기" gps="none" />
+                </Pressable>
+              ) : (
+                <PlaceCard name="현재 위치를 찾는 중이에요" gps="none" />
+              )}
+            </View>
           </View>
-        </View>
-      }
-      bottom={bottom}
-    />
+        }
+        bottom={bottom}
+      />
+    </ThemeProvider>
   );
 }
 
 // 2.0F 자유 러닝 (S15P31E105-517): the chip opens 운동 목표 (목표 없음 · 거리 · 시간 · 페이서); a card's start button
 // starts with that goal.
 export function FreeRunScreen() {
-  const { clock } = useRepositories();
-  const night = isNight(clock.now());
-  const [goal, setGoal] = useState<RunGoal>({ kind: 'NONE' });
+  const navigation = useNavigation();
+  // The run start map stays bright after sunset (S15P31E105-683), so its card keeps the day design too (담당자 요청).
+  const night = false;
+  // Shared with 2.0, so picking a course keeps it (S15P31E105-683).
+  const { goal, setGoal } = useRunGoalDraft();
   const [choosing, setChoosing] = useState(false);
-  const [startSignal, setStartSignal] = useState(0);
 
   return (
     <>
@@ -80,9 +89,13 @@ export function FreeRunScreen() {
         bottom={
           <RunStartBar
             night={night}
-            mode="FREE"
             goal={{ label: goalLabel(goal), onPress: () => setChoosing(true) }}
-            startSignal={startSignal}
+            // No course is a free run; 코스 설정 picks one on 3.1, which opens it on 2.0 (S15P31E105-683).
+            course={{
+              label: '코스 설정',
+              picked: false,
+              onPress: () => navigateTo(navigation, 'TodayRun'),
+            }}
             config={{ mode: 'FREE', plan: null, ...goalConfig(goal) }}
           />
         }
@@ -96,11 +109,6 @@ export function FreeRunScreen() {
           setGoal(next);
           setChoosing(false);
         }}
-        onStart={next => {
-          setGoal(next);
-          setChoosing(false);
-          setStartSignal(value => value + 1);
-        }}
       />
     </>
   );
@@ -110,17 +118,16 @@ export function FreeRunScreen() {
 // 추천, and the picked course opens 2.0 with its plan; until then 러닝 시작 waits for a course.
 export function CourseStartScreen() {
   const navigation = useNavigation();
-  const { clock } = useRepositories();
-  const night = isNight(clock.now());
+  // The run start map stays bright after sunset (S15P31E105-683), so its card keeps the day design too (담당자 요청).
+  const night = false;
   return (
     <MapStart
       bottom={
         <RunStartBar
           night={night}
-          mode="COURSE"
-          goal={{
+          course={{
             label: '코스 설정',
-            title: '코스 설정',
+            picked: false,
             onPress: () => navigateTo(navigation, 'TodayRun'),
           }}
           config={null}

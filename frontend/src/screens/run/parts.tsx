@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import {
-  StackActions,
   useFocusEffect,
   useIsFocused,
   useNavigation,
@@ -108,25 +107,35 @@ const countdownSeconds = 3;
 // 목표가 바뀐 뒤 미리 준비를 시작하기까지 기다리는 시간(연속 변경은 마지막 목표만 준비한다, S15P31E105-533).
 const prepareDelayMs = 500;
 
-// 2.0·2.0F 하단 (S15P31E105-517, the reference's start row made RunWay's): the goal chip, then 러닝 방식 ·
-// 러닝 시작 (3초 카운트다운 후 4.2) · 음악, each side button named under it.
+// The picked course's chip (S15P31E105-683): navy, its ✕ a softer white.
+const pickedInk = '#02050E';
+const pickedSoft = 'rgba(255,255,255,0.7)';
+
+// 2.0·2.0F 하단 (S15P31E105-517, the reference's start row made RunWay's): the goal and course chips, then 설정 ·
+// 러닝 시작 (3초 카운트다운 후 4.2) · 음악 (S15P31E105-683: 설정 in place of the 자유 ↔ 코스 switch).
 // By day a glass circle, the black pill with a dot in a grey ring and the dark music badge
 // (runway-course-handoff, the same on 2.0 and 2.0F); night uses the accent.
 export function RunStartBar({
   night,
-  mode,
   config,
   goal,
+  course,
   startSignal = 0,
 }: {
   night: boolean;
-  // Which run this screen starts: the round button left of 러닝 시작 switches to the other one (담당자 요청).
-  mode: 'FREE' | 'COURSE';
   // What the run starts with; the button stays disabled until it is known.
   config: RunConfig | null;
   // The goal chip above the row: what the run aims at, opening the goal sheet.
   // title names the chip for screen readers: 목표 설정, or 코스 설정 on 2.0C.
   goal?: { label: string; title?: string; onPress: () => void } | null;
+  // The course chip right of the goal (S15P31E105-683): 코스 설정 until a course is picked, then the course in navy
+  // with an ✕ that drops it, so the run is free again. No course means a free run.
+  course?: {
+    label: string;
+    picked: boolean;
+    onPress: () => void;
+    onClear?: () => void;
+  } | null;
   // Raised by the goal sheet's start buttons: starts the same countdown as 러닝 시작.
   startSignal?: number;
 }) {
@@ -254,63 +263,76 @@ export function RunStartBar({
       }
     };
   }, [count, ensureRunLogin]);
-  const course = mode === 'COURSE';
-  // 코스 러닝 ↔ 자유 러닝 in place, so 뒤로 still goes to 러닝 방식 선택.
-  const switchMode = () =>
-    navigation.dispatch(
-      StackActions.replace(course ? 'FreeRun' : 'CourseStart'),
-    );
+  const chipBack = night ? colors.surfaceRaised : '#FFFFFF';
   return (
     <View style={styles.startArea}>
-      {goal ? (
+      {goal || course ? (
         <View style={styles.chipRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={goal.title ?? '목표 설정'}
-            accessibilityHint={goal.label}
-            onPress={goal.onPress}
-            style={({ pressed }) => [
-              styles.goalChip,
-              { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Icon name="target" color={colors.text} size={16} />
-            <AppText variant="captionStrong" numberOfLines={1}>
-              {goal.label}
-            </AppText>
-          </Pressable>
-          {course ? (
-            // 2.0C: 저장한 코스 beside 코스 설정 opens the saved courses list (S15P31E105-564, 담당자 요청).
+          {goal ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="저장한 코스"
-              onPress={() => navigateTo(navigation, 'SavedCourses')}
+              accessibilityLabel={goal.title ?? '목표 설정'}
+              accessibilityHint={goal.label}
+              onPress={goal.onPress}
               style={({ pressed }) => [
                 styles.goalChip,
-                { backgroundColor: night ? colors.surfaceRaised : '#FFFFFF' },
+                { backgroundColor: chipBack },
                 pressed && styles.pressed,
               ]}
             >
-              <Icon name="bookmark" color={colors.text} size={16} />
+              <Icon name="target" color={colors.text} size={16} />
               <AppText variant="captionStrong" numberOfLines={1}>
-                저장한 코스
+                {goal.label}
               </AppText>
+            </Pressable>
+          ) : null}
+          {course ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={course.picked ? '코스 변경' : '코스 설정'}
+              accessibilityHint={course.label}
+              onPress={course.onPress}
+              style={({ pressed }) => [
+                styles.goalChip,
+                { backgroundColor: course.picked ? pickedInk : chipBack },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon
+                name="route"
+                color={course.picked ? palette.white : colors.text}
+                size={16}
+              />
+              <AppText
+                variant="captionStrong"
+                numberOfLines={1}
+                style={[styles.chipLabel, course.picked && styles.onPicked]}
+              >
+                {course.label}
+              </AppText>
+              {course.picked && course.onClear ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="코스 해제"
+                  onPress={course.onClear}
+                  hitSlop={10}
+                >
+                  <Icon name="close" color={pickedSoft} size={14} />
+                </Pressable>
+              ) : null}
             </Pressable>
           ) : null}
         </View>
       ) : null}
-      {/* 러닝 방식 · 러닝 시작 · 음악, the two round buttons the same glass with no captions so the row sits evenly
+      {/* 설정 · 러닝 시작 · 음악, the two round buttons the same glass with no captions so the row sits evenly
           (담당자 요청). */}
       <View style={[styles.bar, !night && styles.barDay]}>
         <GlassIconButton
-          icon={course ? 'route' : 'compass'}
+          icon="settings"
           tone={night ? 'dark' : 'light'}
           diameter={52}
-          accessibilityLabel={
-            course ? '자유 러닝으로 바꾸기' : '코스 러닝으로 바꾸기'
-          }
-          onPress={switchMode}
+          accessibilityLabel="설정"
+          onPress={() => navigateTo(navigation, 'Settings')}
         />
         <Pressable
           accessibilityRole="button"
@@ -324,7 +346,7 @@ export function RunStartBar({
           }}
           style={({ pressed }) => [
             styles.start,
-            { backgroundColor: night ? colors.accent : startInk },
+            night ? { backgroundColor: colors.accent } : styles.startDay,
             (pressed || !config || confirming) && styles.pressed,
           ]}
         >
@@ -472,7 +494,7 @@ function startNotice(problem: ControlProblem | null): {
   }
 }
 
-const gpsLabels: Record<GpsQuality, string> = {
+export const gpsLabels: Record<GpsQuality, string> = {
   good: 'GPS 양호',
   weak: 'GPS 약함',
   none: 'GPS 없음',
@@ -539,8 +561,10 @@ export function PlaceCard({ name, gps }: { name: string; gps: GpsQuality }) {
   );
 }
 
-// The day 러닝 시작 pill and its ring (runway-course-handoff).
+// The day GPS chip's ink, and the 러닝 시작 pill and its ring: white with navy writing since S15P31E105-683
+// (담당자 요청), edged and lifted so it stands off the light card.
 const startInk = '#02050E';
+const startFill = '#FFFFFF';
 const startRing = '#A3A8AF';
 
 const styles = StyleSheet.create({
@@ -554,6 +578,8 @@ const styles = StyleSheet.create({
   },
   barDay: { gap: 10 },
   startArea: { gap: 12 },
+  chipLabel: { flexShrink: 1 },
+  onPicked: { color: palette.white },
   chipRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -593,12 +619,18 @@ const styles = StyleSheet.create({
   },
   ringDot: { width: 4, height: 4, borderRadius: 2 },
   ringDay: { opacity: 1 },
+  startDay: {
+    backgroundColor: startFill,
+    borderWidth: 1,
+    borderColor: 'rgba(2,5,14,0.08)',
+    boxShadow: '0 6px 16px rgba(9,17,26,0.14)',
+  },
   startText: {
     fontFamily: fontFamily.bold,
     fontSize: 17,
     lineHeight: 22,
     letterSpacing: -0.3,
-    color: k1.ice,
+    color: startInk,
   },
   // 3·2·1 on a solid dark screen, the same ground as the run screen that follows (S15P31E105-517).
   countdown: {

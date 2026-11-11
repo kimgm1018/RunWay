@@ -60,10 +60,27 @@ export const darkMapLook = {
   unpassed: 'rgba(0,0,0,0)',
 };
 
+// The run start map (2.0F · 2.0 · 3.1, S15P31E105-683): the tilted view at full brightness, the course a RunWay mint
+// ribbon, and me as 6.9's mint pin.
+export const mintMapLook = {
+  ...darkMapLook,
+  lightness: 0,
+  // 담당자 경로 시안 (S15P31E105-683): a wide mint ribbon round a pale mint centre line, edged in deep teal.
+  ink: '#B8FFEC',
+  ribbon: '#4DFFD2',
+  shadow: '#06231E',
+  centre: 2.4,
+  edge: 4,
+  shadowWidth: 14,
+  me: '#4DFFD2',
+  meRing: '#02050E',
+};
+
 // A course that ends where it starts carries one SF mark; otherwise S at the start and F at the end.
 export const loopWithinM = 60;
 export const isLoop = (route: LngLat[]) =>
-  route.length >= 2 && distanceM(route[0], route[route.length - 1]) <= loopWithinM;
+  route.length >= 2 &&
+  distanceM(route[0], route[route.length - 1]) <= loopWithinM;
 
 // Picks the colour of one km from where its pace sits between the fastest and the slowest km.
 export function paceColor(

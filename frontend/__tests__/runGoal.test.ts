@@ -12,9 +12,11 @@ import { goalPaceOf, type RunConfig } from '../src/screens/run/RunSession';
 // (sessions.md 목표 조합). There is no calorie goal: the app measures no calories and the server has no field.
 
 const count = (config: ReturnType<typeof goalConfig>) =>
-  [config.goalDistanceM, config.goalDurationSec, config.goalPaceSecPerKm].filter(
-    value => value !== null,
-  ).length;
+  [
+    config.goalDistanceM,
+    config.goalDurationSec,
+    config.goalPaceSecPerKm,
+  ].filter(value => value !== null).length;
 
 const freeGoals: RunGoal[] = [
   { kind: 'NONE' },
@@ -101,4 +103,28 @@ test('the 3.1 goal becomes the 2.0 goal', () => {
     }),
   ).toEqual({ kind: 'PACE', paceSecPerKm: 330 });
   expect(goalFromSearch(null)).toBeNull();
+});
+
+// 거리 + 페이스 and 시간 + 페이스 (S15P31E105-683): the two chosen go out, the third stays out.
+test('a pace with a distance or a time sends those two', () => {
+  expect(
+    goalConfig({ kind: 'DISTANCE_PACE', distanceM: 5000, paceSecPerKm: 360 }),
+  ).toEqual({
+    goalDistanceM: 5000,
+    goalDurationSec: null,
+    goalPaceSecPerKm: 360,
+  });
+  expect(
+    goalConfig({ kind: 'TIME_PACE', durationSec: 1800, paceSecPerKm: 360 }),
+  ).toEqual({
+    goalDistanceM: null,
+    goalDurationSec: 1800,
+    goalPaceSecPerKm: 360,
+  });
+  expect(
+    goalLabel({ kind: 'DISTANCE_PACE', distanceM: 5000, paceSecPerKm: 360 }),
+  ).toBe('5km · 6′00″/km');
+  expect(
+    goalLabel({ kind: 'TIME_PACE', durationSec: 1800, paceSecPerKm: 360 }),
+  ).toBe('30분 · 6′00″/km');
 });

@@ -137,13 +137,24 @@ test('watch connection opened from settings returns home instead of signing in',
 test('tabs and their inner screens follow the prototype flow', async () => {
   const screen = await render({ initialSignedIn: true });
   await press(screen, '러닝');
-  expect(texts(screen)).toContain('달릴까요?');
-  await press(screen, '자유 러닝');
-  // 2.0F has no tab bar (S15P31E105-517): the goal chip and the start row, and 뒤로 to leave.
+  // The 러닝 tab opens the 2.0F map straight away (S15P31E105-683): no 러닝 방식 선택, no tab bar, the goal chip and
+  // the start row.
   expect(texts(screen)).toContain('목표 설정');
+  expect(texts(screen)).not.toContain('달릴까요?');
   expect(() => pressable(screen, '그룹')).toThrow();
+  // 코스 설정 sits beside the goal, and 설정 left of 러닝 시작 opens the app settings (S15P31E105-683).
+  expect(texts(screen)).toContain('코스 설정');
+  await press(screen, '설정');
+  expect(texts(screen)).toContain('로그아웃');
   await press(screen, '뒤로');
-  expect(texts(screen)).toContain('달릴까요?');
+  expect(texts(screen)).toContain('목표 설정');
+  // 뒤로 leaves the tab for 홈, and 러닝 opens the map again.
+  await press(screen, '뒤로');
+  expect(texts(screen)).toContain('러닝 시작하기');
+  await press(screen, '러닝');
+  expect(texts(screen)).toContain('목표 설정');
+  expect(texts(screen)).not.toContain('달릴까요?');
+  await press(screen, '뒤로');
   await press(screen, '그룹');
   // The group list loads after the tab opens.
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
@@ -165,6 +176,25 @@ test('tabs and their inner screens follow the prototype flow', async () => {
   await act(() => new Promise<void>(resolve => setTimeout(resolve, 400)));
   expect(texts(screen)).toContain('팔로워');
   expect(backs()).toBe(before);
+  await act(async () => screen.unmount());
+});
+
+test('홈 opens the run tab map without 러닝 방식 선택', async () => {
+  const screen = await render({ initialSignedIn: true });
+  await press(screen, '러닝');
+  expect(texts(screen)).toContain('목표 설정');
+  // 홈's 러닝 시작하기 opens the same map (S15P31E105-683).
+  await press(screen, '뒤로');
+  await press(screen, '러닝 시작하기');
+  expect(texts(screen)).toContain('목표 설정');
+  expect(texts(screen)).not.toContain('달릴까요?');
+  // 러닝 시작하기 opens the map as it was left rather than stacking a second one, so 뒤로 still returns to 홈.
+  await press(screen, '뒤로');
+  await press(screen, '러닝 시작하기');
+  expect(texts(screen)).toContain('코스 설정');
+  await press(screen, '뒤로');
+  // Back on 홈: the tab bar shows again.
+  expect(pressable(screen, '그룹').props.accessibilityRole).toBe('tab');
   await act(async () => screen.unmount());
 });
 

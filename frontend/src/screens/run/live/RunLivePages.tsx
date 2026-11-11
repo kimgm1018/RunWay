@@ -623,6 +623,8 @@ export function LiveMapPanel({
         onUserMove={() => setCamera('free')}
         rotatable={false}
         view={shown === 'follow' ? 'heading' : 'lean'}
+        // The bright map with the mint course and run, the same as before the start (S15P31E105-683, 담당자 요청).
+        look="mint"
         area={area}
         logo={logo}
         groupLine={group}
@@ -637,10 +639,7 @@ export function LiveMapPanel({
           <AppText style={styles.mapNoticeText}>{notice}</AppText>
         </View>
       ) : null}
-      <View
-        style={[styles.mapButtons, buttonsAt]}
-        pointerEvents="box-none"
-      >
+      <View style={[styles.mapButtons, buttonsAt]} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="내 위치로 이동"

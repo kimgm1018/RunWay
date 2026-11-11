@@ -4,7 +4,8 @@ import { formatPace } from '../../../format';
 // 러닝 목표 설정(S15P31E105-517, 레퍼런스의 Workout goal을 RunWay에 맞춘 것). 서버 목표는 거리·시간·페이스 중
 // 최대 2개이고 거리는 45km 이하다(sessions.md 목표 조합). 칼로리는 측정값·목표 필드가 없어 두지 않는다.
 //
-// 자유 러닝: 목표 없음 · 거리 · 시간 · 페이서(거리 + 시간 → 페이스는 화면에서 계산, 서버에는 거리·시간만).
+// 자유 러닝: 거리 · 시간 · 페이스 중 0~2개(S15P31E105-683). 두 개를 고르면 나머지 하나는 화면에서 계산해 보여 주고
+// 서버에는 고른 두 개만 보낸다. 거리 + 시간은 페이서다.
 // 코스 러닝: 거리는 코스가 정한다. 추천 전략(코스 계획의 페이스) · 시간 · 페이스.
 export type RunGoal =
   | { kind: 'NONE' }
@@ -12,7 +13,9 @@ export type RunGoal =
   | { kind: 'DISTANCE'; distanceM: number }
   | { kind: 'TIME'; durationSec: number }
   | { kind: 'PACER'; distanceM: number; durationSec: number }
-  | { kind: 'PACE'; paceSecPerKm: number };
+  | { kind: 'PACE'; paceSecPerKm: number }
+  | { kind: 'DISTANCE_PACE'; distanceM: number; paceSecPerKm: number }
+  | { kind: 'TIME_PACE'; durationSec: number; paceSecPerKm: number };
 
 export type GoalKind = RunGoal['kind'];
 
@@ -71,6 +74,14 @@ export function goalLabel(goal: RunGoal, plannedPace?: number | null) {
       )} · ${formatPace(pacerPace(goal.distanceM, goal.durationSec))}/km`;
     case 'PACE':
       return `${formatPace(goal.paceSecPerKm)}/km로 달리기`;
+    case 'DISTANCE_PACE':
+      return `${formatGoalDistance(goal.distanceM)} · ${formatPace(
+        goal.paceSecPerKm,
+      )}/km`;
+    case 'TIME_PACE':
+      return `${formatGoalDuration(goal.durationSec)} · ${formatPace(
+        goal.paceSecPerKm,
+      )}/km`;
   }
 }
 
@@ -119,6 +130,18 @@ export function goalConfig(
       return {
         goalDistanceM: distance,
         goalDurationSec: null,
+        goalPaceSecPerKm: goal.paceSecPerKm,
+      };
+    case 'DISTANCE_PACE':
+      return {
+        goalDistanceM: goal.distanceM,
+        goalDurationSec: null,
+        goalPaceSecPerKm: goal.paceSecPerKm,
+      };
+    case 'TIME_PACE':
+      return {
+        goalDistanceM: null,
+        goalDurationSec: goal.durationSec,
         goalPaceSecPerKm: goal.paceSecPerKm,
       };
   }

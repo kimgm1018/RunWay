@@ -115,7 +115,7 @@ async function countDown(
   await settle();
   await settle();
   await press(screen!, '러닝');
-  await press(screen!, '자유 러닝');
+  // The 러닝 tab opens the 2.0F map straight away (S15P31E105-683).
   await press(screen!, '러닝 시작');
   await waitForText(screen!, expectedText);
   return screen!;
@@ -135,17 +135,18 @@ test('the free run screen prepares ahead, starts on the same session, and cancel
   mounted = screen!;
   await settle();
   await settle();
+  // The 러닝 tab opens the free run map at once (S15P31E105-683), which prepares ahead.
   await press(screen!, '러닝');
-  await press(screen!, '자유 러닝');
   await settle(900);
   expect(create).toHaveBeenCalledTimes(1);
   expect(prepare).toHaveBeenCalledTimes(1);
 
+  // 뒤로 leaves the tab for 홈; the map's session is cancelled, and the 러닝 tab prepares a new one.
   await press(screen!, '뒤로');
   await settle(300);
   expect(cancel).toHaveBeenCalledTimes(1);
 
-  await press(screen!, '자유 러닝');
+  await press(screen!, '러닝');
   await settle(900);
   expect(create).toHaveBeenCalledTimes(2);
   await press(screen!, '러닝 시작');
@@ -174,7 +175,6 @@ async function openFreeRunWithSlowCreate(delayMs: number) {
   await settle();
   await settle();
   await press(screen!, '러닝');
-  await press(screen!, '자유 러닝');
   // 미리 준비 대기(0.5초)가 지나 S01을 보냈지만 아직 응답이 없다.
   await settle(700);
   expect(create).toHaveBeenCalledTimes(1);

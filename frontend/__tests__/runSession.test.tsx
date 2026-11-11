@@ -134,14 +134,20 @@ async function startRun(
     await press(screen!, label);
   };
   if (kind === 'course') {
-    // 러닝 → 2.0C 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-564).
+    // 러닝(2.0F) → 코스 설정(3.1) → 저장한 코스 → 3.1c, where a course sets up the run (S15P31E105-683).
     await open('러닝', '홈 탭');
-    await open('코스 러닝', '러닝 방식 선택');
-    await open('저장한 코스', '코스 러닝 시작');
+    await open('코스 설정', '러닝 지도');
+    await open('저장한 코스', '코스 설정');
     await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
+    // The free run map stays mounted under 2.0 in the run tab: wait for 2.0's own start row (its course chip)
+    // so 러닝 시작 below is the course run's (S15P31E105-683).
+    await settleUntil(
+      screen!,
+      () => shows(screen!, '코스 변경'),
+      '2.0 코스 러닝',
+    );
   } else {
     await open('러닝', '홈 탭');
-    await open('자유 러닝', '러닝 방식 선택');
   }
   await settleUntil(screen!, () => startReady(screen!), '러닝 시작 버튼');
   await press(screen!, '러닝 시작');
@@ -345,9 +351,16 @@ async function courseStartGoal(pick: boolean) {
     await press(screen!, label);
   };
   await open('러닝', '홈 탭');
-  await open('코스 러닝', '러닝 방식 선택');
-  await open('저장한 코스', '코스 러닝 시작');
+  await open('코스 설정', '러닝 지도');
+  await open('저장한 코스', '코스 설정');
   await open('광안대교 루프, 5.0km 30분', '저장한 코스 목록');
+  // The free run map stays mounted under 2.0 in the run tab: wait for 2.0's own start row (its course chip)
+  // so 러닝 시작 below is the course run's (S15P31E105-683).
+  await settleUntil(
+    screen!,
+    () => shows(screen!, '코스 변경'),
+    '2.0 코스 러닝',
+  );
   const chip = `${formatDotDate(first.startedAt)} ${formatDuration(
     first.durationSec,
   )} 기록과 비교`;
