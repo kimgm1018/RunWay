@@ -422,6 +422,7 @@ V3 이전 세션은 `state_version=0`, `analysis_status=LEGACY`로 구분한다.
 - users.nickname은 uq_users_nickname 부분 UNIQUE로 ACTIVE 계정에만 중복을 금지한다(248번, 2026-11-05 사용자 결정). 탈퇴 계정의 동일 nickname과 기존 닉네임 재사용을 허용한다. V4 이력은 보존하고 V16에서 전체 UNIQUE를 부분 인덱스로 교체한다.
 - users.login_id는 VARCHAR(64)로 확장해 탈퇴 후 SHA-256 해시를 저장한다. 정상 가입 입력은 기존 영문·숫자 4~16자를 유지한다. 가입/중복 확인은 원문과 탈퇴 해시를 모두 확인해 로그인 아이디 재사용 금지를 유지한다. 생일·성별·전화번호·비밀번호의 NOT NULL은 바꾸지 않는다.
 - 가입 때 users와 user_settings 1행을 같은 트랜잭션에 생성한다. user_profiles는 추가 러닝 설정 전 생성하지 않는다.
+- user_settings 가입 초기값은 bpm_guide_enabled=true, 나머지 알림·음성=false, 위치 OFF, PRIVATE다(S15P31E105-706). V36은 기존 행 중 `updated_at = created_at`(설정을 한 번도 바꾸지 않음)인 행만 bpm_guide_enabled를 켠다. 한계: 설정 PATCH·공개 범위 변경 등 어떤 UPDATE든 한 번 있었던 행은 BPM 안내를 일부러 끄지 않았어도 그대로 false로 남는다.
 - 이용약관·개인정보·위치·건강정보 동의 네 항목을 모두 받는다. 필수3종 중 하나라도 미동의이면 가입을 거절하며 이3종은 검증만 하고 DB 필드·이력을 추가하지 않는다.
 - 건강정보는 미동의 가입도 허용하며 기존 users.health_data_access에 AGREE 또는 DISAGREE로만 저장한다. 약관 버전·동의 시각·별도 동의 이력 테이블은 만들지 않는다.
 - V4는 닉네임 UNIQUE만 추가한다. 최신 dev의 세션 제어 테이블은 유지하며 별도 동의 테이블·컬럼·FK는 추가하지 않는다. erd.png의 PK·FK·타입·NULL 표시는 기준 SQL을 반영하며 UNIQUE·CHECK·트리거의 정확한 정의와 온라인 ERD의 미갱신 제약은 schema.sql을 따른다.

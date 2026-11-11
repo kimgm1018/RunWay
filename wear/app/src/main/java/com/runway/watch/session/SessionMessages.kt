@@ -80,6 +80,9 @@ data class SessionEnvelope(
     fun bpm(name: String): Int? = if (!payload.has(name) || payload.isNull(name)) null
     else (payload.opt(name) as? Number)?.takeIf { it.toDouble() == it.toInt().toDouble() }?.toInt()?.takeIf { it in BPM_RANGE }
 
+    /** STATE_RESULT(scope=SERVER).rhythmCueEnabled (S15P31E105-706); null when absent or not a boolean. */
+    fun rhythmCueEnabled(): Boolean? = payload.opt("rhythmCueEnabled") as? Boolean
+
     /** Optional UTC time field; null when absent, null or not ISO-8601. */
     fun instant(name: String): Instant? = if (!payload.has(name) || payload.isNull(name)) null
     else parseInstant(payload.getString(name))

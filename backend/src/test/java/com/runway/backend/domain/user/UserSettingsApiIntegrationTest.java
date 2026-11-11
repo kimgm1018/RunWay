@@ -52,6 +52,12 @@ class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
                 login);
     }
 
+    /** 가입 기본값: BPM 안내만 켬이고 나머지는 모두 끔이다(S15P31E105-706). */
+    void assertSignupDefaults(String body) {
+        assertThat(body).contains("\"bpmGuideEnabled\":true");
+        assertThat(body.replace("\"bpmGuideEnabled\":true", "")).doesNotContain(":true");
+    }
+
     String read(long id) throws Exception {
         return mvc.perform(get(URL).header("Authorization", SecurityTestSupport.bearer(id)))
                 .andExpect(status().isOk())
@@ -82,7 +88,7 @@ class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
                 .andExpect(jsonPath("$.notifications.groupRun").value(true))
                 .andExpect(jsonPath("$.notifications.community").value(false))
                 .andExpect(jsonPath("$.accountVisibility").doesNotExist());
-        assertThat(read(b)).doesNotContain(":true");
+        assertSignupDefaults(read(b));
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT account_visibility::text FROM user_settings WHERE"
@@ -181,10 +187,11 @@ class UserSettingsApiIntegrationTest extends SharedContextIntegrationSupport {
                                 .header("Authorization", SecurityTestSupport.bearer(a))
                                 .header("X-User-Id", b)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"bpmGuideEnabled\":true}"))
+                                .content("{\"bpmGuideEnabled\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.bpmGuideEnabled").value(true));
-        assertThat(read(b)).doesNotContain(":true");
+                .andExpect(jsonPath("$.bpmGuideEnabled").value(false));
+        // 다른 사용자(b)의 가입 기본값은 그대로다.
+        assertSignupDefaults(read(b));
     }
 
     String expiredBearer() {

@@ -182,6 +182,28 @@ public class SessionReferenceRepository {
     }
 
     /** 종료된 그룹런이면 그룹 종료 기준시각, 개인런·미종료 그룹런이면 빈 값이다. */
+    /**
+     * 워치 BPM 리듬 재생 허용 여부(S15P31E105-706). 설정 행이 없으면 기존 동작(재생)을 유지한다. 사용자가 이 세션에서 BPM을 직접 바꿔
+     * 적용했으면 설정과 무관하게 재생한다(사용자 의사 우선).
+     */
+    public boolean rhythmCueEnabled(long sessionId) {
+        return Boolean.TRUE.equals(
+                jdbc.query(
+                                """
+                                SELECT COALESCE((SELECT us.bpm_guide_enabled FROM user_settings us
+                                                 WHERE us.user_id = s.user_id), TRUE)
+                                       OR EXISTS (SELECT 1 FROM session_control_events e
+                                                  WHERE e.session_id = s.id AND e.action = 'SET_BPM'
+                                                    AND e.result = 'APPLIED')
+                                FROM running_sessions s WHERE s.id = ?
+                                """,
+                                (rs, n) -> rs.getBoolean(1),
+                                sessionId)
+                        .stream()
+                        .findFirst()
+                        .orElse(true));
+    }
+
     public Optional<Instant> findGroupEndedAt(long sessionId) {
         return jdbc
                 .query(

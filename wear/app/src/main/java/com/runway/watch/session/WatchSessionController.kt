@@ -82,6 +82,12 @@ data class WatchSessionState(
     val groupRunId: String? = null,
     /** The group as the phone relayed it from G10 (GROUP_STATUS); null until one arrives. Never computed here. */
     val group: GroupStatus? = null,
+    /**
+     * Whether the beat may sound (STATE_RESULT(scope=SERVER).rhythmCueEnabled, S15P31E105-706). False when the runner
+     * turned the BPM guide off and has not changed the BPM by hand in this run: BPM values, coaching and pace stay as
+     * they are, only the sound and vibration are held. A snapshot without the field keeps the last value (true at first).
+     */
+    val rhythmCueEnabled: Boolean = true,
 )
 
 private val NEXT_STATE = mapOf(
@@ -428,7 +434,12 @@ class WatchSessionController(
                     "START" -> gateway.start()
                     "PAUSE" -> if (!lost) gateway.pause()
                     "RESUME" -> gateway.resume()
-                    SET_BPM -> applyBpm(bpm!!)
+                    // 사용자가 직접 바꾼 BPM은 BPM 안내 설정과 무관하게 재생한다(S15P31E105-706). 서버도 이 세션의 적용된
+                    // SET_BPM을 보고 rhythmCueEnabled=true로 보낸다.
+                    SET_BPM -> {
+                        _state.value = _state.value.copy(rhythmCueEnabled = true)
+                        applyBpm(bpm!!)
+                    }
                     else -> if (!lost) gateway.end()
                 }
             }
@@ -517,14 +528,17 @@ class WatchSessionController(
 
     /** Applies an approved BPM: always kept, played only while the exercise runs. The same BPM keeps the beat. */
     private fun applyBpm(bpm: Int) {
-        if (exerciseRunning) player.play(bpm)
+        if (exerciseRunning) {
+            // BPM 안내를 끈 사용자는 값만 적용하고 소리·진동은 내지 않는다(S15P31E105-706).
+            if (_state.value.rhythmCueEnabled) player.play(bpm) else player.stop()
+        }
         _state.value = _state.value.copy(currentBpm = bpm)
     }
 
     private fun syncPlayback() {
         val bpm = _state.value.currentBpm
         try {
-            if (exerciseRunning && bpm != null) player.play(bpm) else player.stop()
+            if (exerciseRunning && bpm != null && _state.value.rhythmCueEnabled) player.play(bpm) else player.stop()
         } catch (_: Exception) {
             // The cue is an aid; its failure never changes the run state.
         }
@@ -727,9 +741,14 @@ class WatchSessionController(
             groupRunId = if (sameSession) current.groupRunId
             else store.prepared()?.takeIf { it.sessionId == message.sessionId }?.groupRunId,
             group = if (sameSession) current.group else null,
+            // 설정 변경은 stateVersion을 올리지 않으므로 같은 버전 스냅샷에서도 받는다(S15P31E105-706).
+            rhythmCueEnabled = message.rhythmCueEnabled() ?: if (sameSession) current.rhythmCueEnabled else true,
         )
         if (newer || phone) {
             exerciseRunning = state == RunState.RUNNING && !lost && !phone
+            syncPlayback()
+        } else if (_state.value.rhythmCueEnabled != current.rhythmCueEnabled) {
+            // 설정만 바뀐 같은 버전 스냅샷은 운동 상태를 건드리지 않고 박자만 다시 맞춘다(S15P31E105-706).
             syncPlayback()
         }
         lastServerStateMs = if (active) elapsedMs() else null

@@ -515,6 +515,8 @@ export function createNativeWatchSession(
         `{"scope":"SERVER","recordingMode":${JSON.stringify(session.recordingMode)},` +
           `"state":${JSON.stringify(session.state)},"stateVersion":${JSON.stringify(session.stateVersion)},` +
           `"currentBpm":${JSON.stringify(session.currentBpm ?? null)},` +
+          // S02 rhythmCueEnabled를 옮긴다(S15P31E105-706). 값이 없으면 기존처럼 재생(true)으로 보낸다.
+          `"rhythmCueEnabled":${JSON.stringify(session.rhythmCueEnabled !== false)},` +
           `"pendingCommand":${commandJson(session.pendingCommand)},` +
           `"lastCommand":${commandJson(session.lastCommand)},"pendingBatchCount":0,` +
           `"clientSendAt":${JSON.stringify(clientSendAt)},` +

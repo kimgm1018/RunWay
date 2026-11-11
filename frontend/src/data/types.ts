@@ -1070,6 +1070,9 @@ export type RunningSessionView = {
   // 서버가 serverSendAt 기준으로 계산한 일시정지 제외 운동시간(초, S15P31E105-643). 시작 전이거나 서버가 아직 주지
   // 않으면 null이고, 앱은 화면 시계로 센다(S15P31E105-528).
   movingDurationSec?: number | null;
+  // S02 rhythmCueEnabled(S15P31E105-706): BPM 안내 설정을 끈 사용자는 false이며 워치가 리듬을 재생하지 않는다. 서버가 아직
+  // 주지 않으면 기존처럼 재생한다(true로 본다).
+  rhythmCueEnabled?: boolean;
 };
 
 // STATE_RESULT analysis.summary(S15P31E105-663): H02 값을 그대로 옮긴다. 폰·워치는 계산하지 않는다.

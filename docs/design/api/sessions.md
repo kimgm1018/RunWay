@@ -162,6 +162,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
 | `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
+| `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 
 ```json
 {
@@ -192,7 +193,8 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
   "serverReceiveAt": "2026-10-28T01:00:00Z",
   "serverSendAt": "2026-10-28T01:00:00.010Z",
   "recordingMode": "WATCH",
-  "groupEndedAt": null
+  "groupEndedAt": null,
+  "rhythmCueEnabled": true
 }
 ```
 
@@ -302,6 +304,7 @@ REC-005·WAT-007의 같은 코스 과거 기록 비교는 서버가 자동 계�
 | `serverSendAt` | string (date-time, UTC) | O | 서버가 응답을 보내는 시각 |
 | `recordingMode` | string (enum) / null | O | WATCH(워치 기록) / PHONE_FALLBACK(폰으로 기록 전환). 기기 정보가 없는 기존 기록은 null |
 | `groupEndedAt` | string (date-time, UTC) / null | O | 개인런·아직 종료되지 않은 그룹런은 null, 종료된 그룹런은 그룹 종료 기준시각. 키는 항상 포함 |
+| `rhythmCueEnabled` | boolean | O | 워치가 BPM 리듬(소리·진동)을 재생해도 되는지. 사용자 설정 `bpmGuideEnabled`가 true이거나 이 세션에서 SET_BPM이 APPLIED된 적이 있으면 true, 설정 행이 없으면 true. 코칭·`currentBpm` 값은 이 값과 무관하다(S15P31E105-706, [BPM 안내 설정](pace-coaching.md#bpm-안내-설정-s15p31e105-706)) |
 
 pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보내지 않음):
 
@@ -346,7 +349,8 @@ pendingCommand / lastCommand의 필드(객체가 null이면 내부 필드를 보
   "serverReceiveAt": "2026-10-28T01:00:00Z",
   "serverSendAt": "2026-10-28T01:00:00.010Z",
   "recordingMode": "WATCH",
-  "groupEndedAt": null
+  "groupEndedAt": null,
+  "rhythmCueEnabled": true
 }
 ```
 

@@ -78,6 +78,8 @@ export type ServerSession = {
   groupEndedAt?: string | null;
   // S15P31E105-643. 이전 응답에는 없을 수 있어 선택으로 둔다.
   movingDurationSec?: number | null;
+  // S15P31E105-706. 이전 응답에는 없을 수 있어 선택으로 둔다.
+  rhythmCueEnabled?: boolean;
 };
 
 const id = (value: string) => Number(value);
@@ -139,6 +141,8 @@ export function sessionView(value: ServerSession): RunningSessionView {
       value.movingDurationSec >= 0
         ? value.movingDurationSec
         : null,
+    // false일 때만 끈다. 값이 없으면 기존처럼 재생한다(S15P31E105-706).
+    rhythmCueEnabled: value.rhythmCueEnabled !== false,
   };
 }
 

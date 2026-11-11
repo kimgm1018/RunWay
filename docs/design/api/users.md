@@ -1304,7 +1304,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 ### 확정 사항과 연계 범위
 
 - 응답 필드는 기존 user_settings의 다섯 설정에 대응한다.
-- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 음성/BPM/그룹런·커뮤니티 알림=false, 위치 OFF다. 예시 값은 기본값이 아니다.
+- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 BPM 안내=true, 음성/그룹런·커뮤니티 알림=false, 위치 OFF다(BPM 안내 기본 켬은 S15P31E105-706, 기존 사용자 반영은 [ERD](../db/erd.md) V36 참고). 예시 값은 기본값이 아니다.
 
 
 ## U20 앱 설정 변경
@@ -1417,7 +1417,7 @@ blockers는 CREW_OWNER, GROUP_RUN_HOST, ACTIVE_RUNNING_SESSION, ACTIVE_GROUP_RUN
 
 - OFF에서 코스 러닝·그룹런 시작 보류 정책 확정. 해당 시작 API 구현·연계 검증은 별도 추적한다.
 - 응답 필드는 기존 user_settings의 다섯 설정에 대응한다.
-- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 음성/BPM/그룹런·커뮤니티 알림=false, 위치 OFF다. 예시 값은 기본값이 아니다.
+- GET/PATCH는 200으로 전체 설정을 반환한다. 신규 가입 초기값은 BPM 안내=true, 음성/그룹런·커뮤니티 알림=false, 위치 OFF다(BPM 안내 기본 켬은 S15P31E105-706, 기존 사용자 반영은 [ERD](../db/erd.md) V36 참고). 예시 값은 기본값이 아니다.
 
 
 ## U21 러너 프로필 조회

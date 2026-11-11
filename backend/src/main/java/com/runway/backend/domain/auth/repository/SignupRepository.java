@@ -77,7 +77,7 @@ public class SignupRepository {
                 INSERT INTO user_settings(user_id,voice_coaching_enabled,bpm_guide_enabled,
                     group_notifications_enabled,community_notifications_enabled,
                     location_collection_mode,account_visibility)
-                VALUES (?,false,false,false,false,'OFF','PRIVATE')
+                VALUES (?,false,true,false,false,'OFF','PRIVATE')
                 """,
                 userId);
     }
