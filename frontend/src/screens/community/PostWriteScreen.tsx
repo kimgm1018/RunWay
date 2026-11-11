@@ -27,6 +27,7 @@ import {
   useResource,
   type PostDraft,
   type PostRecord,
+  type PostRegion,
   type Repositories,
   type RunnerProfile,
 } from '../../data';
@@ -77,6 +78,7 @@ function Composer({
   record,
   initial,
   onSubmit,
+  regionAt,
 }: {
   title: string;
   action: string;
@@ -84,6 +86,8 @@ function Composer({
   record: PostRecord;
   initial: PostDraft;
   onSubmit: (draft: PostDraft) => Promise<void>;
+  // 7.3 only (a new post): the region of the shared course's start, shown and sent with it. 7.3e cannot change it.
+  regionAt?: (position: [number, number]) => Promise<PostRegion | null>;
 }) {
   const navigation = useNavigation();
   const { width, height } = useWindowDimensions();
@@ -101,10 +105,37 @@ function Composer({
       ? record.route
       : null;
   const drawnShape = courseShared && !realMap && record.shape.length >= 2;
+  // 지역 (S15P31E105-687, 사용자 결정 1번): only a shared course gets a region, from its own start point; a post
+  // without it is asked nothing. Not found shows nothing and the post goes without one.
+  const start = courseShared ? record.route?.[0] : undefined;
+  const startLongitude = start?.[0];
+  const startLatitude = start?.[1];
+  const [region, setRegion] = useState<PostRegion | null>(null);
+  useEffect(() => {
+    setRegion(null);
+    if (!regionAt || startLongitude == null || startLatitude == null) {
+      return;
+    }
+    let live = true;
+    regionAt([startLongitude, startLatitude])
+      .then(found => {
+        if (live) {
+          setRegion(found);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [regionAt, startLongitude, startLatitude]);
   const submit = async () => {
     setBusy(true);
     try {
-      await onSubmit({ body: body.trim() || null, courseShared });
+      await onSubmit({
+        body: body.trim() || null,
+        courseShared,
+        regionCode: courseShared ? region?.code ?? null : null,
+      });
     } finally {
       setBusy(false);
     }
@@ -238,6 +269,14 @@ function Composer({
                 dark
               />
             </View>
+            {courseShared && region ? (
+              <View style={styles.region}>
+                <Icon name="mapPin" color={feedLook.white} size={14} />
+                <AppText style={styles.shareNote}>
+                  {`지역: ${region.label}`}
+                </AppText>
+              </View>
+            ) : null}
           </View>
         </ScrollView>
       </KeyboardLift>
@@ -305,6 +344,7 @@ export function PostWriteScreen() {
         me={me.data}
         record={record.data}
         initial={{ body: null, courseShared: record.data.courseRun }}
+        regionAt={community.regionAt}
         onSubmit={async draft => {
           try {
             await community.create(record.data.id, draft);
@@ -506,6 +546,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     color: feedLook.white,
+  },
+  // 7.3 지역: 부산 수영구 under the course switch.
+  region: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
   },
   shareNote: {
     marginTop: 8,

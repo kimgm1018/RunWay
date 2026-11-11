@@ -343,8 +343,21 @@ export type FeedScope = 'ALL' | 'FOLLOWING';
 // One page of posts (CMT02 · CMT18 · CMT19, S15P31E105-647); nextCursor is null on the last page.
 export type PostPage = { items: Post[]; nextCursor: string | null };
 
+// 7.1 지역 고르기 (CMT12, S15P31E105-687): a sido and its 시·군·구, each with its region code.
+export type FeedRegionArea = { code: string; name: string };
+export type FeedRegionProvince = FeedRegionArea & { areas: FeedRegionArea[] };
+
 // 7.3 기록 공유 and 7.3e 게시물 수정.
-export type PostDraft = { body: string | null; courseShared: boolean };
+// regionCode (CMT01, S15P31E105-687): the region 7.3 showed for the shared course's start; it goes only with a
+// shared course and is ignored by an edit (CMT04 has no region).
+export type PostDraft = {
+  body: string | null;
+  courseShared: boolean;
+  regionCode?: string | null;
+};
+
+// The region of a shared course's start as 7.3 shows it: ‘부산 수영구’ with its CMT12 code.
+export type PostRegion = { code: string; label: string };
 
 // 7.4 러너 프로필 and 7.4b 내 프로필 (U21). records are the runner's shared runs, or my recent runs.
 export type RunnerProfile = {
@@ -1087,7 +1100,11 @@ export type WatchGroupStatus = {
   paceChanged?: { from: number; to: number } | null;
   // 그룹장 폰이 본 선두–후미 간격 벌어짐(S15P31E105-629). 기준을 넘은 뒤 다시 내려오기 전까지 매번 넣고,
   // 넘은 순간의 현황에만 isNew=true다. 워치는 isNew일 때만 진동한다. 그룹장이 아니거나 벌어지지 않았으면 null.
-  gapWidened?: { gapM: number; memberName: string | null; isNew: boolean } | null;
+  gapWidened?: {
+    gapM: number;
+    memberName: string | null;
+    isNew: boolean;
+  } | null;
 };
 
 // P07 REQUEST 응답(pace-coaching.md). 재요청이면 저장된 결과가 온다.
@@ -1245,7 +1262,11 @@ export type SearchRequest = {
 // cursor is null when nothing more is left.
 export type SearchPage = {
   // profileImageUrl: the runner's photo address, or null without one.
-  runners: { userId: string; nickname: string; profileImageUrl: string | null }[];
+  runners: {
+    userId: string;
+    nickname: string;
+    profileImageUrl: string | null;
+  }[];
   crews: { crewId: string; name: string }[];
   cursor: string | null;
 };
@@ -1426,8 +1447,18 @@ export type Repositories = {
     getResult: (groupRunId: string) => Promise<GroupRunResult>;
   };
   community: {
-    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page).
-    listFeed: (scope: FeedScope, cursor?: string | null) => Promise<PostPage>;
+    // CMT02 by scope, 20 a page from the cursor (null or left out for the first page). A region code keeps the
+    // posts of that sido or 시·군·구 (S15P31E105-687); null or left out is 전국.
+    listFeed: (
+      scope: FeedScope,
+      cursor?: string | null,
+      regionCode?: string | null,
+    ) => Promise<PostPage>;
+    // CMT12 every sido with its 시·군·구, for 7.1 지역 고르기.
+    listRegions: () => Promise<FeedRegionProvince[]>;
+    // 7.3 지역: the region of a shared course's start point ([longitude, latitude]), through the phone's geocoder;
+    // null when it cannot be told within a few seconds (S15P31E105-687).
+    regionAt: (position: [number, number]) => Promise<PostRegion | null>;
     // CMT02 by authorId: one runner's posts, 20 a page.
     listAuthorPosts: (
       userId: string,

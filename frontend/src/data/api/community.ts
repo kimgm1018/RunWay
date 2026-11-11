@@ -6,6 +6,7 @@ import type {
   PostComment,
   PostDetail,
   PostPage,
+  PostRegion,
   PostRecord,
   Repositories,
 } from '../types';
@@ -13,6 +14,7 @@ import { basemapOf } from './basemap';
 import { apiRequest } from './http';
 import { imageAddress } from './images';
 import { listItems } from './listItems';
+import type { Regions } from './regions';
 import { tokenStore } from './tokenStore';
 
 // CMT01–CMT19 커뮤니티 (docs/design/api/community.md). Posts carry their like and comment counts, my
@@ -172,11 +174,45 @@ export function recordOf(response: PostResponse): PostRecord {
   };
 }
 
+// How long a new post waits for the region its run started in before it is shared without one.
+const regionWaitMs = 3000;
+
 export function createCommunityApi({
   records,
+  regions,
+  addressOf = async () => null,
 }: {
   records: Repositories['records'];
+  // CMT12 (S15P31E105-687); without it 7.1 offers only 전국 and a post goes without a region.
+  regions?: Regions;
+  // The phone's full address of a [longitude, latitude] point, with its 시·도.
+  addressOf?: (position: [number, number]) => Promise<string | null>;
 }): Repositories['community'] {
+  // The region of a shared course's start (S15P31E105-687, 사용자 결정 1번): only a post that shares its course
+  // gets one, and the point is the course's own start, already public with it, never my GPS track. A phone that
+  // finds nothing or one too slow gives none and the post goes without a region. Only codes from CMT12 come out
+  // (posts.region_code references regions). Coordinates are never logged.
+  const regionAt = async (
+    position: [number, number],
+  ): Promise<PostRegion | null> => {
+    if (!regions) {
+      return null;
+    }
+    const find = async () => {
+      const code = await regions.codeAt(await addressOf(position));
+      const label = code ? await regions.name(code) : null;
+      return code && label ? { code, label } : null;
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>(resolve => {
+      timer = setTimeout(() => resolve(null), regionWaitMs);
+    });
+    try {
+      return await Promise.race([find().catch(() => null), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   // Likes I made or took back in this session, only for a server that leaves out myReaction: when the
   // post carries myReaction, the server's value wins on every read.
   const likes = new Map<string, boolean>();
@@ -282,7 +318,14 @@ export function createCommunityApi({
   };
 
   return {
-    listFeed: (scope, cursor) => readPage('/posts', { scope }, cursor),
+    listFeed: (scope, cursor, regionCode) =>
+      readPage(
+        '/posts',
+        regionCode ? { scope, regionCode } : { scope },
+        cursor,
+      ),
+    listRegions: async () => (regions ? regions.provinces() : []),
+    regionAt,
     listAuthorPosts: (userId, cursor) =>
       readPage('/posts', { authorId: userId }, cursor),
     listMyBookmarks: cursor => readPage('/users/me/bookmarks', {}, cursor),
@@ -354,13 +397,16 @@ export function createCommunityApi({
     },
     // CMT01 takes the run as its session id and 코스도 함께 공유 as courseShared; the server keeps it false
     // for a free run.
+    // The region 7.3 showed goes along only with a shared course (S15P31E105-687).
     create: async (recordId, draft) => {
+      const regionCode = draft.courseShared ? draft.regionCode : null;
       const { id } = await apiRequest<{ id: number }>('/posts', {
         method: 'POST',
         body: {
           sessionId: Number(recordId),
           body: draft.body,
           courseShared: draft.courseShared,
+          ...(regionCode ? { regionCode } : {}),
         },
       });
       return { id: String(id) };

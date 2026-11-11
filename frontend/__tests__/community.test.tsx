@@ -1301,6 +1301,7 @@ test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () =
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
     courseShared: false,
+    regionCode: null,
   });
 });
 
@@ -1320,6 +1321,85 @@ test('7.3 keeps 코스도 함께 공유 off and disabled on a free run', async (
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
     courseShared: false,
+    regionCode: null,
+  });
+});
+
+// S15P31E105-687 사용자 결정 1번: only a shared course gets a region, from its start, shown on 7.3 before 게시.
+function withCourseStart() {
+  const { repositories, created } = withRun(true);
+  const { getShareable } = repositories.community;
+  repositories.community.getShareable = async recordId => ({
+    ...(await getShareable(recordId)),
+    courseRun: true,
+    route: [
+      [129.118, 35.153],
+      [129.12, 35.155],
+    ],
+  });
+  const regionAt = jest.fn(repositories.community.regionAt);
+  repositories.community.regionAt = regionAt;
+  return { repositories, created, regionAt };
+}
+
+test('7.3 shows 지역 for a shared course and sends it with the post', async () => {
+  const { repositories, created, regionAt } = withCourseStart();
+  const screen = await openShare(repositories);
+  await settle(50);
+
+  expect(regionAt).toHaveBeenCalledWith([129.118, 35.153]);
+  expect(texts(screen)).toContain('지역: 부산 수영구');
+
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: true,
+    regionCode: '26500',
+  });
+});
+
+test('7.3 hides 지역 and sends none once the course is not shared', async () => {
+  const { repositories, created } = withCourseStart();
+  const screen = await openShare(repositories);
+  await settle(50);
+  expect(texts(screen)).toContain('지역: 부산 수영구');
+
+  await act(async () => courseSwitch(screen).props.onPress());
+  await settle(50);
+  expect(texts(screen)).not.toContain('지역:');
+
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: false,
+    regionCode: null,
+  });
+});
+
+test('7.3 asks no region for a free run and shows none when none is found', async () => {
+  const free = withRun(false);
+  const freeRegionAt = jest.fn(free.repositories.community.regionAt);
+  free.repositories.community.regionAt = freeRegionAt;
+  let screen = await openShare(free.repositories);
+  await settle(50);
+  expect(freeRegionAt).not.toHaveBeenCalled();
+  expect(texts(screen)).not.toContain('지역:');
+  await act(async () => screen.unmount());
+  mounted = null;
+
+  const { repositories, created } = withCourseStart();
+  repositories.community.regionAt = async () => null;
+  screen = await openShare(repositories);
+  await settle(50);
+  expect(texts(screen)).not.toContain('지역:');
+  await press(screen, '게시');
+  await settle(100);
+  expect(created).toHaveBeenCalledWith(expect.any(String), {
+    body: null,
+    courseShared: true,
+    regionCode: null,
   });
 });
 

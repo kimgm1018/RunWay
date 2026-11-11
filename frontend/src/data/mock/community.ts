@@ -300,6 +300,7 @@ export function createCommunityMock({
   };
 
   const community: Repositories['community'] = {
+    // Mock posts carry no region, so a picked region keeps them all (S15P31E105-687).
     listFeed: (scope, cursor) =>
       respond(
         feedPage(
@@ -309,6 +310,27 @@ export function createCommunityMock({
           cursor,
         ),
       ),
+    listRegions: () =>
+      respond([
+        {
+          code: '11000',
+          name: '서울',
+          areas: [
+            { code: '11140', name: '중구' },
+            { code: '11680', name: '강남구' },
+          ],
+        },
+        {
+          code: '26000',
+          name: '부산',
+          areas: [
+            { code: '26350', name: '해운대구' },
+            { code: '26500', name: '수영구' },
+          ],
+        },
+      ]),
+    // 7.3 지역: every mock course starts by 광안리.
+    regionAt: () => respond({ code: '26500', label: '부산 수영구' }),
     listAuthorPosts: (userId, cursor) =>
       respond(
         feedPage(

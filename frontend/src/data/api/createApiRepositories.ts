@@ -32,6 +32,7 @@ import {
 import { createReadinessApi, createReadinessOnApi } from './readiness';
 import { createRecordsApi } from './records';
 import { createRegions } from './regions';
+import { placeAddressOf } from '../placeName';
 import { serverRequest } from './request';
 import { searchApi } from './search';
 import { settingsApi } from './settings';
@@ -111,7 +112,11 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     // 8.4–8.6 회원탈퇴: U17 사전 정보와 U18 탈퇴 (S15P31E105-523).
     account: createAccountApi(),
     // CMT01–CMT11 커뮤니티.
-    community: createCommunityApi({ records }),
+    community: createCommunityApi({
+      records,
+      regions,
+      addressOf: placeAddressOf,
+    }),
     // 7.4 러너 프로필 · 7.4b 내 프로필 (U21) and 팔로우 · 취소 (U22 · U23), S15P31E105-524.
     runners: createRunnersApi({ myId, records }),
     // 7.5 검색 (CMT13): runners and crews by name.
@@ -126,7 +131,8 @@ export function createApiRepositories(mockOptions?: MockOptions): Repositories {
     session: {
       ...createApiSessionRepository(serverRequest),
       uploadBatch: uploadSyncBatch,
-      subscribeEvents: (sessionId, handlers) => createSessionEvents({ sessionId, ...handlers }).stop,
+      subscribeEvents: (sessionId, handlers) =>
+        createSessionEvents({ sessionId, ...handlers }).stop,
     },
     watchSession,
     // S15P31E105-571: 설정·온보딩 워치 상태는 Data Layer 노드 + W01~W03. mock 연결/기기명을 쓰지 않는다.

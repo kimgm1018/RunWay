@@ -115,23 +115,40 @@ public class PostService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PostListResponse list(
             long userId, String scope, Long authorId, String cursor, Integer limit) {
+        return list(userId, scope, authorId, null, cursor, limit);
+    }
+
+    /**
+     * CMT02 지역 필터(S15P31E105-687). regionCode가 비어 있으면 전국이다. 시/도 코드는 그 시/도 전체, 시/군/구 코드는 그 시/군/구(하위 구
+     * 포함)이며, 지역을 고르면 지역이 비어 있는 글은 보이지 않는다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PostListResponse list(
+            long userId,
+            String scope,
+            Long authorId,
+            String regionCode,
+            String cursor,
+            Integer limit) {
         requireExistingUser(userId);
+        String region = blankToNull(regionCode);
         String resolvedScope = resolveScope(scope);
         boolean following = SCOPE_FOLLOWING.equals(resolvedScope);
         int pageSize = PostPageCursor.resolveLimit(limit);
         Long beforeId =
                 cursor == null
                         ? null
-                        : PostPageCursor.decodeFeed(cursor, userId, resolvedScope, authorId);
+                        : PostPageCursor.decodeFeed(
+                                cursor, userId, resolvedScope, authorId, region);
         List<Long> ids =
                 postPageQueryRepository.findVisiblePostIds(
-                        userId, following, authorId, beforeId, pageSize + 1);
+                        userId, following, authorId, region, beforeId, pageSize + 1);
         boolean hasNext = ids.size() > pageSize;
         List<Long> page = ids.subList(0, Math.min(ids.size(), pageSize));
         String nextCursor =
                 hasNext
                         ? PostPageCursor.encodeFeed(
-                                userId, resolvedScope, authorId, page.getLast())
+                                userId, resolvedScope, authorId, region, page.getLast())
                         : null;
         return new PostListResponse(toListItems(userId, page), nextCursor, hasNext);
     }
