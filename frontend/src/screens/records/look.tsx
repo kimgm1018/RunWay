@@ -64,7 +64,8 @@ export const frostCard: ViewStyle = {
 // bottom bar's place (64 high, 16 in) for 5.2's buttons. The card's content scrolls inside it when it is long.
 export const recordsFrame = {
   side: 16,
-  tabsHeight: 62,
+  // 5.1's (and 2.1's) week strip: capsule days with room for the ring, then the legend (S15P31E105-657).
+  tabsHeight: 114,
   thinTabsHeight: 44,
   gap: 12,
 } as const;

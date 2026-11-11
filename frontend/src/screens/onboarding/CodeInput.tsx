@@ -34,7 +34,7 @@ const GROUP_GAP = 18;
 const MAX_TILE = 44;
 const INK = '#061216';
 const MUTED = 'rgba(6,18,22,0.6)';
-const ERROR = '#B2533B';
+const ERROR = '#D44A4A';
 // 키보드 문자 자동완성처럼 여러 자리가 한 번에 들어오면 앞 칸부터 이 간격으로 하나씩 채운다.
 const FILL_STEP_MS = 60;
 const ROLL_MS = 320;

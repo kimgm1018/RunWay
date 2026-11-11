@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     color: recordsLook.onCardSub,
   },
-  goalMissed: { color: '#F4B7A4' },
+  goalMissed: { color: '#E79B9B' },
   paceBlock: { marginTop: 6 },
   paceRow: {
     marginTop: 3,
