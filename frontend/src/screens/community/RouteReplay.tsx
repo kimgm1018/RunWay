@@ -37,6 +37,7 @@ import {
   bearingOf,
   distanceM as legLengthM,
   routeLengthM,
+  routeSections,
   type LngLat,
 } from '../../geo';
 import { formatPace } from '../../format';
@@ -397,7 +398,22 @@ function overviewOf(route: LngLat[], width: number, height: number) {
 // Each leg's length and the whole length, measured once per route (S15P31E105-686): the playback asks for a
 // point and two headings ten times a second, and measuring every leg again each time slowed long runs.
 const measured = new WeakMap<LngLat[], { legs: number[]; total: number }>();
-function measure(route: LngLat[]) {
+const measuredWithGaps = new WeakMap<LngLat[], Map<string, { legs: number[]; total: number }>>();
+function measure(route: LngLat[], unmeasuredEdges: number[] = []) {
+  if (unmeasuredEdges.length) {
+    const key = unmeasuredEdges.join(',');
+    const cached = measuredWithGaps.get(route)?.get(key);
+    if (cached) return cached;
+    const gaps = new Set(unmeasuredEdges);
+    const legs = route.slice(1).map((point, index) =>
+      gaps.has(index) ? 0 : legLengthM(route[index], point),
+    );
+    const result = { legs, total: legs.reduce((sum, length) => sum + length, 0) };
+    const routes = measuredWithGaps.get(route) ?? new Map();
+    routes.set(key, result);
+    measuredWithGaps.set(route, routes);
+    return result;
+  }
   let found = measured.get(route);
   if (!found) {
     const legs = route
@@ -411,8 +427,8 @@ function measure(route: LngLat[]) {
 
 // The point `progress` (0–1) of the way along the route, by distance: the end of walkAlong's path, from the
 // measured legs.
-export function pointAt(route: LngLat[], progress: number): LngLat {
-  const { legs, total } = measure(route);
+export function pointAt(route: LngLat[], progress: number, unmeasuredEdges: number[] = []): LngLat {
+  const { legs, total } = measure(route, unmeasuredEdges);
   let left = total * Math.min(1, Math.max(0, progress));
   if (route.length < 2 || left <= 0) {
     return route[0];
@@ -420,7 +436,7 @@ export function pointAt(route: LngLat[], progress: number): LngLat {
   for (let index = 1; index < route.length; index += 1) {
     const [from, to] = [route[index - 1], route[index]];
     const length = legs[index - 1];
-    if (left <= length) {
+    if (length > 0 && left <= length) {
       const t = length === 0 ? 0 : left / length;
       return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
     }
@@ -430,9 +446,9 @@ export function pointAt(route: LngLat[], progress: number): LngLat {
 }
 
 // The heading `progress` of the way along, looking a little ahead (back from the end).
-function headingAt(route: LngLat[], progress: number) {
-  const from = pointAt(route, Math.min(progress, 1 - lookAhead));
-  const to = pointAt(route, Math.min(1, progress + lookAhead));
+function headingAt(route: LngLat[], progress: number, unmeasuredEdges: number[] = []) {
+  const from = pointAt(route, Math.min(progress, 1 - lookAhead), unmeasuredEdges);
+  const to = pointAt(route, Math.min(1, progress + lookAhead), unmeasuredEdges);
   return bearingOf(from, to);
 }
 
@@ -445,11 +461,13 @@ function turnToward(current: number, target: number, rate: number) {
 function MapReplay({
   post,
   route,
+  unmeasuredEdges,
   visible,
   onClose,
 }: {
   post: Post;
   route: LngLat[];
+  unmeasuredEdges: number[];
   visible: boolean;
   onClose: () => void;
 }) {
@@ -460,6 +478,22 @@ function MapReplay({
     () => route.map(([longitude, latitude]) => ({ latitude, longitude })),
     [route],
   );
+  const replaySections = useMemo(() => {
+    if (!unmeasuredEdges.length) return null;
+    const { measured: parts, connectors } = routeSections(route, unmeasuredEdges);
+    const total = measure(route, unmeasuredEdges).total;
+    let start = 0;
+    return {
+      total,
+      parts: parts.map(part => {
+        const length = routeLengthM(part);
+        const result = { part: part.map(([longitude, latitude]) => ({ latitude, longitude })), start, length };
+        start += length;
+        return result;
+      }),
+      connectors: connectors.map(part => part.map(([longitude, latitude]) => ({ latitude, longitude }))),
+    };
+  }, [route, unmeasuredEdges]);
   const size = useRef({ width, height });
   size.current = { width, height };
   const [camera, setCamera] = useState(() => overviewOf(route, width, height));
@@ -482,6 +516,8 @@ function MapReplay({
   // The post reloads under the replay (a new array each time); the timeline keys on opening, not on that.
   const path = useRef(route);
   path.current = route;
+  const edges = useRef(unmeasuredEdges);
+  edges.current = unmeasuredEdges;
 
   // Every opening: the overview at once, then the swoop in to the start, turned to the way ahead.
   useEffect(() => {
@@ -490,7 +526,7 @@ function MapReplay({
     }
     openedAt.current = Date.now();
     at.current = 0;
-    heading.current = headingAt(path.current, 0);
+    heading.current = headingAt(path.current, 0, edges.current);
     setShown(0);
     setDone(false);
     setPlaying(false);
@@ -549,13 +585,19 @@ function MapReplay({
     setMotion({ duration: tickMs, easing: 'Linear' });
     const step = () => {
       const progress = Math.min(1, from + (Date.now() - began) / playMs);
+      if (replaySections) {
+        const partAt = (value: number) => replaySections.parts.findIndex(
+          part => value * replaySections.total <= part.start + part.length,
+        );
+        setMotion({ duration: partAt(at.current) === partAt(progress) ? tickMs : 0, easing: 'Linear' });
+      }
       at.current = progress;
       heading.current = turnToward(
         heading.current,
-        headingAt(path.current, progress),
+        headingAt(path.current, progress, unmeasuredEdges),
         turnRate,
       );
-      const [longitude, latitude] = pointAt(path.current, progress);
+      const [longitude, latitude] = pointAt(path.current, progress, unmeasuredEdges);
       setCamera({ latitude, longitude, ...close, bearing: heading.current });
       setShown(progress);
       if (progress >= 1) {
@@ -566,7 +608,7 @@ function MapReplay({
     step();
     const timer = setInterval(step, tickMs);
     return () => clearInterval(timer);
-  }, [visible, playing, playMs]);
+  }, [visible, playing, playMs, replaySections, unmeasuredEdges]);
 
   // The outro: a beat on the finish, then the camera rises, levels and turns north to the whole course, now drawn.
   useEffect(() => {
@@ -589,7 +631,7 @@ function MapReplay({
     if (done) {
       // Again from the start: the course is wiped and the camera swoops back in from the overview.
       at.current = 0;
-      heading.current = headingAt(route, 0);
+      heading.current = headingAt(route, 0, unmeasuredEdges);
       setShown(0);
       setDone(false);
       setIntro(true);
@@ -665,7 +707,17 @@ function MapReplay({
                 later, and removing them first (a feed switch) crashed in its getChildAt. */}
             {ready ? (
               <>
-                {outline ? (
+                {replaySections?.connectors.map((part, index) => (
+                  <NaverMapPathOverlay
+                    key={`connector-${index}`}
+                    coords={part}
+                    width={3}
+                    color="#8A979E"
+                    outlineWidth={0}
+                    zIndex={0}
+                  />
+                ))}
+                {outline && !replaySections ? (
                   // The whole course, thin and grey, over the opening overview; under the run's lines.
                   <NaverMapPathOverlay
                     coords={coords}
@@ -676,23 +728,23 @@ function MapReplay({
                   />
                 ) : null}
                 {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
-                <NaverMapPathOverlay
+                {!replaySections ? <NaverMapPathOverlay
                   coords={coords}
                   width={darkMapLook.glowOuterWidth}
                   {...reveal}
                   passedColor={darkMapLook.glowOuter}
                   outlineWidth={0}
                   zIndex={1}
-                />
-                <NaverMapPathOverlay
+                /> : null}
+                {!replaySections ? <NaverMapPathOverlay
                   coords={coords}
                   width={darkMapLook.glowInnerWidth}
                   {...reveal}
                   passedColor={darkMapLook.glowInner}
                   outlineWidth={0}
                   zIndex={2}
-                />
-                <NaverMapPathOverlay
+                /> : null}
+                {!replaySections ? <NaverMapPathOverlay
                   coords={coords}
                   width={darkMapLook.coreWidth}
                   {...reveal}
@@ -701,7 +753,24 @@ function MapReplay({
                   passedOutlineColor={darkMapLook.ribbon}
                   outlineWidth={darkMapLook.coreEdge}
                   zIndex={3}
-                />
+                /> : null}
+                {replaySections?.parts.map((part, index) => {
+                  const progress = part.length > 0
+                    ? Math.max(0, Math.min(1, (shown * replaySections.total - part.start) / part.length))
+                    : 0;
+                  return <NaverMapPathOverlay
+                    key={`measured-${index}`}
+                    coords={part.part}
+                    width={darkMapLook.coreWidth}
+                    color={darkMapLook.unpassed}
+                    progress={progress}
+                    passedColor={darkMapLook.ink}
+                    outlineColor={darkMapLook.unpassed}
+                    passedOutlineColor={darkMapLook.ribbon}
+                    outlineWidth={darkMapLook.coreEdge}
+                    zIndex={3}
+                  />;
+                })}
               </>
             ) : null}
           </NaverMapView>
@@ -725,10 +794,11 @@ export function RouteReplay(props: {
   post: Post;
   visible: boolean;
   onClose: () => void;
+  unmeasuredEdges?: number[];
 }) {
   const route = props.post.record.route;
   return route && route.length >= 2 ? (
-    <MapReplay {...props} route={route} />
+    <MapReplay {...props} route={route} unmeasuredEdges={props.unmeasuredEdges ?? []} />
   ) : (
     <ShapeReplay {...props} />
   );

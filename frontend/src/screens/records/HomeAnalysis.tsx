@@ -508,10 +508,12 @@ export function HomeRecord({
   record,
   onOpen,
   openLabel,
+  action,
 }: {
   record: RunRecordDetail;
   onOpen?: () => void;
   openLabel?: string;
+  action?: React.ReactNode;
 }) {
   const seen = measured(record.splits);
   // 요청서 5 사용자 상태별 표시: one line under the lines for what is missing.
@@ -649,6 +651,7 @@ export function HomeRecord({
   return (
     <View style={styles.root}>
       <RunRow record={record} onOpen={onOpen} openLabel={openLabel} />
+      {action}
       <View ref={cardTop} collapsable={false}>
         <FlipCard
           front={front}

@@ -12,9 +12,14 @@ public record PostCreateResponse(
         Long courseId,
         boolean courseShared,
         Instant createdAt,
-        String imageUrl) {
+        String imageUrl,
+        String courseShareFailureReason) {
 
     public static PostCreateResponse from(Post post, Long courseId) {
+        return from(post, courseId, null);
+    }
+
+    public static PostCreateResponse from(Post post, Long courseId, String courseShareFailureReason) {
         return new PostCreateResponse(
                 post.getId(),
                 post.getBody(),
@@ -23,6 +28,7 @@ public record PostCreateResponse(
                 courseId,
                 post.isCourseShared() && courseId != null,
                 post.getCreatedAt(),
-                null);
+                null,
+                courseShareFailureReason);
     }
 }

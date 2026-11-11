@@ -141,6 +141,7 @@ export function PostDetailScreen() {
   // The course's points as 7.1 already read them (getRoute keeps them), so the map is drawn as the page opens
   // rather than after the post, its comments and its course are read again (사용자 요청).
   const [routeAhead, setRouteAhead] = useState<LngLat[] | null>(null);
+  const [unmeasuredEdges, setUnmeasuredEdges] = useState<number[]>([]);
   useEffect(() => {
     if (!postId) {
       return;
@@ -152,6 +153,7 @@ export function PostDetailScreen() {
       .then(map => {
         if (live && map && map.route.length >= 2) {
           setRouteAhead(map.route);
+          setUnmeasuredEdges(map.unmeasuredEdges ?? []);
         }
       })
       .catch(() => undefined);
@@ -213,6 +215,7 @@ export function PostDetailScreen() {
         <>
           <RunMap
             route={mapRoute}
+            unmeasuredEdges={unmeasuredEdges}
             interactive={false}
             area={{ top: 0.14, bottom: mapShare - 0.04 }}
             view="lean"
@@ -533,6 +536,7 @@ export function PostDetailScreen() {
       {post?.courseShared ? (
         <RouteReplay
           post={post}
+          unmeasuredEdges={unmeasuredEdges}
           visible={replay}
           onClose={() => setReplay(false)}
         />

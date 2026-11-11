@@ -46,7 +46,7 @@ public class CourseBasemapRepository {
     /** 코스 상태. 코스가 없으면 빈 값. */
     public Optional<String> findCourseStatus(long courseId) {
         return jdbcTemplate
-                .queryForList("SELECT status::text FROM courses WHERE id = ?", String.class, courseId)
+                .queryForList("SELECT status::text FROM courses WHERE id = ? AND is_private=false", String.class, courseId)
                 .stream()
                 .findFirst();
     }
@@ -73,6 +73,7 @@ public class CourseBasemapRepository {
                 """
                 SELECT c.id FROM courses c
                 WHERE c.status = 'ACTIVE'
+                  AND c.is_private = false
                   AND NOT EXISTS (SELECT 1 FROM course_basemaps b
                                   WHERE b.course_id = c.id AND b.render_version = ?)
                 ORDER BY c.id

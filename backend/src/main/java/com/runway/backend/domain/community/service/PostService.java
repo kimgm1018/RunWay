@@ -27,6 +27,7 @@ import com.runway.backend.domain.community.repository.RunningSessionLookupReposi
 import com.runway.backend.domain.community.service.PostPageCursor.ActivityCursor;
 import com.runway.backend.global.exception.ApiException;
 import com.runway.backend.global.exception.ErrorCode;
+import com.runway.backend.domain.course.service.RunCourseService;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -62,6 +63,7 @@ public class PostService {
     private final PostBookmarkRepository postBookmarkRepository;
     private final PostPageQueryRepository postPageQueryRepository;
     private final EntityManager entityManager;
+    private final RunCourseService runCourseService;
 
     @Transactional
     public PostCreateResponse create(long userId, CreatePostRequest request) {
@@ -78,9 +80,14 @@ public class PostService {
             throw invalidPost();
         }
 
-        // 생략은 공유(true). 세션에 코스가 없으면 공유할 코스가 없으므로 false로 저장한다.
-        boolean courseShared =
-                session.courseId() != null && !Boolean.FALSE.equals(request.courseShared());
+        Long courseId = session.courseId();
+        String courseShareFailureReason = null;
+        if (courseId == null && !Boolean.FALSE.equals(request.courseShared())) {
+            var conversion = runCourseService.trySaveForPost(userId, request.sessionId());
+            courseId = conversion.courseId();
+            courseShareFailureReason = conversion.failureReason();
+        }
+        boolean courseShared = courseId != null && !Boolean.FALSE.equals(request.courseShared());
         Post post =
                 Post.create(
                         userId,
@@ -92,7 +99,7 @@ public class PostService {
         postRepository.save(post);
         postRepository.flush();
         entityManager.refresh(post);
-        return PostCreateResponse.from(post, session.courseId());
+        return PostCreateResponse.from(post, courseId, courseShareFailureReason);
     }
 
     /**
@@ -237,6 +244,9 @@ public class PostService {
             post.updateBody(blankToNull(request.body()));
         }
         Long courseId = locked.session() == null ? null : locked.session().courseId();
+        if (courseId == null && Boolean.TRUE.equals(request.courseShared())) {
+            courseId = runCourseService.trySaveForPost(userId, post.getSessionId()).courseId();
+        }
         if (courseId == null) {
             // 공유할 코스가 없으면 요청 값과 무관하게 false로 둔다. V27 이전 자유 러닝 게시물도 여기서 false가 된다.
             post.updateCourseShared(false);

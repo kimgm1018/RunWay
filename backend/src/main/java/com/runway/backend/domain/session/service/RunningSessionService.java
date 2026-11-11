@@ -147,7 +147,7 @@ public class RunningSessionService {
         access.requireOwnedDevice(userId, controlDeviceId, DeviceType.WATCH);
         access.requireOwnedDevice(userId, relayDeviceId, DeviceType.PHONE);
         validateTargets(goal);
-        CourseInfo course = access.requireUsableCourse(goal.courseId());
+        CourseInfo course = access.requireUsableCourse(userId, goal.courseId());
 
         referenceRepository.lockSessionCreation(userId);
         validateComparison(userId, goal);
@@ -319,7 +319,7 @@ public class RunningSessionService {
             throw new ApiException(ErrorCode.STALE_STATE);
         }
         validateTargets(goal);
-        CourseInfo course = access.requireUsableCourse(goal.courseId());
+        CourseInfo course = access.requireUsableCourse(userId, goal.courseId());
         // 비교 대상·코스가 그대로면 기존 참조를 보존한다(S09 삭제 후 참조 규칙). 새 조합만 다시 검사한다.
         SessionGoal current = session.goal();
         if (!Objects.equals(goal.comparisonSessionId(), current.comparisonSessionId())

@@ -171,6 +171,7 @@ export type SavedCourse = {
   shape: [number, number][];
   // The course as GeoJSON [longitude, latitude] points (C03 route), for the card's map (S15P31E105-562).
   route: [number, number][];
+  unmeasuredEdges?: number[];
   // C09·C03 status. Missing on older mocks means ACTIVE.
   status?: CourseStatus;
   // C09·C03: set when status is MERGED so the representative course can be named.
@@ -190,6 +191,7 @@ export type CourseBasemap = {
 export type CourseMapData = {
   route: [number, number][];
   basemap: CourseBasemap | null;
+  unmeasuredEdges?: number[];
 };
 
 // 기존 코스 태그 표현. U11·U12 기본값은 아래 RecommendationFilters를 사용한다.
@@ -1358,12 +1360,7 @@ export type Repositories = {
     unsave: (courseId: string) => Promise<void>;
     choose: (courseId: string) => Promise<void>;
     // 4.5F 내 코스에 저장: turns a free run's path into a saved course.
-    saveFromRun: (run: {
-      recordId: string;
-      route: [number, number][];
-      distanceM: number;
-      durationSec: number;
-    }) => Promise<{ courseId: string }>;
+    saveFromRun: (recordId: string) => Promise<{ courseId: string }>;
   };
   // 6.1–6.3 크루 (M01–M11).
   crews: {
@@ -1474,7 +1471,11 @@ export type Repositories = {
     getRoute: (postId: string) => Promise<CourseMapData | null>;
     // The run 7.3 shares: the given record, or my newest one.
     getShareable: (recordId: string | null) => Promise<PostRecord>;
-    create: (recordId: string, draft: PostDraft) => Promise<{ id: string }>;
+    create: (recordId: string, draft: PostDraft) => Promise<{
+      id: string;
+      courseShared: boolean;
+      courseShareFailureReason: string | null;
+    }>;
     update: (postId: string, draft: PostDraft) => Promise<void>;
     remove: (postId: string) => Promise<void>;
     setLiked: (postId: string, liked: boolean) => Promise<void>;

@@ -10,6 +10,8 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText, Icon, Logo, Pop, useCountUp } from '../../components';
+import { useRepositories } from '../../data';
+import { errorCode } from '../../data/errors';
 import { formatDuration, formatKm, formatPace } from '../../format';
 import { navigateTo } from '../../navigation/navigateTo';
 import { fontFamily, spacing, ThemeProvider } from '../../theme';
@@ -59,6 +61,9 @@ function timeWords(seconds: number) {
 export function RunResultScreen() {
   const navigation = useNavigation();
   const { run, retrySave } = useRunSession();
+  const { courses } = useRepositories();
+  const [courseSave, setCourseSave] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [courseSaveError, setCourseSaveError] = useState('');
   const control = useRunControlState();
   const finalComparison = useFinalComparison(
     control?.sessionId ?? null,
@@ -80,6 +85,26 @@ export function RunResultScreen() {
 
   // Hooks come before the early return below; the count is used only for an achieved goal.
   const countedDistance = useCountUp(run?.summary?.distanceM ?? 0);
+
+  const saveCourse = async () => {
+    if (!run?.recordId || courseSave === 'saving' || courseSave === 'saved') return;
+    setCourseSave('saving');
+    try {
+      await courses.saveFromRun(run.recordId);
+      setCourseSave('saved');
+      setCourseSaveError('');
+    } catch (error) {
+      setCourseSave('failed');
+      const code = errorCode(error);
+      setCourseSaveError(
+        code === 'COURSE_GRADE_NOT_READY' || code === 'COURSE_GRADE_UNAVAILABLE'
+          ? '경사 정보를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.'
+          : code === 'VALIDATION_ERROR'
+            ? '코스로 만들 GPS 경로가 부족해요.'
+            : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  };
 
   if (!run?.summary) {
     return <View style={styles.root} />;
@@ -234,24 +259,40 @@ export function RunResultScreen() {
             </View>
           ) : null}
           <RouteArea route={shape} style={styles.route} />
+          {courseSave === 'saved' ? (
+            <AppText style={styles.courseMessage}>내 코스에 저장했어요.</AppText>
+          ) : courseSave === 'failed' ? (
+            <AppText style={[styles.courseMessage, styles.danger]}>{courseSaveError}</AppText>
+          ) : null}
         </ScrollView>
       </SafeAreaView>
       <SafeAreaView edges={['bottom']} style={styles.buttons}>
-        <ResultButton
-          title="기록 공유"
-          disabled={saveState !== 'saved' || !recordId}
-          // 7.3 shares this run's record, not just the newest one.
-          onPress={() =>
-            recordId
-              ? navigation.navigate('PostWrite', { recordId })
-              : undefined
-          }
-        />
-        <ResultButton
-          primary
-          title="완료"
-          onPress={() => navigateTo(navigation, 'Home')}
-        />
+        {!plan ? (
+          <View style={styles.buttonRow}>
+            <ResultButton
+              title={courseSave === 'saving' ? '코스 저장 중' : courseSave === 'saved' ? '코스 저장 완료' : '코스로 정하기'}
+              disabled={saveState !== 'saved' || !recordId || courseSave === 'saving' || courseSave === 'saved'}
+              onPress={() => { void saveCourse(); }}
+            />
+          </View>
+        ) : null}
+        <View style={styles.buttonRow}>
+          <ResultButton
+            title="기록 공유"
+            disabled={saveState !== 'saved' || !recordId}
+            // 7.3 shares this run's record, not just the newest one.
+            onPress={() =>
+              recordId
+                ? navigation.navigate('PostWrite', { recordId })
+                : undefined
+            }
+          />
+          <ResultButton
+            primary
+            title="완료"
+            onPress={() => navigateTo(navigation, 'Home')}
+          />
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -332,10 +373,19 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   buttons: {
-    flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 14,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  courseMessage: {
+    textAlign: 'center',
+    color: resultLook.text,
+    fontFamily: fontFamily.medium,
+    fontSize: 13,
   },
 });

@@ -9,6 +9,7 @@
 | [C03](#c03-코스-상세-조회) | 코스 상세 조회 | GET | `/courses/{courseId}` | 1차 MVP | 회원 |
 | [C07](#c07-코스-저장) | 코스 저장 | PUT | `/courses/{courseId}/bookmark` | 1차 MVP | 회원 |
 | [C08](#c08-코스-저장-해제) | 코스 저장 해제 | DELETE | `/courses/{courseId}/bookmark` | 1차 MVP | 회원 |
+| [C11](#c11-완료-기록을-개인-코스로-저장) | 완료 기록을 개인 코스로 저장 | PUT | `/running-records/{sessionId}/course` | 1차 MVP | 회원 |
 | [C09](#c09-저장-코스-목록) | 저장 코스 목록 | GET | `/users/me/bookmarked-courses` | 1차 MVP | 회원 |
 
 ## 코스 상태별 사용 범위
@@ -353,7 +354,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `courseId` | integer (int64) | O | 조회·저장·해제할 공용 코스 식별자. 경로 인자는 null/생략 불가 |
+| `courseId` | integer (int64) | O | 조회·저장·해제할 코스 식별자. 개인 코스는 작성자·기존 저장자·접근 가능한 공유 게시물의 독자에게만 허용. 경로 인자는 null/생략 불가 |
 
 ### Query Parameters
 
@@ -417,6 +418,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | `myAlias` | string / null (제안) | X | 요청 사용자 본인 북마크의 별명 (ERD만으로 응답 형식을 확정하지 않음.) |
 | `description` | string / null | O | `courses.description` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `route` | GeoJSON LineString | O | `courses.route` (geography(LineString,4326)). 저장 값은 NULL 불가. |
+| `unmeasuredEdges` | integer[] | O | `courses.unmeasured_edges`. `route.coordinates[i]`와 `[i+1]` 사이가 미측정인 시작 인덱스 `i`의 배열. 개인 코스의 일시정지·GPS 공백을 회색 직선으로 표시하고 거리·경사·진행률에서 제외. 공용 코스는 `[]` |
 | `startPosition` | GeoJSON Point | O | `courses.start_position` (geography(Point,4326)). 저장 값은 NULL 불가. |
 | `distanceM` | number | O | `courses.distance` (NUMERIC(12,2)). 저장 값은 NULL 불가. |
 | `elevationGainM` | number / null | O | `courses.elevation_gain` (NUMERIC(10,2)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
@@ -425,7 +427,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | `estimatedDurationSec` | number | X | 코스와 페이스로 계산한 표시 값. courses 저장 컬럼이 아니며 계산·반올림 규칙 확인 필요. |
 | `status` | string | O | `courses.status` (ENUM('ACTIVE', 'MERGED', 'BLOCKED')). 저장 값은 NULL 불가. 허용값: ACTIVE, MERGED, BLOCKED. |
 | `mergedIntoCourseId` | integer (int64) / null | O | `courses.merged_into_course_id` (BIGINT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
-| `basemap` | object / null | O | 썸네일 지도 바탕([S15P31E105-612](https://ssafy.atlassian.net/browse/S15P31E105-612), [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md)). `course_basemaps` 행이 없거나(생성 전·Route 실패) 범위 밖(`OUT_OF_AREA`)으로 이미지 없이 저장된 행이면 `null`. 구조는 [basemap 썸네일 지도 바탕 구조](#basemap-썸네일-지도-바탕-구조). |
+| `basemap` | object / null | O | 썸네일 지도 바탕([S15P31E105-612](https://ssafy.atlassian.net/browse/S15P31E105-612), [ADR-0022](../../adr/0022-osm-course-thumbnail-basemap.md)). 개인 코스 또는 `course_basemaps` 행이 없거나(생성 전·Route 실패) 범위 밖(`OUT_OF_AREA`)으로 이미지 없이 저장된 행이면 `null`. 구조는 [basemap 썸네일 지도 바탕 구조](#basemap-썸네일-지도-바탕-구조). |
 
 
 **사용 흐름과 응답 판단**
@@ -483,7 +485,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `imageUrl` | string | O | 서버가 그린 썸네일 PNG(600×900, 세로 2:3) 주소. 같은 서버의 이미지 조회 경로 `/api/v1/images/{id}`(토큰 없이 조회, `course_basemaps`가 참조하는 이미지만 제공, 내용이 바뀌지 않아 캐시 허용. [F02 코스 썸네일](files.md)) |
+| `imageUrl` | string | O | 공용 코스에 서버가 그린 썸네일 PNG(600×900, 세로 2:3) 주소. 같은 서버의 이미지 조회 경로 `/api/v1/images/{id}`(공용 코스에 한해 토큰 없이 조회. 개인 코스는 `basemap=null`. [F02 코스 썸네일](files.md)) |
 | `osmDataTimestamp` | string(ISO-8601) / null | O | 도로·면을 뽑은 전국 OSM 자료 시점. 모르면 `null` |
 
 - 그림에는 위에서 내려다본 지도(모든 도로·산책로, 공원·녹지·물·바다, 건물 윤곽)와 코스 선(G안: 흰 테두리·검은 선·시작점)이 함께 들어 있다. 코스는 그림 가로의 약 42% 크기로 (가로 50%, 세로 30%) 위치에 놓인다. 글자는 없다. 앱은 이 배치 값으로 그림을 카드에 놓으므로, 크기·배치 값을 바꾸면 이 계약의 변경으로 다룬다(그리기 버전만 올리지 않는다).
@@ -534,7 +536,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `courseId` | integer (int64) | O | 조회·저장·해제할 공용 코스 식별자. 경로 인자는 null/생략 불가 |
+| `courseId` | integer (int64) | O | 조회·저장·해제할 코스 식별자. 개인 코스의 신규 저장은 현재 접근 가능한 공유 게시물의 독자에게만 허용. 경로 인자는 null/생략 불가 |
 
 ### Query Parameters
 
@@ -638,7 +640,7 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `courseId` | integer (int64) | O | 조회·저장·해제할 공용 코스 식별자. 경로 인자는 null/생략 불가 |
+| `courseId` | integer (int64) | O | 저장을 해제할 코스 식별자. 개인 코스의 기존 북마크는 공유 해제 뒤에도 해제 가능. 경로 인자는 null/생략 불가 |
 
 ### Query Parameters
 
@@ -959,13 +961,14 @@ BE는 같은 요청에서 자동 재시도하지 않는다. 사용자가 명시�
 - 출발점의 지역 역지오코딩·태깅은 미정. `region_code` NULL 원칙을 유지한다.
 - Route는 HR 추론 `ai/service`와 별도 컨테이너이며, DEM/OSM/env 데이터 배포·최적화·성능 판정은 [ADR-0019](../../adr/0019-course-generation-backend.md)와 담당 업무를 따른다.
 
-러닝 종료 후 경로 **자동 반영**(COM-002)은 아래 절·별도 구현 업무이며 C01과 구분한다.
+완료 기록의 요청 시 개인 코스 생성(COM-002)은 아래 절이며 C01의 공용 후보 저장과 구분한다.
 
-## 러닝 경로 자동 코스 반영
+## C11 완료 기록을 개인 코스로 저장
 
-- 사용자가 달린 경로는 러닝 종료 후 기록에 반영되는 과정에서 공용 코스로 자동 등록한다. 별도 등록 버튼이나 C04 요청을 요구하지 않는다.
-- 지연 동기화로 경로가 완성되면 해당 기록 기준으로 자동 반영한다. 재전송·재처리·동일 경로로 공용 코스가 무분별하게 중복 생성되지 않도록 한다.
-- 경로 없는 기록·유효하지 않은 GPS·유사 코스 판정·환경 태그 부여·상태 승계 등 구체 계약은 미정이다. 사용자에게 등록 이름·태그를 입력받는 흐름을 전제하지 않는다.
-- 자동 코스 등록과 개인 저장은 별개다. C07 저장·별명 설정, C08 저장 해제, C09 저장 목록은 유지한다. 자동 북마크 여부는 이 결정으로 확정하지 않는다.
-- 계정의 프로필·게시물 공개 여부와 공용 코스 반영을 구분한다. 공용 경로에 사용자 식별정보를 연결해 노출할지와 경로 처리의 세부 정책은 별도 검토하며 자동 등록 여부 자체는 사용자 결정이다.
-- C04 ID는 공개 API에서 제외하며 재사용하지 않는다.
+`PUT /api/v1/running-records/{sessionId}/course`는 인증된 본인의 미삭제·완료 세션에서만 코스를 만든다. 성공 응답은 `{ "courseId": 123 }`이며 본인 `course_bookmarks`에도 저장한다. 기존 코스를 사용한 세션이나 이미 변환된 동일 세션은 같은 ID를 반환한다. `courses.source_session_id` 고유 인덱스로 동일 세션 재시도를 제한하며 서로 다른 기록의 유사·동일 경로는 합치지 않는다. 코스 상태는 `ACTIVE`, `is_private=true`, `creator_id`와 `source_session_id`는 해당 회원·기록이다. 추천 후보 C10의 공용 코스 중복 규칙은 변경하지 않는다.
+
+기록의 GPS는 측정시각 순으로 선택하고, 적용된 PAUSE~RESUME 안의 위치를 제외한다. 원본 위치의 측정 구간 길이를 합산해 코스 거리를 정하며 3,000개를 넘는 표시 좌표는 축소한다. 2점 미만 또는 측정 거리 1m 미만이면 코스를 만들지 않는다. 하나의 GeoJSON LineString은 유지하되 측정하지 않은 연결부의 시작 좌표 인덱스를 `unmeasuredEdges` 배열에 저장·응답한다. 앱은 이 변을 회색 직선으로 표시한다. 해당 변은 거리·경사·완주 진행률에서 제외하며 경사는 측정된 변에만 DEM을 적용한다. 정상 측정의 원본 GPS나 기록별 시간·거리 계산은 별도로 유지한다.
+
+개인 코스 조회·저장·사용 권한은 작성자, 이미 북마크한 회원, 또는 현재 접근 가능한 미삭제 게시물에서 `courseShared=true`로 공개된 코스를 보는 회원에게 있다. 단순히 ID를 아는 것만으로 권한이 생기지 않는다. 게시물 공유 해제·삭제 뒤 기존 북마크는 유지하되 신규 저장은 허용하지 않는다. C03의 `unmeasuredEdges`는 경로 좌표 배열에서 `i`와 `i+1` 사이가 미측정인 `i`의 목록이며 공용 코스는 빈 배열이다. 개인 코스는 F02의 공개 코스 썸네일을 제공하지 않으며 `basemap=null`이다.
+
+코스 저장 실패 시 본인 요청은 기존 세션·검증 오류 및 경사 준비/이용 불가 오류를 반환한다. 게시물 작성에서 코스 공유를 선택한 경우 GPS 부족이나 경사 서비스 이용 불가이면 게시물은 코스 없이 생성하고 `courseShared=false`, `courseShareFailureReason=INSUFFICIENT_GPS` 또는 `GRADE_UNAVAILABLE`을 반환한다. C04 ID는 공개 API에서 제외하며 재사용하지 않는다.

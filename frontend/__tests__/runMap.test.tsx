@@ -347,6 +347,14 @@ test('a record route in parts goes to the multipath as separate parts with one s
   expect(texts(root)).toEqual(expect.arrayContaining(['S', 'F']));
 });
 
+test('a course pause connector is grey and separate from measured route', () => {
+  const root = render(<RunMap route={route} unmeasuredEdges={[1]} interactive={false} />);
+  expect(overlays(root, 'naver-map-multipath')[0].pathParts).toHaveLength(2);
+  expect(overlays(root, 'naver-map-path')).toEqual(
+    expect.arrayContaining([expect.objectContaining({ color: '#8A979E', coords: expect.any(Array) })]),
+  );
+});
+
 // A-3/B-3 (S15P31E105-549 review): parts of one point each never become one joined line.
 test('a record route of single-point parts draws no line between them', () => {
   const root = render(

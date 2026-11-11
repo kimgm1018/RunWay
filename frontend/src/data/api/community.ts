@@ -68,6 +68,7 @@ export const postPageSize = 20;
 type CourseRouteResponse = {
   route: { coordinates: [number, number][] };
   basemap?: unknown;
+  unmeasuredEdges?: number[] | null;
 };
 
 // A course's points for 7.2, 7.3 and 7.3e; a course that cannot be read leaves the page without them.
@@ -233,6 +234,7 @@ export function createCommunityApi({
     return {
       route: course.route.coordinates,
       basemap: basemapOf(course.basemap),
+      unmeasuredEdges: course.unmeasuredEdges ?? [],
     };
   };
 
@@ -395,12 +397,15 @@ export function createCommunityApi({
         cadence: null,
       };
     },
-    // CMT01 takes the run as its session id and 코스도 함께 공유 as courseShared; the server keeps it false
-    // for a free run.
+    // CMT01 can create the private course from a free run when sharing is requested.
     // The region 7.3 showed goes along only with a shared course (S15P31E105-687).
     create: async (recordId, draft) => {
       const regionCode = draft.courseShared ? draft.regionCode : null;
-      const { id } = await apiRequest<{ id: number }>('/posts', {
+      const response = await apiRequest<{
+        id: number;
+        courseShared: boolean;
+        courseShareFailureReason?: string | null;
+      }>('/posts', {
         method: 'POST',
         body: {
           sessionId: Number(recordId),
@@ -409,7 +414,11 @@ export function createCommunityApi({
           ...(regionCode ? { regionCode } : {}),
         },
       });
-      return { id: String(id) };
+      return {
+        id: String(response.id),
+        courseShared: response.courseShared,
+        courseShareFailureReason: response.courseShareFailureReason ?? null,
+      };
     },
     update: async (postId, draft) => {
       await apiRequest(`/posts/${postId}`, {

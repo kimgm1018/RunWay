@@ -383,7 +383,14 @@ export function createCommunityMock({
         },
         ...posts,
       ];
-      return respond({ id });
+      return respond({
+        id,
+        courseShared: draft.courseShared && record(recordId).courseId !== null,
+        courseShareFailureReason:
+          draft.courseShared && record(recordId).courseId === null
+            ? 'INSUFFICIENT_GPS'
+            : null,
+      });
     },
     update: (postId, draft) => {
       update(postId, {

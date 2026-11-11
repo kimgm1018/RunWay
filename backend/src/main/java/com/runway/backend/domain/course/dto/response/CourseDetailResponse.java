@@ -20,4 +20,5 @@ public record CourseDetailResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer estimatedDurationSec,
         String status,
         Long mergedIntoCourseId,
-        CourseBasemapResponse basemap) {}
+        CourseBasemapResponse basemap,
+        JsonNode unmeasuredEdges) {}

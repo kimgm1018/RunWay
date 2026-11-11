@@ -59,6 +59,7 @@ public class ImageAccessRepository {
     public List<String> findCourseBasemapKeys(String fileName) {
         return jdbc.query("""
                     SELECT b.image_key FROM course_basemaps b
+                    JOIN courses c ON c.id=b.course_id AND c.is_private=false
                     WHERE split_part(b.image_key, '/', 4) = ?
                       AND b.image_key = 'images/course-basemap/' || b.course_id || '/' || ?
                 """, (rs, row) -> rs.getString(1), fileName, fileName);

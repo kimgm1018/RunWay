@@ -591,6 +591,11 @@ test('the replay point along the route matches walking it', () => {
   }
 });
 
+test('replay jumps over an unmeasured pause connector', () => {
+  const route: LngLat[] = [[129, 35], [129.001, 35], [129.01, 35], [129.011, 35]];
+  expect(pointAt(route, 0.51, [1])[0]).toBeGreaterThan(129.01);
+});
+
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
 test('the 댓글 sheet shows the comments, adds one and replies by handle', async () => {
   const screen = await openCommunity();
@@ -1462,22 +1467,24 @@ test('7.3 sends 코스도 함께 공유 as I set it on a course run', async () =
   });
 });
 
-test('7.3 keeps 코스도 함께 공유 off and disabled on a free run', async () => {
+test('7.3 lets a free run request course sharing', async () => {
   const { repositories, created } = withRun(false);
   const screen = await openShare(repositories);
 
   expect(courseSwitch(screen).props.accessibilityState).toEqual({
     checked: false,
-    disabled: true,
+    disabled: false,
   });
-  expect(courseSwitch(screen).props.disabled).toBe(true);
-  expect(texts(screen)).toContain('자유 러닝 경로 공유는 준비 중이에요');
+  expect(courseSwitch(screen).props.disabled).toBe(false);
+  expect(texts(screen)).toContain('공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.');
+
+  await act(async () => courseSwitch(screen).props.onPress());
 
   await press(screen, '게시');
   await settle(100);
   expect(created).toHaveBeenCalledWith(expect.any(String), {
     body: null,
-    courseShared: false,
+    courseShared: true,
     regionCode: null,
   });
 });

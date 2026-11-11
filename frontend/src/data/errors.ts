@@ -45,6 +45,8 @@ export const dataErrorCodes = [
   'ACCOUNT_ACCESS_DENIED',
   // C10 생성 코스 저장: the C01 route is older than 30 minutes or was changed (COURSE_INACCESSIBLE is listed above).
   'COURSE_CANDIDATE_INVALID',
+  'COURSE_GRADE_NOT_READY',
+  'COURSE_GRADE_UNAVAILABLE',
   // M03 크루 대표 사진: the imageKey is not a CREW photo I uploaded myself.
   'RESOURCE_NOT_OWNED',
   // 4.5 결과: the run finished on the server, but its record could not be read back yet (S15P31E105-529).

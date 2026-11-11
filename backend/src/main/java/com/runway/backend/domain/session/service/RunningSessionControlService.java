@@ -119,7 +119,7 @@ public class RunningSessionControlService {
         }
         // 제어기기는 본인의 연결된 WATCH여야 한다(폰 대체 제어는 START를 승인하지 않는다).
         access.requireOwnedDevice(participantUserId, controlDeviceId, DeviceType.WATCH);
-        access.requireUsableCourse(session.getCourseId());
+        access.requireUsableCourse(participantUserId, session.getCourseId());
         if (access.pendingCommand(session) != null) {
             throw new ApiException(ErrorCode.COMMAND_PENDING);
         }
@@ -393,7 +393,7 @@ public class RunningSessionControlService {
             if (locked.groupRunId() != null) {
                 throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
             }
-            access.requireUsableCourse(session.getCourseId());
+            access.requireUsableCourse(userId, session.getCourseId());
         }
         // 그룹이 종료됐다면 END만 허용한다(세션 제어 공통 계약 "인계 후 폰 제어", S05 "그룹이 종료됐으면 재개하지 않는다").
         if (action != ControlAction.END && access.groupEndedAt(session.getId()).isPresent()) {

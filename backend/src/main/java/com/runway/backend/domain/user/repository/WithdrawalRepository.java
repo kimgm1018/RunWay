@@ -124,6 +124,13 @@ public class WithdrawalRepository {
 
     /** Keep only identifiers and group result facts; remove private originals and derived HR. */
     public void scrub(long userId, Instant now) {
+        // 원본 GPS와 같은 민감한 위치 정보인 개인 생성 코스도 탈퇴 시 제거한다.
+        jdbc.update("DELETE FROM course_bookmarks WHERE course_id IN (SELECT id FROM courses WHERE creator_id=? AND is_private=true)", userId);
+        jdbc.update("DELETE FROM course_environment_tags WHERE course_id IN (SELECT id FROM courses WHERE creator_id=? AND is_private=true)", userId);
+        jdbc.update("DELETE FROM course_basemaps WHERE course_id IN (SELECT id FROM courses WHERE creator_id=? AND is_private=true)", userId);
+        jdbc.update("UPDATE group_runs SET course_id=NULL WHERE course_id IN (SELECT id FROM courses WHERE creator_id=? AND is_private=true)", userId);
+        jdbc.update("UPDATE running_sessions SET course_id=NULL WHERE course_id IN (SELECT id FROM courses WHERE creator_id=? AND is_private=true)", userId);
+        jdbc.update("DELETE FROM courses WHERE creator_id=? AND is_private=true", userId);
         jdbc.update("DELETE FROM user_hr_personalization WHERE user_id=?",userId);
         jdbc.update("DELETE FROM exercise_training_loads WHERE user_id=?",userId);
         jdbc.update("DELETE FROM daily_health_metrics WHERE user_id=?",userId);
