@@ -16,9 +16,11 @@ import { NaverMapPathOverlay } from '@mj-studio/react-native-naver-map';
 import { darkMapLook } from '../src/components/mapRoute';
 import { RunMap } from '../src/components/RunMap';
 import {
+  pointAt,
   replayPlayMs,
   replaySpeedup,
 } from '../src/screens/community/RouteReplay';
+import { routeLengthM, walkAlong, type LngLat } from '../src/geo';
 import { FeedPage, MapBackdrop } from '../src/screens/community/FeedPage';
 import { PostDetailScreen } from '../src/screens/community/PostDetailScreen';
 import { Avatar } from '../src/screens/community/parts';
@@ -541,6 +543,23 @@ test('a replay plays longer for a longer run, within 8 to 15 seconds', () => {
   // 30 minutes in 11.02 s is about 163 times as fast.
   expect(replaySpeedup(1800, 11020)).toBe(163);
   expect(replaySpeedup(0, 11020)).toBeNull();
+});
+
+// The replay's camera point comes from legs measured once (S15P31E105-686) and lands exactly where walking the
+// route would.
+test('the replay point along the route matches walking it', () => {
+  const route: LngLat[] = [
+    [129.1334, 35.1555],
+    [129.1326, 35.1554],
+    [129.1326, 35.1554],
+    [129.1307, 35.1549],
+    [129.1305, 35.1562],
+  ];
+  const total = routeLengthM(route);
+  for (const progress of [-0.5, 0, 0.1, 0.33, 0.5, 0.77, 0.999, 1, 1.4]) {
+    const walked = walkAlong(route, total * Math.min(1, Math.max(0, progress)));
+    expect(pointAt(route, progress)).toEqual(walked[walked.length - 1]);
+  }
 });
 
 // 댓글 N개 모두 보기 opens the 댓글 sheet over the feed, which does what 7.2's comments do.
