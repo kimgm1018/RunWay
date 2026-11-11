@@ -8,11 +8,12 @@
 
 | 변수 | 용도 |
 | --- | --- |
-| `BACKEND_NAVER_SEARCH_CLIENT_ID` | 네이버 개발자센터 검색 API 애플리케이션 ID |
-| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 애플리케이션 Secret |
+| `BACKEND_NAVER_SEARCH_CLIENT_ID` | NAVER API HUB 검색(지역) Application의 Client ID (`X-NCP-APIGW-API-KEY-ID`) |
+| `BACKEND_NAVER_SEARCH_CLIENT_SECRET` | 위 Application의 Client Secret (`X-NCP-APIGW-API-KEY`) |
 | `BACKEND_NAVER_MAPS_KEY_ID` | 네이버 클라우드 Maps Geocoding API Key ID |
 | `BACKEND_NAVER_MAPS_KEY` | 위 애플리케이션 API Key |
 
+네이버 개발자센터 검색 API는 2026-07-31부터 신규 애플리케이션 등록이 막혀, 지역 검색은 NAVER API HUB(`https://naverapihub.apigw.ntruss.com/search/v1/local`)로 호출한다. 개발자센터 키는 API HUB에서 쓸 수 없다.
 검색 API와 Maps API의 인증은 별개다. Maps 애플리케이션에는 Geocoding 사용 권한이 필요하다.
 활성화했는데 필수 값이 없으면 누락된 변수 이름만 안내하고 기동을 실패시킨다.
 실제 값은 사용자가 로컬 실행 환경 또는 인프라 Secret으로 주입하며 앱 번들·Git에 넣지 않는다.

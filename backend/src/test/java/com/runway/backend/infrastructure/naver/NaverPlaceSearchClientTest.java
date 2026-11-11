@@ -37,6 +37,7 @@ class NaverPlaceSearchClientTest {
     private final AtomicInteger calls = new AtomicInteger();
     private final AtomicReference<String> requestQuery = new AtomicReference<>();
     private final AtomicReference<String> header = new AtomicReference<>();
+    private final AtomicReference<String> secretHeader = new AtomicReference<>();
     private volatile long bodyDelay;
     private final PlaceSearchProperties properties = new PlaceSearchProperties();
 
@@ -52,7 +53,8 @@ class NaverPlaceSearchClientTest {
         server.setExecutor(executor);
         server.createContext("/local", exchange -> {
             calls.incrementAndGet();
-            header.set(exchange.getRequestHeaders().getFirst("X-Naver-Client-Id"));
+            header.set(exchange.getRequestHeaders().getFirst("X-NCP-APIGW-API-KEY-ID"));
+            secretHeader.set(exchange.getRequestHeaders().getFirst("X-NCP-APIGW-API-KEY"));
             reply(exchange, localStatus.get(), localBody.get());
         });
         server.createContext("/address", exchange -> {
@@ -101,7 +103,15 @@ class NaverPlaceSearchClientTest {
         assertThat(places.getLast().position().coordinates()).containsExactly(129.12, 35.16);
         assertThat(requestQuery.get()).contains("%26%2B", "coordinate=129.0,35.0", "count=5");
         assertThat(header.get()).isEqualTo("synthetic-id");
+        assertThat(secretHeader.get()).isEqualTo("synthetic-secret");
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void acceptsDecimalWgs84FromApiHub() {
+        localBody.set(LOCAL.replace("1291180000", "129.118").replace("351530000", "35.153"));
+        assertThat(client(Duration.ofSeconds(3)).search("공원", null).getFirst().position().coordinates())
+                .containsExactly(129.118, 35.153);
     }
 
     @Test
