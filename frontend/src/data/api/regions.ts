@@ -28,6 +28,47 @@ const shortSido: Record<string, string> = {
 const sidoOf = (region: RegionItem) =>
   shortSido[region.sidoName] ?? region.sidoName;
 
+// Older names a phone's geocoder may still give for a sido the CMT12 list now calls otherwise.
+const formerSido: Record<string, string> = {
+  광주광역시: '전남광주통합특별시',
+  전라남도: '전남광주통합특별시',
+  전라북도: '전북특별자치도',
+  강원도: '강원특별자치도',
+  제주도: '제주특별자치도',
+};
+
+// Whether the first word of an address names this sido: its full name, its short name or an older name.
+const namesSido = (region: RegionItem, word: string) =>
+  region.sidoName === word ||
+  sidoOf(region) === word ||
+  formerSido[word] === region.sidoName;
+
+// 7.1 지역 고르기 (S15P31E105-687): a sido with its 시·군·구, in the CMT12 order. The sido's own code is its row
+// without a sigungu.
+export type RegionProvince = {
+  code: string;
+  name: string;
+  areas: { code: string; name: string }[];
+};
+
+const provincesOf = (items: RegionItem[]): RegionProvince[] => {
+  const bySido = new Map<string, RegionProvince>();
+  for (const item of items) {
+    let province = bySido.get(item.sidoName);
+    if (!province) {
+      province = { code: '', name: sidoOf(item), areas: [] };
+      bySido.set(item.sidoName, province);
+    }
+    if (item.sigunguName) {
+      province.areas.push({ code: item.regionCode, name: item.sigunguName });
+    } else {
+      province.code = item.regionCode;
+    }
+  }
+  // A sido the list has no row of its own for cannot be picked as a whole.
+  return [...bySido.values()].filter(province => province.code);
+};
+
 export type Regions = ReturnType<typeof createRegions>;
 
 export function createRegions() {
@@ -47,6 +88,8 @@ export function createRegions() {
   };
 
   return {
+    // Every sido and its 시·군·구 (7.1 지역 고르기); a failed load gives none.
+    provinces: async () => provincesOf(await load()),
     // 부산 수영구 (a sido-only region has no sigungu), or null for an unknown or missing code.
     name: async (regionCode: string | null) => {
       if (!regionCode) {
@@ -72,6 +115,25 @@ export function createRegions() {
         inAddress.find(
           item => sidoOf(item) === sido || item.sidoName.startsWith(sido),
         ) ?? (inAddress.length === 1 ? inAddress[0] : undefined);
+      return region?.regionCode ?? null;
+    },
+    // The region of a full address from the phone's geocoder, word by word: ‘부산광역시 해운대구 우동 …’ is 해운대구,
+    // ‘경기도 수원시 장안구 …’ is 수원시 장안구, and a sido whose 시·군·구 is not in the list is the sido itself. null when
+    // the sido is not known (S15P31E105-687).
+    codeAt: async (address: string | null) => {
+      const words = (address ?? '')
+        .split(/\s+/)
+        .filter(word => word && word !== '대한민국');
+      if (!words.length) {
+        return null;
+      }
+      const inSido = (await load()).filter(item => namesSido(item, words[0]));
+      const area = (name: string) =>
+        inSido.find(item => item.sigunguName === name);
+      const region =
+        (words.length > 2 ? area(`${words[1]} ${words[2]}`) : undefined) ??
+        (words.length > 1 ? area(words[1]) : undefined) ??
+        inSido.find(item => !item.sigunguName);
       return region?.regionCode ?? null;
     },
   };

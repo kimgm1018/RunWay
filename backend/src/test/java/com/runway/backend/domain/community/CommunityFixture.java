@@ -114,6 +114,13 @@ final class CommunityFixture {
                 courseShared);
     }
 
+    /** S15P31E105-687: 지역 코드가 있는 게시물. regions 시드 코드를 쓴다. */
+    long postIn(long authorId, String body, String regionCode) {
+        long postId = post(authorId, body);
+        jdbc.update("UPDATE posts SET region_code=? WHERE id=?", regionCode, postId);
+        return postId;
+    }
+
     void deletePost(long postId) {
         jdbc.update("UPDATE posts SET deleted_at=now() WHERE id=?", postId);
     }

@@ -46,10 +46,11 @@ public class PostController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @RequestParam(required = false) String scope,
             @RequestParam(required = false) Long authorId,
+            @RequestParam(required = false) String regionCode,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
         long userId = CurrentUserIdResolver.requireUserId(user);
-        return postService.list(userId, scope, authorId, cursor, limit);
+        return postService.list(userId, scope, authorId, regionCode, cursor, limit);
     }
 
     @GetMapping("/{postId}")

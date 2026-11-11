@@ -20,7 +20,17 @@ import java.util.Locale
 class PlaceNameModule(private val app: ReactApplicationContext) : ReactContextBaseJavaModule(app) {
   override fun getName() = "PlaceName"
 
-  @ReactMethod fun nameOf(latitude: Double, longitude: Double, promise: Promise) {
+  @ReactMethod fun nameOf(latitude: Double, longitude: Double, promise: Promise) =
+    geocode(latitude, longitude, promise, ::shortName)
+
+  /**
+   * The full Korean address with its 시·도, e.g. "부산광역시 해운대구 우동 …", for the post's region (S15P31E105-687); null
+   * when the phone has no geocoder or finds nothing. Coordinates are never logged.
+   */
+  @ReactMethod fun addressOf(latitude: Double, longitude: Double, promise: Promise) =
+    geocode(latitude, longitude, promise, ::fullName)
+
+  private fun geocode(latitude: Double, longitude: Double, promise: Promise, name: (Address) -> String?) {
     if (!Geocoder.isPresent()) {
       promise.resolve(null)
       return
@@ -29,7 +39,7 @@ class PlaceNameModule(private val app: ReactApplicationContext) : ReactContextBa
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       geocoder.getFromLocation(latitude, longitude, 1, object : Geocoder.GeocodeListener {
         override fun onGeocode(addresses: MutableList<Address>) {
-          promise.resolve(addresses.firstOrNull()?.let(::shortName))
+          promise.resolve(addresses.firstOrNull()?.let(name))
         }
 
         override fun onError(errorMessage: String?) {
@@ -39,16 +49,33 @@ class PlaceNameModule(private val app: ReactApplicationContext) : ReactContextBa
     } else {
       // The old call blocks on the network, so it runs off the JS thread.
       Thread {
-        val name = try {
+        val found = try {
           @Suppress("DEPRECATION")
-          geocoder.getFromLocation(latitude, longitude, 1)?.firstOrNull()?.let(::shortName)
+          geocoder.getFromLocation(latitude, longitude, 1)?.firstOrNull()?.let(name)
         } catch (_: Exception) {
           null
         }
-        promise.resolve(name)
+        promise.resolve(found)
       }.start()
     }
   }
+}
+
+/** The address line without the country; the 시·도 and 시·군·구 from their fields when the phone gives no line. */
+internal fun fullName(address: Address): String? {
+  val words = address.getAddressLine(0)
+    ?.split(" ")
+    ?.map(String::trim)
+    ?.filter { it.isNotEmpty() && it != "대한민국" && it != "South Korea" }
+    .orEmpty()
+  if (words.isNotEmpty()) {
+    return words.joinToString(" ")
+  }
+  return listOf(address.adminArea, address.subAdminArea ?: address.locality, address.subLocality)
+    .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+    .distinct()
+    .takeIf { it.isNotEmpty() }
+    ?.joinToString(" ")
 }
 
 /**

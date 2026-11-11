@@ -80,6 +80,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `sessionId` | integer (int64) | O | 본인의 공유할 완료 러닝 세션 BIGINT 식별자 |
 | `imageId` | string (UUID) | X | 결과 화면 사진([F01](files.md#f01-이미지-업로드)). **미구현** — 받아도 저장·검증하지 않음 |
 | `courseShared` | boolean | X | 연결 세션의 코스를 함께 공유할지. 생략·null이면 true. 세션에 코스가 없으면(자유 러닝) 값과 무관하게 false로 저장 |
+| `regionCode` | string | X | 러닝을 시작한 지역의 `regions.region_code`(최대 40자). `posts.region_code`에 저장(빈 문자열은 NULL). `posts.region_code`는 `regions.region_code` 외래키라 없는 코드는 저장되지 않는다(현재 별도 오류 매핑 없음 — 앱은 CMT12에서 받은 코드만 보낸다). 앱은 **코스를 함께 공유하는 글에만**(사용자 결정, S15P31E105-687) 공유 코스의 출발점을 폰 지오코더로 시·군·구 코드로 바꿔 작성 화면에 `지역: 부산 수영구`처럼 보여 준 뒤 보낸다. 경로를 숨긴 글·자유 러닝 글은 지역을 판정하지 않고 보내지 않으며, 판정하지 못하면 생략한다. CMT02 지역 필터의 기준 |
 
 ```json
 {
@@ -182,7 +183,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 ### 설명
 
-삭제되지 않은 게시물만 반환한다. 작성자 계정 PUBLIC/PRIVATE와 승인된 팔로우로 접근을 제한한다. 구현 필터는 `scope`·`authorId`이고 `cursor`·`limit` 커서 페이지는 **구현됨**(S15P31E105-634). `regionCode`는 명세에 유지하되 **미구현**이다.
+삭제되지 않은 게시물만 반환한다. 작성자 계정 PUBLIC/PRIVATE와 승인된 팔로우로 접근을 제한한다. 구현 필터는 `scope`·`authorId`·`regionCode`(S15P31E105-687)이고 `cursor`·`limit` 커서 페이지는 **구현됨**(S15P31E105-634).
 
 ### 인증 및 권한
 
@@ -198,10 +199,10 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `regionCode` | string | X | 도시 코드(부산·서울 등). **미구현** — 받아도 필터하지 않음 |
+| `regionCode` | string | X | CMT12 `regions.region_code`. 시·도 코드(시군구 이름이 빈 행, 예: 부산 `26000`)는 그 시·도 전체, 시·군·구 코드는 그 시·군·구와 하위 구(예: 수원시 `41110` → 수원시 장안구 `41111` 포함). 생략·빈 값은 전국. 없는 코드는 빈 목록. 지역이 NULL인 게시물은 지역을 지정하면 제외 |
 | `scope` | string | X | `ALL` \| `FOLLOWING`. 기본값 `ALL`. FOLLOWING은 승인된 팔로우 대상 글 + **본인 글** 포함 |
 | `authorId` | integer (int64) | X | 특정 러너의 글만. 접근 가능한 게시물에만 적용 |
-| `cursor` | string | X | 이전 응답의 `nextCursor`(서버 발급 불투명 문자열). 같은 회원·같은 `scope`·`authorId`로만 사용 |
+| `cursor` | string | X | 이전 응답의 `nextCursor`(서버 발급 불투명 문자열). 같은 회원·같은 `scope`·`authorId`·`regionCode`로만 사용 |
 | `limit` | integer | X | 한 페이지 최대 개수. 1~50, 기본 20 |
 
 파라미터가 모두 없어도 첫 페이지 20개를 반환한다(S15P31E105-647). 무파라미터 전체 반환 하위 호환은 제거했다. 다음 페이지는 응답 `nextCursor`를 `cursor`로 보낸다. U21 러너 프로필의 `posts`는 CMT02 요청이 아니므로 이 페이지 규칙과 무관하게 볼 수 있는 글 전체를 반환한다.
@@ -267,7 +268,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 | `items[].courseShared` | boolean | O | `posts.course_shared`. 세션에 코스가 없으면 항상 false |
 | `items[].body` | string / null | O | `posts.body` (TEXT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].imageKey` | string / null | X | `posts.image_key`. **미구현** — 이미지 연동 전까지 응답에 의존하지 않음 |
-| `items[].regionCode` | string / null | O | `posts.region_code` (VARCHAR(40)). NULL 허용. 목록 필터로는 미사용 |
+| `items[].regionCode` | string / null | O | `posts.region_code` (VARCHAR(40)). NULL 허용. `regionCode` 필터의 기준 |
 | `items[].createdAt` | string (ISO 8601 UTC) | O | `posts.created_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 
 **사용 흐름과 응답 판단**
@@ -292,7 +293,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 | HTTP·코드 | 오류 종류 | 발생 조건·주의사항 |
 |---|---|---|
-| `400 INVALID_FILTER` | 검색 조건 | `scope` 등 허용값/형식이 맞지 않음. `limit`이 1~50 밖이거나, `cursor`가 서버 발급 형식이 아니거나 다른 회원·`scope`·`authorId`의 커서임(알림 N01·팔로우 목록 U26과 같은 처리) |
+| `400 INVALID_FILTER` | 검색 조건 | `scope` 등 허용값/형식이 맞지 않음. `limit`이 1~50 밖이거나, `cursor`가 서버 발급 형식이 아니거나 다른 회원·`scope`·`authorId`·`regionCode`의 커서임(알림 N01·팔로우 목록 U26과 같은 처리) |
 | `401 UNAUTHORIZED` | 인증 | `X-User-Id`가 없거나 형식이 맞지 않아 호출자를 확인할 수 없음 |
 | `403 FORBIDDEN` | 권한 | 인증된 사용자가 해당 자원·작업에 필요한 권한을 갖지 않음 |
 | `400 VALIDATION_ERROR` | 입력 형식 | JSON 구문·필수 필드·자료형·날짜 형식 또는 Path 식별자 형식이 맞지 않음. 서버 BIGINT 식별자의 소수·UUID·범위 초과 포함. 숫자가 아닌 `limit` 포함 |
@@ -304,10 +305,10 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 - `deleted_at`이 설정된 게시물은 제외한다.
 - 공개(PUBLIC) 작성자 글은 전체에, 비공개(PRIVATE)는 본인·승인된 정방향 팔로워에게만 노출한다. 대기·거절·역방향 관계는 접근할 수 없다.
-- 이번 구현 필터: `scope`(`ALL` 기본, `FOLLOWING`), `authorId`. `FOLLOWING`에는 승인된 팔로우 대상 글과 **본인 글**을 포함한다.
-- `regionCode`는 명세에 두되 **미구현**. 서버는 이 파라미터로 필터하지 않는다.
+- 이번 구현 필터: `scope`(`ALL` 기본, `FOLLOWING`), `authorId`, `regionCode`. `FOLLOWING`에는 승인된 팔로우 대상 글과 **본인 글**을 포함한다. 필터는 함께 적용한다(AND).
+- `regionCode`(S15P31E105-687): `regions`에서 고른 지역과 게시물 지역을 이름으로 맞춘다. 시·도가 같고, 고른 지역이 시·도 행이면 그 시·도 전체, 시·군·구 행이면 시군구 이름이 같거나 `<고른 시군구> `로 시작하는 하위 구까지다. `posts.region_code`가 NULL이거나 `regions`에 없는 게시물은 지역을 지정하면 나오지 않는다. 기존 게시물은 지역이 비어 있어 전국에서만 보인다.
 - 커서 페이지(S15P31E105-634): 정렬은 최신 게시물 우선(`posts.id` 내림차순)이고 커서는 그 페이지의 마지막 게시물 기준이다. 삭제·접근 불가 작성자(비공개·탈퇴) 글은 DB 조회 단계에서 먼저 제외한 뒤 `limit`개를 자르므로, 가려진 글이 섞여도 각 페이지는 남은 글이 있는 한 `limit`개이고 `hasNext`가 정확하다. 서버는 `limit+1`개를 읽어 다음 페이지 여부를 판단한다.
-- 커서는 Base64URL 불투명 문자열이며 클라이언트가 해석·조립하지 않는다. 조회 회원·`scope`·`authorId`를 담으므로 조건을 바꾸면 처음(커서 없이)부터 다시 요청한다.
+- 커서는 Base64URL 불투명 문자열이며 클라이언트가 해석·조립하지 않는다. 조회 회원·`scope`·`authorId`·`regionCode`를 담으므로 조건을 바꾸면 처음(커서 없이)부터 다시 요청한다. 지역 없는 커서는 예전 형식 그대로라 배포 전에 받은 커서도 이어진다.
 - `recordSummary`는 연결 세션에서 파생한다. `commentCount`·`reactionCount`·`myReaction`·`author.profileImageUrl`·`courseShared`는 **구현됨**(S15P31E105-632), `bookmarked`는 **구현됨**(S15P31E105-634). `imageUrl`·경로 그림은 **미구현**.
 - 작성자·세션·댓글 수·좋아요 수·조회자 좋아요·조회자 스크랩은 게시물마다 따로 조회하지 않고 각각 IN 조회 한 번으로 모은다.
 - 원본 H02 조회 권한을 타인에게 부여하지 않는다.
@@ -319,7 +320,7 @@ S09와 새 게시물 생성은 세션→게시물 순서로 잠가 함께 처리
 
 ### 미정 사항
 
-- [ ] `regionCode` 필터 구현
+- `regionCode` 필터는 S15P31E105-687에서 구현했다.
 - `cursor`/`limit` 커서 페이지는 S15P31E105-634에서 구현했고, 파라미터 없는 요청의 기본 20개 페이지는 S15P31E105-647에서 적용했다.
 - [ ] `imageUrl` 응답
 - `commentCount`·`reactionCount`·`myReaction`은 S15P31E105-632에서 구현했다.

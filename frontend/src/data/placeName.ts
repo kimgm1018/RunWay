@@ -6,6 +6,7 @@ import { NativeModules, Platform } from 'react-native';
 
 type NativePlaceName = {
   nameOf: (latitude: number, longitude: number) => Promise<string | null>;
+  addressOf?: (latitude: number, longitude: number) => Promise<string | null>;
 };
 
 export async function placeNameOf([longitude, latitude]: [
@@ -19,6 +20,24 @@ export async function placeNameOf([longitude, latitude]: [
   try {
     const name = await native.nameOf(latitude, longitude);
     return name?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// The full address of a point with its 시·도 (‘부산광역시 해운대구 우동 …’), for the region a shared run started in
+// (S15P31E105-687). null off Android, on an app built before addressOf, or when the phone finds nothing.
+export async function placeAddressOf([longitude, latitude]: [
+  number,
+  number,
+]): Promise<string | null> {
+  const native = NativeModules.PlaceName as NativePlaceName | undefined;
+  if (Platform.OS !== 'android' || !native?.addressOf) {
+    return null;
+  }
+  try {
+    const address = await native.addressOf(latitude, longitude);
+    return address?.trim() || null;
   } catch {
     return null;
   }
