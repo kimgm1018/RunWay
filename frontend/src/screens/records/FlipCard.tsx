@@ -10,9 +10,12 @@ const turnMs = 450;
 export function FlipCard({
   front,
   back,
+  onTurn,
 }: {
   front: (turn: () => void) => React.ReactNode;
   back: (turn: () => void) => React.ReactNode;
+  // Called as a turn starts (not for one ignored while another is under way), e.g. to bring the card's top into view.
+  onTurn?: () => void;
 }) {
   const [showBack, setShowBack] = useState(false);
   const busy = useRef(false);
@@ -44,6 +47,7 @@ export function FlipCard({
     timer.current = setTimeout(() => {
       busy.current = false;
     }, turnMs);
+    onTurn?.();
   };
 
   // Android does not always cull a face turned away (backfaceVisibility fails under a fading parent), so each face is
