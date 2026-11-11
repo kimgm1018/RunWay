@@ -126,6 +126,9 @@ type RunMapProps = {
   // false takes the markers (poles, dots, pills, names) off a map that something else covers, such as 7.2's
   // map under the course replay, so the native map stops redrawing their views; the lines stay. Default true.
   markers?: boolean;
+  // My run's route in RunWay's mint ribbon (S15P31E105-683's line) on an otherwise unchanged map: 4.5 러닝 결과 and
+  // the record card (S15P31E105-690).
+  mintLine?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -584,6 +587,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
     compact = false,
     groupLine = false,
     markers = true,
+    mintLine = false,
     textureView = false,
     recenterSignal = 0,
     style,
@@ -631,6 +635,16 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
         ink: groupLineLook.ink,
         ribbon: groupLineLook.ribbon,
         guide: groupLineLook.ink,
+      }
+    : mintLine
+    ? {
+        ...baseLook,
+        ink: mintMapLook.ink,
+        ribbon: mintMapLook.ribbon,
+        shadow: mintMapLook.shadow,
+        centre: mintMapLook.centre,
+        edge: mintMapLook.edge,
+        shadowWidth: mintMapLook.shadowWidth,
       }
     : baseLook;
   const me = running ? trail[trail.length - 1] : null;
@@ -740,9 +754,10 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
   // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
   const recordParts = routeParts?.filter(part => part.length >= 2);
-  const sections = route && unmeasuredEdges?.length
-    ? routeSections(route, unmeasuredEdges)
-    : null;
+  const sections =
+    route && unmeasuredEdges?.length
+      ? routeSections(route, unmeasuredEdges)
+      : null;
   // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
   const kmCount = segmentPaces?.length ?? 0;
   const kmPieces = useMemo(

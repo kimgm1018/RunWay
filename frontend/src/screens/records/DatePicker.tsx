@@ -410,11 +410,14 @@ export function WeekStrip({
   value,
   today,
   onChange,
+  legend = true,
   style,
 }: {
   value: string;
   today: string;
   onChange: (day: string) => void;
+  // 2.1 홈 shows the legend in its date row instead (S15P31E105-690, 담당자 피드백), so its card can be taller.
+  legend?: boolean;
   style?: ViewStyle;
 }) {
   const { width: screen } = useWindowDimensions();
@@ -470,21 +473,35 @@ export function WeekStrip({
           }}
         />
       </View>
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: dayLook.ran }]} />
-          <AppText style={styles.legendText}>러닝한 날</AppText>
-        </View>
-        <View style={styles.legendItem}>
-          <View
-            style={[
-              styles.legendDot,
-              styles.legendDotLight,
-              { backgroundColor: dayLook.rest },
-            ]}
-          />
-          <AppText style={styles.legendText}>러닝 안 한 날</AppText>
-        </View>
+      {legend ? <DayLegend style={styles.legend} /> : null}
+    </View>
+  );
+}
+
+// What the week strip's two day colours mean. stacked: the two in a column, small enough for 2.1's date row.
+export function DayLegend({
+  stacked = false,
+  style,
+}: {
+  stacked?: boolean;
+  style?: ViewStyle;
+}) {
+  const text = [styles.legendText, stacked && styles.legendTextSmall];
+  return (
+    <View style={[stacked ? styles.legendStacked : styles.legendRow, style]}>
+      <View style={styles.legendItem}>
+        <View style={[styles.legendDot, { backgroundColor: dayLook.ran }]} />
+        <AppText style={text}>러닝한 날</AppText>
+      </View>
+      <View style={styles.legendItem}>
+        <View
+          style={[
+            styles.legendDot,
+            styles.legendDotLight,
+            { backgroundColor: dayLook.rest },
+          ]}
+        />
+        <AppText style={text}>러닝 안 한 날</AppText>
       </View>
     </View>
   );
@@ -698,6 +715,8 @@ export function DateLine({
       onPress={onToggle}
       style={({ pressed }) => [styles.line, pressed && styles.pressed]}
     >
+      {/* A plain calendar mark says the date opens the calendar (S15P31E105-690 담당자 결정; no button shape). */}
+      <Icon name="calendar" color="rgba(2,5,14,0.6)" size={16} />
       <MorphText
         style={styles.lineText}
         text={
@@ -706,9 +725,6 @@ export function DateLine({
             : longDay(value)
         }
       />
-      <View style={[styles.lineIcon, open && styles.lineIconOpen]}>
-        <Icon name="chevronDown" color={recordsLook.ink} size={14} />
-      </View>
     </Pressable>
   );
 }
@@ -771,11 +787,11 @@ const styles = StyleSheet.create({
   dotOn: { backgroundColor: recordsLook.ink },
   legend: {
     height: legendHeight,
-    flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 14,
     paddingLeft: stripPadding,
   },
+  legendRow: { flexDirection: 'row', gap: 14 },
+  legendStacked: { gap: 2 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 10, height: 10, borderRadius: 3 },
   // The white dot keeps a faint edge on the light page.
@@ -786,6 +802,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: recordsLook.muted,
   },
+  legendTextSmall: { fontSize: 11.5, lineHeight: 15 },
   panel: {
     ...glassCard,
     borderRadius: 26,
@@ -862,13 +879,4 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     color: recordsLook.ink,
   },
-  lineIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.6)',
-  },
-  lineIconOpen: { transform: [{ rotate: '180deg' }] },
 });

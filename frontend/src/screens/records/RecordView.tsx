@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText } from '../../components';
+import { runRouteOf } from '../../components/mapRoute';
 import { useRepositories, type RunRecordDetail } from '../../data';
 import { errorCode } from '../../data/errors';
 import {
@@ -12,6 +13,7 @@ import {
 import { fontFamily } from '../../theme';
 import { BarLabel, recordsLook } from './look';
 import { HomeRecord } from './HomeAnalysis';
+import { RunRouteMap } from './RunRoute';
 import { SplitChart, type SplitMetric } from './SplitChart';
 
 // 19초 or 1분 50초.
@@ -156,15 +158,36 @@ export function RecordView({
   layout?: 'records' | 'home';
   metric?: SplitMetric;
 }) {
+  // The run's GPS route (S11) on the map with 경로 재생, never joined across its breaks (S15P31E105-690).
+  const route = useMemo(
+    () => runRouteOf(record.routeParts),
+    [record.routeParts],
+  );
+  const facts = useMemo(
+    () => ({
+      id: record.id,
+      title: record.title,
+      startedAt: record.startedAt,
+      distanceM: record.distanceM,
+      durationSec: record.durationSec,
+      averagePaceSecPerKm: record.averagePaceSecPerKm,
+      cadence: average(record.splits.map(split => split.averageCadence)),
+    }),
+    [record],
+  );
   if (layout === 'home') {
     return (
       <HomeRecord
         record={record}
         onOpen={onOpen}
         openLabel={openLabel}
-        action={record.runType === 'SOLO' && !record.courseId
-          ? <SaveCourseButton key={record.id} recordId={record.id} />
-          : null}
+        action={
+          record.runType === 'SOLO' && !record.courseId ? (
+            <SaveCourseButton key={record.id} recordId={record.id} />
+          ) : null
+        }
+        route={route}
+        facts={facts}
       />
     );
   }
@@ -250,13 +273,21 @@ export function RecordView({
       {record.runType === 'SOLO' && !record.courseId ? (
         <SaveCourseButton recordId={record.id} />
       ) : null}
+      <RunRouteMap
+        route={route}
+        facts={facts}
+        tone="card"
+        style={styles.route}
+      />
     </View>
   );
 }
 
 function SaveCourseButton({ recordId }: { recordId: string }) {
   const { courses } = useRepositories();
-  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'failed'>(
+    'idle',
+  );
   const [message, setMessage] = useState('');
   const save = async () => {
     if (state === 'saving' || state === 'saved') return;
@@ -272,8 +303,8 @@ function SaveCourseButton({ recordId }: { recordId: string }) {
         code === 'COURSE_GRADE_NOT_READY' || code === 'COURSE_GRADE_UNAVAILABLE'
           ? '경사 정보를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.'
           : code === 'VALIDATION_ERROR'
-            ? '코스로 만들 GPS 경로가 부족해요.'
-            : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
+          ? '코스로 만들 GPS 경로가 부족해요.'
+          : '코스를 저장하지 못했어요. 다시 시도해 주세요.',
       );
     }
   };
@@ -282,23 +313,42 @@ function SaveCourseButton({ recordId }: { recordId: string }) {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="코스로 정하기"
-        accessibilityState={{ disabled: state === 'saving' || state === 'saved' }}
+        accessibilityState={{
+          disabled: state === 'saving' || state === 'saved',
+        }}
         disabled={state === 'saving' || state === 'saved'}
-        onPress={() => { void save(); }}
+        onPress={() => {
+          void save();
+        }}
       >
         <AppText style={styles.saveCourseLabel}>
-          {state === 'saving' ? '코스 저장 중' : state === 'saved' ? '코스 저장 완료' : '코스로 정하기'}
+          {state === 'saving'
+            ? '코스 저장 중'
+            : state === 'saved'
+            ? '코스 저장 완료'
+            : '코스로 정하기'}
         </AppText>
       </Pressable>
-      {message ? <AppText style={styles.saveCourseMessage}>{message}</AppText> : null}
+      {message ? (
+        <AppText style={styles.saveCourseMessage}>{message}</AppText>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   recordsRoot: { gap: 18 },
-  saveCourseLabel: { color: recordsLook.onCard, fontFamily: fontFamily.bold, textAlign: 'center' },
-  saveCourseMessage: { color: recordsLook.onCard, fontFamily: fontFamily.regular, textAlign: 'center', marginTop: 6 },
+  saveCourseLabel: {
+    color: recordsLook.onCard,
+    fontFamily: fontFamily.bold,
+    textAlign: 'center',
+  },
+  saveCourseMessage: {
+    color: recordsLook.onCard,
+    fontFamily: fontFamily.regular,
+    textAlign: 'center',
+    marginTop: 6,
+  },
   flex: { flex: 1 },
   pressed: { opacity: 0.75 },
   headRow: {
@@ -350,6 +400,7 @@ const styles = StyleSheet.create({
     color: recordsLook.onCard,
   },
   chartGap: { marginTop: 16 },
+  route: { height: 200 },
   rule: {
     borderTopWidth: 1,
     borderTopColor: recordsLook.onCardLine,

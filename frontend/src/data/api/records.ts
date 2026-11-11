@@ -298,6 +298,7 @@ export function createRecordsApi() {
         goalAchieved: detail.goalAchieved,
       };
     },
+    getRoute: recordId => routePartsOf(recordId),
     getDetail: async recordId => {
       const [detail, { splits }, summary, routeParts] = await Promise.all([
         apiRequest<DetailResponse>(`${path}/${recordId}`),

@@ -39,8 +39,13 @@ import { fontFamily, homePalette, size } from '../../theme';
 import { GlassIconButton } from '../../components/GlassIconButton';
 import { frostCard, recordsFrame, recordsLook } from '../records/look';
 import { StartBackground } from '../onboarding/StartScreen';
-import { kstDay, kstMonth } from '../records/parts';
-import { CalendarPanel, DateLine, WeekStrip } from '../records/DatePicker';
+import { addDays, kstDay, kstMonth } from '../records/parts';
+import {
+  CalendarPanel,
+  DateLine,
+  DayLegend,
+  WeekStrip,
+} from '../records/DatePicker';
 import { AnalysisPanel } from './AnalysisPanel';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useSamsungSleep } from '../../health/useSamsungSleep';
@@ -555,34 +560,38 @@ export function HomeScreen() {
       <View style={styles.date}>
         <>
           <View style={styles.dateRow}>
-            <View style={styles.flex}>
-              <DateLine
-                value={day}
-                open={calendar}
-                month={calendarMonth}
-                onToggle={() => {
-                  setCalendarMonth(kstMonth(day));
-                  setCalendar(open => !open);
-                }}
-              />
-            </View>
-            {day !== today && !calendar ? (
-              // A past date goes back to today in one tap; it fades in as the date leaves today.
-              <FadeIn appearKey="today">
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel="오늘로 이동"
-                  hitSlop={6}
-                  onPress={() => choose(today)}
-                  style={styles.todayButton}
-                >
-                  <AppText style={styles.todayButtonText}>오늘</AppText>
-                </PressableScale>
-              </FadeIn>
-            ) : null}
+            {/* ‹ date › (담당자 피드백, S15P31E105-690): the arrows step a day, the date opens the calendar. Bare
+                text and arrows, no button shapes; no 오늘 button. */}
+            <DayArrow
+              direction={-1}
+              disabled={calendar}
+              onPress={() => choose(addDays(day, -1))}
+            />
+            <DateLine
+              value={day}
+              open={calendar}
+              month={calendarMonth}
+              onToggle={() => {
+                setCalendarMonth(kstMonth(day));
+                setCalendar(open => !open);
+              }}
+            />
+            <DayArrow
+              direction={1}
+              disabled={calendar || day >= today}
+              onPress={() => choose(addDays(day, 1))}
+            />
+            <View style={styles.flex} />
+            {/* The legend sits by the date (담당자 피드백, S15P31E105-690), so the card below gains its row. */}
+            {calendar ? null : <DayLegend stacked />}
           </View>
           {calendar ? null : (
-            <WeekStrip value={day} today={today} onChange={choose} />
+            <WeekStrip
+              value={day}
+              today={today}
+              onChange={choose}
+              legend={false}
+            />
           )}
         </>
       </View>
@@ -657,6 +666,33 @@ export function HomeScreen() {
   );
 }
 
+// One day back or forward from 2.1's date line; the next day stops at today.
+function DayArrow({
+  direction,
+  disabled,
+  onPress,
+}: {
+  direction: -1 | 1;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={direction < 0 ? '전날' : '다음 날'}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      hitSlop={8}
+      onPress={onPress}
+      style={[styles.arrow, disabled && styles.arrowOff]}
+    >
+      <View style={direction > 0 && styles.flipX}>
+        <Icon name="back" color={recordsLook.ink} size={18} />
+      </View>
+    </PressableScale>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
@@ -699,21 +735,16 @@ const styles = StyleSheet.create({
     minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
-  todayButton: {
-    height: 30,
-    paddingHorizontal: 14,
-    borderRadius: 15,
+  arrow: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.78)',
   },
-  todayButtonText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: recordsLook.ink,
-  },
+  arrowOff: { opacity: 0.3 },
+  flipX: { transform: [{ scaleX: -1 }] },
   // S15P31E105-594 (담당자 결정): the card is the menu's navy, solid, so its white text reads on any background.
   card: {
     flex: 1,

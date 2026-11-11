@@ -680,6 +680,14 @@ export function createMockRepositories(
           ? respond(toDetail(record, saved), options)
           : fail(new DataError('RECORD_NOT_FOUND', '기록 없음'), options);
       },
+      // 목업은 기록의 route를 한 조각으로 돌려준다(toDetail의 routeParts와 같다).
+      getRoute: recordId => {
+        const record = records.find(run => run.id === recordId);
+        return respond(
+          record ? toDetail(record, saved).routeParts : null,
+          options,
+        );
+      },
       getResultSummary: recordId => {
         const record = records.find(run => run.id === recordId);
         if (!record) {
