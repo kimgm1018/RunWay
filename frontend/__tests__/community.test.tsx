@@ -592,7 +592,12 @@ test('the replay point along the route matches walking it', () => {
 });
 
 test('replay jumps over an unmeasured pause connector', () => {
-  const route: LngLat[] = [[129, 35], [129.001, 35], [129.01, 35], [129.011, 35]];
+  const route: LngLat[] = [
+    [129, 35],
+    [129.001, 35],
+    [129.01, 35],
+    [129.011, 35],
+  ];
   expect(pointAt(route, 0.51, [1])[0]).toBeGreaterThan(129.01);
 });
 
@@ -1476,7 +1481,9 @@ test('7.3 lets a free run request course sharing', async () => {
     disabled: false,
   });
   expect(courseSwitch(screen).props.disabled).toBe(false);
-  expect(texts(screen)).toContain('공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.');
+  expect(texts(screen)).toContain(
+    '공유하면 이 기록의 경로를 코스로 만들어요. GPS가 부족하면 기록만 공유돼요.',
+  );
 
   await act(async () => courseSwitch(screen).props.onPress());
 
@@ -1751,4 +1758,75 @@ test('7.1 저장 shows at once through CMT16 and goes back when the server refus
   // Refused: the bookmark stays as it was before this press.
   expect(calls[1]).toEqual([firstPost().id, before]);
   expect(firstPost().bookmarked).toBe(!before);
+});
+
+// S15P31E105-616: another runner's shared course is saved as mine from 7.2; my own post and an unshared one
+// offer no button, and a course that is gone says so.
+async function openSharedPost(
+  mine: boolean,
+  shared: boolean,
+  save: () => Promise<void>,
+  freeRun = false,
+) {
+  const repositories = createMockRepositories({ latencyMs: 0 });
+  const get = repositories.community.get;
+  repositories.community.get = async postId => {
+    const post = await get(postId);
+    return {
+      ...post,
+      record: { ...post.record, courseRun: !freeRun },
+      isMine: mine,
+      courseShared: shared,
+      courseId: shared ? '77' : null,
+    };
+  };
+  repositories.courses.save = save;
+  const screen = await openCommunity(repositories);
+  await press(screen, 'minjun.run의 게시물 열기');
+  await settle(50);
+  return screen;
+}
+
+const saveButtons = (screen: Screen) =>
+  screen.root.findAll(
+    node =>
+      node.props.accessibilityLabel === '내 코스에 저장' &&
+      typeof node.props.onPress === 'function',
+  );
+
+test('7.2 saves another runner’s shared course as mine, once', async () => {
+  const save = jest.fn(() => Promise.resolve());
+  const screen = await openSharedPost(false, true, save);
+  expect(saveButtons(screen)).toHaveLength(1);
+  await press(screen, '내 코스에 저장');
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save).toHaveBeenCalledWith('77');
+  expect(texts(screen)).toContain('내 코스에 저장했어요.');
+  await press(screen, '내 코스에 저장');
+  expect(save).toHaveBeenCalledTimes(1);
+});
+
+test('7.2 says so when the shared course can no longer be saved', async () => {
+  const save = jest.fn(() =>
+    Promise.reject(new DataError('COURSE_NOT_FOUND', '코스 없음')),
+  );
+  const screen = await openSharedPost(false, true, save);
+  await press(screen, '내 코스에 저장');
+  expect(texts(screen)).toContain('공유가 끝났거나 볼 수 없는 코스예요.');
+});
+
+test('7.2 offers no course save on my own post or an unshared one', async () => {
+  const mine = await openSharedPost(true, true, jest.fn());
+  expect(saveButtons(mine)).toHaveLength(0);
+  const unshared = await openSharedPost(false, false, jest.fn());
+  expect(saveButtons(unshared)).toHaveLength(0);
+});
+
+test('7.2 shows 러닝, not 코스 러닝, for a shared free run', async () => {
+  const free = await openSharedPost(false, true, jest.fn(), true);
+  expect(texts(free)).not.toContain('코스 러닝');
+  expect(texts(free)).toContain('러닝');
+  expect(saveButtons(free)).toHaveLength(1);
+  const course = await openSharedPost(false, true, jest.fn());
+  expect(texts(course)).toContain('코스 러닝');
 });

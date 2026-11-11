@@ -81,10 +81,13 @@ public class PostService {
         }
 
         Long courseId = session.courseId();
+        boolean courseFromFreeRun = session.courseFromFreeRun();
         String courseShareFailureReason = null;
         if (courseId == null && !Boolean.FALSE.equals(request.courseShared())) {
             var conversion = runCourseService.trySaveForPost(userId, request.sessionId());
             courseId = conversion.courseId();
+            // 방금 이 세션으로 만들었거나 이 세션의 코스를 다시 찾은 경우다.
+            courseFromFreeRun = courseId != null;
             courseShareFailureReason = conversion.failureReason();
         }
         boolean courseShared = courseId != null && !Boolean.FALSE.equals(request.courseShared());
@@ -99,7 +102,8 @@ public class PostService {
         postRepository.save(post);
         postRepository.flush();
         entityManager.refresh(post);
-        return PostCreateResponse.from(post, courseId, courseShareFailureReason);
+        return PostCreateResponse.from(
+                post, courseId, courseFromFreeRun, courseShareFailureReason);
     }
 
     /**
@@ -311,10 +315,14 @@ public class PostService {
             SessionShareInfo session = session(post);
             Long sessionCourseId = session == null ? null : session.courseId();
             boolean courseShared = post.isCourseShared() && sessionCourseId != null;
-            Long courseId = courseShared || post.isAuthoredBy(viewerId) ? sessionCourseId : null;
+            boolean courseVisible = courseShared || post.isAuthoredBy(viewerId);
+            Long courseId = courseVisible ? sessionCourseId : null;
+            boolean courseFromFreeRun =
+                    courseVisible && sessionCourseId != null && session.courseFromFreeRun();
             return new PostEngagement(
                     courseId,
                     courseShared,
+                    courseFromFreeRun,
                     commentCounts.getOrDefault(post.getId(), 0L),
                     reactionCounts.getOrDefault(post.getId(), 0L),
                     liked.contains(post.getId()),

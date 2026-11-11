@@ -210,6 +210,7 @@
   "averageCadence": null,
   "goalAchieved": null,
   "courseId": null,
+  "courseFromFreeRun": false,
   "targetPaceSecPerKm": null,
   "comparisonSessionId": null
 }
@@ -231,6 +232,7 @@
 | `goalAchieved` | boolean / null | O | `running_sessions.goal_achieved` (BOOLEAN). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `routePreviewImageUrl` | string / null (제안) | X | 원본 경로에서 생성한 표시용 이미지 참조. 해당 저장 컬럼·준비 상태는 미정. 원본 GPS 응답으로 대체하지 않는다. |
 | `courseId` | integer (int64) / null | O | `running_sessions.course_id` (BIGINT). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `courseFromFreeRun` | boolean | O | 연결 세션의 코스가 이 자유 러닝 기록으로 만든 개인 코스이면 true(`courses.source_session_id`=세션 ID). 코스가 없거나 일반 코스를 쓴 기록이면 false. `courseId`가 숨겨지는 조회자에게는 false. 항상 포함 |
 
 
 **사용 흐름과 응답 판단**

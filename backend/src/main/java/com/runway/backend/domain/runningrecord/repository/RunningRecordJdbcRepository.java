@@ -50,7 +50,11 @@ public class RunningRecordJdbcRepository {
                                average_pace,
                                average_heart_rate,
                                average_cadence,
-                               deleted_at
+                               deleted_at,
+                               EXISTS (SELECT 1 FROM courses c
+                                WHERE c.id = running_sessions.course_id
+                                  AND c.source_session_id = running_sessions.id)
+                                   AS course_from_free_run
                         FROM running_sessions
                         WHERE id = ?
                         """,
@@ -437,7 +441,8 @@ public class RunningRecordJdbcRepository {
                 rs.getBigDecimal("average_pace"),
                 rs.getBigDecimal("average_heart_rate"),
                 rs.getBigDecimal("average_cadence"),
-                toInstant(rs.getTimestamp("deleted_at")));
+                toInstant(rs.getTimestamp("deleted_at")),
+                rs.getBoolean("course_from_free_run"));
     }
 
     private static ListItemRow mapListItemRow(ResultSet rs) throws SQLException {
@@ -520,7 +525,8 @@ public class RunningRecordJdbcRepository {
             BigDecimal averagePace,
             BigDecimal averageHeartRate,
             BigDecimal averageCadence,
-            Instant deletedAt) {}
+            Instant deletedAt,
+            boolean courseFromFreeRun) {}
 
     public record ListItemRow(
             long id,

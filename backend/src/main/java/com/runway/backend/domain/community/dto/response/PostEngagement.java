@@ -4,6 +4,7 @@ package com.runway.backend.domain.community.dto.response;
  * 게시물 응답의 조회자 기준 파생값. courseId는 courseShared=false이고 조회자가 작성자가 아니면 null이다.
  *
  * @param courseId 조회자에게 보여 줄 연결 세션 코스 ID
+ * @param courseFromFreeRun courseId가 보일 때만 true. 그 코스가 이 세션(자유 러닝)으로 만든 개인 코스인지 여부
  * @param courseShared 저장된 공유 여부와 세션 코스 존재를 함께 본 값
  * @param commentCount 삭제되지 않은 댓글 수(대댓글 포함)
  * @param reactionCount 좋아요 수
@@ -13,6 +14,7 @@ package com.runway.backend.domain.community.dto.response;
 public record PostEngagement(
         Long courseId,
         boolean courseShared,
+        boolean courseFromFreeRun,
         long commentCount,
         long reactionCount,
         boolean liked,
