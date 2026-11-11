@@ -89,6 +89,8 @@ AI01 `/health`는 로드밸런서 probe를 위해 `{status, modelLoaded, modelVe
 | --- | --- | --- |
 | `GRU_PERSONALIZATION_ENABLED` | `false` | AI06 GRU head 계산과 AI03/AI04 GRU 개인 출력층 사용 스위치. 꺼져 있으면 AI06에서 head를 계산하지 않고 null과 `GRU_PERSONALIZATION_DISABLED`를 반환 |
 | `GRU_PERSONALIZATION_MAX_WINDOWS` | `2000` | GRU 개인화에 사용할 최대 학습 window 수. 최신 러닝부터 고르며, 상한을 넘은 window는 결과에 반영되지 않음 |
+| `GRU_GB_PERSONALIZATION_ENABLED` | `false`(코드) / `true`(배포 compose) | ODE식 GRU 개인 보정 g·b(S15P31E105-641). 켜면 AI06이 `summaryU`에 `gruGain`·`gruOffsetBpm`·`gruSupportN`을 넣고, AI04·AI10이 학습 심박 기준선 행에서 읽어 기본 GRU 출력에 `hr0 + g·(pred − hr0) + b`로 적용. 꺼져 있으면 출력이 이전과 같음 |
+| `GRU_GB_MAX_WINDOWS` | `3000` | AI06 g·b 계산 최대 window 수(최신 러닝부터) |
 | `AI_DB_URL` | (없음) | 읽기 전용 PostgreSQL 주소. 비면 AI03/AI04의 DB 개인화 조회는 자동 OFF이며, 개인 계획의 기존 503 동작은 유지 |
 | `GRU_PERSONALIZATION_CACHE_TTL_SEC` | `300` | 사용자 head 캐시 시간 |
 | `GRU_PERSONALIZATION_EMPTY_CACHE_TTL_SEC` | `60` | 행 없음·개인화 테이블 없음 캐시 시간 |
@@ -196,7 +198,7 @@ AI03/AI04는 DB head가 없거나 조회할 수 없으면 기본 GRU로 계속 �
 | `publishSuggested` | boolean | 백엔드가 발행 판단을 이어갈지 |
 | `decision` | object / null | 최종 `action`, `chosenIndex`, `recommendedPaceSecPerKm`, `cueBpm`, `predictedHr30Bpm`, `predictedHr60Bpm`, `predictedHr120Bpm`, `routeProgressM`, `basedOnStateVersion`, `expiresAt`, `reason`, `reasonText`, `coachingLevel`. `coachingLevel`은 코칭 단계 `OK`/`CAUTION`/`DANGER`(아래 "코칭 단계", 없어도 되는 칸). `cueBpm`은 `recommendedPaceSecPerKm`의 목표 BPM(60~220 정수)이며 `PLAN_HOLD`·`GUIDE_PACE`·`EASE_OFF`에 모두 넣는다. 계산하지 못하면 null과 경고 `CUE_BPM_UNAVAILABLE` |
 | `candidates[]` | object[] | `paceSecPerKm`, `predHrBpm[3]`, `upperHrBpm[3]`, `passed`, `rejectReason`, `score` |
-| `pacing` | object / null | `actualMinusGuideSecPerKm`, `etaSec`, `etaMinusGoalSec`, `hrDangerBpm`(섞은 P98 + 3), `hrSustainBpm`(섞은 P85), `hrThresholdSource`(`POPULATION`/`BLENDED`/`PERSONAL`), `hrThresholdWeight`. 선택: `handoverPhase`(`PLAN_HOLD`/`PLAN_BLEND`/`MPC`), `planWeight`(0~1). |
+| `pacing` | object / null | `actualMinusGuideSecPerKm`, `etaSec`, `etaMinusGoalSec`, `hrDangerBpm`(섞은 P98 + 3), `hrSustainBpm`(섞은 P85), `hrThresholdSource`(`POPULATION`/`BLENDED`/`PERSONAL`), `hrThresholdWeight`. 선택: `handoverPhase`(`PLAN_HOLD`/`PLAN_BLEND`/`MPC`), `planWeight`(0~1), `gruPersonalWeight`(GRU 개인 g·b 비중 n/(n+50), 미적용 0)·`gruSupportN`(반영 러닝 수) — 두 값은 `GRU_GB_PERSONALIZATION_ENABLED=true`이고 `userId`가 있을 때만 들어간다. |
 | `warnings[]` | string[] | 모델·정책 경고 |
 | `forecast` | object / null | 요청 및 서버 설정으로 켰을 때 ODE v2.1 남은 거리, 완주 시각, HR 곡선 |
 | `hrPersonalized` | boolean | 요청에 `userId`가 있을 때 개인 head 사용 여부 |
@@ -504,6 +506,8 @@ W07 저장 기록으로 `sessions[]`를 만드는 방법(러닝 선택·5초 재
 | `head.main.bias` / `head.nograde.bias` | float[3] | 출력층 bias |
 
 AI06 응답에는 기존 ODE 필드와 함께 `hrDangerBpm`(개인 P98 원값, +3 전), `hrSustainBpm`(P85), `hrThresholdRunCount`(실제로 사용한 러닝 수, 최대 20)도 포함한다. `GRU_PERSONALIZATION_ENABLED=false`가 기본이다. 꺼져 있으면 GRU 출력층을 계산하지 않고 `gruPersonalization=null`, `GRU_PERSONALIZATION_DISABLED` 경고를 반환한다. 켜져 있을 때는 `GRU_PERSONALIZATION_MAX_WINDOWS`(기본 2000)에 따라 최신 러닝부터 학습 window를 고른다. 더 오래된 window가 상한에서 빠지면 결과가 달라질 수 있다.
+
+`GRU_GB_PERSONALIZATION_ENABLED=true`(기본 false, S15P31E105-641)이면 AI06이 같은 호출에서 기본 GRU의 support 예측으로 개인 g·b를 계산해 `summaryU` 객체 안에 `gruGain`(0.5~2.0), `gruOffsetBpm`(±8), `gruSupportN`(쓴 러닝 수)을 추가한다. 응답 최상위 필드는 바뀌지 않으며, 백엔드는 `summaryU`를 그대로 `user_hr_personalization.summary_u_json`에 저장하므로 DB migration·백엔드 변경이 없다. ODE는 `summaryU`의 정해진 27개 이름만 읽는다. 계산에 실패하면 세 키를 넣지 않고(AI04·AI10은 보정 없음) 로그만 남긴다.
 
 채점 가능한 window가 없으면 `gruPersonalization=null`과 `GRU_PERSONALIZATION_NO_SUPPORT_WINDOWS` 경고를 반환한다. Support 품질은 ODE와 같이 `GOOD`·`LOW`를 유효값, `MISSING`을 결측으로 본다. `UNUSABLE` 러닝은 제외하며 채점 HR은 `hrIsFilled=false`여야 한다. GRU predictor의 평가 mask에 맞춰 허용된 `LOW` HR을 `GOOD`으로 변환한다.
 

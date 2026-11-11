@@ -39,6 +39,7 @@ from app.demo.inlet import build_inlet_router
 from app.models.ode.runtime import DEFAULT_VALIDATED_HORIZON_SEC, load_ode_runtime
 from app.ode_schemas import PersonalizeRequest, PlanRequest
 from app.personalization import compute_personalization
+from app.gru_gb import add_gb_to_summary, gru_gb_enabled
 from app.planner import prerun_planner as planner_v1
 from app.personal_plan import (OdeBalancedPaceOptimizer, PersonalPlanRequest, PersonalPlanResponse,
                                build_personal_plan, personal_plan_enabled)
@@ -334,6 +335,10 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
     # requested = 설정 스위치만, enabled = 스위치와 AI_DB_URL이 모두 있음(조회기를 넘길 수 있음).
     app.state.gru_personalization_requested = gru_personalization_requested
     app.state.gru_personalization_enabled = gru_personalization_requested and bool(db_url)
+    # S15P31E105-641 ODE식 GRU 개인 g·b(기본 꺼짐). 꺼져 있으면 AI06 계산·AI04/AI10 적용을 하지 않는다.
+    app.state.gru_gb_enabled = gru_gb_enabled()
+    if app.state.gru_gb_enabled:
+        log.info("GRU 개인 g·b 켜짐(GRU_GB_PERSONALIZATION_ENABLED=true)")
     app.state.population_bundle = population_bundle
     app.state.population_mode = population_mode
 
@@ -464,7 +469,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
             began = time.perf_counter()
             response = recommend_group_pace(
                 body, model, policy, hr_threshold_lookup=request.app.state.hr_threshold_lookup,
-                hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail)
+                hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, detail=detail,
+                gru_gb_enabled=request.app.state.gru_gb_enabled)
             if detail is not None:
                 try:
                     record_group_trace(demo, body, response, detail, policy_version=policy.policy_version,
@@ -492,7 +498,8 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                              gru_personalization_enabled=request.app.state.gru_personalization_requested,
                              hr_threshold_lookup=request.app.state.hr_threshold_lookup,
                              hr_threshold_lookup_configured=request.app.state.hr_threshold_lookup_configured, cue_bpm_calc=request.app.state.cue_bpm_calc,
-                             bpm_lookup=request.app.state.bpm_lookup)
+                             bpm_lookup=request.app.state.bpm_lookup,
+                             gru_gb_enabled=request.app.state.gru_gb_enabled)
         demo = request.app.state.demo
         if demo is not None:
             stage, _ = demo.profile_for(body.context.session_id)
@@ -641,6 +648,9 @@ def create_app(loader: Callable[[], HRModel] = default_loader,
                            "hrSustainBpm": learned_hr.hr_sustain_bpm,
                            "hrThresholdRunCount": learned_hr.hr_threshold_run_count}
                 return JSONResponse(status_code=500, content=content)
+            if request.app.state.gru_gb_enabled:
+                # summaryU 안에 gruGain·gruOffsetBpm·gruSupportN(백엔드가 summaryU를 그대로 저장, ODE는 27개 이름만 읽음).
+                add_gb_to_summary(result, body, request.app.state.model)
             result["gruPersonalization"] = gru_payload
             result["warnings"] = list(result.get("warnings", [])) + list(gru_warnings)
             result["hrDangerBpm"] = learned_hr.hr_danger_bpm
