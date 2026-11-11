@@ -251,11 +251,12 @@ export function MeetingPlaceScreen() {
               />
             </LightGlass>
           </View>
-          {/* The mockup's results: each place a light glass row of its own under the search. */}
+          {/* The mockup's results: each place a light row of its own under the search, opaque so the map
+              behind does not show through the names (S15P31E105-679). */}
           {query ? (
             <View style={styles.results}>
               {searching ? (
-                <LightGlass radius={16}>
+                <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
                   <AppText style={[styles.sub, styles.noResult]}>
                     검색 중이에요
                   </AppText>
@@ -266,7 +267,7 @@ export function MeetingPlaceScreen() {
                   accessibilityLabel="장소 검색 다시 시도"
                   onPress={() => setAttempt(value => value + 1)}
                 >
-                  <LightGlass radius={16}>
+                  <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
                     <AppText style={[styles.sub, styles.noResult]}>
                       검색하지 못했어요. 눌러서 다시 시도해 주세요
                     </AppText>
@@ -282,7 +283,11 @@ export function MeetingPlaceScreen() {
                     accessibilityLabel={place.name}
                     onPress={() => choose(place)}
                   >
-                    <LightGlass radius={16} style={styles.result}>
+                    <LightGlass
+                      radius={16}
+                      solid={resultSurface}
+                      style={[styles.resultCard, styles.result]}
+                    >
                       <Icon
                         name="mapPin"
                         color={groupLook.onLightSub}
@@ -302,7 +307,7 @@ export function MeetingPlaceScreen() {
                   </Pressable>
                 ))
               ) : (
-                <LightGlass radius={16}>
+                <LightGlass radius={16} solid={resultSurface} style={styles.resultCard}>
                   <AppText style={[styles.sub, styles.noResult]}>
                     찾는 장소가 없어요
                   </AppText>
@@ -455,6 +460,10 @@ export function MeetingPlaceScreen() {
   );
 }
 
+// The search results' rows: the glass's own light tone made opaque, so map labels and roads do not show
+// through the place names (S15P31E105-679).
+const resultSurface = '#F2F5F8';
+
 // The sheet's navy, a step above the page navy so it stands off the map's edge.
 const sheetNavy = groupTone.sheet;
 
@@ -523,6 +532,12 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     textAlignVertical: 'center',
     color: groupLook.onLight,
+  },
+  // The glass's rim and shadow kept on the opaque rows so they still stand off the map.
+  resultCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(6,18,22,0.08)',
+    boxShadow: '0 6px 20px rgba(30,45,60,0.14)',
   },
   results: {
     gap: spacing.sm,
