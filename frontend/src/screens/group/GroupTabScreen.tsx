@@ -1,11 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { BackHandler, StatusBar, StyleSheet, View } from 'react-native';
 import {
   useFocusEffect,
   useNavigation,
@@ -21,7 +15,8 @@ import { fontFamily, spacing, ThemeProvider } from '../../theme';
 import { CrewRecruitPage } from './CrewRecruitScreen';
 import { GroupIntro, groupIntroSeen, markGroupIntroSeen } from './GroupIntro';
 import { MyCrewsPage } from './GroupScreen';
-import { groupTone, NightBackground, Raised } from './look';
+import { NightBackground } from './look';
+import { stand, UnderlineTabs } from './stand';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 // 내 크루 is the left page, 크루 모집 the right one.
@@ -29,8 +24,13 @@ const pages: readonly GroupTabRouteName[] = ['MyCrews', 'CrewRecruit'];
 const pageOf = (name: GroupTabRouteName | undefined) =>
   name === 'CrewRecruit' ? 1 : 0;
 
-// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager: the handoff's segmented switch on a light screen, the
-// picked tab a raised navy pill on a pressed-in track.
+// 내 크루 · 크루 모집 (6.0 · 6.1) tabs over the pager: words on a line, the picked one bold over a mint line
+// (그룹런 시안, S15P31E105-673).
+const tabItems = [
+  { key: 'mine', label: '내 크루' },
+  { key: 'recruit', label: '크루 모집' },
+] as const;
+
 export function GroupTabs({
   active,
   onSelect,
@@ -38,36 +38,12 @@ export function GroupTabs({
   active: number;
   onSelect: (page: number) => void;
 }) {
-  const tab = (page: number, label: string) => {
-    const selected = page === active;
-    const text = (
-      <AppText style={[styles.tabText, selected && styles.tabTextOn]}>
-        {label}
-      </AppText>
-    );
-    return (
-      <Pressable
-        accessibilityRole="tab"
-        accessibilityLabel={label}
-        accessibilityState={{ selected }}
-        onPress={() => !selected && onSelect(page)}
-        style={styles.tab}
-      >
-        {selected ? (
-          <Raised tone="whiteFlat" style={styles.tabOn}>
-            {text}
-          </Raised>
-        ) : (
-          text
-        )}
-      </Pressable>
-    );
-  };
   return (
-    <View style={styles.tabs}>
-      {tab(0, '내 크루')}
-      {tab(1, '크루 모집')}
-    </View>
+    <UnderlineTabs
+      items={tabItems}
+      active={tabItems[active].key}
+      onSelect={key => onSelect(key === 'recruit' ? 1 : 0)}
+    />
   );
 }
 
@@ -154,13 +130,19 @@ export function GroupTabScreen() {
         {/* The home card's navy behind the group screens (S15P31E105-594 담당자 결정: 진한 네이비 배경). */}
         <NightBackground />
         {/* 그룹 title with search on its right, the tabs full width under it (S15P31E105-594 담당자 시안). */}
-        <View style={[styles.titleRow, { paddingTop: insets.top }]}>
+        <View
+          style={[
+            styles.titleRow,
+            { paddingTop: insets.top, minHeight: insets.top + 54 },
+          ]}
+        >
           <AppText style={styles.title} accessibilityRole="header">
             그룹
           </AppText>
           <GlassIconButton
             icon="search"
             tone="dark"
+            diameter={40}
             accessibilityLabel={
               page === 1 ? '크루 검색 열기' : '내 크루 검색 열기'
             }
@@ -210,46 +192,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingHorizontal: 19,
   },
   title: {
-    fontFamily: fontFamily.bold,
-    fontSize: 24,
-    lineHeight: 32,
-    letterSpacing: -0.5,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 28,
+    lineHeight: 36,
+    color: stand.text,
   },
-  // The tabs, 16 from the screen edges.
+  // The tabs, 19 from the screen edges, 8 under the title.
   header: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 19,
+    marginTop: 8,
     marginBottom: spacing.md,
   },
-  // 6.0-TabSwitcher: 44 high, 4 inside.
-  tabs: {
-    flexDirection: 'row',
-    height: 44,
-    padding: 4,
-    gap: 4,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.card,
-  },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabOn: {
-    alignSelf: 'stretch',
-    flex: 1,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 20,
-    letterSpacing: -0.3,
-    color: groupTone.sub,
-  },
-  tabTextOn: { color: groupTone.onButton },
 });

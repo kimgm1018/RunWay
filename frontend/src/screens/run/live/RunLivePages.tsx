@@ -131,10 +131,14 @@ const chartHeight = 120;
 function TrendChart({
   values,
   invert = false,
+  color,
 }: {
   values: (number | null)[];
   invert?: boolean;
+  // A group run draws each metric's line in its colour on the bare page (그룹런 시안).
+  color?: string;
 }) {
+  const g = color ? groupStyles : null;
   const [width, setWidth] = useState(0);
   const measured = values.filter((value): value is number => value !== null);
   const enough = measured.length >= 2;
@@ -162,7 +166,7 @@ function TrendChart({
   return (
     <View style={styles.chart}>
       <View
-        style={styles.chartBox}
+        style={[styles.chartBox, g?.chartBox]}
         onLayout={event => setWidth(event.nativeEvent.layout.width)}
       >
         {enough && width > 0 ? (
@@ -172,7 +176,7 @@ function TrendChart({
               y1={chartHeight - 1}
               x2={width}
               y2={chartHeight - 1}
-              stroke={liveLook.line}
+              stroke={color ? groupInk.rule : liveLook.line}
               strokeWidth={1}
             />
             {segments.map((points, index) => (
@@ -180,22 +184,22 @@ function TrendChart({
                 key={index}
                 points={points}
                 fill="none"
-                stroke={liveLook.text}
-                strokeWidth={2}
+                stroke={color ?? liveLook.text}
+                strokeWidth={color ? 2.5 : 2}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
             ))}
           </Svg>
         ) : (
-          <AppText style={styles.chartEmpty}>
+          <AppText style={[styles.chartEmpty, g?.chartEmpty]}>
             측정값이 쌓이면 추이를 보여 드려요
           </AppText>
         )}
       </View>
       <View style={styles.chartAxis}>
-        <AppText style={styles.axisText}>시작</AppText>
-        <AppText style={styles.axisText}>지금</AppText>
+        <AppText style={[styles.axisText, g?.axisText]}>시작</AppText>
+        <AppText style={[styles.axisText, g?.axisText]}>지금</AppText>
       </View>
     </View>
   );
@@ -205,25 +209,34 @@ function SubMetric({
   label,
   value,
   unit,
+  group = false,
+  after = false,
 }: {
   label: string;
   value: string;
   unit?: string;
+  // 그룹런 시안: no tile, the mint label on top, a line before the second one.
+  group?: boolean;
+  after?: boolean;
 }) {
+  const g = group ? groupStyles : null;
   return (
-    <View style={styles.sub}>
+    <View style={[styles.sub, g?.sub, after && g?.subAfter]}>
+      {g ? <AppText style={g.subLabel}>{label}</AppText> : null}
       <View style={styles.metricLine}>
         <AppText
-          style={styles.subValue}
+          style={[styles.subValue, g?.subValue]}
           accessibilityLabel={label}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
           {value}
         </AppText>
-        {unit ? <AppText style={styles.metricUnit}>{unit}</AppText> : null}
+        {unit ? (
+          <AppText style={[styles.metricUnit, g?.subUnit]}>{unit}</AppText>
+        ) : null}
       </View>
-      <AppText style={styles.metricLabel}>{label}</AppText>
+      {g ? null : <AppText style={styles.metricLabel}>{label}</AppText>}
     </View>
   );
 }
@@ -240,6 +253,7 @@ function MetricPage({
   invert,
   subs,
   children,
+  color,
 }: {
   label: string;
   value: string;
@@ -250,35 +264,45 @@ function MetricPage({
   invert?: boolean;
   subs: { label: string; value: string; unit?: string }[];
   children?: React.ReactNode;
+  // A group run's colour for this metric (그룹런 시안): the mint label, the heavy figure, the coloured line.
+  color?: string;
 }) {
+  const g = color ? groupStyles : null;
   return (
-    <View style={styles.page}>
+    <View style={[styles.page, g?.page]}>
       <View style={styles.hero}>
         <View style={styles.heroHead}>
-          <AppText style={styles.heroLabel}>{label}</AppText>
+          <AppText style={[styles.heroLabel, g?.heroLabel]}>{label}</AppText>
           {chip ? (
-            <View style={styles.chip}>
-              <AppText style={styles.chipText}>{chip}</AppText>
+            <View style={[styles.chip, g?.chip]}>
+              <AppText style={[styles.chipText, g?.chipText]}>{chip}</AppText>
             </View>
           ) : null}
         </View>
         <View style={styles.heroLine}>
           <AppText
-            style={styles.heroValue}
+            style={[styles.heroValue, g?.heroValue]}
             accessibilityLabel={label}
             numberOfLines={1}
             adjustsFontSizeToFit
           >
             {value}
           </AppText>
-          <AppText style={styles.heroUnit}>{unit}</AppText>
+          <AppText style={[styles.heroUnit, g?.heroUnit]}>{unit}</AppText>
         </View>
-        {note ? <AppText style={styles.metricNote}>{note}</AppText> : null}
+        {note ? (
+          <AppText style={[styles.metricNote, g?.note]}>{note}</AppText>
+        ) : null}
       </View>
-      <TrendChart values={trend} invert={invert} />
-      <View style={styles.subs}>
-        {subs.map(sub => (
-          <SubMetric key={sub.label} {...sub} />
+      <TrendChart values={trend} invert={invert} color={color} />
+      <View style={[styles.subs, g?.subs]}>
+        {subs.map((sub, index) => (
+          <SubMetric
+            key={sub.label}
+            {...sub}
+            group={!!color}
+            after={index > 0}
+          />
         ))}
       </View>
       {children}
@@ -306,6 +330,7 @@ export function metricPages({
   history,
   rival,
   guidance,
+  group = false,
 }: {
   pace: number | null;
   goalPace: number | null;
@@ -318,7 +343,11 @@ export function metricPages({
   history: HistoryPoint[];
   rival: ComparisonLine | null;
   guidance: RunGuidance | null;
+  // 그룹런 시안 (S15P31E105-673): each metric in its colour on the bare page.
+  group?: boolean;
 }) {
+  const color = (key: keyof typeof groupInk.chart) =>
+    group ? groupInk.chart[key] : undefined;
   const average = averagePace(elapsedSec, distanceM);
   const remaining = totalM ? Math.max(totalM - distanceM, 0) : null;
   const heartRates = history.map(point => point.heartRate);
@@ -338,6 +367,7 @@ export function metricPages({
           unit="/km"
           chip={goalPace ? `목표 ${formatPace(goalPace)}` : null}
           trend={history.map(point => point.pace)}
+          color={color('pace')}
           invert
           subs={[
             {
@@ -391,6 +421,7 @@ export function metricPages({
           unit="km"
           note={totalM ? `목표 ${formatKm(totalM)}km 중` : null}
           trend={history.map(point => point.distanceM)}
+          color={color('distance')}
           subs={[
             {
               label: '남은 거리',
@@ -418,6 +449,7 @@ export function metricPages({
           unit="bpm"
           note={heartRate === null ? '측정값 없음' : null}
           trend={heartRates}
+          color={color('heart')}
           subs={[
             {
               label: '평균 심박',
@@ -446,6 +478,7 @@ export function metricPages({
           unit="spm"
           note={cadence === null ? '측정값 없음' : null}
           trend={history.map(point => point.cadence)}
+          color={color('cadence')}
           subs={[
             {
               label: '평균 케이던스',
@@ -554,6 +587,7 @@ export function LiveMapPanel({
   members,
   area,
   logo,
+  group = false,
 }: {
   route: LngLat[] | undefined;
   trail: LngLat[];
@@ -564,6 +598,8 @@ export function LiveMapPanel({
   members?: RunMapMember[];
   area: RunMapArea | undefined;
   logo: RunMapLogo | undefined;
+  // 그룹런 시안 (S15P31E105-673): the group line and the glass map buttons.
+  group?: boolean;
 }) {
   const me = trail.length > 0 ? trail[trail.length - 1] : null;
   const canOverview = Boolean(route && route.length >= 2) || trail.length >= 2;
@@ -589,6 +625,7 @@ export function LiveMapPanel({
         view={shown === 'follow' ? 'heading' : 'lean'}
         area={area}
         logo={logo}
+        groupLine={group}
         style={StyleSheet.absoluteFill}
       />
       {notice ? (
@@ -982,5 +1019,93 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: liveLook.text,
     textDecorationLine: 'underline',
+  },
+});
+
+// 그룹런 시안 (S15P31E105-673) on top of the styles above: no tiles, lines instead, the labels in mint, the figures
+// in heavy Archivo and each metric's line in its colour.
+const groupInk = {
+  text: '#FFFFFF',
+  sub: '#B9C0CA',
+  mint: '#4DFFD2',
+  line: 'rgba(255,255,255,0.12)',
+  rule: 'rgba(255,255,255,0.4)',
+  chart: {
+    pace: '#4DFFD2',
+    distance: '#4D9BFF',
+    heart: '#D44A4A',
+    cadence: '#FFD84D',
+  },
+} as const;
+
+const groupStyles = StyleSheet.create({
+  page: { paddingHorizontal: 19 },
+  heroLabel: {
+    fontFamily: fontFamily.black,
+    fontSize: 15,
+    lineHeight: 20,
+    color: groupInk.mint,
+  },
+  // 목표 6′15″ as an outlined square tag.
+  chip: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: groupInk.rule,
+    backgroundColor: 'transparent',
+  },
+  chipText: {
+    fontFamily: fontFamily.resultExtraBold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: groupInk.text,
+  },
+  heroValue: {
+    fontFamily: fontFamily.resultBlack,
+    fontSize: 76,
+    lineHeight: 90,
+    letterSpacing: -2,
+    color: groupInk.text,
+  },
+  heroUnit: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 22,
+    lineHeight: 28,
+    color: groupInk.sub,
+  },
+  note: { fontSize: 12.5, lineHeight: 17, color: groupInk.sub },
+  // The chart on the bare page between a thin line over it and the axis line under it.
+  chartBox: {
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+    borderTopWidth: 1,
+    borderTopColor: groupInk.line,
+  },
+  chartEmpty: { fontSize: 13, color: groupInk.text },
+  axisText: { fontSize: 12.5, lineHeight: 17, color: groupInk.sub },
+  subs: { gap: 0 },
+  sub: { padding: 0, borderRadius: 0, backgroundColor: 'transparent' },
+  subAfter: {
+    paddingLeft: 24,
+    borderLeftWidth: 1,
+    borderLeftColor: groupInk.rule,
+  },
+  subLabel: {
+    fontFamily: fontFamily.black,
+    fontSize: 13,
+    lineHeight: 18,
+    color: groupInk.mint,
+  },
+  subValue: {
+    fontFamily: fontFamily.resultExtraBold,
+    fontSize: 28,
+    lineHeight: 36,
+    color: groupInk.text,
+  },
+  subUnit: {
+    fontFamily: fontFamily.numberBold,
+    fontSize: 13,
+    color: groupInk.sub,
   },
 });

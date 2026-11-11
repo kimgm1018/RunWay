@@ -48,7 +48,7 @@ import {
   useTheme,
 } from '../../theme';
 import { RunMap } from '../../components/RunMap';
-import { GroupCta, groupTone, NumText, Raised } from './look';
+import { groupTone, NumText } from './look';
 import {
   canEnterRoom,
   dDay,
@@ -59,6 +59,15 @@ import {
   useGroupRunDraft,
 } from './parts';
 import { BackButton } from '../../components/BackButton';
+import {
+  ColorBar,
+  crewColor,
+  memberColors,
+  stand,
+  StandButton,
+  StandHeader,
+  StandTag,
+} from './stand';
 import { changeLabel, GroupPaceCard, type PaceChange } from './GroupPaceCard';
 
 export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
@@ -69,12 +78,8 @@ export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
   { value: 'OTHER', label: '기타' },
 ];
 
-// 6.4 is laid out like the product cards the 담당자 chose (S15P31E105-414): the map full-bleed at the
-// top, melting into its own colour as the photo does on those cards, with a big title, a round pill
-// beside it, a grey description, see-through tag pills and a pill button. Since S15P31E105-563 it is laid
-// out like 2.0 코스 러닝: the map full screen and every fact and the button on one white sheet at the
-// bottom, the D-n pill and the button in navy.
-const glass = groupTone.quiet;
+// 6.4 그룹런 상세 (그룹런 시안, S15P31E105-673): the map in a rounded box, then the title over a heavier line and a
+// fact a row between thin lines, my fit lit in mint, mint and outlined pill buttons at the foot.
 
 // The next group run, for links that open 6.4 without an id.
 async function loadDetail(repositories: Repositories, groupRunId?: string) {
@@ -96,10 +101,12 @@ function FitLine({ run }: { run: GroupRunDetail }) {
       : gap < 0
       ? '내 페이스보다 느긋해요'
       : '내 페이스보다 빨라요';
-  // A box with a runner beside the two lines (S15P31E105-594 담당자 시안).
+  // My own row, lit in mint like my row in a table (그룹런 시안).
   return (
     <View style={styles.fit}>
-      <Icon name="runner" color={groupTone.text} size={22} />
+      <View style={styles.iconCell}>
+        <Icon name="runner" color={stand.mint} size={20} />
+      </View>
       <View style={styles.flex}>
         <AppText style={styles.blockTitle}>{verdict}</AppText>
         <NumText
@@ -113,37 +120,6 @@ function FitLine({ run }: { run: GroupRunDetail }) {
   );
 }
 
-// A pill: the one beside the title (D-n or 오늘 in a mint outline, 취소됨 in red pink) and the light grey tags on the card.
-function Pill({
-  label,
-  danger = false,
-  large = false,
-}: {
-  label: string;
-  danger?: boolean;
-  large?: boolean;
-}) {
-  return (
-    <View
-      style={[
-        styles.pill,
-        large && styles.pillLarge,
-        danger && styles.pillDanger,
-      ]}
-    >
-      <AppText
-        style={[
-          styles.pillText,
-          large && styles.pillTextLarge,
-          danger && styles.pillDangerText,
-        ]}
-      >
-        {label}
-      </AppText>
-    </View>
-  );
-}
-
 // One fact on the card (S15P31E105-594 담당자 시안): its icon, the value, a grey line under it when it has one, and
 // something on the right (참가: who comes); a line above every row but the first.
 function InfoRow({
@@ -151,20 +127,23 @@ function InfoRow({
   text,
   sub,
   right,
-  first = false,
+  line = true,
 }: {
   icon: IconName;
   text: string;
   sub?: string | null;
   right?: React.ReactNode;
-  first?: boolean;
+  // A thin line under the row (not under the last one before my row).
+  line?: boolean;
 }) {
   return (
-    <View style={[styles.infoRow, !first && styles.rowLine]}>
-      <Icon name={icon} color={groupTone.sub} size={18} />
+    <View style={[styles.infoRow, line && styles.rowLine]}>
+      <View style={styles.iconCell}>
+        <Icon name={icon} color={stand.sub} size={18} />
+      </View>
       <View style={styles.flex}>
-        <NumText style={styles.infoText} text={text} />
-        {sub ? <AppText style={styles.muted}>{sub}</AppText> : null}
+        <NumText style={styles.infoText} text={text} numberOfLines={1} />
+        {sub ? <NumText style={styles.infoSub} text={sub} /> : null}
       </View>
       {right}
     </View>
@@ -289,6 +268,14 @@ export function GroupRunDetailScreen() {
   const reason = cancelReasons.find(
     item => item.value === run.cancellation?.reason,
   );
+  // Each participant's colour; whoever cancelled takes theirs, the host's mint when it was me.
+  const colors = memberColors(run.participants);
+  const canceller = run.participants.find(
+    member => member.nickname === run.cancellation?.byNickname,
+  );
+  const cancellerColor =
+    (canceller && colors.get(canceller.userId)) ??
+    (run.isHost ? stand.mint : stand.sub);
 
   const changeMode = async (mode: GroupPaceMode) => {
     if (!groupRuns.setPaceMode) {
@@ -337,8 +324,7 @@ export function GroupRunDetailScreen() {
   // needs RunSession.groupRunId — without a live session the route opens MissingTarget (no session recovery here).
   const actions = cancelled ? (
     <>
-      <GroupCta
-        navy
+      <StandButton
         title="다시 만들기"
         onPress={() =>
           navigation.navigate('GroupRunCreate', {
@@ -346,22 +332,19 @@ export function GroupRunDetailScreen() {
           })
         }
       />
-      <GroupCta
-        navy
+      <StandButton
         title="내 크루로"
-        primary={false}
+        tone="outline"
         onPress={() => navigateTo(navigation, 'MyCrews')}
       />
     </>
   ) : run.status === 'RUNNING' && run.joined ? (
-    <GroupCta
-      navy
+    <StandButton
       title="진행 화면으로"
       onPress={() => navigation.navigate('GroupRunProgress')}
     />
   ) : run.status === 'COMPLETED' && run.joined ? (
-    <GroupCta
-      navy
+    <StandButton
       title="그룹런 결과 보기"
       onPress={() =>
         navigation.navigate('GroupRunResult', { groupRunId: run.id })
@@ -370,18 +353,16 @@ export function GroupRunDetailScreen() {
   ) : enterable ? (
     // A member who joined can still leave under 대기방 입장; the host leads the run.
     <>
-      <GroupCta
-        navy
+      <StandButton
         title={run.isHost ? '대기방 입장 · 그룹장' : '대기방 입장'}
         onPress={() =>
           navigation.navigate('WaitingRoom', { groupRunId: run.id })
         }
       />
       {run.joined && !run.isHost ? (
-        <GroupCta
-          navy
+        <StandButton
           title="참가 취소"
-          primary={false}
+          tone="outline"
           disabled={busy}
           onPress={toggleJoin}
         />
@@ -400,17 +381,15 @@ export function GroupRunDetailScreen() {
       ) : null}
       {run.isHost ? (
         // The creator leads the run, so they cannot leave it; the room opens 30 minutes before.
-        <GroupCta
-          navy
+        <StandButton
           title="대기방 입장 · 그룹장"
           disabled
           onPress={() => undefined}
         />
       ) : (
-        <GroupCta
-          navy
+        <StandButton
           title={run.joined ? '참가 취소' : '참가하기'}
-          primary={!run.joined}
+          tone={run.joined ? 'outline' : 'mint'}
           disabled={busy}
           onPress={toggleJoin}
         />
@@ -426,13 +405,9 @@ export function GroupRunDetailScreen() {
     <ThemeProvider tone="dark">
       <View style={styles.page}>
         <StatusBar barStyle="light-content" />
-        <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-          <BackButton tone="dark" onPress={() => navigation.goBack()} />
-          <AppText style={styles.headerTitle} accessibilityRole="header">
-            그룹런 상세
-          </AppText>
-          {/* Share only from the result screen (S15P31E105-637): detail has no reliable recordId. */}
-          <View style={styles.headerSpace} />
+        {/* Share only from the result screen (S15P31E105-637): detail has no reliable recordId. */}
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <StandHeader title="그룹런 상세" onBack={() => navigation.goBack()} />
         </View>
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.mapCard}>
@@ -446,29 +421,35 @@ export function GroupRunDetailScreen() {
                   : { top: 0.5, bottom: 0.5 }
               }
               interactive={false}
+              groupLine
               style={StyleSheet.absoluteFill}
             />
           </View>
-          <Raised tone="night" style={styles.card}>
-            <View style={styles.info}>
+          <View>
+            <View>
               <View style={styles.titleRow}>
-                <AppText style={[styles.title, cancelled && styles.struck]}>
-                  {run.title}
-                </AppText>
+                <View style={styles.flex}>
+                  <AppText style={[styles.title, cancelled && styles.struck]}>
+                    {run.title}
+                  </AppText>
+                  {/* The crew under the title with its colour bar (그룹런 시안). */}
+                  <View style={styles.crewRow}>
+                    <Icon name="users" color={stand.sub} size={14} />
+                    <AppText style={styles.crewName}>{run.crewName}</AppText>
+                    <ColorBar color={crewColor(run.crewId)} height={11} />
+                  </View>
+                </View>
                 {cancelled ? (
-                  <Pill label="취소됨" danger large />
+                  <StandTag label="취소됨" tone="danger" style={styles.tag} />
                 ) : (
-                  <Pill label={dDay(run.scheduledAt, now)} large />
+                  <StandTag
+                    label={dDay(run.scheduledAt, now)}
+                    style={styles.tag}
+                  />
                 )}
-              </View>
-              {/* The crew under the title, then a fact a row with its icon (S15P31E105-594 담당자 시안). */}
-              <View style={styles.crewRow}>
-                <Icon name="users" color={groupTone.sub} size={16} />
-                <AppText style={styles.crewName}>{run.crewName}</AppText>
               </View>
               <View style={styles.rows}>
                 <InfoRow
-                  first
                   icon="calendar"
                   text={formatSchedule(run.scheduledAt)}
                 />
@@ -488,40 +469,41 @@ export function GroupRunDetailScreen() {
                 {cancelled ? null : (
                   <InfoRow
                     icon="users"
+                    line={false}
                     text={`참가 ${run.participantCount}명 · 크루 멤버 ${run.crewMemberCount}명 중`}
                     right={
-                      // Who comes, small and side by side on the row (S15P31E105-594 담당자 시안).
+                      // Who comes, small and side by side, each in their colour (그룹런 시안).
                       <View style={styles.avatars}>
                         {run.participants.slice(0, 5).map((member, index) => (
                           <Initial
                             key={member.userId}
                             name={member.nickname}
-                            index={index}
-                            size={26}
+                            color={colors.get(member.userId)}
+                            size={24}
                             photo={member.profileImageUrl}
-                            style={styles.overlap}
+                            style={index > 0 ? styles.overlap : styles.ring}
                           />
                         ))}
                       </View>
                     }
                   />
                 )}
+                {/* 취소된 그룹런: the reason as a row with its icon. */}
+                {cancelled && reason ? (
+                  <InfoRow icon="tag" text={`사유 · ${reason.label}`} />
+                ) : null}
               </View>
-              {/* 취소된 그룹런 (runway-group-screen-designs 10-7): the reason as a row with its icon. */}
-              {cancelled && reason ? (
-                <View style={styles.reasonRow}>
-                  <Icon name="tag" color={groupTone.sub} size={18} />
-                  <AppText
-                    style={styles.infoText}
-                  >{`사유 · ${reason.label}`}</AppText>
-                </View>
-              ) : null}
               {cancelled ? (
                 <>
                   {run.cancellation ? (
                     <View style={styles.message}>
                       <View style={styles.messageHead}>
-                        <Initial name={run.cancellation.byNickname} />
+                        <Initial
+                          name={run.cancellation.byNickname}
+                          size={28}
+                          color={cancellerColor}
+                        />
+                        <ColorBar color={cancellerColor} height={22} />
                         <AppText style={[styles.messageName, styles.flex]}>
                           {`${run.cancellation.byNickname} · ${
                             run.cancellation.byRole === 'HOST'
@@ -544,7 +526,7 @@ export function GroupRunDetailScreen() {
                     </View>
                   ) : null}
                   <View style={styles.notice}>
-                    <Icon name="bell" color={groupTone.sub} size={14} />
+                    <Icon name="bell" color={stand.sub} size={14} />
                     <AppText style={styles.muted}>
                       {`크루 멤버 ${Math.max(
                         0,
@@ -574,7 +556,7 @@ export function GroupRunDetailScreen() {
                     <View style={styles.hostRow}>
                       <Initial
                         name="나"
-                        index={0}
+                        color={stand.mint}
                         size={28}
                         photo={
                           run.participants.find(member => member.isMe)
@@ -621,7 +603,7 @@ export function GroupRunDetailScreen() {
                 </>
               )}
             </View>
-          </Raised>
+          </View>
         </ScrollView>
         <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
           {actions}
@@ -707,163 +689,148 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.screen,
   },
-  // The home card's navy page with a faint white card (S15P31E105-594 담당자 결정).
-  page: { flex: 1, backgroundColor: groupTone.page },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: fontFamily.bold,
-    fontSize: 19,
-    lineHeight: 26,
-    color: groupTone.text,
-  },
-  headerSpace: { width: 44 },
-  content: { paddingHorizontal: 16, paddingBottom: 16, gap: 12 },
+  // The navy page, no cards: lines between the facts (그룹런 시안, S15P31E105-673).
+  page: { flex: 1, backgroundColor: stand.page },
+  header: { paddingHorizontal: 17 },
+  content: { paddingHorizontal: 19, paddingBottom: 16 },
   mapCard: {
-    height: 210,
-    borderRadius: 20,
+    height: 170,
+    marginTop: 8,
+    borderRadius: 14,
     overflow: 'hidden',
-    backgroundColor: groupTone.card,
+    backgroundColor: stand.field,
   },
-  card: { borderRadius: 20, padding: 18 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginTop: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
+  },
+  tag: { marginTop: 4 },
   title: {
-    flex: 1,
-    fontFamily: fontFamily.bold,
-    fontSize: 23,
-    lineHeight: 30,
-    letterSpacing: -0.5,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 22,
+    lineHeight: 28,
+    color: stand.text,
   },
   struck: {
     textDecorationLine: 'line-through',
-    color: groupTone.sub,
+    color: stand.sub,
   },
   crewRow: {
-    marginTop: -8,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   crewName: {
-    fontFamily: fontFamily.medium,
-    fontSize: 14.5,
-    lineHeight: 20,
-    color: groupTone.sub,
+    fontFamily: fontFamily.regular,
+    fontSize: 13,
+    lineHeight: 18,
+    color: stand.sub,
   },
   rows: {},
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 11,
+    minHeight: 46,
+    paddingVertical: 6,
   },
-  rowLine: { borderTopWidth: 1, borderTopColor: groupTone.line },
+  rowLine: { borderBottomWidth: 1, borderBottomColor: stand.line },
+  iconCell: { width: 30 },
   infoText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 15,
-    lineHeight: 21,
-    color: groupTone.text,
-  },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  reasonRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  // The card's parts, 16 apart.
-  info: { gap: 16 },
-  actions: {
-    gap: spacing.md,
-    paddingTop: 12,
-    paddingHorizontal: 16,
-  },
-  pill: {
-    height: 30,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    backgroundColor: glass,
-    justifyContent: 'center',
-  },
-  // D-n or 오늘 as the 시안's mint outline (a small mark, on the navy page).
-  pillLarge: {
-    height: 30,
-    paddingHorizontal: 12,
-    borderRadius: 15,
-    borderWidth: 1.5,
-    borderColor: groupTone.accent,
-  },
-  // 취소됨 as the 시안's chip in the watch's red pink.
-  pillDanger: { borderWidth: 0, backgroundColor: groupTone.danger },
-  pillText: {
     fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 17,
-    color: groupTone.text,
+    fontSize: 14.5,
+    lineHeight: 20,
+    color: stand.text,
   },
-  pillTextLarge: { fontSize: 14, lineHeight: 19, color: groupTone.accent },
-  pillDangerText: { color: groupTone.onButton },
+  infoSub: {
+    marginTop: 1,
+    fontFamily: fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
+  },
+  actions: {
+    gap: 8,
+    paddingTop: 12,
+    paddingHorizontal: 19,
+  },
   muted: {
     fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupTone.sub,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
   },
+  // My fit: a faint mint row with a mint line under it, 10 past the page's sides.
   fit: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 16,
-    backgroundColor: groupTone.inner,
+    minHeight: 58,
+    marginHorizontal: -10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: stand.meFill,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.meLine,
   },
   blockTitle: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 15,
     lineHeight: 20,
-    color: groupTone.text,
+    color: stand.text,
   },
   avatars: { flexDirection: 'row', alignItems: 'center' },
-  // The ring takes the card's colour so the overlapping initials read apart.
-  overlap: { marginLeft: -6, borderWidth: 2, borderColor: '#1A1D24' },
+  // The ring takes the page's colour so the overlapping initials read apart.
+  ring: { borderWidth: 2, borderColor: stand.page },
+  overlap: { marginLeft: -5, borderWidth: 2, borderColor: stand.page },
   hostRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xl,
+    gap: 10,
+    minHeight: 46,
   },
   hostLink: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupTone.text,
-  },
-  hostCancel: { color: groupTone.danger },
-  message: { gap: spacing.md },
-  messageHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  messageName: {
-    fontFamily: fontFamily.bold,
+    paddingHorizontal: 6,
+    fontFamily: fontFamily.black,
     fontSize: 14,
     lineHeight: 19,
-    color: groupTone.text,
+    color: stand.text,
+  },
+  hostCancel: { color: stand.danger, paddingRight: 0 },
+  message: { gap: 4 },
+  messageHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 50,
+  },
+  messageName: {
+    fontFamily: fontFamily.black,
+    fontSize: 15,
+    lineHeight: 20,
+    color: stand.text,
   },
   messageText: {
     fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 21,
-    color: groupTone.text,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: groupTone.inner,
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: stand.text,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 10,
+    backgroundColor: stand.field,
   },
   notice: {
+    marginTop: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 8,
   },
-  opens: { textAlign: 'center', color: groupTone.sub },
+  opens: { textAlign: 'center', color: stand.sub, fontSize: 12.5 },
   footerButton: {
     flex: 1,
     minHeight: 54,
