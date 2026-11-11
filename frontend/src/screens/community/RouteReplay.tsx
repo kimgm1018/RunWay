@@ -300,7 +300,7 @@ function ShapeReplay({
               fill="none"
               stroke={darkMapLook.ink}
               strokeOpacity={0.18}
-              strokeWidth={26}
+              strokeWidth={19}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -310,7 +310,7 @@ function ShapeReplay({
               points={line}
               fill="none"
               stroke={darkMapLook.ribbon}
-              strokeWidth={13}
+              strokeWidth={11.4}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -320,7 +320,7 @@ function ShapeReplay({
               points={line}
               fill="none"
               stroke={darkMapLook.ink}
-              strokeWidth={7}
+              strokeWidth={7.9}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
