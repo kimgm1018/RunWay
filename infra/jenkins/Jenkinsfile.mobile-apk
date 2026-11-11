@@ -1,4 +1,4 @@
-// master Push 후 팀 테스트용 ARM64 APK를 생성·보관한다. 스토어 배포는 수행하지 않는다.
+// master Push 후 랜딩 배포용 ARM64 release APK를 생성·보관한다.
 pipeline {
     agent { label 'mobile' }
     options {
@@ -57,28 +57,43 @@ pipeline {
             }
         }
         // 기존 앱의 디버그 서명을 사용한다. JS가 포함되어 Metro 없이 실행 가능하다.
-        stage('Mobile APK Build') {
+        stage('Mobile Debug APK') {
+            steps {
+                withCredentials([string(
+                    credentialsId: 'runway-naver-map-client-id',
+                    variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
+                )]) {
+                    sh 'sh infra/jenkins/build-mobile-apk.sh -PrunwayVersionCode="$BUILD_NUMBER"'
+                }
+                sh '''
+                    mkdir -p artifacts
+                    cp frontend/android/app/build/outputs/apk/debug/app-debug.apk "artifacts/runway-master-arm64-${APK_COMMIT}-${BUILD_NUMBER}.apk"
+                '''
+                archiveArtifacts artifacts: 'artifacts/runway-master-arm64-*.apk', fingerprint: true
+            }
+        }
+        stage('Mobile Release APK') {
             steps {
                 // 네이버 지도 Client ID는 APK 빌드 단계에만 전달한다.
                 withCredentials([string(
                     credentialsId: 'runway-naver-map-client-id',
                     variable: 'MOBILE_NAVER_MAP_CLIENT_ID'
                 )]) {
-                    sh 'sh infra/jenkins/build-mobile-apk.sh'
+                    sh 'sh infra/jenkins/build-mobile-apk.sh --release -PrunwayVersionCode="$BUILD_NUMBER"'
                 }
             }
         }
         // 성공한 APK만 빌드별로 보관한다. 팀원은 Jenkins에서 내려받아 직접 설치한다.
-        stage('Archive APK') {
+        stage('Archive Release APK') {
             steps {
                 sh '''
                     mkdir -p artifacts
-                    cp frontend/android/app/build/outputs/apk/debug/app-debug.apk \
-                        "artifacts/runway-master-arm64-${APK_COMMIT}-${BUILD_NUMBER}.apk"
-                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=debug\nabi=arm64-v8a\n' \
+                    cp frontend/android/app/build/outputs/apk/release/app-release.apk artifacts/runway.apk
+                    sha256sum artifacts/runway.apk > artifacts/runway.apk.sha256
+                    printf 'branch=master\ncommit=%s\nbuild=%s\ntype=release\nabi=arm64-v8a\n' \
                         "$APK_COMMIT" "$BUILD_NUMBER" > artifacts/build-info.txt
                 '''
-                archiveArtifacts artifacts: 'artifacts/*.apk,artifacts/build-info.txt', fingerprint: true
+                archiveArtifacts artifacts: 'artifacts/runway.apk,artifacts/runway.apk.sha256,artifacts/build-info.txt', fingerprint: true
             }
         }
     }

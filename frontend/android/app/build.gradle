@@ -92,7 +92,7 @@ android {
         applicationId "com.runway.health"
         minSdkVersion 29 // Samsung Health Data SDK 1.1.0 requires Android 10.
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode((findProperty('runwayVersionCode') ?: '1').toString().toInteger())
         versionName "1.0"
         manifestPlaceholders["naverMapClientId"] = naverMapClientId.trim()
     }
@@ -109,8 +109,8 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
+            // 시연 APK는 기존 워치·설치 앱과 같은 팀 테스트 서명을 사용한다.
+            debuggable false
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

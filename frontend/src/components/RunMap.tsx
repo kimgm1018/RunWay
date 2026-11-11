@@ -2,6 +2,7 @@ import React, {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -110,6 +111,18 @@ type RunMapProps = {
 };
 
 const toCoord = ([longitude, latitude]: LngLat) => ({ latitude, longitude });
+
+// A line's map coordinates, made once per line (S15P31E105-686): the same array then reaches the native map on
+// every render, so React skips converting and comparing its points again while the screen re-renders.
+const coordCache = new WeakMap<LngLat[], ReturnType<typeof toCoord>[]>();
+function coordsOf(line: LngLat[]) {
+  let coords = coordCache.get(line);
+  if (!coords) {
+    coords = line.map(toCoord);
+    coordCache.set(line, coords);
+  }
+  return coords;
+}
 
 const ink = routeLook.ink;
 // Only roads and places: no subway lines, bike paths or buildings competing with the course.
@@ -590,11 +603,17 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
   // The course per km while it carries paces; one piece otherwise. While running it is only a guide.
   // A record in parts draws only its parts of two or more points; it never falls back to the joined route.
   const recordParts = routeParts?.filter(part => part.length >= 2);
+  // The km pieces stay the same arrays while the course and its km count do, so their coordinates are reused.
+  const kmCount = segmentPaces?.length ?? 0;
+  const kmPieces = useMemo(
+    () => (route && route.length >= 2 && kmCount > 0 ? splitRoute(route, kmCount) : null),
+    [route, kmCount],
+  );
   const pieces = hasRoute
     ? recordParts
       ? recordParts
-      : !running && segmentPaces && segmentPaces.length > 0
-      ? splitRoute(route, segmentPaces.length)
+      : !running && kmPieces
+      ? kmPieces
       : [route]
     : [];
   const fastest = segmentPaces?.length ? Math.min(...segmentPaces) : 0;
@@ -698,7 +717,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {shadowLines.map((line, index) => (
         <NaverMapPathOverlay
           key={`shadow-${index}`}
-          coords={line.map(toCoord)}
+          coords={coordsOf(line)}
           width={pathLook.shadowWidth}
           color={pathLook.shadow}
           zIndex={0}
@@ -709,7 +728,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {pieces.length > 0 ? (
         <NaverMapMultiPathOverlay
           pathParts={pieces.map((piece, index) => ({
-            coords: piece.map(toCoord),
+            coords: coordsOf(piece),
             color: pieceColor(index),
             outlineColor: tiltedGuide
               ? darkMapLook.guideOutline
@@ -729,7 +748,7 @@ export const RunMap = forwardRef<RunMapRef, RunMapProps>(function NaverRunMap(
       {trailLines.map((line, index) => (
         <NaverMapPathOverlay
           key={`trail-${index}`}
-          coords={line.map(toCoord)}
+          coords={coordsOf(line)}
           width={pathLook.centre}
           outlineWidth={pathLook.edge}
           color={pathLook.ink}

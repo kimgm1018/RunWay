@@ -14,7 +14,7 @@
 | `jenkins/watch-agent/` | Java 25·Android 도구를 갖춘 워치 빌드 에이전트 |
 | `jenkins/ai-agent/`, `jenkins/check-ai.sh` | AI 전용 에이전트·Python 테스트·이미지 빌드 검사 |
 | `jenkins/Jenkinsfile.ci` | 변경 영역별 병렬 검사·GitLab 영역별 결과·Jenkins 세부 단계 표시 |
-| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master 테스트용 ARM64 APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
+| `jenkins/Jenkinsfile.mobile-apk`, `jenkins/build-mobile-apk.sh`, `jenkins/check-mobile-static.sh` | master ARM64 debug·release APK 생성·보관과 공통 빌드·타입 검사·린트 명령 |
 | `jenkins/Jenkinsfile.watch-apk`, `jenkins/build-watch-apk.sh`, `jenkins/update-git-reference.sh` | 제품 워치 앱 검사·APK 생성과 master 산출물 보관 |
 | `jenkins/Jenkinsfile.mobile` | dev·master 대상 MR의 모바일 타입·린트·테스트 검사 |
 | `jenkins/Jenkinsfile.backend` | dev·master 대상 MR의 임시 병합 검사·테스트·JAR 생성 |
@@ -159,8 +159,8 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 - **MR 검사:** 타입·린트·전체 Jest는 매번 실행한다. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 소스만
   바뀌면 APK 대신 Android 릴리스 JS 번들을 생성한다(`Mobile JS Bundle`). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀌면
   APK·JS 번들을 모두 생략한다. 네이티브·의존성·빌드 설정·그 밖의 프론트엔드 경로 변경과 공통 설정 변경·수동 검사는 APK를 빌드한다.
-- **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug APK를 생성·보관한다.
-  정식 출시 서명·스토어 배포는 제외하며 x86 에뮬레이터·32비트 기기는 대상이 아니다.
+- **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug·release APK를 생성·보관한다.
+  랜딩 배포에는 팀 테스트 서명을 사용한다. 대상은 ARM64 안드로이드 폰이다.
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
   Jest 변환 캐시는 `mobile_agent_work` 볼륨의 `/home/jenkins/agent/.cache/jest`, Gradle 캐시는 전용 볼륨에 유지한다.
   Jest는 MR·master 작업 모두 에이전트 CPU 상한에 맞춘 워커 2개(`--maxWorkers=2`)로 전체 테스트를 실행한다.
@@ -180,7 +180,7 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 ### 워치
 
 - **MR 검사:** 제품 `wear/app`의 단위 테스트·Lint·debug APK를 검사한다. 실험용 `wear/demo`·기기 연결 테스트는 별도다.
-- **배포:** `runway-watch-apk`는 `infra/jenkins/Jenkinsfile.watch-apk`로 master Push 후 제품 APK를 생성·보관한다.
+- **배포:** `runway-watch-apk`는 `infra/jenkins/Jenkinsfile.watch-apk`로 master Push 후 제품 워치 debug·release APK를 생성·보관한다.
 - **결과·보관:** JUnit·Lint·Gradle profile과 단계별 시간(`build-time-<단계>.txt`)을 보관한다.
   SDK·작업·Gradle 캐시는 모바일과 분리한다.
 - **설정·주의:** 테스트·Lint·APK는 같은 Gradle 데몬을 재사용하고 성공·실패와 관계없이 마지막에 `--stage stop`으로 종료한다.
@@ -242,6 +242,25 @@ curl -s https://k15e105.p.ssafy.io/ | sha256sum
 
 두 해시가 같으면 반영된 것이다. 최초 적용 시에는 `mkdir -p ~/runway/frontend/landing`로 폴더를 만들고 파일을 올린 뒤,
 `nginx -t` 확인 후 `docker compose -f ~/runway/infra/compose.yaml up -d nginx`로 볼륨을 연결한다.
+
+### 랜딩 폰·워치 APK 갱신
+
+master APK 작업은 팀용 debug APK를 기존 파일명으로 Jenkins에 먼저 보관한다. 공개용 release APK는 폰 `artifacts/runway.apk`, 워치 `artifacts/runway-watch.apk`로 추가 보관하며 랜딩에 복사하는 대상이다. 두 빌드 유형은 같은 팀 테스트 서명을 사용하고, 버전 코드는 각 작업의 Jenkins 빌드 번호를 사용한다.
+
+EC2의 갱신 작업은 `runway-mobile-apk`와 `runway-watch-apk`의 마지막 성공 빌드를 확인한다. SHA-256이 일치한 APK만 각각 `/downloads/runway.apk`와 `/downloads/runway-watch.apk`에 반영한다. Jenkins 산출물 경로와 공개 다운로드 경로는 각각 인증·정적 파일 응답으로 제공한다.
+
+최초 적용 시 EC2의 `~/runway`에서 아래를 실행한다. Jenkins 볼륨의 작업 이름과 경로가 다르면 서비스 설정의 읽기 경로도 함께 맞춘다.
+
+```bash
+sudo install -d -m 0755 frontend/landing/downloads /usr/local/libexec
+sudo install -m 0644 infra/jenkins/publish-apks.py /usr/local/libexec/runway-publish-apks.py
+sudo install -m 0644 infra/jenkins/runway-publish-apks.service infra/jenkins/runway-publish-apks.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now runway-publish-apks.timer
+sudo systemctl start runway-publish-apks.service
+```
+
+운영 Nginx 설정을 적용하고 `nginx -t`를 통과한 뒤 reload한다. 첫 release 빌드가 성공하면 랜딩과 Jenkins에서 내려받은 APK의 SHA-256이 같은지 확인한다. 폰과 워치의 APK를 각각 설치하고 기기 간 연결을 확인한다.
 
 ## 폰·워치 연결 검증
 

@@ -1,0 +1,37 @@
+diff --git a/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt b/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt
+index 509e1ec715d475671f26797a70fc2872cd6fde9c..03848d440b3d59fd0b79eb49248c2d5448b68a64 100644
+--- a/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt
++++ b/android/src/main/java/com/mjstudio/reactnativenavermap/overlay/marker/RNCNaverMapMarker.kt
+@@ -87,6 +87,7 @@ class RNCNaverMapMarker(
+ 
+   fun removeCustomView(index: Int) {
+     customView = null
++    shownBitmap = null
+     ViewChangesTracker.getInstance().removeMarker(this)
+     if (customViewBitmap != null && !customViewBitmap!!.isRecycled) customViewBitmap!!.recycle()
+     isImageSetFromSubview = false
+@@ -102,6 +103,11 @@ class RNCNaverMapMarker(
+     }
+   }
+ 
++  // RunWay (S15P31E105-686): the view is still drawn every tick, but the icon is replaced only when the drawing
++  // changed. Setting the same picture again 25 times a second kept every map with a view marker redrawing while
++  // nothing moved.
++  private var shownBitmap: Bitmap? = null
++
+   private fun updateCustomView() {
+     if (customViewBitmap == null ||
+       customViewBitmap!!.isRecycled ||
+@@ -116,7 +122,11 @@ class RNCNaverMapMarker(
+         bitmap.eraseColor(Color.TRANSPARENT)
+         val canvas = Canvas(bitmap)
+         draw(canvas)
+-        setOverlayImage(OverlayImage.fromBitmap(bitmap))
++        val shown = shownBitmap
++        if (shown != null && !shown.isRecycled && shown.sameAs(bitmap)) return
++        val copy = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_4444, false)
++        shownBitmap = copy
++        setOverlayImage(OverlayImage.fromBitmap(copy))
+       }
+     }
+   }
