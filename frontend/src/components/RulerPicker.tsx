@@ -39,10 +39,18 @@ export function RulerPicker({
   mutedColor: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const count = Math.round((max - min) / step) + 1;
+  // A max that is not a whole number of steps from min (21.1km, a half marathon) gets its own last tick.
+  const whole = Math.floor((max - min) / step + 1e-9);
+  const extra = min + whole * step < max - 1e-9;
+  const count = whole + 1 + (extra ? 1 : 0);
+  const lastWhole = min + whole * step;
+  // A value between the last whole tick and max (21.09 restored from a search) goes to the nearer of the two.
   const indexOf = (next: number) =>
-    Math.min(count - 1, Math.max(0, Math.round((next - min) / step)));
-  const valueAt = (index: number) => Number((min + index * step).toFixed(4));
+    extra && next >= (lastWhole + max) / 2
+      ? count - 1
+      : Math.min(whole, Math.max(0, Math.round((next - min) / step)));
+  const valueAt = (index: number) =>
+    extra && index === count - 1 ? max : Number((min + index * step).toFixed(4));
   const index = indexOf(value);
   const [width, setWidth] = useState(0);
   const scroll = useRef<ScrollView>(null);

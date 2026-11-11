@@ -89,7 +89,7 @@ class ErrorCodeTest {
                 ErrorCode.SEARCH_DISTANCE_KM_RANGE,
                 422,
                 "INVALID_SEARCH",
-                "distanceKm는 1.0 이상 15.0 이하여야 합니다.");
+                "distanceKm는 1.0 이상 21.1 이하여야 합니다.");
         assertContract(
                 ErrorCode.SEARCH_SHAPE_INVALID,
                 422,

@@ -652,8 +652,8 @@ function PanelContent({
               label="목표 거리"
               value={distanceKm}
               min={1}
-              // C01 makes courses of 1–15km (courses.md C01 distanceKm).
-              max={15}
+              // C01 makes courses of 1–21.1km (half marathon, courses.md C01 distanceKm). 0.5km steps, 21.1 is the last tick.
+              max={21.1}
               step={0.5}
               format={value => `${value.toFixed(1)}km`}
               onChange={setDistanceKm}

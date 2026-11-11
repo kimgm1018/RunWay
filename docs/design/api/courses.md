@@ -70,7 +70,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 |---|---|:---:|---|
 | `latitude` | number | O | 출발 위도(WGS84). 서비스 지역 밖이면 Route 판정으로 `422 INVALID_SEARCH`(`details.reason=OUT_OF_AREA`) |
 | `longitude` | number | O | 출발 경도(WGS84). 서비스 지역 밖이면 Route 판정으로 `422 INVALID_SEARCH`(`details.reason=OUT_OF_AREA`) |
-| `distanceKm` | number | O | 목표 거리(km). 1.0 이상 15.0 이하 |
+| `distanceKm` | number | O | 목표 거리(km). 1.0 이상 21.1 이하(하프 마라톤, S15P31E105-608) |
 | `shape` | string | X | `loop`(기본) / `out_and_back` / `point_to_point`. 대소문자 무시, 생략·빈 값은 `loop` |
 | `endLatitude` | number | 조건부 | `point_to_point`에서 필수인 도착 위도 |
 | `endLongitude` | number | 조건부 | `point_to_point`에서 필수인 도착 경도 |
@@ -79,7 +79,7 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 
 **서비스 지역(부산) 판정:** 백엔드의 부산 사각형 사전 검증은 제거했고 Route의 `OUT_OF_AREA` 판정을 그대로 사용한다(2026-11-05 AI 팀 협의, S15P31E105-423 구현). 위경도 형식·범위 검증은 백엔드가 유지한다. MVP 서비스 지역은 부산이며, 전국 확장은 [S15P31E105-433](https://ssafy.atlassian.net/browse/S15P31E105-433)에서 다룬다.
 
-**`point_to_point` 규칙:** 도착 좌표 둘 다 필수. 출발-도착 직선거리가 **17km**를 넘으면 `422 INVALID_SEARCH`(OUT_OF_APP_RANGE). `loop`·`out_and_back`에서 `endLatitude`/`endLongitude` 중 한쪽만 보내면 `422 INVALID_SEARCH`이며, 둘 다 보내면 무시된다. 도착 좌표 자체의 위경도 범위(-90~90, -180~180)는 모든 경우 검증한다.
+**`point_to_point` 규칙:** 도착 좌표 둘 다 필수. 출발-도착 직선거리가 **23.71km**(1.1 × 21.1km + 끝점 snap 여유 2 × 250m)를 넘으면 `422 INVALID_SEARCH`(OUT_OF_APP_RANGE). `loop`·`out_and_back`에서 `endLatitude`/`endLongitude` 중 한쪽만 보내면 `422 INVALID_SEARCH`이며, 둘 다 보내면 무시된다. 도착 좌표 자체의 위경도 범위(-90~90, -180~180)는 모든 경우 검증한다.
 
 `filters` 필드(모두 선택, boolean, 기본 `false`. `true`면 해당 조건을 요청):
 
@@ -218,10 +218,10 @@ courses → course_environment_tags는 복수 태그, course_bookmarks는 본인
 | (범위) | `latitude`가 -90~90 밖 | latitude는 -90~90이어야 합니다. |
 | (범위) | `longitude`가 -180~180 밖 | longitude는 -180~180이어야 합니다. |
 | `OUT_OF_AREA` | Route가 출발 좌표를 서비스 지역 밖으로 판정(`details.reason=OUT_OF_AREA`) | 출발 위치가 서비스 지역 밖입니다. |
-| `DISTANCE_RANGE` | `distanceKm`가 1.0 미만 또는 15.0 초과 | distanceKm는 1.0 이상 15.0 이하여야 합니다. |
+| `DISTANCE_RANGE` | `distanceKm`가 1.0 미만 또는 21.1 초과 | distanceKm는 1.0 이상 21.1 이하여야 합니다. |
 | (shape) | `shape`가 허용 값이 아님 | shape는 loop, out_and_back, point_to_point 중 하나여야 합니다. |
 | `DESTINATION_REQUIRED` | `point_to_point`인데 도착 좌표 누락, 또는 다른 shape에서 도착 좌표를 한쪽만 전달 | point_to_point에는 endLatitude와 endLongitude가 필요합니다. |
-| `OUT_OF_APP_RANGE` | `point_to_point` 출발-도착 직선거리 17km 초과 | 출발-도착 직선거리가 서비스 상한을 초과했습니다. |
+| `OUT_OF_APP_RANGE` | `point_to_point` 출발-도착 직선거리 23.71km 초과 | 출발-도착 직선거리가 서비스 상한을 초과했습니다. |
 | (seed) | `seed`가 1 미만 또는 10,000,000 초과 | seed는 1 이상 10000000 이하여야 합니다. |
 
 - Route 호출 오류·DEM·시간 예산 실패는 [실패와 시간 예산 초안](#실패와-시간-예산-초안)과 [Route 오류 매핑](ai-service.md#route-오류-매핑)대로 `details.reason`과 함께 응답한다(S15P31E105-423 구현). 위 백엔드 입력 검증 오류에는 `details.reason`을 붙이지 않는다.
@@ -837,9 +837,9 @@ JSON 공백·키 순서·숫자 표기(`150`과 `150.0`)는 달라도 되지만 
 | 요청 | 실연동 초안 |
 | --- | --- |
 | `latitude`, `longitude` | 현행 C01 출발 WGS84 위경도 형식·범위 검증 유지. **부산 사각형 사전 검증은 제거**하고 서비스 지역 판정은 Route `OUT_OF_AREA`를 `422 INVALID_SEARCH`(`OUT_OF_AREA`)로 전달(2026-11-05 AI 팀 협의). Route 데이터 범위가 사각형보다 넓어 정상 위치를 백엔드가 먼저 거절하지 않게 하고, 이후 지역 확장 때 백엔드 변경 없이 Route 기준을 따르기 위함 |
-| `distanceKm` | 현행 1.0~15.0km. 목표는 m로 환산해 생성·거리 오차 검증에 사용 |
+| `distanceKm` | 현행 1.0~21.1km. 목표는 m로 환산해 생성·거리 오차 검증에 사용 |
 | `shape` | 현행 `loop` 기본, `out_and_back`, `point_to_point` 유지 |
-| `endLatitude`, `endLongitude` | 현행 편도 필수·다른 shape 한쪽만 전달 시 거절·둘 다면 무시 유지. 편도 직선거리 17km 상한 유지 |
+| `endLatitude`, `endLongitude` | 현행 편도 필수·다른 shape 한쪽만 전달 시 거절·둘 다면 무시 유지. 편도 직선거리 23.71km 상한 유지 |
 | `filters` | 기존 9개 boolean 키 유지. 누락·null은 false. 알 수 없는 키는 `400 VALIDATION_ERROR`로 거절하는 안을 제안(현재 처리의 확정 아님) |
 | `seed` | 현행 기본 1, 범위 1~10,000,000 유지. 같은 정규화 입력·동일 생성기/데이터/설정 버전 안에서 재현성 보장 |
 
