@@ -9,6 +9,7 @@ import {
   type RunRecordDraft,
 } from '../src/data';
 import { formatDotDate, formatDuration } from '../src/format';
+import { RunMap } from '../src/components/RunMap';
 import { controlModeOf } from '../src/screens/run/RunProgressScreen';
 import type { RunControlState } from '../src/screens/run/runControl';
 
@@ -280,6 +281,53 @@ test('a free run result offers 기록 공유 once saved, and a failed save offer
   await press(failed, '다시 저장');
   expect(texts(failed)).toContain('기록을 저장하지 못했어요');
   await act(async () => failed.unmount());
+});
+
+// S15P31E105-690: once saved, 4.5 draws the GPS route the server kept for the record (S11) in its parts; when that
+// cannot be read it draws the line the app gathered, and 경로 재생 opens over either.
+test('the result maps the saved record route, or the app trail when the route cannot be read', async () => {
+  const server: [number, number][][] = [
+    [
+      [129.1, 35.15],
+      [129.1, 35.152],
+    ],
+    [
+      [129.101, 35.153],
+      [129.101, 35.155],
+    ],
+  ];
+  const asked: string[] = [];
+  const repositories = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  repositories.records.getRoute = async recordId => {
+    asked.push(recordId);
+    return server;
+  };
+  const screen = await startRun('free', 'default', repositories);
+  await press(screen, '일시정지');
+  await hold(screen, '종료');
+  await settle();
+  const mapOf = (shown: Screen) => {
+    const maps = shown.root.findAllByType(RunMap);
+    return maps[maps.length - 1];
+  };
+  expect(asked).toHaveLength(1);
+  expect(mapOf(screen).props.routeParts).toEqual(server);
+  expect(labelled(screen, '경로 재생')).toBeTruthy();
+  await act(async () => screen.unmount());
+
+  const failing = createMockRepositories({ latencyMs: 0, tickMs: 50 });
+  failing.records.getRoute = () => Promise.reject(new Error('S11 실패'));
+  const fallback = await startRun('free', 'default', failing);
+  // Long enough for the trail to be a route worth drawing (runRouteOf).
+  await settle(1500);
+  await press(fallback, '일시정지');
+  await hold(fallback, '종료');
+  await settle();
+  const parts = mapOf(fallback).props.routeParts as [number, number][][];
+  expect(parts.length).toBeGreaterThan(0);
+  expect(parts).not.toEqual(server);
+  expect(texts(fallback)).not.toContain('경로 기록이 없어요');
+  await act(async () => fallback.unmount());
 });
 
 // S15P31E105-529: with the server the finished run is its session's record (H02). The result confirms it with the

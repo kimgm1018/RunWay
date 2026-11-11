@@ -198,21 +198,31 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   // 러닝 분석 shows the day's run card (S15P31E105-615): no run on 10.19, then 10.15's run.
   await press(screen, '러닝 분석');
   await waitForText(screen, '아직 이 날의 러닝 기록이 없어요');
-  // Today needs no 오늘 button.
+  // No 오늘 button any more (S15P31E105-690 담당자 피드백): ‹ › step a day, and nothing lies after today.
   expect(() => labelled(screen, '오늘로 이동')).toThrow();
+  expect(labelled(screen, '다음 날').props.accessibilityState).toEqual({
+    disabled: true,
+  });
   // The date line opens the calendar (2026년 10월), where a day picks it and closes it.
   await press(screen, '달력 열기');
   expect(texts(screen)).toContain('2026년 10월');
   await press(screen, '10월 15일 선택');
   expect(texts(screen)).toContain('10월 15일 목요일');
   await waitForText(screen, '민락수변공원 출발');
-  // A past day offers 오늘.
-  expect(labelled(screen, '오늘로 이동')).toBeTruthy();
+  // A past day can step forward again, one day at a time.
+  expect(labelled(screen, '다음 날').props.accessibilityState).toEqual({
+    disabled: false,
+  });
   // The card is the run itself: no 기록 상세 to open, no 페이스 · 심박 · 케이던스 tabs (S15P31E105-594 담당자 결정).
   for (const text of ['평균 페이스', '29:41', '목표와 비교하기']) {
     expect(texts(screen)).toContain(text);
   }
-  for (const gone of ['기록 상세 보기', '케이던스', '기록 삭제', '기록으로 돌아가기']) {
+  for (const gone of [
+    '기록 상세 보기',
+    '케이던스',
+    '기록 삭제',
+    '기록으로 돌아가기',
+  ]) {
     expect(texts(screen)).not.toContain(gone);
   }
   // 월별 기록 shows that day's month.
@@ -239,10 +249,14 @@ test('home greets me, shows today’s readiness and swaps the card from the menu
   await press(screen, '10월 15일');
   await press(screen, '월별 기록');
   expect(texts(screen)).toContain('10월 15일 목요일');
-  // 오늘 brings the date back to today.
-  await press(screen, '오늘로 이동');
+  // › steps a day forward; the week strip brings today back, where › stops.
+  await press(screen, '다음 날');
+  expect(texts(screen)).toContain('10월 16일 금요일');
+  await press(screen, '10월 19일');
   expect(texts(screen)).toContain('10월 19일 월요일');
-  expect(() => labelled(screen, '오늘로 이동')).toThrow();
+  expect(labelled(screen, '다음 날').props.accessibilityState).toEqual({
+    disabled: true,
+  });
   await act(async () => screen.unmount());
 });
 
@@ -530,7 +544,12 @@ test('the run map leads to course recommendations and saved courses, and starts 
   // 자유 러닝 목표는 한 화면에서 거리·시간을 체크해 조합한다.
   expect(texts(free)).toContain('목표 설정');
   await press(free, '목표 설정');
-  for (const text of ['운동 목표', '선택하지 않으면 목표 없이 달려요', '거리', '시간']) {
+  for (const text of [
+    '운동 목표',
+    '선택하지 않으면 목표 없이 달려요',
+    '거리',
+    '시간',
+  ]) {
     expect(texts(free)).toContain(text);
   }
   expect(texts(free)).not.toContain('칼로리');

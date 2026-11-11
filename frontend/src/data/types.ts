@@ -1338,6 +1338,9 @@ export type Repositories = {
     getDetail: (recordId: string) => Promise<RunRecordDetail>;
     // H02 요약만 가볍게 읽는다. 종료 직후 워치 결과 화면에 옮길 값이라 구간·경로는 읽지 않는다(S15P31E105-663).
     getResultSummary: (recordId: string) => Promise<WatchResultSummary>;
+    // S11 실제로 뛴 경로만 읽는다(S15P31E105-690 러닝 종료 화면 지도). 출처 전환·공백에서 끊은 조각이며, 경로가 없거나
+    // 읽지 못하면 null이다.
+    getRoute: (recordId: string) => Promise<[number, number][][] | null>;
     // baseDate is any day (YYYY-MM-DD) inside the period.
     getStatistics: (
       period: AnalysisPeriod,
