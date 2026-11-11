@@ -87,7 +87,8 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
       "regionCode": null,
       "joinPolicy": "APPROVAL",
       "memberCount": 10,
-      "myMembershipStatus": "PENDING"
+      "myMembershipStatus": "PENDING",
+      "imageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
     }
   ]
 }
@@ -123,6 +124,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 |---|---|:---:|---|
 | `items[].memberCount` | integer | O | APPROVED 관계 수. |
 | `items[].myMembershipStatus` | string / null | O | 본인 가입관계. 미가입 null, PENDING/APPROVED 등 ERD 상태. |
+| `items[].imageUrl` | string / null | O | 크루 대표 사진 [F02](files.md#f02-이미지-조회) 경로. `crews.image_key`가 없거나 키의 파일 이름에서 imageId를 얻지 못하면 null(S15P31E105-636). 주소가 있어도 실제 파일 조회 권한은 F02가 다시 확인한다. 크루 사진은 공개 크루 정보다. |
 
 ### 오류 응답
 
@@ -210,7 +212,8 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
   "capacity": 20,
   "regionCode": null,
   "joinPolicy": "APPROVAL",
-  "myMembershipStatus": "PENDING"
+  "myMembershipStatus": "PENDING",
+  "imageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -224,6 +227,7 @@ crews와 crew_memberships를 구분한다. 크루 상태는 ACTIVE/INACTIVE, 가
 | `ownerId` | integer (int64) | O | `crews.owner_id` (BIGINT). 저장 값은 NULL 불가. |
 | `memberCount` | integer | O | crew_memberships의 APPROVED 관계 수. 대기·거절·탈퇴 제외. |
 | `myMembershipStatus` | string / null | O | 본인 crew_memberships.status. 관계 없으면 null. PENDING/APPROVED/REJECTED/LEFT. |
+| `imageUrl` | string / null | O | 크루 대표 사진 [F02](files.md#f02-이미지-조회) 경로. `crews.image_key`가 없거나 키의 파일 이름에서 imageId를 얻지 못하면 null(S15P31E105-636). 주소가 있어도 실제 파일 조회 권한은 F02가 다시 확인한다. 크루 사진은 공개 크루 정보다. 해산(INACTIVE) 크루도 주소는 그대로 주지만 F02는 ACTIVE 크루 사진만 열어 주므로 조회는 404이며, 앱은 사진 없이 이름만 보여 준다(2026-11-10 담당자 결정). |
 
 
 **사용 흐름과 응답 판단**
@@ -557,7 +561,8 @@ OWNER(`crews.owner_id`)만 조회. 스키마에 ADMIN 역할이 없어 ADMIN은 
       "status": "PENDING",
       "requestedAt": "2026-10-24T09:00:00Z",
       "joinedAt": null,
-      "nickname": "러너"
+      "nickname": "러너",
+      "profileImageUrl": null
     }
   ]
 }
@@ -579,6 +584,7 @@ OWNER(`crews.owner_id`)만 조회. 스키마에 ADMIN 역할이 없어 ADMIN은 
 | `items[].requestedAt` | string (ISO 8601 UTC) | O | `crew_memberships.requested_at` (TIMESTAMPTZ). 저장 값은 NULL 불가. |
 | `items[].joinedAt` | string (ISO 8601 UTC) / null | O | `crew_memberships.joined_at` (TIMESTAMPTZ). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
 | `items[].nickname` | string | O | `users`의 표시명(닉네임). |
+| `items[].profileImageUrl` | string / null | O | 회원 프로필 사진 [F02](files.md#f02-이미지-조회) 경로. U21·커뮤니티 작성자와 같은 `users.profile_image_key` 기준이며 없으면(탈퇴 회원 포함) null(S15P31E105-636). 비공개 계정도 프로필 사진은 최소 정보로 노출할 수 있다([계정 공개 정책](users.md#계정-공개-정책의-공통-적용-범위), 2026-11-05 확정). |
 
 
 **사용 흐름과 응답 판단**
@@ -782,7 +788,8 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
       "status": "APPROVED",
       "joinedAt": "2026-10-24T09:00:00Z",
       "nickname": "러너",
-      "isOwner": false
+      "isOwner": false,
+      "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
     }
   ]
 }
@@ -802,6 +809,7 @@ PENDING 신청에 대해 APPROVED 또는 REJECTED만 처리. OWNER(`crews.owner_
 | `items[].userId` | integer (int64) | O | `crew_memberships.user_id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].status` | string | O | `crew_memberships.status` (ENUM('PENDING', 'APPROVED', 'REJECTED', 'LEFT')). 현재 승인된 멤버만 조회하므로 APPROVED. |
 | `items[].joinedAt` | string (ISO 8601 UTC) / null | O | `crew_memberships.joined_at` (TIMESTAMPTZ). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `items[].profileImageUrl` | string / null | O | 회원 프로필 사진 [F02](files.md#f02-이미지-조회) 경로. U21·커뮤니티 작성자와 같은 `users.profile_image_key` 기준이며 없으면(탈퇴 회원 포함) null(S15P31E105-636). 비공개 계정도 프로필 사진은 최소 정보로 노출할 수 있다([계정 공개 정책](users.md#계정-공개-정책의-공통-적용-범위), 2026-11-05 확정). |
 
 
 **사용 흐름과 응답 판단**
@@ -1086,7 +1094,8 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
   "capacity": 21,
   "regionCode": null,
   "joinPolicy": "INSTANT",
-  "myMembershipStatus": "APPROVED"
+  "myMembershipStatus": "APPROVED",
+  "imageUrl": null
 }
 ```
 
@@ -1255,7 +1264,8 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
       "regionCode": null,
       "myMembershipStatus": "PENDING",
       "memberCount": 10,
-      "isOwner": false
+      "isOwner": false,
+      "imageUrl": null
     }
   ]
 }
@@ -1274,6 +1284,7 @@ OWNER가 크루를 종료한다. **APPROVED 인원과 무관**하다. 100명 크
 | `items[].id` | integer (int64) | O | `crews.id` (BIGINT). 저장 값은 NULL 불가. |
 | `items[].name` | string | O | `crews.name` (VARCHAR(100)). 저장 값은 NULL 불가. |
 | `items[].regionCode` | string / null | O | `crews.region_code` (VARCHAR(40)). NULL 허용; 미설정·미측정·미발생을 0/false/빈 문자열로 대체하지 않는다. |
+| `items[].imageUrl` | string / null | O | 크루 대표 사진 [F02](files.md#f02-이미지-조회) 경로. `crews.image_key`가 없거나 키의 파일 이름에서 imageId를 얻지 못하면 null(S15P31E105-636). 주소가 있어도 실제 파일 조회 권한은 F02가 다시 확인한다. 크루 사진은 공개 크루 정보다. |
 
 
 **사용 흐름과 응답 판단**

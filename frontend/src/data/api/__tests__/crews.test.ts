@@ -128,6 +128,7 @@ test('M01 searches by name and maps membership and region', async () => {
     capacity: 30,
     memberCount: 3,
     myMembership: 'MEMBER',
+    imageUrl: null,
   });
   expect(found.map(item => [item.area, item.myMembership])).toEqual([
     ['부산 수영구', 'MEMBER'],
@@ -186,6 +187,7 @@ test('M01 stays empty when /regions omits items instead of crashing the list', a
       capacity: 30,
       memberCount: 3,
       myMembership: null,
+      imageUrl: null,
     },
   ]);
 });
@@ -235,6 +237,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: true,
       isMe: true,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
     {
       userId: '9',
@@ -242,6 +245,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: false,
       isMe: false,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
     {
       userId: '12',
@@ -249,6 +253,7 @@ test('M02 with M07 marks me, puts the leader first and counts requests for the l
       isOwner: false,
       isMe: false,
       recentPaceSecPerKm: null,
+      profileImageUrl: null,
     },
   ]);
 });
@@ -346,6 +351,7 @@ test('M05 requests keep only the nickname and the time', async () => {
       recent5kPaceSecPerKm: null,
       firstCrew: false,
       requestedAt: '2026-11-02T01:00:00Z',
+      profileImageUrl: null,
     },
   ]);
 });
@@ -620,6 +626,7 @@ test('M10 lists my crews with members before waiting requests', async () => {
       area: '부산 수영구',
       memberCount: 3,
       membership: 'MEMBER',
+      imageUrl: null,
     },
     {
       id: '44',
@@ -627,6 +634,7 @@ test('M10 lists my crews with members before waiting requests', async () => {
       area: '지역 미정',
       memberCount: 5,
       membership: 'PENDING',
+      imageUrl: null,
     },
   ]);
 });

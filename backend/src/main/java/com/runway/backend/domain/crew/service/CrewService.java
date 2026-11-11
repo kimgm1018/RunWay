@@ -26,6 +26,7 @@ import com.runway.backend.domain.crew.repository.CrewMembershipRepository;
 import com.runway.backend.domain.crew.repository.CrewRepository;
 import com.runway.backend.domain.crew.repository.RegionExistsRepository;
 import com.runway.backend.domain.crew.repository.UserExistsRepository;
+import com.runway.backend.domain.crew.repository.UserExistsRepository.UserDisplay;
 import com.runway.backend.domain.image.ImagePurpose;
 import com.runway.backend.domain.image.ImageService;
 import com.runway.backend.domain.notification.NotificationType;
@@ -250,8 +251,8 @@ public class CrewService {
         CrewMembershipStatus filter = resolveJoinRequestStatus(status);
         List<CrewMembership> memberships =
                 crewMembershipRepository.findByCrewIdAndStatus(crewId, filter);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         memberships.stream().map(CrewMembership::getUserId).toList());
 
         List<JoinRequestItemResponse> items =
@@ -259,7 +260,7 @@ public class CrewService {
                         .map(
                                 m ->
                                         JoinRequestItemResponse.from(
-                                                m, nicknames.getOrDefault(m.getUserId(), null)))
+                                                m, users.get(m.getUserId())))
                         .toList();
         return new JoinRequestListResponse(items);
     }
@@ -352,8 +353,8 @@ public class CrewService {
         List<CrewMembership> memberships =
                 crewMembershipRepository.findByCrewIdAndStatus(
                         crewId, CrewMembershipStatus.APPROVED);
-        Map<Long, String> nicknames =
-                userExistsRepository.findNicknamesByIds(
+        Map<Long, UserDisplay> users =
+                userExistsRepository.findDisplaysByIds(
                         memberships.stream().map(CrewMembership::getUserId).toList());
         List<MemberItemResponse> items =
                 memberships.stream()
@@ -361,7 +362,7 @@ public class CrewService {
                                 m ->
                                         MemberItemResponse.from(
                                                 m,
-                                                nicknames.getOrDefault(m.getUserId(), null),
+                                                users.get(m.getUserId()),
                                                 crew.isOwnedBy(m.getUserId())))
                         .toList();
         return new MemberListResponse(items);

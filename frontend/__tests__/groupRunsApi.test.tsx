@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Text } from 'react-native';
+import { Alert, Image, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import App from '../App';
 import { createApiRepositories, tokenStore } from '../src/data';
@@ -29,7 +29,13 @@ function respond(status: number, body: unknown) {
 const now = Date.parse('2026-11-02T03:00:00Z');
 const meId = 101;
 
-type Member = { userId: number; nickname: string; ready: boolean };
+// profileImageUrl: G07 photo path (S15P31E105-636).
+type Member = {
+  userId: number;
+  nickname: string;
+  ready: boolean;
+  profileImageUrl?: string;
+};
 type Run = {
   id: number;
   title: string;
@@ -195,6 +201,7 @@ function serve() {
             nickname: member.nickname,
             isHost: member.userId === run.hostId,
             readyStatus: member.ready ? 'READY' : 'WAITING',
+            profileImageUrl: member.profileImageUrl ?? null,
           })),
         });
       }
@@ -427,6 +434,19 @@ test('6.4 joins and leaves a crewmate’s run', async () => {
   await settle(50);
   expect(calls('DELETE')).toEqual(['/group-runs/62/participants/me']);
   expect(() => labelled(screen, '참가하기')).not.toThrow();
+  await act(async () => screen.unmount());
+});
+
+// S15P31E105-636: 6.4 shows a participant's G07 photo in place of the letter.
+test('6.4 shows participant photos from G07', async () => {
+  const path = '/api/v1/images/33333333-3333-4333-8333-333333333333';
+  runs.find(run => run.id === 62)!.members[0].profileImageUrl = path;
+  const screen = await openGroup();
+  await press(screen, /^일요일, 함께 40분, /);
+  const uris = screen.root
+    .findAllByType(Image)
+    .map(node => (node.props.source as { uri?: string })?.uri ?? '');
+  expect(uris.some(uri => /^https?:\/\//.test(uri) && uri.endsWith(path))).toBe(true);
   await act(async () => screen.unmount());
 });
 

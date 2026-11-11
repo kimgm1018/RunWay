@@ -1,8 +1,11 @@
 package com.runway.backend.domain.crew.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.runway.backend.domain.crew.entity.Crew;
 import com.runway.backend.domain.crew.entity.CrewMembershipStatus;
+import com.runway.backend.domain.image.ImageService;
 
+// imageUrl: 크루 대표 사진 조회 주소(crews.image_key → F02), 없으면 null. S15P31E105-636.
 public record CrewSummaryResponse(
         long id,
         String name,
@@ -13,7 +16,8 @@ public record CrewSummaryResponse(
         String regionCode,
         String joinPolicy,
         long memberCount,
-        String myMembershipStatus) {
+        String myMembershipStatus,
+        @JsonInclude(JsonInclude.Include.ALWAYS) String imageUrl) {
 
     public static CrewSummaryResponse from(
             Crew crew, long memberCount, CrewMembershipStatus myMembershipStatus) {
@@ -27,6 +31,7 @@ public record CrewSummaryResponse(
                 crew.getRegionCode(),
                 crew.getJoinPolicy().name(),
                 memberCount,
-                myMembershipStatus == null ? null : myMembershipStatus.name());
+                myMembershipStatus == null ? null : myMembershipStatus.name(),
+                ImageService.publicUrlFromKey(crew.getImageKey()));
     }
 }

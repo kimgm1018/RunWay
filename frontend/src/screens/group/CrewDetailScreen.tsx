@@ -53,7 +53,7 @@ import {
   NumText,
   Raised,
 } from './look';
-import { useGroupRunDraft } from './parts';
+import { CrewPhoto, PhotoOr, useGroupRunDraft } from './parts';
 import { BackButton } from '../../components/BackButton';
 
 // The rows 구성원 shows before 모두 보기.
@@ -223,9 +223,15 @@ function MemberRow({
   return (
     <View style={[styles.memberRow, !last && styles.memberLine]}>
       <View style={styles.initial}>
-        <AppText style={styles.initialText}>
-          {member.nickname.slice(0, 1)}
-        </AppText>
+        <PhotoOr
+          photo={member.profileImageUrl}
+          size={34}
+          fallback={
+            <AppText style={styles.initialText}>
+              {member.nickname.slice(0, 1)}
+            </AppText>
+          }
+        />
       </View>
       <AppText style={styles.memberName}>
         {member.isMe ? `${member.nickname} (나)` : member.nickname}
@@ -706,9 +712,16 @@ function CrewDetailContent({ crewId }: { crewId: string }) {
             {/* 6.2-CrewHero as the 시안's first card: the name, 지역 · 인원 as pills, and the status chip with the
                 join policy beside it (mint while recruiting, K1 mint once full). */}
             <Card>
-              <AppText style={styles.title} accessibilityRole="header">
-                {crew.name}
-              </AppText>
+              {/* The crew photo left of the name when the crew has one (S15P31E105-636). */}
+              <View style={styles.photoRow}>
+                <CrewPhoto photo={crew.imageUrl} size={64} />
+                <AppText
+                  style={[styles.title, styles.flex]}
+                  accessibilityRole="header"
+                >
+                  {crew.name}
+                </AppText>
+              </View>
               <View style={styles.facts}>
                 <Fact icon="mapPin" label="지역" value={crew.area} />
                 <Fact
@@ -1131,6 +1144,7 @@ const styles = StyleSheet.create({
   },
   captionInvalid: { color: groupTone.danger },
   // 6.2-CrewHero.
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   title: {
     fontFamily: fontFamily.bold,
     fontSize: 26,

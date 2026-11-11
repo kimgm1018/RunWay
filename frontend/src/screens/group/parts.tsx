@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import {
+  Image,
   StyleSheet,
   View,
   type LayoutChangeEvent,
@@ -90,18 +91,70 @@ const mintTones = [
   '#9CEFE3',
 ];
 
-// A member shown by the first letter of their nickname (no photos).
+// A photo filling a circle of `size` (S15P31E105-636). Until there is a photo, or when it fails to load,
+// `fallback` (the first letter) stays, like the community Avatar. `inside` fills the parent circle inside
+// its border instead (6.4's white ring around overlapping members stays visible).
+export function PhotoOr({
+  photo,
+  size,
+  fallback,
+  inside = false,
+  testID = 'member-photo',
+}: {
+  photo?: string | null;
+  size: number;
+  fallback: React.ReactNode;
+  inside?: boolean;
+  testID?: string;
+}) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const shown = photo && photo !== failed ? photo : null;
+  if (!shown) {
+    return <>{fallback}</>;
+  }
+  return (
+    <Image
+      testID={testID}
+      source={{ uri: shown }}
+      style={
+        inside
+          ? [styles.photoInside, { borderRadius: size / 2 }]
+          : { width: size, height: size, borderRadius: size / 2 }
+      }
+      onError={() => setFailed(shown)}
+      accessibilityIgnoresInvertColors
+    />
+  );
+}
+
+// The crew photo as a circle left of the crew name (6.0·6.1 cards 40, 6.2 head 64; S15P31E105-636).
+// Nothing is drawn without a photo or when it fails, so those crews look as before.
+export function CrewPhoto({
+  photo,
+  size,
+}: {
+  photo?: string | null;
+  size: number;
+}) {
+  return (
+    <PhotoOr photo={photo} size={size} fallback={null} testID="crew-photo" />
+  );
+}
+
+// A member shown by their photo, or the first letter of their nickname without one.
 export function Initial({
   name,
   index = 0,
   size = 32,
   mint = false,
+  photo,
   style,
 }: {
   name: string;
   index?: number;
   size?: number;
   mint?: boolean;
+  photo?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
   const tones = mint ? mintTones : avatarTones;
@@ -118,12 +171,19 @@ export function Initial({
         style,
       ]}
     >
-      <AppText
-        variant="captionStrong"
-        style={{ color: palette.ink, fontSize: size * 0.4 }}
-      >
-        {name.slice(0, 1)}
-      </AppText>
+      <PhotoOr
+        photo={photo}
+        size={size}
+        inside
+        fallback={
+          <AppText
+            variant="captionStrong"
+            style={{ color: palette.ink, fontSize: size * 0.4 }}
+          >
+            {name.slice(0, 1)}
+          </AppText>
+        }
+      />
     </View>
   );
 }
@@ -308,7 +368,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   // Starts 40 above the buttons' box so the list fades out before it reaches them.
   fade: { position: 'absolute', top: -40, left: 0, right: 0, bottom: 0 },
-  initial: { alignItems: 'center', justifyContent: 'center' },
+  initial: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  // Fills the circle inside its border (an absolute child sits within the border, S15P31E105-636).
+  photoInside: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   infoLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   infoLineLarge: {
     flexDirection: 'row',

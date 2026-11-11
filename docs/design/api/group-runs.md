@@ -867,7 +867,8 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
       "nickname": "러너",
       "isHost": true,
       "readyStatus": "READY",
-      "readinessScore": null
+      "readinessScore": null,
+      "profileImageUrl": "/api/v1/images/550e8400-e29b-41d4-a716-446655440000"
     }
   ],
   "participantCount": 1,
@@ -901,6 +902,7 @@ group_runs → group_run_participants → running_sessions로 참가자의 개�
 | 필드 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
 | `items[].nickname` | string | O | 참가자 회원 표시명. |
+| `items[].profileImageUrl` | string / null | O | 회원 프로필 사진 [F02](files.md#f02-이미지-조회) 경로. U21·커뮤니티 작성자와 같은 `users.profile_image_key` 기준이며 없으면(탈퇴 회원 포함) null(S15P31E105-636). 비공개 계정도 프로필 사진은 최소 정보로 노출할 수 있다([계정 공개 정책](users.md#계정-공개-정책의-공통-적용-범위), 2026-11-05 확정). |
 | `items[].isHost` | boolean | O | group_runs.host_id 비교 결과. |
 | `items[].readyStatus` | string | O | `group_run_participants.ready` 기준. true→READY, false→WAITING. G16에서 변경. |
 
