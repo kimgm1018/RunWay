@@ -6,6 +6,7 @@ import {
   RunMap,
   zoomFor,
 } from '../src/components/RunMap';
+import { darkMapLook } from '../src/components/mapRoute';
 import type { LngLat } from '../src/geo';
 
 // The Naver map is a plain view in tests (jest.setup.js); these check what RunMap puts on it.
@@ -98,6 +99,32 @@ test('a card map (compact) is a lite map with small poles; a screen map is not',
   expect(
     screen.findByProps({ testID: 'naver-map' }).parent?.props.isLiteModeEnabled,
   ).toBe(false);
+});
+
+test('a compact tilted map keeps its building layer out of lite mode', () => {
+  const root = render(<RunMap route={route} compact view="lean" />);
+  const map = root.find(
+    node => 'layerGroups' in node.props && 'buildingHeight' in node.props,
+  );
+  expect(map.props.layerGroups.BUILDING).toBe(true);
+  expect(map.props.buildingHeight).toBe(1);
+  expect(map.props.isLiteModeEnabled).toBe(false);
+});
+
+// S15P31E105-672 review: on the dark tilted map the course under a run is a dim, thinner guide with a grey edge,
+// so only the run reads as the lime line.
+test('while running on a tilted map the course is a dim, thin guide under the lime run', () => {
+  const root = render(
+    <RunMap route={route} trail={route.slice(0, 2)} view="heading" />,
+  );
+  const [guide] = overlays(root, 'naver-map-multipath');
+  const run = overlays(root, 'naver-map-path').find(props => props.zIndex === 2);
+  expect(run?.outlineColor).toBe(darkMapLook.ribbon);
+  expect(guide.pathParts[0].outlineColor).toBe(darkMapLook.guideOutline);
+  expect(guide.pathParts[0].outlineColor).not.toBe(run?.outlineColor);
+  expect(guide.pathParts[0].color).toBe(darkMapLook.guide);
+  expect(guide.width).toBeLessThan(run?.width);
+  expect(guide.outlineWidth).toBeLessThan(run?.outlineWidth);
 });
 
 test('a cancelled course is grey and casts no shadow', () => {

@@ -24,6 +24,38 @@ export const routeLook = {
   shadowWidth: 10,
 };
 
+// The tilted city view and both RouteReplay modes share this look. Flat maps keep routeLook above.
+// Every colour is opaque: the Naver path overlay on Android drew part-see-through colours solid black (above).
+// Fully transparent (`unpassed`) is the one exception, and draws nothing (S15P31E105-561's replay).
+export const darkMapLook = {
+  // Dark enough for the lime to glow, light enough that the NAVER logo still reads on the map.
+  lightness: -0.3,
+  ink: '#C8FF00',
+  ribbon: '#E5FF8F',
+  passed: '#B4BDC4',
+  // The course under a run (heading · lean while running): dim and thin, so the lime run stays the one line
+  // that reads.
+  guide: '#6E7868',
+  guideOutline: '#3A4036',
+  guideCentre: 2.2,
+  guideEdge: 1.4,
+  shadow: '#5D7800',
+  muted: '#9299A4',
+  centre: 3.2,
+  edge: 2.8,
+  shadowWidth: 12,
+  // The replay's glowing trail: a wide dark halo, a narrower brighter one, then the lime core with a pale edge.
+  glowOuter: '#2C3A00',
+  glowOuterWidth: 24,
+  glowInner: '#5D7800',
+  glowInnerWidth: 14,
+  coreWidth: 5,
+  coreEdge: 2,
+  // The whole course, thin and grey, over the opening overview only.
+  outline: '#8C95A6',
+  unpassed: 'rgba(0,0,0,0)',
+};
+
 // A course that ends where it starts carries one SF mark; otherwise S at the start and F at the end.
 export const loopWithinM = 60;
 export const isLoop = (route: LngLat[]) =>

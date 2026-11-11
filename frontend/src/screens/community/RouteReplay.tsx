@@ -31,6 +31,7 @@ import {
 } from '@mj-studio/react-native-naver-map';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText, Icon } from '../../components';
+import { darkMapLook } from '../../components/mapRoute';
 import type { Post } from '../../data';
 import { bearingOf, routeLengthM, walkAlong, type LngLat } from '../../geo';
 import { formatPace } from '../../format';
@@ -44,8 +45,21 @@ import { Avatar, recordLabel, stamp } from './parts';
 
 // The whole route spans this many screens, so the camera has somewhere to follow.
 const zoom = 3;
-// One playback takes this long, whatever the run's length.
-const playMs = 9000;
+// One playback grows with the run (S15P31E105-672): 6 s plus 1 ms per metre, kept between 8 s and 15 s, so a
+// short jog does not rush past and a long run does not drag.
+const minPlayMs = 8000;
+const maxPlayMs = 15000;
+export function replayPlayMs(distanceM: number) {
+  const metres = Number.isFinite(distanceM) ? Math.max(0, distanceM) : 0;
+  return Math.round(Math.min(maxPlayMs, Math.max(minPlayMs, 6000 + metres)));
+}
+// How many times faster than the run the playback goes, shown as ×N 배속 so the speed-up is plain.
+export function replaySpeedup(durationSec: number, playMs: number) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0 || playMs <= 0) {
+    return null;
+  }
+  return Math.max(1, Math.round((durationSec * 1000) / playMs));
+}
 // The runner stays at this height on the screen while the map moves under them.
 const markerAt = 0.42;
 
@@ -97,6 +111,7 @@ function ShapeReplay({
     () => lay(post.record.shape, canvas.width, canvas.height),
     [post.record.shape, canvas.width, canvas.height],
   );
+  const playMs = replayPlayMs(post.record.distanceM);
   const [shown, setShown] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
@@ -140,7 +155,7 @@ function ShapeReplay({
         }
       });
     },
-    [camera, draw],
+    [camera, draw, playMs],
   );
 
   // The numbers read the path's clock a few times a second; the motion itself never waits for React.
@@ -260,17 +275,17 @@ function ShapeReplay({
               cx={startX}
               cy={startY}
               r={9}
-              fill={feedLook.route}
-              stroke={feedLook.ground}
+              fill={darkMapLook.ink}
+              stroke={darkMapLook.ribbon}
               strokeWidth={3}
             />
-            {/* The whole route, revealed from the start as the dash slides back. */}
+            {/* The run glows as it is drawn: a soft wide halo, a pale edge, then the lime core. */}
             <AnimatedPolyline
               points={line}
               fill="none"
-              stroke={feedLook.route}
-              strokeOpacity={0.25}
-              strokeWidth={22}
+              stroke={darkMapLook.ink}
+              strokeOpacity={0.18}
+              strokeWidth={26}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -279,8 +294,18 @@ function ShapeReplay({
             <AnimatedPolyline
               points={line}
               fill="none"
-              stroke={feedLook.route}
-              strokeWidth={9}
+              stroke={darkMapLook.ribbon}
+              strokeWidth={13}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray={[route.total, route.total]}
+              strokeDashoffset={dashOffset}
+            />
+            <AnimatedPolyline
+              points={line}
+              fill="none"
+              stroke={darkMapLook.ink}
+              strokeWidth={7}
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeDasharray={[route.total, route.total]}
@@ -295,6 +320,7 @@ function ShapeReplay({
           playing={playing}
           done={done}
           onClose={onClose}
+          speedup={replaySpeedup(post.record.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
@@ -303,9 +329,9 @@ function ShapeReplay({
 
 // The real map's camera over the run (S15P31E105-561, 담당자 요청: 실제 지도): zoomed in, leaning back, turned so the
 // way ahead points up.
-const close = { zoom: 16.6, tilt: 50 };
-// On the light real map the path is the deep navy (담당자 요청: 민트 말고 진한 네이비).
-const replayNavy = '#02050E';
+// Leaning back about 60° (S15P31E105-672) so the buildings stand up around the runner; the Naver map allows that
+// tilt at this zoom.
+const close = { zoom: 16.6, tilt: 60 };
 // The opening view: the whole course from above, flat and north up, before the camera swoops in to the start
 // (레퍼런스 시작 부분).
 const flat = { tilt: 0, bearing: 0 };
@@ -314,10 +340,16 @@ const introMs = 2200;
 const holdMs = 1500;
 // A map that never says it is ready still starts after this long.
 const readyLimitMs = 4000;
+// A restart swoops back in from the closing overview after this short pause.
+const againMs = 300;
+// At the end the camera waits a beat on the finish, then pulls back to the whole course.
+const outroDelayMs = 600;
+const outroMs = 2400;
 const tickMs = 100;
-// How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it.
+// How far ahead (share of the run) the camera looks to choose its heading, and how quickly it turns to it: a
+// gentle rate, so corners turn the map over several ticks instead of snapping.
 const lookAhead = 0.025;
-const turnRate = 0.3;
+const turnRate = 0.22;
 
 // The camera that fits the whole course in the part of the screen above the numbers (the camera's middle sits at
 // `markerAt` of the height, see mapPadding).
@@ -379,6 +411,8 @@ function MapReplay({
   onClose: () => void;
 }) {
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const playMs = replayPlayMs(post.record.distanceM);
   const coords = useMemo(
     () => route.map(([longitude, latitude]) => ({ latitude, longitude })),
     [route],
@@ -399,6 +433,8 @@ function MapReplay({
   const [outline, setOutline] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
+  // Each play from the start: 0 on opening, one more on every restart, so the swoop runs again.
+  const [round, setRound] = useState(0);
   const at = useRef(0);
   const heading = useRef(0);
   const openedAt = useRef(0);
@@ -419,6 +455,7 @@ function MapReplay({
     setPlaying(false);
     setIntro(true);
     setOutline(true);
+    setRound(0);
     setMotion({ duration: 0, easing: 'Linear' });
     setCamera(
       overviewOf(path.current, size.current.width, size.current.height),
@@ -438,6 +475,8 @@ function MapReplay({
       return;
     }
     const [first] = path.current;
+    // The first play holds on the overview so it is seen; a restart is already looking at it.
+    const wait = round === 0 ? holdMs : againMs;
     const swoop = setTimeout(() => {
       setOutline(false);
       setMotion({ duration: introMs, easing: 'EaseOut' });
@@ -447,16 +486,16 @@ function MapReplay({
         ...close,
         bearing: heading.current,
       });
-    }, holdMs);
+    }, wait);
     const go = setTimeout(() => {
       setIntro(false);
       setPlaying(true);
-    }, holdMs + introMs);
+    }, wait + introMs);
     return () => {
       clearTimeout(swoop);
       clearTimeout(go);
     };
-  }, [visible, ready]);
+  }, [visible, ready, round]);
 
   // Playback: each tick moves the camera to the next point over the tick's length, so the moves join into one
   // glide; progress follows the clock, so a slow phone keeps the same pace.
@@ -486,22 +525,43 @@ function MapReplay({
     step();
     const timer = setInterval(step, tickMs);
     return () => clearInterval(timer);
-  }, [visible, playing]);
+  }, [visible, playing, playMs]);
+
+  // The outro: a beat on the finish, then the camera rises, levels and turns north to the whole course, now drawn.
+  useEffect(() => {
+    if (!visible || !done) {
+      return;
+    }
+    const outro = setTimeout(() => {
+      setMotion({ duration: outroMs, easing: 'EaseOut' });
+      setCamera(
+        overviewOf(path.current, size.current.width, size.current.height),
+      );
+    }, outroDelayMs);
+    return () => clearTimeout(outro);
+  }, [visible, done]);
 
   const toggle = () => {
     if (intro || Date.now() - openedAt.current < 500) {
       return;
     }
     if (done) {
+      // Again from the start: the course is wiped and the camera swoops back in from the overview.
       at.current = 0;
       heading.current = headingAt(route, 0);
       setShown(0);
       setDone(false);
-      setPlaying(true);
+      setIntro(true);
+      setOutline(true);
+      setRound(value => value + 1);
       return;
     }
     setPlaying(value => !value);
   };
+
+  // Every replay line draws only the part already run: the rest is fully transparent (a part-see-through colour
+  // drew solid black on Android), and all of them share `progress`.
+  const reveal = { color: darkMapLook.unpassed, progress: shown };
 
   return (
     <Modal
@@ -533,8 +593,23 @@ function MapReplay({
             animationDuration={motion.duration}
             animationEasing={motion.easing}
             mapType="Basic"
+            lightness={darkMapLook.lightness}
+            layerGroups={{
+              BUILDING: true,
+              TRAFFIC: false,
+              TRANSIT: false,
+              BICYCLE: false,
+              MOUNTAIN: false,
+              CADASTRAL: false,
+            }}
+            buildingHeight={1}
+            isLiteModeEnabled={false}
             // The camera's middle sits where the runner's pin is, above the numbers.
             mapPadding={{ bottom: height * (1 - 2 * markerAt) }}
+            // The NAVER logo stays shown, by the SDK's own placement: top left under the title, where the map is
+            // still bright, instead of the foot where the dark band and the numbers cover it.
+            logoAlign="TopLeft"
+            logoMargin={{ left: 18, top: insets.top + 86 }}
             isScrollGesturesEnabled={false}
             isZoomGesturesEnabled={false}
             isTiltGesturesEnabled={false}
@@ -545,29 +620,42 @@ function MapReplay({
             isShowCompass={false}
             locale="ko"
           >
-            {/* The whole course, shown only up to the runner: the passed part in the route colour. */}
-            <NaverMapPathOverlay
-              coords={coords}
-              width={14}
-              color="rgba(0,0,0,0)"
-              passedColor="rgba(2,5,14,0.22)"
-              progress={shown}
-            />
             {outline ? (
-              // The whole course, thin and grey (an opaque colour: the map drew the see-through one solid black).
+              // The whole course, thin and grey, over the opening overview; under the run's lines.
               <NaverMapPathOverlay
                 coords={coords}
-                width={4}
-                color="#8C95A6"
+                width={3}
+                color={darkMapLook.outline}
                 outlineWidth={0}
+                zIndex={0}
               />
             ) : null}
+            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the lime core. */}
             <NaverMapPathOverlay
               coords={coords}
-              width={6}
-              color="rgba(0,0,0,0)"
-              passedColor={replayNavy}
-              progress={shown}
+              width={darkMapLook.glowOuterWidth}
+              {...reveal}
+              passedColor={darkMapLook.glowOuter}
+              outlineWidth={0}
+              zIndex={1}
+            />
+            <NaverMapPathOverlay
+              coords={coords}
+              width={darkMapLook.glowInnerWidth}
+              {...reveal}
+              passedColor={darkMapLook.glowInner}
+              outlineWidth={0}
+              zIndex={2}
+            />
+            <NaverMapPathOverlay
+              coords={coords}
+              width={darkMapLook.coreWidth}
+              {...reveal}
+              passedColor={darkMapLook.ink}
+              outlineColor={darkMapLook.unpassed}
+              passedOutlineColor={darkMapLook.ribbon}
+              outlineWidth={darkMapLook.coreEdge}
+              zIndex={3}
             />
           </NaverMapView>
         </View>
@@ -577,7 +665,8 @@ function MapReplay({
           playing={playing || intro}
           done={done}
           onClose={onClose}
-          accent={replayNavy}
+          accent={darkMapLook.ink}
+          speedup={replaySpeedup(post.record.durationSec, playMs)}
         />
       </Pressable>
     </Modal>
@@ -598,6 +687,10 @@ export function RouteReplay(props: {
   );
 }
 
+// The runner's pulse: one ring this wide, spreading every this long.
+const pulseSize = 28;
+const pulseMs = 1400;
+
 // What both replays draw over their map: the dark bands, the runner's pin, the title with 공유 · 닫기, and at the
 // foot the average pace big with the distance, time and steps counting up (담당자 요청: 페이스가 주).
 function ReplayChrome({
@@ -606,7 +699,8 @@ function ReplayChrome({
   playing,
   done,
   onClose,
-  accent = feedLook.route,
+  accent = darkMapLook.ink,
+  speedup = null,
 }: {
   post: Post;
   shown: number;
@@ -615,9 +709,30 @@ function ReplayChrome({
   onClose: () => void;
   // The path's colour, for the dot under the pin.
   accent?: string;
+  // How many times faster than the run this plays (×N 배속); null when the run's time is unknown.
+  speedup?: number | null;
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  // The runner's dot pulses while the replay plays; the loop stops when it pauses, ends or closes.
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!playing) {
+      pulse.setValue(0);
+      return;
+    }
+    const beat = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: pulseMs,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+    beat.start();
+    return () => beat.stop();
+  }, [playing, pulse]);
+  const percent = Math.round(Math.min(1, Math.max(0, shown)) * 100);
   const record = post.record;
   const km = ((record.distanceM * shown) / 1000).toFixed(2);
   const seconds = record.durationSec * shown;
@@ -660,6 +775,30 @@ function ReplayChrome({
         />
       </Svg>
 
+      {/* A soft ring that keeps spreading from under the pin while the run plays. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.pulse,
+          {
+            left: width / 2 - pulseSize / 2,
+            top: height * markerAt - pulseSize / 2,
+            backgroundColor: accent,
+            opacity: pulse.interpolate({
+              inputRange: [0, 1],
+              outputRange: [playing ? 0.55 : 0, 0],
+            }),
+            transform: [
+              {
+                scale: pulse.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.6, 2.4],
+                }),
+              },
+            ],
+          },
+        ]}
+      />
       {/* The runner: their avatar in a pin over the end of the path. */}
       <View
         pointerEvents="none"
@@ -745,6 +884,29 @@ function ReplayChrome({
             </AppText>
             <AppText style={styles.cellLabel}>걸음</AppText>
           </View>
+        </View>
+        {/* How far through the replay, and honestly how sped up it is. */}
+        <View
+          style={styles.progress}
+          accessible
+          accessibilityRole="progressbar"
+          accessibilityLabel={`재생 진행 ${percent}%`}
+          accessibilityValue={{ min: 0, max: 100, now: percent }}
+        >
+          <View style={styles.track}>
+            <View
+              style={[
+                styles.fill,
+                {
+                  width: `${percent}%` as `${number}%`,
+                  backgroundColor: accent,
+                },
+              ]}
+            />
+          </View>
+          {speedup ? (
+            <AppText style={styles.speed}>{`×${speedup} 배속`}</AppText>
+          ) : null}
         </View>
         <AppText style={styles.hint}>
           {done
@@ -866,8 +1028,36 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: feedLook.sub,
   },
+  pulse: {
+    position: 'absolute',
+    width: pulseSize,
+    height: pulseSize,
+    borderRadius: pulseSize / 2,
+  },
+  progress: {
+    marginTop: 20,
+    alignSelf: 'stretch',
+    marginHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  track: {
+    flex: 1,
+    height: 3,
+    borderRadius: 1.5,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  fill: { height: 3, borderRadius: 1.5 },
+  speed: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: feedLook.sub,
+  },
   hint: {
-    marginTop: 22,
+    marginTop: 14,
     fontFamily: fontFamily.medium,
     fontSize: 14,
     lineHeight: 18,
