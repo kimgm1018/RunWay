@@ -147,6 +147,7 @@ export function Initial({
   index = 0,
   size = 32,
   mint = false,
+  color,
   photo,
   style,
 }: {
@@ -154,6 +155,8 @@ export function Initial({
   index?: number;
   size?: number;
   mint?: boolean;
+  // The person's own colour (그룹런 시안 memberColors, S15P31E105-673) in place of the tones.
+  color?: string;
   photo?: string | null;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -166,7 +169,7 @@ export function Initial({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: tones[index % tones.length],
+          backgroundColor: color ?? tones[index % tones.length],
         },
         style,
       ]}
@@ -178,7 +181,12 @@ export function Initial({
         fallback={
           <AppText
             variant="captionStrong"
-            style={{ color: palette.ink, fontSize: size * 0.4 }}
+            style={[
+              { color: palette.ink, fontSize: size * 0.4 },
+              color
+                ? { fontFamily: fontFamily.black, fontSize: size * 0.45 }
+                : null,
+            ]}
           >
             {name.slice(0, 1)}
           </AppText>

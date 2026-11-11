@@ -29,10 +29,9 @@ import {
   ThemeProvider,
   typography,
 } from '../../theme';
-import { FooterButton } from './GroupRunDetailScreen';
-import { groupLook, groupTone, NumText } from './look';
+import { groupLook, NumText } from './look';
+import { ColorBar, stand, StandButton } from './stand';
 import { Tag, useGroupRunDraft } from './parts';
-import { BackButton } from '../../components/BackButton';
 import { GlassIconButton } from '../../components/GlassIconButton';
 
 const formatDistance = (meters: number | null) =>
@@ -87,11 +86,11 @@ function ConfirmButton({
       disabled={disabled}
       onPress={onPress}
     >
-      <View style={styles.confirm}>
+      <View style={[styles.confirm, disabled && styles.confirmOff]}>
         <View style={[styles.confirmContent, disabled && styles.dimmed]}>
           <AppText style={styles.confirmText}>이 위치로 정하기</AppText>
           <View style={styles.confirmIcon}>
-            <Icon name="check" color={groupTone.text} size={18} />
+            <Icon name="check" color={stand.text} size={16} />
           </View>
         </View>
       </View>
@@ -204,11 +203,11 @@ export function MeetingPlaceScreen() {
         <View style={styles.pinLayer} pointerEvents="none">
           <View style={styles.pin}>
             {!confirming ? (
-              <LightGlass radius={13} style={styles.tip}>
+              <View style={styles.tip}>
                 <AppText style={styles.tipText}>
                   지도를 누르거나 장소를 검색하세요
                 </AppText>
-              </LightGlass>
+              </View>
             ) : null}
             {/* The mockup's mint pin, kept readable on the light map: a mint fill under the old navy outline
                 (S15P31E105-594 담당자 요청). */}
@@ -231,14 +230,24 @@ export function MeetingPlaceScreen() {
           pointerEvents="box-none"
         >
           <View style={styles.searchRow}>
-            <BackButton onPress={() => navigation.goBack()} />
-            {/* 6.9-SearchBar: a light glass pill. */}
-            <LightGlass radius={24} style={styles.search}>
-              <Icon name="search" color={groupLook.onLightSub} size={16} />
+            {/* A navy circle over the light map, as the search pill beside it (그룹런 시안). */}
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="뒤로"
+              onPress={() => navigation.goBack()}
+              hitSlop={6}
+              style={styles.back}
+            >
+              <Icon name="back" color={stand.text} size={20} />
+            </PressableScale>
+            {/* 6.9-SearchBar: a navy pill over the light map (그룹런 시안, S15P31E105-673). */}
+            <View style={styles.search}>
+              <Icon name="search" color={stand.sub} size={16} />
               <TextInput
                 accessibilityLabel="장소·주소 검색"
                 placeholder="장소·주소 검색"
-                placeholderTextColor={groupLook.onLightSub}
+                placeholderTextColor={stand.sub}
+                selectionColor={stand.mint}
                 value={query}
                 onChangeText={text => {
                   setQuery(text);
@@ -249,7 +258,7 @@ export function MeetingPlaceScreen() {
                 }}
                 style={styles.searchInput}
               />
-            </LightGlass>
+            </View>
           </View>
           {/* The mockup's results: each place a light row of its own under the search, opaque so the map
               behind does not show through the names (S15P31E105-679). */}
@@ -331,7 +340,7 @@ export function MeetingPlaceScreen() {
             {/* A navy sheet with white text over the light map (S15P31E105-594 담당자 결정: 진한 네이비 톤). The dark
                 theme draws its fields, the ✓ 위치 확정 tag and the FooterButtons light: 확정 white with navy text. */}
             <LightGlass
-              radius={32}
+              radius={20}
               solid={sheetNavy}
               style={[styles.sheetGlass, styles.sheetSolid]}
             >
@@ -360,13 +369,15 @@ export function MeetingPlaceScreen() {
                         onChangeText={setNote}
                       />
                       <View style={styles.buttons}>
-                        <FooterButton
+                        <StandButton
                           title="다시 고르기"
+                          tone="outline"
+                          style={styles.flex}
                           onPress={() => setConfirming(false)}
                         />
-                        <FooterButton
+                        <StandButton
                           title="확정"
-                          primary
+                          style={styles.flex}
                           disabled={!placeName.trim()}
                           onPress={() => {
                             setPlace({
@@ -419,11 +430,8 @@ export function MeetingPlaceScreen() {
                       ) : null}
                       {picked ? (
                         <View style={styles.pickedRow}>
-                          <Icon
-                            name="mapPin"
-                            color={groupTone.text}
-                            size={18}
-                          />
+                          <ColorBar color={stand.mint} />
+                          <Icon name="mapPin" color={stand.text} size={18} />
                           <View style={styles.flex}>
                             <AppText style={styles.placeName}>
                               {picked.name}
@@ -465,7 +473,7 @@ export function MeetingPlaceScreen() {
 const resultSurface = '#F2F5F8';
 
 // The sheet's navy, a step above the page navy so it stands off the map's edge.
-const sheetNavy = groupTone.sheet;
+const sheetNavy = stand.page;
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -488,21 +496,23 @@ const styles = StyleSheet.create({
     // The pin's tip lands on the point; the hint floats above the pin.
     transform: [{ translateY: -42 }],
   },
-  // 6.9-HintToast: a light glass pill above the pin.
+  // 6.9-HintToast: a navy pill above the pin.
   tip: {
     position: 'absolute',
     bottom: 52,
     width: 250,
-    height: 26,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+    backgroundColor: stand.page,
   },
   tipText: {
-    fontFamily: fontFamily.medium,
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: groupLook.onLight,
+    fontFamily: fontFamily.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    color: stand.text,
   },
   top: { position: 'absolute', top: 0, left: 0, right: 0 },
   searchRow: {
@@ -514,6 +524,14 @@ const styles = StyleSheet.create({
     paddingRight: 15,
   },
 
+  back: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: stand.page,
+  },
   search: {
     flex: 1,
     height: 47,
@@ -522,6 +540,10 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingLeft: 14,
     paddingRight: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: stand.glassLine,
+    backgroundColor: stand.page,
   },
   // Without a lineHeight, as in TextField, so the glyphs are not clipped.
   searchInput: {
@@ -531,7 +553,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 0,
     textAlignVertical: 'center',
-    color: groupLook.onLight,
+    color: stand.text,
   },
   // The glass's rim and shadow kept on the opaque rows so they still stand off the map.
   resultCard: {
@@ -565,9 +587,9 @@ const styles = StyleSheet.create({
   // The sheet's small lines, on the navy.
   sheetSub: {
     fontFamily: fontFamily.regular,
-    fontSize: 12.5,
+    fontSize: 12,
     lineHeight: 17,
-    color: groupTone.sub,
+    color: stand.sub,
   },
   noResult: { padding: spacing.xl, textAlign: 'center' },
   locate: {
@@ -577,15 +599,20 @@ const styles = StyleSheet.create({
   },
 
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  // The glass's own bottom corners sit below the screen edge.
-  sheetGlass: { marginBottom: -32, paddingBottom: 32 },
+  // The glass's own bottom corners sit below the screen edge; a mint line along its top.
+  sheetGlass: {
+    marginBottom: -32,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderTopColor: stand.meLine,
+  },
   handle: {
     alignSelf: 'center',
     width: 40,
     height: 4,
     borderRadius: 2,
     marginTop: 7.5,
-    backgroundColor: groupTone.line,
+    backgroundColor: stand.line,
   },
   sheetBody: {
     paddingHorizontal: 16,
@@ -593,74 +620,69 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     gap: 12,
   },
-  nearby: { gap: 8, paddingVertical: 4 },
+  nearby: { gap: 6, paddingVertical: 4 },
+  // The nearby places as square-cornered choices, the picked one mint.
   nearbyChip: {
-    height: 32,
-    paddingHorizontal: 13,
-    borderRadius: 16,
+    height: 40,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.inner,
+    borderColor: stand.glassLine,
   },
-  // A picked place is a small chip, so it takes the mint (navy text on it).
-  nearbyChipOn: {
-    borderColor: groupTone.accent,
-    backgroundColor: groupTone.accent,
-  },
+  nearbyChipOn: { borderColor: stand.mint, backgroundColor: stand.mint },
   chipText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 12.5,
-    lineHeight: 16,
-    letterSpacing: -0.3,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 13,
+    lineHeight: 17,
+    color: stand.text,
   },
-  chipTextOn: { color: groupTone.onAccent },
+  chipTextOn: { color: stand.onMint },
   pickedRow: {
-    minHeight: 42,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 13,
-    paddingLeft: 2,
+    gap: 10,
   },
   placeName: {
-    fontFamily: fontFamily.bold,
-    fontSize: 17.5,
-    lineHeight: 23,
-    letterSpacing: -0.4,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 18,
+    lineHeight: 24,
+    color: stand.text,
   },
   distance: {
-    fontFamily: fontFamily.regular,
-    fontSize: 14.5,
-    lineHeight: 19,
-    color: groupTone.sub,
+    fontFamily: fontFamily.resultExtraBold,
+    fontSize: 16,
+    lineHeight: 21,
+    color: stand.text,
   },
+  // 이 위치로 정하기: the mint pill with a navy circle ✓ at its end.
   confirm: {
-    height: 56,
-    borderRadius: 28,
+    height: 50,
+    borderRadius: 25,
     justifyContent: 'center',
-    backgroundColor: groupTone.button,
+    backgroundColor: stand.mint,
   },
+  confirmOff: { backgroundColor: 'rgba(255,255,255,0.1)' },
   sheetSolid: { boxShadow: '0 10px 30px rgba(2,5,14,0.28)' },
   confirmContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingLeft: 26,
-    paddingRight: 8,
+    paddingLeft: 24,
+    paddingRight: 12,
   },
   confirmText: {
-    fontFamily: fontFamily.bold,
+    fontFamily: fontFamily.black,
     fontSize: 16,
     lineHeight: 21,
-    color: groupTone.onButton,
+    color: stand.onMint,
   },
   confirmIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: groupTone.onButton,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: stand.onMint,
     alignItems: 'center',
     justifyContent: 'center',
   },

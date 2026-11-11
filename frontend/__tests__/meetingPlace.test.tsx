@@ -168,14 +168,14 @@ test('search results and their notices sit on an opaque background over the map'
   expect(text()).toContain('공원 정문');
   expect(opaqueRowWith('공원 입구')).toBe(true);
   expect(opaqueRowWith('공원 정문')).toBe(true);
-  // The search box itself stays glass.
-  const searchBox = screen.root
+  // The search box itself is the navy pill of 그룹런 시안 (S15P31E105-673), no longer glass.
+  const glassSearch = screen.root
     .findAllByType(LightGlass)
     .find(node =>
       node.findAll(item => item.props.accessibilityLabel === '장소·주소 검색')
         .length,
-    )!;
-  expect(searchBox.props.solid).toBeUndefined();
+    );
+  expect(glassSearch).toBeUndefined();
 });
 
 test('selects the result on the map and confirms its coordinates into the group draft', async () => {

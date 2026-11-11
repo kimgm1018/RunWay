@@ -30,24 +30,24 @@ import {
   type Repositories,
 } from '../../data';
 import type { RootStackParamList } from '../../navigation/types';
+import { fontFamily, spacing, ThemeProvider, typography } from '../../theme';
+import { cancelReasons } from './GroupRunDetailScreen';
+import { NightBackground, NumText } from './look';
 import {
-  fontFamily,
-  size,
-  spacing,
-  ThemeProvider,
-  typography,
-} from '../../theme';
-import { cancelReasons, FooterButton } from './GroupRunDetailScreen';
-import { groupTone, NightBackground, NumText, Raised } from './look';
+  ColorBar,
+  crewColor,
+  stand,
+  StandButton,
+  StandHeader,
+  standType,
+} from './stand';
 import { MissingTarget } from './MissingTarget';
 import { BottomFade, formatSchedule, useGroupRunDraft } from './parts';
-import { BackButton } from '../../components/BackButton';
 
 // G13 cancelMessage: at most 100 characters, sent once as the members' notification body.
 const messageLimit = 100;
 
-// 6.4c-CancelButton: the big white button of the navy group screens with navy text, its circle in red pink with a ×
-// (S15P31E105-594 담당자 결정: 진한 네이비 톤, 큰 버튼은 흰색).
+// 6.4c-CancelButton: the white pill of the 시안 with a red circle and a ×; quiet until a reason is picked.
 function CancelButton({
   disabled,
   onPress,
@@ -56,23 +56,14 @@ function CancelButton({
   onPress: () => void;
 }) {
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel="그룹런 취소하기"
-      accessibilityState={{ disabled }}
+    <StandButton
+      title="그룹런 취소하기"
+      tone="white"
+      icon="close"
+      iconBackground={stand.danger}
       disabled={disabled}
       onPress={onPress}
-    >
-      <View style={styles.cta}>
-        {/* Disabled dims the label only, so the pill stays solid over the background. */}
-        <View style={[styles.ctaContent, disabled && styles.disabled]}>
-          <AppText style={styles.ctaText}>그룹런 취소하기</AppText>
-          <View style={styles.ctaIcon}>
-            <Icon name="close" color={groupTone.text} size={14} />
-          </View>
-        </View>
-      </View>
-    </PressableScale>
+    />
   );
 }
 
@@ -132,15 +123,12 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       <NightBackground />
-      <SafeAreaView edges={['top']}>
-        {/* The title centred between back and a space as wide (S15P31E105-594 담당자 시안). */}
-        <View style={styles.header}>
-          <BackButton tone="dark" onPress={() => navigation.goBack()} />
-          <AppText style={styles.headerTitle} accessibilityRole="header">
-            그룹런 취소
-          </AppText>
-          <View style={styles.headerSpace} />
-        </View>
+      <SafeAreaView edges={['top']} style={styles.header}>
+        <StandHeader
+          title="그룹런 취소"
+          onBack={() => navigation.goBack()}
+          dim={confirming}
+        />
       </SafeAreaView>
       {detail.status === 'error' ? (
         <EmptyState
@@ -157,39 +145,43 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.content}
           >
-            {/* Each part of 담당자 시안 is one faint white card on the navy page (S15P31E105-594 담당자 시안).
-                6.4c-RunSummary: the run beside its icon with the crew under it, a line, then when and where a row
-                each with their icons. */}
-            <Raised tone="night" style={styles.card}>
+            {/* 그룹런 시안 (S15P31E105-673): no cards. 6.4c-RunSummary: the run beside its icon with the crew and its
+                colour bar under it, then when and where a row each over a heavier line. */}
+            <View style={confirming && styles.dim}>
               <View style={styles.summaryHead}>
                 <View style={styles.runIcon}>
-                  <Icon name="runner" color={groupTone.text} size={22} />
+                  <Icon name="runner" color={stand.text} size={20} />
                 </View>
                 <View style={styles.flex}>
                   <AppText style={styles.title}>{run.title}</AppText>
-                  <AppText style={styles.crew}>{run.crewName}</AppText>
+                  <View style={styles.crewRow}>
+                    <AppText style={styles.crew}>{run.crewName}</AppText>
+                    <ColorBar color={crewColor(run.crewId)} height={11} />
+                  </View>
                 </View>
               </View>
-              <View style={styles.rule} />
-              <View style={styles.fact}>
-                <Icon name="calendar" color={groupTone.sub} size={16} />
-                <NumText
-                  text={formatSchedule(run.scheduledAt)}
-                  style={[styles.sub, styles.flex]}
-                />
+              <View style={styles.facts}>
+                <View style={styles.fact}>
+                  <View style={styles.iconCell}>
+                    <Icon name="calendar" color={stand.sub} size={16} />
+                  </View>
+                  <NumText
+                    text={formatSchedule(run.scheduledAt)}
+                    style={[styles.factStrong, styles.flex]}
+                  />
+                </View>
+                <View style={styles.fact}>
+                  <View style={styles.iconCell}>
+                    <Icon name="mapPin" color={stand.sub} size={16} />
+                  </View>
+                  <AppText style={[styles.factText, styles.flex]}>
+                    {run.meetingPlaceName}
+                  </AppText>
+                </View>
               </View>
-              <View style={styles.fact}>
-                <Icon name="mapPin" color={groupTone.sub} size={16} />
-                <AppText style={[styles.sub, styles.flex]}>
-                  {run.meetingPlaceName}
-                </AppText>
-              </View>
-            </Raised>
-            {/* 6.4c-CancelReason on its own card; the picked chip is mint with a navy check, the rest faint white.
-                The titles are plain white bold, without the left line. */}
-            <Raised tone="night" style={styles.card}>
+              {/* 6.4c-CancelReason: square-cornered choices, the picked one mint with a navy check. */}
               <View style={styles.rowBetween}>
-                <AppText style={styles.label} accessibilityRole="header">
+                <AppText style={standType.label} accessibilityRole="header">
                   취소 이유
                 </AppText>
                 <AppText style={styles.note}>하나만 골라요</AppText>
@@ -207,11 +199,7 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                     >
                       <View style={[styles.chip, selected && styles.chipOn]}>
                         {selected ? (
-                          <Icon
-                            name="check"
-                            color={groupTone.onAccent}
-                            size={14}
-                          />
+                          <Icon name="check" color={stand.onMint} size={14} />
                         ) : null}
                         <AppText
                           style={selected ? styles.chipTextOn : styles.chipText}
@@ -223,12 +211,10 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                   );
                 })}
               </View>
-            </Raised>
-            {/* 6.4c-CancelMessage on its own card: optional; blank is omitted. Sent once as the notification body, not
-                stored on G03. */}
-            <Raised tone="night" style={styles.card}>
+              {/* 6.4c-CancelMessage: optional; blank is omitted. Sent once as the notification body, not stored on
+                  G03. */}
               <View style={styles.rowBetween}>
-                <AppText style={styles.label} accessibilityRole="header">
+                <AppText style={standType.label} accessibilityRole="header">
                   남길 말
                 </AppText>
                 <NumText
@@ -240,8 +226,8 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                 <TextInput
                   accessibilityLabel="남길 말"
                   placeholder="알림으로 전할 말을 적어 주세요"
-                  placeholderTextColor={groupTone.muted}
-                  selectionColor={groupTone.accent}
+                  placeholderTextColor={stand.muted}
+                  selectionColor={stand.mint}
                   value={message}
                   onChangeText={setMessage}
                   maxLength={messageLimit}
@@ -250,21 +236,24 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                   style={styles.messageInput}
                 />
               </View>
-              <AppText style={styles.note}>
+              <AppText style={[styles.note, styles.messageNote]}>
                 상세 화면에는 남지 않고, 크루 멤버 알림 본문으로만 전달돼요
               </AppText>
-            </Raised>
-            {/* 6.4c-CancelNotice: the red pink bell and the line on the page, no box. */}
-            <View style={styles.warning}>
-              <Icon name="bell" color={groupTone.danger} size={16} />
-              <AppText style={[styles.warningText, styles.flex]}>
-                {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
-              </AppText>
+              {/* 6.4c-CancelNotice: the red pink bell and the line on the page, no box. */}
+              <View style={styles.warning}>
+                <Icon name="bell" color={stand.danger} size={16} />
+                <AppText style={[styles.warningText, styles.flex]}>
+                  {`참가자 ${run.participantCount}명과 크루 멤버에게 취소 알림이 가요. 취소한 그룹런은 되돌릴 수 없어요.`}
+                </AppText>
+              </View>
             </View>
           </ScrollView>
         </KeyboardLift>
       )}
-      <SafeAreaView edges={['bottom']} style={styles.footer}>
+      <SafeAreaView
+        edges={['bottom']}
+        style={[styles.footer, confirming && styles.dim]}
+      >
         <BottomFade />
         <CancelButton disabled={!reason} onPress={() => setConfirming(true)} />
       </SafeAreaView>
@@ -273,12 +262,12 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
         <BottomSheet
           visible={confirming}
           onClose={() => setConfirming(false)}
-          background={groupTone.sheet}
+          background={stand.sheet}
         >
           {run ? (
             <View style={styles.sheet}>
               <View style={styles.sheetIcon}>
-                <Icon name="alert" color={groupTone.danger} size={22} />
+                <Icon name="alert" color={stand.danger} size={22} />
               </View>
               <AppText style={styles.sheetTitle}>그룹런을 취소할까요?</AppText>
               <NumText
@@ -295,13 +284,16 @@ function GroupRunCancelContent({ groupRunId }: { groupRunId: string }) {
                 <AppText style={styles.reasonValue}>{label ?? ''}</AppText>
               </View>
               <View style={styles.sheetButtons}>
-                <FooterButton
+                <StandButton
                   title="돌아가기"
+                  tone="outline"
+                  style={styles.flex}
                   onPress={() => setConfirming(false)}
                 />
-                <FooterButton
+                <StandButton
                   title="취소하기"
-                  danger
+                  tone="danger"
+                  style={styles.flex}
                   disabled={busy}
                   onPress={cancel}
                 />
@@ -318,170 +310,142 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   loading: { marginTop: spacing.xxxl },
-  header: {
-    height: size.header,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: fontFamily.bold,
-    fontSize: 19,
-    lineHeight: 26,
-    color: groupTone.text,
-  },
-  headerSpace: { width: 44 },
+  header: { paddingHorizontal: 17 },
+  // Faded under the 6.4d sheet, as in the 시안.
+  dim: { opacity: 0.45 },
   // paddingBottom keeps the last line clear of the pinned footer button.
   content: {
-    paddingHorizontal: 16,
-    paddingTop: spacing.md,
+    paddingHorizontal: 19,
+    paddingTop: 6,
     paddingBottom: 120,
-    gap: 12,
   },
-  // One faint white card per part of the 시안.
-  card: { padding: 18, gap: 14, borderRadius: 20 },
-  summaryHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  summaryHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 64,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
+  },
   runIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupTone.inner,
+    backgroundColor: stand.glass,
   },
+  crewRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   crew: {
     fontFamily: fontFamily.bold,
-    fontSize: 13,
+    fontSize: 12.5,
     lineHeight: 17,
-    color: groupTone.sub,
+    color: stand.sub,
   },
   title: {
-    fontFamily: fontFamily.bold,
-    fontSize: 22,
-    lineHeight: 30,
-    letterSpacing: -0.5,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 20,
+    lineHeight: 26,
+    color: stand.text,
   },
-  rule: { height: 1, backgroundColor: groupTone.line },
-  fact: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sub: {
-    fontFamily: fontFamily.regular,
+  facts: {
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.rule,
+  },
+  fact: { flexDirection: 'row', alignItems: 'center', height: 40 },
+  iconCell: { width: 30 },
+  factStrong: {
+    fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 19,
-    color: groupTone.sub,
+    color: stand.text,
+  },
+  factText: {
+    fontFamily: fontFamily.medium,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.text,
   },
   rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  label: {
-    fontFamily: fontFamily.bold,
-    fontSize: 15,
-    lineHeight: 20,
-    color: groupTone.text,
+    marginTop: 16,
+    minHeight: 22,
   },
   note: {
     fontFamily: fontFamily.regular,
-    fontSize: 12.5,
-    lineHeight: 16,
-    color: groupTone.sub,
+    fontSize: 12,
+    lineHeight: 17,
+    color: stand.sub,
   },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   chip: {
-    height: 38,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 19,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.card,
+    borderColor: stand.glassLine,
   },
-  // The picked reason as a small mint chip with navy text (S15P31E105-594 담당자 결정: 민트는 작은 칩에만).
-  chipOn: {
-    borderColor: groupTone.accent,
-    backgroundColor: groupTone.accent,
-  },
+  // The picked reason in mint with navy text and a check.
+  chipOn: { borderColor: stand.mint, backgroundColor: stand.mint },
   chipText: {
-    fontFamily: fontFamily.regular,
-    fontSize: 14,
-    lineHeight: 19,
-    color: groupTone.sub,
-  },
-  chipTextOn: {
     fontFamily: fontFamily.bold,
     fontSize: 14,
     lineHeight: 19,
-    color: groupTone.onAccent,
+    color: stand.text,
+  },
+  chipTextOn: {
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.onMint,
   },
   messageBox: {
-    minHeight: 88,
-    paddingHorizontal: 18,
-    borderRadius: 16,
+    marginTop: 8,
+    minHeight: 78,
+    paddingHorizontal: 14,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.inner,
+    borderColor: stand.glassLine,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   // No lineHeight: on Android it clips the top of the input.
   messageInput: {
-    height: 88,
+    height: 78,
     padding: 0,
-    paddingVertical: spacing.lg,
+    paddingVertical: 12,
     fontFamily: typography.input.fontFamily,
-    fontSize: 15,
-    color: groupTone.text,
+    fontSize: 14,
+    color: stand.text,
   },
+  messageNote: { marginTop: 8 },
   warning: {
     flexDirection: 'row',
-    gap: spacing.md,
-    paddingHorizontal: 4,
-    paddingTop: 4,
+    gap: 10,
+    marginTop: 16,
   },
   warningText: {
     fontFamily: fontFamily.regular,
     fontSize: 13,
-    lineHeight: 19,
-    color: groupTone.sub,
+    lineHeight: 19.5,
+    color: stand.sub,
   },
-  cta: {
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: groupTone.button,
-  },
-  ctaContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  ctaText: {
-    fontFamily: fontFamily.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    color: groupTone.onButton,
-  },
-  ctaIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: groupTone.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  disabled: { opacity: 0.45 },
   footer: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 14,
+    paddingHorizontal: 19,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
-  sheet: { gap: spacing.xl },
-  // Centred as in the 시안's 취소 최종 확인; the red pink alert on a faint red pink circle.
+  sheet: { paddingTop: 4 },
+  // Centred: the red alert on a faint red circle.
   sheetIcon: {
     alignSelf: 'center',
     width: 52,
@@ -489,42 +453,47 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: groupTone.dangerSoft,
+    backgroundColor: stand.dangerFill,
   },
   sheetTitle: {
+    marginTop: 14,
     textAlign: 'center',
-    fontFamily: fontFamily.medium,
+    fontFamily: fontFamily.black,
     fontSize: 22,
     lineHeight: 30,
-    color: groupTone.text,
+    color: stand.text,
   },
   sheetText: {
+    marginTop: 8,
     textAlign: 'center',
     fontFamily: fontFamily.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: groupTone.sub,
+    fontSize: 14,
+    lineHeight: 21,
+    color: stand.sub,
   },
+  // 취소 이유 as a row between a heavier and a thin line.
   reasonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: spacing.xl,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: groupTone.cardLine,
-    backgroundColor: groupTone.inner,
+    alignItems: 'center',
+    height: 48,
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: stand.rule,
+    borderBottomWidth: 1,
+    borderBottomColor: stand.line,
   },
   reasonLabel: {
-    fontFamily: fontFamily.regular,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupTone.sub,
+    flex: 1,
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.mint,
   },
   reasonValue: {
-    fontFamily: fontFamily.bold,
-    fontSize: 13,
-    lineHeight: 18,
-    color: groupTone.text,
+    fontFamily: fontFamily.black,
+    fontSize: 14,
+    lineHeight: 19,
+    color: stand.text,
   },
-  sheetButtons: { flexDirection: 'row', gap: spacing.md },
+  sheetButtons: { flexDirection: 'row', gap: 8, marginTop: 14 },
 });
