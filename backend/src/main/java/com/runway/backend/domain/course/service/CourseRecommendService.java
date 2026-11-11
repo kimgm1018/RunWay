@@ -38,12 +38,15 @@ import java.util.Map;
 public class CourseRecommendService {
 
     private static final double MIN_DISTANCE_KM = 1.0d;
-    private static final double MAX_DISTANCE_KM = 15.0d;
+    /** 하프 마라톤(S15P31E105-608). Route MAX_KM과 같다. */
+    private static final double MAX_DISTANCE_KM = 21.1d;
     private static final int MIN_SEED = 1;
     private static final int MAX_SEED = 10_000_000;
 
-    /** point_to_point 출발–도착 직선거리 상한(m). */
-    private static final double MAX_P2P_STRAIGHT_M = 17_000d;
+    /**
+     * point_to_point 출발–도착 직선거리 상한(m). Route 사전 거절과 같은 1.1 × 21.1 km + 2 × 250 m(끝점 snap 여유).
+     */
+    private static final double MAX_P2P_STRAIGHT_M = 23_710d;
 
     private static final double METERS_PER_DEG_LAT = 111_320d;
 

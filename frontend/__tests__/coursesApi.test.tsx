@@ -540,7 +540,7 @@ test('3.1b adds the next page twice per search and again after a new search', as
   expect(recommendationBodies().at(-1)).toMatchObject({ seed: 25 });
 });
 
-test('3.1 offers distances only up to the 15km C01 makes', async () => {
+test('3.1 offers distances only up to the 21.1km (half marathon) C01 makes', async () => {
   const screen = await openTodayRun();
   // Each condition is a card that opens its ruler or chips (운동 목표 sheet, 담당자 요청).
   await press(screen, '목표 거리 설정');
@@ -548,7 +548,7 @@ test('3.1 offers distances only up to the 15km C01 makes', async () => {
   const slider = screen.root.find(
     node => node.props.label === '목표 거리' && node.props.max !== undefined,
   );
-  expect(slider.props.max).toBe(15);
+  expect(slider.props.max).toBe(21.1);
 });
 
 test('3.1 says why C01 failed from details.reason and keeps the conditions', async () => {
