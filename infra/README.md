@@ -133,6 +133,13 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 ### 백엔드
 
 - **MR 검사:** 백엔드 변경 시 통합 CI에서 검사·테스트·JAR 빌드를 수행한다.
+  체크아웃은 `backend/`·`docs/design/db/`·`ai/service/tests/fixtures/`·`infra/jenkins/`만 풀고, Git 객체는 백엔드 에이전트 참조 저장소에서
+  재사용한다. `backend/`와 함께 위 `docs/design/db/`·`ai/service/tests/fixtures/`만 바뀐 MR도 백엔드를 검사한다.
+  `./gradlew --no-daemon --build-cache --init-script ../ci-no-test-cache.gradle clean build`는 컴파일 결과만 에이전트 Gradle 빌드 캐시
+  (`~/.gradle/caches/build-cache-1`)에서 재사용한다. init script는 Jenkinsfile이 만들어 모든 Test 태스크의 캐시를 막으므로,
+  검사하는 코드(master 대상 MR 등)의 `build.gradle`과 관계없이 DB 통합 테스트를 포함한 전체 테스트를 매번 실행한다.
+  `~/.gradle`은 영속 볼륨이 아니라 에이전트 컨테이너를 다시 만들면 캐시가 비고 첫 실행만 전체 컴파일한다.
+  캐시가 의심되면 백엔드 에이전트에서 해당 폴더를 지운다. 다음 실행은 캐시 없이 전체 컴파일하며 결과는 같다.
 - **배포:** `runway-backend-cd`는 SCM `*/dev`의 `infra/jenkins/Jenkinsfile.backend-cd`를 사용하며 master Push로 배포한다.
   이미지 교체에 실패하면 이전 이미지로 복구한다.
 - **결과·보관:** JUnit 결과와 JAR을 보관한다. 배포 전후·복구 후 이미지 ID, 내부 readiness `200/UP`와 업무 HTTP 응답을 확인한다.
@@ -177,8 +184,17 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
   Kotlin도 같은 데몬 안에서 컴파일하며, 정리 단계가 실행되지 못하면 데몬은 10분 유휴 후 종료한다.
   체크아웃은 `wear/`·`infra/jenkins/`·공통 debug 서명만 받고 작업 폴더는 매번 비운다.
 
-워치 참조 저장소는 `runway-ci_watch_agent_work` 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`이다.
-`update-git-reference.sh`가 체크아웃 직후 갱신해 새 Git 객체만 받으며, 참조 저장소 손상 시 지운 뒤 참조 없이 한 번 더 체크아웃한다.
+### Git 참조 저장소(워치·통합 CI 준비·백엔드)
+
+참조 저장소는 각 에이전트 작업 볼륨의 `/home/jenkins/agent/caches/runway-git-reference.git`이며 에이전트끼리 공유하지 않는다.
+워치 검사는 `watch_agent_work`, 백엔드 검사는 `backend_agent_work` 볼륨의 참조 저장소를 쓴다.
+준비(Prepare) 단계는 먼저 비는 검사 노드(`backend || mobile || watch || ai`)에서 실행되므로 그 노드 볼륨의 참조 저장소를 쓴다.
+노드마다 executor가 1개라 한 노드의 참조 저장소를 두 실행이 동시에 갱신하지 않는다.
+`update-git-reference.sh`가 체크아웃 직후 갱신해 다음 실행은 새 Git 객체만 받는다. 이 스크립트가 없는 오래된 MR 코드는 갱신만 건너뛴다.
+참조 체크아웃이 실패하면(중단·시간 초과 제외) 참조 저장소 이름을 바꾼 뒤 지우고 참조 없이 한 번 더 체크아웃한다.
+준비 단계는 변경 파일 확인·병합 검사를 위해 전체를 풀고, 백엔드 검사는 "백엔드" 절의 경로만 푼다.
+참조 저장소는 자동 gc를 끄고 객체를 추가만 하므로 계속 커진다. 크기가 문제되면 진행 중인 CI가 없을 때 폴더를 지운다.
+다음 실행이 원격에서 전체를 받아 다시 만든다.
 
 ### AI
 
