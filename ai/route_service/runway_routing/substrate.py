@@ -45,15 +45,29 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
 from shapely.geometry import Point
 
+from . import array_pair_kernels as K
 from . import network_store
 from . import snap as SNAP
 from .data import RUNNABLE, api, classify
+from .env_flags import flag as env_flag
 from .fast_unique import sorted_unique
 from .graph import Sidecar, cache_size_env
 
 busan = api.busan
 # disk masks kept for repeated P2P requests (a few MB each; results do not depend on it). RUNWAY_MASK_CACHE_SIZE, 기본 4
 MASK_CACHE_SIZE = cache_size_env("RUNWAY_MASK_CACHE_SIZE")
+# S15P31E105-653 (env_flags 규칙, import 시 읽음, 결과 같음): P2P 도착점 찾기(app-max disk mask 2개 + PE5 선 순서)의 빠른 계산.
+#   prepared disk 원 판정, 쌍마다 가장 짧은 선분을 key 안정 정렬 한 번(Numba), 정렬된 node 집합을 bool 표시로,
+#   PE5 선 순서에 필요한 G node 순번을 set 하나로(필요한 node만) 구한다. "0"이면 예전 식(rollback, 재시작 필요).
+MASK_FAST = env_flag("RUNWAY_P2P_MASK_FAST")
+
+
+def _sorted_unique_pos(parts, n: int, dtype) -> np.ndarray:
+    """sorted_unique(np.r_[*parts]) for substrate positions 0 <= v < n: the same values and dtype, by a bool mark."""
+    m = np.zeros(n, bool)
+    for x in parts:
+        m[x] = True
+    return np.flatnonzero(m).astype(dtype, copy=False)
 
 
 class Substrate:
@@ -192,6 +206,8 @@ class DiskMask:
             raise InsufficientResponseError("No data elements in server response. Check query location/filters and log.")
         cand = sorted_unique(sc.ref_pos[sel[S.way_of_ref]])
         self.disk_ll = busan._disk_ll(cx, cy, radius)
+        if MASK_FAST:   # prepared geometry: the same exact predicate, indexed (GEOS PreparedGeometry)
+            shapely.prepare(self.disk_ll)
         keep = np.zeros(len(S.ids), bool)
         keep[cand[shapely.intersects_xy(self.disk_ll, S.lon[cand], S.lat[cand])]] = True
         if not keep.any():
@@ -199,19 +215,33 @@ class DiskMask:
         segm = sel[S.seg_w] & keep[S.seg_a] & keep[S.seg_b]
         self.S, self.seg = S, np.flatnonzero(segm)
         self.sel, self.keep = sel, keep
-        self.g_nodes = sorted_unique(np.r_[S.seg_a[self.seg], S.seg_b[self.seg]])
+        n_ids = len(S.ids)
+        sa_, sb_ = S.seg_a[self.seg], S.seg_b[self.seg]
+        self.g_nodes = (_sorted_unique_pos((sa_, sb_), n_ids, sa_.dtype) if MASK_FAST
+                        else sorted_unique(np.r_[sa_, sb_]))
         run = self.seg[S.runnable[S.seg_w[self.seg]]]
         a, b, ln = S.seg_a[run], S.seg_b[run], S.seg_len[run]
         lo, hi = np.minimum(a, b), np.maximum(a, b)
-        key = lo * len(S.ids) + hi
-        order = np.lexsort((np.arange(len(run)), ln, key))       # per pair: shortest, then first
-        first = np.r_[True, key[order][1:] != key[order][:-1]]
-        pick = order[first]
+        key = lo * n_ids + hi
+        sk = K.shortest_per_key(key, ln) if MASK_FAST and len(run) else None   # 빈 RUNNABLE: 예전 식 그대로(같은 예외)
+        if sk is not None:   # key 안정 정렬 한 번 + 훑기 = 아래 lexsort의 key별 첫 행(같은 순서: key 오름차순)
+            pick = sk[1]
+        else:
+            order = np.lexsort((np.arange(len(run)), ln, key))       # per pair: shortest, then first
+            first = np.r_[True, key[order][1:] != key[order][:-1]]
+            pick = order[first]
         self.h_seg = run[pick]
         self.h_lo, self.h_hi, self.h_len = lo[pick], hi[pick], ln[pick]
-        hn = sorted_unique(np.r_[self.h_lo, self.h_hi])
+        if MASK_FAST:
+            hn = _sorted_unique_pos((self.h_lo, self.h_hi), n_ids, self.h_lo.dtype)
+            inv = np.empty(n_ids, np.int32 if len(hn) < 2 ** 31 else np.int64)
+            inv[hn] = np.arange(len(hn))
+            ia, ib = inv[self.h_lo].astype(np.intp), inv[self.h_hi].astype(np.intp)   # = searchsorted(hn, ...)
+            del inv
+        else:
+            hn = sorted_unique(np.r_[self.h_lo, self.h_hi])
+            ia, ib = np.searchsorted(hn, self.h_lo), np.searchsorted(hn, self.h_hi)
         self.h_nodes = hn                                           # substrate positions
-        ia, ib = np.searchsorted(hn, self.h_lo), np.searchsorted(hn, self.h_hi)
         n = len(hn)
         self.A = csr_matrix((np.r_[self.h_len, self.h_len], (np.r_[ia, ib], np.r_[ib, ia])), shape=(n, n))
         ncomp, lab = connected_components(self.A, directed=False)
@@ -244,7 +274,11 @@ class DiskMask:
         m = np.flatnonzero(self.main)
         nodes = self.h_nodes[m]
         d = np.hypot(S.xy[nodes, 0] - px, S.xy[nodes, 1] - py)
-        order = np.argsort(d, kind="stable")
+        if MASK_FAST:   # PE1 안의 node만 안정 정렬: 아래 반복이 보는 앞부분(d <= max_m)의 순서가 전체 안정 정렬과 같다
+            near_k = np.flatnonzero(d <= max_m)
+            order = near_k[np.argsort(d[near_k], kind="stable")]
+        else:
+            order = np.argsort(d, kind="stable")
         sa, sb, sw = S.seg_a[self.seg], S.seg_b[self.seg], S.seg_w[self.seg]
         f4 = S.pe4[sw]
         forbidden = set(S.ids[np.r_[sa[f4], sb[f4]]].tolist())
@@ -284,6 +318,23 @@ class DiskMask:
         keep = alive[S.pos_of(order)].tolist()
         return {n: r for r, n in enumerate(n for n, k in zip(order, keep) if k)}
 
+    def _g_node_rank_of(self, nodes) -> dict:
+        """{n: key} for the given G nodes, ordered exactly as _g_node_rank()[n] (only comparisons are used: the sort in
+        _pe5_edges_in_G_order). The key is n's position in the iteration order of the same Python set _g_node_rank
+        builds: the selected ways' node ids in way order and in-way order (one flat slice, = sc.refs[i] for each
+        selected way i), inserted one by one (set(list) has no presize, so its table and iteration order equal the
+        set grown by per-way update()). _g_node_rank's rank is the position among the alive (G) nodes of that same order,
+        a strictly increasing function of this position for G nodes."""
+        S = self.S
+        used = set(S.ids[S.sc.ref_pos[self.sel[S.way_of_ref]]].tolist())
+        want, out = set(nodes), {}
+        for i, n in enumerate(used):
+            if n in want:
+                out[n] = i
+                if len(out) == len(want):
+                    break
+        return out
+
     def _pe5_edges_in_G_order(self, lon, lat) -> tuple:
         """snap.pe5_blockers(G) + near(): every blocking directed edge of G (both directions, multi-edge keys) whose
         line meets the 0.004 deg box, in G.edges() order (node order -> first insertion of the target in the node's
@@ -305,7 +356,7 @@ class DiskMask:
         for k in hit:
             directed.append((int(ids[sa[k]]), int(ids[sb[k]]), (int(sw[k]), 0, int(seg[k]))))
             directed.append((int(ids[sb[k]]), int(ids[sa[k]]), (int(sw[k]), 1, int(seg[k]))))
-        rank = self._g_node_rank()
+        rank = self._g_node_rank_of({d[0] for d in directed}) if MASK_FAST else self._g_node_rank()
         adj_rank = {}
         for u in {d[0] for d in directed}:               # u's out-edge events over ALL kept segments of G
             pu = pos[u]
