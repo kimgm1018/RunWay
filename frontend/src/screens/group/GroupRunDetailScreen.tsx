@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,6 +28,7 @@ import {
   errorCode,
   useRepositories,
   useResource,
+  type GroupPaceMode,
   type GroupRunCancelReason,
   type GroupRunDetail,
   type Repositories,
@@ -58,6 +59,7 @@ import {
   useGroupRunDraft,
 } from './parts';
 import { BackButton } from '../../components/BackButton';
+import { changeLabel, GroupPaceCard, type PaceChange } from './GroupPaceCard';
 
 export const cancelReasons: { value: GroupRunCancelReason; label: string }[] = [
   { value: 'WEATHER', label: '날씨' },
@@ -196,6 +198,71 @@ export function GroupRunDetailScreen() {
     }
   }, [loaded]);
 
+  // S15P31E105-680: while the server recalculates the shared pace (about 3 s a member), look again every 2 s, at
+  // most 30 times, instead of showing the stale or median value.
+  const polls = useRef(0);
+  // A failed look schedules the next one too (review B-4), within the same 30-look limit.
+  const [missed, setMissed] = useState(0);
+  const calculating = run?.pace?.calculating === true;
+  const runId = run?.id;
+  useEffect(() => {
+    if (!calculating || !runId) {
+      polls.current = 0;
+      return;
+    }
+    if (polls.current >= 30) {
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(async () => {
+      polls.current += 1;
+      try {
+        const next = await groupRuns.get(runId);
+        if (live) {
+          setRun(next);
+        }
+      } catch {
+        if (live) {
+          setMissed(count => count + 1);
+        }
+      }
+    }, 2000);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [calculating, runId, run, missed, groupRuns]);
+
+  // 방금 바뀜: compare the applied pace with the last settled one this screen saw (client side only).
+  const settled = useRef<GroupRunDetail | null>(null);
+  const [change, setChange] = useState<PaceChange | null>(null);
+  useEffect(() => {
+    const pace = run?.pace;
+    if (!run || !pace || pace.calculating || pace.appliedSecPerKm == null) {
+      return;
+    }
+    const before = settled.current;
+    settled.current = run;
+    const from = before?.id === run.id ? before.pace?.appliedSecPerKm : null;
+    if (before?.pace && from != null && from !== pace.appliedSecPerKm) {
+      setChange({
+        from,
+        to: pace.appliedSecPerKm,
+        label: changeLabel(
+          { pace: before.pace, participants: before.participants },
+          { pace, participants: run.participants },
+        ),
+      });
+    }
+  }, [run]);
+  useEffect(() => {
+    if (!change) {
+      return;
+    }
+    const timer = setTimeout(() => setChange(null), 6000);
+    return () => clearTimeout(timer);
+  }, [change]);
+
   if (!run) {
     return (
       <SafeAreaView style={[styles.root, styles.loadingRoot]}>
@@ -222,6 +289,25 @@ export function GroupRunDetailScreen() {
   const reason = cancelReasons.find(
     item => item.value === run.cancellation?.reason,
   );
+
+  const changeMode = async (mode: GroupPaceMode) => {
+    if (!groupRuns.setPaceMode) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await groupRuns.setPaceMode(run.id, mode);
+      setRun(await groupRuns.get(run.id));
+    } catch (error) {
+      toast(
+        errorCode(error) === 'EDIT_NOT_ALLOWED'
+          ? '출발 전에만 페이스 모드를 바꿀 수 있어요'
+          : '페이스 모드를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const toggleJoin = async () => {
     setBusy(true);
@@ -469,6 +555,20 @@ export function GroupRunDetailScreen() {
                 </>
               ) : (
                 <>
+                  {/* The card explains the start pace, so only before the run (review A-3). */}
+                  {run.pace && run.status === 'SCHEDULED' ? (
+                    <GroupPaceCard
+                      pace={run.pace}
+                      change={change}
+                      canChangeMode={
+                        run.isHost &&
+                        run.status === 'SCHEDULED' &&
+                        !!groupRuns.setPaceMode
+                      }
+                      busy={busy}
+                      onChangeMode={changeMode}
+                    />
+                  ) : null}
                   <FitLine run={run} />
                   {run.isHost ? (
                     <View style={styles.hostRow}>

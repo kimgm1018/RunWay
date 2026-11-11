@@ -109,7 +109,7 @@ class GroupPaceServiceTest {
         });
         fixture.service.evaluateStart(7);
         verify(fixture.plans, never()).plan(eq(10L), any());
-        verify(fixture.states, never()).saveStart(anyLong(), any(), anyInt());
+        verify(fixture.states, never()).saveStart(anyLong(), any(), any());
     }
 
     @Test
@@ -121,7 +121,7 @@ class GroupPaceServiceTest {
                 new GroupPaceRepository.Candidate(10, false, null)));
         fixture.service.evaluateStart(7);
         verifyNoInteractions(fixture.plans);
-        verify(fixture.states, never()).saveStart(anyLong(), any(), anyInt());
+        verify(fixture.states, never()).saveStart(anyLong(), any(), any());
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -155,7 +155,8 @@ class GroupPaceServiceTest {
         verify(fixture.plans).plan(eq(11L), any());
         verify(fixture.plans).plan(eq(10L), any());
         verifyNoMoreInteractions(fixture.plans);
-        verify(fixture.states).saveStart(7, fixture.token, 410);
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(410, 410, 13, 4));
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -179,12 +180,12 @@ class GroupPaceServiceTest {
 
         verify(fixture.plans).plan(eq(9L), any());
         verifyNoMoreInteractions(fixture.plans);
-        verify(fixture.states, never()).saveStart(anyLong(), any(), anyInt());
+        verify(fixture.states, never()).saveStart(anyLong(), any(), any());
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.CsvSource({"330,360", "410,410"})
-    void preRun_unchangedTokenKeepsSlowestPlanOrHostGoal(int plannedPace, int expected) {
+    @org.junit.jupiter.params.provider.CsvSource({"330,360,0", "410,410,1"})
+    void preRun_unchangedTokenKeepsSlowestPlanOrHostGoal(int plannedPace, int expected, int slower) {
         var fixture = new RunningFixture();
         fixture.scheduled();
         when(fixture.states.candidates(7)).thenReturn(List.of(
@@ -203,7 +204,67 @@ class GroupPaceServiceTest {
         verify(fixture.plans).plan(eq(9L), any());
         verify(fixture.plans).plan(eq(10L), any());
         verifyNoMoreInteractions(fixture.plans);
-        verify(fixture.states).saveStart(7, fixture.token, expected);
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(expected, plannedPace, 10, slower));
+    }
+
+    private static GroupPaceRepository.State modeState(String mode, Instant token) {
+        return new GroupPaceRepository.State(375, 380, "SLOW", token, 1, token, mode, null, null,
+                null, null, null, false);
+    }
+
+    @Test
+    void preRun_goalModeAppliesGoalButKeepsAiRecommendationBasisAndSlowerCount() {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.find(7)).thenReturn(Optional.of(modeState("GOAL", fixture.token)));
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null),
+                new GroupPaceRepository.Candidate(10, true, null)));
+        when(fixture.states.consented(anyLong())).thenReturn(true);
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 9L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(420), List.of())));
+        when(fixture.plans.plan(eq(10L), any())).thenReturn(Optional.of(
+                new PersonalPacePlanPort.Result(null, 10L, BigDecimal.valueOf(5000),
+                        BigDecimal.valueOf(380), List.of())));
+
+        fixture.service.evaluateStart(7);
+
+        // Goal 5000 m / 1800 s = 360 s/km. Both plans are slower than the goal.
+        verify(fixture.states).saveStart(7, fixture.token,
+                new GroupPaceRepository.Start(360, 420, 9, 2));
+    }
+
+    @Test
+    void preRun_failedPlanEndsCalculatingWithoutSaving() {
+        var fixture = new RunningFixture();
+        fixture.scheduled();
+        when(fixture.states.candidates(7)).thenReturn(List.of(
+                new GroupPaceRepository.Candidate(9, true, null)));
+        when(fixture.plans.plan(eq(9L), any())).thenReturn(Optional.empty());
+
+        fixture.service.evaluateStart(7);
+
+        verify(fixture.states).abandonStart(7, fixture.token);
+        verify(fixture.states, never()).saveStart(anyLong(), any(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {"GOAL,GOAL", "TOGETHER,"})
+    void running_sendsPaceModeOnlyForGoal(String mode, String expected) {
+        var fixture = new RunningFixture();
+        when(fixture.states.find(7)).thenReturn(Optional.of(modeState(mode, fixture.token)));
+        assertThat(fixture.request().paceMode()).isEqualTo(expected);
+    }
+
+    @Test
+    void running_goalModeFirstEvaluationStartsFromGoalNotMeasuredMedian() {
+        var fixture = new RunningFixture();
+        when(fixture.states.find(7)).thenReturn(Optional.of(new GroupPaceRepository.State(null, 380,
+                null, null, 0, fixture.token, "GOAL", 400, 9L, "a", 1, null, false)));
+        // Goal 5000 m / 1800 s = 360 s/km.
+        assertThat(fixture.request().currentGroupPaceSecPerKm()).isEqualTo(360);
     }
 
     @org.junit.jupiter.params.ParameterizedTest

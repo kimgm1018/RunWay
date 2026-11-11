@@ -57,6 +57,22 @@ class AiGroupPaceClientTest {
     }
 
     @Test
+    void paceMode_isSentOnlyForGoal() {
+        try (var server = new FakeAiServer().respond(200, OK).respond(200, OK)) {
+            var client = new AiGroupPaceClient(server.baseUri().toString(), mapper, Duration.ofSeconds(2));
+            var base = request();
+            var goal = new GroupPacePort.Request(base.groupRunId(), base.currentGroupPaceSecPerKm(),
+                    base.goalPaceSecPerKm(), base.startRecommendedPaceSecPerKm(), base.elapsedSec(),
+                    base.progressRatio(), base.now(), base.lastChange(), base.participants(), "GOAL");
+            assertThat(client.evaluate(base)).isPresent();
+            assertThat(client.evaluate(goal)).isPresent();
+            assertThat(mapper.readTree(server.received().get(0).body()).has("paceMode")).isFalse();
+            assertThat(mapper.readTree(server.received().get(1).body()).get("paceMode").asString())
+                    .isEqualTo("GOAL");
+        }
+    }
+
+    @Test
     void unavailable_doesNotRetry() {
         try (var server = new FakeAiServer().respond(503, "{}")) {
             assertThat(new AiGroupPaceClient(server.baseUri().toString(), mapper, Duration.ofSeconds(2))

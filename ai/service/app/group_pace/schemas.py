@@ -45,6 +45,8 @@ class GroupPaceRequest(CamelModel):
     now: AwareDatetime
     last_change: LastChange | None = None
     participants: list[GroupParticipant] = Field(min_length=1)
+    # S15P31E105-680: GOAL은 목표 페이스를 유지하고 위험 심박일 때만 늦춘다. 없으면 TOGETHER(기존 동작과 같다).
+    pace_mode: Literal["TOGETHER", "GOAL"] = "TOGETHER"
 
     @field_validator("progress_ratio")
     @classmethod

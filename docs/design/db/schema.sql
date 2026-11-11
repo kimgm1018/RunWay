@@ -1494,7 +1494,13 @@ CREATE TABLE group_run_pace_state (
     last_change_at TIMESTAMPTZ,
     struggling_count INTEGER NOT NULL DEFAULT 0 CHECK (struggling_count >= 0),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK ((last_change_direction IS NULL) = (last_change_at IS NULL))
+    CHECK ((last_change_direction IS NULL) = (last_change_at IS NULL)),
+    -- S15P31E105-680 (V33): 방장 페이스 모드, AI 추천·기준 회원, 목표보다 느린 계산 대상 수, 재계산 요청 시각.
+    pace_mode VARCHAR(8) NOT NULL DEFAULT 'TOGETHER' CHECK (pace_mode IN ('TOGETHER', 'GOAL')),
+    ai_recommended_pace_sec_per_km INTEGER CHECK (ai_recommended_pace_sec_per_km > 0),
+    pace_basis_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    slower_than_goal_count INTEGER CHECK (slower_than_goal_count >= 0),
+    start_requested_at TIMESTAMPTZ
 );
 CREATE TRIGGER trg_group_run_pace_state_updated_at
     BEFORE UPDATE ON group_run_pace_state

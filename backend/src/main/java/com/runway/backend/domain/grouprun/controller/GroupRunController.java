@@ -1,6 +1,8 @@
 package com.runway.backend.domain.grouprun.controller;
 
 import com.runway.backend.domain.grouprun.dto.request.CancelGroupRunRequest;
+import com.runway.backend.domain.grouprun.dto.request.GroupPaceModeRequest;
+import com.runway.backend.domain.grouprun.dto.response.GroupPaceModeResponse;
 import com.runway.backend.domain.grouprun.dto.request.CreateGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.PatchGroupRunRequest;
 import com.runway.backend.domain.grouprun.dto.request.ReadyGroupRunRequest;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -95,6 +98,15 @@ public class GroupRunController {
             @RequestBody PatchGroupRunRequest request) {
         long userId = CurrentUserIdResolver.requireUserId(user);
         return groupRunService.patch(userId, groupRunId, request);
+    }
+
+    @PutMapping("/{groupRunId}/pace-mode")
+    public GroupPaceModeResponse paceMode(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long groupRunId,
+            @RequestBody(required = false) GroupPaceModeRequest request) {
+        long userId = CurrentUserIdResolver.requireUserId(user);
+        return groupRunService.changePaceMode(userId, groupRunId, request);
     }
 
     @PostMapping("/{groupRunId}/join")

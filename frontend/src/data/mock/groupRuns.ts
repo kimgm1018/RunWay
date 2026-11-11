@@ -264,6 +264,11 @@ export function createGroupRunMock({
       });
       return respond(undefined);
     },
+    // S15P31E105-680: the mock has no shared pace card (G03 pace fields absent), so this only answers.
+    setPaceMode: groupRunId => {
+      find(groupRunId);
+      return respond(undefined);
+    },
     cancel: (groupRunId, reason: GroupRunCancelReason, message) => {
       const run = find(groupRunId);
       run.status = 'CANCELLED';

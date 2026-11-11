@@ -17,7 +17,16 @@ public interface GroupPacePort {
     record Request(long groupRunId, int currentGroupPaceSecPerKm,
             Integer goalPaceSecPerKm, Integer startRecommendedPaceSecPerKm,
             int elapsedSec, Double progressRatio, Instant now, LastChange lastChange,
-            List<Participant> participants) {}
+            List<Participant> participants,
+            // S15P31E105-680: sent only for GOAL, so an older AI (which ignores it anyway) and TOGETHER stay identical.
+            @JsonInclude(JsonInclude.Include.NON_NULL) String paceMode) {
+        public Request(long groupRunId, int currentGroupPaceSecPerKm, Integer goalPaceSecPerKm,
+                Integer startRecommendedPaceSecPerKm, int elapsedSec, Double progressRatio, Instant now,
+                LastChange lastChange, List<Participant> participants) {
+            this(groupRunId, currentGroupPaceSecPerKm, goalPaceSecPerKm, startRecommendedPaceSecPerKm,
+                    elapsedSec, progressRatio, now, lastChange, participants, null);
+        }
+    }
     record Result(int groupPaceSecPerKm, boolean changed, String direction, String reason,
             int strugglingCount, int excludedCount, int paceOnlyCount,
             List<String> warnings, String modelVersion) {}

@@ -111,6 +111,8 @@ public class GroupPaceService {
                 new GroupPaceRepository.State(null, null, null, null, 0, null));
         if (state.updatedAt() != null && now.isBefore(state.updatedAt().plusSeconds(30))) return null;
         Integer current = state.pace();
+        // GOAL holds the goal from the first evaluation, not the measured median (review A-2).
+        if (current == null && state.goalMode()) current = goalPace(group);
         if (current == null) current = GroupGuidePaceCalculator.medianSecPerKmFromBigDecimals(
                 participants.findRunningParticipantGuidePaces(groupId,
                         now.plusSeconds(GroupRunLiveRanking.MEASURED_AT_FUTURE_SKEW_SECONDS)));
@@ -157,10 +159,12 @@ public class GroupPaceService {
             goalDistance = coaching.courseGrade(group.courseId())
                     .map(SessionCoachingRepository.CourseGrade::distanceM).orElse(goalDistance);
         }
-        return new RunningInput(new GroupPacePort.Request(groupId, current, goalPace(group), state.startPace(),
+        Integer goalPace = goalPace(group);
+        return new RunningInput(new GroupPacePort.Request(groupId, current, goalPace, state.startPace(),
                 (int) Math.min(Integer.MAX_VALUE, Math.max(0, Duration.between(started, now).getSeconds())),
                 progressRatio(activeDistances, goalDistance), now, state.direction() == null ? null
-                        : new GroupPacePort.LastChange(state.direction(), state.changedAt()), inputs),
+                        : new GroupPacePort.LastChange(state.direction(), state.changedAt()), inputs,
+                state.goalMode() && goalPace != null ? GroupPaceRepository.MODE_GOAL : null),
                 state.updatedAt());
     }
 
@@ -192,7 +196,7 @@ public class GroupPaceService {
     }
 
     record Ranked(GroupPaceRepository.Candidate candidate, Integer recentPace) {}
-    record StartInput(GroupRunRow group, Instant token, List<Ranked> selected) {}
+    record StartInput(GroupRunRow group, Instant token, List<Ranked> selected, boolean goalMode) {}
 
     static List<Ranked> selectSlowest(List<Ranked> ranked) {
         var result = new ArrayList<>(ranked.stream().filter(r -> r.recentPace() == null).toList());
@@ -202,45 +206,87 @@ public class GroupPaceService {
         return result;
     }
 
+    /**
+     * Host-only mode change before the run (S15P31E105-680). Called inside the caller's transaction after its
+     * host/status checks. Stores the mode even when the feature is off; a recalculation follows only when on.
+     */
+    public void changeMode(long groupId, String mode) {
+        states.saveMode(groupId, mode);
+        membershipOrGoalChanged(groupId);
+    }
+
     public void evaluateStart(long groupId) {
         if (!enabled) return;
         StartInput input = tx.execute(status -> {
             references.lockGroupRun(groupId);
-            var group = groups.findById(groupId).orElse(null);
-            if (group == null || !"SCHEDULED".equals(group.status())
-                    || group.goalDistance() == null || group.goalDistance() <= 0) return null;
             var state = states.find(groupId).orElse(null);
             if (state == null) return null;
+            var group = groups.findById(groupId).orElse(null);
+            if (group == null || !"SCHEDULED".equals(group.status())
+                    || group.goalDistance() == null || group.goalDistance() <= 0) {
+                states.abandonStart(groupId, state.updatedAt());
+                return null;
+            }
             var ranked = states.candidates(groupId).stream()
                     .filter(GroupPaceRepository.Candidate::consent)
                     .map(candidate -> new Ranked(candidate,
                     GroupRunFitCalculator.recentPaceSecPerKm(states.recentPaces(
                             candidate.userId(), group.goalDistance())))).toList();
-            return new StartInput(group, state.updatedAt(), selectSlowest(ranked));
+            var selected = selectSlowest(ranked);
+            if (selected.isEmpty()) {
+                states.abandonStart(groupId, state.updatedAt());
+                return null;
+            }
+            return new StartInput(group, state.updatedAt(), selected, state.goalMode());
         });
-        if (input == null || input.selected().isEmpty()) return;
+        if (input == null) return;
         var goal = new SessionGoal(null, null, input.group().goalDistance(), null, null);
-        Integer recommended = goalPace(input.group());
+        Integer goalPace = goalPace(input.group());
+        Integer aiPace = null;
+        Long basis = null;
+        int slower = 0;
         for (var selected : input.selected()) {
             var candidate = selected.candidate();
-            if (candidate.consent() && !states.consented(candidate.userId())) return;
+            if (candidate.consent() && !states.consented(candidate.userId())) {
+                abandon(groupId, input.token());
+                return;
+            }
             var result = plans.plan(candidate.userId(), goal);
             var state = states.find(groupId).orElse(null);
+            // Superseded by a newer join/leave/edit/mode change: that calculation owns the state now.
             if (state == null || !java.util.Objects.equals(state.updatedAt(), input.token())) return;
             if (result.isEmpty() || result.get().pace() == null || result.get().pace().signum() <= 0
                     || result.get().distance() == null
                     || result.get().distance().compareTo(BigDecimal.valueOf(goal.distanceM())) != 0
-                    || !java.util.Objects.equals(result.get().userId(), candidate.userId())) return;
+                    || !java.util.Objects.equals(result.get().userId(), candidate.userId())) {
+                abandon(groupId, input.token());
+                return;
+            }
             int pace = result.get().pace().setScale(0, RoundingMode.HALF_UP).intValueExact();
-            recommended = recommended == null ? pace : Math.max(recommended, pace);
+            if (aiPace == null || pace > aiPace) {
+                aiPace = pace;
+                basis = candidate.userId();
+            }
+            if (goalPace != null && pace > goalPace) slower++;
         }
-        int pace = recommended;
+        // TOGETHER keeps the existing max(goal, slowest AI); GOAL starts at the goal itself.
+        int applied = input.goalMode() && goalPace != null ? goalPace
+                : goalPace == null ? aiPace : Math.max(goalPace, aiPace);
+        var start = new GroupPaceRepository.Start(applied, aiPace, basis,
+                goalPace == null ? null : slower);
         tx.execute(status -> {
             references.lockGroupRun(groupId);
             if (input.selected().stream().anyMatch(r -> r.candidate().consent()
-                    && !states.consented(r.candidate().userId()))) return false;
-            return states.saveStart(groupId, input.token(), pace);
+                    && !states.consented(r.candidate().userId()))) {
+                states.abandonStart(groupId, input.token());
+                return false;
+            }
+            return states.saveStart(groupId, input.token(), start);
         });
+    }
+
+    private void abandon(long groupId, Instant token) {
+        tx.execute(status -> states.abandonStart(groupId, token));
     }
 
     private static Integer goalPace(GroupRunRow group) {

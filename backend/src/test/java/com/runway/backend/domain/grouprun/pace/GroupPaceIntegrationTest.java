@@ -189,6 +189,106 @@ class GroupPaceIntegrationTest extends SharedContextIntegrationSupport {
     }
 
     @Test
+    void detail_showsCalculatingThenMemberBasisAiRecommendationAndSlowerCount() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        states.invalidateStart(group);
+        var calculating = groups.getDetail(host, group);
+        assertThat(calculating.paceCalculating()).isTrue();
+        assertThat(calculating.paceBasis().type()).isEqualTo("MEDIAN");
+        assertThat(calculating.groupPaceMode()).isEqualTo("TOGETHER");
+        assertThat(calculating.aiRecommendedPaceSecPerKm()).isNull();
+        when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
+                new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
+                        BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+        pace.evaluateStart(group);
+        var done = groups.getDetail(host, group);
+        assertThat(done.paceCalculating()).isFalse();
+        assertThat(done.aiRecommendedPaceSecPerKm()).isEqualTo(410);
+        assertThat(done.goalPaceSecPerKm()).isEqualTo(360);
+        assertThat(done.groupGuidePaceSecPerKm()).isEqualTo(410);
+        assertThat(done.paceBasis()).isEqualTo(
+                new com.runway.backend.domain.grouprun.dto.response.GroupRunDetailResponse.PaceBasis(
+                        "MEMBER", "pace1"));
+        assertThat(done.slowerThanGoalCount()).isEqualTo(1);
+    }
+
+    @Test
+    void detail_staleOrAbandonedRequestIsNotCalculating() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        states.invalidateStart(group);
+        jdbc.update("UPDATE group_run_pace_state SET start_requested_at=now()-interval '121 seconds' WHERE group_run_id=?", group);
+        assertThat(groups.getDetail(host, group).paceCalculating()).isFalse();
+        states.invalidateStart(group);
+        pace.evaluateStart(group); // plans returns empty by default: the calculation gives up
+        assertThat(groups.getDetail(host, group).paceCalculating()).isFalse();
+        assertThat(states.find(group).orElseThrow().startRequestedAt()).isNull();
+    }
+
+    @Test
+    void detail_goalModeUsesGoalWithoutResultAndTurnsTogetherWhenGoalIsRemoved() {
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        states.saveMode(group, "GOAL");
+        states.invalidateStart(group);
+        pace.evaluateStart(group); // plans returns empty by default: the calculation gives up
+        var detail = groups.getDetail(host, group);
+        assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(360);
+        assertThat(detail.paceBasis().type()).isEqualTo("GOAL");
+        assertThat(detail.groupPaceMode()).isEqualTo("GOAL");
+        jdbc.update("UPDATE group_runs SET goal_duration=NULL WHERE id=?", group);
+        var noGoal = groups.getDetail(host, group);
+        assertThat(noGoal.groupPaceMode()).isEqualTo("TOGETHER");
+        assertThat(noGoal.paceBasis().type()).isEqualTo("MEDIAN");
+    }
+
+    @Test
+    void paceMode_hostOnlyBeforeStartGoalNeedsGoalPaceAndRecalculatesToGoal() throws Exception {
+        long member = user(2, true);
+        jdbc.update("INSERT INTO crew_memberships(crew_id,user_id,status,joined_at) VALUES (?,?,'APPROVED',now())", crew, member);
+        var goalMode = new com.runway.backend.domain.grouprun.dto.request.GroupPaceModeRequest("GOAL");
+        assertThat(code(() -> groups.changePaceMode(host, group, goalMode))).isEqualTo("EDIT_NOT_ALLOWED");
+        jdbc.update("UPDATE group_runs SET status='SCHEDULED' WHERE id=?", group);
+        assertThat(code(() -> groups.changePaceMode(member, group, goalMode))).isEqualTo("NOT_HOST");
+        assertThat(code(() -> groups.changePaceMode(host, group,
+                new com.runway.backend.domain.grouprun.dto.request.GroupPaceModeRequest("FAST"))))
+                .isEqualTo("VALIDATION_ERROR");
+        jdbc.update("UPDATE group_runs SET goal_duration=NULL WHERE id=?", group);
+        assertThat(code(() -> groups.changePaceMode(host, group, goalMode))).isEqualTo("VALIDATION_ERROR");
+        jdbc.update("UPDATE group_runs SET goal_duration=1800 WHERE id=?", group);
+
+        when(plans.plan(any(), any())).thenAnswer(invocation -> Optional.of(
+                new PersonalPacePlanPort.Result(null, invocation.getArgument(0),
+                        BigDecimal.valueOf(5000), BigDecimal.valueOf(410), List.of())));
+        var response = groups.changePaceMode(host, group, goalMode);
+        assertThat(response.paceMode()).isEqualTo("GOAL");
+        long deadline = System.currentTimeMillis() + 5000;
+        while (states.find(group).orElseThrow().startPace() == null && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        var detail = groups.getDetail(host, group);
+        assertThat(detail.groupPaceMode()).isEqualTo("GOAL");
+        assertThat(detail.groupGuidePaceSecPerKm()).isEqualTo(360);
+        assertThat(detail.aiRecommendedPaceSecPerKm()).isEqualTo(410);
+        assertThat(detail.paceBasis().type()).isEqualTo("GOAL");
+        assertThat(detail.paceBasis().nickname()).isEqualTo("pace1");
+        assertThat(detail.slowerThanGoalCount()).isEqualTo(1);
+    }
+
+    private static String code(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        var thrown = catchThrowable(call);
+        assertThat(thrown).isInstanceOf(com.runway.backend.global.exception.ApiException.class);
+        return ((com.runway.backend.global.exception.ApiException) thrown).code();
+    }
+
+    @Test
+    void v33_paceModeDefaultsAndRejectsUnknownMode() {
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version='33' AND success", Integer.class)).isEqualTo(1);
+        states.invalidateStart(group);
+        assertThat(states.find(group).orElseThrow().mode()).isEqualTo("TOGETHER");
+        assertThatThrownBy(() -> jdbc.update("UPDATE group_run_pace_state SET pace_mode='FAST' WHERE group_run_id=?", group))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
     void v22_identityUniqueForeignKeyCascadeAndUpdatedAtTriggerApply() {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version='22' AND success", Integer.class)).isEqualTo(1);
         states.invalidateStart(group);
