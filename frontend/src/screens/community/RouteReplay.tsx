@@ -462,9 +462,7 @@ function MapReplay({
   );
   const size = useRef({ width, height });
   size.current = { width, height };
-  const [camera, setCamera] = useState(() =>
-    overviewOf(route, width, height),
-  );
+  const [camera, setCamera] = useState(() => overviewOf(route, width, height));
   const [motion, setMotion] = useState<{
     duration: number;
     easing: 'EaseOut' | 'Linear';
@@ -663,43 +661,49 @@ function MapReplay({
             isShowCompass={false}
             locale="ko"
           >
-            {outline ? (
-              // The whole course, thin and grey, over the opening overview; under the run's lines.
-              <NaverMapPathOverlay
-                coords={coords}
-                width={3}
-                color={darkMapLook.outline}
-                outlineWidth={0}
-                zIndex={0}
-              />
+            {/* Overlays only once the native map is ready (S15P31E105-692): before that the Naver map adds them
+                later, and removing them first (a feed switch) crashed in its getChildAt. */}
+            {ready ? (
+              <>
+                {outline ? (
+                  // The whole course, thin and grey, over the opening overview; under the run's lines.
+                  <NaverMapPathOverlay
+                    coords={coords}
+                    width={3}
+                    color={darkMapLook.outline}
+                    outlineWidth={0}
+                    zIndex={0}
+                  />
+                ) : null}
+                {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowOuterWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowOuter}
+                  outlineWidth={0}
+                  zIndex={1}
+                />
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.glowInnerWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.glowInner}
+                  outlineWidth={0}
+                  zIndex={2}
+                />
+                <NaverMapPathOverlay
+                  coords={coords}
+                  width={darkMapLook.coreWidth}
+                  {...reveal}
+                  passedColor={darkMapLook.ink}
+                  outlineColor={darkMapLook.unpassed}
+                  passedOutlineColor={darkMapLook.ribbon}
+                  outlineWidth={darkMapLook.coreEdge}
+                  zIndex={3}
+                />
+              </>
             ) : null}
-            {/* The run so far glows: a wide dark halo, a brighter narrower one, then the mint core. */}
-            <NaverMapPathOverlay
-              coords={coords}
-              width={darkMapLook.glowOuterWidth}
-              {...reveal}
-              passedColor={darkMapLook.glowOuter}
-              outlineWidth={0}
-              zIndex={1}
-            />
-            <NaverMapPathOverlay
-              coords={coords}
-              width={darkMapLook.glowInnerWidth}
-              {...reveal}
-              passedColor={darkMapLook.glowInner}
-              outlineWidth={0}
-              zIndex={2}
-            />
-            <NaverMapPathOverlay
-              coords={coords}
-              width={darkMapLook.coreWidth}
-              {...reveal}
-              passedColor={darkMapLook.ink}
-              outlineColor={darkMapLook.unpassed}
-              passedOutlineColor={darkMapLook.ribbon}
-              outlineWidth={darkMapLook.coreEdge}
-              zIndex={3}
-            />
           </NaverMapView>
         </View>
         <ReplayChrome
