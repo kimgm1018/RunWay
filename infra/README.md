@@ -159,6 +159,8 @@ GitLab MR에는 최신 커밋의 상태만 표시된다. 기존처럼 직렬 실
 - **MR 검사:** 타입·린트·전체 Jest는 매번 실행한다. `frontend/`의 `App.tsx`·`index.js`·`src/`·`__tests__/` 아래 JS/TS 소스만
   바뀌면 APK 대신 Android 릴리스 JS 번들을 생성한다(`Mobile JS Bundle`). `__tests__/` 아래 `.test.*`·`.spec.*` 파일만 바뀌면
   APK·JS 번들을 모두 생략한다. 네이티브·의존성·빌드 설정·그 밖의 프론트엔드 경로 변경과 공통 설정 변경·수동 검사는 APK를 빌드한다.
+  소개 랜딩 `frontend/landing/`은 앱 빌드와 무관해 모바일 검사 대상이 아니다. 랜딩만 바뀐 MR은 검사 대상 외 파일만 바뀐 MR과 같이
+  대상 브랜치와 병합 가능한지만 확인하고, 앱 코드와 함께 바뀌면 앱 코드 기준으로 위 규칙을 따른다.
 - **배포:** `runway-mobile-apk`는 `infra/jenkins/Jenkinsfile.mobile-apk`로 master Push마다 ARM64 debug·release APK를 생성·보관한다.
   랜딩 배포에는 팀 테스트 서명을 사용한다. 대상은 ARM64 안드로이드 폰이다.
 - **결과·보관:** APK 산출물은 최근 5개 빌드 기준으로 제한한다. 빌드 시간은 콘솔·`build-time.txt`, 작업별 시간은 Gradle profile 보고서에서 확인한다.
