@@ -138,6 +138,10 @@ test('today’s run works out pace and finish time from the distance', async () 
   let page = texts(screen);
   // Each condition is a card (운동 목표 sheet, 담당자 요청); the list shows the values.
   for (const text of [
+    '코스 형태',
+    '순환',
+    '왕복',
+    '편도',
     '환경 · 여러 개 선택',
     '현재 위치',
     '목표 완주 시간',
@@ -149,7 +153,7 @@ test('today’s run works out pace and finish time from the distance', async () 
   expect(labelled(screen, '공원').props.accessibilityState).toMatchObject({
     checked: false,
   });
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   // 3.1p: the pace goes in, the finish time comes out.
   await press(screen, '목표 설정');
   await press(screen, '페이스');
@@ -161,11 +165,11 @@ test('today’s run works out pace and finish time from the distance', async () 
       .accessibilityValue.text,
   ).toBe('6′00″/km');
   expect(page).toContain('30:00');
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   await press(screen, '목표 거리 설정');
   await adjust(screen, '목표 거리', 'increment');
   expect(texts(screen)).toContain('5.5');
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   expect(texts(screen)).toContain('33:00');
   // Six 5-second steps down: 6′00″ → 5′30″.
   await press(screen, '목표 설정');
@@ -173,7 +177,7 @@ test('today’s run works out pace and finish time from the distance', async () 
     await adjust(screen, '목표 페이스', 'decrement');
   }
   expect(texts(screen)).toContain('30:15');
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   await press(screen, '환경 설정');
   await press(screen, '큰길 피하기');
   expect(
@@ -181,7 +185,7 @@ test('today’s run works out pace and finish time from the distance', async () 
   ).toMatchObject({
     checked: true,
   });
-  await press(screen, '조건 목록으로');
+  await press(screen, '코스 조건으로');
   await press(screen, '기준 위치 현재 위치');
   await search(screen, '민락수변공원');
   await press(screen, '민락수변공원 주차장 입구, 부산 수영구 민락수변로 7');
