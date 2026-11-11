@@ -106,12 +106,15 @@ export function StatBlock({
   value,
   valueLabel,
   script,
+  scriptSize,
   children,
 }: {
   caps: string;
   value: string;
   valueLabel?: string;
   script: string;
+  // The handwriting smaller than the 시안's 38 (6.7's English Average · Completed, S15P31E105-701).
+  scriptSize?: number;
   children: React.ReactNode;
 }) {
   return (
@@ -126,7 +129,17 @@ export function StatBlock({
         >
           {value}
         </AppText>
-        <AppText style={[resultType.script, styles.script]}>{script}</AppText>
+        <AppText
+          style={[
+            resultType.script,
+            styles.script,
+            scriptSize
+              ? { fontSize: scriptSize, lineHeight: scriptSize }
+              : null,
+          ]}
+        >
+          {script}
+        </AppText>
       </View>
       <View style={styles.divider} />
       <View style={styles.blockSide}>{children}</View>
